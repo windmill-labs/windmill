@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { createBottomSticker } from '$lib/components/stickToBottom'
 	import AIChatMessage from './AIChatMessage.svelte'
 	import AppAvailableContextList from './AppAvailableContextList.svelte'
 	import ChatContextPicker from './ChatContextPicker.svelte'
@@ -35,6 +36,7 @@
 	import ChatQuickActions from './ChatQuickActions.svelte'
 	import ContextUsageIndicator from './ContextUsageIndicator.svelte'
 	import AIChatModelSettings from './AIChatModelSettings.svelte'
+	import ScrollFade from '$lib/components/ScrollFade.svelte'
 	import AssistantSettingsModal from './AssistantSettingsModal.svelte'
 	import { SkillsMenu } from './skills/skillsMenu.svelte'
 	import { McpMenu } from '$lib/components/mcp/mcpMenu.svelte'
@@ -265,21 +267,11 @@
 		return () => window.removeEventListener('keydown', onWindowKeydownCapture, true)
 	})
 
-	// Programmatic-scroll guard. `scrollDown()` triggers an async `scroll`
-	// event; if a token-append between the scrollTo and the dispatch makes
-	// scrollHeight grow, the gap can briefly exceed STICK_TO_BOTTOM_PX and
-	// disengage auto-scroll mid-stream. A short cooldown after our own
-	// scroll swallows that spurious event without affecting genuine user
-	// scrolls (wheel/touch/keyboard are reaction-time orders of magnitude
-	// slower than the cooldown).
-	const PROGRAMMATIC_SCROLL_COOLDOWN_MS = 120
-	let programmaticScrollAt: number | undefined
-	// Instant scroll — smooth would animate every token append, racing with
-	// the next scrollDown and confusing the onscroll bottom-detection below.
+	// Shared with the agent run viewer, which needs the same programmatic-scroll
+	// guard for the same reason.
+	const sticker = createBottomSticker()
 	function scrollDown() {
-		if (!scrollElement) return
-		programmaticScrollAt = Date.now()
-		scrollElement.scrollTo({ top: scrollElement.scrollHeight, behavior: 'auto' })
+		sticker.scrollToEnd(scrollElement)
 	}
 
 	let height = $state(0)
@@ -298,10 +290,6 @@
 		}
 	})
 
-	// Pixel distance from the bottom under which we treat the user as
-	// "stuck to the bottom" and re-enable automatic scroll. 8px allows for
-	// sub-pixel rounding from scrollTo + the occasional overscroll bounce.
-	const STICK_TO_BOTTOM_PX = 8
 	// Show the "scroll to latest" arrow only once the user has scrolled
 	// meaningfully away from the tail — a couple of message-heights up. Avoids
 	// flicker when the auto-scroll lags by a few px during streaming.
@@ -316,13 +304,10 @@
 		// whose only event would otherwise be swallowed, leaving the arrow
 		// stuck visible after we already reached the bottom.
 		showScrollToLatest = distance > SCROLL_TO_LATEST_THRESHOLD_PX
-		if (
-			programmaticScrollAt !== undefined &&
-			Date.now() - programmaticScrollAt < PROGRAMMATIC_SCROLL_COOLDOWN_MS
-		) {
+		if (sticker.isOwnScroll()) {
 			return
 		}
-		if (distance <= STICK_TO_BOTTOM_PX) {
+		if (sticker.isAtEnd(scrollElement)) {
 			chatHost.enableAutomaticScroll()
 		} else {
 			chatHost.disableAutomaticScroll()
@@ -361,7 +346,15 @@
 		chatHost.mode === AIMode.SCRIPT || chatHost.mode === AIMode.FLOW || chatHost.mode === AIMode.APP
 	)
 
-	const canAttachFiles = $derived(chatHost.supportsMessageAttachments && !disabled)
+	// Why attaching is off, when this chat takes attachments but cannot right now. The `+` is
+	// kept and disabled rather than dropped: the input is the composer's either way, so the
+	// reader has to be able to see here why nothing can be attached.
+	const attachmentsOffReason = $derived(
+		chatHost.supportsMessageAttachments ? chatHost.attachmentsUnavailableReason : undefined
+	)
+	const canAttachFiles = $derived(
+		chatHost.supportsMessageAttachments && !disabled && !attachmentsOffReason
+	)
 	// Folders are linked as session-wide assets, which only a host that reads files in
 	// the browser can do — a host running the turn server-side takes attachments only.
 	const canLinkFolders = $derived(chatHost.supportsLinkedFolders && !disabled)
@@ -430,24 +423,32 @@
 		return Array.from(e.dataTransfer?.types ?? []).includes('Files')
 	}
 
+	// A drop is claimed while attaching is off for a stated reason, too: the browser would
+	// otherwise navigate to the dropped file, and the reader is owed the reason instead.
+	const panelTakesDrops = $derived(canAttachFiles || attachmentsOffReason !== undefined)
+
 	function onPanelDragEnter(e: DragEvent) {
-		if (!canAttachFiles || !dragHasFiles(e)) return
+		if (!panelTakesDrops || !dragHasFiles(e)) return
 		e.preventDefault()
 		dragDepth++
 	}
 	function onPanelDragOver(e: DragEvent) {
-		if (!canAttachFiles || !dragHasFiles(e)) return
+		if (!panelTakesDrops || !dragHasFiles(e)) return
 		e.preventDefault()
 		if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
 	}
 	function onPanelDragLeave(_e: DragEvent) {
-		if (!canAttachFiles) return
+		if (!panelTakesDrops) return
 		dragDepth = Math.max(0, dragDepth - 1)
 	}
 	async function onPanelDrop(e: DragEvent) {
 		dragDepth = 0
-		if (!canAttachFiles || !dragHasFiles(e)) return
+		if (!panelTakesDrops || !dragHasFiles(e)) return
 		e.preventDefault()
+		if (attachmentsOffReason) {
+			sendUserToast(attachmentsOffReason, true)
+			return
+		}
 		const dt = e.dataTransfer
 		if (!dt) return
 		// Images and loose text files attach to the message; folders link as session
@@ -484,9 +485,8 @@
 				handles.length === 0
 					? flatFiles
 					: await Promise.all(handles.filter(isFileHandle).map((h) => h.getFile()))
-			// Loose text files attach to the message, like images.
-			const textFiles = looseFiles.filter((f) => !isImageFile(f))
-			if (textFiles.length > 0) await aiChatInput?.addTextFiles(textFiles)
+			// Loose files attach to the message, like images.
+			await attachNonImageFiles(looseFiles.filter((f) => !isImageFile(f)))
 			// Folders link as a live handle.
 			const dirs = handles.filter(isDirectoryHandle)
 			if (dirs.length > 0 && !canLinkFolders) {
@@ -523,22 +523,29 @@
 				if (canLinkFolders) await handleAddFiles(folderEntries)
 				else sendUserToast('Folders cannot be attached in this chat — drop individual files.', true)
 			}
-			if (topLevelText.length > 0) await aiChatInput?.addTextFiles(topLevelText)
+			await attachNonImageFiles(topLevelText)
 		}
 	}
 
 	async function onFileInputChange(e: Event) {
 		const input = e.currentTarget as HTMLInputElement
 		if (input.files && input.files.length > 0) {
-			const picked = Array.from(input.files)
-			const imageFiles = picked.filter(isImageFile)
-			const textFiles = picked.filter((f) => !isImageFile(f))
-			// Reserved before the text work is awaited — see onPanelDrop.
-			const imageWork = imageFiles.length > 0 ? aiChatInput?.addImages(imageFiles) : undefined
-			if (textFiles.length > 0) await aiChatInput?.addTextFiles(textFiles)
-			await imageWork
+			await attachPickedFiles(Array.from(input.files))
 		}
 		input.value = '' // allow re-selecting the same file
+	}
+
+	async function attachNonImageFiles(files: File[]) {
+		await aiChatInput?.addNonImageFiles(files)
+	}
+
+	async function attachPickedFiles(picked: File[]) {
+		const imageFiles = picked.filter(isImageFile)
+		const others = picked.filter((f) => !isImageFile(f))
+		// Reserved before the other work is awaited — see onPanelDrop.
+		const imageWork = imageFiles.length > 0 ? aiChatInput?.addImages(imageFiles) : undefined
+		await attachNonImageFiles(others)
+		await imageWork
 	}
 
 	function onFolderInputChange(e: Event) {
@@ -569,6 +576,15 @@
 	// The typing-dots indicator implies the AI is busy, which is misleading while
 	// the loop is parked on the user; surface a text pill instead so users know to
 	// act on the tool above.
+	// A step name hangs its icon in the column's left padding (see AssistantMessage), so a
+	// transcript carrying one widens the padding, on both sides to keep the column centred.
+	const agentGutter = $derived(messages.some((m) => m.role === 'assistant' && m.stepName))
+	const columnClass = $derived(
+		wideLayout
+			? `w-full max-w-3xl mx-auto ${agentGutter ? 'px-8' : 'px-7'}`
+			: `w-full max-w-2xl mx-auto ${agentGutter ? 'px-8' : 'px-3'}`
+	)
+
 	const waitingForUserAction = $derived(chatHost.loading && !!pendingUserAction(messages))
 
 	// Gated on `loading` because a card restored from history still looks parked:
@@ -622,6 +638,7 @@
 	const showFooterLeftControls = $derived(
 		!footerMessageShown &&
 			(canAttachFiles ||
+				attachmentsOffReason !== undefined ||
 				showContextPicker ||
 				showAutonomyModeSelector ||
 				(chatHost.mode === AIMode.SCRIPT && hasDiff))
@@ -800,12 +817,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 				bind:this={scrollElement}
 				onscroll={onScroll}
 			>
-				<div
-					class={wideLayout
-						? 'w-full max-w-3xl mx-auto px-7 flex flex-col pb-2'
-						: 'w-full max-w-2xl mx-auto px-3 flex flex-col pb-2'}
-					bind:clientHeight={height}
-				>
+				<div class="{columnClass} flex flex-col pb-2" bind:clientHeight={height}>
 					{#each messages as message, messageIndex (messageIndex)}
 						<AIChatMessage
 							{message}
@@ -844,6 +856,8 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 					{/if}
 				</div>
 			</div>
+			<!-- Sits below the scroll-to-latest button, which carries z-10. -->
+			<ScrollFade scroller={scrollElement} />
 			{#if showScrollToLatest}
 				<div
 					transition:fade={{ duration: 120 }}
@@ -869,11 +883,9 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 		</div>
 	{/if}
 
-	<div
-		class={wideLayout
-			? 'relative w-full max-w-3xl mx-auto px-6 pb-2'
-			: 'relative w-full max-w-2xl mx-auto px-2 pb-2'}
-	>
+	<!-- Same horizontal padding as the transcript above: the composer's edges line up with
+	     the messages rather than sitting closer to the panel edge. -->
+	<div class="relative {columnClass} pb-2">
 		{#if showFlowPendingActionControls}
 			<div class="absolute -top-10 w-full flex flex-row justify-center gap-2">
 				<Button
@@ -991,7 +1003,21 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 								{/snippet}
 							</Popover>
 						{/if}
-						{#if canAttachFiles}
+						{#if attachmentsOffReason}
+							<Tooltip small placement="top">
+								<Button
+									nonCaptureEvent
+									unifiedSize="2xs"
+									variant="default"
+									iconOnly
+									disabled
+									startIcon={{ icon: Plus }}
+								/>
+								{#snippet text()}
+									<div class="max-w-64 text-xs">{attachmentsOffReason}</div>
+								{/snippet}
+							</Tooltip>
+						{:else if canAttachFiles}
 							<DropdownV2
 								items={async () => {
 									// Both submenus fetch on the menu's first open, so they start
