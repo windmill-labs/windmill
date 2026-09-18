@@ -1968,9 +1968,7 @@ describe('global AI tools', () => {
 			'raw_app',
 			'u/admin/draft_listed',
 			{ summary: 'Draft app' },
-			{
-				workspace: WORKSPACE
-			}
+			{ workspace: WORKSPACE }
 		)
 
 		const rows = JSON.parse(await callGlobalTool('list_workspace_items', { types: ['app'] }))

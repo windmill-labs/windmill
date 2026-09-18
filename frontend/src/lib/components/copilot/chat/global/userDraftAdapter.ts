@@ -544,10 +544,7 @@ function backendDraftRowToWorkspaceItem(
 		value: undefined,
 		isDraft: true,
 		triggerKind,
-		// Spread, so the key is absent rather than undefined: this row is laid over
-		// the deployed listing's row for the same item, where a key present here
-		// blanks what that listing knew.
-		...(row.kind === 'raw_app' ? { rawApp: true } : {}),
+		rawApp: row.kind === 'raw_app' ? true : undefined,
 		...(isLiveDraft ? { isLiveDraft: true } : {})
 	}
 }

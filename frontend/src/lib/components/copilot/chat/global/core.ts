@@ -3414,6 +3414,7 @@ export const globalTools: Tool<{}>[] = [
 			// (it filters before the cap; query filters after).
 			if ((parsed.page ?? 1) === 1) {
 				const draftCountByType = new Map<string, number>()
+				const prefix = parsed.path_prefix
 				for (const draft of await listGlobalDrafts(workspace)) {
 					if (!types.includes(draft.type)) continue
 					// A draft's staged name is often not where it is stored: the editor parks
@@ -3421,7 +3422,6 @@ export const globalTools: Tool<{}>[] = [
 					// rename stages the new name over the old path. The server drops
 					// draft-only rows under any narrowing filter, leaving this pass their
 					// only source, so either name has to satisfy the prefix.
-					const prefix = parsed.path_prefix
 					if (prefix && !draft.path.startsWith(prefix) && !draft.draftPath?.startsWith(prefix))
 						continue
 					const count = draftCountByType.get(draft.type) ?? 0
