@@ -78,21 +78,30 @@
 		}
 	}
 
-	// Quill 2 keeps every list in an `<ol>` and marks bullets with `data-list="bullet"` on
-	// each item, plus a `span.ql-ui` that only its stylesheet renders. Consumers of the
-	// output (an HTML component, stored content) render it outside that stylesheet, where
-	// that markup reads as a numbered list. Emit standard `<ul>`/`<ol>` instead; the
-	// clipboard converter maps them back on load.
+	// Quill 2 keeps every list in an `<ol>` and marks the kind with `data-list` on each
+	// item (`bullet`, `ordered`, `checked`, `unchecked`), plus a `span.ql-ui` that only its
+	// stylesheet renders. Consumers of the output (an HTML component, stored content) render
+	// it outside that stylesheet, where that markup reads as a numbered list. Emit the
+	// standard shape instead: `<ul>`/`<ol>` runs, checklists as `<ul data-checked>`, which
+	// is what the clipboard converter reads back on load (`matchList`).
 	function toStandardHtml(root: HTMLElement): string {
 		const clone = root.cloneNode(true) as HTMLElement
 		clone.querySelectorAll('span.ql-ui').forEach((s) => s.remove())
 		clone.querySelectorAll('ol').forEach((ol) => {
 			const lists: HTMLElement[] = []
 			for (const li of Array.from(ol.children)) {
-				const tag = li.getAttribute('data-list') === 'bullet' ? 'ul' : 'ol'
+				const kind = li.getAttribute('data-list')
 				li.removeAttribute('data-list')
-				if (lists.at(-1)?.tagName.toLowerCase() !== tag) {
-					lists.push(document.createElement(tag))
+				const tag = kind === 'ordered' ? 'ol' : 'ul'
+				const checked = kind === 'checked' ? 'true' : kind === 'unchecked' ? 'false' : null
+				const last = lists.at(-1)
+				if (
+					last?.tagName.toLowerCase() !== tag ||
+					last.getAttribute('data-checked') !== checked
+				) {
+					const list = document.createElement(tag)
+					if (checked !== null) list.setAttribute('data-checked', checked)
+					lists.push(list)
 				}
 				lists.at(-1)!.appendChild(li)
 			}
