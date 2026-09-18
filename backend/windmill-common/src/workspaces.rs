@@ -2257,6 +2257,10 @@ pub enum DucklakeCatalogResourceType {
     Postgresql,
     Mysql,
     Instance,
+    /// On the external instance cluster ([`crate::external_instance_pg`]). Enterprise Edition.
+    #[serde(rename = "external_instance")]
+    #[strum(serialize = "external_instance")]
+    ExternalInstance,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -2784,7 +2788,16 @@ async fn ducklake_conn_data(
     let ducklake = serde_json::from_value::<Ducklake>(ducklake)?;
 
     let catalog_resource =
-        if ducklake.catalog.resource_type == DucklakeCatalogResourceType::Instance {
+        if ducklake.catalog.resource_type == DucklakeCatalogResourceType::ExternalInstance {
+            let pg_creds = crate::external_instance_pg::external_instance_connection_unchecked(
+                db,
+                &ducklake.catalog.resource_path,
+                false,
+            )
+            .await?;
+            serde_json::to_value(&pg_creds)
+                .map_err(|e| Error::internal_err(format!("Error serializing pg creds: {}", e)))?
+        } else if ducklake.catalog.resource_type == DucklakeCatalogResourceType::Instance {
             let mut pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
             pg_creds.dbname = ducklake.catalog.resource_path.clone();
             pg_creds.user = Some("custom_instance_user".to_string());
@@ -3165,6 +3178,14 @@ async fn register_fork_ducklake_namespace(
     {
         return Ok(());
     }
+    let mut tx = db.begin().await?;
+    // A row naming an external database counts as a use of it. Written under the lock a drop takes,
+    // and only while the database is still registered, so a drop cannot slip in between the
+    // settings this attach resolved and the row that protects the database.
+    if let Some(dbname) = catalog.strip_prefix("external_instance:") {
+        crate::external_instance_pg::ensure_external_instance_database_registered(&mut tx, dbname)
+            .await?;
+    }
     sqlx::query!(
         "INSERT INTO fork_ducklake_namespace
            (workspace_id, ducklake_name, metadata_schema, catalog, storage, storage_ref, data_path)
@@ -3179,9 +3200,10 @@ async fn register_fork_ducklake_namespace(
         &storage_ref,
         data_path,
     )
-    .execute(db)
+    .execute(&mut *tx)
     .await
     .map_err(|e| Error::internal_err(format!("registering fork ducklake namespace: {e:#}")))?;
+    tx.commit().await?;
     let mut locations = FORK_DUCKLAKE_REGISTERED
         .get(w_id)
         .filter(|(_, exp)| *exp > now)

@@ -148,7 +148,10 @@ pub async fn external_instance_databases(db: &DB) -> Result<BTreeMap<String, Cus
     Ok(read_external_instance_pg_state(db).await?.databases)
 }
 
-/// The workspaces whose data tables name each database on the external cluster.
+/// The workspaces whose data tables or Ducklake catalogs name each database on the external cluster,
+/// and the forks whose Ducklake metadata schemas there are still waiting to be dropped: those rows
+/// outlive a settings change, and cleanup cannot drop a schema in a database that is gone. A row
+/// whose schema is already dropped only waits on object storage, which needs no database.
 ///
 /// Authorization: reads every workspace's settings and checks nothing. Callers MUST be superadmin
 /// or an internal lifecycle path.
@@ -164,7 +167,21 @@ pub async fn external_instance_database_usages<'c>(
                  ELSE '{}'::jsonb END
          ) AS dt(k, entry)
          WHERE entry->'database'->>'resource_type' = 'external_instance'
-           AND entry->'database'->>'resource_path' IS NOT NULL",
+           AND entry->'database'->>'resource_path' IS NOT NULL
+         UNION ALL
+         SELECT ws.workspace_id, entry->'catalog'->>'resource_path'
+         FROM workspace_settings ws
+         CROSS JOIN LATERAL jsonb_each(
+             CASE WHEN jsonb_typeof(ws.ducklake->'ducklakes') = 'object'
+                 THEN ws.ducklake->'ducklakes'
+                 ELSE '{}'::jsonb END
+         ) AS dl(k, entry)
+         WHERE entry->'catalog'->>'resource_type' = 'external_instance'
+           AND entry->'catalog'->>'resource_path' IS NOT NULL
+         UNION ALL
+         SELECT workspace_id, substring(catalog FROM length('external_instance:') + 1)
+         FROM fork_ducklake_namespace
+         WHERE catalog LIKE 'external\\_instance:%' AND NOT schema_dropped",
     )
     .fetch_all(db)
     .await?;
@@ -195,7 +212,7 @@ pub async fn ensure_external_instance_pg_removable(conn: &mut sqlx::PgConnection
         .join(", ");
     Err(Error::BadRequest(format!(
         "The external instance cluster still holds databases in use ({names}). Drop them and \
-         repoint the data tables using them before removing {EXTERNAL_INSTANCE_PG_SETTING}."
+         repoint the data tables and Ducklake catalogs using them before removing {EXTERNAL_INSTANCE_PG_SETTING}."
     )))
 }
 

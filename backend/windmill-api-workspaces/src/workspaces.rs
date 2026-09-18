@@ -3370,7 +3370,7 @@ fn apply_pg_tls_env(
                 cmd.env("PGSSLROOTCERT", "system");
             }
             Some("verify-ca") => {
-                if let Some(bundle) = system_ca_bundle() {
+                if let Some(bundle) = windmill_common::system_ca_bundle() {
                     cmd.env("PGSSLROOTCERT", bundle);
                 }
             }
@@ -3380,21 +3380,6 @@ fn apply_pg_tls_env(
     Ok(None)
 }
 
-fn system_ca_bundle() -> Option<std::path::PathBuf> {
-    std::env::var_os("SSL_CERT_FILE")
-        .map(std::path::PathBuf::from)
-        .into_iter()
-        .chain(
-            [
-                "/etc/ssl/certs/ca-certificates.crt",
-                "/etc/pki/tls/certs/ca-bundle.crt",
-                "/etc/ssl/cert.pem",
-                "/etc/ssl/ca-bundle.pem",
-            ]
-            .map(std::path::PathBuf::from),
-        )
-        .find(|path| path.is_file())
-}
 
 #[cfg(test)]
 mod pg_tls_env_tests {
@@ -3852,22 +3837,37 @@ async fn edit_ducklake_config(
     let old_ducklakes: HashMap<String, Ducklake> =
         serde_json::from_value(old_ducklakes).unwrap_or_default();
 
-    // Check that non-superadmins are not abusing Instance databases
-    if !is_superadmin {
-        for (name, dl) in new_config.settings.ducklakes.iter() {
-            if dl.catalog.resource_type == DucklakeCatalogResourceType::Instance {
-                let old_dl = old_ducklakes.get(name);
-                if old_dl.is_none()
-                    || old_dl.unwrap().catalog.resource_type
-                        != DucklakeCatalogResourceType::Instance
-                    || old_dl.unwrap().catalog.resource_path != dl.catalog.resource_path
-                {
-                    return Err(Error::BadRequest(
-                        "Only superadmins can create or modify ducklakes with Instance databases"
-                            .to_string(),
-                    ));
-                }
-            }
+    // Check that non-superadmins are not abusing Instance databases. An unchanged catalog is left
+    // alone either way, so a downgraded instance can still save lakes that already name an
+    // external instance database.
+    for (name, dl) in new_config.settings.ducklakes.iter() {
+        let kind = &dl.catalog.resource_type;
+        if !matches!(
+            kind,
+            DucklakeCatalogResourceType::Instance | DucklakeCatalogResourceType::ExternalInstance
+        ) {
+            continue;
+        }
+        let unchanged = old_ducklakes.get(name).is_some_and(|old| {
+            &old.catalog.resource_type == kind
+                && old.catalog.resource_path == dl.catalog.resource_path
+        });
+        if unchanged {
+            continue;
+        }
+        if *kind == DucklakeCatalogResourceType::ExternalInstance {
+            windmill_common::external_instance_pg::ensure_external_instance_available()?;
+            windmill_common::external_instance_pg::ensure_external_instance_database_registered(
+                &mut tx,
+                &dl.catalog.resource_path,
+            )
+            .await?;
+        }
+        if !is_superadmin {
+            return Err(Error::BadRequest(
+                "Only superadmins can create or modify ducklakes with Instance databases"
+                    .to_string(),
+            ));
         }
     }
 

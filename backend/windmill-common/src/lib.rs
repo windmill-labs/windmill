@@ -1659,6 +1659,24 @@ pub async fn create_custom_instance_database(
     Ok(())
 }
 
+/// The system's CA bundle file, for libpq clients that cannot take `sslrootcert=system`: that value
+/// needs libpq 16, and verify-full only.
+pub fn system_ca_bundle() -> Option<std::path::PathBuf> {
+    std::env::var_os("SSL_CERT_FILE")
+        .map(std::path::PathBuf::from)
+        .into_iter()
+        .chain(
+            [
+                "/etc/ssl/certs/ca-certificates.crt",
+                "/etc/pki/tls/certs/ca-bundle.crt",
+                "/etc/ssl/cert.pem",
+                "/etc/ssl/ca-bundle.pem",
+            ]
+            .map(std::path::PathBuf::from),
+        )
+        .find(|path| path.is_file())
+}
+
 /// Refuse a workspace member writing a fork copy into, or pointing a fork at, the managed database
 /// `dbname` of `kind`, unless `w_id` created it for that ([`create_custom_instance_database`], or
 /// its external instance counterpart) and nothing uses it yet. The `wm_fork_` prefix is no

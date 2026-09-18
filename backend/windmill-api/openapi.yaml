@@ -1611,7 +1611,7 @@ paths:
 
   /settings/external_instance_pg/databases:
     get:
-      summary: Lists the databases Windmill created on the external instance cluster, with the workspaces whose data tables use each
+      summary: Lists the databases Windmill created on the external instance cluster, with the workspaces whose data tables, Ducklake catalogs or pending fork cleanups use each
       operationId: listExternalInstancePgDatabases
       tags:
         - setting
@@ -1653,7 +1653,7 @@ paths:
             application/json:
               schema: {}
     delete:
-      summary: Drops a database Windmill created on the external instance cluster, refused while a data table uses it
+      summary: Drops a database Windmill created on the external instance cluster, refused while a data table, Ducklake catalog or pending fork cleanup uses it
       operationId: dropExternalInstancePgDatabase
       tags:
         - setting
@@ -36066,6 +36066,7 @@ components:
                       - postgresql
                       - mysql
                       - instance
+                      - external_instance
                   resource_path:
                     type: string
                 required:
