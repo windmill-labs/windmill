@@ -3585,6 +3585,7 @@ async fn import_pg_database(
     }
 
     let schema_only = req.fork_behavior == DataTableForkBehavior::SchemaOnly;
+    let mut fork_lock: Option<Transaction<'_, Postgres>> = None;
     let source_pg = resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.source).await?;
     let mut target_pg =
         resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.target).await?;
@@ -3598,8 +3599,13 @@ async fn import_pg_database(
                 ));
             }
             if is_instance_datatable_source(&db, &w_id, &req.target).await? {
+                // Held until the restore is done, as fork finalization takes it: a fork must not
+                // commit this database while `psql` is still filling it.
+                let mut tx = db.begin().await?;
+                windmill_common::workspaces::lock_fork_datatables(&mut tx, &w_id).await?;
                 windmill_common::ensure_fork_database_available_to(&db, override_dbname, &w_id)
                     .await?;
+                fork_lock = Some(tx);
             }
         }
         target_pg.dbname = override_dbname.clone();
@@ -3619,6 +3625,9 @@ async fn import_pg_database(
     )
     .await?;
     pg_import_dump(&target_pg, &dump_file).await?;
+    if let Some(tx) = fork_lock {
+        tx.commit().await?;
+    }
 
     Ok(format!(
         "Imported from '{}' into '{}'",
