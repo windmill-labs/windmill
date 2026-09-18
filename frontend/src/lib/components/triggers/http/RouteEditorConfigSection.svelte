@@ -4,7 +4,6 @@
 	import Section from '$lib/components/Section.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
 	import { HttpTriggerService, SettingService } from '$lib/gen'
 	// import { page } from '$app/state'
 	import { getHttpRoute } from './utils'
@@ -13,6 +12,10 @@
 	import TestingBadge from '../testingBadge.svelte'
 	import { untrack } from 'svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
 
 	interface Props {
 		initialTriggerPath?: string | undefined
@@ -41,6 +44,10 @@
 		isDraftOnly = true,
 		showTestingBadge = false
 	}: Props = $props()
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
+	const wsId = $derived($operatingWorkspace)
 
 	let validateTimeout: number | undefined = undefined
 
@@ -74,7 +81,7 @@
 		workspaced_route: boolean
 	) {
 		return await HttpTriggerService.existsRoute({
-			workspace: $workspaceStore!,
+			workspace: wsId!,
 			requestBody: {
 				route_path,
 				http_method: method,
@@ -95,7 +102,7 @@
 		isValid = routeError === ''
 	})
 
-	let fullRoute = $derived(getHttpRoute('r', route_path, workspaced_route, $workspaceStore ?? ''))
+	let fullRoute = $derived(getHttpRoute('r', route_path, workspaced_route, wsId ?? ''))
 
 	$effect.pre(() => {
 		!http_method && (http_method = 'post')
@@ -104,7 +111,7 @@
 		route_path === undefined && (route_path = '')
 	})
 
-	let userIsAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
+	let userIsAdmin = $derived(actingUser?.is_admin || actingUser?.is_super_admin)
 
 	let globalHttpWorkspacedRoute = $state(false)
 

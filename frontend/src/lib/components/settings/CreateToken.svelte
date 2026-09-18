@@ -1,11 +1,6 @@
 <script lang="ts">
 	import { onMount, untrack } from 'svelte'
-	import {
-		userWorkspaces,
-		usersWorkspaceStore,
-		workspaceStore,
-		type UserWorkspace
-	} from '$lib/stores'
+	import { userWorkspaces, usersWorkspaceStore, type UserWorkspace } from '$lib/stores'
 	import { Button } from '../common'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import Toggle from '../Toggle.svelte'
@@ -16,6 +11,9 @@
 
 	import TextInput from '../text_input/TextInput.svelte'
 	import Select from '../select/Select.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		showMcpMode?: boolean
@@ -118,7 +116,7 @@
 	function enterMcpMode() {
 		mcpCreationMode = true
 		resetExpirationOnModeChange()
-		newTokenWorkspace = defaultNewTokenWorkspace ?? $workspaceStore
+		newTokenWorkspace = defaultNewTokenWorkspace ?? $operatingWorkspace
 		newToken = undefined
 		newMcpToken = undefined
 		readOnly = false
@@ -178,13 +176,13 @@
 		}
 	}
 
-	const workspaces = $derived(ensureCurrentWorkspaceIncluded($userWorkspaces, $workspaceStore))
+	const workspaces = $derived(ensureCurrentWorkspaceIncluded($userWorkspaces, $operatingWorkspace))
 	const isAllWorkspaces = $derived(newTokenWorkspace === ALL_WORKSPACES)
 	const tokenWorkspaceId = $derived(
 		isAllWorkspaces
 			? undefined
 			: mcpCreationMode
-				? newTokenWorkspace || $workspaceStore
+				? newTokenWorkspace || $operatingWorkspace
 				: newTokenWorkspace
 	)
 
@@ -222,7 +220,7 @@
 	// For an all-workspaces token there is no single workspace, so fall back to
 	// the current one just for populating the endpoint list.
 	const scopeWorkspaceId = $derived(
-		isAllWorkspaces ? $workspaceStore || '' : newTokenWorkspace || $workspaceStore || ''
+		isAllWorkspaces ? $operatingWorkspace || '' : newTokenWorkspace || $operatingWorkspace || ''
 	)
 	const mcpBaseUrl = $derived(
 		isAllWorkspaces

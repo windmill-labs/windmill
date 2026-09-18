@@ -42,7 +42,6 @@
 	import { editorConfig, registerWebviewPaste, updateOptions } from '$lib/editorUtils'
 	import { editorFontSize } from '$lib/editorFontSize.svelte'
 	import { createHash as randomHash } from '$lib/editorLangUtils'
-	import { workspaceStore } from '$lib/stores'
 	import DdlMigrationGuard from './DdlMigrationGuard.svelte'
 	import {
 		type Preview,
@@ -120,6 +119,9 @@
 	import { rawAppLintStore, type MonacoLintError } from './raw_apps/lintStore'
 	import { MarkerSeverity } from 'monaco-editor'
 	import { resource, useDebounce, watch } from 'runed'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 	// import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = $state(null)
@@ -684,7 +686,7 @@
 	// via a short-TTL cache — macros are late-bound, so mild staleness is fine.
 	async function addWorkspaceMacroCompletions() {
 		workspaceMacroCompletor?.dispose()
-		const workspace = $workspaceStore
+		const workspace = $operatingWorkspace
 		if (!workspace) return
 		let macros: Awaited<ReturnType<typeof listWorkspaceMacrosCached>> = []
 		try {
@@ -739,7 +741,7 @@
 			provideCompletionItems: async function (model, position) {
 				// Read the store per request, not at registration — the provider
 				// outlives a workspace switch.
-				const workspace = $workspaceStore
+				const workspace = $operatingWorkspace
 				if (!workspace) return { suggestions: [] }
 				const before = model.getLineContent(position.lineNumber).slice(0, position.column - 1)
 				if (!/^\s*(\/\/|--|#)\s*(column|data_test|on|materialize)\b/.test(before)) {
@@ -780,7 +782,7 @@
 				$dbSchemas[resourcePath] = await getDbSchemas(
 					lang === 'graphql' ? 'graphql' : (scriptLang ?? ''),
 					resourcePath,
-					$workspaceStore,
+					$operatingWorkspace,
 					(e) => console.error(`error getting ${lang} (${scriptLang}) db schema`, e),
 					{ customTag }
 				)
@@ -1778,9 +1780,9 @@
 	let customTsTypesData = resource([() => lang], async () => {
 		if (lang !== 'typescript') return undefined
 		let datatables = (
-			await WorkspaceService.listDataTables({ workspace: $workspaceStore ?? '' })
+			await WorkspaceService.listDataTables({ workspace: $operatingWorkspace ?? '' })
 		).map((d) => d.name)
-		let ducklakes = await WorkspaceService.listDucklakes({ workspace: $workspaceStore ?? '' })
+		let ducklakes = await WorkspaceService.listDucklakes({ workspace: $operatingWorkspace ?? '' })
 		return { datatables, ducklakes }
 	})
 	function setTypescriptCustomTypes() {
@@ -1822,7 +1824,7 @@
 				scriptLang === 'nativets')
 		) {
 			const resourceTypes = await ResourceService.listResourceType({
-				workspace: $workspaceStore ?? ''
+				workspace: $operatingWorkspace ?? ''
 			})
 
 			const namespace = formatResourceTypes(
@@ -2023,7 +2025,7 @@
 			$lspTokenStore = newToken
 			token = newToken
 		}
-		let root = hostname + '/api/scripts_u/tokened_raw/' + $workspaceStore + '/' + token
+		let root = hostname + '/api/scripts_u/tokened_raw/' + $operatingWorkspace + '/' + token
 		return root
 	}
 
@@ -2274,10 +2276,10 @@
 
 <svelte:window onkeydown={onKeyDown} />
 <EditorTheme />
-{#if datatableForMigrations && $workspaceStore}
+{#if datatableForMigrations && $operatingWorkspace}
 	<DdlMigrationGuard
 		bind:this={ddlGuard}
-		workspace={$workspaceStore}
+		workspace={$operatingWorkspace}
 		datatable={datatableForMigrations}
 	/>
 {/if}

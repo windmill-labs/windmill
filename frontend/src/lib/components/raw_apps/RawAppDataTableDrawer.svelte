@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { workspaceStore } from '$lib/stores'
 	import { WorkspaceService } from '$lib/gen'
 	import Drawer from '../common/drawer/Drawer.svelte'
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
@@ -12,12 +11,12 @@
 	import DBManagerContent from '../DBManagerContent.svelte'
 	import type { DbInput } from '../dbTypes'
 	import type { SelectedTable } from '../DBManager.svelte'
-	import { getRawAppOperatingWorkspace } from './rawAppWorkspace'
 	import { useDbManagerTag } from '../dbManagerTag.svelte'
 	import DbWorkerTagButton from '../DbWorkerTagButton.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
-	const getOpWs = getRawAppOperatingWorkspace()
-	let opWs = $derived(getOpWs?.() ?? $workspaceStore)
+	const operatingWorkspace = useOperatingWorkspace()
+	let opWs = $derived($operatingWorkspace)
 
 	interface Props {
 		onAdd?: (ref: DataTableRef) => void

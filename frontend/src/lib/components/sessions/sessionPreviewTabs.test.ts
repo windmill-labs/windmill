@@ -177,10 +177,82 @@ describe('previewTargetForDeployKind', () => {
 			pipelineTarget
 		)
 	})
+	it('routes variables, resources, schedules and triggers to their own tab', () => {
+		expect(previewTargetForDeployKind('schedule', 'u/me/s')).toEqual({
+			type: 'pageitem',
+			ref: { kind: 'schedule', path: 'u/me/s' }
+		})
+		expect(previewTargetForDeployKind('http_trigger', 'u/me/t')).toEqual({
+			type: 'pageitem',
+			ref: { kind: 'trigger', triggerKind: 'http', path: 'u/me/t' }
+		})
+		expect(previewTargetForDeployKind('variable', 'u/me/v')).toEqual({
+			type: 'pageitem',
+			ref: { kind: 'variable', path: 'u/me/v' }
+		})
+	})
+
 	it('has no destination for kinds the preview panel cannot host', () => {
-		expect(previewTargetForDeployKind('schedule', 'u/me/s')).toBeUndefined()
-		expect(previewTargetForDeployKind('http_trigger', 'u/me/t')).toBeUndefined()
-		expect(previewTargetForDeployKind('variable', 'u/me/v')).toBeUndefined()
+		expect(previewTargetForDeployKind('folder', 'f/x')).toBeUndefined()
+		expect(previewTargetForDeployKind('resource_type', 'x')).toBeUndefined()
+	})
+})
+
+describe('page item tabs', () => {
+	const variable: PreviewTarget = {
+		type: 'pageitem',
+		ref: { kind: 'variable', path: 'u/me/token' }
+	}
+
+	it('opens a list page anchored at a row as that row’s own tab, beside the list', () => {
+		const o = owner()
+		o.open({ type: 'page', href: '/routes', label: 'HTTP routes' })
+		o.open({ type: 'page', href: '/routes#u/me/a', label: 'HTTP routes' })
+		expect(o.tabs.map((t) => t.url)).toEqual(['/routes', 'pageitem:trigger.http/u%2Fme%2Fa'])
+
+		// Resources address their row through an extra segment.
+		o.open({ type: 'page', href: '/resources?owner=u#/resource/u/me/db', label: 'Resources' })
+		expect(o.tabs.at(-1)!.url).toBe('pageitem:resource/u%2Fme%2Fdb')
+	})
+
+	it('keeps one tab per item, whatever the opener asks', () => {
+		const o = owner()
+		o.open(variable)
+		o.open({ type: 'page', href: '/runs', label: 'Runs' })
+		expect(o.open({ type: 'page', href: '/variables#u/me/token', label: 'V' }).status).toBe(
+			'focused'
+		)
+		expect(o.open(variable, { forceNewTab: true }).status).toBe('focused')
+		o.navigate(variable)
+		expect(o.tabs).toHaveLength(2)
+		expect(o.activeId).toBe(o.tabs[0].id)
+	})
+
+	it('follows an item saved under a new path in place', () => {
+		const o = owner()
+		o.open(variable)
+		const id = o.tabs[0].id
+		o.retargetPageItem(
+			{ kind: 'variable', path: 'u/me/token' },
+			{ kind: 'variable', path: 'f/x/token' }
+		)
+		expect(o.tabs).toEqual([
+			{ id, url: 'pageitem:variable/f%2Fx%2Ftoken', loc: 'pageitem:variable/f%2Fx%2Ftoken' }
+		])
+	})
+
+	it('restores a tab saved on a row’s drawer as that row’s own tab', () => {
+		const snap = hydratePreviewTabs({
+			previewTabs: [
+				{ id: 'a', url: '/schedules#u/me/daily', loc: '/schedules?path=u#u/me/daily' },
+				// A drawer opened inside the frame: the command is still the bare list.
+				{ id: 'b', url: '/variables', loc: '/variables#u/me/token' }
+			]
+		})
+		expect(snap.tabs).toEqual([
+			{ id: 'a', url: 'pageitem:schedule/u%2Fme%2Fdaily', loc: 'pageitem:schedule/u%2Fme%2Fdaily' },
+			{ id: 'b', url: 'pageitem:variable/u%2Fme%2Ftoken', loc: 'pageitem:variable/u%2Fme%2Ftoken' }
+		])
 	})
 })
 
@@ -232,93 +304,34 @@ describe('SessionPreviewTabs.open', () => {
 		expect(o.activeId).toBe(firstId)
 	})
 
-	// A trigger list page is not a `matchReusablePage`, so the runtime's
-	// navigate-in-place path doesn't cover it: re-pointing the tab has to happen
-	// here or the panel keeps showing the previously opened row.
-	it('re-points a page tab whose hash target changed instead of only focusing it', () => {
-		const o = owner()
-		const routes = (href: string) => ({ type: 'page' as const, href, label: 'HTTP routes' })
-		o.open(routes('/routes#u/me/a'))
-		const firstId = o.activeId
-
-		// 'retargeted', not 'opened': the tab count is unchanged, and the caller
-		// reports that to the model.
-		const res = o.open(routes('/routes#u/me/b'))
-		expect(res.status).toBe('retargeted')
-		expect(o.tabs).toHaveLength(1)
-		expect(o.activeId).toBe(firstId)
-		expect(o.tabs[0].url).toBe('/routes#u/me/b')
-
-		// Back to the bare list: still the same tab, no longer anchored at a row.
-		expect(o.open(routes('/routes')).status).toBe('retargeted')
-		expect(o.tabs).toHaveLength(1)
-		expect(o.tabs[0].url).toBe('/routes')
-
-		// ...and asking for the view it already shows is a plain focus.
-		expect(o.open(routes('/routes')).status).toBe('focused')
-	})
-
 	// The list pages rewrite their own filter defaults into the URL after mount,
 	// and `loc` follows that rewrite. Matching on anything but the path made a tab
 	// stop recognizing itself, so every later open spawned a duplicate.
 	it('still recognizes a tab after the page rewrote its own filter params', () => {
 		const o = owner()
 		const routes = (href: string) => ({ type: 'page' as const, href, label: 'HTTP routes' })
-		o.open(routes('/routes#u/me/a'))
-		const id = o.tabs[0].id
-		o.observeLocation(id, '/routes?filter_path_of=trigger#u/me/a')
+		o.open(routes('/routes'))
+		o.observeLocation(o.tabs[0].id, '/routes?filter_path_of=trigger')
 
-		const res = o.open(routes('/routes#u/me/b'))
-		expect(res.status).toBe('retargeted')
+		expect(o.open(routes('/routes')).status).toBe('focused')
 		expect(o.tabs).toHaveLength(1)
-		expect(o.tabs[0].url).toBe('/routes#u/me/b')
 	})
 
 	// `new_tab` deliberately keeps two views of one page side by side. Reopening one of
 	// them must focus the tab already showing it, not retarget whichever tab happens to
-	// sit first in the strip — that would overwrite the other view and leave two tabs
-	// on the same row.
+	// sit first in the strip — that would overwrite the other view.
 	it('focuses the tab already showing the exact location before retargeting by path', () => {
 		const o = owner()
-		const routes = (href: string) => ({ type: 'page' as const, href, label: 'HTTP routes' })
-		o.open(routes('/routes#u/me/a'))
+		const runs = (href: string) => ({ type: 'page' as const, href, label: 'Runs' })
+		o.open(runs('/runs?path=u/me/a'))
 		const first = o.tabs[0].id
-		o.open(routes('/routes#u/me/b'), { forceNewTab: true })
+		o.open(runs('/runs?path=u/me/b'), { forceNewTab: true })
 		const second = o.tabs[1].id
 
-		expect(o.open(routes('/routes#u/me/b')).status).toBe('focused')
+		expect(o.open(runs('/runs?path=u/me/b')).status).toBe('focused')
 		expect(o.activeId).toBe(second)
 		expect(o.tabs).toHaveLength(2)
-		expect(o.tabs.find((t) => t.id === first)?.url).toBe('/routes#u/me/a')
-	})
-
-	// The list pages read their `#<path>` once per document, so a drawer the user closed
-	// inside the frame only comes back on a forced load — and re-commanding the location
-	// the tab already shows produces no navigation the host could act on.
-	it('forces a load when the requested row is the one the tab already shows', () => {
-		const o = owner()
-		const routes = (href: string) => ({ type: 'page' as const, href, label: 'HTTP routes' })
-		o.open(routes('/routes#u/me/a'))
-		const id = o.tabs[0].id
-		o.observeLocation(id, '/routes?filter_path_of=trigger#u/me/a')
-		const before = o.reloadPulse.nonce
-
-		expect(o.open(routes('/routes#u/me/a')).status).toBe('focused')
-		expect(o.reloadPulse).toEqual({ id, nonce: before + 1 })
-	})
-
-	// Dropping the fragment is a load in itself, so the forced one lands on top of a
-	// navigation still in flight — and reloads the row the command asked to leave.
-	it('does not force a load when the requested location drops the row', () => {
-		const o = owner()
-		const routes = (href: string) => ({ type: 'page' as const, href, label: 'HTTP routes' })
-		o.open(routes('/routes#u/me/a'))
-		const id = o.tabs[0].id
-		const before = o.reloadPulse.nonce
-
-		o.navigate(routes('/routes'))
-		expect(o.tabs.find((t) => t.id === id)?.url).toBe('/routes')
-		expect(o.reloadPulse.nonce).toBe(before)
+		expect(o.tabs.find((t) => t.id === first)?.url).toBe('/runs?path=u/me/a')
 	})
 
 	// Runs restores the user's "hide schedules" preference into the URL whenever a load
@@ -365,29 +378,11 @@ describe('SessionPreviewTabs.open', () => {
 		expect(o.tabs[0].url).toBe('/apps/edit/u/me/dash')
 	})
 
-	// Re-commanding the URL a tab is already pointed at changes nothing the host can
-	// see, so the frame would stay wherever the user navigated it inside the page.
-	it('forces a reload when the request matches the command but the frame drifted', () => {
-		const o = owner()
-		const routes = (href: string) => ({ type: 'page' as const, href, label: 'HTTP routes' })
-		o.open(routes('/routes#u/me/a'))
-		const id = o.tabs[0].id
-		// The user clicked another trigger inside the iframe.
-		o.observeLocation(id, '/routes#u/me/b')
-		const before = o.reloadPulse.nonce
-
-		const res = o.open(routes('/routes#u/me/a'))
-		expect(res.status).toBe('retargeted')
-		expect(o.tabs).toHaveLength(1)
-		expect(o.tabs[0].loc).toBe('/routes#u/me/a')
-		expect(o.reloadPulse.nonce).toBe(before + 1)
-	})
-
 	it('forceNewTab opts a page out of the location dedupe', () => {
 		const o = owner()
 		const routes = (href: string) => ({ type: 'page' as const, href, label: 'HTTP routes' })
-		o.open(routes('/routes#u/me/a'))
-		const res = o.open(routes('/routes#u/me/b'), { forceNewTab: true })
+		o.open(routes('/routes'))
+		const res = o.open(routes('/routes'), { forceNewTab: true })
 		expect(res.status).toBe('opened')
 		expect(o.tabs).toHaveLength(2)
 	})
@@ -509,59 +504,6 @@ describe('SessionPreviewTabs.open', () => {
 		o.open(artifactTarget)
 		o.open({ type: 'artifact', id: 'art2', name: 'Other' })
 		expect(o.tabs).toHaveLength(2)
-	})
-})
-
-describe('SessionPreviewTabs.open — commanded url', () => {
-	it('records the requested row even when the frame is already showing it', () => {
-		const o = owner()
-		o.open({ type: 'page', href: '/routes#u/me/a', label: 'R' })
-		// The user moves to another row inside the frame.
-		o.observeLocation(o.tabs[0].id, '/routes#u/me/b')
-		o.open({ type: 'page', href: '/routes#u/me/b', label: 'R' })
-		// `url` is what a refresh and a remount reload from, so it has to follow.
-		expect(o.tabs[0].url).toBe('/routes#u/me/b')
-		expect(o.tabs).toHaveLength(1)
-	})
-})
-
-describe('SessionPreviewTabs.observeLocation', () => {
-	it('drops the row from the command when the frame closes its drawer', () => {
-		const o = owner()
-		o.open({ type: 'page', href: '/routes#u/me/a', label: 'R' })
-		// The page clears its own hash when the drawer closes.
-		o.observeLocation(o.tabs[0].id, '/routes?filter_path_of=trigger')
-		// The iframe mounts from `url`, so a remount would otherwise reopen the drawer.
-		expect(o.tabs[0].url).toBe('/routes')
-	})
-
-	it('leaves the command alone when the user just browses inside the frame', () => {
-		const o = owner()
-		o.open({ type: 'page', href: '/routes#u/me/a', label: 'R' })
-		o.observeLocation(o.tabs[0].id, '/routes#u/me/b')
-		expect(o.tabs[0].url).toBe('/routes#u/me/a')
-	})
-})
-
-describe('SessionPreviewTabs.open — forced loads', () => {
-	it('pulses when only the fragment changes, since the browser would not load', () => {
-		const o = owner()
-		o.open({ type: 'page', href: '/routes#u/me/a', label: 'R' })
-		const before = o.reloadPulse.nonce
-		o.open({ type: 'page', href: '/routes#u/me/b', label: 'R' })
-		// Same document: the browser resolves the new fragment without a load, so the
-		// list page never re-runs the `#<path>` read that opens the row.
-		expect(o.reloadPulse.nonce).toBeGreaterThan(before)
-		expect(o.tabs).toHaveLength(1)
-	})
-
-	it('does not pulse when the document itself changes', () => {
-		const o = owner()
-		o.open({ type: 'page', href: '/routes#u/me/a', label: 'R' })
-		const before = o.reloadPulse.nonce
-		o.open({ type: 'page', href: '/schedules#u/me/a', label: 'S' })
-		// Different page: src changes, the browser loads it, nothing to force.
-		expect(o.reloadPulse.nonce).toBe(before)
 	})
 })
 

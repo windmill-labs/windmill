@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { enterpriseLicense, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { createChat, type Chat, type ChatState } from 'windmill-chat'
 	import FlowConversationsSidebar from './FlowConversationsSidebar.svelte'
@@ -8,6 +8,9 @@
 	import type { FlowEditorContext } from '../types'
 	import type { FlowModule } from '$lib/gen'
 	import { FRAME_CLASS, type ChatFrame } from './flowChatProps'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		/**
@@ -64,7 +67,7 @@
 
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
 	// The editor may act on a workspace other than the nav store's (AI-session live editor).
-	const workspace = $derived(flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
+	const workspace = $derived(flowEditorContext?.opWorkspace?.() ?? $operatingWorkspace)
 
 	let chat = $state<Chat | undefined>(undefined)
 	let chatState = $state<ChatState | undefined>(undefined)

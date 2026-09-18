@@ -6,7 +6,7 @@
 		type Group,
 		type InstanceGroup
 	} from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { userStore } from '$lib/stores'
 	import { onMount, tick, untrack } from 'svelte'
 	import { Button } from './common'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
@@ -34,6 +34,14 @@
 		type GroupDraft,
 		type GroupRole
 	} from '$lib/groupDraft'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	const ROLE_TOOLTIPS = {
 		member:
@@ -74,7 +82,7 @@
 	}: Props = $props()
 
 	const restricted = $derived(
-		isDemoWorkspaceRestricted($workspaceStore, $userStore?.is_admin, $userStore?.is_super_admin)
+		isDemoWorkspaceRestricted($operatingWorkspace, actingUser?.is_admin, actingUser?.is_super_admin)
 	)
 
 	let can_write = $state(false)
@@ -123,11 +131,11 @@
 	}
 
 	async function loadUsernames(): Promise<void> {
-		usernames = await UserService.listUsernames({ workspace: $workspaceStore! })
+		usernames = await UserService.listUsernames({ workspace: $operatingWorkspace! })
 	}
 
 	async function loadGroupNames(): Promise<void> {
-		groupNames = (await GroupService.listGroupNames({ workspace: $workspaceStore! })) ?? []
+		groupNames = (await GroupService.listGroupNames({ workspace: $operatingWorkspace! })) ?? []
 	}
 
 	async function loadInstanceGroup(): Promise<void> {
@@ -159,8 +167,8 @@
 		const apply = (value: GroupDraft) =>
 			opts?.baselineOnly ? (baseline = structuredClone(value)) : setDraft(value)
 		try {
-			group = await GroupService.getGroup({ workspace: $workspaceStore!, name })
-			can_write = canWrite(name, group.extra_perms ?? {}, $userStore)
+			group = await GroupService.getGroup({ workspace: $operatingWorkspace!, name })
+			can_write = canWrite(name, group.extra_perms ?? {}, actingUser)
 			apply({
 				summary: group.summary ?? '',
 				members: Array.from(
@@ -245,7 +253,7 @@
 	 * membership goes through the endpoints that name who was added or promoted — which is
 	 * what the permission history reads back. The diff itself is in `groupDraft.ts`. */
 	async function applyMemberChanges(next: GroupDraft['members'], prev: GroupDraft['members']) {
-		const workspace = $workspaceStore ?? ''
+		const workspace = $operatingWorkspace ?? ''
 		for (const call of groupMemberDiff(prev, next, $userStore?.username)) {
 			switch (call.kind) {
 				case 'addUser':
@@ -289,7 +297,7 @@
 		try {
 			if (created) {
 				await GroupService.createGroup({
-					workspace: $workspaceStore ?? '',
+					workspace: $operatingWorkspace ?? '',
 					requestBody: { name, summary: next.summary }
 				})
 				alreadyCreated = true
@@ -299,7 +307,7 @@
 			} else {
 				if (next.summary !== prev.summary) {
 					await GroupService.updateGroup({
-						workspace: $workspaceStore ?? '',
+						workspace: $operatingWorkspace ?? '',
 						name,
 						requestBody: { summary: next.summary }
 					})
@@ -335,7 +343,7 @@
 	let loadStarted = false
 	$effect.pre(() => {
 		if (loadStarted) return
-		if ($workspaceStore && $userStore) {
+		if ($operatingWorkspace && $userStore) {
 			loadStarted = true
 			untrack(() => {
 				load()

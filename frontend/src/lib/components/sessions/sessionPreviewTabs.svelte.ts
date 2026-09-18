@@ -8,7 +8,10 @@ import {
 	describeLocation,
 	matchPreviewPage,
 	showsView,
+	pageItemLocation,
+	pageItemUrl,
 	parseArtifactRoute,
+	parsePageItemRoute,
 	parsePipelineRoute,
 	previewLocationContext,
 	promptSafe,
@@ -24,6 +27,12 @@ import {
 import type { SessionPreviewTab, SessionTarget } from './sessionState.svelte'
 import type { Kind } from '$lib/utils_deployable'
 import { pipelineFolderFromBundlePath } from '$lib/pipelinePaths'
+import {
+	pageItemKindLabel,
+	TRIGGER_PAGES,
+	type PageItemRef,
+	type TriggerKind
+} from './previewPaths'
 
 // The single live owner of a session's preview tabs. Runs behind a small
 // interface both the sessions page (renderer) and the `open_preview` tool cross,
@@ -78,7 +87,10 @@ function keptVersion(
 // scheme. `onto` is the tab about to be written, passed wherever one is being re-pointed so
 // that every such path keeps its pin.
 function targetUrl(target: PreviewTarget, onto?: SessionPreviewTab): string {
-	if (target.type === 'page') return target.href
+	// A list page asked for with a row anchored is that row's own tab: its drawer would only
+	// open the editor a page item tab already hosts, inside a frame of its own.
+	if (target.type === 'page') return pageItemLocation(target.href)
+	if (target.type === 'pageitem') return pageItemUrl(target.ref)
 	if (target.type === 'artifact') {
 		return artifactUrl(target.id, target.name, keptVersion(target, onto))
 	}
@@ -152,10 +164,9 @@ export function previewTargetForSessionTarget(
 
 // Adapt a deployable item's layout kind (the session review dock speaks `Kind`,
 // not SessionTarget) to a preview destination: the three live editors, data
-// pipelines, plus legacy drag-and-drop apps, which the panel hosts as an iframe
-// over their edit route. Every other kind maps to undefined — not for lack of any
-// route (a variable or trigger has a list page the panel can host) but because
-// there is no item editor to preview, so their row falls back to the diff. The
+// pipelines, page items (variables, resources, schedules, triggers), plus legacy
+// drag-and-drop apps, which the panel hosts as an iframe over their edit route.
+// Every other kind maps to undefined, and its row falls back to the diff. The
 // undefined is also the caller's test for "can this row be previewed?".
 export function previewTargetForDeployKind(kind: Kind, path: string): PreviewTarget | undefined {
 	if (kind === 'app') {
@@ -163,6 +174,16 @@ export function previewTargetForDeployKind(kind: Kind, path: string): PreviewTar
 	}
 	if (kind === 'script' || kind === 'flow' || kind === 'raw_app') {
 		return previewTargetForSessionTarget(kind, path)
+	}
+	if (kind === 'variable' || kind === 'resource' || kind === 'schedule') {
+		return { type: 'pageitem', ref: { kind, path } }
+	}
+	const triggerKind = kind.endsWith('_trigger') ? kind.slice(0, -'_trigger'.length) : undefined
+	if (triggerKind && triggerKind in TRIGGER_PAGES) {
+		return {
+			type: 'pageitem',
+			ref: { kind: 'trigger', triggerKind: triggerKind as TriggerKind, path }
+		}
 	}
 	// A pipeline's editor is its folder's graph view, not its bundle path.
 	if (kind === 'data_pipeline') {
@@ -189,7 +210,11 @@ export function hydratePreviewTabs(session: {
 		seen.add(t.id)
 		// Rebuilt field-by-field so stray properties on old saved records (e.g. the
 		// retired `pinned` flag) don't survive hydration and get persisted back.
-		tabs.push({ id: t.id, url: t.url, loc: t.loc || t.url })
+		// A list page saved with a row's drawer open comes back as that row's own tab, whether the
+		// row was asked for (`url`) or opened inside the frame (only its observed `loc` says so).
+		const loc = t.loc || t.url
+		const item = [t.url, loc].map(pageItemLocation).find((u) => parsePageItemRoute(u))
+		tabs.push(item ? { id: t.id, url: item, loc: item } : { id: t.id, url: t.url, loc })
 	}
 	if (tabs.length > 0) {
 		const wantActive = session.activePreviewTabId
@@ -290,22 +315,14 @@ export class SessionPreviewTabs {
 		// Drift is a change of what the frame *shows*, not of its URL string: a page
 		// writing its own filter defaults back is not the user navigating away.
 		const drifted = !showsView(tab.loc, url)
-		// Both cases the browser will not act on, decided here because this is where the
-		// old and new commands are both in hand: re-commanding the URL a drifted frame
-		// already carries moves nothing, and moving to another fragment resolves within the
-		// same document — so a list page never re-runs the `#<path>` read that opens a row.
-		// Dropping the fragment is not one of them: the same-document path applies only to a
-		// target that has one, so the browser loads the page — closing the drawer by itself —
-		// and forcing a second load races that one back onto the row.
-		const fragmentOnly =
-			!commandUnchanged && url.includes('#') && tab.url.split('#')[0] === url.split('#')[0]
+		// Decided here because this is where the old and new commands are both in hand:
+		// re-commanding the URL a drifted frame already carries moves nothing.
 		retargetTab(tab, url)
-		if ((commandUnchanged && drifted) || fragmentOnly) this.pulseReload(tab.id)
+		if (commandUnchanged && drifted) this.pulseReload(tab.id)
 	}
 
-	// Force the host to reload the iframe. A navigation onto the tab's exact current URL
-	// changes nothing, so URL-driven behavior — a `#<path>` opening a drawer the user has
-	// since closed — would never re-fire.
+	// Force the host to reload the tab. A navigation onto the tab's exact current URL
+	// changes nothing, so URL-driven behavior would never re-fire.
 	pulseReload(id: string): void {
 		this.#reloadPulse = { id, nonce: this.#reloadPulse.nonce + 1 }
 	}
@@ -435,21 +452,21 @@ export class SessionPreviewTabs {
 		// shows this. The tab on this exact view wins over any other on the page —
 		// `new_tab` puts two views side by side, and retargeting whichever sits first
 		// would overwrite the other and leave both on the same row.
-		const shown = opts?.forceNewTab
-			? undefined
-			: (this.#tabs.find((t) => showsView(t.loc, url)) ??
-				this.#tabs.find((t) => describeLocation(t.loc).identity === describeLocation(url).identity))
+		// A page item stays one tab whatever the opener asks: two would hold two drafts of it.
+		const shown =
+			opts?.forceNewTab && !parsePageItemRoute(url)
+				? undefined
+				: (this.#tabs.find((t) => showsView(t.loc, url)) ??
+					this.#tabs.find(
+						(t) => describeLocation(t.loc).identity === describeLocation(url).identity
+					))
 		if (shown) {
 			const same = showsView(shown.loc, url)
 			if (same) {
 				// The frame is already here, but record what was asked for: `url` is what the
 				// tab persists and remounts from, so leaving it on where the frame started
-				// sends a refresh back to the row the user has since moved off.
+				// sends a refresh back to the view the user has since moved off.
 				recordCommand(shown, url)
-				// Nothing to navigate to, so nothing would re-run: the list pages read their
-				// `#<path>` once per document, and the drawer it opens may since have been
-				// closed. Only a forced load can bring it back.
-				if (describeLocation(url).anchor) this.pulseReload(shown.id)
 			} else {
 				this.#retarget(shown, url)
 			}
@@ -512,7 +529,17 @@ export class SessionPreviewTabs {
 				return
 			}
 		}
-		this.#retarget(t, targetUrl(target, t))
+		// One tab per page item, as for editors: two would hold two drafts of one item.
+		const url = targetUrl(target, t)
+		if (parsePageItemRoute(url)) {
+			const existing = this.#tabs.find((x) => x.url === url)
+			if (existing && existing.id !== t.id) {
+				this.#activeId = existing.id
+				this.#flush()
+				return
+			}
+		}
+		this.#retarget(t, url)
 		this.#flush()
 	}
 
@@ -574,6 +601,17 @@ export class SessionPreviewTabs {
 		this.#flush()
 	}
 
+	/** Follow a page item its editor saved under a new path, in place. */
+	retargetPageItem(from: PageItemRef, to: PageItemRef): void {
+		const fromUrl = pageItemUrl(from)
+		const toUrl = pageItemUrl(to)
+		if (fromUrl === toUrl) return
+		const tab = this.#tabs.find((t) => t.url === fromUrl)
+		if (!tab) return
+		retargetTab(tab, toUrl)
+		this.#flush()
+	}
+
 	closeArtifact(artifactId: string): void {
 		const tab = this.#tabs.find((t) => parseArtifactRoute(t.url)?.id === artifactId)
 		if (tab) this.close(tab.id)
@@ -606,23 +644,14 @@ export class SessionPreviewTabs {
 	}
 
 	// Feed back the location an iframe reported on load (only the page can read
-	// contentWindow.location). Updates the observed `loc`; `url` follows only when a
-	// drawer closed (below), and the host navigates on a command it isn't already at,
-	// so that write does not move the frame.
+	// contentWindow.location). Updates the observed `loc` only: the host navigates on a
+	// command it isn't already at, and an in-frame move is the user browsing.
 	observeLocation(id: string, loc: string): void {
 		const t = this.#tabs.find((x) => x.id === id)
 		if (!t) return
 		const canonical = canonicalizeObservedLoc(loc)
 		if (t.loc === canonical) return
 		t.loc = canonical
-		// Closing a drawer drops the row from the frame's URL. The command has to follow, or
-		// the tab reopens it on the next mount — the iframe loads `url`, not `loc`. Only the
-		// anchor: any other in-frame move is the user browsing, which must not re-command.
-		const commanded = describeLocation(t.url)
-		const observed = describeLocation(canonical)
-		if (commanded.anchor && !observed.anchor && commanded.identity === observed.identity) {
-			t.url = t.url.split('#')[0]
-		}
 		this.#flush()
 	}
 
@@ -730,6 +759,7 @@ export function describePreview(
 	const lines = tabs.map((t) => {
 		const where = whereIs(t)
 		const artifact = parseArtifactRoute(where)
+		const pageItem = parsePageItemRoute(where)
 		const page = matchPreviewPage(where)
 		const pipelineFolder = parsePipelineRoute(where)
 		const route = parsePreviewItemRoute(where)
@@ -737,16 +767,19 @@ export function describePreview(
 			? // A pinned tab is not showing what the assistant last wrote, and nothing else in this
 				// summary would tell it so.
 				`artifact "${artifact.name || 'Artifact'}"${artifact.version ? ` (pinned to v${artifact.version})` : ''}`
-			: page
-				? `page "${page.label}"${previewLocationDetail(where)}`
-				: pipelineFolder
-					? `pipeline "${pipelineFolder}"`
-					: route
-						? `${route.raw_app ? 'raw_app' : route.kind} "${route.itemPath}"`
-						: // Trigger list pages land here (they're outside PREVIEW_PAGES), and
-							// their `#<path>` is the trigger the drawer has open.
-							`${stripBase(where)}${previewLocationDetail(where)}`
-		const live = resolvePreviewTab(t.url).kind === 'editor' ? ', live editor' : ''
+			: pageItem
+				? `${pageItemKindLabel(pageItem).toLowerCase()} "${pageItem.path}"`
+				: page
+					? `page "${page.label}"${previewLocationDetail(where)}`
+					: pipelineFolder
+						? `pipeline "${pipelineFolder}"`
+						: route
+							? `${route.raw_app ? 'raw_app' : route.kind} "${route.itemPath}"`
+							: // Trigger list pages land here (they're outside PREVIEW_PAGES), and
+								// their `#<path>` is the trigger the drawer has open.
+								`${stripBase(where)}${previewLocationDetail(where)}`
+		const slotKind = resolvePreviewTab(t.url).kind
+		const live = slotKind === 'editor' || slotKind === 'pageitem' ? ', live editor' : ''
 		const active = t.id === activeId ? ', active' : ''
 		// One list entry per tab: an artifact's name, a pipeline folder and an item path
 		// all arrive decoded from a URL, so any of them could otherwise write a line here.
