@@ -181,7 +181,9 @@
 				sendUserToast(`Could not load older versions: ${e?.body ?? e?.message ?? e}`, true)
 			}
 		} finally {
-			loadingMore = false
+			// Guarded like the writes above: an outlived request clearing this would hand
+			// the drawer that replaced it a second concurrent page.
+			if (generation === versionListGeneration) loadingMore = false
 		}
 	}
 

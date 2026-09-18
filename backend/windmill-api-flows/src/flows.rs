@@ -52,7 +52,7 @@ use windmill_common::{
     schedule::Schedule,
     triggers::MovedNativeTrigger,
     utils::{
-        http_get_from_hub, not_found_if_none, paginate, paginate_without_limits, Pagination,
+        http_get_from_hub, not_found_if_none, paginate, paginate_optional, Pagination,
         RunnableKind, StripPath,
     },
 };
@@ -937,7 +937,7 @@ async fn get_flow_history(
     check_scopes(&authed, || format!("flows:read:{}", path))?;
     // Unasked-for, this listing stays whole: the history panels, the restart picker and
     // the CLI all read it without paging. The diff picker asks for a page.
-    let (per_page, offset) = paginate_without_limits(pagination);
+    let (per_page, offset) = paginate_optional(pagination);
     let mut tx = user_db.begin(&authed).await?;
 
     let flows = sqlx::query_as!(

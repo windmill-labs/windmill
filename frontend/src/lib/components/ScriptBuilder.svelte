@@ -844,9 +844,10 @@
 	/** Deployed versions to offer in the diff picker, newest first. Best-effort: a
 	 *  failure here costs the picker, not the diff, so the drawer still opens on the
 	 *  head. `deployment_msg` is all the history endpoint carries besides the hash. */
-	async function deployedVersionOptions(headHash: string | undefined, page = 1) {
+	/** Throws: the drawer says so and lets the reader ask for the same page again. */
+	async function fetchVersionPage(headHash: string | undefined, page: number) {
 		if (!opWorkspace || !userDraftPath) return undefined
-		try {
+		{
 			const history = await ScriptService.getScriptHistoryByPath({
 				workspace: opWorkspace,
 				path: userDraftPath,
@@ -870,16 +871,28 @@
 					isHead
 				}
 			})
+		}
+	}
+
+	/** The first page, best-effort: losing it costs the picker, not the diff. */
+	async function deployedVersionOptions(headHash: string | undefined) {
+		try {
+			return await fetchVersionPage(headHash, 1)
 		} catch {
 			return undefined
 		}
 	}
 
-	/** Hands the drawer the next page each time the reader asks for one. Held here rather
-	 *  than in the drawer because the page number belongs to this item's history. */
+	/** Hands the drawer the next page each time the reader asks for one. The page number
+	 *  belongs to this item's history, so it lives here — and only moves once a page has
+	 *  actually arrived, or a failed request would skip it. */
 	function moreVersionsLoader(headHash: string | undefined) {
-		let page = 1
-		return async () => deployedVersionOptions(headHash, ++page)
+		let loaded = 1
+		return async () => {
+			const page = await fetchVersionPage(headHash, loaded + 1)
+			loaded += 1
+			return page
+		}
 	}
 
 	/** The opening this editor claimed last. A path change remounts this editor while the

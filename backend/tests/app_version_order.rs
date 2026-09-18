@@ -155,6 +155,14 @@ async fn test_app_head_follows_the_append_order_not_the_timestamps(
         appended[10..20],
         "the next page carries on where the first left off, skipping nothing"
     );
+    // A page past the end runs off it rather than overflowing into one. (The clamp on an
+    // asked-for size is pinned where it lives, in `paginate_optional`'s own test.)
+    assert!(
+        versions_at("?per_page=10&page=99999999")
+            .await?
+            .is_empty(),
+        "a page past the end is empty"
+    );
 
     Ok(())
 }

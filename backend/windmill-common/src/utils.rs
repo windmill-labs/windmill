@@ -479,6 +479,25 @@ pub fn paginate(pagination: Pagination) -> (usize, usize) {
     (per_page, offset)
 }
 
+/// [`paginate`] for a listing that answers whole unless a size is asked for: the deploy
+/// histories, which the history panels and the CLI read unpaged while the diff picker takes
+/// a page at a time. An asked-for size is still clamped, and the offset saturates rather
+/// than wrapping, so no caller can turn this into an unbounded scan or a negative bind.
+pub fn paginate_optional(pagination: Pagination) -> (usize, usize) {
+    let per_page = pagination
+        .per_page
+        .unwrap_or(MAX_PER_PAGE)
+        .max(1)
+        .min(MAX_PER_PAGE);
+    let offset = pagination
+        .page
+        .unwrap_or(1)
+        .max(1)
+        .saturating_sub(1)
+        .saturating_mul(per_page);
+    (per_page, offset)
+}
+
 pub fn paginate_without_limits(pagination: Pagination) -> (usize, usize) {
     let per_page = pagination.per_page.unwrap_or(MAX_PER_PAGE);
     let offset = (pagination.page.unwrap_or(1).max(1) - 1) * per_page;
@@ -1656,6 +1675,31 @@ pub fn truncate_with_ellipsis(s: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_paginate_optional_answers_whole_but_bounds_what_is_asked_for() {
+        // Nothing asked for: the whole listing, which is what the history panels and the
+        // CLI read.
+        assert_eq!(
+            paginate_optional(Pagination { page: None, per_page: None }),
+            (MAX_PER_PAGE, 0)
+        );
+        assert_eq!(
+            paginate_optional(Pagination { page: Some(3), per_page: Some(20) }),
+            (20, 40)
+        );
+        // An asked-for size is still capped, so no caller turns this into an unbounded scan.
+        assert_eq!(
+            paginate_optional(Pagination { page: None, per_page: Some(usize::MAX) }),
+            (MAX_PER_PAGE, 0)
+        );
+        // And the offset saturates instead of wrapping into a negative bind.
+        assert_eq!(
+            paginate_optional(Pagination { page: Some(usize::MAX), per_page: Some(20) }).0,
+            20
+        );
+        assert!(paginate_optional(Pagination { page: Some(usize::MAX), per_page: Some(20) }).1 > 0);
+    }
 
     /// A 5-field crontab line is the most common way to get a schedule rejected, and both
     /// parsers report it in terms a crontab user cannot act on, so the seconds field and the

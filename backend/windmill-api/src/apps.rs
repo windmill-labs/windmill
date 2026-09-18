@@ -69,7 +69,7 @@ use windmill_common::{
     user_drafts::{overlay_or_draft_only, DraftUserRef, UserDraftItemKind, WithDraftOverlay},
     users::username_to_permissioned_as,
     utils::{
-        http_get_from_hub, not_found_if_none, paginate, paginate_without_limits,
+        http_get_from_hub, not_found_if_none, paginate, paginate_optional,
         query_elems_from_hub, require_admin, strip_json_nul, Pagination, RunnableKind, StripPath,
     },
     variables::{build_crypt, build_crypt_with_key_suffix, encrypt},
@@ -1243,7 +1243,7 @@ async fn get_app_history(
     check_scopes(&authed, || format!("apps:read:{}", &path))?;
     // Unasked-for, this listing stays whole: the deployment-history panel reads it
     // without paging. The diff picker asks for a page.
-    let (per_page, offset) = paginate_without_limits(pagination);
+    let (per_page, offset) = paginate_optional(pagination);
     let mut tx = user_db.begin(&authed).await?;
     // Newest first in the order the versions were deployed, which is their position in
     // `app.versions` and not `created_at`: the latter is the deploying transaction's

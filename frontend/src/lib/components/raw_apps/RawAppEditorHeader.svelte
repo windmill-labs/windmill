@@ -433,9 +433,10 @@
 
 	/** Deployed versions for the diff picker, newest first. Best-effort: losing the
 	 *  list costs the picker, not the diff. */
-	async function deployedVersionOptions(page = 1) {
+	/** Throws: the drawer says so and lets the reader ask for the same page again. */
+	async function fetchVersionPage(page: number) {
 		if (!opWorkspace || !appPath) return undefined
-		try {
+		{
 			const history = await AppService.getAppHistoryByPath({
 				workspace: opWorkspace,
 				path: appPath,
@@ -460,16 +461,28 @@
 					isHead
 				}
 			})
+		}
+	}
+
+	/** The first page, best-effort: losing it costs the picker, not the diff. */
+	async function deployedVersionOptions() {
+		try {
+			return await fetchVersionPage(1)
 		} catch {
 			return undefined
 		}
 	}
 
-	/** Hands the drawer the next page each time the reader asks for one. Held here rather
-	 *  than in the drawer because the page number belongs to this item's history. */
+	/** Hands the drawer the next page each time the reader asks for one. The page number
+	 *  belongs to this item's history, so it lives here — and only moves once a page has
+	 *  actually arrived, or a failed request would skip it. */
 	function moreVersionsLoader() {
-		let page = 1
-		return async () => deployedVersionOptions(++page)
+		let loaded = 1
+		return async () => {
+			const page = await fetchVersionPage(loaded + 1)
+			loaded += 1
+			return page
+		}
 	}
 
 	/** The opening this editor claimed last. A path change remounts this editor while the

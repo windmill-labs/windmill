@@ -55,7 +55,7 @@ use windmill_common::{
         min_version_supports_runnable_settings_v0, RunnableSettings, RunnableSettingsTrait,
     },
     scripts::{hash_script, ScriptRunnableSettingsHandle, ScriptRunnableSettingsInline},
-    utils::{paginate_without_limits, WarnAfterExt},
+    utils::{paginate_optional, paginate_without_limits, WarnAfterExt},
     worker::CLOUD_HOSTED,
 };
 use windmill_object_store::upload_artifact_to_store;
@@ -3094,7 +3094,7 @@ async fn get_script_history(
     check_scopes(&authed, || format!("scripts:read:{}", path))?;
     // Unasked-for, this listing stays whole: the deployment-history panels, the restart
     // picker and the CLI all read it without paging. The diff picker asks for a page.
-    let (per_page, offset) = paginate_without_limits(pagination);
+    let (per_page, offset) = paginate_optional(pagination);
     let mut tx = user_db.begin(&authed).await?;
     let query_result = sqlx::query!(
         "SELECT s.hash as hash, dm.deployment_msg as deployment_msg, s.created_at as created_at, s.created_by as created_by
