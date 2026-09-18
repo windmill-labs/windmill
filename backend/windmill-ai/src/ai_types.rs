@@ -273,3 +273,27 @@ pub fn validate_context_windows_json(ai_config: &serde_json::Value) -> Result<()
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn instance_context_windows_are_bounded_integers() {
+        let windows = |value| json!({ "context_window_per_model": { "customai:m": value } });
+        assert!(validate_context_windows_json(&json!({})).is_ok());
+        assert!(validate_context_windows_json(&windows(json!(MIN_CONTEXT_WINDOW))).is_ok());
+        assert!(validate_context_windows_json(&windows(json!(MAX_CONTEXT_WINDOW))).is_ok());
+        for bad in [
+            json!(MIN_CONTEXT_WINDOW - 1),
+            json!(65536.5),
+            json!("65536"),
+        ] {
+            assert!(validate_context_windows_json(&windows(bad)).is_err());
+        }
+        assert!(
+            validate_context_windows_json(&json!({ "context_window_per_model": [65536] })).is_err()
+        );
+    }
+}
