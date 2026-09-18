@@ -56,6 +56,11 @@ pub(crate) async fn change_workspace_id(
 
     let mut tx = db.begin().await?;
 
+    // The settings copy below carries every data table entry to the new id, which fork cleanup of
+    // the old id cannot see until this commits: without the lock it could drop a copy the renamed
+    // workspace goes on using. Before the pairing lock, as forking takes the two in that order.
+    windmill_common::workspaces::lock_fork_datatables(&mut tx, &old_id).await?;
+
     // A rename rewrites the workspace's dev flag and reparents its children, so it decides on the
     // same state the pairing handlers do: without this lock a concurrent create/attach could commit
     // an active dev workspace under the shell this rename is about to archive. Both ids, since the

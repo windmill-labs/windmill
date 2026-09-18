@@ -1475,6 +1475,10 @@ pub fn validate_dbname(dbname: &str) -> error::Result<()> {
 }
 
 /// Drop a custom instance database: validate, terminate connections, DROP DATABASE, remove from global_settings.
+///
+/// Authorization: drops any instance database but Windmill's own and checks nothing. Callers MUST
+/// be superadmin, or have established the caller may drop this one — a fork's owner cleaning up
+/// its own copy that nothing else uses.
 pub async fn drop_custom_instance_database(db: &DB, dbname: &str) -> error::Result<()> {
     drop_custom_instance_database_keep_entry(db, dbname).await?;
     sqlx::query!(
@@ -1488,7 +1492,8 @@ pub async fn drop_custom_instance_database(db: &DB, dbname: &str) -> error::Resu
 
 /// [`drop_custom_instance_database`] leaving its registry entry, for a caller holding row locks in
 /// a transaction: the registry write has to go through that transaction, as waiting on another
-/// connection for a lock the transaction's own peers hold is a deadlock Postgres cannot see.
+/// connection for a lock the transaction's own peers hold is a deadlock Postgres cannot see. Same
+/// authorization contract.
 pub async fn drop_custom_instance_database_keep_entry(db: &DB, dbname: &str) -> error::Result<()> {
     let dbname = dbname.trim();
     validate_dbname(dbname)?;
