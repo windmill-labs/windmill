@@ -11,15 +11,9 @@
 		/** Whether the step's own memory id and previous messages are on this form. A saved agent has
 		 *  neither: they belong to each step linking it. */
 		historyOnStep?: boolean
-		s3StorageConfigured?: boolean
 	}
 
-	let {
-		args = $bindable(),
-		chatInputEnabled = false,
-		historyOnStep = false,
-		s3StorageConfigured = true
-	}: Props = $props()
+	let { args = $bindable(), chatInputEnabled = false, historyOnStep = false }: Props = $props()
 
 	let memory = $derived(
 		args?.memory?.type === 'static'
@@ -72,11 +66,6 @@
 	}
 </script>
 
-{#if on && !s3StorageConfigured}
-	<p class="mt-1 text-2xs text-hint">
-		Without S3 storage on the workspace, memory is kept in the database, up to 100KB per memory.
-	</p>
-{/if}
 {#if legacyMessages}
 	<Alert type="info" title="Older memory setting" class="mt-2">
 		<div class="flex flex-col gap-2">

@@ -152,7 +152,8 @@ export const AGENT_FIELDS: AgentFieldSpec[] = [
 		key: 'memory',
 		group: 'messages',
 		label: 'Managed memory',
-		tooltip: 'Windmill stores the conversation and sends its last messages with each request.',
+		tooltip:
+			'Windmill stores the conversation and sends it with each request: its last messages, or a summary of the older ones with the recent ones verbatim. Without instance object storage, memory is kept in the database, up to 100KB per memory; compaction summarizes it down to fit.',
 		implicit: { kind: 'off' },
 		defaultHint: 'Default: off',
 		textOnly: true
