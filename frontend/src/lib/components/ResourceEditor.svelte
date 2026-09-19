@@ -262,6 +262,9 @@
 	)
 	const anyDirty = $derived(dirtyWorkspaces.length > 0)
 
+	/** A resolution is in flight. Both buttons go disabled: clicking the other one midway would
+	 *  race two resolutions of one conflict against each other. */
+	let resolvingConflict = $state(false)
 	/** The server refused this tab's autosave because the row moved under it: another tab, or the
 	 *  AI chat, which writes these drafts too. Nothing typed here reaches the server until the user
 	 *  picks a version, and the unsaved-changes banner says the opposite — that the edits are held
@@ -279,35 +282,47 @@
 	async function resolveDraftConflict(keepMine: boolean): Promise<void> {
 		const ws = selected
 		const p = initialPath
-		if (!ws || !p) return
+		if (!ws || !p || resolvingConflict) return
 		const query = { workspace: ws, itemKind: 'resource' as const, path: p }
-		if (keepMine) {
-			// Forced, so it goes over the row that refused us, and its response reseeds
-			// `last_sync` so the next ordinary save is conditional again.
-			const mine = states[ws]?.draft
-			if (mine) await UserDraftDbSyncer.overwrite({ ...query, value: $state.snapshot(mine) })
-			return
+		resolvingConflict = true
+		try {
+			if (keepMine) {
+				// Forced, so it goes over the row that refused us, and its response reseeds
+				// `last_sync` so the next ordinary save is conditional again.
+				const mine = states[ws]?.draft
+				if (mine) await UserDraftDbSyncer.overwrite({ ...query, value: $state.snapshot(mine) })
+				return
+			}
+			// Read BEFORE giving anything up: until the server has answered, the refused payload is
+			// still the only copy of this tab's edit, and the conflict is still true.
+			const r = await ResourceService.getResource({ workspace: ws, path: p, getDraft: true })
+			const deployedState: ResourceState = {
+				path: r.path,
+				args: (r.value ?? {}) as Record<string, any>,
+				description: r.description ?? '',
+				labels: r.labels ?? undefined,
+				wsSpecific: r.ws_specific ?? false
+			}
+			// Dropped after the read and before the baseline below: anything an autosave queued
+			// while it was out belongs to the version being replaced, and leaving it parked would
+			// let the fresh baseline make it acceptable — sending it over the version just chosen.
+			UserDraftDbSyncer.dropPending(query)
+			UserDraftDbSyncer.clearConflict(query)
+			initialStates[ws] = structuredClone(deployedState)
+			UserDraftDbSyncer.recordRemoteSync(query, (r as any).draft_saved_at)
+			UserDraft.seed(
+				'resource',
+				p,
+				((r as any).draft as ResourceState | undefined) ?? deployedState,
+				{ workspace: ws }
+			)
+		} catch (e) {
+			// Nothing was given up above, so the conflict stands and the edit is still here to
+			// resolve again — which is the whole point of reading first.
+			sendUserToast(`Could not load the other version: ${e}`, true)
+		} finally {
+			resolvingConflict = false
 		}
-		// Taking theirs: drop the refused payload first so no later flush can send it, then read
-		// what the server holds and seed that in, which is also what gives this tab a baseline.
-		UserDraftDbSyncer.dropPending(query)
-		UserDraftDbSyncer.clearConflict(query)
-		const r = await ResourceService.getResource({ workspace: ws, path: p, getDraft: true })
-		const deployedState: ResourceState = {
-			path: r.path,
-			args: (r.value ?? {}) as Record<string, any>,
-			description: r.description ?? '',
-			labels: r.labels ?? undefined,
-			wsSpecific: r.ws_specific ?? false
-		}
-		initialStates[ws] = structuredClone(deployedState)
-		UserDraftDbSyncer.recordRemoteSync(query, (r as any).draft_saved_at)
-		UserDraft.seed(
-			'resource',
-			p,
-			((r as any).draft as ResourceState | undefined) ?? deployedState,
-			{ workspace: ws }
-		)
 	}
 
 	// The syncer owns the list-page `*` hint; the editor only CLEARS it when a
@@ -582,8 +597,9 @@
 	<div class="flex flex-col gap-6 pb-2">
 		{#if draftConflict}
 			<DraftConflictAlert
-				onReload={() => resolveDraftConflict(false)}
-				onOverwrite={() => resolveDraftConflict(true)}
+				busy={resolvingConflict}
+				onReload={() => void resolveDraftConflict(false)}
+				onOverwrite={() => void resolveDraftConflict(true)}
 			/>
 		{/if}
 

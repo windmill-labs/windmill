@@ -6,9 +6,11 @@
 		onReload: () => void
 		/** Write what is on screen over the server's draft. */
 		onOverwrite: () => void
+		/** A resolution is in flight: neither answer is offered again until it settles. */
+		busy?: boolean
 	}
 
-	let { onReload, onOverwrite }: Props = $props()
+	let { onReload, onOverwrite, busy = false }: Props = $props()
 </script>
 
 <Alert type="warning" title="Your draft changed elsewhere">
@@ -18,8 +20,12 @@
 			longer being saved.
 		</div>
 		<div class="flex flex-row gap-2">
-			<Button unifiedSize="sm" variant="default" onClick={onReload}>Load the other version</Button>
-			<Button unifiedSize="sm" variant="default" onClick={onOverwrite}>Keep mine</Button>
+			<Button unifiedSize="sm" variant="default" disabled={busy} onClick={onReload}>
+				Load the other version
+			</Button>
+			<Button unifiedSize="sm" variant="default" disabled={busy} onClick={onOverwrite}>
+				Keep mine
+			</Button>
 		</div>
 	</div>
 </Alert>
