@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT\n            workspace_id,\n            slack_team_id,\n            teams_team_id,\n            teams_team_name,\n            teams_team_guid,\n            slack_name,\n            slack_command_script,\n            teams_command_script,\n            slack_email,\n            slack_oauth_client_id,\n            slack_oauth_client_secret,\n            customer_id,\n            plan,\n            webhook,\n            ai_config,\n            dbt_warehouses,\n            large_file_storage,\n            datatable,\n            ducklake,\n            git_sync,\n            deploy_ui,\n            default_app,\n            default_scripts,\n            mute_critical_alerts,\n            color,\n            operator_settings,\n            git_app_installations,\n            auto_invite,\n            error_handler,\n            success_handler,\n            public_app_execution_limit_per_minute,\n            error_handler_fallback_to_instance_alerts,\n            guest_access_enabled,\n            guest_jwt_public_key,\n            guest_jwt_jwks_url\n        FROM\n            workspace_settings\n        WHERE\n            workspace_id = $1\n        ",
+  "query": "\n        SELECT\n            workspace_id,\n            slack_team_id,\n            teams_team_id,\n            teams_team_name,\n            teams_team_guid,\n            slack_name,\n            slack_command_script,\n            teams_command_script,\n            slack_email,\n            slack_oauth_client_id,\n            slack_oauth_client_secret,\n            customer_id,\n            plan,\n            webhook,\n            ai_config,\n            dbt_warehouses,\n            large_file_storage,\n            datatable,\n            ducklake,\n            git_sync,\n            deploy_ui,\n            default_app,\n            default_scripts,\n            mute_critical_alerts,\n            color,\n            operator_settings,\n            git_app_installations,\n            auto_invite,\n            error_handler,\n            success_handler,\n            public_app_execution_limit_per_minute,\n            error_handler_fallback_to_instance_alerts,\n            guest_access_enabled,\n            guest_jwt_public_key,\n            guest_jwt_jwks_url,\n            add_admins_and_developers_to_forks\n        FROM\n            workspace_settings\n        WHERE\n            workspace_id = $1\n        ",
   "describe": {
     "columns": [
       {
@@ -177,6 +177,11 @@
         "ordinal": 34,
         "name": "guest_jwt_jwks_url",
         "type_info": "Text"
+      },
+      {
+        "ordinal": 35,
+        "name": "add_admins_and_developers_to_forks",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -219,8 +224,9 @@
       false,
       false,
       true,
-      true
+      true,
+      false
     ]
   },
-  "hash": "dc4a57df3becc610f631ef22c116450390addbfae85fecc61c991d94167e6e99"
+  "hash": "8ebe054b41793f1a7b85f1f8d29cd21d12fa1207b58bfc46249c250cdcdb5363"
 }
