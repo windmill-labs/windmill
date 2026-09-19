@@ -265,14 +265,17 @@
 	/** A resolution is in flight. Both buttons go disabled: clicking the other one midway would
 	 *  race two resolutions of one conflict against each other. */
 	let resolvingConflict = $state(false)
-	/** Identifies the editor instance and the resolution within it. Comparing `selected`/path
-	 *  alone is not enough: closing and reopening the same item gives a *new* editor those same
-	 *  values, so a resolution left over from the old one would pass that check and write into it.
-	 *  Bumped per resolution and zeroed on teardown, so a stale one can always tell it is stale. */
+	/** Which editing session a conflict resolution belongs to. Comparing `selected`/path is not
+	 *  enough — this component outlives the drawer and reopening the same resource reuses it with
+	 *  those same values — so a resolution carries the session it started in and every step checks
+	 *  it is still the current one. */
 	let resolveGeneration = 0
-	onDestroy(() => {
-		resolveGeneration = -1
-	})
+	/** Nothing outstanding speaks for this editor any more. Exported because the drawer, not this
+	 *  component, is what knows a session has ended. */
+	export function endEditingSession(): void {
+		resolveGeneration++
+	}
+	onDestroy(endEditingSession)
 	/** The server refused this tab's autosave because the row moved under it: another tab, or the
 	 *  AI chat, which writes these drafts too. Nothing typed here reaches the server until the user
 	 *  picks a version, and the unsaved-changes banner says the opposite — that the edits are held
@@ -290,10 +293,10 @@
 	async function resolveDraftConflict(keepMine: boolean): Promise<void> {
 		const ws = selected
 		const p = initialPath
-		if (!ws || !p || resolvingConflict || resolveGeneration < 0) return
+		if (!ws || !p || resolvingConflict) return
 		const query = { workspace: ws, itemKind: 'resource' as const, path: p }
 		const gen = ++resolveGeneration
-		const stillOurs = () => gen === resolveGeneration && selected === ws && initialPath === p
+		const stillOurs = () => gen === resolveGeneration && selected === ws
 		resolvingConflict = true
 		try {
 			if (keepMine) {

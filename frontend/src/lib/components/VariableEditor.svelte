@@ -128,14 +128,17 @@
 	/** A resolution is in flight. Both buttons go disabled: clicking the other one midway would
 	 *  race two resolutions of one conflict against each other. */
 	let resolvingConflict = $state(false)
-	/** Identifies the editor instance and the resolution within it. Comparing `selected`/path
-	 *  alone is not enough: closing and reopening the same item gives a *new* editor those same
-	 *  values, so a resolution left over from the old one would pass that check and write into it.
-	 *  Bumped per resolution and zeroed on teardown, so a stale one can always tell it is stale. */
+	/** Which editing session a conflict resolution belongs to. Comparing `selected`/path is not
+	 *  enough — reopening the same variable reuses this component and those same values — so a
+	 *  resolution carries the session it started in and every step checks it is still the current
+	 *  one. Ended by `endEditingSession`, which every entry point and the teardown go through. */
 	let resolveGeneration = 0
-	onDestroy(() => {
-		resolveGeneration = -1
-	})
+	/** Nothing outstanding speaks for this editor any more: a different variable, a different
+	 *  session on the same one, or the component going away. */
+	function endEditingSession(): void {
+		resolveGeneration++
+	}
+	onDestroy(endEditingSession)
 	/** The server refused this tab's autosave because the row moved under it: another tab, or the
 	 *  AI chat, which writes these drafts too. Nothing typed here reaches the server until the user
 	 *  picks a version, and the unsaved-changes banner says the opposite — that the edits are held
@@ -153,10 +156,10 @@
 	async function resolveDraftConflict(keepMine: boolean): Promise<void> {
 		const ws = selected
 		const p = editPath
-		if (!ws || !p || resolvingConflict || resolveGeneration < 0) return
+		if (!ws || !p || resolvingConflict) return
 		const query = { workspace: ws, itemKind: 'variable' as const, path: p }
 		const gen = ++resolveGeneration
-		const stillOurs = () => gen === resolveGeneration && selected === ws && editPath === p
+		const stillOurs = () => gen === resolveGeneration && selected === ws
 		resolvingConflict = true
 		try {
 			if (keepMine) {
@@ -305,6 +308,8 @@
 	})
 
 	function reset() {
+		// A new session starts here, so anything still running for the last one is spent.
+		endEditingSession()
 		// Clearing workspaceSpecs triggers useMany's reconcile to release
 		// every acquired entry. The $derived `states` then collapses to {}.
 		workspaceSpecs = []
@@ -410,7 +415,14 @@
 	}
 </script>
 
-<Drawer bind:this={drawer} size="50rem" on:close={() => clearPageDrawerAnchor(VARIABLES_PATH)}>
+<Drawer
+	bind:this={drawer}
+	size="50rem"
+	on:close={() => {
+		endEditingSession()
+		clearPageDrawerAnchor(VARIABLES_PATH)
+	}}
+>
 	<DrawerContent
 		title={edit ? `Update variable at ${initialPath}` : 'Add a variable'}
 		bannerReserved={edit}

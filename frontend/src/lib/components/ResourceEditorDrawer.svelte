@@ -49,6 +49,7 @@
 				localDraftDeployed: () => unknown
 				localDraftCurrent: () => unknown
 				discardLocalDraft: () => void
+				endEditingSession: () => void
 		  }
 		| undefined = $state(undefined)
 	let hasLocalDraft = $state(false)
@@ -131,6 +132,9 @@
 	size="50rem"
 	{disableChatOffset}
 	on:close={() => {
+		// The editor outlives this drawer, so tell it the session is over: a conflict resolution
+		// still in flight must not land on whatever the next opening shows.
+		resourceEditor?.endEditingSession?.()
 		if (keepAnchorOnClose) {
 			keepAnchorOnClose = false
 			return
