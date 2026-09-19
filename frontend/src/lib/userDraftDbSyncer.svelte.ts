@@ -723,5 +723,20 @@ export const UserDraftDbSyncer = {
 		const key = draftKey(query.workspace, query.itemKind, query.path)
 		pendingSaveOpts.delete(key)
 		debouncer.cancel(key)
+	},
+
+	/**
+	 * Drop what is parked and wait until nothing for this key is still in flight. `dropPending`
+	 * alone cannot stop a POST the runner already started, and such a POST settles *after* the
+	 * caller has moved on — a rejected one re-raising the conflict it was told to resolve. Await
+	 * this before installing a baseline that would make a stale payload acceptable.
+	 */
+	async quiesce(query: UserDraftLastSyncQuery): Promise<void> {
+		const key = draftKey(query.workspace, query.itemKind, query.path)
+		this.dropPending(query)
+		await runner.settled(key)
+		// A save that landed while we waited parks its own opts again; they belong to the version
+		// being replaced, so they go too.
+		this.dropPending(query)
 	}
 }

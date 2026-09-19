@@ -174,10 +174,17 @@
 				labels: v.labels ?? undefined,
 				wsSpecific: v.ws_specific ?? false
 			}
-			// Dropped after the read and before the baseline below: anything an autosave queued
-			// while it was out belongs to the version being replaced, and leaving it parked would
-			// let the fresh baseline make it acceptable — sending it over the version just chosen.
-			UserDraftDbSyncer.dropPending(query)
+			// Everything below writes shared editor state, so first make sure it is still this
+			// variable's: the drawer stays closable while the read is out, and another variable
+			// opened meanwhile would otherwise get this one's baseline — and with it this one's
+			// path as its save target.
+			if (selected !== ws || editPath !== p) return
+			// Anything an autosave queued while the read was out belongs to the version being
+			// replaced. Dropping is not enough on its own: a POST the runner already started
+			// cannot be cancelled, and if it settles after the baseline below, its rejection
+			// raises the conflict again. So wait for the chain to go quiet first.
+			await UserDraftDbSyncer.quiesce(query)
+			if (selected !== ws || editPath !== p) return
 			UserDraftDbSyncer.clearConflict(query)
 			initialStates[ws] = structuredClone(deployedState)
 			UserDraftDbSyncer.recordRemoteSync(query, (v as any).draft_saved_at)
