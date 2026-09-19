@@ -2,14 +2,14 @@
 	import { Alert, Button } from '$lib/components/common'
 	import {
 		clearPageDrawerAnchor,
+		handOffPageDrawer,
 		setPageDrawerAnchor
 	} from '$lib/components/sessions/pageDrawerSession'
 	import { TRIGGER_PAGES } from '$lib/components/sessions/previewPaths'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Path from '$lib/components/Path.svelte'
-	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
-	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
+	import { usedTriggerKinds } from '$lib/stores'
 	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import { Loader2 } from 'lucide-svelte'
@@ -38,9 +38,18 @@
 	import { deepEqual } from 'fast-equals'
 	import { useTriggerDraftSync } from '../useTriggerDraftSync.svelte'
 	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace,
+		useOperatingWorkspaceHref
+	} from '$lib/components/operatingWorkspace.svelte'
 
 	interface Props {
 		useDrawer?: boolean
+		/** With `useDrawer`, render the drawer's content in place, filling the parent, with no drawer or close button. */
+		inline?: boolean
+		/** With `inline`, closes whatever hosts the editor; the header has a close button only when set. */
+		onClose?: () => void
 		description?: Snippet | undefined
 		hideTarget?: boolean
 		hideTooltips?: boolean
@@ -59,6 +68,8 @@
 
 	let {
 		useDrawer = true,
+		inline = false,
+		onClose = undefined,
 		description = undefined,
 		hideTarget = false,
 		hideTooltips = false,
@@ -74,8 +85,11 @@
 		onDelete = undefined,
 		onReset = undefined
 	}: Props = $props()
-	const triggerWs = getTriggerWorkspace()
-	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
+	const operatingHref = useOperatingWorkspaceHref()
+	const wsId = $derived($operatingWorkspace)
 
 	let drawer: Drawer | undefined = $state(undefined)
 	let is_flow: boolean = $state(false)
@@ -89,7 +103,13 @@
 	let pathError = $state('')
 	let mode = $state<TriggerMode>('enabled')
 	let dirtyPath = $state(false)
-	let can_write = $state(true)
+	let permsPath = $state<string | undefined>(undefined)
+	let permsForWrite = $state<Record<string, boolean> | undefined>(undefined)
+	// The acting user in the operating workspace arrives asynchronously, and an unknown user
+	// refuses — so the editor stays read-only until the lookup lands, which is the safe answer.
+	const can_write = $derived(
+		permsPath === undefined ? true : canWrite(permsPath, permsForWrite ?? {}, actingUser)
+	)
 	let drawerLoading = $state(true)
 	let showLoading = $state(false)
 	let aws_resource_path: string = $state('')
@@ -136,6 +156,9 @@
 		defaultConfig?: Record<string, any>,
 		fixedScriptPath_?: string
 	) {
+		if (handOffPageDrawer(TRIGGER_PAGES.sqs.path, ePath)) return
+		// A `whoami` that failed earlier would otherwise pin this workspace to "unknown user".
+		operatingUser.forgetFailures()
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
@@ -214,6 +237,8 @@
 	}
 
 	async function loadTriggerConfig(cfg?: Record<string, any>): Promise<void> {
+		// The loaded trigger says what it runs; an opener's `isFlow` is only its guess.
+		if (cfg?.is_flow !== undefined) itemKind = cfg.is_flow ? 'flow' : 'script'
 		try {
 			script_path = cfg?.script_path
 			initialScriptPath = cfg?.script_path
@@ -224,7 +249,8 @@
 			path = cfg?.path
 			mode = cfg?.mode ?? 'enabled'
 			aws_auth_resource_type = cfg?.aws_auth_resource_type
-			can_write = canWrite(cfg?.path, cfg?.extra_perms, $userStore)
+			permsPath = cfg?.path
+			permsForWrite = cfg?.extra_perms
 			error_handler_path = cfg?.error_handler_path
 			error_handler_args = cfg?.error_handler_args ?? {}
 			retry = cfg?.retry
@@ -370,36 +396,44 @@
 	/>
 {/if}
 
-{#if useDrawer}
+{#snippet drawerBody()}
+	<DrawerContent
+		hideClose={inline && !onClose}
+		fullScreen={!inline}
+		bannerReserved={draftSync.hasBaseline}
+		title={edit
+			? can_write
+				? `Edit SQS trigger ${initialPath}`
+				: `SQS trigger ${initialPath}`
+			: 'New SQS trigger'}
+		on:close={() => (inline ? onClose?.() : drawer?.closeDrawer())}
+	>
+		{#snippet actions()}
+			{@render actionsSnippet()}
+		{/snippet}
+		{#snippet banner()}
+			<LocalDraftBanner
+				show={draftSync.hasDraft}
+				getDeployed={() => draftSync.deployed}
+				reserveSpace={draftSync.hasBaseline}
+				getCurrent={() => draftSync.current}
+				onDiscard={() => draftSync.resetToDeployed(initialPath)}
+				disabled={!can_write}
+			/>
+		{/snippet}
+		{@render config()}
+	</DrawerContent>
+{/snippet}
+
+{#if useDrawer && inline}
+	{@render drawerBody()}
+{:else if useDrawer}
 	<Drawer
 		size="800px"
 		bind:this={drawer}
 		on:close={() => clearPageDrawerAnchor(TRIGGER_PAGES.sqs.path)}
 	>
-		<DrawerContent
-			bannerReserved={draftSync.hasBaseline}
-			title={edit
-				? can_write
-					? `Edit SQS trigger ${initialPath}`
-					: `SQS trigger ${initialPath}`
-				: 'New SQS trigger'}
-			on:close={drawer.closeDrawer}
-		>
-			{#snippet actions()}
-				{@render actionsSnippet()}
-			{/snippet}
-			{#snippet banner()}
-				<LocalDraftBanner
-					show={draftSync.hasDraft}
-					getDeployed={() => draftSync.deployed}
-					reserveSpace={draftSync.hasBaseline}
-					getCurrent={() => draftSync.current}
-					onDiscard={() => draftSync.resetToDeployed(initialPath)}
-					disabled={!can_write}
-				/>
-			{/snippet}
-			{@render config()}
-		</DrawerContent>
+		{@render drawerBody()}
 	</Drawer>
 {:else}
 	<Section label={!customLabel ? 'SQS trigger' : ''} headerClass="grow min-w-0 h-[30px]">
@@ -496,7 +530,7 @@
 						bind:scriptPath={script_path}
 						{initialScriptPath}
 						canWrite={can_write}
-						isOperator={!!$userStore?.operator}
+						isOperator={!!actingUser?.operator}
 						promptText="Pick a script or flow to be triggered "
 					>
 						{#snippet createButton()}
@@ -506,7 +540,9 @@
 									variant="accent"
 									size="xs"
 									disabled={!can_write}
-									href={itemKind === 'flow' ? '/flows/add?hub=59' : '/scripts/add?hub=hub%2F19657'}
+									href={operatingHref(
+										itemKind === 'flow' ? '/flows/add?hub=59' : '/scripts/add?hub=hub%2F19657'
+									)}
 									target="_blank"
 								>
 									Create from template

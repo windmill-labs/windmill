@@ -18,13 +18,7 @@
 		linkedAgentToolsVersion,
 		migrateLinkedAgentToolsScope
 	} from '$lib/components/flows/linkedAgentToolsStore.svelte'
-	import {
-		enterpriseLicense,
-		userStore,
-		userWorkspaces,
-		workspaceStore,
-		usedTriggerKinds
-	} from '$lib/stores'
+	import { enterpriseLicense, userStore, userWorkspaces, usedTriggerKinds } from '$lib/stores'
 	import {
 		generateRandomString,
 		orderedJsonStringify,
@@ -112,6 +106,14 @@
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { setOpenInSessionHandoff } from './sessions/openInSessionContext'
 	import { getEditorStoragePath, setEditorStoragePath } from './editorStoragePathContext'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	let {
 		initialPath = $bindable(''),
@@ -164,9 +166,9 @@
 	// and the AutosaveIndicator all target it. Falls back to the global store, so
 	// the full-page editor is unchanged; the sessions preview overrides it to the
 	// session's (forked) workspace, so an embedded editor acts on the session's
-	// fork rather than the navigation workspace ($workspaceStore, which stays put).
+	// fork rather than the navigation workspace (`workspaceStore`, which stays put).
 	// indicatorPath is the matching draft path.
-	const opWorkspace = $derived(autosaveWorkspace ?? $workspaceStore)
+	const opWorkspace = $derived(autosaveWorkspace ?? $operatingWorkspace)
 	const indicatorPath = $derived(autosavePath ?? liveEditorDraftStoragePath)
 
 	let initialPathStore = writable(initialPath)
@@ -628,7 +630,7 @@
 					await deployTriggers(
 						triggersToDeploy,
 						opWorkspace,
-						!!$userStore?.is_admin || !!$userStore?.is_super_admin,
+						!!actingUser?.is_admin || !!actingUser?.is_super_admin,
 						usedTriggerKinds,
 						$pathStore,
 						true
@@ -639,7 +641,7 @@
 					await deployTriggers(
 						triggersToDeploy,
 						opWorkspace,
-						!!$userStore?.is_admin || !!$userStore?.is_super_admin,
+						!!actingUser?.is_admin || !!actingUser?.is_super_admin,
 						usedTriggerKinds,
 						initialPath
 					)
@@ -1512,7 +1514,7 @@
 <AIChangesWarningModal bind:open={aiChangesWarningOpen} onConfirm={aiChangesConfirmCallback} />
 
 {#key renderCount}
-	{#if !$userStore?.operator}
+	{#if !actingUser?.operator}
 		{#if $pathStore}
 			<FlowHistory bind:this={flowHistory} path={$pathStore} {onHistoryRestore} />
 		{/if}

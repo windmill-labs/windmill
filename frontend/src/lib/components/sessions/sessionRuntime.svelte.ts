@@ -56,7 +56,10 @@ import {
 	selectPreviewTabsToClose,
 	whereIs
 } from './sessionPreviewTabs.svelte'
+import { pageItemKindLabel } from './previewPaths'
 import {
+	pageItemForLocation,
+	pageItemLocation,
 	parsePreviewItemRoute,
 	previewLocationContext,
 	previewLocationLabel,
@@ -387,7 +390,8 @@ function createRuntime(session: Session): SessionRuntime {
 	// What the side panel is showing, stamped on each user message so the chat
 	// knows the page (and the row whose drawer is open) without spending a
 	// get_preview_status round-trip. Live editors are skipped: they register
-	// themselves as the ACTIVE EDITOR through UserDraft's live-draft registry.
+	// themselves as the ACTIVE EDITOR through UserDraft's live-draft registry. A page
+	// item tab is not one of them, and reads as its list page with the item open.
 	manager.activePreviewResolver = () => {
 		const owner = getRuntime(session.id)?.previewTabs
 		// What is on screen, not merely which tab is selected: the rule tells the model
@@ -395,7 +399,8 @@ function createRuntime(session: Session): SessionRuntime {
 		// point those at a page the user cannot see.
 		const tab = owner?.displayedTab
 		if (!tab) return undefined
-		if (resolvePreviewTab(tab.url).kind !== 'iframe') return undefined
+		const slotKind = resolvePreviewTab(tab.url).kind
+		if (slotKind !== 'iframe' && slotKind !== 'pageitem') return undefined
 		return previewLocationContext(whereIs(tab))
 	}
 	// Pre-flight: materialise the (still-transient) session, then commit
@@ -1101,7 +1106,9 @@ async function applyRemoteTurnEnd(sessionId: string, chatId: string): Promise<vo
 // and/or held by a live owner — would otherwise keep showing the old target.
 // Must write through the live owner when one exists; a bare record write would
 // be clobbered by the owner's next flush.
-export function resetSessionPreviewTabs(sessionId: string, url: string): void {
+export function resetSessionPreviewTabs(sessionId: string, seedUrl: string): void {
+	// A list page seeded on a row's drawer opens that row's own tab, as open() would.
+	const url = pageItemLocation(seedUrl)
 	const tabs = [{ id: 'session', url, loc: url }]
 	const rt = runtimes.get(sessionId)
 	if (rt) {
@@ -1179,12 +1186,17 @@ setOpenPreviewHandler(async ({ sessionId: callerSessionId, kind, path }) => {
 // open_page dispatches here to show a workspace page (Runs/Schedules) as a page
 // tab in the calling session's preview panel. Returns undefined when there is no
 // session so open_page can fall back to browser navigation.
-setOpenPagePreviewHandler(({ sessionId: callerSessionId, href, label, newTab }) => {
+setOpenPagePreviewHandler(({ sessionId: callerSessionId, href, label: pageLabel, newTab }) => {
 	const sessionId = callerSessionId ?? sessionState.currentSessionId
 	if (!sessionId) return undefined
 	const session = sessionState.sessions.find((s) => s.id === sessionId)
 	if (!session) return undefined
 	const owner = getOrCreateRuntime(session).previewTabs
+	// A page opened on one item is that item's tab, and the report has to name what opened.
+	const pageItem = pageItemForLocation(href)
+	const label = pageItem
+		? `the ${pageItemKindLabel(pageItem).toLowerCase()} ${promptSafe(pageItem.path)}`
+		: pageLabel
 	// open() owns the whole decision — which tab already shows this page, whether the
 	// requested view differs from what it shows, and whether a forced load is needed to
 	// re-fire a drawer. Deciding any of that again here means two predicates for one
