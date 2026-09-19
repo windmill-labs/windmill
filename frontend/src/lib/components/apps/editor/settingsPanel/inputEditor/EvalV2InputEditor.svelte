@@ -84,7 +84,7 @@
 		<Drawer
 			placement="bottom"
 			on:close={() => (fullscreen = false)}
-			open
+			bind:open={fullscreen}
 			offset={zIndexes.monacoEditor}
 		>
 			<Splitpanes horizontal class="h-full">
