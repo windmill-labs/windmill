@@ -265,6 +265,14 @@
 	/** A resolution is in flight. Both buttons go disabled: clicking the other one midway would
 	 *  race two resolutions of one conflict against each other. */
 	let resolvingConflict = $state(false)
+	/** Identifies the editor instance and the resolution within it. Comparing `selected`/path
+	 *  alone is not enough: closing and reopening the same item gives a *new* editor those same
+	 *  values, so a resolution left over from the old one would pass that check and write into it.
+	 *  Bumped per resolution and zeroed on teardown, so a stale one can always tell it is stale. */
+	let resolveGeneration = 0
+	onDestroy(() => {
+		resolveGeneration = -1
+	})
 	/** The server refused this tab's autosave because the row moved under it: another tab, or the
 	 *  AI chat, which writes these drafts too. Nothing typed here reaches the server until the user
 	 *  picks a version, and the unsaved-changes banner says the opposite — that the edits are held
@@ -282,8 +290,10 @@
 	async function resolveDraftConflict(keepMine: boolean): Promise<void> {
 		const ws = selected
 		const p = initialPath
-		if (!ws || !p || resolvingConflict) return
+		if (!ws || !p || resolvingConflict || resolveGeneration < 0) return
 		const query = { workspace: ws, itemKind: 'resource' as const, path: p }
+		const gen = ++resolveGeneration
+		const stillOurs = () => gen === resolveGeneration && selected === ws && initialPath === p
 		resolvingConflict = true
 		try {
 			if (keepMine) {
@@ -291,7 +301,7 @@
 				// write below, and being conditional it would be refused — so "Keep mine" would
 				// finish without keeping anything and leave the alert standing.
 				await UserDraftDbSyncer.quiesce(query)
-				if (selected !== ws || initialPath !== p) return
+				if (!stillOurs()) return
 				// Forced, so it goes over the row that refused us, and its response reseeds
 				// `last_sync` so the next ordinary save is conditional again.
 				const mine = states[ws]?.draft
@@ -317,13 +327,13 @@
 			// resource's: the drawer stays closable while the read is out, and another resource
 			// opened meanwhile would otherwise get this one's baseline — and with it this one's
 			// path as its save target.
-			if (selected !== ws || initialPath !== p) return
+			if (!stillOurs()) return
 			// Anything an autosave queued while the read was out belongs to the version being
 			// replaced. Dropping is not enough on its own: a POST the runner already started
 			// cannot be cancelled, and if it settles after the baseline below, its rejection
 			// raises the conflict again. So wait for the chain to go quiet first.
 			await UserDraftDbSyncer.quiesce(query)
-			if (selected !== ws || initialPath !== p) return
+			if (!stillOurs()) return
 			UserDraftDbSyncer.clearConflict(query)
 			initialStates[ws] = structuredClone(deployedState)
 			UserDraftDbSyncer.recordRemoteSync(query, (r as any).draft_saved_at)
