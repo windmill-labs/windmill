@@ -588,15 +588,15 @@ dependencies = [
 
 [[package]]
 name = "astral-tokio-tar"
-version = "0.5.6"
+version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec179a06c1769b1e42e1e2cbe74c7dcdb3d6383c838454d063eaac5bbb7ebbe5"
+checksum = "b18457efd137254e016bbde5e1d88df61c4e1a5ae2223746e56123bac6af2463"
 dependencies = [
- "filetime",
  "futures-core",
  "libc",
  "portable-atomic",
  "rustc-hash 2.1.3",
+ "rustix 1.1.4",
  "tokio",
  "tokio-stream",
  "xattr",
@@ -1070,15 +1070,16 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-config"
-version = "1.68.0"
+version = "1.101.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b7de8bcff88ff2948bf2154204b7eba0ea30698c1c23770c4a917505fb9fcbd5"
+checksum = "0360cf8f8ab0e328f89b5c60bdcc6203ebce83b8a018c05ed177c4f32f819aff"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
  "aws-smithy-async",
- "aws-smithy-http 0.62.6",
- "aws-smithy-json 0.61.9",
+ "aws-smithy-http 0.63.4",
+ "aws-smithy-json 0.62.4",
+ "aws-smithy-observability",
  "aws-smithy-runtime",
  "aws-smithy-runtime-api",
  "aws-smithy-types",
@@ -1086,7 +1087,7 @@ dependencies = [
  "bytes",
  "fastrand 2.5.0",
  "http 0.2.12",
- "once_cell",
+ "http 1.5.0",
  "regex-lite",
  "tracing",
 ]
@@ -1144,15 +1145,16 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-sqs"
-version = "1.77.0"
+version = "1.94.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32a6dcd63dffae1f7872df42ce9f1f0f785f8c9a3d3e880ef6c171d0415439df"
+checksum = "0894909314920ab2c907110e7f91b9f7a6c826bdc830ccf36079c69af2b82335"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
  "aws-smithy-async",
- "aws-smithy-http 0.62.6",
- "aws-smithy-json 0.61.9",
+ "aws-smithy-http 0.63.4",
+ "aws-smithy-json 0.62.4",
+ "aws-smithy-observability",
  "aws-smithy-runtime",
  "aws-smithy-runtime-api",
  "aws-smithy-types",
@@ -1160,6 +1162,7 @@ dependencies = [
  "bytes",
  "fastrand 2.5.0",
  "http 0.2.12",
+ "http 1.5.0",
  "regex-lite",
  "tracing",
 ]
@@ -1214,15 +1217,16 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-sts"
-version = "1.79.0"
+version = "1.98.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "317377afba3498fca4948c5d32b399ef9a5ad35561a1e8a6f2ac7273dabf802d"
+checksum = "89c4f19655ab0856375e169865c91264de965bd74c407c7f1e403184b1049409"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
  "aws-smithy-async",
- "aws-smithy-http 0.62.6",
- "aws-smithy-json 0.61.9",
+ "aws-smithy-http 0.63.4",
+ "aws-smithy-json 0.62.4",
+ "aws-smithy-observability",
  "aws-smithy-query",
  "aws-smithy-runtime",
  "aws-smithy-runtime-api",
@@ -1231,6 +1235,7 @@ dependencies = [
  "aws-types",
  "fastrand 2.5.0",
  "http 0.2.12",
+ "http 1.5.0",
  "regex-lite",
  "tracing",
 ]
@@ -2221,7 +2226,7 @@ dependencies = [
  "memmap2",
  "num-traits",
  "num_cpus",
- "rand 0.9.0",
+ "rand 0.9.5",
  "rand_distr",
  "rayon",
  "safetensors",
@@ -2257,7 +2262,7 @@ dependencies = [
  "candle-nn",
  "fancy-regex 0.17.0",
  "num-traits",
- "rand 0.9.0",
+ "rand 0.9.5",
  "rayon",
  "serde",
  "serde_json",
@@ -5101,7 +5106,7 @@ checksum = "719a903cc23e4a89e87962c2a80fdb45cdaad0983a89bd150bb57b4c8571a7d5"
 dependencies = [
  "half",
  "num-traits",
- "rand 0.9.0",
+ "rand 0.9.5",
  "rand_distr",
 ]
 
@@ -5833,7 +5838,7 @@ dependencies = [
  "cfg-if",
  "crunchy",
  "num-traits",
- "rand 0.9.0",
+ "rand 0.9.5",
  "rand_distr",
  "zerocopy",
 ]
@@ -5975,7 +5980,7 @@ dependencies = [
  "log",
  "native-tls",
  "num_cpus",
- "rand 0.9.0",
+ "rand 0.9.5",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
@@ -6002,7 +6007,7 @@ dependencies = [
  "idna",
  "ipnet",
  "once_cell",
- "rand 0.9.0",
+ "rand 0.9.5",
  "serde",
  "thiserror 2.0.20",
  "tinyvec",
@@ -6024,7 +6029,7 @@ dependencies = [
  "moka",
  "once_cell",
  "parking_lot",
- "rand 0.9.0",
+ "rand 0.9.5",
  "resolv-conf",
  "serde",
  "smallvec",
@@ -8440,7 +8445,7 @@ dependencies = [
  "parking_lot",
  "percent-encoding",
  "quick-xml",
- "rand 0.9.0",
+ "rand 0.9.5",
  "reqwest 0.12.28",
  "ring 0.17.14",
  "rustls-pemfile 2.2.0",
@@ -8809,7 +8814,7 @@ dependencies = [
  "futures-util",
  "opentelemetry 0.30.0",
  "percent-encoding",
- "rand 0.9.0",
+ "rand 0.9.5",
  "serde_json",
  "thiserror 2.0.20",
  "tokio",
@@ -8911,7 +8916,7 @@ dependencies = [
  "hmac",
  "pkcs12",
  "pkcs5",
- "rand 0.9.0",
+ "rand 0.9.5",
  "rc2",
  "sha1",
  "sha2 0.10.9",
@@ -9504,7 +9509,7 @@ dependencies = [
  "hmac",
  "md-5 0.10.6",
  "memchr",
- "rand 0.9.0",
+ "rand 0.9.5",
  "sha2 0.10.9",
  "stringprep",
 ]
@@ -9959,13 +9964,12 @@ dependencies = [
 
 [[package]]
 name = "rand"
-version = "0.9.0"
+version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3779b94aeb87e8bd4e834cee3650289ee9e0d5677f976ecdb6d219e5f4f6cd94"
+checksum = "b9ef1d0d795eb7d84685bca4f72f3649f064e6641543d3a8c415898726a57b41"
 dependencies = [
  "rand_chacha 0.9.0",
  "rand_core 0.9.5",
- "zerocopy",
 ]
 
 [[package]]
@@ -10049,7 +10053,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6a8615d50dcf34fa31f7ab52692afec947c4dd0ab803cc87cb3b0b4570ff7463"
 dependencies = [
  "num-traits",
- "rand 0.9.0",
+ "rand 0.9.5",
 ]
 
 [[package]]
@@ -11114,7 +11118,7 @@ dependencies = [
  "openssl-sys",
  "pkg-config",
  "quick-xml",
- "rand 0.9.0",
+ "rand 0.9.5",
  "serde",
  "thiserror 2.0.20",
  "url",
@@ -13397,7 +13401,7 @@ dependencies = [
  "pin-project-lite",
  "postgres-protocol",
  "postgres-types",
- "rand 0.9.0",
+ "rand 0.9.5",
  "socket2 0.6.5",
  "tokio",
  "tokio-util",
@@ -14089,7 +14093,7 @@ version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "470dbf6591da1b39d43c14523b2b469c86879a53e8b758c8e090a470fe7b1fbe"
 dependencies = [
- "rand 0.9.0",
+ "rand 0.9.5",
  "uuid",
  "web-time",
 ]
@@ -14816,7 +14820,7 @@ dependencies = [
  "opentelemetry 0.30.0",
  "opentelemetry_sdk 0.30.0",
  "prometheus",
- "rand 0.9.0",
+ "rand 0.9.5",
  "rdkafka",
  "reqwest 0.13.5",
  "rumqttc",
@@ -14976,7 +14980,7 @@ dependencies = [
  "prometheus",
  "quick-xml",
  "quick_cache",
- "rand 0.9.0",
+ "rand 0.9.5",
  "regex",
  "reqwest 0.13.5",
  "rsa",
@@ -15292,7 +15296,7 @@ dependencies = [
  "futures",
  "hex",
  "hmac",
- "rand 0.9.0",
+ "rand 0.9.5",
  "rdkafka",
  "reqwest 0.13.5",
  "rmcp",
@@ -15655,7 +15659,7 @@ dependencies = [
  "postgres-native-tls 0.5.3",
  "prometheus",
  "quick_cache",
- "rand 0.9.0",
+ "rand 0.9.5",
  "regex",
  "reqwest 0.13.5",
  "reqwest-middleware",
@@ -16216,7 +16220,7 @@ dependencies = [
  "once_cell",
  "prometheus",
  "quick_cache",
- "rand 0.9.0",
+ "rand 0.9.5",
  "regex",
  "reqwest 0.13.5",
  "serde",
@@ -16356,7 +16360,7 @@ dependencies = [
  "hyper 1.11.1",
  "itertools 0.14.0",
  "lazy_static",
- "rand 0.9.0",
+ "rand 0.9.5",
  "reqwest 0.13.5",
  "serde",
  "serde_json",
@@ -16420,7 +16424,7 @@ dependencies = [
  "itertools 0.14.0",
  "lazy_static",
  "quick_cache",
- "rand 0.9.0",
+ "rand 0.9.5",
  "reqwest 0.13.5",
  "serde",
  "serde_json",
@@ -16615,7 +16619,7 @@ dependencies = [
  "pg_escape",
  "postgres-native-tls 0.5.2",
  "quick_cache",
- "rand 0.9.0",
+ "rand 0.9.5",
  "rust_decimal",
  "serde",
  "serde_json",
@@ -16695,7 +16699,7 @@ dependencies = [
  "chrono",
  "hex",
  "itertools 0.14.0",
- "rand 0.9.0",
+ "rand 0.9.5",
  "serde",
  "serde_json",
  "sqlx",
@@ -16760,7 +16764,7 @@ dependencies = [
  "prometheus",
  "prost",
  "quick_cache",
- "rand 0.9.0",
+ "rand 0.9.5",
  "rcgen",
  "regex",
  "reqwest 0.13.5",
