@@ -20,6 +20,7 @@
 	import { useActingUser } from '$lib/actingUser.svelte'
 	import { UserDraft, draftValuesEqual, type UserDraftHandle } from '$lib/userDraft.svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+	import { useDraftConflictSession } from '$lib/draftConflictSession.svelte'
 	import DraftConflictAlert from './DraftConflictAlert.svelte'
 	import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
 	import { onUserInput } from '$lib/userDraftEditGate'
@@ -266,22 +267,16 @@
 	)
 	const anyDirty = $derived(dirtyWorkspaces.length > 0)
 
-	/** Which editing session a conflict resolution belongs to. Comparing `selected`/path is not
-	 *  enough — this component outlives the drawer and reopening the same resource reuses it with
-	 *  those same values — so a resolution carries the session it started in and every step checks
-	 *  it is still the current one. */
-	let resolveGeneration = 0
-	/** Nothing outstanding speaks for this editor any more. Exported because the drawer, not this
-	 *  component, is what knows a session has ended. */
+	/** This component outlives the drawer and reopening the same resource reuses it with the same
+	 *  `selected`/path, so a resolution cannot tell from those whether it still speaks for what is
+	 *  on screen. Ending is exported because the drawer, not this component, knows when a session
+	 *  is over. */
+	const conflictSession = useDraftConflictSession()
 	export function endEditingSession(): void {
-		resolveGeneration++
+		conflictSession.end()
 	}
 	onDestroy(endEditingSession)
-	/** The session whose resolution is in flight, or 0. Scoped by generation rather than a plain
-	 *  flag: a request left over from a closed session must not leave the next one showing busy
-	 *  buttons it can never un-disable, and its `finally` must not clear a newer one's. */
-	let resolvingFor = $state(0)
-	const resolvingConflict = $derived(resolvingFor !== 0 && resolvingFor === resolveGeneration)
+	const resolvingConflict = $derived(conflictSession.busy)
 	/** The server refused this tab's autosave because the row moved under it: another tab, or the
 	 *  AI chat, which writes these drafts too. Nothing typed here reaches the server until the user
 	 *  picks a version, and the unsaved-changes banner says the opposite — that the edits are held
@@ -301,9 +296,8 @@
 		const p = initialPath
 		if (!ws || !p || resolvingConflict) return
 		const query = { workspace: ws, itemKind: 'resource' as const, path: p }
-		const gen = ++resolveGeneration
-		const stillOurs = () => gen === resolveGeneration && selected === ws
-		resolvingFor = gen
+		const token = conflictSession.start()
+		const stillOurs = () => conflictSession.holds(token) && selected === ws
 		try {
 			if (keepMine) {
 				// Settle the key first: an ordinary autosave still queued would displace the forced
@@ -357,9 +351,7 @@
 			// resolve again — which is the whole point of reading first.
 			sendUserToast(`Could not load the other version: ${e}`, true)
 		} finally {
-			// Only if it is still ours: a stale one settling later must not clear the busy state of
-			// the session that replaced it.
-			if (resolvingFor === gen) resolvingFor = 0
+			conflictSession.finish(token)
 		}
 	}
 
