@@ -1455,6 +1455,17 @@
 						clearable={false}
 					/>
 				</div>
+				<div>
+					<span class="text-2xs text-secondary">Options</span>
+					<TextInput
+						bind:value={() => wiz.own.fields.options ?? '', (v) => setField('options', v)}
+						inputProps={{ placeholder: 'endpoint=ep-example-123456' }}
+					/>
+					<p class="text-2xs text-secondary mt-1">
+						Startup options sent to the server, such as the endpoint ID a Neon pooled or private
+						connection needs.
+					</p>
+				</div>
 				<Toggle
 					size="xs"
 					checked={wiz.own.advanced.use_iam_auth}
