@@ -20,6 +20,7 @@
 	import { useActingUser } from '$lib/actingUser.svelte'
 	import { UserDraft, draftValuesEqual, type UserDraftHandle } from '$lib/userDraft.svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+	import DraftConflictAlert from './DraftConflictAlert.svelte'
 	import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
 	import { onUserInput } from '$lib/userDraftEditGate'
 
@@ -639,6 +640,18 @@
 
 <div>
 	<div class="flex flex-col gap-6 pb-2">
+		<!-- Only when nobody above is showing it. A host that takes `onDraftConflictChange` puts it
+		     in its own fixed banner, where a long form cannot scroll it out of view; one that embeds
+		     this editor directly — the AI chat's MCP section, and the SDK surface — would otherwise
+		     get no warning at all, which is the very thing this alert exists to prevent. -->
+		{#if draftConflict && !onDraftConflictChange}
+			<DraftConflictAlert
+				busy={resolvingConflict}
+				onReload={() => void resolveDraftConflict(false)}
+				onOverwrite={() => void resolveDraftConflict(true)}
+			/>
+		{/if}
+
 		{#if otherDirty.length > 0}
 			<Alert type="warning" title="Editing multiple workspaces">
 				You are going to edit the value in: {otherDirty.join(', ')}
