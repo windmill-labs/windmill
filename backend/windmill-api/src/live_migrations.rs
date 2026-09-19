@@ -160,30 +160,42 @@ async fn run_background_migrations(db: &DB) -> Result<(), Error> {
         return Ok(());
     }
 
-    const AUDIT_OPERATION_INDEX: &str = "audit_partitioned_workspace_operation_index";
-    if !background_migration_done(&mut conn, AUDIT_OPERATION_INDEX).await? {
-        create_audit_operation_index(&mut conn).await?;
-        mark_background_migration_done(&mut conn, AUDIT_OPERATION_INDEX).await?;
-    }
-
-    const RETIRE_LEGACY_AUDIT: &str = "retire_legacy_audit_table";
-    if !background_migration_done(&mut conn, RETIRE_LEGACY_AUDIT).await? {
+    for step in [AUDIT_OPERATION_INDEX, RETIRE_LEGACY_AUDIT] {
+        if background_migration_done(&mut conn, step).await? {
+            continue;
+        }
+        // Steps bound the lock waits that would queue audit inserts behind them with
+        // lock_timeout, and resume where they stopped, so a lock timeout is retried here.
         let mut attempt = 1;
         loop {
-            match retire_legacy_audit_table(&mut conn).await {
+            let run = match step {
+                AUDIT_OPERATION_INDEX => create_audit_operation_index(&mut conn).await,
+                RETIRE_LEGACY_AUDIT => retire_legacy_audit_table(&mut conn).await,
+                _ => unreachable!("background migration {step} has no step function"),
+            };
+            match run {
                 Ok(()) => break,
                 Err(err) if attempt < 10 && is_lock_timeout(&err) => {
-                    tracing::warn!("Retiring the legacy audit table timed out on a lock, retrying in 30s: {err:#}");
+                    tracing::warn!(
+                        "Background migration {step} timed out on a lock, retrying in 30s: {err:#}"
+                    );
                     attempt += 1;
                     tokio::time::sleep(std::time::Duration::from_secs(30)).await;
                 }
                 Err(err) => return Err(err),
             }
         }
-        mark_background_migration_done(&mut conn, RETIRE_LEGACY_AUDIT).await?;
+        mark_background_migration_done(&mut conn, step).await?;
     }
     Ok(())
 }
+
+const AUDIT_OPERATION_INDEX: &str = "audit_partitioned_workspace_operation_index";
+const RETIRE_LEGACY_AUDIT: &str = "retire_legacy_audit_table";
+
+// Short on purpose: a statement waiting for its lock is also a wait for every audit insert
+// queued behind it.
+const STEP_LOCK_TIMEOUT: &str = "SET lock_timeout = '1s'";
 
 fn is_lock_timeout(err: &Error) -> bool {
     matches!(err, Error::SqlErr { error: sqlx::Error::Database(db_err), .. }
@@ -215,14 +227,20 @@ const AUDIT_OPERATION_INDEX_KEY: &str = r#"(workspace_id, operation, id DESC, "t
 /// partition is built CONCURRENTLY instead and attached to a parent created `ON ONLY`, which turns
 /// valid once all partitions are attached. Partitions created later get the index from the parent.
 async fn create_audit_operation_index(conn: &mut PgConnection) -> Result<(), Error> {
-    conn.execute(
-        format!(
-            "CREATE INDEX IF NOT EXISTS ix_audit_partitioned_workspace_operation \
-             ON ONLY audit_partitioned {AUDIT_OPERATION_INDEX_KEY}"
+    // Metadata only, but it waits for every open transaction that wrote an audit row, and every
+    // audit insert (so every job push) queues behind it meanwhile. Give up early instead.
+    conn.execute(STEP_LOCK_TIMEOUT).await?;
+    let created = conn
+        .execute(
+            format!(
+                "CREATE INDEX IF NOT EXISTS ix_audit_partitioned_workspace_operation \
+                 ON ONLY audit_partitioned {AUDIT_OPERATION_INDEX_KEY}"
+            )
+            .as_str(),
         )
-        .as_str(),
-    )
-    .await?;
+        .await;
+    conn.execute("RESET lock_timeout").await?;
+    created?;
     let partitions: Vec<String> = sqlx::query_scalar(
         "SELECT c.relname::text FROM pg_inherits p JOIN pg_class c ON c.oid = p.inhrelid
          WHERE p.inhparent = 'audit_partitioned'::regclass
@@ -280,7 +298,7 @@ async fn retire_legacy_audit_table(conn: &mut PgConnection) -> Result<(), Error>
     // Creating a partition and re-owning the sequence queue every audit insert (so every job
     // push) behind them while they wait for their own lock, e.g. on a long-running reader, and
     // the DROP queues older servers' reads the same way. Give up early and retry instead.
-    conn.execute("SET lock_timeout = '5s'").await?;
+    conn.execute(STEP_LOCK_TIMEOUT).await?;
 
     let days: Vec<chrono::NaiveDate> = sqlx::query_scalar(
         "SELECT DISTINCT timestamp::date FROM audit
@@ -324,6 +342,21 @@ async fn retire_legacy_audit_table(conn: &mut PgConnection) -> Result<(), Error>
     conn.execute("ALTER SEQUENCE audit_id_seq OWNED BY audit_partitioned.id")
         .await?;
     let mut tx = conn.begin().await?;
+    // Servers older than audit partitioning still write to the table during a rolling upgrade:
+    // rows they added after their day was moved above are swept up under the lock.
+    tx.execute("LOCK TABLE audit IN ACCESS EXCLUSIVE MODE")
+        .await?;
+    tx.execute(
+        format!(
+            "WITH moved AS (
+                 DELETE FROM audit WHERE timestamp > now() - interval '30 days'
+                 RETURNING {AUDIT_COLUMNS}
+             )
+             INSERT INTO audit_partitioned ({AUDIT_COLUMNS}) SELECT {AUDIT_COLUMNS} FROM moved"
+        )
+        .as_str(),
+    )
+    .await?;
     tx.execute("DROP TABLE audit").await?;
     tx.execute(
         format!("CREATE VIEW audit AS SELECT {AUDIT_COLUMNS} FROM audit_partitioned WHERE false")
