@@ -150,10 +150,20 @@
 		resolvingConflict = true
 		try {
 			if (keepMine) {
+				// Settle the key first: an ordinary autosave still queued would displace the forced
+				// write below, and being conditional it would be refused — so "Keep mine" would
+				// finish without keeping anything and leave the alert standing.
+				await UserDraftDbSyncer.quiesce(query)
+				if (selected !== ws || editPath !== p) return
 				// Forced, so it goes over the row that refused us, and its response reseeds
 				// `last_sync` so the next ordinary save is conditional again.
 				const mine = states[ws]?.draft
 				if (mine) await UserDraftDbSyncer.overwrite({ ...query, value: $state.snapshot(mine) })
+				// Say so rather than leave the alert up with no explanation: a write displaced by
+				// something typed meanwhile can still lose the race.
+				if (UserDraftDbSyncer.getConflict(query).conflict) {
+					sendUserToast('Could not keep your version — try again', true)
+				}
 				return
 			}
 			// Read BEFORE giving anything up: until the server has answered, the refused payload is
