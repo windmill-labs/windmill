@@ -20,7 +20,6 @@
 	import { useActingUser } from '$lib/actingUser.svelte'
 	import { UserDraft, draftValuesEqual, type UserDraftHandle } from '$lib/userDraft.svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
-	import DraftConflictAlert from './DraftConflictAlert.svelte'
 	import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
 	import { onUserInput } from '$lib/userDraftEditGate'
 
@@ -47,6 +46,9 @@
 		 * so it can hide the banner's Discard button in read-only mode (matches
 		 * the trigger editors' `disabled={!can_write}` wiring). */
 		onCanWriteChange?: (canWrite: boolean) => void
+		/** The drawer renders the conflict alert: inside this scrollable form it can land above the
+		 *  viewport on a long resource, leaving the fixed banner claiming the edits are saved. */
+		onDraftConflictChange?: (state: { conflicted: boolean; busy: boolean }) => void
 	}
 
 	let {
@@ -60,7 +62,8 @@
 		selected: selectedProp = $bindable(),
 		viewJsonSchema = $bindable(),
 		onDraftStateChange,
-		onCanWriteChange
+		onCanWriteChange,
+		onDraftConflictChange
 	}: Props = $props()
 
 	type ResourceState = {
@@ -262,9 +265,6 @@
 	)
 	const anyDirty = $derived(dirtyWorkspaces.length > 0)
 
-	/** A resolution is in flight. Both buttons go disabled: clicking the other one midway would
-	 *  race two resolutions of one conflict against each other. */
-	let resolvingConflict = $state(false)
 	/** Which editing session a conflict resolution belongs to. Comparing `selected`/path is not
 	 *  enough — this component outlives the drawer and reopening the same resource reuses it with
 	 *  those same values — so a resolution carries the session it started in and every step checks
@@ -276,6 +276,11 @@
 		resolveGeneration++
 	}
 	onDestroy(endEditingSession)
+	/** The session whose resolution is in flight, or 0. Scoped by generation rather than a plain
+	 *  flag: a request left over from a closed session must not leave the next one showing busy
+	 *  buttons it can never un-disable, and its `finally` must not clear a newer one's. */
+	let resolvingFor = $state(0)
+	const resolvingConflict = $derived(resolvingFor !== 0 && resolvingFor === resolveGeneration)
 	/** The server refused this tab's autosave because the row moved under it: another tab, or the
 	 *  AI chat, which writes these drafts too. Nothing typed here reaches the server until the user
 	 *  picks a version, and the unsaved-changes banner says the opposite — that the edits are held
@@ -297,7 +302,7 @@
 		const query = { workspace: ws, itemKind: 'resource' as const, path: p }
 		const gen = ++resolveGeneration
 		const stillOurs = () => gen === resolveGeneration && selected === ws
-		resolvingConflict = true
+		resolvingFor = gen
 		try {
 			if (keepMine) {
 				// Settle the key first: an ordinary autosave still queued would displace the forced
@@ -351,7 +356,9 @@
 			// resolve again — which is the whole point of reading first.
 			sendUserToast(`Could not load the other version: ${e}`, true)
 		} finally {
-			resolvingConflict = false
+			// Only if it is still ours: a stale one settling later must not clear the busy state of
+			// the session that replaced it.
+			if (resolvingFor === gen) resolvingFor = 0
 		}
 	}
 
@@ -518,6 +525,13 @@
 	$effect(() => {
 		onCanWriteChange?.(can_write === true)
 	})
+	$effect(() => {
+		onDraftConflictChange?.({ conflicted: !!draftConflict, busy: resolvingConflict })
+	})
+
+	export function resolveDraftConflictFromBanner(keepMine: boolean): void {
+		void resolveDraftConflict(keepMine)
+	}
 
 	export function localDraftDeployed(): ResourceState | undefined {
 		return selected ? initialStates[selected] : undefined
@@ -625,14 +639,6 @@
 
 <div>
 	<div class="flex flex-col gap-6 pb-2">
-		{#if draftConflict}
-			<DraftConflictAlert
-				busy={resolvingConflict}
-				onReload={() => void resolveDraftConflict(false)}
-				onOverwrite={() => void resolveDraftConflict(true)}
-			/>
-		{/if}
-
 		{#if otherDirty.length > 0}
 			<Alert type="warning" title="Editing multiple workspaces">
 				You are going to edit the value in: {otherDirty.join(', ')}

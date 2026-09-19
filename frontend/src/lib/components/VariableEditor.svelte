@@ -125,9 +125,6 @@
 		Object.keys(states).filter((ws) => !draftValuesEqual(states[ws].draft, initialStates[ws]))
 	)
 
-	/** A resolution is in flight. Both buttons go disabled: clicking the other one midway would
-	 *  race two resolutions of one conflict against each other. */
-	let resolvingConflict = $state(false)
 	/** Which editing session a conflict resolution belongs to. Comparing `selected`/path is not
 	 *  enough — reopening the same variable reuses this component and those same values — so a
 	 *  resolution carries the session it started in and every step checks it is still the current
@@ -139,6 +136,11 @@
 		resolveGeneration++
 	}
 	onDestroy(endEditingSession)
+	/** The session whose resolution is in flight, or 0. Scoped by generation rather than a plain
+	 *  flag: a request left over from a closed session must not leave the next one showing busy
+	 *  buttons it can never un-disable, and its `finally` must not clear a newer one's. */
+	let resolvingFor = $state(0)
+	const resolvingConflict = $derived(resolvingFor !== 0 && resolvingFor === resolveGeneration)
 	/** The server refused this tab's autosave because the row moved under it: another tab, or the
 	 *  AI chat, which writes these drafts too. Nothing typed here reaches the server until the user
 	 *  picks a version, and the unsaved-changes banner says the opposite — that the edits are held
@@ -160,7 +162,7 @@
 		const query = { workspace: ws, itemKind: 'variable' as const, path: p }
 		const gen = ++resolveGeneration
 		const stillOurs = () => gen === resolveGeneration && selected === ws
-		resolvingConflict = true
+		resolvingFor = gen
 		try {
 			if (keepMine) {
 				// Settle the key first: an ordinary autosave still queued would displace the forced
@@ -222,7 +224,9 @@
 			// resolve again — which is the whole point of reading first.
 			sendUserToast(`Could not load the other version: ${e}`, true)
 		} finally {
-			resolvingConflict = false
+			// Only if it is still ours: a stale one settling later must not clear the busy state of
+			// the session that replaced it.
+			if (resolvingFor === gen) resolvingFor = 0
 		}
 	}
 

@@ -9,6 +9,7 @@
 	import { isOwner } from '$lib/utils'
 	import { useActingUser } from '$lib/actingUser.svelte'
 	import LocalDraftBanner from './LocalDraftBanner.svelte'
+	import DraftConflictAlert from './DraftConflictAlert.svelte'
 	import OpenInSessionButton from './sessions/OpenInSessionButton.svelte'
 	import {
 		clearPageDrawerAnchor,
@@ -50,9 +51,11 @@
 				localDraftCurrent: () => unknown
 				discardLocalDraft: () => void
 				endEditingSession: () => void
+				resolveDraftConflictFromBanner: (keepMine: boolean) => void
 		  }
 		| undefined = $state(undefined)
 	let hasLocalDraft = $state(false)
+	let draftConflict = $state({ conflicted: false, busy: false })
 	let canWriteSelected = $state(true)
 
 	let path: string | undefined = $state(undefined)
@@ -166,10 +169,18 @@
 				bind:selected
 				bind:viewJsonSchema
 				onDraftStateChange={(v) => (hasLocalDraft = v)}
+				onDraftConflictChange={(v) => (draftConflict = v)}
 				onCanWriteChange={(v) => (canWriteSelected = v)}
 			/>
 		{/await}
 		{#snippet banner()}
+			{#if draftConflict.conflicted}
+				<DraftConflictAlert
+					busy={draftConflict.busy}
+					onReload={() => resourceEditor?.resolveDraftConflictFromBanner?.(false)}
+					onOverwrite={() => resourceEditor?.resolveDraftConflictFromBanner?.(true)}
+				/>
+			{/if}
 			<LocalDraftBanner
 				show={hasLocalDraft}
 				reserveSpace={mode == 'edit'}
