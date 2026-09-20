@@ -1583,3 +1583,49 @@ async fn declarative_sync_rejects_an_unusable_default_allowed_origins(db: Pool<P
     .await
     .expect("a valid origin list must sync");
 }
+
+/// While Windmill has databases on the external cluster, a sync may change its login but not
+/// point it at another cluster: the databases would be stranded there, and their registry and
+/// role passwords applied to a cluster that has neither.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+#[sqlx::test(fixtures("base"))]
+async fn declarative_sync_keeps_the_external_cluster_while_it_holds_databases(db: Pool<Postgres>) {
+    clear_settings_and_configs(&db).await;
+    let cluster = |host: &str, password: &str| serde_json::json!({ "host": host, "port": 5432, "user": "wm_admin", "password": password });
+    sqlx::query(
+        "INSERT INTO global_settings (name, value) VALUES
+             ('external_instance_pg', $1),
+             ('external_instance_pg_state', '{\"databases\": {\"dt_a\": {\"success\": true}}}')",
+    )
+    .bind(cluster("pg-a.internal", "one"))
+    .execute(&db)
+    .await
+    .unwrap();
+    let current = BTreeMap::from([(
+        "external_instance_pg".to_string(),
+        cluster("pg-a.internal", "one"),
+    )]);
+    let sync = |value: serde_json::Value| {
+        let desired = BTreeMap::from([("external_instance_pg".to_string(), value)]);
+        let (db, current) = (db.clone(), current.clone());
+        async move {
+            windmill_common::instance_config::sync_global_settings_declarative(
+                &db, &current, &desired,
+            )
+            .await
+        }
+    };
+
+    let err = sync(cluster("pg-b.internal", "one"))
+        .await
+        .expect_err("another host must be refused while dt_a is registered");
+    assert!(err.to_string().contains("dt_a"), "got: {err}");
+    assert_eq!(
+        get_global_setting(&db, "external_instance_pg").await,
+        Some(cluster("pg-a.internal", "one"))
+    );
+
+    sync(cluster("PG-A.internal ", "two"))
+        .await
+        .expect("a new login on the same cluster must sync");
+}
