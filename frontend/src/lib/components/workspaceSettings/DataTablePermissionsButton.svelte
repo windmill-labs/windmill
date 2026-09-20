@@ -258,6 +258,12 @@
 						data table backed by that database can use one. This one is backed by a PostgreSQL
 						resource — grant access on that server directly.
 					</Alert>
+				{:else if info?.clone_of}
+					<Alert type="info" title="Governed by {info.clone_of.workspace_id}" size="xs">
+						This data table is a clone of <span class="font-mono">{info.clone_of.datatable}</span>
+						in workspace <span class="font-mono">{info.clone_of.workspace_id}</span>, so it takes
+						its roles from there. You are evaluated as a member of that workspace.
+					</Alert>
 				{:else if governing}
 					<Alert type="info" title="Governed by {governing}" size="xs">
 						This data table points at the one in workspace <span class="font-mono">{governing}</span

@@ -33743,6 +33743,15 @@ components:
             $ref: "#/components/schemas/DatatableRoleTenants"
         governing_workspace_id:
           type: string
+        clone_of:
+          type: object
+          description: for a clone, the data table whose roles it takes
+          required: [workspace_id, datatable]
+          properties:
+            workspace_id:
+              type: string
+            datatable:
+              type: string
         editable:
           type: boolean
         available_roles:
@@ -33981,7 +33990,7 @@ components:
 
     DatatableAclInfo:
       type: object
-      required: [owner, roles, editable, supports_maintain, dbname, grants, children]
+      required: [owner, roles, editable, clone, supports_maintain, dbname, grants, children]
       properties:
         owner:
           type: string
@@ -33993,6 +34002,9 @@ components:
         editable:
           type: boolean
           description: whether the caller may plan and apply changes
+        clone:
+          type: boolean
+          description: whether this is a clone, whose grants stay as they were copied
         supports_maintain:
           type: boolean
           description: whether the server is Postgres 17+, which added the MAINTAIN table privilege
@@ -35142,6 +35154,16 @@ components:
               new_dbname:
                 type: string
                 description: "New database name for the fork"
+              fork_behavior:
+                type: string
+                enum:
+                  - schema_only
+                  - schema_and_data
+                description: >-
+                  What the fork request copies into `new_dbname`, which it creates — with the
+                  owners and grants of a data table under roles. This server refuses an entry
+                  without it; servers predating it expect `new_dbname` created and filled
+                  beforehand.
         shared_ducklakes:
           type: array
           items:
@@ -36077,6 +36099,17 @@ components:
                 description: >-
                   The workspace and data table that govern this one. Server-owned: written by fork
                   creation, and carried across a settings save whatever the request says.
+                type: object
+                required: [workspace_id, datatable]
+                properties:
+                  workspace_id:
+                    type: string
+                  datatable:
+                    type: string
+              governed_by:
+                description: >-
+                  On a clone, the data table it was copied from, whose roles it takes. Server-owned
+                  like `reference`.
                 type: object
                 required: [workspace_id, datatable]
                 properties:
