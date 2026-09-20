@@ -1,3 +1,4 @@
+import { randomUUID } from '$lib/utils/uuid'
 import {
 	AppService,
 	AzureTriggerService,
@@ -17,7 +18,8 @@ import {
 	ScriptService,
 	SqsTriggerService,
 	VariableService,
-	WebsocketTriggerService
+	WebsocketTriggerService,
+	WorkerService
 } from '$lib/gen'
 import { createTwoFilesPatch } from 'diff'
 import { deepEqual } from 'fast-equals'
@@ -179,6 +181,7 @@ import {
 	workspaceStore
 } from '$lib/stores'
 import { getWorkspaceRole, type RoleLookup } from '$lib/user'
+import { refreshSuperadmin } from '$lib/refreshUser'
 import { get } from 'svelte/store'
 import {
 	canonicalDraftSideValue,
@@ -724,6 +727,17 @@ const listRunsSchema = z.object({
 		.describe('Max number of runs to return, most recent first. Defaults to 30.')
 })
 
+// `GET /workers/list` hides workers from a caller without the devops role by
+// returning an empty list, not an error, when HIDE_WORKERS_FOR_NON_ADMINS is set.
+// The flag is not visible here, so absence is only provable for a devops or
+// superadmin caller; every other caller gets the hedge even where nothing is hidden.
+const NO_WORKERS_VISIBLE_MESSAGE =
+	'No workers came back. This does NOT establish that no workers are running: an instance can hide workers from callers without the devops role, and it does so by returning an empty list rather than an error. ' +
+	'Tell the user you cannot see any workers and that worker visibility may be restricted for your account, and suggest they check the Workers page themselves. Never state that no workers are online or that the instance has none.'
+const NO_WORKERS_CONNECTED_MESSAGE =
+	'No workers are connected to this instance (none pinged in the last 5 minutes). Queued runs will stay queued until a worker starts.'
+const WORKER_PAGE_SIZE = 100
+
 const deleteWorkspaceItemSchema = z.object({
 	type: itemTypeSchema,
 	path: z.string().describe('Workspace path of the item to delete.'),
@@ -921,6 +935,17 @@ const runScriptToolDef = createToolDef(
 const testRunFlowSchema = z.object({
 	path: z.string().describe('Workspace path of the flow to test.'),
 	args: testRunArgsSchema,
+	// A refinement rather than z.guid(): that emits `format`/`pattern` into the tool schema,
+	// which some providers' function-schema subsets reject.
+	memory_id: z
+		.string()
+		.refine((value) => z.guid().safeParse(value).success, {
+			message: 'memory_id must be a UUID'
+		})
+		.optional()
+		.describe(
+			'Chat-mode flows only. A UUID naming the conversation this turn belongs to, whose memory the agent steps read: reuse the same one across calls to test memory and follow-ups, and omit it for a one-off turn in a conversation of its own. Generate the UUID yourself so you can pass it again.'
+		),
 	background: backgroundArgSchema,
 	wait_seconds: waitSecondsArgSchema
 })
@@ -1360,7 +1385,7 @@ ${pipelineBullet}
 			? ' By default it preselects the items this chat modified; pass items ("<kind>:<path>" entries) to control the selection'
 			: ' Pass items ("<kind>:<path>" entries naming the items you changed) so the review is scoped to them — omitting items preselects every pending change in the workspace'
 	}, or mode ("draft" or "fork") to force which comparison is shown. Prefer offering this review page over calling deploy_workspace_item directly when several items changed.
-- For a Windmill operation no other tool covers (workers, queue state, a run's args, ...), use search_api_endpoints to find a REST endpoint, then call_api_get for reads or call_api_endpoint for mutations (the user is asked to confirm those). Always prefer a dedicated tool when one exists; endpoints for authoring or deleting scripts, flows, apps, schedules, resources, or variables are not available through the API catalog tools — use the draft tools and delete_workspace_item instead.
+- For a Windmill operation no other tool covers (queue state, a run's args, ...), use search_api_endpoints to find a REST endpoint, then call_api_get for reads or call_api_endpoint for mutations (the user is asked to confirm those). Always prefer a dedicated tool when one exists; endpoints for authoring or deleting scripts, flows, apps, schedules, resources, or variables are not available through the API catalog tools — use the draft tools and delete_workspace_item instead.
 - Default to test_run_script, test_run_flow, or test_run_step for any run request, an existing script included; they prefer drafts and need no deployment. Use run_script or run_flow only when the user names the deployed version ("the deployed X", "in production", "for real") — a bare "run X" is not that. For those two, read the item with read_workspace_item version: "deployed" first so the arguments match the deployed schema. test_run_script, test_run_flow, test_run_step, run_script and run_flow all show the user an argument form prefilled with what you sent, so fill in every argument you can infer rather than asking for it in chat. test_run_step's form is the step's own inputs, not the flow's.
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit. Set multiSelect: true only when the answers can genuinely co-apply and the user may pick several (not mutually exclusive).
 - When the user asks you to remember a lasting preference, always/never do something, or change/stop a behavior going forward, call update_user_instructions to persist it. It edits only the USER INSTRUCTIONS block (not WORKSPACE INSTRUCTIONS). Keep each instruction concise; do not use it for one-off requests scoped to the current task.
@@ -3749,6 +3774,49 @@ export const globalTools: Tool<{}>[] = [
 	},
 	{
 		def: createToolDef(
+			z.object({}),
+			'list_workers',
+			'List the workers connected to this Windmill instance (those that pinged in the last 5 minutes), with their worker group, custom tags, seconds since their last ping, and jobs executed. Pair with list_runs to diagnose a stuck queue: runs queued on a tag no listed worker picks up will never start. Three blind spots to report rather than reason past: an empty result states whether no worker is connected or whether workers may be hidden from you, so relay the one it gives instead of picking; a missing custom_tags can mean tags are hidden from you, not unset; and only the 100 most recently pinging workers are listed, so on a bigger instance a tag none of them carries may still be served.'
+		),
+		planModeSafe: true,
+		showDetails: true,
+		fn: async ({ toolId, toolCallbacks }) => {
+			toolCallbacks.setToolStatus(toolId, { content: 'Listing workers...' })
+			const pings = await WorkerService.listWorkers({ perPage: WORKER_PAGE_SIZE })
+			if (pings.length === 0) {
+				// Both role stores resolve asynchronously, and an unloaded one must not read as
+				// an absent role — that hedges the answer this branch exists to give plainly.
+				// No-ops once they hold a value.
+				await refreshSuperadmin()
+				const hiddenFromCaller = !get(superadmin) && !get(devopsRole)
+				const message = hiddenFromCaller ? NO_WORKERS_VISIBLE_MESSAGE : NO_WORKERS_CONNECTED_MESSAGE
+				toolCallbacks.setToolStatus(toolId, {
+					content: hiddenFromCaller ? 'No workers visible' : 'No workers connected',
+					result: message
+				})
+				return message
+			}
+			const workers = pings.map((w) => ({
+				worker: w.worker,
+				worker_group: w.worker_group,
+				custom_tags: w.custom_tags,
+				last_ping: w.last_ping,
+				jobs_executed: w.jobs_executed
+			}))
+			const note =
+				workers.length === WORKER_PAGE_SIZE
+					? `Only the first ${WORKER_PAGE_SIZE} workers are listed; more may be connected.`
+					: undefined
+			const result = JSON.stringify({ workers, ...(note ? { note } : {}) }, null, 2)
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Listed ${workers.length} worker(s)`,
+				result
+			})
+			return result
+		}
+	},
+	{
+		def: createToolDef(
 			getRunSchema,
 			'get_run',
 			"Inspect one run: its status, arguments, result and logs, plus — for a flow — the per-step execution tree with each step's status and truncated result (subflow steps, loop iterations, branches and retries included). Works on running jobs too. Pass step to fetch one step's result in full (up to 12k chars)."
@@ -4268,7 +4336,7 @@ export const globalTools: Tool<{}>[] = [
 	},
 	// Workspace-scoped datatable tools (unrestricted: no whitelist, no creation policy)
 	...getDatatableTools(),
-	// Workspace DuckLake readiness (storage prerequisite check for pipelines)
+	// Workspace DuckLake: pipeline storage prerequisite, and declared measures
 	...getDucklakeTools(),
 	// Read-only tools over files the user attached to the conversation
 	...fileTools,
@@ -4340,8 +4408,13 @@ type WriteDraftCtx = {
 export type SessionToolHelpers = { sessionId?: string }
 
 export type GlobalToolHelpers = SessionToolHelpers & {
-	/** Runs the flow editor mounted on `storagePath`, if one is. */
-	testActiveFlow?: (storagePath: string, args?: Record<string, any>) => Promise<string | undefined>
+	/** Runs the flow editor mounted on `storagePath`, if one is. `memoryId` names the
+	 * chat-mode conversation the turn belongs to. */
+	testActiveFlow?: (
+		storagePath: string,
+		args?: Record<string, any>,
+		memoryId?: string
+	) => Promise<string | undefined>
 	attachedFiles?: AttachedFilesStore
 	// Read/write the user-level Global instructions. `setUserInstructions` persists the
 	// value and rebuilds the system message so the change applies on the next chat-loop
@@ -4378,13 +4451,15 @@ function operatingWorkspaceFromHelpers(helpers: unknown): string | undefined {
 function liveFlowTestHookFromCtx(
 	ctx: { workspace: string; helpers?: unknown },
 	path: string
-): ((args?: Record<string, any>) => Promise<string | undefined>) | undefined {
+): ((args?: Record<string, any>, memoryId?: string) => Promise<string | undefined>) | undefined {
 	const activeEditor = getActiveGlobalEditorContext(ctx.workspace)
 	if (activeEditor?.type !== 'flow' || activeEditor.path !== path) {
 		return undefined
 	}
 	const testActiveFlow = (ctx.helpers as GlobalToolHelpers | undefined)?.testActiveFlow
-	return testActiveFlow && ((args) => testActiveFlow(activeEditor.storagePath, args))
+	return (
+		testActiveFlow && ((args, memoryId) => testActiveFlow(activeEditor.storagePath, args, memoryId))
+	)
 }
 
 export type OpenPreviewHandler = (req: {
@@ -5399,6 +5474,16 @@ function flowDraftValueForPreview(flowDraft: FlowDraftValue): FlowValue {
 	return flowDraftAsEditableInput(flowDraft).value
 }
 
+/**
+ * The conversation a test run of a chat-enabled flow belongs to. The server refuses such a
+ * run without one, and it is a query parameter rather than a flow argument, so there is no
+ * way for the caller to supply it through `args`. A fresh id each time is the right default:
+ * a test run is its own conversation, not a turn appended to one someone is reading.
+ */
+export function chatMemoryId(value: FlowValue): string | undefined {
+	return value.chat_input_enabled ? randomUUID() : undefined
+}
+
 async function loadScriptForFlowStep(
 	moduleValue: { path: string; hash?: string },
 	workspace: string
@@ -5864,15 +5949,17 @@ async function testRunFlowByPath(
 				// An open editor runs its own in-memory flow and paints the run in its graph.
 				// Resolved here rather than before the form: the form waits as long as the user
 				// does, and the editor on screen when they press Run is the one it belongs in.
-				const jobId = await liveFlowTestHookFromCtx(ctx, args.path)?.(submitted)
+				const jobId = await liveFlowTestHookFromCtx(ctx, args.path)?.(submitted, args.memory_id)
 				if (jobId) {
 					return jobId
 				}
+				const value = flowDraftValueForPreview(flow.flow)
 				return JobService.runFlowPreview({
 					workspace,
+					memoryId: args.memory_id ?? chatMemoryId(value),
 					requestBody: {
 						path: args.path,
-						value: flowDraftValueForPreview(flow.flow),
+						value,
 						args: submitted
 					}
 				})

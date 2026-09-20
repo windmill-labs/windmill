@@ -51,6 +51,7 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { AI_AGENT_SCHEMA } from '../flowInfers'
+	import { AGENT_HISTORY_KEYS, DEFAULT_AGENT_MEMORY, keepsManagedMemory } from '../agentFormFields'
 	import { nextId } from '../flowModuleNextId'
 	import { fetchAgentWithDraft, normalizeAgentRef } from '../linkedAgentDrafts'
 	import type { AIAgentConfig } from '../agentResourceUtils'
@@ -567,7 +568,7 @@
 			return
 		}
 		const missing: string[] = []
-		if (!args.memory || (args.memory as { kind?: string }).kind === 'off') missing.push('memory')
+		if (!keepsManagedMemory(args.memory)) missing.push('memory')
 		if (args.streaming !== true) missing.push('streaming')
 		if (missing.length > 0) {
 			sendUserToast(
@@ -604,7 +605,7 @@
 		const aiAgentModules = flowStore.val.value.modules.filter((m) => m.value.type === 'aiagent')
 
 		if (aiAgentModules.length === 0) {
-			// No AI agent exists, create one with context memory set to 10
+			// No AI agent exists, so create one reading the chat's user message
 			const aiAgentId = nextId(flowStateStore.val, flowStore.val)
 			flowStore.val.value.modules = [
 				...flowStore.val.value.modules,
@@ -620,10 +621,10 @@
 								} else if (key === 'user_attachments') {
 									accu[key] = { type: 'javascript', expr: `flow_input.${addAttachmentsInput()}` }
 								} else if (key === 'memory') {
-									accu[key] = { type: 'static', value: { kind: 'auto', context_length: 10 } }
+									accu[key] = { type: 'static', value: structuredClone(DEFAULT_AGENT_MEMORY) }
 								} else if (key === 'streaming') {
 									accu[key] = { type: 'static', value: true }
-								} else {
+								} else if (!(AGENT_HISTORY_KEYS as readonly string[]).includes(key)) {
 									accu[key] = {
 										type: 'static',
 										value: undefined
@@ -637,7 +638,7 @@
 				}
 			]
 			sendUserToast(
-				'Chat mode enabled. AI agent created with user message and attachments inputs, context memory set to 10 and streaming turned on.',
+				'Chat mode enabled. AI agent created with user message and attachments inputs, managed memory on and streaming turned on.',
 				false
 			)
 		} else if (aiAgentModules.length === 1) {
@@ -679,22 +680,29 @@
 			// would be ignored. Those are checked on the agent itself below instead.
 			const linkedAgent = value.agent ? normalizeAgentRef(value.agent) : undefined
 			if (linkedAgent === undefined) {
-				// `off` is the first oneOf variant of the memory field, so a step added by hand
-				// carries it without anyone choosing it — and an agent that forgets every turn
-				// makes the chat a series of unrelated questions. Overwritten rather than left
-				// alone; the toast below says it happened.
+				// `off` is the first oneOf variant, so a step added by hand carries it without anyone
+				// choosing it, and an agent that forgets every turn makes the chat a series of unrelated
+				// questions: overwritten, and the toast says so. A step supplying its own history, as
+				// previous messages or a legacy manual list, has chosen it and is left alone.
 				const memoryIsOff = (transform: InputTransform | undefined) =>
-					transform?.type === 'static' && (transform.value as any)?.kind === 'off'
+					transform?.type === 'static' &&
+					(transform.value as any)?.kind !== 'manual' &&
+					!keepsManagedMemory(transform.value)
+				const messages = value.input_transforms['previous_messages']
+				const suppliesHistory =
+					!isUnconfigured(messages) &&
+					!(messages?.type === 'static' && !(messages.value as unknown[] | undefined)?.length)
 
 				if (
-					isUnconfigured(value.input_transforms['memory']) ||
-					memoryIsOff(value.input_transforms['memory'])
+					!suppliesHistory &&
+					(isUnconfigured(value.input_transforms['memory']) ||
+						memoryIsOff(value.input_transforms['memory']))
 				) {
 					value.input_transforms['memory'] = {
 						type: 'static',
-						value: { kind: 'auto', context_length: 10 }
+						value: structuredClone(DEFAULT_AGENT_MEMORY)
 					}
-					applied.push('context memory set to 10')
+					applied.push('managed memory on')
 				}
 
 				// Without streaming the chat has no SSE to read, so a turn shows nothing —
@@ -849,7 +857,8 @@
 						<FlowChat
 							onRunFlow={runFlowWithMessage}
 							path={$pathStore}
-							hideSidebar={true}
+							identity={$initialPathStore || fakeInitialPath}
+							conversationKind="test"
 							inputSchema={flowStore.val.schema}
 							flowModules={flowStore.val.value?.modules}
 						/>

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use eventsource_stream::Eventsource;
+use indexmap::IndexMap;
 use reqwest::Response;
 use serde::Deserialize;
 use tokio_stream::StreamExt;
@@ -137,7 +138,9 @@ pub struct OpenAISSEParser {
     pub accumulated_content: String,
     /// The thinking streamed before the answer, kept so it can be stored with it.
     pub accumulated_reasoning: String,
-    pub accumulated_tool_calls: HashMap<i64, OpenAIToolCall>,
+    // Insertion-ordered in every parser: tool calls run and are persisted in the order the
+    // stream showed them, and a chat attaches a round's thinking to its first call.
+    pub accumulated_tool_calls: IndexMap<i64, OpenAIToolCall>,
     pub events_str: String,
     pub stream_event_processor: Box<dyn StreamEventSink>,
     /// Token usage from final chunk (when stream_options.include_usage is true)
@@ -149,7 +152,7 @@ impl OpenAISSEParser {
         Self {
             accumulated_content: String::new(),
             accumulated_reasoning: String::new(),
-            accumulated_tool_calls: HashMap::new(),
+            accumulated_tool_calls: IndexMap::new(),
             events_str: String::new(),
             stream_event_processor,
             usage: None,
@@ -359,7 +362,7 @@ pub struct AnthropicSSEParser {
     pub accumulated_content: String,
     /// The thinking streamed before the answer, kept so it can be stored with it.
     pub accumulated_reasoning: String,
-    pub accumulated_tool_calls: HashMap<i64, OpenAIToolCall>,
+    pub accumulated_tool_calls: IndexMap<i64, OpenAIToolCall>,
     pub events_str: String,
     pub stream_event_processor: Box<dyn StreamEventSink>,
     /// Track content block types by index
@@ -382,7 +385,7 @@ impl AnthropicSSEParser {
         Self {
             accumulated_content: String::new(),
             accumulated_reasoning: String::new(),
-            accumulated_tool_calls: HashMap::new(),
+            accumulated_tool_calls: IndexMap::new(),
             events_str: String::new(),
             stream_event_processor,
             content_blocks: HashMap::new(),
@@ -601,7 +604,7 @@ pub struct GeminiSSEParser {
     pub accumulated_content: String,
     /// The thinking streamed before the answer, kept so it can be stored with it.
     pub accumulated_reasoning: String,
-    pub accumulated_tool_calls: HashMap<i64, OpenAIToolCall>,
+    pub accumulated_tool_calls: IndexMap<i64, OpenAIToolCall>,
     pub events_str: String,
     pub stream_event_processor: Box<dyn StreamEventSink>,
     tool_call_index: i64,
@@ -615,7 +618,7 @@ impl GeminiSSEParser {
         Self {
             accumulated_content: String::new(),
             accumulated_reasoning: String::new(),
-            accumulated_tool_calls: HashMap::new(),
+            accumulated_tool_calls: IndexMap::new(),
             events_str: String::new(),
             stream_event_processor,
             tool_call_index: 0,
@@ -833,7 +836,7 @@ pub struct OpenAIResponsesSSEParser {
     pub accumulated_content: String,
     /// The reasoning summary streamed before the answer, kept so it can be stored with it.
     pub accumulated_reasoning: String,
-    pub accumulated_tool_calls: HashMap<String, OpenAIToolCall>,
+    pub accumulated_tool_calls: IndexMap<String, OpenAIToolCall>,
     /// Maps item_id -> (name, call_id) for function calls
     tool_call_metadata: HashMap<String, (String, String)>,
     /// Maps item_id -> accumulated arguments
@@ -855,7 +858,7 @@ impl OpenAIResponsesSSEParser {
         Self {
             accumulated_content: String::new(),
             accumulated_reasoning: String::new(),
-            accumulated_tool_calls: HashMap::new(),
+            accumulated_tool_calls: IndexMap::new(),
             tool_call_metadata: HashMap::new(),
             tool_call_arguments: HashMap::new(),
             events_str: String::new(),

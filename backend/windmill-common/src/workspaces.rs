@@ -1522,6 +1522,96 @@ pub async fn resolve_governing_datatable(
     )))
 }
 
+/// Every entry of a workspace resolved as [`resolve_governing_datatable`] resolves one, in stored
+/// order, reading the settings rows one pointer hop at a time rather than once per entry. An entry
+/// that does not resolve — malformed, a dangling pointer, a loop — is left out. Same authorization
+/// contract as the single resolution: it checks nothing.
+pub async fn resolve_workspace_governing_datatables(
+    db: &DB,
+    w_id: &str,
+) -> Result<Vec<(String, GoverningDatatable)>> {
+    type Entries =
+        std::collections::HashMap<String, std::collections::HashMap<String, serde_json::Value>>;
+    async fn load(db: &DB, workspaces: &[String], entries: &mut Entries) -> Result<Vec<String>> {
+        let rows: Vec<(String, String, serde_json::Value)> = sqlx::query_as(
+            "SELECT ws.workspace_id, dt.key, dt.value FROM workspace_settings ws
+             CROSS JOIN LATERAL jsonb_each(COALESCE(ws.datatable->'datatables', '{}'::jsonb)) dt
+             WHERE ws.workspace_id = ANY($1)",
+        )
+        .bind(workspaces)
+        .fetch_all(db)
+        .await?;
+        for ws in workspaces {
+            entries.entry(ws.clone()).or_default();
+        }
+        let mut keys = Vec::with_capacity(rows.len());
+        for (ws, key, value) in rows {
+            keys.push(key.clone());
+            entries.entry(ws).or_default().insert(key, value);
+        }
+        Ok(keys)
+    }
+
+    let mut entries = Entries::new();
+    let listed = load(db, &[w_id.to_string()], &mut entries).await?;
+    // (index into `listed`, workspace, entry name) still to be followed.
+    let mut cursors: Vec<(usize, String, String)> = listed
+        .iter()
+        .enumerate()
+        .map(|(i, name)| (i, w_id.to_string(), name.clone()))
+        .collect();
+    let mut resolved: Vec<(usize, GoverningDatatable)> = vec![];
+
+    for _ in 0..DATATABLE_REFERENCE_MAX_DEPTH {
+        let mut next = vec![];
+        for (i, ws, name) in cursors.drain(..) {
+            let Some(value) = entries
+                .get(&ws)
+                .and_then(|m| m.get(&name))
+                .filter(|v| !v.is_null())
+            else {
+                continue;
+            };
+            let Ok(datatable) = serde_json::from_value::<DataTable>(value.clone()) else {
+                continue;
+            };
+            if validate_datatable_shape(&name, &datatable).is_err() {
+                continue;
+            }
+            match &datatable.reference {
+                None => {
+                    resolved.push((i, GoverningDatatable { workspace_id: ws, name, datatable }))
+                }
+                Some(reference) => next.push((
+                    i,
+                    reference.workspace_id.clone(),
+                    reference.datatable.clone(),
+                )),
+            }
+        }
+        if next.is_empty() {
+            break;
+        }
+        let to_load: Vec<String> = next
+            .iter()
+            .map(|(_, ws, _)| ws.clone())
+            .filter(|ws| !entries.contains_key(ws))
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        if !to_load.is_empty() {
+            load(db, &to_load, &mut entries).await?;
+        }
+        cursors = next;
+    }
+
+    resolved.sort_by_key(|(i, _)| *i);
+    Ok(resolved
+        .into_iter()
+        .map(|(i, governing)| (listed[i].clone(), governing))
+        .collect())
+}
+
 /// Build the `admin` connection for a governing entry: `custom_instance_user` for an instance
 /// database, the user's own resource for a BYO-postgres one.
 async fn resolve_datatable_connection_unchecked(
@@ -1879,6 +1969,10 @@ pub fn strip_datatable_permissions(
 /// looked up first, so `sales?role=x` never reaches a different entry than the one stored so.
 /// When `sales` is stored too, the reference means either one, and is refused rather than
 /// resolved to whichever is looked up first.
+///
+/// Authorization: checks nothing, and its answer reveals whether `w_id` stores that exact name.
+/// Callers MUST already act for `w_id` — a job of it, or a caller authenticated into it — and
+/// MUST still pass the name to [`get_datatable_resource_from_db`] or an admin-access check.
 pub async fn parse_datatable_ref_for(
     db: &DB,
     w_id: &str,

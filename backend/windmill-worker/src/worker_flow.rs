@@ -2236,6 +2236,7 @@ async fn add_tool_message_to_conversation(
                     MessageType::Assistant,
                     None,
                     success,
+                    None,
                 )
                 .await?;
                 tx.commit().await?;
