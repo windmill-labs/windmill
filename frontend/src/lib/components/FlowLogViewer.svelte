@@ -11,7 +11,6 @@
 		Keyboard
 	} from 'lucide-svelte'
 	import { base } from '$lib/base'
-	import { workspaceStore } from '$lib/stores'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 	import LogViewer from './LogViewer.svelte'
 	import FlowLogViewer from './FlowLogViewer.svelte'
@@ -26,6 +25,9 @@
 	import { Tooltip } from './meltComponents'
 	import FlowTimelineBar from './FlowTimelineBar.svelte'
 	import { getActiveReplay } from './recording/replay.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	type RootJobData = Partial<Job>
 
@@ -49,7 +51,6 @@
 		) => Promise<void>
 		getSelectedIteration: (stepId: string) => number
 		flowSummary?: string
-		mode?: 'flow' | 'aiagent'
 		currentId?: string | null
 		navigationChain?: NavigationChain
 		select: (id: string) => void
@@ -81,7 +82,6 @@
 		onSelectedIteration,
 		getSelectedIteration,
 		flowSummary,
-		mode = 'flow',
 		currentId,
 		navigationChain = $bindable(),
 		select,
@@ -98,7 +98,7 @@
 
 	function getJobLink(jobId: string | undefined): string {
 		if (!jobId) return ''
-		return `${base}/run/${jobId}?workspace=${workspaceId ?? $workspaceStore}`
+		return `${base}/run/${jobId}?workspace=${workspaceId ?? $operatingWorkspace}`
 	}
 
 	function getStatusColor(status: FlowStatusModule['type'] | undefined): string {
@@ -127,18 +127,16 @@
 	function getStepProgress(job: RootJobData | undefined, totalSteps: number): string {
 		if (!job || totalSteps === 0) return ''
 
-		const stepWord = mode === 'aiagent' ? 'action' : 'step'
-
 		// If flow is completed, show total steps
 		if (job.type === 'CompletedJob') {
-			return ` (${totalSteps} ${stepWord}${totalSteps === 1 ? '' : 's'})`
+			return ` (${totalSteps} step${totalSteps === 1 ? '' : 's'})`
 		}
 
 		// If flow is running, use flow_status.step if available (like JobStatus.svelte)
 		if (job.type === 'QueuedJob') {
 			if (job.flow_status?.step !== undefined) {
 				const currentStep = (job.flow_status.step ?? 0) + 1
-				return ` (${stepWord} ${currentStep} of ${totalSteps})`
+				return ` (step ${currentStep} of ${totalSteps})`
 			}
 
 			return ''
@@ -558,7 +556,7 @@
 					{@render flowIcon(getFlowStatus(rootJob), flowInfo?.hasErrors)}
 
 					<div class="text-xs text-left font-mono">
-						{mode === 'aiagent' ? 'AI Agent' : level == 0 ? 'Flow' : 'Subflow'}
+						{level == 0 ? 'Flow' : 'Subflow'}
 						{#if flowInfo?.label}
 							: {flowInfo.label}
 						{/if}
@@ -703,32 +701,22 @@
 												<div class="flex items-center gap-2">
 													<span class="text-xs font-mono text-left">
 														<b class="flex items-center gap-1">
-															{#if mode === 'aiagent'}
-																{#if module.summary}
-																	Tool call: {module.summary}
-																{:else}
-																	Message
-																{/if}
-															{:else}
-																{module.id}
-															{/if}
+															{module.id}
 														</b>
-														{#if mode === 'flow'}
-															{#if module.value.type === 'forloopflow'}
-																For loop
-															{:else if module.value.type === 'whileloopflow'}
-																While loop
-															{:else if module.value.type === 'branchall'}
-																Branch to all
-															{:else if module.value.type === 'branchone'}
-																Branch to one
-															{:else if module.value.type === 'flow'}
-																Subflow
-															{:else}
-																Step
-															{/if}
+														{#if module.value.type === 'forloopflow'}
+															For loop
+														{:else if module.value.type === 'whileloopflow'}
+															While loop
+														{:else if module.value.type === 'branchall'}
+															Branch to all
+														{:else if module.value.type === 'branchone'}
+															Branch to one
+														{:else if module.value.type === 'flow'}
+															Subflow
+														{:else}
+															Step
 														{/if}
-														{#if module.summary && mode !== 'aiagent'}
+														{#if module.summary}
 															: {module.summary}
 														{/if}
 														{#if hasEmptySubflowValue}

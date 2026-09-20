@@ -1,10 +1,12 @@
 <script lang="ts">
 	import { HelpersService, ResourceService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { Button, Drawer, DrawerContent } from './common'
 	import { GitBranch, Loader2, FolderOpen } from 'lucide-svelte'
 	import Select from './select/Select.svelte'
 	import { createEventDispatcher } from 'svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		open: boolean
@@ -27,7 +29,7 @@
 		workspace: workspaceProp = undefined
 	}: Props = $props()
 
-	let ws = $derived(workspaceProp ?? $workspaceStore)
+	let ws = $derived(workspaceProp ?? $operatingWorkspace)
 
 	const dispatch = createEventDispatcher<{
 		selected: {

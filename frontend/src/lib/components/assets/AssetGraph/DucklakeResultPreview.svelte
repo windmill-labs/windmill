@@ -9,7 +9,6 @@
 	// ("This partition") or show the full table ("Whole table") via a toggle.
 	import DBTable from '$lib/components/DBTable.svelte'
 	import { resource } from 'runed'
-	import { workspaceStore } from '$lib/stores'
 	import { loadAllTablesMetaData } from '$lib/components/apps/components/display/dbtable/metadata'
 	import { dbTableOpsWithPreviewScripts } from '$lib/components/dbOps'
 	import type { DbInput } from '$lib/components/dbTypes'
@@ -18,6 +17,9 @@
 	import { twMerge } from 'tailwind-merge'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		// Full asset URI, e.g. `ducklake://main/orders_daily`.
@@ -61,9 +63,9 @@
 		() => [input, refreshKey] as const,
 		async ([_input]) => {
 			colDefsError = undefined
-			if (!_input || !$workspaceStore) return undefined
+			if (!_input || !$operatingWorkspace) return undefined
 			try {
-				return await loadAllTablesMetaData($workspaceStore, _input)
+				return await loadAllTablesMetaData($operatingWorkspace, _input)
 			} catch (e) {
 				colDefsError = (e as Error)?.message || String(e)
 				return undefined
@@ -89,12 +91,12 @@
 	})
 
 	let dbTableOps = $derived.by(() => {
-		if (!(input && tableColDefs && tableKey && $workspaceStore)) return undefined
+		if (!(input && tableColDefs && tableKey && $operatingWorkspace)) return undefined
 		const ops = dbTableOpsWithPreviewScripts({
 			input,
 			tableKey,
 			colDefs: tableColDefs,
-			workspace: $workspaceStore,
+			workspace: $operatingWorkspace,
 			whereClause
 		})
 		// Read-only preview: drop the mutation handlers so DBTable hides its

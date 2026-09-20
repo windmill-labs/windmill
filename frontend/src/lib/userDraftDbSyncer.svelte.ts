@@ -215,6 +215,13 @@ const syncLocked = new Map<string, (() => void) | undefined>()
 const conflicts = new SvelteMap<string, DraftConflictInfo>()
 
 /**
+ * Per-key listeners fired when a save lands at a path other than the key's:
+ * the item was moved while the editor was open, and the server put the save
+ * where the move took its drafts. The editor follows too (see `onRelocated`).
+ */
+const relocationListeners = new Map<string, Set<(newPath: string) => void>>()
+
+/**
  * Draft keys whose last save threw (network / 5xx) → extracted error
  * message. Cleared on the next success. Drives the AutosaveIndicator's
  * "Save failed" label so a silent failure can't masquerade as "Saved".
@@ -333,6 +340,13 @@ async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 		// cached state the same way an upsert does. Listener errors must never
 		// make a committed save read as failed.
 		notifyAnySaved({ workspace: opts.workspace, itemKind: opts.itemKind, path: opts.path })
+		// The item had moved and the write landed where its drafts went — a discard
+		// included, since the editor that sent it is on a path the item has left. Last,
+		// so the editor that reacts (by leaving this path) sees a settled key.
+		if (resp.path && resp.path !== opts.path) {
+			const listeners = relocationListeners.get(key)
+			if (listeners) for (const l of [...listeners]) l(resp.path)
+		}
 	} catch (e) {
 		console.error('UserDraftDbSyncer.save failed', e)
 		// Leave pending opts in place so the next attempt retries the same
@@ -612,6 +626,28 @@ export const UserDraftDbSyncer = {
 	 */
 	clearConflict(query: UserDraftLastSyncQuery): void {
 		conflicts.delete(draftKey(query.workspace, query.itemKind, query.path))
+	},
+
+	/**
+	 * Subscribe to saves for a draft key that landed at another path: the item
+	 * was moved while this editor was open. Fired with the path the save landed
+	 * at, after the save is fully accounted for. Returns an
+	 * unsubscribe.
+	 */
+	onRelocated(query: UserDraftLastSyncQuery, listener: (newPath: string) => void): () => void {
+		const key = draftKey(query.workspace, query.itemKind, query.path)
+		let set = relocationListeners.get(key)
+		if (!set) {
+			set = new Set()
+			relocationListeners.set(key, set)
+		}
+		set.add(listener)
+		return () => {
+			const s = relocationListeners.get(key)
+			if (!s) return
+			s.delete(listener)
+			if (s.size === 0) relocationListeners.delete(key)
+		}
 	},
 
 	/**

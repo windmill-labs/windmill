@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { workspaceStore } from '$lib/stores'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import { ScriptService } from '$lib/gen'
@@ -11,6 +10,9 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	type Item = {
 		path: string
@@ -24,7 +26,7 @@
 	let filteredItems = $state(undefined) as (Item & { marked?: string })[] | undefined
 
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
-	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
+	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $operatingWorkspace)
 	interface Props {
 		kind?: 'script' | 'trigger' | 'approval' | 'failure' | 'preprocessor'
 		isTemplate?: boolean | undefined
@@ -55,10 +57,10 @@
 	const dispatch = createEventDispatcher()
 	let lockHash = $state(false)
 	$effect(() => {
-		$workspaceStore && kind && untrack(() => loadItems())
+		$operatingWorkspace && kind && untrack(() => loadItems())
 	})
 	$effect(() => {
-		if ($workspaceStore) {
+		if ($operatingWorkspace) {
 			ownerFilter = undefined
 		}
 	})
