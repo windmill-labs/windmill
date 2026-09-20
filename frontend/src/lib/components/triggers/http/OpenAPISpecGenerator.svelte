@@ -11,7 +11,7 @@
 		type OpenapiV3Info,
 		type WebhookFilters
 	} from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { userStore } from '$lib/stores'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
@@ -35,6 +35,9 @@
 	import CreateToken from '$lib/components/settings/CreateToken.svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { safeSelectItems } from '$lib/components/select/utils.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	type HttpRouteAndWebhook = WebhookFilters | OpenapiHttpRouteFilters
 
@@ -148,7 +151,7 @@
 			const info = buildInfo()
 			isGeneratingOpenapiSpec = true
 			openapiDocument = await OpenapiService.generateOpenapiSpec({
-				workspace: $workspaceStore!,
+				workspace: $operatingWorkspace!,
 				requestBody: {
 					openapi_spec_format,
 					info,
@@ -222,7 +225,7 @@
 				{/snippet}
 				<CopyableCodeBlock
 					code={`token=${emptyString(token) ? '' : token}; \\
-curl -X POST "${window.location.origin}${base}/api/w/${$workspaceStore!}/openapi/generate" \\
+curl -X POST "${window.location.origin}${base}/api/w/${$operatingWorkspace!}/openapi/generate" \\
 -H "Authorization: Bearer $token" \\
 -H "Content-Type: application/json" \\
 -d '${JSON.stringify(obj)}'`}

@@ -26,8 +26,12 @@
 	import Portal from '$lib/components/Portal.svelte'
 	import DropdownV2 from '../DropdownV2.svelte'
 	import MissingWorkerTagAlert from '../jobs/MissingWorkerTagAlert.svelte'
-	import { superadmin, userStore } from '$lib/stores'
+	import { superadmin } from '$lib/stores'
+	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
 	import { parseMigrationRole, withMigrationRole } from '../datatableMigrationRole'
+
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	let {
 		workspace,
@@ -57,7 +61,7 @@
 	let generatingInitial = $state(false)
 
 	// Only workspace admins and super admins can opt a data table in or out.
-	const canManage = $derived(!!$userStore?.is_admin || !!$superadmin)
+	const canManage = $derived(!!actingUser?.is_admin || !!$superadmin)
 
 	let newMigrationModal = $state<NewDataTableMigrationModal | undefined>(undefined)
 	let newMigrationOpen = $state(false)

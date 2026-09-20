@@ -104,6 +104,49 @@ pub const HUB_API_SECRET_SETTING: &str = "hub_api_secret";
 pub const AUTOMATE_USERNAME_CREATION_SETTING: &str = "automate_username_creation";
 pub const DISABLE_WORKSPACE_INVITE_EMAILS_SETTING: &str = "disable_workspace_invite_emails";
 pub const DISABLE_PASSWORD_LOGIN_SETTING: &str = "disable_password_login";
+/// Refuse `?token=` on the MCP endpoints, leaving the `Authorization` header as the only way
+/// in. A URL-borne credential ends up in browser history, proxy logs and referrers, so an
+/// instance that cares sends MCP clients through the OAuth flow instead.
+pub const MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING: &str = "mcp_disable_token_query_param";
+/// Ceiling, in days, on how far ahead a token minted through `POST /users/tokens/create` or
+/// `POST /users/tokens/impersonate` may expire; a request asking for more, or for no
+/// expiration at all, is shortened to it rather than refused. On those routes only: server-side
+/// mints (webhook tokens, app embed tokens, sessions) choose a lifetime the caller never picks
+/// and go straight to `create_token_internal`. Read and validated by
+/// [`parse_max_token_expiration_days`].
+pub const MAX_TOKEN_EXPIRATION_DAYS_SETTING: &str = "max_token_expiration_days";
+/// Largest `max_token_expiration_days` read as a ceiling, about 2,700 years. The token form
+/// applies the same bound (`frontend/src/lib/tokenExpiration.ts`) so that it and the server
+/// agree on whether a ceiling exists.
+pub const MAX_TOKEN_EXPIRATION_DAYS_BOUND: i64 = 1_000_000;
+
+/// Reads a stored `max_token_expiration_days`: `Ok(None)` when unset or cleared (null or an
+/// empty string), the ceiling for a whole number of days within
+/// `1..=MAX_TOKEN_EXPIRATION_DAYS_BOUND` stored as an integer, an integral float or a string of
+/// digits, and an error for anything else.
+///
+/// The settings API and config sync both reject the error at write time: the token routes can
+/// only read an unparseable value as no ceiling, so accepting a typo would silently turn the
+/// policy off. `parseMaxTokenExpirationDays` in the frontend must accept exactly the same values.
+pub fn parse_max_token_expiration_days(
+    value: Option<&serde_json::Value>,
+) -> Result<Option<i64>, String> {
+    let days = match value {
+        None | Some(serde_json::Value::Null) => return Ok(None),
+        Some(serde_json::Value::String(s)) if s.trim().is_empty() => return Ok(None),
+        Some(serde_json::Value::Number(n)) => n
+            .as_i64()
+            .or_else(|| n.as_f64().filter(|f| f.fract() == 0.0).map(|f| f as i64)),
+        Some(serde_json::Value::String(s)) => s.trim().parse::<i64>().ok(),
+        Some(_) => None,
+    };
+    match days {
+        Some(days) if (1..=MAX_TOKEN_EXPIRATION_DAYS_BOUND).contains(&days) => Ok(Some(days)),
+        _ => Err(format!(
+            "must be a whole number of days from 1 to {MAX_TOKEN_EXPIRATION_DAYS_BOUND}, or empty for no limit"
+        )),
+    }
+}
 pub const AUTO_LOGIN_PROVIDER_SETTING: &str = "auto_login_provider";
 /// Name of the SAML attribute or OIDC userinfo claim carrying the user's IdP groups. Unset or
 /// empty leaves instance-group membership entirely to SCIM.
@@ -373,6 +416,7 @@ use std::sync::atomic::AtomicBool;
 lazy_static::lazy_static! {
     pub static ref HTTP_ROUTE_WORKSPACED_ROUTE: AtomicBool = AtomicBool::new(false);
     pub static ref DISABLE_PASSWORD_LOGIN: AtomicBool = AtomicBool::new(false);
+    pub static ref MCP_DISABLE_TOKEN_QUERY_PARAM: AtomicBool = AtomicBool::new(false);
     /// Origins HTTP routes allow cross-origin when they configure none of their
     /// own. Empty means unset, which keeps the historical `*`.
     pub static ref HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS: arc_swap::ArcSwap<Vec<String>> =
@@ -815,6 +859,55 @@ pub fn workspace_integration_auth_endpoint(client_name: &str, base_url: &str) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // `frontend/src/lib/tokenExpiration.test.ts` holds the same table for the token form's
+    // parser; the two must stay in step.
+    #[test]
+    fn max_token_expiration_days_accepts_only_whole_days_within_the_bound() {
+        use serde_json::json;
+        for (stored, days) in [
+            (json!(7), 7),
+            (json!(7.0), 7),
+            (json!("7"), 7),
+            (json!(" 30 "), 30),
+            (json!("+7"), 7),
+            (
+                json!(MAX_TOKEN_EXPIRATION_DAYS_BOUND),
+                MAX_TOKEN_EXPIRATION_DAYS_BOUND,
+            ),
+        ] {
+            assert_eq!(
+                parse_max_token_expiration_days(Some(&stored)),
+                Ok(Some(days)),
+                "{stored}"
+            );
+        }
+        for cleared in [json!(null), json!(""), json!("  ")] {
+            assert_eq!(
+                parse_max_token_expiration_days(Some(&cleared)),
+                Ok(None),
+                "{cleared}"
+            );
+        }
+        assert_eq!(parse_max_token_expiration_days(None), Ok(None));
+        for bad in [
+            json!(7.5),
+            json!(0),
+            json!(-3),
+            json!("7.0"),
+            json!("1e1"),
+            json!("0x7"),
+            json!(MAX_TOKEN_EXPIRATION_DAYS_BOUND + 1),
+            json!("99999999999999999999"),
+            json!(true),
+            json!([7]),
+        ] {
+            assert!(
+                parse_max_token_expiration_days(Some(&bad)).is_err(),
+                "{bad} must be rejected"
+            );
+        }
+    }
 
     #[test]
     fn webhook_base_url_errors_never_echo_credentials() {

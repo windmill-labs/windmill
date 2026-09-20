@@ -4,9 +4,12 @@
 		type OnBehalfOfDetails
 	} from '$lib/components/OnBehalfOfSelector.svelte'
 	import { useFolderDefaultPermissionedAs } from '$lib/components/useFolderDefaultPermissionedAs.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
-	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
+	import { userStore } from '$lib/stores'
 	import { AlertTriangle } from 'lucide-svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
 
 	interface Props {
 		/** Current permissioned_as value from the trigger (e.g., 'u/admin') */
@@ -22,11 +25,13 @@
 	}
 
 	let { permissionedAs, onPermissionedAsChange, path = undefined }: Props = $props()
-	const triggerWs = getTriggerWorkspace()
-	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
+	const wsId = $derived($operatingWorkspace)
 
 	const canPreserve = $derived(
-		$userStore?.is_admin || ($userStore?.groups ?? []).includes('wm_deployers')
+		actingUser?.is_admin || (actingUser?.groups ?? []).includes('wm_deployers')
 	)
 
 	const myPermissionedAs = $derived($userStore?.username ? `u/${$userStore.username}` : undefined)

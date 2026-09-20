@@ -9,6 +9,7 @@
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import { msToReadableTime } from '$lib/utils'
 	import JobArgs from '$lib/components/JobArgs.svelte'
+	import { JobService, type CompletedJob, type Job } from '$lib/gen'
 	import { base } from '$lib/base'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import ChatCollapsibleCard from './ChatCollapsibleCard.svelte'
@@ -16,9 +17,16 @@
 	import ToolContentDisplay from './ToolContentDisplay.svelte'
 	import ToolPreviewCard from './ToolPreviewCard.svelte'
 	import { scrollFades } from './scrollFades.svelte'
-	import { isActiveRunForm, MAX_LOG_LENGTH, type ToolDisplayMessage } from './shared'
+	import {
+		deriveChatJobStatus,
+		isActiveRunForm,
+		MAX_LOG_LENGTH,
+		type ToolDisplayMessage
+	} from './shared'
 
 	const aiChatManager = getAiChatManager()
+
+	const LOGS_UNREADABLE = { logs: '', logsFailed: true } as const
 
 	interface Props {
 		message: ToolDisplayMessage
@@ -26,41 +34,91 @@
 
 	let { message }: Props = $props()
 
-	const runForm = $derived(message.runForm!)
-	const runnableKind = $derived(runForm.runnableKind ?? 'script')
+	const runForm = $derived(message.runForm)
+	// The run this call inspected instead of starting. Exclusive with runForm: a call
+	// either ran something or looked at a run.
+	const inspected = $derived(message.inspectedRun)
 	// The loop is parked on the form and nothing has run yet: the card is the form.
 	const pending = $derived(isActiveRunForm(message))
+
+	// An inspected run is read from the job itself rather than from the tool result, which
+	// is the copy capped for the model. Fetched on first expand, and only then: a transcript
+	// of collapsed inspections must not fire a request per row.
+	let fetched = $state<
+		{ callId: string; job: Job; logs: string; logsFailed?: boolean } | undefined
+	>(undefined)
+	let fetchFailed = $state<string | undefined>(undefined)
+	// Keyed by call id like the rest of this card's state, not by the job it read: a summarized
+	// transcript hands a surviving instance a different row, and two rows can inspect one job
+	// at different moments, so a job-keyed snapshot would serve the earlier row's reading.
+	const inspectedJob = $derived(fetched?.callId === message.tool_call_id ? fetched : undefined)
+
+	const inspectedStatus = $derived(inspectedJob ? deriveChatJobStatus(inspectedJob.job) : undefined)
 
 	const chatJob = $derived(
 		aiChatManager.backgroundJobs.find((j) => j.toolCallId === message.tool_call_id)
 	)
+	// The run the card is about, whichever way it got here. The inspected one is known by
+	// id before it is read, which is what lets the preview chip work on a collapsed card.
+	const job = $derived(
+		chatJob ??
+			(inspected
+				? {
+						jobId: inspected.jobId,
+						workspace: inspected.workspace,
+						status: inspectedStatus
+					}
+				: undefined)
+	)
+	const runnableKind = $derived(
+		runForm?.runnableKind ??
+			(inspectedJob?.job.job_kind === 'flow' || inspectedJob?.job.job_kind === 'flowpreview'
+				? 'flow'
+				: 'script')
+	)
 	// Declining the form, stopping the turn and cancelling the job all land here, and none
 	// of them is a failure: the run stopped because someone said so.
 	const canceled = $derived(
-		Boolean(message.declinedByUser) || Boolean(runForm.canceled) || chatJob?.status === 'canceled'
+		Boolean(message.declinedByUser) || Boolean(runForm?.canceled) || job?.status === 'canceled'
 	)
-	const failed = $derived(Boolean(message.error) && !canceled)
+	const failed = $derived(
+		inspected ? inspectedStatus === 'failure' : Boolean(message.error) && !canceled
+	)
 	// A cancelled form never reached a job, so it has no logs and no outcome to offer.
 	const ran = $derived(
-		Boolean(runForm.started) || Boolean(message.logs) || message.result !== undefined || !!chatJob
+		Boolean(runForm?.started) || Boolean(message.logs) || message.result !== undefined || !!job
 	)
 	// A run can outlive the turn that started it, so "the tool call returned" is not
 	// "the run finished": a detached job keeps the card in its running state until
-	// the background poller lands an outcome on it or the tray sees the job end.
+	// the background poller lands an outcome on it or the tray sees the job end. An
+	// inspected run has no poller behind it — the status it was read at is the answer.
 	const settled = $derived(
-		!pending &&
-			!message.isLoading &&
-			(message.result !== undefined ||
-				failed ||
-				canceled ||
-				(chatJob !== undefined && ['success', 'failure', 'canceled'].includes(chatJob.status)))
+		inspected
+			? ['success', 'failure', 'canceled'].includes(inspectedStatus ?? '')
+			: !pending &&
+					!message.isLoading &&
+					(message.result !== undefined ||
+						failed ||
+						canceled ||
+						(chatJob !== undefined && ['success', 'failure', 'canceled'].includes(chatJob.status)))
 	)
 	const running = $derived(!pending && !settled)
+	// The job the card is about has not been read yet, or could not be: no pane has anything
+	// to show, but the call's own result still has.
+	const jobPending = $derived(Boolean(inspected) && !inspectedJob)
 
+	// An inspected run's panes come from the job: the tool's own parameters are the
+	// address it was called with, and its result is the model's abridged view.
 	const parameters = $derived(
-		message.parameters && typeof message.parameters === 'object' ? message.parameters : {}
+		inspected
+			? (inspectedJob?.job.args ?? {})
+			: message.parameters && typeof message.parameters === 'object'
+				? message.parameters
+				: {}
 	)
-	const logs = $derived(typeof message.logs === 'string' ? message.logs : '')
+	const logs = $derived(
+		inspected ? (inspectedJob?.logs ?? '') : typeof message.logs === 'string' ? message.logs : ''
+	)
 	const logLineCount = $derived(logs.trim() ? logs.trimEnd().split('\n').length : 0)
 	// What the job has streamed of its result so far. Only ever set while it runs: the
 	// terminal patch clears it, so a settled card reads its outcome off `result` alone.
@@ -74,6 +132,12 @@
 	// pretty view buys. A string that happens to be JSON parses back as JSON, and the
 	// text it was stored as is one toggle away in the raw view.
 	const resultValue = $derived.by(() => {
+		// Only a completed job carries a result; a queued or running one has none, and reading
+		// it off that job is a type error rather than an undefined.
+		if (inspected)
+			return inspectedJob && 'success' in inspectedJob.job
+				? (inspectedJob.job as CompletedJob).result
+				: undefined
 		if (message.result === undefined) return undefined
 		if (typeof message.result !== 'string') return message.result
 		try {
@@ -82,20 +146,32 @@
 			return message.result
 		}
 	})
-
 	// The row is the card's whole heading, in the tense the call is in: a run cancelled
 	// before it started never ran, so it is still the thing that was going to be run. A
 	// test says so, since what it ran is the draft rather than what is deployed.
 	const verbs = $derived(
-		runForm.kind === 'test'
+		runForm?.kind === 'test'
 			? { present: 'Testing', past: 'Tested', future: 'Test' }
 			: { present: 'Running', past: 'Ran', future: 'Run' }
 	)
+	// Where the runnable is filed, for the preview chip's title. An inspected preview run
+	// has no path at all, so the card falls back to naming the job.
+	const path = $derived(runForm?.path ?? inspectedJob?.job.script_path ?? '')
 	// What the script is called on its own page and in the picker, so the row names the thing
 	// that ran rather than where it is filed. Not every script has one, so the path stays the
 	// fallback — and stays on the preview chip either way, since two folders can hold one name.
-	const runnableName = $derived(runForm.summary || runForm.path)
-	const verb = $derived(running ? verbs.present : settled && ran ? verbs.past : verbs.future)
+	// An inspection names the run instead: it is about that run, the address is what the call
+	// was made with, and naming the runnable would rewrite the row once the job is read.
+	const runnableName = $derived(
+		inspected
+			? `${inspected.step ? `step ${inspected.step} of ` : ''}run ${inspected.runId}`
+			: runForm?.summary || runForm?.path || ''
+	)
+	// Inspecting is done the moment the tool returned, whatever the run it looked at is
+	// still doing — the tense belongs to the call, not to its subject.
+	const verb = $derived(
+		inspected ? 'Inspected' : running ? verbs.present : settled && ran ? verbs.past : verbs.future
+	)
 
 	// Being cancelled is an outcome like any other, and it is the one the card has to say out
 	// loud: nothing came back, so no other tab can carry it.
@@ -130,9 +206,63 @@
 	const activeTab = $derived(steered && tabs.some((t) => t.value === steered) ? steered : autoTab)
 
 	// Keyed by call id: a bare flag would carry one card's collapse onto the next message
-	// reusing this instance. Open by default, since the run is what was asked for.
+	// reusing this instance. Open by default, since the run is what was asked for —
+	// except for an inspection, which is usually a step in the reasoning rather than
+	// the answer, and which pays a fetch for being opened.
 	let toggled = $state<{ id: string; open: boolean } | undefined>(undefined)
-	const expanded = $derived(toggled?.id === message.tool_call_id ? toggled.open : true)
+	const expanded = $derived(toggled?.id === message.tool_call_id ? toggled.open : !inspected)
+
+	$effect(() => {
+		const target = inspected
+		// Collapsing clears a failure so reopening tries again, which is how the rest of the
+		// chat treats a load that did not land — a dropped connection must not be permanent.
+		if (!target || !expanded) {
+			fetchFailed = undefined
+			// A job whose logs did not land is dropped with it: the job itself is cached, so
+			// reopening would otherwise keep serving the unreadable logs for the session.
+			if (fetched?.logsFailed) fetched = undefined
+			return
+		}
+		const callId = message.tool_call_id
+		if (fetched?.callId === callId || fetchFailed === callId) return
+		const jobReq = JobService.getJob({
+			workspace: target.workspace,
+			id: target.jobId,
+			noCode: true,
+			noLogs: true
+		})
+		// The dedicated endpoint, as get_run uses it, and the whole log does come down for a
+		// 4000-char tail. The cheap reads cannot replace it: the job's own `logs` field is
+		// `right(job_logs.logs, 20000)`, and compaction leaves as few as 3000 characters in
+		// that column, so a large log would show less here than the model was given.
+		const logsReq = JobService.getJobLogs({
+			workspace: target.workspace,
+			id: target.jobId,
+			removeAnsiWarnings: true
+		})
+		let live = true
+		Promise.all([
+			// Something back is the success test, not "it did not throw": the generated client
+			// resolves nothing when it cannot read the body.
+			jobReq.then((j) => j ?? Promise.reject(new Error('job unreadable'))),
+			// Here an empty string is a real answer — a flow's own job prints nothing.
+			logsReq.then(
+				(l) => (typeof l === 'string' ? { logs: l.slice(-MAX_LOG_LENGTH) } : LOGS_UNREADABLE),
+				() => LOGS_UNREADABLE
+			)
+		])
+			.then(([j, l]) => {
+				if (live) fetched = { callId, job: j, ...l }
+			})
+			.catch(() => {
+				if (live) fetchFailed = callId
+			})
+		return () => {
+			live = false
+			jobReq.cancel()
+			logsReq.cancel()
+		}
+	})
 
 	// The panel mounts the chat's own form on this call, so the card must not mount a second
 	// one: two views binding the one draft would each reorder the schema SchemaForm edits in
@@ -217,7 +347,7 @@
 		if (canceled) return 'text-tertiary'
 		if (failed) return 'text-red-800 dark:text-red-300'
 		if (!ran) return 'text-tertiary'
-		switch (chatJob?.status) {
+		switch (job?.status) {
 			case 'running':
 				return 'text-blue-800 dark:text-blue-200'
 			case 'suspended':
@@ -248,16 +378,16 @@
 			? aiChatManager.openRunForm
 				? ('form' as const)
 				: undefined
-			: chatJob
+			: job
 				? ('run' as const)
 				: undefined
 	)
 	const previewTitle = $derived(
 		previewTarget === 'form'
-			? `Open this form in the preview panel: ${runForm.path}`
+			? `Open this form in the preview panel: ${path}`
 			: aiChatManager.openRunInPreview
-				? `Open this run in the preview panel: ${runForm.path}`
-				: `Open this run in a new tab: ${runForm.path}`
+				? `Open this run in the preview panel: ${path || runnableName}`
+				: `Open this run in a new tab: ${path || runnableName}`
 	)
 
 	function openPreview() {
@@ -266,16 +396,12 @@
 			aiChatManager.openRunForm?.({ toolCallId: message.tool_call_id, label })
 			return
 		}
-		if (!chatJob) return
+		if (!job) return
 		// Outside a session there is no panel, so the run opens where the jobs tray sends it.
 		if (aiChatManager.openRunInPreview) {
-			aiChatManager.openRunInPreview({ jobId: chatJob.jobId, workspace: chatJob.workspace, label })
+			aiChatManager.openRunInPreview({ jobId: job.jobId, workspace: job.workspace, label })
 		} else {
-			window.open(
-				`${base}/run/${chatJob.jobId}?workspace=${chatJob.workspace}`,
-				'_blank',
-				'noreferrer'
-			)
+			window.open(`${base}/run/${job.jobId}?workspace=${job.workspace}`, '_blank', 'noreferrer')
 		}
 	}
 </script>
@@ -285,7 +411,9 @@
      that number is still moving. `font-medium` because the row is a button and the base layer
      sets those semibold, which would leave this the one bold word in the header. -->
 {#snippet status()}
-	{#if !pending}
+	<!-- An inspection reports nothing here: the card is a snapshot the chat will never
+	     update, so a status on it would be frozen at whatever the run happened to be. -->
+	{#if !pending && !inspected}
 		<span class={twMerge('shrink-0 whitespace-nowrap text-2xs font-medium', statusClass)}>
 			{statusTime}
 		</span>
@@ -297,7 +425,7 @@
      tab it already opened. The row's only control, as on every other tool call. -->
 {#snippet previewChip()}
 	<ToolPreviewCard
-		card={{ kind: runnableKind, path: runForm.path }}
+		card={{ kind: runnableKind, path }}
 		title={previewTitle}
 		onOpen={openPreview}
 		kindIcon={false}
@@ -325,7 +453,7 @@
 		<div class="px-3 py-2 text-2xs leading-4 text-hint">
 			These inputs are open in the preview panel.
 		</div>
-	{:else if pending}
+	{:else if pending && runForm}
 		<RunArgsFormDisplay toolCallId={message.tool_call_id} {runForm} />
 	{:else}
 		<!-- One region holding the strip and the body, fixed so the card is the same size on every
@@ -333,7 +461,12 @@
 		     silently beats flex-grow. The raw view takes that height as a floor instead: its
 		     blocks scroll on their own, as an ordinary tool call's do, so a scroller around them
 		     would be one too many. -->
-		<div class={twMerge('relative flex flex-col', rawView ? 'min-h-[20rem]' : 'h-[20rem]')}>
+		<div
+			class={twMerge(
+				'relative flex flex-col',
+				rawView ? 'min-h-[20rem]' : jobPending ? '' : 'h-[20rem]'
+			)}
+		>
 			<!-- The tabs go in raw view — they name the parts of the body, and the raw call is not
 			     one of them — while the strip stays, since the JSON toggle lives there. Hence its
 			     fixed height: a row sized by its contents would step every time the tabs leave, and
@@ -345,7 +478,7 @@
 				wrapperClass="shrink-0"
 				slidingIndicator
 			>
-				{#if !rawView}
+				{#if !rawView && !jobPending}
 					{#each tabs as tab (tab.value)}
 						<!-- The tab widens in first and the bar follows it, because a run adds its tabs as
 						     it produces them: landing the selection on a tab in the frame it appears reads
@@ -388,7 +521,7 @@
 				class={twMerge(
 					'min-h-0 flex-1 px-3 py-2',
 					rawView ? '' : 'overflow-auto',
-					!rawView && activeTab === 'logs' ? 'bg-surface-secondary/50' : ''
+					!rawView && !jobPending && activeTab === 'logs' ? 'bg-surface-secondary/50' : ''
 				)}
 			>
 				<!-- min-h-full rather than h-full: the states that centre themselves need the height,
@@ -406,6 +539,20 @@
 								showFade
 							/>
 						</div>
+					{:else if jobPending}
+						<!-- The strip above stays whatever the job does: the call's own result is already
+						     in the transcript, and the JSON toggle is how it is read. -->
+						<div class="text-2xs leading-4 text-hint">
+							{#if fetchFailed === message.tool_call_id}
+								This run could not be read. It may have been deleted, or be in another workspace.
+								Its result is on the JSON toggle.
+							{:else}
+								<span class="inline-flex items-center gap-1.5">
+									<Loader2 class="h-3 w-3 animate-spin" />
+									Loading this run...
+								</span>
+							{/if}
+						</div>
 					{:else}
 						<!-- Keyed on the tab so the body arrives rather than cuts. One region serves every
 						     tab, so only the incoming pane moves: overlapping them would ask this scroller
@@ -418,8 +565,8 @@
 					     persisted with the card. -->
 									<JobArgs
 										args={parameters}
-										id={chatJob?.jobId}
-										workspace={chatJob?.workspace}
+										id={job?.jobId}
+										workspace={job?.workspace}
 										disableExpand
 									/>
 								{:else if activeTab === 'logs'}
@@ -433,15 +580,25 @@
 											>{logs}</pre
 										>
 									{:else}
-										<p class="text-2xs text-tertiary">No logs yet.</p>
+										<p class="text-2xs text-tertiary">
+											{inspectedJob?.logsFailed
+												? 'Logs could not be read.'
+												: running
+													? 'No logs yet.'
+													: 'No logs.'}
+										</p>
 									{/if}
-									{#if running}
+									{#if running && !inspected}
 										<div class="mt-1 flex items-center gap-1.5 text-2xs text-tertiary">
 											<Loader2 class="h-3 w-3 animate-spin" />
 											streaming
 										</div>
 									{/if}
-								{:else if failed}
+									<!-- A run the chat started reports its failure on the tool call; an inspected one
+					     carries it as its result, which the pane below renders the way the run page
+					     does. `failed` excludes a cancellation, which also leaves an error on the
+					     message but owns its own pane. -->
+								{:else if !inspected && failed}
 									<pre
 										class="whitespace-pre-wrap break-words font-mono text-2xs text-red-700 dark:text-red-300"
 										>{message.error}</pre
@@ -452,8 +609,8 @@
 									<DisplayResult
 										result={undefined}
 										result_stream={resultStream}
-										jobId={chatJob?.jobId}
-										workspaceId={chatJob?.workspace}
+										jobId={job?.jobId}
+										workspaceId={job?.workspace}
 										disableExpand
 										hideAsJson
 									/>
@@ -465,8 +622,8 @@
 					     which the row already owns. -->
 									<DisplayResult
 										result={resultValue}
-										jobId={chatJob?.jobId}
-										workspaceId={chatJob?.workspace}
+										jobId={job?.jobId}
+										workspaceId={job?.workspace}
 										disableExpand
 										hideAsJson
 									/>

@@ -129,7 +129,9 @@
 
 	// The run card owns this call from the form to whatever settled it, cancelling included:
 	// the card is the call, and a run the user stopped is not a different kind of thing.
-	const isRunCard = $derived(Boolean(message.runForm))
+	// A call that inspected a run rather than starting one gets the same card, bound to
+	// the job it named — what happened in a run reads the same either way.
+	const isRunCard = $derived(Boolean(message.runForm || message.inspectedRun))
 
 	// The preview chip sits on the header row (to the right of the tool-call text);
 	// shown once the tool settled, never while loading/erroring/awaiting confirmation.

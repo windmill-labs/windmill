@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.814.0
+  version: 1.815.0
   title: Windmill API
 
   contact:
@@ -529,6 +529,30 @@ paths:
       responses:
         "302":
           description: redirected to the post-login destination, or to /user/login_link_expired when the link is used, expired or unknown
+    post:
+      security: []
+      summary: consume a single-use login link from its confirmation page, set the session cookie and answer where to go
+      operationId: confirmLoginLink
+      tags:
+        - user
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: the post-login destination, or /user/login_link_expired when the link is used, expired or unknown
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - location
+                properties:
+                  location:
+                    type: string
 
   /auth/reset_password:
     post:
@@ -4103,9 +4127,13 @@ paths:
                   guest_access_enabled:
                     type: boolean
                     description: Whether this workspace admits guest sessions. An app's own `guest` execution mode is inert while this is false.
+                  add_admins_and_developers_to_forks:
+                    type: boolean
+                    description: Whether every new fork of this workspace starts with its admins and developers as members, keeping their role.
                 required:
                   - workspace_id
                   - guest_access_enabled
+                  - add_admins_and_developers_to_forks
 
   /w/{workspace}/workspaces/get_settings:
     get:
@@ -4196,6 +4224,9 @@ paths:
                   guest_jwt_jwks_url:
                     type: string
                     description: JWKS URL a guest JWT (`jwt_guest_`) is verified against for this workspace. Mutually exclusive with `guest_jwt_public_key`.
+                  add_admins_and_developers_to_forks:
+                    type: boolean
+                    description: Whether every new fork of this workspace starts with its admins and developers as members, keeping their role.
 
   /w/{workspace}/workspaces/get_deploy_to:
     get:
@@ -6437,6 +6468,39 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/workspaces/edit_add_admins_and_developers_to_forks:
+    post:
+      summary: choose whether new forks of this workspace start with its admins and developers
+      description: >-
+        When on, every fork created from this workspace gets the workspace's admins and
+        developers as members, with the role they hold here; operators, disabled users and
+        service accounts are left out. The setting is copied into each fork, so forks of a
+        fork follow it too. Off by default. Workspace-admin gated.
+      operationId: editAddAdminsAndDevelopersToForks
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Whether new forks start with this workspace's admins and developers
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                add_admins_and_developers_to_forks:
+                  type: boolean
+              required:
+                - add_admins_and_developers_to_forks
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/workspaces/edit_guest_jwt_key:
     post:
       summary: set the key guest JWTs are verified against for this workspace
@@ -6901,7 +6965,7 @@ paths:
                   type: string
                 expires_in_s:
                   type: integer
-                  description: link lifetime in seconds, at most 900 (default 600)
+                  description: link lifetime in seconds, at most 7200 (default 600)
                 rd:
                   type: string
                   description: same-origin path the browser lands on after login (default /user/workspaces)
@@ -6911,6 +6975,12 @@ paths:
                     mint only while the account still has this login type (for example
                     pending_oauth), so a link stops working once the owner has set a password
                     or signed in with a provider
+                confirm:
+                  type: boolean
+                  description: >-
+                    return a /user/login_link page that signs in only when its button is
+                    clicked, instead of a link spent by opening it; set it for links sent by
+                    email, which mail scanners open on delivery (default false)
       responses:
         "201":
           description: login link minted
@@ -10470,7 +10540,48 @@ paths:
                   current_timestamp:
                     type: string
                     format: date-time
+                  path:
+                    type: string
+                    description: "`saved` only, upsert or delete: where the write landed. Differs from the URL path when the item had moved away from it; the editor follows it there. Absent when a delete found nothing to remove and the caller cannot read the path it moved to."
                 required: [status, current_timestamp]
+
+  /w/{workspace}/drafts/move/{kind}/{path}:
+    post:
+      summary: move the current user's draft-only item to another path
+      description: Relocates the authed user's own draft row, along with both path keys inside its value (the typed path and the mirror the editors keep beside it). Only for draft-only items — a deployed item must be moved through its own deploy endpoint, which carries every draft with it. Restricted to script, flow, app and raw_app; any other kind is rejected with 400, because only these keep their deploy target where this endpoint rewrites it.
+      operationId: moveDraft
+      tags:
+        - draft
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: kind
+          in: path
+          required: true
+          description: script, flow, app or raw_app only.
+          schema:
+            type: string
+            enum: [script, flow, app, raw_app]
+        - $ref: "#/components/parameters/ScriptPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                new_path:
+                  type: string
+                summary:
+                  type: string
+                  description: Also restate the draft's summary.
+              required: [new_path]
+      responses:
+        "200":
+          description: move result
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/drafts/migrate_legacy/{kind}/{path}:
     post:
@@ -10982,6 +11093,8 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
       responses:
         "200":
           description: script history
@@ -12387,6 +12500,8 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
       tags:
         - flow
       responses:
@@ -14265,6 +14380,8 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
       responses:
         "200":
           description: app history
@@ -14532,9 +14649,9 @@ paths:
         "200":
           description: app updated
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                $ref: "#/components/schemas/AppDeployed"
 
   /w/{workspace}/apps/create_raw_source:
     post:
@@ -14674,9 +14791,9 @@ paths:
         "200":
           description: app updated
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                $ref: "#/components/schemas/AppDeployed"
 
   /w/{workspace}/apps/update_raw/{path}:
     post:
@@ -14730,9 +14847,9 @@ paths:
         "200":
           description: app updated
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                $ref: "#/components/schemas/AppDeployed"
 
   /w/{workspace}/apps/custom_path_exists/{custom_path}:
     get:
@@ -27780,6 +27897,13 @@ components:
         draft_saved_at:
           type: string
           format: date-time
+        draft_base:
+          type: string
+          description: |
+            The deployed version the draft forked from, as text whatever the
+            kind (script hash, flow version id, app version id). Compare to the
+            deployed head to tell a draft that is behind. Absent when there is
+            no draft or it was never forked from a deploy.
         no_deployed:
           type: boolean
         draft:
@@ -29674,6 +29798,11 @@ components:
         script_hash:
           type: string
         deployment_msg:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        created_by:
           type: string
       required:
         - script_hash
@@ -35169,6 +35298,9 @@ components:
                 nullable: true
               disabled:
                 type: boolean
+              is_service_account:
+                type: boolean
+                description: Whether this membership is a service account.
             required:
               - id
               - name
@@ -35858,12 +35990,31 @@ components:
         - raw_app
 
 
+    AppDeployed:
+      type: object
+      description: "What a deploy of an existing app answers with. `version` is the one this call wrote, which is what an editor pins as the fork base of the draft it starts next: reading the head back afterwards cannot tell it from a deploy that landed beside it. A metadata-only update writes none and reports the head it kept."
+      properties:
+        path:
+          type: string
+          description: Where the app now lives, which differs from the request path on a rename.
+        version:
+          type: integer
+          format: int64
+      required:
+        - path
+        - version
+
     AppHistory:
       type: object
       properties:
         version:
           type: integer
         deployment_msg:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        created_by:
           type: string
       required:
         - version
@@ -35933,6 +36084,8 @@ components:
           type: string
           format: date-time
         deployment_msg:
+          type: string
+        created_by:
           type: string
       required:
         - id

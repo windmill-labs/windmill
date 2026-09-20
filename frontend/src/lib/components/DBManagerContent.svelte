@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { dbSchemas, workspaceStore, type DBSchema } from '$lib/stores'
+	import { dbSchemas, type DBSchema } from '$lib/stores'
 	import type { DataTableTables } from '$lib/gen'
 	import { sortArray } from '$lib/utils'
 	import { Loader2, RefreshCcw } from 'lucide-svelte'
@@ -34,6 +34,9 @@
 	import { createAsyncConfirmationModal } from './common/confirmationModal/asyncConfirmationModal.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 	import { outOfOrderRunMessage } from './workspaceSettings/datatableMigrationUtils'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		input?: DbInput
@@ -57,9 +60,8 @@
 		/** Tables that are already added and should show as disabled */
 		disabledTables?: SelectedTable[]
 		onImport?: (mode: 'schema_and_data' | 'schema_only') => void
-		/** Workspace the datatable/schema lookups run against. Defaults to the
-		 *  navigation `$workspaceStore`; pass the acting workspace when embedded in
-		 *  a session preview whose workspace differs from the top nav. */
+		/** Workspace the datatable/schema lookups run against. Defaults to the operating
+		 *  workspace (see `useOperatingWorkspace`). */
 		workspace?: string
 		/** Worker tag every job of this manager runs on, overriding the database
 		 *  language's native tag. Bound so the hints below can offer to set it. */
@@ -87,7 +89,7 @@
 		workerTag = $bindable()
 	}: Props = $props()
 
-	let ws = $derived(workspace ?? $workspaceStore)
+	let ws = $derived(workspace ?? $operatingWorkspace)
 
 	let dbSchema: DBSchema | undefined = $derived(input && $dbSchemas[schemaCacheKey(ws, input)])
 

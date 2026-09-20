@@ -34,8 +34,8 @@
 		title
 	}: Props = $props()
 
-	// The drawers ride with the docked chat, so a surface can render this pill with nothing
-	// able to open one.
+	// The drawers ride with the docked chat and the session tabs with the sessions page, so a
+	// surface can render this pill with nothing able to open one.
 	const available = $derived.by(() => {
 		const action = workspaceItemAction(wmKind, wmPath, wmTargetKind, wmRawApp === 'true')
 		return action && hasToolDisplayActionHandler(action.type) ? action : undefined
@@ -113,8 +113,8 @@
 					variant="subtle"
 					iconOnly
 					startIcon={{ icon: PanelRight }}
-					title="Open in drawer"
-					aria-label="Open {wmPath} in drawer"
+					title="Open in editor"
+					aria-label="Open {wmPath} in editor"
 					wrapperClasses="ml-0.5 inline-flex self-center shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
 					btnClasses="!w-auto !rounded !p-0.5 !text-tertiary"
 					onClick={openDrawer}
