@@ -239,8 +239,19 @@ export async function pushWorkspaceSettings(
     });
   }
 
-  // Handle auto_invite using grouped format
-  if (!deepEqual(localSettings.auto_invite, settings.auto_invite)) {
+  // Handle auto_invite using grouped format. The domain invite and the instance groups
+  // are applied by separate endpoints, each rewriting only its own keys.
+  const {
+    instance_groups: localGroups,
+    instance_groups_roles: localGroupRoles,
+    ...localDomainInvite
+  } = localSettings.auto_invite ?? {};
+  const {
+    instance_groups: remoteGroups,
+    instance_groups_roles: remoteGroupRoles,
+    ...remoteDomainInvite
+  } = settings.auto_invite ?? {};
+  if (!deepEqual(localDomainInvite, remoteDomainInvite)) {
     log.debug(`Updating auto invite...`);
 
     const localAutoInvite = localSettings.auto_invite;
@@ -276,6 +287,20 @@ export async function pushWorkspaceSettings(
           : {},
       });
     }
+  }
+
+  // Only when settings.yaml declares instance_groups: clearing a group removes the
+  // workspace members it granted, so an absent key must never clear it.
+  if (
+    localGroups != undefined &&
+    (!deepEqual(localGroups, remoteGroups) ||
+      !deepEqual(localGroupRoles ?? {}, remoteGroupRoles ?? {}))
+  ) {
+    log.debug(`Updating instance groups...`);
+    await wmill.editInstanceGroups({
+      workspace,
+      requestBody: { groups: localGroups, roles: localGroupRoles ?? {} },
+    });
   }
 
   if (!deepEqual(localSettings.ai_config, settings.ai_config)) {

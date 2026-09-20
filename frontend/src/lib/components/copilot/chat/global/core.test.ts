@@ -875,6 +875,67 @@ describe('global AI tools', () => {
 		)
 	})
 
+	it('names the job the card renders, without changing what the model is handed', async () => {
+		const runResult = await callGlobalTool('get_run', { id: 'job-123' })
+		expect(toolCallbacks.setToolStatus).toHaveBeenLastCalledWith(
+			'test-get_run',
+			expect.objectContaining({
+				result: runResult,
+				inspectedRun: {
+					jobId: 'job-123',
+					workspace: WORKSPACE,
+					runId: 'job-123',
+					step: undefined
+				}
+			})
+		)
+
+		// A step is a job of its own, and the model's line of prose about it carries
+		// neither its arguments nor its logs — the card reads those from the job. The
+		// address travels with it, since a step job names neither the step nor its run.
+		vi.mocked(JobService.getFlowAllResults).mockResolvedValueOnce({
+			entries: [
+				{
+					job_id: 'step-job-1',
+					label: 'b',
+					kind: 'script',
+					depth: 1,
+					sibling_index: 1,
+					sibling_count: 1,
+					status: 'success',
+					success: true,
+					result_prefix: '{"ok":true}'
+				}
+			]
+		} as any)
+		const stepResult = await callGlobalTool('get_run', { id: 'job-123', step: 'b' })
+		expect(stepResult).toContain('(job step-job-1, success) result:')
+		expect(toolCallbacks.setToolStatus).toHaveBeenLastCalledWith(
+			'test-get_run',
+			expect.objectContaining({
+				result: stepResult,
+				inspectedRun: {
+					jobId: 'step-job-1',
+					workspace: WORKSPACE,
+					runId: 'job-123',
+					step: 'b'
+				}
+			})
+		)
+
+		// An address naming several jobs resolves to none of them, so there is
+		// nothing for the card to bind to and the call renders as an ordinary row.
+		vi.mocked(JobService.getFlowAllResults).mockResolvedValueOnce({
+			entries: [],
+			step_error: 'Step "b" ran 4 times (loop/branches) — pick one with "b[i]".'
+		} as any)
+		await callGlobalTool('get_run', { id: 'job-123', step: 'b' })
+		expect(toolCallbacks.setToolStatus).toHaveBeenLastCalledWith(
+			'test-get_run',
+			expect.not.objectContaining({ inspectedRun: expect.anything() })
+		)
+	})
+
 	it('reports when a run has no logs, and tells that apart from logs it could not read', async () => {
 		vi.mocked(JobService.getJobLogs).mockResolvedValueOnce('   ')
 		expect(JSON.parse(await callGlobalTool('get_run', { id: 'job-empty' })).run.logs).toBe(
@@ -1955,6 +2016,69 @@ describe('global AI tools', () => {
 			language: 'bun',
 			content
 		})
+	})
+
+	it('tells a code app from a drag-and-drop app', async () => {
+		vi.mocked(AppService.listApps).mockResolvedValueOnce([
+			{ path: 'f/apps/code', summary: 'Code app', raw_app: true },
+			{ path: 'f/apps/builder', summary: 'Builder app' }
+		] as any)
+		// An app draft is always a code app: the chat cannot address a
+		// drag-and-drop app's draft kind at all.
+		seedBackendDraft(
+			'raw_app',
+			'u/admin/draft_listed',
+			{ summary: 'Draft app' },
+			{ workspace: WORKSPACE }
+		)
+
+		const rows = JSON.parse(await callGlobalTool('list_workspace_items', { types: ['app'] }))
+
+		expect(rows.map((r: any) => [r.path, r.rawApp])).toEqual([
+			['f/apps/code', true],
+			['f/apps/builder', false],
+			['u/admin/draft_listed', true]
+		])
+	})
+
+	it('still says which kind of app it is when the app is read directly', async () => {
+		// The flag decides whether the app tools are offered at all, and the model
+		// reads an app before it edits one — a listing that knows is not enough.
+		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({
+			path: 'f/apps/builder',
+			summary: 'Builder app',
+			value: { grid: [] },
+			raw_app: false
+		} as any)
+
+		const read = JSON.parse(
+			await callGlobalTool('read_workspace_item', { type: 'app', path: 'f/apps/builder' })
+		)
+		expect(read.rawApp).toBe(false)
+	})
+
+	it('finds a staged app under the folder it was filed in, not its generated path', async () => {
+		// A never-deployed app the editor created lives at a generated path, so the
+		// folder the user filed it under exists only as its staged name. The server
+		// drops draft-only rows under any narrowing filter, leaving this pass the one
+		// that can answer a folder-scoped question about it.
+		seedBackendDraft(
+			'raw_app',
+			'u/admin/draft_7f21c9',
+			{ summary: '', draft_path: 'f/team/invoice_tracker' },
+			{ workspace: WORKSPACE }
+		)
+
+		const matched = JSON.parse(
+			await callGlobalTool('list_workspace_items', { types: ['app'], path_prefix: 'f/team/' })
+		)
+		expect(matched).toHaveLength(1)
+		expect(matched[0].draftPath).toBe('f/team/invoice_tracker')
+
+		const other = JSON.parse(
+			await callGlobalTool('list_workspace_items', { types: ['app'], path_prefix: 'f/other/' })
+		)
+		expect(other).toEqual([])
 	})
 
 	it('applies path_prefix to drafts before enforcing the result limit', async () => {

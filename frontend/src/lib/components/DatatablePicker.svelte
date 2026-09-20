@@ -1,10 +1,12 @@
 <script lang="ts">
 	import { WorkspaceService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 
 	import Select from './select/Select.svelte'
 	import ExploreAssetButton, { assetCanBeExplored } from './ExploreAssetButton.svelte'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		value?: string | undefined
@@ -29,7 +31,7 @@
 	}: Props = $props()
 
 	let datatables = usePromise(() =>
-		WorkspaceService.listDataTables({ workspace: $workspaceStore ?? '' }).then((d) =>
+		WorkspaceService.listDataTables({ workspace: $operatingWorkspace ?? '' }).then((d) =>
 			d.map((d) => d.name)
 		)
 	)

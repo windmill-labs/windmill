@@ -19,7 +19,6 @@ callers that already know which section they mean, such as the "+" menu's Manage
 	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
 	import SidebarNavigation from '$lib/components/common/sidebar/SidebarNavigation.svelte'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
-	import { workspaceStore } from '$lib/stores'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import { summarizeTools } from './agentContext'
@@ -28,6 +27,9 @@ callers that already know which section they mean, such as the "+" menu's Manage
 	import AssistantInstructionsSection from './AssistantInstructionsSection.svelte'
 	import AssistantMcpSection from './AssistantMcpSection.svelte'
 	import AssistantFilesSection from './AssistantFilesSection.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	const aiChatManager = getAiChatManager()
 
@@ -88,7 +90,7 @@ callers that already know which section they mean, such as the "+" menu's Manage
 	// unconditionally rather than behind `??`: short-circuiting it would leave this
 	// derived with no dependency at all, frozen on the workspace it first saw.
 	let ws = $derived.by(() => {
-		const active = $workspaceStore
+		const active = $operatingWorkspace
 		return aiChatManager.operatingWorkspace ?? active ?? ''
 	})
 

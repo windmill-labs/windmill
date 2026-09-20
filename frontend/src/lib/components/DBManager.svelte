@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { untrack, type Snippet } from 'svelte'
 	import { isCloudHosted } from '$lib/cloud'
-	import { superadmin, userStore, type DBSchema } from '$lib/stores'
+	import { superadmin, type DBSchema } from '$lib/stores'
 	import {
 		ChevronDownIcon,
 		EditIcon,
@@ -46,6 +46,10 @@
 	import Checkbox from './common/checkbox/Checkbox.svelte'
 	import DbSchemaDiagram from './dbdiagram/DbSchemaDiagram.svelte'
 	import type { DbRelation } from './dbRelations'
+	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	/** Represents a selected table with its schema */
 	export interface SelectedTable {
@@ -1194,7 +1198,7 @@
 								Import schema from database
 							</span>
 						</button>
-						{#if !!$userStore?.is_admin || !!$superadmin}
+						{#if !!actingUser?.is_admin || !!$superadmin}
 							<button
 								onclick={() => onImport('schema_and_data')}
 								class="hover:opacity-70 transition-opacity rounded-md border aspect-square w-52 gap-4 p-4 center-center flex-col"

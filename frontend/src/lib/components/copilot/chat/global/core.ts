@@ -308,8 +308,8 @@ export type GlobalActivePreviewContext = {
 	 * location: a tab can host a legacy app whose hash is app state, and a filter value
 	 * can be free text the user typed. Build it with `previewLocationContext`. */
 	location: string
-	/** The row whose drawer is open on that page. The list pages drop the anchor when
-	 * their drawer closes, so its absence means no row is open. */
+	/** The item open in its editor: a list page row whose drawer is open, or the item a
+	 * session tab edits. Its absence means no item is open. */
 	open?: string
 }
 
@@ -1332,7 +1332,7 @@ const buildGlobalSystemPrompt = (
 	// right now: the system prompt is the cached prefix, so a line appearing and
 	// disappearing between turns costs more cache than the tool call it saves.
 	const activePreviewRule = previewTools
-		? '\n- If the user message includes an ACTIVE PREVIEW section, that is the page the side panel is showing — resolve "this page", "here" and "it" against it, and against `open` (the row the page is anchored at, whose drawer the user opened) when there is one. It already tells you what get_preview_status would, so do not call that tool to learn what is on screen; call it only to check the panel\'s *other* tabs.'
+		? '\n- If the user message includes an ACTIVE PREVIEW section, that is the page the side panel is showing — resolve "this page", "here" and "it" against it, and against `open` (the item the user has open in its editor) when there is one. It already tells you what get_preview_status would, so do not call that tool to learn what is on screen; call it only to check the panel\'s *other* tabs.'
 		: ''
 	const pipelineBullet = `- A "data pipeline" is NOT a flow: it is a DAG of independent scripts in one folder, wired by storage assets (DuckLake/data tables/S3) and triggers via top-of-file \`pipeline\` / \`on <ref>\` annotation comments written in each script's comment syntax (\`--\` for SQL, \`#\` for Python/Bash, \`//\` for TS — a \`//\` line in a SQL node is a syntax error). When the user asks for a data pipeline (or to ingest/transform/materialize data across steps), call get_instructions with subject "pipeline" and build annotated script drafts — do not build a flow.${pipelineAlphaNote}`
 	// Hosting and edition come from the hostname and a store the app populates at init, so
@@ -1379,7 +1379,7 @@ ${pipelineBullet}
 - Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_run with a returned id to see what that run was called with, what it returned and what it logged — without starting a new test run.
 - get_run also covers what a flow run did per step — statuses and results across the whole execution tree, subflow steps and loop iterations included — and works while the flow is still running. Pass step to read one step's result in full (capped at 12k chars).
 - Use open_page to show a workspace page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, or Workspace settings on a specific tab (e.g. "open the failed runs of f/foo/bar", "open the schedule for X", "open the git sync settings"). Carry over every filter the user described — Runs takes the page's whole filter set (time window, path, user, folder, label, tag, worker, trigger kind, args/result, ...), so don't drop a criterion just because it wasn't in the request's main clause. Only the pages listed for this user in the tool are available; don't offer pages that aren't listed. Don't use it as a substitute for list_runs when you just need the data yourself.
-- Whenever you ask the user to perform a manual step in the UI — fill in a resource's credentials, set a secret variable's value, adjust a schedule or setting — call open_page in the same message, targeted at that item (pass open with its path to land in its edit drawer, or the page's filters otherwise). Never just describe where to click.
+- Whenever you ask the user to perform a manual step in the UI — fill in a resource's credentials, set a secret variable's value, adjust a schedule or setting — call open_page in the same message, targeted at that item (pass open with its path to land in its editor, or the page's filters otherwise). Never just describe where to click.
 - When the user is happy with the changes and wants to review or deploy them, use open_page with page "compare" — it opens the Compare & Deploy review page.${
 		previewTools
 			? ' By default it preselects the items this chat modified; pass items ("<kind>:<path>" entries) to control the selection'
@@ -1421,6 +1421,7 @@ Flows:
 - Use patch_flow_json for structural flow edits and write_flow for full flow rewrites.
 
 Raw apps:
+- The app tools below only work on raw (code) apps. \`rawApp\` says which: false is a drag-and-drop app, which you can list and read but not edit or deploy. Check it before offering to change an app.
 - read_workspace_item returns app metadata only. Use read_app_file for file and inline runnable contents.
 - Use write_app_file, patch_app_file, and delete_app_file for frontend files.
 - Use write_app_runnable and delete_app_runnable for backend runnables.
@@ -1531,6 +1532,7 @@ function serializeWorkspaceItemForRead(item: WorkspaceItem): unknown {
 			path: item.path,
 			summary: item.summary,
 			value: summarizeAppValue(item.value as AppDraftValue),
+			rawApp: item.rawApp,
 			isDraft: item.isDraft
 		}
 	}
@@ -1757,6 +1759,9 @@ function appToItem(app: ListableApp | AppWithLastVersion, includeValue: boolean)
 		path: app.path,
 		summary: app.summary,
 		value: includeValue ? ((app as AppWithLastVersion).value as AppDraftValue) : undefined,
+		// The server omits this flag rather than sending false, so its absence in the
+		// response is a known false — not a value this listing failed to fetch.
+		rawApp: app.raw_app ?? false,
 		isDraft: false
 	}
 }
@@ -2043,6 +2048,7 @@ async function readWorkspaceItem(
 				path: app.path,
 				summary: value.summary,
 				value: metadata as unknown as AppDraftValue,
+				rawApp: app.raw_app,
 				isDraft: false
 			}
 		}
@@ -2789,7 +2795,7 @@ const openPageFullSchema = z.object({
 		.string()
 		.optional()
 		.describe(
-			'Schedules/Triggers/Variables/Resources: exact item path to open in the edit drawer, e.g. f/foo/my_schedule. Use it whenever the user should act on one specific item (e.g. fill in credentials) so they land directly in its editor.'
+			'Schedules/Triggers/Variables/Resources: exact item path to open in its editor, e.g. f/foo/my_schedule — in a session, a preview tab of its own instead of the list page. Use it whenever the user should act on one specific item (e.g. fill in credentials) so they land directly in its editor.'
 		),
 	summary: z
 		.string()
@@ -2918,7 +2924,7 @@ function buildOpenPageDefSchema(
 }
 
 const OPEN_PAGE_DESCRIPTION =
-	'Open a Windmill page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, Folders, Groups, Triggers (by kind), Workspace settings (on a specific tab), or the Compare & Deploy review page. Inside an AI session it opens as a tab in the side-panel preview next to the chat; elsewhere it offers a clickable link. Use after surfacing something the user likely wants to inspect (e.g. "show me the failed runs of X", "open the schedule for Y", "open the git sync settings", "open the kafka triggers"), and ALWAYS when asking the user to perform a manual step themselves (fill in a resource\'s credentials, set a variable\'s value — pass open with the item path so its edit drawer opens directly). Use page "compare" when the user wants to review and deploy pending changes (the items field controls which changes are preselected). This is the only way to show one of these pages in the session preview — open_preview only handles editable items (scripts, flows, raw apps, pipelines). Only pages listed for this user are available; do not offer others.'
+	'Open a Windmill page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, Folders, Groups, Triggers (by kind), Workspace settings (on a specific tab), or the Compare & Deploy review page. Inside an AI session it opens as a tab in the side-panel preview next to the chat; elsewhere it offers a clickable link. Use after surfacing something the user likely wants to inspect (e.g. "show me the failed runs of X", "open the schedule for Y", "open the git sync settings", "open the kafka triggers"), and ALWAYS when asking the user to perform a manual step themselves (fill in a resource\'s credentials, set a variable\'s value — pass open with the item path so its editor opens directly). Use page "compare" when the user wants to review and deploy pending changes (the items field controls which changes are preselected). This is the only way to show one of these pages in the session preview — open_preview only handles editable items (scripts, flows, raw apps, pipelines). Only pages listed for this user are available; do not offer others.'
 
 // Non-arg inputs the URL builder needs: the chat's operating workspace (the compare
 // page cannot fall back to its own store default inside a session preview) and the
@@ -3413,9 +3419,16 @@ export const globalTools: Tool<{}>[] = [
 			// (it filters before the cap; query filters after).
 			if ((parsed.page ?? 1) === 1) {
 				const draftCountByType = new Map<string, number>()
+				const prefix = parsed.path_prefix
 				for (const draft of await listGlobalDrafts(workspace)) {
 					if (!types.includes(draft.type)) continue
-					if (parsed.path_prefix && !draft.path.startsWith(parsed.path_prefix)) continue
+					// A draft's staged name is often not where it is stored: the editor parks
+					// a new script, flow or app at a generated `draft_<uuid>` path, and a
+					// rename stages the new name over the old path. The server drops
+					// draft-only rows under any narrowing filter, leaving this pass their
+					// only source, so either name has to satisfy the prefix.
+					if (prefix && !draft.path.startsWith(prefix) && !draft.draftPath?.startsWith(prefix))
+						continue
 					const count = draftCountByType.get(draft.type) ?? 0
 					if (count >= limit) continue
 					draftCountByType.set(draft.type, count + 1)
@@ -3830,14 +3843,18 @@ export const globalTools: Tool<{}>[] = [
 					? `Fetching result of step ${parsed.step} in run ${parsed.id}...`
 					: `Inspecting run ${parsed.id}...`
 			})
-			const result = await getRun(workspace, parsed.id, parsed.step)
+			const { text, jobId } = await getRun(workspace, parsed.id, parsed.step)
 			toolCallbacks.setToolStatus(toolId, {
 				content: parsed.step
 					? `Fetched result of step ${parsed.step} in run ${parsed.id}`
 					: `Inspected run ${parsed.id}`,
-				result
+				result: text,
+				// The card reads the run itself from here; the model only ever gets `text`.
+				...(jobId
+					? { inspectedRun: { jobId, workspace, runId: parsed.id, step: parsed.step } }
+					: {})
 			})
-			return result
+			return text
 		}
 	},
 	{
