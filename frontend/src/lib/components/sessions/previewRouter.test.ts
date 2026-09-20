@@ -14,8 +14,27 @@ import {
 	previewLocationContext,
 	previewLocationLabel,
 	resolvePreviewTab,
-	runFormUrl
+	runFormUrl,
+	workspacePageHref
 } from './previewRouter'
+import { pageItemUrl } from './previewPaths'
+
+describe('workspacePageHref', () => {
+	it('sends a page item tab to its list page with the row open, never to its scheme', () => {
+		expect(workspacePageHref(pageItemUrl({ kind: 'resource', path: 'u/me/db' }))).toBe(
+			'/resources#/resource/u/me/db'
+		)
+		expect(
+			workspacePageHref(pageItemUrl({ kind: 'trigger', triggerKind: 'kafka', path: 'f/a/b' }))
+		).toBe('/kafka_triggers#f/a/b')
+	})
+
+	it('has no page for a tab that belongs to the chat', () => {
+		expect(workspacePageHref(artifactUrl('a1', 'Plan'))).toBeUndefined()
+		expect(workspacePageHref(runFormUrl('call_1', 'Run'))).toBeUndefined()
+		expect(workspacePageHref('/runs?path=u/me/x')).toBe('/runs?path=u/me/x')
+	})
+})
 
 describe('drawerAnchorFor', () => {
 	it('reads the anchored row on the pages that deep-link one', () => {

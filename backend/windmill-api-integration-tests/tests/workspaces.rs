@@ -1166,3 +1166,47 @@ async fn test_create_service_account_drops_orphaned_group_memberships(
 
     Ok(())
 }
+
+#[cfg(feature = "private")]
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_edit_auto_invite_preserves_instance_groups(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    sqlx::query(
+        r#"UPDATE workspace_settings
+           SET auto_invite = '{"instance_groups": ["eng"], "instance_groups_roles": {"eng": "developer"}}'
+           WHERE workspace_id = 'test-workspace'"#,
+    )
+    .execute(&db)
+    .await?;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/workspaces");
+
+    // enable, then disable
+    for body in [
+        json!({"operator": false, "invite_all": true, "auto_add": false}),
+        json!({}),
+    ] {
+        let resp = authed(client().post(format!("{base}/edit_auto_invite")))
+            .json(&body)
+            .send()
+            .await?;
+        assert_eq!(resp.status(), 200, "{body}: {}", resp.text().await?);
+
+        let auto_invite: serde_json::Value = sqlx::query_scalar(
+            "SELECT auto_invite FROM workspace_settings WHERE workspace_id = 'test-workspace'",
+        )
+        .fetch_one(&db)
+        .await?;
+        assert_eq!(auto_invite["instance_groups"], json!(["eng"]), "{body}");
+        assert_eq!(
+            auto_invite["instance_groups_roles"],
+            json!({"eng": "developer"}),
+            "{body}"
+        );
+    }
+
+    Ok(())
+}

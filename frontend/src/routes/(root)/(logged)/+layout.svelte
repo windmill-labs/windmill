@@ -13,6 +13,7 @@
 	} from '$lib/gen'
 	import { capitalize, classNames, getModifierKey, sendUserToast } from '$lib/utils'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
+	import { isSessionPreviewFrame } from '$lib/components/sessions/sessionMode.svelte'
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
 	import SettingsMenu from '$lib/components/sidebar/SettingsMenu.svelte'
@@ -139,8 +140,8 @@
 	let isCollapsed = $state(collapsePref.val)
 
 	// Resizable desktop rail, sized in REM so it scales with the root font-size the
-	// same way the old `w-52`/`w-12` classes did — `:root` jumps to 18px past 1760px
-	// wide (app.css), which grows the rem-based button content; a fixed-px rail would
+	// same way the old `w-52`/`w-12` classes did — `:root` jumps to 18px on screens
+	// ≥1760px (app.css), which grows the rem-based button content; a fixed-px rail would
 	// not grow with it and the content would overflow. SIDEBAR_MIN_REM is the default
 	// expanded width (the old w-52); the handle only resizes when expanded and only
 	// widens from there — collapsing is the toggle button's job, not the drag's.
@@ -355,17 +356,6 @@
 		}
 	}
 
-	// True when this window is a sessions-preview iframe (embedded + nomenubar,
-	// which the preview always sets and stickies — see the menu-hide block above).
-	function isSessionPreviewEmbed(): boolean {
-		if (!embedded) return false
-		try {
-			return sessionStorage.getItem('nomenubar_embedded') === 'true'
-		} catch {
-			return false
-		}
-	}
-
 	// A job-detail navigation (/run/<id>) inside a preview tab should open the job in
 	// a NEW tab rather than navigate the current tab away from its page (e.g. clicking
 	// a job in the Runs tab keeps Runs put and opens the run beside it). Returns the
@@ -412,7 +402,7 @@
 		// instead of booting a second, disconnected editor in this frame. Cancel so
 		// the heavy editor never mounts here at all. Runs before the apps_raw reload
 		// below so a raw-app editor promotes rather than full-reloading the iframe.
-		if (isSessionPreviewEmbed()) {
+		if (isSessionPreviewFrame()) {
 			const target = previewEditorTarget(navigation.to?.url)
 			if (target) {
 				navigation.cancel()
@@ -1414,11 +1404,11 @@
 			</div>
 		{/if}
 		<div class="flex flex-col h-full w-full">
-			{#if isCloudHosted() && !menuHidden}
-				<!-- Announcements are a managed-cloud operations tool, so the component never
-				     mounts elsewhere: no fetch, no poll, no listener on a self-hosted instance.
-				     Also skipped when the menu is hidden — that is an embed or an OAuth
-				     callback, where the announcement would land inside someone else's page. -->
+			{#if $enterpriseLicense && !menuHidden}
+				<!-- Announcements are an EE feature, so the component never mounts on CE: no
+				     fetch, no poll, no listener there. Also skipped when the menu is hidden —
+				     that is an embed or an OAuth callback, where the announcement would land
+				     inside someone else's page. -->
 				<InstanceBanner />
 			{/if}
 			{#if $userStore?.is_service_account}

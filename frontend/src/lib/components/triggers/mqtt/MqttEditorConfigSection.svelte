@@ -16,8 +16,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import TestingBadge from '../testingBadge.svelte'
-	import { workspaceStore } from '$lib/stores'
-	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	interface Props {
 		can_write?: boolean
@@ -39,8 +38,8 @@
 		showTestingBadge = false
 	}: Props = $props()
 
-	const triggerWs = getTriggerWorkspace()
-	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
+	const operatingWorkspace = useOperatingWorkspace()
+	const wsId = $derived($operatingWorkspace)
 
 	const isValidSubscribeTopics = (subscribe_topics: MqttSubscribeTopic[]): boolean => {
 		if (

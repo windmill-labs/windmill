@@ -521,10 +521,8 @@ def main():
             .await
             .unwrap();
 
-        assert_eq!(
-            res.text().await.unwrap(),
-            "app f/rel/root_app updated (npath: \"f/rel/root_app_renamed\")"
-        );
+        let deployed: serde_json::Value = res.json().await.unwrap();
+        assert_eq!(deployed["path"], "f/rel/root_app_renamed", "{deployed}");
 
         let mut completed = listen_for_completed_jobs(&db).await;
         in_test_worker(&db, completed.next(), port).await;
