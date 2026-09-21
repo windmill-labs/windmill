@@ -1298,7 +1298,7 @@
 	<div class="flex flex-col gap-3">
 		<p>
 			Delete session <span class="font-medium text-primary"
-				>{pendingDelete?.summary ?? pendingDelete?.name}</span
+				>{pendingDelete?.summary ?? 'Untitled session'}</span
 			>? This cannot be undone.
 		</p>
 		{#if pendingDeleteForkId}

@@ -537,7 +537,7 @@
 		<div class="flex flex-col gap-3">
 			<p>
 				Delete session <span class="font-medium text-primary"
-					>{session?.summary ?? session?.name}</span
+					>{session?.summary ?? 'Untitled session'}</span
 				>? This cannot be undone.
 			</p>
 			{#if sessionForkId}
@@ -569,7 +569,7 @@
 		<div class="flex flex-col gap-3">
 			<p>
 				Archive session <span class="font-medium text-primary"
-					>{session?.summary ?? session?.name}</span
+					>{session?.summary ?? 'Untitled session'}</span
 				>? You can restore it later from the archived list.
 			</p>
 			{#if sessionForkId}
