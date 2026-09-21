@@ -8,6 +8,7 @@
 	import { isOwner } from '$lib/utils'
 	import { useActingUser } from '$lib/actingUser.svelte'
 	import LocalDraftBanner from './LocalDraftBanner.svelte'
+	import DraftConflictAlert from './DraftConflictAlert.svelte'
 	import OpenInSessionButton from './sessions/OpenInSessionButton.svelte'
 	import {
 		clearPageDrawerAnchor,
@@ -62,9 +63,12 @@
 				localDraftDeployed: () => unknown
 				localDraftCurrent: () => unknown
 				discardLocalDraft: () => void
+				endEditingSession: () => void
+				resolveDraftConflictFromBanner: (keepMine: boolean) => void
 		  }
 		| undefined = $state(undefined)
 	let hasLocalDraft = $state(false)
+	let draftConflict = $state({ conflicted: false, busy: false })
 	let canWriteSelected = $state(true)
 
 	let path: string | undefined = $state(undefined)
@@ -151,6 +155,9 @@
 		size="50rem"
 		{disableChatOffset}
 		on:close={() => {
+			// The editor outlives this drawer, so tell it the session is over: a conflict resolution
+			// still in flight must not land on whatever the next opening shows.
+			resourceEditor?.endEditingSession?.()
 			if (keepAnchorOnClose) {
 				keepAnchorOnClose = false
 				return
@@ -168,7 +175,15 @@
 		bannerReserved={mode == 'edit'}
 		hideClose={inline && !onClose}
 		fullScreen={!inline}
-		on:close={() => (inline ? onClose?.() : drawer?.closeDrawer())}
+		on:close={() => {
+			// Inline has no drawer to emit a close, so the session ends here instead.
+			if (inline) {
+				resourceEditor?.endEditingSession?.()
+				onClose?.()
+			} else {
+				drawer?.closeDrawer()
+			}
+		}}
 	>
 		{#snippet titleExtra()}
 			{#if mode == 'new' && resource_type}
@@ -189,10 +204,18 @@
 				bind:selected
 				bind:viewJsonSchema
 				onDraftStateChange={(v) => (hasLocalDraft = v)}
+				onDraftConflictChange={(v) => (draftConflict = v)}
 				onCanWriteChange={(v) => (canWriteSelected = v)}
 			/>
 		{/await}
 		{#snippet banner()}
+			{#if draftConflict.conflicted}
+				<DraftConflictAlert
+					busy={draftConflict.busy}
+					onReload={() => resourceEditor?.resolveDraftConflictFromBanner?.(false)}
+					onOverwrite={() => resourceEditor?.resolveDraftConflictFromBanner?.(true)}
+				/>
+			{/if}
 			<LocalDraftBanner
 				show={hasLocalDraft}
 				reserveSpace={mode == 'edit'}

@@ -86,10 +86,13 @@
 	let selectedRole = $state<string | undefined>(undefined)
 
 	// Every reader waits for an answer stamped with the current selection: until then `current`
-	// belongs to the previous data table or role.
+	// belongs to the previous workspace, data table or role.
 	// A data table whose name cannot carry a role in a reference is used as its default one.
+	const rolesAnswered = $derived(
+		roles.current.workspace === opWs && roles.current.datatable === selectedDatatable
+	)
 	const loadedRoles = $derived(
-		roles.current.datatable === selectedDatatable &&
+		rolesAnswered &&
 			selectedDatatable !== undefined &&
 			datatableNameTakesRole(selectedDatatable)
 			? roles.current.roles
@@ -114,8 +117,7 @@
 	const hasNoDatatables = $derived(availableDatatables?.length === 0)
 
 	const rolesSettled = $derived(
-		hasNoDatatables ||
-			(selectedDatatable !== undefined && roles.current.datatable === selectedDatatable)
+		hasNoDatatables || (selectedDatatable !== undefined && rolesAnswered)
 	)
 
 	// A role is picked on one data table: two data tables can both define an `analyst` that
@@ -123,7 +125,7 @@
 	let rolesPickedOn = $state<string | undefined>(undefined)
 	$effect(() => {
 		const loaded = roles.current
-		if (loaded.datatable !== selectedDatatable) return
+		if (!rolesAnswered) return
 		const switched = untrack(() => rolesPickedOn) !== selectedDatatable
 		const current = untrack(() => selectedRole)
 		if (switched || current === undefined || !loaded.roles.includes(current)) {
@@ -173,6 +175,7 @@
 		hasNoDatatables ||
 			(rolesSettled &&
 				selectedDatatable !== undefined &&
+				access.current.workspace === opWs &&
 				access.current.datatable === selectedDatatable &&
 				access.current.role === effectiveRole)
 	)

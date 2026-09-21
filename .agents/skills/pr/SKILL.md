@@ -210,7 +210,7 @@ the diff first — `git diff --name-only main...HEAD` answers most of these.
 **Flip without asking** when it is self-contained: a single-file fix, test-only, docs-only, one
 call site, no new public surface.
 
-Unattended (webmux oneshot) there is nobody to ask, so the judgement holds and the action
+Unattended (a one-shot run) there is nobody to ask, so the judgement holds and the action
 degrades: flip the self-contained ones, and leave the rest at a clean draft with a line in the PR
 description saying why — `left in draft: adds a migration, wants a human look before ready`.
 Don't flip a wide-blast-radius change just because the round came back clean, and don't ask a

@@ -507,21 +507,25 @@ pub(crate) async fn change_workspace_id(
     // A fork's data table entry names the workspace that governs it by id, so the rename has to
     // follow there too — anywhere, not just in the reparented children: a detached workspace can
     // point at this one without being its fork. Left behind, the pointer resolves to the archived
-    // shell and every job through it stops.
+    // shell and every job through it stops. A clone's `governed_by` names it the same way.
     info!("Re-pointing data table references to the new workspace id");
     sqlx::query!(
         r#"UPDATE workspace_settings ws
            SET datatable = (
                SELECT jsonb_set(ws.datatable, '{datatables}', jsonb_object_agg(
                    dt.key,
-                   CASE WHEN dt.value->'reference'->>'workspace_id' = $2
-                       THEN jsonb_set(dt.value, '{reference,workspace_id}', to_jsonb($1::text))
-                       ELSE dt.value END
+                   (SELECT CASE WHEN r.v->'governed_by'->>'workspace_id' = $2
+                               THEN jsonb_set(r.v, '{governed_by,workspace_id}', to_jsonb($1::text))
+                               ELSE r.v END
+                    FROM (SELECT CASE WHEN dt.value->'reference'->>'workspace_id' = $2
+                                     THEN jsonb_set(dt.value, '{reference,workspace_id}', to_jsonb($1::text))
+                                     ELSE dt.value END AS v) r)
                ))
                FROM jsonb_each(ws.datatable->'datatables') dt
            )
            WHERE jsonb_typeof(ws.datatable->'datatables') = 'object'
-             AND ws.datatable::text LIKE '%"reference"%'"#,
+             AND (ws.datatable::text LIKE '%"reference"%'
+                  OR ws.datatable::text LIKE '%"governed_by"%')"#,
         &rw.new_id,
         &old_id,
     )
@@ -1042,17 +1046,19 @@ pub(crate) async fn delete_workspace(
     // fails mid-way must never leave a live workspace with its fork data destroyed and no
     // registry row to retry from. Read-only: nothing is dropped here.
     // Read before the delete: another workspace's data table entry can point at one of this
-    // workspace's, and deleting the workspace it names leaves that pointer resolving to nothing.
-    // Nothing sweeps them — turning them back into copies would hand each fork the database
-    // outright — so the deleter is told which data tables they just stranded.
-    let stranded_pointers = sqlx::query!(
-        r#"SELECT ws.workspace_id AS "workspace_id!", dt.key AS "datatable!"
+    // workspace's, or be a clone taking its roles from one, and deleting the workspace it names
+    // leaves it resolving to nothing. Nothing sweeps them — turning them back into copies would
+    // hand each fork the database outright — so the deleter is told which data tables they just
+    // stranded.
+    let stranded_pointers = sqlx::query_as::<_, (String, String)>(
+        r#"SELECT ws.workspace_id, dt.key
            FROM workspace_settings ws
            CROSS JOIN LATERAL jsonb_each(COALESCE(ws.datatable->'datatables', '{}'::jsonb)) dt
            WHERE dt.value->'reference'->>'workspace_id' = $1
+              OR dt.value->'governed_by'->>'workspace_id' = $1
            ORDER BY ws.workspace_id, dt.key"#,
-        &w_id,
     )
+    .bind(&w_id)
     .fetch_all(&db)
     .await
     .unwrap_or_default();
@@ -1380,7 +1386,7 @@ pub(crate) async fn delete_workspace(
     } else {
         let stranded = stranded_pointers
             .iter()
-            .map(|r| format!("{}/{}", r.workspace_id, r.datatable))
+            .map(|(workspace_id, datatable)| format!("{workspace_id}/{datatable}"))
             .collect::<Vec<_>>()
             .join(", ");
         Ok(format!(

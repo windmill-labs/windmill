@@ -747,6 +747,8 @@
 		data = next
 		aiChatManager.datatableCreationPolicy = {
 			...aiChatManager.datatableCreationPolicy,
+			// As on load: data that names no data table leaves nothing to create tables in.
+			enabled: next.datatable !== undefined,
 			datatable: next.datatable,
 			schema: next.schema,
 			roles: next.roles

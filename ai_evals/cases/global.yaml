@@ -1919,11 +1919,10 @@
     - when the lookup fails, tells the user instead of inventing table names
     - does not write scripts or resources to answer a read-only question
 
-# --- Dedicated tools preferred over the API catalog ---
-# The harness serves worker/queue reads itself (benchmark fetch handlers in
-# adapters/frontend), so these cases do not require an mcp-enabled eval backend.
-# The stale `api-catalog` in the id below is kept so results stay comparable
-# across benchmark runs.
+# --- Dedicated tools for workspace, run and instance state ---
+# The harness serves the worker read itself (a benchmark fetch handler in
+# adapters/frontend). The stale `api-catalog` in the id below is kept so
+# results stay comparable across benchmark runs.
 
 - id: global-test30-api-catalog-workers
   prompt: |-
@@ -1937,8 +1936,6 @@
     requiredToolsUsed:
       - list_workers
     forbiddenToolsUsed:
-      - call_api_get
-      - call_api_endpoint
       - write_script
       - deploy_workspace_item
   # Read-only workspace inspection produces no draft; validate via tool use.
@@ -1990,13 +1987,11 @@
     requiredToolsUsed:
       - test_run_script
     forbiddenToolsUsed:
-      - call_api_endpoint
       - deploy_workspace_item
       - delete_workspace_item
   # The judge only sees the drafts artifact and cannot observe runs, so it always
   # docks the prompt's "run it" requirement — validate deterministically instead:
-  # draft content via valueIncludes, the test run via toolExpect (test_run_script
-  # required, call_api_endpoint forbidden).
+  # draft content via valueIncludes, the test run via toolExpect.
   skipJudge: true
   judgeChecklist:
     - creates an AI draft of f/evals/global/format_greeting with the name uppercased in the greeting
@@ -2014,13 +2009,11 @@
     requiredToolsUsed:
       - delete_workspace_item
     forbiddenToolsUsed:
-      - call_api_endpoint
-      - search_api_endpoints
       - write_script
   # Deletion produces no draft; validate via tool use.
   skipJudge: true
   judgeChecklist:
-    - deletes the deployed script via delete_workspace_item rather than a raw API endpoint
+    - deletes the deployed script via delete_workspace_item
 
 - id: global-test33-run-deployed-script-with-form
   prompt: |-
@@ -2041,7 +2034,6 @@
       - read_workspace_item
     forbiddenToolsUsed:
       - test_run_script
-      - call_api_endpoint
       - write_script
       - deploy_workspace_item
     # An empty form pushes the work back onto the user, so the prefill is part of
@@ -2054,7 +2046,7 @@
   # Running produces no draft, and the judge cannot observe runs; validate via tool use.
   skipJudge: true
   judgeChecklist:
-    - runs the deployed script through run_script rather than a preview test run or a raw API endpoint
+    - runs the deployed script through run_script rather than a preview test run
     - passes the name "ada" so the confirmation form comes up prefilled
 
 - id: global-test34-run-with-secret-from-variable
@@ -2113,7 +2105,6 @@
       - read_workspace_item
     forbiddenToolsUsed:
       - test_run_flow
-      - call_api_endpoint
       - write_flow
       - deploy_workspace_item
     # An empty form pushes the work back onto the user, so the prefill is part of
@@ -2126,7 +2117,7 @@
   # Running produces no draft, and the judge cannot observe runs; validate via tool use.
   skipJudge: true
   judgeChecklist:
-    - runs the deployed flow through run_flow rather than a preview test run or a raw API endpoint
+    - runs the deployed flow through run_flow rather than a preview test run
     - passes the customer "acme" so the confirmation form comes up prefilled
 
 - id: global-test36-draft-flow-test-run-not-deployed
@@ -2151,7 +2142,6 @@
     # version instead — the edit would not be in what ran.
     forbiddenToolsUsed:
       - run_flow
-      - call_api_endpoint
       - deploy_workspace_item
   # The judge cannot observe runs, and the edit's content is already pinned by
   # global-test5 on this fixture; what this case guards is where the run went.
