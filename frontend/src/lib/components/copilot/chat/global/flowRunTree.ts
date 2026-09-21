@@ -400,8 +400,7 @@ function shapeRunResult(job: Job): Record<string, unknown> {
 		: { result: cap(stringify(job.result)) }
 }
 
-/** Why a run ended badly. get_run is the only route to these — the catalog
- * refuses getJob. Kept out of summarizeRun, which list_runs pays per job. */
+/** Why a run ended badly. Kept out of summarizeRun, which list_runs pays per job. */
 function diagnoseRun(job: Job): Record<string, unknown> {
 	return {
 		...(job.canceled_by ? { canceled_by: job.canceled_by } : {}),

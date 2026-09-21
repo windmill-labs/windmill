@@ -77,21 +77,16 @@ export class HomeSelection {
 	/** The page offers multi-selection at all (never to an operator, and not on
 	 * the embedded read-only variants of the list). */
 	available = $state(false)
-	/** Selection mode is on even with nothing selected yet — entered from the
-	 * toolbar, so every row reveals its checkbox before the first pick. */
-	private explicit = $state(false)
 	private selected = new SvelteMap<string, BulkItem>()
 	/** Every rendered selectable row, so a shift-click range can resolve the keys
 	 * between the anchor and the clicked row back to items. */
 	private registry = new SvelteMap<string, BulkItem>()
 	private anchor: string | undefined = undefined
 
+	/** Selection mode lasts exactly as long as something is selected: unticking
+	 * the last row drops back to the normal list. */
 	get active(): boolean {
-		return this.available && (this.explicit || this.selected.size > 0)
-	}
-
-	get size(): number {
-		return this.selected.size
+		return this.available && this.selected.size > 0
 	}
 
 	get items(): BulkItem[] {
@@ -133,12 +128,7 @@ export class HomeSelection {
 		this.registry.delete(key)
 	}
 
-	enter(): void {
-		this.explicit = true
-	}
-
 	exit(): void {
-		this.explicit = false
 		this.selected.clear()
 		this.anchor = undefined
 	}
@@ -155,13 +145,15 @@ export class HomeSelection {
 	}
 
 	toggle(item: BulkItem, range = false): void {
-		this.explicit = true
 		if (range && this.anchor != undefined && this.anchor !== item.key) {
 			if (this.selectRange(this.anchor, item.key)) return
 		}
 		if (this.selected.has(item.key)) this.selected.delete(item.key)
 		else this.selected.set(item.key, item)
-		this.anchor = item.key
+		// Unticking the last row ends selection mode, so the row it was on is not an
+		// anchor any more: the next shift-click would otherwise reach back and select
+		// everything between it and the row the user just started from.
+		this.anchor = this.selected.size === 0 ? undefined : item.key
 	}
 
 	/** Visual order is read back from the DOM: the tree nests rows and pages them

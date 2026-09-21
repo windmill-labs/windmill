@@ -1,7 +1,9 @@
 <script lang="ts">
-	import { workspaceStore } from '$lib/stores'
 	import ClipboardPanel from './details/ClipboardPanel.svelte'
 	import Section from './Section.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	let url = $derived(`${window.location.protocol}//${window.location.hostname}/`)
 </script>
@@ -20,7 +22,7 @@
 				<span class="font-medium">Setup the wmill cli for this workspace & remote:</span>
 				<div class="mt-1">
 					<ClipboardPanel
-						content={`wmill workspace add ${$workspaceStore} ${$workspaceStore} ${url}`}
+						content={`wmill workspace add ${$operatingWorkspace} ${$operatingWorkspace} ${url}`}
 					/>
 				</div>
 			</li>

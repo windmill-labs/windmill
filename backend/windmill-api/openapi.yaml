@@ -5325,6 +5325,97 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/workspaces/datatable_acl/{datatable_name}:
+    get:
+      summary: read the owner and grants of an instance data table's database, schema or table
+      operationId: getDatatableAcl
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: kind
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [database, schema, table]
+        - name: schema
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: table
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: owner and grants
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DatatableAclInfo"
+
+  /w/{workspace}/workspaces/datatable_acl/{datatable_name}/plan:
+    post:
+      summary: preview the SQL an ownership or grant change would run (data table administrators only)
+      operationId: planDatatableAcl
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AclChangeRequest"
+      responses:
+        "200":
+          description: statements that would run, in a single transaction
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AclPlan"
+
+  /w/{workspace}/workspaces/datatable_acl/{datatable_name}/apply:
+    post:
+      summary: run an ownership or grant change exactly as planned (data table administrators only)
+      operationId: applyDatatableAcl
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AclChangeRequest"
+      responses:
+        "200":
+          description: change applied
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/workspaces/datatable_usable_roles/{datatable_name}:
     get:
       summary: list the data table roles the caller may connect as
@@ -5428,6 +5519,21 @@ paths:
         - workspace
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: query
+          description: list only this data table; each listed data table opens a connection to its database
+          schema:
+            type: string
+        - name: role_for
+          in: query
+          description: the data table `role` applies to; every other one is listed as its default role
+          schema:
+            type: string
+        - name: role
+          in: query
+          description: the role to list `role_for` as; refused, in that entry's `error`, if the caller may not use it
+          schema:
+            type: string
       responses:
         "200":
           description: table metadata of all datatables
@@ -5459,6 +5565,11 @@ paths:
         - name: table_name
           in: query
           required: true
+          schema:
+            type: string
+        - name: role
+          in: query
+          description: the data table role to read the table as; defaults to the data table's default role
           schema:
             type: string
       responses:
@@ -10392,7 +10503,48 @@ paths:
                   current_timestamp:
                     type: string
                     format: date-time
+                  path:
+                    type: string
+                    description: "`saved` only, upsert or delete: where the write landed. Differs from the URL path when the item had moved away from it; the editor follows it there. Absent when a delete found nothing to remove and the caller cannot read the path it moved to."
                 required: [status, current_timestamp]
+
+  /w/{workspace}/drafts/move/{kind}/{path}:
+    post:
+      summary: move the current user's draft-only item to another path
+      description: Relocates the authed user's own draft row, along with both path keys inside its value (the typed path and the mirror the editors keep beside it). Only for draft-only items — a deployed item must be moved through its own deploy endpoint, which carries every draft with it. Restricted to script, flow, app and raw_app; any other kind is rejected with 400, because only these keep their deploy target where this endpoint rewrites it.
+      operationId: moveDraft
+      tags:
+        - draft
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: kind
+          in: path
+          required: true
+          description: script, flow, app or raw_app only.
+          schema:
+            type: string
+            enum: [script, flow, app, raw_app]
+        - $ref: "#/components/parameters/ScriptPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                new_path:
+                  type: string
+                summary:
+                  type: string
+                  description: Also restate the draft's summary.
+              required: [new_path]
+      responses:
+        "200":
+          description: move result
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/drafts/migrate_legacy/{kind}/{path}:
     post:
@@ -10904,6 +11056,8 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
       responses:
         "200":
           description: script history
@@ -12309,6 +12463,8 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
       tags:
         - flow
       responses:
@@ -14187,6 +14343,8 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
       responses:
         "200":
           description: app history
@@ -14454,9 +14612,9 @@ paths:
         "200":
           description: app updated
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                $ref: "#/components/schemas/AppDeployed"
 
   /w/{workspace}/apps/create_raw_source:
     post:
@@ -14596,9 +14754,9 @@ paths:
         "200":
           description: app updated
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                $ref: "#/components/schemas/AppDeployed"
 
   /w/{workspace}/apps/update_raw/{path}:
     post:
@@ -14652,9 +14810,9 @@ paths:
         "200":
           description: app updated
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                $ref: "#/components/schemas/AppDeployed"
 
   /w/{workspace}/apps/custom_path_exists/{custom_path}:
     get:
@@ -27702,6 +27860,13 @@ components:
         draft_saved_at:
           type: string
           format: date-time
+        draft_base:
+          type: string
+          description: |
+            The deployed version the draft forked from, as text whatever the
+            kind (script hash, flow version id, app version id). Compare to the
+            deployed head to tell a draft that is behind. Absent when there is
+            no draft or it was never forked from a deploy.
         no_deployed:
           type: boolean
         draft:
@@ -29596,6 +29761,11 @@ components:
         script_hash:
           type: string
         deployment_msg:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        created_by:
           type: string
       required:
         - script_hash
@@ -33652,6 +33822,8 @@ components:
           $ref: "#/components/schemas/LoggedWizardStatus"
         replication_user_error:
           type: string
+        user_connect:
+          $ref: "#/components/schemas/LoggedWizardStatus"
 
     CustomInstanceDbTag:
       type: string
@@ -33702,6 +33874,15 @@ components:
             $ref: "#/components/schemas/DatatableRoleTenants"
         governing_workspace_id:
           type: string
+        clone_of:
+          type: object
+          description: for a clone, the data table whose roles it takes
+          required: [workspace_id, datatable]
+          properties:
+            workspace_id:
+              type: string
+            datatable:
+              type: string
         editable:
           type: boolean
         available_roles:
@@ -33718,6 +33899,258 @@ components:
                 type: string
               datatable:
                 type: string
+
+    AclTarget:
+      description: what access is read or changed on
+      oneOf:
+        - $ref: "#/components/schemas/AclTargetDatabase"
+        - $ref: "#/components/schemas/AclTargetSchema"
+        - $ref: "#/components/schemas/AclTargetTable"
+      discriminator:
+        propertyName: kind
+        mapping:
+          database: "#/components/schemas/AclTargetDatabase"
+          schema: "#/components/schemas/AclTargetSchema"
+          table: "#/components/schemas/AclTargetTable"
+
+    AclTargetDatabase:
+      type: object
+      required: [kind]
+      properties:
+        kind:
+          type: string
+          enum: [database]
+
+    AclTargetSchema:
+      type: object
+      required: [kind, schema]
+      properties:
+        kind:
+          type: string
+          enum: [schema]
+        schema:
+          type: string
+
+    AclTargetTable:
+      type: object
+      required: [kind, schema, table]
+      properties:
+        kind:
+          type: string
+          enum: [table]
+        schema:
+          type: string
+        table:
+          type: string
+
+    AclChange:
+      description: one change to plan or apply
+      oneOf:
+        - $ref: "#/components/schemas/AclChangeSetOwner"
+        - $ref: "#/components/schemas/AclChangeGrant"
+        - $ref: "#/components/schemas/AclChangeRevoke"
+      discriminator:
+        propertyName: type
+        mapping:
+          set_owner: "#/components/schemas/AclChangeSetOwner"
+          grant: "#/components/schemas/AclChangeGrant"
+          revoke: "#/components/schemas/AclChangeRevoke"
+
+    AclChangeSetOwner:
+      type: object
+      description: >-
+        hands the target to role — for a schema, with everything already in it but an extension's
+        members, which stay with the extension
+      required: [type, role]
+      properties:
+        type:
+          type: string
+          enum: [set_owner]
+        role:
+          type: string
+          description: a data table role of the instance, or admin
+
+    AclChangeGrant:
+      type: object
+      required: [type, role, privileges, scope]
+      properties:
+        type:
+          type: string
+          enum: [grant]
+        role:
+          type: string
+          description: a data table role of the instance, or admin
+        privileges:
+          type: array
+          items:
+            type: string
+        scope:
+          $ref: "#/components/schemas/AclGrantScope"
+
+    AclChangeRevoke:
+      type: object
+      required: [type, role, privileges, scope]
+      properties:
+        type:
+          type: string
+          enum: [revoke]
+        role:
+          type: string
+          description: a data table role of the instance, other than admin
+        privileges:
+          type: array
+          items:
+            type: string
+        scope:
+          $ref: "#/components/schemas/AclGrantScope"
+        objects:
+          type: array
+          description: >-
+            objects inside the target the revoke covers, empty for the target itself. Only with the
+            target scope; a revoke on all objects of a kind is refused, since it cannot say which
+            grants it takes back.
+          items:
+            $ref: "#/components/schemas/AclObject"
+
+    AclGrantScope:
+      type: string
+      enum:
+        [
+          target,
+          all_tables,
+          all_sequences,
+          all_functions,
+          future_tables,
+          future_sequences,
+          future_functions,
+        ]
+
+    AclChangeRequest:
+      type: object
+      required: [target, change]
+      properties:
+        target:
+          $ref: "#/components/schemas/AclTarget"
+        change:
+          $ref: "#/components/schemas/AclChange"
+        statements:
+          type: array
+          description: >-
+            The statements the plan showed. Required to apply, which plans again and refuses if
+            the result differs.
+          items:
+            type: string
+
+    AclPlan:
+      type: object
+      required: [statements, warnings]
+      properties:
+        statements:
+          type: array
+          items:
+            type: string
+        warnings:
+          type: array
+          items:
+            type: string
+
+    AclObject:
+      type: object
+      required: [name, kind]
+      properties:
+        name:
+          type: string
+        kind:
+          type: string
+          description: >-
+            TABLE, SEQUENCE, FUNCTION, PROCEDURE or TYPE — what the object is. A revoke turns it
+            into the keyword it takes, ROUTINE for both routine kinds; a type's grants are read
+            only.
+        args:
+          type: string
+          description: identity arguments of a routine, which is what tells two of the same name apart
+
+    AclGrant:
+      type: object
+      required: [grantee, privileges, sources]
+      properties:
+        grantee:
+          type: string
+        privileges:
+          type: array
+          items:
+            type: string
+        object:
+          $ref: "#/components/schemas/AclObject"
+        future:
+          type: string
+          description: >-
+            set for a default privilege, naming the kind of object it covers (TABLES, SEQUENCES,
+            FUNCTIONS, TYPES, or SCHEMAS). On a schema, the defaults set in that schema; on the
+            database, the ones set database-wide, which apply in every schema and which no schema's
+            own defaults take back.
+        sources:
+          type: array
+          description: >-
+            the roles the grant comes from, each once — who granted it, or for a default privilege
+            the role whose future objects it covers. A revoke of some of the grant's privileges
+            takes them back from every source that gave them.
+          items:
+            $ref: "#/components/schemas/AclSource"
+
+    AclSource:
+      type: object
+      required: [role, privileges, reachable]
+      properties:
+        role:
+          type: string
+        privileges:
+          type: array
+          description: >-
+            what role gave of the grant's privileges. A revoke is held back only by a source out of
+            reach that gave some of what it takes back.
+          items:
+            type: string
+        reachable:
+          type: boolean
+          description: >-
+            whether the data table's connection can take back what role gave. On an object that is
+            the owner, when the connection acts for the owner, and otherwise the connection itself;
+            for a default privilege, a creating role the connection acts for. What a source out of
+            reach gave is not revocable from here; privileges only other sources gave still are.
+
+    DatatableAclInfo:
+      type: object
+      required: [owner, roles, editable, clone, supports_maintain, dbname, grants, children]
+      properties:
+        owner:
+          type: string
+        roles:
+          type: array
+          description: the roles a change may name; empty unless the caller may change anything
+          items:
+            type: string
+        editable:
+          type: boolean
+          description: whether the caller may plan and apply changes
+        clone:
+          type: boolean
+          description: whether this is a clone, whose grants stay as they were copied
+        supports_maintain:
+          type: boolean
+          description: whether the server is Postgres 17+, which added the MAINTAIN table privilege
+        dbname:
+          type: string
+          description: the database the target lives in
+        grants:
+          type: array
+          items:
+            $ref: "#/components/schemas/AclGrant"
+        children:
+          type: array
+          description: a database's schemas, or a schema's tables
+          items:
+            type: string
 
     CustomInstanceDb:
       type: object
@@ -34855,6 +35288,16 @@ components:
               new_dbname:
                 type: string
                 description: "New database name for the fork"
+              fork_behavior:
+                type: string
+                enum:
+                  - schema_only
+                  - schema_and_data
+                description: >-
+                  What the fork request copies into `new_dbname`, which it creates — with the
+                  owners and grants of a data table under roles. This server refuses an entry
+                  without it; servers predating it expect `new_dbname` created and filled
+                  beforehand.
         shared_ducklakes:
           type: array
           items:
@@ -35493,12 +35936,31 @@ components:
         - raw_app
 
 
+    AppDeployed:
+      type: object
+      description: "What a deploy of an existing app answers with. `version` is the one this call wrote, which is what an editor pins as the fork base of the draft it starts next: reading the head back afterwards cannot tell it from a deploy that landed beside it. A metadata-only update writes none and reports the head it kept."
+      properties:
+        path:
+          type: string
+          description: Where the app now lives, which differs from the request path on a rename.
+        version:
+          type: integer
+          format: int64
+      required:
+        - path
+        - version
+
     AppHistory:
       type: object
       properties:
         version:
           type: integer
         deployment_msg:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        created_by:
           type: string
       required:
         - version
@@ -35568,6 +36030,8 @@ components:
           type: string
           format: date-time
         deployment_msg:
+          type: string
+        created_by:
           type: string
       required:
         - id
@@ -35797,6 +36261,17 @@ components:
                     type: string
                   datatable:
                     type: string
+              governed_by:
+                description: >-
+                  On a clone, the data table it was copied from, whose roles it takes. Server-owned
+                  like `reference`.
+                type: object
+                required: [workspace_id, datatable]
+                properties:
+                  workspace_id:
+                    type: string
+                  datatable:
+                    type: string
               migrations_enabled:
                 type: boolean
                 description: Whether the SQL migrations feature is opted in for this data table
@@ -35865,7 +36340,17 @@ components:
 
     DataTableTables:
       type: object
-      required: [datatable_name, schemas]
+      required:
+        [
+          datatable_name,
+          schemas,
+          instance,
+          permissioned,
+          usable_roles,
+          default_role,
+          can_create_schema,
+          creatable_schemas,
+        ]
       properties:
         datatable_name:
           type: string
@@ -35878,6 +36363,26 @@ components:
               type: string
         error:
           type: string
+        instance:
+          type: boolean
+          description: on the instance database, the only kind that can be under roles or have its access edited
+        permissioned:
+          type: boolean
+        usable_roles:
+          type: array
+          description: the roles the caller may connect as, by name; empty when not under roles
+          items:
+            type: string
+        default_role:
+          type: string
+        can_create_schema:
+          type: boolean
+          description: whether the role the listing connected as may create schemas
+        creatable_schemas:
+          type: array
+          description: the schemas the role the listing connected as may create in
+          items:
+            type: string
 
     DataTableTableSchema:
       type: object

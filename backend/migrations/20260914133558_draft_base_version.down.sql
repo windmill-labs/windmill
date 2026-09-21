@@ -1,0 +1,1 @@
+ALTER TABLE draft DROP COLUMN base;

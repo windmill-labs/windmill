@@ -8,7 +8,9 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import { CloudOff } from 'lucide-svelte'
 	import { isServiceAvailable } from './native/utils'
-	import { workspaceStore } from '$lib/stores'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		setDropdownWidthToButtonWidth?: boolean
@@ -41,15 +43,15 @@
 	let githubAvailable = $state(false)
 
 	async function setNextcloudState() {
-		nextcloudAvailable = await isServiceAvailable('nextcloud', $workspaceStore!)
+		nextcloudAvailable = await isServiceAvailable('nextcloud', $operatingWorkspace!)
 	}
 
 	async function setGoogleState() {
-		googleAvailable = await isServiceAvailable('google', $workspaceStore!)
+		googleAvailable = await isServiceAvailable('google', $operatingWorkspace!)
 	}
 
 	async function setGithubState() {
-		githubAvailable = await isServiceAvailable('github', $workspaceStore!)
+		githubAvailable = await isServiceAvailable('github', $operatingWorkspace!)
 	}
 
 	setNextcloudState()
