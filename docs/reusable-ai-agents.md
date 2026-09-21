@@ -140,6 +140,8 @@ older exchanges and logging that loss. This selection changes neither model cont
 returned execution record.
 If no user-starting suffix fits, the write is skipped and the flow log explains that the
 next run will load the previous saved memory. The completed answer succeeds in either case.
+If object storage fails and falls back to the database, an oversized compaction write is
+rejected without changing existing memory; the flow log reports the failed save.
 There is no model-window compaction after the final answer unless storage needs
 it. Persistence reads model context independently of the execution record returned by the step.
 Nothing expires stored memory: deleting a chat conversation deletes its memory, and a memory named

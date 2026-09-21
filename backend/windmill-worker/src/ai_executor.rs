@@ -2279,6 +2279,7 @@ pub async fn run_agent(
                         *memory_id,
                         step_id,
                         &messages_to_persist,
+                        matches!(bound, MemoryBound::LastMessages(_)),
                     )
                     .await
                     {
@@ -2308,6 +2309,8 @@ pub async fn run_agent(
                                 step_id,
                                 e
                             );
+                            append_logs(&job.id, &job.workspace_id,
+                                "Agent memory could not be saved. The answer is preserved; the next run may load older memory.\n".to_string(), conn).await;
                         }
                     }
                 }

@@ -30,14 +30,22 @@ pub async fn write_to_memory(
     conversation_id: Uuid,
     step_id: &str,
     messages: &[OpenAIMessage],
+    allow_truncation: bool,
 ) -> anyhow::Result<usize> {
     if messages.is_empty() {
         return Ok(0);
     }
 
-    memory_common::write_to_db(db, workspace_id, conversation_id, step_id, messages)
-        .await
-        .map_err(|e| anyhow::anyhow!("Database write failed: {e:?}"))
+    memory_common::write_to_db(
+        db,
+        workspace_id,
+        conversation_id,
+        step_id,
+        messages,
+        allow_truncation,
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("Database write failed: {e:?}"))
 }
 
 /// How many bytes a persisted memory can hold, `None` where nothing bounds it.
