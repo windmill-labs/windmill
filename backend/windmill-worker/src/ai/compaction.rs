@@ -510,7 +510,12 @@ impl Compactor {
     /// of this measure rather than tripping it on a conversation the row easily holds.
     fn projected_tokens(&self, messages: &[OpenAIMessage], last_request: LastRequest) -> usize {
         if self.storage_bound {
-            serde_json::to_vec(messages).map(|v| v.len()).unwrap_or(0) / 4
+            // Only the non-system messages are written to the row (persistence strips
+            // the system prompt), so a large system prompt must not be counted here — it
+            // would trip the pass on a conversation the row easily holds.
+            let persisted: Vec<&OpenAIMessage> =
+                messages.iter().filter(|m| m.role != "system").collect();
+            serde_json::to_vec(&persisted).map(|v| v.len()).unwrap_or(0) / 4
         } else {
             projected_prompt_tokens(
                 messages,
@@ -1102,6 +1107,28 @@ mod tests {
         assert!(compactor.bound_by_storage(100_000));
 
         // The tiny serialized row is well under the storage window; no false trigger.
+        assert!(
+            (compactor.projected_tokens(&messages, counted) as f64)
+                < 25_000.0 * COMPACTION_TRIGGER_RATIO
+        );
+    }
+
+    /// Persistence strips the system prompt before writing the row, so the storage
+    /// measure must too: a large system prompt with a tiny conversation writes almost
+    /// nothing, and must not trip the pass and drop the one real turn.
+    #[test]
+    fn the_storage_bound_ignores_the_unpersisted_system_prompt() {
+        let messages = vec![
+            message("system", &"you are a helpful assistant. ".repeat(3000)), // ~90KB
+            message("user", "hi"),
+            message("assistant", "hello"),
+        ];
+        let counted = LastRequest { prompt_tokens: None, message_count: 0 };
+        let mut compactor = Compactor::new(128_000, 0);
+        assert!(compactor.bound_by_storage(100_000));
+
+        // The two real turns are a few hundred bytes; the 90KB system prompt is not
+        // written, so it is not measured.
         assert!(
             (compactor.projected_tokens(&messages, counted) as f64)
                 < 25_000.0 * COMPACTION_TRIGGER_RATIO
