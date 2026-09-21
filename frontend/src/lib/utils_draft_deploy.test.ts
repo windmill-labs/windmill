@@ -41,30 +41,26 @@ import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 // fabricates) the "started from an older deployed version" warning.
 
 describe('draftBaseIsStale', () => {
-	it('script: stale iff the draft parent_hash differs from the deployed hash', () => {
-		expect(draftBaseIsStale('script', { hash: 'v2', draft: { parent_hash: 'v1' } })).toBe(true)
-		expect(draftBaseIsStale('script', { hash: 'v2', draft: { parent_hash: 'v2' } })).toBe(false)
+	it('script: stale iff draft_base differs from the deployed hash', () => {
+		expect(draftBaseIsStale('script', { hash: 'v2', draft_base: 'v1' })).toBe(true)
+		expect(draftBaseIsStale('script', { hash: 'v2', draft_base: 'v2' })).toBe(false)
 	})
 
-	it('script: no base pointer or no head → not stale (nothing to compare)', () => {
+	it('script: no base or no head → not stale (nothing to compare)', () => {
 		expect(draftBaseIsStale('script', { hash: 'v2', draft: {} })).toBe(false)
-		expect(draftBaseIsStale('script', { draft: { parent_hash: 'v1' } })).toBe(false)
+		expect(draftBaseIsStale('script', { draft_base: 'v1' })).toBe(false)
 	})
 
-	it('flow: compares the pinned version_id against the deployed head', () => {
-		expect(draftBaseIsStale('flow', { version_id: 7, draft: { version_id: 5 } })).toBe(true)
-		expect(draftBaseIsStale('flow', { version_id: 7, draft: { version_id: 7 } })).toBe(false)
-		expect(draftBaseIsStale('flow', { version_id: 7, draft: {} })).toBe(false)
+	it('flow: compares draft_base against the deployed version_id as text', () => {
+		expect(draftBaseIsStale('flow', { version_id: 7, draft_base: '5' })).toBe(true)
+		expect(draftBaseIsStale('flow', { version_id: 7, draft_base: '7' })).toBe(false)
+		expect(draftBaseIsStale('flow', { version_id: 7 })).toBe(false)
 	})
 
-	it('app/raw_app: compares parent_version against the last of versions', () => {
-		expect(draftBaseIsStale('app', { versions: [1, 2, 3], draft: { parent_version: 2 } })).toBe(
-			true
-		)
-		expect(draftBaseIsStale('raw_app', { versions: [1, 2, 3], draft: { parent_version: 3 } })).toBe(
-			false
-		)
-		expect(draftBaseIsStale('app', { versions: [], draft: { parent_version: 2 } })).toBe(false)
+	it('app/raw_app: compares draft_base against the last of versions', () => {
+		expect(draftBaseIsStale('app', { versions: [1, 2, 3], draft_base: '2' })).toBe(true)
+		expect(draftBaseIsStale('raw_app', { versions: [1, 2, 3], draft_base: '3' })).toBe(false)
+		expect(draftBaseIsStale('app', { versions: [], draft_base: '2' })).toBe(false)
 	})
 
 	it('no draft on the response → not stale', () => {

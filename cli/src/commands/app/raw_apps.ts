@@ -55,6 +55,8 @@ export interface AppFile {
     tables?: string[];
     datatable?: string;
     schema?: string;
+    /** The role the app uses each data table through, by data table name. */
+    roles?: Record<string, string>;
   };
   // Mirrors granular ACLs on the raw_app path. Synced via /acls/* by
   // applyExtraPermsDiff — never through update_app_raw — so a perm-only

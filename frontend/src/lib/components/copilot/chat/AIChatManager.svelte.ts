@@ -55,7 +55,7 @@ import { sendUserToast } from '$lib/toast'
 import { workspaceAIClients, getNonStreamingCompletion } from '../lib'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
 import { modelSupportsVision } from '../modelConfig'
-import { getModelContextWindow } from '../modelConfig'
+import { getEffectiveModelContextWindow } from '../modelConfig'
 import {
 	getCompactionSummaryPrompt,
 	formatCompactSummary,
@@ -732,12 +732,14 @@ export class AIChatManager implements ChatViewHost {
 	/** Every mounted flow editor. */
 	#flowEditors = new Set<FlowAIChatHelpers>()
 	appAiChatHelpers = $state<AppAIChatHelpers | undefined>(undefined)
-	/** Datatable creation policy: enabled flag, datatable name, and optional schema */
+	/** Datatable creation policy: enabled flag, datatable name, optional schema, and the role the
+	 * app uses each data table through */
 	datatableCreationPolicy = $state<{
 		enabled: boolean
 		datatable: string | undefined
 		schema: string | undefined
-	}>({ enabled: false, datatable: undefined, schema: undefined })
+		roles?: Record<string, string>
+	}>({ enabled: false, datatable: undefined, schema: undefined, roles: undefined })
 	pendingNewCode = $state<string | undefined>(undefined)
 	apiTools = $state<Tool<any>[]>([])
 	aiChatInput = $state<AIChatInput | null>(null)
@@ -2222,7 +2224,7 @@ export class AIChatManager implements ChatViewHost {
 	 * Gated on `sendInFlight` as well as `loading`: `loading` only rises after a
 	 * send's attachment upkeep, so between the two a click would slip past. */
 	sendOrQueue(text: string) {
-		if (this.loading || this.sendInFlight) {
+		if (this.loading || this.sendInFlight || this.sendPending) {
 			this.queueMessage(text)
 			return
 		}
@@ -2817,6 +2819,23 @@ export class AIChatManager implements ChatViewHost {
 
 	clearComposerStaged(key: string) {
 		this.#composerStaged.delete(key)
+		this.#composersWithDraft.delete(key)
+	}
+
+	// Composers whose draft is non-empty. The draft itself is component-local, so
+	// this is the only way to know an unmount would lose unsent input.
+	#composersWithDraft = new SvelteSet<string>()
+
+	setComposerHasDraft(key: string, hasDraft: boolean) {
+		if (hasDraft) this.#composersWithDraft.add(key)
+		else this.#composersWithDraft.delete(key)
+	}
+
+	/** Unsent input an unmount of this chat would lose: a composer draft, or a
+	 *  queued message (whose text may be empty when it carries only attachments
+	 *  or context). */
+	get hasUnsentInput(): boolean {
+		return this.#composersWithDraft.size > 0 || this.#hasQueuedMessage()
 	}
 
 	/** Release the outgoing-files reservation identified by `key` (a per-send token).
@@ -3172,7 +3191,39 @@ export class AIChatManager implements ChatViewHost {
 		return this.#sendsInFlight > 0
 	}
 
+	// Resolves once this chat's stored transcript has been restored. A session
+	// runtime hands its manager out before that finishes, and `loadPastChat`
+	// refuses to swap a transcript under a send, so a turn started first lands in
+	// a chat of its own and is lost when the session's real one loads.
+	//
+	// Cleared once awaited, and only awaited when set: every later send — and
+	// every send of the chats that have no gate — reaches the `sendInFlight`
+	// counter below synchronously, which is what makes a second Enter queue
+	// behind the first instead of starting a turn of its own.
+	#ready: Promise<unknown> | undefined
+	setReadyGate(ready: Promise<unknown> | undefined) {
+		this.#ready = ready
+	}
+
+	#sendsAwaitingReady = $state(0)
+	/** A send parked on the gate above. It has not reached `sendInFlight` yet —
+	 * and must not, since `loadPastChat` reads that flag and would then skip the
+	 * restore this send is waiting for — so every guard that decides between
+	 * sending and queueing tests this as well. */
+	get sendPending(): boolean {
+		return this.#sendsAwaitingReady > 0
+	}
+
 	sendRequest = async (options: Parameters<typeof this.sendRequestImpl>[0] = {}) => {
+		if (this.#ready) {
+			this.#sendsAwaitingReady++
+			try {
+				await this.#ready
+			} finally {
+				this.#sendsAwaitingReady--
+				this.#ready = undefined
+			}
+		}
 		// A turn with nowhere to render still streams, spends tokens and applies
 		// tool calls — entirely off-screen. Refuse instead. `sendInlineRequest` is
 		// exempt: the ⌘K widget renders its own composer inside Monaco.
@@ -3855,7 +3906,13 @@ export class AIChatManager implements ChatViewHost {
 			// assumed window rather than no limit: without one the context grows
 			// unbounded until the provider (or a proxy in front of it) times out.
 			// Guessing low only compacts earlier, which is always recoverable.
-			const contextWindow = model ? getModelContextWindow(model.model) : undefined
+			const contextWindow = model
+				? getEffectiveModelContextWindow(
+						model.provider,
+						model.model,
+						get(copilotInfo).contextWindowPerModel
+					)
+				: undefined
 			if (
 				contextWindow !== undefined &&
 				projectedContextTokens >= contextWindow * COMPACTION_TRIGGER_RATIO

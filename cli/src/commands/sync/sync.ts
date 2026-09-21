@@ -3594,12 +3594,15 @@ export async function pull(
 ) {
   if ((opts as any).jsonOutput) log.setSilent(true);
   const originalCliOpts = { ...opts };
-  opts = await mergeConfigWithConfigFile(opts);
-
-  // --include-secrets overrides skipSecrets from wmill.yaml
-  if ((originalCliOpts as any).includeSecrets) {
-    opts.skipSecrets = false;
-  }
+  const withConfigFile = async () => {
+    const merged = await mergeConfigWithConfigFile({ ...originalCliOpts });
+    // --include-secrets overrides skipSecrets from wmill.yaml
+    if ((originalCliOpts as any).includeSecrets) {
+      merged.skipSecrets = false;
+    }
+    return merged;
+  };
+  opts = await withConfigFile();
 
   // Resolve workspace name for config lookups.
   // --branch resolves git branch → workspace name (deprecated but still supported).
@@ -3632,10 +3635,6 @@ export async function pull(
       process.exit(1);
     }
     throw error;
-  }
-
-  if (opts.stateful) {
-    await mkdir(path.join(process.cwd(), ".wmill"), { recursive: true });
   }
 
   const workspace = await resolveWorkspace(opts, wsNameForConfig);
@@ -3729,6 +3728,14 @@ export async function pull(
       });
       return;
     }
+
+    // The pull writes into the branch now checked out, so its wmill.yaml
+    // applies, not the cloned branch's: a fork branch that turned on
+    // `dedupeLockfiles` would otherwise get one lockfile per script back.
+    if (getCurrentGitBranch() !== clonedBranchName) {
+      opts = await withConfigFile();
+      wsNameForConfig = resolveWsNameForConfigFromFlags(opts);
+    }
   }
 
   // If wsNameForConfig wasn't set from flags, infer from the resolved profile
@@ -3762,6 +3769,10 @@ export async function pull(
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(originalCliOpts, effectiveOpts);
+
+  if (opts.stateful) {
+    await mkdir(path.join(process.cwd(), ".wmill"), { recursive: true });
+  }
 
   const codebases = await listSyncCodebases(opts);
 

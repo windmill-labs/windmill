@@ -1,16 +1,27 @@
 {
   "db_name": "PostgreSQL",
-  "query": "WITH legacy AS (\n                       DELETE FROM draft\n                       WHERE workspace_id = $1 AND path = $2 AND typ = $3 AND email IS NULL\n                       RETURNING value\n                   )\n                   INSERT INTO draft (workspace_id, email, path, typ, value, created_at)\n                   SELECT $1, $4, $2, $3, value, now() FROM legacy\n                   ON CONFLICT (workspace_id, path, typ, email) WHERE email IS NOT NULL\n                   DO UPDATE SET value = EXCLUDED.value, created_at = now()\n                   RETURNING 1 as \"one!\"",
+  "query": "SELECT value as \"value!: sqlx::types::Json<Box<serde_json::value::RawValue>>\",\n                  created_at, base\n           FROM draft\n           WHERE workspace_id = $1\n             AND (email = $2 OR email IS NULL)\n             AND path = $3\n             AND typ = $4\n           ORDER BY email NULLS LAST\n           LIMIT 1",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "one!",
-        "type_info": "Int4"
+        "name": "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "base",
+        "type_info": "Text"
       }
     ],
     "parameters": {
       "Left": [
+        "Text",
         "Text",
         "Text",
         {
@@ -47,13 +58,14 @@
               ]
             }
           }
-        },
-        "Varchar"
+        }
       ]
     },
     "nullable": [
-      null
+      false,
+      false,
+      true
     ]
   },
-  "hash": "46f00a75b2e7e4ac70758a9687070f68bc0421f1aa228f80157adda63191d33b"
+  "hash": "0cc6770a81ecaecafe0d9b7100f94b329c4ec7978b016af4c964415e0c38396c"
 }
