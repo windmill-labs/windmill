@@ -31,13 +31,15 @@ export function formatMention(name: string): string {
 }
 
 function isWordChar(char: string | undefined): boolean {
-	return char !== undefined && /[\p{L}\p{N}_]/u.test(char)
+	return char !== undefined && /[\p{L}\p{N}\p{M}_]/u.test(char)
+}
+
+function codePointBefore(text: string, index: number): string | undefined {
+	return Array.from(text.slice(0, index)).at(-1)
 }
 
 export function isStandaloneMentionAt(text: string, token: string, index: number): boolean {
-	const start = index
-	const end = start + token.length
-	return !isWordChar(text[start - 1]) && !isWordChar(text[end])
+	return !isWordChar(codePointBefore(text, index))
 }
 
 export function isStandaloneMention(text: string, match: RegExpMatchArray): boolean {
