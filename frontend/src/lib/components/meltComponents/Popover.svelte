@@ -194,6 +194,9 @@
 	}
 
 	async function getMenuElements(): Promise<HTMLElement[]> {
+		// Runs on every pointerdown anywhere, for every mounted popover. Skip the
+		// whole-document query when the outside handler below cannot act anyway.
+		if (!usePointerDownOutside || (!isOpen && !fullScreen)) return []
 		const selector = excludeSelectors ? `[data-popover], ${excludeSelectors}` : '[data-popover]'
 		return Array.from(document.querySelectorAll(selector)) as HTMLElement[]
 	}
