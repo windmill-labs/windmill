@@ -727,8 +727,8 @@
 	// Each entry maps a top-level key to its sensitive sub-field names.
 	const nestedSensitiveFields: Record<string, string[]> = {
 		smtp_settings: ['smtp_password'],
-		secret_backend: ['token'],
-		object_store_cache_config: ['secret_key', 'serviceAccountKey'],
+		secret_backend: ['token', 'client_secret', 'secret_access_key'],
+		object_store_cache_config: ['secret_key', 'serviceAccountKey', 'accessKey'],
 		custom_instance_pg_databases: ['user_pwd'],
 		rsa_keys: ['private_key'],
 		github_enterprise_app: ['private_key']

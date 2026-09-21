@@ -1027,7 +1027,7 @@ const NESTED_SENSITIVE_FIELDS: &[(&str, &[&str])] = &[
     ),
     (
         "object_store_cache_config",
-        &["secret_key", "serviceAccountKey"],
+        &["secret_key", "serviceAccountKey", "accessKey"],
     ),
     ("custom_instance_pg_databases", &["user_pwd"]),
 ];
@@ -2643,6 +2643,19 @@ mod tests {
         assert!(!formatted.contains("my-super-secret-12345"));
         assert!(formatted.contains("client-id"));
         assert!(formatted.contains("****"));
+    }
+
+    #[test]
+    fn format_setting_value_redacts_azure_blob_access_key() {
+        let val = serde_json::json!({
+            "type": "Azure",
+            "accountName": "acct",
+            "containerName": "c",
+            "accessKey": "azure-storage-account-key-12345"
+        });
+        let formatted = format_setting_value("object_store_cache_config", &val);
+        assert!(!formatted.contains("azure-storage-account-key-12345"));
+        assert!(formatted.contains("acct"));
     }
 
     #[test]
