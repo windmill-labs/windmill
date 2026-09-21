@@ -522,20 +522,62 @@ impl Compactor {
         }
     }
 
-    /// Summarizes the older part of `messages` in place when the conversation has
-    /// crossed the trigger threshold.
+    /// Drops whole turns from the oldest end until the projection fits the target and
+    /// the kept history opens on a user message, never dropping the newest message.
+    /// The last resort behind summarization, mirroring the AI session: a summary that
+    /// cannot run — it failed, the breaker is tripped, or the prefix is larger than the
+    /// summarizer's own window (a step switched to a much smaller model) — still has to
+    /// leave a conversation the next request can carry, so what will not fit is dropped.
+    /// Returns whether anything was removed.
+    fn drop_oldest_to_fit(
+        &self,
+        messages: &mut Vec<OpenAIMessage>,
+        last_request: LastRequest,
+    ) -> bool {
+        let target = (self.context_window as f64 * COMPACTION_TARGET_RATIO) as usize;
+        let to_free = self
+            .projected_tokens(messages, last_request)
+            .saturating_sub(target);
+        if to_free == 0 {
+            return false;
+        }
+        let start = summarizable_start(messages);
+        let keep_last = messages.len().saturating_sub(1);
+        let attachment_tokens = attachment_tokens(messages, last_request, self.tool_schema_tokens);
+        let mut drop_end = start;
+        let mut freed = 0usize;
+        while drop_end < keep_last {
+            if freed >= to_free && messages[drop_end].role == "user" {
+                break;
+            }
+            freed += estimate_message_tokens(&messages[drop_end], attachment_tokens);
+            drop_end += 1;
+        }
+        if drop_end <= start {
+            return false;
+        }
+        let dropped = messages.drain(start..drop_end).count();
+        tracing::warn!(
+            "AI agent dropped {} of the oldest messages to fit the {} token window, {} left",
+            dropped,
+            self.context_window,
+            messages.len()
+        );
+        true
+    }
+
+    /// Brings `messages` under the window when the conversation has crossed the trigger:
+    /// a summary of the older prefix if one can be taken, and dropping the oldest turns
+    /// otherwise, so the next request always fits.
     ///
-    /// A failed summarization is never fatal: the step keeps running on the
-    /// uncompacted conversation and hits the provider's own context limit if it has to.
+    /// Never fatal: the worst case drops old context, exactly as the count-based mode did.
     pub async fn maybe_compact(
         &mut self,
         messages: &mut Vec<OpenAIMessage>,
         last_request: LastRequest,
         request: &CompactionRequest<'_>,
     ) -> CompactionPass {
-        if self.consecutive_failures >= MAX_CONSECUTIVE_COMPACTION_FAILURES
-            || self.measurement_spent
-        {
+        if self.measurement_spent {
             return CompactionPass::nothing();
         }
 
@@ -545,61 +587,60 @@ impl Compactor {
             return CompactionPass::nothing();
         }
 
-        let Some(tail_start) = plan_tail_start(
-            messages,
-            self.context_window,
-            self.tool_schema_tokens,
-            attachment_tokens(messages, last_request, self.tool_schema_tokens),
-        ) else {
-            // The trigger runs off the provider's count and the split off a character
-            // estimate; when they disagree the step keeps growing with nothing done, so
-            // say so rather than leaving the mode looking broken.
-            tracing::info!(
-                "AI agent is over its {} token context window but has nothing worth summarizing \
-                 ({} messages)",
-                self.context_window,
-                messages.len()
-            );
-            return CompactionPass::nothing();
-        };
-
         self.measurement_spent = true;
 
-        match summarize_prefix(
-            &messages[..tail_start],
-            summary_reserve_tokens(self.context_window),
-            request,
-        )
-        .await
-        {
-            Ok((summary, usage)) => {
-                let formatted = format_compact_summary(&summary);
-                if formatted.is_empty() {
-                    self.consecutive_failures += 1;
-                    tracing::warn!("AI agent compaction produced an empty summary, skipping");
-                    return CompactionPass { compacted: false, usage };
+        // A summary is preferred, but only while the breaker is untripped and the split
+        // finds a prefix worth folding. Anything else falls through to drop-oldest.
+        let mut usage = None;
+        if self.consecutive_failures < MAX_CONSECUTIVE_COMPACTION_FAILURES {
+            if let Some(tail_start) = plan_tail_start(
+                messages,
+                self.context_window,
+                self.tool_schema_tokens,
+                attachment_tokens(messages, last_request, self.tool_schema_tokens),
+            ) {
+                match summarize_prefix(
+                    &messages[..tail_start],
+                    summary_reserve_tokens(self.context_window),
+                    request,
+                )
+                .await
+                {
+                    Ok((summary, u)) => {
+                        usage = u;
+                        let formatted = format_compact_summary(&summary);
+                        if formatted.is_empty() {
+                            self.consecutive_failures += 1;
+                            tracing::warn!(
+                                "AI agent compaction produced an empty summary, dropping oldest"
+                            );
+                        } else {
+                            self.consecutive_failures = 0;
+                            let prefix_start = summarizable_start(messages);
+                            let compacted = messages.drain(prefix_start..tail_start).count();
+                            messages.insert(prefix_start, build_summary_message(&formatted));
+                            tracing::info!(
+                                "AI agent compacted {} messages into a summary, {} messages left",
+                                compacted,
+                                messages.len()
+                            );
+                            return CompactionPass { compacted: true, usage };
+                        }
+                    }
+                    Err(e) => {
+                        self.consecutive_failures += 1;
+                        tracing::warn!(
+                            "AI agent compaction failed ({}/{}), dropping oldest: {e}",
+                            self.consecutive_failures,
+                            MAX_CONSECUTIVE_COMPACTION_FAILURES
+                        );
+                    }
                 }
-                self.consecutive_failures = 0;
-                let prefix_start = summarizable_start(messages);
-                let compacted = messages.drain(prefix_start..tail_start).count();
-                messages.insert(prefix_start, build_summary_message(&formatted));
-                tracing::info!(
-                    "AI agent compacted {} messages into a summary, {} messages left",
-                    compacted,
-                    messages.len()
-                );
-                CompactionPass { compacted: true, usage }
-            }
-            Err(e) => {
-                self.consecutive_failures += 1;
-                tracing::warn!(
-                    "AI agent compaction failed ({}/{}): {e}",
-                    self.consecutive_failures,
-                    MAX_CONSECUTIVE_COMPACTION_FAILURES
-                );
-                CompactionPass::nothing()
             }
         }
+
+        let dropped = self.drop_oldest_to_fit(messages, last_request);
+        CompactionPass { compacted: dropped, usage }
     }
 }
 
@@ -1051,6 +1092,52 @@ mod tests {
 
         // The serialized row is a handful of bytes; the token count carries it over.
         assert!(compactor.projected_tokens(&messages, counted) >= 24_000);
+    }
+
+    /// The last resort behind summarization, matching the AI session: when no summary can
+    /// run, the oldest turns are dropped until the conversation fits the target and opens
+    /// on a user message, and the newest turn is kept.
+    #[test]
+    fn drop_oldest_to_fit_trims_to_a_user_boundary_and_keeps_the_newest() {
+        let mut messages = vec![message("system", "sys")];
+        for _ in 0..10 {
+            messages.push(message("user", &"q".repeat(8000))); // ~2000 tokens
+            messages.push(message("assistant", "ok"));
+        }
+        messages.push(message("user", "NEWEST-TURN-MARKER"));
+        let last = LastRequest { prompt_tokens: None, message_count: 0 };
+        let compactor = Compactor::new(8000, 0);
+
+        assert!(compactor.drop_oldest_to_fit(&mut messages, last));
+        assert_eq!(
+            messages[0].role, "system",
+            "the system prompt is never dropped"
+        );
+        assert_eq!(
+            messages[1].role, "user",
+            "the kept history opens on a user turn"
+        );
+        assert!(
+            matches!(&messages.last().unwrap().content, Some(OpenAIContent::Text(t)) if t == "NEWEST-TURN-MARKER"),
+            "newest kept"
+        );
+        assert!(
+            (compactor.projected_tokens(&messages, last) as f64)
+                < 8000.0 * COMPACTION_TRIGGER_RATIO,
+            "the conversation now fits under the trigger"
+        );
+    }
+
+    /// Nothing to drop when the conversation is already under the target.
+    #[test]
+    fn drop_oldest_to_fit_is_a_no_op_under_the_target() {
+        let mut messages = vec![message("user", "hi"), message("assistant", "hello")];
+        let compactor = Compactor::new(128_000, 0);
+        assert!(!compactor.drop_oldest_to_fit(
+            &mut messages,
+            LastRequest { prompt_tokens: None, message_count: 0 }
+        ));
+        assert_eq!(messages.len(), 2);
     }
 
     /// The reserve is both the room the split leaves and the summary's output cap, and
