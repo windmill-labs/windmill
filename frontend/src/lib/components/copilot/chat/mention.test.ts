@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { MENTION_RE, mentionTitle, formatMention, hasMention, removeMentionFromText } from './mention'
+import {
+	MENTION_RE,
+	mentionTitle,
+	formatMention,
+	hasMention,
+	mentionTitlesInText,
+	removeMentionFromText
+} from './mention'
 
 describe('formatMention', () => {
 	it('leaves a simple name bare', () => {
@@ -86,5 +93,12 @@ describe('hasMention', () => {
 	it('does not treat embedded mention-like text as a selected context mention', () => {
 		expect(hasMention('Contact owner@app.ts', 'app.ts')).toBe(false)
 		expect(hasMention('Contact owner@app.ts about @app.ts', 'app.ts')).toBe(true)
+	})
+})
+
+describe('mentionTitlesInText', () => {
+	it('extracts only standalone mentions for context synchronization', () => {
+		expect([...mentionTitlesInText('Contact owner@app.ts about @app.ts')]).toEqual(['app.ts'])
+		expect([...mentionTitlesInText('Contact owner@app.ts')]).toEqual([])
 	})
 })

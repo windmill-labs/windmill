@@ -43,6 +43,14 @@ export function hasMention(text: string, title: string): boolean {
 	)
 }
 
+export function mentionTitlesInText(text: string): Set<string> {
+	const out = new Set<string>()
+	for (const m of text.matchAll(MENTION_RE)) {
+		if (isStandaloneMention(text, m)) out.add(mentionTitle(m[0]))
+	}
+	return out
+}
+
 export function removeMentionFromText(text: string, title: string): string {
 	let out = ''
 	let last = 0

@@ -10,7 +10,7 @@
 	import { zIndexes } from '$lib/zIndexes'
 	import { twMerge } from 'tailwind-merge'
 	import { CHAT_INPUT_PADDING, getAiChatManager } from './aiChatManagerContext'
-	import { MENTION_RE, mentionTitle, formatMention } from './mention'
+	import { MENTION_RE, mentionTitle, formatMention, mentionTitlesInText } from './mention'
 	import { createFloatingActions, createVirtualElement } from 'svelte-floating-ui'
 	import { flip, offset, shift } from 'svelte-floating-ui/dom'
 	import {
@@ -65,17 +65,11 @@
 
 	const aiChatManager = getAiChatManager()
 
-	function extractMentions(text: string): Set<string> {
-		const out = new Set<string>()
-		for (const m of text.matchAll(MENTION_RE)) out.add(mentionTitle(m[0]))
-		return out
-	}
-
 	// Titles currently appearing as `@title` mentions in the textarea. Compared
 	// against the previous snapshot in a $effect (NOT inside handleInput —
 	// the picker mutates `value` programmatically via `updateInstructionsWithContext`,
 	// which doesn't fire `oninput`, so a handleInput-only diff goes stale).
-	const mentionedTitles = $derived(extractMentions(value))
+	const mentionedTitles = $derived(mentionTitlesInText(value))
 	let prevMentionedTitles = $state<Set<string>>(new Set())
 
 	let showContextTooltip = $state(false)
