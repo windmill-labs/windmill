@@ -726,6 +726,17 @@ export const UserDraftDbSyncer = {
 	},
 
 	/**
+	 * The value parked for this key, wrapped so a parked delete (`null`) stays distinguishable
+	 * from nothing parked at all. While a conflict stands this is the version the server refused,
+	 * which is to say this tab's own: an editor opening on the key takes it over the server's
+	 * draft, which is the version that did the refusing.
+	 */
+	peekPending(query: UserDraftLastSyncQuery): { value: unknown } | undefined {
+		const parked = pendingSaveOpts.get(draftKey(query.workspace, query.itemKind, query.path))
+		return parked ? { value: parked.value } : undefined
+	},
+
+	/**
 	 * Stop scheduling saves for this key and wait until nothing for it is still in flight.
 	 * Cancelling alone cannot stop a POST the runner already started, and such a POST settles
 	 * *after* the caller has moved on — a rejected one re-raising the conflict it was told to

@@ -89,15 +89,21 @@ describe('UserDraftDbSyncer.quiesce', () => {
 
 	it('cancels a debounced autosave so it cannot displace the write that follows', async () => {
 		const q = { workspace: 'w', itemKind: 'variable' as const, path: 'u/me/quiesce_c' }
-		// Debounced rather than immediate: this is the autosave a resolution has to call off, or
-		// it fires mid-resolution and, being conditional, is refused.
-		void UserDraftDbSyncer.save({ ...q, value: { v: 'queued' } })
+		vi.useFakeTimers()
+		try {
+			// Debounced rather than immediate: this is the autosave a resolution has to call off, or
+			// it fires mid-resolution and, being conditional, is refused.
+			void UserDraftDbSyncer.save({ ...q, value: { v: 'queued' } })
 
-		await UserDraftDbSyncer.quiesce(q)
-		updateDraft.mockClear()
+			await UserDraftDbSyncer.quiesce(q)
+			updateDraft.mockClear()
 
-		// Long enough for the debounce to have fired had it survived.
-		await new Promise((r) => setTimeout(r, 50))
-		expect(updateDraft).not.toHaveBeenCalled()
+			// Past the debouncer's 10s ceiling, so a schedule that survived has certainly fired.
+			// Real time would not reach it: the test would pass with the cancelling removed.
+			await vi.advanceTimersByTimeAsync(11000)
+			expect(updateDraft).not.toHaveBeenCalled()
+		} finally {
+			vi.useRealTimers()
+		}
 	})
 })

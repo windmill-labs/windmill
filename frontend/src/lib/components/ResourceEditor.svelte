@@ -348,6 +348,14 @@
 			UserDraftDbSyncer.dropPending(query)
 			UserDraftDbSyncer.clearConflict(query)
 			initialStates[ws] = structuredClone(deployedState)
+			// Everything else the load path takes from this same response. The item can have been
+			// deleted, recreated under another type, or had its permissions changed while the
+			// conflict stood, and the fields below decide create-vs-update, the schema and write
+			// access — so refreshing only what is displayed would leave those deciding on the
+			// version the user just replaced.
+			fetchedResources[ws] = r
+			existedInitially[ws] = !(r as any).no_deployed
+			if (ws === effectiveWorkspace) resource_type = r.resource_type
 			UserDraftDbSyncer.recordRemoteSync(query, (r as any).draft_saved_at)
 			UserDraft.seed(
 				'resource',
@@ -439,15 +447,27 @@
 						labels: r.labels ?? undefined,
 						wsSpecific: r.ws_specific ?? false
 					}
-					// Open with the saved draft if present, else the deployed.
-					const s: ResourceState = savedDraftState ?? deployedState
-					openedOnDraft[ws] = !!savedDraftState
+					// A refused save leaves this tab's own version parked. `.draft` is the
+					// version that refused it, so opening on that would quietly drop the edit
+					// the alert is about and leave "Keep mine" offering to keep the other one.
+					const conflictQuery = {
+						workspace: ws,
+						itemKind: 'resource' as const,
+						path: initialPath
+					}
+					const refusedLocal = UserDraftDbSyncer.getConflict(conflictQuery).conflict
+						? (UserDraftDbSyncer.peekPending(conflictQuery)?.value as ResourceState | undefined)
+						: undefined
+					// Open with this tab's refused version if there is one, else the saved
+					// draft, else the deployed.
+					const s: ResourceState = refusedLocal ?? savedDraftState ?? deployedState
+					openedOnDraft[ws] = !!(refusedLocal ?? savedDraftState)
 					// Gate BEFORE the handle is acquired: `stopSync` queues on a
 					// not-yet-live entry, and the form can settle before the effect
 					// above gets a chance to run. Only worth doing when no draft exists
 					// yet — where one does, there is no phantom to prevent and
 					// suspending could only drop a write.
-					if (!savedDraftState) setGated(ws, true)
+					if (!savedDraftState && !refusedLocal) setGated(ws, true)
 					ensureHandle(ws, s)
 					initialStates[ws] = structuredClone(deployedState)
 					// Draft-only paths (`no_deployed`) have no row — saving must

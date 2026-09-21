@@ -231,6 +231,12 @@
 			UserDraftDbSyncer.dropPending(query)
 			UserDraftDbSyncer.clearConflict(query)
 			initialStates[ws] = structuredClone(deployedState)
+			// Everything else the load path takes from this same response. The variable can have
+			// been deleted, recreated, or had its permissions changed while the conflict stood,
+			// and these decide create-vs-update and write access — so refreshing only what is
+			// displayed would leave those deciding on the version the user just replaced.
+			existedInitially[ws] = !(v as any).no_deployed
+			extraPerms[ws] = v.extra_perms ?? {}
 			UserDraftDbSyncer.recordRemoteSync(query, (v as any).draft_saved_at)
 			UserDraft.seed(
 				'variable',
@@ -316,8 +322,16 @@
 					labels: v.labels ?? undefined,
 					wsSpecific: v.ws_specific ?? false
 				}
-				// Open with the saved draft if present, else the deployed.
-				const s: VariableState = savedDraftState ?? deployedState
+				// A refused save leaves this tab's own version parked. `.draft` is the version
+				// that refused it, so opening on that would quietly drop the edit the alert is
+				// about and leave "Keep mine" offering to keep the other one.
+				const conflictQuery = { workspace: ws, itemKind: 'variable' as const, path: p }
+				const refusedLocal = UserDraftDbSyncer.getConflict(conflictQuery).conflict
+					? (UserDraftDbSyncer.peekPending(conflictQuery)?.value as VariableState | undefined)
+					: undefined
+				// Open with this tab's refused version if there is one, else the saved draft,
+				// else the deployed.
+				const s: VariableState = refusedLocal ?? savedDraftState ?? deployedState
 				ensureHandle(ws, s)
 				initialStates[ws] = structuredClone(deployedState)
 				// Draft-only paths (`no_deployed`) have no row — saving must
