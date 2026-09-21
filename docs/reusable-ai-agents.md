@@ -91,42 +91,44 @@ table mirrors the one the AI session's own compaction reads
 step's `context_window` overrides it, for a Custom AI deployment or a model the table cannot name;
 setting it too large never trips the trigger and the provider raises the context error itself.
 
-`windmill-worker/src/ai/compaction.rs` holds the rest. Between agent-loop iterations, and once more
-after the loop, the worker projects what the next prompt would cost — the provider's count for the
-last request plus a `chars/4` estimate of everything appended since — and compacts once it passes
-80% of the window. It grows the tail backwards until it fills the target budget, half the window
-less the summary's reserve, summarizes the prefix in one extra request billed to the step, and
-replaces it with that summary. The gap between trigger and target is what one compaction buys:
-each summarization request carries most of the window, so a target close to the trigger would
-spend that on a few turns of room. The summarization request carries no tool definitions, so the
-prefix's tool calls and results go to it rendered as text: Bedrock rejects tool blocks that arrive
-without the definitions that produced them. The tail never opens on a `tool` message, a prefix
-that is only a previous summary is never summarized again, and three consecutive failures stop it
-for the run. When a summary cannot run — it failed, three in a row stopped it, or the loaded prefix
-is larger than the summarizer's own window because the step was switched to a smaller model — the
-oldest turns are dropped until the conversation fits and opens on a user message, keeping the
-newest, the same fallback the AI session uses. So the next request always fits, and the worst case
-is losing old context rather than failing the run.
-The summarization request is capped at the reserve and asks Gemini and OpenAI's reasoning models
-for their least thinking, since both think by default and bill it against that same cap; the
-step's own reasoning effort is not carried over, and OpenAI's pro variants get none, since each
-rejects everything below its own floor.
+`windmill-worker/src/ai/compaction.rs` keeps two histories: model context, which can be compacted,
+and the execution record, which retains the loaded history and every message produced by the run.
+Returned results and partial-error results use the execution record. Compaction cannot remove or
+reorder the action messages the flow viewer indexes, or the MCP results it finds by call ID.
 
-The count the trigger reads is `TokenUsage::input_tokens` and nothing else. Each provider's parser
-normalizes that field to the whole prompt first — Anthropic and Bedrock report their cached prefix
-beside it, so `with_cache_beside_input` folds it in, while the OpenAI-shaped ones already count it
-inside.
+Before each provider request, including the first, the worker checks the projected context size.
+At 80% of the model window it summarizes the older prefix, keeping recent complete exchanges
+verbatim. The soft target is 50%, including the system prompt, tools and summary allowance. The
+newest exchange is always retained even if it exceeds that target. A user prompt stays with its
+first response; later tool rounds can be compacted within a single turn, but a call and its results
+are never split. A prefix containing only an earlier summary is not summarized again.
+
+The summarization request carries no tools; its tool exchanges are rendered as text because
+Bedrock rejects tool blocks without definitions. A dedicated system instruction asks for a factual
+handoff from a labelled transcript, keeping the compaction instruction outside that transcript;
+media parts remain available. Its output cap matches the reserved summary budget,
+and its temperature and reasoning settings are independent of the step's answer settings.
+If summarization fails, the worker logs the failure and omits older complete exchanges. Three
+consecutive failures disable summary requests for the run. If the retained exchange still exceeds
+the estimated model limit or the exact storage limit, the run returns an explicit capacity error
+with its execution record, rather than silently breaking a tool exchange. Estimation cannot
+guarantee that every provider request will fit.
+
+The projection uses normalized `TokenUsage::input_tokens` from the last request plus a `bytes/4`
+estimate of appended messages. Without usage, or after rewriting context, it estimates the whole
+prompt including tools. S3 descriptors get a nominal attachment allowance; actual attachment costs
+and tokenizer differences remain approximate. Provider parsing owns usage normalization: Anthropic
+and Bedrock report cached input separately, while OpenAI-shaped providers include it in input tokens.
 
 Memory is stored per (memory id, step id), in `ai_agent_memory` or S3 at
 `memory/{workspace}/{memory id}/{step}.json`. The chat transcript (`flow_conversation_message`)
-always follows the run's id, even when a step sets its own. The database rows are capped
-(`MAX_MEMORY_SIZE_BYTES`) and cut from the oldest message, the summary included. So when memory
-goes to the database (`memory_storage_capacity_bytes` in `memory_oss.rs`/`memory_ee.rs`), the
-post-loop pass of a compaction step runs against the smaller of the model's window and the cap at
-`chars/4`, about 25k tokens, and measures the conversation as it will be written rather than by
-the provider's count, since repetitive text packs several characters into a token: the run itself
-gets the whole window, and what is written is a summary plus a tail that fits. The step's log says
-so when that pass summarizes, and says how many messages were dropped if a write still overshoots.
+always follows the run's id, even when a step sets its own. Before persistence, the same planner
+also checks the serialized memory against the database's 100KB limit (`MAX_MEMORY_SIZE_BYTES`),
+when `memory_storage_capacity_bytes` reports one. System messages and tool definitions are not
+stored, so they do not count towards this byte limit. The final pass chooses one prefix against
+both constraints and summarizes it once; it does not shrink the model window to a storage-derived
+token count. The actual replacement is checked again before writing. Persistence reads compacted
+model context, independently of the complete execution record returned by the step.
 Nothing expires stored memory: deleting a chat conversation deletes its memory, and a memory named
 by a string id stays until it is overwritten.
 

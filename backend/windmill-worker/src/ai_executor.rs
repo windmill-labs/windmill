@@ -1,4 +1,4 @@
-use crate::ai::compaction::{CompactionRequest, Compactor, LastRequest};
+use crate::ai::compaction::{AgentHistory, CompactionRequest, Compactor};
 use crate::ai::tools::{execute_tool_calls, ToolAbortHandles, ToolExecutionContext};
 use crate::ai::utils::{
     add_message_to_conversation, any_tool_needs_previous_result, cleanup_mcp_clients,
@@ -82,12 +82,10 @@ lazy_static::lazy_static! {
 const DEFAULT_MAX_AGENT_ITERATIONS: usize = 10;
 const HARD_MAX_AGENT_ITERATIONS: usize = 1000;
 
-/// What a run stopped by `max_iterations` reports back. `Message` rather than
-/// `OpenAIMessage` is load-bearing: `agent_action` is `skip_serializing` on the
-/// latter and reaches JSON only through this wrapper, so serializing these raw
-/// drops every tool name and job id and leaves the partial run unreadable.
+/// Partial failures retain action metadata through `Message`: serializing raw
+/// `OpenAIMessage` values would strip the tool names and IDs the viewer needs.
 #[derive(serde::Serialize)]
-struct MaxIterPartialResult<'a> {
+struct AgentPartialResult<'a> {
     messages: Vec<Message<'a>>,
 }
 
@@ -123,8 +121,7 @@ fn prepare_auto_memory_messages_for_persistence(
     non_system_messages[start_idx..].to_vec()
 }
 
-/// Everything the two compaction sites of the agent loop share. Only the query builder
-/// and `include_usage` differ between them, since both can change mid-run.
+/// Provider request settings must follow any endpoint fallback learned during the run.
 struct CompactionContext<'a> {
     compactor: Option<&'a mut Compactor>,
     timeout: Option<std::time::Duration>,
@@ -140,17 +137,17 @@ async fn compact_if_needed(
     ctx: CompactionContext<'_>,
     query_builder: &dyn windmill_ai::query_builder::QueryBuilder,
     include_usage: bool,
-    messages: &mut Vec<OpenAIMessage>,
-    last_request: &mut LastRequest,
+    messages: &mut AgentHistory,
+    storage_bytes: Option<usize>,
     final_usage: &mut Option<TokenUsage>,
-) -> bool {
+) -> error::Result<bool> {
     let (Some(compactor), Some(timeout)) = (ctx.compactor, ctx.timeout) else {
-        return false;
+        return Ok(false);
     };
     let pass = compactor
-        .maybe_compact(
+        .compact(
             messages,
-            *last_request,
+            storage_bytes,
             &CompactionRequest {
                 query_builder,
                 credentials: ctx.credentials,
@@ -161,21 +158,26 @@ async fn compact_if_needed(
                 include_usage,
             },
         )
-        .await;
+        .await
+        .map_err(|error| {
+            Error::ExecutionRawError(to_raw_value(&serde_json::json!({
+                "name": "ExecutionErr",
+                "message": error.to_string(),
+                "result": AgentPartialResult {
+                    messages: messages.result().iter().map(|message| Message {
+                        message,
+                        agent_action: message.agent_action.as_ref(),
+                    }).collect(),
+                },
+            })))
+        })?;
     if let Some(usage) = pass.usage {
         match final_usage {
             Some(existing) => existing.accumulate(&usage),
             None => *final_usage = Some(usage),
         }
     }
-    // A rewritten conversation no longer matches the provider's count for the request
-    // that produced it: the count indexed the old message list. Drop it so any later
-    // pass measures the estimate over the actual messages rather than a stale, larger
-    // prompt — reusing it can decline a summary that already fits, then drop it.
-    if pass.compacted {
-        *last_request = LastRequest { prompt_tokens: None, message_count: 0 };
-    }
-    pass.compacted
+    Ok(pass.changed)
 }
 
 /// The inputs a linked step supplies for itself; the resource holds the rest of the brain.
@@ -1437,6 +1439,7 @@ pub async fn run_agent(
         }
     }
 
+    let mut messages = AgentHistory::new(messages);
     let mut actions = vec![];
     let mut content = None;
     let mut final_usage: Option<TokenUsage> = None;
@@ -1540,9 +1543,8 @@ pub async fn run_agent(
         }
         _ => None,
     };
-    // The window a persisted conversation has to fit in, when the storage is smaller
-    // than the model. The database cuts what it cannot hold from the oldest message,
-    // summary first, so a step that persists there summarizes down to it before writing.
+    // The store otherwise evicts oldest messages, including the summary. Bound only
+    // persisted context here; the running agent can still use the full model window.
     let persist_capacity = match (&compactor, &history, effective_flow_step_id) {
         (Some(_), HistorySource::Managed { .. }, Some(_)) => memory_storage_capacity_bytes().await,
         _ => None,
@@ -1557,18 +1559,17 @@ pub async fn run_agent(
         ),
         None => None,
     };
-    // A memory loaded from an earlier run can already be over the window — the step was
-    // switched to a smaller model, or a run under a wider one persisted more than this
-    // window holds. Compaction is otherwise reactive, taken after a request the endpoint
-    // accepted, because the fallbacks the loop learns from a rejection (`stream_options`,
-    // the chat/completions reroute) are not known before the first request. But an
-    // oversized load would make that first request overflow and fail the run, and every
-    // retry reload the same history, so one pass is taken up front off the character
-    // estimate. It uses the default request shape: an endpoint that needs a fallback may
-    // reject this one summary, which is non-fatal — the loop then proceeds as it would
-    // have. Mainstream providers need no fallback, so it lands.
-    let mut last_request = LastRequest { prompt_tokens: None, message_count: 0 };
-    if compactor.is_some() {
+    // Main agent loop
+    for i in 0..max_iterations {
+        // Check if parent was canceled — stop iterating but let current tool calls finish
+        if *cancel_rx.borrow() {
+            return Err(Error::ExecutionErr("Job cancelled".to_string()));
+        }
+
+        if used_structured_output_tool {
+            break;
+        }
+
         compact_if_needed(
             CompactionContext {
                 compactor: compactor.as_mut(),
@@ -1581,26 +1582,14 @@ pub async fn run_agent(
             query_builder.as_ref(),
             include_usage,
             &mut messages,
-            &mut last_request,
+            None,
             &mut final_usage,
         )
-        .await;
-    }
-
-    // Main agent loop
-    for i in 0..max_iterations {
-        // Check if parent was canceled — stop iterating but let current tool calls finish
-        if *cancel_rx.borrow() {
-            return Err(Error::ExecutionErr("Job cancelled".to_string()));
-        }
-
-        if used_structured_output_tool {
-            break;
-        }
+        .await?;
 
         // How many messages this request carries, so the provider's prompt count can
         // later be told apart from what the response and its tool results add.
-        let request_message_count = messages.len();
+        let request_message_count = messages.context().len();
 
         // Handle AWS Bedrock provider specially using the official SDK
         let parsed = if credentials.provider == AIProvider::AWSBedrock {
@@ -1613,7 +1602,7 @@ pub async fn run_agent(
                 // Use Bedrock SDK via dedicated query builder
                 windmill_ai::providers::bedrock::BedrockQueryBuilder::default()
                     .execute_request(
-                        &messages,
+                        messages.context(),
                         tool_defs.as_deref(),
                         args.provider.get_model(),
                         args.temperature,
@@ -1640,7 +1629,7 @@ pub async fn run_agent(
         } else {
             // For all other providers, use the HTTP client approach
             let mut build_args = BuildRequestArgs {
-                messages: &messages,
+                messages: messages.context(),
                 tools: tool_defs.as_deref(),
                 model: args.provider.get_model(),
                 temperature: args.temperature,
@@ -1841,15 +1830,10 @@ pub async fn run_agent(
                 used_websearch,
                 usage,
             } => {
-                // What this one request's prompt occupied. `final_usage` sums every
-                // iteration, so it says nothing about how full the context is.
-                last_request = LastRequest {
-                    prompt_tokens: usage.as_ref().and_then(|u| u.input_tokens),
-                    message_count: request_message_count,
-                };
-                if let Some(compactor) = compactor.as_mut() {
-                    compactor.record_response();
-                }
+                messages.record_usage(
+                    usage.as_ref().and_then(|u| u.input_tokens),
+                    request_message_count,
+                );
 
                 // Accumulate usage from this iteration
                 if let Some(u) = usage {
@@ -1974,7 +1958,7 @@ pub async fn run_agent(
                         name: &'static str,
                         #[serde(skip_serializing_if = "Option::is_none")]
                         step_id: Option<&'a str>,
-                        result: MaxIterPartialResult<'a>,
+                        result: AgentPartialResult<'a>,
                     }
                     return Err(Error::ExecutionRawError(
                         serde_json::value::to_raw_value(&MaxIterError {
@@ -1984,8 +1968,9 @@ pub async fn run_agent(
                             ),
                             name: "ExecutionErr",
                             step_id: effective_flow_step_id,
-                            result: MaxIterPartialResult {
+                            result: AgentPartialResult {
                                 messages: messages
+                                    .result()
                                     .iter()
                                     .map(|m| Message {
                                         message: m,
@@ -2100,25 +2085,6 @@ pub async fn run_agent(
                 if *cancel_rx.borrow() {
                     return Err(Error::ExecutionErr("Job cancelled".to_string()));
                 }
-
-                // Compact between iterations rather than mid-request: the next iteration
-                // is what would carry the grown conversation to the provider.
-                compact_if_needed(
-                    CompactionContext {
-                        compactor: compactor.as_mut(),
-                        timeout: compaction_timeout,
-                        credentials: &credentials,
-                        args,
-                        client,
-                        workspace_id: &job.workspace_id,
-                    },
-                    query_builder.as_ref(),
-                    include_usage,
-                    &mut messages,
-                    &mut last_request,
-                    &mut final_usage,
-                )
-                .await;
             }
             ParsedResponse::Image { base64_data } => {
                 // For image output, upload to S3 and track in conversation
@@ -2167,17 +2133,7 @@ pub async fn run_agent(
         }
     }
 
-    // A turn the model answers without calling a tool leaves the loop on its first
-    // iteration, so this is the only compaction a chat-shaped step ever gets: without it
-    // the conversation is persisted whole and every later turn reloads it, until the
-    // provider refuses the request outright.
-    //
-    // Two passes, in order. First the model window, off the provider's count for the last
-    // request: a chat-shaped turn never reached the in-loop check, so this is where an
-    // attachment that fills the model context is caught — it is a few bytes in the row,
-    // invisible to the storage measure below. Then, when the row is smaller than the
-    // model, a second pass bounds what is written to the database, measured in bytes.
-    compact_if_needed(
+    let compacted = compact_if_needed(
         CompactionContext {
             compactor: compactor.as_mut(),
             timeout: compaction_timeout,
@@ -2189,40 +2145,15 @@ pub async fn run_agent(
         query_builder.as_ref(),
         include_usage,
         &mut messages,
-        &mut last_request,
+        persist_capacity,
         &mut final_usage,
     )
-    .await;
-    let storage_bound = match (compactor.as_mut(), persist_capacity) {
-        (Some(compactor), Some(bytes)) => compactor.bound_by_storage(bytes),
-        _ => false,
-    };
-    let compacted = storage_bound
-        && compact_if_needed(
-            CompactionContext {
-                compactor: compactor.as_mut(),
-                timeout: compaction_timeout,
-                credentials: &credentials,
-                args,
-                client,
-                workspace_id: &job.workspace_id,
-            },
-            query_builder.as_ref(),
-            include_usage,
-            &mut messages,
-            &mut last_request,
-            &mut final_usage,
-        )
-        .await;
+    .await?;
     if compacted {
         append_logs(
             &job.id,
             &job.workspace_id,
-            format!(
-                "No instance object storage, so the memory was summarized to fit the {}KB \
-                 the database holds rather than the model's context window.\n",
-                MAX_MEMORY_SIZE_BYTES / 1000
-            ),
+            "AI agent memory compacted; the run's action results are preserved.\n".to_string(),
             conn,
         )
         .await;
@@ -2230,6 +2161,7 @@ pub async fn run_agent(
 
     // Return the final result
     let final_messages: Vec<Message> = messages
+        .result()
         .iter()
         .map(|m| Message { message: m, agent_action: m.agent_action.as_ref() })
         .collect();
@@ -2271,16 +2203,13 @@ pub async fn run_agent(
         }
     }
 
-    // final_messages holds the complete history: what was loaded plus this run's messages
+    // Persistence uses model context; the returned execution history is never compacted.
     if matches!(output_type, OutputType::Text) {
         if let HistorySource::Managed { memory_id, bound } = &history {
             if let Some(step_id) = effective_flow_step_id {
-                let all_messages: Vec<OpenAIMessage> =
-                    final_messages.iter().map(|m| m.message.clone()).collect();
-
-                if !all_messages.is_empty() {
+                if !messages.context().is_empty() {
                     let messages_to_persist = prepare_auto_memory_messages_for_persistence(
-                        &all_messages,
+                        messages.context(),
                         bound.messages_to_keep(),
                     );
 
@@ -2656,7 +2585,7 @@ mod tests {
             ..Default::default()
         }];
 
-        let partial = MaxIterPartialResult {
+        let partial = AgentPartialResult {
             messages: messages
                 .iter()
                 .map(|m| Message { message: m, agent_action: m.agent_action.as_ref() })
