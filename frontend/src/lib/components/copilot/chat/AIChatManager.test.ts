@@ -514,6 +514,25 @@ describe('AIChatManager.sendOrQueue', () => {
 		releaseUpkeep?.()
 		await sending
 	})
+
+	// A session's chat is restored after its manager is handed out, so the first
+	// send waits on that restore — before `sendInFlight`, which the restore reads
+	// to decide whether to bail.
+	it('queues while a send waits on the chat restore gate', async () => {
+		const manager = new AIChatManager()
+		let openGate: (() => void) | undefined
+		manager.setReadyGate(new Promise<void>((resolve) => (openGate = resolve)))
+		manager.instructions = 'first turn'
+		const sending = manager.sendRequest()
+		await vi.waitFor(() => expect(manager.sendPending).toBe(true))
+		expect(manager.sendInFlight).toBe(false)
+
+		manager.sendOrQueue('fix the failing run')
+		expect(manager.queuedMessage).toBe('fix the failing run')
+
+		openGate?.()
+		await sending
+	})
 })
 
 describe('AIChatManager request errors', () => {

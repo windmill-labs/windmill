@@ -190,7 +190,7 @@
 			.filter(
 				(c) => c.type !== 'app_dom_selector' || (c.selector === selector && c.appPath === path)
 			)
-		if (runtime.manager.loading) {
+		if (runtime.manager.loading || runtime.manager.sendInFlight || runtime.manager.sendPending) {
 			runtime.manager.queueMessage(prompt, [], snapshot)
 		} else {
 			void runtime.manager.sendRequest({ instructions: prompt, contextOverride: snapshot })
