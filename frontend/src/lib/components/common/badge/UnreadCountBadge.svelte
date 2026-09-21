@@ -27,10 +27,10 @@
 		class={twMerge(
 			'unread-badge inline-flex items-center justify-center rounded-full bg-surface-accent-primary text-white font-medium',
 			small ? 'min-w-3 h-3 px-0.5 text-[8px]' : 'min-w-3.5 h-3.5 px-1 text-[9px]',
-			// After the size, not before: tailwind-merge counts a text size as resetting
-			// line-height, so a `leading-*` ahead of one is dropped from the result.
-			'leading-none',
-			className
+			className,
+			// Keep this last: tailwind-merge counts a text size as resetting line-height,
+			// including a size supplied by a caller.
+			'leading-none'
 		)}
 		aria-label="{count} unread {noun}{count === 1 ? '' : 's'}"
 	>
