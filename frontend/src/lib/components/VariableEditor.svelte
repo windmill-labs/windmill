@@ -144,10 +144,10 @@
 		Object.keys(states).filter((ws) => !draftValuesEqual(states[ws].draft, initialStates[ws]))
 	)
 
-	/** Ended by every entry point and by the teardown: reopening the same variable reuses this
-	 *  component, so `selected`/path cannot tell a resolution whether it still speaks for what is
-	 *  on screen. */
-	const conflictSession = useDraftConflictSession()
+	/** Scoped by `selected` so switching workspace-specific versions is a new session. Ended on top
+	 *  of that by every entry point and by the teardown, since reopening the same variable reuses
+	 *  this component. */
+	const conflictSession = useDraftConflictSession(() => selected)
 	function endEditingSession(): void {
 		conflictSession.end()
 	}

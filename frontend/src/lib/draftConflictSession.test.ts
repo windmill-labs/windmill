@@ -1,14 +1,14 @@
 import { describe, it, expect } from 'vitest'
 
-import { useDraftConflictSession } from './draftConflictSession.svelte'
+import { createDraftConflictSession } from './draftConflictSession.svelte'
 
 /**
- * A drawer editor is reused by the next thing it opens, so a resolution the closed session left
- * in flight must neither speak for the new one nor hold its buttons disabled until it settles.
+ * A resolution the user has walked away from must neither speak for what replaced it nor hold its
+ * buttons disabled until it settles.
  */
-describe('useDraftConflictSession', () => {
-	it('frees a reopened session from a resolution the closed one left in flight', () => {
-		const session = useDraftConflictSession()
+describe('createDraftConflictSession', () => {
+	it('frees the next session from a resolution the last one left in flight', () => {
+		const session = createDraftConflictSession()
 
 		const stale = session.start()
 		expect(session.busy).toBe(true)

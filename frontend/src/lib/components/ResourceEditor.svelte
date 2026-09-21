@@ -269,11 +269,10 @@
 	)
 	const anyDirty = $derived(dirtyWorkspaces.length > 0)
 
-	/** This component outlives the drawer and reopening the same resource reuses it with the same
-	 *  `selected`/path, so a resolution cannot tell from those whether it still speaks for what is
-	 *  on screen. Ending is exported because the drawer, not this component, knows when a session
-	 *  is over. */
-	const conflictSession = useDraftConflictSession()
+	/** Scoped by `selected` so switching workspace-specific versions is a new session. Ending is
+	 *  exported on top of that because the drawer, not this component, knows when its own session
+	 *  is over: this component outlives it. */
+	const conflictSession = useDraftConflictSession(() => selected)
 	export function endEditingSession(): void {
 		conflictSession.end()
 	}
