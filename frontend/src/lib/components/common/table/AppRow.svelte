@@ -11,7 +11,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import Button from '../button/Button.svelte'
 	import Row from './Row.svelte'
-	import type { RowSelection } from './rowSelection'
+	import { selectMenuItems, type RowSelection } from './rowSelection'
 	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
 	import Badge from '../badge/Badge.svelte'
 	import {
@@ -109,13 +109,13 @@
 		? `${base}/apps${app.raw_app ? '_raw' : ''}/edit/${app.path}`
 		: `${base}/apps${app.raw_app ? '_raw' : ''}/get/${app.path}`}
 	kind="app"
+	{keyboardSelected}
 	{marked}
 	path={(app as any).draft_path ?? app.path}
 	summary={app.is_draft ? `${app.summary || (app as any).draft_path || app.path}*` : app.summary}
 	workspaceId={app.workspace_id ?? $workspaceStore ?? ''}
 	canFavorite={!app.draft_only}
 	{depth}
-	{keyboardSelected}
 	{rowSelection}
 >
 	{#snippet badges()}
@@ -188,6 +188,21 @@
 				const canEdit = canWrite && showEditButton
 				if (draft_only) {
 					return [
+						...selectMenuItems(rowSelection),
+						{
+							displayName: 'Move/Rename',
+							icon: FolderOpen,
+							action: () => {
+								// Addressed by the generated path its draft row sits at, but
+								// named by the path typed in the editor.
+								moveDrawer.openDrawer((app as any).draft_path ?? path, summary, 'app', {
+									storagePath: path,
+									rawApp: !!app.raw_app
+								})
+							},
+							disabled: !showEditButton,
+							hide: $userStore?.operator
+						},
 						{
 							displayName: 'Delete',
 							icon: Trash,
@@ -221,6 +236,7 @@
 					]
 				}
 				return [
+					...selectMenuItems(rowSelection),
 					{
 						displayName: 'Duplicate/Fork',
 						icon: GitFork,

@@ -3,8 +3,13 @@ import {
 	AUDIT_LOGS_PATH,
 	FOLDERS_PATH,
 	GROUPS_PATH,
+	pageItemForListPath,
+	pageItemListPath,
+	pageItemPageHref,
+	pageItemUrl,
 	pageKey,
 	pageHref,
+	parsePageItemRoute,
 	parsePreviewItemRoute,
 	RESOURCES_PATH,
 	RUNS_PATH,
@@ -14,17 +19,22 @@ import {
 	WORKSPACE_SETTINGS_PATH,
 	triggerLabelForPath,
 	TRIGGER_PAGES,
+	type PageItemRef,
 	type PreviewItemRoute,
 	type TriggerKind
 } from './previewPaths'
 // Re-exported so the preview code that already reads locations through this module keeps
 // one import, while a caller needing only a path can reach for the leaf instead.
 export {
+	pageItemListPath,
+	pageItemUrl,
 	pageKey,
 	pageHref,
+	parsePageItemRoute,
 	parsePreviewItemRoute,
 	stripBase,
 	TRIGGER_PAGES,
+	type PageItemRef,
 	type PreviewItemRoute,
 	type TriggerKind
 }
@@ -67,6 +77,8 @@ export type PreviewTarget =
 	| { type: 'page'; href: string; label: string }
 	| { type: 'item'; item: WorkspaceItem }
 	| { type: 'artifact'; id: string; name: string; version?: ArtifactVersionTarget }
+	| { type: 'runform'; toolCallId: string; label: string }
+	| { type: 'pageitem'; ref: PageItemRef }
 
 export type PreviewPage = { label: string; path: string; icon: DrillIcon }
 
@@ -116,6 +128,26 @@ export function drawerAnchorFor(location: string): string | undefined {
 	return location.slice(hashAt + 1).replace(/^\/resource\//, '') || undefined
 }
 
+/** The item a list-page location deep-links, as a tab of its own: a session edits these
+ * in process, so the list page's drawer is never where one belongs. */
+export function pageItemForLocation(location: string): PageItemRef | undefined {
+	const anchor = drawerAnchorFor(location)
+	if (!anchor) return undefined
+	let path: string
+	try {
+		path = decodeURIComponent(anchor)
+	} catch {
+		return undefined
+	}
+	return pageItemForListPath(location, path)
+}
+
+/** A location with a deep-linked row replaced by that row's own tab; any other unchanged. */
+export function pageItemLocation(location: string): string {
+	const ref = pageItemForLocation(location)
+	return ref ? pageItemUrl(ref) : location
+}
+
 // Query params the preview host injects into an iframe URL (`nomenubar` hides the nav,
 // `workspace` scopes the page). Never part of what a location means.
 const INJECTED_PARAMS = ['nomenubar', 'workspace'] as const
@@ -123,9 +155,9 @@ const INJECTED_PARAMS = ['nomenubar', 'workspace'] as const
 /** Drop the params the preview host injects, so a location observed in the frame can be
  * compared with the one that was commanded (which never carries them). */
 export function canonicalizeObservedLoc(loc: string): string {
-	// An artifact is a scheme, not a path — `new URL` would happily parse it and hand
-	// back a pathname with the scheme gone.
-	if (parseArtifactRoute(loc)) return loc
+	// An artifact or a run form is a scheme, not a path — `new URL` would happily parse it
+	// and hand back a pathname with the scheme gone.
+	if (parseArtifactRoute(loc) || parseRunFormRoute(loc) || parsePageItemRoute(loc)) return loc
 	try {
 		const u = new URL(loc, 'http://_')
 		for (const p of INJECTED_PARAMS) u.searchParams.delete(p)
@@ -196,6 +228,12 @@ export type PreviewLocation = {
 export function describeLocation(loc: string): PreviewLocation {
 	const artifact = parseArtifactRoute(loc)
 	if (artifact) return { identity: `artifact:${artifact.id}`, view: '', anchor: '' }
+	const runForm = parseRunFormRoute(loc)
+	// Identity is the call, never the label: that carries the script's summary, so folding it
+	// in would open a second tab for the same form whenever the summary differed.
+	if (runForm) return { identity: `runform:${runForm.toolCallId}`, view: '', anchor: '' }
+	const pageItem = parsePageItemRoute(loc)
+	if (pageItem) return { identity: pageItemUrl(pageItem), view: '', anchor: '' }
 	const canonical = canonicalizeObservedLoc(loc)
 	const path = stripBase(canonical)
 	const bare = canonical.split('#')[0]
@@ -317,6 +355,15 @@ export function previewLocationContext(loc: string): {
 	location: string
 	open?: string
 } {
+	// Told as its list page with the item open, the shape the model already reads for a row
+	// whose drawer is open — which is all a page item tab is to it.
+	const pageItem = parsePageItemRoute(loc)
+	if (pageItem) {
+		return {
+			...previewLocationContext(pageItemListPath(pageItem)),
+			open: promptSafe(pageItem.path)
+		}
+	}
 	const { identity, anchor } = describeLocation(loc)
 	const bare = canonicalizeObservedLoc(loc).split('#')[0]
 	const query = bare.includes('?') ? bare.slice(bare.indexOf('?') + 1) : ''
@@ -363,6 +410,10 @@ export function matchReusablePage(href: string): PreviewPage | undefined {
 export function previewLocationLabel(url: string): string {
 	const artifact = parseArtifactRoute(url)
 	if (artifact) return artifact.name || 'Artifact'
+	const runForm = parseRunFormRoute(url)
+	if (runForm) return runForm.label || 'Run form'
+	const pageItem = parsePageItemRoute(url)
+	if (pageItem) return pageItem.path.split('/').pop() || pageItem.path
 	const page = matchReusablePage(url)
 	if (page) return page.label
 	const trigger = triggerLabelForPath(url)
@@ -443,6 +494,22 @@ export function parseArtifactRoute(
 	}
 }
 
+// A chat run form, addressed by the tool call it belongs to. A scheme rather than a path
+// for the same reason as artifacts: this tab mounts a component, so there is no page for a
+// frame to load, and the label rides in the hash so the strip names it without a lookup.
+export function parseRunFormRoute(url: string): { toolCallId: string; label: string } | null {
+	const m = url.match(/^runform:([^?#]+)(?:#(.*))?$/)
+	if (!m) return null
+	return {
+		toolCallId: decodeURIComponent(m[1]),
+		label: m[2] ? decodeURIComponent(m[2]) : ''
+	}
+}
+
+export function runFormUrl(toolCallId: string, label: string): string {
+	return `runform:${encodeURIComponent(toolCallId)}#${encodeURIComponent(label)}`
+}
+
 export function artifactUrl(id: string, name: string, version?: number): string {
 	// Only stamp a version parseArtifactRoute can read back: this url is persisted with the
 	// tab, so one that round-trips to null would come back as an unopenable tab every reload.
@@ -468,11 +535,17 @@ export const isArtifactKey = (key: string) => key.startsWith('artifact:')
 export type PreviewSlot =
 	| { kind: 'editor'; editorKind: SessionTargetKind | 'pipeline'; path: string }
 	| { kind: 'artifact'; id: string; version?: number }
+	| { kind: 'runform'; toolCallId: string }
+	| { kind: 'pageitem'; ref: PageItemRef }
 	| { kind: 'iframe' }
 
 export function resolvePreviewTab(url: string): PreviewSlot {
 	const artifact = parseArtifactRoute(url)
 	if (artifact) return { kind: 'artifact', id: artifact.id, version: artifact.version }
+	const runForm = parseRunFormRoute(url)
+	if (runForm) return { kind: 'runform', toolCallId: runForm.toolCallId }
+	const pageItem = parsePageItemRoute(url)
+	if (pageItem) return { kind: 'pageitem', ref: pageItem }
 	const pipelineFolder = parsePipelineRoute(url)
 	if (pipelineFolder) {
 		return { kind: 'editor', editorKind: 'pipeline', path: pipelineFolder }
@@ -489,4 +562,25 @@ export function resolvePreviewTab(url: string): PreviewSlot {
 					: undefined
 	if (!editorKind) return { kind: 'iframe' }
 	return { kind: 'editor', editorKind, path: route.itemPath }
+}
+
+/** The full workspace page showing what a tab shows ("Open in workspace"), or undefined when
+ * there is none. Every tab kind answers here, so a new one cannot fall through to its url being
+ * navigated as a path — an artifact or page item url is a scheme, not a route. */
+export function workspacePageHref(location: string): string | undefined {
+	const slot = resolvePreviewTab(location)
+	switch (slot.kind) {
+		case 'artifact':
+		case 'runform':
+			return undefined
+		case 'pageitem':
+			return pageItemPageHref(slot.ref)
+		case 'editor':
+		case 'iframe':
+			return location
+		default: {
+			const unhandled: never = slot
+			return unhandled
+		}
+	}
 }

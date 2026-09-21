@@ -3,7 +3,9 @@
 	import Popover from './meltComponents/Popover.svelte'
 	import { Play, RefreshCw } from 'lucide-svelte'
 	import { FlowService, JobService, type FlowVersion } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 	import { emptyString, sendUserToast } from '$lib/utils'
 
 	interface Props {
@@ -166,7 +168,7 @@
 					flow_version: flowVersion
 				}
 		let run = await JobService.restartFlowAtStep({
-			workspace: $workspaceStore!,
+			workspace: $operatingWorkspace!,
 			id: jobId,
 			requestBody
 		})
@@ -178,7 +180,7 @@
 		loadingVersions = true
 		try {
 			flowVersions = await FlowService.getFlowHistory({
-				workspace: $workspaceStore!,
+				workspace: $operatingWorkspace!,
 				path: flowPath
 			})
 			if (flowVersions.length > 0) {

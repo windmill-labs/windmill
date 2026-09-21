@@ -291,6 +291,7 @@
 						onEdit={(trigger) => editor?.openEdit(trigger.external_id, trigger.is_flow)}
 						onRecreate={(trigger) => editor?.openRecreate(trigger)}
 						onSync={syncTriggers}
+						onUpdate={loadTriggers}
 					/>
 				{:else}
 					<NoItemFound />

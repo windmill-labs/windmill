@@ -216,6 +216,8 @@ export async function saveNativeTriggerFromCfg(
 		service_config: triggerCfg.service_config,
 		summary: triggerCfg.summary
 	}
+	// Only a create can set it: an update ignores the field, and `setenabled` owns it thereafter.
+	const createBody: NativeTriggerData = { ...requestBody, enabled: triggerCfg.enabled ?? true }
 
 	const serviceName = NATIVE_TRIGGER_SERVICES[service].serviceDisplayName
 
@@ -233,7 +235,7 @@ export async function saveNativeTriggerFromCfg(
 			const response = await NativeTriggerService.createNativeTrigger({
 				workspace: workspace,
 				serviceName: service,
-				requestBody
+				requestBody: createBody
 			})
 			externalId = response.external_id
 			sendUserToast(`${serviceName} trigger ${externalId} created`)

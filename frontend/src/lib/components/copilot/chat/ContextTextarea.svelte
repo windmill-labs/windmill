@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { composerBoxClass, COMPOSER_FIELD_RESET } from './composerBox'
 	import autosize from '$lib/autosize'
 	import { tick, type Snippet } from 'svelte'
 	import type { ContextElement } from './context'
@@ -575,7 +576,10 @@
 
 	function getCommandFilter(text: string): string | undefined {
 		if (aiChatManager.mode !== AIMode.GLOBAL || !aiChatManager.isSessionChat) return undefined
-		const match = /^\/([a-z0-9-]*)$/.exec(text)
+		// Same character set the submit path expands, so a name the picker can insert
+		// does not close the picker as soon as it is typed. Paths reach here too, via
+		// the row inserted for an ambiguous name.
+		const match = /^\/([\p{L}\p{N}_\-/]*)$/u.exec(text)
 		return match?.[1]
 	}
 
@@ -640,8 +644,12 @@
 		}
 	}
 
-	function handleCommandSelection(skill: { name: string }) {
-		value = `/${skill.name} `
+	function handleCommandSelection(skill: { name: string; path?: string }) {
+		// The picker lists a row per skill, so two folders holding the same name are
+		// two distinct rows — but `/name` could not say which one was clicked, and
+		// submission refuses to guess. Those insert the path the row stands for.
+		const ambiguous = commandSkills.filter((c) => c.name === skill.name).length > 1
+		value = `/${ambiguous && skill.path ? skill.path : skill.name} `
 		showCommandTooltip = false
 		setTimeout(() => textarea?.focus(), 0)
 	}
@@ -736,9 +744,9 @@
 		textarea?.focus()
 	}
 
-	// Wipe after dispatching a send: pre-zero `prevMentionedTitles` so the
-	// effect above sees no diff when `value` clears, leaving `selectedContext`
-	// untouched until `AIChatManager.beforeSend` snapshots it. A manual
+	// Wipe after dispatching a send: pre-zero `prevMentionedTitles` so the effect
+	// above sees no diff when `value` clears, leaving `selectedContext` for the
+	// send that is already carrying it to settle (see the caller). A manual
 	// textarea clear by the user keeps the old behaviour (badges drop).
 	export function clearForSend() {
 		prevMentionedTitles = new Set()
@@ -760,12 +768,7 @@
 	}
 </script>
 
-<!-- The composer box: border + rounded live HERE (on the wrapper), not on the
-     textarea, so context chips can sit INSIDE the box, above the text. The
-     textarea's own @tailwindcss/forms border/ring is neutralized below. -->
-<div
-	class="w-full scroll-pb-2 bg-surface-input rounded-md border border-border-light focus-within:border-border-selected transition-colors"
->
+<div class={composerBoxClass(disabled)}>
 	<!-- Context chips live inside the input box, above the textarea. The snippet
 	     self-guards (renders nothing when empty) so no blank row appears. -->
 	{@render leading?.()}
@@ -814,10 +817,7 @@
 			{placeholder}
 			class={twMerge(
 				'textarea-input resize-none caret-black dark:caret-white overflow-clip',
-				// The box (border/ring) lives on the wrapper; kill the textarea's own
-				// @tailwindcss/forms border, focus ring, and background so only the
-				// wrapper reads as the field.
-				'!border-transparent !bg-transparent !shadow-none focus:!border-transparent focus:!ring-0',
+				COMPOSER_FIELD_RESET,
 				CHAT_INPUT_PADDING,
 				className
 			)}

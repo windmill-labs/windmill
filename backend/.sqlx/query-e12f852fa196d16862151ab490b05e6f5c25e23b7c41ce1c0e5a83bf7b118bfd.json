@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH prev AS (SELECT started_at FROM v2_job_queue WHERE id = $1)\n                 UPDATE v2_job_queue q SET running = false, started_at = null\n                 FROM prev WHERE q.id = $1\n                 RETURNING (extract(epoch FROM now() - prev.started_at) * 1000)::bigint",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "int8",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "e12f852fa196d16862151ab490b05e6f5c25e23b7c41ce1c0e5a83bf7b118bfd"
+}

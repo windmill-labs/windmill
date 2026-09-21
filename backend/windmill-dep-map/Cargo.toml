@@ -26,4 +26,5 @@ tracing.workspace = true
 lazy_static.workspace = true
 chrono.workspace = true
 itertools.workspace = true
+futures.workspace = true
 uuid.workspace = true

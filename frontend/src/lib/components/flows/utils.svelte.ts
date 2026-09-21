@@ -6,7 +6,6 @@ import {
 	type Job,
 	type RestartedFrom,
 	type OpenFlow,
-	type MemoryConfig,
 	type FlowValue,
 	type Retry
 } from '$lib/gen'
@@ -17,6 +16,7 @@ import { get } from 'svelte/store'
 import type { FlowModuleState } from './flowState'
 import { type PickableProperties, dfs } from './previousResults'
 import { forEachFlowModule } from './dfs'
+import { withAgentDrafts } from './linkedAgentDrafts'
 import { NEVER_TESTED_THIS_FAR } from './models'
 import { sendUserToast } from '$lib/toast'
 import type { ExtendedOpenFlow } from './types'
@@ -111,7 +111,6 @@ export function filteredContentForExport(flow: ExtendedOpenFlow) {
 }
 
 import { dfs as dfsApply } from './dfs'
-import { randomUUID } from '$lib/utils/uuid'
 
 export function cleanFlow(flow: OpenFlow | any): OpenFlow & {
 	tag?: string
@@ -140,24 +139,8 @@ export function cleanFlow(flow: OpenFlow | any): OpenFlow & {
 		if (mod.value.type == 'rawscript' && mod.value.assets?.length == 0) {
 			mod.value.assets = undefined
 		}
-		// Generate memory_id for AI agents with auto memory if not already set
-		// Only if chat input is not enabled, as otherwise memory id is based on conversation id
-		if (!newFlow.value.chat_input_enabled && mod.value.type === 'aiagent') {
-			const memoryTransform = mod.value.input_transforms?.memory
-			if (memoryTransform?.type === 'static' && memoryTransform.value) {
-				const memoryValue = memoryTransform.value as MemoryConfig
-				if (
-					memoryValue.kind === 'auto' &&
-					memoryValue.context_length &&
-					memoryValue.context_length > 0 &&
-					!memoryValue.memory_id
-				) {
-					memoryTransform.value = {
-						...memoryValue,
-						memory_id: randomUUID()
-					}
-				}
-			}
+		if (mod.value.type === 'aiagent') {
+			normalizeAgentHistory(mod.value.input_transforms, newFlow.value.chat_input_enabled ?? false)
 		}
 	})
 	if (newFlow.value.concurrency_key == '') {
@@ -165,6 +148,43 @@ export function cleanFlow(flow: OpenFlow | any): OpenFlow & {
 	}
 
 	return newFlow
+}
+
+/**
+ * A baked legacy id is dropped in a chat flow, which runs on the conversation id; elsewhere it
+ * stays until the author converts it. Blank static history inputs read as unset and managed
+ * memory keeping no messages runs as off, so each is saved as what it runs as.
+ */
+export function normalizeAgentHistory(
+	inputTransforms: Record<string, any> | undefined,
+	chatInputEnabled: boolean
+) {
+	if (!inputTransforms) return
+	const memory = inputTransforms.memory
+	if (
+		memory?.type === 'static' &&
+		memory.value?.kind === 'window' &&
+		!memory.value.context_length
+	) {
+		memory.value = { kind: 'off' }
+	}
+	if (
+		memory?.type === 'static' &&
+		memory.value?.kind === 'auto' &&
+		'memory_id' in memory.value &&
+		(chatInputEnabled || !String(memory.value.memory_id ?? '').trim())
+	) {
+		const { memory_id: _, ...policy } = memory.value
+		memory.value = policy
+	}
+	const memoryId = inputTransforms.memory_id
+	if (memoryId?.type === 'static' && !String(memoryId.value ?? '').trim()) {
+		delete inputTransforms.memory_id
+	}
+	const previousMessages = inputTransforms.previous_messages
+	if (previousMessages?.type === 'static' && !previousMessages.value?.length) {
+		delete inputTransforms.previous_messages
+	}
 }
 
 export function getDefaultExpr(
@@ -187,6 +207,12 @@ export function jobsToResults(jobs: Job[]) {
 	})
 }
 
+/**
+ * Run the flow the editor currently holds. A step linked to a saved agent runs that agent's
+ * unsaved draft when there is one (`withAgentDrafts`), so testing exercises what the agent editor
+ * is showing rather than the deployed resource — the same rule the agent editor's own test pane
+ * follows. The value passed in is left alone; only what goes to the server is substituted.
+ */
 export async function runFlowPreview(
 	args: Record<string, any>,
 	flow: OpenFlow & { tag?: string },
@@ -198,14 +224,15 @@ export async function runFlowPreview(
 	// editor; falls back to the navigation workspace for full-page previews.
 	workspace?: string
 ) {
-	const newFlow = flow
+	const ws = workspace ?? get(workspaceStore) ?? ''
+	const value = await withAgentDrafts(flow.value, ws)
 	return await JobService.runFlowPreview({
-		workspace: workspace ?? get(workspaceStore) ?? '',
+		workspace: ws,
 		requestBody: {
 			args,
-			value: newFlow.value,
+			value,
 			path: path,
-			tag: newFlow.tag,
+			tag: flow.tag,
 			restarted_from: restartedFrom,
 			temp_script_refs: tempScriptRefs
 		},

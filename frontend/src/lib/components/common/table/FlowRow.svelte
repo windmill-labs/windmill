@@ -14,7 +14,7 @@
 	import Badge from '../badge/Badge.svelte'
 	import Button from '../button/Button.svelte'
 	import Row from './Row.svelte'
-	import type { RowSelection } from './rowSelection'
+	import { selectMenuItems, type RowSelection } from './rowSelection'
 	import { sendUserToast } from '$lib/toast'
 	import { copyToClipboard, isOwner } from '$lib/utils'
 	import { isDeployable } from '$lib/utils_deployable'
@@ -35,6 +35,7 @@
 		HistoryIcon
 	} from 'lucide-svelte'
 	import FlowHistory from '$lib/components/flows/FlowHistory.svelte'
+	import ChatFlowBadge from '$lib/components/flows/ChatFlowBadge.svelte'
 	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
 	import { editInForkAllowed, editInForkLabel, onEditInForkClick } from '$lib/utils/editInFork'
@@ -48,6 +49,9 @@
 			draft_path?: string
 			draft_users?: { username?: string | null }[]
 			canWrite: boolean
+			/** Projected from the flow value by the listing; a chat-input flow opens
+			 * as a conversation and is badged as such. */
+			chat_input_enabled?: boolean
 		}
 		marked: string | undefined
 		shareModal: ShareModal
@@ -124,6 +128,10 @@
 	<FlowHistory bind:this={flowHistory} path={flow.path} />
 {/if}
 
+{#snippet chatBadge()}
+	<ChatFlowBadge />
+{/snippet}
+
 <Row
 	aiId={`flow-row-${flow.path}`}
 	aiDescription={`Button to access the form to run the flow ${flow.summary ?? flow.path}`}
@@ -132,14 +140,15 @@
 		: `${base}/flows/get/${flow.path}?workspace=${$workspaceStore}`}
 	kind="flow"
 	workspaceId={flow.workspace_id ?? $workspaceStore ?? ''}
+	{keyboardSelected}
 	{marked}
 	path={flow.draft_path ?? flow.path}
 	summary={flow.is_draft ? `${flow.summary || flow.draft_path || flow.path}*` : flow.summary}
 	{errorHandlerMuted}
 	canFavorite={!flow.draft_only}
 	{depth}
-	{keyboardSelected}
 	{rowSelection}
+	titleBadge={flow.chat_input_enabled ? chatBadge : undefined}
 >
 	{#snippet badges()}
 		{#if flow.archived}
@@ -210,6 +219,20 @@
 				const canEdit = flow.canWrite && showEditButton
 				if (draft_only) {
 					return [
+						...selectMenuItems(rowSelection),
+						{
+							displayName: 'Move/Rename',
+							icon: FolderOpen,
+							action: () => {
+								// Addressed by the generated path its draft row sits at, but
+								// named by the path typed in the editor.
+								moveDrawer.openDrawer((flow as any).draft_path ?? path, flow.summary, 'flow', {
+									storagePath: path
+								})
+							},
+							disabled: !showEditButton,
+							hide: $userStore?.operator
+						},
 						{
 							displayName: 'Delete',
 							icon: Trash,
@@ -233,6 +256,7 @@
 					]
 				}
 				return [
+					...selectMenuItems(rowSelection),
 					{
 						displayName: 'View runs',
 						icon: List,

@@ -104,7 +104,7 @@ export async function downloadZip(
   // from v1 the on-behalf-of address is stripped below, so the tarball sends the
   // `has_on_behalf_of` marker instead and never resolves an address.
   // `preserve_extra_perms=true` opts the tarball into surfacing granular ACLs
-  // on flow / script / app rows. Default-off on the server protects cross-
+  // on script / flow / app / variable rows. Default-off on the server protects cross-
   // workspace tarball imports from carrying ACLs that reference identities
   // missing in the target workspace; the CLI sync flow explicitly wants them.
   const baseParams = `&plain_secret=${plainSecrets ?? false
@@ -150,7 +150,18 @@ export async function downloadZip(
   }
 
   if (zipResponse.status === 404 || body.includes("no rows returned")) {
-    log.info(colors.red(`Workspace '${workspace.workspaceId}' not found on ${workspace.remote}. Please check your --workspace and try again.`));
+    log.info(
+      colors.red(
+        `Workspace id '${workspace.workspaceId}' not found on ${workspace.remote}` +
+          (workspace.name !== workspace.workspaceId
+            ? ` (resolved from profile '${workspace.name}')`
+            : "") +
+          `.\n` +
+          `Note this is the workspace *id* sent to the API, which is not necessarily what you passed to --workspace:\n` +
+          `  - check 'wmill workspace list' (the 'workspace id' column)\n` +
+          `  - check the 'workspaces' block of wmill.yaml ('workspaceId' overrides the workspace name)`
+      )
+    );
   } else {
     log.info(colors.red(`Failed to request tarball from API: ${zipResponse.status} ${zipResponse.statusText}`));
     if (body) log.info(colors.red(body));

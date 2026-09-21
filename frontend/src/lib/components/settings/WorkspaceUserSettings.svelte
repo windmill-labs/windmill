@@ -46,6 +46,7 @@
 	let auto_invite_domain: string | undefined = $state()
 	let operatorOnly: boolean | undefined = $state(undefined)
 	let autoAdd: boolean | undefined = $state(false)
+	let addAdminsAndDevelopersToForks = $state(false)
 	let nbDisplayed = $state(30)
 
 	// Instance group auto-add settings
@@ -122,6 +123,25 @@
 		autoAdd = autoInvite?.mode === 'add'
 		autoAddInstanceGroups = autoInvite?.instance_groups || []
 		autoAddInstanceGroupsRoles = autoInvite?.instance_groups_roles || {}
+		addAdminsAndDevelopersToForks = settings.add_admins_and_developers_to_forks ?? false
+	}
+
+	async function updateAddAdminsAndDevelopersToForks(enabled: boolean): Promise<void> {
+		try {
+			await WorkspaceService.editAddAdminsAndDevelopersToForks({
+				workspace: $workspaceStore!,
+				requestBody: { add_admins_and_developers_to_forks: enabled }
+			})
+			sendUserToast(
+				enabled
+					? 'New forks will start with the admins and developers of this workspace'
+					: 'New forks will start with their creator only'
+			)
+		} catch (e) {
+			console.error('Failed to update the fork members setting:', e)
+			addAdminsAndDevelopersToForks = !enabled
+			sendUserToast(`Failed to update the fork members setting: ${e}`, true)
+		}
 	}
 
 	let getUsagePromise: CancelablePromise<UserUsage[]> | undefined = undefined
@@ -823,7 +843,7 @@
 				</Cell>
 				<Cell head>Role</Cell>
 				<Cell head>Enabled</Cell>
-				<Cell head last>
+				<Cell head last actions>
 					<span class="sr-only">Actions</span>
 				</Cell>
 			</tr>
@@ -963,7 +983,7 @@
 								size="xs"
 							/>
 						</Cell>
-						<Cell>
+						<Cell last actions class={index % 2 === 0 ? 'bg-surface-tertiary' : ''}>
 							<div class="flex gap-1">
 								{#if user.is_service_account && $userStore?.is_admin}
 									<Button
@@ -1067,6 +1087,22 @@
 
 <div class="pt-12"></div>
 
+<Section
+	label="Fork members"
+	description="Choose who a new fork of this workspace starts with, besides the person who creates it."
+	wrapperClass="pb-12"
+>
+	<Toggle
+		bind:checked={addAdminsAndDevelopersToForks}
+		on:change={(e) => updateAddAdminsAndDevelopersToForks(e.detail)}
+		options={{
+			right: 'Add admins and developers to new forks',
+			rightTooltip:
+				'Admins and developers of this workspace join every new fork with the role they have here, so they can follow and review the work done in it. Forks of those forks follow the same setting.'
+		}}
+	/>
+</Section>
+
 {#if invites?.length > 0}
 	<Section
 		label="Invites ({invites.length ?? ''})"
@@ -1085,7 +1121,7 @@
 				<tr>
 					<Cell head first>Email</Cell>
 					<Cell head>Role</Cell>
-					<Cell head last><span class="sr-only">Actions</span></Cell>
+					<Cell head last actions><span class="sr-only">Actions</span></Cell>
 				</tr>
 			</Head>
 			<tbody class="divide-y bg-surface">
@@ -1142,7 +1178,7 @@
 									</ToggleButtonGroup>
 								</div>
 							</Cell>
-							<Cell last>
+							<Cell last actions>
 								<Button
 									variant="default"
 									destructive

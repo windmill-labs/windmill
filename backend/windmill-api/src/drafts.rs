@@ -19,7 +19,7 @@ use windmill_common::{
     error::{Error, Result},
     user_drafts::{DraftUserRef, UserDraftItemKind, ENCRYPTED_DRAFT_PREFIX},
     users::resolve_username_to_email,
-    utils::strip_json_nul,
+    utils::{check_proper_path, strip_json_nul},
     variables::{build_crypt, encrypt},
 };
 
@@ -29,6 +29,7 @@ pub fn workspaced_service() -> Router {
         .route("/get/{kind}/{*path}", get(get_draft_for_user))
         .route("/get_own/{kind}/{*path}", get(get_own_draft))
         .route("/update/{kind}/{*path}", post(update_draft))
+        .route("/move/{kind}/{*path}", post(move_draft))
         .route("/migrate_legacy/{kind}/{*path}", post(migrate_legacy_draft))
 }
 
@@ -214,6 +215,9 @@ fn list_drafts_query(all_users: bool) -> String {
     // row: fall back to their instance-derived username (`password.username`), or
     // their email when derivation is disabled (`password.username` is NULL). This
     // keeps the raw email out of the payload whenever a derived username exists.
+    // A null username means the legacy row downstream, so an owner that resolves to
+    // no name at all — an external JWT's subject has neither row — is dropped rather
+    // than surfaced as a second legacy entry.
     let draft_users = r#"CASE WHEN d.typ::text IN ('script', 'flow', 'app', 'raw_app') THEN (
                       SELECT json_agg(json_build_object('username', COALESCE(u.username, p.username, CASE WHEN p.email IS NOT NULL THEN du.email END))
                                       ORDER BY COALESCE(u.username, p.username, CASE WHEN p.email IS NOT NULL THEN du.email END) NULLS LAST)
@@ -221,6 +225,7 @@ fn list_drafts_query(all_users: bool) -> String {
                       LEFT JOIN usr u ON u.workspace_id = du.workspace_id AND u.email = du.email
                       LEFT JOIN password p ON p.email = du.email AND p.super_admin = true
                       WHERE du.workspace_id = d.workspace_id AND du.path = d.path AND du.typ = d.typ
+                        AND (du.email IS NULL OR u.username IS NOT NULL OR p.email IS NOT NULL)
                     ) ELSE NULL END"#;
     // Default lists the user's own drafts AND the legacy NULL-email rows; with
     // `all_users` the filter is dropped to list every workspace draft.
@@ -316,12 +321,71 @@ pub struct SaveDraftResponse {
     /// On `saved`: when the change was applied (client remembers it as the
     /// next `last_sync`). On `conflict`: the existing row's `created_at`.
     pub current_timestamp: chrono::DateTime<chrono::Utc>,
+    /// `saved` only: where the write landed. Differs from the URL path when the item
+    /// had moved away from it; the editor follows it there. Absent when a delete found
+    /// nothing to remove and the caller cannot read the path it moved to.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
 }
 
-/// Apply the current user's draft at (workspace, kind, path): non-null `value`
-/// upserts, `null` (or omitted) deletes. Either way, when the existing row is
-/// newer than `last_sync` (and `force` is false) the op is skipped and the
-/// response is `status = conflict` + the server's current timestamp.
+/// The version a draft forked from, as the editors write it into `draft.value`.
+/// Each kind names it differently and only one is ever set.
+#[derive(Deserialize)]
+struct DraftBaseVersion {
+    /// Scripts: hex-encoded script hash.
+    #[serde(default)]
+    parent_hash: Option<String>,
+    /// Flows: `flow_version.id`.
+    #[serde(default)]
+    version_id: Option<i64>,
+    /// Apps / raw apps: `app_version.id`.
+    #[serde(default)]
+    parent_version: Option<i64>,
+}
+
+impl DraftBaseVersion {
+    /// The base as the `draft.base` column stores it: one opaque text id whatever
+    /// the kind, so a reader compares it to the head without knowing the kind's
+    /// own field name or type.
+    fn as_text(&self, kind: UserDraftItemKind) -> Option<String> {
+        use UserDraftItemKind::*;
+        match kind {
+            Script => self.parent_hash.clone(),
+            Flow => self.version_id.map(|v| v.to_string()),
+            _ => self.parent_version.map(|v| v.to_string()),
+        }
+    }
+}
+
+/// The version this draft forked from, or `None` when it has none — a kind
+/// that keeps no lineage, a malformed payload, or a draft that was never forked
+/// from a deploy. Pure: no queries.
+fn draft_lineage(kind: UserDraftItemKind, value: &str) -> Option<DraftBaseVersion> {
+    use UserDraftItemKind::*;
+    if !matches!(kind, Script | Flow | App | RawApp) {
+        return None;
+    }
+    let base = serde_json::from_str::<DraftBaseVersion>(value).ok()?;
+    let has_base = match kind {
+        Script => base
+            .parent_hash
+            .as_deref()
+            .and_then(|h| windmill_common::scripts::to_i64(h).ok())
+            .is_some(),
+        Flow => base.version_id.is_some(),
+        _ => base.parent_version.is_some(),
+    };
+    has_base.then_some(base)
+}
+
+/// Apply the current user's draft: non-null `value` upserts, `null` (or
+/// omitted) deletes. Either way, when the existing row is newer than
+/// `last_sync` (and `force` is false) the op is skipped and the response is
+/// `status = conflict` + the server's current timestamp.
+///
+/// A save addressed to a path its item moved away from lands where the move took
+/// the drafts (`draft_move`), unless the caller still has a draft of their own at
+/// that path. The response names where it landed.
 async fn update_draft(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -330,7 +394,7 @@ async fn update_draft(
     Json(req): Json<SaveDraftRequest>,
 ) -> Result<Json<SaveDraftResponse>> {
     let email = &authed.email;
-    let path = path.to_path();
+    let url_path = path.to_path();
     // Saving a draft requires write permission on the underlying path. Deleting
     // (discarding) one's OWN draft does not: the email-scoped row belongs to the
     // authed user, so they can always discard it even after losing write access
@@ -339,11 +403,68 @@ async fn update_draft(
     // touch the caller's own row. Legacy (NULL-email) rows aren't owned by anyone
     // — they keep the write gate.
     let is_own_discard = req.value.is_none() && !req.legacy;
+    // `legacy` targets the workspace-level row and is delete-only: an upsert writes the
+    // caller's own row whatever it says. Every read of that rule goes through this.
+    let legacy_delete = req.value.is_none() && req.legacy;
+
+    // Whose row this write is for: the caller's, or the workspace-level one on a legacy
+    // DELETE (`legacy` is delete-only, so an upsert is the caller's own row either way).
+    // It picks both the record that applies — an item's move (`email IS NULL`) covers the
+    // legacy row too, since the same rename carried it — and the draft whose presence
+    // means this path is still the write's own.
+    let owner: Option<&str> = (!legacy_delete).then_some(email.as_str());
+    // The caller's own draft-only move outranks the move of the deployed item. Only the
+    // kinds whose value carries a deploy target are ever recorded as moved, so for the
+    // rest this would be a guaranteed-empty query on the autosave hot path.
+    let moved_to = match kind.typed_path_field() {
+        None => None,
+        Some(_) => {
+            sqlx::query_scalar!(
+                r#"SELECT m.new_path FROM draft_move m
+           WHERE m.workspace_id = $1 AND m.typ = $2 AND m.old_path = $3
+             AND (m.email IS NULL OR m.email = $4)
+             AND NOT EXISTS (
+                 SELECT 1 FROM draft d
+                 WHERE d.workspace_id = $1 AND d.typ = $2 AND d.path = $3
+                   AND d.email IS NOT DISTINCT FROM $4
+             )
+           ORDER BY m.email IS NULL
+           LIMIT 1"#,
+                &w_id,
+                kind as UserDraftItemKind,
+                url_path,
+                owner,
+            )
+            .fetch_optional(&db)
+            .await?
+        }
+    };
+    let path: &str = moved_to.as_deref().unwrap_or(url_path);
+
+    // Everything past here writes, so the gate applies from here on. Answered
+    // without the path when the item moved: it may have gone somewhere the caller
+    // cannot see.
     if !is_own_discard {
-        require_can_write_path(&authed, &db, &user_db, &w_id, kind, path).await?;
+        match require_can_write_path(&authed, &db, &user_db, &w_id, kind, path).await {
+            // Naming the move is for whoever was editing the item: it tells them why a
+            // save they were already making stopped landing. Someone who cannot read the
+            // path they addressed gets the plain denial, or the wording itself would
+            // answer whether an item was moved away from a path they only guessed at.
+            Err(Error::NotAuthorized(e)) if moved_to.is_some() => {
+                return Err(Error::NotAuthorized(
+                    match require_can_read_path(&authed, &user_db, &w_id, kind, url_path).await {
+                        Ok(()) => {
+                            "this draft's item was moved to a path you cannot write".to_string()
+                        }
+                        Err(_) => e,
+                    },
+                ));
+            }
+            other => other?,
+        }
     }
 
-    let applied_at = if let Some(value) = &req.value {
+    let applied = if let Some(value) = &req.value {
         // Secret variable values must never sit in `draft.value` in plaintext
         // (see `encrypt_secret_variable_value`).
         let serialized = if kind == UserDraftItemKind::Variable {
@@ -355,19 +476,49 @@ async fn update_draft(
         // escape and later make any `->>`/`to_jsonb` extraction raise `22P05`.
         // Strip it here so a NUL never reaches the column.
         let serialized = strip_json_nul(&serialized);
+        // `base` is derived here from the value's per-kind field rather than sent
+        // by the client, so every writer (editors, chat, CLI) fills it the same way.
+        // Read from the sanitized text, which is what the value column gets: a NUL in the
+        // lineage field otherwise costs the draft its base (the hash no longer parses),
+        // leaving a draft that reads as up to date whatever the head is.
+        let base = draft_lineage(kind, serialized.as_ref()).and_then(|l| l.as_text(kind));
         // Upsert. The conflict check rides on the DO UPDATE WHERE clause —
         // when the row is newer than `last_sync`, RETURNING yields nothing.
         // `created_at` defaults to `now()` but the migration overrides it ($8)
         // so a migrated draft keeps its original age instead of jumping to top.
-        sqlx::query_scalar!(
-            r#"INSERT INTO draft (workspace_id, email, path, typ, value, created_at)
-               VALUES ($1, $2, $3, $4, $5::text::json, COALESCE($8::timestamptz, now()))
+        //
+        // A moved save ($10) carries the path keys its editor had before the move.
+        // One naming the path it addressed ($11) follows to where it landed; a draft
+        // already there keeps the keys the move gave it. A pre-sanitizer NUL escape
+        // in that draft makes `to_jsonb` raise, so it takes the incoming keys.
+        sqlx::query!(
+            r#"INSERT INTO draft (workspace_id, email, path, typ, value, created_at, base)
+               VALUES ($1, $2, $3::text, $4,
+                       CASE WHEN $10::bool
+                            THEN to_json($5::text::jsonb || jsonb_strip_nulls(jsonb_build_object(
+                                'path', CASE WHEN $5::text::jsonb -> 'path' = to_jsonb($11::text)
+                                             THEN to_jsonb($3::text) END,
+                                'draft_path', CASE WHEN $5::text::jsonb -> 'draft_path' = to_jsonb($11::text)
+                                                   THEN to_jsonb($3::text) END)))
+                            ELSE $5::text::json
+                       END,
+                       COALESCE($8::timestamptz, now()), $9)
                ON CONFLICT (workspace_id, path, typ, email) WHERE email IS NOT NULL
-               DO UPDATE SET value = EXCLUDED.value, created_at = EXCLUDED.created_at
+               DO UPDATE SET value = CASE
+                                 WHEN NOT $10::bool
+                                   OR position(chr(92) || 'u0000' in replace(draft.value::text, chr(92) || chr(92), '')) > 0
+                                     THEN EXCLUDED.value
+                                 ELSE to_json((to_jsonb(EXCLUDED.value) - 'path' - 'draft_path')
+                                     || jsonb_strip_nulls(jsonb_build_object(
+                                         'path', to_jsonb(draft.value) -> 'path',
+                                         'draft_path', to_jsonb(draft.value) -> 'draft_path')))
+                             END,
+                             created_at = EXCLUDED.created_at,
+                             base = EXCLUDED.base
                WHERE $7::bool = true
                   OR $6::timestamptz IS NULL
                   OR draft.created_at <= $6::timestamptz
-               RETURNING created_at"#,
+               RETURNING path, created_at"#,
             &w_id,
             email,
             path,
@@ -376,9 +527,13 @@ async fn update_draft(
             req.last_sync,
             req.force,
             req.created_at,
+            base.as_deref(),
+            moved_to.is_some(),
+            url_path,
         )
         .fetch_optional(&db)
         .await?
+        .map(|r| (r.created_at, Some(r.path)))
     } else {
         // Delete, same conflict rule in the WHERE clause. Returns NULL when
         // the row was too new (conflict) OR already absent (idempotent) —
@@ -399,16 +554,20 @@ async fn update_draft(
             kind as UserDraftItemKind,
             req.last_sync,
             req.force,
-            req.legacy,
+            legacy_delete,
         )
         .fetch_optional(&db)
         .await?
+        // Named for the same reason an upsert is: the editor that discarded is still on
+        // the path the item left, and reloading there would land on nothing.
+        .map(|ts| (ts, moved_to.clone()))
     };
 
-    if let Some(ts) = applied_at {
+    if let Some((ts, path)) = applied {
         return Ok(Json(SaveDraftResponse {
             status: SaveDraftStatus::Saved,
             current_timestamp: ts,
+            path,
         }));
     }
 
@@ -424,7 +583,7 @@ async fn update_draft(
         email,
         path,
         kind as UserDraftItemKind,
-        req.legacy,
+        legacy_delete,
     )
     .fetch_optional(&db)
     .await?;
@@ -433,18 +592,305 @@ async fn update_draft(
         Some(ts) => Ok(Json(SaveDraftResponse {
             status: SaveDraftStatus::Conflict,
             current_timestamp: ts,
+            path: None,
         })),
         // Delete + nothing-was-there ⇒ report success with server's NOW().
         None => {
             let now = sqlx::query_scalar!(r#"SELECT now() as "now!""#)
                 .fetch_one(&db)
                 .await?;
+            // A retry of a routed discard whose answer was lost lands here: the row is
+            // gone but the editor is still on the path the item left, so it needs the
+            // destination as much as the first attempt did. Unlike the arm above there is
+            // no deleted row proving the caller ever held that draft, and an own discard
+            // is not gated, so this names a path to someone who may have none of it: the
+            // read gate, which is what keeps a path from being disclosed elsewhere in this
+            // module. Without it, discarding at a guessed path reads `draft_move`.
+            let disclosed = match moved_to {
+                Some(dest) => {
+                    match require_can_read_path(&authed, &user_db, &w_id, kind, &dest).await {
+                        Ok(()) => Some(dest),
+                        Err(Error::NotFound(_))
+                        | Err(Error::NotAuthorized(_))
+                        | Err(Error::BadRequest(_)) => None,
+                        Err(e) => return Err(e),
+                    }
+                }
+                None => None,
+            };
             Ok(Json(SaveDraftResponse {
                 status: SaveDraftStatus::Saved,
                 current_timestamp: now,
+                path: disclosed,
             }))
         }
     }
+}
+
+#[derive(Deserialize)]
+pub struct MoveDraftRequest {
+    pub new_path: String,
+    /// Also restate the draft's summary, so the same drawer that renames a
+    /// deployed item can retitle a draft-only one.
+    #[serde(default)]
+    pub summary: Option<String>,
+}
+
+/// Relocate the authed user's own DRAFT-ONLY item. Such an item is nothing but
+/// its draft row, so moving it is a rewrite of that row's path plus both path
+/// keys inside its value — there is no deployed row, schedule or trigger to
+/// cascade to.
+///
+/// The owner's own open editor follows: its next save, still addressed to the old
+/// path, lands at the new one through the move record, and it is told where.
+///
+/// Scoped to the caller's own row on purpose: two users can each have a draft
+/// at the same never-deployed path, and those are two separate items.
+///
+/// A DEPLOYED item must move through its own deploy endpoint instead, which
+/// cascades everything that references the path and carries every draft along.
+async fn move_draft(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, kind, path)): Path<(String, UserDraftItemKind, windmill_common::utils::StripPath)>,
+    Json(req): Json<MoveDraftRequest>,
+) -> Result<String> {
+    let path = path.to_path();
+    let new_path = req.new_path.as_str();
+    // Only the full-page editor kinds, which is exactly the set that has a typed
+    // path to rewrite. Reading the movable set off the same mapping the rewrite
+    // uses keeps them from drifting apart: a resource, a variable or a trigger
+    // keeps its deploy target in `value.path` with no editor to stage a rename,
+    // so moving one would leave the real target naming the old location and the
+    // next deploy would recreate it where it came from.
+    let (Some(typed_field), Some(mirror_field)) =
+        (kind.typed_path_field(), kind.mirror_path_field())
+    else {
+        return Err(Error::BadRequest(format!(
+            "moving a {kind:?} draft is not supported — only scripts, flows and apps"
+        )));
+    };
+    // Validate before authorizing: `require_can_write_path` is not a format check
+    // (an admin returns immediately, and a user returns early inside their own
+    // namespace), so without this a malformed path is stored as-is, and an over-long
+    // or NUL-bearing one reaches Postgres as a raw server error. The source is a URL
+    // segment and arrives decoded, so it needs the same check as the destination.
+    check_proper_path(path)?;
+    check_proper_path(new_path)?;
+    // A summary-only edit is a legitimate use of this endpoint: the drawer edits
+    // both fields, and for a draft-only script the path it posts back is the row
+    // path unchanged (`list_scripts` only reports `draft_path` when it differs).
+    // Returning early on the path alone would drop the new summary silently.
+    if new_path == path && req.summary.is_none() {
+        return Ok("unchanged".to_string());
+    }
+    require_can_write_path(&authed, &db, &user_db, &w_id, kind, path).await?;
+    if new_path != path {
+        require_can_write_path(&authed, &db, &user_db, &w_id, kind, new_path).await?;
+    }
+
+    if let Some(table) = kind.deployed_table() {
+        // `table` is from the closed `deployed_table()` enum, never user input.
+        // Archived and soft-deleted rows keep sitting at their path — a script
+        // move archives its parent in place — so an existence check that counted
+        // them would refuse a move away from, or into, a path nothing occupies.
+        // `create_script_internal` resolves its own path clashes the same way.
+        let archived_filter = if table == "script" {
+            " AND NOT archived AND NOT deleted"
+        } else {
+            ""
+        };
+        let query = format!(
+            "SELECT 1 FROM {table} WHERE path = $1 AND workspace_id = $2{archived_filter} LIMIT 1"
+        );
+        let mut tx = user_db.clone().begin(&authed).await?;
+        let deployed_at_old = sqlx::query_scalar::<_, i32>(&query)
+            .bind(path)
+            .bind(&w_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+        let deployed_at_new = sqlx::query_scalar::<_, i32>(&query)
+            .bind(new_path)
+            .bind(&w_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        if deployed_at_old.is_some() {
+            return Err(Error::BadRequest(format!(
+                "'{path}' is deployed — move it from its editor so schedules and triggers follow"
+            )));
+        }
+        if deployed_at_new.is_some() {
+            return Err(Error::BadRequest(format!(
+                "'{new_path}' already has a deployed item — moving there would turn this into a draft on top of it"
+            )));
+        }
+    }
+
+    // A NUL in the summary reaches Postgres as a raw byte and fails the statement with
+    // an encoding error, so it is dropped here the way `strip_json_nul` drops one from a
+    // draft value. `json` cannot store it either.
+    let summary = req.summary.as_ref().map(|s| s.replace('\0', ""));
+
+    // A classic app and a raw app share the `app` table, so a draft of either kind
+    // occupies the destination for both: deploying there deletes the caller's drafts
+    // of both kinds, taking the item that lost the collision with it.
+    let collision_typs: Vec<&str> = match kind {
+        UserDraftItemKind::App | UserDraftItemKind::RawApp => vec![
+            UserDraftItemKind::App.as_str(),
+            UserDraftItemKind::RawApp.as_str(),
+        ],
+        _ => vec![kind.as_str()],
+    };
+
+    // One transaction with the move record, so a save addressed to the old path
+    // never sees the row gone without knowing where it went.
+    let mut tx = db.begin().await?;
+    let moved = sqlx::query_scalar!(
+        r#"UPDATE draft
+           SET path = $3,
+               -- Both path keys, not just the typed one: the editors mirror the
+               -- typed path into the other while it differs from the row's path,
+               -- and the loaders prefer the mirror — left naming the old location
+               -- it un-does this move on the next save. `create_missing = false`
+               -- on both, so a draft carrying only one keeps only one.
+               value = to_json(
+                   jsonb_set(
+                       jsonb_set(
+                           CASE WHEN $7::text IS NULL THEN to_jsonb(value)
+                                ELSE jsonb_set(to_jsonb(value), ARRAY['summary'], to_jsonb($7::text))
+                           END,
+                           ARRAY[$5::text], to_jsonb($3::text), false
+                       ),
+                       ARRAY[$8::text], to_jsonb($3::text), false
+                   )
+               )
+           WHERE workspace_id = $1
+             AND path = $2
+             AND typ = $4
+             AND email = $6
+             -- A pre-sanitizer NUL escape makes `to_jsonb` raise 22P05. Excluded
+             -- here so the statement can't 500; reported below instead. Unlike the
+             -- passive carry, rewriting the value IS this operation, so skipping it
+             -- silently would move the row and leave its typed path stale.
+             AND position(chr(92) || 'u0000' in replace(value::text, chr(92) || chr(92), '')) = 0
+             -- Skipped on a summary-only edit, where the "target" row is this
+             -- row and the guard would refuse the update against itself.
+             AND ($2 = $3 OR NOT EXISTS (
+                 SELECT 1 FROM draft o
+                 WHERE o.workspace_id = $1 AND o.path = $3 AND o.typ::text = ANY($9::text[])
+                   -- Of this kind only the caller's own row and the legacy one collide:
+                   -- teammates' drafts of one item share its path by design, but a deploy
+                   -- there wipes those two together, so a second would discard edits the
+                   -- caller never saw. The other app kind is a different item on the same
+                   -- deployed path, so it collides whoever owns it.
+                   AND (o.typ <> $4 OR o.email = $6 OR o.email IS NULL)
+             ))
+           RETURNING id"#,
+        &w_id,
+        path,
+        new_path,
+        kind as UserDraftItemKind,
+        typed_field,
+        &authed.email,
+        summary,
+        mirror_field,
+        &collision_typs as &[&str],
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    if moved.is_some() && new_path != path {
+        windmill_common::user_drafts::record_draft_move(
+            &mut tx,
+            &w_id,
+            &[kind],
+            path,
+            new_path,
+            Some(&authed.email),
+        )
+        .await?;
+    }
+    tx.commit().await?;
+
+    if moved.is_none() {
+        let row = sqlx::query!(
+            r#"SELECT
+                 -- The guard's own predicate, ordered own row, then legacy, then another
+                 -- user's other-kind row: each needs a different remedy, and a bare
+                 -- LIMIT 1 would name an arbitrary one.
+                 (SELECT typ::text FROM draft WHERE workspace_id = $1 AND path = $3
+                  AND typ::text = ANY($6::text[])
+                  AND (typ <> $2 OR email = $4 OR email IS NULL)
+                  ORDER BY CASE WHEN email = $4 THEN 0 WHEN email IS NULL THEN 1 ELSE 2 END
+                  LIMIT 1) as "at_target",
+                 EXISTS(SELECT 1 FROM draft WHERE workspace_id = $1 AND path = $3
+                        AND typ::text = ANY($6::text[]) AND email = $4) as "at_target_own!",
+                 EXISTS(SELECT 1 FROM draft WHERE workspace_id = $1 AND path = $3
+                        AND typ::text = ANY($6::text[]) AND email IS NULL) as "at_target_legacy!",
+                 EXISTS(SELECT 1 FROM draft WHERE workspace_id = $1 AND path = $5
+                        AND typ = $2 AND email = $4
+                        AND position(chr(92) || 'u0000' in replace(value::text, chr(92) || chr(92), '')) > 0
+                       ) as "poisoned!",
+                 EXISTS(SELECT 1 FROM draft WHERE workspace_id = $1 AND path = $5
+                        AND typ = $2 AND email IS NULL) as "legacy!" "#,
+            &w_id,
+            kind as UserDraftItemKind,
+            new_path,
+            &authed.email,
+            path,
+            &collision_typs as &[&str],
+        )
+        .fetch_one(&db)
+        .await?;
+        return Err(Error::BadRequest(if row.poisoned {
+            // This endpoint also serves a summary-only edit, so name the operation
+            // the caller actually asked for rather than always saying "moved".
+            let attempted = if new_path == path { "updated" } else { "moved" };
+            format!(
+                "'{path}' contains a NUL character and predates the sanitizer, so it cannot be \
+                 {attempted}. Reopen it, re-save to rewrite it cleanly, then retry."
+            )
+        } else if row.legacy {
+            // The home list synthesizes a draft-only row for the legacy draft with the
+            // caller's own name on it, so this is reachable from the row menu. Only an
+            // admin can claim or discard that row, and only from the drafts page.
+            format!(
+                "'{path}' is a legacy workspace draft with no owner, so it cannot be moved. \
+                 A workspace admin can claim or discard it on the Review & deploy drafts page."
+            )
+        } else if let Some(occupant) = row.at_target.filter(|_| new_path != path) {
+            // Naming the kind matters for the app pair: a classic-app draft refusing a
+            // raw-app move is invisible in the raw-app list the caller is looking at.
+            let occupant = occupant.replace('_', " ");
+            if row.at_target_own {
+                format!("You already have a draft at '{new_path}' ({occupant})")
+            } else if row.at_target_legacy {
+                // An ownerless row the caller cannot clear themselves, so send them to
+                // the one place it can be resolved rather than to "discard your draft".
+                format!(
+                    "A legacy workspace draft with no owner is already at '{new_path}' \
+                     ({occupant}). A workspace admin can claim or discard it on the Review & \
+                     deploy drafts page."
+                )
+            } else {
+                // The other app kind, owned by someone else: one deployed path cannot hold
+                // both, so this is the other item's path, not a teammate's copy of this one.
+                format!(
+                    "'{new_path}' holds another user's {occupant} draft, and an app and a raw \
+                     app cannot share a path. Pick another path, or ask them to move or \
+                     discard theirs."
+                )
+            }
+        } else {
+            format!("You have no draft at '{path}'")
+        }));
+    }
+
+    if new_path == path {
+        return Ok(format!("updated draft {path}"));
+    }
+    Ok(format!("moved draft {path} to {new_path}"))
 }
 
 #[derive(Deserialize, Debug)]
@@ -500,12 +946,12 @@ async fn migrate_legacy_draft(
                 r#"WITH legacy AS (
                        DELETE FROM draft
                        WHERE workspace_id = $1 AND path = $2 AND typ = $3 AND email IS NULL
-                       RETURNING value
+                       RETURNING value, base
                    )
-                   INSERT INTO draft (workspace_id, email, path, typ, value, created_at)
-                   SELECT $1, $4, $2, $3, value, now() FROM legacy
+                   INSERT INTO draft (workspace_id, email, path, typ, value, created_at, base)
+                   SELECT $1, $4, $2, $3, value, now(), base FROM legacy
                    ON CONFLICT (workspace_id, path, typ, email) WHERE email IS NOT NULL
-                   DO UPDATE SET value = EXCLUDED.value, created_at = now()
+                   DO UPDATE SET value = EXCLUDED.value, created_at = now(), base = EXCLUDED.base
                    RETURNING 1 as "one!""#,
                 &w_id,
                 path,
@@ -763,8 +1209,8 @@ async fn require_can_write_path(
 
 /// Resolves to `Ok(())` if `authed` can read at `path`. Three layers:
 ///   1. admin → always.
-///   2. Path-prefix match against own `u/{username}` or any folder in
-///      `authed.folders` (the precomputed read set, with groups + direct
+///   2. Path-prefix match against own `u/{username}`, a group in `authed.groups`, or any
+///      folder in `authed.folders` (the precomputed read set, with groups + direct
 ///      grants already factored in).
 ///   3. RLS-aware `SELECT 1` against the backing table — covers item-level
 ///      extra_perms grants that bypass folder/owner checks.
@@ -789,6 +1235,10 @@ async fn require_can_read_path(
     if parts.len() >= 2 {
         match parts[0] {
             "u" if parts[1] == authed.username => return Ok(()),
+            // As `require_can_write_path` and the `see_member` RLS policy read it: a
+            // draft-only `g/` path has no row for the probe below to fall back on, so
+            // without this a member cannot see a draft their group owns.
+            "g" if authed.groups.iter().any(|g| g == parts[1]) => return Ok(()),
             "f" => {
                 let folder = parts[1];
                 if authed.folders.iter().any(|(name, _, _)| name == folder) {

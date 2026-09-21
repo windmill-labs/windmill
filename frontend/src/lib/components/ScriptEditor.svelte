@@ -11,11 +11,11 @@
 		type ScriptLang,
 		type ScriptModule
 	} from '$lib/gen'
-	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userStore } from '$lib/stores'
 	import { copyToClipboard, emptySchema, sendUserToast } from '$lib/utils'
 	import Editor from './Editor.svelte'
 	import { inferArgs, inferAssets, inferAnsibleExecutionMode } from '$lib/infer'
-	import { parsePipelineAnnotations } from '$lib/components/assets/AssetGraph/parsePipelineAnnotations'
+	import { injectPartitionArg } from '$lib/scriptEditorSchema'
 	import { isWorkflowAsCode } from '$lib/components/graph/wacToFlow'
 	import WacDiagram from '$lib/components/graph/WacDiagram.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -129,6 +129,9 @@
 	import { resource, watch } from 'runed'
 	import { buildScriptRecording, downloadRecordingJson } from './recording/runRecording'
 	import DropdownV2 from './DropdownV2.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		// Exported
@@ -226,10 +229,8 @@
 		// built by the pipeline page from the resolved graph. Absent outside the
 		// pipeline editor — the check still runs, just without suppression.
 		schemaContractContext?: SchemaContractGraphContext
-		// Workspace to scope this editor's calls to. Defaults to the nav
-		// `$workspaceStore`; an AI-session live editor passes the session's
-		// acting workspace (a fork) so tests, captures and toolbar lookups hit
-		// the right workspace instead of the nav one.
+		// Workspace to scope this editor's calls to (tests, captures, toolbar lookups).
+		// Defaults to the operating workspace (see `useOperatingWorkspace`).
 		workspaceOverride?: string
 	}
 
@@ -278,7 +279,7 @@
 		workspaceOverride = undefined
 	}: Props = $props()
 
-	let opWs = $derived(workspaceOverride ?? $workspaceStore)
+	let opWs = $derived(workspaceOverride ?? $operatingWorkspace)
 
 	// Publish this editor's hand-off for AI entry points below it (the preview
 	// panel's "AI Fix"), withheld under `disableAi` so an embed that turned AI off
@@ -1072,55 +1073,6 @@
 		} catch (e) {
 			validCode = false
 		}
-	}
-
-	// A `// partitioned` pipeline script is materialized one slice at a time and
-	// receives the slice as a runtime `partition` arg (the cascade injects it in
-	// production). It isn't a code parameter, so schema inference doesn't see it —
-	// surface it in the test form so a partitioned script can be run manually.
-	function injectPartitionArg(
-		s: any,
-		a: Record<string, any> | undefined,
-		l: string | undefined,
-		c: string
-	) {
-		try {
-			if (l !== 'duckdb' || !s?.properties) return
-			const part = parsePipelineAnnotations(c).partition
-			if (!part) return
-			// Date-based partition kinds render a date / datetime picker; a dynamic
-			// key is a free-form string.
-			const format =
-				part.kind === 'hourly'
-					? 'date-time'
-					: part.kind === 'daily' || part.kind === 'weekly' || part.kind === 'monthly'
-						? 'date'
-						: undefined
-			if (!s.properties['partition']) {
-				s.properties['partition'] = {
-					type: 'string',
-					...(format ? { format } : {}),
-					// ISO output so partition keys sort lexicographically (the date
-					// picker defaults to dd-MM-yyyy otherwise).
-					...(format === 'date' ? { dateFormat: 'yyyy-MM-dd' } : {}),
-					description:
-						part.kind === 'dynamic'
-							? 'Partition key value to materialize.'
-							: `Partition (${part.kind}) to materialize.`
-				}
-				if (Array.isArray(s.order) && !s.order.includes('partition')) {
-					s.order = ['partition', ...s.order]
-				}
-			}
-			// Pre-fill the *test* arg with the current slice for date kinds — a
-			// convenience default, kept on the args (not baked into the schema,
-			// where it would persist to the deployed script and go stale).
-			if (format && a && (a['partition'] == null || a['partition'] === '')) {
-				const now = new Date()
-				a['partition'] =
-					format === 'date' ? now.toISOString().slice(0, 10) : now.toISOString().slice(0, 16)
-			}
-		} catch (e) {}
 	}
 
 	async function inferModuleSchema() {

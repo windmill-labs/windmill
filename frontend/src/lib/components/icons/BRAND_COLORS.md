@@ -179,6 +179,7 @@ repeatedly — check the brand's own page.
 | `KeycloakIcon` | `keycloak` | fixed | #00B8E3 | #00B8E3 | 8.18 | 10.65 | keycloak.org's own mark, https://www.keycloak.org/resources/images/icon.svg (cyan #00B8E3/#33C6E9/#008AAA over greys #4D4D4D–#EDEDED, single theme) |
 | `KlaviyoIcon` | `klaviyo` | pair | #1D1E20 | #FFFFFF | 16.14 | 12.47 | klaviyo.com --color-core-charcoal; the flag mark is the standalone logomark the site header collapses to, and the shape of klaviyo.com/icons/icon-512x512.png |
 | `KoboToolboxIcon` | `kobotoolbox` | fixed | #2095F3 | #2095F3 | 3.05 | 3.95 | the kobotoolbox.org header logo and $kobo-blue in kobotoolbox/kpi jsapp/scss/colors.scss |
+| `KubernetesIcon` | — | fixed | #326CE5 | #326CE5 | 4.61 | 2.62 | the CNCF artwork repo (github.com/cncf/artwork/projects/kubernetes/icon/color/kubernetes-icon-color.svg, CC-BY-4.0) |
 | `KustomerIcon` | `kustomer` | fixed | #FBEC2A | #FBEC2A | 14.08 | 12.47 | kustomer.com/images/kustomer/Kusty.svg |
 | `LangfuseIcon` | `langfuse` | fixed | #FF5D5F | #FF5D5F | 2.91 | 4.47 | langfuse.com/brand "Icon - Color (SVG)", used unmodified |
 | `LessIcon` | — | pair | #274F82 | #FFFFFF | 8.04 | 12.47 | github.com/less/logo (MIT) |
@@ -443,6 +444,7 @@ Constraints that would otherwise be broken by a well-meaning change.
 - **JsonIcon** — JSON itself has no brand owner or published colours — json.org states none — so this is a Material palette pick, not a brand colour.
 - **KanidmIcon** — Kanidm's artwork is CC-BY-NC-ND — no recolouring or other derivatives.
 - **KlaviyoIcon** — Klaviyo draws it in currentColor, hence the white swap on dark.
+- **KubernetesIcon** — The Linux Foundation trademark guidelines allow only the published variants (colour, all-blue, black, white); the colour mark's white knockouts are part of the artwork, not a theme swap.
 - **LangfuseIcon** — Langfuse's trademark terms forbid modifying the assets.
 - **LineIcon** — LINE forbids any change to the logo's colour, so there is no reversed variant.
 - **LinearIcon** — Guidelines ship a light/dark logomark pair and forbid altering the assets in any other way.
@@ -571,7 +573,7 @@ Not brands. These inherit `currentColor` on purpose and must not be given a pair
 
 ## Coverage
 
-- brand icons: **314**, of which **310** carry a recorded source
+- brand icons: **315**, of which **311** carry a recorded source
 - per-theme pairs applied: **136** (5 of them by inversion or a two-SVG swap, see above)
 - concept icons: **34**
 - effectively invisible on light: **1** (AbstractApiIcon)

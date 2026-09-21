@@ -2,6 +2,9 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import Disposable from '$lib/components/common/drawer/Disposable.svelte'
 	import FlowEditorPanel from './content/FlowEditorPanel.svelte'
+	import { agentEditorTarget, type AgentEditorTarget } from './agentEditorStore.svelte'
+	import AgentEditorModal from './content/AgentEditorModal.svelte'
+	import { repointLinkedAgent } from './linkedAgentDrafts'
 	import FlowModuleSchemaMap from './map/FlowModuleSchemaMap.svelte'
 	import type { OpenInSessionSource } from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import WindmillIcon from '../icons/WindmillIcon.svelte'
@@ -14,7 +17,7 @@
 	import { useFlowPanelMode } from './flowPanelMode.svelte'
 	import { useFlowPanelPlacementTelemetry } from './flowEditorTelemetry'
 
-	import { writable } from 'svelte/store'
+	import { get, writable } from 'svelte/store'
 	import type { PropPickerContext, FlowPropPickerConfig } from '$lib/components/prop_picker'
 	import type { PickableProperties } from '$lib/components/flows/previousResults'
 	import type { Flow, Job } from '$lib/gen'
@@ -37,15 +40,29 @@
 	import FlowPanelPlacementPicker from './common/FlowPanelPlacementPicker.svelte'
 	import { prefersSessionHandoff } from '../copilot/chat/global/gate'
 	import { openSourceInSession } from '$lib/components/sessions/sessionSwitch.svelte'
-	import { userStore } from '$lib/stores'
-	const { flowStore, selectionManager } = getContext<FlowEditorContext>('FlowEditorContext')
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
+	const { flowStore, selectionManager, pathStore, opWorkspace } =
+		getContext<FlowEditorContext>('FlowEditorContext')
+	// Flow paths repeat across workspaces, and a session keeps every tab it has visited alive, so two
+	// editors can hold the same path at once. Both halves are needed to tell them apart.
+	let editorWorkspace = $derived(opWorkspace?.() ?? $operatingWorkspace)
+	function targetWorkspace(t: AgentEditorTarget): string | undefined {
+		return t.workspace ?? $operatingWorkspace
+	}
+
 	const sessionScopedManager = getContext<AIChatManager>('aiChatManager')
 	const aiChatManager = sessionScopedManager ?? singletonAiChatManager
 
 	interface Props {
 		loading: boolean
 		disableStaticInputs?: boolean
-		disableTutorials?: boolean
 		disableAi?: boolean
 		disableSettings?: boolean
 		disabledFlowInputs?: boolean
@@ -89,7 +106,6 @@
 	let {
 		loading,
 		disableStaticInputs = false,
-		disableTutorials = false,
 		disableAi = false,
 		disableSettings = false,
 		disabledFlowInputs = false,
@@ -231,7 +247,19 @@
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig,
 		pickablePropertiesFiltered: writable<PickableProperties | undefined>(undefined),
-		inModalPanel: () => panelMode === 'modal'
+		// The agent editor is a dialog over the same graph, so a connect started inside it has the
+		// same closure hazard as one started from the modal panel. Only this flow's own, on the same
+		// rule the mount below claims one by: a session keeps every visited tab alive, and a target
+		// belonging to another of them is not a dialog over this graph.
+		inModalPanel: () => {
+			if (panelMode === 'modal') return true
+			const t = agentEditorTarget()
+			return (
+				t !== undefined &&
+				t.host?.flowPath === get(pathStore) &&
+				targetWorkspace(t) === editorWorkspace
+			)
+		}
 	})
 
 	// Read by graph step items (VirtualItem) to show a per-step "explore" hint on hover,
@@ -369,7 +397,6 @@
 						bind:this={flowModuleSchemaMap}
 						controlsPosition={compactGraphOverlay ? 'bottom' : 'top'}
 						{disableStaticInputs}
-						{disableTutorials}
 						{disableAi}
 						{disableSettings}
 						{smallErrorHandler}
@@ -384,7 +411,7 @@
 							if (
 								!sessionScopedManager &&
 								sessionOpen &&
-								prefersSessionHandoff($userStore?.operator)
+								prefersSessionHandoff(actingUser?.operator)
 							) {
 								void openSourceInSession(sessionOpen, {
 									previewParams: { selected: detail.moduleId },
@@ -524,3 +551,13 @@
 		{/if}
 	{/snippet}
 </Disposable>
+
+<!-- Mounted here rather than in the panel, which is keyed on the selection and would take the
+     dialog down with it the moment the graph selection moved. Claims only agents opened from this
+     flow: a session keeps every visited tab alive, and each would otherwise build its own editor
+     over the same draft. -->
+<AgentEditorModal
+	enableAi={!disableAi}
+	owns={(t) => t.host?.flowPath === $pathStore && targetWorkspace(t) === editorWorkspace}
+	onRenamed={(from, to) => repointLinkedAgent(flowStore.val.value, from, to)}
+/>

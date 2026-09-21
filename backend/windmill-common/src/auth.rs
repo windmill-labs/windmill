@@ -19,10 +19,11 @@ use crate::{
 };
 
 /// Whether `label` denotes a user-created token rather than a system token
-/// (`session`, `ephemeral*`, `debugger-token`, `mcp-oauth-*`). System-token
-/// labels are load-bearing — session cleanup, super_admin propagation, expiry
-/// notifications and username overrides all key off them — so they must not be
-/// user-editable. `None` (no label) is treated as a user token.
+/// (`session`, `guest_session`, `ephemeral*`, `debugger-token`, `mcp-oauth-*`,
+/// `embed_app:*`, `sdk_app:*`, `impersonation:*`, `cli-login:*`). System-token labels are load-bearing —
+/// session cleanup, super_admin propagation, expiry notifications and username overrides
+/// all key off them — so they must not be user-editable. `None` (no label) is treated as
+/// a user token.
 ///
 /// This is the canonical copy. When updating it, also update its mirrors:
 /// - the `update_token_label` editability guard (SQL `WHERE`) in
@@ -36,18 +37,48 @@ pub fn is_user_token(label: Option<&str>) -> bool {
             // frontend mirror (`label.toLowerCase().startsWith('ephemeral')`) and
             // the SQL `lower(label) NOT LIKE 'ephemeral%'` guard.
             l != "session"
+                && l != GUEST_SESSION_LABEL
                 && !l.to_lowercase().starts_with("ephemeral")
                 && l != "debugger-token"
                 && !l.starts_with("mcp-oauth-")
+                // Short-lived tokens the server mints per app open or per service-account
+                // impersonation (EE `users_ee.rs`) and nobody manages, so an expiry warning
+                // for one is noise.
+                && !l.starts_with(APP_EMBED_TOKEN_LABEL_PREFIX)
+                && !l.starts_with(RAW_APP_SDK_TOKEN_LABEL_PREFIX)
+                && !l.starts_with("impersonation:")
+                && !l.starts_with(CLI_LOGIN_TOKEN_LABEL_PREFIX)
         }
     }
 }
 
+/// How far ahead of a user token's expiration its owner is warned (`check_expiring_tokens` in
+/// the monitor). A token whose whole lifetime fits in this window gets no warning at all: it
+/// would arrive minutes after creation, about a lifetime its creator just picked. Its
+/// "expired and deleted" notice still goes out.
+pub const TOKEN_EXPIRY_WARNING_DAYS: i32 = 7;
+
+/// Label prefix, followed by the app path, of the token an app viewer's sandboxed iframe
+/// runs with. Reserved in [`is_user_token`], whose SQL and frontend mirrors spell it out.
+pub const APP_EMBED_TOKEN_LABEL_PREFIX: &str = "embed_app:";
+
+/// Label prefix, followed by the app path, of the token a raw app's bundle uses for the
+/// frontend SDK. Reserved in [`is_user_token`], whose SQL and frontend mirrors spell it out.
+pub const RAW_APP_SDK_TOKEN_LABEL_PREFIX: &str = "sdk_app:";
+
+/// Label prefix, followed by the username, of the token the CLI authorization page mints for
+/// `wmill` logins. Reserved in [`is_user_token`], whose SQL and frontend mirrors spell it out:
+/// the CLI signs in again on its own once that token expires, so an expiry email for it asks
+/// the user to do nothing. Not in [`is_server_minted_label`], since the page mints it through
+/// `/users/tokens/create`.
+pub const CLI_LOGIN_TOKEN_LABEL_PREFIX: &str = "cli-login:";
+
 /// Whether `label` belongs to a namespace only the server mints, and which therefore must be
 /// rejected by `create_token`. Narrower than [`is_user_token`], which also drives label
-/// editability and expiry notifications and can afford to reserve more: `Ephemeral lsp token`
-/// and `debugger-token` are minted by the editor and the debugger through that same handler,
-/// so reserving them would break those features.
+/// editability and expiry notifications and can afford to reserve more: `Ephemeral lsp token`,
+/// `debugger-token` and `ephemeral-test-connection: *` are minted by the editor, the debugger
+/// and object-storage connection tests through that same handler, so reserving them would
+/// break those features.
 ///
 /// `username_override_from_label` trusts a label to name the entity acting only if it is in
 /// here, so anything added must be unmintable by a member.
@@ -56,7 +87,38 @@ pub fn is_server_minted_label(label: &str) -> bool {
         || label.starts_with("ephemeral-script-end-user-")
         || label == "ephemeral-script"
         || label == "session"
+        || label == GUEST_SESSION_LABEL
         || label.starts_with("mcp-oauth-")
+}
+
+/// Label on a guest session (the `guest` app execution mode). This is the *grant*:
+/// `AuthCache` will resolve a token carrying it into an identity with no account behind
+/// it, which nothing else can do. It must therefore stay unforgeable, which is what
+/// listing it in [`is_server_minted_label`] buys — `/users/tokens/create` refuses it.
+///
+/// Do not move this test onto the token's scopes. Scopes on a user-minted token are
+/// caller-supplied and only ever *narrow* (`app_embed`, `raw_app_sdk`), so a scope
+/// that granted non-member access would be free for anyone to declare.
+pub const GUEST_SESSION_LABEL: &str = "guest_session";
+
+/// Whether `label` marks a guest session. See [`GUEST_SESSION_LABEL`].
+///
+/// Reserved in [`is_user_token`] as well as [`is_server_minted_label`]: the former
+/// gates relabelling, and a user token that could be relabelled *into* this
+/// namespace would become a guest session with no workspace pin — one that
+/// authenticates everywhere.
+pub fn is_guest_session_label(label: Option<&str>) -> bool {
+    label == Some(GUEST_SESSION_LABEL)
+}
+
+/// Whether `path` can be spliced into a scope as one literal resource. The scope
+/// grammar reserves three characters: `:` separates the parts, `,` separates
+/// resources, `*` is a wildcard. App paths are otherwise free-form (spaces, `@`). A
+/// leading `/` is refused too: routes strip it, so the scope would never match.
+pub fn is_scope_literal_path(path: &str) -> bool {
+    !path.is_empty()
+        && !path.starts_with('/')
+        && !path.chars().any(|c| matches!(c, ':' | ',' | '*'))
 }
 
 /// Whether `label` is the one minted for a browser session at login. [`is_server_minted_label`]
@@ -420,6 +482,44 @@ async fn fetch_authed_from_permissioned_as_inner(
     w_id: &str,
     conn: &mut sqlx::PgConnection,
 ) -> Result<Authed> {
+    // The `usr` row is the live binding between a `u/` principal and an address, and it is read
+    // here anyway for the workspace role. Callers may hand us a cached address, so read it before
+    // anything is granted: `super_admin` and `email_to_igroup` below are keyed on the address
+    // while the role is keyed on the principal, and an address that no longer belongs to this
+    // principal — a username freed and reassigned while its previous holder keeps a privileged
+    // account — would mix one account's role with another's instance privileges.
+    let member = match permissioned_as.split_once('/') {
+        Some(("u", name)) => {
+            sqlx::query!(
+                "SELECT is_admin, operator, email FROM usr where username = $1 AND \
+                                         workspace_id = $2 AND disabled = false",
+                name,
+                &w_id
+            )
+            .fetch_optional(&mut *conn)
+            .await?
+        }
+        _ => None,
+    };
+    let resolved_email;
+    let email = match member.as_ref() {
+        Some(m) => m.email.as_str(),
+        // No enabled `usr` row. Resolve as `resolve_username_to_email` does: a disabled member's
+        // own row still wins over the `password` superadmin fallback, so it can never resolve to
+        // an unrelated superadmin who shares the username (workspace usernames are only unique per
+        // workspace). Off the member path, which is why it is worth a query that path skips.
+        None => match permissioned_as.split_once('/') {
+            Some(("u", name)) => {
+                resolved_email =
+                    crate::users::resolve_username_to_email(w_id, name, &mut *conn).await?;
+                // No live binding at all: the supplied address stands. A cached one is at most one
+                // notify poll stale; accepted, see `users::get_email_from_permissioned_as`.
+                resolved_email.as_deref().unwrap_or(email)
+            }
+            _ => email,
+        },
+    };
+
     let is_super_admin = permissioned_as == SUPERADMIN_SYNC_EMAIL
         || email == SUPERADMIN_SECRET_EMAIL
         || email == SUPERADMIN_NOTIFICATION_EMAIL
@@ -433,22 +533,12 @@ async fn fetch_authed_from_permissioned_as_inner(
         if prefix == "u" {
             let (is_admin, is_operator) = if is_super_admin {
                 (true, false)
+            } else if let Some(m) = member.as_ref() {
+                (m.is_admin, m.operator)
             } else {
-                let r = sqlx::query!(
-                    "SELECT is_admin, operator FROM usr where username = $1 AND \
-                                                 workspace_id = $2 AND disabled = false",
-                    name,
-                    &w_id
-                )
-                .fetch_optional(&mut *conn)
-                .await?;
-                if let Some(r) = r {
-                    (r.is_admin, r.operator)
-                } else {
-                    return Err(Error::NotFound(format!(
-                        "user {name} not found in workspace {w_id}"
-                    )));
-                }
+                return Err(Error::NotFound(format!(
+                    "user {name} not found in workspace {w_id}"
+                )));
             };
 
             let groups = get_groups_for_user(w_id, &name, email, &mut *conn).await?;
@@ -903,6 +993,10 @@ mod tests {
         assert!(!is_user_token(Some("Ephemeral lsp token")));
         assert!(!is_user_token(Some("debugger-token")));
         assert!(!is_user_token(Some("mcp-oauth-client")));
+        assert!(!is_user_token(Some("embed_app:f/team/dashboard")));
+        assert!(!is_user_token(Some("sdk_app:u/admin/raw app")));
+        assert!(!is_user_token(Some("impersonation:admin@windmill.dev")));
+        assert!(!is_user_token(Some("cli-login:admin")));
     }
 
     #[test]

@@ -32,6 +32,25 @@ jobs:
         working-directory: ./typescript-client
         run: bun test --timeout 120000 tests/
 
+  chat-sdk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+
+      - name: Run tests
+        working-directory: ./chat-sdk
+        run: npm ci && npm run check && bun test
+
   python-client:
     runs-on: ubuntu-latest
     steps:

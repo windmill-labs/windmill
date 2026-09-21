@@ -1430,16 +1430,19 @@ class Windmill:
             },
         )
 
-    def datatable(self, name: str = "main"):
+    def datatable(self, name: str = "main", *, role: Optional[str] = None):
         """Get a DataTable client for SQL queries.
 
         Args:
             name: Database name (default: "main")
+            role: Connect as this data table role instead of the data table's default one.
+                Only meaningful on a data table under roles, and only for a role you are a
+                tenant of.
 
         Returns:
             DataTableClient instance
         """
-        return DataTableClient(self, name)
+        return DataTableClient(self, name, role=role)
 
     def ducklake(self, name: str = "main"):
         """Get a DuckLake client for DuckDB queries.
@@ -2278,16 +2281,17 @@ def username_to_email(username: str) -> str:
 
 
 @init_global_client
-def datatable(name: str = "main") -> DataTableClient:
+def datatable(name: str = "main", *, role: Optional[str] = None) -> DataTableClient:
     """Get a DataTable client for SQL queries.
 
     Args:
         name: Database name (default: "main")
+        role: Connect as this data table role instead of the data table's default one.
 
     Returns:
         DataTableClient instance
     """
-    return _client.datatable(name)
+    return _client.datatable(name, role=role)
 
 @init_global_client
 def ducklake(name: str = "main") -> DucklakeClient:
@@ -2362,17 +2366,28 @@ def stream_result(stream) -> None:
     for text in stream:
         append_to_result_stream(text)
 
+# Interpolated into a `-- role <name>` line, so a value carrying a newline could append
+# statements of its own. Mirrors the server's own role-name rule.
+_ROLE_NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,63}$")
+
+
 class DataTableClient:
     """Client for executing SQL queries against Windmill DataTables."""
 
-    def __init__(self, client: Windmill, name: str):
+    def __init__(self, client: Windmill, name: str, role: Optional[str] = None):
         """Initialize DataTableClient.
 
         Args:
             client: Windmill client instance
             name: DataTable name
+            role: Data table role to connect as, or None for the data table's default
         """
+        if role is not None and not _ROLE_NAME_RE.match(role):
+            raise ValueError(
+                f"Invalid data table role '{role}': only letters, digits, '_' and '-' are allowed"
+            )
         self.client = client
+        self.role = role
         self.name, self.schema = parse_sql_client_name(name)
     def query(self, sql: str, *args) -> SqlQuery:
         """Execute a SQL query against the DataTable.
@@ -2393,6 +2408,9 @@ class DataTableClient:
             args_dict[f"arg{i+1}"] = arg
             args_def += f"-- ${i+1} arg{i+1} ({infer_sql_type(arg)})\n"
         sql = args_def + sql
+        # Must lead: the executor's annotation parser stops at the first non-comment line.
+        if self.role is not None:
+            sql = f"-- role {self.role}\n" + sql
         return SqlQuery(
             sql,
             lambda sql: self.client.run_inline_script_preview(
@@ -2874,6 +2892,59 @@ def _task_error_from_marker(marker: dict, fallback_message: str) -> TaskError:
     )
 
 
+# The worker deserializes a sleep into a ``u32`` of seconds and fails the whole
+# job on anything wider, so a delay a multiplier has run away with has to be
+# capped here rather than sent.
+_MAX_SLEEP_SECONDS = 2**32 - 1
+
+_RETRY_KEYS = ("attempts", "delay", "multiplier", "max_delay")
+
+# Every attempt claims its keys before the first one is dispatched, so an
+# unbounded ``attempts`` is a workflow that hangs allocating rather than a very
+# patient one.
+_MAX_RETRY_ATTEMPTS = 100
+
+
+def _checked_retry(retry: Optional[dict]) -> Optional[dict]:
+    """Reject a policy where it is written, rather than mid-run on a replay: the
+    policy is a plain dict, so a misspelled key would otherwise be dropped in
+    silence and the task would retry on a policy nobody wrote."""
+    if retry is None:
+        return None
+    unknown = sorted(k for k in retry if k not in _RETRY_KEYS)
+    if unknown:
+        raise ValueError(
+            f"unknown retry option(s): {', '.join(unknown)}. Expected any of: {', '.join(_RETRY_KEYS)}"
+        )
+    attempts = retry.get("attempts")
+    if isinstance(attempts, bool) or not isinstance(attempts, int) or not 0 <= attempts <= _MAX_RETRY_ATTEMPTS:
+        raise ValueError(
+            f"retry attempts must be a whole number between 0 and {_MAX_RETRY_ATTEMPTS}, got {attempts!r}"
+        )
+    return retry
+
+
+def _retry_delay_seconds(retry: dict, attempt: int) -> int:
+    """Seconds to wait before retry number ``attempt`` (0 is the first retry)."""
+    base = retry.get("delay") or 0
+    if base <= 0:
+        return 0
+    # `or 1` would read an explicit `multiplier: 0` — every retry after the
+    # first going out with no wait — as the default of 1.
+    multiplier = retry.get("multiplier")
+    if multiplier is None:
+        multiplier = 1
+    try:
+        grown = base * multiplier**attempt
+    except OverflowError:
+        # A float delay times an integer multiplier raised past ~1e308.
+        grown = _MAX_SLEEP_SECONDS
+    max_delay = retry.get("max_delay")
+    if max_delay is not None:
+        grown = min(grown, max_delay)
+    return max(0, int(min(grown, _MAX_SLEEP_SECONDS)))
+
+
 _workflow_ctx: _contextvars.ContextVar["WorkflowCtx"] = _contextvars.ContextVar(
     "_workflow_ctx"
 )
@@ -2929,28 +3000,77 @@ class WorkflowCtx:
 
     def _next_step(self, name: str, script: str, func=None, dispatch_type: str = "inline", _task_options: Optional[dict] = None, **kwargs):
         """Return an awaitable that either resolves from cache or suspends."""
-        key = self._alloc_key(name or script or "step")
+        step_name = name or script or "step"
+        retry = (_task_options or {}).get("retry") or {}
+        # Clamped as well as validated at decoration: a policy that reached here
+        # another way must not spin the key loop below.
+        max_retries = min(max(0, int(retry.get("attempts") or 0)), _MAX_RETRY_ATTEMPTS)
 
+        # Claimed up front, all of them, and named off the first attempt's key:
+        # one allocated later would shift the keys of the steps beside it, and a
+        # ``step()`` named ``t#2`` — names are arbitrary — could alias one.
+        # Whichever is allocated second is the one renamed, in every round alike.
+        base_key = self._alloc_key(step_name)
+        attempt_keys = [base_key]
+        backoff_keys = []
+        for i in range(max_retries):
+            backoff_keys.append(self._alloc_key(f"{base_key}#retry{i + 2}"))
+            attempt_keys.append(self._alloc_key(f"{base_key}#{i + 2}"))
+
+        # One pass per attempt. Every attempt the checkpoint already holds is
+        # decided here — a failed one either retries (moving to the next key) or
+        # is handed back to the body — so the loop always ends at the first
+        # attempt that has yet to run.
+        attempt = 0
+        while True:
+            key = attempt_keys[attempt]
+
+            if key in self._completed:
+                val = self._completed[key]
+                if isinstance(val, dict) and val.get("__wmill_error"):
+                    if attempt < max_retries:
+                        self._retry_backoff(backoff_keys[attempt], base_key, retry, attempt)
+                        attempt += 1
+                        continue
+                    raise _task_error_from_marker(val, f"Task '{name}' failed")
+                return self._resolved(val)
+
+            if self._executing_key is not None:
+                if key == self._executing_key:
+                    return self._execute_directly(func, **kwargs)
+                else:
+                    return self._never_resolve()
+
+            print(f"\n--- WAC: {key} ---")
+            info = {"name": name or key, "script": script or key, "args": kwargs, "key": key, "dispatch_type": dispatch_type}
+            if _task_options:
+                for opt_key in ("timeout", "tag", "cache_ttl", "priority", "concurrent_limit", "concurrency_key", "concurrency_time_window_s"):
+                    if opt_key in _task_options and _task_options[opt_key] is not None:
+                        info[opt_key] = _task_options[opt_key]
+            self._pending.append(info)
+            return self._suspend()
+
+    def _retry_backoff(self, key: str, base_key: str, retry: dict, attempt: int) -> None:
+        """Wait out the backoff between two attempts of a retried task, as a
+        durable sleep, and return once there is nothing to wait for — no delay
+        configured, or the sleep already in the checkpoint.
+
+        Raises where it stands rather than from a coroutine the caller has to
+        await: a task call the body never awaits is still dispatched (the runner
+        flushes ``_pending``), so a backoff that only fired when awaited would
+        drop the retry and let the round report the workflow complete."""
+        seconds = _retry_delay_seconds(retry, attempt)
+        if seconds < 1:
+            return
         if key in self._completed:
-            val = self._completed[key]
-            if isinstance(val, dict) and val.get("__wmill_error"):
-                raise _task_error_from_marker(val, f"Task '{name}' failed")
-            return self._resolved(val)
-
+            return
+        # Child mode never raises: the parent dispatched this child only after
+        # its own round had slept, so the loop moves on to the attempt being
+        # executed.
         if self._executing_key is not None:
-            if key == self._executing_key:
-                return self._execute_directly(func, **kwargs)
-            else:
-                return self._never_resolve()
-
-        print(f"\n--- WAC: {key} ---")
-        info = {"name": name or key, "script": script or key, "args": kwargs, "key": key, "dispatch_type": dispatch_type}
-        if _task_options:
-            for opt_key in ("timeout", "tag", "cache_ttl", "priority", "concurrent_limit", "concurrency_key", "concurrency_time_window_s"):
-                if opt_key in _task_options and _task_options[opt_key] is not None:
-                    info[opt_key] = _task_options[opt_key]
-        self._pending.append(info)
-        return self._suspend()
+            return
+        print(f"\n--- WAC: sleep({key}, {seconds}s) before retrying {base_key} ---")
+        raise _StepSuspend({"mode": "sleep", "key": key, "seconds": seconds, "steps": []})
 
     async def _resolved(self, value):
         return value
@@ -2983,6 +3103,8 @@ class WorkflowCtx:
         form: dict | None = None,
         self_approval: bool = True,
         key: str | None = None,
+        skin: str | None = None,
+        description: str | dict | None = None,
     ):
         if key is not None:
             _assert_usable_step_key(key, "wait_for_approval key")
@@ -3011,6 +3133,8 @@ class WorkflowCtx:
             "timeout": timeout,
             "form": form,
             "self_approval_disabled": not self_approval,
+            "skin": skin,
+            "description": description,
             "steps": [],
         })
 
@@ -3190,6 +3314,7 @@ def task(
     concurrency_limit: Optional[int] = None,
     concurrency_key: Optional[str] = None,
     concurrency_time_window_s: Optional[int] = None,
+    retry: Optional[dict] = None,
 ):
     """Decorator that marks a function as a workflow task.
 
@@ -3204,6 +3329,30 @@ def task(
     decoded back before the caller sees it: a ``datetime`` comes back as a
     string, a tuple as a list.
 
+    ``retry`` re-dispatches the task after a failure, inside ``@workflow`` only.
+    Every attempt is a step of its own (``call_api``, ``call_api#2``, ...) and
+    the wait between two of them is a durable sleep, so a retrying task holds no
+    worker while it backs off. Keys: ``attempts`` (retries after the first
+    failure, a whole number from 0 to 100), ``delay`` (seconds before the first
+    retry, sub-second delays dropped), ``multiplier`` (applied to the delay
+    after each attempt, 1 keeps it constant), ``max_delay`` (ceiling in
+    seconds). ``attempts`` is required, and an out-of-range or unknown key is
+    rejected where the policy is written.
+
+    A workflow sleeps once per round, so tasks backing off in the same fan-out
+    wait one after another rather than together: the delay before a fan-out
+    retries is the sum of every backoff pending in it, not the longest one, and
+    it grows with both the width of the fan-out and ``attempts``. Retries with
+    no ``delay`` all go out in a single round.
+
+    ``cache_ttl`` serves a previous result of the task for that many seconds
+    instead of running it again. A task is keyed on its step key (its name and
+    call order) and the workflow's input, not on the arguments it is called
+    with, so cache one only when whether it runs, and what it receives, follow
+    from the workflow's input alone. A ``task_script`` target is keyed on the
+    arguments it is called with. It has no effect on a ``task_flow`` target,
+    which keeps its flow's own cache policy.
+
     Usage::
 
         @task
@@ -3211,6 +3360,9 @@ def task(
 
         @task(path="f/external_script", timeout=600, tag="gpu")
         async def run_external(x: int): ...
+
+        @task(retry={"attempts": 3, "delay": 30, "multiplier": 2})
+        async def call_api(payload: dict): ...
     """
     from inspect import signature as _sig
 
@@ -3222,6 +3374,7 @@ def task(
         "concurrent_limit": concurrency_limit,
         "concurrency_key": concurrency_key,
         "concurrency_time_window_s": concurrency_time_window_s,
+        "retry": _checked_retry(retry),
     }
     # Remove None values
     _task_opts = {k: v for k, v in _task_opts.items() if v is not None} or None
@@ -3316,8 +3469,11 @@ def task_script(
     concurrency_limit: Optional[int] = None,
     concurrency_key: Optional[str] = None,
     concurrency_time_window_s: Optional[int] = None,
+    retry: Optional[dict] = None,
 ):
     """Create a task that dispatches to a separate Windmill script.
+
+    ``retry`` takes the same policy as :func:`task`.
 
     Usage::
 
@@ -3328,7 +3484,7 @@ def task_script(
             data = await extract(url="https://...")
     """
     name = path.rsplit("/", 1)[-1]
-    _opts = {k: v for k, v in {"timeout": timeout, "tag": tag, "cache_ttl": cache_ttl, "priority": priority, "concurrent_limit": concurrency_limit, "concurrency_key": concurrency_key, "concurrency_time_window_s": concurrency_time_window_s}.items() if v is not None} or None
+    _opts = {k: v for k, v in {"timeout": timeout, "tag": tag, "cache_ttl": cache_ttl, "priority": priority, "concurrent_limit": concurrency_limit, "concurrency_key": concurrency_key, "concurrency_time_window_s": concurrency_time_window_s, "retry": _checked_retry(retry)}.items() if v is not None} or None
 
     def wrapper(**kwargs):
         ctx = _workflow_ctx.get(None)
@@ -3352,8 +3508,11 @@ def task_flow(
     concurrency_limit: Optional[int] = None,
     concurrency_key: Optional[str] = None,
     concurrency_time_window_s: Optional[int] = None,
+    retry: Optional[dict] = None,
 ):
     """Create a task that dispatches to a separate Windmill flow.
+
+    ``retry`` takes the same policy as :func:`task`.
 
     Usage::
 
@@ -3364,7 +3523,7 @@ def task_flow(
             result = await pipeline(input=data)
     """
     name = path.rsplit("/", 1)[-1]
-    _opts = {k: v for k, v in {"timeout": timeout, "tag": tag, "cache_ttl": cache_ttl, "priority": priority, "concurrent_limit": concurrency_limit, "concurrency_key": concurrency_key, "concurrency_time_window_s": concurrency_time_window_s}.items() if v is not None} or None
+    _opts = {k: v for k, v in {"timeout": timeout, "tag": tag, "cache_ttl": cache_ttl, "priority": priority, "concurrent_limit": concurrency_limit, "concurrency_key": concurrency_key, "concurrency_time_window_s": concurrency_time_window_s, "retry": _checked_retry(retry)}.items() if v is not None} or None
 
     def wrapper(**kwargs):
         ctx = _workflow_ctx.get(None)
@@ -3430,6 +3589,8 @@ async def wait_for_approval(
     form: dict | None = None,
     self_approval: bool = True,
     key: str | None = None,
+    skin: Literal["detailed", "minimal"] | None = None,
+    description: str | dict | None = None,
 ) -> dict:
     """Suspend the workflow and wait for an external approval.
 
@@ -3444,6 +3605,10 @@ async def wait_for_approval(
         form: Optional form schema for the approval page.
         self_approval: Whether the user who triggered the flow can approve it (default True).
         key: Optional checkpoint key naming this approval step.
+        skin: ``"minimal"`` shows approvers only the request (form and approve/reject)
+            instead of the detailed page with the workflow's details.
+        description: Shown to approvers above the form: a string, or a rich value such as
+            ``{"markdown": "..."}``.
 
     Example::
 
@@ -3454,7 +3619,12 @@ async def wait_for_approval(
     ctx: WorkflowCtx | None = _workflow_ctx.get(None)
     if ctx is not None:
         return await ctx._wait_for_approval(
-            timeout=timeout, form=form, self_approval=self_approval, key=key
+            timeout=timeout,
+            form=form,
+            self_approval=self_approval,
+            key=key,
+            skin=skin,
+            description=description,
         )
     raise RuntimeError("wait_for_approval can only be called inside a @workflow")
 
@@ -3524,6 +3694,8 @@ async def _run_workflow_async(func, checkpoint: dict, input_args: dict):
                 "key": info["key"],
                 "timeout": info.get("timeout"),
                 "form": info.get("form"),
+                "skin": info.get("skin"),
+                "description": info.get("description"),
             }
         if mode == "sleep":
             return {

@@ -12,7 +12,7 @@ function mcpTokenDescription(resourcePath: string): string {
 /**
  * Store a connection's token at `path`.
  *
- * Disconnecting an MCP server deletes the resource but deliberately keeps its
+ * Deleting an MCP connection deletes the resource but deliberately keeps its
  * token variable, because `delete_resource` cascade-deletes every variable the
  * value references and that credential may still belong to another resource. So
  * reconnecting the same server lands on an existing path, which is the only case

@@ -47,16 +47,6 @@
 	let hasDraft = $derived(editedConfig !== undefined)
 	let dataset = $state<string | undefined>(undefined)
 	let hoveringDataset = $state(false)
-	/** Set while the dialog stands aside for the dataset drawer, holding the pane's dataset as it
-	 *  was on the way out: coming back onto a different one is the detour's answer, and adopted. */
-	let steppedAside = $state<{ dataset: string | undefined } | undefined>(undefined)
-
-	/** Hands the screen to the dataset drawer, to be given back when it closes. */
-	function stepAside(go: () => void) {
-		steppedAside = { dataset: defaultDataset }
-		open = false
-		go()
-	}
 
 	/** The agent's versions, for pinning one. Loaded when the dialog opens rather than held: a
 	 *  version list goes stale the moment the agent is saved again. */
@@ -76,21 +66,26 @@
 		}
 	}
 
+	/** Whether the dialog was already open on the previous run of the effect below, which reads it
+	 *  to tell an open from the pane's dataset moving underneath. */
+	let wasOpen = false
+
 	$effect(() => {
-		if (!open) return
+		const isOpen = open
+		const pane = defaultDataset
 		untrack(() => {
-			loadVersions()
-			const aside = steppedAside
-			steppedAside = undefined
-			if (aside) {
-				// Back from the drawer: a dataset created or edited there moves the pane onto it, and
-				// anything else leaves the field as it was left.
-				if (defaultDataset !== aside.dataset) dataset = defaultDataset
+			if (!isOpen) {
+				wasOpen = false
 				return
 			}
-			// Seeded on every open: the dataset last worked in, and the state of the agent there is
-			// most reason to measure.
-			dataset = defaultDataset
+			// Followed while the dialog stands, not only read at open: the dataset drawer opens over
+			// this dialog rather than in place of it, so creating, renaming or deleting a dataset
+			// there moves the pane's selection with the dialog still up. Nothing else moves it then.
+			dataset = pane
+			if (wasOpen) return
+			wasOpen = true
+			loadVersions()
+			// The state of the agent there is most reason to measure.
 			choice = hasDraft ? 'draft' : 'deployed'
 		})
 	})
@@ -184,7 +179,7 @@
 						unifiedSize="sm"
 						variant="default"
 						startIcon={{ icon: Plus }}
-						onclick={() => stepAside(onNewDataset)}
+						onclick={onNewDataset}
 					>
 						New dataset
 					</Button>
@@ -215,7 +210,7 @@
 								title="Edit this dataset"
 								on:click={() => {
 									close()
-									stepAside(() => onEditDataset(item.value ?? ''))
+									onEditDataset(item.value ?? '')
 								}}
 							/>
 						{/snippet}
@@ -228,7 +223,7 @@
 									btnClasses="w-full !h-auto !justify-start !rounded-none flex items-center gap-2 px-3 py-2 text-xs !font-normal text-secondary hover:bg-surface-hover"
 									onClick={() => {
 										close()
-										stepAside(onNewDataset)
+										onNewDataset()
 									}}
 								>
 									<Plus size={13} />
@@ -247,7 +242,7 @@
 								startIcon={{ icon: Pencil }}
 								iconOnly
 								title="Edit this dataset"
-								on:click={() => stepAside(() => onEditDataset(dataset ?? ''))}
+								on:click={() => onEditDataset(dataset ?? '')}
 							/>
 						</div>
 					{/if}

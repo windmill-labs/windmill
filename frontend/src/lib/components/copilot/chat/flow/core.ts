@@ -136,6 +136,10 @@ export interface FlowAIChatHelpers {
 	/** Run a test of the current flow using the UI's preview mechanism */
 	testFlow: (args?: Record<string, any>, conversationId?: string) => Promise<string | undefined>
 
+	/** The path this editor's draft is stored under. Tells a caller which of several mounted
+	 * editors is the one an active-editor context names. */
+	getStoragePath: () => string | undefined
+
 	/** Get lint errors from a specific module (focuses it first, waits for Monaco to analyze) */
 	getLintErrors: (moduleId: string) => Promise<ScriptLintResult>
 }

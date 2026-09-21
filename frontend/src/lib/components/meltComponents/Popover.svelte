@@ -60,6 +60,8 @@
 		documentationLink?: string | undefined
 		disableFocusTrap?: boolean
 		openFocus?: string | HTMLElement | (() => HTMLElement | null) | null | undefined
+		/** Element to focus when the popover closes; defaults to the trigger, `null` leaves focus alone. */
+		closeFocus?: string | HTMLElement | (() => HTMLElement | null) | null | undefined
 		escapeBehavior?: EscapeBehaviorType
 		enableFlyTransition?: boolean
 		onKeyDown?: (e: KeyboardEvent) => void
@@ -99,6 +101,7 @@
 		documentationLink = undefined,
 		disableFocusTrap = false,
 		openFocus = undefined,
+		closeFocus = undefined,
 		escapeBehavior = 'close',
 		enableFlyTransition = false,
 		onKeyDown = () => {},
@@ -133,6 +136,7 @@
 		disableFocusTrap: untrack(() => disableFocusTrap),
 		escapeBehavior: untrack(() => escapeBehavior),
 		openFocus: untrack(() => openFocus),
+		closeFocus: untrack(() => closeFocus),
 		onOpenChange: ({ curr, next }) => {
 			if (curr != next) {
 				dispatch('openChange', next)

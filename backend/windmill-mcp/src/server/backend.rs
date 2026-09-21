@@ -16,6 +16,14 @@ use crate::server::endpoints::EndpointTool;
 /// Result type for backend operations using rmcp's ErrorData directly
 pub type BackendResult<T> = Result<T, ErrorData>;
 
+/// What the backend needs about the HTTP request a tool call arrived on, in order
+/// to hand a runnable the headers of the call that triggered it.
+pub struct McpRequest<'a> {
+    pub headers: &'a http::HeaderMap,
+    /// The MCP tool name the caller invoked, reported to preprocessors.
+    pub tool_name: &'a str,
+}
+
 /// How a script/flow listing is narrowed by path at the SQL layer, *before* the
 /// `ITEMS_FETCH_MAX_LIMIT` cap applies.
 ///
@@ -157,6 +165,7 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
         workspace_id: &str,
         path: &str,
         args: Value,
+        request: &McpRequest<'_>,
     ) -> BackendResult<Value>;
 
     /// Run a flow and wait for result
@@ -166,6 +175,7 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
         workspace_id: &str,
         path: &str,
         args: Value,
+        request: &McpRequest<'_>,
     ) -> BackendResult<Value>;
 
     /// Call an endpoint tool (generated API endpoint)

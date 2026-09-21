@@ -1,3 +1,5 @@
+import { SvelteMap } from 'svelte/reactivity'
+
 /**
  * Resource types are named by abbreviation — `gdrive`, `gcal`, `s3` — so a product's real
  * name ("Google Drive", "Amazon S3") only ever appears in its description. Matching on the
@@ -179,22 +181,51 @@ const RESOURCE_TYPE_WORDS: Record<string, string> = {
 	woocommerce: 'WooCommerce'
 }
 
-/** Types whose label is not their name with the parts re-cased. */
-const RESOURCE_TYPE_NAMES: Record<string, string> = {
-	adobe_acrobat_sign: 'Adobe Acrobat Sign',
-	bamboo_hr: 'BambooHR',
-	cacertificate: 'CA certificate',
-	deep_infra: 'DeepInfra',
-	gcal: 'Google Calendar',
-	gdocs: 'Google Docs',
-	gdrive: 'Google Drive',
-	gforms: 'Google Forms',
-	gsheets: 'Google Sheets',
-	gworkspace: 'Google Workspace',
-	ms_sql_server: 'Microsoft SQL Server',
-	sage_intacct: 'Sage Intacct',
-	sensortower: 'Sensor Tower',
-	their_stack: 'TheirStack'
+/**
+ * Names for the items no rule names (`gsheets` -> Google Sheets): stored with resource types,
+ * and curated by the hub for integrations. Unnamed items are left to the word table above on
+ * purpose. Reactive because they fill in after first render: a label already on screen updates
+ * when they land.
+ */
+const resourceTypeNames = new SvelteMap<string, string>()
+const hubIntegrationNames = new SvelteMap<string, string>()
+
+type Named = { name: string; display_name?: string | null }
+
+/**
+ * Updates only the names a listing carries: one it carries without a label drops any label kept
+ * for it, which is how a hub predating display names reverts to inferred labels. Names it does not
+ * carry are left alone on purpose, since callers pass `kind`-filtered listings. A listing can carry
+ * one name twice (a workspace's own copy of a hub type beside the `admins` row, in no fixed order),
+ * so a label from either entry wins over none.
+ */
+function recordNames(names: SvelteMap<string, string>, entries: Named[]): void {
+	const labels = new Map<string, string | undefined>()
+	for (const entry of entries) {
+		const label = entry.display_name?.trim()
+		if (label) labels.set(entry.name, label)
+		else if (!labels.has(entry.name)) labels.set(entry.name, undefined)
+	}
+	for (const [name, label] of labels) {
+		if (label) names.set(name, label)
+		else names.delete(name)
+	}
+}
+
+export function setResourceTypeDisplayNames(types: Named[]): void {
+	recordNames(resourceTypeNames, types)
+}
+
+/**
+ * Records the name a single row carries, and never clears one: reading one type can return a
+ * workspace's nameless copy of a named hub type. A name the hub drops is cleared by the next listing.
+ */
+export function addResourceTypeDisplayName(type: Named): void {
+	if (type.display_name?.trim()) recordNames(resourceTypeNames, [type])
+}
+
+export function setHubIntegrationDisplayNames(integrations: Named[]): void {
+	recordNames(hubIntegrationNames, integrations)
 }
 
 /** The prefix the resources page puts on a type created in a workspace. */
@@ -205,17 +236,41 @@ export function isCustomResourceTypeName(name: string): boolean {
 }
 
 /**
- * Display name for a resource type: `adobe_acrobat_sign` -> `Adobe Acrobat Sign`, `mysql` ->
- * `MySQL`, `c_acme_api` -> `Acme API`. Inferred from the name, since nothing in the type
- * carries a product name — the two tables above only cover what the inference gets wrong.
+ * Display name for a resource type: `gsheets` -> `Google Sheets` where the type stores that name,
+ * otherwise inferred from the type name (`mysql` -> `MySQL`, `c_acme_api` -> `Acme API`), the
+ * word table above covering what capitalizing gets wrong.
  */
 export function resourceTypeDisplayName(name: string): string {
-	const exact = RESOURCE_TYPE_NAMES[name]
-	if (exact) return exact
-	const stripped = isCustomResourceTypeName(name) ? name.slice(CUSTOM_TYPE_PREFIX.length) : name
-	return stripped
-		.split('_')
-		.map((word) => RESOURCE_TYPE_WORDS[word] ?? word.charAt(0).toUpperCase() + word.slice(1))
+	return (
+		resourceTypeNames.get(name) ??
+		titleize(isCustomResourceTypeName(name) ? name.slice(CUSTOM_TYPE_PREFIX.length) : name)
+	)
+}
+
+/**
+ * Display name for a hub integration slug, as the hub pickers label their filters:
+ * `activecampaign` -> `ActiveCampaign` from a hub that names it, `Activecampaign` from one
+ * that does not.
+ */
+export function integrationDisplayName(app: string): string {
+	return hubIntegrationNames.get(app) ?? titleize(app)
+}
+
+/**
+ * Lowercases each word before the lookup and splits on `-` too: a private hub can predate the
+ * slug rule, and still serve `aws-ses` or `RSS`. `Object.hasOwn`, because a word like
+ * `constructor` would otherwise resolve up the object literal's prototype chain.
+ */
+function titleize(name: string): string {
+	return name
+		.split(/[_-]/)
+		.filter(Boolean)
+		.map((word) => {
+			const lower = word.toLowerCase()
+			return Object.hasOwn(RESOURCE_TYPE_WORDS, lower)
+				? RESOURCE_TYPE_WORDS[lower]
+				: word.charAt(0).toUpperCase() + word.slice(1)
+		})
 		.join(' ')
 }
 

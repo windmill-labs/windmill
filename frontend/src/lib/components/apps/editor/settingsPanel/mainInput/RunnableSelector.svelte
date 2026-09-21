@@ -11,15 +11,12 @@
 	import type { Schema } from '$lib/common'
 	import { emptySchema } from '$lib/utils'
 	import { loadSchema } from '$lib/infer'
-	import { workspaceStore } from '$lib/stores'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 	import { buildPathRunnableSelection } from './runnableSelectorUtils'
 
-	type TabType =
-		| 'hubscripts'
-		| 'hubflows'
-		| 'workspacescripts'
-		| 'workspaceflows'
-		| 'inlinescripts'
+	type TabType = 'hubscripts' | 'hubflows' | 'workspacescripts' | 'workspaceflows' | 'inlinescripts'
 
 	interface Props {
 		defaultUserInput?: boolean
@@ -60,7 +57,7 @@
 		path: string,
 		runType: 'script' | 'flow' | 'hubscript'
 	): Promise<{ schema: Schema; summary: string | undefined }> {
-		const schema = await loadSchema($workspaceStore!, path, runType)
+		const schema = await loadSchema($operatingWorkspace!, path, runType)
 		if (!schema.schema.order) {
 			schema.schema.order = Object.keys(schema.schema.properties ?? {})
 		}

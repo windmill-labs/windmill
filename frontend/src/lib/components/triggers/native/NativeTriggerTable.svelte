@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { NativeTriggerService } from '$lib/gen/services.gen'
-	import type { NativeServiceName } from '$lib/gen/types.gen'
+	import type { NativeServiceName, TriggerMode } from '$lib/gen/types.gen'
 	import type { ExtendedNativeTrigger } from './utils'
 	import { getServiceConfig } from './utils'
-	import { sendUserToast } from '$lib/utils'
-	import { workspaceStore } from '$lib/stores'
+	import { canWrite, sendUserToast } from '$lib/utils'
+	import { userStore } from '$lib/stores'
+	import TriggerModeToggle from '$lib/components/triggers/TriggerModeToggle.svelte'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
@@ -15,6 +16,9 @@
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import GoogleDriveIcon from '$lib/components/icons/GoogleDriveIcon.svelte'
 	import GoogleCalendarIcon from '$lib/components/icons/GoogleCalendarIcon.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	type TriggerW = ExtendedNativeTrigger & { marked?: any }
 
@@ -25,9 +29,10 @@
 		onEdit?: (trigger: TriggerW) => void
 		onRecreate?: (trigger: TriggerW) => void
 		onSync?: () => Promise<void>
+		onUpdate?: () => void
 	}
 
-	let { service, triggers = [], loading = false, onEdit, onRecreate }: Props = $props()
+	let { service, triggers = [], loading = false, onEdit, onRecreate, onUpdate }: Props = $props()
 
 	const serviceConfig = $derived(getServiceConfig(service))
 	let deleteConfirmationOpen = $state(false)
@@ -45,13 +50,36 @@
 		isDeleting = false
 	}
 
+	async function onToggleMode(trigger: TriggerW, mode: TriggerMode): Promise<boolean> {
+		const enabled = mode === 'enabled'
+		try {
+			await NativeTriggerService.setNativeTriggerEnabled({
+				workspace: $operatingWorkspace!,
+				serviceName: service,
+				externalId: trigger.external_id,
+				requestBody: { enabled }
+			})
+		} catch (err: any) {
+			sendUserToast(
+				`Failed to ${enabled ? 'enable' : 'disable'} trigger: ${err.body ?? err.message}`,
+				true
+			)
+			return false
+		}
+		sendUserToast(
+			`${enabled ? 'Enabled' : 'Disabled'} ${serviceConfig?.serviceDisplayName} trigger ${trigger.external_id}`
+		)
+		onUpdate?.()
+		return true
+	}
+
 	async function confirmDeleteTrigger() {
 		if (!triggerToDelete) return
 
 		isDeleting = true
 		try {
 			await NativeTriggerService.deleteNativeTrigger({
-				workspace: $workspaceStore!,
+				workspace: $operatingWorkspace!,
 				serviceName: service,
 				externalId: triggerToDelete.external_id
 			})
@@ -132,6 +160,13 @@
 						</a>
 
 						<div class="flex gap-2 items-center justify-end">
+							<TriggerModeToggle
+								canWrite={canWrite(trigger.script_path, {}, $userStore)}
+								triggerMode={trigger.enabled ? 'enabled' : 'disabled'}
+								onToggleMode={(mode) => onToggleMode(trigger, mode)}
+								hideToggleLabels
+								hideDropdown
+							/>
 							<Button
 								on:click={() => onEdit?.(trigger)}
 								unifiedSize="md"

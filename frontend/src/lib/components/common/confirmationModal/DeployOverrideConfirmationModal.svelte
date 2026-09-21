@@ -11,6 +11,15 @@
 		confirmCallback: () => void
 		deployedBy?: string | undefined
 		open?: boolean
+		/** Takes a drawer opening on the host editor's behalf, so the diff below is one the
+		 *  editor can take back down. Override anyway deploys that editor's content: without
+		 *  this the drawer would outlive it (a relocation remounts the editor) and deploy it
+		 *  at a path it has left. Omit where the host cannot be remounted under the drawer. */
+		claimOpening?: () => number | undefined
+		/** The host could not read the deployed head, so this confirmation is caution rather
+		 *  than an observed newer version: nobody may have deployed over the user, and
+		 *  `deployedBy` is then whoever wrote the head, possibly themselves. */
+		headUnknown?: boolean
 	}
 
 	let {
@@ -19,13 +28,15 @@
 		diffDrawer = undefined,
 		confirmCallback,
 		deployedBy = undefined,
-		open = $bindable(false)
+		open = $bindable(false),
+		claimOpening = undefined,
+		headUnknown = false
 	}: Props = $props()
 </script>
 
 <ConfirmationModal
 	{open}
-	title={'New version deployed by ' + deployedBy}
+	title={headUnknown ? 'Deploy anyway?' : 'New version deployed by ' + deployedBy}
 	confirmationText="Override"
 	on:canceled={() => {
 		open = false
@@ -33,7 +44,11 @@
 	on:confirmed={() => confirmCallback()}
 >
 	<div class="flex flex-col w-full space-y-4">
-		<span>A new version was deployed while you were editing this one.</span>
+		<span>
+			{headUnknown
+				? 'This editor could not check whether a newer version is deployed, so it cannot tell whether this overwrites newer work.'
+				: 'A new version was deployed while you were editing this one.'}
+		</span>
 		{#if diffDrawer}
 			<Button
 				wrapperClasses="self-start"
@@ -44,17 +59,21 @@
 						return
 					}
 					open = false
-					diffDrawer?.openDrawer()
-					diffDrawer?.setDiff({
-						mode: 'simple',
-						original: deployedValue,
-						current: currentValue,
-						title: 'Deployed <> Current',
-						button: {
-							text: 'Override anyway',
-							onClick: () => confirmCallback()
-						}
-					})
+					const opening = claimOpening?.()
+					diffDrawer?.openDrawer(opening)
+					diffDrawer?.setDiff(
+						{
+							mode: 'simple',
+							original: deployedValue,
+							current: currentValue,
+							title: 'Deployed <> Current',
+							button: {
+								text: 'Override anyway',
+								onClick: () => confirmCallback()
+							}
+						},
+						opening
+					)
 				}}
 				>Show diff
 			</Button>

@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use strum::AsRefStr;
 
 use crate::{
+    datatable_roles::{ADMIN_DATATABLE_ROLE, CUSTOM_INSTANCE_USER},
     error::{self, to_anyhow, Error, Result},
     get_database_url,
     secret_backend::{get_secret_value, is_external_stored_value},
@@ -71,6 +72,7 @@ bitflags::bitflags! {
         const RESTRICT_DEPLOY_TO_DEPLOYERS =        1 << 2;
         const RESTRICT_ANONYMOUS_APP_DEPLOYMENT =   1 << 3;
         const RESTRICT_PUBLIC_RUN_SHARING =         1 << 4;
+        const RESTRICT_GUEST_APP_DEPLOYMENT =       1 << 5;
     }
 }
 
@@ -83,6 +85,7 @@ pub enum ProtectionRuleKind {
     RestrictDeployToDeployers,
     RestrictAnonymousAppDeployment,
     RestrictPublicRunSharing,
+    RestrictGuestAppDeployment,
 }
 
 impl ProtectionRuleKind {
@@ -103,6 +106,9 @@ impl ProtectionRuleKind {
             ProtectionRuleKind::RestrictPublicRunSharing => {
                 ProtectionRules::RESTRICT_PUBLIC_RUN_SHARING
             }
+            ProtectionRuleKind::RestrictGuestAppDeployment => {
+                ProtectionRules::RESTRICT_GUEST_APP_DEPLOYMENT
+            }
         }
     }
 
@@ -120,6 +126,9 @@ impl ProtectionRuleKind {
             }
             ProtectionRuleKind::RestrictPublicRunSharing => {
                 "Sharing a run publicly (readable without login) is restricted in this workspace"
+            }
+            ProtectionRuleKind::RestrictGuestAppDeployment => {
+                "Opening an app to guests (anyone who can sign in) is restricted in this workspace"
             }
         }
     }
@@ -175,7 +184,7 @@ pub enum ObjectType {
     DatatableMigration,
 }
 
-pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28911/sync-script-to-git-repo-windmill";
+pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28971/sync-script-to-git-repo-windmill";
 
 /// Hub script that applies a repository's state back into a workspace
 /// (the repo → Windmill / "pull" direction). Same script the UI runs from
@@ -183,7 +192,7 @@ pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28911/sync-script-to-git-repo
 /// ignores the slug, so the slug is kept free of characters that would be
 /// percent-encoded into the run URL (a `:` becomes `%3A`, which some hardened
 /// reverse proxies reject as double-encoding when the client re-encodes it).
-pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/28910/git-sync-init-repository-windmill";
+pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/28970/git-sync-init-repository-windmill";
 
 /// Prefix used to identify fork workspaces. A workspace whose id starts with this string is a
 /// fork of another workspace.
@@ -337,13 +346,14 @@ pub struct GitRepositorySettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_pull: Option<AutoPullSettings>,
     /// Open a PR when a deploy pushes a `wm_deploy/**` branch of this promotion
-    /// repo (app-backed only; runs from the deploy callback so it works without
+    /// repo (needs a credential the server holds — a GitHub App installation or
+    /// a checked GitLab token; runs from the deploy callback so it works without
     /// inbound webhooks). Off by default so upgrades don't change behavior.
     #[serde(default, skip_serializing_if = "is_false")]
     pub promotion_open_prs: bool,
     /// Parent-level: open a PR when a fork of this workspace deploys to its
-    /// `wm-fork/**` branch (app-backed only; the fork's deploy callback reads
-    /// this from the parent). Off by default.
+    /// `wm-fork/**` branch (needs a credential the server holds; the fork's
+    /// deploy callback reads this from the parent). Off by default.
     #[serde(default, skip_serializing_if = "is_false")]
     pub fork_open_prs: bool,
     /// Server-owned: the last failure opening a PR for a deploy branch of this
@@ -352,6 +362,10 @@ pub struct GitRepositorySettings {
     /// successful PR; never accepted from clients.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub open_pr_error: Option<String>,
+    /// Server-owned: what the repo's credential says about its own expiry and
+    /// scopes. Written by the credential check, never accepted from clients.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential: Option<GitCredentialStatus>,
 }
 
 impl GitRepositorySettings {
@@ -395,6 +409,44 @@ pub enum AutoPullMode {
     Webhook,
     /// Polling only (`git ls-remote` on an interval).
     Polling,
+}
+
+/// Host whose credential lifecycle Windmill can manage from the repo URL.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum GitCredentialProvider {
+    Gitlab,
+}
+
+/// What the repo's own credential says about itself, refreshed by asking the
+/// host. Server-owned: written by the credential check, never accepted from a
+/// client.
+///
+/// Absent means the check has not run or the repo carries no credential we can
+/// introspect (a GitHub App repo mints tokens per call and has nothing to expire).
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct GitCredentialStatus {
+    pub provider: GitCredentialProvider,
+    /// Changes on every rotation, so it identifies the current token, not the
+    /// credential's whole history.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_id: Option<i64>,
+    /// `None` is a non-expiring token, which only self-managed GitLab can issue
+    /// (and only for a service account). It means no warning and no rotation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<chrono::NaiveDate>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scopes: Vec<String>,
+    /// Whether *this workspace* renews the credential. That needs a scope which
+    /// permits it (`api` or `self_rotate`) and a credential this workspace holds:
+    /// a token carried in the repository URL is the operator's to manage, and one
+    /// resolved from an ancestor is the ancestor's, so neither is renewed here.
+    pub rotatable: bool,
+    /// Unix timestamp (seconds) of the last check.
+    pub checked_at: i64,
+    /// Why the last check or rotation failed, cleared by the next success.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 /// Outcome of the most recent auto-pull attempt, surfaced in the UI.
@@ -463,6 +515,11 @@ pub struct AutoPullSettings {
     pub last_synced_sha: std::collections::HashMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_pull_status: Option<AutoPullStatus>,
+    /// Email of the admin this repository's automatic pulls (its own and its forks')
+    /// apply changes as: whoever last saved the settings with auto pull on. Stamped
+    /// server-side, never taken from the client.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled_by: Option<String>,
 }
 
 // Manual Debug so the HMAC `webhook_secret` (even encrypted) never lands in logs.
@@ -473,6 +530,7 @@ impl std::fmt::Debug for AutoPullSettings {
             .field("mode", &self.mode)
             .field("poll_interval_s", &self.poll_interval_s)
             .field("sync_forks", &self.sync_forks)
+            .field("enabled_by", &self.enabled_by)
             .field("webhook_id", &self.webhook_id)
             .field(
                 "webhook_secret",
@@ -508,9 +566,10 @@ impl AutoPullSettings {
     /// Whether a freshly observed `(git_ref, head_sha)` warrants enqueuing a pull.
     ///
     /// A trigger (poll or webhook) is only a hint: we pull when auto-pull is
-    /// enabled and the observed head differs from the last sha we synced for
-    /// that ref. Re-observing the same head (e.g. a redundant poll, or the
-    /// commit our own deploy callback just pushed back) is a no-op.
+    /// enabled and the observed head differs from the last sha we pulled for
+    /// that ref. Re-observing the same head (a redundant poll) is a no-op. A
+    /// commit our own deploy pushed is not: pushes never write here, so the pull
+    /// it triggers picks up anything pushed under it.
     pub fn should_pull(&self, git_ref: &str, head_sha: &str) -> bool {
         self.enabled && self.last_synced_sha.get(git_ref).map(String::as_str) != Some(head_sha)
     }
@@ -767,6 +826,223 @@ pub struct BillableSeats {
     pub seats: i64,
 }
 
+/// Guests are free up to `FREE_GUESTS_PER_WINDOW` distinct emails over the trailing
+/// `GUEST_WINDOW_DAYS`. Past that, an Enterprise plan meters them, `GUESTS_PER_SEAT`
+/// guests to one seat, while every other plan and build stops admitting new emails.
+pub const GUEST_WINDOW_DAYS: i32 = 30;
+pub const FREE_GUESTS_PER_WINDOW: i64 = 100;
+pub const GUESTS_PER_SEAT: i64 = 4;
+
+/// Whether guests past the allowance are metered (Enterprise plan) rather than refused.
+/// A build without `enterprise` has no plan and is capped, like a Pro key.
+pub async fn guests_are_metered() -> bool {
+    #[cfg(feature = "enterprise")]
+    {
+        matches!(
+            crate::ee_oss::get_license_plan().await,
+            crate::ee_oss::LicensePlan::Enterprise
+        )
+    }
+    #[cfg(not(feature = "enterprise"))]
+    {
+        false
+    }
+}
+
+/// Seats the guests past the free allowance consume: `ceil(billable / GUESTS_PER_SEAT)`.
+pub fn guest_seats(distinct_guests: i64) -> i64 {
+    let billable = (distinct_guests - FREE_GUESTS_PER_WINDOW).max(0);
+    (billable + GUESTS_PER_SEAT - 1) / GUESTS_PER_SEAT
+}
+
+/// Distinct guest emails over the trailing window, today included.
+pub async fn guest_count_in_window<'c, E: sqlx::Executor<'c, Database = sqlx::Postgres>>(
+    executor: E,
+) -> Result<i64> {
+    sqlx::query_scalar(
+        "SELECT COUNT(DISTINCT email) FROM guest_activity WHERE day > CURRENT_DATE - $1",
+    )
+    .bind(GUEST_WINDOW_DAYS)
+    .fetch_one(executor)
+    .await
+    .map_err(|e| Error::internal_err(format!("counting guests: {e:#}")))
+}
+
+/// The instance's standing against the guest allowance, as every surface reports it.
+#[derive(Clone, Debug, Serialize)]
+pub struct GuestUsage {
+    /// Whether this deployment can admit guests at all ([`instance_supports_guests`]).
+    /// Off, every other field is moot and no switch below can turn guests on.
+    pub available: bool,
+    /// The superadmin switch (`GUEST_ACCESS_DISABLED_SETTING`), which every workspace
+    /// switch sits under. Reported as stored, so a superadmin sees what they set even
+    /// where `available` overrules it.
+    pub instance_enabled: bool,
+    /// Distinct guest emails over the trailing `window_days`.
+    pub guest_count: i64,
+    pub window_days: i32,
+    pub free_allowance: i64,
+    /// Enterprise plan: guests past the allowance take `guest_seats`. Otherwise no new
+    /// email is admitted past it.
+    pub metered: bool,
+    pub billable_guests: i64,
+    pub guest_seats: i64,
+}
+
+/// What a caller is told when it asks for guests on a deployment that cannot have them.
+pub const GUESTS_UNAVAILABLE_MESSAGE: &str =
+    "Guest access is not available on Windmill Cloud. It requires a self-hosted instance \
+     or a dedicated Windmill Cloud deployment.";
+
+/// Whether guests can exist on this deployment at all. They cannot on the shared cloud:
+/// a guest is an identity Windmill itself never vouched for, admitted on the say-so of
+/// whoever runs the instance, which is not a call a multi-tenant deployment can make for
+/// its tenants. Folded into every guest gate below, so a workspace switch or an app
+/// policy left saying `guest` is inert rather than honored.
+pub fn instance_supports_guests() -> bool {
+    !*crate::worker::CLOUD_HOSTED
+}
+
+/// [`instance_supports_guests`] as an error, for the writes that would otherwise store a
+/// setting that can never take effect.
+pub fn require_guest_support() -> Result<()> {
+    if instance_supports_guests() {
+        Ok(())
+    } else {
+        Err(Error::BadRequest(GUESTS_UNAVAILABLE_MESSAGE.to_string()))
+    }
+}
+
+/// SQL for the superadmin switch alone, absent meaning on. The setting is read as text
+/// before the cast so `true` and `"true"` both count.
+fn instance_switch_sql() -> String {
+    format!(
+        "NOT COALESCE((SELECT (value #>> '{{}}')::boolean FROM global_settings \
+         WHERE name = '{}'), false)",
+        crate::global_settings::GUEST_ACCESS_DISABLED_SETTING
+    )
+}
+
+/// SQL for "the instance admits guests": the superadmin switch, under
+/// [`instance_supports_guests`].
+fn instance_admits_guests_sql() -> String {
+    if !instance_supports_guests() {
+        return "false".to_string();
+    }
+    instance_switch_sql()
+}
+
+pub async fn guest_usage(db: &crate::DB) -> Result<GuestUsage> {
+    let instance_switch = instance_switch_sql();
+    let instance_enabled: bool = sqlx::query_scalar(&format!("SELECT {instance_switch}"))
+        .fetch_one(db)
+        .await
+        .map_err(|e| Error::internal_err(format!("reading the instance guest switch: {e:#}")))?;
+    let guest_count = guest_count_in_window(db).await?;
+    let metered = guests_are_metered().await;
+    let billable_guests = if metered {
+        (guest_count - FREE_GUESTS_PER_WINDOW).max(0)
+    } else {
+        0
+    };
+    Ok(GuestUsage {
+        available: instance_supports_guests(),
+        instance_enabled,
+        guest_count,
+        window_days: GUEST_WINDOW_DAYS,
+        free_allowance: FREE_GUESTS_PER_WINDOW,
+        metered,
+        billable_guests,
+        guest_seats: if metered { guest_seats(guest_count) } else { 0 },
+    })
+}
+
+/// Whether `email` may be admitted as a guest right now. Checked once, where a session
+/// is minted: a returning guest (already in the window) is always let back in, so the
+/// cap only ever refuses a stranger, and a metered instance refuses nobody.
+///
+/// Must run inside the transaction that then records the guest in `guest_activity`:
+/// it takes a transaction-scoped lock so concurrent strangers count each other, and the
+/// lock is what keeps the cap exact rather than approximate.
+pub async fn guest_admission(conn: &mut sqlx::PgConnection, email: &str) -> Result<()> {
+    if guests_are_metered().await {
+        return Ok(());
+    }
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext('guest_allowance'))")
+        .execute(&mut *conn)
+        .await
+        .map_err(|e| Error::internal_err(format!("locking the guest allowance: {e:#}")))?;
+    let (in_window, count): (bool, i64) = sqlx::query_as(
+        "SELECT
+            EXISTS(SELECT 1 FROM guest_activity WHERE email = $1 AND day > CURRENT_DATE - $2),
+            (SELECT COUNT(DISTINCT email) FROM guest_activity WHERE day > CURRENT_DATE - $2)",
+    )
+    .bind(email)
+    .bind(GUEST_WINDOW_DAYS)
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(|e| Error::internal_err(format!("checking the guest allowance: {e:#}")))?;
+    if in_window || count < FREE_GUESTS_PER_WINDOW {
+        return Ok(());
+    }
+    Err(Error::PermissionDenied(format!(
+        "This instance has reached its limit of {FREE_GUESTS_PER_WINDOW} guests over \
+         {GUEST_WINDOW_DAYS} days. Guest sign-in beyond that needs an Enterprise license."
+    )))
+}
+
+/// Whether a guest session for `email` in `w_id` still stands: the instance and the
+/// workspace admit guests, and the email still has no account. Read at the auth door on
+/// every guest request, so turning either switch off, or an account provisioned after
+/// the mint (or racing it), ends the session on its next request.
+pub async fn guest_session_stands(db: &crate::DB, w_id: &str, email: &str) -> Result<bool> {
+    let instance_admits = instance_admits_guests_sql();
+    let stands: Option<bool> = sqlx::query_scalar(&format!(
+        "SELECT guest_access_enabled
+            AND {instance_admits}
+            AND NOT EXISTS(SELECT 1 FROM password WHERE email = $2)
+            AND NOT EXISTS(SELECT 1 FROM usr WHERE email = $2)
+         FROM workspace_settings WHERE workspace_id = $1"
+    ))
+    .bind(w_id)
+    .bind(email)
+    .fetch_optional(db)
+    .await
+    .map_err(|e| Error::internal_err(format!("checking the guest session of {email}: {e:#}")))?;
+    Ok(stands.unwrap_or(false))
+}
+
+/// Every switch at once: the instance's, the workspace's, and `app_path` being in
+/// `guest` execution mode. The single answer to "may a guest session be minted for this
+/// app", used by the mint itself and by the sign-in branch that decides whether to call
+/// it. A missing app or a policy with no stated mode reads as "no". The allowance is
+/// `guest_admission`.
+pub async fn guest_app_admits<'c, E: sqlx::Executor<'c, Database = sqlx::Postgres>>(
+    executor: E,
+    w_id: &str,
+    app_path: &str,
+) -> Result<bool> {
+    // The mint refuses a path it cannot scope, so discovery must not advertise one.
+    if !crate::auth::is_scope_literal_path(app_path) {
+        return Ok(false);
+    }
+    let instance_admits = instance_admits_guests_sql();
+    let admits: Option<bool> = sqlx::query_scalar(&format!(
+        "SELECT COALESCE(ws.guest_access_enabled AND app.policy->>'execution_mode' = 'guest', false)
+            AND {instance_admits}
+         FROM app JOIN workspace_settings ws ON ws.workspace_id = app.workspace_id
+         WHERE app.workspace_id = $1 AND app.path = $2"
+    ))
+    .bind(w_id)
+    .bind(app_path)
+    .fetch_optional(executor)
+    .await
+    .map_err(|e| {
+        Error::internal_err(format!("checking guest access to {w_id}/{app_path}: {e:#}"))
+    })?;
+    Ok(admits.unwrap_or(false))
+}
+
 /// Billable members of `w_id` and the seats they cost, as `ceil(developers + operators/2)`. Service
 /// accounts cannot log in and do not take a seat; a disabled member is not billed either.
 ///
@@ -1017,9 +1293,17 @@ impl Default for DataTableForkBehavior {
     }
 }
 
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct DataTable {
-    pub database: DataTableDatabase,
+    /// Set on a *terminal* entry — one that owns its database. Mutually exclusive with
+    /// [`DataTable::reference`]; [`validate_datatable_shape`] is the one place that enforces it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub database: Option<DataTableDatabase>,
+    /// Set on a *pointer* entry — one that names another workspace's entry and owns nothing.
+    /// A keep-original fork gets one of these instead of a copy of the parent's entry, so there is
+    /// nothing local for a fork admin to widen.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reference: Option<DataTableReference>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub forked_from: Option<DataTableForkedFrom>,
     /// Whether the SQL-migrations feature is opted in for this data table.
@@ -1027,22 +1311,85 @@ pub struct DataTable {
     /// when migrations already exist (see `datatable_migrations_enabled`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub migrations_enabled: Option<bool>,
+    /// Who may connect as which role. Absent = unpermissioned: every caller connects as `admin`,
+    /// which is how data tables behaved before roles existed. Only meaningful on a terminal entry;
+    /// a pointer is governed by what it points at.
+    ///
+    /// Never leaves the instance: stripped from the workspace export and ignored on import, since
+    /// tenants are workspace-scoped names and syncing them would make repo write access a second
+    /// door onto the access decision.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permissions: Option<DataTablePermissions>,
 }
 
-#[derive(Deserialize, Serialize, Debug)]
+/// A pointer at another workspace's data table entry.
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
+pub struct DataTableReference {
+    pub workspace_id: String,
+    pub datatable: String,
+}
+
+/// The access decision for one data table: which role a caller gets, and who may ask for each.
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+pub struct DataTablePermissions {
+    /// A role id from the instance catalog, or `admin`. Absent = `admin`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_role: Option<String>,
+    /// Keyed by instance role id, plus the reserved `admin` key. A role absent from this map
+    /// cannot be used on this data table at all, whatever the instance catalog says.
+    #[serde(default)]
+    pub roles: std::collections::BTreeMap<String, DataTableRoleTenants>,
+}
+
+impl DataTablePermissions {
+    pub fn default_role(&self) -> &str {
+        self.default_role.as_deref().unwrap_or(ADMIN_DATATABLE_ROLE)
+    }
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+pub struct DataTableRoleTenants {
+    /// `u/<user>`, `g/<group>`, `f/<folder>`, or `*` for every member.
+    #[serde(default)]
+    pub tenants: Vec<String>,
+}
+
+/// Every member of the governing workspace.
+pub const DATATABLE_TENANT_WILDCARD: &str = "*";
+
+/// How deep a chain of pointer entries may go before it is called a loop. Data tables are not
+/// expected to chain at all — a fork points at its parent — so this only has to be generous
+/// enough to survive a fork of a fork.
+const DATATABLE_REFERENCE_MAX_DEPTH: usize = 20;
+
+/// Exactly one of `database` and `reference` must be set. Called wherever an entry is persisted,
+/// so nothing downstream has to handle an entry that is both or neither.
+pub fn validate_datatable_shape(name: &str, dt: &DataTable) -> Result<()> {
+    match (&dt.database, &dt.reference) {
+        (Some(_), None) | (None, Some(_)) => Ok(()),
+        (Some(_), Some(_)) => Err(Error::BadRequest(format!(
+            "Data table '{name}' both owns a database and points at another one"
+        ))),
+        (None, None) => Err(Error::BadRequest(format!(
+            "Data table '{name}' names neither a database nor another data table"
+        ))),
+    }
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct DataTableForkedFrom {
     /// Schema snapshot at fork time
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub schema: Option<serde_json::Value>,
 }
 
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct DataTableDatabase {
     pub resource_type: DataTableCatalogResourceType,
     pub resource_path: String,
 }
 
-#[derive(Deserialize, Serialize, Debug, PartialEq)]
+#[derive(Deserialize, Serialize, Debug, PartialEq, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
 #[derive(AsRefStr)]
 #[strum(serialize_all = "lowercase")]
@@ -1078,37 +1425,13 @@ fn datatable_not_found_error(name: &str, datatables: Option<&serde_json::Value>)
     ))
 }
 
-pub async fn get_datatable_resource_from_db_unchecked(
-    db: &DB,
-    w_id: &str,
-    name: &str,
-) -> Result<serde_json::Value> {
-    get_datatable_resource_inner(db, w_id, name, false).await
-}
-
-/// Same as [`get_datatable_resource_from_db_unchecked`] but for postgres trigger
-/// connections: custom-instance datatables resolve to
-/// `custom_instance_replication_user` rather than `custom_instance_user`. BYO-postgres
-/// datatables resolve to the user's own resource unchanged; configuring it for
-/// replication there is the user's responsibility.
+/// Read one workspace's data table entry, without following a pointer.
 ///
-/// Authorization: like its `_unchecked` sibling, returns resolved connection
-/// credentials and performs no authorization — callers MUST have already authorized
-/// access to the datatable (e.g. the trigger's own create-time check).
-pub async fn get_datatable_replication_resource_from_db_unchecked(
-    db: &DB,
-    w_id: &str,
-    name: &str,
-) -> Result<serde_json::Value> {
-    get_datatable_resource_inner(db, w_id, name, true).await
-}
-
-async fn get_datatable_resource_inner(
-    db: &DB,
-    w_id: &str,
-    name: &str,
-    replication: bool,
-) -> Result<serde_json::Value> {
+/// Disclosure: this is the primitive [`resolve_governing_datatable`] calls on every path, so it is
+/// deliberately open to anything that has to resolve a data table, including for a workspace the
+/// caller does not belong to. What it returns is not: callers MUST NOT put `permissions` into a
+/// response, an export or a log — it names the governing workspace's users, groups and folders.
+pub async fn read_datatable_entry(db: &DB, w_id: &str, name: &str) -> Result<DataTable> {
     let datatables = sqlx::query_scalar!(
         r#"
             SELECT ws.datatable->'datatables' AS datatables
@@ -1126,37 +1449,590 @@ async fn get_datatable_resource_inner(
         .and_then(|d| d.get(name))
         .filter(|v| !v.is_null())
         .ok_or_else(|| datatable_not_found_error(name, datatables.as_ref()))?;
-    let datatable = serde_json::from_value::<DataTable>(datatable.clone())?;
+    Ok(serde_json::from_value::<DataTable>(datatable.clone())?)
+}
 
-    let db_resource = if datatable.database.resource_type == DataTableCatalogResourceType::Instance
-    {
+/// The terminal entry a reference chain lands on: the workspace that governs the data table, the
+/// entry name there, and the entry itself. A terminal entry resolves to itself.
+///
+/// Every decision downstream — which database to connect to, whose `permissions` apply, whose
+/// members tenants are evaluated against, who may administer it — is taken on this, never on the
+/// entry the caller named.
+///
+/// Authorization: resolving deliberately crosses into the governing workspace, so it answers for a
+/// workspace the caller may not belong to and checks nothing itself. It is the input to the
+/// checks, not one of them: callers MUST pass what it returns to
+/// [`can_use_datatable_role_in_governing_workspace`] or [`ensure_datatable_admin_access`] before
+/// acting on it, and MUST NOT return its `permissions` or `workspace_id` to a caller from
+/// elsewhere without gating on the answer.
+pub struct GoverningDatatable {
+    pub workspace_id: String,
+    pub name: String,
+    pub datatable: DataTable,
+}
+
+impl GoverningDatatable {
+    /// Backed by the Windmill instance's own Postgres, which is the only substrate data table
+    /// roles apply to.
+    pub fn is_instance(&self) -> bool {
+        self.datatable
+            .database
+            .as_ref()
+            .is_some_and(|d| d.resource_type == DataTableCatalogResourceType::Instance)
+    }
+}
+
+pub async fn resolve_governing_datatable(
+    db: &DB,
+    w_id: &str,
+    name: &str,
+) -> Result<GoverningDatatable> {
+    let mut workspace_id = w_id.to_string();
+    let mut name = name.to_string();
+    let mut hops = 0;
+    for _ in 0..DATATABLE_REFERENCE_MAX_DEPTH {
+        let datatable = read_datatable_entry(db, &workspace_id, &name)
+            .await
+            .map_err(|e| {
+                if hops == 0 {
+                    e
+                } else {
+                    // A pointer outlives the workspace it names: deleting one only nulls the fork
+                    // lineage, it does not sweep the entries that pointed at it. Say which one is
+                    // gone rather than reporting a data table this workspace never had.
+                    Error::NotFound(format!(
+                        "Data table '{name}' of workspace '{workspace_id}' governs this one and no \
+                         longer exists. A superadmin can point this data table somewhere else."
+                    ))
+                }
+            })?;
+        hops += 1;
+        validate_datatable_shape(&name, &datatable)?;
+        match &datatable.reference {
+            None => return Ok(GoverningDatatable { workspace_id, name, datatable }),
+            Some(reference) => {
+                workspace_id = reference.workspace_id.clone();
+                name = reference.datatable.clone();
+            }
+        }
+    }
+    Err(Error::BadRequest(format!(
+        "Data table '{name}' points at another data table through more than \
+         {DATATABLE_REFERENCE_MAX_DEPTH} hops; the chain is likely a loop"
+    )))
+}
+
+/// Every entry of a workspace resolved as [`resolve_governing_datatable`] resolves one, in stored
+/// order, reading the settings rows one pointer hop at a time rather than once per entry. An entry
+/// that does not resolve — malformed, a dangling pointer, a loop — is left out. Same authorization
+/// contract as the single resolution: it checks nothing.
+pub async fn resolve_workspace_governing_datatables(
+    db: &DB,
+    w_id: &str,
+) -> Result<Vec<(String, GoverningDatatable)>> {
+    type Entries =
+        std::collections::HashMap<String, std::collections::HashMap<String, serde_json::Value>>;
+    async fn load(db: &DB, workspaces: &[String], entries: &mut Entries) -> Result<Vec<String>> {
+        let rows: Vec<(String, String, serde_json::Value)> = sqlx::query_as(
+            "SELECT ws.workspace_id, dt.key, dt.value FROM workspace_settings ws
+             CROSS JOIN LATERAL jsonb_each(COALESCE(ws.datatable->'datatables', '{}'::jsonb)) dt
+             WHERE ws.workspace_id = ANY($1)",
+        )
+        .bind(workspaces)
+        .fetch_all(db)
+        .await?;
+        for ws in workspaces {
+            entries.entry(ws.clone()).or_default();
+        }
+        let mut keys = Vec::with_capacity(rows.len());
+        for (ws, key, value) in rows {
+            keys.push(key.clone());
+            entries.entry(ws).or_default().insert(key, value);
+        }
+        Ok(keys)
+    }
+
+    let mut entries = Entries::new();
+    let listed = load(db, &[w_id.to_string()], &mut entries).await?;
+    // (index into `listed`, workspace, entry name) still to be followed.
+    let mut cursors: Vec<(usize, String, String)> = listed
+        .iter()
+        .enumerate()
+        .map(|(i, name)| (i, w_id.to_string(), name.clone()))
+        .collect();
+    let mut resolved: Vec<(usize, GoverningDatatable)> = vec![];
+
+    for _ in 0..DATATABLE_REFERENCE_MAX_DEPTH {
+        let mut next = vec![];
+        for (i, ws, name) in cursors.drain(..) {
+            let Some(value) = entries
+                .get(&ws)
+                .and_then(|m| m.get(&name))
+                .filter(|v| !v.is_null())
+            else {
+                continue;
+            };
+            let Ok(datatable) = serde_json::from_value::<DataTable>(value.clone()) else {
+                continue;
+            };
+            if validate_datatable_shape(&name, &datatable).is_err() {
+                continue;
+            }
+            match &datatable.reference {
+                None => {
+                    resolved.push((i, GoverningDatatable { workspace_id: ws, name, datatable }))
+                }
+                Some(reference) => next.push((
+                    i,
+                    reference.workspace_id.clone(),
+                    reference.datatable.clone(),
+                )),
+            }
+        }
+        if next.is_empty() {
+            break;
+        }
+        let to_load: Vec<String> = next
+            .iter()
+            .map(|(_, ws, _)| ws.clone())
+            .filter(|ws| !entries.contains_key(ws))
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        if !to_load.is_empty() {
+            load(db, &to_load, &mut entries).await?;
+        }
+        cursors = next;
+    }
+
+    resolved.sort_by_key(|(i, _)| *i);
+    Ok(resolved
+        .into_iter()
+        .map(|(i, governing)| (listed[i].clone(), governing))
+        .collect())
+}
+
+/// Build the `admin` connection for a governing entry: `custom_instance_user` for an instance
+/// database, the user's own resource for a BYO-postgres one.
+async fn resolve_datatable_connection_unchecked(
+    db: &DB,
+    governing: &GoverningDatatable,
+    replication: bool,
+) -> Result<serde_json::Value> {
+    let database = governing
+        .datatable
+        .database
+        .as_ref()
+        .expect("a governing entry owns a database");
+    if database.resource_type == DataTableCatalogResourceType::Instance {
         let mut pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
-        pg_creds.dbname = datatable.database.resource_path.clone();
+        pg_creds.dbname = database.resource_path.clone();
         if replication {
             pg_creds.user = Some("custom_instance_replication_user".to_string());
             pg_creds.password = Some(get_custom_pg_instance_replication_password(&db).await?);
         } else {
-            pg_creds.user = Some("custom_instance_user".to_string());
+            pg_creds.user = Some(CUSTOM_INSTANCE_USER.to_string());
             pg_creds.password = Some(get_custom_pg_instance_password(&db).await?);
         }
         serde_json::to_value(&pg_creds)
-            .map_err(|e| Error::internal_err(format!("Error serializing pg creds: {}", e)))?
+            .map_err(|e| Error::internal_err(format!("Error serializing pg creds: {}", e)))
     } else {
         // Name the data table too: the caller asked for one by name, and a bare
         // "resource f/x/y does not exist" leaves them to work out which one points at it.
         transform_json_unchecked(
-            &serde_json::Value::String(format!("$res:{}", datatable.database.resource_path)),
-            w_id,
+            &serde_json::Value::String(format!("$res:{}", database.resource_path)),
+            &governing.workspace_id,
             db,
         )
         .await
         .map_err(|e| match e {
-            Error::NotFound(m) => Error::NotFound(format!("data table {name}: {m}")),
+            Error::NotFound(m) => Error::NotFound(format!("data table {}: {m}", governing.name)),
             e => e,
-        })?
+        })
+    }
+}
+
+/// Resolve a data table to connection credentials **without authorizing anything**: always the
+/// `admin` connection.
+///
+/// Authorization: callers MUST have authorized access already. Anything that acts for a user or a
+/// job wants [`get_datatable_resource_from_db`] instead.
+pub async fn get_datatable_resource_from_db_unchecked(
+    db: &DB,
+    w_id: &str,
+    name: &str,
+) -> Result<serde_json::Value> {
+    let governing = resolve_governing_datatable(db, w_id, name).await?;
+    resolve_datatable_connection_unchecked(db, &governing, false).await
+}
+
+/// Same as [`get_datatable_resource_from_db_unchecked`] but for postgres trigger
+/// connections: custom-instance datatables resolve to
+/// `custom_instance_replication_user` rather than `custom_instance_user`. BYO-postgres
+/// datatables resolve to the user's own resource unchanged; configuring it for
+/// replication there is the user's responsibility.
+///
+/// Authorization: a replication connection reads every row whatever the roles grant, so no role or
+/// admin check makes it safe. Callers MUST refuse a data table under roles outright — the Postgres
+/// trigger crate's `ensure_not_under_roles` — and turning roles on is refused while one streams.
+pub async fn get_datatable_replication_resource_from_db_unchecked(
+    db: &DB,
+    w_id: &str,
+    name: &str,
+) -> Result<serde_json::Value> {
+    let governing = resolve_governing_datatable(db, w_id, name).await?;
+    resolve_datatable_connection_unchecked(db, &governing, true).await
+}
+
+/// The identity a resolution is made for. `Unchecked` is for callers that authorized already;
+/// everything else is checked against the governing entry's tenants.
+pub enum DatatableAccess<'a> {
+    /// Reaches every role. For callers that already authorized, or that have no user at all.
+    Unchecked,
+    Authed(crate::db::AuthedRef<'a>),
+    /// A job's owner, without reading the job row — only fetched if the data table turns out to
+    /// be permissioned.
+    PermissionedAs {
+        permissioned_as: &'a str,
+        email: &'a str,
+    },
+    /// A job identified by id; its owner is read from `v2_job`. For agent workers and anything
+    /// else that authenticates as infrastructure rather than as the job's user.
+    Job(uuid::Uuid),
+    /// No identity established. Unpermissioned data tables resolve as before; permissioned ones
+    /// are refused, so a caller predating this feature fails closed.
+    NoIdentity,
+}
+
+/// Does one tenant list cover this identity? Admins of the governing workspace pass everything —
+/// they can edit the tenant lists anyway, so refusing them would only be theatre.
+pub fn can_use_datatable_role(
+    tenants: &DataTableRoleTenants,
+    authed: &crate::db::AuthedRef<'_>,
+) -> bool {
+    crate::datatable_roles_oss::can_use_datatable_role(tenants, authed)
+}
+
+/// Evaluate a tenant list **as a member of the governing workspace**, whoever is calling.
+///
+/// A caller reaching a data table through a pointer is a member of some other workspace, and being
+/// its admin means nothing here — that is the whole point of the pointer. They are looked up in
+/// the governing workspace by email and evaluated there, or refused when they are not a member.
+/// A `g/` or `f/` permissioned-as from a foreign workspace is refused outright: those names are
+/// defined per workspace and mean nothing outside the one that defined them.
+pub async fn can_use_datatable_role_in_governing_workspace(
+    db: &DB,
+    governing_w_id: &str,
+    w_id: &str,
+    tenants: &DataTableRoleTenants,
+    access: &DatatableAccess<'_>,
+) -> Result<bool> {
+    crate::datatable_roles_oss::can_use_datatable_role_in_governing_workspace(
+        db,
+        governing_w_id,
+        w_id,
+        tenants,
+        access,
+    )
+    .await
+}
+
+/// Resolve a data table to connection credentials for one identity.
+///
+/// This is the chokepoint: everything that opens a connection to a data table on someone's behalf
+/// goes through it. `role` is the role name the caller asked for — the `-- role` annotation, the
+/// `?role=` on a `datatable://` reference, or `None` for the data table's default.
+///
+/// The resolved role **logs in as itself**. Never `SET ROLE`: a script could `RESET ROLE` its way
+/// back to admin.
+pub async fn get_datatable_resource_from_db(
+    db: &DB,
+    w_id: &str,
+    name: &str,
+    role: Option<&str>,
+    access: DatatableAccess<'_>,
+) -> Result<serde_json::Value> {
+    let governing = resolve_governing_datatable(db, w_id, name).await?;
+    let db_resource = resolve_datatable_connection_unchecked(db, &governing, false).await?;
+    // Not under roles and asked for none, or for `admin` by name: the `admin` connection, as before
+    // roles existed, in every edition. Anything else is a role decision. Every migration names
+    // `admin` explicitly, so an edition without roles must not treat that as one.
+    if governing.datatable.permissions.is_none() && role.is_none_or(|r| r == ADMIN_DATATABLE_ROLE) {
+        return Ok(db_resource);
+    }
+    crate::datatable_roles_oss::resolve_datatable_role_connection(
+        db,
+        w_id,
+        name,
+        &governing,
+        db_resource,
+        role,
+        access,
+    )
+    .await
+}
+
+/// Would the chokepoint accept this identity connecting as this role? Answers without resolving
+/// credentials, for callers that want to refuse early and say which thing was refused.
+///
+/// Not the security boundary — [`get_datatable_resource_from_db`] re-checks when it actually opens
+/// the connection. This is what turns "permission denied for table x" into a message naming the
+/// migration and the role.
+pub async fn ensure_can_use_datatable_role(
+    db: &DB,
+    w_id: &str,
+    name: &str,
+    role: Option<&str>,
+    access: &DatatableAccess<'_>,
+    context: &str,
+) -> Result<()> {
+    crate::datatable_roles_oss::ensure_can_use_datatable_role(db, w_id, name, role, access, context)
+        .await
+}
+
+/// Gate the operations that see the whole database whatever the roles grant: a migration that
+/// declares no role, exports, and editing the permissions themselves. Not replication, which a
+/// data table under roles refuses whoever asks (see `ensure_not_under_roles`). Passing
+/// means the caller could have connected as `admin` anyway.
+pub async fn ensure_datatable_admin_access(
+    db: &DB,
+    w_id: &str,
+    name: &str,
+    access: &DatatableAccess<'_>,
+) -> Result<()> {
+    crate::datatable_roles_oss::ensure_datatable_admin_access(db, w_id, name, access).await
+}
+
+/// Rewrite the `permissions` of every data table entry of one workspace, in the caller's
+/// transaction. `change` reports whether it touched anything; the row is only written when
+/// something did.
+///
+/// Authorization: writes an access decision for any workspace named, with an arbitrary mutation,
+/// and checks nothing. It exists for the cascades below — the transaction that frees or renames a
+/// principal — so callers MUST be the operation that made the principal change, and MUST run in
+/// its transaction. Anything editing a decision on purpose belongs in the permissions endpoint,
+/// which is gated on the workspace that governs the data table.
+///
+/// The tenant lists name principals of this workspace, so anything that frees or renames one has
+/// to come through here in the same transaction that frees it — otherwise a `u/alice` reused by a
+/// later account silently inherits her access.
+pub async fn update_datatable_permissions_in_workspace<F>(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    w_id: &str,
+    change: F,
+) -> Result<()>
+where
+    F: Fn(&mut DataTablePermissions) -> bool,
+{
+    let Some(mut settings) = sqlx::query_scalar!(
+        "SELECT datatable FROM workspace_settings WHERE workspace_id = $1 FOR UPDATE",
+        w_id
+    )
+    .fetch_optional(&mut **tx)
+    .await?
+    .flatten() else {
+        return Ok(());
     };
 
-    Ok(db_resource)
+    let Some(datatables) = settings
+        .get_mut("datatables")
+        .and_then(|d| d.as_object_mut())
+    else {
+        return Ok(());
+    };
+
+    let mut touched = false;
+    for entry in datatables.values_mut() {
+        let Some(permissions) = entry.get("permissions").filter(|p| !p.is_null()) else {
+            continue;
+        };
+        let Ok(mut permissions) =
+            serde_json::from_value::<DataTablePermissions>(permissions.clone())
+        else {
+            continue;
+        };
+        if change(&mut permissions) {
+            entry["permissions"] = serde_json::to_value(&permissions)
+                .map_err(|e| Error::internal_err(format!("serializing permissions: {e}")))?;
+            touched = true;
+        }
+    }
+
+    if touched {
+        sqlx::query!(
+            "UPDATE workspace_settings SET datatable = $1 WHERE workspace_id = $2",
+            settings,
+            w_id
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
+    Ok(())
+}
+
+/// Drop a freed principal (`u/alice`, `g/analysts`, `f/finance`) from every tenant list of one
+/// workspace. Same contract as [`update_datatable_permissions_in_workspace`]: for the transaction
+/// that frees the principal, not for editing a decision.
+pub async fn remove_datatable_tenant_in_workspace(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    w_id: &str,
+    tenant: &str,
+) -> Result<()> {
+    update_datatable_permissions_in_workspace(tx, w_id, |permissions| {
+        let mut touched = false;
+        for role in permissions.roles.values_mut() {
+            let before = role.tenants.len();
+            role.tenants.retain(|t| t != tenant);
+            touched |= role.tenants.len() != before;
+        }
+        touched
+    })
+    .await
+}
+
+/// Follow a renamed principal through every tenant list of one workspace. Same contract as
+/// [`update_datatable_permissions_in_workspace`].
+pub async fn rename_datatable_tenant_in_workspace(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    w_id: &str,
+    old: &str,
+    new: &str,
+) -> Result<()> {
+    update_datatable_permissions_in_workspace(tx, w_id, |permissions| {
+        let mut touched = false;
+        for role in permissions.roles.values_mut() {
+            let mut role_touched = false;
+            for tenant in role.tenants.iter_mut() {
+                if tenant == old {
+                    *tenant = new.to_string();
+                    role_touched = true;
+                }
+            }
+            if role_touched {
+                // The rename can collide with a name already in the list, and the two need not be
+                // adjacent — `Vec::dedup` only collapses neighbours, so it would leave the pair.
+                let mut seen = std::collections::HashSet::new();
+                role.tenants.retain(|t| seen.insert(t.clone()));
+                touched = true;
+            }
+        }
+        touched
+    })
+    .await
+}
+
+/// Strip a deleted instance role from every workspace that had tenanted it, so nothing is left
+/// naming a role that no longer exists.
+///
+/// Authorization: reaches every workspace on the instance. Callers MUST be the superadmin path
+/// dropping the role from the cluster — it exists to follow that, not to edit tenants.
+///
+/// Takes that path's transaction rather than opening its own: run afterwards, a failure part-way
+/// leaves the catalog row already gone, so the retry answers `NotFound` while some workspaces
+/// still name a role nothing can connect as. In the transaction, the cluster drop, the catalog row
+/// and every tenant list commit together or not at all. A data table whose default role was the deleted one falls
+/// back to `admin` — the one role that is always present.
+pub async fn forget_datatable_role_everywhere(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    role_id: &str,
+) -> Result<()> {
+    crate::datatable_roles_oss::forget_datatable_role_everywhere(tx, role_id).await
+}
+
+/// Drop the `permissions` block from a `workspace_settings.datatable` value before it leaves the
+/// server.
+///
+/// Who may connect as which role is an access decision, not configuration, and its tenants name
+/// principals of one workspace — `g/analysts` in dev is a different group from `g/analysts` in
+/// prod. Shipping it would both mean nothing at the far end and turn a settings push into a way to
+/// widen access, so the decision stays where it was made. [`DataTable`] deserializes fine without
+/// it, and the settings-editing endpoint carries the stored block across untouched.
+pub fn strip_datatable_permissions(
+    datatable: Option<serde_json::Value>,
+) -> Option<serde_json::Value> {
+    let mut datatable = datatable?;
+    if let Some(entries) = datatable
+        .get_mut("datatables")
+        .and_then(|d| d.as_object_mut())
+    {
+        for entry in entries.values_mut() {
+            if let Some(entry) = entry.as_object_mut() {
+                entry.remove("permissions");
+            }
+        }
+    }
+    Some(datatable)
+}
+
+/// As [`parse_datatable_ref`], except that an entry whose stored name itself contains `?` — which
+/// names could before they were restricted — resolves by that exact name, without a role. It is
+/// looked up first, so `sales?role=x` never reaches a different entry than the one stored so.
+///
+/// Authorization: checks nothing, and its answer reveals whether `w_id` stores that exact name.
+/// Callers MUST already act for `w_id` — a job of it, or a caller authenticated into it — and
+/// MUST still pass the name to [`get_datatable_resource_from_db`] or an admin-access check.
+pub async fn parse_datatable_ref_for(
+    db: &DB,
+    w_id: &str,
+    reference: &str,
+) -> Result<(String, Option<String>)> {
+    if reference.contains('?') {
+        let exists = sqlx::query_scalar::<_, Option<bool>>(
+            "SELECT (datatable->'datatables') ? $2 FROM workspace_settings WHERE workspace_id = $1",
+        )
+        .bind(w_id)
+        .bind(reference)
+        .fetch_optional(db)
+        .await?
+        .flatten()
+        .unwrap_or(false);
+        if exists {
+            return Ok((reference.to_string(), None));
+        }
+    }
+    let (name, role) = parse_datatable_ref(reference)?;
+    Ok((name.to_string(), role.map(str::to_string)))
+}
+
+/// Split a `datatable://` reference into its name and the role its query string names.
+///
+/// A query string that does not parse is an error rather than an absent role. Falling back would
+/// resolve the reference to the data table's default role, so `?Role=analytics` or a mistyped
+/// `?role=` would quietly connect as something the caller did not ask for — the same trap as a
+/// malformed `-- role` annotation, and `role` is the only parameter a reference takes.
+pub fn parse_datatable_ref(reference: &str) -> Result<(&str, Option<&str>)> {
+    let (name, query) = reference.split_once('?').unwrap_or((reference, ""));
+    let mut role = None;
+    for param in query.split('&').filter(|p| !p.is_empty()) {
+        let (key, value) = param.split_once('=').unwrap_or((param, ""));
+        if !key.eq_ignore_ascii_case("role") {
+            return Err(Error::BadRequest(format!(
+                "Data table reference '{name}' carries an unknown parameter '{key}'. \
+                 The only one it takes is `?role=<name>`."
+            )));
+        }
+        if role.is_some() {
+            return Err(Error::BadRequest(format!(
+                "Data table reference '{name}' names a role more than once."
+            )));
+        }
+        if value.is_empty() || !is_datatable_role_name(value) {
+            return Err(Error::BadRequest(format!(
+                "Data table reference '{name}' has a malformed role '{value}'. Write it as \
+                 `?role=<name>`, where <name> is letters, digits, '_' or '-'."
+            )));
+        }
+        role = Some(value);
+    }
+    Ok((name, role))
+}
+
+fn is_datatable_role_name(role: &str) -> bool {
+    !role.is_empty()
+        && role.len() <= 63
+        && role
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -1511,6 +2387,48 @@ pub async fn workspace_with_fork_ancestors(db: &crate::DB, w_id: &str) -> Result
     chain.push(w_id.to_string());
     chain.extend(fork_ancestor_chain(db, w_id).await?);
     Ok(chain)
+}
+
+/// The nearest fork ancestor of `w_id` holding a row at `path` in `table`, or `None` when no
+/// ancestor does (or `w_id` is not a fork). Fork creation clones trigger and schedule rows down
+/// the whole chain, so a row shares its upstream identifier (Kafka group, PG slot, cron) with
+/// every ancestor that still has one, not just the direct parent, which may have deleted its
+/// copy since.
+///
+/// Runs on the caller's connection so it sees the caller's transaction, and uncached: the
+/// answer depends on the target table, not only on lineage.
+///
+/// `table` is interpolated into SQL, hence `'static`: a trigger's `TABLE_NAME` or a literal,
+/// never caller input. Reads lineage for any `w_id` with no authorization check, like
+/// [`fork_ancestor_chain`], so the caller must already be authorized for `w_id`.
+pub async fn nearest_fork_ancestor_having(
+    conn: &mut sqlx::PgConnection,
+    table: &'static str,
+    w_id: &str,
+    path: &str,
+) -> Result<Option<String>> {
+    sqlx::query_scalar(&format!(
+        r#"
+            WITH RECURSIVE chain AS (
+                SELECT id, parent_workspace_id, 0 AS depth
+                FROM workspace WHERE id = $1
+                UNION ALL
+                SELECT w.id, w.parent_workspace_id, chain.depth + 1
+                FROM workspace w
+                JOIN chain ON w.id = chain.parent_workspace_id
+                WHERE chain.depth < 20
+            )
+            SELECT chain.id FROM chain
+            JOIN {table} t ON t.workspace_id = chain.id AND t.path = $2
+            WHERE chain.depth > 0
+            ORDER BY chain.depth LIMIT 1
+        "#
+    ))
+    .bind(w_id)
+    .bind(path)
+    .fetch_optional(&mut *conn)
+    .await
+    .map_err(|e| Error::internal_err(format!("resolving fork ancestors of {w_id}: {e:#}")))
 }
 
 lazy_static::lazy_static! {
@@ -2325,6 +3243,130 @@ async fn transform_json_unchecked(
 mod tests {
     use super::*;
 
+    fn tenants(list: &[&str]) -> DataTableRoleTenants {
+        DataTableRoleTenants { tenants: list.iter().map(|t| t.to_string()).collect() }
+    }
+
+    #[cfg(all(feature = "private", feature = "enterprise"))]
+    #[test]
+    fn a_tenant_list_covers_users_groups_folders_and_the_wildcard() {
+        let groups = vec!["analysts".to_string()];
+        let folders = vec![("finance".to_string(), true, false)];
+        let scopes = None;
+        let token_prefix = None;
+        let is_admin = false;
+        let is_operator = false;
+        let authed = crate::db::AuthedRef {
+            email: "alice@windmill.dev",
+            username: "alice",
+            is_admin: &is_admin,
+            is_operator: &is_operator,
+            groups: &groups,
+            folders: &folders,
+            scopes: &scopes,
+            token_prefix: &token_prefix,
+        };
+
+        assert!(can_use_datatable_role(&tenants(&["u/alice"]), &authed));
+        assert!(can_use_datatable_role(&tenants(&["g/analysts"]), &authed));
+        assert!(can_use_datatable_role(&tenants(&["f/finance"]), &authed));
+        assert!(can_use_datatable_role(&tenants(&["*"]), &authed));
+        assert!(!can_use_datatable_role(&tenants(&[]), &authed));
+        assert!(!can_use_datatable_role(
+            &tenants(&["u/bob", "g/ops"]),
+            &authed
+        ));
+        // A bare name is not a principal: only the three prefixes and the wildcard match.
+        assert!(!can_use_datatable_role(&tenants(&["alice"]), &authed));
+
+        // An admin of the governing workspace reaches every role: they can edit the lists anyway.
+        let is_admin = true;
+        let admin = crate::db::AuthedRef { is_admin: &is_admin, ..authed };
+        assert!(can_use_datatable_role(&tenants(&[]), &admin));
+    }
+
+    #[cfg(not(all(feature = "private", feature = "enterprise")))]
+    #[test]
+    fn without_the_enterprise_edition_no_tenant_list_covers_anyone() {
+        let groups = vec![];
+        let folders = vec![];
+        let scopes = None;
+        let token_prefix = None;
+        let is_admin = true;
+        let is_operator = false;
+        let admin = crate::db::AuthedRef {
+            email: "alice@windmill.dev",
+            username: "alice",
+            is_admin: &is_admin,
+            is_operator: &is_operator,
+            groups: &groups,
+            folders: &folders,
+            scopes: &scopes,
+            token_prefix: &token_prefix,
+        };
+        assert!(!can_use_datatable_role(&tenants(&["*"]), &admin));
+        assert!(!can_use_datatable_role(&tenants(&["u/alice"]), &admin));
+    }
+
+    #[test]
+    fn a_datatable_ref_splits_off_its_role() {
+        assert_eq!(parse_datatable_ref("sales").unwrap(), ("sales", None));
+        assert_eq!(
+            parse_datatable_ref("sales?role=analytics").unwrap(),
+            ("sales", Some("analytics"))
+        );
+        // The key matches case-insensitively, the way the `-- role` annotation does.
+        assert_eq!(
+            parse_datatable_ref("sales?Role=analytics").unwrap(),
+            ("sales", Some("analytics"))
+        );
+
+        // A query string that does not parse is refused rather than read as "no role": resolving
+        // it to the data table's default would connect as a login the caller never asked for.
+        for malformed in [
+            "sales?role=",
+            "sales?role=an;alytics",
+            "sales?x=1&role=analytics",
+            "sales?role=a&role=b",
+        ] {
+            assert!(
+                parse_datatable_ref(malformed).is_err(),
+                "silently ignored: {malformed}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_entry_owns_a_database_or_points_at_one_but_never_both() {
+        let terminal = DataTable {
+            database: Some(DataTableDatabase {
+                resource_type: DataTableCatalogResourceType::Instance,
+                resource_path: "dt_main".to_string(),
+            }),
+            reference: None,
+            forked_from: None,
+            migrations_enabled: None,
+            permissions: None,
+        };
+        assert!(validate_datatable_shape("main", &terminal).is_ok());
+
+        let pointer = DataTable {
+            database: None,
+            reference: Some(DataTableReference {
+                workspace_id: "prod".to_string(),
+                datatable: "main".to_string(),
+            }),
+            ..terminal.clone()
+        };
+        assert!(validate_datatable_shape("main", &pointer).is_ok());
+
+        let both = DataTable { database: terminal.database.clone(), ..pointer.clone() };
+        assert!(validate_datatable_shape("main", &both).is_err());
+
+        let neither = DataTable { database: None, reference: None, ..terminal.clone() };
+        assert!(validate_datatable_shape("main", &neither).is_err());
+    }
+
     #[test]
     fn test_parse_fork_branch() {
         // Generated fork (`wm-fork-abc`) and dev workspace (`staging`) forms.
@@ -2440,6 +3482,7 @@ mod tests {
             webhook_secret: None,
             webhook_url: None,
             webhook_error: None,
+            enabled_by: None,
             last_synced_sha: synced
                 .iter()
                 .map(|(r, s)| (r.to_string(), s.to_string()))
@@ -2803,4 +3846,18 @@ pub async fn dbt_warehouse_resource(
         .and_then(|t| t.as_str())
         .map(|t| t.to_string());
     Ok((path, target))
+}
+
+#[cfg(test)]
+mod guest_allowance_tests {
+    use super::*;
+
+    #[test]
+    fn guest_seats_round_up_past_the_allowance() {
+        assert_eq!(guest_seats(0), 0);
+        assert_eq!(guest_seats(FREE_GUESTS_PER_WINDOW), 0);
+        assert_eq!(guest_seats(FREE_GUESTS_PER_WINDOW + 1), 1);
+        assert_eq!(guest_seats(FREE_GUESTS_PER_WINDOW + GUESTS_PER_SEAT), 1);
+        assert_eq!(guest_seats(FREE_GUESTS_PER_WINDOW + GUESTS_PER_SEAT + 1), 2);
+    }
 }
