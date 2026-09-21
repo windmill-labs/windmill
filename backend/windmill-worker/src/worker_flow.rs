@@ -68,10 +68,11 @@ use windmill_common::{
 use windmill_queue::schedule::get_schedule_opt;
 use windmill_queue::{
     add_completed_job, add_completed_job_error, append_logs, check_tag_available_for_push,
-    get_mini_pulled_job, insert_concurrency_key_capped, interpolate_args, render_tag_path,
-    report_error_to_workspace_handler_or_critical_side_channel, tag_reads_args,
-    tag_reads_flow_expr, try_schedule_next_job, CanceledBy, FlowRunners, MiniCompletedJob,
-    MiniPulledJob, PushArgs, PushIsolationLevel, SameWorkerPayload, WrappedError, RE_FLOW_EXPR_TAG,
+    check_tag_written_as_available_for_push, get_mini_pulled_job, insert_concurrency_key_capped,
+    render_tag_path, report_error_to_workspace_handler_or_critical_side_channel, resolve_push_tag,
+    tag_reads_args, tag_reads_flow_expr, try_schedule_next_job, CanceledBy, FlowRunners,
+    MiniCompletedJob, MiniPulledJob, PushArgs, PushIsolationLevel, SameWorkerPayload, WrappedError,
+    RE_FLOW_EXPR_TAG,
 };
 
 use windmill_audit::audit_oss::audit_log;
@@ -1519,15 +1520,6 @@ pub async fn update_flow_status_after_job_completion_internal(
                         .is_some_and(|ck| ck.contains("$args"))
             });
             let require_args = concurrency_requires_args || has_debouncing;
-            let mut tag = tag_and_concurrency_key.as_ref().and_then(|x| x.tag.clone());
-            // `$workspace` does not depend on the preprocessor's output, so it has to resolve even
-            // when nothing forced us to fetch args. Leaving it to the `$args` branch below writes a
-            // `$workspace`-only tag back verbatim, naming a queue no worker serves.
-            if let Some(t) = tag.as_ref().filter(|t| t.contains("$workspace")) {
-                let tag_ws =
-                    windmill_queue::tags::tag_workspace_id(&flow_job.workspace_id, db).await;
-                tag = Some(t.replace("$workspace", &tag_ws));
-            }
             let concurrency_key = tag_and_concurrency_key
                 .as_ref()
                 .and_then(|x| x.concurrency_key.clone());
@@ -1575,28 +1567,6 @@ pub async fn update_flow_status_after_job_completion_internal(
                     )
                     .await?;
                 }
-                if let Some(t) = tag {
-                    // The preprocessor's output picks this queue, which the check at push time
-                    // never saw.
-                    if tag_reads_args(&t) {
-                        let is_super_admin = windmill_common::auth::is_super_admin_email(
-                            db,
-                            &flow_job.permissioned_as_email,
-                        )
-                        .await?;
-                        check_tag_available_for_push(
-                            db,
-                            &flow_job.workspace_id,
-                            &t,
-                            &args,
-                            is_super_admin,
-                            None,
-                        )
-                        .await?;
-                    }
-                    // `$workspace` is already resolved above; this fills in `$args`.
-                    tag = Some(interpolate_args(t, &args, &flow_job.workspace_id));
-                }
             } else if concurrent_limit.is_some() {
                 insert_concurrency_key_capped(
                     &flow_job.workspace_id,
@@ -1610,6 +1580,38 @@ pub async fn update_flow_status_after_job_completion_internal(
                 )
                 .await?;
             }
+
+            // Resolved as `push` resolves a tag, so a `$flow_expr[...]` or empty one comes out as
+            // `None` and the job keeps its current tag instead of queueing on the literal text.
+            let tag = match tag_and_concurrency_key
+                .as_ref()
+                .and_then(|x| x.tag.as_deref())
+            {
+                Some(t) => {
+                    let no_args = HashMap::new();
+                    let args = PushArgs::from(fetched_args.as_ref().unwrap_or(&no_args));
+                    // The preprocessor's output picks this queue, which the check at push time
+                    // never saw.
+                    if tag_reads_args(t) {
+                        let is_super_admin = windmill_common::auth::is_super_admin_email(
+                            db,
+                            &flow_job.permissioned_as_email,
+                        )
+                        .await?;
+                        check_tag_available_for_push(
+                            db,
+                            &flow_job.workspace_id,
+                            t,
+                            &args,
+                            is_super_admin,
+                            None,
+                        )
+                        .await?;
+                    }
+                    resolve_push_tag(t, &args, &flow_job.workspace_id, db).await
+                }
+                None => None,
+            };
 
             let scheduled_for: Option<chrono::DateTime<chrono::Utc>> = {
                 #[cfg(feature = "private")]
@@ -4511,6 +4513,7 @@ async fn push_next_flow_job(
             )
         };
 
+        let written_tag = tag.clone();
         let mut tag_err = None;
         let tag = match tag {
             Some(t) if err.is_none() && tag_reads_flow_expr(&t) => {
@@ -4545,9 +4548,10 @@ async fn push_next_flow_job(
             // A step with its own on-behalf-of carries a cached dispatch address, up to one
             // notify poll stale; accepted, see `get_email_from_permissioned_as`.
             let is_super_admin = windmill_common::auth::is_super_admin_email(db, email).await?;
-            check_tag_available_for_push(
+            check_tag_written_as_available_for_push(
                 db,
                 &flow_job.workspace_id,
+                written_tag.as_deref().unwrap_or(tag_str),
                 tag_str,
                 &push_args,
                 is_super_admin,

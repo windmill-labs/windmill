@@ -109,9 +109,25 @@ impl CustomTags {
 /// text, since whoever pushes the job picks their values, and `$workspace` matches
 /// `tag_workspace`, what the job's own `$workspace` resolves to. The text around them must match
 /// as written: it is what confines `gpu-$args[size]` to the `gpu-` tags.
+///
+/// Placeholders whose values are tied, a repeat or one reading inside another, make an entry no
+/// wildcard pattern describes (`t-$args[id]-$args[id]` never resolves to `t-a-b`). Such an entry
+/// matches nothing here: it admits only a job whose tag is written exactly as the entry is.
 pub fn custom_tag_matches(entry: &str, tag: &str, tag_workspace: &str) -> bool {
     if !entry.contains('$') {
         return entry == tag;
+    }
+    let dynamic: Vec<&str> = CUSTOM_TAG_PLACEHOLDER
+        .find_iter(entry)
+        .map(|m| m.as_str())
+        .filter(|p| *p != "$workspace")
+        .collect();
+    let tied = dynamic
+        .iter()
+        .enumerate()
+        .any(|(i, a)| dynamic[i + 1..].iter().any(|b| placeholders_tied(a, b)));
+    if tied {
+        return false;
     }
     // The literal runs between wildcards, with `$workspace` substituted.
     let mut pieces = vec![];
@@ -148,6 +164,22 @@ pub fn custom_tag_matches(entry: &str, tag: &str, tag_workspace: &str) -> bool {
         }
     }
     true
+}
+
+/// Whether two `$args[...]` / `$flow_expr[...]` placeholders read the same value, or one reads a
+/// value inside the other's.
+fn placeholders_tied(a: &str, b: &str) -> bool {
+    let (Some((kind_a, path_a)), Some((kind_b, path_b))) = (a.split_once('['), b.split_once('['))
+    else {
+        return false;
+    };
+    let (path_a, path_b) = (path_a.trim_end_matches(']'), path_b.trim_end_matches(']'));
+    let inside = |outer: &str, inner: &str| {
+        inner
+            .strip_prefix(outer)
+            .is_some_and(|rest| rest.starts_with('.'))
+    };
+    kind_a == kind_b && (path_a == path_b || inside(path_a, path_b) || inside(path_b, path_a))
 }
 
 /// Marker suffixed to a workspace id inside a custom tag's scope (`mytag(prod*)`) to extend the
@@ -3139,6 +3171,12 @@ mod tests {
 
         // A bare placeholder admits every tag.
         assert!(matches("$flow_expr[results.a.tag]", "anything"));
+
+        // Tied placeholders are no pattern: their entry admits only its own text.
+        assert!(!matches("t-$args[id]-$args[id]", "t-a-a"));
+        assert!(!matches("t-$args[a]-$args[a.b]", "t-x-y"));
+        assert!(matches("t-$args[a.x]-$args[a.y]", "t-x-y"));
+        assert!(matches("t-$args[id]-$flow_expr[flow_input.id]", "t-x-y"));
 
         // `$workspace` stands for the job's own workspace only.
         assert!(matches("tag-$workspace", "tag-ws1"));

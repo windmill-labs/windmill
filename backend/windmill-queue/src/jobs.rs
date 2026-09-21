@@ -4732,13 +4732,28 @@ pub async fn check_tag_available_for_push(
     is_super_admin: bool,
     scope_tags: Option<Vec<&str>>,
 ) -> Result<(), Error> {
+    check_tag_written_as_available_for_push(db, w_id, tag, tag, args, is_super_admin, scope_tags)
+        .await
+}
+
+/// [`check_tag_available_for_push`] for a `tag` the flow runtime already partly resolved from
+/// `written_tag`, the step's tag as its author wrote it.
+pub async fn check_tag_written_as_available_for_push(
+    db: &DB,
+    w_id: &str,
+    written_tag: &str,
+    tag: &str,
+    args: &PushArgs<'_>,
+    is_super_admin: bool,
+    scope_tags: Option<Vec<&str>>,
+) -> Result<(), Error> {
     let Some(resolved_tag) = resolve_push_tag(tag, args, w_id, db).await else {
         return Ok(());
     };
     windmill_common::jobs::check_tag_available_for_workspace_internal(
         db,
         w_id,
-        tag,
+        written_tag,
         &resolved_tag,
         crate::tags::tag_workspace_id(w_id, db),
         is_super_admin,

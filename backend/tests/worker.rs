@@ -5566,7 +5566,7 @@ async fn test_flow_substep_tag_checked_on_resolved_value(db: Pool<Postgres>) -> 
     let result = job.json_result().unwrap();
     let message = result["error"]["message"].as_str().unwrap_or_default();
     assert!(
-        message.contains("Tag bun-gpu is not included in the allowed CUSTOM_TAGS"),
+        message.contains("(resolved to bun-gpu) is not included in the allowed CUSTOM_TAGS"),
         "got {result:?}"
     );
 
@@ -5585,31 +5585,46 @@ async fn test_flow_tag_checked_after_preprocessor(db: Pool<Postgres>) -> anyhow:
     let server = ApiServer::start(db.clone()).await?;
 
     // The fixture's preprocessor returns `{ foo: "bar", bar: "baz" }`.
-    sqlx::query(
-        "UPDATE flow SET tag = 'pp-$args[foo]' WHERE path = 'f/system/hello_with_preprocessor'",
-    )
-    .execute(&db)
-    .await?;
+    let run_with_flow_tag = |tag: &'static str| {
+        let db = db.clone();
+        let port = server.addr.port();
+        async move {
+            sqlx::query("UPDATE flow SET tag = $1 WHERE path = 'f/system/hello_with_preprocessor'")
+                .bind(tag)
+                .execute(&db)
+                .await
+                .unwrap();
+            // A non-superadmin, so the custom tags apply.
+            RunJob::from(JobPayload::Flow {
+                path: "f/system/hello_with_preprocessor".to_string(),
+                dedicated_worker: None,
+                apply_preprocessor: true,
+                version: 1443253234253456,
+                labels: None,
+            })
+            .as_user("test-user-2", "test2@windmill.dev")
+            .run_until_complete(&db, false, port)
+            .await
+        }
+    };
     CUSTOM_TAGS_PER_WORKSPACE.store(std::sync::Arc::new(CustomTags::from(vec![
         "pp-baz".to_string()
     ])));
-
-    // A non-superadmin, so the custom tags apply.
-    let job = RunJob::from(JobPayload::Flow {
-        path: "f/system/hello_with_preprocessor".to_string(),
-        dedicated_worker: None,
-        apply_preprocessor: true,
-        version: 1443253234253456,
-        labels: None,
-    })
-    .as_user("test-user-2", "test2@windmill.dev")
-    .run_until_complete(&db, false, server.addr.port())
-    .await;
+    let refused = run_with_flow_tag("pp-$args[foo]").await;
+    // Nothing a flow's tag can read resolves `$flow_expr[...]`, so the flow keeps its tag.
+    let unresolvable = run_with_flow_tag("$flow_expr[flow_input.foo]").await;
     CUSTOM_TAGS_PER_WORKSPACE.store(std::sync::Arc::new(CustomTags::default()));
 
-    assert!(!job.success);
-    let result = job.json_result().unwrap().to_string();
+    assert!(!refused.success);
+    let result = refused.json_result().unwrap().to_string();
     assert!(result.contains("resolved to pp-bar"), "got {result}");
+
+    assert!(unresolvable.success, "got {:?}", unresolvable.json_result());
+    let tag = sqlx::query_scalar::<_, String>("SELECT tag FROM v2_job WHERE id = $1")
+        .bind(unresolvable.id)
+        .fetch_one(&db)
+        .await?;
+    assert_eq!(tag, "flow");
 
     Ok(())
 }

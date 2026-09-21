@@ -338,8 +338,8 @@ lazy_static::lazy_static! {
 // make it job-token-aware: a job's WM_TOKEN must never count as superadmin
 // (GHSA-hfh4-cx4h-3fcr). See `is_super_admin_authed` at the request wrapper.
 //
-// Custom tags judge `resolved_tag`, the queue the job actually lands on, never the `tag` it was
-// given: a dynamic tag names any queue its values do. Callers go through
+// Custom tags judge `resolved_tag`, the queue the job actually lands on, and `tag` only as the
+// job's author wrote it: a dynamic tag names any queue its values do. Callers go through
 // `windmill_queue::check_tag_available_for_push`, which resolves it the way `push` does.
 // `tag_workspace` resolves to what the job's `$workspace` stands for.
 pub async fn check_tag_available_for_workspace_internal(
@@ -367,10 +367,12 @@ pub async fn check_tag_available_for_workspace_internal(
     } else {
         w_id.to_string()
     };
+    // A job whose tag is written exactly as an entry resolves inside what that entry admits, which
+    // is the only way in for an entry `custom_tag_matches` cannot turn into a pattern.
     let mut is_tag_in_workspace_custom_tags = custom_tags_per_w
         .global
         .iter()
-        .any(|entry| custom_tag_matches(entry, resolved_tag, &tag_workspace));
+        .any(|entry| entry == tag || custom_tag_matches(entry, resolved_tag, &tag_workspace));
     if !is_tag_in_workspace_custom_tags {
         if let Some(specific_tag) = custom_tags_per_w.specific.get(resolved_tag) {
             // Only a fork-scoped tag can match through the lineage, so every other tag keeps the
