@@ -41,12 +41,14 @@
 	import { safeSelectItems } from './select/utils.svelte'
 	import S3ArgInput from './common/fileUpload/S3ArgInput.svelte'
 	import { base } from '$lib/base'
-	import { workspaceStore } from '$lib/stores'
 	import { getJsonSchemaFromResource } from './schema/jsonSchemaResource.svelte'
 	import AIProviderPicker from './AIProviderPicker.svelte'
 	import TextInput from './text_input/TextInput.svelte'
 	import FileInput from './common/fileInput/FileInput.svelte'
 	import { randomUUID } from '$lib/utils/uuid'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		label?: string
@@ -823,7 +825,7 @@
 				/>
 			{/await}
 		{:else if inputCat == 'object' && format?.startsWith('jsonschema-')}
-			{#await getJsonSchemaFromResource(format.substring('jsonschema-'.length), workspace ?? $workspaceStore ?? '')}
+			{#await getJsonSchemaFromResource(format.substring('jsonschema-'.length), workspace ?? $operatingWorkspace ?? '')}
 				<Loader2 class="animate-spin" />
 			{:then schema}
 				{#if !schema || !schema.properties}

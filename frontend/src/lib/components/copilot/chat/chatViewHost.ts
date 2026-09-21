@@ -52,6 +52,8 @@ export interface ChatViewHost {
 	 * pins away from the navigated one. */
 	readonly operatingWorkspace: string | undefined
 	loading: boolean
+	/** A send waiting for the chat's transcript to be restored; queue behind it. */
+	sendPending: boolean
 	/** A turn this tab can neither follow nor stop, held by another tab on the same chat. */
 	readonly runHeldElsewhere: boolean
 	loadingLabel: string | undefined
@@ -85,6 +87,8 @@ export interface ChatViewHost {
 	) => void
 	dequeueMessage: () => void
 	setComposerStaged: (key: string, editingIndex: number | null, bytes: number) => void
+	/** Whether this composer holds anything unsent (text, pastes, attachments, reads in flight). */
+	setComposerHasDraft: (key: string, hasDraft: boolean) => void
 	clearComposerStaged: (key: string) => void
 	attachmentBytesExcluding: (selfKey: string) => number
 

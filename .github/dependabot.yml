@@ -1,4 +1,13 @@
-# Basic set up for three package managers
+# Weekly, grouped version updates for every shipped manifest, plus one grouped
+# security-update PR per manifest. Security-update PRs have no open-PR limit, so
+# without an `applies-to: security-updates` group each alert would get its own PR.
+# Bun has no security updates: /cli alerts are fixed through its version group.
+#
+# Deliberately NOT covered here:
+#   - /rust-client: Cargo.toml is generated and gitignored
+#   - /backend/parsers/windmill-parser-wasm: excluded from the workspace, needs nightly cargo
+#   - /benchmarks/pulumi: one-off load-test infrastructure, not shipped
+#   - /integration_tests: CI-only
 
 version: 2
 updates:
@@ -13,12 +22,32 @@ updates:
     directory: "/frontend"
     schedule:
       interval: "weekly"
+    groups:
+      # minor + patch bumps in one PR; majors in their own PR so they can be
+      # reviewed separately without blocking the routine bumps
+      frontend-deps:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+      frontend-majors:
+        patterns: ["*"]
+        update-types: ["major"]
+      frontend-security:
+        applies-to: security-updates
+        patterns: ["*"]
 
   # Maintain dependencies for cargo
   - package-ecosystem: "cargo"
     directory: "/backend"
     schedule:
       interval: "weekly"
+    groups:
+      # majors stay as individual PRs: they usually need code changes
+      cargo-deps:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+      cargo-security:
+        applies-to: security-updates
+        patterns: ["*"]
 
   # Maintain dependencies for Docker
   - package-ecosystem: "docker"
@@ -31,3 +60,52 @@ updates:
     directory: "/python-client/wmill"
     schedule:
       interval: "weekly"
+    groups:
+      python-client-security:
+        applies-to: security-updates
+        patterns: ["*"]
+
+  # Maintain dependencies for the CLI (bun.lock)
+  - package-ecosystem: "bun"
+    directory: "/cli"
+    schedule:
+      interval: "weekly"
+    groups:
+      cli-deps:
+        patterns: ["*"]
+
+  # Maintain dependencies for the YAML validator
+  - package-ecosystem: "npm"
+    directory: "/windmill-yaml-validator"
+    schedule:
+      interval: "weekly"
+    groups:
+      yaml-validator-deps:
+        patterns: ["*"]
+      yaml-validator-security:
+        applies-to: security-updates
+        patterns: ["*"]
+
+  # Maintain dependencies for the TypeScript client (devDependencies only)
+  - package-ecosystem: "npm"
+    directory: "/typescript-client"
+    schedule:
+      interval: "weekly"
+    groups:
+      typescript-client-deps:
+        patterns: ["*"]
+      typescript-client-security:
+        applies-to: security-updates
+        patterns: ["*"]
+
+  # Maintain dependencies for multiplayer
+  - package-ecosystem: "npm"
+    directory: "/multiplayer"
+    schedule:
+      interval: "weekly"
+    groups:
+      multiplayer-deps:
+        patterns: ["*"]
+      multiplayer-security:
+        applies-to: security-updates
+        patterns: ["*"]

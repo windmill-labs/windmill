@@ -1,4 +1,5 @@
 <script module lang="ts">
+	import { workspaceStore } from '$lib/stores'
 	let initialWorkspace = get(workspaceStore)
 	let loadItemsCached = createCache(
 		({
@@ -36,7 +37,6 @@
 </script>
 
 <script lang="ts">
-	import { workspaceStore } from '$lib/stores'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import { FlowService, ScriptService } from '$lib/gen'
@@ -50,6 +50,9 @@
 	import { get } from 'svelte/store'
 	import { userStore } from '$lib/stores'
 	import Button from '$lib/components/common/button/Button.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	type Item = {
 		path: string
@@ -59,7 +62,7 @@
 	}
 
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
-	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
+	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $operatingWorkspace)
 
 	let items = usePromise(
 		async () => await loadItemsCached({ workspace: opWs!, kind, isTemplate, refreshCount }),
@@ -123,10 +126,10 @@
 	}
 	$effect(() => {
 		refreshCount
-		$workspaceStore && kind && untrack(() => items.refresh())
+		$operatingWorkspace && kind && untrack(() => items.refresh())
 	})
 	$effect(() => {
-		if ($workspaceStore) {
+		if ($operatingWorkspace) {
 			ownerFilter = undefined
 		}
 	})

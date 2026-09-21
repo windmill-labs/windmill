@@ -215,6 +215,13 @@ const syncLocked = new Map<string, (() => void) | undefined>()
 const conflicts = new SvelteMap<string, DraftConflictInfo>()
 
 /**
+ * Per-key listeners fired when a save lands at a path other than the key's:
+ * the item was moved while the editor was open, and the server put the save
+ * where the move took its drafts. The editor follows too (see `onRelocated`).
+ */
+const relocationListeners = new Map<string, Set<(newPath: string) => void>>()
+
+/**
  * Draft keys whose last save threw (network / 5xx) → extracted error
  * message. Cleared on the next success. Drives the AutosaveIndicator's
  * "Save failed" label so a silent failure can't masquerade as "Saved".
@@ -333,6 +340,13 @@ async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 		// cached state the same way an upsert does. Listener errors must never
 		// make a committed save read as failed.
 		notifyAnySaved({ workspace: opts.workspace, itemKind: opts.itemKind, path: opts.path })
+		// The item had moved and the write landed where its drafts went — a discard
+		// included, since the editor that sent it is on a path the item has left. Last,
+		// so the editor that reacts (by leaving this path) sees a settled key.
+		if (resp.path && resp.path !== opts.path) {
+			const listeners = relocationListeners.get(key)
+			if (listeners) for (const l of [...listeners]) l(resp.path)
+		}
 	} catch (e) {
 		console.error('UserDraftDbSyncer.save failed', e)
 		// Leave pending opts in place so the next attempt retries the same
@@ -615,6 +629,28 @@ export const UserDraftDbSyncer = {
 	},
 
 	/**
+	 * Subscribe to saves for a draft key that landed at another path: the item
+	 * was moved while this editor was open. Fired with the path the save landed
+	 * at, after the save is fully accounted for. Returns an
+	 * unsubscribe.
+	 */
+	onRelocated(query: UserDraftLastSyncQuery, listener: (newPath: string) => void): () => void {
+		const key = draftKey(query.workspace, query.itemKind, query.path)
+		let set = relocationListeners.get(key)
+		if (!set) {
+			set = new Set()
+			relocationListeners.set(key, set)
+		}
+		set.add(listener)
+		return () => {
+			const s = relocationListeners.get(key)
+			if (!s) return
+			s.delete(listener)
+			if (s.size === 0) relocationListeners.delete(key)
+		}
+	},
+
+	/**
 	 * Force-save: bypass the `last_sync` check and overwrite the server row
 	 * (conflict modal's "Overwrite the remote"). Resolves once the key's save
 	 * chain drains — see `immediate`; resolution means the chain settled, not
@@ -686,6 +722,36 @@ export const UserDraftDbSyncer = {
 	dropPending(query: UserDraftLastSyncQuery): void {
 		const key = draftKey(query.workspace, query.itemKind, query.path)
 		pendingSaveOpts.delete(key)
+		debouncer.cancel(key)
+	},
+
+	/**
+	 * The value parked for this key, wrapped so a parked delete (`null`) stays distinguishable
+	 * from nothing parked at all. While a conflict stands this is the version the server refused,
+	 * which is to say this tab's own: an editor opening on the key takes it over the server's
+	 * draft, which is the version that did the refusing.
+	 */
+	peekPending(query: UserDraftLastSyncQuery): { value: unknown } | undefined {
+		const parked = pendingSaveOpts.get(draftKey(query.workspace, query.itemKind, query.path))
+		return parked ? { value: parked.value } : undefined
+	},
+
+	/**
+	 * Stop scheduling saves for this key and wait until nothing for it is still in flight.
+	 * Cancelling alone cannot stop a POST the runner already started, and such a POST settles
+	 * *after* the caller has moved on — a rejected one re-raising the conflict it was told to
+	 * resolve. Await this before installing a baseline that would make a stale payload acceptable.
+	 *
+	 * What is parked is deliberately left alone: a refused save keeps its payload here, and while
+	 * the conflict stands that is the only copy of the edit outside the editor's own memory. A
+	 * caller that gives up half way must leave it recoverable, so dropping it is the committing
+	 * caller's job, via `dropPending`, once it has something to replace it with.
+	 */
+	async quiesce(query: UserDraftLastSyncQuery): Promise<void> {
+		const key = draftKey(query.workspace, query.itemKind, query.path)
+		debouncer.cancel(key)
+		await runner.settled(key)
+		// A save that landed while we waited can have scheduled the next one.
 		debouncer.cancel(key)
 	}
 }

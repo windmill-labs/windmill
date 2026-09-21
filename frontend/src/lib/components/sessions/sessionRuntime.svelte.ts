@@ -56,7 +56,10 @@ import {
 	selectPreviewTabsToClose,
 	whereIs
 } from './sessionPreviewTabs.svelte'
+import { pageItemKindLabel } from './previewPaths'
 import {
+	pageItemForLocation,
+	pageItemLocation,
 	parsePreviewItemRoute,
 	previewLocationContext,
 	previewLocationLabel,
@@ -96,7 +99,13 @@ import type {
 	RawAppDomResult
 } from '$lib/components/raw_apps/rawAppDom'
 import { getNonStreamingMetadataCompletion } from '$lib/components/copilot/lib'
-import { pendingUserAction, type DisplayMessage } from '$lib/components/copilot/chat/shared'
+import {
+	pendingUserAction,
+	type ChatJob,
+	type DisplayMessage
+} from '$lib/components/copilot/chat/shared'
+import { readStoredChat } from '$lib/components/copilot/chat/HistoryManager.svelte'
+import { getCurrentUserEmail } from '$lib/userScopedStorage'
 import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 
 // Per-kind load state for a session's editor target. Pure state container the
@@ -128,6 +137,9 @@ export interface RawAppRuntimeValue {
 	path: string
 	custom_path?: string
 	draft_path?: string
+	/** The app_version this cell's content forked from, carried so the editor's deploy
+	 *  guard and diff drawer compare the same pair the full-page editor does. */
+	parent_version?: number
 }
 // The deployed baseline a raw-app cell diffs against (topbar Diff drawer).
 export interface RawAppSavedValue {
@@ -143,6 +155,9 @@ export interface RawAppSavedValue {
 	/** No deployed counterpart (draft-only); disables the topbar Diff. */
 	no_deployed?: boolean
 	custom_path?: string
+	/** The deployed head at load time, which the editor's deploy guard falls back to when
+	 *  the draft carries no base of its own. */
+	deployed_version?: number
 }
 
 // One editor cell per (kind, path) the session loads: the load slot plus the
@@ -381,7 +396,8 @@ function createRuntime(session: Session): SessionRuntime {
 	// What the side panel is showing, stamped on each user message so the chat
 	// knows the page (and the row whose drawer is open) without spending a
 	// get_preview_status round-trip. Live editors are skipped: they register
-	// themselves as the ACTIVE EDITOR through UserDraft's live-draft registry.
+	// themselves as the ACTIVE EDITOR through UserDraft's live-draft registry. A page
+	// item tab is not one of them, and reads as its list page with the item open.
 	manager.activePreviewResolver = () => {
 		const owner = getRuntime(session.id)?.previewTabs
 		// What is on screen, not merely which tab is selected: the rule tells the model
@@ -389,7 +405,8 @@ function createRuntime(session: Session): SessionRuntime {
 		// point those at a page the user cannot see.
 		const tab = owner?.displayedTab
 		if (!tab) return undefined
-		if (resolvePreviewTab(tab.url).kind !== 'iframe') return undefined
+		const slotKind = resolvePreviewTab(tab.url).kind
+		if (slotKind !== 'iframe' && slotKind !== 'pageitem') return undefined
 		return previewLocationContext(whereIs(tab))
 	}
 	// Pre-flight: materialise the (still-transient) session, then commit
@@ -587,8 +604,9 @@ function createRuntime(session: Session): SessionRuntime {
 				// when the path has never been deployed.
 				const aiDraft = UserDraft.get<Flow>('flow', path, { workspace })
 
-				// getDraft=true omits version_id (the plain getFlowByPath has it) —
-				// stamp it on so the flow doesn't always diff. Best-effort.
+				// Fallback for the head: the payload fetches below carry `version_id`, and
+				// this one covers a response that does not. Best-effort, and a request of
+				// its own, so the same response wins wherever both are available.
 				let deployedVersionId: number | undefined
 				try {
 					deployedVersionId = (await FlowService.getFlowByPath({ workspace, path }))?.version_id
@@ -602,12 +620,16 @@ function createRuntime(session: Session): SessionRuntime {
 					// yet on the backend — draft-only flows are a valid state.
 					try {
 						const result = await FlowService.getFlowByPath({ workspace, path, getDraft: true })
-						saved.val = result as SavedFlow
+						// The editor's deploy guard compares against the head, so keep this
+						// response's own and fall back to the one fetched above.
+						saved.val = {
+							...(result as SavedFlow),
+							version_id: (result as SavedFlow).version_id ?? deployedVersionId
+						}
 					} catch {
 						saved.val = undefined
 					}
 					await initFlow(aiDraft, store, stateStore, workspace)
-					if (deployedVersionId != null && store.val) store.val.version_id = deployedVersionId
 					slot.loadedPath = path
 					slot.loadedWorkspace = workspace
 					return
@@ -615,8 +637,12 @@ function createRuntime(session: Session): SessionRuntime {
 
 				// No local draft yet — seed from `result.draft ?? result`.
 				const result = await FlowService.getFlowByPath({ workspace, path, getDraft: true })
-				saved.val = result as SavedFlow
-				const flow: Flow = ((result as SavedFlow).draft ?? (result as Flow)) as Flow
+				saved.val = {
+					...(result as SavedFlow),
+					version_id: (result as SavedFlow).version_id ?? deployedVersionId
+				}
+				const serverDraft = (result as SavedFlow).draft as Flow | undefined
+				const flow: Flow = (serverDraft ?? (result as Flow)) as Flow
 				// Seed the per-tab last_sync from the server draft's timestamp so the
 				// seeding save below attaches a matching last_sync and the server can
 				// reject stale writes (see loadRawApp). Without this a server draft —
@@ -629,7 +655,13 @@ function createRuntime(session: Session): SessionRuntime {
 				)
 				UserDraft.save('flow', path, flow, { workspace })
 				await initFlow(flow, store, stateStore, workspace)
-				if (deployedVersionId != null && store.val) store.val.version_id = deployedVersionId
+				// A draft keeps the base it forked from, unknown included (it then falls
+				// back to the timestamps); only a fresh checkout takes the head, which is
+				// also what keeps it from always diffing. See loadScript. The head comes
+				// from the response that supplied the payload, so a deploy landing between
+				// the two requests cannot label this checkout as forked from the older one.
+				const head = (result as SavedFlow).version_id ?? deployedVersionId
+				if (head != null && store.val && !serverDraft) store.val.version_id = head
 				slot.loadedPath = path
 				slot.loadedWorkspace = workspace
 			} catch (err) {
@@ -672,11 +704,10 @@ function createRuntime(session: Session): SessionRuntime {
 					}
 					// Clone before layering the AI draft on top, else we'd mutate
 					// `saved.val` in place and lose the pristine diff baseline.
+					const savedDraft = saved.val?.draft as NewScript | undefined
 					const baseline: NewScript = saved.val
 						? (structuredClone(
-								$state.snapshot(
-									(saved.val.draft as NewScript | undefined) ?? (saved.val as NewScript)
-								)
+								$state.snapshot(savedDraft ?? (saved.val as NewScript))
 							) as NewScript)
 						: {
 								// Seed from the draft's own path (a rename lives in `draft_path`,
@@ -694,9 +725,8 @@ function createRuntime(session: Session): SessionRuntime {
 								schema: emptySchema(),
 								language: (aiDraft.language ?? 'bun') as any
 							}
-					if (saved.val?.hash) {
-						baseline.parent_hash = saved.val.hash
-					}
+					// Only a fresh checkout forks from the head; see the branch below.
+					if (!savedDraft && saved.val?.hash) baseline.parent_hash = saved.val.hash
 					baseline.content = aiDraft.content
 					if (aiDraft.language) baseline.language = aiDraft.language
 					if (aiDraft.summary !== undefined) baseline.summary = aiDraft.summary
@@ -711,10 +741,13 @@ function createRuntime(session: Session): SessionRuntime {
 				saved.val = result as SavedScript
 				// Clone before mutating, else `baseline` aliases `result` and
 				// `baseline.parent_hash` corrupts the diff baseline.
-				const baseline = structuredClone(
-					((result as SavedScript).draft as NewScript | undefined) ?? (result as NewScript)
-				)
-				baseline.parent_hash = result.hash
+				const serverDraft = (result as SavedScript).draft as NewScript | undefined
+				const baseline = structuredClone(serverDraft ?? (result as NewScript))
+				// Only a fresh checkout forks from the head. A draft keeps the base it has,
+				// unknown included: `draft.base` is derived from `parent_hash` on every
+				// save, so stamping the head over it would say this draft is up to date
+				// when it is not. An unknown base falls back to the timestamps.
+				if (!serverDraft) baseline.parent_hash = result.hash
 				// Seed the per-tab last_sync from the server draft's timestamp so the
 				// seeding save below attaches a matching last_sync and the server can
 				// reject stale writes (see loadRawApp). Without this a server draft —
@@ -775,7 +808,10 @@ function createRuntime(session: Session): SessionRuntime {
 							path: result.path,
 							policy: result.policy,
 							custom_path: result.custom_path,
-							no_deployed: result.no_deployed
+							no_deployed: result.no_deployed,
+							deployed_version: Array.isArray(result.versions)
+								? result.versions[result.versions.length - 1]
+								: undefined
 						}
 					} catch {
 						saved.val = undefined
@@ -811,7 +847,10 @@ function createRuntime(session: Session): SessionRuntime {
 					path: result.path,
 					policy: result.policy,
 					custom_path: result.custom_path,
-					no_deployed: result.no_deployed
+					no_deployed: result.no_deployed,
+					deployed_version: Array.isArray(result.versions)
+						? result.versions[result.versions.length - 1]
+						: undefined
 				}
 				// Prefer the server draft over the deployed value (mirrors the
 				// flow/script `result.draft ?? result`). A raw-app draft is already
@@ -841,7 +880,14 @@ function createRuntime(session: Session): SessionRuntime {
 					summary: draftValue?.summary ?? result.summary ?? '',
 					path: result.path,
 					custom_path: draftValue?.custom_path ?? result.custom_path,
-					draft_path: draftValue?.draft_path
+					draft_path: draftValue?.draft_path,
+					// Only a fresh checkout forks from the head; a draft keeps its own base,
+					// unknown included, or it would read as up to date. See loadScript.
+					parent_version: draftValue
+						? draftValue.parent_version
+						: Array.isArray(result.versions)
+							? result.versions[result.versions.length - 1]
+							: undefined
 				}
 				// Seed the per-tab last_sync from the server draft's timestamp so
 				// later saves attach a matching last_sync and the server can reject
@@ -945,7 +991,7 @@ function createRuntime(session: Session): SessionRuntime {
 
 async function initRuntime(runtime: SessionRuntime, session: Session) {
 	const { manager } = runtime
-	await manager.historyManager.init()
+	await manager.historyManager.init(session)
 	manager.historyManager.setSessionId(session.id)
 	// Restore linked files persisted for this session (live handles re-grant on send;
 	// snapshots restore directly). Non-transient sessions persist immediately.
@@ -960,7 +1006,9 @@ async function initRuntime(runtime: SessionRuntime, session: Session) {
 	if (session.chatId) {
 		manager.historyManager.setCurrentChatId(session.chatId)
 		await manager.historyManager.tagChatWithSession(session.chatId, session.id)
-		await manager.loadPastChat(session.chatId)
+		// preserveQueue: restoring a session's own chat is not a conversation switch.
+		// A message queued while the restore ran is unsent user input waiting for it.
+		await manager.loadPastChat(session.chatId, { preserveQueue: true })
 		// loadPastChat only seeds the mask when the chat exists in history; a chatId
 		// pointing at a chat not yet persisted (no turn saved) would leave it
 		// undefined, and the Edits surface would then show every workspace draft.
@@ -980,7 +1028,11 @@ export function getOrCreateRuntime(session: Session): SessionRuntime {
 	if (!runtime) {
 		runtime = createRuntime(session)
 		runtimes.set(session.id, runtime)
-		initRuntime(runtime, session).catch((e) => console.error('Failed to init session runtime', e))
+		// The gate opens even when the restore fails: a session that cannot read its
+		// history is still usable, and a send that waits forever is not.
+		runtime.manager.setReadyGate(
+			initRuntime(runtime, session).catch((e) => console.error('Failed to init session runtime', e))
+		)
 	}
 	return runtime
 }
@@ -991,6 +1043,9 @@ export function disposeRuntime(sessionId: string) {
 	runtime.manager.cancel('runtime disposed')
 	runtime.manager.historyManager.close()
 	runtimes.delete(sessionId)
+	// The sidebar reads the stored chat again rather than trust a read that
+	// predates everything this runtime saw.
+	peeks.delete(sessionId)
 }
 
 export function listRuntimes(): SessionRuntime[] {
@@ -1024,7 +1079,13 @@ onRemoteTurnEnd((sessionId, chatId) => {
 
 async function applyRemoteTurnEnd(sessionId: string, chatId: string): Promise<void> {
 	const runtime = runtimes.get(sessionId)
-	if (!runtime) return
+	if (!runtime) {
+		// The driving tab may have rotated to a new chat; follow it, or the next
+		// read and a later runtime would open the old one.
+		setSessionChatId(sessionId, chatId)
+		refreshSessionChatPeek(sessionId)
+		return
+	}
 	const m = runtime.manager
 	// Two transient states get a short retry rather than a skip, because the
 	// composer unlocks when this promise settles and a skip would unlock it on
@@ -1066,7 +1127,9 @@ async function applyRemoteTurnEnd(sessionId: string, chatId: string): Promise<vo
 // and/or held by a live owner — would otherwise keep showing the old target.
 // Must write through the live owner when one exists; a bare record write would
 // be clobbered by the owner's next flush.
-export function resetSessionPreviewTabs(sessionId: string, url: string): void {
+export function resetSessionPreviewTabs(sessionId: string, seedUrl: string): void {
+	// A list page seeded on a row's drawer opens that row's own tab, as open() would.
+	const url = pageItemLocation(seedUrl)
 	const tabs = [{ id: 'session', url, loc: url }]
 	const rt = runtimes.get(sessionId)
 	if (rt) {
@@ -1144,12 +1207,17 @@ setOpenPreviewHandler(async ({ sessionId: callerSessionId, kind, path }) => {
 // open_page dispatches here to show a workspace page (Runs/Schedules) as a page
 // tab in the calling session's preview panel. Returns undefined when there is no
 // session so open_page can fall back to browser navigation.
-setOpenPagePreviewHandler(({ sessionId: callerSessionId, href, label, newTab }) => {
+setOpenPagePreviewHandler(({ sessionId: callerSessionId, href, label: pageLabel, newTab }) => {
 	const sessionId = callerSessionId ?? sessionState.currentSessionId
 	if (!sessionId) return undefined
 	const session = sessionState.sessions.find((s) => s.id === sessionId)
 	if (!session) return undefined
 	const owner = getOrCreateRuntime(session).previewTabs
+	// A page opened on one item is that item's tab, and the report has to name what opened.
+	const pageItem = pageItemForLocation(href)
+	const label = pageItem
+		? `the ${pageItemKindLabel(pageItem).toLowerCase()} ${promptSafe(pageItem.path)}`
+		: pageLabel
 	// open() owns the whole decision — which tab already shows this page, whether the
 	// requested view differs from what it shows, and whether a forced load is needed to
 	// re-fire a drawer. Deciding any of that again here means two predicates for one
@@ -1357,4 +1425,88 @@ export function getSessionChatStatus(runtime: SessionRuntime): SessionChatStatus
 	if (last?.role === 'user' && last.error) return 'error'
 	if (last && (last.role === 'assistant' || last.role === 'tool')) return 'awaiting-user'
 	return 'idle'
+}
+
+// ---------------------------------------------------------------------------
+// Sessions without a runtime
+// ---------------------------------------------------------------------------
+
+// A runtime costs a chat manager and its loaded transcript, and lives until its
+// session is deleted, so the sidebar does not create one per listed session. It
+// reads the session's one stored chat instead, once. Without a runtime nothing
+// runs in this tab, so only two facts of that chat can matter: its length (for
+// the unread count) and whether its last message failed. Every other status is
+// a live one.
+export interface SessionChatPeek {
+	status: 'error' | 'idle'
+	messageCount: number
+}
+
+const peeks = new SvelteMap<string, SessionChatPeek>()
+const peeksInFlight = new Set<string>()
+const peeksPendingRefresh = new Set<string>()
+
+// Not gated on `detached`: a chat saved mid-wait stores its job undetached, and
+// loadPastChat resumes polling every unfinished job either way.
+function isLiveJob(j: ChatJob): boolean {
+	return (
+		j.status === 'queued' ||
+		j.status === 'running' ||
+		j.status === 'suspended' ||
+		j.status === 'scheduled'
+	)
+}
+
+function sessionById(sessionId: string): Session | undefined {
+	return sessionState.sessions.find((s) => s.id === sessionId)
+}
+
+function refreshSessionChatPeek(sessionId: string): void {
+	peeks.delete(sessionId)
+	if (peeksInFlight.has(sessionId)) {
+		peeksPendingRefresh.add(sessionId)
+		return
+	}
+	const session = sessionById(sessionId)
+	if (session) void ensureSessionChatPeek(session)
+}
+
+export function getSessionChatPeek(sessionId: string): SessionChatPeek | undefined {
+	return peeks.get(sessionId)
+}
+
+/** Read the stored chat of a session that has no runtime. A chat with a detached
+ *  job still running gets its runtime instead: only a runtime polls the job and
+ *  resumes the conversation when it finishes. */
+export async function ensureSessionChatPeek(session: Session): Promise<void> {
+	const id = session.id
+	const chatId = session.chatId
+	if (runtimes.has(id) || peeks.has(id) || peeksInFlight.has(id) || !chatId) return
+	const email = getCurrentUserEmail()
+	if (!email) return
+	peeksInFlight.add(id)
+	try {
+		const chat = await readStoredChat(chatId, email)
+		if (sessionById(id)?.chatId !== chatId) {
+			refreshSessionChatPeek(id)
+			return
+		}
+		if (!chat || runtimes.has(id)) return
+		if (chat.backgroundJobs?.some(isLiveJob)) {
+			getOrCreateRuntime(session)
+			return
+		}
+		const last = chat.displayMessages[chat.displayMessages.length - 1]
+		peeks.set(id, {
+			status: last?.role === 'user' && last.error ? 'error' : 'idle',
+			messageCount: chat.displayMessages.length
+		})
+	} catch (e) {
+		console.error('Failed to read session chat', e)
+	} finally {
+		peeksInFlight.delete(id)
+		if (peeksPendingRefresh.delete(id)) {
+			refreshSessionChatPeek(id)
+		}
+	}
 }

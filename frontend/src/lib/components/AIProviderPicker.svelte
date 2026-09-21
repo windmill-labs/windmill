@@ -8,11 +8,13 @@
 		aiProviderDetails
 	} from './copilot/lib'
 	import type { AIProvider, ProviderConfig } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import ResourcePicker from './ResourcePicker.svelte'
 	import Toggle from './Toggle.svelte'
 	import { saveConfig, removeConfig, isSameAsStoredConfig } from './aiProviderStorage'
 	import AIReasoningEffortPicker from './AIReasoningEffortPicker.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		value: ProviderConfig | undefined
@@ -35,7 +37,7 @@
 		decision = false
 	}: Props = $props()
 
-	let effectiveWorkspace = $derived(workspace ?? $workspaceStore ?? '')
+	let effectiveWorkspace = $derived(workspace ?? $operatingWorkspace ?? '')
 
 	let value = $derived.by(() => {
 		if (!_uncheckedValue || typeof _uncheckedValue !== 'object') return undefined
