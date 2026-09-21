@@ -726,18 +726,6 @@ export const UserDraftDbSyncer = {
 	},
 
 	/**
-	 * The newest value parked for this key, wrapped so a parked delete (`null`) stays
-	 * distinguishable from nothing parked at all. A caller still holding a value it captured
-	 * before an await compares against this to tell whether that value is still the newest anyone
-	 * has: an editor closing re-parks the same value, while a session that opened on the draft
-	 * afterwards parks its own.
-	 */
-	peekPending(query: UserDraftLastSyncQuery): { value: unknown } | undefined {
-		const parked = pendingSaveOpts.get(draftKey(query.workspace, query.itemKind, query.path))
-		return parked ? { value: parked.value } : undefined
-	},
-
-	/**
 	 * Stop scheduling saves for this key and wait until nothing for it is still in flight.
 	 * Cancelling alone cannot stop a POST the runner already started, and such a POST settles
 	 * *after* the caller has moved on — a rejected one re-raising the conflict it was told to
