@@ -986,7 +986,11 @@ export function getOrCreateRuntime(session: Session): SessionRuntime {
 	if (!runtime) {
 		runtime = createRuntime(session)
 		runtimes.set(session.id, runtime)
-		initRuntime(runtime, session).catch((e) => console.error('Failed to init session runtime', e))
+		// The gate opens even when the restore fails: a session that cannot read its
+		// history is still usable, and a send that waits forever is not.
+		runtime.manager.setReadyGate(
+			initRuntime(runtime, session).catch((e) => console.error('Failed to init session runtime', e))
+		)
 	}
 	return runtime
 }

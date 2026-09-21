@@ -3194,7 +3194,25 @@ export class AIChatManager implements ChatViewHost {
 		return this.#sendsInFlight > 0
 	}
 
+	// Resolves once this chat's stored transcript has been restored. A session
+	// runtime hands its manager out before that finishes, and `loadPastChat`
+	// refuses to swap a transcript under a send, so a turn started first lands in
+	// a chat of its own and is lost when the session's real one loads.
+	//
+	// Cleared once awaited, and only awaited when set: every later send — and
+	// every send of the chats that have no gate — reaches the `sendInFlight`
+	// counter below synchronously, which is what makes a second Enter queue
+	// behind the first instead of starting a turn of its own.
+	#ready: Promise<unknown> | undefined
+	setReadyGate(ready: Promise<unknown> | undefined) {
+		this.#ready = ready
+	}
+
 	sendRequest = async (options: Parameters<typeof this.sendRequestImpl>[0] = {}) => {
+		if (this.#ready) {
+			await this.#ready
+			this.#ready = undefined
+		}
 		// A turn with nowhere to render still streams, spends tokens and applies
 		// tool calls — entirely off-screen. Refuse instead. `sendInlineRequest` is
 		// exempt: the ⌘K widget renders its own composer inside Monaco.
