@@ -141,7 +141,7 @@ async fn compact_if_needed(
     query_builder: &dyn windmill_ai::query_builder::QueryBuilder,
     include_usage: bool,
     messages: &mut Vec<OpenAIMessage>,
-    last_request: LastRequest,
+    last_request: &mut LastRequest,
     final_usage: &mut Option<TokenUsage>,
 ) -> bool {
     let (Some(compactor), Some(timeout)) = (ctx.compactor, ctx.timeout) else {
@@ -150,12 +150,11 @@ async fn compact_if_needed(
     let pass = compactor
         .maybe_compact(
             messages,
-            last_request,
+            *last_request,
             &CompactionRequest {
                 query_builder,
                 credentials: ctx.credentials,
                 model: ctx.args.provider.get_model(),
-                temperature: ctx.args.temperature,
                 timeout,
                 client: ctx.client,
                 workspace_id: ctx.workspace_id,
@@ -168,6 +167,13 @@ async fn compact_if_needed(
             Some(existing) => existing.accumulate(&usage),
             None => *final_usage = Some(usage),
         }
+    }
+    // A rewritten conversation no longer matches the provider's count for the request
+    // that produced it: the count indexed the old message list. Drop it so any later
+    // pass measures the estimate over the actual messages rather than a stale, larger
+    // prompt — reusing it can decline a summary that already fits, then drop it.
+    if pass.compacted {
+        *last_request = LastRequest { prompt_tokens: None, message_count: 0 };
     }
     pass.compacted
 }
@@ -1561,6 +1567,7 @@ pub async fn run_agent(
     // estimate. It uses the default request shape: an endpoint that needs a fallback may
     // reject this one summary, which is non-fatal — the loop then proceeds as it would
     // have. Mainstream providers need no fallback, so it lands.
+    let mut last_request = LastRequest { prompt_tokens: None, message_count: 0 };
     if compactor.is_some() {
         compact_if_needed(
             CompactionContext {
@@ -1574,12 +1581,11 @@ pub async fn run_agent(
             query_builder.as_ref(),
             include_usage,
             &mut messages,
-            LastRequest { prompt_tokens: None, message_count: 0 },
+            &mut last_request,
             &mut final_usage,
         )
         .await;
     }
-    let mut last_request = LastRequest { prompt_tokens: None, message_count: 0 };
 
     // Main agent loop
     for i in 0..max_iterations {
@@ -2109,7 +2115,7 @@ pub async fn run_agent(
                     query_builder.as_ref(),
                     include_usage,
                     &mut messages,
-                    last_request,
+                    &mut last_request,
                     &mut final_usage,
                 )
                 .await;
@@ -2181,7 +2187,7 @@ pub async fn run_agent(
         query_builder.as_ref(),
         include_usage,
         &mut messages,
-        last_request,
+        &mut last_request,
         &mut final_usage,
     )
     .await;

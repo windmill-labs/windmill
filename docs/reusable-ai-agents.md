@@ -102,7 +102,11 @@ spend that on a few turns of room. The summarization request carries no tool def
 prefix's tool calls and results go to it rendered as text: Bedrock rejects tool blocks that arrive
 without the definitions that produced them. The tail never opens on a `tool` message, a prefix
 that is only a previous summary is never summarized again, and three consecutive failures stop it
-for the run. Nothing about it is fatal: a failed summarization leaves the conversation as it was.
+for the run. When a summary cannot run — it failed, three in a row stopped it, or the loaded prefix
+is larger than the summarizer's own window because the step was switched to a smaller model — the
+oldest turns are dropped until the conversation fits and opens on a user message, keeping the
+newest, the same fallback the AI session uses. So the next request always fits, and the worst case
+is losing old context rather than failing the run.
 The summarization request is capped at the reserve and asks Gemini and OpenAI's reasoning models
 for their least thinking, since both think by default and bill it against that same cap; the
 step's own reasoning effort is not carried over, and OpenAI's pro variants get none, since each

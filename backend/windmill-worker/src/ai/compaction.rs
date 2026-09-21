@@ -425,7 +425,6 @@ pub struct CompactionRequest<'a> {
     pub query_builder: &'a dyn QueryBuilder,
     pub credentials: &'a ProviderCredentials,
     pub model: &'a str,
-    pub temperature: Option<f32>,
     pub timeout: std::time::Duration,
     pub client: &'a AuthedClient,
     pub workspace_id: &'a str,
@@ -502,23 +501,23 @@ impl Compactor {
         true
     }
 
-    /// What the next request would cost against the window. Under the storage bound the
-    /// larger of two measures: the model's token count, and the conversation as it will
-    /// be written, in the cap's own unit. Neither alone suffices — repetitive text is
-    /// few tokens but many bytes, while an attachment is a few bytes but nearly the whole
-    /// model context — so a pass has to fire when either is over.
+    /// What the next request would cost against the window. Under the storage bound this
+    /// is the conversation as it will be written, in the cap's own unit: the pass exists
+    /// to fit the database row, so it measures the serialized bytes and nothing else. The
+    /// model's own window is enforced separately — during the run by the in-loop passes,
+    /// and on the next run by the pass taken before its first request — so the persisted
+    /// tool definitions and system prompt, which are not written to the row, are left out
+    /// of this measure rather than tripping it on a conversation the row easily holds.
     fn projected_tokens(&self, messages: &[OpenAIMessage], last_request: LastRequest) -> usize {
-        let by_tokens = projected_prompt_tokens(
-            messages,
-            last_request,
-            self.tool_schema_tokens,
-            attachment_tokens(messages, last_request, self.tool_schema_tokens),
-        );
         if self.storage_bound {
-            let by_bytes = serde_json::to_vec(messages).map(|v| v.len()).unwrap_or(0) / 4;
-            by_bytes.max(by_tokens)
+            serde_json::to_vec(messages).map(|v| v.len()).unwrap_or(0) / 4
         } else {
-            by_tokens
+            projected_prompt_tokens(
+                messages,
+                last_request,
+                self.tool_schema_tokens,
+                attachment_tokens(messages, last_request, self.tool_schema_tokens),
+            )
         }
     }
 
@@ -542,16 +541,33 @@ impl Compactor {
             return false;
         }
         let start = summarizable_start(messages);
-        let keep_last = messages.len().saturating_sub(1);
+        // Turn boundaries are user messages; the newest turn (from the last user message
+        // on) is never dropped, and the boundary always lands on a user message, so a
+        // whole turn goes at a time. Dropping to the middle of one would strand a tool
+        // result whose `tool_calls` went with the messages before it — every provider
+        // rejects that. When even one full turn cannot be freed, nothing is dropped: a
+        // single turn too big for the window is left whole rather than broken.
+        let Some(last_user) = messages
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, m)| m.role == "user")
+            .map(|(i, _)| i)
+            .filter(|&i| i > start)
+        else {
+            return false;
+        };
         let attachment_tokens = attachment_tokens(messages, last_request, self.tool_schema_tokens);
-        let mut drop_end = start;
+        let mut drop_end = last_user;
         let mut freed = 0usize;
-        while drop_end < keep_last {
-            if freed >= to_free && messages[drop_end].role == "user" {
+        for index in start..last_user {
+            freed += estimate_message_tokens(&messages[index], attachment_tokens);
+            if freed >= to_free {
+                drop_end = (index + 1..=last_user)
+                    .find(|&j| messages[j].role == "user")
+                    .unwrap_or(last_user);
                 break;
             }
-            freed += estimate_message_tokens(&messages[drop_end], attachment_tokens);
-            drop_end += 1;
         }
         if drop_end <= start {
             return false;
@@ -763,7 +779,8 @@ async fn summarize_prefix(
                     &summary_messages,
                     None,
                     request.model,
-                    request.temperature,
+                    // No temperature, as on the HTTP path above.
+                    None,
                     build_args.reasoning_effort,
                     build_args.max_tokens,
                     request.credentials.api_key.as_deref().unwrap_or(""),
@@ -1071,27 +1088,24 @@ mod tests {
         );
     }
 
-    /// The reverse: an attachment is a few bytes in the row but nearly the whole model
-    /// context. Under the storage bound the pass must still see the provider's token
-    /// count, not just the serialized size, or it skips a pass the model needs.
+    /// The storage pass measures the serialized row, not the model prompt: a big tool
+    /// roster and system prompt are not written, so they must not trip a pass on a
+    /// conversation the row easily holds. (The model's own window is enforced by the
+    /// in-loop passes and the pass taken before the next run's first request.)
     #[test]
-    fn the_storage_bound_still_sees_the_model_token_count() {
-        let messages = vec![OpenAIMessage {
-            role: "user".to_string(),
-            content: Some(OpenAIContent::Parts(vec![ContentPart::S3Object {
-                s3_object: windmill_types::s3::S3Object {
-                    s3: "manifest.pdf".to_string(),
-                    ..Default::default()
-                },
-            }])),
-            ..Default::default()
-        }];
-        let counted = LastRequest { prompt_tokens: Some(24_000), message_count: 1 };
-        let mut compactor = Compactor::new(128_000, 0);
+    fn the_storage_bound_ignores_the_unpersisted_prompt_overhead() {
+        let messages = vec![message("user", "hi"), message("assistant", "hello")];
+        // 22k tokens of tool definitions — over the 25k storage window's trigger if
+        // counted, but none of it is written to the row.
+        let counted = LastRequest { prompt_tokens: Some(22_000), message_count: 2 };
+        let mut compactor = Compactor::new(128_000, 22_000);
         assert!(compactor.bound_by_storage(100_000));
 
-        // The serialized row is a handful of bytes; the token count carries it over.
-        assert!(compactor.projected_tokens(&messages, counted) >= 24_000);
+        // The tiny serialized row is well under the storage window; no false trigger.
+        assert!(
+            (compactor.projected_tokens(&messages, counted) as f64)
+                < 25_000.0 * COMPACTION_TRIGGER_RATIO
+        );
     }
 
     /// The last resort behind summarization, matching the AI session: when no summary can
