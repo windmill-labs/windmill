@@ -15548,7 +15548,6 @@ dependencies = [
  "tokio-postgres",
  "tracing",
  "url",
- "urlencoding",
  "uuid",
  "windmill-api-auth",
  "windmill-api-jobs",

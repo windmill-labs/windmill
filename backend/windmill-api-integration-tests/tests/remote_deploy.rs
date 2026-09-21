@@ -12,6 +12,10 @@ fn authed(builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
     builder.header("Authorization", "Bearer SECRET_TOKEN")
 }
 
+fn proxied(builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+    authed(builder).header("X-Windmill-Remote-Deploy", "1")
+}
+
 /// The deploy target is this very server, which the proxy has no way to tell from another
 /// instance: it only ever knows the configured URL, the caller's stored token, and the path.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
@@ -47,7 +51,7 @@ async fn test_remote_deploy_proxy(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     // Deploying before connecting names the step that is missing, rather than reaching the target
     // with the caller's credentials for this instance.
-    let resp = authed(client().get(format!("{base}/proxy/users/whoami")))
+    let resp = proxied(client().get(format!("{base}/proxy/users/whoami")))
         .send()
         .await?;
     assert_eq!(resp.status(), 400);
@@ -70,14 +74,26 @@ async fn test_remote_deploy_proxy(db: Pool<Postgres>) -> anyhow::Result<()> {
         "test@windmill.dev"
     );
 
-    let resp = authed(client().get(format!("{base}/proxy/users/whoami")))
+    let resp = proxied(client().get(format!("{base}/proxy/users/whoami")))
         .send()
         .await?;
     assert_eq!(resp.status(), 200);
+    // Whatever the remote returns is served from this origin, so it must never render as a page.
+    let csp = resp.headers()["content-security-policy"]
+        .to_str()?
+        .to_string();
+    assert!(csp.starts_with("sandbox"), "{csp}");
     assert_eq!(
         resp.json::<serde_json::Value>().await?["email"],
         "test@windmill.dev"
     );
+
+    // A link (a navigation, or a page on another origin) cannot set the header, so it cannot
+    // spend the stored token.
+    let resp = authed(client().get(format!("{base}/proxy/users/whoami")))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 400);
 
     // A target that refuses the stored token must not answer 401: the browser reads an
     // unhandled 401 as its own session having expired and logs the user out of this instance.
@@ -88,10 +104,32 @@ async fn test_remote_deploy_proxy(db: Pool<Postgres>) -> anyhow::Result<()> {
     )
     .execute(&db)
     .await?;
-    let resp = authed(client().get(format!("{base}/proxy/users/whoami")))
+    let resp = proxied(client().get(format!("{base}/proxy/users/whoami")))
         .send()
         .await?;
     assert_eq!(resp.status(), 502);
+
+    // Rows are keyed by email alone: deleting the account must take its token with it, or the
+    // next account created with that address would act on the remote as this one.
+    let resp = client()
+        .post(format!("{base}/connect"))
+        .header("Authorization", "Bearer SECRET_TOKEN_2")
+        .json(&json!({"token": "SECRET_TOKEN_2"}))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200);
+    let resp = authed(client().delete(format!(
+        "http://localhost:{port}/api/users/delete/test2@windmill.dev"
+    )))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200);
+    let left = sqlx::query_scalar!(
+        "SELECT count(*) FROM remote_deploy_token WHERE email = 'test2@windmill.dev'"
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(left, Some(0));
 
     // The token was granted for one target and is never sent to another, so re-pointing the
     // workspace leaves the caller unconnected instead of handing its token to the new target.
@@ -100,7 +138,7 @@ async fn test_remote_deploy_proxy(db: Pool<Postgres>) -> anyhow::Result<()> {
         .send()
         .await?;
     assert!(resp.json::<serde_json::Value>().await?["connection"].is_null());
-    let resp = authed(client().get(format!("{base}/proxy/users/whoami")))
+    let resp = proxied(client().get(format!("{base}/proxy/users/whoami")))
         .send()
         .await?;
     assert_eq!(resp.status(), 400);

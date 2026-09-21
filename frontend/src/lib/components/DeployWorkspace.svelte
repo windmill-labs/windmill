@@ -357,19 +357,22 @@
 
 	async function deploy(kind: Kind, path: string) {
 		const statusPath = computeStatusPath(kind, path)
+		const target = workspaceToDeployTo
 		deploymentStatus[statusPath] = { status: 'loading' }
 
 		const result = await deployItem({
 			kind,
 			path,
 			workspaceFrom: $workspaceStore!,
-			workspaceTo: workspaceToDeployTo!,
+			workspaceTo: target!,
 			additionalInformation,
 			onBehalfOf: getOnBehalfOfForDeploy(statusPath, kind),
 			onBehalfOfPrincipal: getOnBehalfOfPermissionedAsForDeploy(statusPath, kind),
 			targetBaseUrl: isRemote ? remoteTarget?.base_url : undefined
 		})
 
+		// The statuses on screen are the current destination's; this deploy went to `target`.
+		if (target !== workspaceToDeployTo) return
 		if (result.success) {
 			allAlreadyExists[statusPath] = true
 			deploymentStatus[statusPath] = { status: 'deployed' }

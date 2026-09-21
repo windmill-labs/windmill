@@ -4217,7 +4217,8 @@ paths:
       description: |
         Once connected, deploy calls aimed at the target go through
         `/w/{workspace}/remote_deploy/proxy/{route}`, which forwards any method to
-        `{base_url}/api/w/{target workspace}/{route}` with the caller's stored token.
+        `{base_url}/api/w/{target workspace}/{route}` with the caller's stored token. Every
+        proxied request must carry the `X-Windmill-Remote-Deploy` header.
       operationId: getRemoteDeployTarget
       tags:
         - workspace

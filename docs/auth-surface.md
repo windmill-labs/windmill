@@ -46,15 +46,19 @@ Symbols, not line numbers, are cited: they drift less.
   (`windmill-api-auth/src/lib.rs`) errors on `authed.job_id.is_some()`. A script that needs
   `users/create`, `tokens/impersonate`, `set_login_type`, … must use a dedicated superadmin user
   token stored as a secret, never `$WM_TOKEN`. Token scopes cannot narrow superadmin routes.
-- **A remote deploy token is a credential for another instance**, held per user and workspace
-  (`remote_deploy_token`, encrypted under the workspace key, re-keyed by `set_encryption_key`). The
-  row records the target it was granted for, and `remote_deploy::proxy` only sends it to a target
-  still matching the workspace setting, so re-pointing the setting cannot redirect anyone's token to
-  a URL of the admin's choosing. `require_own_credentials` refuses a job token (it runs as whoever
-  `on_behalf_of` names) and any scoped token; a scoped token is also refused earlier, since
-  `remote_deploy` is no `ScopeDomain`. The proxy forwards only the method, query, body and
-  content-type — never this instance's cookie or token — and turns the target's 401 into a 502,
-  because the browser logs the user out of *this* instance on an unhandled 401.
+- **A remote deploy token is a credential for another instance**, held per email and workspace
+  (`remote_deploy_token`, encrypted under the workspace key, re-keyed by `set_encryption_key`,
+  deleted with the account and moved by `change_user_email`, since a recycled address would
+  otherwise inherit it). The row records the target it was granted for, and
+  `remote_deploy::proxy` only sends it to a target still matching the workspace setting, so
+  re-pointing the setting cannot redirect anyone's token to a URL of the admin's choosing.
+  `require_own_credentials` refuses job, scoped and read-only tokens: the stored token carries none
+  of their restrictions. The proxy turns the local session into a remote bearer credential, so
+  every ambient-cookie vector becomes one on the remote: it requires the `X-Windmill-Remote-Deploy`
+  header (no navigation or cross-origin page can send it), refuses a path the URL parser would
+  rewrite, serves every response under `CSP: sandbox` + `nosniff`, forwards only the method, query,
+  body, content-type and accept — never this instance's cookie or token — and turns the target's
+  401 into a 502, because the browser logs the user out of *this* instance on an unhandled 401.
 - **`login_type`** (`password` table) is a free-form `VARCHAR(50)`. Password login and password
   reset require `login_type = 'password'`; `set_password` also accepts `pending_oauth` and turns
   the account into a `password` one in the same statement (an account created ahead of its owner

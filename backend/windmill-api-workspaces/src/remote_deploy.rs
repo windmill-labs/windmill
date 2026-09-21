@@ -45,6 +45,13 @@ lazy_static! {
 
 const PROXY_PREFIX: &str = "/remote_deploy/proxy/";
 
+/// Required on every proxied request. The session cookie is `SameSite=Lax`, so it rides a
+/// top-level navigation from any site, which carries no custom header; a cross-origin page
+/// cannot add one either, since this route answers no CORS preflight. Requiring it keeps the
+/// stored token from being spent by a link, whether to run something on the remote or to render
+/// its content on this origin. `Sec-Fetch-Site` is no substitute: plain-http instances never get it.
+pub const REMOTE_DEPLOY_HEADER: &str = "x-windmill-remote-deploy";
+
 pub fn workspaced_service(proxy_body_limit: usize) -> Router {
     Router::new()
         .route("/target", get(get_target).post(set_target))
@@ -110,14 +117,18 @@ struct RemoteDeployStatus {
     connection: Option<RemoteDeployConnection>,
 }
 
-/// A stored token acts on another instance as its owner. Only the owner acting directly may
-/// use or replace it: a job token runs as whoever a `wm_deployers` member pointed
-/// `on_behalf_of` at, and a scoped token was never granted this.
+/// A stored token acts on another instance as its owner, with none of the restrictions of the
+/// credential that reaches it. Only the owner acting directly with full rights may use or replace
+/// it: a job token runs as whoever a `wm_deployers` member pointed `on_behalf_of` at, and a
+/// scoped or read-only token was never granted this.
 fn require_own_credentials(authed: &ApiAuthed) -> Result<()> {
-    if authed.job_id.is_some() || !is_effectively_unscoped(authed.scopes.as_deref()) {
+    if authed.job_id.is_some()
+        || authed.read_only
+        || !is_effectively_unscoped(authed.scopes.as_deref())
+    {
         return Err(Error::PermissionDenied(
             "Deploying to a remote instance requires your own session or an unscoped token, \
-             not a job token or a scoped token"
+             not a job, scoped or read-only token"
                 .to_string(),
         ));
     }
@@ -399,23 +410,34 @@ async fn disconnect(
     ))
 }
 
-/// The part of the request path to forward, as the client sent it. `url` resolves dot
-/// segments, `%2e` spellings included, so one would climb out of the remote workspace.
-fn forwarded_suffix(original_path: &str) -> Result<&str> {
+/// The remote URL for the request path after the proxy prefix, as the client sent it.
+///
+/// `url` rewrites a path while parsing it: it resolves dot segments (`%2e` spellings included)
+/// and turns backslashes into slashes. Either would reach a route other than the one this
+/// instance authorized — outside the remote workspace, or a route its read-only check does not
+/// recognize — so a path the parser would change is refused rather than forwarded.
+fn forwarded_url(
+    target: &RemoteDeployTarget,
+    original_path: &str,
+    query: Option<&str>,
+) -> Result<url::Url> {
     let suffix = original_path
         .split_once(PROXY_PREFIX)
         .map(|(_, suffix)| suffix)
         .unwrap_or_default();
-    let is_dot_segment = |segment: &str| {
-        let decoded = urlencoding::decode(segment).unwrap_or_default();
-        decoded == "." || decoded == ".."
-    };
-    if suffix.is_empty() || suffix.split('/').any(is_dot_segment) {
-        return Err(Error::BadRequest(format!(
-            "Invalid remote deploy path: {suffix}"
-        )));
+    let invalid = || Error::BadRequest(format!("Invalid remote deploy path: {suffix}"));
+    let base_path = url::Url::parse(&target.base_url)
+        .map_err(|_| invalid())?
+        .path()
+        .trim_end_matches('/')
+        .to_string();
+    let mut url = url::Url::parse(&target.api_url(suffix)).map_err(|_| invalid())?;
+    let expected_path = format!("{base_path}/api/w/{}/{suffix}", target.workspace_id);
+    if suffix.is_empty() || url.path() != expected_path {
+        return Err(invalid());
     }
-    Ok(suffix)
+    url.set_query(query);
+    Ok(url)
 }
 
 async fn proxy(
@@ -427,9 +449,15 @@ async fn proxy(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response> {
+    if !headers.contains_key(REMOTE_DEPLOY_HEADER) {
+        return Err(Error::BadRequest(format!(
+            "The remote deploy proxy only answers requests carrying the {REMOTE_DEPLOY_HEADER} \
+             header"
+        )));
+    }
     require_own_credentials(&authed)?;
-    let suffix = forwarded_suffix(uri.path())?;
     let target = require_target(&db, &w_id).await?;
+    let url = forwarded_url(&target, uri.path(), uri.query())?;
     let encrypted_token = sqlx::query_scalar!(
         "SELECT token FROM remote_deploy_token
          WHERE workspace_id = $1 AND email = $2 AND base_url = $3
@@ -449,11 +477,6 @@ async fn proxy(
     })?;
     let token = decrypt(&build_crypt(&db, &w_id).await?, encrypted_token)?;
 
-    let mut url = target.api_url(suffix);
-    if let Some(query) = uri.query() {
-        url.push('?');
-        url.push_str(query);
-    }
     // Only what describes the payload: the caller's cookie and token belong to this instance.
     let mut request = remote_client(&target)
         .await?
@@ -489,7 +512,15 @@ async fn proxy(
             target.base_url
         )));
     }
-    let mut builder = Response::builder().status(status);
+    // The body is the remote's and may be anything its users stored (an uploaded file, a job
+    // result typed `text/html`); served from this origin it must never render as a page here.
+    let mut builder = Response::builder()
+        .status(status)
+        .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff")
+        .header(
+            header::CONTENT_SECURITY_POLICY,
+            "sandbox; default-src 'none'",
+        );
     if let Some(content_type) = response.headers().get(header::CONTENT_TYPE) {
         builder = builder.header(header::CONTENT_TYPE, content_type);
     }
@@ -544,16 +575,33 @@ mod tests {
     use super::*;
 
     #[test]
-    fn forwarded_suffix_refuses_dot_segments() {
+    fn forwarded_url_refuses_paths_the_parser_rewrites() {
+        let target = RemoteDeployTarget {
+            base_url: "https://prod.example.com/windmill".to_string(),
+            workspace_id: "prod".to_string(),
+        };
         let prefix = "/api/w/dev/remote_deploy/proxy";
+        let url = forwarded_url(
+            &target,
+            &format!("{prefix}/scripts/get/p/f/team/my%20script"),
+            Some("with_starred_info=true"),
+        )
+        .unwrap();
         assert_eq!(
-            forwarded_suffix(&format!("{prefix}/scripts/get/p/f/team/my%20script")).unwrap(),
-            "scripts/get/p/f/team/my%20script"
+            url.as_str(),
+            "https://prod.example.com/windmill/api/w/prod/scripts/get/p/f/team/my%20script?with_starred_info=true"
         );
-        // `url` resolves both spellings of a dot segment, which would leave the remote workspace.
-        assert!(forwarded_suffix(&format!("{prefix}/../../users/list")).is_err());
-        assert!(forwarded_suffix(&format!("{prefix}/%2e%2e/%2e%2e/users/list")).is_err());
-        assert!(forwarded_suffix(prefix).is_err());
+        for path in [
+            format!("{prefix}/../../users/list"),
+            format!("{prefix}/%2e%2e/%2e%2e/users/list"),
+            format!("{prefix}/jobs\\run_wait_result\\p/f/team/action"),
+            prefix.to_string(),
+        ] {
+            assert!(
+                forwarded_url(&target, &path, None).is_err(),
+                "{path} should be refused"
+            );
+        }
     }
 
     #[test]
