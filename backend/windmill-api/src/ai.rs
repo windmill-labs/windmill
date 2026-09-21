@@ -23,7 +23,7 @@ use windmill_ai::ai_cache::current_instance_ai_config_revision;
 use windmill_ai::ai_providers::{
     empty_string_as_none, AIPlatform, AIProvider, ProviderConfig, ProviderModel,
 };
-use windmill_ai::ai_types::MAX_MODEL_RATE;
+use windmill_ai::ai_types::{validate_token_limit, CONTEXT_WINDOWS, MAX_MODEL_RATE, OUTPUT_LIMITS};
 use windmill_ai::credentials::ProviderCredentials;
 #[cfg(feature = "bedrock")]
 use windmill_ai::providers::bedrock::{
@@ -445,6 +445,11 @@ pub struct AIConfig {
     /// Only models whose rates differ from the built-in table are stored.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_pricing: Option<HashMap<String, ModelPriceOverride>>,
+    /// Per-model context windows the chat budgets its history against, keyed
+    /// `provider:model` like `max_tokens_per_model`. Overrides the client's built-in
+    /// table, which a model served through a custom endpoint is usually missing from.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context_window_per_model: Option<HashMap<String, i32>>,
     /// Hides the Windmill AI assistant (chat, sessions, generation, completion, fixes) from
     /// the workspace UI. Only the workspace's own row is consulted: the flag holds even when
     /// the providers served come from the instance config or the free tier. AI agent steps
@@ -504,6 +509,18 @@ impl AIConfig {
     pub fn validate_model_pricing(&self) -> Result<()> {
         for (key, price) in self.model_pricing.iter().flatten() {
             price.validate(key)?;
+        }
+        Ok(())
+    }
+
+    pub fn validate_token_limits(&self) -> Result<()> {
+        for (entries, bounds) in [
+            (&self.context_window_per_model, &CONTEXT_WINDOWS),
+            (&self.max_tokens_per_model, &OUTPUT_LIMITS),
+        ] {
+            for (key, tokens) in entries.iter().flatten() {
+                validate_token_limit(bounds, key, i64::from(*tokens)).map_err(Error::BadRequest)?;
+            }
         }
         Ok(())
     }

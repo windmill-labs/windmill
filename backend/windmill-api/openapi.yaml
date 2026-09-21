@@ -28996,6 +28996,15 @@ components:
           type: object
           additionalProperties:
             $ref: "#/components/schemas/ModelPriceOverride"
+        context_window_per_model:
+          type: object
+          description: >-
+            Context window in tokens per `provider:model`, overriding the built-in
+            table the AI chat uses to decide when to compact its history.
+          additionalProperties:
+            type: integer
+            minimum: 1024
+            maximum: 10000000
         copilot_disabled:
           type: boolean
           description: >-
