@@ -566,6 +566,23 @@
 		showContextTooltip = false
 	}
 
+	export async function insertMention(title: string) {
+		const token = formatMention(title)
+		const selectionStart = textarea?.selectionStart ?? value.length
+		const selectionEnd = textarea?.selectionEnd ?? selectionStart
+		const { from, to, ids } = tokensOverlapping(selectionStart, selectionEnd)
+		const before = value.slice(0, from)
+		const after = value.slice(to)
+		const prefix = before.length === 0 || /\s$/.test(before) ? '' : ' '
+		const suffix = after.length === 0 ? ' ' : /^\s/.test(after) ? '' : ' '
+		const inserted = `${prefix}${token}${suffix}`
+		replacePasteRange(from, to, ids, inserted)
+		await tick()
+		const pos = from + inserted.length
+		textarea?.setSelectionRange(pos, pos)
+		textarea?.focus()
+	}
+
 	function refreshCommandSkills() {
 		if (commandSkillsRefreshInFlight) return
 		commandSkillsRefreshInFlight = true

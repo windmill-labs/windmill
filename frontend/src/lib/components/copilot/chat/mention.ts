@@ -29,3 +29,23 @@ const BARE_SAFE = /^[\w/.\-]+$/
 export function formatMention(name: string): string {
 	return BARE_SAFE.test(name) ? `@${name}` : `@[${name.replace(/[\\\]]/g, '\\$&')}]`
 }
+
+export function removeMentionFromText(text: string, title: string): string {
+	let out = ''
+	let last = 0
+	for (const m of text.matchAll(MENTION_RE)) {
+		if (m.index === undefined || mentionTitle(m[0]) !== title) continue
+		let start = m.index
+		let end = m.index + m[0].length
+		const hasLead = start > 0 && /\s/.test(text[start - 1])
+		const hasTrail = end < text.length && /\s/.test(text[end])
+		if (start > 0 && !hasLead) continue
+		if (end < text.length && !hasTrail) continue
+		if (hasLead && !hasTrail) start -= 1
+		if (!hasLead && hasTrail) end += 1
+		if (hasLead && hasTrail) end += 1
+		out += text.slice(last, start)
+		last = end
+	}
+	return out + text.slice(last)
+}

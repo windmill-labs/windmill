@@ -14,7 +14,7 @@
 	import { CHAT_INPUT_PADDING, getAiChatManager } from './aiChatManagerContext'
 	import { getChatViewHost } from './chatViewHost'
 	import { composerBoxClass, COMPOSER_FIELD_RESET } from './composerBox'
-	import { formatMention } from './mention'
+	import { formatMention, MENTION_RE, mentionTitle, removeMentionFromText } from './mention'
 	import { twMerge } from 'tailwind-merge'
 	import { tick, untrack, type Snippet } from 'svelte'
 	import Portal from '$lib/components/Portal.svelte'
@@ -578,17 +578,18 @@
 
 	const contextKey = contextElementKey
 
-	/** Append `@title` to the textarea so the button-picker path stays in
-	 * sync with the inline `@<word>` mention path — both leave a visible
-	 * token tied to the selectedContext entry, which the textarea diffs on
-	 * to auto-remove items when the user deletes them. No-op when the
-	 * mention is already present so re-picking the same item doesn't
-	 * leave duplicate tokens. */
+	/** Insert `@title` so button/menu picker paths stay in sync with
+	 * the inline `@<word>` mention path — both leave a visible token tied
+	 * to the selectedContext entry, which the textarea diffs on to
+	 * auto-remove items when the user deletes them. */
 	export function insertMention(title: string) {
-		const target = `@${title}`
-		if (draft.text.split(/\s+/).includes(target)) return
+		if ([...draft.text.matchAll(MENTION_RE)].some((m) => mentionTitle(m[0]) === title)) return
+		if (contextTextareaComponent) {
+			void contextTextareaComponent.insertMention(title)
+			return
+		}
 		const sep = draft.text.length === 0 || /\s$/.test(draft.text) ? '' : ' '
-		draft.text = `${draft.text}${sep}${target} `
+		draft.text = `${draft.text}${sep}${formatMention(title)} `
 	}
 
 	/** Strip every `@title` token from the textarea — used when the user
@@ -602,16 +603,7 @@
 		// doesn't refire the removal effect on a same-title sibling — the host
 		// has already mutated `selectedContext` to drop the targeted entry.
 		contextTextareaComponent?.unsyncMention(title)
-		const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-		const re = new RegExp(`(^|\\s)@${escaped}(\\s|$)`, 'g')
-		draft.text = draft.text.replace(re, (_m, lead, trail) => {
-			// Boundary on at least one side → drop the mention entirely.
-			if (!lead || !trail) return ''
-			// Middle of text: keep ONE of the bracketing whitespace chars so
-			// the surviving tokens are still separated; preserve the leading
-			// one verbatim so newlines/tabs aren't downgraded to spaces.
-			return lead
-		})
+		draft.text = removeMentionFromText(draft.text, title)
 	}
 
 	export function focusInput() {

@@ -13,9 +13,10 @@
 		item: Item
 		builders: ReturnType<typeof createDropdownMenu>['builders']
 		meltItem: MenubarMenuElements['item']
+		close?: (afterClose?: () => void) => void
 	}
 
-	let { item, builders, meltItem }: Props = $props()
+	let { item, builders, meltItem, close }: Props = $props()
 
 	const {
 		elements: { subTrigger, subMenu },
@@ -23,6 +24,8 @@
 	} = untrack(() => builders).createSubmenu()
 
 	let subItems = $derived((item.submenuItems ?? []).filter((i) => !i.hide))
+	const CustomSubmenu = $derived(item.customSubmenu)
+	const closeMenu = $derived(close ?? (() => {}))
 </script>
 
 <button
@@ -46,14 +49,20 @@
 {#if $subOpen}
 	<div
 		use:melt={$subMenu}
-		class="z-[6000] bg-surface-tertiary dark:border w-48 origin-top-right rounded-lg shadow-lg focus:outline-none overflow-y-auto py-1"
+		class="z-[6000] bg-surface-tertiary dark:border {CustomSubmenu
+			? ''
+			: 'w-48 overflow-y-auto py-1'} origin-top-right rounded-lg shadow-lg focus:outline-none"
 	>
-		{#each subItems as subItem}
-			{#if subItem.separatorTop}
-				<div class="my-1 border-t border-border-light"></div>
-			{/if}
-			{@render subMenuItem(subItem)}
-		{/each}
+		{#if CustomSubmenu}
+			<CustomSubmenu {...item.customSubmenuProps} close={closeMenu} />
+		{:else}
+			{#each subItems as subItem}
+				{#if subItem.separatorTop}
+					<div class="my-1 border-t border-border-light"></div>
+				{/if}
+				{@render subMenuItem(subItem)}
+			{/each}
+		{/if}
 	</div>
 {/if}
 
