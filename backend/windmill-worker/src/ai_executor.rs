@@ -210,7 +210,7 @@ enum MemoryBound {
     /// Only the most recent messages are sent and kept.
     LastMessages(usize),
     /// Everything is sent and kept; compaction summarizes what no longer fits.
-    Compaction { context_window: usize },
+    Compaction,
 }
 
 impl MemoryBound {
@@ -220,7 +220,7 @@ impl MemoryBound {
     fn messages_to_keep(self) -> usize {
         match self {
             MemoryBound::LastMessages(context_length) => context_length,
-            MemoryBound::Compaction { .. } => usize::MAX,
+            MemoryBound::Compaction => usize::MAX,
         }
     }
 }
@@ -284,11 +284,8 @@ fn resolve_history_source<'a>(
             let source = managed(MemoryBound::LastMessages(*context_length), &mut notes);
             (source, notes)
         }
-        Some(Memory::Compaction { context_window }) => {
-            let source = managed(
-                MemoryBound::Compaction { context_window: *context_window },
-                &mut notes,
-            );
+        Some(Memory::Compaction { .. }) => {
+            let source = managed(MemoryBound::Compaction, &mut notes);
             (source, notes)
         }
         Some(Memory::Off) | None => {
@@ -2479,13 +2476,14 @@ mod tests {
                     },
                     _,
                 ) => Resolved::Window(memory_id, context_length),
-                (
-                    HistorySource::Managed {
-                        memory_id,
-                        bound: MemoryBound::Compaction { context_window },
-                    },
-                    _,
-                ) => Resolved::Compaction(memory_id, context_window),
+                (HistorySource::Managed { memory_id, bound: MemoryBound::Compaction }, _) => {
+                    match args.memory {
+                        Some(Memory::Compaction { context_window }) => {
+                            Resolved::Compaction(memory_id, context_window)
+                        }
+                        _ => panic!("expected compaction settings"),
+                    }
+                }
                 (HistorySource::Stateless, notes) => {
                     Resolved::Stateless { noted: !notes.is_empty() }
                 }
