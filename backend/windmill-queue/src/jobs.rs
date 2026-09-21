@@ -1472,9 +1472,9 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                     , status
                     , worker
                     )
-                SELECT q.workspace_id, q.id, started_at, COALESCE($9::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(started_at, now()))))*1000), $3::text::jsonb, $10, COALESCE($5::text, q.canceled_by), COALESCE($6::text, q.canceled_reason),
+                SELECT q.workspace_id, q.id, started_at, COALESCE($9::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(started_at, now()))))*1000), $3::text::jsonb, $10, $5, $6,
                         flow_status, workflow_as_code_status,
-                        $8, CASE WHEN $4::BOOL OR q.canceled_by IS NOT NULL THEN 'canceled'::job_status
+                        $8, CASE WHEN $4::BOOL THEN 'canceled'::job_status
                         WHEN $7::BOOL THEN 'skipped'::job_status
                         WHEN $2::BOOL THEN 'success'::job_status
                         ELSE 'failure'::job_status END AS status,
@@ -1888,21 +1888,6 @@ async fn restart_job_if_perpetual_inner(
     };
 
     if restart {
-        // A cancel that landed after this worker last read the queue row reaches the completion as
-        // `canceled_by: None`, so the row the completion wrote is what says whether the loop was
-        // stopped. Restarting on a stale copy of it would leave a second loop running for good.
-        let canceled = sqlx::query_scalar!(
-            "SELECT canceled_by IS NOT NULL AS \"canceled!\" FROM v2_job_completed \
-             WHERE id = $1 AND workspace_id = $2",
-            queued_job.id,
-            &queued_job.workspace_id
-        )
-        .fetch_optional(db)
-        .await?
-        .unwrap_or(false);
-        if canceled {
-            return Ok(());
-        }
         let tx = PushIsolationLevel::IsolatedRoot(db.clone());
 
         // perpetual jobs can run one job per 10s max. If the job was faster than 10s, schedule the next one with the appropriate delay

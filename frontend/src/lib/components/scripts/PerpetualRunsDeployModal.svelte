@@ -52,7 +52,7 @@
 		<div class="flex flex-col gap-3">
 			{#if stopped}
 				<p>
-					{single ? 'The run was' : 'The runs were'} stopped. Deploying starts nothing in {single
+					{single ? 'The run was' : 'The runs were'} scaled down. Deploying starts nothing in {single
 						? 'its'
 						: 'their'} place.
 				</p>
@@ -81,11 +81,14 @@
 									The versions the runs are on could not be read, so arguments this version changes
 									would still be carried over.
 								{/if}
-								Stopping {subject} leaves this version to be started with arguments that match.
+								{single ? 'The restarted run keeps' : 'Restarted runs keep'} the old ones. To run this
+								version with arguments that fit it, scale down to 0 here and start a run yourself once
+								the deploy is through.
 							</p>
 							<Button
 								variant="default"
 								unifiedSize="xs"
+								btnClasses="bg-surface"
 								disabled={stopping}
 								onclick={async () => {
 									stopping = true
@@ -93,7 +96,7 @@
 									stopping = false
 								}}
 							>
-								{stopping ? 'Stopping…' : `Stop ${subject}`}
+								{stopping ? 'Scaling down to 0…' : 'Scale down to 0'}
 							</Button>
 						</div>
 					</Alert>
