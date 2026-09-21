@@ -222,8 +222,9 @@ struct StoredConnection {
 /// `connect` takes no lock against what clears these rows (a removal from the workspace, a target
 /// change, a key rotation): writers take those rows in every order, so any lock it held could close
 /// a deadlock. A row can therefore land just after one of them ran, and is voided here instead. It
-/// counts only for the target it was granted for, for a superadmin or a membership that began no
-/// later than the connect (so a re-add does not revive it), and while it decrypts.
+/// counts only for the target it was granted for, if connected since the setting last changed (so
+/// pointing the setting back does not revive it); for a superadmin or a membership that began no
+/// later than the connect (so a re-add does not either); and while it decrypts.
 async fn load_connection(
     db: &DB,
     w_id: &str,
@@ -235,6 +236,8 @@ async fn load_connection(
         "SELECT t.token, t.remote_email, t.proxy_key, t.connected_at FROM remote_deploy_token t
          WHERE t.workspace_id = $1 AND t.email = $2 AND t.base_url = $3
            AND t.remote_workspace_id = $4
+           AND NOT EXISTS (SELECT 1 FROM workspace_settings s WHERE s.workspace_id = t.workspace_id
+                             AND s.remote_deploy_target_changed_at > t.connected_at)
            AND (EXISTS (SELECT 1 FROM usr u WHERE u.workspace_id = t.workspace_id
                           AND u.email = t.email AND u.created_at <= t.connected_at)
                 OR EXISTS (SELECT 1 FROM password p WHERE p.email = t.email AND p.super_admin))",
@@ -335,7 +338,11 @@ async fn set_target(
         .transpose()
         .map_err(|e| Error::internal_err(e.to_string()))?;
     sqlx::query!(
-        "UPDATE workspace_settings SET remote_deploy_target = $1 WHERE workspace_id = $2",
+        "UPDATE workspace_settings SET remote_deploy_target = $1::jsonb,
+             remote_deploy_target_changed_at = CASE
+                 WHEN remote_deploy_target IS DISTINCT FROM $1::jsonb THEN now()
+                 ELSE remote_deploy_target_changed_at END
+         WHERE workspace_id = $2",
         target_json,
         &w_id
     )

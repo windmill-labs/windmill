@@ -1,0 +1,43 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT t.token, t.remote_email, t.proxy_key, t.connected_at FROM remote_deploy_token t\n         WHERE t.workspace_id = $1 AND t.email = $2 AND t.base_url = $3\n           AND t.remote_workspace_id = $4\n           AND NOT EXISTS (SELECT 1 FROM workspace_settings s WHERE s.workspace_id = t.workspace_id\n                             AND s.remote_deploy_target_changed_at > t.connected_at)\n           AND (EXISTS (SELECT 1 FROM usr u WHERE u.workspace_id = t.workspace_id\n                          AND u.email = t.email AND u.created_at <= t.connected_at)\n                OR EXISTS (SELECT 1 FROM password p WHERE p.email = t.email AND p.super_admin))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "token",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "remote_email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "proxy_key",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "connected_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "c34f69f4b5a68380f9d25bad8f4f20096e76840aff7496a5fa4b3f6d7b300817"
+}

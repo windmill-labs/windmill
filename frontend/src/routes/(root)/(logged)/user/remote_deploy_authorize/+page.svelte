@@ -55,6 +55,8 @@
 			await UserService.whoami({ workspace })
 			const token = await UserService.createToken({
 				requestBody: {
+					// Reserved in `is_user_token` (windmill-common), so its expiry sends no email: it is
+					// renewed by connecting again from the deploying instance, not managed here.
 					label: `remote-deploy:${callback!.host}`,
 					workspace_id: workspace,
 					expiration: new Date(Date.now() + TOKEN_LIFETIME_MS).toISOString()

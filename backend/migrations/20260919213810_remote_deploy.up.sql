@@ -1,6 +1,9 @@
 -- The workspace on another Windmill instance this workspace deploys into from the UI:
--- `{"base_url": ..., "workspace_id": ...}`.
-ALTER TABLE workspace_settings ADD COLUMN remote_deploy_target JSONB;
+-- `{"base_url": ..., "workspace_id": ...}`, and when it last changed. A token connected before
+-- that change counts for nothing, even once the setting points back at the target it was for.
+ALTER TABLE workspace_settings
+    ADD COLUMN remote_deploy_target JSONB,
+    ADD COLUMN remote_deploy_target_changed_at TIMESTAMPTZ;
 
 -- One user's token for the remote deploy target, encrypted with the workspace key.
 -- `base_url`/`remote_workspace_id` name the target it was granted for: a token is only

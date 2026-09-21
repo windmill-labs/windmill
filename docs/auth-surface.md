@@ -68,10 +68,12 @@ Symbols, not line numbers, are cited: they drift less.
   from the workspace, a target change, a key rotation): their writers take the account, membership,
   key and settings rows in every order, so any lock held there could close a deadlock. A row can
   therefore land just after one of them ran, and every read (`load_connection`) voids it instead:
-  a row counts only for the current target, for a superadmin or a membership that began no later
-  than the connect (so a re-add does not revive it), and while it decrypts.
-  Connecting by redirect: the remote's `/user/remote_deploy_authorize` page
-  mints a token bound to the one remote workspace (`remote-deploy:<source host>`) only on an
+  a row counts only for the current target, if connected since the setting last changed
+  (`remote_deploy_target_changed_at`, so pointing it back does not revive it); for a superadmin or
+  a membership that began no later than the connect (so a re-add does not either); and while it
+  decrypts. Connecting by redirect: the remote's `/user/remote_deploy_authorize` page
+  mints a token bound to the one remote workspace (`remote-deploy:<source host>`, a label
+  reserved in `is_user_token` so its expiry emails nobody) only on an
   explicit Authorize, only for a callback whose path is `/remote_deploy/callback`, and refuses to
   render inside a frame; the token travels in the fragment, and the callback checks a single-use
   `state` the drawer stored, so no other page can plant a token as the user's. The proxy also refuses a path the URL parser would rewrite,

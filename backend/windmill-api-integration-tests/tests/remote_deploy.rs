@@ -21,12 +21,14 @@ async fn test_remote_deploy_proxy(db: Pool<Postgres>) -> anyhow::Result<()> {
     let port = server.addr.port();
     let base = format!("http://localhost:{port}/api/w/test-workspace/remote_deploy");
 
-    // Planted rather than set through the route, which is enterprise-gated.
+    // Planted rather than set through the route, which is enterprise-gated. Without the route's
+    // token cleanup, as a connect landing just after that cleanup leaves things.
     let set_target = |base_url: String, workspace_id: &'static str| {
         let db = db.clone();
         async move {
             sqlx::query!(
-                "UPDATE workspace_settings SET remote_deploy_target = $1
+                "UPDATE workspace_settings
+                 SET remote_deploy_target = $1, remote_deploy_target_changed_at = now()
                  WHERE workspace_id = 'test-workspace'",
                 json!({ "base_url": base_url, "workspace_id": workspace_id })
             )
@@ -158,6 +160,13 @@ async fn test_remote_deploy_proxy(db: Pool<Postgres>) -> anyhow::Result<()> {
         .as_str()
         .unwrap()
         .to_string();
+    let resp = as_test2(client().get(format!("{base}/target")))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.json::<serde_json::Value>().await?["connection"]["proxy_key"],
+        key2.as_str()
+    );
     sqlx::query!(
         "UPDATE usr SET created_at = now()
          WHERE workspace_id = 'test-workspace' AND email = 'test2@windmill.dev'"
@@ -200,6 +209,14 @@ async fn test_remote_deploy_proxy(db: Pool<Postgres>) -> anyhow::Result<()> {
         .send()
         .await?;
     assert_eq!(resp.status(), 400);
+
+    // The row for the old target outlived the change, as one from a connect in flight across it
+    // would: pointing the setting back must not revive it.
+    set_target(format!("http://localhost:{port}"), "test-workspace").await;
+    let resp = authed(client().get(format!("{base}/target")))
+        .send()
+        .await?;
+    assert!(resp.json::<serde_json::Value>().await?["connection"].is_null());
 
     Ok(())
 }
