@@ -9,7 +9,6 @@
 	// just be noise.
 	import DBTable from '$lib/components/DBTable.svelte'
 	import { resource } from 'runed'
-	import { workspaceStore } from '$lib/stores'
 	import { loadAllTablesMetaData } from '$lib/components/apps/components/display/dbtable/metadata'
 	import { dbTableOpsWithPreviewScripts } from '$lib/components/dbOps'
 	import { WorkspaceService } from '$lib/gen'
@@ -19,6 +18,9 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { base } from '$lib/base'
 	import { twMerge } from 'tailwind-merge'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		// Asset path as parsed from `datatable://<datatable>/<table>` —
@@ -71,7 +73,7 @@
 	// query, and the user needs to configure it before pipeline scripts
 	// can write to it.
 	let datatables = resource(
-		() => $workspaceStore,
+		() => $operatingWorkspace,
 		async (ws) => {
 			if (!ws) return [] as string[]
 			try {
@@ -117,9 +119,9 @@
 		() => [input, refreshKey],
 		async ([_input]) => {
 			colDefsError = undefined
-			if (!_input || !$workspaceStore) return undefined
+			if (!_input || !$operatingWorkspace) return undefined
 			try {
-				return await loadAllTablesMetaData($workspaceStore, _input)
+				return await loadAllTablesMetaData($operatingWorkspace, _input)
 			} catch (e) {
 				colDefsError = (e as Error)?.message || String(e)
 				return undefined
@@ -138,12 +140,12 @@
 	})
 
 	let dbTableOps = $derived(
-		input && tableColDefs && parsed.table && $workspaceStore
+		input && tableColDefs && parsed.table && $operatingWorkspace
 			? dbTableOpsWithPreviewScripts({
 					input,
 					tableKey: parsed.table,
 					colDefs: tableColDefs,
-					workspace: $workspaceStore
+					workspace: $operatingWorkspace
 				})
 			: undefined
 	)

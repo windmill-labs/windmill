@@ -40,6 +40,13 @@
 		/** Default schema for new tables */
 		defaultSchema?: string | undefined
 		onDefaultChange?: (datatable: string | undefined, schema: string | undefined) => void
+		/** The role the app uses each data table through, by data table name */
+		datatableRoles?: Record<string, string>
+		/** `roleChanged` names the data tables now used through another role than before. */
+		onDatatableRolesChange?: (
+			roles: Record<string, string> | undefined,
+			roleChanged: Set<string>
+		) => void
 	}
 
 	let {
@@ -60,15 +67,27 @@
 		onDataTableRefsChange,
 		defaultDatatable = undefined,
 		defaultSchema = undefined,
-		onDefaultChange
+		onDefaultChange,
+		datatableRoles = undefined,
+		onDatatableRolesChange
 	}: Props = $props()
 
 	let dataTableDrawer: RawAppDataTableDrawer | undefined = $state()
 	let selectedDataTableIndex: number | undefined = $state(undefined)
 	let sharedUiDrawer: RawAppSharedUiDrawer | undefined = $state()
 
-	function handleAddDataTable(ref: DataTableRef) {
-		onDataTableRefsChange?.([...dataTableRefs, ref])
+	function handleAddDataTables(
+		refs: DataTableRef[],
+		browsedRoles: Record<string, string>,
+		roleChanged: Set<string>
+	) {
+		onDataTableRefsChange?.([
+			...dataTableRefs.filter((r) => !roleChanged.has(r.datatable)),
+			...refs
+		])
+		if (Object.keys(browsedRoles).length > 0) {
+			onDatatableRolesChange?.({ ...datatableRoles, ...browsedRoles }, roleChanged)
+		}
 	}
 
 	function handleRemoveDataTable(index: number) {
@@ -153,6 +172,7 @@
 	{dataTableRefs}
 	{defaultDatatable}
 	{defaultSchema}
+	roles={datatableRoles}
 	onAdd={() => dataTableDrawer?.openDrawer()}
 	onRemove={handleRemoveDataTable}
 	onSelect={handleSelectDataTable}
@@ -161,8 +181,9 @@
 />
 <RawAppDataTableDrawer
 	bind:this={dataTableDrawer}
-	onAdd={handleAddDataTable}
+	onAdd={handleAddDataTables}
 	existingRefs={dataTableRefs}
+	roles={datatableRoles}
 />
 <RawAppSharedUiDrawer bind:this={sharedUiDrawer} />
 

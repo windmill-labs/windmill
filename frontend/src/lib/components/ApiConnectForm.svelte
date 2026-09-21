@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { OauthService, type ResourceType } from '$lib/gen'
 	import FilesetEditor from './FilesetEditor.svelte'
-	import { workspaceStore } from '$lib/stores'
 	import { emptySchema, emptyString } from '$lib/utils'
 	import SchemaForm from './SchemaForm.svelte'
 	import Toggle from './Toggle.svelte'
@@ -20,6 +19,9 @@
 	import { base } from '$lib/base'
 	import { isDataTableWizardEnabled } from './workspaceSettings/utils.svelte'
 	import { parsePostgresConnectionString } from '$lib/utils/postgresConnectionString'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		resourceType: string
@@ -152,7 +154,7 @@
 		}
 	}
 	$effect(() => {
-		$workspaceStore && untrack(() => loadSchema())
+		$operatingWorkspace && untrack(() => loadSchema())
 	})
 	$effect(() => {
 		notFound && rawCode && untrack(() => parseJson())

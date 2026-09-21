@@ -727,8 +727,8 @@
 	// Each entry maps a top-level key to its sensitive sub-field names.
 	const nestedSensitiveFields: Record<string, string[]> = {
 		smtp_settings: ['smtp_password'],
-		secret_backend: ['token'],
-		object_store_cache_config: ['secret_key', 'serviceAccountKey'],
+		secret_backend: ['token', 'client_secret', 'secret_access_key'],
+		object_store_cache_config: ['secret_key', 'serviceAccountKey', 'accessKey'],
 		custom_instance_pg_databases: ['user_pwd'],
 		rsa_keys: ['private_key'],
 		github_enterprise_app: ['private_key']
@@ -1093,8 +1093,11 @@
 							migrations are set up and used, how often an empty workspace home is seen, how often
 							the home page’s create menu and hub-project picker are opened and from which entry
 							point, the name of any public hub project imported from the home page and how far that
-							import got, whether a pre-approved trial offer was opened, and whether data tables are
-							put under roles and whether callers name a role or take the default, last 30 days)</li
+							import got, whether a pre-approved trial offer was opened, whether data tables are put
+							under roles and whether callers name a role or take the default, which kinds of access
+							change (grant, revoke, ownership, default privileges) are applied to data tables, and
+							whether a data table under roles is cloned into a fork with its schema only or with
+							its data, last 30 days)</li
 						>
 						<li
 							>feature adoption (counts of which flow, script, trigger, worker and data table
@@ -1160,8 +1163,11 @@
 							migrations are set up and used, how often an empty workspace home is seen, how often
 							the home page’s create menu and hub-project picker are opened and from which entry
 							point, the name of any public hub project imported from the home page and how far that
-							import got, whether a pre-approved trial offer was opened, and whether data tables are
-							put under roles and whether callers name a role or take the default, last 30 days)</li
+							import got, whether a pre-approved trial offer was opened, whether data tables are put
+							under roles and whether callers name a role or take the default, which kinds of access
+							change (grant, revoke, ownership, default privileges) are applied to data tables, and
+							whether a data table under roles is cloned into a fork with its schema only or with
+							its data, last 30 days)</li
 						>
 						<li
 							>feature adoption (counts of which flow, script, trigger, worker and data table

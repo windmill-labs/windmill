@@ -8725,7 +8725,12 @@ fn register_potential_assets_on_inline_execution(
             .as_ref()
             .and_then(|args| args.get("database"))
             .map(|v| v.get().trim_matches('"'))
-            .and_then(|dt| dt.strip_prefix("datatable://"));
+            .and_then(|dt| dt.strip_prefix("datatable://"))
+            // `?role=` picks the connection, not the data table. Anything else after a `?` may be
+            // part of a name stored before names were restricted, so it stays.
+            .map(|dt| {
+                windmill_common::workspaces::parse_datatable_ref(dt).map_or(dt, |(name, _)| name)
+            });
         if let Some(datatable) = datatable {
             let re = regex::Regex::new(r#"SET search_path TO "([^"]+)";"#).unwrap();
             let (schema, content) = if let Some(captures) = re.captures(&preview.content) {

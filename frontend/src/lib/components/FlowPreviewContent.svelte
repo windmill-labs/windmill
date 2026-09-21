@@ -6,7 +6,6 @@
 		type OpenFlow,
 		type ScriptLang
 	} from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { Badge, Button } from './common'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
@@ -44,6 +43,9 @@
 	import FlowRestartButton from './FlowRestartButton.svelte'
 	import { useNestedRestartState } from './useNestedRestartState.svelte'
 	import { buildFlowRecording, downloadRecordingJson } from './recording/runRecording'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		previewMode: 'upTo' | 'whole'
@@ -138,7 +140,7 @@
 		opWorkspace
 	} = $state(getContext<FlowEditorContext>('FlowEditorContext'))
 	// Acting workspace when previewing inside an AI session; else the nav workspace.
-	let opWs = $derived(opWorkspace?.() ?? $workspaceStore)
+	let opWs = $derived(opWorkspace?.() ?? $operatingWorkspace)
 	const dispatch = createEventDispatcher()
 
 	let renderCount: number = $state(0)

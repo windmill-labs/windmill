@@ -11,7 +11,6 @@
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 	import type { Schema, SupportedLanguage } from '$lib/common'
 	import type { Preview, ScriptModule } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { emptySchema } from '$lib/utils'
 	import { inferArgs } from '$lib/infer'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -54,6 +53,9 @@
 	import { ChevronDown, CornerDownLeft, Play, Plus } from 'lucide-svelte'
 	import type { ScriptEditorWhitelabelCustomUi } from '../custom_ui'
 	import { processSecretArgs } from '../secretArgUtils'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	let {
 		schema = $bindable(),
@@ -86,7 +88,7 @@
 	} = $props()
 
 	const dispatch = createEventDispatcher()
-	let opWs = $derived(workspaceOverride ?? $workspaceStore)
+	let opWs = $derived(workspaceOverride ?? $operatingWorkspace)
 
 	/** The open file, or `null` for the descriptor at the project root. */
 	let openFile = $state<string | null>(null)

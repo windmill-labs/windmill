@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { workerTags, workspaceStore } from '$lib/stores'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import { WorkerService } from '$lib/gen'
 
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
@@ -31,10 +32,8 @@
 		/** Forwarded to the underlying Select — controls the input height. The
 		 * condensed session top bar passes `sm` to match its smaller buttons. */
 		size?: 'sm' | 'md' | 'lg'
-		// Workspace to read custom tags and worker availability from. Defaults to
-		// $workspaceStore. Session editors act on a workspace that differs from the
-		// navigation one, so they pass their effective workspace to keep the tag
-		// list and availability dots matching the deploy target.
+		// Workspace to read custom tags and worker availability from. Defaults to the
+		// operating workspace (see `useOperatingWorkspace`).
 		workspaceId?: string
 	} = $props()
 
@@ -46,8 +45,11 @@
 	// The shared `workerTags` store caches tags for the navigation workspace. When
 	// this select targets a different workspace, read/write a local list instead so
 	// it neither shows the navigation workspace's tags nor clobbers the shared cache.
-	let effectiveWorkspace = $derived(workspaceId ?? $workspaceStore)
-	let usesLocal = $derived(workspaceId != undefined && workspaceId !== $workspaceStore)
+	const operatingWorkspace = useOperatingWorkspace()
+	let effectiveWorkspace = $derived(workspaceId ?? $operatingWorkspace)
+	let usesLocal = $derived(
+		effectiveWorkspace != undefined && effectiveWorkspace !== $workspaceStore
+	)
 	let localWorkerTags = $state<string[] | undefined>(undefined)
 	let currentTags = $derived(usesLocal ? localWorkerTags : $workerTags)
 
