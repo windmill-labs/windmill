@@ -136,12 +136,8 @@ pub async fn run_systemone(
     Ok(DecisionResult {
         output: parsed.answers,
         model: parsed.model,
-        usage: parsed.usage.map(|u| {
-            TokenUsage::new(
-                u.input_tokens,
-                u.output_tokens,
-                u.input_tokens.zip(u.output_tokens).map(|(i, o)| i + o),
-            )
-        }),
+        usage: parsed
+            .usage
+            .map(|u| TokenUsage::from_input_output(u.input_tokens, u.output_tokens)),
     })
 }

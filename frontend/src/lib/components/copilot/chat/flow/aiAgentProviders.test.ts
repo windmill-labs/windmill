@@ -124,14 +124,21 @@ describe('validateAiAgentProviders', () => {
 			customEndpoint: false
 		}
 		const catalog = { ...COMPLETE, options: [ANTHROPIC, typesafe] }
-		const step = (kind: string, resource: string, model: string, outputType?: string) => [
+		const step = (kind: string, resource: string, model: string, outputType?: unknown) => [
 			{
 				id: 'agent',
 				value: {
 					type: 'aiagent',
 					input_transforms: {
 						provider: { type: 'static', value: { kind, resource, model } },
-						...(outputType ? { output_type: { type: 'static', value: outputType } } : {})
+						...(outputType === undefined
+							? {}
+							: {
+									output_type:
+										typeof outputType === 'string'
+											? { type: 'static', value: outputType }
+											: outputType
+								})
 					}
 				}
 			}
@@ -151,6 +158,16 @@ describe('validateAiAgentProviders', () => {
 				catalog
 			)
 		).toThrow(/runs on a `typesafe` resource/)
+		// An expression is only known at run time.
+		expect(() =>
+			validateAiAgentProviders(
+				step('typesafe', '$res:u/admin/typesafe', 'jev-latest', {
+					type: 'javascript',
+					expr: 'flow_input.mode'
+				}),
+				catalog
+			)
+		).not.toThrow()
 	})
 })
 

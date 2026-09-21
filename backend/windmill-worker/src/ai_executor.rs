@@ -716,6 +716,15 @@ pub async fn handle_ai_agent_job(
     keep_authored_memory_id(&mut args, &step_input_transforms);
 
     let tools = if args.output_type == Some(StepOutputType::Decision) {
+        // A calling agent fills only a nested agent's `user_message` (`AI_AGENT_TOOL_SCHEMA`), so
+        // it has no way to pass the state a decision needs.
+        if direct_parent_job_kind == JobKind::AIAgent {
+            return Err(Error::BadRequest(
+                "Decision output is not available to an agent used as a tool: the calling agent \
+                 cannot pass it a state"
+                    .to_string(),
+            ));
+        }
         // A decision is one call that offers no tools, so its roster is never resolved: an MCP
         // server the step still lists is not contacted, and there is nothing a narrowing could name.
         args.enabled_tools = None;
@@ -1138,7 +1147,18 @@ pub async fn run_agent(
     tool_abort_handles: ToolAbortHandles,
 ) -> error::Result<Box<RawValue>> {
     let output_type = &match args.output_type {
-        Some(StepOutputType::Decision) => return run_decision(db, conn, job, args).await,
+        Some(StepOutputType::Decision) => {
+            return run_decision(
+                db,
+                conn,
+                job,
+                args,
+                summary,
+                flow_step_id_override.or(job.flow_step_id.as_deref()),
+                omit_output_from_conversation,
+            )
+            .await
+        }
         Some(StepOutputType::Image) => OutputType::Image,
         Some(StepOutputType::Text) | None => OutputType::Text,
     };
@@ -2084,6 +2104,9 @@ async fn run_decision(
     conn: &Connection,
     job: &MiniPulledJob,
     args: &AIAgentArgs,
+    summary: Option<&str>,
+    flow_step_id: Option<&str>,
+    omit_output_from_conversation: bool,
 ) -> error::Result<Box<RawValue>> {
     if args.provider.kind != AIProvider::TypeSafe {
         return Err(Error::BadRequest(format!(
@@ -2105,6 +2128,35 @@ async fn run_decision(
     )
     .await?;
     windmill_common::feature_usage::log_feature_usage("ai_agent", "decision", "run");
+
+    // A chat flow's saved conversation holds each agent step's answer, written by the step itself:
+    // the flow skips the result message of an AI agent step.
+    if !omit_output_from_conversation {
+        let flow_status = get_flow_context(db, job).await.flow_status;
+        if let Some(conversation_id) = flow_status
+            .filter(|fs| fs.chat_input_enabled.unwrap_or(false))
+            .and_then(|fs| fs.memory_id)
+        {
+            if let Err(e) = add_message_to_conversation(
+                db,
+                &conversation_id,
+                Some(job.id),
+                result.output.get(),
+                MessageType::Assistant,
+                &get_step_name_from_flow(summary, flow_step_id),
+                true,
+                None,
+            )
+            .await
+            {
+                tracing::warn!(
+                    "Failed to add decision to conversation {}: {}",
+                    conversation_id,
+                    e
+                );
+            }
+        }
+    }
     Ok(to_raw_value(&result))
 }
 

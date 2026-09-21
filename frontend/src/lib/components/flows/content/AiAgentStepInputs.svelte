@@ -229,6 +229,17 @@
 		})
 	})
 
+	// A calling agent fills only a nested agent's user message, so it could never pass the state a
+	// decision needs; the worker refuses one. Same per-step schema copy as above.
+	$effect(() => {
+		const property = isAgentTool ? schemaProperties['output_type'] : undefined
+		untrack(() => {
+			if (property?.enum?.includes('decision')) {
+				property.enum = property.enum.filter((value: string) => value !== 'decision')
+			}
+		})
+	})
+
 	let scopedFields = $derived(
 		AGENT_FIELDS.filter(
 			(spec) =>

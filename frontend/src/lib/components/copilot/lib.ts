@@ -160,13 +160,16 @@ export const DECISION_AI_PROVIDERS: Record<
 	}
 }
 
-export function isChatAIProvider(provider: string): provider is ChatAIProvider {
-	return provider in AI_PROVIDERS
-}
-
-/** Label and default models of any provider kind, chat or decision. */
+/** Label and default models of any provider kind, chat or decision. A kind in neither list (a flow
+ *  written by hand or by a newer version) is named as it is and offers no models. */
 export function aiProviderDetails(provider: AIProvider): AIProviderDetails {
-	return isChatAIProvider(provider) ? AI_PROVIDERS[provider] : DECISION_AI_PROVIDERS[provider]
+	return (
+		(AI_PROVIDERS as Record<string, AIProviderDetails>)[provider] ??
+		(DECISION_AI_PROVIDERS as Record<string, AIProviderDetails>)[provider] ?? {
+			label: provider,
+			defaultModels: []
+		}
+	)
 }
 
 export interface ModelResponse {
@@ -201,7 +204,7 @@ export async function fetchAvailableModels(
 ): Promise<string[]> {
 	// TypeSafe's listing is not OpenAI-shaped (`name`, not `id`), and it serves one model under
 	// aliases, so its known ids are the list.
-	if (!isChatAIProvider(provider)) {
+	if (provider === 'typesafe') {
 		return DECISION_AI_PROVIDERS[provider].defaultModels
 	}
 

@@ -279,8 +279,8 @@ function checkProviderValue(
 	return undefined
 }
 
-/** A decision runs only on a decision model, and a decision model answers nothing else. An
- * `output_type` expression is only known at run time, so it is not checked. */
+/** A decision runs only on a decision model, and a decision model answers nothing else. `outputType`
+ * is the static value, or undefined for an absent key, which runs as text. */
 function checkOutputTypeFits(kind: unknown, outputType: unknown): ProviderIssue | undefined {
 	const decisionKind = kind === 'typesafe'
 	if (decisionKind && outputType !== 'decision') {
@@ -318,10 +318,9 @@ export function validateAiAgentProviders(
 		const outputType = value.input_transforms?.output_type
 		const issue =
 			checkProviderValue(transform.value, known) ??
-			checkOutputTypeFits(
-				(transform.value as Record<string, unknown>)?.kind,
-				outputType?.type === 'static' ? outputType.value : undefined
-			)
+			(outputType == undefined || outputType.type === 'static'
+				? checkOutputTypeFits((transform.value as Record<string, unknown>)?.kind, outputType?.value)
+				: undefined)
 		if (!issue) return
 		if (issue.blocking) {
 			errors.push(`Step "${mod.id}": ${issue.message}`)
