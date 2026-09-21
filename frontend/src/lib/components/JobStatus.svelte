@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { displayDate, msToReadableTime } from '$lib/utils'
+	import { displayDate, jobDisplayDurationMs, msToReadableTime } from '$lib/utils'
 	import type { CompletedJob, QueuedJob } from '$lib/gen'
 	import Badge from './common/badge/Badge.svelte'
 	import { forLater } from '$lib/forLater'
@@ -20,7 +20,7 @@
 
 {#if job && 'success' in job && job.success}
 	<Badge {large} color="green">
-		Successfully ran in {msToReadableTime(job.duration_ms)}
+		Successfully ran in {msToReadableTime(jobDisplayDurationMs(job))}
 		{job.is_skipped ? '(Skipped)' : ''}
 		{#if job.self_wait_time_ms || job.aggregate_wait_time_ms}
 			<WaitTimeWarning
@@ -34,7 +34,7 @@
 	<Badge {large} color="orange" title={job.resolution_note}>
 		<!-- `resolved_by` is absent both for an automatic resolution and for a manual one
 		     outside EE, so the automatic wording comes from `resolved_automatically`. -->
-		Failed after {msToReadableTime(job.duration_ms)}, resolved{job.resolved_automatically
+		Failed after {msToReadableTime(jobDisplayDurationMs(job))}, resolved{job.resolved_automatically
 			? ' automatically'
 			: job.resolved_by
 				? ` by ${job.resolved_by}`
@@ -49,7 +49,7 @@
 	</Badge>
 {:else if job && 'success' in job}
 	<Badge {large} color="red">
-		Failed after {msToReadableTime(job.duration_ms)}
+		Failed after {msToReadableTime(jobDisplayDurationMs(job))}
 		{#if job.self_wait_time_ms || job.aggregate_wait_time_ms}
 			<WaitTimeWarning
 				self_wait_time_ms={job.self_wait_time_ms}

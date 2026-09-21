@@ -15,6 +15,7 @@
 	import { Badge } from '../common'
 	import { forLater } from '$lib/forLater'
 	import DurationMs from '../DurationMs.svelte'
+	import { jobDisplayDurationMs } from '$lib/utils'
 	import { workspaceStore } from '$lib/stores'
 	import { twMerge } from 'tailwind-merge'
 
@@ -29,6 +30,7 @@
 	let { id, children, class: clazz }: Props = $props()
 
 	let job: Job | undefined = $state(undefined)
+	let displayDurationMs = $derived(jobDisplayDurationMs(job))
 	let hovered = $state(false)
 	let timeout: number | undefined
 	let result: any = $state()
@@ -155,9 +157,9 @@
 				<Badge>
 					Mem: {job?.['mem_peak'] ? `${(job['mem_peak'] / 1024).toPrecision(4)}MB` : 'N/A'}
 				</Badge>
-				{#if job?.['duration_ms']}
+				{#if displayDurationMs}
 					<DurationMs
-						duration_ms={job?.['duration_ms']}
+						duration_ms={displayDurationMs}
 						self_wait_time_ms={job?.self_wait_time_ms}
 						aggregate_wait_time_ms={job?.aggregate_wait_time_ms}
 					/>

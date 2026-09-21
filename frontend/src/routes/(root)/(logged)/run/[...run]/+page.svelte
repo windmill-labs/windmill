@@ -22,7 +22,8 @@
 		isHubFlowPath,
 		isFlowPreview,
 		isNotFlow,
-		isScriptPreview
+		isScriptPreview,
+		jobDisplayDurationMs
 	} from '$lib/utils'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
@@ -1170,7 +1171,7 @@
 								<div class="w-full">
 									<LogViewer
 										jobId={job.id}
-										duration={job?.['duration_ms']}
+										duration={jobDisplayDurationMs(job)}
 										mem={job?.['mem_peak']}
 										isLoading={job?.['running'] == false}
 										content={job?.logs}
