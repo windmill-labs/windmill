@@ -93,13 +93,14 @@ setting it too large never trips the trigger and the provider raises the context
 
 `windmill-worker/src/ai/compaction.rs` keeps two histories: model context, which can be compacted,
 and the execution record, which retains the loaded history and every message produced by the run.
-Returned results and partial-error results use the execution record. Compaction cannot remove or
+Returned results and max-iteration partial results use the execution record. Compaction cannot remove or
 reorder the action messages the flow viewer indexes, or the MCP results it finds by call ID.
 
 Before each provider request, including the first, the worker checks the projected context size.
-At 80% of the model window it summarizes the older prefix, keeping recent complete exchanges
-verbatim. The soft target is 50%, including the system prompt, tools and summary allowance. The
-newest exchange is always retained even if it exceeds that target. A user prompt stays with its
+It reserves the larger of 20% of the model window and the configured maximum output tokens.
+At the remaining input budget it summarizes an older prefix, retaining up to 20K estimated tokens
+of recent complete exchanges (at most half the input budget on smaller models).
+The newest exchange is always retained. A user prompt stays with its
 first response; later tool rounds can be compacted within a single turn, but a call and its results
 are never split. A prefix containing only an earlier summary is not summarized again.
 
@@ -108,12 +109,10 @@ Bedrock rejects tool blocks without definitions. A dedicated system instruction 
 handoff from a labelled transcript, keeping the compaction instruction outside that transcript;
 media parts remain available. Its output cap matches the reserved summary budget,
 and its temperature and reasoning settings are independent of the step's answer settings.
-If summarization fails, history is retained while it fits. Older complete exchanges are omitted
-only when the estimated model limit or exact storage limit is exceeded. Three consecutive failures
-disable summary requests for the run. Before a provider request, an irreducible oversized exchange
-returns a capacity error with the execution record. After the answer, an unsavable context skips
-the memory write and logs that the next run will load the previous saved memory; the answer succeeds.
-Flow logs distinguish summaries, omissions and skipped writes.
+A replacement is built separately and installed only if it reduces projected context and fits
+the estimated input budget. An empty, oversized or failed summary leaves the context and its
+usage measurement untouched; compaction never evicts messages. Three consecutive failed attempts
+disable summary requests for the run. Estimates schedule compaction but do not reject model calls.
 
 The projection uses normalized `TokenUsage::input_tokens` from the last request plus a `bytes/4`
 estimate of appended messages. Without usage, or after rewriting context, it estimates the whole
@@ -121,20 +120,24 @@ prompt including tools. S3 descriptors get a nominal attachment allowance; actua
 and tokenizer differences remain approximate. Provider parsing owns usage normalization: Anthropic
 and Bedrock report cached input separately, while OpenAI-shaped providers include it in input tokens.
 If a provider explicitly rejects the context size, the worker summarizes all older complete
-exchanges (or omits them if summarization fails) and retries that request once. This also recovers
+exchanges and retries that request once if a usable replacement was produced. This also recovers
 from undercounted attachments loaded from a previous run, without provider-specific tokenizers.
 Unrelated errors are not retried this way. The newest exchange is still retained, so a request
 that cannot fit even after recovery fails; estimates do not guarantee every first request fits.
 
+If recovery fails or the retry is rejected, the provider error is returned without saving changed
+memory. A successful checkpoint uses the same execution record as before compaction.
+
 Memory is stored per (memory id, step id), in `ai_agent_memory` or S3 at
 `memory/{workspace}/{memory id}/{step}.json`. The chat transcript (`flow_conversation_message`)
-always follows the run's id, even when a step sets its own. Before persistence, the same planner
-also checks the serialized memory against the database's 100KB limit (`MAX_MEMORY_SIZE_BYTES`),
+always follows the run's id, even when a step sets its own. Persistence independently checks
+serialized memory against the database's 100KB limit (`MAX_MEMORY_SIZE_BYTES`),
 when `memory_storage_capacity_bytes` reports one. System messages and tool definitions are not
-stored, so they do not count towards this byte limit. The final pass chooses one prefix against
-both constraints and summarizes it once; it does not shrink the model window to a storage-derived
-token count. The actual replacement is checked again before writing. Persistence reads compacted
-model context, independently of the complete execution record returned by the step.
+stored, so they do not count towards this byte limit. If oversized, it requests one checkpoint
+of all older exchanges, then measures bytes again. If memory still cannot fit, the write is skipped
+and the flow log explains that the next run will load the previous saved memory. The completed
+answer succeeds. There is no model-window compaction after the final answer unless storage needs
+it. Persistence reads model context independently of the execution record returned by the step.
 Nothing expires stored memory: deleting a chat conversation deletes its memory, and a memory named
 by a string id stays until it is overwritten.
 

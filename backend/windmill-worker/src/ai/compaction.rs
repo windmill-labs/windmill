@@ -20,8 +20,6 @@ use windmill_common::{client::AuthedClient, error::Error};
 
 use crate::ai::stream_event_processor::StreamEventProcessor;
 
-const COMPACTION_TRIGGER_RATIO: f64 = 0.8;
-const COMPACTION_TARGET_RATIO: f64 = 0.5;
 const SUMMARY_OUTPUT_RESERVE_TOKENS: usize = 8000;
 const MIN_SUMMARY_RESERVE_TOKENS: usize = 2000;
 const MAX_CONSECUTIVE_COMPACTION_FAILURES: usize = 3;
@@ -117,7 +115,7 @@ fn estimate_tokens(messages: &[OpenAIMessage]) -> usize {
         .sum()
 }
 
-fn persisted_bytes(messages: &[OpenAIMessage]) -> usize {
+pub(crate) fn persisted_bytes(messages: &[OpenAIMessage]) -> usize {
     let persisted: Vec<_> = messages.iter().filter(|m| m.role != "system").collect();
     serde_json::to_vec(&persisted)
         .map(|v| v.len())
@@ -157,82 +155,40 @@ fn exchange_starts(messages: &[OpenAIMessage]) -> Vec<usize> {
     starts
 }
 
-/// Token limits describe provider requests. Byte limits describe only persisted messages.
+/// Produces a smaller model context without changing execution history or enforcing storage policy.
 pub(crate) struct Compactor {
-    context_window: usize,
+    input_budget: usize,
+    summary_tokens: usize,
     tool_schema_tokens: usize,
     consecutive_failures: usize,
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) enum CompactionOutcome {
-    Unchanged,
-    Summarized,
-    Omitted,
-}
-
 pub(crate) struct CompactionPass {
-    pub outcome: CompactionOutcome,
+    pub changed: bool,
     pub usage: Option<TokenUsage>,
-    pub fits: bool,
 }
 
 impl Compactor {
-    pub(crate) fn new(context_window: usize, tool_schema_tokens: usize) -> Self {
-        Self { context_window, tool_schema_tokens, consecutive_failures: 0 }
-    }
-
-    fn reserve_tokens(&self, storage_bytes: Option<usize>) -> usize {
-        let reserve = (self.context_window / 10)
-            .clamp(MIN_SUMMARY_RESERVE_TOKENS, SUMMARY_OUTPUT_RESERVE_TOKENS);
-        storage_bytes.map_or(reserve, |bytes| reserve.min(bytes / 40).max(1))
-    }
-
-    fn needs_compaction(&self, history: &AgentHistory, storage_bytes: Option<usize>) -> bool {
-        history.projected_tokens(self.tool_schema_tokens) as f64
-            >= self.context_window as f64 * COMPACTION_TRIGGER_RATIO
-            || storage_bytes.is_some_and(|limit| persisted_bytes(history.context()) > limit)
-    }
-
-    fn fits(&self, history: &AgentHistory, storage_bytes: Option<usize>) -> bool {
-        history.projected_tokens(self.tool_schema_tokens) <= self.context_window
-            && storage_bytes.is_none_or(|limit| persisted_bytes(history.context()) <= limit)
-    }
-
-    fn recovery_split(&self, history: &AgentHistory) -> Option<usize> {
-        exchange_starts(history.context())
-            .last()
-            .copied()
-            .filter(|split| *split > conversation_start(history.context()))
-    }
-
-    fn omit_if_over_capacity(
-        &self,
-        history: &mut AgentHistory,
-        storage_bytes: Option<usize>,
-        context_rejected: bool,
-    ) -> bool {
-        if !context_rejected && self.fits(history, storage_bytes) {
-            return false;
+    pub(crate) fn new(
+        context_window: usize,
+        tool_schema_tokens: usize,
+        max_output_tokens: Option<u32>,
+    ) -> Self {
+        let reserve = (context_window / 5).max(max_output_tokens.unwrap_or(0) as usize);
+        Self {
+            input_budget: context_window.saturating_sub(reserve),
+            summary_tokens: (context_window / 10)
+                .clamp(MIN_SUMMARY_RESERVE_TOKENS, SUMMARY_OUTPUT_RESERVE_TOKENS),
+            tool_schema_tokens,
+            consecutive_failures: 0,
         }
-        let split = if context_rejected {
-            self.recovery_split(history)
-        } else {
-            self.plan(history, storage_bytes)
-        };
-        let Some(split) = split else { return false };
-        // Eviction uses complete exchanges and never alters the execution record.
-        history.replace_prefix(split, OpenAIMessage {
-            role: "user".to_string(),
-            content: Some(OpenAIContent::Text(
-                "Earlier conversation context was omitted because it exceeded the memory limit. Continue using the recent exchanges below.".to_string(),
-            )),
-            ..Default::default()
-        });
-        true
     }
 
-    fn plan(&self, history: &AgentHistory, storage_bytes: Option<usize>) -> Option<usize> {
+    fn needs_compaction(&self, history: &AgentHistory) -> bool {
+        history.projected_tokens(self.tool_schema_tokens) >= self.input_budget
+    }
+
+    fn plan(&self, history: &AgentHistory, force: bool) -> Option<usize> {
         let messages = history.context();
         let starts = exchange_starts(messages);
         let newest = *starts.last()?;
@@ -240,102 +196,82 @@ impl Compactor {
         if newest == start {
             return None;
         }
-
-        let reserve = self.reserve_tokens(storage_bytes);
-        let target = (self.context_window as f64 * COMPACTION_TARGET_RATIO) as usize;
-        let fixed = self.tool_schema_tokens + estimate_tokens(&messages[..start]);
-        let to_free = history
-            .projected_tokens(self.tool_schema_tokens)
-            .saturating_sub(target);
-        let mut split = newest;
-        for candidate in starts.into_iter().skip(1) {
-            split = candidate;
-            let prefix_tokens = estimate_tokens(&messages[start..candidate]);
-            let tail_tokens = fixed + reserve + estimate_tokens(&messages[candidate..]);
-            let tail_fits_storage = storage_bytes.is_none_or(|limit| {
-                persisted_bytes(&messages[candidate..]) + reserve * 4 <= limit / 2
-            });
-            if tail_tokens <= target
-                && prefix_tokens >= to_free.saturating_add(reserve)
-                && tail_fits_storage
-            {
-                break;
-            }
+        if force {
+            return Some(newest);
         }
-        Some(split)
+        let fixed =
+            self.tool_schema_tokens + estimate_tokens(&messages[..start]) + self.summary_tokens;
+        let tail_budget = 20_000
+            .min(self.input_budget / 2)
+            .min(self.input_budget.saturating_sub(fixed));
+        Some(
+            starts
+                .into_iter()
+                .skip(1)
+                .find(|split| estimate_tokens(&messages[*split..]) <= tail_budget)
+                .unwrap_or(newest),
+        )
+    }
+
+    fn install_summary(&self, history: &mut AgentHistory, split: usize, summary: &str) -> bool {
+        let summary = format_compact_summary(summary);
+        if summary.is_empty() {
+            return false;
+        }
+        let start = conversation_start(history.context());
+        let mut candidate = history.context()[..start].to_vec();
+        candidate.push(build_summary_message(&summary));
+        candidate.extend_from_slice(&history.context()[split..]);
+        let tokens = self.tool_schema_tokens + estimate_tokens(&candidate);
+        // A failed or unhelpful checkpoint never replaces usable context.
+        if tokens >= self.input_budget
+            || tokens >= history.projected_tokens(self.tool_schema_tokens)
+        {
+            return false;
+        }
+        history.replace_prefix(split, build_summary_message(&summary));
+        true
     }
 
     pub(crate) async fn compact(
         &mut self,
         history: &mut AgentHistory,
-        storage_bytes: Option<usize>,
-        context_rejected: bool,
+        force: bool,
         request: &CompactionRequest<'_>,
     ) -> CompactionPass {
-        if !context_rejected && !self.needs_compaction(history, storage_bytes) {
-            return CompactionPass {
-                outcome: CompactionOutcome::Unchanged,
-                usage: None,
-                fits: true,
-            };
+        let unchanged = CompactionPass { changed: false, usage: None };
+        if self.consecutive_failures >= MAX_CONSECUTIVE_COMPACTION_FAILURES
+            || (!force && !self.needs_compaction(history))
+        {
+            return unchanged;
         }
-
-        let mut usage = None;
-        let mut outcome = CompactionOutcome::Unchanged;
-        // A provider rejection invalidates our estimate, especially for loaded media.
-        // Replace all older exchanges so the single retry makes meaningful progress.
-        let split = if context_rejected {
-            self.recovery_split(history)
-        } else {
-            self.plan(history, storage_bytes)
+        let Some(split) = self.plan(history, force) else {
+            return unchanged;
         };
-        if let Some(split) = split {
-            let start = conversation_start(history.context());
-            let has_new_context = history.context()[start..split]
-                .iter()
-                .any(|message| !is_compaction_summary(message));
-            if has_new_context && self.consecutive_failures < MAX_CONSECUTIVE_COMPACTION_FAILURES {
-                match summarize_prefix(
-                    &history.context()[..split],
-                    self.reserve_tokens(storage_bytes),
-                    request,
-                )
-                .await
-                {
-                    Ok((raw, billed_usage)) => {
-                        usage = billed_usage;
-                        let summary = format_compact_summary(&raw);
-                        if !summary.is_empty() {
-                            self.consecutive_failures = 0;
-                            history.replace_prefix(split, build_summary_message(&summary));
-                            outcome = CompactionOutcome::Summarized;
-                            tracing::info!("AI agent compacted {split} messages into a summary");
-                            // A token output cap is not a byte cap. Check the actual summary
-                            // before persistence rather than letting the store evict it.
-                            if self.fits(history, storage_bytes) {
-                                return CompactionPass { outcome, usage, fits: true };
-                            }
-                        } else {
-                            self.consecutive_failures += 1;
-                            tracing::warn!("AI agent compaction returned an empty summary");
-                        }
-                    }
-                    Err(error) => {
-                        self.consecutive_failures += 1;
-                        tracing::warn!("AI agent compaction failed: {error}");
-                    }
+        let start = conversation_start(history.context());
+        if history.context()[start..split]
+            .iter()
+            .all(is_compaction_summary)
+        {
+            return unchanged;
+        }
+        match summarize_prefix(&history.context()[..split], self.summary_tokens, request).await {
+            Ok((summary, usage)) => {
+                let changed = self.install_summary(history, split, &summary);
+                if changed {
+                    self.consecutive_failures = 0;
+                } else {
+                    self.consecutive_failures += 1;
+                    tracing::warn!("AI agent summary did not produce a smaller usable context; history retained");
                 }
+                CompactionPass { changed, usage }
             }
-
-            if self.omit_if_over_capacity(history, storage_bytes, context_rejected) {
-                outcome = CompactionOutcome::Omitted;
-                tracing::warn!("AI agent omitted older exchanges to fit the context limits");
+            Err(error) => {
+                self.consecutive_failures += 1;
+                tracing::warn!("AI agent compaction failed; history retained: {error}");
+                unchanged
             }
         }
-
-        let fits = self.fits(history, storage_bytes)
-            && (!context_rejected || outcome != CompactionOutcome::Unchanged);
-        CompactionPass { outcome, usage, fits }
     }
 }
 
@@ -660,37 +596,38 @@ async fn summarize_prefix(
 #[cfg(test)]
 mod tests {
     #[test]
-    fn failed_summary_preserves_history_until_capacity_is_exceeded() {
+    fn unusable_summaries_leave_context_and_usage_untouched() {
         let mut history = AgentHistory::new(vec![
             message("user", "old context"),
             message("assistant", "answer"),
             message("user", "new question"),
         ]);
-        let compactor = Compactor::new(10000, 0);
-        history.record_usage(Some(8500), history.context().len());
-        assert!(compactor.needs_compaction(&history, None));
-        assert!(!compactor.omit_if_over_capacity(&mut history, None, false));
-        assert_eq!(history.context().len(), 3);
-        history.record_usage(Some(10001), history.context().len());
-        assert!(compactor.omit_if_over_capacity(&mut history, None, false));
+        let compactor = Compactor::new(10000, 0, None);
+        history.record_usage(Some(9000), 3);
+        for summary in ["", "<analysis>unfinished", &"x".repeat(40000)] {
+            assert!(!compactor.install_summary(&mut history, 2, summary));
+            assert_eq!(history.context().len(), 3);
+            assert_eq!(history.last_request, Some((9000, 3)));
+        }
+        assert!(compactor.install_summary(&mut history, 2, "The user requested a report."));
+        assert_eq!(history.context().len(), 2);
         assert_eq!(history.result().len(), 3);
-        assert!(compactor.fits(&history, None));
+        assert_eq!(history.last_request, None);
     }
 
     #[test]
-    fn rejected_loaded_context_replaces_all_older_exchanges_despite_low_estimate() {
-        let mut history = AgentHistory::new(vec![
+    fn output_reserve_and_forced_recovery_do_not_depend_on_usage() {
+        let history = AgentHistory::new(vec![
             message("user", "old context"),
             message("assistant", "answer"),
             message("user", "more context"),
             message("assistant", "answer"),
             message("user", "newest question"),
         ]);
-        let compactor = Compactor::new(10000, 0);
-        assert!(!compactor.needs_compaction(&history, None));
-        assert!(compactor.omit_if_over_capacity(&mut history, None, true));
-        assert_eq!(history.context().len(), 2);
-        assert_eq!(history.result().len(), 5);
+        let compactor = Compactor::new(10000, 0, Some(4000));
+        assert_eq!(compactor.input_budget, 6000);
+        assert!(!compactor.needs_compaction(&history));
+        assert_eq!(compactor.plan(&history, true), Some(4));
     }
 
     use super::*;
@@ -844,8 +781,8 @@ mod tests {
         history.extend(tool_round("first", &"old result ".repeat(2000)));
         history.extend(tool_round("second", "new result"));
         history.record_usage(Some(9000), history.context().len());
-        let compactor = Compactor::new(10000, 0);
-        let split = compactor.plan(&history, None).unwrap();
+        let compactor = Compactor::new(10000, 0, None);
+        let split = compactor.plan(&history, false).unwrap();
         assert_eq!(split, 3);
         let before = serde_json::to_value(
             history
@@ -903,36 +840,27 @@ mod tests {
     }
 
     #[test]
-    fn token_and_byte_limits_measure_different_data() {
-        let mut history = AgentHistory::new(vec![
-            message("system", &"system ".repeat(12000)),
-            message("user", "question"),
-            message("assistant", "answer"),
-            message("user", "continue"),
+    fn storage_size_excludes_system_messages_and_does_not_change_model_budget() {
+        let history = AgentHistory::new(vec![
+            message("system", &"s".repeat(100000)),
+            message("user", "hi"),
         ]);
-        history.record_usage(Some(30000), 3);
-        let compactor = Compactor::new(128000, 50000);
-        assert!(!compactor.needs_compaction(&history, Some(100000)));
         assert!(persisted_bytes(history.context()) < 1000);
-
-        history.push(message("assistant", &"filler ".repeat(16000)));
-        history.record_usage(Some(1000), history.context().len());
-        assert!(compactor.needs_compaction(&history, Some(100000)));
-        assert!(!compactor.needs_compaction(&history, None));
-        assert!(compactor.plan(&history, Some(100000)).is_some());
+        let compactor = Compactor::new(128000, 50000, None);
+        assert!(!compactor.needs_compaction(&history));
     }
 
     #[test]
-    fn planning_keeps_complete_recent_exchanges_within_the_soft_target() {
+    fn planning_keeps_complete_recent_exchanges_within_the_tail_budget() {
         let mut history = AgentHistory::new(vec![message("user", "task")]);
         for id in ["one", "two", "three", "four", "five"] {
             history.extend(tool_round(id, &"x".repeat(8000)));
         }
-        let compactor = Compactor::new(20000, 100);
+        let compactor = Compactor::new(20000, 100, None);
         history.record_usage(Some(16500), history.context().len());
-        let split = compactor.plan(&history, None).unwrap();
+        let split = compactor.plan(&history, false).unwrap();
         assert!(exchange_starts(history.context()).contains(&split));
-        assert!(estimate_tokens(&history.context()[split..]) + 2100 <= 10000);
+        assert!(estimate_tokens(&history.context()[split..]) <= 8000);
         assert!(split <= history.context().len() - 2);
     }
 
@@ -940,9 +868,9 @@ mod tests {
     fn a_single_oversized_exchange_is_not_split() {
         let mut history = AgentHistory::new(vec![message("user", "task")]);
         history.extend(tool_round("one", &"large ".repeat(10000)));
-        let compactor = Compactor::new(10000, 0);
-        assert!(compactor.needs_compaction(&history, None));
-        assert!(compactor.plan(&history, None).is_none());
+        let compactor = Compactor::new(10000, 0, None);
+        assert!(compactor.needs_compaction(&history));
+        assert!(compactor.plan(&history, false).is_none());
     }
     #[test]
     fn summarization_instructions_are_separate_from_the_transcript_and_media() {

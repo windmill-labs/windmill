@@ -13,6 +13,7 @@ pub fn is_context_length_error(message: &str) -> bool {
     message.contains("context_length_exceeded")
         || message.contains("maximum context length")
         || message.contains("prompt is too long")
+        || message.contains("exceed context limit")
         || message.contains("input is too long for requested model")
         || (message.contains("input token count") && message.contains("exceeds the maximum"))
         || message.contains("too many input tokens")
@@ -28,6 +29,7 @@ mod context_error_tests {
             r#"{"error":{"code":"context_length_exceeded"}}"#,
             "This model's maximum context length is 128000 tokens",
             "prompt is too long: 210000 tokens > 200000 maximum",
+            "input length and `max_tokens` exceed context limit: 199000 + 8192 > 200000",
             "The input token count (10000) exceeds the maximum number of tokens allowed (8192)",
             "ValidationException: Input is too long for requested model.",
             "ValidationException: Too many input tokens",
