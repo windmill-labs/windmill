@@ -214,7 +214,11 @@ class ChatImpl implements Chat {
 
   resumeTurn = async ({ jobId, userSeq }: RunningTurn): Promise<void> => {
     const conversationId = this.#state.conversationId
-    if (!conversationId || this.#turn || this.#state.history !== 'server') return
+    if (!conversationId || this.#turn) return
+    if (this.#state.history !== 'server') {
+      if (this.#state.status === 'submitted') this.#set({ status: 'idle' })
+      return
+    }
     const turn: Turn = {
       controller: new AbortController(),
       conversationId,
