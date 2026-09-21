@@ -157,10 +157,6 @@
 													Reset
 												</Button>
 											</div>
-										{:else if fallback.assumed}
-											<div class="text-xs text-tertiary">
-												Not a known model: {fallback.tokens.toLocaleString()} tokens assumed
-											</div>
 										{/if}
 										{#if errors[key]}
 											<div class="text-xs text-red-500">{errors[key]}</div>
