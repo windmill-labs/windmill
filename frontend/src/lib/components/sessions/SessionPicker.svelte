@@ -33,6 +33,7 @@
 		reconcileAfterWorkspaceChange,
 		renameSession,
 		selectSession,
+		sessionPageHref,
 		sessionLastActivityAt,
 		sessionState,
 		setNewSessionWorkspace,
@@ -401,7 +402,7 @@
 		// so opening one must not change the user's active (navigation) workspace.
 		// Open the dedicated sessions page; its preview panel iframes the
 		// session's view (captured page / editor target).
-		await goto(`/sessions?session_name=${encodeURIComponent(session.name)}`)
+		await goto(sessionPageHref(session.id))
 		if (restoreFocus) {
 			// goto() resets focus to <body> — put it back on the active session button
 			// so subsequent arrow keys keep navigating the list.
@@ -608,14 +609,14 @@
 
 	// After deleting the open session, land somewhere usable: the newest remaining
 	// session, else a fresh one. The page derives the visible session from the
-	// `session_name` query, so leaving the URL on a deleted session would fall
+	// `session` query, so leaving the URL on a deleted session would fall
 	// through to recovery and open a blank one rather than their recent work.
 	async function openReplacementSession() {
 		const next = sessionState.sessions[0]
 		if (next) await activate(next)
 		else {
 			const fresh = createSession()
-			await goto(`/sessions?session_name=${encodeURIComponent(fresh.name)}`)
+			await goto(sessionPageHref(fresh.id))
 		}
 	}
 
@@ -1297,7 +1298,7 @@
 	<div class="flex flex-col gap-3">
 		<p>
 			Delete session <span class="font-medium text-primary"
-				>{pendingDelete?.summary ?? pendingDelete?.name}</span
+				>{pendingDelete?.summary ?? 'Untitled session'}</span
 			>? This cannot be undone.
 		</p>
 		{#if pendingDeleteForkId}
