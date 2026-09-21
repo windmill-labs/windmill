@@ -87,12 +87,22 @@ describe('removeMentionFromText', () => {
 			'Contact owner@app.ts about'
 		)
 	})
+
+	it('keeps Unicode-prefixed embedded mention-like text intact', () => {
+		expect(removeMentionFromText('Contact 用户@app.ts about @app.ts', 'app.ts')).toBe(
+			'Contact 用户@app.ts about'
+		)
+	})
 })
 
 describe('hasMention', () => {
 	it('does not treat embedded mention-like text as a selected context mention', () => {
 		expect(hasMention('Contact owner@app.ts', 'app.ts')).toBe(false)
 		expect(hasMention('Contact owner@app.ts about @app.ts', 'app.ts')).toBe(true)
+	})
+
+	it('does not treat Unicode-prefixed embedded text as a mention', () => {
+		expect(hasMention('Contact 用户@app.ts', 'app.ts')).toBe(false)
 	})
 
 	it('treats punctuation next to a mention as a boundary', () => {
@@ -105,6 +115,10 @@ describe('mentionTitlesInText', () => {
 	it('extracts only standalone mentions for context synchronization', () => {
 		expect([...mentionTitlesInText('Contact owner@app.ts about @app.ts')]).toEqual(['app.ts'])
 		expect([...mentionTitlesInText('Contact owner@app.ts')]).toEqual([])
+	})
+
+	it('ignores Unicode-prefixed embedded text for context synchronization', () => {
+		expect([...mentionTitlesInText('Contact 用户@app.ts')]).toEqual([])
 	})
 
 	it('keeps punctuation-adjacent mentions synchronized', () => {

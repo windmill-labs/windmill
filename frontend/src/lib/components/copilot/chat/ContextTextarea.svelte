@@ -14,7 +14,7 @@
 		MENTION_RE,
 		mentionTitle,
 		formatMention,
-		isStandaloneMention,
+		isStandaloneMentionAt,
 		mentionTitlesInText
 	} from './mention'
 	import { createFloatingActions, createVirtualElement } from 'svelte-floating-ui'
@@ -270,8 +270,7 @@
 		})
 		html = html.replace(MENTION_RE, (match, ...args) => {
 			const offset = args[args.length - 2]
-			const mentionMatch = Object.assign([match], { index: offset }) as RegExpMatchArray
-			if (typeof offset !== 'number' || !isStandaloneMention(html, mentionMatch)) {
+			if (typeof offset !== 'number' || !isStandaloneMentionAt(html, match, offset)) {
 				return match
 			}
 			const title = unescapeHtml(mentionTitle(match))
