@@ -278,7 +278,7 @@
 	let confirmDeploymentCallback: (triggersToDeploy: Trigger[]) => void = () => {}
 
 	let perpetualRunsToConfirm: PerpetualRunsAtPath | undefined = $state(undefined)
-	let confirmPerpetualRunsCallback: (applyToPerpetualRuns: boolean) => void = () => {}
+	let confirmPerpetualRunsCallback: () => void = () => {}
 
 	async function handleDraftTriggersConfirmed(event: CustomEvent<{ selectedTriggers: Trigger[] }>) {
 		const { selectedTriggers } = event.detail
@@ -636,7 +636,7 @@
 		parentHash: string,
 		deploymentMsg?: string,
 		triggersToDeploy?: Trigger[],
-		applyToPerpetualRuns?: boolean
+		perpetualRunsConfirmed?: boolean
 	): Promise<void> {
 		if (!triggersToDeploy) {
 			// Check if there are draft triggers that need confirmation
@@ -644,16 +644,22 @@
 			if (draftTriggers.length > 0) {
 				draftTriggersModalOpen = true
 				confirmDeploymentCallback = async (triggersToDeploy: Trigger[]) => {
-					await editScript(stay, parentHash, deploymentMsg, triggersToDeploy, applyToPerpetualRuns)
+					await editScript(
+						stay,
+						parentHash,
+						deploymentMsg,
+						triggersToDeploy,
+						perpetualRunsConfirmed
+					)
 				}
 				return
 			}
 		}
 
-		// Runs move only to a newer version at their own path, so a deploy that renames the script
-		// has nothing to offer them.
+		// Runs are restarted on a newer version at their own path, so a deploy that renames the
+		// script leaves them running the version they have.
 		if (
-			applyToPerpetualRuns === undefined &&
+			!perpetualRunsConfirmed &&
 			script.restart_unless_cancelled &&
 			initialPath &&
 			script.path === initialPath
@@ -667,9 +673,9 @@
 			)
 			loadingSave = false
 			if (runs) {
-				confirmPerpetualRunsCallback = (applyToPerpetualRuns: boolean) => {
+				confirmPerpetualRunsCallback = () => {
 					perpetualRunsToConfirm = undefined
-					editScript(stay, parentHash, deploymentMsg, triggersToDeploy, applyToPerpetualRuns)
+					editScript(stay, parentHash, deploymentMsg, triggersToDeploy, true)
 				}
 				perpetualRunsToConfirm = runs
 				return
@@ -704,7 +710,6 @@
 
 			const newHash = await ScriptService.createScript({
 				workspace: opWorkspace!,
-				applyToPerpetualRuns: applyToPerpetualRuns || undefined,
 				requestBody: {
 					path: script.path,
 					summary: script.summary,
@@ -1193,7 +1198,7 @@
 
 <PerpetualRunsDeployModal
 	runs={perpetualRunsToConfirm}
-	onConfirmed={(applyToPerpetualRuns) => confirmPerpetualRunsCallback(applyToPerpetualRuns)}
+	onConfirmed={() => confirmPerpetualRunsCallback()}
 	onCanceled={() => (perpetualRunsToConfirm = undefined)}
 />
 

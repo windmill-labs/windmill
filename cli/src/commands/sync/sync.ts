@@ -60,7 +60,6 @@ import {
   removeExtensionToPath,
   filePathExtensionFromContentType,
   hasScriptExt,
-  type ScriptDeployOptions,
 } from "../script/script.ts";
 
 import { DbtPathCollisionError, handleFile } from "../script/script.ts";
@@ -3444,9 +3443,7 @@ export async function pushParentScriptForModule(
   workspace: Workspace,
   alreadySynced: string[],
   message: string | undefined,
-  opts:
-    | (GlobalOptions & { defaultTs?: "bun" | "deno" } & Skips & ScriptDeployOptions)
-    | undefined,
+  opts: (GlobalOptions & { defaultTs?: "bun" | "deno" } & Skips) | undefined,
   rawWorkspaceDependencies: Record<string, string>,
   codebases: SyncCodebase[],
 ): Promise<void> {
@@ -4719,7 +4716,7 @@ export async function push(
       branch?: string;
       keepDeleted?: boolean;
       acceptOverridingPermissionedAsWithSelf?: boolean;
-    } & ScriptDeployOptions,
+    },
 ) {
   if ((opts as any).jsonOutput) log.setSilent(true);
   markRequestsAsSyncOrigin();
@@ -6870,10 +6867,6 @@ const command = new Command()
   .option(
     "--accept-overriding-permissioned-as-with-self",
     "Accept that items with a different permissioned_as will be updated with your own user",
-  )
-  .option(
-    "--apply-to-perpetual-runs",
-    "Move running perpetual runs of the scripts this push deploys to their new version once their current run finishes, or stop them if the new version is not perpetual",
   )
   .action(push as any)
   // Internal: invoked only by the git-sync hub script. Hidden from help and

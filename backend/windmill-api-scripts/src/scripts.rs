@@ -566,7 +566,7 @@ async fn create_snapshot_script(
                 db.clone(),
                 user_db.clone(),
                 webhook.clone(),
-                query,
+                query.skip_if_noop,
                 None,
             )
             .await?;
@@ -616,7 +616,17 @@ async fn create_snapshot_script(
     }
     reregister_moved_native_triggers(&db, &authed, &w_id, moved_native_triggers);
     if let Some(hdm) = handle_deployment_metadata {
+        let runnable_now = matches!(hdm, PostCommitDeploy::Full { .. });
         hdm.handle(&db).await?;
+        if let Some(script_path) = deployed_path.as_deref().filter(|_| runnable_now) {
+            windmill_queue::restart_perpetual_runs_on_new_version(
+                &db,
+                &w_id,
+                script_path,
+                &authed.username,
+            )
+            .await;
+        }
     }
     return Ok((StatusCode::CREATED, format!("{}", script_hash.unwrap())));
 }
@@ -647,11 +657,6 @@ struct CreateScriptQuery {
     /// sync / promotion callbacks are suppressed.
     #[serde(default)]
     skip_if_noop: bool,
-    /// Perpetual runs of an older version at this path start their next run on the deployed
-    /// version once their current one finishes, or stop when it is not perpetual. A deploy skipped
-    /// as a no-op creates no version, so it moves nothing.
-    #[serde(default)]
-    apply_to_perpetual_runs: bool,
 }
 
 async fn create_script(
@@ -663,7 +668,17 @@ async fn create_script(
     Query(query): Query<CreateScriptQuery>,
     Json(ns): Json<NewScript>,
 ) -> Result<(StatusCode, String)> {
-    deploy_script(authed, user_db, webhook, db, w_id, query, ns, None).await
+    deploy_script(
+        authed,
+        user_db,
+        webhook,
+        db,
+        w_id,
+        query.skip_if_noop,
+        ns,
+        None,
+    )
+    .await
 }
 
 /// Deploy a new version of the script at `path`, which must already hold one.
@@ -700,7 +715,7 @@ async fn update_script(
         webhook,
         db,
         w_id,
-        query,
+        query.skip_if_noop,
         ns,
         Some(path.to_string()),
     )
@@ -713,7 +728,7 @@ async fn deploy_script(
     webhook: WebhookShared,
     db: DB,
     w_id: String,
-    query: CreateScriptQuery,
+    skip_if_noop: bool,
     ns: NewScript,
     supersede_head_at: Option<String>,
 ) -> Result<(StatusCode, String)> {
@@ -739,7 +754,7 @@ async fn deploy_script(
         db.clone(),
         user_db,
         webhook,
-        query,
+        skip_if_noop,
         supersede_head_at,
     )
     .await?;
@@ -755,6 +770,15 @@ async fn deploy_script(
         hdm.handle(&db).await?;
         let db2 = db.clone();
         if ready_to_test {
+            // The version is runnable, so the perpetual runs of earlier ones move to it here. A
+            // deploy that needed lock generation hands this to its dependency job instead.
+            windmill_queue::restart_perpetual_runs_on_new_version(
+                &db,
+                &w_id,
+                &script_path,
+                &username,
+            )
+            .await;
             tokio::spawn(async move {
                 if let Err(e) = windmill_dep_map::ci_tests::trigger_ci_tests_for_item(
                     &db2,
@@ -1134,7 +1158,7 @@ async fn create_script_internal<'c>(
     db: sqlx::Pool<Postgres>,
     user_db: UserDB,
     webhook: WebhookShared,
-    query: CreateScriptQuery,
+    skip_if_noop: bool,
     // When set, the parent is the live head at this path rather than anything the body
     // named, resolved against the deploying transaction.
     supersede_head_at: Option<String>,
@@ -1447,7 +1471,7 @@ async fn create_script_internal<'c>(
             // sync / promotion callbacks — the whole point is that idempotent
             // CLI pushes must not produce phantom commits on the downstream
             // git repository.
-            if query.skip_if_noop
+            if skip_if_noop
                 && is_noop_deploy_against_parent(&ns, &ps, resolved_on_behalf_of.as_deref(), &db)
                     .await?
             {
@@ -2025,8 +2049,8 @@ async fn create_script_internal<'c>(
          content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
          envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
          dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
-         delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, codebase, has_preprocessor, schema_validation, assets, debounce_key, debounce_delay_s, cache_ignore_s3_path, runnable_settings_handle, modules, labels, on_behalf_of, on_behalf_of_email, apply_to_perpetual_runs) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42)",
+         delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, codebase, has_preprocessor, schema_validation, assets, debounce_key, debounce_delay_s, cache_ignore_s3_path, runnable_settings_handle, modules, labels, on_behalf_of, on_behalf_of_email) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41)",
         &w_id,
         &hash.0,
         ns.path,
@@ -2070,7 +2094,6 @@ async fn create_script_internal<'c>(
         ns.labels.as_deref() as Option<&[String]>,
         resolved_on_behalf_of,
         legacy_on_behalf_of_email,
-        query.apply_to_perpetual_runs.then_some(true),
     )
     .execute(&mut *tx)
     .await?;
@@ -2720,6 +2743,12 @@ async fn create_script_internal<'c>(
         let mut args: HashMap<String, Box<serde_json::value::RawValue>> = HashMap::new();
         if let Some(dm) = ns.deployment_message {
             args.insert("deployment_message".to_string(), to_raw_value(&dm));
+        }
+        // The version becomes runnable when this job writes its lock, which is where the
+        // perpetual runs of earlier versions can move to it. Only a deploy someone made carries
+        // this, so a relock triggered by an imported script changing leaves those runs alone.
+        if ns.restart_unless_cancelled.is_some_and(|x| x) {
+            args.insert("restart_perpetual_runs".to_string(), to_raw_value(&true));
         }
         if let Some(ref p_path) = p_path_opt {
             args.insert("parent_path".to_string(), to_raw_value(&p_path));

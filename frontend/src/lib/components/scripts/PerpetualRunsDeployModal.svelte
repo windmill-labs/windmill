@@ -1,62 +1,39 @@
 <script lang="ts">
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
-	import { Alert, RadioCard } from '$lib/components/common'
+	import { Alert } from '$lib/components/common'
 	import type { PerpetualRunsAtPath } from './perpetualRuns'
 
 	interface Props {
 		/** Open while set. */
 		runs: PerpetualRunsAtPath | undefined
-		onConfirmed: (applyToPerpetualRuns: boolean) => void
+		onConfirmed: () => void
 		onCanceled: () => void
 	}
 
 	let { runs, onConfirmed, onCanceled }: Props = $props()
 
-	let choice: 'switch' | 'keep' | undefined = $state(undefined)
-
-	const runsText = $derived.by(() => {
-		if (!runs) return ''
-		return runs.count === 1 ? '1 run of this script is' : `${runs.count} runs of this script are`
-	})
+	const single = $derived(runs?.count === 1)
 </script>
 
 <ConfirmationModal
 	open={!!runs}
-	title="Perpetual runs on an earlier version"
+	title="Perpetual runs restart on this version"
 	confirmationText="Deploy"
 	type="reload"
-	showIcon={false}
-	confirmDisabled={!choice}
-	onConfirmed={() => {
-		const apply = choice === 'switch'
-		choice = undefined
-		onConfirmed(apply)
-	}}
-	onCanceled={() => {
-		choice = undefined
-		onCanceled()
-	}}
+	{onConfirmed}
+	{onCanceled}
 >
 	{#if runs}
 		<div class="flex flex-col gap-3">
-			<p>{runsText} queued or running on an earlier version.</p>
-			<div class="flex flex-col gap-2" role="radiogroup" aria-label="What happens to these runs">
-				<RadioCard
-					label="Switch to this version"
-					description="Each run finishes on its current version, then restarts on this one."
-					selected={choice === 'switch'}
-					onSelect={() => (choice = 'switch')}
-				/>
-				<RadioCard
-					label="Keep their current version"
-					description="Runs keep restarting on the version they use now."
-					selected={choice === 'keep'}
-					onSelect={() => (choice = 'keep')}
-				/>
-			</div>
-			{#if choice === 'switch' && runs.mismatchedArgs.length > 0}
+			<p>
+				{single ? '1 run of this script is' : `${runs.count} runs of this script are`} queued or running
+				on an earlier version. Deploying stops {single ? 'it' : 'them'} and starts {single
+					? 'it'
+					: 'them'} again on this version, with the same arguments.
+			</p>
+			{#if runs.mismatchedArgs.length > 0}
 				<Alert type="warning" size="xs" title="Arguments no longer match">
-					Each next run reuses the arguments of the run before it, and this version changes
+					Each run keeps the arguments it has now, and this version changes
 					{runs.mismatchedArgs.length === 1 ? 'this argument' : 'these arguments'}:
 					{#each runs.mismatchedArgs as arg, i (arg)}
 						<code>{arg}</code>{i < runs.mismatchedArgs.length - 1 ? ', ' : '.'}

@@ -556,7 +556,6 @@ script related commands
   - `--json` - Output as JSON (for piping to jq)
 - `script push <path:file>` - push a local script spec. This overrides any remote versions. Use the script file (.ts, .js, .py, .sh)
   - `--message <message:string>` - Deployment message
-  - `--apply-to-perpetual-runs` - Move running perpetual runs of this script to the new version once their current run finishes, or stop them if the new version is not perpetual
 - `script get <path:file>` - get a script's details
   - `--json` - Output as JSON (for piping to jq)
 - `script show <path:file>` - show a script's content (alias for get)
@@ -652,7 +651,6 @@ sync local with a remote workspaces or the opposite (push or pull)
   - `--locks-required` - Fail if scripts or flow inline scripts that need locks have no locks
   - `--auto-metadata` - Automatically regenerate stale metadata (locks and schemas) before pushing
   - `--accept-overriding-permissioned-as-with-self` - Accept that items with a different permissioned_as will be updated with your own user
-  - `--apply-to-perpetual-runs` - Move running perpetual runs of the scripts this push deploys to their new version once their current run finishes, or stop them if the new version is not perpetual
 
 ### token
 

@@ -41,7 +41,9 @@ use windmill_common::audit::AuditAuthor;
 use windmill_common::auth::JobPerms;
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
-use windmill_common::jobs::{JobTriggerKind, TriggerKindLabel, EMAIL_ERROR_HANDLER_USER_EMAIL};
+use windmill_common::jobs::{
+    script_path_to_payload, JobTriggerKind, TriggerKindLabel, EMAIL_ERROR_HANDLER_USER_EMAIL,
+};
 use windmill_common::min_version::{
     MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
 };
@@ -624,6 +626,148 @@ async fn cancel_persistent_script_jobs_internal<'c>(
     tx.commit().await?;
 
     return Ok(jobs_to_cancel);
+}
+
+/// Moves the perpetual runs at `script_path` to the version a deploy just made runnable: each one
+/// is canceled and pushed again on that version with the arguments it ran with. A deploy that
+/// leaves the script non-perpetual moves nothing, so turning perpetual off keeps the runs going as
+/// it does today.
+///
+/// Errors are logged, never returned: a deploy stands whatever happens to the runs of its earlier
+/// versions.
+pub async fn restart_perpetual_runs_on_new_version(
+    db: &Pool<Postgres>,
+    w_id: &str,
+    script_path: &str,
+    deployed_by: &str,
+) {
+    if let Err(e) = restart_perpetual_runs_at_path(db, w_id, script_path, deployed_by).await {
+        tracing::error!(
+            "Could not restart the perpetual runs of {script_path} on the deployed version: {e:#}"
+        );
+    }
+    // A run that ended just before its cancel restarts itself on its own version, and only a
+    // cancel this won is replaced, so that run is still on the earlier version. It is queued
+    // again within the 10s a perpetual restart is throttled to, which this second pass then
+    // catches.
+    let (db, w_id, script_path, deployed_by) = (
+        db.clone(),
+        w_id.to_string(),
+        script_path.to_string(),
+        deployed_by.to_string(),
+    );
+    tokio::spawn(async move {
+        sleep(std::time::Duration::from_secs(5)).await;
+        if let Err(e) = restart_perpetual_runs_at_path(&db, &w_id, &script_path, &deployed_by).await
+        {
+            tracing::error!(
+                "Could not restart the perpetual runs of {script_path} on the deployed version: {e:#}"
+            );
+        }
+    });
+}
+
+async fn restart_perpetual_runs_at_path(
+    db: &Pool<Postgres>,
+    w_id: &str,
+    script_path: &str,
+    deployed_by: &str,
+) -> error::Result<()> {
+    // Built the way a run of this path is built anywhere else, so the next run takes the deployed
+    // version's tag, timeout, language and identity. The arguments are reused from the run it
+    // replaces, which a preprocessor already ran on.
+    let (payload, tag, _, _, timeout, on_behalf_of) =
+        script_path_to_payload(script_path, None, db.clone(), w_id, Some(true)).await?;
+    let JobPayload::ScriptHash { hash, .. } = &payload else {
+        return Ok(());
+    };
+    let hash = *hash;
+    let perpetual = sqlx::query_scalar!(
+        "SELECT restart_unless_cancelled FROM script WHERE hash = $1 AND workspace_id = $2",
+        hash.0,
+        w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten()
+    .unwrap_or(false);
+    if !perpetual {
+        return Ok(());
+    }
+
+    let runs = sqlx::query!(
+        "SELECT q.id AS \"id!\", j.created_by, j.permissioned_as, j.permissioned_as_email, \
+         j.trigger, j.trigger_kind AS \"trigger_kind: TriggerKindLabel\", \
+         j.args AS \"args: sqlx::types::Json<HashMap<String, Box<RawValue>>>\" \
+         FROM v2_job_queue q JOIN v2_job j USING (id) \
+         JOIN script s ON s.workspace_id = j.workspace_id AND s.hash = j.runnable_id \
+         WHERE j.workspace_id = $1 AND j.runnable_path = $2 AND j.kind = 'script' \
+         AND j.flow_step_id IS NULL AND j.runnable_id != $3 AND q.canceled_by IS NULL \
+         AND s.restart_unless_cancelled",
+        w_id,
+        script_path,
+        hash.0
+    )
+    .fetch_all(db)
+    .await?;
+
+    for run in runs {
+        let tx = db.begin().await?;
+        let (tx, canceled) = cancel_job(
+            deployed_by,
+            Some(format!("a new version of {script_path} was deployed")),
+            run.id,
+            w_id,
+            tx,
+            db,
+            false,
+            false,
+        )
+        .await?;
+        tx.commit().await?;
+        if canceled.is_none() {
+            continue;
+        }
+        let (email, permissioned_as) = match on_behalf_of.as_ref() {
+            Some(obo) => (obo.email.clone(), obo.permissioned_as.clone()),
+            None => (run.permissioned_as_email, run.permissioned_as),
+        };
+        let args = run.args.map(|args| args.0).unwrap_or_default();
+        let (_, tx) = push(
+            db,
+            PushIsolationLevel::IsolatedRoot(db.clone()),
+            w_id,
+            payload.clone(),
+            PushArgs::from(&args),
+            &run.created_by,
+            &email,
+            permissioned_as,
+            Some(&format!("deploy.restart.{}", run.id)),
+            None,
+            None,
+            schedule_path(&run.trigger_kind, &run.trigger),
+            None,
+            None,
+            None,
+            None,
+            false,
+            false,
+            None,
+            true,
+            tag.clone(),
+            timeout,
+            None,
+            None,
+            None,
+            false,
+            None,
+            None,
+            None,
+        )
+        .await?;
+        tx.commit().await?;
+    }
+    Ok(())
 }
 
 #[derive(Serialize, Debug)]
@@ -1611,20 +1755,6 @@ async fn restart_job_if_perpetual_inner(
     };
 
     if restart {
-        let next = match perpetual_version_switch(db, queued_job, hash).await {
-            Ok(PerpetualVersionSwitch::Stay) => {
-                PerpetualNextRun::same_version(queued_job, hash, script_timeout)
-            }
-            Ok(PerpetualVersionSwitch::End) => return Ok(()),
-            Ok(PerpetualVersionSwitch::To(next)) => next,
-            Err(e) => {
-                tracing::error!(
-                    "Could not look up a newer version for perpetual script {:?}, restarting it on the version that just ran: {e:#}",
-                    queued_job.runnable_path
-                );
-                PerpetualNextRun::same_version(queued_job, hash, script_timeout)
-            }
-        };
         let tx = PushIsolationLevel::IsolatedRoot(db.clone());
 
         // perpetual jobs can run one job per 10s max. If the job was faster than 10s, schedule the next one with the appropriate delay
@@ -1656,13 +1786,16 @@ async fn restart_job_if_perpetual_inner(
             tx,
             &queued_job.workspace_id,
             JobPayload::ScriptHash {
-                hash: next.hash,
+                hash,
                 path: queued_job.runnable_path.clone().unwrap_or_default(),
-                cache_ttl: next.cache_ttl,
-                cache_ignore_s3_path: next.cache_ignore_s3_path,
-                dedicated_worker: next.dedicated_worker,
-                language: next.language,
-                priority: next.priority,
+                cache_ttl: queued_job.cache_ttl,
+                cache_ignore_s3_path: queued_job.cache_ignore_s3_path,
+                dedicated_worker: None,
+                language: queued_job
+                    .script_lang
+                    .clone()
+                    .unwrap_or_else(|| ScriptLang::Deno),
+                priority: queued_job.priority,
                 apply_preprocessor: false,
                 concurrency_settings: ConcurrencySettings {
                     concurrency_key: custom_concurrency_key(db, &queued_job.id).await?,
@@ -1675,8 +1808,8 @@ async fn restart_job_if_perpetual_inner(
             },
             PushArgs::from(&args.0),
             &queued_job.created_by,
-            &next.email,
-            next.permissioned_as,
+            &queued_job.permissioned_as_email,
+            queued_job.permissioned_as.clone(),
             Some(&format!("add.completed.job{}", queued_job.id)),
             None,
             scheduled_for,
@@ -1689,10 +1822,10 @@ async fn restart_job_if_perpetual_inner(
             false,
             None,
             true,
-            next.tag,
-            next.timeout,
+            Some(queued_job.tag.clone()),
+            script_timeout,
             None,
-            next.priority,
+            queued_job.priority,
             None,
             false,
             None,
@@ -1703,148 +1836,6 @@ async fn restart_job_if_perpetual_inner(
         tx.commit().await?;
     }
     Ok(())
-}
-
-/// The version the next run of a perpetual loop executes, with that version's settings.
-struct PerpetualNextRun {
-    hash: ScriptHash,
-    language: ScriptLang,
-    tag: Option<String>,
-    timeout: Option<i32>,
-    dedicated_worker: Option<bool>,
-    cache_ttl: Option<i32>,
-    cache_ignore_s3_path: Option<bool>,
-    priority: Option<i16>,
-    email: String,
-    permissioned_as: String,
-}
-
-impl PerpetualNextRun {
-    fn same_version(queued_job: &MiniCompletedJob, hash: ScriptHash, timeout: Option<i32>) -> Self {
-        Self {
-            hash,
-            language: queued_job.script_lang.clone().unwrap_or(ScriptLang::Deno),
-            tag: Some(queued_job.tag.clone()),
-            timeout,
-            dedicated_worker: None,
-            cache_ttl: queued_job.cache_ttl,
-            cache_ignore_s3_path: queued_job.cache_ignore_s3_path,
-            priority: queued_job.priority,
-            email: queued_job.permissioned_as_email.clone(),
-            permissioned_as: queued_job.permissioned_as.clone(),
-        }
-    }
-}
-
-enum PerpetualVersionSwitch {
-    /// Restart on the version that just ran.
-    Stay,
-    /// The version to move to is not perpetual, so the run that just finished was the last.
-    End,
-    To(PerpetualNextRun),
-}
-
-/// A perpetual loop moves to the newest version at its path only when that version was deployed
-/// with `apply_to_perpetual_runs`.
-async fn perpetual_version_switch(
-    db: &Pool<Postgres>,
-    queued_job: &MiniCompletedJob,
-    hash: ScriptHash,
-) -> Result<PerpetualVersionSwitch, Error> {
-    let Some(path) = queued_job.runnable_path.as_deref() else {
-        return Ok(PerpetualVersionSwitch::Stay);
-    };
-    let w_id = &queued_job.workspace_id;
-    // Selects the row `get_latest_hash_for_path` does with `require_locked`. That function also
-    // resolves the version's on-behalf-of identity, and a failure there must not break a loop
-    // that is not moving.
-    let latest = sqlx::query!(
-        "SELECT hash, apply_to_perpetual_runs, restart_unless_cancelled, timeout, tag, \
-         language AS \"language: ScriptLang\", dedicated_worker, cache_ttl, cache_ignore_s3_path, \
-         priority, on_behalf_of FROM script \
-         WHERE path = $1 AND workspace_id = $2 AND archived = false AND lock IS NOT NULL \
-         ORDER BY created_at DESC LIMIT 1",
-        path,
-        w_id
-    )
-    .fetch_optional(db)
-    .await?;
-    let Some(latest) =
-        latest.filter(|l| l.hash != hash.0 && l.apply_to_perpetual_runs == Some(true))
-    else {
-        return Ok(PerpetualVersionSwitch::Stay);
-    };
-    if !latest.restart_unless_cancelled.unwrap_or(false) {
-        return Ok(PerpetualVersionSwitch::End);
-    }
-    let (email, permissioned_as) = match windmill_common::on_behalf_of_from_permissioned_as(
-        latest.on_behalf_of.as_deref(),
-        w_id,
-        db,
-    )
-    .await?
-    {
-        Some(obo) => (obo.email, obo.permissioned_as),
-        None => {
-            // A run of a version with an on-behalf-of identity is permissioned as that identity,
-            // not as whoever started the loop. Carrying it over would run a version that no
-            // longer names it with its authority. An address-only row counts: a server predating
-            // the principal column dispatched it as that address.
-            let ran_on_behalf_of = sqlx::query_scalar!(
-                "SELECT (on_behalf_of IS NOT NULL OR on_behalf_of_email IS NOT NULL) \
-                 AS \"ran_on_behalf_of!\" FROM script WHERE hash = $1 AND workspace_id = $2",
-                hash.0,
-                w_id
-            )
-            .fetch_optional(db)
-            .await?
-            .unwrap_or(true);
-            if ran_on_behalf_of {
-                tracing::warn!(
-                    "Perpetual script {path} stays on version {hash}: it runs on behalf of an identity that version {} no longer names",
-                    ScriptHash(latest.hash)
-                );
-                return Ok(PerpetualVersionSwitch::Stay);
-            }
-            (
-                queued_job.permissioned_as_email.clone(),
-                queued_job.permissioned_as.clone(),
-            )
-        }
-    };
-    // The loop's tag was checked when it started; a new version's own tag has not been.
-    if latest.dedicated_worker != Some(true) {
-        if let Some(tag) = latest.tag.as_deref().filter(|t| !t.is_empty()) {
-            let is_super_admin = windmill_common::auth::is_super_admin_email(db, &email).await?;
-            if let Err(e) = windmill_common::jobs::check_tag_available_for_workspace_internal(
-                db,
-                w_id,
-                tag,
-                is_super_admin,
-                None,
-            )
-            .await
-            {
-                tracing::warn!(
-                    "Perpetual script {path} stays on version {hash}: version {} has tag {tag}: {e}",
-                    ScriptHash(latest.hash)
-                );
-                return Ok(PerpetualVersionSwitch::Stay);
-            }
-        }
-    }
-    Ok(PerpetualVersionSwitch::To(PerpetualNextRun {
-        hash: ScriptHash(latest.hash),
-        language: latest.language,
-        tag: latest.tag,
-        timeout: latest.timeout,
-        dedicated_worker: latest.dedicated_worker,
-        cache_ttl: latest.cache_ttl,
-        cache_ignore_s3_path: latest.cache_ignore_s3_path,
-        priority: latest.priority,
-        email,
-        permissioned_as,
-    }))
 }
 
 /// Marks the failures a succeeding native retry attempt superseded as resolved, so

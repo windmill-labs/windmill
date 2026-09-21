@@ -1,0 +1,89 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT q.id AS \"id!\", j.created_by, j.permissioned_as, j.permissioned_as_email, j.trigger, j.trigger_kind AS \"trigger_kind: TriggerKindLabel\", j.args AS \"args: sqlx::types::Json<HashMap<String, Box<RawValue>>>\" FROM v2_job_queue q JOIN v2_job j USING (id) JOIN script s ON s.workspace_id = j.workspace_id AND s.hash = j.runnable_id WHERE j.workspace_id = $1 AND j.runnable_path = $2 AND j.kind = 'script' AND j.flow_step_id IS NULL AND j.runnable_id != $3 AND q.canceled_by IS NULL AND s.restart_unless_cancelled",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "permissioned_as",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "permissioned_as_email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "trigger",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "trigger_kind: TriggerKindLabel",
+        "type_info": {
+          "Custom": {
+            "name": "job_trigger_kind",
+            "kind": {
+              "Enum": [
+                "webhook",
+                "http",
+                "websocket",
+                "kafka",
+                "email",
+                "nats",
+                "schedule",
+                "app",
+                "ui",
+                "postgres",
+                "sqs",
+                "gcp",
+                "mqtt",
+                "nextcloud",
+                "google",
+                "ci_test",
+                "github",
+                "azure",
+                "asset",
+                "freshness",
+                "amqp"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "args: sqlx::types::Json<HashMap<String, Box<RawValue>>>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "ef17e1a9fe55927ea356bbc197a2d201e9a609f6867974f90453773cc163179c"
+}
