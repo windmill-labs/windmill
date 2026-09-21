@@ -53,6 +53,7 @@
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
 	import { runScheduleNow } from '$lib/components/triggers/scheduled/utils'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
+	import { scheduleLock } from '$lib/operatorWriteRights'
 
 	type ScheduleW = ScheduleWJobs & { canWrite: boolean }
 
@@ -111,7 +112,7 @@
 		}
 
 		const result = (await ScheduleService.listSchedules(apiParams)).map((x) => {
-			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
+			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore) && !$scheduleLock, ...x }
 		})
 
 		// Extract unique values for autocomplete
@@ -350,6 +351,8 @@
 				size="lg"
 				variant="accent"
 				startIcon={{ icon: Plus }}
+				disabled={!!$scheduleLock}
+				title={$scheduleLock}
 				on:click={() => scheduleEditor?.openNew(false)}
 				aiId="schedules-add-schedule"
 				aiDescription="Add schedule"
@@ -393,6 +396,7 @@
 							label: 'Add a schedule',
 							icon: Plus,
 							onClick: () => scheduleEditor?.openNew(false),
+							disabled: !!$scheduleLock,
 							aiId: 'schedules-empty-add',
 							aiDescription: 'Add schedule'
 						}}
@@ -496,13 +500,14 @@
 									<DraftBadge {draft_only} is_draft={hasDraft} />
 									{#key toggleResetVersions[path] ?? 0}
 										<Toggle
-											disabled={draft_only}
+											disabled={draft_only || !canWrite}
 											options={{
 												title: draft_only
 													? 'Draft only: deploy the schedule to enable it'
-													: hasDraft
-														? 'Enables/disables the deployed schedule; the draft is not affected'
-														: undefined
+													: ($scheduleLock ??
+														(hasDraft
+															? 'Enables/disables the deployed schedule; the draft is not affected'
+															: undefined))
 											}}
 											checked={!draft_only && enabled}
 											on:change={(e) => {
@@ -552,6 +557,7 @@
 											{
 												displayName: `Duplicate schedule`,
 												icon: Copy,
+												disabled: !!$scheduleLock,
 												action: () => {
 													scheduleEditor?.openNew(is_flow, script_path, path)
 												}

@@ -55,6 +55,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
+	import { triggerLock } from '$lib/operatorWriteRights'
 	import AzureTriggerEditor from '$lib/components/triggers/azure/AzureTriggerEditor.svelte'
 	import AzureIcon from '$lib/components/icons/AzureIcon.svelte'
 	import { getHttpRoute } from '$lib/components/triggers/http/utils'
@@ -85,7 +86,7 @@
 				includeDraftOnly: true
 			})
 		).map((x) => {
-			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
+			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore) && !$triggerLock, ...x }
 		})
 		$usedTriggerKinds = removeTriggerKindIfUnused(triggers.length, 'azure', $usedTriggerKinds)
 		loading = false
@@ -357,6 +358,8 @@
 			unifiedSize="md"
 			variant="accent"
 			startIcon={{ icon: Plus }}
+			disabled={!!$triggerLock}
+			title={$triggerLock}
 			on:click={() => azureTriggerEditor?.openNew(false)}
 		>
 			New&nbsp;Azure Event Grid trigger
@@ -412,6 +415,7 @@
 					label: 'Add an Azure Event Grid trigger',
 					icon: Plus,
 					onClick: () => azureTriggerEditor?.openNew(false),
+					disabled: !!$triggerLock,
 					aiId: 'azure-triggers-empty-add',
 					aiDescription: 'Add Azure Event Grid trigger'
 				}}

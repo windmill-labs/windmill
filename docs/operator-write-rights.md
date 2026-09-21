@@ -8,10 +8,30 @@ because hiding the schedules page never stopped an operator creating a schedule 
 the CLI or MCP. An admin who wants operators to see what is scheduled without letting them change
 it could not express that with a visibility flag alone.
 
-Read them with `windmill_common::workspaces::operator_manage_rights` (60s cache) and gate a write
-with `check_operator_can_manage`, naming a `ManageKind`. Call it **before** opening an RLS
-transaction: it takes a connection from the root pool, and a second pooled connection held
-alongside a transaction self-deadlocks on a one-connection pool.
+## Where the gate lives
+
+On the router, not in the handlers. `gate_operator_writes` is layered once over the schedules
+router and once over each trigger router in `windmill-api/src/lib.rs`, and refuses anything that is
+not a GET/HEAD/OPTIONS.
+
+That is not a style choice. A trigger kind can register routes of its own beside the shared CRUD
+ones — bulk HTTP creation, the Postgres publication and replication-slot setup — and those are
+hand-written, one per feature. The first version of this checked each handler, and every one of
+those extra routes was missed, along with the whole native-trigger family, which does not use the
+shared handlers at all. On the router the author of the next route writes nothing and is covered
+anyway.
+
+Two consequences to keep in mind when adding a route under one of these:
+
+- A read served over POST gets refused. Two exist today, a trigger's connection test and the HTTP
+  route-path availability check; both are steps inside a create form a withdrawn operator cannot
+  open. Put new reads on GET.
+- Anything mounted under a gated router inherits the gate. The native-trigger mount also carries
+  the workspace's integration setup, which is a settings concern, so the layer goes on the trigger
+  routes alone rather than the whole mount.
+
+`check_operator_can_manage` is still the function underneath, for a write that cannot be reached
+through one of these routers.
 
 The cache is per process, so withdrawing a right has to reach every replica: an `AFTER UPDATE OF
 operator_settings` trigger writes a `notify_operator_settings_change` row and `process_notify_event`

@@ -24,7 +24,6 @@ use windmill_common::{
     },
     utils::{paginate, Pagination, StripPath},
     worker::CLOUD_HOSTED,
-    workspaces::{check_operator_can_manage, ManageKind},
     DB,
 };
 use windmill_git_sync::DeployedObject;
@@ -549,15 +548,6 @@ async fn create_trigger<T: TriggerCrud>(
         )
     })?;
 
-    check_operator_can_manage(
-        &db,
-        &workspace_id,
-        authed.is_operator,
-        ManageKind::Triggers,
-        "create triggers",
-    )
-    .await?;
-
     if *CLOUD_HOSTED && !T::IS_ALLOWED_ON_CLOUD {
         return Err(Error::BadRequest(format!(
             "{} triggers are not supported on multi-tenant cloud, use dedicated cloud or self-host",
@@ -828,15 +818,6 @@ async fn update_trigger<T: TriggerCrud>(
         )
     })?;
 
-    check_operator_can_manage(
-        &db,
-        &workspace_id,
-        authed.is_operator,
-        ManageKind::Triggers,
-        "edit triggers",
-    )
-    .await?;
-
     edit_trigger.error_handling.validate()?;
 
     handler
@@ -991,14 +972,6 @@ async fn delete_trigger<T: TriggerCrud>(
     check_scopes(&authed, || {
         format!("{}:write:{}", T::scope_domain_name(), &path)
     })?;
-    check_operator_can_manage(
-        &db,
-        &workspace_id,
-        authed.is_operator,
-        ManageKind::Triggers,
-        "delete triggers",
-    )
-    .await?;
 
     let mut tx = user_db.begin(&authed).await?;
 
@@ -1140,14 +1113,6 @@ async fn set_trigger_mode<T: TriggerCrud>(
 ) -> Result<String> {
     let path = path.to_path();
     check_scopes(&authed, || format!("{}:write", T::scope_domain_name()))?;
-    check_operator_can_manage(
-        &db,
-        &workspace_id,
-        authed.is_operator,
-        ManageKind::Triggers,
-        "enable or disable triggers",
-    )
-    .await?;
 
     let mut tx = user_db.begin(&authed).await?;
 

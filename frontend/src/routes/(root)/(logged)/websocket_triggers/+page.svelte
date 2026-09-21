@@ -43,6 +43,7 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import WebsocketTriggerEditor from '$lib/components/triggers/websocket/WebsocketTriggerEditor.svelte'
+	import { triggerLock } from '$lib/operatorWriteRights'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
 	import TriggerModeToggle from '$lib/components/triggers/TriggerModeToggle.svelte'
@@ -71,7 +72,7 @@
 				includeDraftOnly: true
 			})
 		).map((x) => {
-			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
+			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore) && !$triggerLock, ...x }
 		})
 		$usedTriggerKinds = removeTriggerKindIfUnused(triggers.length, 'websockets', $usedTriggerKinds)
 		loading = false
@@ -290,6 +291,8 @@
 			unifiedSize="md"
 			variant="accent"
 			startIcon={{ icon: Plus }}
+			disabled={!!$triggerLock}
+			title={$triggerLock}
 			on:click={() => websocketTriggerEditor?.openNew(false)}
 		>
 			New&nbsp;WebSocket trigger
@@ -341,6 +344,7 @@
 					label: 'Add a WebSocket trigger',
 					icon: Plus,
 					onClick: () => websocketTriggerEditor?.openNew(false),
+					disabled: !!$triggerLock,
 					aiId: 'websocket-triggers-empty-add',
 					aiDescription: 'Add WebSocket trigger'
 				}}

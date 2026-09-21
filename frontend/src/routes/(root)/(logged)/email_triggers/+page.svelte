@@ -57,6 +57,7 @@
 	import { setQuery } from '$lib/navigation'
 	import { onMount } from 'svelte'
 	import EmailTriggerEditor from '$lib/components/triggers/email/EmailTriggerEditor.svelte'
+	import { triggerLock } from '$lib/operatorWriteRights'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
 	import { getEmailAddress, getEmailDomain } from '$lib/components/triggers/email/utils'
@@ -87,7 +88,7 @@
 				includeDraftOnly: true
 			})
 		).map((x) => {
-			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
+			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore) && !$triggerLock, ...x }
 		})
 		$usedTriggerKinds = removeTriggerKindIfUnused(triggers.length, 'emails', $usedTriggerKinds)
 		emailDomain = await getEmailDomain()

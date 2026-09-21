@@ -42,6 +42,7 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import SqsTriggerEditor from '$lib/components/triggers/sqs/SqsTriggerEditor.svelte'
+	import { triggerLock } from '$lib/operatorWriteRights'
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import AwsIcon from '$lib/components/icons/AwsIcon.svelte'
@@ -71,7 +72,7 @@
 				includeDraftOnly: true
 			})
 		).map((x) => {
-			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
+			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore) && !$triggerLock, ...x }
 		})
 		$usedTriggerKinds = removeTriggerKindIfUnused(triggers.length, 'sqs', $usedTriggerKinds)
 		loading = false
@@ -284,6 +285,8 @@
 			unifiedSize="md"
 			variant="accent"
 			startIcon={{ icon: Plus }}
+			disabled={!!$triggerLock}
+			title={$triggerLock}
 			on:click={() => sqsTriggerEditor?.openNew(false)}
 		>
 			New&nbsp;SQS trigger
@@ -340,6 +343,7 @@
 					label: 'Add an SQS trigger',
 					icon: Plus,
 					onClick: () => sqsTriggerEditor?.openNew(false),
+					disabled: !!$triggerLock,
 					aiId: 'sqs-triggers-empty-add',
 					aiDescription: 'Add SQS trigger'
 				}}

@@ -38,7 +38,6 @@ use windmill_common::{
         escape_ilike_pattern, not_found_if_none, paginate, Pagination, ScheduleType, StripPath,
     },
     worker::to_raw_value,
-    workspaces::{check_operator_can_manage, ManageKind},
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_queue::schedule::push_scheduled_job;
@@ -272,14 +271,6 @@ async fn create_schedule(
     Json(ns): Json<NewSchedule>,
 ) -> Result<String> {
     check_scopes(&authed, || format!("schedules:write:{}", ns.path))?;
-    check_operator_can_manage(
-        &db,
-        &w_id,
-        authed.is_operator,
-        ManageKind::Schedules,
-        "create schedules",
-    )
-    .await?;
     reject_reserved_schedule_path(&ns.path)?;
 
     let authed = maybe_refresh_folders(&ns.path, &w_id, authed, &db).await;
@@ -551,14 +542,6 @@ async fn edit_schedule(
 ) -> Result<String> {
     let path = path.to_path();
     check_scopes(&authed, || format!("schedules:write:{}", path))?;
-    check_operator_can_manage(
-        &db,
-        &w_id,
-        authed.is_operator,
-        ManageKind::Schedules,
-        "edit schedules",
-    )
-    .await?;
     reject_reserved_schedule_path(path)?;
 
     let authed = maybe_refresh_folders(&path, &w_id, authed, &db).await;
@@ -1143,17 +1126,6 @@ pub async fn set_enabled(
 ) -> Result<String> {
     let path = path.to_path();
     check_scopes(&authed, || format!("schedules:write:{}", path))?;
-    // Before the tx: this reads the root pool, and a second pooled connection taken while the RLS
-    // tx is held self-deadlocks on a single-connection pool.
-    check_operator_can_manage(
-        &db,
-        &w_id,
-        authed.is_operator,
-        ManageKind::Schedules,
-        "enable or disable schedules",
-    )
-    .await?;
-
     let mut tx = user_db.begin(&authed).await?;
     reject_reserved_schedule_path(path)?;
 
@@ -1336,14 +1308,6 @@ async fn delete_schedule(
 ) -> Result<String> {
     let path = path.to_path();
     check_scopes(&authed, || format!("schedules:write:{}", path))?;
-    check_operator_can_manage(
-        &db,
-        &w_id,
-        authed.is_operator,
-        ManageKind::Schedules,
-        "delete schedules",
-    )
-    .await?;
     reject_reserved_schedule_path(path)?;
     let mut tx = user_db.begin(&authed).await?;
 

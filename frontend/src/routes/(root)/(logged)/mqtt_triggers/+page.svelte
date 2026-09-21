@@ -43,6 +43,7 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import MqttTriggerEditor from '$lib/components/triggers/mqtt/MqttTriggerEditor.svelte'
+	import { triggerLock } from '$lib/operatorWriteRights'
 	import MqttIcon from '$lib/components/icons/MqttIcon.svelte'
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
@@ -73,7 +74,7 @@
 				includeDraftOnly: true
 			})
 		).map((x) => {
-			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
+			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore) && !$triggerLock, ...x }
 		})
 		$usedTriggerKinds = removeTriggerKindIfUnused(triggers.length, 'mqtt', $usedTriggerKinds)
 		loading = false
@@ -290,6 +291,8 @@
 			unifiedSize="md"
 			variant="accent"
 			startIcon={{ icon: Plus }}
+			disabled={!!$triggerLock}
+			title={$triggerLock}
 			on:click={() => mqttTriggerEditor?.openNew(false)}
 		>
 			New&nbsp;MQTT trigger
@@ -346,6 +349,7 @@
 					label: 'Add an MQTT trigger',
 					icon: Plus,
 					onClick: () => mqttTriggerEditor?.openNew(false),
+					disabled: !!$triggerLock,
 					aiId: 'mqtt-triggers-empty-add',
 					aiDescription: 'Add MQTT trigger'
 				}}

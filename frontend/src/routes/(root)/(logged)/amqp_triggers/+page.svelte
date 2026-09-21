@@ -43,6 +43,7 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import AmqpTriggerEditor from '$lib/components/triggers/amqp/AmqpTriggerEditor.svelte'
+	import { triggerLock } from '$lib/operatorWriteRights'
 	import AmqpIcon from '$lib/components/icons/AmqpIcon.svelte'
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
@@ -73,7 +74,7 @@
 				includeDraftOnly: true
 			})
 		).map((x) => {
-			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
+			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore) && !$triggerLock, ...x }
 		})
 		$usedTriggerKinds = removeTriggerKindIfUnused(triggers.length, 'amqp', $usedTriggerKinds)
 		loading = false
@@ -290,6 +291,8 @@
 			unifiedSize="md"
 			variant="accent"
 			startIcon={{ icon: Plus }}
+			disabled={!!$triggerLock}
+			title={$triggerLock}
 			on:click={() => amqpTriggerEditor?.openNew(false)}
 		>
 			New&nbsp;AMQP trigger
@@ -346,6 +349,7 @@
 					label: 'Add an AMQP trigger',
 					icon: Plus,
 					onClick: () => amqpTriggerEditor?.openNew(false),
+					disabled: !!$triggerLock,
 					aiId: 'amqp-triggers-empty-add',
 					aiDescription: 'Add AMQP trigger'
 				}}

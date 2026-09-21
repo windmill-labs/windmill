@@ -55,6 +55,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
+	import { triggerLock } from '$lib/operatorWriteRights'
 	import GcpTriggerEditor from '$lib/components/triggers/gcp/GcpTriggerEditor.svelte'
 	import GoogleCloudIcon from '$lib/components/icons/GoogleCloudIcon.svelte'
 	import { getHttpRoute } from '$lib/components/triggers/http/utils'
@@ -85,7 +86,7 @@
 				includeDraftOnly: true
 			})
 		).map((x) => {
-			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
+			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore) && !$triggerLock, ...x }
 		})
 		$usedTriggerKinds = removeTriggerKindIfUnused(triggers.length, 'gcp', $usedTriggerKinds)
 		loading = false
@@ -336,6 +337,8 @@
 			unifiedSize="md"
 			variant="accent"
 			startIcon={{ icon: Plus }}
+			disabled={!!$triggerLock}
+			title={$triggerLock}
 			on:click={() => gcpTriggerEditor?.openNew(false)}
 		>
 			New&nbsp;GCP Pub/Sub trigger
@@ -391,6 +394,7 @@
 					label: 'Add a GCP Pub/Sub trigger',
 					icon: Plus,
 					onClick: () => gcpTriggerEditor?.openNew(false),
+					disabled: !!$triggerLock,
 					aiId: 'gcp-triggers-empty-add',
 					aiDescription: 'Add GCP Pub/Sub trigger'
 				}}

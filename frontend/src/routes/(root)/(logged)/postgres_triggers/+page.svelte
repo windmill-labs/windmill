@@ -54,6 +54,7 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import PostgresTriggerEditor from '$lib/components/triggers/postgres/PostgresTriggerEditor.svelte'
+	import { triggerLock } from '$lib/operatorWriteRights'
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
@@ -84,7 +85,7 @@
 				includeDraftOnly: true
 			})
 		).map((x) => {
-			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
+			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore) && !$triggerLock, ...x }
 		})
 		$usedTriggerKinds = removeTriggerKindIfUnused(triggers.length, 'postgres', $usedTriggerKinds)
 		loading = false
@@ -365,6 +366,8 @@
 			unifiedSize="md"
 			variant="accent"
 			startIcon={{ icon: Plus }}
+			disabled={!!$triggerLock}
+			title={$triggerLock}
 			on:click={() => postgresTriggerEditor?.openNew(false)}
 		>
 			New&nbsp;Postgres trigger
@@ -422,6 +425,7 @@
 					label: 'Add a Postgres trigger',
 					icon: Plus,
 					onClick: () => postgresTriggerEditor?.openNew(false),
+					disabled: !!$triggerLock,
 					aiId: 'postgres-triggers-empty-add',
 					aiDescription: 'Add Postgres trigger'
 				}}

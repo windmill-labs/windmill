@@ -940,6 +940,42 @@ pub async fn maybe_refresh_folders(
     }
 }
 
+// ------------ Router-level gate for withdrawable operator rights ------------
+
+/// Refuses every write under the router it layers, unless the workspace still grants operators
+/// `kind`. Layer it on a whole family of routes with
+/// `axum::middleware::from_fn_with_state(ManageKind::X, gate_operator_writes)`.
+///
+/// It belongs on the router, not in the handlers: a trigger kind may register routes of its own
+/// beside the shared CRUD ones, and those are hand-written, so a per-handler check is one every
+/// future route has to remember — and the ones that already existed did not. Here a route added
+/// later is covered the day it is written. "Write" is anything but GET/HEAD/OPTIONS; see
+/// `docs/operator-write-rights.md` before putting a new route under one of these routers.
+pub async fn gate_operator_writes(
+    axum::extract::State(kind): axum::extract::State<windmill_common::workspaces::ManageKind>,
+    authed: ApiAuthed,
+    axum::Extension(db): axum::Extension<DB>,
+    axum::extract::Path(params): axum::extract::Path<std::collections::HashMap<String, String>>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Result<axum::response::Response> {
+    if !matches!(
+        *request.method(),
+        http::Method::GET | http::Method::HEAD | http::Method::OPTIONS
+    ) {
+        // Absent only if this is layered outside `/w/{workspace_id}`, which is a wiring mistake:
+        // refuse rather than let the write through unchecked.
+        let w_id = params.get("workspace_id").ok_or_else(|| {
+            Error::internal_err(
+                "operator write gate layered outside a workspaced router".to_string(),
+            )
+        })?;
+        windmill_common::workspaces::check_operator_can_manage(&db, w_id, authed.is_operator, kind)
+            .await?;
+    }
+    Ok(next.run(request).await)
+}
+
 // ------------ FromRequestParts impls (direct call to auth module) ------------
 
 impl<S> FromRequestParts<S> for ApiAuthed

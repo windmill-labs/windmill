@@ -1217,6 +1217,15 @@ pub enum ManageKind {
     Triggers,
 }
 
+impl ManageKind {
+    fn noun(&self) -> &'static str {
+        match self {
+            ManageKind::Schedules => "schedules",
+            ManageKind::Triggers => "triggers",
+        }
+    }
+}
+
 impl OperatorManageRights {
     pub fn has(&self, kind: ManageKind) -> bool {
         match kind {
@@ -1275,18 +1284,19 @@ pub fn invalidate_operator_rights_cache(workspace_id: &str) {
     OPERATOR_RIGHTS_CACHE.remove(workspace_id);
 }
 
-/// Gate for a write operators may perform unless the workspace withdrew it. `action` completes
-/// "Operators cannot {action} in this workspace".
+/// Gate for a write operators may perform unless the workspace withdrew it. Prefer layering
+/// `gate_operator_writes` on a whole router over calling this per handler; see
+/// `docs/operator-write-rights.md`.
 pub async fn check_operator_can_manage(
     db: &DB,
     workspace_id: &str,
     is_operator: bool,
     kind: ManageKind,
-    action: &str,
 ) -> Result<()> {
     if is_operator && !operator_manage_rights(db, workspace_id).await?.has(kind) {
         return Err(Error::NotAuthorized(format!(
-            "Operators cannot {action} in this workspace"
+            "Operators cannot manage {} in this workspace",
+            kind.noun()
         )));
     }
     Ok(())

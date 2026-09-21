@@ -9,6 +9,7 @@
 	} from '$lib/components/triggers/native/utils'
 	import NativeTriggerTable from '$lib/components/triggers/native/NativeTriggerTable.svelte'
 	import NativeTriggerEditor from '$lib/components/triggers/native/NativeTriggerEditor.svelte'
+	import { triggerLock } from '$lib/operatorWriteRights'
 	import {
 		sendUserToast,
 		removeTriggerKindIfUnused,
@@ -220,7 +221,8 @@
 				variant="accent"
 				startIcon={{ icon: Plus }}
 				on:click={() => editor?.openNew()}
-				disabled={!serviceAvailable}
+				disabled={!serviceAvailable || !!$triggerLock}
+				title={$triggerLock}
 			>
 				New&nbsp;{serviceConfig?.serviceDisplayName || serviceName} trigger
 			</Button>
@@ -279,6 +281,7 @@
 							label: `Add a ${serviceConfig?.serviceDisplayName || serviceName} trigger`,
 							icon: Plus,
 							onClick: () => editor?.openNew(),
+							disabled: !!$triggerLock,
 							aiId: 'native-triggers-empty-add',
 							aiDescription: 'Add native trigger'
 						}}

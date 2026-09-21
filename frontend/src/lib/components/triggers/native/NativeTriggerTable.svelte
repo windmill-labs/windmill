@@ -4,6 +4,7 @@
 	import type { ExtendedNativeTrigger } from './utils'
 	import { getServiceConfig } from './utils'
 	import { canWrite, sendUserToast } from '$lib/utils'
+	import { triggerLock } from '$lib/operatorWriteRights'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import TriggerModeToggle from '$lib/components/triggers/TriggerModeToggle.svelte'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
@@ -158,7 +159,7 @@
 
 						<div class="flex gap-2 items-center justify-end">
 							<TriggerModeToggle
-								canWrite={canWrite(trigger.script_path, {}, $userStore)}
+								canWrite={canWrite(trigger.script_path, {}, $userStore) && !$triggerLock}
 								triggerMode={trigger.enabled ? 'enabled' : 'disabled'}
 								onToggleMode={(mode) => onToggleMode(trigger, mode)}
 								hideToggleLabels
@@ -169,6 +170,8 @@
 								unifiedSize="md"
 								startIcon={{ icon: Pen }}
 								variant="subtle"
+								disabled={!!$triggerLock}
+								title={$triggerLock}
 							>
 								Edit
 							</Button>
@@ -186,6 +189,7 @@
 										displayName: 'Delete',
 										type: 'delete' as const,
 										icon: Trash,
+										disabled: !!$triggerLock,
 										action: () => openDeleteConfirmation(trigger)
 									}
 								]}
@@ -201,6 +205,8 @@
 								size="xs"
 								variant="subtle"
 								startIcon={{ icon: RefreshCw }}
+								disabled={!!$triggerLock}
+								title={$triggerLock}
 								on:click={() => onRecreate?.(trigger)}
 							>
 								Recreate

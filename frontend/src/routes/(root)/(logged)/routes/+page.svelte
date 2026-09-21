@@ -58,6 +58,7 @@
 	import { setQuery } from '$lib/navigation'
 	import { onMount } from 'svelte'
 	import RouteEditor from '$lib/components/triggers/http/RouteEditor.svelte'
+	import { triggerLock } from '$lib/operatorWriteRights'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
 	import { isCloudHosted } from '$lib/cloud'
@@ -104,7 +105,7 @@
 				includeDraftOnly: true
 			})
 		).map((x) => {
-			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
+			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore) && !$triggerLock, ...x }
 		})
 		$usedTriggerKinds = removeTriggerKindIfUnused(triggers.length, 'routes', $usedTriggerKinds)
 		loading = false
@@ -304,6 +305,8 @@
 					unifiedSize="md"
 					variant="default"
 					startIcon={{ icon: Plus }}
+					disabled={!!$triggerLock}
+					title={$triggerLock}
 					on:click={() => {
 						routesGenerator?.openDrawer()
 					}}
@@ -324,6 +327,8 @@
 					unifiedSize="md"
 					variant="accent"
 					startIcon={{ icon: Plus }}
+					disabled={!!$triggerLock}
+					title={$triggerLock}
 					on:click={() => routeEditor?.openNew(false)}
 				>
 					New&nbsp;route
@@ -369,6 +374,7 @@
 						label: 'Add a route',
 						icon: Plus,
 						onClick: () => routeEditor?.openNew(false),
+						disabled: !!$triggerLock,
 						aiId: 'routes-empty-add',
 						aiDescription: 'Add route'
 					}}

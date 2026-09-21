@@ -49,6 +49,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import KafkaIcon from '$lib/components/icons/KafkaIcon.svelte'
 	import KafkaTriggerEditor from '$lib/components/triggers/kafka/KafkaTriggerEditor.svelte'
+	import { triggerLock } from '$lib/operatorWriteRights'
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import TriggerModeToggle from '$lib/components/triggers/TriggerModeToggle.svelte'
@@ -78,7 +79,7 @@
 				includeDraftOnly: true
 			})
 		).map((x) => {
-			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
+			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore) && !$triggerLock, ...x }
 		})
 		$usedTriggerKinds = removeTriggerKindIfUnused(triggers.length, 'kafka', $usedTriggerKinds)
 		loading = false
@@ -300,6 +301,8 @@
 				unifiedSize="md"
 				variant="accent"
 				startIcon={{ icon: Plus }}
+				disabled={!!$triggerLock}
+				title={$triggerLock}
 				on:click={() => kafkaTriggerEditor?.openNew(false)}
 			>
 				New&nbsp;Kafka trigger
@@ -356,6 +359,7 @@
 						label: 'Add a Kafka trigger',
 						icon: Plus,
 						onClick: () => kafkaTriggerEditor?.openNew(false),
+						disabled: !!$triggerLock,
 						aiId: 'kafka-triggers-empty-add',
 						aiDescription: 'Add Kafka trigger'
 					}}

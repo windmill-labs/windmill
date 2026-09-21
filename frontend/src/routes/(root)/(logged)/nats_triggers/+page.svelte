@@ -49,6 +49,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import NatsIcon from '$lib/components/icons/NatsIcon.svelte'
 	import NatsTriggerEditor from '$lib/components/triggers/nats/NatsTriggerEditor.svelte'
+	import { triggerLock } from '$lib/operatorWriteRights'
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import TriggerModeToggle from '$lib/components/triggers/TriggerModeToggle.svelte'
@@ -77,7 +78,7 @@
 				includeDraftOnly: true
 			})
 		).map((x) => {
-			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
+			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore) && !$triggerLock, ...x }
 		})
 		$usedTriggerKinds = removeTriggerKindIfUnused(triggers.length, 'nats', $usedTriggerKinds)
 		loading = false
@@ -299,6 +300,8 @@
 				unifiedSize="md"
 				variant="accent"
 				startIcon={{ icon: Plus }}
+				disabled={!!$triggerLock}
+				title={$triggerLock}
 				on:click={() => natsTriggerEditor?.openNew(false)}
 			>
 				New&nbsp;NATS trigger
@@ -355,6 +358,7 @@
 						label: 'Add a NATS trigger',
 						icon: Plus,
 						onClick: () => natsTriggerEditor?.openNew(false),
+						disabled: !!$triggerLock,
 						aiId: 'nats-triggers-empty-add',
 						aiDescription: 'Add NATS trigger'
 					}}

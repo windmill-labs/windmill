@@ -96,3 +96,62 @@ async fn test_operator_manage_rights(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     Ok(())
 }
+
+/// The trigger gate is a layer over the whole trigger router rather than a check inside each
+/// handler, because a trigger kind may register routes of its own beside the shared CRUD ones.
+/// Bulk HTTP creation is exactly that: it inserts directly and never enters the shared create
+/// handler, so a per-handler check missed it. Asserting both polarities is what proves the route
+/// is reached and gated rather than merely absent - a route that did not exist would answer 404,
+/// not 401.
+#[cfg(feature = "http_trigger")]
+#[sqlx::test(migrations = "../migrations", fixtures("base", "permissions_test"))]
+async fn test_manage_triggers_covers_a_route_outside_the_shared_handler(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let api = format!("http://localhost:{port}/api/w/{WS}");
+    let admin = reqwest::Client::new();
+    let c = operator_client();
+
+    let bulk = json!([{
+        "path": "u/operator/bulk",
+        "script_path": "u/operator/some_script",
+        "is_flow": false,
+        "route_path": "bulk_route",
+        "request_type": "async",
+        "authentication_method": "none",
+        "http_method": "post",
+        "is_static_website": false,
+        // Non-admins may only create routes under the workspace prefix.
+        "workspaced_route": true,
+    }]);
+
+    let create_many = async || -> anyhow::Result<(u16, String)> {
+        let resp = c
+            .post(format!("{api}/http_triggers/create_many"))
+            .json(&bulk)
+            .send()
+            .await?;
+        Ok((resp.status().as_u16(), resp.text().await?))
+    };
+
+    // Held by default: the route is reached and does its own work.
+    let (status, body) = create_many().await?;
+    assert_eq!(status, 201, "{body}");
+
+    let resp = admin
+        .post(format!("{api}/workspaces/operator_settings"))
+        .header("Authorization", "Bearer SECRET_TOKEN")
+        .json(&json!({"manage_triggers": false}))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200);
+    invalidate_operator_rights_cache(WS);
+
+    let (status, body) = create_many().await?;
+    assert_eq!(status, 401, "{body}");
+
+    Ok(())
+}
