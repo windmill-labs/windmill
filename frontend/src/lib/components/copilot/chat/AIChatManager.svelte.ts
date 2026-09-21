@@ -2227,7 +2227,7 @@ export class AIChatManager implements ChatViewHost {
 	 * Gated on `sendInFlight` as well as `loading`: `loading` only rises after a
 	 * send's attachment upkeep, so between the two a click would slip past. */
 	sendOrQueue(text: string) {
-		if (this.loading || this.sendInFlight) {
+		if (this.loading || this.sendInFlight || this.sendPending) {
 			this.queueMessage(text)
 			return
 		}
@@ -3208,10 +3208,24 @@ export class AIChatManager implements ChatViewHost {
 		this.#ready = ready
 	}
 
+	#sendsAwaitingReady = $state(0)
+	/** A send parked on the gate above. It has not reached `sendInFlight` yet —
+	 * and must not, since `loadPastChat` reads that flag and would then skip the
+	 * restore this send is waiting for — so every guard that decides between
+	 * sending and queueing tests this as well. */
+	get sendPending(): boolean {
+		return this.#sendsAwaitingReady > 0
+	}
+
 	sendRequest = async (options: Parameters<typeof this.sendRequestImpl>[0] = {}) => {
 		if (this.#ready) {
-			await this.#ready
-			this.#ready = undefined
+			this.#sendsAwaitingReady++
+			try {
+				await this.#ready
+			} finally {
+				this.#sendsAwaitingReady--
+				this.#ready = undefined
+			}
 		}
 		// A turn with nowhere to render still streams, spends tokens and applies
 		// tool calls — entirely off-screen. Refuse instead. `sendInlineRequest` is

@@ -282,6 +282,8 @@ export class FlowChatViewHost implements ChatViewHost {
 	get loading(): boolean {
 		return isBusy(this.#state.status)
 	}
+	// No transcript restore to wait for: a flow chat renders from its rows.
+	sendPending = false
 	runHeldElsewhere = false
 	loadingLabel = undefined
 	compacting = false

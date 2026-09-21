@@ -897,7 +897,7 @@
 			contextTextareaComponent?.clearForSend()
 			return
 		}
-		if (chatHost.loading) {
+		if (chatHost.loading || chatHost.sendPending) {
 			// Queue the message instead of silently discarding it — it is
 			// auto-sent when the streaming turn completes successfully.
 			// Editing-while-loading keeps the old discard behavior. Paste

@@ -966,7 +966,9 @@ async function initRuntime(runtime: SessionRuntime, session: Session) {
 	if (session.chatId) {
 		manager.historyManager.setCurrentChatId(session.chatId)
 		await manager.historyManager.tagChatWithSession(session.chatId, session.id)
-		await manager.loadPastChat(session.chatId)
+		// preserveQueue: restoring a session's own chat is not a conversation switch.
+		// A message queued while the restore ran is unsent user input waiting for it.
+		await manager.loadPastChat(session.chatId, { preserveQueue: true })
 		// loadPastChat only seeds the mask when the chat exists in history; a chatId
 		// pointing at a chat not yet persisted (no turn saved) would leave it
 		// undefined, and the Edits surface would then show every workspace draft.
