@@ -6,7 +6,7 @@
 		type Group,
 		type InstanceGroup
 	} from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { userStore } from '$lib/stores'
 	import { onMount, tick, untrack } from 'svelte'
 	import { Button } from './common'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
@@ -34,6 +34,14 @@
 		type GroupDraft,
 		type GroupRole
 	} from '$lib/groupDraft'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	const ROLE_TOOLTIPS = {
 		member:
@@ -74,10 +82,18 @@
 	}: Props = $props()
 
 	const restricted = $derived(
-		isDemoWorkspaceRestricted($workspaceStore, $userStore?.is_admin, $userStore?.is_super_admin)
+		isDemoWorkspaceRestricted($operatingWorkspace, actingUser?.is_admin, actingUser?.is_super_admin)
 	)
 
-	let can_write = $state(false)
+	let groupPerms = $state<Record<string, boolean> | undefined>(undefined)
+	// A verdict that does not come from a loaded group: a new one is writable, one that failed
+	// to load is not.
+	let writeVerdict = $state<boolean | undefined>(undefined)
+	// Derived for the same reason as the trigger editors: the acting user's role can land after
+	// the group does, and a snapshot taken first would stay read-only.
+	const can_write = $derived(
+		writeVerdict ?? (groupPerms !== undefined && canWrite(name, groupPerms, actingUser))
+	)
 	let group: Group | undefined
 	let instance_group: InstanceGroup | undefined = $state()
 	let usernames: string[] = $state([])
@@ -123,11 +139,11 @@
 	}
 
 	async function loadUsernames(): Promise<void> {
-		usernames = await UserService.listUsernames({ workspace: $workspaceStore! })
+		usernames = await UserService.listUsernames({ workspace: $operatingWorkspace! })
 	}
 
 	async function loadGroupNames(): Promise<void> {
-		groupNames = (await GroupService.listGroupNames({ workspace: $workspaceStore! })) ?? []
+		groupNames = (await GroupService.listGroupNames({ workspace: $operatingWorkspace! })) ?? []
 	}
 
 	async function loadInstanceGroup(): Promise<void> {
@@ -142,7 +158,7 @@
 		loadAside(loadUsernames)
 		if (isNew) {
 			loadAside(loadGroupNames)
-			can_write = true
+			writeVerdict = true
 			setDraft(emptyDraft())
 			loaded = true
 		} else {
@@ -159,8 +175,9 @@
 		const apply = (value: GroupDraft) =>
 			opts?.baselineOnly ? (baseline = structuredClone(value)) : setDraft(value)
 		try {
-			group = await GroupService.getGroup({ workspace: $workspaceStore!, name })
-			can_write = canWrite(name, group.extra_perms ?? {}, $userStore)
+			group = await GroupService.getGroup({ workspace: $operatingWorkspace!, name })
+			groupPerms = group.extra_perms ?? {}
+			writeVerdict = undefined
 			apply({
 				summary: group.summary ?? '',
 				members: Array.from(
@@ -179,7 +196,7 @@
 			sendUserToast(e?.body ?? String(e), true)
 			// Only the opening read decides this. Revoking it on a failed reconcile would
 			// disable Save against a draft that is still dirty, with nothing left to reload.
-			if (!opts?.baselineOnly) can_write = false
+			if (!opts?.baselineOnly) writeVerdict = false
 		} finally {
 			loaded = true
 		}
@@ -245,7 +262,7 @@
 	 * membership goes through the endpoints that name who was added or promoted — which is
 	 * what the permission history reads back. The diff itself is in `groupDraft.ts`. */
 	async function applyMemberChanges(next: GroupDraft['members'], prev: GroupDraft['members']) {
-		const workspace = $workspaceStore ?? ''
+		const workspace = $operatingWorkspace ?? ''
 		for (const call of groupMemberDiff(prev, next, $userStore?.username)) {
 			switch (call.kind) {
 				case 'addUser':
@@ -289,7 +306,7 @@
 		try {
 			if (created) {
 				await GroupService.createGroup({
-					workspace: $workspaceStore ?? '',
+					workspace: $operatingWorkspace ?? '',
 					requestBody: { name, summary: next.summary }
 				})
 				alreadyCreated = true
@@ -299,7 +316,7 @@
 			} else {
 				if (next.summary !== prev.summary) {
 					await GroupService.updateGroup({
-						workspace: $workspaceStore ?? '',
+						workspace: $operatingWorkspace ?? '',
 						name,
 						requestBody: { summary: next.summary }
 					})
@@ -335,7 +352,7 @@
 	let loadStarted = false
 	$effect.pre(() => {
 		if (loadStarted) return
-		if ($workspaceStore && $userStore) {
+		if ($operatingWorkspace && $userStore) {
 			loadStarted = true
 			untrack(() => {
 				load()

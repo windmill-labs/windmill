@@ -240,6 +240,9 @@
 			     cell.saved.val), reactive state owned by the SessionRuntime class (via
 			     rawAppCell), not by a component ancestor — so Svelte's ownership check
 			     flags a false positive here. -->
+			<!-- version / draftBaseVersion: the pair the session's draft carries, so the
+			     deploy guard and the drawer compare what the full-page editor does;
+			     without them every deploy from a session tab reads as up to date. -->
 			<!-- svelte-ignore ownership_invalid_binding -->
 			<RawAppEditor
 				bind:files={cell.store.val.files}
@@ -253,6 +256,10 @@
 				autosavePath={path}
 				policy={cell.store.val.policy}
 				bind:savedApp={cell.saved.val}
+				version={cell.store.val?.parent_version ?? cell.saved.val?.deployed_version}
+				draftBaseVersion={cell.store.val?.parent_version != null
+					? String(cell.store.val.parent_version)
+					: undefined}
 				newApp={!cell.saved.val || cell.saved.val.no_deployed === true}
 				{diffDrawer}
 				{onNavigate}

@@ -13,7 +13,9 @@
 	import { messageDraft, segments } from './chatDraft'
 	import { lineCountLabel } from './pasteTokens'
 	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
-	import { workspaceStore } from '$lib/stores'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	const chatHost = getChatViewHost()
 
@@ -23,8 +25,8 @@
 	// to a different copy.
 	const messageWorkspace = $derived.by(() => {
 		// Registers the dependency that `operatingWorkspace`'s own untracked
-		// `get(workspaceStore)` cannot.
-		void $workspaceStore
+		// `get(operatingWorkspace)` cannot.
+		void $operatingWorkspace
 		return chatHost.operatingWorkspace
 	})
 
@@ -138,7 +140,9 @@
 		{:else}
 			<div class={twMerge('text-sm py-1 px-2', message.role === 'tool' && 'text-primary py-0')}>
 				{#if message.role === 'assistant'}
-					<div class="px-[1px]"><AssistantMessage {message} workspace={messageWorkspace} /></div>
+					<div class="px-[1px] group/answer"
+						><AssistantMessage {message} workspace={messageWorkspace} /></div
+					>
 				{:else if message.role === 'tool'}
 					<div class="px-[1px]"
 						><ToolExecutionDisplay message={message as ToolDisplayMessage} /></div

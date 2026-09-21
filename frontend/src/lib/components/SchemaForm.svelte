@@ -4,7 +4,6 @@
 	const bubble = createBubbler()
 	import type { Schema } from '$lib/common'
 	import { VariableService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { allTrue, computeShow, type DynamicInput } from '$lib/utils'
 	import { Button } from './common'
 	import ItemPicker from './ItemPicker.svelte'
@@ -26,6 +25,9 @@
 	import type { ComponentCustomCSS } from './apps/types'
 	import ResizeTransitionWrapper from './common/ResizeTransitionWrapper.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		schema: Schema | any
@@ -122,7 +124,7 @@
 		actions: actions_render = undefined
 	}: Props = $props()
 
-	let ws = $derived(workspace ?? $workspaceStore)
+	let ws = $derived(workspace ?? $operatingWorkspace)
 
 	const dispatch = createEventDispatcher()
 

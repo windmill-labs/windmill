@@ -6457,7 +6457,7 @@ var AppService = class {
    * @param data.workspace
    * @param data.path
    * @param data.requestBody update app
-   * @returns string app updated
+   * @returns AppDeployed the path the app now lives at and the version this deploy wrote
    * @throws ApiError
    */
   static updateApp(data) {

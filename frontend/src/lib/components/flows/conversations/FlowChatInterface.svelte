@@ -10,6 +10,7 @@
 	import { emptyString, type DynamicInput } from '$lib/utils'
 	import { onDestroy, tick, untrack } from 'svelte'
 	import type { Chat } from 'windmill-chat'
+	import { chatFlowKey } from './flowChatProps'
 	import type { FlowModule } from '$lib/gen'
 	import { useWorkspaceStorageConfigured } from '$lib/components/inputTransformEnv.svelte'
 	import {
@@ -35,6 +36,8 @@
 		 * and the attachments input. */
 		flowModules?: FlowModule[]
 		path: string
+		/** What the stored inputs are filed under when the path is not steady (see FlowChat). */
+		identity?: string
 		workspace?: string
 		/** The flow's description, shown under the empty transcript's prompt. */
 		description?: string
@@ -49,6 +52,7 @@
 		additionalInputsSchema,
 		flowModules,
 		path,
+		identity = undefined,
 		workspace = undefined,
 		description = undefined,
 		wideLayout = false,
@@ -122,7 +126,7 @@
 	const runInputs = $derived(withoutRejectedEffort(modelWiring, effectiveInputs))
 
 	function getStorageKey(): string {
-		return `${STORAGE_KEY_PREFIX}${path}`
+		return `${STORAGE_KEY_PREFIX}${chatFlowKey({ path, identity })}`
 	}
 
 	function loadInputsFromStorage(): Record<string, any> | null {
@@ -181,7 +185,10 @@
 					? undefined
 					: 'This workspace has no object storage, so files cannot be attached.',
 			workspace: () => workspace,
-			sendDisabled: () => deploymentInProgress || !!modelGap || !!wrongKindReason
+			sendDisabled: () => deploymentInProgress || !!modelGap || !!wrongKindReason,
+			// The model controls only: a retry changes model when the reader did, but replays
+			// the run's own attachments rather than whatever the composer holds now.
+			inputsShownInComposer: () => composerOwnedInputs(modelWiring, undefined)
 		}
 	)
 	setChatViewHost(chatHost)

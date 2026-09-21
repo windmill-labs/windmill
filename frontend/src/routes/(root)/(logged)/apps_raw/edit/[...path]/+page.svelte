@@ -47,6 +47,9 @@
 		/** User-typed path the home list renders, set only when it differs
 		 *  from the deployed/seeded `savedApp.path`. */
 		draft_path?: string
+		/** The app_version the draft forked from; the server derives `draft.base`
+		 *  from it. */
+		parent_version?: number
 	}
 
 	let files: Record<string, string> | undefined = $state(undefined)
@@ -122,6 +125,7 @@
 			summary,
 			policy,
 			custom_path: savedApp?.custom_path,
+			parent_version: parentVersion,
 			// Persist the typed path as `draft_path` only when it actually differs
 			// from the current path — a `draft_path` equal to the baseline is a
 			// no-op that would block the draft from deduping against the deployed
@@ -165,6 +169,14 @@
 	let othersModalOpen = $state(false)
 	let draftSavedAt = $state<string | undefined>(undefined)
 	let deployedAt = $state<string | undefined>(undefined)
+	// The app_version the draft forked from, and the deployed head, for the exact
+	// staleness check (vs the drifting timestamps). `parentVersion` is what the
+	// bundle carries: an own draft keeps the version it forked from; a fresh
+	// checkout forks from the head.
+	let parentVersion = $state<number | undefined>(undefined)
+	let draftBaseVersion = $state<string | undefined>(undefined)
+	let deployedHeadVersion = $state<string | undefined>(undefined)
+	let deployedBy = $state<string | undefined>(undefined)
 	async function loadApp(opts: { getDraft?: boolean } = {}): Promise<void> {
 		const getDraft = opts.getDraft ?? true
 		const tok = ++loadAppToken
@@ -185,6 +197,10 @@
 			loadedFromDraft = false
 			draftSavedAt = undefined
 			deployedAt = undefined
+			parentVersion = undefined
+			draftBaseVersion = undefined
+			deployedHeadVersion = undefined
+			deployedBy = undefined
 			// `labels` is route-level state; reset it too so a fresh draft doesn't
 			// inherit (and then deploy) the previously-opened app's labels. The
 			// import branch re-seeds it via extractRawApp below.
@@ -301,6 +317,21 @@
 		// See /apps/edit's loader.
 		draftSavedAt = backendApp.draft_saved_at as string | undefined
 		deployedAt = backendApp.no_deployed ? undefined : (backendApp.created_at as string | undefined)
+		deployedBy = backendApp.no_deployed ? undefined : (backendApp.created_by as string | undefined)
+		// Head = the last entry of the deployed `versions`. The base the bundle
+		// carries is the draft's own; a draft that predates the base keeps none
+		// (stamping the head would hide whatever it is behind), and only a fresh
+		// checkout forks from the head.
+		const versions = backendApp.versions as number[] | undefined
+		const headVersion =
+			backendApp.no_deployed || !Array.isArray(versions) ? undefined : versions[versions.length - 1]
+		deployedHeadVersion = headVersion != null ? String(headVersion) : undefined
+		draftBaseVersion = backendApp.draft_base as string | undefined
+		parentVersion = hasOwnDraft
+			? draftBaseVersion != null
+				? Number(draftBaseVersion)
+				: undefined
+			: headVersion
 		// Deployed baseline for the autosave `discardIf`, captured BEFORE the swap
 		// below mutates `backendApp`. Mirrors the bundle `$effect`'s shape (minus
 		// the edit-only `draft_path`) so an unedited draft compares equal.
@@ -314,7 +345,8 @@
 						data: extractDataConfig(backendApp.value) ?? { ...DEFAULT_DATA },
 						summary: backendApp.summary ?? '',
 						policy: backendApp.policy,
-						custom_path: backendApp.custom_path
+						custom_path: backendApp.custom_path,
+						parent_version: parentVersion
 					})
 				) as RawAppDraft)
 		// The raw-app autosave stores a flat `RawAppDraft`, but this loader (and
@@ -393,6 +425,11 @@
 			data = v.data ?? { ...DEFAULT_DATA }
 			summary = v.summary ?? ''
 			policy = v.policy ?? {}
+			// Their draft's own fork base: the bundle is rebuilt from these pieces, so
+			// leaving `parentVersion` on ours would deploy their content claiming a base
+			// it never had.
+			parentVersion = v.parent_version
+			draftBaseVersion = v.parent_version != null ? String(v.parent_version) : undefined
 			newPath = v.draft_path ?? savedApp?.path ?? path
 			if (hasOwnDraft) {
 				OtherUserDraftLoad.beginOverlay({
@@ -409,6 +446,7 @@
 						summary,
 						policy,
 						custom_path: savedApp?.custom_path,
+						parent_version: parentVersion,
 						...(pendingDraftPath ? { draft_path: pendingDraftPath } : {})
 					} as RawAppDraft,
 					onResetToOwnDraft: () => loadApp({ getDraft: true })
@@ -549,6 +587,10 @@
 	bind:othersModalOpen
 	{draftSavedAt}
 	{deployedAt}
+	{draftBaseVersion}
+	{deployedHeadVersion}
+	{deployedBy}
+	onViewDiff={() => rawAppEditor?.openDiffDrawer()}
 	onLoadLatestDeploy={async () => {
 		// stopSync-bracketed; see /scripts/edit's restoreDeployed for the race.
 		if (!$workspaceStore) return
@@ -587,6 +629,56 @@
 				bind:savedApp
 				{diffDrawer}
 				newApp={isNewApp}
+				version={parentVersion ??
+					(deployedHeadVersion != null ? Number(deployedHeadVersion) : undefined)}
+				{draftBaseVersion}
+				onTakeLatest={draftBaseVersion
+					? async (shown?: string) => {
+							// The version the drawer showed as head; see /scripts/edit.
+							const head = Number(shown ?? deployedHeadVersion)
+							if (!Number.isFinite(head)) return
+							parentVersion = head
+							if (deployedBaseline) deployedBaseline = { ...deployedBaseline, parent_version: head }
+							draftBaseVersion = String(head)
+							// See /scripts/edit: the head this page knows moves with the base.
+							deployedHeadVersion = String(head)
+							// Persisted explicitly, as the script and flow routes do: the reactive
+							// bundle mirror is parked while auto-save is off, and a parked write is
+							// dropped on pagehide, so the new base would not survive a reload.
+							if (draftSync.draft) {
+								draftSync.draft = { ...draftSync.draft, parent_version: head }
+								if ($workspaceStore) {
+									await UserDraft.forcePersist('raw_app', page.params.path ?? '', {
+										workspace: $workspaceStore
+									})
+								}
+							}
+						}
+					: undefined}
+				onDeploy={({ version, head, headBy, headAt }) => {
+					// The version this deploy wrote is what the next autosave forks from, so the
+					// editor carries it; the prompt's own pair is what the loader knows, and this
+					// deploy consumed the draft it described, so the route holds no base until it
+					// loads again (the deploy guard covers that window).
+					parentVersion = version
+					// Keep the base the editor just pinned when this deploy is the head: the
+					// prompt has no draft to describe either way, and the drawer needs it to
+					// keep offering Take latest. A raced deploy leaves it unknown, since the
+					// pair would then differ and open the prompt on a draft that is gone.
+					draftBaseVersion = version != null && version === head ? String(version) : undefined
+					draftSavedAt = undefined
+					if (head != null) {
+						// Named by whoever deployed the head, not by the page load's author.
+						deployedHeadVersion = String(head)
+						deployedBy = headBy
+						deployedAt = headAt
+					}
+					// Another deploy landed on top of this one: there is no draft for the prompt
+					// to talk about, so say what happened instead.
+					if (version != null && head != null && version !== head) {
+						sendUserToast(`Version ${head} was deployed on top of yours (${version})`)
+					}
+				}}
 				onResetToDeployed={reloadDeployed}
 				{loadedFromDraft}
 				othersDraftsCount={otherDraftsUsers.length}

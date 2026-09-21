@@ -1531,6 +1531,31 @@ async fn declarative_sync_rejects_an_unusable_instance_banner(db: Pool<Postgres>
 }
 
 #[sqlx::test(fixtures("base"))]
+async fn declarative_sync_rejects_a_malformed_max_token_expiration(db: Pool<Postgres>) {
+    clear_settings_and_configs(&db).await;
+    let before = count_global_settings(&db).await;
+
+    let mut desired = BTreeMap::new();
+    desired.insert(
+        "max_token_expiration_days".to_string(),
+        serde_json::json!("7.0"),
+    );
+
+    let err = windmill_common::instance_config::sync_global_settings_declarative(
+        &db,
+        &BTreeMap::new(),
+        &desired,
+    )
+    .await
+    .expect_err("a ceiling the token routes cannot read must fail the sync");
+    assert!(
+        err.to_string().contains("max_token_expiration_days"),
+        "the error should name the offending setting, got: {err}"
+    );
+    assert_eq!(count_global_settings(&db).await, before);
+}
+
+#[sqlx::test(fixtures("base"))]
 async fn declarative_sync_rejects_an_unusable_default_allowed_origins(db: Pool<Postgres>) {
     // The declarative writers (the sync-config CLI, the operator's ConfigMap
     // sync) do not run the HTTP layer's pre-write hook, so an origin list that

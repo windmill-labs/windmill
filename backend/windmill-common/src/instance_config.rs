@@ -1358,6 +1358,10 @@ pub async fn sync_global_settings_declarative(
     crate::global_settings::parse_allowed_origins_setting(desired.get(origins_key))
         .map_err(|e| anyhow::anyhow!("{origins_key}: {e}"))?;
 
+    let max_expiration_key = crate::global_settings::MAX_TOKEN_EXPIRATION_DAYS_SETTING;
+    crate::global_settings::parse_max_token_expiration_days(desired.get(max_expiration_key))
+        .map_err(|e| anyhow::anyhow!("{max_expiration_key}: {e}"))?;
+
     let diff = diff_global_settings(current, desired, ApplyMode::Replace);
     apply_settings_diff(db, &diff).await?;
 
