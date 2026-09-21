@@ -207,13 +207,13 @@
 										{#if overridden}
 											<div class="text-xs text-tertiary flex flex-row items-center gap-2">
 												<span>Overriding the built-in price</span>
-												<button
-													type="button"
-													class="text-xs text-blue-500 hover:underline"
+												<Button
+													variant="subtle"
+													unifiedSize="2xs"
 													onclick={() => resetModel(provider as AIProvider, model)}
 												>
 													Reset
-												</button>
+												</Button>
 											</div>
 										{/if}
 										{#if errors[key]}

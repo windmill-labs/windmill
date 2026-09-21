@@ -142,19 +142,22 @@
 												</div>
 												<span class="text-xs text-secondary whitespace-nowrap">tokens</span>
 											</div>
-											<!-- Kept on every row so the inputs stay aligned down the column. -->
-											<div class="w-36 shrink-0">
-												{#if overridden}
-													<Button
-														variant="subtle"
-														unifiedSize="2xs"
-														onclick={() => resetModel(provider as AIProvider, model)}
-													>
-														Reset to {fallback.tokens.toLocaleString()}
-													</Button>
-												{/if}
-											</div>
 										</div>
+										{#if overridden}
+											<div class="text-xs text-tertiary flex flex-row items-center gap-2">
+												<span>
+													{fallback.assumed ? 'Assumed' : 'Default'}: {fallback.tokens.toLocaleString()}
+													tokens
+												</span>
+												<Button
+													variant="subtle"
+													unifiedSize="2xs"
+													onclick={() => resetModel(provider as AIProvider, model)}
+												>
+													Reset
+												</Button>
+											</div>
+										{/if}
 										{#if errors[key]}
 											<div class="text-xs text-red-500">{errors[key]}</div>
 										{/if}
