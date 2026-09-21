@@ -1495,27 +1495,32 @@ type HubIntegration = { name: string; documented: boolean }
 
 /** The integration slugs are a large but static list, so one fetch per session
  * is enough. Only matched slugs ever reach the model, never the whole list. */
-let hubIntegrationsCache: HubIntegration[] | undefined
+let hubIntegrationsCache: Promise<HubIntegration[]> | undefined
 
-/** An unreachable hub must degrade to "no suggestions" rather than turn the search
- * into a tool error, so a failed or empty response is left uncached and retried. */
-async function loadHubIntegrations(): Promise<HubIntegration[]> {
-	if (!hubIntegrationsCache?.length) {
-		try {
-			const integrations = await IntegrationService.listHubIntegrations({ kind: 'script' })
-			hubIntegrationsCache = integrations.map((i) => ({
-				name: i.name,
-				// A hub predating the flag omits it, and so does one with no authored
-				// notes. Both mean the same thing: nothing to read beyond what the
-				// metadata call returns for every integration.
-				documented: i.documented === true
-			}))
-		} catch (err) {
-			console.error('Could not list hub integrations', err)
-			return []
-		}
+async function fetchHubIntegrations(): Promise<HubIntegration[]> {
+	try {
+		const integrations = await IntegrationService.listHubIntegrations({ kind: 'script' })
+		return integrations.map((i) => ({
+			name: i.name,
+			// A hub predating the flag omits it, and so does one with no authored
+			// notes. Both mean the same thing: nothing to read beyond what the
+			// metadata call returns for every integration.
+			documented: i.documented === true
+		}))
+	} catch (err) {
+		console.error('Could not list hub integrations', err)
+		return []
 	}
-	return hubIntegrationsCache
+}
+
+/** Concurrent callers share one in-flight fetch. An unreachable hub must degrade to
+ * "no suggestions" rather than turn the search into a tool error, so a failed or
+ * empty response is left uncached and retried. */
+function loadHubIntegrations(): Promise<HubIntegration[]> {
+	return (hubIntegrationsCache ??= fetchHubIntegrations().then((integrations) => {
+		if (!integrations.length) hubIntegrationsCache = undefined
+		return integrations
+	}))
 }
 
 /** Which integrations carry provider knowledge checked against the live API,

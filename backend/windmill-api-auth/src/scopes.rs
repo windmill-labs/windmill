@@ -1103,9 +1103,9 @@ fn is_global_read_open_to_job_token(route_path: &str) -> bool {
             | "/api/settings/global/hub_base_url"
             | "/api/docs/search"
             | "/api/docs/page"
-            | "/api/integrations/hub/list"
             | "/api/embeddings/query_hub_scripts"
-    ) || route_path.starts_with("/api/scripts/hub/")
+    ) || route_path.starts_with("/api/integrations/hub/")
+        || route_path.starts_with("/api/scripts/hub/")
         || route_path.starts_with("/api/flows/hub/")
         || route_path.starts_with("/api/apps/hub/")
 }

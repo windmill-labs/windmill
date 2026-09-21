@@ -1399,7 +1399,7 @@ function searchBenchmarkHubScripts(text: string, app: string | null, kind: strin
 			id: script.version_id,
 			version_id: script.version_id,
 			summary: script.summary,
-			description: script.description ?? '',
+			description: script.description ?? null,
 			app: script.app,
 			kind: script.kind ?? 'script',
 			score: 1 - index * 0.01
@@ -1417,7 +1417,7 @@ function listBenchmarkHubScriptsByApp(app: string | null, kind: string | null) {
 		ask_id: script.version_id,
 		version_id: script.version_id,
 		summary: script.summary,
-		description: script.description ?? '',
+		description: script.description ?? null,
 		app: script.app,
 		kind: script.kind ?? 'script',
 		views: 0,
