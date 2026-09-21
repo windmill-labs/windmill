@@ -64,11 +64,14 @@ Symbols, not line numbers, are cited: they drift less.
   (`RedactedUri`, used by the request span and the log context); a reverse proxy in front still
   writes the full path to its access log. `connect` names the target the token was obtained for
   and is refused, before the token is sent anywhere, if the workspace now points elsewhere; the
-  token only ever goes to that target. It then locks, in the order the other writers take them:
-  the account (`FOR KEY SHARE`), the membership (`FOR SHARE`, required unless the caller is a
-  superadmin), the workspace key (the lock a rotation takes), and the target setting (the lock
-  `set_target` writes under, re-checked there). So no removal, rotation or target change during its
-  remote call leaves a row behind, under a stale key, or for a target no longer set. Connecting by redirect: the remote's `/user/remote_deploy_authorize` page
+  token only ever goes to that target. It then locks the account (`FOR KEY SHARE`), the membership
+  (required unless the caller is a superadmin), the workspace key (the lock a rotation takes), and
+  the target setting (the lock `set_target` writes under, re-checked there). So no removal,
+  rotation or target change during its remote call leaves a row behind, under a stale key, or for
+  a target no longer set. The membership is locked `NOWAIT`: account deletion takes the account
+  before the membership and global offboarding the reverse, so waiting in either order can
+  deadlock; a membership being changed refuses the connect with a retry message instead.
+  Connecting by redirect: the remote's `/user/remote_deploy_authorize` page
   mints a token bound to the one remote workspace (`remote-deploy:<source host>`) only on an
   explicit Authorize, only for a callback whose path is `/remote_deploy/callback`, and refuses to
   render inside a frame; the token travels in the fragment, and the callback checks a single-use

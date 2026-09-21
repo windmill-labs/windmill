@@ -388,9 +388,11 @@ async fn connect(
     let mut tx = db.begin().await?;
     // The remote call above leaves time for the caller to be removed from the workspace, which
     // clears this table under a lock on the membership: holding it until commit keeps a row from
-    // landing after that cleanup. A superadmin needs no membership, and has none to lose. The
-    // account is locked first, in the order account deletion and renames take the two; the
-    // token's foreign key would otherwise take it last and deadlock with them.
+    // landing after that cleanup. A superadmin needs no membership, and has none to lose.
+    // Writers take the account and the membership in both orders (deletion and renames account
+    // first, global offboarding memberships first), so no order is safe to wait in: the account
+    // is locked first, as the token's foreign key would otherwise take it last, and the membership
+    // is never waited for. A removal holding it is let finish, and the caller retries.
     let superadmin = sqlx::query_scalar!(
         "SELECT super_admin FROM password WHERE email = $1 FOR KEY SHARE",
         &authed.email
@@ -404,12 +406,22 @@ async fn connect(
         ))
     })?;
     let member = sqlx::query_scalar!(
-        "SELECT 1 FROM usr WHERE workspace_id = $1 AND email = $2 FOR SHARE",
+        "SELECT 1 FROM usr WHERE workspace_id = $1 AND email = $2 FOR SHARE NOWAIT",
         &w_id,
         &authed.email
     )
     .fetch_optional(&mut *tx)
-    .await?;
+    .await
+    .map_err(|e| {
+        // 55P03 lock_not_available: the membership is being changed right now.
+        if e.as_database_error().and_then(|d| d.code()).as_deref() == Some("55P03") {
+            Error::BadRequest(format!(
+                "Your membership in workspace {w_id} is being changed; try again in a moment"
+            ))
+        } else {
+            e.into()
+        }
+    })?;
     if member.is_none() && !superadmin {
         return Err(Error::BadRequest(format!(
             "Only a member of workspace {w_id} can connect it to a remote instance"

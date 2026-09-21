@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT 1 FROM usr WHERE workspace_id = $1 AND email = $2 FOR SHARE",
+  "query": "SELECT 1 FROM usr WHERE workspace_id = $1 AND email = $2 FOR SHARE NOWAIT",
   "describe": {
     "columns": [
       {
@@ -19,5 +19,5 @@
       null
     ]
   },
-  "hash": "dcf39a48efc48cadcdb6e1412d02ff0f71f85cf7289383531b9bac16acba659f"
+  "hash": "b66219ba1fdc6777a6a9142ab16854ca0008491f5bcf3ffa61697a005d3b2956"
 }
