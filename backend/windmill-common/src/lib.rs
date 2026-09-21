@@ -1525,10 +1525,37 @@ async fn drop_if_unused_on(
     dbname: &str,
 ) -> error::Result<Vec<String>> {
     let users = instance_database_users(conn, dbname).await?;
-    if users.is_empty() {
-        drop_custom_instance_database_on(conn, dbname).await?;
+    if !users.is_empty() {
+        return Ok(users);
     }
+    // A settings save naming this database takes the same lock, so one already waiting on it is
+    // about to name a database this would drop: its own read of the users happens after the drop,
+    // and it would commit a reference to nothing. Keeping it is what the save expects, and the
+    // name is then reported as still in use.
+    if let Some(waiter) = waiting_for_instance_database(conn, dbname).await? {
+        return Ok(vec![waiter]);
+    }
+    drop_custom_instance_database_on(conn, dbname).await?;
     Ok(users)
+}
+
+/// A transaction blocked on `dbname`'s instance-database lock, named as its `pid`. The lock is
+/// taken by key, so `pg_locks` reports it split across `classid` and `objid`.
+async fn waiting_for_instance_database(
+    conn: &mut sqlx::PgConnection,
+    dbname: &str,
+) -> error::Result<Option<String>> {
+    let pid: Option<i32> = sqlx::query_scalar(
+        "SELECT l.pid FROM pg_locks l
+         WHERE l.locktype = 'advisory' AND NOT l.granted
+           AND l.classid = ((hashtext('instance_database:' || $1)::bigint >> 32) & 4294967295)::oid
+           AND l.objid = (hashtext('instance_database:' || $1)::bigint & 4294967295)::oid
+         LIMIT 1",
+    )
+    .bind(dbname)
+    .fetch_optional(&mut *conn)
+    .await?;
+    Ok(pid.map(|pid| format!("a request waiting to name it (pid {pid})")))
 }
 
 /// The workspaces naming instance database `dbname` as a data table or a ducklake catalog. Taken
