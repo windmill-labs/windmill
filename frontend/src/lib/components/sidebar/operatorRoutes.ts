@@ -2,7 +2,7 @@ import type { OperatorSettings } from '$lib/gen'
 import type { UserWorkspace } from '$lib/stores'
 
 /** An `operator_settings` key: each admits an operator to one page (`triggers` to all of them). */
-export type OperatorPageKey = keyof OperatorSettings
+export type OperatorPageKey = keyof NonNullable<OperatorSettings>
 
 /**
  * Whether the sidebar shows the page behind `key`. Everyone but an operator sees every page

@@ -228,7 +228,10 @@
 			const collapse = x < SIDEBAR_SNAP_COLLAPSE_REM
 			// Operators have no icon-only rail to snap to, so the same gesture detaches
 			// instead: dragging the sidebar off the left edge puts it behind the handle.
+			// Detaching is not a resize, so the width the drag started from is what gets
+			// persisted — re-attaching restores the sidebar at the size it had.
 			if (collapse && $userStore?.operator) {
+				sidebarWidth = widthAtStart
 				stop()
 				setDetached(true)
 				return
@@ -540,6 +543,8 @@
 				(offscreen ? `transform:translateX(calc(${-u} * (100% + 0.5rem)));` : '')
 		}
 	}
+	// Shared by the name and the colour pastille below, which travel to the picker together.
+	const JOIN_PICKER_MS = 110
 	// The home-page workspace name travels to the card's workspace picker as the card opens,
 	// and back as it closes, so the name reads as one label joining the picker. It aims where
 	// the picker will be once the card has finished sliding (the card's current translate is
@@ -562,11 +567,34 @@
 		const scale =
 			parseFloat(getComputedStyle(target).fontSize) / parseFloat(getComputedStyle(node).fontSize)
 		return {
-			duration: 180,
+			duration: JOIN_PICKER_MS,
 			easing: cubicInOut,
 			css: (_t: number, u: number) =>
 				`transform-origin: left center; transform: translate(${dx * u}px, ${dy * u}px) scale(${1 + (scale - 1) * u}); opacity: ${1 - u};`
 		}
+	}
+
+	// How far the handle's colour pastille must travel to land on the card's workspace pastille.
+	// Measured when the card opens (the two discs are the same size, so it is a plain slide) and
+	// aimed where the picker will be once the card has finished sliding in, like the name above.
+	let pastilleJoin = $state({ dx: 0, dy: 0 })
+	function openNavCard() {
+		const from = document
+			.querySelector('[data-nav-handle] circle')
+			?.closest('svg')
+			?.getBoundingClientRect()
+		const card = document.querySelector<HTMLElement>('[data-nav-card]')
+		const to = card
+			?.querySelector('.wm-workspace-name')
+			?.closest('button')
+			?.querySelector('circle')
+			?.closest('svg')
+			?.getBoundingClientRect()
+		if (from && card && to) {
+			const slide = new DOMMatrix(getComputedStyle(card).transform).m41
+			pastilleJoin = { dx: to.left - slide - from.left, dy: to.top - from.top }
+		}
+		menuOpen = true
 	}
 
 	// Matches the edge band's `duration-200`, so the drawer opens as the tint finishes.
@@ -1099,7 +1127,7 @@
 					aria-hidden="true"
 					onmouseenter={() => {
 						clearTimeout(edgeOpenTimer)
-						edgeOpenTimer = setTimeout(() => (menuOpen = true), EDGE_OPEN_DELAY_MS)
+						edgeOpenTimer = setTimeout(openNavCard, EDGE_OPEN_DELAY_MS)
 					}}
 					onmouseleave={() => clearTimeout(edgeOpenTimer)}
 				></div>
@@ -1109,18 +1137,38 @@
 				     card; a click docks the sidebar again. -->
 				<div class="absolute top-1 left-1 z5000 flex items-center">
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
-					<div data-nav-handle onmouseenter={() => (menuOpen = true)}>
-						<MenuButton
-							class="!text-xs"
-							buttonClass="!pl-3.5 !pr-1 !w-auto"
-							icon={PanelLeft}
-							isCollapsed={false}
-							lightMode
-							color={$workspaceColor ?? 'rgb(var(--color-surface-sunken))'}
-							iconProps={handleIconColor ? { style: `color: ${handleIconColor}` } : undefined}
-							ariaLabel="Attach sidebar"
-							on:click={() => setDetached(false)}
-						/>
+					<!-- The colour pastille slides into the card's workspace picker as the card opens,
+					     leaving the panel icon behind as the attach button. `overflow-visible` lets the
+					     disc travel outside its 26×26 box; the icon's own `transition-colors` carries it
+					     from the contrast colour to the plain one as the disc leaves. -->
+					<div
+						data-nav-handle
+						onmouseenter={openNavCard}
+						style:--join-dx="{pastilleJoin.dx}px"
+						style:--join-dy="{pastilleJoin.dy}px"
+						class={classNames(
+							'[&_svg]:overflow-visible [&_circle]:transition-[transform,opacity] [&_circle]:duration-[110ms] [&_circle]:ease-in-out motion-reduce:[&_circle]:transition-none',
+							menuOpen
+								? '[&_circle]:opacity-0 [&_circle]:[transform:translate(var(--join-dx,0px),var(--join-dy,0px))]'
+								: ''
+						)}
+					>
+						<Tooltip class="flex" placement="right" small>
+							<MenuButton
+								class="!text-xs"
+								buttonClass="!pl-3.5 !pr-1 !w-auto"
+								icon={PanelLeft}
+								isCollapsed={false}
+								lightMode
+								color={$workspaceColor ?? 'rgb(var(--color-surface-sunken))'}
+								iconProps={handleIconColor && !menuOpen
+									? { style: `color: ${handleIconColor}` }
+									: undefined}
+								ariaLabel="Attach sidebar"
+								on:click={() => setDetached(false)}
+							/>
+							{#snippet text()}Attach sidebar{/snippet}
+						</Tooltip>
 					</div>
 					<!-- Plain text, outside the handle's hover area: on home it names the workspace,
 					     with a ground so it stays legible over the page scrolling under it. Hidden
