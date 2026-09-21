@@ -201,6 +201,11 @@ impl Compactor {
             + estimate_tokens(&messages[newest..]);
         // No summary can fit if the context that must remain already fills the budget.
         if retained_tokens >= self.input_budget {
+            tracing::warn!(
+                retained_tokens,
+                input_budget = self.input_budget,
+                "AI agent compaction skipped: retained context fills the input budget"
+            );
             return None;
         }
         if force {

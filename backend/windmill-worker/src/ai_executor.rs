@@ -1859,6 +1859,12 @@ pub async fn run_agent(
                     )
                     .await;
                     if !changed {
+                        append_logs(
+                            &job.id,
+                            &job.workspace_id,
+                            "Context compaction could not produce a smaller usable request; returning the provider error without retry.\n".to_string(),
+                            conn,
+                        ).await;
                         return Err(error);
                     }
                 }
