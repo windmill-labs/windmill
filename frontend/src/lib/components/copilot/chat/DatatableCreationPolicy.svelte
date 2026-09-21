@@ -5,11 +5,13 @@
 
 	const aiChatManager = getAiChatManager()
 	import DefaultDatabaseSelector from '$lib/components/raw_apps/DefaultDatabaseSelector.svelte'
-	import { workspaceStore } from '$lib/stores'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 	import { createDatatablesResource } from '$lib/components/raw_apps/datatableUtils.svelte'
 
 	// Load available datatables from workspace using shared utility
-	const datatables = createDatatablesResource(() => $workspaceStore)
+	const datatables = createDatatablesResource(() => $operatingWorkspace)
 
 	const hasNoDatatables = $derived((datatables.current?.length ?? 0) === 0)
 

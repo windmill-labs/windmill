@@ -269,6 +269,7 @@ async fn test_new_turns_wait_for_conversation_cleanup_and_recreate(
                     windmill_common::flow_conversations::MessageType::User,
                     None,
                     true,
+                    None,
                 )
                 .await?;
                 tx.commit().await?;

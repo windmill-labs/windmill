@@ -39,7 +39,8 @@
 
 	// Mirrors CUSTOM_TAG_REGEX in backend/windmill-common/src/worker.rs — keep both in sync.
 	const customTagRegex = /^([\w-]+)\(((?:[\w-]+\*?\+)*[\w-]+\*?|(?:\^[\w-]+\*?)+)\)$/
-	const dynamicTagRegex = /\$args\[((?:\w+\.)*\w+)\]/
+	// Mirrors RE_ARG_TAG and RE_FLOW_EXPR_TAG in backend/windmill-queue/src/jobs.rs.
+	const dynamicTagRegex = /\$(args|flow_expr)\[((?:\w+\.)*\w+)\]/
 
 	function formatWorkspace(w: { id: string; includeForks: boolean }) {
 		return w.includeForks ? `${w.id} (and its forks)` : w.id
@@ -49,7 +50,7 @@
 		let r = newTag.trim()
 		if (r == '') return undefined
 		let matched = r.match(dynamicTagRegex)
-		return matched?.[1]
+		return matched ? { kind: matched[1], path: matched[2] } : undefined
 	})
 
 	let extractedCustomTag = $derived.by(() => {
@@ -183,7 +184,7 @@
 				</div>
 			</div>
 		{:else if newTag.trim()}
-			{#if newTag.includes('(') || newTag.includes(')') || newTag.includes('+') || newTag.includes('^') || newTag.includes('*') || ((newTag.includes('.') || newTag.includes('$args[')) && !dynamicTag)}
+			{#if newTag.includes('(') || newTag.includes(')') || newTag.includes('+') || newTag.includes('^') || newTag.includes('*') || ((newTag.includes('.') || newTag.includes('$args[') || newTag.includes('$flow_expr[')) && !dynamicTag)}
 				<div class="text-2xs text-primary p-2 bg-surface-secondary rounded border">
 					<div class="font-medium mb-1 text-red-500">Invalid tag</div>
 					<div>
@@ -194,7 +195,7 @@
 			{:else}
 				<div class="text-2xs text-primary p-2 bg-surface-secondary rounded border">
 					<div class="font-medium mb-1">
-						{#if newTag.includes('$workspace') || newTag.includes('$args')}
+						{#if newTag.includes('$workspace') || dynamicTag}
 							Dynamic tag
 						{:else}
 							Simple tag
@@ -207,8 +208,13 @@
 					{#if newTag.includes('$workspace') && !dynamicTag}
 						<div>Interpolated tag based on workspace id the job was created in </div>
 					{/if}
-					{#if dynamicTag}
-						<div>Interpolated tag based on args input of <b>{dynamicTag}</b></div>
+					{#if dynamicTag?.kind == 'flow_expr'}
+						<div>
+							Interpolated tag based on the flow value at <b>{dynamicTag.path}</b>, resolved when
+							the flow step starts
+						</div>
+					{:else if dynamicTag}
+						<div>Interpolated tag based on args input of <b>{dynamicTag.path}</b></div>
 					{/if}
 				</div>
 			{/if}
@@ -252,6 +258,17 @@
 			>
 			based on args input, use <pre class="inline text-emphasis">$args[a.b.c]</pre> where
 			<pre class="inline">a.b.c</pre> is the path to the value in the args object.
+			<br />{#if variant !== 'drawer'}<br />{/if}
+			For
+			<a
+				href="https://www.windmill.dev/docs/core_concepts/worker_groups#dynamic-tag"
+				target="_blank">dynamic tags <ExternalLink size={12} class="inline-block" /></a
+			>
+			based on flow step results, flow input or flow env, use
+			<pre class="inline text-emphasis">$flow_expr[results.a.b.c]</pre> where
+			<pre class="inline">a</pre> is the step id, or
+			<pre class="inline text-emphasis">$flow_expr[flow_input.a.b.c]</pre> and
+			<pre class="inline text-emphasis">$flow_expr[flow_env.a.b.c]</pre>.
 		</span>
 	{/if}
 </div>

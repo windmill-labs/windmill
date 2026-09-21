@@ -69,8 +69,8 @@ use windmill_common::{
     user_drafts::{overlay_or_draft_only, DraftUserRef, UserDraftItemKind, WithDraftOverlay},
     users::username_to_permissioned_as,
     utils::{
-        http_get_from_hub, not_found_if_none, paginate, query_elems_from_hub, require_admin,
-        strip_json_nul, Pagination, RunnableKind, StripPath,
+        http_get_from_hub, not_found_if_none, paginate, paginate_optional,
+        query_elems_from_hub, require_admin, strip_json_nul, Pagination, RunnableKind, StripPath,
     },
     variables::{build_crypt, build_crypt_with_key_suffix, encrypt},
     worker::{to_raw_value, CLOUD_HOSTED},
@@ -274,6 +274,12 @@ pub struct AppHistory {
     pub version: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deployment_msg: Option<String>,
+    /// Who deployed this version, and when — the diff's version picker names them so
+    /// a reader can tell their own deploys from a teammate's.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_by: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Deserialize)]
@@ -565,6 +571,17 @@ pub struct CreateApp {
     /// Transient — never persisted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skip_draft_deletion: Option<bool>,
+}
+
+/// What a deploy of an existing app answers with. `version` is the one this call wrote,
+/// which is what an editor pins as the fork base of the draft it starts next: reading the
+/// head back afterwards cannot tell it from a deploy that landed beside it. A
+/// metadata-only update writes none and reports the head it kept.
+#[derive(Serialize)]
+pub struct AppDeployed {
+    /// Where the app now lives, which differs from the request path on a rename.
+    pub path: String,
+    pub version: i64,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -1220,18 +1237,42 @@ async fn get_app_history(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
+    Query(pagination): Query<Pagination>,
 ) -> JsonResult<Vec<AppHistory>> {
     let path = path.to_path();
     check_scopes(&authed, || format!("apps:read:{}", &path))?;
+    // Unasked-for, this listing stays whole: the deployment-history panel reads it
+    // without paging. The diff picker asks for a page.
+    let (per_page, offset) = paginate_optional(pagination);
     let mut tx = user_db.begin(&authed).await?;
+    // Newest first in deployed order, which is a version's position in `app.versions` and
+    // not its `created_at`: the latter is the deploying transaction's start time, so two
+    // that overlap can carry it in the opposite order from the one they landed in. A row
+    // outside the array never sat in that sequence, so it sorts after the ones that did.
+    // Paging happens before the metadata joins, so a page costs its own rows.
     let query_result = sqlx::query!(
-        "SELECT a.id as app_id, av.id as version_id, dm.deployment_msg as deployment_msg
-        FROM app a LEFT JOIN app_version av ON a.id = av.app_id LEFT JOIN deployment_metadata dm ON av.id = dm.app_version
+        "SELECT a.id as app_id, av.id as version_id, dm.deployment_msg as deployment_msg,
+                av.created_by as created_by, av.created_at as created_at
+        FROM app a
+        JOIN LATERAL (
+            SELECT av2.id, COALESCE(v.ord, 0) AS ord
+            FROM app_version av2
+            LEFT JOIN unnest(a.versions) WITH ORDINALITY AS v(id, ord) ON v.id = av2.id
+            WHERE av2.app_id = a.id
+            ORDER BY ord DESC, av2.id DESC
+            LIMIT $3 OFFSET $4
+        ) page ON TRUE
+        JOIN app_version av ON av.id = page.id
+        LEFT JOIN deployment_metadata dm ON av.id = dm.app_version
         WHERE a.workspace_id = $1 AND a.path = $2
-        ORDER BY created_at DESC",
+        ORDER BY page.ord DESC",
         w_id,
         path,
-    ).fetch_all(&mut *tx).await?;
+        per_page,
+        offset,
+    )
+    .fetch_all(&mut *tx)
+    .await?;
     tx.commit().await?;
 
     let result: Vec<AppHistory> = query_result
@@ -1240,6 +1281,8 @@ async fn get_app_history(
             app_id: row.app_id,
             version: row.version_id,
             deployment_msg: row.deployment_msg,
+            created_by: Some(row.created_by),
+            created_at: Some(row.created_at),
         })
         .collect();
     return Ok(Json(result));
@@ -1253,14 +1296,22 @@ async fn get_latest_version(
     let path = path.to_path();
     check_scopes(&authed, || format!("apps:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
+    // The head is the tail of `app.versions` — the version the runtime serves. Deploys
+    // append to it under the app row's lock, whereas `app_version.created_at` is the
+    // deploying transaction's start time, so two that overlap can carry it in either
+    // order and the newest timestamp is then not the one that landed last.
     let row = sqlx::query!(
-        "SELECT a.id as app_id, av.id as version_id, dm.deployment_msg as deployment_msg
-        FROM app a LEFT JOIN app_version av ON a.id = av.app_id LEFT JOIN deployment_metadata dm ON av.id = dm.app_version
-        WHERE a.workspace_id = $1 AND a.path = $2
-        ORDER BY created_at DESC",
+        "SELECT a.id as app_id, av.id as version_id, dm.deployment_msg as deployment_msg,
+                av.created_by as created_by, av.created_at as created_at
+        FROM app a JOIN app_version av
+             ON av.id = a.versions[array_upper(a.versions, 1)] AND av.app_id = a.id
+        LEFT JOIN deployment_metadata dm ON av.id = dm.app_version
+        WHERE a.workspace_id = $1 AND a.path = $2",
         w_id,
         path,
-    ).fetch_optional(&mut *tx).await?;
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
     tx.commit().await?;
 
     if let Some(row) = row {
@@ -1268,6 +1319,8 @@ async fn get_latest_version(
             app_id: row.app_id,
             version: row.version_id,
             deployment_msg: row.deployment_msg,
+            created_by: Some(row.created_by),
+            created_at: Some(row.created_at),
         };
 
         return Ok(Json(Some(result)));
@@ -2591,6 +2644,14 @@ async fn create_app_internal<'a>(
         .execute(&mut *tx)
         .await?;
     }
+    windmill_common::user_drafts::clear_draft_moves_from(
+        &mut tx,
+        &w_id,
+        &[UserDraftItemKind::App, UserDraftItemKind::RawApp],
+        &app.path,
+        None,
+    )
+    .await?;
     let id = sqlx::query_scalar!(
         "INSERT INTO app
             (workspace_id, path, summary, policy, versions, custom_path, labels)
@@ -2947,7 +3008,7 @@ async fn update_app(
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(ns): Json<EditApp>,
-) -> Result<String> {
+) -> JsonResult<AppDeployed> {
     if authed.is_operator {
         return Err(Error::NotAuthorized(
             "Operators cannot update apps for security reasons".to_string(),
@@ -2986,7 +3047,7 @@ async fn update_app(
         },
     );
 
-    Ok(format!("app {} updated (npath: {:?})", opath, npath))
+    Ok(Json(AppDeployed { path: npath, version: v_id }))
 }
 
 /// Deploy a raw app from its sources, compiling them on a worker. `update_raw`
@@ -3000,7 +3061,7 @@ async fn update_app_raw_source(
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(ns): Json<EditApp>,
-) -> Result<String> {
+) -> JsonResult<AppDeployed> {
     if authed.is_operator {
         return Err(Error::NotAuthorized(
             "Operators cannot update apps for security reasons".to_string(),
@@ -3098,7 +3159,7 @@ async fn update_app_raw_source(
         },
     );
 
-    Ok(format!("app {} updated (npath: {:?})", opath, npath))
+    Ok(Json(AppDeployed { path: npath, version: v_id }))
 }
 
 /// Whether the caller may create an app at `path` — asked of the database rather
@@ -3324,7 +3385,7 @@ async fn update_app_raw<'a>(
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
     multipart: Multipart,
-) -> Result<String> {
+) -> JsonResult<AppDeployed> {
     if authed.is_operator {
         return Err(Error::NotAuthorized(
             "Operators cannot update apps for security reasons".to_string(),
@@ -3372,7 +3433,7 @@ async fn update_app_raw<'a>(
         },
     );
 
-    Ok(format!("app {} updated (npath: {:?})", opath, npath))
+    Ok(Json(AppDeployed { path: npath, version: v_id }))
 }
 // async fn create_app_internal<'a>(
 //     authed: ApiAuthed,
@@ -3747,6 +3808,19 @@ async fn update_app_internal<'a>(
             &authed.email,
         )
         .execute(&mut *tx)
+        .await?;
+    }
+    if npath != path {
+        // Everything left at the old path is a draft this deploy didn't consume
+        // — teammates' rows, and the deployer's own when the caller asked us to
+        // keep it. Carry them rather than strand them.
+        windmill_common::user_drafts::move_drafts_for_path(
+            &mut tx,
+            &w_id,
+            &[UserDraftItemKind::App, UserDraftItemKind::RawApp],
+            path,
+            &npath,
+        )
         .await?;
     }
     audit_log(

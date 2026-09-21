@@ -17,6 +17,9 @@ mod audit_logs_s3;
 mod audit_logs_s3_backfill;
 #[cfg(feature = "parquet")]
 mod background_task;
+#[cfg(all(feature = "private", feature = "enterprise"))]
+mod datatable_roles_ee;
+mod datatable_roles_oss;
 #[cfg(feature = "private")]
 mod ee;
 pub mod ee_oss;
@@ -61,6 +64,7 @@ use windmill_common::{
         GITHUB_APP_WEBHOOK_BASE_URL_SETTING, HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING,
         HTTP_ROUTE_WORKSPACED_ROUTE_SETTING, HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING,
         INSTANCE_BANNER_SETTING, MAX_RETENTION_OVERRIDE_WORKSPACES,
+        MAX_TOKEN_EXPIRATION_DAYS_SETTING, MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING,
         RETENTION_PERIOD_SECS_OVERRIDES_SETTING, RUFF_CONFIG_SETTING, UNIQUE_ID_SETTING,
         WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
         WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
@@ -150,6 +154,16 @@ pub fn global_service() -> Router {
         .route(
             "/list_custom_instance_pg_databases",
             post(list_custom_instance_pg_databases),
+        )
+        .route(
+            "/datatable_roles",
+            get(datatable_roles_oss::list_datatable_roles)
+                .post(datatable_roles_oss::create_datatable_role),
+        )
+        .route(
+            "/datatable_roles/{id}",
+            post(datatable_roles_oss::update_datatable_role)
+                .delete(datatable_roles_oss::delete_datatable_role),
         )
         .route(
             "/refresh_custom_instance_user_pwd",
@@ -1182,6 +1196,12 @@ async fn run_setting_pre_write_hook(
                 }
             }
         }
+        MAX_TOKEN_EXPIRATION_DAYS_SETTING => {
+            windmill_common::global_settings::parse_max_token_expiration_days(Some(value))
+                .map_err(|e| {
+                    error::Error::BadRequest(format!("{MAX_TOKEN_EXPIRATION_DAYS_SETTING}: {e}"))
+                })?;
+        }
         INSTANCE_BANNER_SETTING => {
             match value {
                 // Clearing (delete row) is handled by the caller; allow it through.
@@ -1343,6 +1363,12 @@ pub async fn get_global_setting(
         && key != HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING
         && key != WS_BASE_URL_SETTING
         && key != INSTANCE_BANNER_SETTING
+        // The token form reads it to stop offering expirations the server would shorten.
+        && key != MAX_TOKEN_EXPIRATION_DAYS_SETTING
+        // Whoever is wiring up an MCP client reads it to know whether a URL-borne token
+        // would be refused, and they are usually not a superadmin. Not a secret: pointing
+        // any MCP client at the instance discovers the same answer.
+        && key != MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING
     {
         require_super_admin(&db, &authed).await?;
     }

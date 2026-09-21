@@ -30,7 +30,6 @@
 	import type { Schema } from '$lib/common'
 	import { deepEqual } from 'fast-equals'
 	import { type InputTransform } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { allTrue, type DynamicInput as DynamicInputTypes } from '$lib/utils'
 	import { getContext, untrack, type Snippet } from 'svelte'
 	import { SvelteSet } from 'svelte/reactivity'
@@ -38,7 +37,7 @@
 	import StepInputsGen from '$lib/components/copilot/StepInputsGen.svelte'
 	import InputTransformForm from '$lib/components/InputTransformForm.svelte'
 	import InputTransformPickers from '$lib/components/InputTransformPickers.svelte'
-	import { useS3StorageConfigured } from '$lib/components/inputTransformEnv.svelte'
+	import { useWorkspaceStorageConfigured } from '$lib/components/inputTransformEnv.svelte'
 	import type ItemPicker from '$lib/components/ItemPicker.svelte'
 	import type VariableEditor from '$lib/components/VariableEditor.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
@@ -69,6 +68,9 @@
 	import AgentToolRoster from './AgentToolRoster.svelte'
 	import AgentMemoryNotes from './AgentMemoryNotes.svelte'
 	import { memoryOptionLabel, memoryPropertyFor } from '../flowInfers'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		schema: Schema | { properties?: Record<string, any> }
@@ -148,7 +150,7 @@
 		linkedMemory = undefined
 	}: Props = $props()
 
-	let ws = $derived(workspace ?? $workspaceStore)
+	let ws = $derived(workspace ?? $operatingWorkspace)
 
 	let inputCheck: { [id: string]: boolean } = $state({})
 
@@ -170,7 +172,7 @@
 	let itemPicker: ItemPicker | undefined = $state(undefined)
 	let variableEditor: VariableEditor | undefined = $state(undefined)
 
-	const s3Storage = useS3StorageConfigured(() => ws)
+	const s3Storage = useWorkspaceStorageConfigured(() => ws)
 
 	// The per-field copilot only ever writes a JavaScript transform, so it belongs only where one can
 	// be stored. On a static-only field the write lands in a key the config drops on deploy, which

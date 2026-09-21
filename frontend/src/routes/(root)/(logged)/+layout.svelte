@@ -13,6 +13,7 @@
 	} from '$lib/gen'
 	import { capitalize, classNames, getModifierKey, sendUserToast } from '$lib/utils'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
+	import { isSessionPreviewFrame } from '$lib/components/sessions/sessionMode.svelte'
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
 	import SettingsMenu from '$lib/components/sidebar/SettingsMenu.svelte'
@@ -139,13 +140,14 @@
 	let isCollapsed = $state(collapsePref.val)
 
 	// Resizable desktop rail, sized in REM so it scales with the root font-size the
-	// same way the old `w-52`/`w-12` classes did — `:root` jumps to 18px past 1760px
-	// wide (app.css), which grows the rem-based button content; a fixed-px rail would
+	// same way the old `w-52`/`w-12` classes did — `:root` jumps to 18px on screens
+	// ≥1760px (app.css), which grows the rem-based button content; a fixed-px rail would
 	// not grow with it and the content would overflow. SIDEBAR_MIN_REM is the default
-	// expanded width (the old w-52); the handle only resizes when expanded and only
-	// widens from there — collapsing is the toggle button's job, not the drag's.
+	// expanded width (the old w-52); the handle only widens from there. Dragging the
+	// pointer into the snap zone at the screen's left edge collapses the rail.
 	const SIDEBAR_MIN_REM = 13
 	const SIDEBAR_COLLAPSED_REM = 3
+	const SIDEBAR_SNAP_COLLAPSE_REM = 6
 	// Root font-size in px, used to convert the pointer's clientX (px) into rem.
 	function rootFontPx(): number {
 		if (!BROWSER) return 16
@@ -168,11 +170,14 @@
 	// Width (in rem) the content offset must track: the icon strip when collapsed,
 	// the user-chosen width otherwise.
 	let railWidth = $derived(isCollapsed ? SIDEBAR_COLLAPSED_REM : sidebarWidth)
-	// Width transition shared by the rail and the content offset: none for the whole
-	// drag (the rail tracks the pointer 1:1 and hits the min as a hard wall, no
-	// friction), a plain ease only for the collapse/expand toggle.
+	// True for one transition's length after a drag crosses the snap zone's edge, so
+	// the collapse/expand eases before the rail goes back to tracking the pointer.
+	let sidebarSnapping = $state(false)
+	let sidebarSnapTimer: ReturnType<typeof setTimeout> | undefined
+	// Width transition shared by the rail and the content offset: none while a drag
+	// tracks the pointer 1:1, a plain ease for the toggle and the snap.
 	let sidebarTransitionClass = $derived(
-		resizingSidebar ? '' : 'transition-all duration-200 ease-in-out'
+		resizingSidebar && !sidebarSnapping ? '' : 'transition-all duration-200 ease-in-out'
 	)
 	// Set while a drag is live so it can be torn down if the layout unmounts
 	// mid-drag (otherwise the window listeners would leak).
@@ -191,12 +196,22 @@
 			handle.setPointerCapture(e.pointerId)
 		} catch {}
 		resizingSidebar = true
+		// Re-expanding a snap-collapsed rail restores the width it had before the drag.
+		const widthAtStart = sidebarWidth
+		const collapsedAtStart = isCollapsed
 		// The rail is fixed at left:0, so the pointer's clientX is the width — in px.
-		// Convert to rem (the unit the rail is sized in) via the root font-size. Pure
-		// resize: clamp at the min so the rail stops there like a wall (dragging left
-		// never collapses — that's the toggle button's job).
+		// Convert to rem (the unit the rail is sized in) via the root font-size. The
+		// rail clamps at the min like a wall, until the pointer reaches the snap zone.
 		const onMove = (ev: PointerEvent) => {
-			sidebarWidth = Math.max(SIDEBAR_MIN_REM, ev.clientX / rootFontPx())
+			const x = ev.clientX / rootFontPx()
+			const collapse = x < SIDEBAR_SNAP_COLLAPSE_REM
+			if (collapse !== isCollapsed) {
+				isCollapsed = collapse
+				sidebarSnapping = true
+				clearTimeout(sidebarSnapTimer)
+				sidebarSnapTimer = setTimeout(() => (sidebarSnapping = false), 200)
+			}
+			sidebarWidth = collapse ? widthAtStart : Math.max(SIDEBAR_MIN_REM, x)
 		}
 		// pointercancel (and unmount, via onDestroy) must clear the state too, or
 		// `resizingSidebar` sticks true — the overlay and handle highlight stay up
@@ -204,7 +219,10 @@
 		const stop = () => {
 			if (!resizingSidebar) return
 			resizingSidebar = false
+			clearTimeout(sidebarSnapTimer)
+			sidebarSnapping = false
 			widthPref.val = sidebarWidth
+			if (isCollapsed !== collapsedAtStart) collapsePref.val = isCollapsed
 			window.removeEventListener('pointermove', onMove)
 			window.removeEventListener('pointerup', stop)
 			window.removeEventListener('pointercancel', stop)
@@ -355,17 +373,6 @@
 		}
 	}
 
-	// True when this window is a sessions-preview iframe (embedded + nomenubar,
-	// which the preview always sets and stickies — see the menu-hide block above).
-	function isSessionPreviewEmbed(): boolean {
-		if (!embedded) return false
-		try {
-			return sessionStorage.getItem('nomenubar_embedded') === 'true'
-		} catch {
-			return false
-		}
-	}
-
 	// A job-detail navigation (/run/<id>) inside a preview tab should open the job in
 	// a NEW tab rather than navigate the current tab away from its page (e.g. clicking
 	// a job in the Runs tab keeps Runs put and opens the run beside it). Returns the
@@ -412,7 +419,7 @@
 		// instead of booting a second, disconnected editor in this frame. Cancel so
 		// the heavy editor never mounts here at all. Runs before the apps_raw reload
 		// below so a raw-app editor promotes rather than full-reloading the iframe.
-		if (isSessionPreviewEmbed()) {
+		if (isSessionPreviewFrame()) {
 			const target = previewEditorTarget(navigation.to?.url)
 			if (target) {
 				navigation.cancel()
@@ -1168,22 +1175,19 @@
 							class="flex-1 flex flex-col min-h-0 h-screen shadow-[inset_-1px_0_0_0_rgb(var(--color-border-light))] dark:shadow-[inset_-1px_0_0_0_#374151] [html.github-dark_&]:shadow-[inset_-1px_0_0_0_rgb(var(--color-border-light))]"
 							style:background-color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}
 						>
-							{#if !isCollapsed}
-								<!-- Resize handle straddling the right edge, only while expanded:
-								     drag to widen (clamped at the min). Collapsing is the toggle
-								     button's job. -->
-								<div
-									role="separator"
-									aria-orientation="vertical"
-									aria-label="Resize sidebar"
-									title="Drag to resize"
-									class={classNames(
-										'absolute inset-y-0 -right-0.5 w-1.5 cursor-col-resize z-50 transition-colors',
-										resizingSidebar ? '' : 'hover:bg-surface-hover'
-									)}
-									onpointerdown={startSidebarResize}
-								></div>
-							{/if}
+							<!-- Resize handle straddling the right edge: drag to resize, into the
+							     left snap zone to collapse, or out of it to expand. -->
+							<div
+								role="separator"
+								aria-orientation="vertical"
+								aria-label="Resize sidebar"
+								title="Drag to resize"
+								class={classNames(
+									'absolute inset-y-0 -right-0.5 w-1.5 cursor-col-resize z-50 transition-colors',
+									resizingSidebar ? '' : 'hover:bg-surface-hover'
+								)}
+								onpointerdown={startSidebarResize}
+							></div>
 							<!-- Workspace picker as the sidebar header (replaces the Windmill logo).
 							     Kept in both modes: it scopes which workspace family's sessions
 							     the sessions sidebar shows. -->
@@ -1414,11 +1418,11 @@
 			</div>
 		{/if}
 		<div class="flex flex-col h-full w-full">
-			{#if isCloudHosted() && !menuHidden}
-				<!-- Announcements are a managed-cloud operations tool, so the component never
-				     mounts elsewhere: no fetch, no poll, no listener on a self-hosted instance.
-				     Also skipped when the menu is hidden — that is an embed or an OAuth
-				     callback, where the announcement would land inside someone else's page. -->
+			{#if $enterpriseLicense && !menuHidden}
+				<!-- Announcements are an EE feature, so the component never mounts on CE: no
+				     fetch, no poll, no listener there. Also skipped when the menu is hidden —
+				     that is an embed or an OAuth callback, where the announcement would land
+				     inside someone else's page. -->
 				<InstanceBanner />
 			{/if}
 			{#if $userStore?.is_service_account}

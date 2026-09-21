@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT jsonb_object_keys(value->'databases') FROM global_settings\n         WHERE name = 'custom_instance_pg_databases'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "jsonb_object_keys",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "b9842d2d8abf382bd82d8fa1de012373638be391f884f81dc387ffc465badac6"
+}

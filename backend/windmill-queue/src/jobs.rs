@@ -4927,6 +4927,30 @@ pub fn tag_reads_args(tag: &str) -> bool {
     RE_ARG_TAG.is_match(tag)
 }
 
+/// Whether the tag reads the flow's state (`$flow_expr[results.a.foo]`), which only the flow
+/// runtime can resolve, right before pushing the step. A malformed placeholder counts too, so it
+/// is rejected or dropped instead of queueing the job on its literal text.
+pub fn tag_reads_flow_expr(tag: &str) -> bool {
+    tag.contains("$flow_expr[")
+}
+
+/// Renders the value at the dotted `path` below `root` as a dynamic tag component, shared by
+/// `$args[...]` and `$flow_expr[...]`: its JSON text with surrounding quotes trimmed, and empty
+/// once a segment is missing. Only object keys are followed, never array indexes.
+pub fn render_tag_path(root: Option<&RawValue>, path: &str) -> String {
+    let mut value = root.map(|x| x.get()).unwrap_or_default().to_string();
+    for part in path.split('.').filter(|p| !p.is_empty()) {
+        match serde_json::from_str::<serde_json::Value>(&value) {
+            Ok(obj) => value = obj.get(part).map(|v| v.to_string()).unwrap_or_default(),
+            Err(_) => {
+                value = String::new();
+                break;
+            }
+        }
+    }
+    value.trim_matches('"').to_string()
+}
+
 pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> String {
     // Save this value to avoid parsing twice
     let workspaced = x.as_str().replace("$workspace", workspace_id).to_string();
@@ -4934,40 +4958,12 @@ pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> Strin
         let mut interpolated = workspaced.clone();
         for cap in RE_ARG_TAG.captures_iter(&workspaced) {
             let arg_name = cap.get(1).unwrap().as_str();
-            let arg_value = if arg_name.contains('.') {
-                let parts: Vec<&str> = arg_name.split('.').collect();
-                let root = parts[0];
-                let mut value = args
-                    .args
-                    .get(root)
-                    .or(args.extra.as_ref().and_then(|x| x.get(root)))
-                    .map(|x| x.get())
-                    .unwrap_or_default()
-                    .to_string();
-
-                for part in parts.iter().skip(1) {
-                    if let Ok(obj) = serde_json::from_str::<serde_json::Value>(&value) {
-                        value = obj
-                            .get(part)
-                            .and_then(|v| Some(v.to_string()))
-                            .unwrap_or_default()
-                            .as_str()
-                            .to_string();
-                    } else {
-                        value = "".to_string(); // Invalid JSON or missing field
-                        break;
-                    }
-                }
-                value.trim_matches('"').to_string()
-            } else {
-                args.args
-                    .get(arg_name)
-                    .or(args.extra.as_ref().and_then(|x| x.get(arg_name)))
-                    .map(|x| x.get())
-                    .unwrap_or_default()
-                    .trim_matches('"')
-                    .to_string()
-            };
+            let (root, rest) = arg_name.split_once('.').unwrap_or((arg_name, ""));
+            let root_value = args
+                .args
+                .get(root)
+                .or(args.extra.as_ref().and_then(|x| x.get(root)));
+            let arg_value = render_tag_path(root_value.map(|x| &**x), rest);
             interpolated =
                 interpolated.replace(format!("$args[{}]", arg_name).as_str(), &arg_value);
         }
@@ -5546,6 +5542,8 @@ pub fn empty_result() -> Box<RawValue> {
 
 lazy_static::lazy_static! {
     pub static ref RE_ARG_TAG: Regex = Regex::new(r#"\$args\[((?:\w+\.)*\w+)\]"#).unwrap();
+    pub static ref RE_FLOW_EXPR_TAG: Regex =
+        Regex::new(r#"\$flow_expr\[((?:\w+\.)*\w+)\]"#).unwrap();
 }
 
 #[cfg(feature = "cloud")]
@@ -6814,7 +6812,10 @@ async fn push_inner<'c, 'd>(
         );
         windmill_common::worker::dedicated_worker_tag(workspace_id, &full_path)
     } else {
-        if tag == Some("".to_string()) {
+        // The flow runtime resolves a step's `$flow_expr[...]` before pushing it, so one still here
+        // was pushed with no flow state to read (a step test, a dependency job) and would name a
+        // queue no worker serves: the job runs on its default tag instead.
+        if tag == Some("".to_string()) || tag.as_deref().is_some_and(tag_reads_flow_expr) {
             tag = None;
         }
 
@@ -8197,5 +8198,45 @@ mod result_metadata_tests {
         let meta = from_raw(r#"{"wm_labels": ["label"], "wm_failure": "boom"}"#);
         assert_eq!(meta.wm_labels, Some(vec!["label".to_string()]));
         assert_eq!(meta.wm_failure.as_deref(), Some("boom"));
+    }
+}
+
+#[cfg(test)]
+mod render_tag_path_tests {
+    use super::{interpolate_args, render_tag_path, PushArgs};
+    use serde_json::value::RawValue;
+    use std::collections::HashMap;
+
+    fn render(root: &str, path: &str) -> String {
+        render_tag_path(
+            Some(&RawValue::from_string(root.to_string()).unwrap()),
+            path,
+        )
+    }
+
+    // Existing `$args[...]` tags route on exactly these renderings.
+    #[test]
+    fn renders_like_args_tags() {
+        assert_eq!(render(r#""eu""#, ""), "eu");
+        assert_eq!(render(r#"{"a": {"b": "eu"}}"#, "a.b"), "eu");
+        assert_eq!(render(r#"{"n": 4}"#, "n"), "4");
+        assert_eq!(render("null", ""), "null");
+        assert_eq!(render(r#"{"a": 1}"#, "b.c"), "");
+        assert_eq!(render(r#"{"a": ["eu"]}"#, "a.0"), "");
+        assert_eq!(render_tag_path(None, "a"), "");
+
+        let args = HashMap::from([("cfg".to_string(), raw(r#"{"lang": "eu"}"#))]);
+        let push_args = PushArgs {
+            args: &args,
+            extra: Some(HashMap::from([("e".to_string(), raw(r#""x""#))])),
+        };
+        assert_eq!(
+            interpolate_args("w-$args[cfg.lang]-$args[e]".to_string(), &push_args, "ws"),
+            "w-eu-x"
+        );
+    }
+
+    fn raw(json: &str) -> Box<RawValue> {
+        RawValue::from_string(json.to_string()).unwrap()
     }
 }

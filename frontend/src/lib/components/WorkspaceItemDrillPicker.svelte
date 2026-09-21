@@ -5,15 +5,15 @@ the workspace-specific public API (kinds, scope = `{ kind, dir? }`,
 currentItem, leaf/branch icons) so callers (BreadcrumbSegment, EditorHeader)
 don't need to know about the generic tree model underneath.
 
-Surfaces AI-created localStorage drafts (via `listGlobalDrafts`) as extra
-items alongside the backend-loaded list, so chat-scaffolded scripts/flows/
-apps that haven't been deployed yet are still navigable. Gated on
+Surfaces the session's drafts (via `listGlobalDrafts`: backend draft rows
+overlaid with live editor cells) as extra items alongside the backend-loaded
+list, so drafts the listing does not show yet (unsaved cells, a rename typed
+in a live editor) are still navigable. Gated on
 `isGlobalAiEnabled()` — without sessions, the only UserDrafts present are
 standalone editor autosaves and surfacing those in the breadcrumb picker
 would be surprising.
 -->
 <script lang="ts">
-	import { workspaceStore } from '$lib/stores'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import { untrack } from 'svelte'
 	import {
@@ -31,6 +31,9 @@ would be surprising.
 	} from '$lib/components/copilot/chat/global/userDraftAdapter'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 	import { resource } from 'runed'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	type Kind = WorkspaceItemKind
 	type ScopeKind = Kind | 'all'
@@ -51,9 +54,8 @@ would be surprising.
 		externalFilter?: string
 		autoFocus?: boolean
 		flush?: boolean
-		// Load items and drafts from this workspace instead of the navigation
-		// workspace. Set by session live editors, whose acting workspace can
-		// differ from $workspaceStore; falls back to $workspaceStore otherwise.
+		// Load items and drafts from this workspace; defaults to the operating workspace
+		// (see `useOperatingWorkspace`).
 		workspaceId?: string
 	}
 
@@ -69,7 +71,7 @@ would be surprising.
 		workspaceId
 	}: Props = $props()
 
-	const effectiveWorkspace = $derived(workspaceId ?? $workspaceStore)
+	const effectiveWorkspace = $derived(workspaceId ?? $operatingWorkspace)
 
 	let inner = $state<DrillPickerHandle | undefined>(undefined)
 
