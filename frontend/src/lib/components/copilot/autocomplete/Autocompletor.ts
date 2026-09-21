@@ -4,7 +4,7 @@ import { editor as meditor, Position, languages, type IDisposable } from 'monaco
 import { LRUCache } from 'lru-cache'
 import { autocompleteRequest } from './request'
 import { FIM_MAX_TOKENS } from '../lib'
-import { getEffectiveModelContextWindow, getModelContextWindow } from '../modelConfig'
+import { ASSUMED_CONTEXT_WINDOW, getEffectiveModelContextWindow } from '../modelConfig'
 import { setGlobalCSS } from '../shared'
 import { supportsAutocomplete } from '../utils'
 import { get } from 'svelte/store'
@@ -101,7 +101,7 @@ export class Autocompletor {
 					completionModel.model,
 					contextWindowPerModel
 				)
-			: getModelContextWindow('')
+			: ASSUMED_CONTEXT_WINDOW
 
 		this.#completionDisposable = languages.registerInlineCompletionsProvider(
 			{ pattern: '**' },

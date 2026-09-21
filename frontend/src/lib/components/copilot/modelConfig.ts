@@ -66,9 +66,9 @@ export function requiresMaxCompletionTokens(model: string) {
 // ids (anthropic.claude-sonnet-4-6-...-v1:0, gpt-5.2-2026-01-01) still resolve.
 // Conservative family fallbacks sit below the explicit entries; models not
 // listed at all resolve to undefined. Consumers that need a number regardless
-// (trim/compaction, the usage indicator) go through getModelContextWindow,
-// whose conservative 128K fallback keeps a limit enforced and is surfaced to
-// the user as an assumed window.
+// (trim/compaction, the usage indicator) go through
+// getEffectiveModelContextWindow, whose conservative 128K fallback keeps a
+// limit enforced and is surfaced to the user as an assumed window.
 const MODEL_CONTEXT_WINDOWS: [name: string, contextWindow: number][] = [
 	// Anthropic — Sonnet/Opus 4.6+ ship a 1M window at standard pricing (GA);
 	// Haiku, older Claude models (3.x, 4.0, 4.1, 4.5) and date-suffixed Claude 4
@@ -195,9 +195,18 @@ export function getKnownModelContextWindow(model: string): number | undefined {
 	return matchModel(MODEL_CONTEXT_WINDOW_MATCHERS, model)
 }
 
-export function getModelContextWindow(model: string) {
-	// Trim/compaction logic needs a number; assume a conservative window when unknown.
-	return getKnownModelContextWindow(model) ?? 128000
+/** Trim/compaction logic needs a number; assume a conservative window when unknown. */
+export const ASSUMED_CONTEXT_WINDOW = 128000
+
+/**
+ * What the built-in table states for a model, assuming a conservative window for one
+ * it does not list. Table only, so it ignores the workspace's `context_window_per_model`
+ * — deciding how much context to send goes through `getEffectiveModelContextWindow`
+ * instead. Named for the table because a plain `getModelContextWindow` is the obvious
+ * thing to reach for, and reaching for it here would silently skip the override.
+ */
+export function getModelContextWindowFromTable(model: string) {
+	return getKnownModelContextWindow(model) ?? ASSUMED_CONTEXT_WINDOW
 }
 
 /**
@@ -214,13 +223,13 @@ export function getConfiguredModelContextWindow(
 	return overrides?.[modelKey(provider, model)] ?? getKnownModelContextWindow(model)
 }
 
-/** `getModelContextWindow`, honoring the workspace's per-model override first. */
+/** The window to budget against: the override, then the table, then the assumption. */
 export function getEffectiveModelContextWindow(
 	provider: AIProvider,
 	model: string,
 	overrides: Record<string, number> | undefined
 ): number {
-	return overrides?.[modelKey(provider, model)] ?? getModelContextWindow(model)
+	return getConfiguredModelContextWindow(provider, model, overrides) ?? ASSUMED_CONTEXT_WINDOW
 }
 
 /**

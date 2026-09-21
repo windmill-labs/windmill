@@ -17,7 +17,10 @@
 		getModelMaxTokens,
 		providerSupportsWebSearch
 	} from '../copilot/lib'
-	import { getKnownModelContextWindow, getModelContextWindow } from '../copilot/modelConfig'
+	import {
+		getKnownModelContextWindow,
+		getModelContextWindowFromTable
+	} from '../copilot/modelConfig'
 	import { supportsAutocomplete } from '../copilot/utils'
 	import TestAiKey from '../copilot/TestAIKey.svelte'
 	import Label from '../Label.svelte'
@@ -660,7 +663,7 @@
 			min={1024}
 			max={10_000_000}
 			getDefault={(_, model) => ({
-				tokens: getModelContextWindow(model),
+				tokens: getModelContextWindowFromTable(model),
 				assumed: getKnownModelContextWindow(model) === undefined
 			})}
 		/>
