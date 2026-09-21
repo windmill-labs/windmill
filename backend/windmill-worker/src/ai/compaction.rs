@@ -196,6 +196,13 @@ impl Compactor {
         if newest == start {
             return None;
         }
+        let retained_tokens = self.tool_schema_tokens
+            + estimate_tokens(&messages[..start])
+            + estimate_tokens(&messages[newest..]);
+        // No summary can fit if the context that must remain already fills the budget.
+        if retained_tokens >= self.input_budget {
+            return None;
+        }
         if force {
             return Some(newest);
         }
@@ -628,6 +635,28 @@ mod tests {
         assert_eq!(compactor.input_budget, 6000);
         assert!(!compactor.needs_compaction(&history));
         assert_eq!(compactor.plan(&history, true), Some(4));
+    }
+
+    #[test]
+    fn planning_skips_summaries_when_retained_context_cannot_fit() {
+        let history = AgentHistory::new(vec![
+            message("system", &"s".repeat(400)),
+            message("user", "old question"),
+            message("assistant", "old answer"),
+            message("user", &"x".repeat(8000)),
+        ]);
+        for compactor in [
+            Compactor::new(8000, 0, Some(8192)),
+            Compactor::new(8000, 0, Some(7000)),
+            Compactor::new(2000, 0, None),
+            Compactor::new(10000, 7000, None),
+        ] {
+            assert_eq!(compactor.plan(&history, false), None);
+            assert_eq!(compactor.plan(&history, true), None);
+        }
+        assert!(Compactor::new(10000, 0, None)
+            .plan(&history, true)
+            .is_some());
     }
 
     use super::*;
