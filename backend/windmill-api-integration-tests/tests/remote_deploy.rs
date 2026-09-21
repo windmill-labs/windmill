@@ -85,7 +85,24 @@ async fn test_remote_deploy_proxy(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     // A link from elsewhere rides the session cookie but cannot know the key, so it cannot spend
     // the stored token.
-    let resp = authed(client().get(format!("{base}/proxy/guessed/users/whoami")))
+    // Nor can a credential that may not use the proxy read the key, to build such a link itself.
+    sqlx::query!(
+        "INSERT INTO token (token_hash, token_prefix, token, email, label, super_admin, read_only)
+         VALUES (encode(sha256('READ_ONLY_TOKEN'::bytea), 'hex'), 'READ_ONLY_', 'READ_ONLY_TOKEN',
+                 'test@windmill.dev', 'read only', false, true)"
+    )
+    .execute(&db)
+    .await?;
+    let resp = client()
+        .get(format!("{base}/target"))
+        .header("Authorization", "Bearer READ_ONLY_TOKEN")
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200);
+    assert!(resp.json::<serde_json::Value>().await?["connection"].is_null());
+
+    let guessed = "x".repeat(key.len());
+    let resp = authed(client().get(format!("{base}/proxy/{guessed}/users/whoami")))
         .send()
         .await?;
     assert_eq!(resp.status(), 400);

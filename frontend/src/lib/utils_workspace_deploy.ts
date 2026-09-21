@@ -364,7 +364,7 @@ export interface DeployItemParams {
 	createOnly?: boolean
 	/**
 	 * Root URL of the instance `workspaceTo` lives on, when the deploy crosses instances. Only what
-	 * a payload must state about where it landed needs it — a GCP push trigger's endpoint.
+	 * a payload must state about where it landed needs it — a GCP or Azure push trigger's endpoint.
 	 */
 	targetBaseUrl?: string
 }

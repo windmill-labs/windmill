@@ -31,7 +31,7 @@ use serde::{Deserialize, Serialize};
 use windmill_api_auth::{is_effectively_unscoped, ApiAuthed};
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::{
-    error::{error_source_chain, Error, JsonResult, Result},
+    error::{error_source_chain, Error, Result},
     ssrf::validate_url_for_ssrf,
     utils::{configure_client, rd_string, require_admin},
     variables::{build_crypt, decrypt, encrypt},
@@ -61,6 +61,24 @@ pub fn workspaced_service(proxy_body_limit: usize) -> Router {
             "/proxy/{key}/{*rest}",
             any(proxy).layer(DefaultBodyLimit::max(proxy_body_limit)),
         )
+}
+
+/// A request URI as logs should record it: with the proxy key masked, since that key is what keeps
+/// a link from spending a stored remote token.
+pub struct RedactedUri<'a>(pub &'a axum::http::Uri);
+
+impl std::fmt::Display for RedactedUri<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Some((head, keyed)) = self.0.path().split_once(PROXY_PREFIX) else {
+            return self.0.fmt(f);
+        };
+        let rest = keyed.find('/').map_or("", |i| &keyed[i..]);
+        write!(f, "{head}{PROXY_PREFIX}***{rest}")?;
+        match self.0.query() {
+            Some(query) => write!(f, "?{query}"),
+            None => Ok(()),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -189,14 +207,22 @@ fn unreachable(target: &RemoteDeployTarget, e: reqwest::Error) -> Error {
     ))
 }
 
+/// Responses carrying a `proxy_key` must not be kept by any cache between here and the browser.
+const NO_STORE: [(header::HeaderName, &str); 1] = [(header::CACHE_CONTROL, "no-store")];
+
 async fn get_target(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-) -> JsonResult<RemoteDeployStatus> {
+) -> Result<(
+    [(header::HeaderName, &'static str); 1],
+    Json<RemoteDeployStatus>,
+)> {
     let target = load_target(&db, &w_id).await?;
+    // The connection carries the proxy key. A credential that may not use the proxy (see
+    // `require_own_credentials`) must not read it either: it could hand its owner a working link.
     let connection = match &target {
-        Some(target) => {
+        Some(target) if require_own_credentials(&authed).is_ok() => {
             sqlx::query_as!(
                 RemoteDeployConnection,
                 "SELECT remote_email, proxy_key, connected_at FROM remote_deploy_token
@@ -210,9 +236,9 @@ async fn get_target(
             .fetch_optional(&db)
             .await?
         }
-        None => None,
+        _ => None,
     };
-    Ok(Json(RemoteDeployStatus { target, connection }))
+    Ok((NO_STORE, Json(RemoteDeployStatus { target, connection })))
 }
 
 #[derive(Deserialize)]
@@ -310,7 +336,10 @@ async fn connect(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Json(request): Json<ConnectRequest>,
-) -> JsonResult<RemoteDeployConnection> {
+) -> Result<(
+    [(header::HeaderName, &'static str); 1],
+    Json<RemoteDeployConnection>,
+)> {
     require_own_credentials(&authed)?;
     let target = require_target(&db, &w_id).await?;
     let token = request.token.trim();
@@ -382,11 +411,10 @@ async fn connect(
     .await?;
     tx.commit().await?;
 
-    Ok(Json(RemoteDeployConnection {
-        remote_email: whoami.email,
-        proxy_key,
-        connected_at,
-    }))
+    Ok((
+        NO_STORE,
+        Json(RemoteDeployConnection { remote_email: whoami.email, proxy_key, connected_at }),
+    ))
 }
 
 async fn disconnect(
@@ -611,6 +639,19 @@ mod tests {
                 "{path} should be refused"
             );
         }
+    }
+
+    #[test]
+    fn redacted_uri_masks_the_proxy_key() {
+        let proxied: axum::http::Uri = "/api/w/dev/remote_deploy/proxy/secretKey/flows/get/f/a?x=1"
+            .parse()
+            .unwrap();
+        assert_eq!(
+            RedactedUri(&proxied).to_string(),
+            "/api/w/dev/remote_deploy/proxy/***/flows/get/f/a?x=1"
+        );
+        let other: axum::http::Uri = "/api/w/dev/flows/list?x=1".parse().unwrap();
+        assert_eq!(RedactedUri(&other).to_string(), "/api/w/dev/flows/list?x=1");
     }
 
     #[test]

@@ -171,7 +171,7 @@ postgres_trigger: path(char), script_path(char), is_flow(bool), workspace_id(cha
   FK: (workspace_id) -> workspace(id)
 raw_app: path(char), version(int), workspace_id(char), summary(char), edited_at(ts), data(text), extra_perms(jsonb), labels(text[])
   FK: (workspace_id) -> workspace(id)
-remote_deploy_token: workspace_id(char), email(char), base_url(char), remote_workspace_id(char), token(text), remote_email(char), connected_at(timestamptz)
+remote_deploy_token: workspace_id(char), email(char), base_url(char), remote_workspace_id(char), token(text), remote_email(char), proxy_key(char), connected_at(timestamptz)
   FK: (workspace_id) -> workspace(id)
 resource: workspace_id(char), path(char), value(jsonb), description(text), resource_type(char), extra_perms(jsonb), edited_at(ts), created_by(char), labels(text[])
   FK: (workspace_id) -> workspace(id)

@@ -57,7 +57,9 @@ Symbols, not line numbers, are cited: they drift less.
   bearer credential, so every ambient-cookie vector becomes one on the remote: its URL carries the
   row's random `proxy_key` (a link riding the `SameSite=Lax` cookie cannot know it; a header would
   do, but the frontend's only per-call hook is the global `OpenAPI.HEADERS`, whose mere presence
-  switches every download to in-memory blobs), it refuses a path the URL parser would rewrite,
+  switches every download to in-memory blobs). The key is served `no-store`, withheld from the
+  credentials `require_own_credentials` refuses, and masked in request logs (`RedactedUri`, used
+  by the request span and the log context). The proxy also refuses a path the URL parser would rewrite,
   serves every response under `CSP: sandbox` + `nosniff`, forwards only the method, query, body,
   content-type and accept — never this instance's cookie or token — and turns the target's 401
   into a 502, because the browser logs the user out of *this* instance on an unhandled 401.
