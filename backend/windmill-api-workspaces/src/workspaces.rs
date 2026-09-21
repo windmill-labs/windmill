@@ -5777,6 +5777,13 @@ async fn set_encryption_key(
         &new_encryption_key,
     )
     .await?;
+    crate::remote_deploy::reencrypt_tokens(
+        &mut tx,
+        &w_id,
+        &previous_encryption_key,
+        &new_encryption_key,
+    )
+    .await?;
 
     tx.commit().await?;
 

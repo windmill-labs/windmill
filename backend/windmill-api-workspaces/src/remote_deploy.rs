@@ -1,0 +1,590 @@
+/*
+ * Author: Ruben Fiszel
+ * Copyright: Windmill Labs, Inc 2026
+ * This file and its contents are licensed under the AGPLv3 License.
+ * Please see the included NOTICE for copyright information and
+ * LICENSE-AGPL for a copy of the license.
+ */
+
+//! Deploying from the UI into a workspace of another Windmill instance.
+//!
+//! The browser runs the same deploy it runs between two workspaces of this instance, and sends
+//! every call aimed at the target through [`proxy`], which forwards it to the remote workspace
+//! with the caller's own token for that instance. The remote authorizes and audits the deploy as
+//! that person, so nothing here needs to know what a deploy is made of.
+
+use std::time::Duration;
+
+use axum::{
+    body::{Body, Bytes},
+    extract::{DefaultBodyLimit, Extension, OriginalUri, Path},
+    http::{header, HeaderMap, Method, StatusCode},
+    response::Response,
+    routing::{any, get, post},
+    Json, Router,
+};
+use chrono::{DateTime, Utc};
+use lazy_static::lazy_static;
+use magic_crypt::MagicCrypt256;
+use regex::Regex;
+use serde::{Deserialize, Serialize};
+use windmill_api_auth::{is_effectively_unscoped, ApiAuthed};
+use windmill_audit::{audit_oss::audit_log, ActionKind};
+use windmill_common::{
+    error::{error_source_chain, Error, JsonResult, Result},
+    ssrf::validate_url_for_ssrf,
+    utils::{configure_client, require_admin},
+    variables::{build_crypt, decrypt, encrypt},
+    worker::CLOUD_HOSTED,
+    DB,
+};
+
+lazy_static! {
+    static ref REMOTE_WORKSPACE_ID: Regex = Regex::new("^[a-zA-Z0-9_-]{1,50}$").unwrap();
+}
+
+const PROXY_PREFIX: &str = "/remote_deploy/proxy/";
+
+pub fn workspaced_service(proxy_body_limit: usize) -> Router {
+    Router::new()
+        .route("/target", get(get_target).post(set_target))
+        .route("/connect", post(connect))
+        .route("/disconnect", post(disconnect))
+        .route(
+            "/proxy/{*rest}",
+            any(proxy).layer(DefaultBodyLimit::max(proxy_body_limit)),
+        )
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct RemoteDeployTarget {
+    /// Root URL of the remote instance, without `/api`.
+    pub base_url: String,
+    pub workspace_id: String,
+}
+
+impl RemoteDeployTarget {
+    fn normalized(self) -> Result<Self> {
+        let base_url = self.base_url.trim().trim_end_matches('/').to_string();
+        let parsed = url::Url::parse(&base_url)
+            .map_err(|e| Error::BadRequest(format!("Invalid remote instance URL: {e}")))?;
+        if !matches!(parsed.scheme(), "http" | "https") || parsed.host_str().is_none() {
+            return Err(Error::BadRequest(
+                "The remote instance URL must be an http(s) URL with a host".to_string(),
+            ));
+        }
+        if !parsed.username().is_empty()
+            || parsed.password().is_some()
+            || parsed.query().is_some()
+            || parsed.fragment().is_some()
+        {
+            return Err(Error::BadRequest(
+                "The remote instance URL must not carry credentials, a query or a fragment"
+                    .to_string(),
+            ));
+        }
+        let workspace_id = self.workspace_id.trim().to_string();
+        if !REMOTE_WORKSPACE_ID.is_match(&workspace_id) {
+            return Err(Error::BadRequest(format!(
+                "Invalid remote workspace id: {workspace_id}"
+            )));
+        }
+        Ok(Self { base_url, workspace_id })
+    }
+
+    fn api_url(&self, suffix: &str) -> String {
+        format!("{}/api/w/{}/{suffix}", self.base_url, self.workspace_id)
+    }
+}
+
+#[derive(Serialize)]
+struct RemoteDeployConnection {
+    remote_email: String,
+    connected_at: DateTime<Utc>,
+}
+
+#[derive(Serialize)]
+struct RemoteDeployStatus {
+    target: Option<RemoteDeployTarget>,
+    /// The caller's own connection to `target`.
+    connection: Option<RemoteDeployConnection>,
+}
+
+/// A stored token acts on another instance as its owner. Only the owner acting directly may
+/// use or replace it: a job token runs as whoever a `wm_deployers` member pointed
+/// `on_behalf_of` at, and a scoped token was never granted this.
+fn require_own_credentials(authed: &ApiAuthed) -> Result<()> {
+    if authed.job_id.is_some() || !is_effectively_unscoped(authed.scopes.as_deref()) {
+        return Err(Error::PermissionDenied(
+            "Deploying to a remote instance requires your own session or an unscoped token, \
+             not a job token or a scoped token"
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
+async fn load_target(db: &DB, w_id: &str) -> Result<Option<RemoteDeployTarget>> {
+    let target = sqlx::query_scalar!(
+        "SELECT remote_deploy_target FROM workspace_settings WHERE workspace_id = $1",
+        w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten();
+    target
+        .map(serde_json::from_value)
+        .transpose()
+        .map_err(|e| Error::internal_err(format!("reading the remote deploy target: {e}")))
+}
+
+async fn require_target(db: &DB, w_id: &str) -> Result<RemoteDeployTarget> {
+    load_target(db, w_id).await?.ok_or_else(|| {
+        Error::BadRequest(format!(
+            "Workspace {w_id} has no remote deploy target. An admin sets it in the workspace \
+             settings, under Dev workspace"
+        ))
+    })
+}
+
+async fn remote_client(target: &RemoteDeployTarget) -> Result<reqwest::Client> {
+    let builder = configure_client(reqwest::ClientBuilder::new())
+        .user_agent("windmill/remote-deploy")
+        .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(120));
+    // A workspace admin chose the URL. A self-hosted instance may deploy into its own private
+    // network, as it may reach a private git remote; a cloud workspace must not.
+    let builder = if *CLOUD_HOSTED {
+        validate_url_for_ssrf(&target.base_url)
+            .await?
+            .apply_dns_pinning(builder)
+    } else {
+        builder
+    };
+    builder
+        .build()
+        .map_err(|e| Error::internal_err(format!("building the remote deploy client: {e}")))
+}
+
+fn unreachable(target: &RemoteDeployTarget, e: reqwest::Error) -> Error {
+    Error::BadGateway(format!(
+        "Could not reach the remote instance {}: {}",
+        target.base_url,
+        error_source_chain(&e)
+    ))
+}
+
+async fn get_target(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<RemoteDeployStatus> {
+    let target = load_target(&db, &w_id).await?;
+    let connection = match &target {
+        Some(target) => {
+            sqlx::query_as!(
+                RemoteDeployConnection,
+                "SELECT remote_email, connected_at FROM remote_deploy_token
+                 WHERE workspace_id = $1 AND email = $2 AND base_url = $3
+                   AND remote_workspace_id = $4",
+                &w_id,
+                &authed.email,
+                &target.base_url,
+                &target.workspace_id
+            )
+            .fetch_optional(&db)
+            .await?
+        }
+        None => None,
+    };
+    Ok(Json(RemoteDeployStatus { target, connection }))
+}
+
+#[derive(Deserialize)]
+struct SetRemoteDeployTarget {
+    target: Option<RemoteDeployTarget>,
+}
+
+async fn set_target(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(request): Json<SetRemoteDeployTarget>,
+) -> Result<String> {
+    if !cfg!(feature = "enterprise") {
+        return Err(Error::BadRequest(
+            "Deploying to another instance is only available on Windmill Enterprise Edition"
+                .to_string(),
+        ));
+    }
+    require_admin(authed.is_admin, &authed.username)?;
+    let target = request
+        .target
+        .map(RemoteDeployTarget::normalized)
+        .transpose()?;
+
+    let mut tx = db.begin().await?;
+    let (base_url, remote_workspace_id) = match &target {
+        Some(t) => (Some(t.base_url.as_str()), Some(t.workspace_id.as_str())),
+        None => (None, None),
+    };
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.edit_remote_deploy_target",
+        ActionKind::Update,
+        &w_id,
+        None,
+        Some(
+            [
+                ("base_url", base_url.unwrap_or("")),
+                ("remote_workspace_id", remote_workspace_id.unwrap_or("")),
+            ]
+            .into(),
+        ),
+    )
+    .await?;
+    let target_json = target
+        .as_ref()
+        .map(serde_json::to_value)
+        .transpose()
+        .map_err(|e| Error::internal_err(e.to_string()))?;
+    sqlx::query!(
+        "UPDATE workspace_settings SET remote_deploy_target = $1 WHERE workspace_id = $2",
+        target_json,
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+    // A token is only ever sent to the target it was granted for, so the ones for any other
+    // target are dead credentials.
+    sqlx::query!(
+        "DELETE FROM remote_deploy_token WHERE workspace_id = $1
+           AND ($2::text IS NULL OR base_url <> $2 OR remote_workspace_id <> $3)",
+        &w_id,
+        base_url,
+        remote_workspace_id
+    )
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    Ok(match target {
+        Some(t) => format!(
+            "Workspace {w_id} deploys to {} on {}",
+            t.workspace_id, t.base_url
+        ),
+        None => format!("Removed the remote deploy target of workspace {w_id}"),
+    })
+}
+
+#[derive(Deserialize)]
+struct ConnectRequest {
+    token: String,
+}
+
+#[derive(Deserialize)]
+struct RemoteWhoami {
+    email: String,
+}
+
+async fn connect(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(request): Json<ConnectRequest>,
+) -> JsonResult<RemoteDeployConnection> {
+    require_own_credentials(&authed)?;
+    let target = require_target(&db, &w_id).await?;
+    let token = request.token.trim();
+    if token.is_empty() {
+        return Err(Error::BadRequest("The token is empty".to_string()));
+    }
+
+    let response = remote_client(&target)
+        .await?
+        .get(target.api_url("users/whoami"))
+        .bearer_auth(token)
+        .send()
+        .await
+        .map_err(|e| unreachable(&target, e))?;
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        return Err(Error::BadRequest(format!(
+            "{} did not accept this token for workspace {} ({status}): {body}",
+            target.base_url, target.workspace_id
+        )));
+    }
+    let whoami: RemoteWhoami = response.json().await.map_err(|e| {
+        Error::BadGateway(format!(
+            "{} did not answer like a Windmill instance: {}",
+            target.base_url,
+            error_source_chain(&e)
+        ))
+    })?;
+
+    let mc = build_crypt(&db, &w_id).await?;
+    let mut tx = db.begin().await?;
+    // Only while the workspace still points at the target the token was just checked against.
+    let connected_at = sqlx::query_scalar!(
+        "INSERT INTO remote_deploy_token
+             (workspace_id, email, base_url, remote_workspace_id, token, remote_email)
+         SELECT $1::text, $2::text, $3::text, $4::text, $5::text, $6::text
+         FROM workspace_settings
+         WHERE workspace_id = $1::text AND remote_deploy_target->>'base_url' = $3::text
+           AND remote_deploy_target->>'workspace_id' = $4::text
+         ON CONFLICT (workspace_id, email) DO UPDATE SET
+             base_url = EXCLUDED.base_url, remote_workspace_id = EXCLUDED.remote_workspace_id,
+             token = EXCLUDED.token, remote_email = EXCLUDED.remote_email, connected_at = now()
+         RETURNING connected_at",
+        &w_id,
+        &authed.email,
+        &target.base_url,
+        &target.workspace_id,
+        encrypt(&mc, token),
+        &whoami.email
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or_else(|| {
+        Error::BadRequest("The remote deploy target changed while connecting".to_string())
+    })?;
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.remote_deploy_connect",
+        ActionKind::Create,
+        &w_id,
+        Some(&whoami.email),
+        Some([("base_url", target.base_url.as_str())].into()),
+    )
+    .await?;
+    tx.commit().await?;
+
+    Ok(Json(RemoteDeployConnection {
+        remote_email: whoami.email,
+        connected_at,
+    }))
+}
+
+async fn disconnect(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> Result<String> {
+    require_own_credentials(&authed)?;
+    let mut tx = db.begin().await?;
+    sqlx::query!(
+        "DELETE FROM remote_deploy_token WHERE workspace_id = $1 AND email = $2",
+        &w_id,
+        &authed.email
+    )
+    .execute(&mut *tx)
+    .await?;
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.remote_deploy_disconnect",
+        ActionKind::Delete,
+        &w_id,
+        None,
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(format!(
+        "Disconnected from the remote deploy target of {w_id}"
+    ))
+}
+
+/// The part of the request path to forward, as the client sent it. `url` resolves dot
+/// segments, `%2e` spellings included, so one would climb out of the remote workspace.
+fn forwarded_suffix(original_path: &str) -> Result<&str> {
+    let suffix = original_path
+        .split_once(PROXY_PREFIX)
+        .map(|(_, suffix)| suffix)
+        .unwrap_or_default();
+    let is_dot_segment = |segment: &str| {
+        let decoded = urlencoding::decode(segment).unwrap_or_default();
+        decoded == "." || decoded == ".."
+    };
+    if suffix.is_empty() || suffix.split('/').any(is_dot_segment) {
+        return Err(Error::BadRequest(format!(
+            "Invalid remote deploy path: {suffix}"
+        )));
+    }
+    Ok(suffix)
+}
+
+async fn proxy(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, _rest)): Path<(String, String)>,
+    OriginalUri(uri): OriginalUri,
+    method: Method,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response> {
+    require_own_credentials(&authed)?;
+    let suffix = forwarded_suffix(uri.path())?;
+    let target = require_target(&db, &w_id).await?;
+    let encrypted_token = sqlx::query_scalar!(
+        "SELECT token FROM remote_deploy_token
+         WHERE workspace_id = $1 AND email = $2 AND base_url = $3
+           AND remote_workspace_id = $4",
+        &w_id,
+        &authed.email,
+        &target.base_url,
+        &target.workspace_id
+    )
+    .fetch_optional(&db)
+    .await?
+    .ok_or_else(|| {
+        Error::BadRequest(format!(
+            "Connect to {} with your own token before deploying there",
+            target.base_url
+        ))
+    })?;
+    let token = decrypt(&build_crypt(&db, &w_id).await?, encrypted_token)?;
+
+    let mut url = target.api_url(suffix);
+    if let Some(query) = uri.query() {
+        url.push('?');
+        url.push_str(query);
+    }
+    // Only what describes the payload: the caller's cookie and token belong to this instance.
+    let mut request = remote_client(&target)
+        .await?
+        .request(method, url)
+        .bearer_auth(token)
+        .body(body);
+    for name in [header::CONTENT_TYPE, header::ACCEPT] {
+        if let Some(value) = headers.get(&name) {
+            request = request.header(name, value.clone());
+        }
+    }
+    let response = request.send().await.map_err(|e| unreachable(&target, e))?;
+
+    let status = response.status();
+    // Passed through, a 401 would read as this instance's session having expired and log the
+    // user out of it.
+    if status == StatusCode::UNAUTHORIZED {
+        let body = response.text().await.unwrap_or_default();
+        return Err(Error::BadGateway(format!(
+            "{} rejected your stored token: {body}",
+            target.base_url
+        )));
+    }
+    if status.is_redirection() {
+        let location = response
+            .headers()
+            .get(header::LOCATION)
+            .and_then(|l| l.to_str().ok())
+            .unwrap_or_default()
+            .to_string();
+        return Err(Error::BadGateway(format!(
+            "{} redirected to {location}. Set the remote deploy target to the URL it redirects to",
+            target.base_url
+        )));
+    }
+    let mut builder = Response::builder().status(status);
+    if let Some(content_type) = response.headers().get(header::CONTENT_TYPE) {
+        builder = builder.header(header::CONTENT_TYPE, content_type);
+    }
+    builder
+        .body(Body::from_stream(response.bytes_stream()))
+        .map_err(|e| Error::internal_err(format!("building the proxied response: {e}")))
+}
+
+/// Move the stored remote tokens to a new workspace key. A token that no longer decrypts is
+/// dropped: its owner connects again.
+pub(crate) async fn reencrypt_tokens(
+    conn: &mut sqlx::PgConnection,
+    w_id: &str,
+    old: &MagicCrypt256,
+    new: &MagicCrypt256,
+) -> Result<()> {
+    let rows = sqlx::query!(
+        "SELECT email, token FROM remote_deploy_token WHERE workspace_id = $1 FOR UPDATE",
+        w_id
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    for row in rows {
+        match decrypt(old, row.token) {
+            Ok(plain) => {
+                sqlx::query!(
+                    "UPDATE remote_deploy_token SET token = $1
+                     WHERE workspace_id = $2 AND email = $3",
+                    encrypt(new, &plain),
+                    w_id,
+                    row.email
+                )
+                .execute(&mut *conn)
+                .await?;
+            }
+            Err(_) => {
+                sqlx::query!(
+                    "DELETE FROM remote_deploy_token WHERE workspace_id = $1 AND email = $2",
+                    w_id,
+                    row.email
+                )
+                .execute(&mut *conn)
+                .await?;
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn forwarded_suffix_refuses_dot_segments() {
+        let prefix = "/api/w/dev/remote_deploy/proxy";
+        assert_eq!(
+            forwarded_suffix(&format!("{prefix}/scripts/get/p/f/team/my%20script")).unwrap(),
+            "scripts/get/p/f/team/my%20script"
+        );
+        // `url` resolves both spellings of a dot segment, which would leave the remote workspace.
+        assert!(forwarded_suffix(&format!("{prefix}/../../users/list")).is_err());
+        assert!(forwarded_suffix(&format!("{prefix}/%2e%2e/%2e%2e/users/list")).is_err());
+        assert!(forwarded_suffix(prefix).is_err());
+    }
+
+    #[test]
+    fn target_normalization() {
+        let target = RemoteDeployTarget {
+            base_url: "  https://prod.example.com/  ".to_string(),
+            workspace_id: " prod ".to_string(),
+        }
+        .normalized()
+        .unwrap();
+        assert_eq!(target.base_url, "https://prod.example.com");
+        assert_eq!(
+            target.api_url("flows/create"),
+            "https://prod.example.com/api/w/prod/flows/create"
+        );
+
+        for (base_url, workspace_id) in [
+            ("ftp://prod.example.com", "prod"),
+            ("https://user:pass@prod.example.com", "prod"),
+            ("https://prod.example.com?token=x", "prod"),
+            ("https://prod.example.com", "prod/../admins"),
+        ] {
+            assert!(
+                RemoteDeployTarget {
+                    base_url: base_url.to_string(),
+                    workspace_id: workspace_id.to_string(),
+                }
+                .normalized()
+                .is_err(),
+                "{base_url} {workspace_id} should be refused"
+            );
+        }
+    }
+}

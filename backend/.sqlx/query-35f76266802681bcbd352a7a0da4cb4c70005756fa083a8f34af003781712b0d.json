@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT token FROM remote_deploy_token\n         WHERE workspace_id = $1 AND email = $2 AND base_url = $3\n           AND remote_workspace_id = $4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "token",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "35f76266802681bcbd352a7a0da4cb4c70005756fa083a8f34af003781712b0d"
+}

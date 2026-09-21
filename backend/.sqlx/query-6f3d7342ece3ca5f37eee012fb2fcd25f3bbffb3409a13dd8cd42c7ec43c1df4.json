@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_settings SET remote_deploy_target = $1\n                 WHERE workspace_id = 'test-workspace'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6f3d7342ece3ca5f37eee012fb2fcd25f3bbffb3409a13dd8cd42c7ec43c1df4"
+}

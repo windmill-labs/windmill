@@ -13,8 +13,14 @@
 		ResourceService,
 		ScheduleService,
 		UserService,
-		WorkspaceService
+		WorkspaceService,
+		type RemoteDeployStatus
 	} from '$lib/gen'
+	import { remoteDeployLabel, remoteDeployWorkspace } from '$lib/remoteDeploy'
+	import RemoteDeployConnect from './RemoteDeployConnect.svelte'
+	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+	import TextInput from './text_input/TextInput.svelte'
 	import { getAllModules } from './flows/flowExplorer'
 	import Button from './common/button/Button.svelte'
 	import Tooltip from './Tooltip.svelte'
@@ -67,11 +73,22 @@
 
 	let canSeeTarget: 'yes' | 'cant-deploy-to-workspace' | 'cant-see-all-deps' | undefined =
 		$state(undefined)
+	/** What the target answered when it refused, for a destination whose credential can go stale. */
+	let targetError: string | undefined = $state(undefined)
+
+	// The two destinations a workspace can have: its parent on this instance, and a workspace on
+	// another instance. Both are set by an admin, so a workspace may have either, both or neither.
+	type Destination = 'parent' | 'remote'
+	let parentWorkspace: string | undefined = $state(undefined)
+	let remoteStatus = $state<RemoteDeployStatus | undefined>(undefined)
+	let destination: Destination | undefined = $state(undefined)
+	let remoteTarget = $derived(remoteStatus?.target)
+	let isRemote = $derived(destination === 'remote')
 
 	type Dependency = { kind: Kind; path: string; include: boolean }
 	let dependencies: Dependency[] | undefined = $state<Dependency[] | undefined>(undefined)
 
-	const allAlreadyExists: { [key: string]: boolean } = $state({})
+	let allAlreadyExists: { [key: string]: boolean } = $state({})
 
 	let diffDrawer: DiffDrawer | undefined = $state(undefined)
 	let notSet: boolean | undefined = $state(undefined)
@@ -120,17 +137,37 @@
 	}
 
 	async function reload(path: string) {
+		const target = workspaceToDeployTo
+		// Everything below is about this one target; switching destination starts its own pass, and
+		// the one it replaced must not write its answers into the new one's state.
+		const stillCurrent = () => target === workspaceToDeployTo
+		canSeeTarget = undefined
+		targetError = undefined
+		dependencies = undefined
+		allAlreadyExists = {}
+		deploymentStatus = {}
+		targetOnBehalfOfInfo = {}
+		onBehalfOfChoice = {}
+		customOnBehalfOf = {}
 		try {
-			if (!$superadmin) {
-				const targetUser = await UserService.whoami({ workspace: workspaceToDeployTo! })
+			// Being superadmin here says nothing about the other instance, so a remote target is
+			// always asked.
+			if (!$superadmin || isRemote) {
+				const targetUser = await UserService.whoami({ workspace: target! })
 				canPreserveOnBehalfOf =
-					targetUser.is_admin || targetUser.groups?.includes('wm_deployers') || false
+					targetUser.is_admin ||
+					targetUser.is_super_admin ||
+					targetUser.groups?.includes('wm_deployers') ||
+					false
 			} else {
 				canPreserveOnBehalfOf = true
 			}
+			if (!stillCurrent()) return
 			canSeeTarget = 'yes'
-		} catch {
+		} catch (e: any) {
+			if (!stillCurrent()) return
 			canSeeTarget = 'cant-deploy-to-workspace'
+			targetError = e?.body ?? e?.message
 			canPreserveOnBehalfOf = false
 			return
 		}
@@ -139,6 +176,7 @@
 		try {
 			allDeps = await getDependencies(kind, path)
 		} catch {
+			if (!stillCurrent()) return
 			canSeeTarget = 'cant-see-all-deps'
 			return
 		}
@@ -150,10 +188,9 @@
 			}
 		})
 		for (const dep of sortedSet) {
-			allAlreadyExists[computeStatusPath(dep.kind, dep.path)] = await checkAlreadyExists(
-				dep.kind,
-				dep.path
-			)
+			const exists = await checkAlreadyExists(dep.kind, dep.path)
+			if (!stillCurrent()) return
+			allAlreadyExists[computeStatusPath(dep.kind, dep.path)] = exists
 		}
 		dependencies = sortedSet.map((x) => ({
 			...x,
@@ -169,26 +206,17 @@
 			['flow', 'script', 'app', 'trigger'].includes(d.kind)
 		)) {
 			const key = computeStatusPath(dep.kind, dep.path)
+			let source: string | undefined
+			let targetValue: string | undefined
 			try {
-				sourceOnBehalfOfInfo[key] = await getOnBehalfOf(
-					dep.kind,
-					dep.path,
-					$workspaceStore!,
-					additionalInformation
-				)
-			} catch {
-				sourceOnBehalfOfInfo[key] = undefined
-			}
+				source = await getOnBehalfOf(dep.kind, dep.path, $workspaceStore!, additionalInformation)
+			} catch {}
 			try {
-				targetOnBehalfOfInfo[key] = await getOnBehalfOf(
-					dep.kind,
-					dep.path,
-					workspaceToDeployTo!,
-					additionalInformation
-				)
-			} catch {
-				targetOnBehalfOfInfo[key] = undefined
-			}
+				targetValue = await getOnBehalfOf(dep.kind, dep.path, target!, additionalInformation)
+			} catch {}
+			if (!stillCurrent()) return
+			sourceOnBehalfOfInfo[key] = source
+			targetOnBehalfOfInfo[key] = targetValue
 		}
 	}
 
@@ -322,7 +350,7 @@
 		return checkItemExists(kind, path, workspaceToDeployTo!, additionalInformation)
 	}
 
-	const deploymentStatus: Record<
+	let deploymentStatus: Record<
 		string,
 		{ status: 'loading' | 'deployed' | 'failed'; error?: string }
 	> = $state({})
@@ -338,7 +366,8 @@
 			workspaceTo: workspaceToDeployTo!,
 			additionalInformation,
 			onBehalfOf: getOnBehalfOfForDeploy(statusPath, kind),
-			onBehalfOfPrincipal: getOnBehalfOfPermissionedAsForDeploy(statusPath, kind)
+			onBehalfOfPrincipal: getOnBehalfOfPermissionedAsForDeploy(statusPath, kind),
+			targetBaseUrl: isRemote ? remoteTarget?.base_url : undefined
 		})
 
 		if (result.success) {
@@ -376,13 +405,36 @@
 		})
 	}
 
+	async function loadDestinations() {
+		const workspace = $workspaceStore!
+		const [deployTo, remote] = await Promise.all([
+			WorkspaceService.getDeployTo({ workspace }),
+			WorkspaceService.getRemoteDeployTarget({ workspace }).catch(() => undefined)
+		])
+		parentWorkspace = deployTo.deploy_to
+		remoteStatus = remote
+		destination ??= parentWorkspace ? 'parent' : remote?.target ? 'remote' : undefined
+		notSet = destination == undefined
+	}
+
 	$effect(() => {
-		WorkspaceService.getDeployTo({ workspace: $workspaceStore! }).then((x) => {
-			workspaceToDeployTo = x.deploy_to
-			if (x.deploy_to == undefined) {
-				notSet = true
-			}
-		})
+		$workspaceStore && untrack(() => loadDestinations())
+	})
+
+	// Until the caller has a token for the remote instance there is nothing to deploy against, so
+	// the target stays unset and the drawer's Deploy buttons stay disabled.
+	let destinationWorkspace = $derived(
+		destination === 'parent'
+			? parentWorkspace
+			: isRemote && remoteStatus?.connection
+				? remoteDeployWorkspace($workspaceStore!)
+				: undefined
+	)
+	let destinationLabel = $derived(
+		isRemote && remoteTarget ? remoteDeployLabel(remoteTarget) : (parentWorkspace ?? '')
+	)
+	$effect(() => {
+		workspaceToDeployTo = destinationWorkspace
 	})
 
 	$effect(() => {
@@ -453,8 +505,9 @@
 		>Deploy to staging/prod from the web UI is only available with an enterprise license</Alert
 	>
 {:else if notSet == true}
-	<Alert type="error" title="Staging/Prod deploy not set up"
-		>As an admin, go to Settings {'->'} Workspace {'->'} Dev workspace</Alert
+	<Alert type="error" title="Deploy destination not set up"
+		>As an admin, go to Settings {'->'} Workspace {'->'} Dev workspace, to pair this workspace with a
+		prod workspace on this instance or point it at a workspace on another instance</Alert
 	>
 {:else}
 	<Alert type="info" title="Shareable page"
@@ -463,22 +516,59 @@
 	>
 
 	<h3 class="mb-2 mt-8"
-		>Destination Workspace&nbsp; <Tooltip
-			>Workspace to deploy to is set in the workspace settings</Tooltip
+		>Destination&nbsp; <Tooltip
+			>Where this workspace deploys is set in the workspace settings</Tooltip
 		></h3
 	>
-	<input class="max-w-xs" type="text" disabled value={workspaceToDeployTo} />
+	{#if parentWorkspace && remoteTarget}
+		<ToggleButtonGroup
+			selected={destination}
+			onSelected={(v) => (destination = v as Destination)}
+			noWFull
+		>
+			{#snippet children({ item })}
+				<ToggleButton
+					value="parent"
+					label={parentWorkspace ?? ''}
+					tooltip="Workspace this one deploys into on this instance"
+					{item}
+				/>
+				<ToggleButton
+					value="remote"
+					label={remoteDeployLabel(remoteTarget!)}
+					tooltip="Workspace on another instance"
+					{item}
+				/>
+			{/snippet}
+		</ToggleButtonGroup>
+	{:else}
+		<TextInput value={destinationLabel} inputProps={{ disabled: true }} class="max-w-xs" />
+	{/if}
+
+	{#if isRemote && remoteTarget}
+		<div class="mt-3">
+			<RemoteDeployConnect
+				workspace={$workspaceStore!}
+				target={remoteTarget}
+				connection={remoteStatus?.connection}
+				onChange={loadDestinations}
+			/>
+		</div>
+	{/if}
 
 	{#if workspaceToDeployTo}
 		<ParentWorkspaceProtectionAlert
 			parentWorkspaceId={workspaceToDeployTo}
+			displayName={destinationLabel}
 			onUpdateCanDeploy={(canDeploy) => {
 				canDeployToWorkspace = canDeploy
 			}}
 		/>
 	{/if}
 
-	{#if canSeeTarget == undefined}
+	{#if workspaceToDeployTo == undefined}
+		<!-- A remote destination nobody has connected to yet: the connect form above is the next step. -->
+	{:else if canSeeTarget == undefined}
 		<div class="mt-6"></div>
 		<Loader2 class="animate-spin" />
 	{:else if canSeeTarget == 'yes'}
@@ -603,6 +693,15 @@
 			>You do not have visibility over some of the dependencies of this item. Ask a permissioned
 			user to deploy this item using the shareable link or get the proper permissions on the
 			dependencies</Alert
+		>
+	{:else if isRemote}
+		<div class="my-2"></div>
+		<Alert type="error" title="Could not deploy to {destinationLabel}"
+			><p>{targetError ?? 'The remote instance did not accept the request'}</p>
+			<p class="mt-1"
+				>Disconnect above and connect again with a valid token for that instance, or ask someone
+				permissioned there to deploy this item using the shareable link</p
+			></Alert
 		>
 	{:else}
 		<div class="my-2"></div>

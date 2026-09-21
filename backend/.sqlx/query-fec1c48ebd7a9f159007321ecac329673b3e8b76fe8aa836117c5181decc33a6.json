@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO remote_deploy_token\n             (workspace_id, email, base_url, remote_workspace_id, token, remote_email)\n         SELECT $1::text, $2::text, $3::text, $4::text, $5::text, $6::text\n         FROM workspace_settings\n         WHERE workspace_id = $1::text AND remote_deploy_target->>'base_url' = $3::text\n           AND remote_deploy_target->>'workspace_id' = $4::text\n         ON CONFLICT (workspace_id, email) DO UPDATE SET\n             base_url = EXCLUDED.base_url, remote_workspace_id = EXCLUDED.remote_workspace_id,\n             token = EXCLUDED.token, remote_email = EXCLUDED.remote_email, connected_at = now()\n         RETURNING connected_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "connected_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "fec1c48ebd7a9f159007321ecac329673b3e8b76fe8aa836117c5181decc33a6"
+}

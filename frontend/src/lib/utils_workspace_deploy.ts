@@ -362,6 +362,11 @@ export interface DeployItemParams {
 	 * between the two probes. The result then carries `conflict`.
 	 */
 	createOnly?: boolean
+	/**
+	 * Root URL of the instance `workspaceTo` lives on, when the deploy crosses instances. Only what
+	 * a payload must state about where it landed needs it — a GCP push trigger's endpoint.
+	 */
+	targetBaseUrl?: string
 }
 
 /**
@@ -380,7 +385,8 @@ export async function deployItem(
 		additionalInformation,
 		onBehalfOf,
 		onBehalfOfPrincipal,
-		createOnly
+		createOnly,
+		targetBaseUrl
 	} = params
 
 	if (kind === 'trigger') {
@@ -399,7 +405,8 @@ export async function deployItem(
 				additionalInformation.triggers.kind,
 				path,
 				workspaceFrom,
-				onBehalfOf
+				onBehalfOf,
+				targetBaseUrl
 			)
 			if (alreadyExists) {
 				// Strip operational state so the update doesn't flip the target's
