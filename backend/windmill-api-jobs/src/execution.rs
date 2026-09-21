@@ -41,7 +41,7 @@ use windmill_common::{
 };
 use windmill_queue::{
     cancel_job, check_tag_available_for_push, get_result_and_success_by_id_from_flow,
-    parse_result_object, push, PushArgs, PushArgsOwned, PushIsolationLevel,
+    parse_result_object, push, tag_reads_args, PushArgs, PushArgsOwned, PushIsolationLevel,
 };
 
 use crate::types::RunJobQuery;
@@ -789,17 +789,24 @@ pub async fn run_flow<'c>(
         ..
     } = flow_version_info;
 
-    let tag = run_query.tag.clone().or(tag);
+    let flow_tag = tag;
+    let tag = run_query.tag.clone().or(flow_tag.clone());
     let push_args = PushArgs { args: &args.args, extra: args.extra };
     let apply_preprocessor =
         !run_query.skip_preprocessor.unwrap_or(false) && has_preprocessor.unwrap_or(false);
 
-    // A flow whose preprocessor runs lands on its tag filled in from the preprocessor's output,
-    // after this caller's identity is gone, so its tag is judged as written, not on the raw args.
-    if apply_preprocessor {
-        check_tag_as_written_available_for_workspace(&db, &w_id, &tag, &authed).await?;
-    } else {
+    if !apply_preprocessor || run_query.tag.is_some() {
         check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
+    }
+    // `push` drops the tag of a flow whose preprocessor runs, and the worker then puts the flow on
+    // its own tag filled in from the preprocessor's output, after this caller's identity is gone.
+    // So that tag is the one to check, and an `$args[...]` in it is judged as written.
+    if apply_preprocessor {
+        if flow_tag.as_deref().is_some_and(tag_reads_args) {
+            check_tag_as_written_available_for_workspace(&db, &w_id, &flow_tag, &authed).await?;
+        } else {
+            check_tag_available_for_workspace(&db, &w_id, &flow_tag, &push_args, &authed).await?;
+        }
     }
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 

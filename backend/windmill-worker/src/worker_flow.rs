@@ -1587,9 +1587,9 @@ pub async fn update_flow_status_after_job_completion_internal(
                 .as_ref()
                 .and_then(|x| x.tag.as_deref())
             {
-                // Whoever ran the flow had this tag checked as written, not on any values
-                // (`check_tag_as_written_available_for_workspace` in `run_flow`), since only this
-                // point knows them: an entry admitting it as written admits every value here.
+                // `run_flow` checked this tag for whoever ran the flow, an `$args[...]` in it as
+                // written since only this point knows its values: an entry admitting it as
+                // written admits every value here.
                 Some(t) => {
                     let no_args = HashMap::new();
                     let args = PushArgs::from(fetched_args.as_ref().unwrap_or(&no_args));

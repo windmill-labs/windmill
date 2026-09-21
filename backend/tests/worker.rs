@@ -5589,18 +5589,26 @@ async fn test_flow_tag_judged_as_written_before_preprocessor(
     let port = server.addr.port();
 
     let set_flow_tag = |tag: &'static str| {
-        sqlx::query("UPDATE flow SET tag = $1 WHERE path = 'f/system/hello_with_preprocessor'")
-            .bind(tag)
-            .execute(&db)
+        let db = db.clone();
+        async move {
+            sqlx::query("UPDATE flow SET tag = $1 WHERE path = 'f/system/hello_with_preprocessor'")
+                .bind(tag)
+                .execute(&db)
+                .await?;
+            // Flow info is cached per version, which a real redeploy would bump.
+            windmill_common::FLOW_INFO_CACHE
+                .remove(&("test-workspace".to_string(), 1443253234253456));
+            anyhow::Ok(())
+        }
     };
     // As a non-superadmin, so the custom tags apply.
-    let run_as_user = |entries: &[&str]| {
+    let run_as_user = |entries: &[&str], query: &str| {
         CUSTOM_TAGS_PER_WORKSPACE.store(std::sync::Arc::new(CustomTags::from(
             entries.iter().map(|e| e.to_string()).collect(),
         )));
         reqwest::Client::new()
             .post(format!(
-                "http://localhost:{port}/api/w/test-workspace/jobs/run/f/f/system/hello_with_preprocessor"
+                "http://localhost:{port}/api/w/test-workspace/jobs/run/f/f/system/hello_with_preprocessor{query}"
             ))
             .bearer_auth("SECRET_TOKEN_2")
             .json(&json!({ "foo": "bar" }))
@@ -5614,10 +5622,15 @@ async fn test_flow_tag_judged_as_written_before_preprocessor(
     .execute(&db)
     .await?;
     set_flow_tag("pp-$args[foo]").await?;
-    let refused = run_as_user(&["pp-bar"]).await?;
+    let refused = run_as_user(&["pp-bar"], "").await?;
     let refused_status = refused.status();
     let refused_body = refused.text().await?;
-    let admitted = run_as_user(&["pp-$args[foo]"]).await?.status();
+    // `push` drops a `?tag=` of such a flow, so it does not stand in for the flow's own tag.
+    let overridden = run_as_user(&["pp-bar"], "?tag=pp-bar").await?.status();
+    let admitted = run_as_user(&["pp-$args[foo]"], "").await?.status();
+    // A tag the preprocessor cannot change is known now, so patterns apply to it.
+    set_flow_tag("pp-large").await?;
+    let static_admitted = run_as_user(&["pp-$args[size]"], "").await?.status();
 
     // Nothing a flow's tag can read resolves `$flow_expr[...]`, so the flow keeps its tag.
     set_flow_tag("$flow_expr[flow_input.foo]").await?;
@@ -5638,7 +5651,9 @@ async fn test_flow_tag_judged_as_written_before_preprocessor(
         refused_body.contains("Tag pp-$args[foo] is not included"),
         "got {refused_body}"
     );
+    assert_eq!(overridden, 400);
     assert!(admitted.is_success(), "got {admitted}");
+    assert!(static_admitted.is_success(), "got {static_admitted}");
 
     assert!(unresolvable.success, "got {:?}", unresolvable.json_result());
     let tag = sqlx::query_scalar::<_, String>("SELECT tag FROM v2_job WHERE id = $1")
