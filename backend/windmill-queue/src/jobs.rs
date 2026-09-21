@@ -1195,9 +1195,9 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                     , status
                     , worker
                     )
-                SELECT q.workspace_id, q.id, started_at, COALESCE($9::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(started_at, now()))))*1000), $3::text::jsonb, $10, COALESCE($5::text, q.canceled_by), COALESCE($6::text, q.canceled_reason),
+                SELECT q.workspace_id, q.id, started_at, COALESCE($9::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(started_at, now()))))*1000), $3::text::jsonb, $10, $5, $6,
                         flow_status, workflow_as_code_status,
-                        $8, CASE WHEN $4::BOOL OR q.canceled_by IS NOT NULL THEN 'canceled'::job_status
+                        $8, CASE WHEN $4::BOOL THEN 'canceled'::job_status
                         WHEN $7::BOOL THEN 'skipped'::job_status
                         WHEN $2::BOOL THEN 'success'::job_status
                         ELSE 'failure'::job_status END AS status,
@@ -1287,9 +1287,9 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     let mut _skip_downstream_error_handlers = false;
     let (ntx, canceled_at_delete) = delete_job(tx, &job_id).warn_after_seconds(10).await?;
     tx = ntx;
-    // The insert above read the queue row without locking it, so a cancel being written at that
-    // moment was not yet visible to it. The delete waits for that writer, so what it removed is
-    // what settles it.
+    // `canceled_by` is only what the worker last read from the queue row. Deleting the row waits
+    // for a cancel still being written, so the row it removed is the final word on whether this
+    // job was canceled.
     if canceled_by.is_none() {
         if let Some(canceled) = canceled_at_delete {
             sqlx::query!(
@@ -1631,8 +1631,8 @@ async fn restart_job_if_perpetual_inner(
     if restart {
         // Not `canceled_by`: a worker reads the queue row on a widening interval, up to every 5s
         // once a job has run for a minute, so a cancel landing after its last read reaches a
-        // completion carrying none. `commit_completed_job` takes it from the row instead, and the
-        // row it wrote is what says whether this loop was stopped.
+        // completion carrying none. `commit_completed_job` records it from the queue row it
+        // deletes, so the completed row is what says whether this loop was stopped.
         let canceled = sqlx::query_scalar!(
             "SELECT canceled_by IS NOT NULL AS \"canceled!\" FROM v2_job_completed \
              WHERE id = $1 AND workspace_id = $2",
