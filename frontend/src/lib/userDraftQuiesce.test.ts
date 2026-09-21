@@ -29,10 +29,12 @@ afterEach(() => {
 /**
  * Resolving a draft conflict installs a fresh baseline. Anything of the old version still in the
  * air when that lands would be made acceptable by it, and a rejected one re-raises the conflict
- * just resolved — so the resolution waits for the key to go quiet first.
+ * just resolved — so the resolution waits for the key to go quiet first. What it must NOT do is
+ * discard the payload while waiting: a refused save keeps it here, and until the resolution
+ * commits it is the only copy of the edit outside the editor's own memory.
  */
 describe('UserDraftDbSyncer.quiesce', () => {
-	it('waits for a save already in flight, and drops what it parks', async () => {
+	it('waits for a save already in flight', async () => {
 		const q = { workspace: 'w', itemKind: 'variable' as const, path: 'u/me/quiesce_a' }
 		const inFlight = deferred()
 		let settledBeforeQuiesceReturned = false
@@ -56,26 +58,46 @@ describe('UserDraftDbSyncer.quiesce', () => {
 		await quiescing
 		await saving
 		expect(settledBeforeQuiesceReturned).toBe(true)
+	})
 
-		// Whatever that save left parked belonged to the version being replaced, so a later flush
-		// has nothing to send — the observable form of "dropped", since the parked payload itself
-		// is private to the syncer.
+	it('keeps a refused payload recoverable, until the resolution that replaces it says otherwise', async () => {
+		const q = { workspace: 'w', itemKind: 'variable' as const, path: 'u/me/quiesce_b' }
+		// Refused, so the payload stays parked — the state a conflict resolution starts from.
+		updateDraft.mockResolvedValueOnce({
+			status: 'conflict',
+			current_timestamp: '2020-01-02T00:00:00Z'
+		})
+		await UserDraftDbSyncer.save({ ...q, value: { v: 'refused' }, immediate: true })
+		expect(UserDraftDbSyncer.getConflict(q).conflict).toBeTruthy()
+
+		await UserDraftDbSyncer.quiesce(q)
+
+		// A resolution abandoned here (the editor closed while quiescing) must leave the edit
+		// somewhere it can still be sent. Flushing is how that payload is observed, since the
+		// parked opts themselves are private to the syncer.
+		updateDraft.mockClear()
+		await UserDraftDbSyncer.flush(q)
+		expect(updateDraft).toHaveBeenCalledTimes(1)
+		expect(updateDraft.mock.calls[0][0]).toMatchObject({ requestBody: { value: { v: 'refused' } } })
+
+		// Only the caller that has something to put in its place drops it.
+		UserDraftDbSyncer.dropPending(q)
 		updateDraft.mockClear()
 		await UserDraftDbSyncer.flush(q)
 		expect(updateDraft).not.toHaveBeenCalled()
 	})
 
-	it('leaves nothing queued for a later flush to send', async () => {
-		const q = { workspace: 'w', itemKind: 'variable' as const, path: 'u/me/quiesce_b' }
-		// Debounced rather than immediate: this is the autosave a resolution has to call off.
+	it('cancels a debounced autosave so it cannot displace the write that follows', async () => {
+		const q = { workspace: 'w', itemKind: 'variable' as const, path: 'u/me/quiesce_c' }
+		// Debounced rather than immediate: this is the autosave a resolution has to call off, or
+		// it fires mid-resolution and, being conditional, is refused.
 		void UserDraftDbSyncer.save({ ...q, value: { v: 'queued' } })
 
 		await UserDraftDbSyncer.quiesce(q)
 		updateDraft.mockClear()
 
-		// A flush after quiescing has nothing to send: the queued payload is gone, not merely
-		// deferred, so it cannot land on top of the version the user chose.
-		await UserDraftDbSyncer.flush(q)
+		// Long enough for the debounce to have fired had it survived.
+		await new Promise((r) => setTimeout(r, 50))
 		expect(updateDraft).not.toHaveBeenCalled()
 	})
 })

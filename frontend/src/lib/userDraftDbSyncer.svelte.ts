@@ -726,17 +726,21 @@ export const UserDraftDbSyncer = {
 	},
 
 	/**
-	 * Drop what is parked and wait until nothing for this key is still in flight. `dropPending`
-	 * alone cannot stop a POST the runner already started, and such a POST settles *after* the
-	 * caller has moved on — a rejected one re-raising the conflict it was told to resolve. Await
-	 * this before installing a baseline that would make a stale payload acceptable.
+	 * Stop scheduling saves for this key and wait until nothing for it is still in flight.
+	 * Cancelling alone cannot stop a POST the runner already started, and such a POST settles
+	 * *after* the caller has moved on — a rejected one re-raising the conflict it was told to
+	 * resolve. Await this before installing a baseline that would make a stale payload acceptable.
+	 *
+	 * What is parked is deliberately left alone: a refused save keeps its payload here, and while
+	 * the conflict stands that is the only copy of the edit outside the editor's own memory. A
+	 * caller that gives up half way must leave it recoverable, so dropping it is the committing
+	 * caller's job, via `dropPending`, once it has something to replace it with.
 	 */
 	async quiesce(query: UserDraftLastSyncQuery): Promise<void> {
 		const key = draftKey(query.workspace, query.itemKind, query.path)
-		this.dropPending(query)
+		debouncer.cancel(key)
 		await runner.settled(key)
-		// A save that landed while we waited parks its own opts again; they belong to the version
-		// being replaced, so they go too.
-		this.dropPending(query)
+		// A save that landed while we waited can have scheduled the next one.
+		debouncer.cancel(key)
 	}
 }

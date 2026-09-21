@@ -176,18 +176,24 @@
 		const stillOurs = () => conflictSession.holds(token) && selected === ws
 		try {
 			if (keepMine) {
+				// Captured before the wait: closing the editor releases its draft handle, and with
+				// the refused payload still only in memory this is the last copy of the edit.
+				const before = $state.snapshot(states[ws]?.draft)
 				// Settle the key first: an ordinary autosave still queued would displace the forced
 				// write below, and being conditional it would be refused — so "Keep mine" would
 				// finish without keeping anything and leave the alert standing.
 				await UserDraftDbSyncer.quiesce(query)
-				if (!stillOurs()) return
+				// Deliberately not gated on the session: this writes to the workspace and path the
+				// user pressed the button on, never to editor state, so walking away mid-flight is
+				// no reason to drop the version they asked to keep. Re-read while it is still ours
+				// so anything typed during the wait goes too.
+				const mine = stillOurs() ? ($state.snapshot(states[ws]?.draft) ?? before) : before
 				// Forced, so it goes over the row that refused us, and its response reseeds
 				// `last_sync` so the next ordinary save is conditional again.
-				const mine = states[ws]?.draft
-				if (mine) await UserDraftDbSyncer.overwrite({ ...query, value: $state.snapshot(mine) })
+				if (mine) await UserDraftDbSyncer.overwrite({ ...query, value: mine })
 				// Say so rather than leave the alert up with no explanation: a write displaced by
 				// something typed meanwhile can still lose the race.
-				if (UserDraftDbSyncer.getConflict(query).conflict) {
+				if (stillOurs() && UserDraftDbSyncer.getConflict(query).conflict) {
 					sendUserToast('Could not keep your version — try again', true)
 				}
 				return
@@ -221,6 +227,10 @@
 			// raises the conflict again. So wait for the chain to go quiet first.
 			await UserDraftDbSyncer.quiesce(query)
 			if (!stillOurs()) return
+			// Now, and not in `quiesce`: the refused payload belongs to the version being replaced,
+			// but until this point it was still the only copy of the edit, and a resolution that
+			// gave up before here has to leave it behind.
+			UserDraftDbSyncer.dropPending(query)
 			UserDraftDbSyncer.clearConflict(query)
 			initialStates[ws] = structuredClone(deployedState)
 			UserDraftDbSyncer.recordRemoteSync(query, (v as any).draft_saved_at)
