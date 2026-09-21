@@ -381,6 +381,8 @@
 		chatHost.setComposerHasDraft(
 			composerKey,
 			!draft.isEmpty ||
+				(chatHost.mode === AIMode.GLOBAL && selectedContext.length > 0) ||
+				pendingFiles > 0 ||
 				pendingFileBytes > 0 ||
 				pendingImages > 0 ||
 				pendingBlobs > 0 ||
@@ -897,7 +899,7 @@
 			contextTextareaComponent?.clearForSend()
 			return
 		}
-		if (chatHost.loading || chatHost.sendPending) {
+		if (chatHost.loading || chatHost.sendInFlight || chatHost.sendPending) {
 			// Queue the message instead of silently discarding it — it is
 			// auto-sent when the streaming turn completes successfully.
 			// Editing-while-loading keeps the old discard behavior. Paste

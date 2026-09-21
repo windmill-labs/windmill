@@ -1043,7 +1043,7 @@ async function applyRemoteTurnEnd(sessionId: string, chatId: string): Promise<vo
 		// The driving tab may have rotated to a new chat; follow it, or the next
 		// read and a later runtime would open the old one.
 		setSessionChatId(sessionId, chatId)
-		peeks.delete(sessionId)
+		refreshSessionChatPeek(sessionId)
 		return
 	}
 	const m = runtime.manager
@@ -1397,6 +1397,7 @@ export interface SessionChatPeek {
 
 const peeks = new SvelteMap<string, SessionChatPeek>()
 const peeksInFlight = new Set<string>()
+const peeksPendingRefresh = new Set<string>()
 
 // Not gated on `detached`: a chat saved mid-wait stores its job undetached, and
 // loadPastChat resumes polling every unfinished job either way.
@@ -1409,6 +1410,20 @@ function isLiveJob(j: ChatJob): boolean {
 	)
 }
 
+function sessionById(sessionId: string): Session | undefined {
+	return sessionState.sessions.find((s) => s.id === sessionId)
+}
+
+function refreshSessionChatPeek(sessionId: string): void {
+	peeks.delete(sessionId)
+	if (peeksInFlight.has(sessionId)) {
+		peeksPendingRefresh.add(sessionId)
+		return
+	}
+	const session = sessionById(sessionId)
+	if (session) void ensureSessionChatPeek(session)
+}
+
 export function getSessionChatPeek(sessionId: string): SessionChatPeek | undefined {
 	return peeks.get(sessionId)
 }
@@ -1418,12 +1433,17 @@ export function getSessionChatPeek(sessionId: string): SessionChatPeek | undefin
  *  resumes the conversation when it finishes. */
 export async function ensureSessionChatPeek(session: Session): Promise<void> {
 	const id = session.id
-	if (runtimes.has(id) || peeks.has(id) || peeksInFlight.has(id) || !session.chatId) return
+	const chatId = session.chatId
+	if (runtimes.has(id) || peeks.has(id) || peeksInFlight.has(id) || !chatId) return
 	const email = getCurrentUserEmail()
 	if (!email) return
 	peeksInFlight.add(id)
 	try {
-		const chat = await readStoredChat(session.chatId, email)
+		const chat = await readStoredChat(chatId, email)
+		if (sessionById(id)?.chatId !== chatId) {
+			refreshSessionChatPeek(id)
+			return
+		}
 		if (!chat || runtimes.has(id)) return
 		if (chat.backgroundJobs?.some(isLiveJob)) {
 			getOrCreateRuntime(session)
@@ -1438,5 +1458,8 @@ export async function ensureSessionChatPeek(session: Session): Promise<void> {
 		console.error('Failed to read session chat', e)
 	} finally {
 		peeksInFlight.delete(id)
+		if (peeksPendingRefresh.delete(id)) {
+			refreshSessionChatPeek(id)
+		}
 	}
 }
