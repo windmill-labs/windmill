@@ -53,15 +53,25 @@ async fn test_remote_deploy_proxy(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert_eq!(resp.status(), 400);
     assert!(resp.text().await?.contains("Connect to"));
 
+    let target =
+        json!({ "base_url": format!("http://localhost:{port}"), "workspace_id": "test-workspace" });
+
+    // A token obtained for another target is refused before it is sent anywhere.
+    let resp = authed(client().post(format!("{base}/connect")))
+        .json(&json!({"token": "SECRET_TOKEN", "target": { "base_url": format!("http://localhost:{port}"), "workspace_id": "elsewhere" }}))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 400);
+
     // A token the target refuses is not stored.
     let resp = authed(client().post(format!("{base}/connect")))
-        .json(&json!({"token": "not-a-token"}))
+        .json(&json!({"token": "not-a-token", "target": target}))
         .send()
         .await?;
     assert_eq!(resp.status(), 400);
 
     let resp = authed(client().post(format!("{base}/connect")))
-        .json(&json!({"token": "SECRET_TOKEN"}))
+        .json(&json!({"token": "SECRET_TOKEN", "target": target}))
         .send()
         .await?;
     assert_eq!(resp.status(), 200);
@@ -126,7 +136,7 @@ async fn test_remote_deploy_proxy(db: Pool<Postgres>) -> anyhow::Result<()> {
     let resp = client()
         .post(format!("{base}/connect"))
         .header("Authorization", "Bearer SECRET_TOKEN_2")
-        .json(&json!({"token": "SECRET_TOKEN_2"}))
+        .json(&json!({"token": "SECRET_TOKEN_2", "target": target}))
         .send()
         .await?;
     assert_eq!(resp.status(), 200);
@@ -202,10 +212,13 @@ async fn test_remote_deploy_connect_racing_workspace_removal(
                 "http://localhost:{port}/api/w/test-workspace/remote_deploy/connect"
             ))
             .header("Authorization", "Bearer SECRET_TOKEN_2")
-            .json(&json!({ "token": "remote-token" }))
+            .json(&json!({
+                "token": "remote-token",
+                "target": { "base_url": format!("http://127.0.0.1:{remote_port}"), "workspace_id": "prod" }
+            }))
             .send(),
     );
-    reached_rx.await?;
+    tokio::time::timeout(std::time::Duration::from_secs(30), reached_rx).await??;
     let resp = authed(client().delete(format!(
         "http://localhost:{port}/api/w/test-workspace/users/delete/test-user-2"
     )))
@@ -213,7 +226,10 @@ async fn test_remote_deploy_connect_racing_workspace_removal(
     .await?;
     assert_eq!(resp.status(), 200);
     release_tx.send(()).unwrap();
-    let _ = connect.await?;
+    // Refused for no longer being a member, rather than failing before it got this far.
+    let resp = connect.await??;
+    assert_eq!(resp.status(), 400);
+    assert!(resp.text().await?.contains("Only a member"));
 
     let left = sqlx::query_scalar!(
         "SELECT count(*) FROM remote_deploy_token WHERE email = 'test2@windmill.dev'"

@@ -34,10 +34,16 @@ export function remoteHost(url: string): string {
 /** The path the remote's authorize page only ever sends a token to. */
 export const CALLBACK_PATH = '/remote_deploy/callback'
 export const CHANNEL = 'windmill-remote-deploy'
-const PENDING_KEY = 'remote-deploy-connect'
+const PENDING_PREFIX = 'remote-deploy-connect:'
 const PENDING_TTL_MS = 15 * 60_000
 
-type PendingConnect = { state: string; workspace: string; returnTo: string; at: number }
+type PendingConnect = {
+	workspace: string
+	/** Sent back with the token, so it only reaches the instance it came from. */
+	target: RemoteDeployTarget
+	returnTo: string
+	at: number
+}
 
 export type RemoteDeployEvent =
 	| { type: 'connected'; workspace: string }
@@ -48,32 +54,34 @@ export type RemoteDeployEvent =
  * check: without it, any page could send this instance a token of its choosing to store as the
  * user's, and their deploys would land on the remote as someone else. `localStorage` rather than
  * `sessionStorage`, because the callback runs in the window the remote sends back to, which is
- * not always this one.
+ * not always this one; one entry per attempt, so two tabs connecting at once do not cancel out.
  */
 export function remoteDeployAuthorizeUrl(
 	target: RemoteDeployTarget,
 	workspace: string,
 	returnTo: string
 ): string {
-	const pending: PendingConnect = { state: randomSecret(16), workspace, returnTo, at: Date.now() }
-	localStorage.setItem(PENDING_KEY, JSON.stringify(pending))
+	const state = randomSecret(16)
+	const pending: PendingConnect = { workspace, target, returnTo, at: Date.now() }
+	localStorage.setItem(PENDING_PREFIX + state, JSON.stringify(pending))
 	const params = new URLSearchParams({
 		workspace: target.workspace_id,
 		callback: `${window.location.origin}${base}${CALLBACK_PATH}`,
-		state: pending.state
+		state
 	})
 	return `${target.base_url}/user/remote_deploy_authorize?${params}`
 }
 
-/** The connect `state` names, used once: a replayed callback finds nothing to match. */
+/** The attempt `state` names, used once: a replayed callback finds nothing to match. */
 export function takePendingConnect(state: string): PendingConnect | undefined {
+	const key = PENDING_PREFIX + state
 	let pending: PendingConnect | undefined
 	try {
-		pending = JSON.parse(localStorage.getItem(PENDING_KEY) ?? 'null') ?? undefined
+		pending = JSON.parse(localStorage.getItem(key) ?? 'null') ?? undefined
 	} catch {}
-	if (!pending || pending.state !== state || Date.now() - pending.at > PENDING_TTL_MS) {
+	localStorage.removeItem(key)
+	if (!pending || Date.now() - pending.at > PENDING_TTL_MS) {
 		return undefined
 	}
-	localStorage.removeItem(PENDING_KEY)
 	return pending
 }

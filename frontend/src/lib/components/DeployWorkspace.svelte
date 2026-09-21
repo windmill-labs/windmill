@@ -563,6 +563,9 @@
 				workspace={$workspaceStore!}
 				target={remoteTarget}
 				connection={remoteStatus?.connection}
+				returnTo={kind === 'trigger'
+					? undefined
+					: `${base}/deploy/${kind}/${initialPath}?workspace=${encodeURIComponent($workspaceStore!)}`}
 				onChange={loadDestinations}
 			/>
 		</div>

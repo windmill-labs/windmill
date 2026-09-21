@@ -4258,7 +4258,10 @@ paths:
   /w/{workspace}/remote_deploy/connect:
     post:
       summary: store the caller's own token for the remote deploy target
-      description: The token is checked against the target's whoami before it is stored.
+      description: |
+        The token is checked against the target's whoami before it is stored. `target` names the
+        target the token was obtained for, and the request is refused if the workspace now points
+        elsewhere, so a token is never sent to an instance it was not meant for.
       operationId: connectRemoteDeploy
       tags:
         - workspace
@@ -4273,8 +4276,11 @@ paths:
               properties:
                 token:
                   type: string
+                target:
+                  $ref: "#/components/schemas/RemoteDeployTarget"
               required:
                 - token
+                - target
       responses:
         "200":
           description: the stored connection

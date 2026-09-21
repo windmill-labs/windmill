@@ -40,19 +40,21 @@
 			}
 			await WorkspaceService.connectRemoteDeploy({
 				workspace: pending.workspace,
-				requestBody: { token }
+				requestBody: { token, target: pending.target }
 			})
-			status = 'connected'
-			announce({ type: 'connected', workspace: pending.workspace })
-			// Only a window this instance opened can close itself; otherwise go back to the drawer.
-			window.close()
-			await goto(pending.returnTo)
 		} catch (e: any) {
 			const message: string = e?.body ?? e?.message ?? String(e)
 			status = 'failed'
 			error = message
 			announce({ type: 'failed', workspace: pending.workspace, error: message })
+			return
 		}
+		status = 'connected'
+		announce({ type: 'connected', workspace: pending.workspace })
+		// Only a window this instance opened can close itself; otherwise go back to where the
+		// connection was started.
+		window.close()
+		await goto(pending.returnTo)
 	})
 </script>
 

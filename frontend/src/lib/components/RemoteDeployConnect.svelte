@@ -16,11 +16,15 @@
 		workspace,
 		target,
 		connection,
+		returnTo,
 		onChange
 	}: {
 		workspace: string
 		target: RemoteDeployTarget
 		connection: RemoteDeployConnection | undefined
+		/** Where to land after signing in when the popup is blocked and this tab navigates away:
+		 * a page that shows the connection, since a drawer does not survive the round trip. */
+		returnTo?: string
 		onChange: () => void
 	} = $props()
 
@@ -30,10 +34,15 @@
 	let waitingForRemote = $state(false)
 	let showPaste = $state(false)
 	let error: string | undefined = $state(undefined)
+	let popupWatch: ReturnType<typeof setInterval> | undefined = undefined
 
 	function signIn() {
 		error = undefined
-		const url = remoteDeployAuthorizeUrl(target, workspace, page.url.pathname + page.url.search)
+		const url = remoteDeployAuthorizeUrl(
+			target,
+			workspace,
+			returnTo ?? page.url.pathname + page.url.search
+		)
 		// Opened blank and cut loose before it navigates: the remote page gets no handle on this
 		// window, and a blocked popup is still detected.
 		const popup = window.open('', 'windmill-remote-deploy', 'popup,width=640,height=760')
@@ -44,13 +53,16 @@
 		popup.opener = null
 		popup.location.href = url
 		waitingForRemote = true
-		const watch = setInterval(() => {
+		clearInterval(popupWatch)
+		popupWatch = setInterval(() => {
 			if (popup.closed) {
-				clearInterval(watch)
+				clearInterval(popupWatch)
 				waitingForRemote = false
 			}
 		}, 500)
 	}
+
+	$effect(() => () => clearInterval(popupWatch))
 
 	// The callback page runs in the popup, or in this tab when the popup was blocked.
 	$effect(() => {
@@ -72,7 +84,7 @@
 		connecting = true
 		error = undefined
 		try {
-			await WorkspaceService.connectRemoteDeploy({ workspace, requestBody: { token } })
+			await WorkspaceService.connectRemoteDeploy({ workspace, requestBody: { token, target } })
 			token = undefined
 			onChange()
 		} catch (e: any) {

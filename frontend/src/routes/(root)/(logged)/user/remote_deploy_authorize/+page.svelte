@@ -32,6 +32,12 @@
 
 	// A framing page could lay its own content over the Authorize button and have it clicked.
 	const framed = window.self !== window.top
+	// Left to the user rather than refused: internal instances often serve plain http.
+	const unencrypted =
+		callback?.protocol === 'http:' &&
+		!['localhost', '127.0.0.1', '[::1]'].includes(callback.hostname)
+	// Bounds a grant that went to the wrong place; reconnecting is one click.
+	const TOKEN_LIFETIME_MS = 90 * 24 * 3600 * 1000
 	const invalid = !callback || !workspace || !/^[A-Za-z0-9]{8,128}$/.test(connectState)
 
 	let error: string | undefined = $state(undefined)
@@ -48,7 +54,11 @@
 		try {
 			await UserService.whoami({ workspace })
 			const token = await UserService.createToken({
-				requestBody: { label: `remote-deploy:${callback!.host}`, workspace_id: workspace }
+				requestBody: {
+					label: `remote-deploy:${callback!.host}`,
+					workspace_id: workspace,
+					expiration: new Date(Date.now() + TOKEN_LIFETIME_MS).toISOString()
+				}
 			})
 			sendBack({ token })
 		} catch (e: any) {
@@ -79,10 +89,16 @@
 				<span class="font-semibold">{$usersWorkspaceStore?.email ?? 'you'}</span>.
 			</p>
 			<p class="text-secondary">
-				It will receive a token limited to that workspace, with your permissions in it. Only
-				authorize if you just started this from {callback!.host}. You can revoke the token at any
-				time in your account settings, under tokens.
+				It will receive a token limited to that workspace, with your permissions in it, valid for up
+				to 90 days. Only authorize if you just started this from {callback!.host}. You can revoke
+				the token at any time in your account settings, under tokens.
 			</p>
+			{#if unencrypted}
+				<Alert type="warning" title="Unencrypted connection">
+					{callback!.origin} is served over plain http, so the token will cross the network unencrypted
+					on its way there.
+				</Alert>
+			{/if}
 			{#if error}
 				<Alert type="error" title="Could not authorize">{error}</Alert>
 			{/if}

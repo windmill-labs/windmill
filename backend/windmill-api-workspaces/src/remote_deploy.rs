@@ -324,6 +324,8 @@ async fn set_target(
 #[derive(Deserialize)]
 struct ConnectRequest {
     token: String,
+    /// The target the caller got the token for, as the drawer showed it.
+    target: RemoteDeployTarget,
 }
 
 #[derive(Deserialize)]
@@ -342,6 +344,18 @@ async fn connect(
 )> {
     require_own_credentials(&authed)?;
     let target = require_target(&db, &w_id).await?;
+    // A token is only ever sent to the instance it was meant for. Without this, re-pointing the
+    // target between the user getting a token and posting it here would hand it to the new one;
+    // a change after this check is caught by the insert below, and the token still goes to
+    // `target`, never to what the setting became.
+    let requested = request.target.normalized()?;
+    if requested.base_url != target.base_url || requested.workspace_id != target.workspace_id {
+        return Err(Error::BadRequest(
+            "The remote deploy target changed since you started connecting; reload and connect \
+             again"
+                .to_string(),
+        ));
+    }
     let token = request.token.trim();
     if token.is_empty() {
         return Err(Error::BadRequest("The token is empty".to_string()));
@@ -374,8 +388,21 @@ async fn connect(
     let mut tx = db.begin().await?;
     // The remote call above leaves time for the caller to be removed from the workspace, which
     // clears this table under a lock on the membership: holding it until commit keeps a row from
-    // landing after that cleanup. A superadmin needs no membership, and has none to lose. Account
-    // deletion and renames are the foreign key's to handle.
+    // landing after that cleanup. A superadmin needs no membership, and has none to lose. The
+    // account is locked first, in the order account deletion and renames take the two; the
+    // token's foreign key would otherwise take it last and deadlock with them.
+    let superadmin = sqlx::query_scalar!(
+        "SELECT super_admin FROM password WHERE email = $1 FOR KEY SHARE",
+        &authed.email
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or_else(|| {
+        Error::BadRequest(format!(
+            "{} is not an account of this instance",
+            authed.email
+        ))
+    })?;
     let member = sqlx::query_scalar!(
         "SELECT 1 FROM usr WHERE workspace_id = $1 AND email = $2 FOR SHARE",
         &w_id,
@@ -383,18 +410,10 @@ async fn connect(
     )
     .fetch_optional(&mut *tx)
     .await?;
-    if member.is_none() {
-        let superadmin = sqlx::query_scalar!(
-            "SELECT super_admin FROM password WHERE email = $1",
-            &authed.email
-        )
-        .fetch_optional(&mut *tx)
-        .await?;
-        if superadmin != Some(true) {
-            return Err(Error::BadRequest(format!(
-                "Only a member of workspace {w_id} can connect it to a remote instance"
-            )));
-        }
+    if member.is_none() && !superadmin {
+        return Err(Error::BadRequest(format!(
+            "Only a member of workspace {w_id} can connect it to a remote instance"
+        )));
     }
     // From the key read under the lock a rotation takes, not from `build_crypt`: a rotation
     // committing in between would re-encrypt every row but this one.
@@ -427,19 +446,7 @@ async fn connect(
         &proxy_key
     )
     .fetch_optional(&mut *tx)
-    .await
-    .map_err(|e| {
-        if e.as_database_error()
-            .is_some_and(|db_e| db_e.is_foreign_key_violation())
-        {
-            Error::BadRequest(format!(
-                "{} is not an account of this instance",
-                authed.email
-            ))
-        } else {
-            e.into()
-        }
-    })?
+    .await?
     .ok_or_else(|| {
         Error::BadRequest("The remote deploy target changed while connecting".to_string())
     })?;
