@@ -32,6 +32,10 @@
 		workspaceStore
 	} from '$lib/stores'
 	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
+	import {
 		emptySchema,
 		emptyString,
 		generateRandomString,
@@ -192,7 +196,10 @@
 	// (forked) workspace, so an embedded editor acts on the session's fork rather
 	// than the navigation workspace ($workspaceStore, which stays put). indicatorPath
 	// is the matching draft path (URL path full-page, session target in preview).
-	const opWorkspace = $derived(autosaveWorkspace ?? $workspaceStore)
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
+	const opWorkspace = $derived(autosaveWorkspace ?? $operatingWorkspace)
 	const indicatorPath = $derived(autosavePath ?? userDraftPath)
 
 	// The shared `workerTags` store caches tags for the navigation workspace. A
@@ -226,8 +233,8 @@
 	let preserveOnBehalfOf = $state(false)
 
 	const WM_DEPLOYERS_GROUP = 'wm_deployers'
-	let isDeployer = $derived($userStore?.groups?.includes(WM_DEPLOYERS_GROUP) ?? false)
-	let canPreserve = $derived(!!$userStore?.is_admin || !!$userStore?.is_super_admin || isDeployer)
+	let isDeployer = $derived(actingUser?.groups?.includes(WM_DEPLOYERS_GROUP) ?? false)
+	let canPreserve = $derived(!!actingUser?.is_admin || !!actingUser?.is_super_admin || isDeployer)
 	let originalOnBehalfOfEmail = $derived(savedScript?.on_behalf_of_email)
 	let originalOnBehalfOfPermissionedAs = $derived(savedScript?.on_behalf_of)
 	let onBehalfOfChoice: OnBehalfOfChoice = $state(undefined)
@@ -759,7 +766,7 @@
 				await deployTriggers(
 					triggersToDeploy,
 					opWorkspace,
-					!!$userStore?.is_admin || !!$userStore?.is_super_admin,
+					!!actingUser?.is_admin || !!actingUser?.is_super_admin,
 					usedTriggerKinds,
 					script.path,
 					true
@@ -1284,7 +1291,7 @@
 	on:confirmed={handleDraftTriggersConfirmed}
 />
 
-{#if !$userStore?.operator}
+{#if !actingUser?.operator}
 	<Drawer
 		placement="right"
 		bind:open={metadataOpen}

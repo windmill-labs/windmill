@@ -1,15 +1,14 @@
 <script lang="ts">
-	import { workspaceStore } from '$lib/stores'
 	import { WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import Drawer from '../common/drawer/Drawer.svelte'
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
 	import Editor from '$lib/components/Editor.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { getRawAppOperatingWorkspace } from './rawAppWorkspace'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
-	const getOpWs = getRawAppOperatingWorkspace()
-	let opWs = $derived(getOpWs?.() ?? $workspaceStore)
+	const operatingWorkspace = useOperatingWorkspace()
+	let opWs = $derived($operatingWorkspace)
 
 	let open = $state(false)
 	let files: Record<string, string> = $state({})

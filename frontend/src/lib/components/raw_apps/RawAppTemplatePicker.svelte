@@ -1,10 +1,9 @@
 <script lang="ts">
 	import { Sparkles, Plus, List, Ban, ExternalLinkIcon, Loader2 } from 'lucide-svelte'
 	import type { Policy } from '$lib/gen'
-	import { superadmin, userStore, workspaceStore } from '$lib/stores'
+	import { superadmin, userStore } from '$lib/stores'
 	import { base } from '$lib/base'
 	import { sendUserToast } from '$lib/toast'
-	import { getRawAppOperatingWorkspace } from './rawAppWorkspace'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
@@ -29,6 +28,7 @@
 	import RawAppDataTableList from './RawAppDataTableList.svelte'
 	import RawAppDataTableDrawer from './RawAppDataTableDrawer.svelte'
 	import FileEditorIcon from './FileEditorIcon.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	export type RawAppTemplatePickerResult = {
 		files: Record<string, string>
@@ -64,8 +64,8 @@
 	let preWhitelistedTables = $state<DataTableRef[]>([])
 	let dataTableDrawer: RawAppDataTableDrawer | undefined = $state()
 
-	const getOpWs = getRawAppOperatingWorkspace()
-	let opWs = $derived(getOpWs?.() ?? $workspaceStore)
+	const operatingWorkspace = useOperatingWorkspace()
+	let opWs = $derived($operatingWorkspace)
 
 	const datatables = createDatatablesResource(() => opWs)
 	const schemas = createSchemasResource(

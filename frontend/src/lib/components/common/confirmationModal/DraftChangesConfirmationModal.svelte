@@ -9,9 +9,12 @@
 	import { Bot, Star } from 'lucide-svelte'
 	import ToggleButtonGroup from '../toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../toggleButton-v2/ToggleButton.svelte'
-	import { userStore } from '$lib/stores'
 	import Badge from '../badge/Badge.svelte'
 	import type { LinkedAgentDraft } from '$lib/components/flows/linkedAgentDrafts'
+	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	interface Props {
 		open?: boolean
@@ -80,8 +83,8 @@
 		// Creating http trigger is forbidden for non-admin users
 		const adminOnly =
 			trigger.type === 'http' &&
-			!$userStore?.is_admin &&
-			!$userStore?.is_super_admin &&
+			!actingUser?.is_admin &&
+			!actingUser?.is_super_admin &&
 			trigger.isDraft
 
 		const invalidConfig = !trigger.draftConfig?.canSave

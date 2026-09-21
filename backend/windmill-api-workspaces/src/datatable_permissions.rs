@@ -65,3 +65,15 @@ pub(crate) async fn ensure_reaches_datatable(
 ) -> Result<()> {
     roles::ensure_reaches_datatable(db, w_id, datatable_name, authed).await
 }
+
+/// [`ensure_reaches_datatable`] against an entry already resolved, for a caller that goes on to
+/// connect from that same entry.
+pub(crate) async fn ensure_reaches_governing_datatable(
+    db: &DB,
+    w_id: &str,
+    datatable_name: &str,
+    governing: &GoverningDatatable,
+    authed: &ApiAuthed,
+) -> Result<()> {
+    roles::ensure_reaches_governing_datatable(db, w_id, datatable_name, governing, authed).await
+}

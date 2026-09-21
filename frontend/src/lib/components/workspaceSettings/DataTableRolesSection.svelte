@@ -3,7 +3,6 @@
 	import CloseButton from '../common/CloseButton.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 	import Toggle from '../Toggle.svelte'
-	import Tooltip from '../Tooltip.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { createAsyncConfirmationModal } from '../common/confirmationModal/asyncConfirmationModal.svelte'
 	import Cell from '../table/Cell.svelte'
@@ -83,16 +82,6 @@
 <ConfirmationModal {...confirmationModal.props} />
 
 <div class="flex flex-col gap-2">
-	<div class="flex items-baseline gap-1">
-		<h3 class="font-semibold text-sm">Instance roles</h3>
-		<Tooltip>
-			A data table role is a real Postgres login on this instance, shared by every instance
-			database. A job that names one connects as it, and Postgres decides what it may touch — grant
-			it privileges with SQL. Which people may use a role on a given data table is set per data
-			table, in its roles drawer.
-		</Tooltip>
-	</div>
-
 	{#if loadError}
 		<Alert type="error" title="Could not load the instance roles" size="xs">{loadError}</Alert>
 	{:else}

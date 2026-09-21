@@ -8,7 +8,7 @@
 		getTemplatePath,
 		saveNativeTriggerFromCfg
 	} from './utils'
-	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
+	import { usedTriggerKinds } from '$lib/stores'
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { Button } from '$lib/components/common'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
@@ -27,6 +27,14 @@
 	import { deepEqual } from 'fast-equals'
 	import type { Snippet } from 'svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	interface Props {
 		service: NativeServiceName
@@ -102,7 +110,15 @@
 	let isFlow = $state(false)
 	let summary = $state('')
 	let externalId = $state<string | null>(null)
-	let can_write = $state(true)
+	let permsScriptPath = $state<string | undefined>(undefined)
+	// A verdict that does not come from a loaded trigger: a new one is writable, and a trigger
+	// that failed to load is not.
+	let writeVerdict = $state<boolean | undefined>(undefined)
+	// Derived, not snapshotted at load: the acting user's role arrives on its own schedule, and
+	// a trigger that loaded first would otherwise stay read-only until reopened.
+	const can_write = $derived(
+		writeVerdict ?? (permsScriptPath === undefined || canWrite(permsScriptPath, {}, actingUser))
+	)
 	let originalConfig = $state<Record<string, any> | undefined>(undefined)
 	let initialConfig = $state<Record<string, any> | undefined>(undefined)
 	let loadError = $state<string | undefined>(undefined)
@@ -131,7 +147,8 @@
 		externalId = null
 		loadingConfig = false
 		loadingForm = false
-		can_write = true
+		writeVerdict = true
+		permsScriptPath = undefined
 		originalConfig = undefined
 		initialConfig = undefined
 		summary = ''
@@ -159,7 +176,8 @@
 		externalId = null
 		loadingConfig = false
 		loadingForm = false
-		can_write = true
+		writeVerdict = true
+		permsScriptPath = undefined
 		originalConfig = undefined
 		initialConfig = undefined
 		summary = nativeTrigger.summary ?? ''
@@ -204,7 +222,7 @@
 
 		try {
 			const fullTrigger = await NativeTriggerService.getNativeTrigger({
-				workspace: $workspaceStore!,
+				workspace: $operatingWorkspace!,
 				serviceName: service,
 				externalId: externalIdOrPath
 			})
@@ -212,7 +230,8 @@
 			serviceConfig = (fullTrigger.service_config as Record<string, any>) || {}
 			scriptPath = fullTrigger.script_path
 			initialScriptPath = fullTrigger.script_path
-			can_write = canWrite(fullTrigger.script_path, {}, $userStore)
+			permsScriptPath = fullTrigger.script_path
+			writeVerdict = undefined
 			summary = fullTrigger.summary ?? ''
 			externalData = fullTrigger.external_data
 			externalError = fullTrigger.external_error ?? undefined
@@ -230,7 +249,7 @@
 			// The service form is not rendered in the error state, so nothing else will ever
 			// clear its loading flag or narrow the permission left over from the last trigger.
 			loadingForm = false
-			can_write = false
+			writeVerdict = false
 			retryEdit = () => openEdit(externalIdOrPath, nis_flow, defaultValues)
 		} finally {
 			clearTimeout(loadingTimeout)
@@ -308,7 +327,7 @@
 		enabled = next
 		try {
 			await NativeTriggerService.setNativeTriggerEnabled({
-				workspace: $workspaceStore!,
+				workspace: $operatingWorkspace!,
 				serviceName: service,
 				externalId,
 				requestBody: { enabled: next }
@@ -335,7 +354,7 @@
 			// before anything can pause it again.
 			isRecreate ? { ...saveCfg, enabled } : saveCfg,
 			!isNew,
-			$workspaceStore!,
+			$operatingWorkspace!,
 			usedTriggerKinds
 		)
 		if (newExternalId) {
@@ -345,7 +364,7 @@
 				if (isRecreate && oldExternalIdToDelete) {
 					try {
 						await NativeTriggerService.deleteNativeTrigger({
-							workspace: $workspaceStore!,
+							workspace: $operatingWorkspace!,
 							serviceName: service,
 							externalId: oldExternalIdToDelete
 						})
@@ -515,7 +534,7 @@
 							bind:itemKind
 							kinds={['script']}
 							allowFlow={true}
-							allowEdit={!$userStore?.operator}
+							allowEdit={!actingUser?.operator}
 							clearable
 						/>
 						{#if emptyString(scriptPath)}

@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { VariableService, WorkspaceService } from '$lib/gen'
 	import { createEventDispatcher, onDestroy, untrack } from 'svelte'
-	import { workspaceStore } from '$lib/stores'
 	import { Button } from './common'
 	import Drawer from './common/drawer/Drawer.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import OpenInSessionButton from './sessions/OpenInSessionButton.svelte'
 	import {
 		clearPageDrawerAnchor,
+		handOffPageDrawer,
 		pageDrawerSessionSource,
 		setPageDrawerAnchor
 	} from './sessions/pageDrawerSession'
@@ -28,6 +28,9 @@
 	import { useDraftConflictSession } from '$lib/draftConflictSession.svelte'
 	import { isEncryptedDraftValue } from '$lib/encryptedDraft'
 	import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	const dispatch = createEventDispatcher()
 
@@ -41,10 +44,25 @@
 	// The "current" workspace this editor defaults New/Edit actions to. Session
 	// editors pass their acting workspace so secrets are created/updated there
 	// rather than in the navigation workspace.
-	let { workspace = undefined }: { workspace?: string } = $props()
+	let {
+		workspace = undefined,
+		inline = false,
+		onClose = undefined,
+		onSaved = undefined
+	}: {
+		workspace?: string
+		/** Render in place, filling the parent, with no drawer or close button — for a host
+		 * that gives the editor a whole pane. */
+		inline?: boolean
+		/** With `inline`, closes whatever hosts the editor; the header has a close button only when set. */
+		onClose?: () => void
+		/** Fires once a save lands, with the path the variable now lives at in `workspace` —
+		 * not in the workspace-specific version selected, which can be another's. */
+		onSaved?: (path: string) => void
+	} = $props()
 	// Sole ambient read in this file: the acting workspace is an input, and only its
 	// default comes from the navigation store.
-	let curWs = $derived(workspace ?? $workspaceStore)
+	let curWs = $derived(workspace ?? $operatingWorkspace)
 
 	let editPath: string | undefined = $state(undefined)
 
@@ -333,6 +351,7 @@
 	}
 
 	export function editVariable(edit_path: string): void {
+		if (handOffPageDrawer(VARIABLES_PATH, edit_path)) return
 		reset()
 		editPath = edit_path
 		selected = curWs!
@@ -356,6 +375,7 @@
 
 	async function save(): Promise<void> {
 		const dirty = dirtyWorkspaces
+		const savedPath = (curWs ? states[curWs]?.draft?.path : undefined) ?? editPath ?? ''
 		try {
 			for (const ws of dirty) {
 				const s = states[ws].draft!
@@ -403,6 +423,7 @@
 			}
 			sendUserToast(edit ? `Updated variable in ${dirty.length} workspace(s)` : `Created variable`)
 			dispatch('create')
+			onSaved?.(savedPath)
 			drawer?.closeDrawer()
 		} catch (err) {
 			sendUserToast(`Could not save variable: ${err.body}`, true)
@@ -410,18 +431,36 @@
 	}
 </script>
 
-<Drawer
-	bind:this={drawer}
-	size="50rem"
-	on:close={() => {
-		endEditingSession()
-		clearPageDrawerAnchor(VARIABLES_PATH)
-	}}
->
+{#if inline}
+	{@render content()}
+{:else}
+	<Drawer
+		bind:this={drawer}
+		size="50rem"
+		on:close={() => {
+			endEditingSession()
+			clearPageDrawerAnchor(VARIABLES_PATH)
+		}}
+	>
+		{@render content()}
+	</Drawer>
+{/if}
+
+{#snippet content()}
 	<DrawerContent
 		title={edit ? `Update variable at ${initialPath}` : 'Add a variable'}
 		bannerReserved={edit}
-		on:close={drawer?.closeDrawer}
+		hideClose={inline && !onClose}
+		fullScreen={!inline}
+		on:close={() => {
+			// Inline has no drawer to emit a close, so the session ends here instead.
+			if (inline) {
+				endEditingSession()
+				onClose?.()
+			} else {
+				drawer?.closeDrawer()
+			}
+		}}
 	>
 		{#snippet banner()}
 			{#if draftConflict}
@@ -496,4 +535,4 @@
 			</Button>
 		{/snippet}
 	</DrawerContent>
-</Drawer>
+{/snippet}

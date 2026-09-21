@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { getContext, untrack } from 'svelte'
 	import { FlowService, type FlowModule } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
@@ -16,6 +15,9 @@
 	import { parseExpandedSubflowId } from '$lib/components/restartFromStepPath'
 	import { base } from '$app/paths'
 	import FlowPanelChrome from '../common/FlowPanelChrome.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		/** Graph node id of the selected step, of the form `subflow:<step>[:<step>...]:<leaf>`. */
@@ -28,7 +30,7 @@
 
 	const { flowStore, flowEditorDrawer, opWorkspace } =
 		getContext<FlowEditorContext>('FlowEditorContext')
-	let opWs = $derived(opWorkspace?.() ?? $workspaceStore)
+	let opWs = $derived(opWorkspace?.() ?? $operatingWorkspace)
 
 	let leafId = $derived(parseExpandedSubflowId(selectedId)?.leaf ?? selectedId)
 
