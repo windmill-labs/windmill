@@ -19,7 +19,8 @@ import {
 	SqsTriggerService,
 	VariableService,
 	WebsocketTriggerService,
-	WorkerService
+	WorkerService,
+	WorkspaceService
 } from '$lib/gen'
 import { createTwoFilesPatch } from 'diff'
 import { deepEqual } from 'fast-equals'
@@ -1421,8 +1422,9 @@ Flows:
 - Use patch_flow_json for structural flow edits and write_flow for full flow rewrites.
 
 Raw apps:
-- The app tools below only work on raw (code) apps. \`rawApp\` says which: false is a drag-and-drop app, which you can list and read but not edit or deploy. Check it before offering to change an app.
+- The app tools below only work on raw (code) apps. \`rawApp\` says which: false is a drag-and-drop app: you can list it and read its metadata, but not read its contents, edit it or deploy it. Check it before offering to change an app.
 - read_workspace_item returns app metadata only. Use read_app_file for file and inline runnable contents.
+- A draft app is reachable by nobody; deploying is what exposes its backend runnables. deploy_workspace_item says so when the deploy widens who may open the app: anonymous means anyone with the URL, without logging in; guest means anyone the instance's identity provider authenticates, member of this workspace or not. Relay that in plain words and carry on. This is disclosure, not a gate: do not stop and ask for permission, and do not refuse the deploy. You cannot change who may open an app from chat; it is set on the app's deploy settings.
 - Use write_app_file, patch_app_file, and delete_app_file for frontend files.
 - Use write_app_runnable and delete_app_runnable for backend runnables.
 - Use init_app only after confirming framework, path, and summary with the user.
@@ -1528,6 +1530,7 @@ function serializeWorkspaceItemForRead(item: WorkspaceItem): unknown {
 			summary: item.summary,
 			value: summarizeAppValue(item.value as AppDraftValue),
 			rawApp: item.rawApp,
+			executionMode: item.executionMode,
 			isDraft: item.isDraft
 		}
 	}
@@ -1824,13 +1827,28 @@ function getInlineRunnableContent(
 	return { content: runnable.inlineScript?.content ?? '', runnable }
 }
 
+// appSourceToDraftValue drops a low-code app's `grid`, so converting one here would stage a
+// code-app draft at its path: a false picture of the app that every later read answers from,
+// and a deploy the server then refuses.
+async function getRawAppByPath(workspace: string, path: string): Promise<AppWithLastVersion> {
+	const app = await AppService.getAppByPath({ workspace, path })
+	// Only an explicit false: the draft-only branch of get_app carries no version, and so
+	// no `raw_app`, and must not read as low-code.
+	if (app.raw_app === false) {
+		throw new Error(
+			`"${path}" is a low-code app. This chat only edits code-based apps — open it in the app editor instead.`
+		)
+	}
+	return app
+}
+
 async function loadAppValueForRead(path: string, workspace: string): Promise<AppDraftValue> {
 	const draft = await getGlobalDraft(workspace, 'app', path)
 	if (draft && draft.value && typeof draft.value === 'object' && 'files' in draft.value) {
 		return draft.value as AppDraftValue
 	}
 
-	const app = await AppService.getAppByPath({ workspace, path })
+	const app = await getRawAppByPath(workspace, path)
 	return appSourceToDraftValue(app, app)
 }
 
@@ -1840,7 +1858,7 @@ async function loadAppDraftValue(path: string, workspace: string): Promise<Loade
 		return { value: draft.value as AppDraftValue }
 	}
 
-	const app = await AppService.getAppByPath({ workspace, path })
+	const app = await getRawAppByPath(workspace, path)
 	return { value: appSourceToDraftValue(app, app) }
 }
 
@@ -1974,6 +1992,35 @@ const triggerServices: Record<TriggerKind, TriggerService> = {
 	}
 }
 
+/** Whether the server would admit a guest here: the deployment has to support guests at
+ * all, and the instance and workspace switches both have to be on. `guest` is stored on
+ * an app even when none of that holds, so the mode alone never settles who can open it.
+ * `undefined` when a switch read fails — neither proven live nor proven inert. */
+async function guestAccessIsLive(workspace: string): Promise<boolean | undefined> {
+	const [usage, settings] = await Promise.all([
+		WorkspaceService.getGuestUsage({ workspace }).catch(() => undefined),
+		WorkspaceService.getPublicSettings({ workspace }).catch(() => undefined)
+	])
+	if (usage === undefined || settings === undefined) {
+		return undefined
+	}
+	return !!(usage.available && usage.instance_enabled && settings.guest_access_enabled)
+}
+
+/** Who may open an app, from the mode stored on it. An app sits in `guest` mode whether
+ * or not anyone is admitted by it, so reporting the mode bare would say strangers can
+ * open an app that admits members only. Say it is inert rather than hide it, as the
+ * app's deploy settings do. */
+async function describeAppExposure(
+	workspace: string,
+	mode: string | undefined
+): Promise<string | undefined> {
+	if (mode !== 'guest' || (await guestAccessIsLive(workspace)) !== false) {
+		return mode
+	}
+	return 'guest, but inert: the instance or workspace admits no guest, so this app admits members only'
+}
+
 async function readWorkspaceItem(
 	type: WorkspaceItemType,
 	path: string,
@@ -2036,6 +2083,19 @@ async function readWorkspaceItem(
 		case 'app': {
 			// Returns lightweight metadata only — file/runnable contents come via read_app_file.
 			const app = await AppService.getAppByPath({ workspace, path })
+			// A grid is not files and runnables: summarizing one reports an empty app. Name the
+			// kind instead.
+			const executionMode = await describeAppExposure(workspace, app.policy?.execution_mode)
+			if (app.raw_app === false) {
+				return {
+					type: 'app',
+					path: app.path,
+					summary: app.summary,
+					rawApp: false,
+					executionMode,
+					isDraft: false
+				}
+			}
 			const value = appSourceToDraftValue(app)
 			const metadata = summarizeAppValue(value)
 			return {
@@ -2044,6 +2104,7 @@ async function readWorkspaceItem(
 				summary: value.summary,
 				value: metadata as unknown as AppDraftValue,
 				rawApp: app.raw_app,
+				executionMode,
 				isDraft: false
 			}
 		}
@@ -3468,7 +3529,17 @@ export const globalTools: Tool<{}>[] = [
 				toolCallbacks.setToolStatus(toolId, {
 					content: `Read draft ${parsed.type} "${parsed.path}"`
 				})
-				return JSON.stringify(serializeWorkspaceItemForRead(draft), null, 2)
+				// The mode reported is the draft's, which is what deploying it will write. The
+				// deployed app's own mode is a different question, asked with version:
+				// "deployed", and must not be fetched here.
+				const executionMode =
+					parsed.type === 'app'
+						? await describeAppExposure(
+								workspace,
+								(draft.value as AppDraftValue)?.policy?.execution_mode
+							)
+						: undefined
+				return JSON.stringify(serializeWorkspaceItemForRead({ ...draft, executionMode }), null, 2)
 			}
 
 			toolCallbacks.setToolStatus(toolId, {
@@ -7988,6 +8059,27 @@ async function deployDraft(
 						`These backend runnables point at items that are NOT deployed, so they fail at runtime: ` +
 						`${undeployedTargets.join(', ')}. Deploy those items too, and tell the user the app is ` +
 						`not working until they are.`
+				}
+
+				// `policy` is the mode being written, so the exposure is stated from the value in
+				// hand. What a runnable runs as is the server's to decide, so the note names who
+				// can reach the app and never an identity.
+				if (policy.execution_mode === 'anonymous') {
+					deployNote =
+						`${deployNote ? `${deployNote} ` : ''}This app is deployed as anonymous: its ` +
+						`backend runnables are now reachable by anyone with the URL, without logging in. ` +
+						`Tell the user plainly what is now reachable and by whom.`
+				} else if (policy.execution_mode === 'guest') {
+					// Only where the guest door actually opens: below that, silence — a false note
+					// is worse than none. The standing cap is a live count no read settles, so the
+					// note says the door is open, not that every newcomer gets in.
+					if (await guestAccessIsLive(workspace)) {
+						deployNote =
+							`${deployNote ? `${deployNote} ` : ''}This app is deployed as guest: anyone ` +
+							`the instance's identity provider authenticates can now open it and run its ` +
+							`backend runnables, member of this workspace or not. Tell the user plainly ` +
+							`what is now reachable and by whom.`
+					}
 				}
 
 				toolCallbacks.setToolStatus(toolId, {
