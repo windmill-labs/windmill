@@ -133,6 +133,8 @@ pub(crate) fn memory_within_capacity(
     exchange_starts(messages)
         .into_iter()
         .skip(1)
+        // Reload prepends no summary, and some providers require a user opener.
+        .filter(|start| messages[*start].role == "user")
         .map(|start| &messages[start..])
         .find(|tail| persisted_bytes(tail) <= max_bytes)
 }
@@ -945,6 +947,9 @@ mod tests {
             .extend(second[0].tool_calls.clone().unwrap());
         messages.extend(round);
         messages.push(second[1].clone());
+        assert!(memory_within_capacity(&messages, 100000).is_none());
+        messages.extend(tool_round("three", "small result"));
+        messages.push(message("assistant", "final answer"));
         assert!(memory_within_capacity(&messages, 100000).is_none());
         let messages = vec![
             message("user", "new"),
