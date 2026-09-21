@@ -2720,7 +2720,10 @@ pub async fn handle_wac_v2_output(
     };
     use serde_json::Value;
     use windmill_common::get_latest_flow_version_info_for_path;
-    use windmill_common::jobs::{script_path_to_payload, JobKind, JobPayload, RawCode};
+    use windmill_common::jobs::{
+        check_tag_available_for_workspace_internal, script_path_to_payload, JobKind, JobPayload,
+        RawCode,
+    };
     use windmill_common::runnable_settings::{
         ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings,
     };
@@ -3195,6 +3198,33 @@ pub async fn handle_wac_v2_output(
                             job.permissioned_as.clone(),
                         ),
                     };
+
+                    // A task inheriting the parent's tag skips the check: that tag was
+                    // checked when the parent was pushed, and a dedicated worker's tag is
+                    // never in CUSTOM_TAGS.
+                    if let Some(tag) = step
+                        .tag
+                        .as_deref()
+                        .filter(|t| !t.is_empty() && *t != job.tag.as_str())
+                    {
+                        let is_super_admin =
+                            windmill_common::auth::is_super_admin_email(db, child_email).await?;
+                        check_tag_available_for_workspace_internal(
+                            db,
+                            &job.workspace_id,
+                            tag,
+                            is_super_admin,
+                            None,
+                        )
+                        .await
+                        .map_err(|e| match e {
+                            error::Error::BadRequest(msg) => error::Error::BadRequest(format!(
+                                "task '{}' cannot run on tag '{tag}': {msg}",
+                                step.name
+                            )),
+                            e => e,
+                        })?;
+                    }
 
                     let (_, mut tx) = push(
                         db,
