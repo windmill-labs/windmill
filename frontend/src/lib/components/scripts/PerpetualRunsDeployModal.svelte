@@ -83,7 +83,7 @@
 								{/if}
 								{single ? 'The restarted run keeps' : 'Restarted runs keep'} the old ones. To run this
 								version with arguments that fit it, scale down to 0 here and start a run yourself once
-								the deploy is through.
+								deployed.
 							</p>
 							<Button
 								variant="default"
