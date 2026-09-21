@@ -1594,13 +1594,13 @@ async fn cleanup_waits_out_a_save_racing_it_for_an_instance_database(
     };
 
     assert!(
-        race(false).await?.is_empty(),
+        matches!(race(false).await?, windmill_common::Cleanup::Dropped),
         "a save that rolled back kept the database, whose name then blocks every retry"
     );
-    assert_eq!(
-        race(true).await?,
-        vec!["test-workspace".to_string()],
-        "the database was dropped under a save that committed a reference to it"
-    );
+    let kept = race(true).await?;
+    let windmill_common::Cleanup::InUse(users) = kept else {
+        anyhow::bail!("the database was dropped under a save that committed a reference to it")
+    };
+    assert_eq!(users, vec!["test-workspace".to_string()]);
     Ok(())
 }
