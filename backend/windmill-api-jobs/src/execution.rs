@@ -762,6 +762,9 @@ pub async fn run_flow<'c>(
     let tag = run_query.tag.clone().or(tag);
     let push_args = PushArgs { args: &args.args, extra: args.extra };
 
+    // A flow whose preprocessor runs lands on its tag resolved from the preprocessor's output,
+    // which is checked again then. Still check here on the raw args, failing closed: the later
+    // check cannot apply the caller's token tag scopes or job-token-aware superadmin status.
     check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 

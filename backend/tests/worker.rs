@@ -5573,6 +5573,47 @@ async fn test_flow_substep_tag_checked_on_resolved_value(db: Pool<Postgres>) -> 
     Ok(())
 }
 
+/// A flow's `$args[...]` tag is resolved again from its preprocessor's output, a value the check
+/// at push never saw, so that value is checked too.
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base", "hello"))]
+#[serial]
+async fn test_flow_tag_checked_after_preprocessor(db: Pool<Postgres>) -> anyhow::Result<()> {
+    use windmill_common::worker::{CustomTags, CUSTOM_TAGS_PER_WORKSPACE};
+
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+
+    // The fixture's preprocessor returns `{ foo: "bar", bar: "baz" }`.
+    sqlx::query(
+        "UPDATE flow SET tag = 'pp-$args[foo]' WHERE path = 'f/system/hello_with_preprocessor'",
+    )
+    .execute(&db)
+    .await?;
+    CUSTOM_TAGS_PER_WORKSPACE.store(std::sync::Arc::new(CustomTags::from(vec![
+        "pp-baz".to_string()
+    ])));
+
+    // A non-superadmin, so the custom tags apply.
+    let job = RunJob::from(JobPayload::Flow {
+        path: "f/system/hello_with_preprocessor".to_string(),
+        dedicated_worker: None,
+        apply_preprocessor: true,
+        version: 1443253234253456,
+        labels: None,
+    })
+    .as_user("test-user-2", "test2@windmill.dev")
+    .run_until_complete(&db, false, server.addr.port())
+    .await;
+    CUSTOM_TAGS_PER_WORKSPACE.store(std::sync::Arc::new(CustomTags::default()));
+
+    assert!(!job.success);
+    let result = job.json_result().unwrap().to_string();
+    assert!(result.contains("resolved to pp-bar"), "got {result}");
+
+    Ok(())
+}
+
 /// The `*` fork marker only grants through a real `parent_workspace_id` lineage lookup, which the
 /// parse-level unit tests cannot reach: they hand `applies_to_workspace` a synthetic chain, so a
 /// regression in the lookup or in the `is_fork_scoped()` gate that skips it would pass them.
