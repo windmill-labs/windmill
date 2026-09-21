@@ -44,6 +44,69 @@ async fn start_perpetual_run(db: &Pool<Postgres>) -> anyhow::Result<Uuid> {
     Ok(id)
 }
 
+/// The same cancel, one step earlier: still being written when the completion reads the queue row,
+/// which reads it without a lock. Only the delete that follows waits for the writer.
+#[sqlx::test(fixtures("base"))]
+async fn a_cancel_still_being_written_is_kept(db: Pool<Postgres>) -> anyhow::Result<()> {
+    let running = start_perpetual_run(&db).await?;
+    let job = get_mini_completed_job(&running, W_ID, &db).await?.unwrap();
+
+    let mut cancel = db.begin().await?;
+    sqlx::query(
+        "UPDATE v2_job_queue SET canceled_by = 'test-user', canceled_reason = 'stop' WHERE id = $1",
+    )
+    .bind(running)
+    .execute(&mut *cancel)
+    .await?;
+
+    let completing = tokio::spawn({
+        let db = db.clone();
+        async move {
+            add_completed_job(
+                &db,
+                &job,
+                true,
+                false,
+                Json(&json!("done")),
+                None,
+                0,
+                None,
+                false,
+                None,
+                false,
+            )
+            .await
+        }
+    });
+    // Long enough for the completion to have read the queue row and reached the delete, which is
+    // where it waits for the cancel.
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    cancel.commit().await?;
+    completing.await??;
+
+    let (status, canceled_by): (String, Option<String>) =
+        sqlx::query_as("SELECT status::text, canceled_by FROM v2_job_completed WHERE id = $1")
+            .bind(running)
+            .fetch_one(&db)
+            .await?;
+    assert_eq!(status, "canceled", "the run is recorded as canceled");
+    assert_eq!(canceled_by.as_deref(), Some("test-user"));
+
+    let queued: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT q.id FROM v2_job_queue q JOIN v2_job j USING (id) \
+         WHERE j.workspace_id = $1 AND j.runnable_path = $2",
+    )
+    .bind(W_ID)
+    .bind(PATH)
+    .fetch_all(&db)
+    .await?;
+    assert!(
+        queued.is_empty(),
+        "a canceled perpetual run queues no next one: {queued:?}"
+    );
+    Ok(())
+}
+
 #[sqlx::test(fixtures("base"))]
 async fn a_cancel_landing_after_the_worker_read_its_row_is_kept(
     db: Pool<Postgres>,
