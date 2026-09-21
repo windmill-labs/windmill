@@ -695,8 +695,14 @@ async fn restart_perpetual_runs_at_path(
     // Built the way a run of this path is built anywhere else, so the next run takes the deployed
     // version's tag, timeout, language and identity. Whether its preprocessor runs is decided per
     // run, below.
-    let (payload, tag, _, _, timeout, on_behalf_of) =
+    let (mut payload, tag, _, _, timeout, on_behalf_of) =
         script_path_to_payload(script_path, None, db.clone(), w_id, None).await?;
+    // A replacement continues a loop rather than answering a trigger, and every perpetual restart
+    // is pushed without debouncing for that reason. Deployed settings here would debounce the
+    // loops at this path against each other and collapse those that share arguments into one.
+    if let JobPayload::ScriptHash { debouncing_settings, .. } = &mut payload {
+        *debouncing_settings = DebouncingSettings::default();
+    }
     let JobPayload::ScriptHash { hash, dedicated_worker, .. } = &payload else {
         return Ok(false);
     };
