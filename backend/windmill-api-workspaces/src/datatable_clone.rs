@@ -11,8 +11,8 @@
 //! The fork request makes its copies before it writes the fork: each is created, filled and — for a
 //! data table under roles — given the source's owners and grants. What each copy was made from
 //! stays in the request ([`MadeCopy`]), so the fork's transaction checks it against the source as it
-//! is then, and a fork that fails drops the instance copies it made ([`drop_copies_after`]) and names
-//! the others, which live on servers of the workspace's own.
+//! is then, and a fork that fails drops the copies it made on a cluster Windmill manages
+//! ([`drop_copies_after`]) and names the others, which live on servers of the workspace's own.
 
 use std::collections::BTreeSet;
 
@@ -22,8 +22,8 @@ use windmill_common::error::{pg_error_message, Error, Result};
 use windmill_common::utils::require_admin;
 use windmill_common::worker::CLOUD_HOSTED;
 use windmill_common::workspaces::{
-    get_datatable_resource_from_db_unchecked, DataTableDatabase, DataTableForkBehavior,
-    GoverningDatatable,
+    get_datatable_resource_from_db_unchecked, DataTableCatalogResourceType, DataTableDatabase,
+    DataTableForkBehavior, GoverningDatatable,
 };
 use windmill_common::{PgDatabase, DB};
 
@@ -312,27 +312,38 @@ pub(crate) async fn drop_copies_after(db: &DB, copies: Vec<MadeCopy>, error: Err
 }
 
 async fn drop_copy(db: &DB, source_database: &DataTableDatabase, dbname: &str) -> Result<()> {
-    if source_database.resource_type
-        == windmill_common::workspaces::DataTableCatalogResourceType::Instance
-    {
-        match windmill_common::drop_unused_instance_database(db, dbname).await? {
-            windmill_common::Cleanup::Dropped => Ok(()),
-            windmill_common::Cleanup::InUse(users) => Err(Error::BadRequest(format!(
-                "kept, since workspaces {} now use it",
-                users.join(", ")
-            ))),
-            windmill_common::Cleanup::Waiter(pid) => Err(Error::BadRequest(format!(
-                "kept, since a request (pid {pid}) is still waiting to name it"
-            ))),
+    match source_database.resource_type {
+        DataTableCatalogResourceType::Instance => {
+            match windmill_common::drop_unused_instance_database(db, dbname).await? {
+                windmill_common::Cleanup::Dropped => Ok(()),
+                windmill_common::Cleanup::InUse(users) => Err(Error::BadRequest(format!(
+                    "kept, since workspaces {} now use it",
+                    users.join(", ")
+                ))),
+                windmill_common::Cleanup::Waiter(pid) => Err(Error::BadRequest(format!(
+                    "kept, since a request (pid {pid}) is still waiting to name it"
+                ))),
+            }
         }
-    } else {
+        // Refused, and the copy kept, when anything names it by then.
+        DataTableCatalogResourceType::ExternalInstance => {
+            let mut tx = db.begin().await?;
+            windmill_common::external_instance_pg::drop_external_instance_database_unchecked(
+                &mut tx, dbname, None,
+            )
+            .await?;
+            tx.commit().await?;
+            Ok(())
+        }
+        DataTableCatalogResourceType::Postgresql => {
         // On a server of the workspace's own, where a resource edited meanwhile can already name it
         // and nothing locks such an edit: dropping it could take someone's data.
-        Err(Error::BadRequest(
-            "kept on its PostgreSQL server, where it may already be in use; drop it there once it \
-             is not, before forking the same data table under this id again"
-                .to_string(),
-        ))
+            Err(Error::BadRequest(
+                "kept on its PostgreSQL server, where it may already be in use; drop it there once \
+                 it is not, before forking the same data table under this id again"
+                    .to_string(),
+            ))
+        }
     }
 }
 
@@ -349,10 +360,10 @@ async fn make_copy(
             request.name
         ))
     })?;
-    let is_instance = governing.is_instance();
+    let managed = source_database.resource_type.is_windmill_managed();
     // Resolved from the snapshot, not read again: the connection the copy is made on is then
     // exactly what these rows describe, which the fork's own clone of them is checked against.
-    let (server, connection): (PgDatabase, Option<ConnectionSnapshot>) = if is_instance {
+    let (server, connection): (PgDatabase, Option<ConnectionSnapshot>) = if managed {
         let server = serde_json::from_value(
             get_datatable_resource_from_db_unchecked(db, parent_w_id, request.name).await?,
         )
@@ -383,28 +394,43 @@ async fn make_copy(
 
     // Dumped before the database exists, so a source that cannot be read leaves nothing behind.
     // Ownership never carries over: the restore runs as the target's connection user. Grants do,
-    // except on the instance, where the replay below is what reproduces them.
+    // except on a cluster Windmill manages, which plants its own and where the replay below is what
+    // reproduces the roles'.
     let dump = pg_dump_database(
         &server,
         PgDumpOptions {
             schema_only: request.behavior == DataTableForkBehavior::SchemaOnly,
             no_owner: true,
-            no_acl: is_instance,
+            no_acl: managed,
             ..Default::default()
         },
     )
     .await?;
 
-    if is_instance {
-        windmill_common::create_custom_instance_database(
-            db,
-            request.dbname,
-            "datatable",
-            Some(parent_w_id),
-        )
-        .await?;
-    } else {
-        create_database_on_server(db, &server, request.dbname).await?;
+    match source_database.resource_type {
+        DataTableCatalogResourceType::Instance => {
+            windmill_common::create_custom_instance_database(
+                db,
+                request.dbname,
+                "datatable",
+                Some(parent_w_id),
+            )
+            .await?
+        }
+        DataTableCatalogResourceType::ExternalInstance => {
+            let mut tx = db.begin().await?;
+            windmill_common::external_instance_pg::create_external_instance_database_unchecked(
+                &mut tx,
+                request.dbname,
+                "datatable",
+                Some(parent_w_id),
+            )
+            .await?;
+            tx.commit().await?;
+        }
+        DataTableCatalogResourceType::Postgresql => {
+            create_database_on_server(db, &server, request.dbname).await?
+        }
     }
 
     let target = PgDatabase { dbname: request.dbname.to_string(), ..server.clone() };
