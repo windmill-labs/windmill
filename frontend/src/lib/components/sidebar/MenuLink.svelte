@@ -64,7 +64,12 @@
 				'group flex items-center px-2 py-2 text-sm font-light rounded-md h-8 gap-2',
 				isSelected
 					? sidebarClasses.selectedBg
-					: sidebarClasses.hoverBg,
+					: item
+						? 'transition-colors'
+						: sidebarClasses.hoverBg,
+				// Inside a menu, melt moves data-highlighted with both the keyboard and the
+				// pointer, so it is the only pointer state: a hover rule as well lights two rows.
+				item ? 'data-[highlighted]:bg-surface-hover' : '',
 				isSelected ? sidebarClasses.selectedText : sidebarClasses.text,
 				classNames
 			)}
@@ -77,7 +82,13 @@
 		>
 			{#if icon}
 				{@const SvelteComponent = icon}
-				<SvelteComponent size={16} class={twMerge('flex-shrink-0 transition-all', isSelected ? sidebarClasses.selectedText : sidebarClasses.iconText)} />
+				<SvelteComponent
+					size={16}
+					class={twMerge(
+						'flex-shrink-0 transition-all',
+						isSelected ? sidebarClasses.selectedText : sidebarClasses.iconText
+					)}
+				/>
 			{/if}
 
 			{#if !isCollapsed}

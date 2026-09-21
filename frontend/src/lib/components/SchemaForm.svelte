@@ -4,7 +4,6 @@
 	const bubble = createBubbler()
 	import type { Schema } from '$lib/common'
 	import { VariableService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { allTrue, computeShow, type DynamicInput } from '$lib/utils'
 	import { Button } from './common'
 	import ItemPicker from './ItemPicker.svelte'
@@ -15,6 +14,7 @@
 	import { Plus } from 'lucide-svelte'
 	import ArgInput from './ArgInput.svelte'
 	import { createEventDispatcher, untrack } from 'svelte'
+	import { watch } from 'runed'
 	import { deepEqual } from 'fast-equals'
 	import {
 		dragHandleZone,
@@ -25,6 +25,9 @@
 	import type { ComponentCustomCSS } from './apps/types'
 	import ResizeTransitionWrapper from './common/ResizeTransitionWrapper.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		schema: Schema | any
@@ -121,7 +124,7 @@
 		actions: actions_render = undefined
 	}: Props = $props()
 
-	let ws = $derived(workspace ?? $workspaceStore)
+	let ws = $derived(workspace ?? $operatingWorkspace)
 
 	const dispatch = createEventDispatcher()
 
@@ -154,6 +157,11 @@
 	let pickForField: string | undefined = $state()
 	let itemPicker: ItemPicker | undefined = $state(undefined)
 	let variableEditor: VariableEditor | undefined = $state(undefined)
+
+	watch(
+		() => ws,
+		() => itemPicker?.reloadItems()
+	)
 
 	let resourceTypes: string[] | undefined = $state(undefined)
 

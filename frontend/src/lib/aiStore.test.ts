@@ -35,6 +35,24 @@ describe('setCopilotInfo legacy /thinking migration', () => {
 		expect(info.aiModels.map((m) => m.model)).toEqual(['claude-sonnet-4-6'])
 	})
 
+	it('keeps the models but turns the assistant off when the workspace disabled it', () => {
+		setCopilotInfo({
+			providers: {
+				anthropic: {
+					resource_path: 'u/admin/anthropic',
+					models: ['claude-sonnet-4-6']
+				}
+			},
+			copilot_disabled: true
+		})
+
+		const info = get(copilotInfo)
+		expect(info.enabled).toBe(false)
+		expect(info.workspaceDisabled).toBe(true)
+		// The providers still describe what AI agent steps can run on.
+		expect(info.aiModels.map((m) => m.model)).toEqual(['claude-sonnet-4-6'])
+	})
+
 	it('defaults provider web search on unless explicitly disabled', () => {
 		setCopilotInfo({
 			providers: {

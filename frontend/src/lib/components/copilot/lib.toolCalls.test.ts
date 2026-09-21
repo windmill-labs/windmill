@@ -134,6 +134,37 @@ describe('parseOpenAICompletion tool call arguments', () => {
 		expect(addedMessages).toEqual(messages)
 	})
 
+	it('keeps braces inside string arguments out of the object-depth count', async () => {
+		const { parseOpenAICompletion } = await import('./lib')
+		const fn = vi.fn().mockResolvedValue('tool ok')
+		const messages: ChatCompletionMessageParam[] = []
+
+		await parseOpenAICompletion(
+			streamOf([
+				toolCallChunk({
+					id: 'call_1',
+					function: { name: 'patch_app_file', arguments: '{"new_string": ' }
+				}),
+				toolCallChunk({ function: { arguments: '"hello } goodbye \\" } "}' } })
+			]),
+			createCallbacks(),
+			messages,
+			[],
+			[createTool(fn)] as any,
+			{},
+			undefined,
+			{ workspace: 'test' }
+		)
+
+		expect(fn).toHaveBeenCalledWith(
+			expect.objectContaining({ args: { new_string: 'hello } goodbye " } ' } })
+		)
+		const assistant = messages.find((m) => m.role === 'assistant') as any
+		expect(assistant.tool_calls[0].function.arguments).toBe(
+			'{"new_string": "hello } goodbye \\" } "}'
+		)
+	})
+
 	it('marks only the executing tool call as loading when one message has several', async () => {
 		const { parseOpenAICompletion } = await import('./lib')
 		const statuses: Record<string, any> = {}

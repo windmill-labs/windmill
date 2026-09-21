@@ -1,23 +1,16 @@
 <script lang="ts">
 	import { NativeTriggerService } from '$lib/gen/services.gen'
 	import type { GoogleDriveFile, SharedDriveEntry } from '$lib/gen/types.gen'
-	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/utils'
 	import { Button } from '$lib/components/common'
-	import {
-		Loader2,
-		Folder,
-		File,
-		ChevronRight,
-		Search,
-		X,
-		RefreshCw,
-		Check
-	} from 'lucide-svelte'
+	import { Loader2, Folder, File, ChevronRight, Search, X, RefreshCw, Check } from 'lucide-svelte'
 	import GoogleDriveIcon from '$lib/components/icons/GoogleDriveIcon.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { Debounced, watch } from 'runed'
 	import { untrack } from 'svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		resourceId: string
@@ -25,11 +18,7 @@
 		disabled?: boolean
 	}
 
-	let {
-		resourceId = $bindable(),
-		resourceName = $bindable(),
-		disabled = false
-	}: Props = $props()
+	let { resourceId = $bindable(), resourceName = $bindable(), disabled = false }: Props = $props()
 
 	type BreadcrumbItem = { id: string; name: string }
 	type DriveTab = 'my_drive' | 'shared_with_me' | 'shared_drives'
@@ -49,7 +38,7 @@
 	let loadVersion = 0
 
 	async function loadFiles(pageToken?: string) {
-		if (!$workspaceStore) return
+		if (!$operatingWorkspace) return
 
 		const version = ++loadVersion
 
@@ -63,7 +52,7 @@
 
 		try {
 			const params: Parameters<typeof NativeTriggerService.listGoogleDriveFiles>[0] = {
-				workspace: $workspaceStore,
+				workspace: $operatingWorkspace,
 				pageToken
 			}
 
@@ -101,7 +90,7 @@
 	}
 
 	async function loadSharedDrives() {
-		if (!$workspaceStore) return
+		if (!$operatingWorkspace) return
 
 		loadingFiles = true
 		files = []
@@ -109,7 +98,7 @@
 
 		try {
 			sharedDrives = await NativeTriggerService.listGoogleSharedDrives({
-				workspace: $workspaceStore
+				workspace: $operatingWorkspace
 			})
 		} catch (err: any) {
 			sendUserToast(`Failed to load shared drives: ${err.body || err.message}`, true)
@@ -161,7 +150,7 @@
 
 	// Initial load when workspace is available
 	$effect(() => {
-		if ($workspaceStore) {
+		if ($operatingWorkspace) {
 			untrack(() => loadFiles())
 		}
 	})
@@ -169,28 +158,37 @@
 	// React to debounced search changes (skip initial)
 	watch(
 		() => debouncedSearch.current,
-		() => { loadFiles() },
+		() => {
+			loadFiles()
+		},
 		{ lazy: true }
 	)
 </script>
 
 <div class="flex flex-col gap-2 border rounded-md p-2 bg-surface">
 	{#if resourceId}
-		<div class="flex items-center gap-2 px-2 py-1 rounded bg-surface-selected text-secondary text-xs border">
+		<div
+			class="flex items-center gap-2 px-2 py-1 rounded bg-surface-selected text-secondary text-xs border"
+		>
 			<GoogleDriveIcon width="14px" height="14px" />
 			<span>
 				Selected: <strong>{resourceName || resourceId}</strong>
 			</span>
 			<button
 				class="ml-auto text-tertiary hover:text-secondary"
-				onclick={() => { resourceId = ''; resourceName = '' }}
+				onclick={() => {
+					resourceId = ''
+					resourceName = ''
+				}}
 				{disabled}
 			>
 				<X size={14} />
 			</button>
 		</div>
 	{:else}
-		<div class="flex items-center gap-2 px-2 py-1 rounded text-tertiary text-xs border border-dashed">
+		<div
+			class="flex items-center gap-2 px-2 py-1 rounded text-tertiary text-xs border border-dashed"
+		>
 			<GoogleDriveIcon width="14px" height="14px" />
 			<span>No file selected</span>
 		</div>
@@ -198,21 +196,27 @@
 
 	<div class="flex items-center gap-1 text-2xs">
 		<button
-			class="px-2 py-0.5 rounded {activeTab === 'my_drive' ? 'bg-surface-selected font-semibold' : 'hover:bg-surface-hover'}"
+			class="px-2 py-0.5 rounded {activeTab === 'my_drive'
+				? 'bg-surface-selected font-semibold'
+				: 'hover:bg-surface-hover'}"
 			onclick={() => switchTab('my_drive')}
 			{disabled}
 		>
 			My Drive
 		</button>
 		<button
-			class="px-2 py-0.5 rounded {activeTab === 'shared_with_me' ? 'bg-surface-selected font-semibold' : 'hover:bg-surface-hover'}"
+			class="px-2 py-0.5 rounded {activeTab === 'shared_with_me'
+				? 'bg-surface-selected font-semibold'
+				: 'hover:bg-surface-hover'}"
 			onclick={() => switchTab('shared_with_me')}
 			{disabled}
 		>
 			Shared with me
 		</button>
 		<button
-			class="px-2 py-0.5 rounded {activeTab === 'shared_drives' ? 'bg-surface-selected font-semibold' : 'hover:bg-surface-hover'}"
+			class="px-2 py-0.5 rounded {activeTab === 'shared_drives'
+				? 'bg-surface-selected font-semibold'
+				: 'hover:bg-surface-hover'}"
 			onclick={() => switchTab('shared_drives')}
 			{disabled}
 		>
@@ -222,7 +226,10 @@
 		<button
 			class="p-1 text-tertiary hover:text-secondary"
 			title="Refresh"
-			onclick={() => activeTab === 'shared_drives' && currentParentId === 'root' ? loadSharedDrives() : loadFiles()}
+			onclick={() =>
+				activeTab === 'shared_drives' && currentParentId === 'root'
+					? loadSharedDrives()
+					: loadFiles()}
 			{disabled}
 		>
 			<RefreshCw size={12} />
@@ -237,7 +244,10 @@
 				size="xs"
 				class="!pl-7"
 			/>
-			<Search size={14} class="absolute left-2 top-1/2 -translate-y-1/2 text-tertiary pointer-events-none" />
+			<Search
+				size={14}
+				class="absolute left-2 top-1/2 -translate-y-1/2 text-tertiary pointer-events-none"
+			/>
 			{#if searchQuery}
 				<button
 					class="absolute right-2 top-1/2 -translate-y-1/2 text-tertiary hover:text-secondary"
@@ -277,9 +287,7 @@
 			</div>
 		{:else if activeTab === 'shared_drives' && currentParentId === 'root'}
 			{#if sharedDrives.length === 0}
-				<div class="text-center py-4 text-xs text-tertiary">
-					No shared drives found
-				</div>
+				<div class="text-center py-4 text-xs text-tertiary"> No shared drives found </div>
 			{:else}
 				{#each sharedDrives as drive (drive.id)}
 					<div

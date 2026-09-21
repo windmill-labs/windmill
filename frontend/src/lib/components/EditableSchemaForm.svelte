@@ -4,7 +4,6 @@
 	const bubble = createBubbler()
 	import type { Schema } from '$lib/common'
 	import { VariableService, type ScriptLang } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { Button } from './common'
 	import ItemPicker from './ItemPicker.svelte'
 	import VariableEditor from './VariableEditor.svelte'
@@ -15,6 +14,7 @@
 	import PropertyEditor from './schema/PropertyEditor.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import { createEventDispatcher, untrack } from 'svelte'
+	import { watch } from 'runed'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Label from './Label.svelte'
@@ -35,6 +35,9 @@
 	import Section from '$lib/components/Section.svelte'
 	import Editor from './Editor.svelte'
 	import AddPropertyV2 from './schema/AddPropertyV2.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	// export let openEditTab: () => void = () => {}
 	const dispatch = createEventDispatcher()
@@ -42,6 +45,8 @@
 	interface Props {
 		schema: Schema | any
 		hiddenArgs?: string[]
+		/** Fields another part of the app owns: shown, but not renameable, deletable or retypeable. */
+		lockedArgs?: string[]
 		args?: Record<string, any>
 		shouldHideNoInputs?: boolean
 		noVariablePicker?: boolean
@@ -82,11 +87,13 @@
 		extraTab?: import('svelte').Snippet
 		schemaFormClassName?: string
 		onChange?: (args: Record<string, any>) => void
+		workspace?: string | undefined
 	}
 
 	let {
 		schema = $bindable(),
 		hiddenArgs = [],
+		lockedArgs = [],
 		args = $bindable(undefined),
 		shouldHideNoInputs = false,
 		noVariablePicker = false,
@@ -119,8 +126,11 @@
 		runButton,
 		extraTab,
 		schemaFormClassName = undefined,
-		onChange = undefined
+		onChange = undefined,
+		workspace = undefined
 	}: Props = $props()
+
+	let ws = $derived(workspace ?? $operatingWorkspace)
 
 	$effect.pre(() => {
 		if (args == undefined) {
@@ -168,6 +178,11 @@
 	let pickForField: string | undefined
 	let itemPicker: ItemPicker | undefined = $state(undefined)
 	let variableEditor: VariableEditor | undefined = $state(undefined)
+
+	watch(
+		() => ws,
+		() => itemPicker?.reloadItems()
+	)
 
 	let keys: string[] = $state(
 		(Array.isArray(schema?.order)
@@ -437,6 +452,7 @@
 							{hiddenArgs}
 							{disableDnd}
 							{onlyMaskPassword}
+							{workspace}
 							bind:args
 							on:click={(e) => {
 								opened = e.detail
@@ -576,6 +592,7 @@
 						>
 							{#if keys.length > 0}
 								{#each keys as argName, i (argName)}
+									{@const locked = lockedArgs.includes(argName)}
 									<div>
 										<!-- svelte-ignore a11y_click_events_have_key_events -->
 										<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -594,7 +611,7 @@
 										>
 											<div class="flex flex-row gap-2 text-sm">
 												{argName}
-												{#if !uiOnly}
+												{#if !uiOnly && !locked}
 													<div onclick={stopPropagation(preventDefault(bubble('click')))}>
 														<Popover placement="bottom-end" closeButton>
 															{#snippet trigger()}
@@ -643,7 +660,7 @@
 												<span class="text-red-500 text-xs"> Required </span>
 											{/if}
 
-											{#if !uiOnly}
+											{#if !uiOnly && !locked}
 												<button
 													class="delete-schema-field-button
 													rounded-full p-1 text-gray-500 bg-white
@@ -682,6 +699,7 @@
 															{isFlowInput}
 															{isAppInput}
 															{showSensitiveToggle}
+															{workspace}
 														>
 															{#snippet typeeditor()}
 																{#if isFlowInput || isAppInput}
@@ -689,6 +707,7 @@
 																		<ToggleButtonGroup
 																			tabListClass="flex-wrap"
 																			class="h-auto"
+																			disabled={lockedArgs.includes(opened ?? '')}
 																			bind:selected={
 																				() => computeSelected(schema.properties[opened ?? '']),
 																				(v) => {
@@ -809,6 +828,7 @@
 
 															{#if isFlowInput || isAppInput}
 																<FlowPropertyEditor
+																	{workspace}
 																	onDrawerClose={() => {
 																		dndType = generateRandomString()
 																	}}
@@ -909,7 +929,7 @@
 		documentationLink="https://www.windmill.dev/docs/core_concepts/variables_and_secrets"
 		extraField="path"
 		loadItems={async () =>
-			(await VariableService.listVariable({ workspace: $workspaceStore ?? '' })).map((x) => ({
+			(await VariableService.listVariable({ workspace: ws ?? '' })).map((x) => ({
 				name: x.path,
 				...x
 			}))}
@@ -928,7 +948,7 @@
 		{/snippet}
 	</ItemPicker>
 
-	<VariableEditor bind:this={variableEditor} />
+	<VariableEditor bind:this={variableEditor} workspace={ws} />
 {/if}
 
 <style>

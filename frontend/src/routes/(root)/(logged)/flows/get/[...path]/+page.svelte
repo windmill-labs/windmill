@@ -80,6 +80,7 @@
 	import {
 		buildForkEditUrl,
 		editInForkAllowed,
+		editInForkDescription,
 		editInForkLabel,
 		onEditInForkClick
 	} from '$lib/utils/editInFork'
@@ -301,6 +302,8 @@
 		if (flow && !$userStore?.operator) {
 			buttons.push({
 				label: 'Fork',
+				description: `Start a new flow from a copy of this one`,
+				narrow: { dropdownOf: 'Edit' },
 				buttonProps: {
 					href: `${base}/flows/add?template=${flow.path}`,
 					variant: 'subtle',
@@ -319,6 +322,8 @@
 		) {
 			buttons.push({
 				label: editInForkLabel($workspaceStore, $userWorkspaces),
+				description: editInForkDescription('flow', $workspaceStore, $userWorkspaces),
+				narrow: { dropdownOf: 'Edit' },
 				buttonProps: {
 					href: buildForkEditUrl('flow', flow.path),
 					onClick: (e: Event | undefined) =>
@@ -346,6 +351,7 @@
 
 		buttons.push({
 			label: `History`,
+			narrow: 'menu',
 			buttonProps: {
 				onClick: () => flowHistory?.open(),
 				unifiedSize: 'md',
@@ -361,6 +367,7 @@
 		if (!$userStore?.operator) {
 			buttons.push({
 				label: 'Build app',
+				narrow: 'menu',
 				buttonProps: {
 					onClick: async () => {
 						const app = createRawAppFromFlow(flow.path, flow.summary, flow.schema)
@@ -484,6 +491,7 @@
 	let stepDetail: FlowModule | string | undefined = $state(undefined)
 	let rightPaneSelected = $state('saved_inputs')
 	let savedInputsV2: SavedInputsV2 | undefined = $state(undefined)
+	let detailLayout: DetailPageLayout | undefined = $state(undefined)
 	let flowHistory: FlowHistory | undefined = $state(undefined)
 	let path = $derived(page.params.path ?? '')
 
@@ -522,15 +530,6 @@
 	let showEditButtons = $state(false)
 	let mainButtons = $derived(getMainButtons(flow, args))
 	let chatInputEnabled = $derived(flow?.value?.chat_input_enabled ?? false)
-	let shouldUseStreaming = $derived.by(() => {
-		const modules = flow?.value?.modules
-		const lastModule = modules && modules.length > 0 ? modules[modules.length - 1] : undefined
-		return (
-			lastModule?.value?.type === 'aiagent' &&
-			lastModule?.value?.input_transforms?.streaming?.type === 'static' &&
-			lastModule?.value?.input_transforms?.streaming?.value === true
-		)
-	})
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -548,6 +547,7 @@
 {/if}
 
 <DetailPageLayout
+	bind:this={detailLayout}
 	bind:selected={rightPaneSelected}
 	isOperator={$userStore?.operator}
 	forceSmallScreen={chatInputEnabled}
@@ -562,7 +562,7 @@
 	{#snippet header()}
 		<DetailPageHeader
 			on:seeTriggers={() => {
-				rightPaneSelected = 'triggers'
+				detailLayout?.showTriggers()
 			}}
 			{mainButtons}
 			menuItems={getMenuItems(flow, deployUiSettings)}
@@ -598,7 +598,7 @@
 					isFlow
 					selected={rightPaneSelected == 'triggers'}
 					onSelect={async (triggerIndex: number) => {
-						rightPaneSelected = 'triggers'
+						detailLayout?.showTriggers()
 						await tick()
 						triggersState.selectedTriggerIndex = triggerIndex
 					}}
@@ -629,7 +629,7 @@
 			{/if}
 		</DetailPageHeader>
 	{/snippet}
-	{#snippet form()}
+	{#snippet form({ graphInline }: { graphInline: boolean })}
 		<div class="px-3">
 			<NoDirectDeployAlert onUpdateCanEditStatus={(v) => (showEditButtons = v)} />
 		</div>
@@ -639,63 +639,74 @@
 					<div
 						class={twMerge(
 							'w-full flex flex-col',
-							chatInputEnabled ? 'p-3 h-full' : 'max-w-3xl p-6 min-h-[300px] justify-center',
+							chatInputEnabled ? 'h-full min-h-0' : 'max-w-3xl p-6 min-h-[300px] justify-center',
 							'mx-auto'
 						)}
 					>
-						{#if flow?.path}
-							<CiTestResults path={flow.path} kind="flow" />
-						{/if}
+						<!-- The chat reaches the edges of the pane, so the notices above it carry their
+						     own padding. `contents` leaves the form layout exactly as it was. -->
+						<!-- Top spacing hangs off the first notice, not the wrapper: `{#if}` leaves a
+						     comment anchor behind, so an empty wrapper is not `:empty` and its own
+						     padding would show as a gap above a chat with nothing to announce. -->
+						<div
+							class={chatInputEnabled ? 'flex flex-col px-3 [&>*:first-child]:mt-3' : 'contents'}
+						>
+							{#if flow?.path}
+								<CiTestResults path={flow.path} kind="flow" />
+							{/if}
 
-						{#if flow?.archived}
-							<Alert type="error" title="Archived">This flow was archived</Alert>
-							<div class="h-4"></div>
-						{/if}
+							{#if flow?.archived}
+								<Alert type="error" title="Archived">This flow was archived</Alert>
+								<div class="h-4"></div>
+							{/if}
 
-						{#if pinnedVersion !== undefined}
-							<Alert type="info" title="Viewing pinned version {pinnedVersion}">
-								This is a historical version of the flow, not the latest.
-								<a class="underline" href="/flows/get/{path}?workspace={$workspaceStore}">
-									View latest
-								</a>
-							</Alert>
-							<div class="h-4"></div>
-						{/if}
+							{#if pinnedVersion !== undefined}
+								<Alert type="info" title="Viewing pinned version {pinnedVersion}">
+									This is a historical version of the flow, not the latest.
+									<a class="underline" href="/flows/get/{path}?workspace={$workspaceStore}">
+										View latest
+									</a>
+								</Alert>
+								<div class="h-4"></div>
+							{/if}
 
-						{#if !emptyString(flow?.description)}
-							<div class="p-4 rounded-md bg-surface-secondary">
-								<GfmMarkdown
-									md={defaultIfEmptyString(flow?.description, 'No description')}
-									noPadding
-								/>
-							</div>
-							<div class="h-4"></div>
-						{/if}
+							<!-- In chat mode the description belongs to the chat, which shows it under the
+							     empty transcript. -->
+							{#if !chatInputEnabled && !emptyString(flow?.description)}
+								<div class="p-4 rounded-md bg-surface-secondary">
+									<GfmMarkdown
+										md={defaultIfEmptyString(flow?.description, 'No description')}
+										noPadding
+									/>
+								</div>
+								<div class="h-4"></div>
+							{/if}
 
-						{#if deploymentInProgress}
-							<div class="pb-4" transition:slide={{ duration: 150 }}>
-								<HeaderBadge color="yellow">
-									<Loader2 size={12} class="inline animate-spin mr-1" />
-									Deployment in progress
-									{#if deploymentJobId}
-										<a
-											href="/run/{deploymentJobId}?workspace={$workspaceStore}"
-											class="underline"
-											target="_blank">view job</a
-										>
-									{/if}
-								</HeaderBadge>
-							</div>
-						{/if}
-						{#if flow.lock_error_logs && flow.lock_error_logs != ''}
-							<Alert type="error" title="Deployment failed">
-								<p>
-									This flow has not been deployed successfully because of the following errors:
-								</p>
-								<LogViewer content={flow.lock_error_logs} isLoading={false} tag={undefined} />
-							</Alert>
-							<div class="h-4"></div>
-						{/if}
+							{#if deploymentInProgress}
+								<div class="pb-4" transition:slide={{ duration: 150 }}>
+									<HeaderBadge color="yellow">
+										<Loader2 size={12} class="inline animate-spin mr-1" />
+										Deployment in progress
+										{#if deploymentJobId}
+											<a
+												href="/run/{deploymentJobId}?workspace={$workspaceStore}"
+												class="underline"
+												target="_blank">view job</a
+											>
+										{/if}
+									</HeaderBadge>
+								</div>
+							{/if}
+							{#if flow.lock_error_logs && flow.lock_error_logs != ''}
+								<Alert type="error" title="Deployment failed">
+									<p>
+										This flow has not been deployed successfully because of the following errors:
+									</p>
+									<LogViewer content={flow.lock_error_logs} isLoading={false} tag={undefined} />
+								</Alert>
+								<div class="h-4"></div>
+							{/if}
+						</div>
 
 						{#if chatInputEnabled}
 							<!-- Chat Layout with Sidebar -->
@@ -703,8 +714,11 @@
 								onRunFlow={runFlowForChat}
 								{deploymentInProgress}
 								path={flow?.path ?? ''}
-								useStreaming={shouldUseStreaming}
+								description={flow?.description}
 								inputSchema={flow?.schema}
+								flowModules={flow?.value?.modules}
+								wideLayout
+								frame="none"
 							/>
 						{:else}
 							{@const hasSchema =
@@ -732,9 +746,6 @@
 													rightTooltip: 'Fill args from JSON'
 												}}
 												lightMode
-												on:change={(e) => {
-													runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
-												}}
 											/>
 										{/if}
 									</div>
@@ -777,7 +788,7 @@
 						{/if}
 					</div>
 				</div>
-				{#if !chatInputEnabled}
+				{#if graphInline}
 					<div class="grow min-h-0">
 						<FlowGraphViewer
 							triggerNode={true}
@@ -795,7 +806,7 @@
 								}
 							}}
 							on:triggerDetail={(e) => {
-								rightPaneSelected = 'triggers'
+								detailLayout?.showTriggers()
 							}}
 							noBorder={true}
 						/>
@@ -817,16 +828,16 @@
 				const nargs = JSON.parse(JSON.stringify(e.detail))
 				args = nargs
 				if (jsonView) {
-					runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
+					runForm?.syncJsonEditor()
 				}
 			}}
 		/>
 	{/snippet}
 
-	{#snippet flow_step()}
+	{#snippet flow_step({ onBack }: { onBack?: () => void })}
 		{#if flow}
 			{#if stepDetail}
-				<FlowGraphViewerStep schema={flow.schema} {stepDetail} />
+				<FlowGraphViewerStep schema={flow.schema} {stepDetail} {onBack} />
 			{/if}
 		{/if}
 	{/snippet}
@@ -855,7 +866,7 @@
 					triggerNode={true}
 					download
 					{flow}
-					noSide={false}
+					noSide={true}
 					noBorder
 					minHeight={flowGraphHeight}
 					on:select={(e) => {
@@ -868,7 +879,7 @@
 						}
 					}}
 					on:triggerDetail={(e) => {
-						rightPaneSelected = 'triggers'
+						detailLayout?.showTriggers()
 					}}
 				/>
 			</div>

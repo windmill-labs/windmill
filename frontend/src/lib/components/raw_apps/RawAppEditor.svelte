@@ -14,10 +14,10 @@
 
 	// import { addWmillClient } from './utils'
 	import RawAppBackgroundRunner from './RawAppBackgroundRunner.svelte'
-	import { workspaceStore } from '$lib/stores'
-	import { setRawAppOperatingWorkspace } from './rawAppWorkspace'
+	import { setOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 	import {
+		WMILL_TS_PATH,
 		genWmillTs,
 		normalizeRawAppRuntimeLogs,
 		type Runnable,
@@ -72,6 +72,10 @@
 		DEFAULT_DATA
 	} from './dataTableRefUtils'
 	import { randomUUID } from '$lib/utils/uuid'
+	import { editorFontSize } from '$lib/editorFontSize.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		files?: Record<string, string>
@@ -101,8 +105,16 @@
 			| undefined
 		diffDrawer?: DiffDrawer | undefined
 		onNavigate?: (item: import('$lib/components/workspacePicker').WorkspaceItem) => void
-		/** Fired after a successful deploy; the session preview reloads on it. */
-		onDeploy?: (e: { path: string }) => void
+		/** Fired after a successful deploy; the session preview reloads on it and the route
+		 *  re-pins the draft's fork base. `version` is what this deploy wrote and `head`
+		 *  what is deployed now: the two differ when another deploy landed beside it. */
+		onDeploy?: (e: {
+			path: string
+			version?: number
+			head?: number
+			headBy?: string
+			headAt?: string
+		}) => void
 		/** Initial collapsed state for the file/runnable sidebar. The user's
 		 * toggled preference is persisted under `sidebarStorageKey`; this prop
 		 * only seeds the very first open. */
@@ -130,6 +142,16 @@
 		pendingDraftPath?: string | undefined
 		// Threaded to the AutosaveIndicator's "Reset to deployed" button.
 		onResetToDeployed?: () => void | Promise<void>
+		/** The app_version the draft forked from, for the deploy-time "new version
+		 *  deployed" guard: deploying is refused with a confirmation while it is not
+		 *  the head. The head at load when the draft's base is unknown; undefined for
+		 *  a draft-only app. */
+		version?: number | undefined
+		/** Moves the draft's base to the deployed head and keeps its content;
+		 *  offered in the diff drawer while the draft is behind. */
+		onTakeLatest?: (head?: string) => void | Promise<void>
+		/** The app_version the draft forked from, threaded to the topbar's diff drawer. */
+		draftBaseVersion?: string | undefined
 		// See ScriptBuilderProps — same indicator semantics.
 		loadedFromDraft?: boolean
 		othersDraftsCount?: number
@@ -201,17 +223,18 @@
 		onScreenshotRequester = undefined,
 		onRestore,
 		onSavedNewAppPath,
-		condensedHeader = false
+		condensedHeader = false,
+		version = undefined,
+		onTakeLatest = undefined,
+		draftBaseVersion = undefined
 	}: Props = $props()
-	export const version: number | undefined = undefined
 
 	// Workspace this editor operates on: the session's acting workspace when
 	// embedded in a session preview (autosaveWorkspace), else the navigation
-	// workspace. Deploy/save/background-runner must target it, not $workspaceStore.
-	const opWorkspace = $derived(autosaveWorkspace ?? $workspaceStore)
-	// Expose it to the sidebar sub-components (inline scripts, datatable/shared-UI
-	// drawers, DB selector) so their lookups target the app's workspace too.
-	setRawAppOperatingWorkspace(() => opWorkspace)
+	// workspace. Deploy/save/background-runner must target it, not the navigation one.
+	const opWorkspace = $derived(autosaveWorkspace ?? $operatingWorkspace)
+	// Everything under the editor acts on it too (see operatingWorkspace.svelte.ts).
+	setOperatingWorkspace(() => opWorkspace)
 
 	// The path autosaves land on, which is what the session preview loads the app by.
 	const draftStoragePath = $derived(autosavePath ?? liveEditorDraftStoragePath)
@@ -246,6 +269,12 @@
 	// in the sidebar to be handed a prop. A raw app has no addressable sub-editor,
 	// so the preview just opens the app.
 	setOpenInSessionHandoff({ source: () => sessionOpen })
+
+	let header: RawAppEditorHeader | undefined = $state(undefined)
+	/** The Deployed↔Current diff, for the route's stale-draft prompt. */
+	export function openDiffDrawer() {
+		return header?.openDiffDrawer()
+	}
 
 	/** Hand this app off to a fresh AI session, seeding `seedPrompt` and sending
 	 * it on arrival. Exposed for the template picker's "Start in AI session": the
@@ -518,27 +547,66 @@
 		)
 	}
 
+	// What the editor area shows. Every selection is something it can display, so
+	// each one has a tab.
+	type EditorSelection =
+		| { kind: 'file'; path: string }
+		| { kind: 'runnable'; key: string }
+		| { kind: 'preview' }
+
+	function selectionOfTab(id: string): EditorSelection {
+		if (id.startsWith(FILE_PREFIX)) return { kind: 'file', path: id.slice(FILE_PREFIX.length) }
+		if (id.startsWith(RUNNABLE_PREFIX))
+			return { kind: 'runnable', key: id.slice(RUNNABLE_PREFIX.length) }
+		return { kind: 'preview' }
+	}
+
+	// The only writer of `activeTabId`, `selectedRunnable` and `selectedDocument`.
+	// Everything switches through here, so the three can't disagree: one left
+	// stale marks two sidebar rows selected, or leaves a tab over an empty pane.
+	function select(next: EditorSelection, opts?: { force?: boolean; notifyIframe?: boolean }): void {
+		if (next.kind === 'preview') {
+			// In split mode Preview is always shown on the right, so selecting it is
+			// a no-op (would collapse the left pane). `force` lets closeTab fall back
+			// to it.
+			if (!opts?.force && splitWithPreview) return
+			activeTabId = PREVIEW_TAB_ID
+			selectedRunnable = undefined
+			selectedDocument = undefined
+			return
+		}
+		if (next.kind === 'file') {
+			activeTabId = ensureFileTab(next.path)
+			selectedRunnable = undefined
+			selectedDocument = next.path
+			if (opts?.notifyIframe !== false) openInIframe(next.path)
+			return
+		}
+		activeTabId = ensureRunnableTab(next.key)
+		selectedDocument = undefined
+		selectedRunnable = next.key
+	}
+
 	function activateTab(id: string, opts?: { force?: boolean }) {
-		const tab = tabs.find((t) => t.id === id)
-		if (!tab) return
-		// In split mode Preview is always shown on the right, so clicking it is a
-		// no-op (would collapse the left pane). `force` lets closeTab fall back to it.
-		if (!opts?.force && splitWithPreview && id === PREVIEW_TAB_ID) return
-		activeTabId = id
-		if (tab.id === PREVIEW_TAB_ID) {
-			selectedRunnable = undefined
-		} else if (tab.id.startsWith(FILE_PREFIX)) {
-			const filePath = tab.id.slice(FILE_PREFIX.length)
-			selectedRunnable = undefined
-			// `populateFiles` reads this on iframe load, so set it even if the
-			// iframe isn't ready yet (the postMessage below is then skipped).
-			selectedDocument = filePath
-			if (iframeLoaded) {
-				iframe?.contentWindow?.postMessage({ type: 'selectFile', path: filePath }, '*')
-			}
-		} else if (tab.id.startsWith(RUNNABLE_PREFIX)) {
-			const key = tab.id.slice(RUNNABLE_PREFIX.length)
-			if (selectedRunnable !== key) selectedRunnable = key
+		if (!tabs.some((t) => t.id === id)) return
+		select(selectionOfTab(id), opts)
+	}
+
+	// Closing the tab moves the selection off the runnable in the same tick. The
+	// stale-tab effect would get there too, but a frame later — long enough for
+	// the pane to render "No runnable at id …".
+	function deleteRunnable(key: string) {
+		delete runnables[key]
+		closeTab(runnableTabId(key))
+	}
+
+	// Ask the UI Builder iframe to open a document. `populateFiles` replays
+	// `iframeDocument` on iframe load, so record it even when the iframe isn't
+	// ready yet (the postMessage is then skipped).
+	function openInIframe(path: string) {
+		iframeDocument = path
+		if (iframeLoaded) {
+			iframe?.contentWindow?.postMessage({ type: 'selectFile', path }, '*')
 		}
 	}
 
@@ -584,10 +652,6 @@
 		const tab = tabs[idx]
 		if (!tab || tab.closable === false) return
 		const wasActive = activeTabId === id
-		// Clear selection before removal so the cleanup $effect doesn't recreate it.
-		if (wasActive && tab.id.startsWith(RUNNABLE_PREFIX)) {
-			selectedRunnable = undefined
-		}
 		tabs = tabs.filter((t) => t.id !== id)
 		if (wasActive) {
 			// Fall back to the previous tab (force, in case it's Preview in split).
@@ -617,7 +681,7 @@
 				.slice()
 				.reverse()
 				.find((t) => t.id !== PREVIEW_TAB_ID)
-			if (lastUserTab) activeTabId = lastUserTab.id
+			if (lastUserTab) activateTab(lastUserTab.id)
 		}
 		splitWithPreview = true
 	}
@@ -768,6 +832,13 @@
 		)
 	}
 
+	// `wmill.ts` is generated inside the iframe from `populateRunnables`' dts: the
+	// sidebar lists it and the iframe can open it, but it is never a key of `files`.
+	// Every "does this document exist?" test has to allow for that.
+	function isOpenableDocument(path: string) {
+		return path === WMILL_TS_PATH || (files ?? {})[path] !== undefined
+	}
+
 	function populateFiles() {
 		if (files) {
 			suppressSetActiveDocument = true
@@ -776,10 +847,13 @@
 				suppressSetActiveDocument = false
 				suppressTimer = undefined
 			}, 500)
-			const doc = untrack(() => selectedDocument)
-			if (doc) {
+			const doc = untrack(() => iframeDocument)
+			if (doc !== undefined && isOpenableDocument(doc)) {
 				setFilesAndSelectInIframe(files, doc)
 			} else {
+				// Deleted or renamed away since we last told the iframe to open it;
+				// asking for a path that no longer exists errors in VS Code.
+				iframeDocument = undefined
 				setFilesInIframe(files)
 			}
 		}
@@ -798,6 +872,7 @@
 	}
 
 	function setFilesAndSelectInIframe(newFiles: Record<string, string>, pathToSelect: string) {
+		iframeDocument = pathToSelect
 		const files = Object.fromEntries(
 			Object.entries(newFiles).filter(([path, _]) => !path.endsWith('/'))
 		)
@@ -919,8 +994,8 @@
 					files = {}
 				}
 				files[path] = content
-				selectedDocument = path
-				// Use combined setFilesAndSelect to avoid race condition
+				// Combined setFilesAndSelect avoids a race, so let it do the telling.
+				select({ kind: 'file', path }, { notifyIframe: false })
 				setFilesAndSelectInIframe(files, path)
 				return lint()
 			},
@@ -988,7 +1063,7 @@
 				populateRunnables()
 
 				// Switch UI to show this runnable so Monaco can analyze it
-				selectedRunnable = key
+				select({ kind: 'runnable', key })
 
 				// Wait 2 seconds for Monaco to analyze the code
 				await new Promise((resolve) => setTimeout(resolve, 1000))
@@ -1134,8 +1209,13 @@
 			}
 		})
 	})
+	// Write these through `select` only.
 	let selectedRunnable: string | undefined = $state(undefined)
 	let selectedDocument: string | undefined = $state(undefined)
+	// The document the UI Builder iframe has open. Tracks the selection while a
+	// file is selected, but outlives switching to a runnable or Preview so a
+	// reload reopens what the user was editing.
+	let iframeDocument: string | undefined = $state(undefined)
 	let inspectorElement: InspectorElementInfo | undefined = $state(undefined)
 	let codeSelection: AppCodeSelectionElement | undefined = $state(undefined)
 
@@ -1292,24 +1372,18 @@
 		} else if (e.data.type === 'setActiveDocument') {
 			if (suppressSetActiveDocument) return
 			// Normalize Windows-style path separators to Linux-style
-			selectedDocument = e.data.path?.replace(/\\/g, '/')
-			// If VS Code switched to a file we don't have a tab for (e.g. via
-			// the file explorer's reveal-in-editor, or our own auto-open of
-			// the main app file at boot), backfill a tab.
-			if (selectedDocument) {
-				const id = fileTabId(selectedDocument)
-				if (!tabs.some((t) => t.id === id)) {
-					ensureFileTab(selectedDocument)
-					// Don't auto-activate — the user's tab choice wins.
-					// But if no file tab is currently active, fall in line.
-					// Skip this auto-activation in single-view-with-preview
-					// mode (the caller seeded `defaultSplitWithPreview=false`
-					// because Preview is the intended starting tab); the
-					// iframe's first setActiveDocument shouldn't fight that.
-					if (splitWithPreview && activeTabKind === 'preview' && tabs.length === 2) {
-						activateTab(id)
-					}
-				}
+			const activePath: string | undefined = e.data.path?.replace(/\\/g, '/')
+			if (!activePath) return
+			iframeDocument = activePath
+			// Follow VS Code's document only while the iframe is the visible surface
+			// (behind a runnable tab it must not steal the selection), plus at boot
+			// in split mode where no file tab exists yet. `notifyIframe: false`
+			// keeps us from echoing the move back at it.
+			const bootIntoFirstFile = splitWithPreview && activeTabKind === 'preview' && tabs.length === 1
+			if (activeTabKind === 'file' || bootIntoFirstFile) {
+				select({ kind: 'file', path: activePath }, { notifyIframe: false })
+			} else {
+				ensureFileTab(activePath)
 			}
 		} else if (e.data.type === 'editorSelection') {
 			// Handle code selection from the iframe editor
@@ -1885,20 +1959,6 @@
 		if (opWorkspace) params.set('workspace', opWorkspace)
 		return `/ui_builder/index.html?${params}`
 	}
-	// Host's computed `text-xs` size in px. Windmill bumps :root to 18px at
-	// ≥1760px viewports, so this re-evaluates on resize via the listener below.
-	let editorFontSize = $state(12)
-	function recomputeEditorFontSize() {
-		const rootPx = parseFloat(getComputedStyle(document.documentElement).fontSize)
-		// text-xs is 0.75rem
-		editorFontSize = rootPx * 0.75
-	}
-	$effect(() => {
-		recomputeEditorFontSize()
-		const onResize = () => recomputeEditorFontSize()
-		window.addEventListener('resize', onResize)
-		return () => window.removeEventListener('resize', onResize)
-	})
 	$effect(() => {
 		iframe?.addEventListener('load', () => {
 			iframeLoaded = true
@@ -1950,7 +2010,7 @@
 	$effect(() => {
 		// Match VS Code's editor font size to Windmill's text-xs.
 		if (iframe && iframeLoaded) {
-			iframe.contentWindow?.postMessage({ type: 'setFontSize', px: editorFontSize }, '*')
+			iframe.contentWindow?.postMessage({ type: 'setFontSize', px: editorFontSize.regular }, '*')
 		}
 	})
 	$effect(() => {
@@ -1988,11 +2048,13 @@
 		previewIframe?.contentWindow?.postMessage({ type: 'inspectorClear' }, '*')
 	}
 
-	function handleSelectFile(path: string) {
-		// Adding the tab activates it; activateTab posts the selectFile message
-		// to the UI Builder iframe and clears any selected runnable.
-		const id = ensureFileTab(path)
-		activateTab(id)
+	// Folders aren't selectable in the tree, so this only ever gets files — except
+	// for '' when the last file is deleted, where the tab cleanup picks the
+	// fallback selection instead. The trailing-slash guard keeps that true if a
+	// future `FileExplorer` caller feeds folder paths back in.
+	function handleSelectPath(path: string) {
+		if (!path || path.endsWith('/')) return
+		select({ kind: 'file', path })
 	}
 
 	// Track previous values for change detection
@@ -2011,19 +2073,6 @@
 		}
 	})
 
-	// Mirror sidebar runnable selection into the tab system. When the user
-	// picks a runnable from the sidebar, `selectedRunnable` flips via
-	// `bind:selectedRunnable`; ensure a tab for it exists and is active.
-	$effect(() => {
-		const key = selectedRunnable
-		if (!key) return
-		const id = runnableTabId(key)
-		untrack(() => {
-			if (!tabs.some((t) => t.id === id)) ensureRunnableTab(key)
-			if (activeTabId !== id) activeTabId = id
-		})
-	})
-
 	// Open a default file on mount (boots the iframe in split mode and gives
 	// the user something to edit on the left). When the caller seeded
 	// `defaultSplitWithPreview=false` we instead want the Preview tab as the
@@ -2034,21 +2083,21 @@
 		if (!splitWithPreview) return
 		if (tabs.length === 1) {
 			const def = pickDefaultFile(files)
-			if (def) activateTab(ensureFileTab(def))
+			if (def) select({ kind: 'file', path: def })
 		}
 	})
 
-	// Drop tabs whose file/runnable no longer exists.
+	// Drop tabs whose file/runnable no longer exists. Enumerate the keys: reading
+	// only the `$state` proxy misses a `delete runnables[id]`, which is exactly
+	// how a runnable disappears from the sidebar.
 	$effect(() => {
-		void files
-		void runnables
+		void Object.keys(files ?? {})
+		void Object.keys(runnables ?? {})
 		untrack(() => {
-			const filesSet = files ?? {}
 			const runnablesSet = runnables ?? {}
 			const stale = tabs.filter((t) => {
 				if (t.id.startsWith(FILE_PREFIX)) {
-					const fp = t.id.slice(FILE_PREFIX.length)
-					return filesSet[fp] === undefined
+					return !isOpenableDocument(t.id.slice(FILE_PREFIX.length))
 				}
 				if (t.id.startsWith(RUNNABLE_PREFIX)) {
 					const k = t.id.slice(RUNNABLE_PREFIX.length)
@@ -2104,10 +2153,10 @@
 			summary = entry.summary
 			data = structuredClone($state.snapshot(entry.data))
 
-			// If there's a selected document that exists in the new files, use the combined message
-			if (selectedDocument && entry.files[selectedDocument] !== undefined) {
+			// If the open document survives into the new files, use the combined message
+			if (iframeDocument && isOpenableDocument(iframeDocument)) {
 				// Use combined setFilesAndSelect message to avoid race condition
-				setFilesAndSelectInIframe(entry.files, selectedDocument)
+				setFilesAndSelectInIframe(entry.files, iframeDocument)
 			} else {
 				// Otherwise just set files normally
 				setFilesInIframe(entry.files)
@@ -2250,11 +2299,15 @@
 />
 <div bind:clientWidth={rootWidth} class="max-h-full overflow-hidden h-full min-h-0 flex flex-col">
 	<RawAppEditorHeader
+		bind:this={header}
 		bind:jobs
 		bind:jobsById
 		bind:savedApp
 		bind:summary
 		bind:pendingDraftPath
+		{version}
+		{onTakeLatest}
+		{draftBaseVersion}
 		{onRestore}
 		{onSavedNewAppPath}
 		{policy}
@@ -2312,9 +2365,11 @@
 								setFilesInIframe(newFiles ?? {})
 							}
 						}
-						onSelectFile={handleSelectFile}
-						bind:selectedRunnable
-						bind:selectedDocument
+						onSelectPath={handleSelectPath}
+						onSelectRunnable={(key) => select({ kind: 'runnable', key })}
+						onDeleteRunnable={deleteRunnable}
+						{selectedRunnable}
+						{selectedDocument}
 						dataTableRefs={dataTableRefsObjects}
 						onDataTableRefsChange={(newRefs) => {
 							data.tables = newRefs.map(formatDataTableRef)

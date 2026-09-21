@@ -78,15 +78,48 @@ impl Default for OutputType {
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum Memory {
     Off,
-    Auto {
-        #[serde(default)]
+    Window {
+        #[serde(default, deserialize_with = "deserialize_null_as_zero")]
         context_length: usize,
-        #[serde(default)]
+    },
+    /// Written before `window`. Its `memory_id` stays a fallback behind the run's memory id.
+    Auto {
+        #[serde(default, deserialize_with = "deserialize_null_as_zero")]
+        context_length: usize,
+        #[serde(default, deserialize_with = "deserialize_blank_as_none")]
         memory_id: Option<Uuid>,
     },
+    /// Written before a step had history inputs of its own, and read on its own where it remains.
     Manual {
         messages: Vec<OpenAIMessage>,
     },
+}
+
+// An editor form can leave `""` in a legacy baked id it never filled; it means no id rather than
+// failing every run of the step.
+fn deserialize_blank_as_none<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Uuid>, D::Error> {
+    match <Option<String> as serde::Deserialize>::deserialize(deserializer)? {
+        Some(id) if !id.trim().is_empty() => Uuid::parse_str(id.trim())
+            .map(Some)
+            .map_err(serde::de::Error::custom),
+        _ => Ok(None),
+    }
+}
+
+// A count the editor's number field was cleared of is stored as `null`, which `default` does not
+// cover; it reads as 0, memory off, rather than failing every run of the step.
+fn deserialize_null_as_zero<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<usize, D::Error> {
+    <Option<usize> as serde::Deserialize>::deserialize(deserializer).map(Option::unwrap_or_default)
+}
+
+fn deserialize_present<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<serde_json::Value>, D::Error> {
+    <serde_json::Value as serde::Deserialize>::deserialize(deserializer).map(Some)
 }
 
 #[derive(Deserialize)]
@@ -103,6 +136,13 @@ struct AIAgentArgsRaw {
     streaming: Option<bool>,
     max_iterations: Option<usize>,
     memory: Option<Memory>,
+    // A null must stay distinguishable from an absent key: a step whose own memory id evaluates to
+    // nothing runs stateless instead of falling back to the run's memory id.
+    #[serde(default, deserialize_with = "deserialize_present")]
+    memory_id: Option<serde_json::Value>,
+    #[serde(default)]
+    previous_messages: Option<Vec<OpenAIMessage>>,
+    enabled_tools: Option<Vec<String>>,
     // Legacy field for backward compatibility
     messages_context_length: Option<usize>,
     #[serde(default)]
@@ -123,6 +163,13 @@ pub struct AIAgentArgs {
     pub streaming: Option<bool>,
     pub max_iterations: Option<usize>,
     pub memory: Option<Memory>,
+    /// Memory id set on the step, overriding the run's. Empty when its expression produced none.
+    pub memory_id: Option<String>,
+    /// History supplied by the flow, replayed without reading or writing memory.
+    pub previous_messages: Option<Vec<OpenAIMessage>>,
+    /// Which of the agent's tools this run may call; `narrow_roster` holds what the names are and
+    /// what `None` means.
+    pub enabled_tools: Option<Vec<String>>,
     pub credentials_check: bool,
 }
 
@@ -135,12 +182,17 @@ impl From<AIAgentArgsRaw> for AIAgentArgs {
         });
 
         // Backward compatibility: if context_length is 0, use off mode
-        let memory = memory.map(|memory| {
-            if let Memory::Auto { context_length: 0, .. } = memory {
+        let memory = memory.map(|memory| match memory {
+            Memory::Auto { context_length: 0, .. } | Memory::Window { context_length: 0 } => {
                 Memory::Off
-            } else {
-                memory
             }
+            memory => memory,
+        });
+
+        let memory_id = raw.memory_id.map(|value| match value {
+            serde_json::Value::Null => String::new(),
+            serde_json::Value::String(s) => s.trim().to_string(),
+            value => value.to_string(),
         });
 
         AIAgentArgs {
@@ -155,6 +207,9 @@ impl From<AIAgentArgsRaw> for AIAgentArgs {
             streaming: raw.streaming,
             max_iterations: raw.max_iterations,
             memory,
+            memory_id,
+            previous_messages: raw.previous_messages,
+            enabled_tools: raw.enabled_tools,
             credentials_check: raw.credentials_check.unwrap_or(false),
         }
     }
@@ -369,6 +424,12 @@ pub struct AIAgentResult<'a> {
     pub messages: Vec<Message<'a>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wm_stream: Option<String>,
+    /// The model's thinking across every iteration of the loop, in order, blank-line
+    /// separated. Present whenever the provider's parser surfaced any, whether or not
+    /// the step streams, so a downstream step never has to pick it out of `wm_stream`.
+    /// Absent when the model thought nothing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<TokenUsage>,
 }

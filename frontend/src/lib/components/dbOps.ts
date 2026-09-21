@@ -14,6 +14,7 @@ import { WorkspaceService } from '$lib/gen'
 import { pendingMigrations } from './workspaceSettings/datatableMigrationUtils'
 import {
 	buildTableEditorValues,
+	type TableEditorForeignKey,
 	type TableEditorValues
 } from './apps/components/display/dbtable/tableEditor'
 import { type AlterTableValues } from './apps/components/display/dbtable/queries/alterTable'
@@ -250,6 +251,10 @@ export type IDbSchemaOps = {
 		schema?: string
 		colDefs: TableMetadata
 	}) => Promise<TableEditorValues>
+	onFetchForeignKeys: (params: {
+		table: string
+		schema?: string
+	}) => Promise<TableEditorForeignKey[]>
 }
 
 /** Thrown by a schema op when the user declines the out-of-order run warning.
@@ -396,6 +401,48 @@ export function dbSchemaOpsWithPreviewScripts({
 		}
 	}
 
+	/** Resolves to [] when the database has no foreign key introspection
+	 * (BigQuery) or the query fails: callers treat foreign keys as optional. */
+	async function fetchForeignKeys({
+		table,
+		schema
+	}: {
+		table: string
+		schema?: string
+	}): Promise<TableEditorForeignKey[]> {
+		if (dbType === 'bigquery') return []
+		try {
+			const fkContent = makeMarker('FOREIGN_KEYS', { table, schema })
+			const fkResult = await runScriptAndPollResult({
+				workspace,
+				requestBody: { args: dbArg, content: fkContent, language, tag }
+			})
+
+			let rawForeignKeys: RawForeignKey[]
+			if (dbType === 'snowflake') {
+				rawForeignKeys = transformSnowflakeForeignKeys(fkResult as any[])
+			} else {
+				rawForeignKeys = fkResult as RawForeignKey[]
+				if (rawForeignKeys && Array.isArray(rawForeignKeys)) {
+					rawForeignKeys = rawForeignKeys.map((fk) => {
+						const lowerFk: any = {}
+						Object.keys(fk).forEach((key) => {
+							lowerFk[key.toLowerCase()] = fk[key]
+						})
+						return lowerFk
+					})
+				}
+			}
+
+			if (rawForeignKeys && Array.isArray(rawForeignKeys)) {
+				return transformForeignKeys(rawForeignKeys)
+			}
+		} catch (e) {
+			console.warn('Failed to fetch foreign keys:', e)
+		}
+		return []
+	}
+
 	return {
 		onDelete: async ({ tableKey, schema }) => {
 			const content = makeMarker('DROP_TABLE', { table: tableKey, schema })
@@ -454,43 +501,10 @@ export function dbSchemaOpsWithPreviewScripts({
 			const downContent = makeMarker('CREATE_SCHEMA', { schema })
 			await applyDdl(migrationName('drop_schema', schema), content, downContent)
 		},
+		onFetchForeignKeys: fetchForeignKeys,
 		onFetchTableEditorDefinition: async ({ table, schema, colDefs }) => {
-			let foreignKeys: import('./apps/components/display/dbtable/tableEditor').TableEditorForeignKey[] =
-				[]
+			const foreignKeys = await fetchForeignKeys({ table, schema })
 			let pk_constraint_name: string | undefined
-
-			// Fetch foreign keys (not supported for BigQuery)
-			if (dbType !== 'bigquery') {
-				try {
-					const fkContent = makeMarker('FOREIGN_KEYS', { table, schema })
-					const fkResult = await runScriptAndPollResult({
-						workspace,
-						requestBody: { args: dbArg, content: fkContent, language, tag }
-					})
-
-					let rawForeignKeys: RawForeignKey[]
-					if (dbType === 'snowflake') {
-						rawForeignKeys = transformSnowflakeForeignKeys(fkResult as any[])
-					} else {
-						rawForeignKeys = fkResult as RawForeignKey[]
-						if (rawForeignKeys && Array.isArray(rawForeignKeys)) {
-							rawForeignKeys = rawForeignKeys.map((fk) => {
-								const lowerFk: any = {}
-								Object.keys(fk).forEach((key) => {
-									lowerFk[key.toLowerCase()] = fk[key]
-								})
-								return lowerFk
-							})
-						}
-					}
-
-					if (rawForeignKeys && Array.isArray(rawForeignKeys)) {
-						foreignKeys = transformForeignKeys(rawForeignKeys)
-					}
-				} catch (e) {
-					console.warn('Failed to fetch foreign keys:', e)
-				}
-			}
 
 			// Fetch primary key constraint name (not supported for BigQuery/MySQL)
 			if (dbType !== 'bigquery' && dbType !== 'mysql') {

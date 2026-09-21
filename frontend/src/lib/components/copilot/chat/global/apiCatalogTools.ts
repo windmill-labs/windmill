@@ -32,10 +32,17 @@ const COVERED_ENDPOINTS: Record<string, string> = {
 		'read_workspace_item (reads your draft when one exists; pass version: "deployed" for the deployed state)',
 	getSchedule:
 		'read_workspace_item (reads your draft when one exists; pass version: "deployed" for the deployed state)',
+	// getAppByPath returns the entire app source — every file, every runnable's
+	// script, lock and schema — where read_workspace_item returns paths and sizes.
+	getAppByPath:
+		'read_workspace_item (app metadata only; read_app_file for contents. Reads your draft when one exists; pass version: "deployed" for the deployed state)',
+	listApps: 'list_workspace_items (it includes your drafts)',
 	listScripts: 'list_workspace_items (it includes your drafts)',
 	listFlows: 'list_workspace_items (it includes your drafts)',
 	listResource: 'list_workspace_items (it includes your drafts)',
 	listSchedules: 'list_workspace_items (it includes your drafts)',
+	runScriptByPath: 'run_script (it shows the user an argument form to confirm)',
+	runFlowByPath: 'run_flow (it shows the user an argument form to confirm)',
 	deleteScriptByPath: 'delete_workspace_item',
 	deleteScriptByHash: 'delete_workspace_item',
 	deleteFlowByPath: 'delete_workspace_item',
@@ -56,7 +63,10 @@ const COVERED_ENDPOINTS: Record<string, string> = {
 	searchDocs: 'search_docs',
 	readDocsPage: 'read_docs_page',
 	listJobs: 'list_runs',
-	getJobLogs: 'get_job_logs',
+	listWorkers: 'list_workers',
+	listDataMetrics: 'list_data_metrics',
+	getJob: 'get_run',
+	getJobLogs: 'get_run',
 	runScriptPreviewAndWaitResult: 'test_run_script'
 }
 
@@ -228,7 +238,7 @@ const searchApiEndpointsSchema = z.object({
 	query: z
 		.string()
 		.describe(
-			'Keywords matched against endpoint names, paths, and descriptions (e.g. "workers", "queue", "run flow"). Jobs are called "runs" in the UI.'
+			'Keywords matched against endpoint names, paths, and descriptions (e.g. "queue", "run flow", "audit log"). Jobs are called "runs" in the UI.'
 		)
 })
 
@@ -261,7 +271,7 @@ export const apiCatalogTools: Tool<{}>[] = [
 		def: createToolDef(
 			searchApiEndpointsSchema,
 			'search_api_endpoints',
-			'Search the Windmill REST API endpoint catalog for operations no dedicated tool covers (workers, queue state, job details, running deployed items, deletions, ...). Returns endpoint names to pass to call_api_get or call_api_endpoint.'
+			'Search the Windmill REST API endpoint catalog for operations no dedicated tool covers (queue state, job details, running deployed items, deletions, ...). Returns endpoint names to pass to call_api_get or call_api_endpoint.'
 		),
 		planModeSafe: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {

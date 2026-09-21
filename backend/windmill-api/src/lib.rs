@@ -66,7 +66,14 @@ use crate::scim_oss::has_scim_token;
 use windmill_common::error::AppError;
 
 mod ai;
-mod ai_skills;
+#[cfg(feature = "private")]
+mod ai_free_tier_ee;
+mod ai_free_tier_oss;
+#[cfg(feature = "parquet")]
+mod ai_sessions;
+#[cfg(feature = "parquet")]
+pub use ai_sessions::sweep_expired_ai_session_backups;
+mod ai_shared_artifacts;
 mod apps;
 mod apps_raw_bundle;
 pub use apps::invalidate_app_policy_cache;
@@ -78,6 +85,7 @@ pub mod azure_proxy_ee;
 mod azure_proxy_oss;
 mod capture;
 mod concurrency_groups;
+mod csrf;
 mod db;
 mod db_health;
 mod dbt;
@@ -376,6 +384,7 @@ async fn inject_agent_authed(
                 token_prefix: None,
                 read_only: false,
                 job_id: None,
+                credential_expiry: None,
             },
             job_id: None,
         });
@@ -450,15 +459,15 @@ pub async fn run_server(
     // unless they are allowed — hence a separate layer rather than widening the
     // one every other route shares. (`Mcp-Param-*` is only sent for tool inputs
     // annotated with `x-mcp-header`, which no tool here declares.)
+    //
+    // The request's own header list is mirrored rather than enumerated: a browser
+    // MCP client may send any custom name for a preprocessor to read, and no fixed
+    // list could cover them. Nothing is granted by echoing it: the origin is
+    // `Any`, so browsers never attach credentials, and the endpoint authenticates
+    // each request on its own.
     let mcp_cors = CorsLayer::new()
         .allow_methods([http::Method::GET, http::Method::POST, http::Method::DELETE])
-        .allow_headers([
-            http::header::CONTENT_TYPE,
-            http::header::AUTHORIZATION,
-            http::HeaderName::from_static("mcp-protocol-version"),
-            http::HeaderName::from_static("mcp-method"),
-            http::HeaderName::from_static("mcp-name"),
-        ])
+        .allow_headers(tower_http::cors::AllowHeaders::mirror_request())
         // The 401 challenge is how a client discovers where to authorize (RFC 9728),
         // and it is not a safelisted response header, so without this a browser
         // client sees an empty one and has no way to begin the OAuth flow.
@@ -551,7 +560,7 @@ pub async fn run_server(
         if server_mode || mcp_mode {
             use mcp::{
                 add_www_authenticate_header, add_www_authenticate_header_gateway,
-                extract_workspace_from_token,
+                extract_workspace_from_token, reject_token_query_param,
             };
             let (mcp_router, mcp_cancellation_token) = setup_mcp_server(
                 db.clone(),
@@ -564,15 +573,17 @@ pub async fn run_server(
             let workspaced_mcp_router = mcp_router
                 .clone()
                 .route_layer(from_extractor::<ApiAuthed>())
+                .layer(axum::middleware::from_fn(reject_token_query_param))
                 .layer(axum::middleware::from_fn(add_www_authenticate_header))
                 .layer(axum::middleware::from_fn(extract_and_store_workspace_id));
             // Gateway MCP router — resolves workspace from token
             let gateway_mcp_router = mcp_router
                 .route_layer(from_extractor::<ApiAuthed>())
+                .layer(axum::middleware::from_fn(extract_workspace_from_token))
+                .layer(axum::middleware::from_fn(reject_token_query_param))
                 .layer(axum::middleware::from_fn(
                     add_www_authenticate_header_gateway,
-                ))
-                .layer(axum::middleware::from_fn(extract_workspace_from_token));
+                ));
             (
                 workspaced_mcp_router,
                 gateway_mcp_router,
@@ -655,9 +666,13 @@ pub async fn run_server(
                             "/workspace_dependencies",
                             workspace_dependencies::workspaced_service(),
                         )
+                        // CORS so a chat UI on another origin (an external site, or
+                        // a sandboxed raw app with its frontend SDK token) can read
+                        // its conversation history. Bearer-only, like variables.
                         .nest(
                             "/flow_conversations",
-                            windmill_api_flow_conversations::workspaced_service(),
+                            windmill_api_flow_conversations::workspaced_service()
+                                .layer(cors.clone()),
                         )
                         // CORS so an opaque-origin app iframe (WIN-2006 embed,
                         // no separate domain) can read folders/listnames with a
@@ -710,7 +725,6 @@ pub async fn run_server(
                             Router::new()
                         })
                         .nest("/ai", ai::workspaced_service())
-                        .nest("/ai_skills", ai_skills::workspaced_service())
                         .nest("/npm_proxy", windmill_api_npm_proxy::workspaced_service())
                         .nest(
                             "/path_autocomplete",
@@ -952,6 +966,15 @@ pub async fn run_server(
                     #[cfg(feature = "enterprise")]
                     {
                         git_sync_oss::global_service()
+                    }
+
+                    #[cfg(not(feature = "enterprise"))]
+                    Router::new()
+                })
+                .nest("/w/{workspace_id}/git_sync", {
+                    #[cfg(feature = "enterprise")]
+                    {
+                        git_sync_oss::workspaced_git_sync_service()
                     }
 
                     #[cfg(not(feature = "enterprise"))]

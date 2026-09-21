@@ -1,0 +1,593 @@
+//! The nativets `fetch()` response timeout.
+//!
+//! Two halves of one contract, and a fix that satisfies only the first is worse
+//! than no fix:
+//!
+//!   1. a peer that accepts a request and never answers is given up on
+//!   2. a response that has begun arriving is never cut off, however long it
+//!      takes in total
+//!
+//! (2) rules out the obvious implementation — `AbortSignal.timeout(N)` around
+//! every fetch would satisfy (1) and break every streaming response and long
+//! download.
+//!
+//! Hermetic: loopback listeners, no egress.
+
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
+use tokio::sync::Mutex;
+
+use windmill_runtime_nativets::{transpile_ts, NativeAnnotation, PrewarmedIsolate};
+
+/// The annotation is in whole seconds, so the tests scale around this.
+const TIMEOUT_SECS: u64 = 2;
+
+async fn run_with_timeout_secs(ts: &str, secs: u64) -> Result<String, String> {
+    let js = transpile_ts(ts.to_string()).expect("transpile_ts failed");
+    let ann =
+        NativeAnnotation { fetch_response_timeout_secs: Some(secs), ..NativeAnnotation::default() };
+    let mut iso = PrewarmedIsolate::spawn(String::new(), js, ann, vec![], None);
+    iso.wait_ready().await.expect("isolate failed to pre-warm");
+    let res = iso
+        .start_execution("{}".to_string())
+        .wait()
+        .await
+        .expect("isolate panicked");
+    res.result.map(|raw| raw.get().to_string())
+}
+
+/// A peer that reads the request and then answers nothing, closing only after
+/// `close_after` so no test leaves an isolate wedged on a pending fetch.
+///
+/// The socket is held rather than dropped on accept: dropping it sends a FIN,
+/// which surfaces as a connection error — the easy failure, not this one.
+async fn spawn_silent_peer(seen: Arc<Mutex<Vec<u8>>>, close_after: Duration) -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        while let Ok((mut sock, _)) = listener.accept().await {
+            let seen = seen.clone();
+            tokio::spawn(async move {
+                let mut buf = [0u8; 8192];
+                if let Ok(n) = sock.read(&mut buf).await {
+                    seen.lock().await.extend_from_slice(&buf[..n]);
+                }
+                tokio::time::sleep(close_after).await;
+                drop(sock);
+            });
+        }
+    });
+    port
+}
+
+/// A peer that records the request it received and answers 200 immediately.
+async fn spawn_echo_peer(seen: Arc<Mutex<Vec<u8>>>) -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        while let Ok((mut sock, _)) = listener.accept().await {
+            let seen = seen.clone();
+            tokio::spawn(async move {
+                let mut buf = [0u8; 8192];
+                if let Ok(n) = sock.read(&mut buf).await {
+                    seen.lock().await.extend_from_slice(&buf[..n]);
+                }
+                let _ = sock
+                    .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
+                    .await;
+            });
+        }
+    });
+    port
+}
+
+/// A peer that responds after `headers_after`, then dribbles a chunked body out
+/// over `chunks * chunk_every`.
+async fn spawn_streaming_peer(
+    headers_after: Duration,
+    chunks: usize,
+    chunk_every: Duration,
+) -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        while let Ok((mut sock, _)) = listener.accept().await {
+            tokio::spawn(async move {
+                let mut buf = [0u8; 8192];
+                let _ = sock.read(&mut buf).await;
+                tokio::time::sleep(headers_after).await;
+                if sock
+                    .write_all(
+                        b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nTransfer-Encoding: chunked\r\n\r\n",
+                    )
+                    .await
+                    .is_err()
+                {
+                    return;
+                }
+                for _ in 0..chunks {
+                    tokio::time::sleep(chunk_every).await;
+                    if sock.write_all(b"1\r\nx\r\n").await.is_err() {
+                        return;
+                    }
+                }
+                let _ = sock.write_all(b"0\r\n\r\n").await;
+            });
+        }
+    });
+    port
+}
+
+const POST_TO_SILENT_PEER: &str = r#"
+export async function main(): Promise<number> {
+    const res = await fetch("http://127.0.0.1:{port}/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: 1 }),
+    });
+    return res.status;
+}
+"#;
+
+fn post_script(port: u16) -> String {
+    POST_TO_SILENT_PEER.replace("{port}", &port.to_string())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_peer_that_never_answers_is_given_up_on() {
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let port = spawn_silent_peer(seen.clone(), Duration::from_secs(60)).await;
+
+    let started = Instant::now();
+    let err = run_with_timeout_secs(&post_script(port), TIMEOUT_SECS)
+        .await
+        .expect_err("fetch against a peer that never answers must not resolve");
+    let elapsed = started.elapsed();
+
+    assert!(
+        elapsed >= Duration::from_secs(TIMEOUT_SECS),
+        "gave up after {elapsed:?}, before the configured {TIMEOUT_SECS}s -- \
+         the timeout is firing on something other than the wait for a response",
+    );
+    assert!(
+        elapsed < Duration::from_secs(TIMEOUT_SECS + 15),
+        "took {elapsed:?} to give up",
+    );
+
+    // The message has to stand on its own in a job log: a hung request is
+    // otherwise indistinguishable from a slow one.
+    assert!(
+        err.contains("no response headers arrived within"),
+        "error should explain what timed out, got: {err}",
+    );
+    assert!(
+        err.contains("/orders") && err.contains("fetch_response_timeout"),
+        "error should name the target and how to change the limit, got: {err}",
+    );
+
+    // Without this the test would also pass if the request never went out.
+    let body = String::from_utf8_lossy(&seen.lock().await.clone()).to_string();
+    assert!(
+        body.contains("POST /orders"),
+        "peer should have received the request, got: {body}",
+    );
+}
+
+/// The counterfactual for the test above: with the timeout disabled, the same
+/// script against the same peer is still running well past the point the
+/// timeout would have fired.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn without_a_timeout_the_same_request_keeps_running() {
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    // Closes eventually, so the isolate unwinds instead of pinning a blocking
+    // task for the rest of the test binary's life.
+    let port = spawn_silent_peer(seen, Duration::from_secs(TIMEOUT_SECS * 3)).await;
+
+    let still_running = tokio::time::timeout(
+        Duration::from_secs(TIMEOUT_SECS * 2),
+        run_with_timeout_secs(&post_script(port), 0),
+    )
+    .await
+    .is_err();
+
+    assert!(
+        still_running,
+        "with the timeout disabled the request should still have been pending \
+         at {}s -- if it ends on its own, the test above proves nothing",
+        TIMEOUT_SECS * 2,
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_streaming_body_outliving_the_timeout_is_not_cut_off() {
+    // Headers land fast, then the body trickles well past the timeout. A
+    // total-duration timeout fails here; that is the point of the test.
+    let port =
+        spawn_streaming_peer(Duration::from_millis(200), 10, Duration::from_millis(500)).await;
+
+    let ts = format!(
+        r#"
+export async function main(): Promise<string> {{
+    const res = await fetch("http://127.0.0.1:{port}/stream");
+    return `${{res.status}}:${{(await res.text()).length}}`;
+}}
+"#
+    );
+
+    let started = Instant::now();
+    let out = run_with_timeout_secs(&ts, TIMEOUT_SECS)
+        .await
+        .expect("a streaming response must not be interrupted");
+    let elapsed = started.elapsed();
+
+    assert_eq!(out, "\"200:10\"", "full body should arrive intact");
+    assert!(
+        elapsed > Duration::from_secs(TIMEOUT_SECS),
+        "the transfer ({elapsed:?}) has to outlast the {TIMEOUT_SECS}s timeout \
+         for this to be exercising anything",
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_slow_but_answering_peer_is_not_cut_off() {
+    // A quarter of the window rather than half: CI runs this at
+    // --test-threads=10 alongside other V8 isolates, and this margin is what
+    // absorbs executor starvation.
+    let port = spawn_streaming_peer(
+        Duration::from_millis(1_000 * TIMEOUT_SECS / 4),
+        1,
+        Duration::from_millis(10),
+    )
+    .await;
+
+    let ts = format!(
+        r#"
+export async function main(): Promise<number> {{
+    const res = await fetch("http://127.0.0.1:{port}/slow");
+    await res.text();
+    return res.status;
+}}
+"#
+    );
+
+    let out = run_with_timeout_secs(&ts, TIMEOUT_SECS)
+        .await
+        .expect("a slow but answering peer must not be cut off");
+    assert_eq!(out, "200");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_over_large_timeout_does_not_wrap_into_an_instant_one() {
+    // deno_web's setTimeout puts its delay through `webidl.converters.long`,
+    // which wraps at 32 bits. Unclamped, this ~46-day setting wraps negative and
+    // aborts immediately -- asking for a longer leash would kill every fetch.
+    let port = spawn_streaming_peer(Duration::from_millis(50), 1, Duration::from_millis(10)).await;
+
+    let ts = format!(
+        r#"
+export async function main(): Promise<number> {{
+    const res = await fetch("http://127.0.0.1:{port}/ok");
+    await res.text();
+    return res.status;
+}}
+"#
+    );
+
+    let out = run_with_timeout_secs(&ts, 4_000_000)
+        .await
+        .expect("an over-large timeout must not abort the request");
+    assert_eq!(out, "200");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_caller_abort_still_wins_with_its_own_reason() {
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let port = spawn_silent_peer(seen, Duration::from_secs(60)).await;
+
+    let ts = format!(
+        r#"
+export async function main(): Promise<string> {{
+    const ac = new AbortController();
+    setTimeout(() => ac.abort(new Error("caller_abort_marker")), 200);
+    try {{
+        await fetch("http://127.0.0.1:{port}/probe", {{ signal: ac.signal }});
+        return "unexpectedly resolved";
+    }} catch (e) {{
+        return String((e as Error).message);
+    }}
+}}
+"#
+    );
+
+    let out = run_with_timeout_secs(&ts, TIMEOUT_SECS)
+        .await
+        .expect("script should catch its own abort");
+    assert!(
+        out.contains("caller_abort_marker"),
+        "caller's abort reason should survive being combined with ours, got: {out}",
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_timeout_is_catchable_as_a_timeout_error() {
+    // Scripts that retry on transient failures need to recognise this one;
+    // `TimeoutError` matches AbortSignal.timeout()'s reason.
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let port = spawn_silent_peer(seen, Duration::from_secs(60)).await;
+
+    let ts = format!(
+        r#"
+export async function main(): Promise<string> {{
+    try {{
+        await fetch("http://127.0.0.1:{port}/probe");
+        return "unexpectedly resolved";
+    }} catch (e) {{
+        return (e as Error).name;
+    }}
+}}
+"#
+    );
+
+    let out = run_with_timeout_secs(&ts, TIMEOUT_SECS)
+        .await
+        .expect("script should catch the timeout");
+    assert_eq!(out, "\"TimeoutError\"");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_init_whose_members_are_inherited_is_not_flattened() {
+    // RequestInit is a WebIDL dictionary and deno_fetch reads its members with
+    // plain property gets, so they may sit on the prototype chain or be
+    // non-enumerable. Object spread copies neither, which would silently
+    // downgrade this POST to a GET and drop the header.
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let port = spawn_echo_peer(seen.clone()).await;
+
+    let ts = format!(
+        r#"
+declare const Object: any;
+export async function main(): Promise<number> {{
+    const base = {{ method: "POST", headers: {{ "x-probe": "yes" }} }};
+    const res = await fetch("http://127.0.0.1:{port}/inherited", Object.create(base));
+    return res.status;
+}}
+"#
+    );
+
+    let out = run_with_timeout_secs(&ts, TIMEOUT_SECS)
+        .await
+        .expect("request should succeed");
+    assert_eq!(out, "200");
+
+    let body = String::from_utf8_lossy(&seen.lock().await.clone()).to_string();
+    assert!(
+        body.starts_with("POST /inherited"),
+        "inherited `method` should survive, got: {body}",
+    );
+    assert!(
+        body.to_lowercase().contains("x-probe: yes"),
+        "inherited `headers` should survive, got: {body}",
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_non_dictionary_init_still_fails_loudly() {
+    // deno's dictionary converter throws on a non-object init. Copying members
+    // into a fresh object instead of inheriting would turn `"POST"` into
+    // {0:"P",1:"O",...} -- a valid dictionary with ignored keys, i.e. a silent
+    // GET where the caller used to get a TypeError.
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let port = spawn_echo_peer(seen).await;
+
+    let ts = format!(
+        r#"
+export async function main(): Promise<string> {{
+    try {{
+        await fetch("http://127.0.0.1:{port}/x", "POST" as any);
+        return "unexpectedly resolved";
+    }} catch (e) {{
+        return (e as Error).name;
+    }}
+}}
+"#
+    );
+
+    let out = run_with_timeout_secs(&ts, TIMEOUT_SECS)
+        .await
+        .expect("script should catch the error");
+    assert_eq!(out, "\"TypeError\"");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_accessor_backed_init_reads_against_its_own_receiver() {
+    // A getter on the init must run with the object it was defined on as `this`,
+    // or a private field is unreachable and it throws. Carrying the init across
+    // by inheritance rather than by handing it to Request would break this.
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let port = spawn_echo_peer(seen.clone()).await;
+
+    let ts = format!(
+        r#"
+class Init {{
+    #method = "POST";
+    #body = "from-private-field";
+    get method(): string {{ return this.#method; }}
+    get body(): string {{ return this.#body; }}
+}}
+export async function main(): Promise<number> {{
+    const res = await fetch("http://127.0.0.1:{port}/accessor", new Init() as any);
+    return res.status;
+}}
+"#
+    );
+
+    let out = run_with_timeout_secs(&ts, TIMEOUT_SECS)
+        .await
+        .expect("an accessor-backed init must not throw");
+    assert_eq!(out, "200");
+
+    let body = String::from_utf8_lossy(&seen.lock().await.clone()).to_string();
+    assert!(
+        body.starts_with("POST /accessor") && body.contains("from-private-field"),
+        "getter-provided method and body should both reach the wire, got: {body}",
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_request_input_keeps_its_body_and_headers() {
+    // The wrapper builds a Request and hands that to fetch, so the body survives
+    // one more construction than it used to -- deno proxies it rather than
+    // consuming it, and this pins that.
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let port = spawn_echo_peer(seen.clone()).await;
+
+    let ts = format!(
+        r#"
+export async function main(): Promise<number> {{
+    const req = new Request("http://127.0.0.1:{port}/from-request", {{
+        method: "PUT",
+        headers: {{ "x-probe": "yes" }},
+        body: "payload-body",
+    }});
+    const res = await fetch(req);
+    return res.status;
+}}
+"#
+    );
+
+    let out = run_with_timeout_secs(&ts, TIMEOUT_SECS)
+        .await
+        .expect("a Request input must work");
+    assert_eq!(out, "200");
+
+    let body = String::from_utf8_lossy(&seen.lock().await.clone()).to_string();
+    assert!(
+        body.starts_with("PUT /from-request")
+            && body.to_lowercase().contains("x-probe: yes")
+            && body.contains("payload-body"),
+        "method, headers and body should all survive, got: {body}",
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_already_aborted_fetch_settles_in_the_same_tick() {
+    // deno_fetch keeps its outer fetch non-async and returns an already-settled
+    // rejection untouched, because WPT pins that an aborted fetch settles in the
+    // same tick. Adopting it through another promise pushes the rejection behind
+    // any microtask queued after the call.
+    let ts = r#"
+export async function main(): Promise<string> {
+    const order: string[] = [];
+    const ac = new AbortController();
+    ac.abort();
+    const f = fetch("http://127.0.0.1:1/x", { signal: ac.signal })
+        .catch(() => { order.push("fetch"); });
+    Promise.resolve().then(() => { order.push("queued-after"); });
+    await f;
+    await new Promise<void>((r) => setTimeout(r, 0));
+    return order.join(",");
+}
+"#;
+
+    let out = run_with_timeout_secs(ts, TIMEOUT_SECS)
+        .await
+        .expect("script should run");
+    assert_eq!(
+        out, "\"fetch,queued-after\"",
+        "the rejection must land before a microtask queued after the call",
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_wrapper_keeps_fetch_s_own_shape() {
+    // The wrapper is indistinguishable from deno's fetch on three counts a
+    // script can observe: its arity, the error for an empty call, and not
+    // depending on a mutable `Promise.prototype.then` the way an ordinary
+    // property lookup would.
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let port = spawn_echo_peer(seen).await;
+
+    let ts = format!(
+        r#"
+declare const Promise: any;
+declare const AbortSignal: any;
+declare const AbortController: any;
+export async function main(): Promise<string> {{
+    const arity = (fetch as any).length;
+
+    // The message, not just the type: forwarding two explicit `undefined`s
+    // would still throw a TypeError, just deno's invalid-URL one instead of
+    // its required-argument one.
+    let emptyCall = "resolved";
+    try {{
+        await (fetch as any)();
+    }} catch (e) {{
+        emptyCall = (e as Error).message.includes("1 argument required")
+            ? "required-argument"
+            : `other(${{(e as Error).message}})`;
+    }}
+
+    // Patched only across the call: the wrapper reaches for these while
+    // building its return value, and awaiting under a patched Promise
+    // prototype would instead measure V8 treating it as a plain thenable.
+    const originalThen = Promise.prototype.then;
+    const originalAny = AbortSignal.any;
+    const originalAbort = AbortController.prototype.abort;
+    let pending: any;
+    try {{
+        Promise.prototype.then = undefined;
+        (AbortSignal as any).any = undefined;
+        (AbortController.prototype as any).abort = undefined;
+        pending = fetch("http://127.0.0.1:{port}/shape");
+    }} finally {{
+        Promise.prototype.then = originalThen;
+        (AbortSignal as any).any = originalAny;
+        (AbortController.prototype as any).abort = originalAbort;
+    }}
+    const status = (await pending).status;
+
+    return `${{arity}}:${{emptyCall}}:${{status}}`;
+}}
+"#
+    );
+
+    let out = run_with_timeout_secs(&ts, TIMEOUT_SECS)
+        .await
+        .expect("script should run");
+    assert_eq!(out, "\"1:required-argument:200\"");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_timer_aborts_through_a_captured_intrinsic() {
+    // The timeout has to fire for this one: `AbortController.prototype.abort`
+    // is patched out for the whole wait, so an ordinary lookup would throw
+    // inside the timer callback and leave the request pending forever.
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let port = spawn_silent_peer(seen, Duration::from_secs(TIMEOUT_SECS * 5)).await;
+
+    let ts = format!(
+        r#"
+declare const AbortController: any;
+export async function main(): Promise<string> {{
+    const originalAbort = AbortController.prototype.abort;
+    AbortController.prototype.abort = undefined;
+    try {{
+        await fetch("http://127.0.0.1:{port}/patched-abort");
+        return "unexpectedly resolved";
+    }} catch (e) {{
+        return (e as Error).name;
+    }} finally {{
+        AbortController.prototype.abort = originalAbort;
+    }}
+}}
+"#
+    );
+
+    let out = run_with_timeout_secs(&ts, TIMEOUT_SECS)
+        .await
+        .expect("the timeout must still fire");
+    assert_eq!(out, "\"TimeoutError\"");
+}

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Alert } from '$lib/components/common'
 	import { getContext, setContext } from 'svelte'
+	import { watch } from 'runed'
 	import type { PropPickerWrapperContext } from '../propPicker/PropPickerWrapper.svelte'
 	import { writable } from 'svelte/store'
 	import type { FlowEditorContext } from '../types'
@@ -13,7 +14,9 @@
 	import ItemPicker from '$lib/components/ItemPicker.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import { VariableService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		noEditor: boolean
@@ -33,7 +36,7 @@
 	let { noEditor }: Props = $props()
 
 	const { flowStore, opWorkspace } = getContext<FlowEditorContext>('FlowEditorContext')
-	let opWs = $derived(opWorkspace?.() ?? $workspaceStore)
+	let opWs = $derived(opWorkspace?.() ?? $operatingWorkspace)
 
 	if (!flowStore.val.value.flow_env) {
 		flowStore.val.value.flow_env = {}
@@ -228,6 +231,11 @@
 
 	let variablePicker: ItemPicker | undefined = $state(undefined)
 	let pickForKey: string | undefined = $state(undefined)
+
+	watch(
+		() => opWs,
+		() => variablePicker?.reloadItems()
+	)
 
 	setContext<PropPickerWrapperContext>('PropPickerWrapper', {
 		inputMatches: writable(undefined),

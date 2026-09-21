@@ -26,6 +26,7 @@
 		className?: string
 		dndType?: string
 		lightHeaderFont?: boolean
+		workspace?: string | undefined
 	}
 
 	let {
@@ -46,7 +47,8 @@
 		noVariablePicker = false,
 		className = '',
 		dndType = generateRandomString(),
-		lightHeaderFont
+		lightHeaderFont,
+		workspace = undefined
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -155,6 +157,7 @@
 	bind:isValid
 	{noVariablePicker}
 	{lightHeaderFont}
+	{workspace}
 >
 	{#snippet actions()}
 		{#if !disableDnd}

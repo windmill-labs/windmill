@@ -2,7 +2,6 @@
 	import { Drawer, DrawerContent, Button, ClearableInput } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { DataMetricService, type DataMetric } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { SvelteSet } from 'svelte/reactivity'
 	import {
 		attachAliasFor,
@@ -16,6 +15,9 @@
 	import { Copy, Play } from 'lucide-svelte'
 	import SqlRepl from '$lib/components/SqlRepl.svelte'
 	import SimpleAgTable from '$lib/components/SimpleAgTable.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	let {
 		getCode,
@@ -27,7 +29,7 @@
 		workspace?: string
 	} = $props()
 
-	let ws = $derived(workspace ?? $workspaceStore)
+	let ws = $derived(workspace ?? $operatingWorkspace)
 
 	let drawer: Drawer | undefined = $state()
 	let entries = $state<DataMetric[]>([])

@@ -10,7 +10,10 @@
 //! management, and the workspace-merge diff helper. Split out of `workspaces.rs`
 //! to keep that file focused on core workspace configuration.
 
-use crate::workspaces::{pg_dump_database, ItemComparison};
+use crate::workspaces::{
+    is_instance_datatable, pg_dump_database, strip_unreplayable_dump_lines, ItemComparison,
+    PgDumpOptions,
+};
 
 use axum::{
     extract::{Extension, Path, Query},
@@ -27,6 +30,7 @@ use windmill_api_auth::{require_super_admin, ApiAuthed};
 use windmill_api_jobs::run_wait_result_internal;
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
+use windmill_common::datatable_roles::ADMIN_DATATABLE_ROLE;
 use windmill_common::db::UserDB;
 use windmill_common::error::{pg_error_message, Error, JsonResult, Result};
 use windmill_common::jobs::{JobPayload, RawCode};
@@ -35,7 +39,11 @@ use windmill_common::runnable_settings::{ConcurrencySettingsWithCustom, Debounci
 use windmill_common::scripts::ScriptLang;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::worker::to_raw_value;
-use windmill_common::workspaces::get_datatable_resource_from_db_unchecked;
+use windmill_common::worker::SqlAnnotations;
+use windmill_common::workspaces::{
+    ensure_can_use_datatable_role, ensure_datatable_admin_access,
+    get_datatable_resource_from_db_unchecked, resolve_governing_datatable, DatatableAccess,
+};
 use windmill_common::{PgDatabase, DB};
 use windmill_git_sync::{
     handle_deployment_metadata, handle_deployment_metadata_batch, DeployedObject,
@@ -83,6 +91,42 @@ pub(crate) fn routes() -> Router {
         )
 }
 
+/// Refuse a migration whose role this caller may not use, before a job is pushed or a version
+/// recorded.
+///
+/// A migration that declares `-- role <name>` runs as that role, so the caller has to be one of its
+/// tenants. One that declares none runs as `admin` and reaches every object in the database
+/// whatever the roles grant, so it is for the admins of the workspace that governs the data table
+/// — a fork can run a migration under a role it holds, never a migration under `admin`.
+///
+/// The executor re-checks the role when it resolves the connection, so this is not the boundary. It
+/// is what makes the refusal legible: which migration, and which role.
+async fn ensure_migration_role_allowed(
+    db: &DB,
+    w_id: &str,
+    datatable_name: &str,
+    authed: &ApiAuthed,
+    sql: &str,
+    timestamp: i64,
+    name: &str,
+) -> Result<()> {
+    let context = format!("Migration {timestamp} ({name})");
+    let access = DatatableAccess::Authed(authed.to_authed_ref());
+    match SqlAnnotations::datatable_role(sql)? {
+        Some(role) => {
+            ensure_can_use_datatable_role(db, w_id, datatable_name, Some(&role), &access, &context)
+                .await
+        }
+        None => ensure_datatable_admin_access(db, w_id, datatable_name, &access)
+            .await
+            .map_err(|e| {
+                Error::NotAuthorized(format!(
+                    "{context} declares no role, so it would run as admin. {e}"
+                ))
+            }),
+    }
+}
+
 #[derive(Serialize)]
 struct AppliedMigration {
     version: i64,
@@ -125,7 +169,18 @@ async fn datatable_database_arg(
     .await?
     .ok_or_else(|| Error::internal_err(format!("datatable {datatable_name} not found")))?;
 
-    Ok(to_raw_value(&format!("datatable://{datatable_name}")))
+    // `?role=admin` rather than a bare reference, so a migration that declares no `-- role` runs
+    // as the connection that owns the schema instead of falling through to the data table's
+    // default role — which is what `ensure_migration_role_allowed` gated it as, and which is the
+    // only role a DDL statement can be expected to succeed under. A migration that does declare a
+    // role overrides this: the annotation wins over the reference.
+    //
+    // A legacy name containing `?` cannot be migrated through this reference: the appended query
+    // makes it neither an exact name nor a parseable one. Accepted on purpose, since such names can
+    // no longer be created and none are expected to carry migrations.
+    Ok(to_raw_value(&format!(
+        "datatable://{datatable_name}?role={ADMIN_DATATABLE_ROLE}"
+    )))
 }
 
 /// Run a migration's SQL as a normal Windmill `postgresql` job, permissioned as
@@ -381,6 +436,11 @@ async fn run_datatable_migrations(
     Path((w_id, datatable_name)): Path<(String, String)>,
     Query(query): Query<RunDatatableMigrationsQuery>,
 ) -> JsonResult<RunDatatableMigrationsResult> {
+    // Before the admin connection is opened at all: the bookkeeping below is created and read
+    // through it, so a caller no role covers must be refused here rather than after the fact.
+    crate::datatable_permissions::ensure_reaches_datatable(&db, &w_id, &datatable_name, &authed)
+        .await?;
+
     audit_log(
         &db,
         &authed,
@@ -413,6 +473,16 @@ async fn run_datatable_migrations(
 
     let applied_versions = read_applied_versions_on_client(&client, &datatable_name).await?;
 
+    // How the user scoped the run, for the counter emitted on the first migration
+    // that lands below.
+    let scope = if query.only.is_some() {
+        "only"
+    } else if query.up_to.is_some() {
+        "up_to"
+    } else {
+        "all"
+    };
+
     let mut applied = Vec::new();
     for m in migrations {
         if let Some(only) = query.only {
@@ -427,6 +497,16 @@ async fn run_datatable_migrations(
         if applied_versions.contains(&m.timestamp) {
             continue;
         }
+        ensure_migration_role_allowed(
+            &db,
+            &w_id,
+            &datatable_name,
+            &authed,
+            &m.code_up,
+            m.timestamp,
+            &m.name,
+        )
+        .await?;
         run_datatable_migration_job(&db, &user_db, &authed, &w_id, &database_arg, &m.code_up)
             .await
             .map_err(|e| {
@@ -450,6 +530,14 @@ async fn run_datatable_migrations(
                 ))
             })?;
         applied.push(AppliedMigration { version: m.timestamp, name: m.name });
+        // One event per run that moved the data table forward, emitted on the
+        // first migration that lands rather than after the loop: a later one
+        // failing returns early, and that run still advanced the data table. A
+        // run with nothing pending stays uncounted — it is the common outcome of
+        // opening the list and would drown out the runs that did something.
+        if applied.len() == 1 {
+            windmill_common::feature_usage::log_feature_usage("datatable", "migration_run", scope);
+        }
     }
 
     Ok(Json(RunDatatableMigrationsResult { applied }))
@@ -485,6 +573,11 @@ async fn rollback_datatable_migrations(
     Path((w_id, datatable_name)): Path<(String, String)>,
     Query(query): Query<RollbackDatatableMigrationsQuery>,
 ) -> JsonResult<RollbackDatatableMigrationsResult> {
+    // Before the admin connection is opened at all: the bookkeeping below is created and read
+    // through it, so a caller no role covers must be refused here rather than after the fact.
+    crate::datatable_permissions::ensure_reaches_datatable(&db, &w_id, &datatable_name, &authed)
+        .await?;
+
     audit_log(
         &db,
         &authed,
@@ -567,6 +660,17 @@ async fn rollback_datatable_migrations(
         ))
     })?;
 
+    ensure_migration_role_allowed(
+        &db,
+        &w_id,
+        &datatable_name,
+        &authed,
+        &code_down,
+        version,
+        &definition.name,
+    )
+    .await?;
+
     let database_arg = datatable_database_arg(&db, &w_id, &datatable_name).await?;
     run_datatable_migration_job(&db, &user_db, &authed, &w_id, &database_arg, &code_down)
         .await
@@ -590,6 +694,12 @@ async fn rollback_datatable_migrations(
                 pg_error_message(&e)
             ))
         })?;
+
+    windmill_common::feature_usage::log_feature_usage(
+        "datatable",
+        "migration_rollback",
+        if query.only.is_some() { "only" } else { "last" },
+    );
 
     Ok(Json(RollbackDatatableMigrationsResult {
         rolled_back: vec![RolledBackMigration { version, name: definition.name }],
@@ -721,10 +831,15 @@ async fn read_applied_datatable_versions(
 
 /// List a data table's migrations annotated with whether each has been applied.
 async fn datatable_migrations_status(
-    _authed: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, datatable_name)): Path<(String, String)>,
 ) -> JsonResult<DatatableMigrationsStatusResult> {
+    // Reads `_wm_migrations` through the data table's admin connection, so it answers to the same
+    // question as running one: may you reach this data table at all.
+    crate::datatable_permissions::ensure_reaches_datatable(&db, &w_id, &datatable_name, &authed)
+        .await?;
+
     let enabled = datatable_migrations_enabled(&db, &w_id, &datatable_name).await?;
     if !enabled {
         return Ok(Json(DatatableMigrationsStatusResult {
@@ -821,6 +936,8 @@ async fn enable_datatable_migrations(
     )
     .await?;
 
+    windmill_common::feature_usage::log_feature_usage("datatable", "migrations_toggled", "on");
+
     Ok(format!(
         "Enabled migrations for data table {datatable_name}"
     ))
@@ -888,6 +1005,8 @@ async fn disable_datatable_migrations(
         )
         .await?;
     }
+
+    windmill_common::feature_usage::log_feature_usage("datatable", "migrations_toggled", "off");
 
     Ok(format!(
         "Disabled migrations for data table {datatable_name} and deleted its migrations"
@@ -1131,6 +1250,8 @@ async fn create_datatable_migration(
     )
     .await?;
 
+    windmill_common::feature_usage::log_feature_usage("datatable", "migration_created", "manual");
+
     Ok(Json(DatatableMigration {
         datatable: datatable_name,
         timestamp,
@@ -1244,7 +1365,9 @@ async fn upsert_datatable_migration(
     // its SQL, so a later `migrate up` would skip it and a rollback would run a
     // `down` that doesn't correspond to what was applied. Only an actual change
     // to an existing migration is guarded; unchanged re-pushes (e.g.
-    // `wmill sync push`) always proceed.
+    // `wmill sync push`) always proceed, and so does filling in a down migration
+    // that was missing — the up that ran is untouched, and that is the only way
+    // to make an already-applied migration revertable.
     let existing = sqlx::query!(
         "SELECT name, code_up, code_down FROM datatable_migrations \
          WHERE workspace_id = $1 AND datatable = $2 AND timestamp = $3",
@@ -1254,16 +1377,26 @@ async fn upsert_datatable_migration(
     )
     .fetch_optional(&db)
     .await?;
-    // When modifying an existing definition, hold the run-serialization lock
-    // across the applied-check and the write below so an in-flight run can't
-    // record a version for the SQL we're about to overwrite. Held until the end
-    // of the handler (well past the write); a new/unchanged upsert needs no lock.
-    let _run_lock = match existing {
-        Some(existing)
-            if !(existing.name == payload.name
-                && existing.code_up == payload.code_up
-                && existing.code_down == payload.code_down) =>
-        {
+    // When overwriting the SQL of an existing definition, hold the
+    // run-serialization lock across the applied-check and the write below so an
+    // in-flight run can't record a version for the SQL we're about to overwrite.
+    // Held until the end of the handler (well past the write). The exempt
+    // upserts need no lock: a new or unchanged one overwrites nothing, and one
+    // that only adds a down leaves the `code_up` a concurrent run is recording
+    // a version for untouched.
+    let only_adds_down = existing.as_ref().is_some_and(|existing| {
+        existing.name == payload.name
+            && existing.code_up == payload.code_up
+            && existing.code_down.is_none()
+            && payload.code_down.is_some()
+    });
+    let unchanged = existing.as_ref().is_some_and(|existing| {
+        existing.name == payload.name
+            && existing.code_up == payload.code_up
+            && existing.code_down == payload.code_down
+    });
+    let _run_lock = match existing.as_ref() {
+        Some(_) if !only_adds_down && !unchanged => {
             // Fail closed: if we can't lock/read the applied set (e.g. the
             // data-table database is temporarily unreachable), refuse the change
             // rather than risk overwriting a migration that has already run.
@@ -1293,20 +1426,44 @@ async fn upsert_datatable_migration(
         _ => None,
     };
 
-    sqlx::query!(
+    // An exempt upsert judged the row from an unlocked read and then writes
+    // without the lock, so that whole read is re-tested here, where `ON CONFLICT
+    // DO UPDATE` re-reads the row under a row lock. Otherwise a request working
+    // from a stale definition silently reverts whatever changed in between — a
+    // second addition's down, or a locked rewrite of the up whose new SQL a run
+    // may already have recorded a version for. Reading no row at all is part of
+    // the premise: the equality is NULL when `$8` is, so a version created in the
+    // meantime is refused rather than overwritten.
+    let recheck_observed = _run_lock.is_none();
+    let written = sqlx::query!(
         "INSERT INTO datatable_migrations (workspace_id, datatable, timestamp, name, code_up, code_down) \
          VALUES ($1, $2, $3, $4, $5, $6) \
          ON CONFLICT (workspace_id, datatable, timestamp) DO UPDATE \
-         SET name = EXCLUDED.name, code_up = EXCLUDED.code_up, code_down = EXCLUDED.code_down",
+         SET name = EXCLUDED.name, code_up = EXCLUDED.code_up, code_down = EXCLUDED.code_down \
+         WHERE NOT $7 \
+            OR (datatable_migrations.name = $8::text \
+                AND datatable_migrations.code_up = $9::text \
+                AND datatable_migrations.code_down IS NOT DISTINCT FROM $10::text)",
         &w_id,
         &datatable_name,
         payload.timestamp,
         &payload.name,
         &payload.code_up,
         payload.code_down.as_deref(),
+        recheck_observed,
+        existing.as_ref().map(|e| e.name.as_str()),
+        existing.as_ref().map(|e| e.code_up.as_str()),
+        existing.as_ref().and_then(|e| e.code_down.as_deref()),
     )
     .execute(&db)
     .await?;
+    if written.rows_affected() == 0 {
+        return Err(Error::BadRequest(format!(
+            "Migration {} on data table '{}' changed while this change was being saved. \
+             Reload it before editing.",
+            payload.timestamp, datatable_name
+        )));
+    }
     // The definition is written; runs may resume (audit/deploy metadata below
     // don't need the lock).
     drop(_run_lock);
@@ -1332,6 +1489,20 @@ async fn upsert_datatable_migration(
     )
     .await?;
 
+    // An unchanged re-push is not counted: `wmill sync push` sends every migration
+    // on every sync, so counting those would swamp the definitions people write.
+    if !unchanged {
+        windmill_common::feature_usage::log_feature_usage(
+            "datatable",
+            "migration_created",
+            if existing.is_none() {
+                "synced"
+            } else {
+                "edited"
+            },
+        );
+    }
+
     Ok(format!(
         "Upserted migration {} in {}",
         payload.timestamp, datatable_name
@@ -1348,6 +1519,15 @@ async fn generate_initial_datatable_migration(
     Extension(db): Extension<DB>,
     Path((w_id, datatable_name)): Path<(String, String)>,
 ) -> JsonResult<DatatableMigration> {
+    // Returns a `pg_dump` of the whole schema and writes into the data table's own bookkeeping, so
+    // it answers to the workspace that governs it rather than to whoever is asking.
+    ensure_datatable_admin_access(
+        &db,
+        &w_id,
+        &datatable_name,
+        &DatatableAccess::Authed(authed.to_authed_ref()),
+    )
+    .await?;
     validate_datatable_path_segment(&datatable_name)?;
     ensure_datatable_migrations_enabled(&db, &w_id, &datatable_name).await?;
 
@@ -1372,18 +1552,25 @@ async fn generate_initial_datatable_migration(
     let pg_db: PgDatabase = serde_json::from_value(db_resource)
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
 
-    // Snapshot the schema, excluding Windmill's own migration bookkeeping table.
-    let dump_file = pg_dump_database(&pg_db, true, &["_wm_migrations"]).await?;
+    // Snapshot the schema without `_wm_migrations`, Windmill's own bookkeeping table, and
+    // without what a replay elsewhere cannot run: the replaying user owns none of this
+    // database's objects, and the grants Windmill plants in an instance database (`ALTER
+    // DEFAULT PRIVILEGES FOR ROLE ...`) fail even replaying onto the same server.
+    let no_acl = is_instance_datatable(&db, &w_id, &datatable_name).await?;
+    let dump_file = pg_dump_database(
+        &pg_db,
+        PgDumpOptions {
+            schema_only: true,
+            exclude_tables: &["_wm_migrations"],
+            no_owner: true,
+            no_acl,
+        },
+    )
+    .await?;
     let raw_dump = tokio::fs::read_to_string(&dump_file.path)
         .await
         .map_err(|e| Error::internal_err(format!("Failed to read schema dump: {}", e)))?;
-    // pg_dump emits psql meta-commands (\restrict / \unrestrict) that aren't
-    // valid SQL; drop them so the migration body can run via a plain query.
-    let code_up: String = raw_dump
-        .lines()
-        .filter(|line| !line.trim_start().starts_with('\\'))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let code_up = strip_unreplayable_dump_lines(&raw_dump);
 
     // Record the definition first, then mark it installed. If marking fails we
     // delete the definition, so a failure leaves no phantom "initial" (rather
@@ -1430,6 +1617,12 @@ async fn generate_initial_datatable_migration(
         "initial",
     )
     .await?;
+
+    windmill_common::feature_usage::log_feature_usage(
+        "datatable",
+        "migration_created",
+        "initial_snapshot",
+    );
 
     Ok(Json(DatatableMigration {
         datatable: datatable_name,
@@ -1505,9 +1698,21 @@ pub(crate) struct DatatableRename {
     pub(crate) to: String,
 }
 
-async fn resolve_datatable_pg(db: &DB, w_id: &str, datatable: &str) -> Result<PgDatabase> {
+/// The database whose `_wm_migrations` a rename or delete of `datatable` in `w_id` should touch —
+/// `None` when that is somebody else's.
+///
+/// A fork's entry points at the workspace that governs the data table, so renaming or removing it
+/// changes what the fork calls the data table and nothing more. Following the pointer here would
+/// let a fork admin relabel or wipe the *governing* workspace's migration bookkeeping through
+/// their own settings form, and the parent would then re-run every migration from zero.
+async fn resolve_datatable_pg(db: &DB, w_id: &str, datatable: &str) -> Result<Option<PgDatabase>> {
+    let governing = resolve_governing_datatable(db, w_id, datatable).await?;
+    if governing.workspace_id != w_id {
+        return Ok(None);
+    }
     let db_resource = get_datatable_resource_from_db_unchecked(db, w_id, datatable).await?;
     serde_json::from_value(db_resource)
+        .map(Some)
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))
 }
 
@@ -1525,7 +1730,9 @@ fn ignore_missing_wm_migrations(e: tokio_postgres::Error) -> Result<()> {
 
 /// Drop a data table's rows from its own database's `_wm_migrations`.
 async fn remote_forget_datatable_migrations(db: &DB, w_id: &str, datatable: &str) -> Result<()> {
-    let pg_db = resolve_datatable_pg(db, w_id, datatable).await?;
+    let Some(pg_db) = resolve_datatable_pg(db, w_id, datatable).await? else {
+        return Ok(());
+    };
     let (client, connection) = pg_db.connect(Some(db)).await?;
     tokio::spawn(async move {
         let _ = connection.await;
@@ -1550,7 +1757,9 @@ async fn remote_rename_datatable_migrations(
     from: &str,
     to: &str,
 ) -> Result<()> {
-    let pg_db = resolve_datatable_pg(db, w_id, resolve_by).await?;
+    let Some(pg_db) = resolve_datatable_pg(db, w_id, resolve_by).await? else {
+        return Ok(());
+    };
     let (client, connection) = pg_db.connect(Some(db)).await?;
     tokio::spawn(async move {
         let _ = connection.await;

@@ -11,6 +11,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import Button from '../common/button/Button.svelte'
 	import type { FlowCopilotContext } from './flow'
+	import { logStepInputFill } from './stepInputFillTelemetry'
 	import { Check, ExternalLink, Loader2, Wand2 } from 'lucide-svelte'
 	import { stepInputCompletionEnabled } from '$lib/stores'
 	import { copilotInfo } from '$lib/aiStore'
@@ -44,6 +45,7 @@
 		if (Object.keys($generatedExprs || {}).length > 0 || loading) {
 			return
 		}
+		logStepInputFill('all')
 		abortController = new AbortController()
 		loading = true
 		stepInputsLoading?.set(true)
@@ -224,7 +226,7 @@ input_name2: expression2
 				Fill inputs
 			{/if}
 		</Button>
-	{:else}
+	{:else if !$copilotInfo.workspaceDisabled}
 		<Popover
 			floatingConfig={{
 				placement: 'top-end'

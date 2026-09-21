@@ -55,22 +55,18 @@
       "mcp__claude_ai_Gmail__list_drafts"
     ],
     "deny": [
-      "Read(.env)",
-      "Read(.env.*)",
-      "Read(**/.env)",
-      "Read(**/.env.*)",
-      "Read(**/secrets/**)",
-      "Read(**/*.pem)",
-      "Read(**/*.key)",
-      "Read(**/credentials.json)",
-      "Read(**/.secret*)",
-      "Read(**/.secrets*)",
-      "Read(**/*.secret)",
-      "Read(**/*.secrets)",
       "Edit(.env)",
       "Edit(.env.*)",
       "Edit(**/.env)",
-      "Edit(**/.env.*)"
+      "Edit(**/.env.*)",
+      "Edit(**/secrets/**)",
+      "Edit(**/*.pem)",
+      "Edit(**/*.key)",
+      "Edit(**/credentials.json)",
+      "Edit(**/.secret*)",
+      "Edit(**/.secrets*)",
+      "Edit(**/*.secret)",
+      "Edit(**/*.secrets)"
     ],
     "ask": [
       "Bash(rmdir:*)",

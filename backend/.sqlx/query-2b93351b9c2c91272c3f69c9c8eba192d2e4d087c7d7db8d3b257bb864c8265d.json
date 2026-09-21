@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO datatable_migrations (workspace_id, datatable, timestamp, name, code_up, code_down) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (workspace_id, datatable, timestamp) DO UPDATE SET name = EXCLUDED.name, code_up = EXCLUDED.code_up, code_down = EXCLUDED.code_down WHERE NOT $7 OR (datatable_migrations.name = $8::text AND datatable_migrations.code_up = $9::text AND datatable_migrations.code_down IS NOT DISTINCT FROM $10::text)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Int8",
+        "Varchar",
+        "Text",
+        "Text",
+        "Bool",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2b93351b9c2c91272c3f69c9c8eba192d2e4d087c7d7db8d3b257bb864c8265d"
+}

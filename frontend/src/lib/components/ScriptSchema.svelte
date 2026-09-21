@@ -7,9 +7,17 @@
 	interface Props {
 		schema: Schema | any
 		customUi?: EditableSchemaFormUi | undefined
+		workspace?: string | undefined
 	}
 
-	let { schema = $bindable(), customUi = undefined }: Props = $props()
+	let { schema = $bindable(), customUi = undefined, workspace = undefined }: Props = $props()
 </script>
 
-<EditableSchemaForm bind:schema uiOnly {customUi} editTab="inputEditor" showSensitiveToggle />
+<EditableSchemaForm
+	bind:schema
+	uiOnly
+	{customUi}
+	{workspace}
+	editTab="inputEditor"
+	showSensitiveToggle
+/>

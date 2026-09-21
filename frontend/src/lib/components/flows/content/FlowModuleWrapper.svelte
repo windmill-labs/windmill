@@ -49,6 +49,8 @@
 		forceTestTab?: Record<string, boolean>
 		highlightArg?: Record<string, string | undefined>
 		isAgentTool?: boolean
+		/** Lets an agent step add a tool through the same path as the graph's `+ Tool`. */
+		flowModuleSchemaMap?: import('../map/FlowModuleSchemaMap.svelte').default
 	}
 
 	let {
@@ -60,7 +62,8 @@
 		previousModule = undefined,
 		forceTestTab,
 		highlightArg,
-		isAgentTool = false
+		isAgentTool = false,
+		flowModuleSchemaMap = undefined
 	}: Props = $props()
 
 	function initializePrimaryScheduleForTriggerScript(module: FlowModule) {
@@ -222,6 +225,7 @@
 			forceTestTab={forceTestTab?.[flowModule.id]}
 			highlightArg={highlightArg?.[flowModule.id]}
 			{isAgentTool}
+			{flowModuleSchemaMap}
 		/>
 	{/if}
 {:else if flowModule.value.type === 'forloopflow' || flowModule.value.type == 'whileloopflow'}
@@ -232,6 +236,7 @@
 			child
 		)}
 		<FlowModuleWrapper
+			{flowModuleSchemaMap}
 			{noEditor}
 			bind:flowModule={slot.get, slot.set}
 			bind:parentModule={flowModule}
@@ -261,6 +266,7 @@
 				child
 			)}
 			<FlowModuleWrapper
+				{flowModuleSchemaMap}
 				{noEditor}
 				bind:flowModule={slot.get, slot.set}
 				bind:parentModule={flowModule}
@@ -285,6 +291,7 @@
 			{#each branch.modules as child, index (child.id ?? index)}
 				{@const slot = moduleSlot(() => branch.modules, child.id, child)}
 				<FlowModuleWrapper
+					{flowModuleSchemaMap}
 					{noEditor}
 					bind:flowModule={slot.get, slot.set}
 					bind:parentModule={flowModule}
@@ -305,6 +312,7 @@
 			{#each branch.modules as child, index (child.id ?? index)}
 				{@const slot = moduleSlot(() => branch.modules, child.id, child)}
 				<FlowModuleWrapper
+					{flowModuleSchemaMap}
 					{noEditor}
 					bind:flowModule={slot.get, slot.set}
 					bind:parentModule={flowModule}

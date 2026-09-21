@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { workspaceStore, enterpriseLicense, userStore } from '$lib/stores'
+	import { enterpriseLicense } from '$lib/stores'
 	import Popover from './meltComponents/Popover.svelte'
 	import Button from './common/button/Button.svelte'
 	import { Loader2, Github, RotateCw, Plus, Minus, Download, AlertTriangle } from 'lucide-svelte'
@@ -18,6 +18,14 @@
 		type GitHubAppState
 	} from '$lib/githubApp'
 	import RepositorySelector from './RepositorySelector.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	interface Props {
 		resourceType: string
@@ -55,16 +63,29 @@
 			)
 	)
 
+	// Org names that appear on more than one installation, so the dropdown can
+	// tell those entries apart.
+	let duplicatedAccountIds = $derived(
+		new Set(
+			githubState.workspaceGithubInstallations
+				.filter(
+					(installation, _, array) =>
+						array.filter((other) => other.account_id === installation.account_id).length > 1
+				)
+				.map((installation) => installation.account_id)
+		)
+	)
+
 	let showGitHubApp = $derived(
 		resourceType === 'git_repository' &&
-			$workspaceStore &&
-			($userStore?.is_admin || $userStore?.is_super_admin)
+			$operatingWorkspace &&
+			(actingUser?.is_admin || actingUser?.is_super_admin)
 	)
 
 	// Load GitHub installations when conditions are met
 	$effect(() => {
-		if (showGitHubApp && $enterpriseLicense && $workspaceStore) {
-			loadGithubInstallations(githubState, $workspaceStore).catch((error) => {
+		if (showGitHubApp && $enterpriseLicense && $operatingWorkspace) {
+			loadGithubInstallations(githubState, $operatingWorkspace).catch((error) => {
 				console.error('Failed to load GitHub installations:', error)
 			})
 		}
@@ -100,11 +121,11 @@
 	}
 
 	async function handleDeleteInstallation(installationId: number) {
-		if (!$workspaceStore) return
+		if (!$operatingWorkspace) return
 
 		try {
-			await deleteInstallation($workspaceStore, installationId, () =>
-				loadGithubInstallations(githubState, $workspaceStore!)
+			await deleteInstallation($operatingWorkspace, installationId, () =>
+				loadGithubInstallations(githubState, $operatingWorkspace!)
 			)
 		} catch (error) {
 			console.error('Failed to delete installation:', error)
@@ -112,11 +133,11 @@
 	}
 
 	async function handleAddInstallation(installationId: number, workspaceId: string) {
-		if (!$workspaceStore) return
+		if (!$operatingWorkspace) return
 
 		try {
-			await addInstallationToWorkspace($workspaceStore, installationId, workspaceId, () =>
-				loadGithubInstallations(githubState, $workspaceStore!)
+			await addInstallationToWorkspace($operatingWorkspace, installationId, workspaceId, () =>
+				loadGithubInstallations(githubState, $operatingWorkspace!)
 			)
 		} catch (error) {
 			console.error('Failed to add installation:', error)
@@ -124,22 +145,22 @@
 	}
 
 	async function handleExportInstallation(installationId: number) {
-		if (!$workspaceStore) return
+		if (!$operatingWorkspace) return
 
 		try {
-			await exportInstallation($workspaceStore, installationId)
+			await exportInstallation($operatingWorkspace, installationId)
 		} catch (error) {
 			console.error('Failed to export installation:', error)
 		}
 	}
 
 	async function handleImportInstallation() {
-		if (!$workspaceStore) return
+		if (!$operatingWorkspace) return
 
 		try {
-			await importInstallation($workspaceStore, githubState.importJwt, () => {
+			await importInstallation($operatingWorkspace, githubState.importJwt, () => {
 				githubState.importJwt = ''
-				loadGithubInstallations(githubState, $workspaceStore!)
+				loadGithubInstallations(githubState, $operatingWorkspace!)
 			})
 		} catch (error) {
 			console.error('Failed to import installation:', error)
@@ -147,17 +168,17 @@
 	}
 
 	function handleRefreshInstallations() {
-		if (!$workspaceStore) return
+		if (!$operatingWorkspace) return
 
-		loadGithubInstallations(githubState, $workspaceStore).catch((error) => {
+		loadGithubInstallations(githubState, $operatingWorkspace).catch((error) => {
 			console.error('Failed to refresh installations:', error)
 		})
 	}
 
 	function handleInstallClickWithPopover() {
-		if (!$workspaceStore) return
+		if (!$operatingWorkspace) return
 
-		handleInstallClick(githubState, $workspaceStore, () => {
+		handleInstallClick(githubState, $operatingWorkspace, () => {
 			githubAppPopover?.open()
 		})
 	}
@@ -167,7 +188,7 @@
 	{#if !githubState.loadingGithubInstallations}
 		<Button
 			variant="default"
-			size="xs"
+			unifiedSize="sm"
 			on:click={handleRefreshInstallations}
 			disabled={!$enterpriseLicense}
 			startIcon={{ icon: RotateCw }}
@@ -185,7 +206,7 @@
 			{#snippet trigger()}
 				<Button
 					variant="default"
-					size="xs"
+					unifiedSize="sm"
 					disabled={!$enterpriseLicense || githubState.loadingGithubInstallations}
 					startIcon={{
 						icon: githubState.loadingGithubInstallations ? Loader2 : Github,
@@ -205,29 +226,47 @@
 								<div class="flex flex-row gap-2 w-full">
 									<div class="flex flex-col gap-1 flex-1">
 										<p class="text-sm font-semibold text-secondary">GitHub Account ID</p>
-										<select bind:value={githubState.selectedGHAppAccountId}>
-											<option value="" disabled>Select GitHub Account ID</option>
+										<select
+											bind:value={githubState.selectedGHAppInstallationId}
+											onchange={() => (githubState.selectedGHAppRepository = undefined)}
+										>
+											<option value={undefined} disabled>Select GitHub Account ID</option>
 											{#each githubState.workspaceGithubInstallations as installation (`select-${installation.installation_id}-${installation.workspace_id}`)}
-												<option value={installation.account_id} disabled={!!installation.error}>
-													{installation.account_id}{installation.error ? ' (token error)' : ''}
+												{@const details = [
+													duplicatedAccountIds.has(installation.account_id)
+														? `${installation.installation_id}`
+														: undefined,
+													installation.error ? 'token error' : undefined
+												].filter(Boolean)}
+												<option
+													value={installation.installation_id}
+													disabled={!!installation.error}
+												>
+													{installation.account_id}{details.length
+														? ` (${details.join(', ')})`
+														: ''}
 												</option>
 											{/each}
 										</select>
 									</div>
-									{#if githubState.selectedGHAppAccountId}
+									{#if githubState.selectedGHAppInstallationId !== undefined}
 										{@const selectedInstallation = githubState.workspaceGithubInstallations.find(
-											(inst) => inst.account_id === githubState.selectedGHAppAccountId
+											(inst) => inst.installation_id === githubState.selectedGHAppInstallationId
 										)}
 										{#if selectedInstallation}
 											<div class="flex flex-col gap-1 flex-1">
 												<p class="text-sm font-semibold text-secondary">Repository</p>
-												<RepositorySelector
-													bind:selectedRepository={githubState.selectedGHAppRepository}
-													accountId={githubState.selectedGHAppAccountId}
-													initialRepositories={selectedInstallation.repositories}
-													totalCount={selectedInstallation.total_count}
-													perPage={selectedInstallation.per_page}
-												/>
+												<!-- RepositorySelector snapshots its repositories and page cursor at
+												     mount, so switching installation has to remount it. -->
+												{#key selectedInstallation.installation_id}
+													<RepositorySelector
+														bind:selectedRepository={githubState.selectedGHAppRepository}
+														installationId={selectedInstallation.installation_id}
+														initialRepositories={selectedInstallation.repositories}
+														totalCount={selectedInstallation.total_count}
+														perPage={selectedInstallation.per_page}
+													/>
+												{/key}
 											</div>
 										{/if}
 									{/if}
@@ -266,9 +305,9 @@
 										target="_blank"
 										disabled={githubState.isCheckingInstallation}
 										on:click={() => {
-											if ($workspaceStore) {
-												startInstallationCheck(githubState, $workspaceStore, () =>
-													loadGithubInstallations(githubState, $workspaceStore!)
+											if ($operatingWorkspace) {
+												startInstallationCheck(githubState, $operatingWorkspace, () =>
+													loadGithubInstallations(githubState, $operatingWorkspace!)
 												)
 											}
 										}}

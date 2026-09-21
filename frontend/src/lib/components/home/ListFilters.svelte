@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { Folder, User } from 'lucide-svelte'
 	import { Badge } from '../common'
+	import type { BadgeColor, BadgeIconProps } from '../common/badge/model'
 	import { appIconComponent } from '../icons'
+	import { integrationDisplayName } from '../resourceTypeDisplay'
 	import { onDestroy, onMount } from 'svelte'
 
 	interface Props {
@@ -14,6 +16,14 @@
 		// Keep only the first N filters visible, the rest behind a "…" toggle. Unset
 		// shows every one.
 		maxDisplayed?: number
+		// Chip look. `icon` is drawn before every chip; unset, the icon follows the value
+		// (user/folder prefix, or the app icon under `resourceType`).
+		color?: BadgeColor
+		icon?: BadgeIconProps['icon']
+		// Emit the chips as flex items of the parent instead of a row of their own, so several
+		// ListFilters can share one line. The parent owns layout and spacing, so
+		// `bottomMargin` does not apply.
+		inline?: boolean
 	}
 
 	let {
@@ -23,7 +33,10 @@
 		queryName = 'filter',
 		syncQuery = false,
 		bottomMargin = true,
-		maxDisplayed
+		maxDisplayed,
+		color = 'transparent',
+		icon,
+		inline = false
 	}: Props = $props()
 
 	const queryChange: (value: URL) => void = (url: URL) => {
@@ -87,7 +100,9 @@
 </script>
 
 {#if Array.isArray(filtersAndSelected) && filtersAndSelected.length > 0}
-	<div class={`gap-2 w-full flex flex-wrap ${bottomMargin ? 'my-4' : 'mt-4'}`}>
+	<div
+		class={inline ? 'contents' : `gap-2 w-full flex flex-wrap ${bottomMargin ? 'my-4' : 'mt-4'}`}
+	>
 		{#each displayedFilters as filter (filter)}
 			<div>
 				<Badge
@@ -100,12 +115,15 @@
 							setQuery(new URL(window.location.href), queryName, undefined)
 						}
 					}}
-					color={'transparent'}
+					{color}
 					clickable
 					selected={filter === selectedFilter}
 				>
 					<span style="height: 12px" class="-mt-0.5">
-						{#if resourceType}
+						{#if icon}
+							{@const Icon = icon}
+							<Icon class="mr-0.5" size={12} />
+						{:else if resourceType}
 							{@const SvelteComponent = appIconComponent(filter)}
 							<SvelteComponent height="14px" width="14px" />
 						{:else if filter.startsWith('u/')}
@@ -114,7 +132,7 @@
 							<Folder class="mr-0.5" size={14} />
 						{/if}
 					</span>
-					{filter}
+					{resourceType ? integrationDisplayName(filter) : filter}
 					{#if filter === selectedFilter}&cross;{/if}
 				</Badge>
 			</div>
@@ -123,7 +141,7 @@
 			<div>
 				<Badge
 					class="inline-flex items-center gap-1 align-middle"
-					color={'transparent'}
+					{color}
 					clickable
 					title={expanded ? 'Show fewer' : `Show ${hiddenCount} more`}
 					onclick={() => (expanded = !expanded)}

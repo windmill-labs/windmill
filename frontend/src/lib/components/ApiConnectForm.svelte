@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { OauthService, type ResourceType } from '$lib/gen'
 	import FilesetEditor from './FilesetEditor.svelte'
-	import { workspaceStore } from '$lib/stores'
 	import { emptySchema, emptyString } from '$lib/utils'
 	import SchemaForm from './SchemaForm.svelte'
 	import Toggle from './Toggle.svelte'
@@ -12,6 +11,7 @@
 	import { Loader2 } from 'lucide-svelte'
 	import { untrack } from 'svelte'
 	import GitHubAppIntegration from './GitHubAppIntegration.svelte'
+	import GitLabIntegration from './GitLabIntegration.svelte'
 	import BedrockCredentialsCheck from './BedrockCredentialsCheck.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import ResourceGen from './copilot/ResourceGen.svelte'
@@ -19,6 +19,9 @@
 	import { base } from '$lib/base'
 	import { isDataTableWizardEnabled } from './workspaceSettings/utils.svelte'
 	import { parsePostgresConnectionString } from '$lib/utils/postgresConnectionString'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		resourceType: string
@@ -28,6 +31,13 @@
 		isValid?: boolean
 		linkedSecretCandidates?: string[] | undefined
 		description?: string | undefined
+		/** Workspace the resource is being saved into, which is not always the one
+		 * being navigated. The GitLab picker has to store the credential where the
+		 * resource will look for it. */
+		workspace?: string
+		/** Fired once the GitLab picker has stored the picked project's token, so a
+		 * form that would otherwise file the URL as a secret knows it holds none. */
+		onCredentialStored?: () => void
 		onSynced?: () => void
 	}
 
@@ -39,6 +49,8 @@
 		isValid = $bindable(true),
 		linkedSecretCandidates = undefined,
 		description = $bindable(undefined),
+		workspace = undefined,
+		onCredentialStored,
 		onSynced = undefined
 	}: Props = $props()
 
@@ -142,7 +154,7 @@
 		}
 	}
 	$effect(() => {
-		$workspaceStore && untrack(() => loadSchema())
+		$operatingWorkspace && untrack(() => loadSchema())
 	})
 	$effect(() => {
 		notFound && rawCode && untrack(() => parseJson())
@@ -248,6 +260,19 @@
 				rawCodeEditor?.setCode(rawCode)
 			}}
 			onDescriptionUpdate={(newDescription) => (description = newDescription)}
+		/>
+		<!-- Last in a `flex-row-reverse` row, so it lands beside the GitHub App
+		button without splitting it from its own refresh control. -->
+		<GitLabIntegration
+			{resourceType}
+			{args}
+			{workspace}
+			{onCredentialStored}
+			onArgsUpdate={(newArgs) => {
+				args = newArgs
+				rawCode = JSON.stringify(args, null, 2)
+				rawCodeEditor?.setCode(rawCode)
+			}}
 		/>
 	</div>
 	{#if resourceType?.includes('bedrock') && !isCloudHosted()}

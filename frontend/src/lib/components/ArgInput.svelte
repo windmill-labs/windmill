@@ -41,12 +41,14 @@
 	import { safeSelectItems } from './select/utils.svelte'
 	import S3ArgInput from './common/fileUpload/S3ArgInput.svelte'
 	import { base } from '$lib/base'
-	import { workspaceStore } from '$lib/stores'
 	import { getJsonSchemaFromResource } from './schema/jsonSchemaResource.svelte'
 	import AIProviderPicker from './AIProviderPicker.svelte'
 	import TextInput from './text_input/TextInput.svelte'
 	import FileInput from './common/fileInput/FileInput.svelte'
 	import { randomUUID } from '$lib/utils/uuid'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		label?: string
@@ -123,6 +125,8 @@
 		workspace?: string | undefined
 		s3StorageConfigured?: boolean
 		chatInputEnabled?: boolean
+		/** Why the oneOf variant is fixed. Set = the selector is disabled and says so. */
+		oneOfLockedReason?: string
 		actions?: import('svelte').Snippet
 		innerBottomSnippet?: import('svelte').Snippet
 		fieldHeaderActions?: import('svelte').Snippet
@@ -184,6 +188,7 @@
 		workspace = undefined,
 		s3StorageConfigured = true,
 		chatInputEnabled = false,
+		oneOfLockedReason = undefined,
 		actions,
 		innerBottomSnippet,
 		fieldHeaderActions,
@@ -206,6 +211,15 @@
 	let tagKey = $derived(
 		oneOf?.find((o) => Object.keys(o.properties ?? {})?.includes('kind')) ? 'kind' : 'label'
 	)
+	// `oneOfSelected` is resynced in an effect, one pass after the variants or the value change. A
+	// variant that just left the list while the selection still names it, as when a value moves
+	// off a legacy kind the list offered only for it, would render the nested form against nothing
+	// for that pass and let it rewrite the value. The value's own tag settles it at once.
+	let effectiveOneOfSelected = $derived.by(() => {
+		if (oneOf?.some((o) => o.title === oneOfSelected)) return oneOfSelected
+		const tag = value?.[tagKey]
+		return oneOf?.some((o) => o.title === tag) ? tag : oneOfSelected
+	})
 	async function updateOneOfSelected(oneOf: SchemaProperty[] | undefined) {
 		if (
 			oneOf &&
@@ -811,7 +825,7 @@
 				/>
 			{/await}
 		{:else if inputCat == 'object' && format?.startsWith('jsonschema-')}
-			{#await getJsonSchemaFromResource(format.substring('jsonschema-'.length), workspace ?? $workspaceStore ?? '')}
+			{#await getJsonSchemaFromResource(format.substring('jsonschema-'.length), workspace ?? $operatingWorkspace ?? '')}
 				<Loader2 class="animate-spin" />
 			{:then schema}
 				{#if !schema || !schema.properties}
@@ -841,6 +855,7 @@
 							{disablePortal}
 							{disabled}
 							{prettifyHeader}
+							{workspace}
 							{schema}
 							bind:args={value}
 						/>
@@ -983,6 +998,7 @@
 															{disablePortal}
 															{disabled}
 															{prettifyHeader}
+															{workspace}
 															schema={getSchemaFromProperties(itemsType?.properties)}
 															bind:args={value[i]}
 														/>
@@ -1076,6 +1092,7 @@
 				{otherArgs}
 				{helperScript}
 				{workspace}
+				{disabled}
 				bind:value
 				format={format ?? ''}
 			/>
@@ -1101,11 +1118,15 @@
 		{:else if inputCat == 'object' || inputCat == 'resource-object' || isListJson}
 			{#if oneOf && oneOf.length >= 2}
 				<div class="flex flex-col gap-2 w-full border rounded-md p-4">
+					{#if oneOfLockedReason !== undefined}
+						<div class="text-2xs text-tertiary">{oneOfLockedReason}</div>
+					{/if}
 					{#if oneOf && oneOf.length >= 2}
 						<ToggleButtonGroup
-							selected={oneOfSelected}
+							selected={effectiveOneOfSelected}
 							wrap
 							class="mb-4"
+							disabled={disabled || oneOfLockedReason !== undefined}
 							on:selected={({ detail }) => {
 								oneOfSelected = detail
 								const selectedObjProperties =
@@ -1133,12 +1154,16 @@
 						>
 							{#snippet children({ item })}
 								{#each oneOf as obj}
-									<ToggleButton value={obj.title ?? ''} label={obj.title} {item} />
+									<ToggleButton
+										value={obj.title ?? ''}
+										label={extra?.['enumLabels']?.[obj.title ?? ''] ?? obj.title}
+										{item}
+									/>
 								{/each}
 							{/snippet}
 						</ToggleButtonGroup>
-						{#if oneOfSelected}
-							{@const objIdx = oneOf.findIndex((o) => o.title === oneOfSelected)}
+						{#if effectiveOneOfSelected}
+							{@const objIdx = oneOf.findIndex((o) => o.title === effectiveOneOfSelected)}
 							{@const obj = oneOf[objIdx]}
 							{#if obj && obj.properties && Object.keys(obj.properties).length > 0}
 								{#key redraw}
@@ -1150,12 +1175,13 @@
 											{disablePortal}
 											{disabled}
 											{prettifyHeader}
+											{workspace}
 											bind:schema={
 												() => ({
-													properties: obj.properties ?? {},
-													order: obj.order,
+													properties: obj?.properties ?? {},
+													order: obj?.order,
 													$schema: '',
-													required: obj.required ?? [],
+													required: obj?.required ?? [],
 													type: 'object'
 												}),
 												() => {
@@ -1186,18 +1212,19 @@
 											{disabled}
 											{prettifyHeader}
 											{chatInputEnabled}
+											{workspace}
 											hiddenArgs={['label', 'kind']}
 											schema={{
-												properties: obj.properties,
-												order: obj.order,
+												properties: obj?.properties ?? {},
+												order: obj?.order,
 												$schema: '',
-												required: obj.required ?? [],
+												required: obj?.required ?? [],
 												type: 'object'
 											}}
 											bind:args={
 												() => value,
 												(v) => {
-													value = { ...v, [tagKey]: oneOfSelected }
+													value = { ...v, [tagKey]: effectiveOneOfSelected }
 												}
 											}
 											{shouldDispatchChanges}
@@ -1270,6 +1297,7 @@
 							{disablePortal}
 							{disabled}
 							{prettifyHeader}
+							{workspace}
 							schema={{
 								properties,
 								$schema: '',
@@ -1301,6 +1329,7 @@
 							{disablePortal}
 							{disabled}
 							{prettifyHeader}
+							{workspace}
 							schema={{
 								properties,
 								order,
@@ -1441,7 +1470,7 @@
 				{showSchemaExplorer}
 			/>
 		{:else if inputCat == 'ai-provider'}
-			<AIProviderPicker bind:value {disabled} {actions} />
+			<AIProviderPicker bind:value {disabled} {actions} {workspace} />
 		{:else if inputCat == 'email'}
 			<input
 				{autofocus}
@@ -1471,7 +1500,7 @@
 								/>
 							{/if}
 						{:else}
-							<PasswordArgInput {disabled} minRows={extra?.['minRows']} bind:value />
+							<PasswordArgInput {disabled} minRows={extra?.['minRows']} {workspace} bind:value />
 						{/if}
 					{:else}
 						{#key extra?.['minRows']}
