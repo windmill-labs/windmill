@@ -164,9 +164,17 @@ pub(crate) struct Compactor {
     consecutive_failures: usize,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum CompactionOutcome {
+    Unchanged,
+    Summarized,
+    Omitted,
+}
+
 pub(crate) struct CompactionPass {
-    pub changed: bool,
+    pub outcome: CompactionOutcome,
     pub usage: Option<TokenUsage>,
+    pub fits: bool,
 }
 
 impl Compactor {
@@ -184,6 +192,44 @@ impl Compactor {
         history.projected_tokens(self.tool_schema_tokens) as f64
             >= self.context_window as f64 * COMPACTION_TRIGGER_RATIO
             || storage_bytes.is_some_and(|limit| persisted_bytes(history.context()) > limit)
+    }
+
+    fn fits(&self, history: &AgentHistory, storage_bytes: Option<usize>) -> bool {
+        history.projected_tokens(self.tool_schema_tokens) <= self.context_window
+            && storage_bytes.is_none_or(|limit| persisted_bytes(history.context()) <= limit)
+    }
+
+    fn recovery_split(&self, history: &AgentHistory) -> Option<usize> {
+        exchange_starts(history.context())
+            .last()
+            .copied()
+            .filter(|split| *split > conversation_start(history.context()))
+    }
+
+    fn omit_if_over_capacity(
+        &self,
+        history: &mut AgentHistory,
+        storage_bytes: Option<usize>,
+        context_rejected: bool,
+    ) -> bool {
+        if !context_rejected && self.fits(history, storage_bytes) {
+            return false;
+        }
+        let split = if context_rejected {
+            self.recovery_split(history)
+        } else {
+            self.plan(history, storage_bytes)
+        };
+        let Some(split) = split else { return false };
+        // Eviction uses complete exchanges and never alters the execution record.
+        history.replace_prefix(split, OpenAIMessage {
+            role: "user".to_string(),
+            content: Some(OpenAIContent::Text(
+                "Earlier conversation context was omitted because it exceeded the memory limit. Continue using the recent exchanges below.".to_string(),
+            )),
+            ..Default::default()
+        });
+        true
     }
 
     fn plan(&self, history: &AgentHistory, storage_bytes: Option<usize>) -> Option<usize> {
@@ -223,15 +269,27 @@ impl Compactor {
         &mut self,
         history: &mut AgentHistory,
         storage_bytes: Option<usize>,
+        context_rejected: bool,
         request: &CompactionRequest<'_>,
-    ) -> Result<CompactionPass, Error> {
-        if !self.needs_compaction(history, storage_bytes) {
-            return Ok(CompactionPass { changed: false, usage: None });
+    ) -> CompactionPass {
+        if !context_rejected && !self.needs_compaction(history, storage_bytes) {
+            return CompactionPass {
+                outcome: CompactionOutcome::Unchanged,
+                usage: None,
+                fits: true,
+            };
         }
 
         let mut usage = None;
-        let mut changed = false;
-        if let Some(split) = self.plan(history, storage_bytes) {
+        let mut outcome = CompactionOutcome::Unchanged;
+        // A provider rejection invalidates our estimate, especially for loaded media.
+        // Replace all older exchanges so the single retry makes meaningful progress.
+        let split = if context_rejected {
+            self.recovery_split(history)
+        } else {
+            self.plan(history, storage_bytes)
+        };
+        if let Some(split) = split {
             let start = conversation_start(history.context());
             let has_new_context = history.context()[start..split]
                 .iter()
@@ -250,16 +308,12 @@ impl Compactor {
                         if !summary.is_empty() {
                             self.consecutive_failures = 0;
                             history.replace_prefix(split, build_summary_message(&summary));
-                            changed = true;
+                            outcome = CompactionOutcome::Summarized;
                             tracing::info!("AI agent compacted {split} messages into a summary");
                             // A token output cap is not a byte cap. Check the actual summary
                             // before persistence rather than letting the store evict it.
-                            if history.projected_tokens(self.tool_schema_tokens)
-                                <= self.context_window
-                                && storage_bytes
-                                    .is_none_or(|limit| persisted_bytes(history.context()) <= limit)
-                            {
-                                return Ok(CompactionPass { changed: true, usage });
+                            if self.fits(history, storage_bytes) {
+                                return CompactionPass { outcome, usage, fits: true };
                             }
                         } else {
                             self.consecutive_failures += 1;
@@ -273,29 +327,15 @@ impl Compactor {
                 }
             }
 
-            // Eviction uses the same complete-exchange boundaries as summarization.
-            // It may lose context, but must never alter this run's execution record.
-            if let Some(split) = self.plan(history, storage_bytes) {
-                history.replace_prefix(split, OpenAIMessage {
-                    role: "user".to_string(),
-                    content: Some(OpenAIContent::Text(
-                        "Earlier conversation context was omitted because it exceeded the memory limit. Continue using the recent exchanges below.".to_string(),
-                    )),
-                    ..Default::default()
-                });
-                changed = true;
+            if self.omit_if_over_capacity(history, storage_bytes, context_rejected) {
+                outcome = CompactionOutcome::Omitted;
                 tracing::warn!("AI agent omitted older exchanges to fit the context limits");
             }
         }
 
-        let too_large = history.projected_tokens(self.tool_schema_tokens) > self.context_window
-            || storage_bytes.is_some_and(|limit| persisted_bytes(history.context()) > limit);
-        if too_large {
-            return Err(Error::ExecutionErr(
-                "AI agent memory cannot fit its newest exchange within the model or storage limit. Reduce the input/tool output size or increase the available capacity.".to_string()
-            ));
-        }
-        Ok(CompactionPass { changed, usage })
+        let fits = self.fits(history, storage_bytes)
+            && (!context_rejected || outcome != CompactionOutcome::Unchanged);
+        CompactionPass { outcome, usage, fits }
     }
 }
 
@@ -367,10 +407,8 @@ fn build_summary_message(formatted_summary: &str) -> OpenAIMessage {
     }
 }
 
-/// Whether this is a summary a previous compaction inserted. A summary is reserve-sized
-/// by construction, so a prefix that holds nothing else would clear the share threshold
-/// and be swapped for another summary of the same size, once per response, losing
-/// fidelity each time and never shrinking the prompt.
+/// Re-summarizing a lone summary spends a model call and loses fidelity without
+/// freeing useful space. Only a prefix with additional context merits a new summary.
 fn is_compaction_summary(message: &OpenAIMessage) -> bool {
     message.role == "user"
         && matches!(
@@ -621,6 +659,40 @@ async fn summarize_prefix(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn failed_summary_preserves_history_until_capacity_is_exceeded() {
+        let mut history = AgentHistory::new(vec![
+            message("user", "old context"),
+            message("assistant", "answer"),
+            message("user", "new question"),
+        ]);
+        let compactor = Compactor::new(10000, 0);
+        history.record_usage(Some(8500), history.context().len());
+        assert!(compactor.needs_compaction(&history, None));
+        assert!(!compactor.omit_if_over_capacity(&mut history, None, false));
+        assert_eq!(history.context().len(), 3);
+        history.record_usage(Some(10001), history.context().len());
+        assert!(compactor.omit_if_over_capacity(&mut history, None, false));
+        assert_eq!(history.result().len(), 3);
+        assert!(compactor.fits(&history, None));
+    }
+
+    #[test]
+    fn rejected_loaded_context_replaces_all_older_exchanges_despite_low_estimate() {
+        let mut history = AgentHistory::new(vec![
+            message("user", "old context"),
+            message("assistant", "answer"),
+            message("user", "more context"),
+            message("assistant", "answer"),
+            message("user", "newest question"),
+        ]);
+        let compactor = Compactor::new(10000, 0);
+        assert!(!compactor.needs_compaction(&history, None));
+        assert!(compactor.omit_if_over_capacity(&mut history, None, true));
+        assert_eq!(history.context().len(), 2);
+        assert_eq!(history.result().len(), 5);
+    }
+
     use super::*;
 
     fn message(role: &str, content: &str) -> OpenAIMessage {

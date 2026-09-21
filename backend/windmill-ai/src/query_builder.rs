@@ -6,6 +6,47 @@ use crate::ai_types::OpenAIToolCall;
 use crate::proxy::{ProxyBuildArgs, ProxyRequest};
 use crate::types::*;
 
+/// Only explicit input-context rejections warrant dropping conversation history.
+/// Rate limits, output-token limits and generic validation errors must propagate.
+pub fn is_context_length_error(message: &str) -> bool {
+    let message = message.to_ascii_lowercase();
+    message.contains("context_length_exceeded")
+        || message.contains("maximum context length")
+        || message.contains("prompt is too long")
+        || message.contains("input is too long for requested model")
+        || (message.contains("input token count") && message.contains("exceeds the maximum"))
+        || message.contains("too many input tokens")
+}
+
+#[cfg(test)]
+mod context_error_tests {
+    use super::is_context_length_error;
+
+    #[test]
+    fn recognizes_context_rejections_without_retrying_other_provider_errors() {
+        for message in [
+            r#"{"error":{"code":"context_length_exceeded"}}"#,
+            "This model's maximum context length is 128000 tokens",
+            "prompt is too long: 210000 tokens > 200000 maximum",
+            "The input token count (10000) exceeds the maximum number of tokens allowed (8192)",
+            "ValidationException: Input is too long for requested model.",
+            "ValidationException: Too many input tokens",
+        ] {
+            assert!(is_context_length_error(message), "{message}");
+        }
+        for message in [
+            "Rate limit exceeded: tokens per minute",
+            "max_tokens exceeds the maximum output tokens",
+            "Invalid tool schema",
+            "Additional properties are not allowed: stream_options",
+            "Request body too large",
+            "Internal server error",
+        ] {
+            assert!(!is_context_length_error(message), "{message}");
+        }
+    }
+}
+
 /// Arguments for building an AI request
 pub struct BuildRequestArgs<'a> {
     pub messages: &'a [OpenAIMessage],

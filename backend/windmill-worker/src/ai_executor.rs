@@ -1,4 +1,4 @@
-use crate::ai::compaction::{AgentHistory, CompactionRequest, Compactor};
+use crate::ai::compaction::{AgentHistory, CompactionOutcome, CompactionRequest, Compactor};
 use crate::ai::tools::{execute_tool_calls, ToolAbortHandles, ToolExecutionContext};
 use crate::ai::utils::{
     add_message_to_conversation, any_tool_needs_previous_result, cleanup_mcp_clients,
@@ -128,56 +128,85 @@ struct CompactionContext<'a> {
     credentials: &'a windmill_ai::credentials::ProviderCredentials,
     args: &'a AIAgentArgs,
     client: &'a AuthedClient,
-    workspace_id: &'a str,
+    job: &'a MiniPulledJob,
+    conn: &'a Connection,
 }
 
-/// Compacts when the conversation has outgrown the window, billing the summarization
-/// call to the step. Returns whether it did.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CompactionPhase {
+    BeforeRequest,
+    AfterRejection,
+    BeforePersistence,
+}
+
+/// Bills and logs compaction. A completed answer survives unsavable memory;
+/// before a request, an irreducible context returns the full execution record.
 async fn compact_if_needed(
     ctx: CompactionContext<'_>,
     query_builder: &dyn windmill_ai::query_builder::QueryBuilder,
     include_usage: bool,
     messages: &mut AgentHistory,
     storage_bytes: Option<usize>,
+    phase: CompactionPhase,
     final_usage: &mut Option<TokenUsage>,
 ) -> error::Result<bool> {
     let (Some(compactor), Some(timeout)) = (ctx.compactor, ctx.timeout) else {
-        return Ok(false);
+        return Ok(true);
     };
     let pass = compactor
         .compact(
             messages,
             storage_bytes,
+            phase == CompactionPhase::AfterRejection,
             &CompactionRequest {
                 query_builder,
                 credentials: ctx.credentials,
                 model: ctx.args.provider.get_model(),
                 timeout,
                 client: ctx.client,
-                workspace_id: ctx.workspace_id,
+                workspace_id: &ctx.job.workspace_id,
                 include_usage,
             },
         )
-        .await
-        .map_err(|error| {
-            Error::ExecutionRawError(to_raw_value(&serde_json::json!({
-                "name": "ExecutionErr",
-                "message": error.to_string(),
-                "result": AgentPartialResult {
-                    messages: messages.result().iter().map(|message| Message {
-                        message,
-                        agent_action: message.agent_action.as_ref(),
-                    }).collect(),
-                },
-            })))
-        })?;
+        .await;
     if let Some(usage) = pass.usage {
         match final_usage {
             Some(existing) => existing.accumulate(&usage),
             None => *final_usage = Some(usage),
         }
     }
-    Ok(pass.changed)
+    let log = match pass.outcome {
+        CompactionOutcome::Unchanged => None,
+        CompactionOutcome::Summarized => Some("AI agent memory summarized; the run's action results are preserved.\n"),
+        CompactionOutcome::Omitted => Some("AI agent memory exceeded capacity and older exchanges were omitted; the run's action results are preserved.\n"),
+    };
+    if let Some(log) = log {
+        append_logs(
+            &ctx.job.id,
+            &ctx.job.workspace_id,
+            log.to_string(),
+            ctx.conn,
+        )
+        .await;
+    }
+    if !pass.fits {
+        if phase == CompactionPhase::BeforePersistence {
+            append_logs(&ctx.job.id, &ctx.job.workspace_id,
+                "AI agent memory could not fit within capacity and was not saved. The answer is preserved; the next run will load the previous saved memory.\n".to_string(), ctx.conn).await;
+            return Ok(false);
+        }
+        return Err(Error::ExecutionRawError(to_raw_value(&serde_json::json!({
+            "name": "ExecutionErr",
+            "message": "AI agent context cannot fit its newest exchange within the model limit. Reduce the input/tool output size or increase the available capacity.",
+            "result": AgentPartialResult {
+                messages: messages.result().iter().map(|message| Message {
+                    message,
+                    agent_action: message.agent_action.as_ref(),
+                }).collect(),
+            },
+        }))));
+    }
+    Ok(true)
 }
 
 /// The inputs a linked step supplies for itself; the resource holds the rest of the brain.
@@ -1574,21 +1603,26 @@ pub async fn run_agent(
                 credentials: &credentials,
                 args,
                 client,
-                workspace_id: &job.workspace_id,
+                job,
+                conn,
             },
             query_builder.as_ref(),
             include_usage,
             &mut messages,
             None,
+            CompactionPhase::BeforeRequest,
             &mut final_usage,
         )
         .await?;
 
-        // How many messages this request carries, so the provider's prompt count can
-        // later be told apart from what the response and its tool results add.
-        let request_message_count = messages.context().len();
+        let mut retried_context = false;
+        let (parsed, request_message_count) = loop {
+            // How many messages this request carries, so the provider's prompt count can
+            // later be told apart from what the response and its tool results add.
+            let request_message_count = messages.context().len();
 
-        // Handle AWS Bedrock provider specially using the official SDK
+            // Handle AWS Bedrock provider specially using the official SDK
+            let attempt: error::Result<_> = async {
         let parsed = if credentials.provider == AIProvider::AWSBedrock {
             #[cfg(feature = "bedrock")]
             {
@@ -1759,6 +1793,7 @@ pub async fn run_agent(
                         // rejection once the conversation is under way is about the
                         // conversation (context length, content filter, tool schema).
                         let route_unserved = i == 0
+                            && !windmill_ai::query_builder::is_context_length_error(&text)
                             && query_builder.supports_chat_completions_fallback(base_url)
                             && matches!(status.as_u16(), 400 | 404)
                             && *output_type == OutputType::Text;
@@ -1814,6 +1849,43 @@ pub async fn run_agent(
                     .await?
             } else {
                 query_builder.parse_image_response(resp).await?
+            }
+        };
+        Ok(parsed)
+        }.await;
+
+            match attempt {
+                Ok(parsed) => break (parsed, request_message_count),
+                Err(error)
+                    if !retried_context
+                        && compactor.is_some()
+                        && windmill_ai::query_builder::is_context_length_error(
+                            &error.to_string(),
+                        ) =>
+                {
+                    retried_context = true;
+                    append_logs(&job.id, &job.workspace_id,
+                    "Provider rejected the context size; compacting older exchanges and retrying once.\n".to_string(), conn).await;
+                    compact_if_needed(
+                        CompactionContext {
+                            compactor: compactor.as_mut(),
+                            timeout: compaction_timeout,
+                            credentials: &credentials,
+                            args,
+                            client,
+                            job,
+                            conn,
+                        },
+                        query_builder.as_ref(),
+                        include_usage,
+                        &mut messages,
+                        None,
+                        CompactionPhase::AfterRejection,
+                        &mut final_usage,
+                    )
+                    .await?;
+                }
+                Err(error) => return Err(error),
             }
         };
 
@@ -2130,31 +2202,24 @@ pub async fn run_agent(
         }
     }
 
-    let compacted = compact_if_needed(
+    let save_memory = compact_if_needed(
         CompactionContext {
             compactor: compactor.as_mut(),
             timeout: compaction_timeout,
             credentials: &credentials,
             args,
             client,
-            workspace_id: &job.workspace_id,
+            job,
+            conn,
         },
         query_builder.as_ref(),
         include_usage,
         &mut messages,
         persist_capacity,
+        CompactionPhase::BeforePersistence,
         &mut final_usage,
     )
     .await?;
-    if compacted {
-        append_logs(
-            &job.id,
-            &job.workspace_id,
-            "AI agent memory compacted; the run's action results are preserved.\n".to_string(),
-            conn,
-        )
-        .await;
-    }
 
     // Return the final result
     let final_messages: Vec<Message> = messages
@@ -2201,7 +2266,7 @@ pub async fn run_agent(
     }
 
     // Persistence uses model context; the returned execution history is never compacted.
-    if matches!(output_type, OutputType::Text) {
+    if save_memory && matches!(output_type, OutputType::Text) {
         if let HistorySource::Managed { memory_id, bound } = &history {
             if let Some(step_id) = effective_flow_step_id {
                 if !messages.context().is_empty() {

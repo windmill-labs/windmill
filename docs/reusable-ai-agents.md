@@ -108,17 +108,23 @@ Bedrock rejects tool blocks without definitions. A dedicated system instruction 
 handoff from a labelled transcript, keeping the compaction instruction outside that transcript;
 media parts remain available. Its output cap matches the reserved summary budget,
 and its temperature and reasoning settings are independent of the step's answer settings.
-If summarization fails, the worker logs the failure and omits older complete exchanges. Three
-consecutive failures disable summary requests for the run. If the retained exchange still exceeds
-the estimated model limit or the exact storage limit, the run returns an explicit capacity error
-with its execution record, rather than silently breaking a tool exchange. Estimation cannot
-guarantee that every provider request will fit.
+If summarization fails, history is retained while it fits. Older complete exchanges are omitted
+only when the estimated model limit or exact storage limit is exceeded. Three consecutive failures
+disable summary requests for the run. Before a provider request, an irreducible oversized exchange
+returns a capacity error with the execution record. After the answer, an unsavable context skips
+the memory write and logs that the next run will load the previous saved memory; the answer succeeds.
+Flow logs distinguish summaries, omissions and skipped writes.
 
 The projection uses normalized `TokenUsage::input_tokens` from the last request plus a `bytes/4`
 estimate of appended messages. Without usage, or after rewriting context, it estimates the whole
 prompt including tools. S3 descriptors get a nominal attachment allowance; actual attachment costs
 and tokenizer differences remain approximate. Provider parsing owns usage normalization: Anthropic
 and Bedrock report cached input separately, while OpenAI-shaped providers include it in input tokens.
+If a provider explicitly rejects the context size, the worker summarizes all older complete
+exchanges (or omits them if summarization fails) and retries that request once. This also recovers
+from undercounted attachments loaded from a previous run, without provider-specific tokenizers.
+Unrelated errors are not retried this way. The newest exchange is still retained, so a request
+that cannot fit even after recovery fails; estimates do not guarantee every first request fits.
 
 Memory is stored per (memory id, step id), in `ai_agent_memory` or S3 at
 `memory/{workspace}/{memory id}/{step}.json`. The chat transcript (`flow_conversation_message`)
