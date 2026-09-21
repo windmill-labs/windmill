@@ -10,10 +10,10 @@
 	} from './instanceBanner'
 	import { instanceSettingsSaved } from './instanceSettings'
 
-	// Mounted only on the managed cloud (see the render site in the logged layout), so the
-	// poll costs nothing anywhere else. An announcement is only worth broadcasting while it
-	// is current, hence polling rather than waiting for the next full page load: a session
-	// left open all day is exactly the one that needs to hear about the maintenance window.
+	// Mounted only on EE (see the render site in the logged layout), so the poll costs
+	// nothing on CE. An announcement is only worth broadcasting while it is current, hence
+	// polling rather than waiting for the next full page load: a session left open all day
+	// is exactly the one that needs to hear about the maintenance window.
 	const POLL_MS = 60_000
 
 	let banner = $state<ResolvedInstanceBanner | undefined>(undefined)

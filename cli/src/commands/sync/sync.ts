@@ -2546,9 +2546,9 @@ export function preservePendingScriptLocks(
 }
 
 // `sync push` never applies the workspace's display name from settings.yaml and
-// applies its color only when the local file carries one (see
-// pushWorkspaceSettings), so on a push the fields it would not apply must
-// compare equal, or the row is listed on every run.
+// applies its color and auto_invite.instance_groups only when the local file
+// carries them (see pushWorkspaceSettings), so on a push the fields it would not
+// apply must compare equal, or the row is listed on every run.
 const isWorkspaceSettingsFile = (p: string) =>
   /^settings(\.[^./\\]+)?\.(yaml|json)$/.test(p);
 function stripUnappliedSettingsFields(local: any, remote: any) {
@@ -2557,6 +2557,20 @@ function stripUnappliedSettingsFields(local: any, remote: any) {
   if (local?.color == null) {
     delete local?.color;
     delete remote?.color;
+  }
+  // push reads a missing auto_invite as {} on both sides
+  if (local) local.auto_invite ??= {};
+  if (remote) remote.auto_invite ??= {};
+  const localInvite = local?.auto_invite;
+  const remoteInvite = remote?.auto_invite;
+  if (localInvite?.instance_groups == null) {
+    for (const invite of [localInvite, remoteInvite]) {
+      delete invite?.instance_groups;
+      delete invite?.instance_groups_roles;
+    }
+  } else {
+    localInvite.instance_groups_roles ??= {};
+    if (remoteInvite) remoteInvite.instance_groups_roles ??= {};
   }
 }
 
@@ -3580,12 +3594,15 @@ export async function pull(
 ) {
   if ((opts as any).jsonOutput) log.setSilent(true);
   const originalCliOpts = { ...opts };
-  opts = await mergeConfigWithConfigFile(opts);
-
-  // --include-secrets overrides skipSecrets from wmill.yaml
-  if ((originalCliOpts as any).includeSecrets) {
-    opts.skipSecrets = false;
-  }
+  const withConfigFile = async () => {
+    const merged = await mergeConfigWithConfigFile({ ...originalCliOpts });
+    // --include-secrets overrides skipSecrets from wmill.yaml
+    if ((originalCliOpts as any).includeSecrets) {
+      merged.skipSecrets = false;
+    }
+    return merged;
+  };
+  opts = await withConfigFile();
 
   // Resolve workspace name for config lookups.
   // --branch resolves git branch → workspace name (deprecated but still supported).
@@ -3618,10 +3635,6 @@ export async function pull(
       process.exit(1);
     }
     throw error;
-  }
-
-  if (opts.stateful) {
-    await mkdir(path.join(process.cwd(), ".wmill"), { recursive: true });
   }
 
   const workspace = await resolveWorkspace(opts, wsNameForConfig);
@@ -3715,6 +3728,14 @@ export async function pull(
       });
       return;
     }
+
+    // The pull writes into the branch now checked out, so its wmill.yaml
+    // applies, not the cloned branch's: a fork branch that turned on
+    // `dedupeLockfiles` would otherwise get one lockfile per script back.
+    if (getCurrentGitBranch() !== clonedBranchName) {
+      opts = await withConfigFile();
+      wsNameForConfig = resolveWsNameForConfigFromFlags(opts);
+    }
   }
 
   // If wsNameForConfig wasn't set from flags, infer from the resolved profile
@@ -3748,6 +3769,10 @@ export async function pull(
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(originalCliOpts, effectiveOpts);
+
+  if (opts.stateful) {
+    await mkdir(path.join(process.cwd(), ".wmill"), { recursive: true });
+  }
 
   const codebases = await listSyncCodebases(opts);
 

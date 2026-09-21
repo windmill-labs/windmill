@@ -2,6 +2,7 @@ import type { ButtonType } from './common/button/model'
 import { allowedOriginsSettingError } from './triggers/http/utils'
 import { z } from 'zod'
 import { instanceBannerFormError } from './instanceBanner'
+import { parseMaxTokenExpirationDays } from '$lib/tokenExpiration'
 import { writable } from 'svelte/store'
 
 /**
@@ -240,19 +241,6 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting'
 		},
 		{
-			label: 'Announcement banner',
-			description:
-				'Message shown above every page of the instance, for maintenance windows and incidents.',
-			key: 'instance_banner',
-			fieldType: 'instance_banner',
-			storage: 'setting',
-			// The banner only renders on the managed cloud, so only offer it there.
-			cloudonly: true,
-			hideInQuickSetup: true,
-			// Gates Save. The card renders the specific message itself, so no `error` here.
-			isValid: (value: any) => instanceBannerFormError(value) == undefined
-		},
-		{
 			label: 'Non-prod instance',
 			description:
 				'Whether we should consider the reported usage of this instance as non-prod. <a href="https://www.windmill.dev/docs/advanced/instance_settings#non-prod-instance">Learn more</a>',
@@ -307,6 +295,45 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only: '',
 			hideInQuickSetup: true
+		},
+		{
+			label: 'Maximum token expiration (days)',
+			key: 'max_token_expiration_days',
+			description:
+				'Furthest ahead an API token a user creates can expire, in days. A token asking for longer, or for no expiration, is created with this expiration instead. Service accounts are exempt, so automation can keep longer-lived credentials. Leave empty to let users pick any expiration, including none.',
+			fieldType: 'number',
+			placeholder: 'no limit',
+			storage: 'setting',
+			hideInQuickSetup: true,
+			error: 'Must be a whole number of days, from 1 to 1,000,000',
+			// The server reads anything else as no ceiling at all.
+			isValid: (value: unknown) =>
+				value === undefined ||
+				value === null ||
+				value === '' ||
+				parseMaxTokenExpirationDays(value) !== undefined
+		},
+		{
+			label: 'Disable token in MCP URLs',
+			description:
+				'Reject the ?token= query parameter on the MCP endpoints, so MCP clients authenticate with an Authorization header or through the OAuth flow. A token in a URL is a credential that ends up in browser history, proxy logs and referrers. Existing MCP URLs carrying a token stop working. Servers and workers pick this up within a minute; dedicated MCP servers (MODE=mcp) apply it when they next restart.',
+			key: 'mcp_disable_token_query_param',
+			fieldType: 'boolean',
+			storage: 'setting',
+			hideInQuickSetup: true
+		},
+		{
+			label: 'Announcement banner',
+			description:
+				'Message shown above every page of the instance, for maintenance windows and incidents.',
+			key: 'instance_banner',
+			fieldType: 'instance_banner',
+			storage: 'setting',
+			// The banner only renders on EE, so the card is disabled without a license.
+			ee_only: '',
+			hideInQuickSetup: true,
+			// Gates Save. The card renders the specific message itself, so no `error` here.
+			isValid: (value: any) => instanceBannerFormError(value) == undefined
 		}
 	],
 	Jobs: [

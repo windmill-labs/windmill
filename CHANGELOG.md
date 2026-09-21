@@ -1,5 +1,39 @@
 # Changelog
 
+## [1.815.0](https://github.com/windmill-labs/windmill/compare/v1.814.0...v1.815.0) (2026-09-18)
+
+
+### Features
+
+* add a workspace toggle that adds its admins and developers to new forks ([#11215](https://github.com/windmill-labs/windmill/issues/11215)) ([9d335de](https://github.com/windmill-labs/windmill/commit/9d335de87a4dbaa51038d55afe8d980761dcdfaf))
+* add an instance setting to refuse a token in MCP URLs ([#11162](https://github.com/windmill-labs/windmill/issues/11162)) ([37e493a](https://github.com/windmill-labs/windmill/commit/37e493ae66ed5c000ecac492d60fc0fdf4bda71f))
+* **ai-chat:** render get_run through the run tools' card ([#11204](https://github.com/windmill-labs/windmill/issues/11204)) ([6f9c4dc](https://github.com/windmill-labs/windmill/commit/6f9c4dc29455d13b0e64af05c2d6aa8bd5ff4fd6))
+* **ai-chat:** tell the chat which kind of app it is looking at ([#11208](https://github.com/windmill-labs/windmill/issues/11208)) ([c8c06d8](https://github.com/windmill-labs/windmill/commit/c8c06d8f79774abf109192e71a8b6fc37c7937ba))
+* attach files to a flow chat message ([#11185](https://github.com/windmill-labs/windmill/issues/11185)) ([c4c9677](https://github.com/windmill-labs/windmill/commit/c4c9677982b75c63d98ebf85b1904e0c341ba957))
+* **auth:** 2 h login links and a click-to-sign-in page for emailed ones ([#11203](https://github.com/windmill-labs/windmill/issues/11203)) ([5639187](https://github.com/windmill-labs/windmill/commit/5639187fec6d517a72e82df49d63d7438301127c))
+* cap user token expiration with an instance setting ([#11159](https://github.com/windmill-labs/windmill/issues/11159)) ([9320312](https://github.com/windmill-labs/windmill/commit/9320312eac56f944c4d31504601293ab4e816ccc))
+* flow chat job-backed detail, smooth streaming and answer chrome ([#11186](https://github.com/windmill-labs/windmill/issues/11186)) ([e2a91ca](https://github.com/windmill-labs/windmill/commit/e2a91ca2b141a0bee64ddfafe3cbf3ff86b6fb35))
+* put a data table's connection under Postgres roles ([#11020](https://github.com/windmill-labs/windmill/issues/11020)) ([0e807fb](https://github.com/windmill-labs/windmill/commit/0e807fb1dd80d7536ec144cd49445abc7961e504))
+* render an AI agent result as its answer, not as raw JSON ([#11051](https://github.com/windmill-labs/windmill/issues/11051)) ([a089928](https://github.com/windmill-labs/windmill/commit/a08992834d45d0211336f4fc32c3421646ca47c5))
+* support $flow_expr[...] dynamic tags on flow steps ([#11170](https://github.com/windmill-labs/windmill/issues/11170)) ([48f0025](https://github.com/windmill-labs/windmill/commit/48f00259c5e7361d3553dbcb809461e1cde96f8f))
+
+
+### Bug Fixes
+
+* **frontend:** inline only the package version, not the whole package.json ([#11191](https://github.com/windmill-labs/windmill/issues/11191)) ([813e486](https://github.com/windmill-labs/windmill/commit/813e486e166ac6215364817a7732b66f8dc1d463))
+* keep instance groups when editing auto-invite ([#11217](https://github.com/windmill-labs/windmill/issues/11217)) ([df61dea](https://github.com/windmill-labs/windmill/commit/df61dea5fa8b18d1e0044dc0db6702b053d5119f))
+* key the large root font size on screen width, not window width ([#11216](https://github.com/windmill-labs/windmill/issues/11216)) ([3b4e13d](https://github.com/windmill-labs/windmill/commit/3b4e13d1c564c6195e30b55b0671f7533e3ce408))
+* re-encrypt git sync secrets on workspace key rotation ([#11218](https://github.com/windmill-labs/windmill/issues/11218)) ([f0d66a4](https://github.com/windmill-labs/windmill/commit/f0d66a42eba27502767423af0c08b2ca1f16e8df))
+* re-point cloned fork identities that name nobody in the fork ([#11161](https://github.com/windmill-labs/windmill/issues/11161)) ([9690c44](https://github.com/windmill-labs/windmill/commit/9690c4462cf264a5577b87d07d465b5442b4e09d))
+* register the job token with the sensitive log masking system ([#10943](https://github.com/windmill-labs/windmill/issues/10943)) ([53afecd](https://github.com/windmill-labs/windmill/commit/53afecd4588247bc1812d3e68a30db1f3c3b2724))
+* show the New menu's description panel only on hover ([#11199](https://github.com/windmill-labs/windmill/issues/11199)) ([ecd0a6c](https://github.com/windmill-labs/windmill/commit/ecd0a6c77bc3a057b8072dbb0aca731e8bd3d882))
+* stop picker listing a draft twice when drafts share a friendly path ([#11214](https://github.com/windmill-labs/windmill/issues/11214)) ([72507d5](https://github.com/windmill-labs/windmill/commit/72507d52a021de8101794ee8f4a3392be1ba20c7))
+
+
+### Performance Improvements
+
+* count completed jobs on the v2_job_completed index with a timeout ([#11211](https://github.com/windmill-labs/windmill/issues/11211)) ([d1a2536](https://github.com/windmill-labs/windmill/commit/d1a25360b070994a31fb033707dbfde1fb553939))
+
 ## [1.814.0](https://github.com/windmill-labs/windmill/compare/v1.813.0...v1.814.0) (2026-09-17)
 
 

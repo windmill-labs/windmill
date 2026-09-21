@@ -12,7 +12,6 @@
 	import EvalsPane from '$lib/components/aiEvals/EvalsPane.svelte'
 	import type { EvalsLocation } from '$lib/components/aiEvals/evalUtils'
 	import { ResourceService, type AgentDraft } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import {
 		agentEditorTarget,
 		agentWriteCount,
@@ -27,6 +26,9 @@
 	import { publishLinkedAgentTools } from '../flowState'
 	import { linkedModulesForAgent, linkedToolsScope } from '../linkedAgentToolsStore.svelte'
 	import AgentEditorHost from './AgentEditorHost.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		enableAi?: boolean
@@ -61,7 +63,7 @@
 		if (p) untrack(() => (lastShownAgent = p))
 	})
 
-	let ws = $derived(target?.workspace ?? $workspaceStore)
+	let ws = $derived(target?.workspace ?? $operatingWorkspace)
 	let host = $state<ReturnType<typeof AgentEditorHost> | undefined>(undefined)
 	let versionDrawer: Drawer | undefined = $state(undefined)
 	let saving = $state(false)

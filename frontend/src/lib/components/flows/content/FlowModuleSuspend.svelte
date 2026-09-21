@@ -8,7 +8,7 @@
 	import { Alert, Button, Tab, Tabs } from '$lib/components/common'
 	import { GroupService, type FlowModule } from '$lib/gen'
 	import { emptySchema, emptyString } from '$lib/utils'
-	import { enterpriseLicense, workspaceStore } from '$lib/stores.js'
+	import { enterpriseLicense } from '$lib/stores.js'
 	import { SecondsInput } from '../../common'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import type { FlowEditorContext } from '../types'
@@ -21,12 +21,15 @@
 	import { Pen, Plus } from 'lucide-svelte'
 	import { slideDynamic } from '$lib/transitions'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	type ApprovalSkin = NonNullable<NonNullable<FlowModule['suspend']>['skin']>
 
 	const { selectionManager, flowStateStore, opWorkspace } =
 		getContext<FlowEditorContext>('FlowEditorContext')
-	let opWs = $derived(opWorkspace?.() ?? $workspaceStore)
+	let opWs = $derived(opWorkspace?.() ?? $operatingWorkspace)
 	const result = flowStateStore.val[selectionManager.getSelectedId()]?.previewResult ?? {}
 	let editor: SimpleEditor | undefined = $state(undefined)
 
@@ -56,7 +59,7 @@
 	}
 
 	$effect(() => {
-		if ($workspaceStore && allUserGroups.length === 0) {
+		if ($operatingWorkspace && allUserGroups.length === 0) {
 			untrack(() => {
 				loadGroups()
 			})

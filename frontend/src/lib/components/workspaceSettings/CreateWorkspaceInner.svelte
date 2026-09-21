@@ -161,6 +161,19 @@
 			(!workspaceIsFork(baseWorkspaceId, forkableWorkspaces) ||
 				!!baseWorkspaceEntry.is_dev_workspace)
 	)
+	const baseForkMembersResource = resource(
+		() => (isFork ? baseWorkspaceId : undefined),
+		async (ws, _prev, { signal }) => {
+			if (!ws) return undefined
+			const settings = await WorkspaceService.getPublicSettings({ workspace: ws })
+			if (signal.aborted) throw new DOMException('superseded', 'AbortError')
+			return { ws, adds: settings.add_admins_and_developers_to_forks }
+		}
+	)
+	let baseAddsAdminsAndDevelopers = $derived(
+		baseForkMembersResource.current?.ws === baseWorkspaceId &&
+			!!baseForkMembersResource.current?.adds
+	)
 	// Ask the server whether a dev already exists: the caller may not be a member of this prod's dev,
 	// so the client workspace list can't see it and would offer an invalid "create dev" action.
 	const devWorkspaceResource = resource(
@@ -929,6 +942,12 @@
 						disabled={createAsDevWorkspace}
 					/>
 				</label>
+				{#if baseAddsAdminsAndDevelopers && !(createAsDevWorkspace && copyMembers)}
+					<Alert type="info" size="xs" title="Admins and developers join this fork">
+						{baseWorkspaceId} adds its admins and developers to every new fork, with the role they have
+						there.
+					</Alert>
+				{/if}
 			{/if}
 			{#if isFork}
 				<ForkDatatableSection

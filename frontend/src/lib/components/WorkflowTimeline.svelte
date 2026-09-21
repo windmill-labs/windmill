@@ -9,11 +9,19 @@
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 	import { CheckCircle2, XCircle } from 'lucide-svelte'
 	import { JobService, type Job, type WorkflowStatus } from '$lib/gen'
-	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense } from '$lib/stores'
 	import { Button } from '$lib/components/common'
 	import { Alert } from '$lib/components/common'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import { sendUserToast } from '$lib/toast'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	interface Props {
 		flow_status: Record<string, WorkflowStatus>
@@ -97,7 +105,7 @@
 	}
 
 	async function fetchChildJob(id: string) {
-		const ws = $workspaceStore
+		const ws = $operatingWorkspace
 		if (!ws) return
 		loadingJobs[id] = true
 		try {
@@ -126,7 +134,7 @@
 	let approvalFormArgs: Record<string, Record<string, any>> = $state({})
 
 	async function handleApprove(key: string, formSchema: any) {
-		const ws = $workspaceStore
+		const ws = $operatingWorkspace
 		if (!ws || !jobId) return
 		approvalLoading[key] = true
 		try {
@@ -147,7 +155,7 @@
 
 	let cancelLoading = $state(false)
 	async function handleCancel() {
-		const ws = $workspaceStore
+		const ws = $operatingWorkspace
 		if (!ws || !jobId) return
 		cancelLoading = true
 		try {
@@ -260,7 +268,7 @@
 								<span class="text-tertiary">{msToSec(v.duration_ms ?? 0)}s</span>
 							{/if}
 						</div>
-						{#if canApprove && selfApprovalDisabled && $userStore?.is_admin}
+						{#if canApprove && selfApprovalDisabled && actingUser?.is_admin}
 							<div class="mt-1 ml-5 text-yellow-600 text-2xs">
 								Self-approval is disabled but allowed because you are an admin/owner
 							</div>

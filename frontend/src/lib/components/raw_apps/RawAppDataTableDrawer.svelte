@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { workspaceStore } from '$lib/stores'
 	import { WorkspaceService } from '$lib/gen'
 	import { listUsableDatatableRoles } from '../datatableUsableRoles'
 	import Drawer from '../common/drawer/Drawer.svelte'
@@ -18,13 +17,13 @@
 		type DbInput
 	} from '../dbTypes'
 	import type { PendingRowAction, SelectedTable } from '../DBManager.svelte'
-	import { getRawAppOperatingWorkspace } from './rawAppWorkspace'
 	import { useDbManagerTag } from '../dbManagerTag.svelte'
 	import DbWorkerTagButton from '../DbWorkerTagButton.svelte'
 	import type { DataTableTables } from '$lib/gen'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
-	const getOpWs = getRawAppOperatingWorkspace()
-	let opWs = $derived(getOpWs?.() ?? $workspaceStore)
+	const operatingWorkspace = useOperatingWorkspace()
+	let opWs = $derived($operatingWorkspace)
 
 	interface Props {
 		/** `roles` holds, for each added table's data table under roles, the role its tables were
