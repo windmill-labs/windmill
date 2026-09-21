@@ -1471,6 +1471,73 @@ pub struct GoverningDatatable {
     pub datatable: DataTable,
 }
 
+/// Everything still using the Windmill-managed database `dbname`, one description per use: data
+/// table entries naming it, fork entries pointing at those, Ducklake catalogs on it, and fork
+/// Ducklake metadata schemas there that cleanup has not dropped yet. `exempt` is the one data table
+/// entry, `(workspace_id, name)`, the caller is about to stop using it through; pointers at that
+/// entry still count, since dropping the database would leave them resolving to nothing.
+///
+/// Authorization: reads every workspace's settings and checks nothing. Callers MUST only turn the
+/// answer into a refusal for someone allowed to administer `dbname`.
+pub async fn managed_database_uses(
+    conn: &mut sqlx::PgConnection,
+    kind: DataTableCatalogResourceType,
+    dbname: &str,
+    exempt: Option<(&str, &str)>,
+) -> Result<Vec<String>> {
+    let (exempt_workspace, exempt_name) = exempt.unzip();
+    Ok(sqlx::query_scalar::<_, String>(
+        "WITH entries AS (
+             SELECT ws.workspace_id::text AS workspace_id, dt.key AS name, dt.value
+             FROM workspace_settings ws
+             CROSS JOIN LATERAL jsonb_each(
+                 CASE WHEN jsonb_typeof(ws.datatable->'datatables') = 'object'
+                     THEN ws.datatable->'datatables' ELSE '{}'::jsonb END) dt
+         ), naming AS (
+             SELECT workspace_id, name FROM entries
+             WHERE value->'database'->>'resource_type' = $1
+               AND value->'database'->>'resource_path' = $2
+         )
+         SELECT format('data table ''%s'' in workspace ''%s''', name, workspace_id) FROM naming
+         WHERE $3::text IS NULL OR NOT (workspace_id = $3 AND name = $4)
+         UNION ALL
+         SELECT format('data table ''%s'' in workspace ''%s'', which points at the one in ''%s''',
+                       e.name, e.workspace_id, n.workspace_id)
+         FROM entries e JOIN naming n
+           ON e.value->'reference'->>'workspace_id' = n.workspace_id
+          AND e.value->'reference'->>'datatable' = n.name
+         UNION ALL
+         SELECT format('Ducklake ''%s'' in workspace ''%s''', dl.key, ws.workspace_id)
+         FROM workspace_settings ws
+         CROSS JOIN LATERAL jsonb_each(
+             CASE WHEN jsonb_typeof(ws.ducklake->'ducklakes') = 'object'
+                 THEN ws.ducklake->'ducklakes' ELSE '{}'::jsonb END) dl
+         WHERE dl.value->'catalog'->>'resource_type' = $1
+           AND dl.value->'catalog'->>'resource_path' = $2
+         UNION ALL
+         SELECT format('the Ducklake namespace of fork ''%s'', not cleaned up yet', workspace_id)
+         FROM fork_ducklake_namespace
+         WHERE catalog = $1 || ':' || $2 AND NOT schema_dropped
+         ORDER BY 1",
+    )
+    .bind(kind.as_ref())
+    .bind(dbname)
+    .bind(exempt_workspace)
+    .bind(exempt_name)
+    .fetch_all(&mut *conn)
+    .await?)
+}
+
+/// Held by fork cleanup of `w_id`'s data tables and by forking `w_id`, which can hand the new fork
+/// pointers at them, so a pointer cannot appear between cleanup's check and its drop.
+pub async fn lock_fork_datatables(conn: &mut sqlx::PgConnection, w_id: &str) -> Result<()> {
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext('fork_datatables:' || $1))")
+        .bind(w_id)
+        .execute(&mut *conn)
+        .await?;
+    Ok(())
+}
+
 impl GoverningDatatable {
     /// Backed by the Windmill instance's own Postgres, which is the only substrate data table
     /// roles apply to.
