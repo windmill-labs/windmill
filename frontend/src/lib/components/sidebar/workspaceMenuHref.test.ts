@@ -6,18 +6,18 @@ describe('workspaceMenuHref', () => {
 		expect(
 			workspaceMenuHref({
 				pathname: '/sessions',
-				searchParams: new URLSearchParams('session_name=foo'),
+				searchParams: new URLSearchParams('session=foo'),
 				id: 'wm-fork-bar',
 				sameFamily: true
 			})
-		).toBe('/sessions?session_name=foo&workspace=wm-fork-bar')
+		).toBe('/sessions?session=foo&workspace=wm-fork-bar')
 	})
 
 	it('drops the open session for a cross-family target', () => {
 		expect(
 			workspaceMenuHref({
 				pathname: '/sessions',
-				searchParams: new URLSearchParams('session_name=foo'),
+				searchParams: new URLSearchParams('session=foo'),
 				id: 'other-root',
 				sameFamily: false
 			})
@@ -52,7 +52,7 @@ describe('workspaceMenuHref', () => {
 		expect(
 			workspaceMenuHref({
 				pathname: '/runs',
-				searchParams: new URLSearchParams('workspace=old&job=123&session_name=s'),
+				searchParams: new URLSearchParams('workspace=old&job=123&session=s'),
 				id: 'target',
 				sameFamily: true,
 				landOnHome: true

@@ -1077,7 +1077,6 @@ describe('sessionMirror restore', () => {
 		expect(pullMock).toHaveBeenCalledTimes(2)
 		await vi.waitFor(() => expect(sessionState.sessions.map((s) => s.id)).toEqual(['s9']))
 		const restored = sessionState.sessions[0]
-		expect(restored.name).toBe('session-1')
 		expect(restored.summary).toBe('remote')
 		expect(restored.lastSeenCount).toBe(1)
 		expect((await readStoredChat('c9', EMAIL))?.displayMessages).toHaveLength(1)

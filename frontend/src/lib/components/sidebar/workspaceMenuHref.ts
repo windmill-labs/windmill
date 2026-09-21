@@ -25,7 +25,7 @@ export function workspaceMenuHref(args: {
 	const params = new URLSearchParams(args.searchParams)
 	params.set('workspace', args.id)
 	if (!args.sameFamily) {
-		params.delete('session_name')
+		params.delete('session')
 	}
 	return `${args.pathname}?${params.toString()}`
 }

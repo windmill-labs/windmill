@@ -46,6 +46,7 @@
 		reconcileAfterWorkspaceChange,
 		renameSession,
 		selectSession,
+		sessionPageHref,
 		sessionState,
 		setSessionArchived,
 		syncWorkspaceTo,
@@ -164,10 +165,10 @@
 	async function resetToNewSession() {
 		const fresh = createSession()
 		selectSession(fresh.id)
-		// The page derives the visible session from the `session_name` query, not
+		// The page derives the visible session from the `session` query, not
 		// currentSessionId: navigate so the URL leaves the deleted/archived session,
 		// which would otherwise fall through to recovery or stay on the archived one.
-		await goto(`/sessions?session_name=${encodeURIComponent(fresh.name)}`)
+		await goto(sessionPageHref(fresh.id))
 	}
 
 	// If the session targets a forked workspace that's still accessible,

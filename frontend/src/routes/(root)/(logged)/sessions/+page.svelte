@@ -33,6 +33,7 @@
 		isTearingDownOpenSession,
 		selectSession,
 		sessionInCurrentFamily,
+		sessionPageHref,
 		sessionState,
 		type SessionPreviewTab
 	} from '$lib/components/sessions/sessionState.svelte'
@@ -127,28 +128,37 @@
 		}
 	})
 
-	const sessionName = $derived(page.url.searchParams.get('session_name') ?? '')
-
-	// Unfiltered resolution by name: drives the recovery effect below and the
-	// active-session lookup.
-	const sessionByName = $derived(
-		sessionName ? sessionState.sessions.find((s) => s.name === sessionName) : undefined
-	)
+	const sessionId = $derived(page.url.searchParams.get('session') ?? '')
+	// Links from before sessions were addressed by id name a per-browser `session-N`.
+	const legacySessionName = $derived(page.url.searchParams.get('session_name') ?? '')
+	const requestsSession = $derived(!!sessionId || !!legacySessionName)
 
 	// Opening a session deliberately does NOT switch the global workspace: the
 	// chat targets the session's own workspace via the manager's workspace
 	// resolver, so the user's active (navigation-mode) workspace is left alone.
 
-	// Resolve by name without applying the sidebar scope filter so an open
-	// chat survives within-family workspace switches.
-	const activeSession = $derived(sessionState.sessions.find((s) => s.name === sessionName))
+	// Resolved without applying the sidebar scope filter so an open chat survives
+	// within-family workspace switches.
+	const activeSession = $derived(
+		sessionId
+			? sessionState.sessions.find((s) => s.id === sessionId)
+			: legacySessionName
+				? sessionState.sessions.find((s) => s.name === legacySessionName)
+				: undefined
+	)
+
+	$effect(() => {
+		if (sessionId || !activeSession) return
+		const id = activeSession.id
+		untrack(() => void goto(sessionPageHref(id), { replaceState: true }))
+	})
 
 	// Family reconcile: a workspace switch can land this page with no session
 	// selected or with another family's session in the URL (the sidebar picker's
 	// link navigation keeps the route), and a chat must not bleed across
 	// families. Re-enter session mode scoped to the active family: keep the open
 	// chat when it belongs there, else its most recent active session, else a
-	// fresh one. A `session_name` that resolves to nothing is left to the
+	// fresh one. A `session` that resolves to nothing is left to the
 	// recovery effect below.
 	$effect(() => {
 		if (embedded || !sessionState.hydrated) return
@@ -161,15 +171,14 @@
 		$workspaceStore
 		$userWorkspaces
 		const current = activeSession
-		const shouldReenter = current ? !sessionInCurrentFamily(current) : !sessionName
+		const shouldReenter = current ? !sessionInCurrentFamily(current) : !requestsSession
 		if (!shouldReenter) return
 		untrack(() => void enterSessionMode({ replace: true }))
 	})
 
 	// Held across the swap so the session layout mounts once, after the navigation
-	// settles. A recovered session often takes the very name that was missing, so
-	// the URL resolves before `goto` returns; mounting the panes mid-navigation
-	// makes Splitpanes miss the collapsed pane's `maxSize: 0` and leave it open.
+	// settles: mounting the panes mid-navigation makes Splitpanes miss the collapsed
+	// pane's `maxSize: 0` and leave it open.
 	let recovering = $state(false)
 
 	// Bounds the wait for the workspace list the guard above needs. The list can
@@ -194,7 +203,7 @@
 		// they just deleted couldn't be found.
 		if (isTearingDownOpenSession()) return
 		if ($usersWorkspaceStore === undefined && !workspaceListOverdue) return
-		if (!sessionName || sessionByName) return
+		if (!requestsSession || activeSession) return
 		untrack(() => void recoverToNewSession())
 	})
 
@@ -276,7 +285,7 @@
 			const target = findEmptyLandingSession() ?? createSession()
 			selectSession(target.id)
 			markSessionRecovered(target.id)
-			await goto(`/sessions?session_name=${encodeURIComponent(target.name)}`, {
+			await goto(sessionPageHref(target.id), {
 				replaceState: true
 			})
 			await tick()
@@ -911,9 +920,9 @@
 		<div class="flex-1 flex items-center justify-center">
 			<Loader2 class="animate-spin" />
 		</div>
-	{:else if !sessionName}
+	{:else if !requestsSession}
 		<div class="p-8 text-secondary">No session selected — pick one in the sidebar.</div>
-	{:else if !sessionByName || recovering}
+	{:else if !activeSession || recovering}
 		<!-- A tick while recovery swaps in an empty session, or the length of a
 		     fork teardown's HTTP round trip while a delete holds recovery off. -->
 		<div class="flex-1 flex items-center justify-center">
