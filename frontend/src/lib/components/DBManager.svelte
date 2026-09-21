@@ -708,7 +708,10 @@
 			// the diagram must not queue the query again. A read that failed is not
 			// an answer about this database, so leaving and coming back retries it.
 			const answered = data?.databaseKey === key && data?.defs === defs && !data.failed
-			if (mode !== 'diagram' || answered) return data
+			// The metadata can land after the schema, and its arrival re-runs this; a
+			// read started without it would be a second full-database job that an
+			// abort cannot recall from the queue.
+			if (mode !== 'diagram' || answered || defs === undefined) return data
 			relationsError = undefined
 			let read: DbRelation[] = []
 			let error: string | undefined
