@@ -176,6 +176,9 @@
 	}
 
 	async function getMenuElements(): Promise<HTMLElement[]> {
+		// Runs on every pointerdown anywhere, for every mounted menu. Skip the
+		// whole-document query when the outside handler below cannot act anyway.
+		if (!usePointerDownOutside || !open) return []
 		// Tooltip content counts as menu territory for the same reason as the
 		// onOutsideClick veto above.
 		return Array.from(
