@@ -594,6 +594,7 @@
 											type: 'delete',
 											icon: Trash,
 											disabled: !canWrite,
+											tooltip: $triggerLock,
 											action: async () => {
 												isDeleting = false
 												deleteSubscription = false

@@ -547,6 +547,7 @@
 												type: 'delete',
 												icon: Trash,
 												disabled: !canWrite,
+												tooltip: $triggerLock,
 												action: async () => {
 													try {
 														await HttpTriggerService.deleteHttpTrigger({

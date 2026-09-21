@@ -575,6 +575,7 @@
 											type: 'delete',
 											icon: Trash,
 											disabled: !canWrite,
+											tooltip: $triggerLock,
 											action: async () => {
 												publicationToDelete = publication_name
 												replicationSlotToDelete = replication_slot_name

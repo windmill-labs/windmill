@@ -1124,9 +1124,9 @@ pub async fn set_enabled(
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(payload): Json<SetEnabled>,
 ) -> Result<String> {
+    let mut tx = user_db.begin(&authed).await?;
     let path = path.to_path();
     check_scopes(&authed, || format!("schedules:write:{}", path))?;
-    let mut tx = user_db.begin(&authed).await?;
     reject_reserved_schedule_path(path)?;
 
     // Block enabling a schedule in a fork when an ancestor has the same path

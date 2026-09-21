@@ -48,3 +48,4 @@ aws-sdk-sqs = { workspace = true, optional = true }
 base64 = { workspace = true, optional = true }
 axum.workspace = true
 rmcp = { workspace = true, optional = true }
+serial_test = "3"

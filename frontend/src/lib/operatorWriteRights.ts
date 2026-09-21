@@ -3,13 +3,11 @@ import { userWorkspaces, workspaceStore } from '$lib/stores'
 
 /**
  * Why writes of this kind are locked in the active workspace, or `undefined` when they are not —
- * the shape `title` and `disabled` both want.
+ * the shape `title` and `disabled` both want. See `docs/operator-write-rights.md`.
  *
- * `manage_schedules` and `manage_triggers` are the two `operator_settings` keys the server
- * enforces rather than merely hiding pages on, and they are granted unless explicitly withdrawn.
- * So only `false` locks: a workspace that never configured the key, and a non-operator (whose
- * `operator_settings` is null), both hold the right. Reading these as `=== true` would disable
- * the buttons for everyone.
+ * Only `false` locks. A workspace that never configured the key and a non-operator (whose
+ * `operator_settings` is null) both hold the right, so `=== true` here would disable the controls
+ * for everyone.
  */
 function writeLock(key: 'manage_schedules' | 'manage_triggers', noun: string) {
 	return derived([userWorkspaces, workspaceStore], ([$userWorkspaces, $workspaceStore]) => {

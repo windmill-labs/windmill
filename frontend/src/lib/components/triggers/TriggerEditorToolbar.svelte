@@ -6,6 +6,7 @@
 	import { Tooltip } from '../meltComponents'
 	import DeleteTriggerButton from './DeleteTriggerButton.svelte'
 	import { type Trigger, type TriggerType } from './utils'
+	import { scheduleLock, triggerLock } from '$lib/operatorWriteRights'
 	import TriggerSuspendedJobsModal from './TriggerSuspendedJobsModal.svelte'
 	import type { TriggerMode } from '$lib/gen'
 	import TriggerModeToggle from './TriggerModeToggle.svelte'
@@ -65,6 +66,11 @@
 
 	const canSave = $derived((permissions === 'write' && edit) || permissions === 'create')
 
+	// Applied here because every schedule and trigger editor renders this toolbar, while each of
+	// them derives its own `can_write` from path permissions alone. Anything that is not the
+	// schedule editor edits a trigger, the native editor — which passes no kind — included.
+	const writeLock = $derived(triggerKind === 'schedule' ? $scheduleLock : $triggerLock)
+
 	// "Open in AI session", on the standalone trigger list pages only: the route
 	// gate inside pageDrawerSessionSource is what keeps it off this same toolbar
 	// when it renders in a script/flow editor's Triggers panel, which has the
@@ -100,7 +106,7 @@
 	<OpenInSessionButton source={sessionSource} />
 	{#if edit}
 		<TriggerModeToggle
-			canWrite={canSave}
+			canWrite={canSave && !writeLock}
 			triggerMode={mode}
 			{onToggleMode}
 			{suspendedJobsModal}
@@ -112,7 +118,8 @@
 			size="sm"
 			variant="accent"
 			startIcon={{ icon: Save }}
-			disabled={saveDisabled}
+			disabled={saveDisabled || !!writeLock}
+			title={writeLock}
 			on:click={() => {
 				onUpdate?.()
 			}}
@@ -122,6 +129,10 @@
 		</Button>
 	{/if}
 {:else}
+	<!-- The draft branch: this toolbar inside a script or flow editor's Triggers panel. Only
+		 someone who can edit the runnable gets here, so `writeLock` is always undefined today —
+		 it is applied anyway because the operator builder-rights work (#11228, #11229) gives
+		 operators that editor, and this panel would otherwise be the one ungated way in. -->
 	<div class="flex flex-row gap-2 items-center">
 		{#if triggerKind && historyPath}
 			<TriggerHistoryButton {triggerKind} path={historyPath} />
@@ -130,7 +141,7 @@
 		{#if !trigger?.draftConfig}
 			<div class="center-center">
 				<TriggerModeToggle
-					canWrite={permissions !== 'none'}
+					canWrite={permissions !== 'none' && !writeLock}
 					triggerMode={mode}
 					{onToggleMode}
 					{suspendedJobsModal}
@@ -153,12 +164,19 @@
 			</Button>
 		{/if}
 		{#if canSave}
-			<Tooltip placement="bottom-end" disablePopup={!saveDisabled && !cloudDisabled && isDeployed}>
+			<Tooltip
+				placement="bottom-end"
+				disablePopup={!saveDisabled && !cloudDisabled && isDeployed && !writeLock}
+			>
 				<Button
 					variant="accent"
 					unifiedSize="sm"
 					startIcon={{ icon: Save }}
-					disabled={saveDisabled || cloudDisabled || !isDeployed || !trigger?.draftConfig}
+					disabled={saveDisabled ||
+						cloudDisabled ||
+						!isDeployed ||
+						!trigger?.draftConfig ||
+						!!writeLock}
 					on:click={() => {
 						onUpdate?.()
 					}}
@@ -168,7 +186,9 @@
 				</Button>
 				{#snippet text()}
 					<span>
-						{#if !isDeployed}
+						{#if writeLock}
+							{writeLock}
+						{:else if !isDeployed}
 							Deploy the runnable to enable trigger creation
 						{:else if cloudDisabled}
 							This trigger is disabled in the multi-tenant cloud

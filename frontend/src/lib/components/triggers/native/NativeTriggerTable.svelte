@@ -190,6 +190,7 @@
 										type: 'delete' as const,
 										icon: Trash,
 										disabled: !!$triggerLock,
+										tooltip: $triggerLock,
 										action: () => openDeleteConfirmation(trigger)
 									}
 								]}

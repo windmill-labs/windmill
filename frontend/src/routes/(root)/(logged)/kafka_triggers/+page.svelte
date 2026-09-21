@@ -521,6 +521,7 @@
 												type: 'delete',
 												icon: Trash,
 												disabled: !canWrite,
+												tooltip: $triggerLock,
 												action: async () => {
 													await KafkaTriggerService.deleteKafkaTrigger({
 														workspace: $workspaceStore ?? '',

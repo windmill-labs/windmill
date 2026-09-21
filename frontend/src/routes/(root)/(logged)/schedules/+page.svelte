@@ -558,6 +558,7 @@
 												displayName: `Duplicate schedule`,
 												icon: Copy,
 												disabled: !!$scheduleLock,
+												tooltip: $scheduleLock,
 												action: () => {
 													scheduleEditor?.openNew(is_flow, script_path, path)
 												}
@@ -567,6 +568,7 @@
 												type: 'delete',
 												icon: Trash,
 												disabled: !canWrite,
+												tooltip: $scheduleLock,
 												action: async () => {
 													await ScheduleService.deleteSchedule({
 														workspace: $workspaceStore ?? '',

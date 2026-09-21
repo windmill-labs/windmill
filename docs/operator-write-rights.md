@@ -10,9 +10,9 @@ it could not express that with a visibility flag alone.
 
 ## Where the gate lives
 
-On the router, not in the handlers. `gate_operator_writes` is layered once over the schedules
-router and once over each trigger router in `windmill-api/src/lib.rs`, and refuses anything that is
-not a GET/HEAD/OPTIONS.
+On the router, not in the handlers. `gate_operator_writes` is layered in `windmill-api/src/lib.rs`
+over the schedules router, the trigger routers, the native-trigger routers and capture, and refuses
+anything that is not a GET/HEAD/OPTIONS.
 
 That is not a style choice. A trigger kind can register routes of its own beside the shared CRUD
 ones — bulk HTTP creation, the Postgres publication and replication-slot setup — and those are
@@ -20,6 +20,13 @@ hand-written, one per feature. The first version of this checked each handler, a
 those extra routes was missed, along with the whole native-trigger family, which does not use the
 shared handlers at all. On the router the author of the next route writes nothing and is covered
 anyway.
+
+**A layer only covers the routers it is on.** It closes routes added *inside* a gated router; it
+says nothing about a new feature that performs trigger writes from a router of its own. Capture is
+exactly that — it configures a trigger without creating one, and saving a Postgres capture config
+creates a replication slot and a publication on the target database — and it needed its own layer
+rather than inheriting one. Before adding a feature that writes trigger or schedule state, ask
+which router it lands on.
 
 Two consequences to keep in mind when adding a route under one of these:
 

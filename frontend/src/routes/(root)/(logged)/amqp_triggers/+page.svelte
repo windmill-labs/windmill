@@ -531,6 +531,7 @@
 											type: 'delete',
 											icon: Trash,
 											disabled: !canWrite,
+											tooltip: $triggerLock,
 											action: async () => {
 												await AmqpTriggerService.deleteAmqpTrigger({
 													workspace: $workspaceStore ?? '',

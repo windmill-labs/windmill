@@ -540,6 +540,7 @@
 											type: 'delete',
 											icon: Trash,
 											disabled: !canWrite,
+											tooltip: $triggerLock,
 											action: async () => {
 												await WebsocketTriggerService.deleteWebsocketTrigger({
 													workspace: $workspaceStore ?? '',

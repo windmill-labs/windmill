@@ -12,8 +12,12 @@ pub mod ee;
 pub mod ee_oss;
 pub mod scopes;
 
-use axum::extract::{FromRequestParts, OptionalFromRequestParts};
+use axum::extract::{FromRequestParts, OptionalFromRequestParts, Path, Request, State};
+use axum::middleware::Next;
+use axum::response::Response;
+use axum::Extension;
 use http::request::Parts;
+use std::collections::HashMap;
 
 use windmill_audit::audit_oss::AuditAuthorable;
 use windmill_common::{
@@ -26,6 +30,7 @@ use windmill_common::{
     jobs::JobTriggerKind,
     triggers::TriggerMetadata,
     users::username_to_permissioned_as,
+    workspaces::{check_operator_can_manage, ManageKind},
     DB,
 };
 
@@ -942,23 +947,18 @@ pub async fn maybe_refresh_folders(
 
 // ------------ Router-level gate for withdrawable operator rights ------------
 
-/// Refuses every write under the router it layers, unless the workspace still grants operators
-/// `kind`. Layer it on a whole family of routes with
-/// `axum::middleware::from_fn_with_state(ManageKind::X, gate_operator_writes)`.
-///
-/// It belongs on the router, not in the handlers: a trigger kind may register routes of its own
-/// beside the shared CRUD ones, and those are hand-written, so a per-handler check is one every
-/// future route has to remember — and the ones that already existed did not. Here a route added
-/// later is covered the day it is written. "Write" is anything but GET/HEAD/OPTIONS; see
+/// Refuses every write (anything but GET/HEAD/OPTIONS) under the router it layers, unless the
+/// workspace still grants operators `kind`. It sits on the router rather than in each handler so
+/// that a route added later is covered without its author doing anything; read
 /// `docs/operator-write-rights.md` before putting a new route under one of these routers.
 pub async fn gate_operator_writes(
-    axum::extract::State(kind): axum::extract::State<windmill_common::workspaces::ManageKind>,
+    State(kind): State<ManageKind>,
     authed: ApiAuthed,
-    axum::Extension(db): axum::Extension<DB>,
-    axum::extract::Path(params): axum::extract::Path<std::collections::HashMap<String, String>>,
-    request: axum::extract::Request,
-    next: axum::middleware::Next,
-) -> Result<axum::response::Response> {
+    Extension(db): Extension<DB>,
+    Path(params): Path<HashMap<String, String>>,
+    request: Request,
+    next: Next,
+) -> Result<Response> {
     if !matches!(
         *request.method(),
         http::Method::GET | http::Method::HEAD | http::Method::OPTIONS
@@ -970,8 +970,7 @@ pub async fn gate_operator_writes(
                 "operator write gate layered outside a workspaced router".to_string(),
             )
         })?;
-        windmill_common::workspaces::check_operator_can_manage(&db, w_id, authed.is_operator, kind)
-            .await?;
+        check_operator_can_manage(&db, w_id, authed.is_operator, kind).await?;
     }
     Ok(next.run(request).await)
 }

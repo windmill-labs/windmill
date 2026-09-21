@@ -13,6 +13,7 @@ use crate::embeddings::load_embeddings_db;
 use crate::oauth2_oss::SlackVerifier;
 #[cfg(feature = "smtp")]
 use crate::smtp_server_oss::SmtpServer;
+use axum::middleware::from_fn_with_state;
 #[cfg(feature = "enterprise")]
 use windmill_api_auth::ee_oss::ExternalJwks;
 use windmill_api_auth::gate_operator_writes;
@@ -539,11 +540,10 @@ pub async fn run_server(
         triggers::http::refresh_routers_loop(&db, http_killpill_rx).await;
     }
 
-    // One layer covers every trigger kind, including the extra routes a kind registers for
-    // itself (bulk HTTP creation, Postgres publication/slot setup). See `gate_operator_writes`.
-    let triggers_service = triggers::generate_trigger_routers().layer(
-        axum::middleware::from_fn_with_state(ManageKind::Triggers, gate_operator_writes),
-    );
+    let triggers_service = triggers::generate_trigger_routers().layer(from_fn_with_state(
+        ManageKind::Triggers,
+        gate_operator_writes,
+    ));
 
     if !*CLOUD_HOSTED && server_mode && !mcp_mode {
         start_all_listeners(db.clone(), &killpill_rx);
@@ -657,7 +657,15 @@ pub async fn run_server(
                         )
                         .nest("/assets", windmill_api_assets::workspaced_service())
                         .nest("/audit", audit::workspaced_service())
-                        .nest("/capture", capture::workspaced_service())
+                        // Capture configures a trigger without creating one. Its unauthed
+                        // ingestion routes are a separate service and stay open.
+                        .nest(
+                            "/capture",
+                            capture::workspaced_service().layer(from_fn_with_state(
+                                ManageKind::Triggers,
+                                gate_operator_writes,
+                            )),
+                        )
                         .nest(
                             "/concurrency_groups",
                             concurrency_groups::workspaced_service(),
@@ -706,7 +714,7 @@ pub async fn run_server(
                                 // them connect the workspace's GitHub/Google account, which is a
                                 // settings concern and admin-only already.
                                 native_triggers::handler::generate_native_trigger_routers()
-                                    .layer(axum::middleware::from_fn_with_state(
+                                    .layer(from_fn_with_state(
                                         ManageKind::Triggers,
                                         gate_operator_writes,
                                     ))
@@ -755,12 +763,10 @@ pub async fn run_server(
                         .nest("/shared_ui", workspace_shared_ui::workspaced_service())
                         .nest(
                             "/schedules",
-                            windmill_api_schedule::workspaced_service().layer(
-                                axum::middleware::from_fn_with_state(
-                                    ManageKind::Schedules,
-                                    gate_operator_writes,
-                                ),
-                            ),
+                            windmill_api_schedule::workspaced_service().layer(from_fn_with_state(
+                                ManageKind::Schedules,
+                                gate_operator_writes,
+                            )),
                         )
                         .nest("/scripts", scripts::workspaced_service())
                         .nest("/trash", trash::workspaced_service())
