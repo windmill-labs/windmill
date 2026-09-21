@@ -2716,18 +2716,15 @@ pub async fn handle_wac_v2_output(
 ) -> error::Result<Box<RawValue>> {
     use crate::wac_executor::{
         load_checkpoint, parse_wac_output, update_checkpoint_for_dispatch,
-        wac_cancelled_mid_segment, WacOutput, WacPark,
+        wac_cancelled_mid_segment, WacOutput, WacPark, WacStepDispatch,
     };
     use serde_json::Value;
     use windmill_common::get_latest_flow_version_info_for_path;
-    use windmill_common::jobs::{
-        check_tag_available_for_workspace_internal, script_path_to_payload, JobKind, JobPayload,
-        RawCode,
-    };
+    use windmill_common::jobs::{script_path_to_payload, JobKind, JobPayload, RawCode};
     use windmill_common::runnable_settings::{
         ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings,
     };
-    use windmill_queue::{push, PushArgs, PushIsolationLevel};
+    use windmill_queue::{check_tag_available_for_push, push, PushArgs, PushIsolationLevel};
 
     let output = parse_wac_output(&result)?;
 
@@ -2970,6 +2967,18 @@ pub async fn handle_wac_v2_output(
                 email: String,
                 permissioned_as: String,
             }
+            // The input a task with a runnable of its own is pushed with; the parent re-run gets
+            // the parent's. Both the tag check and the push build it here, so the check resolves
+            // `$args[...]` against what the child actually receives.
+            let own_args = |step: &WacStepDispatch| -> HashMap<String, Box<RawValue>> {
+                step.args
+                    .iter()
+                    .map(|(k, v)| {
+                        let raw = serde_json::value::to_raw_value(v).unwrap();
+                        (k.clone(), raw)
+                    })
+                    .collect()
+            };
             let mut children: Vec<ResolvedChild> = Vec::with_capacity(num_steps);
             for step in &steps {
                 let (runnable, on_behalf_of) = match step.dispatch_type.as_str() {
@@ -3038,17 +3047,19 @@ pub async fn handle_wac_v2_output(
                 {
                     let is_super_admin =
                         windmill_common::auth::is_super_admin_email(db, &email).await?;
-                    check_tag_available_for_workspace_internal(
+                    let step_args =
+                        (!matches!(runnable, ChildRunnable::Parent)).then(|| own_args(step));
+                    let args =
+                        PushArgs { args: step_args.as_ref().unwrap_or(&parent_args), extra: None };
+                    check_tag_available_for_push(
                         db,
                         &job.workspace_id,
                         tag,
+                        &args,
                         is_super_admin,
                         None,
                     )
-                    .warn_after_seconds_with_sql(
-                        1,
-                        "check_tag_available_for_workspace_internal".to_string(),
-                    )
+                    .warn_after_seconds_with_sql(1, "check_tag_available_for_push".to_string())
                     .await
                     .map_err(|e| match e {
                         error::Error::BadRequest(msg) => error::Error::BadRequest(format!(
@@ -3174,16 +3185,7 @@ pub async fn handle_wac_v2_output(
                         }),
                         ChildRunnable::Deployed(payload) => payload,
                     };
-                    let step_args: Option<HashMap<String, Box<RawValue>>> =
-                        is_external.then(|| {
-                            step.args
-                                .iter()
-                                .map(|(k, v)| {
-                                    let raw = serde_json::value::to_raw_value(v).unwrap();
-                                    (k.clone(), raw)
-                                })
-                                .collect()
-                        });
+                    let step_args = is_external.then(|| own_args(step));
                     let push_args =
                         PushArgs { args: step_args.as_ref().unwrap_or(&parent_args), extra: None };
 
