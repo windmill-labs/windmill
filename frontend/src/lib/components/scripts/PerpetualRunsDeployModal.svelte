@@ -1,18 +1,21 @@
 <script lang="ts">
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
-	import { Alert, RadioCard } from '$lib/components/common'
+	import { Alert, Button } from '$lib/components/common'
 	import type { PerpetualRunsAtPath } from './perpetualRuns'
 
 	interface Props {
 		/** Open while set. */
 		runs: PerpetualRunsAtPath | undefined
-		onConfirmed: (choice: 'restart' | 'stop') => void
+		/** Stops the runs without deploying, so the deploy that follows starts nothing in their place. */
+		onStop: () => Promise<boolean>
+		onConfirmed: () => void
 		onCanceled: () => void
 	}
 
-	let { runs, onConfirmed, onCanceled }: Props = $props()
+	let { runs, onStop, onConfirmed, onCanceled }: Props = $props()
 
-	let choice: 'restart' | 'stop' = $state('restart')
+	let stopping = $state(false)
+	let stopped = $state(false)
 
 	const single = $derived(runs?.count === 1)
 	const subject = $derived(single ? 'it' : 'them')
@@ -23,6 +26,11 @@
 				? '1 run of this script is'
 				: `${runs?.count} runs of this script are`
 	)
+
+	function reset() {
+		stopping = false
+		stopped = false
+	}
 </script>
 
 <ConfirmationModal
@@ -30,42 +38,66 @@
 	title="Perpetual runs on an earlier version"
 	confirmationText="Deploy"
 	type="reload"
+	loading={stopping}
 	onConfirmed={() => {
-		const made = choice
-		choice = 'restart'
-		onConfirmed(made)
+		reset()
+		onConfirmed()
 	}}
 	onCanceled={() => {
-		choice = 'restart'
+		reset()
 		onCanceled()
 	}}
 >
 	{#if runs}
 		<div class="flex flex-col gap-3">
-			<p>{runsText} queued or running on an earlier version.</p>
-			<div class="flex flex-col gap-2" role="radiogroup" aria-label="What happens to these runs">
-				<RadioCard
-					label="Restart on this version"
-					description="Each run stops and starts again on this version, with the arguments it has now."
-					selected={choice === 'restart'}
-					onSelect={() => (choice = 'restart')}
-				/>
-				<RadioCard
-					label="Stop {subject}"
-					description="Each run stops and nothing takes its place."
-					selected={choice === 'stop'}
-					onSelect={() => (choice = 'stop')}
-				/>
-			</div>
-			{#if choice === 'restart' && runs.mismatchedArgs.length > 0}
-				<Alert type="warning" size="xs" title="Arguments no longer match">
-					Each run keeps the arguments it has now, and this version changes
-					{runs.mismatchedArgs.length === 1 ? 'this argument' : 'these arguments'}:
-					{#each runs.mismatchedArgs as arg, i (arg)}
-						<code>{arg}</code>{i < runs.mismatchedArgs.length - 1 ? ', ' : '.'}
-					{/each}
-					Stopping {subject} instead leaves the new version to be started with arguments that match.
-				</Alert>
+			{#if stopped}
+				<p>
+					{single ? 'The run was' : 'The runs were'} stopped. Deploying starts nothing in {single
+						? 'its'
+						: 'their'} place.
+				</p>
+			{:else}
+				<p>
+					{runsText} queued or running on an earlier version. Deploying stops {subject} and starts {subject}
+					again on this version, with the arguments {single ? 'it has' : 'they have'} now.
+				</p>
+				{#if runs.count === undefined || runs.mismatchedArgs.length > 0}
+					<Alert
+						type="warning"
+						size="xs"
+						title={runs.mismatchedArgs.length > 0
+							? 'Arguments no longer match'
+							: 'Their arguments could not be checked'}
+					>
+						<div class="flex flex-col items-start gap-2">
+							<p>
+								{#if runs.mismatchedArgs.length > 0}
+									This version changes
+									{runs.mismatchedArgs.length === 1 ? 'this argument' : 'these arguments'}:
+									{#each runs.mismatchedArgs as arg, i (arg)}
+										<code>{arg}</code>{i < runs.mismatchedArgs.length - 1 ? ', ' : '.'}
+									{/each}
+								{:else}
+									The versions the runs are on could not be read, so arguments this version changes
+									would still be carried over.
+								{/if}
+								Stopping {subject} leaves this version to be started with arguments that match.
+							</p>
+							<Button
+								variant="default"
+								unifiedSize="xs"
+								disabled={stopping}
+								onclick={async () => {
+									stopping = true
+									stopped = await onStop()
+									stopping = false
+								}}
+							>
+								{stopping ? 'Stopping…' : `Stop ${subject}`}
+							</Button>
+						</div>
+					</Alert>
+				{/if}
 			{/if}
 		</div>
 	{/if}

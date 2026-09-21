@@ -600,8 +600,13 @@ async fn cancel_persistent_script_jobs_internal<'c>(
     let mut tx = db.begin().await?;
 
     // we could have retrieved the job IDs in the first query where we retrieve the hashes, but just in case a job was inserted in the queue right in-between the two above query, we re-do the fetch here
+    // Only the loops: a dependency job of this script shares its path, and a run of a version that
+    // does not restart itself ends on its own.
     let jobs_to_cancel = sqlx::query_scalar::<_, Uuid>(
-        "SELECT j.id FROM v2_job_queue q JOIN v2_job j USING (id) WHERE j.workspace_id = $1 AND j.runnable_path = $2 AND q.canceled_by IS NULL",
+        "SELECT j.id FROM v2_job_queue q JOIN v2_job j USING (id) \
+         JOIN script s ON s.workspace_id = j.workspace_id AND s.hash = j.runnable_id \
+         WHERE j.workspace_id = $1 AND j.runnable_path = $2 AND j.kind = 'script' \
+         AND j.flow_step_id IS NULL AND q.canceled_by IS NULL AND s.restart_unless_cancelled",
     )
     .bind(w_id)
     .bind(script_path)
@@ -688,10 +693,10 @@ async fn restart_perpetual_runs_at_path(
     deployed_by: &str,
 ) -> error::Result<bool> {
     // Built the way a run of this path is built anywhere else, so the next run takes the deployed
-    // version's tag, timeout, language and identity. The arguments are reused from the run it
-    // replaces, which a preprocessor already ran on.
+    // version's tag, timeout, language and identity. Whether its preprocessor runs is decided per
+    // run, from the arguments that run carries.
     let (payload, tag, _, _, timeout, on_behalf_of) =
-        script_path_to_payload(script_path, None, db.clone(), w_id, Some(true)).await?;
+        script_path_to_payload(script_path, None, db.clone(), w_id, None).await?;
     let JobPayload::ScriptHash { hash, dedicated_worker, .. } = &payload else {
         return Ok(false);
     };
@@ -712,7 +717,7 @@ async fn restart_perpetual_runs_at_path(
     let runs = sqlx::query_as!(
         PerpetualRunToRestart,
         "SELECT q.id AS \"id!\", j.created_by, j.permissioned_as, j.permissioned_as_email, \
-         j.trigger, j.trigger_kind AS \"trigger_kind: TriggerKindLabel\", \
+         j.trigger, j.trigger_kind AS \"trigger_kind: TriggerKindLabel\", j.preprocessed, \
          j.args AS \"args: sqlx::types::Json<HashMap<String, Box<RawValue>>>\" \
          FROM v2_job_queue q JOIN v2_job j USING (id) \
          JOIN script s ON s.workspace_id = j.workspace_id AND s.hash = j.runnable_id \
@@ -761,6 +766,9 @@ struct PerpetualRunToRestart {
     permissioned_as_email: String,
     trigger: Option<String>,
     trigger_kind: Option<TriggerKindLabel>,
+    /// `Some(false)` while the run still carries the arguments it was started with, which only a
+    /// completion replaces with the preprocessed ones.
+    preprocessed: Option<bool>,
     args: Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
 }
 
@@ -782,111 +790,114 @@ async fn restart_perpetual_run(
     run: PerpetualRunToRestart,
 ) -> error::Result<()> {
     let RestartOnVersion { payload, tag, timeout, dedicated_worker, on_behalf_of } = version;
+    let (email, permissioned_as) = match on_behalf_of {
+        Some(obo) => (obo.email.clone(), obo.permissioned_as.clone()),
+        None => (
+            run.permissioned_as_email.clone(),
+            run.permissioned_as.clone(),
+        ),
+    };
+    // The run's own tag was checked when the loop started; the deployed version's has not
+    // been checked against the identity that would run it. A dedicated worker's tag is the
+    // script's own and names no worker group to gain access to.
+    if dedicated_worker != Some(true) {
+        if let Some(tag) = tag.filter(|tag| !tag.is_empty()) {
+            let is_super_admin = windmill_common::auth::is_super_admin_email(db, &email).await?;
+            if let Err(e) = windmill_common::jobs::check_tag_available_for_workspace_internal(
+                db,
+                w_id,
+                tag,
+                is_super_admin,
+                None,
+            )
+            .await
+            {
+                tracing::warn!(
+                    "Perpetual run {} stays on its version: the deployed version of \
+                     {script_path} has tag {tag}: {e}",
+                    run.id
+                );
+                return Ok(());
+            }
+        }
+    }
+    let args = run.args.clone().map(|args| args.0).unwrap_or_default();
+    // A run's arguments become the preprocessed ones only when it completes, so a loop's first
+    // iteration still holds what started it and its replacement has to preprocess them itself.
+    let mut payload = payload.clone();
+    if let JobPayload::ScriptHash { apply_preprocessor, .. } = &mut payload {
+        *apply_preprocessor = *apply_preprocessor && run.preprocessed == Some(false);
+    }
+    let mut tx = db.begin().await?;
+    // Claiming the run and queueing its replacement in one transaction: a push that fails
+    // leaves the run looping on its own version rather than canceled with nothing to follow
+    // it, and a concurrent deploy cannot claim a run this one already has. A worker completes
+    // a run canceled this way when it next pulls it.
+    let claimed = sqlx::query_scalar!(
+        "UPDATE v2_job_queue SET canceled_by = $1, canceled_reason = $2, scheduled_for = now(), \
+         suspend = 0 WHERE id = $3 AND workspace_id = $4 AND canceled_by IS NULL RETURNING id",
+        deployed_by,
+        format!("a new version of {script_path} was deployed"),
+        run.id,
+        w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    if claimed.is_none() {
+        // It ended or was canceled since the scan. Its own restart, if it had one, is a run of
+        // an earlier version the next pass picks up.
+        return Ok(());
+    }
+    let (_, tx) = push(
+        db,
+        PushIsolationLevel::Transaction(tx),
+        w_id,
+        payload,
+        PushArgs::from(&args),
+        &run.created_by,
+        &email,
+        permissioned_as,
+        Some(&format!("deploy.restart.{}", run.id)),
+        None,
+        None,
+        schedule_path(&run.trigger_kind, &run.trigger),
+        None,
+        None,
+        None,
+        None,
+        false,
+        false,
+        None,
+        true,
+        tag.map(str::to_string),
+        timeout,
+        None,
+        None,
+        None,
+        false,
+        None,
+        None,
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+    // Now that the replacement is queued: the children the run left behind, and, for a run no
+    // worker would pull, its completion.
+    match cancel_job(
+        deployed_by,
+        Some(format!("a new version of {script_path} was deployed")),
+        run.id,
+        w_id,
+        db.begin().await?,
+        db,
+        false,
+        false,
+    )
+    .await
     {
-        let (email, permissioned_as) = match on_behalf_of {
-            Some(obo) => (obo.email.clone(), obo.permissioned_as.clone()),
-            None => (
-                run.permissioned_as_email.clone(),
-                run.permissioned_as.clone(),
-            ),
-        };
-        // The run's own tag was checked when the loop started; the deployed version's has not
-        // been checked against the identity that would run it. A dedicated worker's tag is the
-        // script's own and names no worker group to gain access to.
-        if dedicated_worker != Some(true) {
-            if let Some(tag) = tag.filter(|tag| !tag.is_empty()) {
-                let is_super_admin =
-                    windmill_common::auth::is_super_admin_email(db, &email).await?;
-                if let Err(e) = windmill_common::jobs::check_tag_available_for_workspace_internal(
-                    db,
-                    w_id,
-                    tag,
-                    is_super_admin,
-                    None,
-                )
-                .await
-                {
-                    tracing::warn!(
-                        "Perpetual run {} stays on its version: the deployed version of \
-                         {script_path} has tag {tag}: {e}",
-                        run.id
-                    );
-                    return Ok(());
-                }
-            }
-        }
-        let args = run.args.clone().map(|args| args.0).unwrap_or_default();
-        let mut tx = db.begin().await?;
-        // Claiming the run and queueing its replacement in one transaction: a push that fails
-        // leaves the run looping on its own version rather than canceled with nothing to follow
-        // it, and a concurrent deploy cannot claim a run this one already has. A worker completes
-        // a run canceled this way when it next pulls it.
-        let claimed = sqlx::query_scalar!(
-            "UPDATE v2_job_queue SET canceled_by = $1, canceled_reason = $2, scheduled_for = now(), \
-             suspend = 0 WHERE id = $3 AND workspace_id = $4 AND canceled_by IS NULL RETURNING id",
-            deployed_by,
-            format!("a new version of {script_path} was deployed"),
-            run.id,
-            w_id
-        )
-        .fetch_optional(&mut *tx)
-        .await?;
-        if claimed.is_none() {
-            // It ended or was canceled since the scan. Its own restart, if it had one, is a run of
-            // an earlier version the next pass picks up.
-            return Ok(());
-        }
-        let (_, tx) = push(
-            db,
-            PushIsolationLevel::Transaction(tx),
-            w_id,
-            payload.clone(),
-            PushArgs::from(&args),
-            &run.created_by,
-            &email,
-            permissioned_as,
-            Some(&format!("deploy.restart.{}", run.id)),
-            None,
-            None,
-            schedule_path(&run.trigger_kind, &run.trigger),
-            None,
-            None,
-            None,
-            None,
-            false,
-            false,
-            None,
-            true,
-            tag.map(str::to_string),
-            timeout,
-            None,
-            None,
-            None,
-            false,
-            None,
-            None,
-            None,
-        )
-        .await?;
-        tx.commit().await?;
-        // Now that the replacement is queued: the children the run left behind, and, for a run no
-        // worker would pull, its completion.
-        match cancel_job(
-            deployed_by,
-            Some(format!("a new version of {script_path} was deployed")),
-            run.id,
-            w_id,
-            db.begin().await?,
-            db,
-            false,
-            false,
-        )
-        .await
-        {
-            Ok((tx, _)) => tx.commit().await?,
-            Err(e) => {
-                tracing::error!("Could not finish canceling perpetual run {}: {e:#}", run.id)
-            }
+        Ok((tx, _)) => tx.commit().await?,
+        Err(e) => {
+            tracing::error!("Could not finish canceling perpetual run {}: {e:#}", run.id)
         }
     }
     Ok(())
@@ -1461,9 +1472,9 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                     , status
                     , worker
                     )
-                SELECT q.workspace_id, q.id, started_at, COALESCE($9::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(started_at, now()))))*1000), $3::text::jsonb, $10, $5, $6,
+                SELECT q.workspace_id, q.id, started_at, COALESCE($9::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(started_at, now()))))*1000), $3::text::jsonb, $10, COALESCE($5::text, q.canceled_by), COALESCE($6::text, q.canceled_reason),
                         flow_status, workflow_as_code_status,
-                        $8, CASE WHEN $4::BOOL THEN 'canceled'::job_status
+                        $8, CASE WHEN $4::BOOL OR q.canceled_by IS NOT NULL THEN 'canceled'::job_status
                         WHEN $7::BOOL THEN 'skipped'::job_status
                         WHEN $2::BOOL THEN 'success'::job_status
                         ELSE 'failure'::job_status END AS status,
@@ -1877,6 +1888,21 @@ async fn restart_job_if_perpetual_inner(
     };
 
     if restart {
+        // A cancel that landed after this worker last read the queue row reaches the completion as
+        // `canceled_by: None`, so the row the completion wrote is what says whether the loop was
+        // stopped. Restarting on a stale copy of it would leave a second loop running for good.
+        let canceled = sqlx::query_scalar!(
+            "SELECT canceled_by IS NOT NULL AS \"canceled!\" FROM v2_job_completed \
+             WHERE id = $1 AND workspace_id = $2",
+            queued_job.id,
+            &queued_job.workspace_id
+        )
+        .fetch_optional(db)
+        .await?
+        .unwrap_or(false);
+        if canceled {
+            return Ok(());
+        }
         let tx = PushIsolationLevel::IsolatedRoot(db.clone());
 
         // perpetual jobs can run one job per 10s max. If the job was faster than 10s, schedule the next one with the appropriate delay

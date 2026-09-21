@@ -12,6 +12,16 @@ export type PerpetualRunsAtPath = {
 
 const RUNS_UNKNOWN: PerpetualRunsAtPath = { count: undefined, mismatchedArgs: [] }
 
+/** By path rather than by the ids listed: a loop restarts every 10s, so the run listed when the
+ * modal opened is usually gone, and this endpoint makes the two passes that window needs. */
+export async function stopPerpetualRuns(workspace: string, path: string): Promise<void> {
+	await JobService.cancelPersistentQueuedJobs({
+		workspace,
+		path,
+		requestBody: { reason: 'stopped before a new version was deployed' }
+	})
+}
+
 // Every page: the deploy switches every perpetual run at the path, so one past the first page
 // still needs the prompt and its version's arguments compared.
 async function listQueuedAtPath(workspace: string, path: string): Promise<QueuedJob[]> {

@@ -2,9 +2,11 @@
 //! runnable, unless that version no longer loops.
 
 use serde_json::{json, Value};
-use sqlx::{Pool, Postgres};
+use sqlx::{types::Json, Pool, Postgres};
 use uuid::Uuid;
-use windmill_queue::restart_perpetual_runs_on_new_version;
+use windmill_queue::{
+    add_completed_job, get_mini_completed_job, restart_perpetual_runs_on_new_version,
+};
 
 const W_ID: &str = "test-workspace";
 
@@ -115,6 +117,53 @@ async fn a_deploy_restarts_the_runs_of_earlier_versions(db: Pool<Postgres>) -> a
         args,
         json!({ "n": 1 }),
         "with the arguments of the run it replaces"
+    );
+    Ok(())
+}
+
+/// A cancel reaches the queue row first and the worker only later: one that lands after the
+/// worker's last read of it completes the run with no `canceled_by` of its own, and the loop must
+/// still stop rather than restart beside the replacement the canceller queued.
+#[sqlx::test(fixtures("base"))]
+async fn a_run_canceled_after_the_worker_read_its_row_does_not_restart(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    let path = "u/test-user/late-cancel";
+    insert_version(&db, path, 401, 0.0, true).await?;
+    let running = start_run(&db, path, 401).await?;
+    sqlx::query("UPDATE v2_job_queue SET canceled_by = 'test-user' WHERE id = $1")
+        .bind(running)
+        .execute(&db)
+        .await?;
+
+    let job = get_mini_completed_job(&running, W_ID, &db).await?.unwrap();
+    add_completed_job(
+        &db,
+        &job,
+        true,
+        false,
+        Json(&json!("done")),
+        None,
+        0,
+        // What the worker carries when the cancel landed after it last read the row.
+        None,
+        false,
+        None,
+        false,
+    )
+    .await?;
+
+    let queued: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT q.id FROM v2_job_queue q JOIN v2_job j USING (id) \
+         WHERE j.workspace_id = $1 AND j.runnable_path = $2",
+    )
+    .bind(W_ID)
+    .bind(path)
+    .fetch_all(&db)
+    .await?;
+    assert!(
+        queued.is_empty(),
+        "the canceled run does not queue another one: {queued:?}"
     );
     Ok(())
 }
