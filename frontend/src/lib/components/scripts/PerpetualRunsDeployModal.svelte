@@ -36,7 +36,11 @@
 <ConfirmationModal
 	open={!!runs}
 	title="Perpetual runs on an earlier version"
-	confirmationText="Deploy"
+	confirmationText={stopped
+		? 'Deploy'
+		: runs?.count === undefined
+			? 'Deploy and restart runs'
+			: `Deploy and restart ${runs.count} ${single ? 'run' : 'runs'}`}
 	type="reload"
 	loading={stopping}
 	onConfirmed={() => {
