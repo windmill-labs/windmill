@@ -41,10 +41,9 @@ export async function* followJob(
     let reopen = false
     try {
       for await (const update of api.streamJob(jobId, { streamOffset: offset, signal: options.signal })) {
-        // A ping proves the connection opened, not that it carries the job: only an update
-        // clears the count, or a connection that pings and drops would never reach polling.
+        // Opening a connection does not prove it is carrying the job. Only stream progress
+        // clears the count, or status snapshots followed by EOF would never reach polling.
         if (update.type === 'ping') continue
-        failures = 0
         if (update.type === 'timeout') {
           reopen = true
           break
@@ -56,6 +55,7 @@ export async function* followJob(
           streamJobId = update.flow_stream_job_id
           if (switched) {
             // This connection skipped the new sub-job's first chunks: start it over.
+            failures = 0
             offset = undefined
             options.onOffset?.(undefined)
             parser = createStreamEventParser()
@@ -64,10 +64,12 @@ export async function* followJob(
           }
         }
         if (update.stream_offset !== undefined) {
+          if (update.stream_offset !== offset) failures = 0
           offset = update.stream_offset
           options.onOffset?.(offset)
         }
         if (update.new_result_stream) {
+          failures = 0
           yield { type: 'stream', events: parser.push(update.new_result_stream) }
         }
         if (update.completed) {

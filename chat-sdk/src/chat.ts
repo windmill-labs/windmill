@@ -237,11 +237,7 @@ class ChatImpl implements Chat {
       // since. The newest user message this chat holds names the turn to follow instead —
       // following the one the listing named would drop the newer turn's rows and leave the
       // chat idle while it runs.
-      const newest = this.#state.messages.reduce<ChatMessage | undefined>(
-        (found, m) =>
-          m.role === 'user' && m.seq !== undefined && m.seq > (found?.seq ?? userSeq) ? m : found,
-        undefined
-      )
+      const newest = this.#latestUserAfter(userSeq)
       if (newest) {
         if (!newest.jobId) {
           // Its row is written and its run is not named yet: there is nothing to follow, so
@@ -282,6 +278,7 @@ class ChatImpl implements Chat {
   }
 
   async #followTurn(turn: Turn, isNew: boolean): Promise<void> {
+    let nextTurn: RunningTurn | undefined
     try {
       const stopPolling = this.#state.history === 'server' ? this.#startPolling(turn) : () => {}
       let result: unknown
@@ -291,6 +288,7 @@ class ChatImpl implements Chat {
         stopPolling()
       }
       await this.#finishTurn(turn, result, isNew)
+      nextTurn = this.#nextTurnAfter(turn)
     } catch (e) {
       if (!turn.started) {
         // Nothing ran: the message is withdrawn rather than shown as a failed turn, and the
@@ -305,6 +303,7 @@ class ChatImpl implements Chat {
     } finally {
       if (this.#turn === turn) this.#turn = undefined
     }
+    if (nextTurn) await this.resumeTurn(nextTurn)
   }
 
   stop = async (): Promise<void> => {
@@ -980,6 +979,21 @@ class ChatImpl implements Chat {
 
   #turnActive(turn: Turn): boolean {
     return this.#turn === turn && this.#state.conversationId === turn.conversationId
+  }
+
+  #latestUserAfter(userSeq: number): ChatMessage | undefined {
+    return this.#state.messages.reduce<ChatMessage | undefined>(
+      (found, message) =>
+        message.role === 'user' && message.seq !== undefined && message.seq > (found?.seq ?? userSeq) ? message : found,
+      undefined
+    )
+  }
+
+  #nextTurnAfter(turn: Turn): RunningTurn | undefined {
+    const userSeq = this.#state.messages.find((message) => message.id === turn.userMessageId)?.seq
+    if (userSeq === undefined) return undefined
+    const next = this.#latestUserAfter(userSeq)
+    return next?.jobId && next.seq !== undefined ? { jobId: next.jobId, userSeq: next.seq } : undefined
   }
 
   /** Stops following the current answer; the flow itself keeps running. */

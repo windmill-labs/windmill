@@ -1027,12 +1027,58 @@ describe('createChat with server history', () => {
     expect(chat.getState().error).toBeUndefined()
   })
 
+  test('a turn started while a resumed turn reconciles is followed next', async () => {
+    const { fetch, calls } = fetchMock(
+      (c) =>
+        c.url.pathname === streamPath
+          ? sse([{ type: 'update', completed: true, only_result: { windmill_chat_answer: 'first answer' } }])
+          : undefined,
+      (c) =>
+        c.url.pathname === '/api/w/ws/jobs_u/getupdate_sse/job-2'
+          ? sse([{ type: 'update', completed: true, only_result: { windmill_chat_answer: 'second answer' } }])
+          : undefined,
+      (c) =>
+        c.url.pathname.endsWith('/jobs_u/get/job-1')
+          ? json({ flow_status: { modules: [{ job: 'step-1' }] } })
+          : undefined,
+      (c) =>
+        c.url.pathname.endsWith('/jobs_u/get/job-2')
+          ? json({ flow_status: { modules: [{ job: 'step-2' }] } })
+          : undefined,
+      (c) => {
+        if (!c.url.pathname.endsWith('/messages')) return undefined
+        const after = c.url.searchParams.get('after_seq')
+        if (after === null) return json([messageRow(50, 'user', 'first', { job_id: 'job-1' })])
+        if (after === '50') {
+          return json([
+            messageRow(51, 'assistant', 'first answer', { job_id: 'step-1' }),
+            messageRow(52, 'user', 'second', { job_id: 'job-2' })
+          ])
+        }
+        if (after === '52') return json([messageRow(53, 'assistant', 'second answer', { job_id: 'step-2' })])
+        return json([])
+      }
+    )
+    const chat = createChat(options({}, fetch))
+    await chat.selectConversation('conv')
+    await chat.resumeTurn({ jobId: 'job-1', userSeq: 50 })
+    expect(calls.some((c) => c.url.pathname === streamPath)).toBe(true)
+    expect(calls.some((c) => c.url.pathname.includes('getupdate_sse/job-2'))).toBe(true)
+    expect(chat.getState().messages.map((m) => [m.serverId, m.content])).toEqual([
+      ['row-50', 'first'],
+      ['row-51', 'first answer'],
+      ['row-52', 'second'],
+      ['row-53', 'second answer']
+    ])
+    expect(chat.getState().status).toBe('idle')
+  })
+
   test('a stream that keeps ending before the job completes hands the turn to polling', async () => {
     let streams = 0
     const { fetch } = fetchMock(
       run,
-      // A gateway that answers 200 and closes cleanly, carrying nothing to the end.
-      (c) => (c.url.pathname === streamPath ? (streams++, sse([])) : undefined),
+      // Every real connection starts with a status snapshot. It is not stream progress.
+      (c) => (c.url.pathname === streamPath ? (streams++, sse([{ type: 'update', running: true }])) : undefined),
       (c) =>
         c.url.pathname.endsWith('/get_result_maybe/job-1')
           ? json({ completed: true, success: true, result: { windmill_chat_answer: 'polled' } })
