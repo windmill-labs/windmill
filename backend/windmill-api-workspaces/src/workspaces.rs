@@ -3043,6 +3043,25 @@ pub(crate) async fn resolve_pg_source_checked(
     w_id: &str,
     source: &str,
 ) -> Result<PgDatabase> {
+    Ok(
+        resolve_pg_source_checked_with_kind(db, user_db, authed, w_id, source)
+            .await?
+            .0,
+    )
+}
+
+/// [`resolve_pg_source_checked`], also reporting whether the source is backed by an instance
+/// database. Callers that guard the instance connection MUST take the kind from here rather than
+/// ask separately: between two reads a save can flip the entry, leaving the guards of one kind
+/// applied to the connection of the other.
+pub(crate) async fn resolve_pg_source_checked_with_kind(
+    db: &DB,
+    user_db: &UserDB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    source: &str,
+) -> Result<(PgDatabase, bool)> {
+    let mut is_instance = false;
     let db_resource = if let Some(name) = source.strip_prefix("datatable://") {
         windmill_common::workspaces::ensure_datatable_admin_access(
             db,
@@ -3051,7 +3070,13 @@ pub(crate) async fn resolve_pg_source_checked(
             &DatatableAccess::Authed(authed.to_authed_ref()),
         )
         .await?;
-        get_datatable_resource_from_db_unchecked(db, w_id, name).await?
+        let (connection, instance) =
+            windmill_common::workspaces::get_datatable_connection_and_kind_unchecked(
+                db, w_id, name,
+            )
+            .await?;
+        is_instance = instance;
+        connection
     } else if let Some(path) = source.strip_prefix("$res:") {
         let db_with_authed = windmill_common::db::DbWithOptAuthed::from_authed(
             authed,
@@ -3084,8 +3109,9 @@ pub(crate) async fn resolve_pg_source_checked(
         )));
     };
 
-    serde_json::from_value(db_resource)
-        .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))
+    let pg: PgDatabase = serde_json::from_value(db_resource)
+        .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
+    Ok((pg, is_instance))
 }
 
 /// Whether the data table `name` is backed by the Windmill instance's own PostgreSQL
@@ -3610,9 +3636,10 @@ async fn import_pg_database(
 
     let schema_only = req.fork_behavior == DataTableForkBehavior::SchemaOnly;
     let mut fork_lock: Option<Transaction<'_, Postgres>> = None;
-    let source_pg = resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.source).await?;
-    let mut target_pg =
-        resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.target).await?;
+    let (source_pg, source_is_instance) =
+        resolve_pg_source_checked_with_kind(&db, &user_db, &authed, &w_id, &req.source).await?;
+    let (mut target_pg, target_is_instance) =
+        resolve_pg_source_checked_with_kind(&db, &user_db, &authed, &w_id, &req.target).await?;
 
     if let Some(ref override_dbname) = req.target_dbname_override {
         if !windmill_api_auth::is_super_admin_authed(&db, &authed).await? {
@@ -3622,7 +3649,10 @@ async fn import_pg_database(
                         .to_string(),
                 ));
             }
-            if is_instance_datatable_source(&db, &w_id, &req.target).await? {
+            // The kind the connection above was built from, never a second read: an entry flipped
+            // to a resource between the two would keep the instance connection here and lose the
+            // check that decides which copy it may fill.
+            if target_is_instance {
                 // Held until the restore is done: fork finalization takes the first, and every
                 // save newly naming a database, in any workspace, the second. Nothing may start
                 // using this database while `psql` is still filling it.
@@ -3646,8 +3676,7 @@ async fn import_pg_database(
     // what it creates it owns. Grants do, except around an instance data table — Windmill
     // plants `custom_instance_user` grants in one, which nothing else can replay. Elsewhere
     // the ACLs are user intent (`REVOKE ... FROM PUBLIC`) and dropping them widens access.
-    let no_acl = is_instance_datatable_source(&db, &w_id, &req.target).await?
-        || is_instance_datatable_source(&db, &w_id, &req.source).await?;
+    let no_acl = target_is_instance || source_is_instance;
 
     let dump_file = pg_dump_database(
         &source_pg,
