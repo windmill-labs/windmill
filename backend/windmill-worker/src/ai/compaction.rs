@@ -122,6 +122,21 @@ pub(crate) fn persisted_bytes(messages: &[OpenAIMessage]) -> usize {
         .unwrap_or(usize::MAX)
 }
 
+/// Selects a storage-only suffix without splitting tool exchanges or changing run history.
+pub(crate) fn memory_within_capacity(
+    messages: &[OpenAIMessage],
+    max_bytes: usize,
+) -> Option<&[OpenAIMessage]> {
+    if persisted_bytes(messages) <= max_bytes {
+        return Some(messages);
+    }
+    exchange_starts(messages)
+        .into_iter()
+        .skip(1)
+        .map(|start| &messages[start..])
+        .find(|tail| persisted_bytes(tail) <= max_bytes)
+}
+
 fn conversation_start(messages: &[OpenAIMessage]) -> usize {
     messages
         .iter()
@@ -882,6 +897,60 @@ mod tests {
         assert!(persisted_bytes(history.context()) < 1000);
         let compactor = Compactor::new(128000, 50000, None);
         assert!(!compactor.needs_compaction(&history));
+    }
+
+    #[test]
+    fn storage_fallback_keeps_the_largest_complete_suffix_without_changing_history() {
+        let mut history = AgentHistory::new(vec![
+            message("system", &"s".repeat(100000)),
+            message("user", &"old ".repeat(30000)),
+        ]);
+        history.extend(tool_round("old", "old result"));
+        history.push(message("user", "recent question"));
+        history.extend(tool_round("recent", "recent result"));
+        history.push(message("assistant", "final answer"));
+        let before = serde_json::to_value(history.context()).unwrap();
+        let expected = &history.context()[4..];
+        let limit = persisted_bytes(expected);
+        let saved = memory_within_capacity(history.context(), limit).unwrap();
+        assert_eq!(
+            serde_json::to_value(saved).unwrap(),
+            serde_json::to_value(expected).unwrap()
+        );
+        assert_eq!(saved[1].tool_calls.as_ref().unwrap()[0].id, "recent");
+        assert_eq!(saved[2].tool_call_id.as_deref(), Some("recent"));
+        assert_eq!(serde_json::to_value(history.context()).unwrap(), before);
+        assert_eq!(serde_json::to_value(history.result()).unwrap(), before);
+        assert_eq!(
+            memory_within_capacity(history.context(), usize::MAX)
+                .unwrap()
+                .len(),
+            history.context().len()
+        );
+    }
+
+    #[test]
+    fn storage_fallback_does_not_split_parallel_results_or_an_oversized_newest_exchange() {
+        let mut messages = vec![
+            message("user", "old"),
+            message("assistant", "answer"),
+            message("user", "new"),
+        ];
+        let mut round = tool_round("one", &"x".repeat(100000));
+        let second = tool_round("two", "small result");
+        round[0]
+            .tool_calls
+            .as_mut()
+            .unwrap()
+            .extend(second[0].tool_calls.clone().unwrap());
+        messages.extend(round);
+        messages.push(second[1].clone());
+        assert!(memory_within_capacity(&messages, 100000).is_none());
+        let messages = vec![
+            message("user", "new"),
+            message("assistant", &"x".repeat(100000)),
+        ];
+        assert!(memory_within_capacity(&messages, 100000).is_none());
     }
 
     #[test]

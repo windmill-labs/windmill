@@ -153,7 +153,7 @@ export const AGENT_FIELDS: AgentFieldSpec[] = [
 		group: 'messages',
 		label: 'Managed memory',
 		tooltip:
-			'Windmill stores the conversation and sends it with each request: its last messages, or a summary of the older ones with the recent ones verbatim. Without instance object storage, memory is kept in the database, up to 100KB per memory; compaction summarizes it down to fit.',
+			'Windmill stores the conversation and sends it with each request: its last messages, or a summary of the older ones with the recent ones verbatim. Without instance object storage, saved memory is limited to 100KB. Compaction tries a summary, then keeps the newest complete exchanges that fit. If the newest exchange alone is too large, memory is not updated.',
 		implicit: { kind: 'off' },
 		defaultHint: 'Default: off',
 		textOnly: true

@@ -1,4 +1,6 @@
-use crate::ai::compaction::{persisted_bytes, AgentHistory, CompactionRequest, Compactor};
+use crate::ai::compaction::{
+    memory_within_capacity, persisted_bytes, AgentHistory, CompactionRequest, Compactor,
+};
 use crate::ai::tools::{execute_tool_calls, ToolAbortHandles, ToolExecutionContext};
 use crate::ai::utils::{
     add_message_to_conversation, any_tool_needs_previous_result, cleanup_mcp_clients,
@@ -2204,11 +2206,16 @@ pub async fn run_agent(
         )
         .await;
     }
-    let save_memory =
-        persist_capacity.is_none_or(|limit| persisted_bytes(messages.context()) <= limit);
-    if !save_memory {
+    let memory_to_save = match persist_capacity {
+        Some(limit) => memory_within_capacity(messages.context(), limit),
+        None => Some(messages.context()),
+    };
+    if memory_to_save.is_some_and(|tail| tail.len() < messages.context().len()) {
         append_logs(&job.id, &job.workspace_id,
-            "AI agent memory exceeds storage capacity and was not saved. The answer is preserved; the next run will load the previous saved memory.\n".to_string(), conn).await;
+            "AI agent memory exceeds storage capacity after compaction; saving only the newest complete exchanges. Older memory was dropped; the answer and run action results are preserved.\n".to_string(), conn).await;
+    } else if memory_to_save.is_none() {
+        append_logs(&job.id, &job.workspace_id,
+            "AI agent memory's newest exchange exceeds storage capacity and memory was not saved. The answer is preserved; the next run will load the previous saved memory.\n".to_string(), conn).await;
     }
 
     // Return the final result
@@ -2255,13 +2262,14 @@ pub async fn run_agent(
         }
     }
 
-    // Persistence uses model context; the returned execution history is never compacted.
-    if save_memory && matches!(output_type, OutputType::Text) {
+    // Storage limits affect only the saved suffix, never the returned execution history.
+    if let Some(memory_to_save) = memory_to_save.filter(|_| matches!(output_type, OutputType::Text))
+    {
         if let HistorySource::Managed { memory_id, bound } = &history {
             if let Some(step_id) = effective_flow_step_id {
-                if !messages.context().is_empty() {
+                if !memory_to_save.is_empty() {
                     let messages_to_persist = prepare_auto_memory_messages_for_persistence(
-                        messages.context(),
+                        memory_to_save,
                         bound.messages_to_keep(),
                     );
 

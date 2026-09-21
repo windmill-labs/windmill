@@ -134,9 +134,12 @@ always follows the run's id, even when a step sets its own. Persistence independ
 serialized memory against the database's 100KB limit (`MAX_MEMORY_SIZE_BYTES`),
 when `memory_storage_capacity_bytes` reports one. System messages and tool definitions are not
 stored, so they do not count towards this byte limit. If oversized, it requests one checkpoint
-of all older exchanges, then measures bytes again. If memory still cannot fit, the write is skipped
-and the flow log explains that the next run will load the previous saved memory. The completed
-answer succeeds. There is no model-window compaction after the final answer unless storage needs
+of all older exchanges, then measures bytes again. If memory still cannot fit, persistence saves
+the largest suffix of complete exchanges that fits, dropping the oldest exchanges and logging
+that loss. This selection changes neither model context nor the returned execution record.
+If even the newest exchange cannot fit, the write is skipped and the flow log explains that the
+next run will load the previous saved memory. The completed answer succeeds in either case.
+There is no model-window compaction after the final answer unless storage needs
 it. Persistence reads model context independently of the execution record returned by the step.
 Nothing expires stored memory: deleting a chat conversation deletes its memory, and a memory named
 by a string id stays until it is overwritten.
