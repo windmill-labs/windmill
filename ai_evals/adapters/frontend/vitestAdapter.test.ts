@@ -5,8 +5,8 @@ import { mkdir, writeFile } from 'fs/promises'
 import { dirname, resolve } from 'path'
 import { handleBenchmarkApiFetch, hasBenchmarkApiHandler } from './mockBackend'
 
-// The API catalog executor issues relative fetch('/api/...') calls, which have
-// no meaning in the vitest environment — serve the ones the benchmark handles.
+// Some tools reach the backend by relative fetch('/api/...'), which has no meaning
+// in the vitest environment — serve the ones the benchmark handles.
 // Every other relative fetch keeps its normal behavior (it fails the same way
 // it does without this stub) so unrelated tools see an unchanged environment.
 // The frontend builds API URLs from location.origin (fetchAvailableModels does), and node has no
@@ -92,8 +92,7 @@ vi.mock('$lib/gen', async () => {
 		runBenchmarkFlowPreview,
 		runBenchmarkScriptByPath,
 		runBenchmarkScriptPreview,
-		updateBenchmarkDraft,
-		listBenchmarkMcpTools
+		updateBenchmarkDraft
 	} = await import('./mockBackend')
 
 	function wrapService<T extends object>(target: T, overrides: Record<string, unknown>): T {
@@ -433,12 +432,6 @@ vi.mock('$lib/gen', async () => {
 			},
 			queryResourceTypes: async (data: { workspace: string }) =>
 				hasBenchmarkWorkspace(data.workspace) ? [] : actual.ResourceService.queryResourceTypes(data)
-		}),
-		McpService: wrapService(actual.McpService, {
-			listMcpTools: async (data: { workspace: string }) =>
-				hasBenchmarkWorkspace(data.workspace)
-					? listBenchmarkMcpTools()
-					: actual.McpService.listMcpTools(data)
 		}),
 		VariableService: wrapService(actual.VariableService, {
 			existsVariable: async (data: { workspace: string; path: string }) =>

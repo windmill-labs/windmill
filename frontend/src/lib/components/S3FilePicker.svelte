@@ -7,7 +7,9 @@
 	import Select from './select/Select.svelte'
 	import { FileUp } from 'lucide-svelte'
 	import { SettingService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 	import { resource } from 'runed'
 
 	interface Props {
@@ -54,7 +56,7 @@
 	 * asset lives in a different workspace than this picker was mounted for. */
 	let workspaceOverride: string | undefined = $state(undefined)
 	let effectiveWorkspace = $derived(workspaceOverride ?? workspace)
-	let ws = $derived(effectiveWorkspace ?? $workspaceStore)
+	let ws = $derived(effectiveWorkspace ?? $operatingWorkspace)
 	let uploadModalOpen = $state(false)
 
 	let allFilesByKey: Record<

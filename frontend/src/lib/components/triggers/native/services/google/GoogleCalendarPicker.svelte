@@ -1,11 +1,13 @@
 <script lang="ts">
 	import { NativeTriggerService } from '$lib/gen/services.gen'
 	import type { GoogleCalendarEntry } from '$lib/gen/types.gen'
-	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/utils'
 	import { Badge } from '$lib/components/common'
 	import { Loader2, X, RefreshCw } from 'lucide-svelte'
 	import GoogleCalendarIcon from '$lib/components/icons/GoogleCalendarIcon.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		calendarId: string
@@ -13,22 +15,18 @@
 		disabled?: boolean
 	}
 
-	let {
-		calendarId = $bindable(),
-		calendarName = $bindable(),
-		disabled = false
-	}: Props = $props()
+	let { calendarId = $bindable(), calendarName = $bindable(), disabled = false }: Props = $props()
 
 	let calendars = $state<GoogleCalendarEntry[]>([])
 	let loading = $state(false)
 
 	async function loadCalendars() {
-		if (!$workspaceStore) return
+		if (!$operatingWorkspace) return
 
 		loading = true
 		try {
 			calendars = await NativeTriggerService.listGoogleCalendars({
-				workspace: $workspaceStore
+				workspace: $operatingWorkspace
 			})
 			if (calendarId && !calendarName) {
 				const found = calendars.find((c) => c.id === calendarId)
@@ -55,7 +53,7 @@
 	}
 
 	$effect(() => {
-		if ($workspaceStore) {
+		if ($operatingWorkspace) {
 			loadCalendars()
 		}
 	})

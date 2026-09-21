@@ -6,7 +6,9 @@
 	import PipelineRunForm from './PipelineRunForm.svelte'
 	import AssetRunsPanel from './AssetRunsPanel.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { workspaceStore } from '$lib/stores'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 	import { parsePipelineAnnotations } from './parsePipelineAnnotations'
 
 	interface Props {
@@ -201,7 +203,7 @@
 								bind:args
 								bind:isValid
 								{partitionSpec}
-								workspace={$workspaceStore ?? ''}
+								workspace={$operatingWorkspace ?? ''}
 								{materializeTarget}
 								{upstreamAssets}
 							/>
