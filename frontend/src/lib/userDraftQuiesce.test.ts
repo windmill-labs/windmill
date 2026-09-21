@@ -87,6 +87,37 @@ describe('UserDraftDbSyncer.quiesce', () => {
 		expect(updateDraft).not.toHaveBeenCalled()
 	})
 
+	it('exposes the newest parked value, so a closing editor is not mistaken for a newer one', async () => {
+		const q = { workspace: 'w', itemKind: 'variable' as const, path: 'u/me/quiesce_peek' }
+		const mine = { v: 'mine' }
+
+		expect(UserDraftDbSyncer.peekPending(q)).toBeUndefined()
+
+		// Refused, so it stays parked: the state a "Keep mine" starts from.
+		updateDraft.mockResolvedValueOnce({
+			status: 'conflict',
+			current_timestamp: '2020-01-02T00:00:00Z'
+		})
+		await UserDraftDbSyncer.save({ ...q, value: mine, immediate: true })
+
+		// The editor closing flushes what it already had. That re-parks the same value, and a
+		// resolution that outlived it must not read its own echo as someone else taking over.
+		updateDraft.mockResolvedValueOnce({
+			status: 'conflict',
+			current_timestamp: '2020-01-02T00:00:00Z'
+		})
+		await UserDraftDbSyncer.flush(q)
+		expect(UserDraftDbSyncer.peekPending(q)).toEqual({ value: mine })
+
+		// A session that opened on the draft afterwards parks its own, which does supersede.
+		updateDraft.mockResolvedValueOnce({
+			status: 'conflict',
+			current_timestamp: '2020-01-02T00:00:00Z'
+		})
+		await UserDraftDbSyncer.save({ ...q, value: { v: 'newer session' }, immediate: true })
+		expect(UserDraftDbSyncer.peekPending(q)).toEqual({ value: { v: 'newer session' } })
+	})
+
 	it('cancels a debounced autosave so it cannot displace the write that follows', async () => {
 		const q = { workspace: 'w', itemKind: 'variable' as const, path: 'u/me/quiesce_c' }
 		// Debounced rather than immediate: this is the autosave a resolution has to call off, or

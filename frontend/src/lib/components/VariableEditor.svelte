@@ -183,11 +183,22 @@
 				// write below, and being conditional it would be refused — so "Keep mine" would
 				// finish without keeping anything and leave the alert standing.
 				await UserDraftDbSyncer.quiesce(query)
-				// Deliberately not gated on the session: this writes to the workspace and path the
-				// user pressed the button on, never to editor state, so walking away mid-flight is
-				// no reason to drop the version they asked to keep. Re-read while it is still ours
-				// so anything typed during the wait goes too.
-				const mine = stillOurs() ? ($state.snapshot(states[ws]?.draft) ?? before) : before
+				let mine: unknown
+				if (stillOurs()) {
+					// Re-read so anything typed during the wait goes too.
+					mine = $state.snapshot(states[ws]?.draft) ?? before
+				} else {
+					// The editor is gone. Closing it re-sends the value it already had, so what
+					// decides is whether the newest value anyone holds for this draft is still the
+					// one the button was pressed on; a session opened on it since would hold its
+					// own, and that supersedes ours — its conflict is now theirs to resolve.
+					const newest = UserDraftDbSyncer.peekPending(query)
+					if (newest && !draftValuesEqual(newest.value, before)) return
+					// Nothing newer, so finishing is safe: this writes to the workspace and path
+					// captured above, never to editor state, and walking away is no reason to drop
+					// the version the user asked to keep.
+					mine = before
+				}
 				// Forced, so it goes over the row that refused us, and its response reseeds
 				// `last_sync` so the next ordinary save is conditional again.
 				if (mine) await UserDraftDbSyncer.overwrite({ ...query, value: mine })
