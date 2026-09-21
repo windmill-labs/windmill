@@ -3,13 +3,15 @@
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import { FlowService, type Flow } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { emptyString } from '$lib/utils'
 
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import { flip } from 'svelte/animate'
 	import { fade } from 'svelte/transition'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 	interface Props {
 		children?: import('svelte').Snippet
 	}
@@ -17,7 +19,7 @@
 	let { children }: Props = $props()
 
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
-	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
+	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $operatingWorkspace)
 
 	// export let failureModule: boolean
 	const dispatch = createEventDispatcher()

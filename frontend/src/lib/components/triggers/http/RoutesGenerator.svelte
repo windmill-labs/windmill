@@ -16,13 +16,16 @@
 	import RouteEditor from './RouteEditor.svelte'
 	import { generateHttpTriggerFromOpenApi, type Source } from './utils'
 	import { isCloudHosted } from '$lib/cloud'
-	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
+	import { usedTriggerKinds, userStore } from '$lib/stores'
 	import FileInput from '../../common/fileInput/FileInput.svelte'
 	import { emptyStringTrimmed, sendUserToast } from '$lib/utils'
 	import FolderPicker from '../../FolderPicker.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import { Drawer, DrawerContent } from '$lib/components/common'
 	import { get } from 'svelte/store'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	type Props = {
 		closeFn: () => Promise<void>
@@ -108,7 +111,7 @@
 		try {
 			isCreating = true
 			const message = await HttpTriggerService.createHttpTriggers({
-				workspace: $workspaceStore!,
+				workspace: $operatingWorkspace!,
 				requestBody: httpTriggers
 			})
 			sendUserToast(message)
@@ -314,7 +317,7 @@
 									<div class="text-primary">
 										{httpTrigger.http_method.toUpperCase()}
 										{isCloudHosted() || httpTrigger.workspaced_route || globalHttpWorkspacedRoute
-											? $workspaceStore! + '/' + httpTrigger.route_path
+											? $operatingWorkspace! + '/' + httpTrigger.route_path
 											: httpTrigger.route_path}
 									</div>
 									<div class="text-secondary text-xs truncate text-left font-light">

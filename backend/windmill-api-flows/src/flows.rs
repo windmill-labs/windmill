@@ -51,7 +51,10 @@ use windmill_common::{
     jobs::JobPayload,
     schedule::Schedule,
     triggers::MovedNativeTrigger,
-    utils::{http_get_from_hub, not_found_if_none, paginate, Pagination, RunnableKind, StripPath},
+    utils::{
+        http_get_from_hub, not_found_if_none, paginate, paginate_optional, Pagination,
+        RunnableKind, StripPath,
+    },
 };
 use windmill_dep_map::scoped_dependency_map::ScopedDependencyMap;
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
@@ -747,6 +750,14 @@ async fn create_flow(
         .execute(&mut *tx)
         .await?;
     }
+    windmill_common::user_drafts::clear_draft_moves_from(
+        &mut tx,
+        &w_id,
+        &[UserDraftItemKind::Flow],
+        &nf.path,
+        None,
+    )
+    .await?;
 
     audit_log(
         &mut *tx,
@@ -915,25 +926,36 @@ pub struct FlowVersion {
     pub created_at: chrono::DateTime<chrono::Utc>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deployment_msg: Option<String>,
+    /// Who deployed this version — the diff's version picker names them so a reader
+    /// can tell their own deploys from a teammate's.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_by: Option<String>,
 }
 
 async fn get_flow_history(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
+    Query(pagination): Query<Pagination>,
 ) -> JsonResult<Vec<FlowVersion>> {
     let path = path.to_path();
     check_scopes(&authed, || format!("flows:read:{}", path))?;
+    // Unasked-for, this listing stays whole: the history panels, the restart picker and
+    // the CLI all read it without paging. The diff picker asks for a page.
+    let (per_page, offset) = paginate_optional(pagination);
     let mut tx = user_db.begin(&authed).await?;
 
     let flows = sqlx::query_as!(
         FlowVersion,
-        "SELECT flow_version.id, flow_version.created_at, deployment_metadata.deployment_msg FROM flow_version 
+        "SELECT flow_version.id, flow_version.created_at, flow_version.created_by, deployment_metadata.deployment_msg FROM flow_version
         LEFT JOIN deployment_metadata ON flow_version.id = deployment_metadata.flow_version
-        WHERE flow_version.path = $1 AND flow_version.workspace_id = $2 
-        ORDER BY flow_version.created_at DESC",
+        WHERE flow_version.path = $1 AND flow_version.workspace_id = $2
+        ORDER BY flow_version.created_at DESC
+        LIMIT $3 OFFSET $4",
         path,
-        w_id
+        w_id,
+        per_page,
+        offset,
     )
     .fetch_all(&mut *tx)
     .await?;
@@ -953,7 +975,7 @@ async fn get_latest_version(
 
     let version = sqlx::query_as!(
         FlowVersion,
-        "SELECT flow_version.id, flow_version.created_at, deployment_metadata.deployment_msg FROM flow_version 
+        "SELECT flow_version.id, flow_version.created_at, flow_version.created_by, deployment_metadata.deployment_msg FROM flow_version 
         LEFT JOIN deployment_metadata ON flow_version.id = deployment_metadata.flow_version
         WHERE flow_version.path = $1 AND flow_version.workspace_id = $2 
         ORDER BY flow_version.created_at DESC",
@@ -1435,6 +1457,20 @@ async fn update_flow(
             &authed.email,
         )
         .execute(&mut *tx)
+        .await?;
+    }
+
+    if is_new_path {
+        // Everything left at the old path is a draft this deploy didn't consume
+        // — teammates' rows, and the deployer's own when the caller asked us to
+        // keep it. Carry them rather than strand them.
+        windmill_common::user_drafts::move_drafts_for_path(
+            &mut tx,
+            &w_id,
+            &[UserDraftItemKind::Flow],
+            flow_path,
+            &nf.path,
+        )
         .await?;
     }
 

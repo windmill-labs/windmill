@@ -1,16 +1,21 @@
 <script lang="ts">
-	import { dbSchemas, workspaceStore, type DBSchema } from '$lib/stores'
+	import { dbSchemas, type DBSchema } from '$lib/stores'
+	import type { DataTableTables } from '$lib/gen'
 	import { sortArray } from '$lib/utils'
 	import { Loader2, RefreshCcw } from 'lucide-svelte'
 	import Alert from './common/alert/Alert.svelte'
 	import Button from './common/button/Button.svelte'
-	import { dbSupportsSchemas } from './apps/components/display/dbtable/utils'
+	import {
+		dbSupportsSchemas,
+		getLanguageByResourceType
+	} from './apps/components/display/dbtable/utils'
 	import DbManager from './DBManager.svelte'
 	import DbWorkerTagPicker from './DbWorkerTagPicker.svelte'
 	import MissingWorkerTagAlert from './jobs/MissingWorkerTagAlert.svelte'
 	import {
 		dbSchemaOpsWithPreviewScripts,
 		dbTableOpsWithPreviewScripts,
+		getDatabaseArg,
 		getDbType,
 		getDefaultDbTag,
 		getDucklakeSchema
@@ -18,17 +23,20 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import SqlRepl from './SqlRepl.svelte'
 	import SimpleAgTable from './SimpleAgTable.svelte'
-	import { type Snippet } from 'svelte'
-	import type { DbInput } from './dbTypes'
+	import type { DatatableRowAction, DbInput } from './dbTypes'
+	import { schemaCacheKey } from './dbSchemaCache'
 	import { getDbSchemas, loadAllTablesMetaData } from './apps/components/display/dbtable/metadata'
 
-	import type { SelectedTable } from './DBManager.svelte'
+	import type { PendingRowAction, SelectedTable } from './DBManager.svelte'
 	import { getDbFeatures } from './apps/components/display/dbtable/dbFeatures'
 	import { resource } from 'runed'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import { createAsyncConfirmationModal } from './common/confirmationModal/asyncConfirmationModal.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 	import { outOfOrderRunMessage } from './workspaceSettings/datatableMigrationUtils'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		input?: DbInput
@@ -36,7 +44,15 @@
 		hasReplResult?: boolean
 		selectedSchemaKey?: string | undefined
 		selectedTableKey?: string | undefined
-		dbSelector?: Snippet<[]>
+		/** Every data table with its schemas and tables, for the left-pane tree. Undefined when
+		 * the manager is not on a data table, which drops the tree's top level. */
+		datatableTree?: DataTableTables[]
+		datatableTreeLoading?: boolean
+		onSelectDatatable?: (datatable: string) => void
+		onSelectRole?: (datatable: string, role: string) => void
+		pendingAction?: PendingRowAction | undefined
+		onDatatableAction?: (datatable: string, action: DatatableRowAction) => void
+		canManageDatatable?: boolean
 		/** Enable multi-select mode with checkboxes in sidebar */
 		multiSelectMode?: boolean
 		/** Selected tables in multi-select mode */
@@ -44,9 +60,8 @@
 		/** Tables that are already added and should show as disabled */
 		disabledTables?: SelectedTable[]
 		onImport?: (mode: 'schema_and_data' | 'schema_only') => void
-		/** Workspace the datatable/schema lookups run against. Defaults to the
-		 *  navigation `$workspaceStore`; pass the acting workspace when embedded in
-		 *  a session preview whose workspace differs from the top nav. */
+		/** Workspace the datatable/schema lookups run against. Defaults to the operating
+		 *  workspace (see `useOperatingWorkspace`). */
 		workspace?: string
 		/** Worker tag every job of this manager runs on, overriding the database
 		 *  language's native tag. Bound so the hints below can offer to set it. */
@@ -59,7 +74,13 @@
 		hasReplResult = $bindable(false),
 		selectedSchemaKey = $bindable(undefined),
 		selectedTableKey = $bindable(undefined),
-		dbSelector,
+		datatableTree,
+		datatableTreeLoading,
+		onSelectDatatable,
+		onSelectRole,
+		pendingAction = $bindable(),
+		onDatatableAction,
+		canManageDatatable,
 		multiSelectMode = false,
 		selectedTables = $bindable([]),
 		disabledTables = [],
@@ -68,28 +89,11 @@
 		workerTag = $bindable()
 	}: Props = $props()
 
-	let ws = $derived(workspace ?? $workspaceStore)
+	let ws = $derived(workspace ?? $operatingWorkspace)
 
-	let dbSchema: DBSchema | undefined = $derived(input && $dbSchemas[schemaCacheKey(input)])
+	let dbSchema: DBSchema | undefined = $derived(input && $dbSchemas[schemaCacheKey(ws, input)])
 
 	const outOfOrderModal = createAsyncConfirmationModal()
-
-	function getDbSchemasPath(input: DbInput): string {
-		switch (input.type) {
-			case 'database':
-				return input.resourcePath
-			case 'ducklake':
-				return 'ducklake://' + input.ducklake
-		}
-	}
-
-	// Scope the shared `dbSchemas` cache by the acting workspace: a datatable of
-	// the same name can exist in both the nav and the acting workspace, so the
-	// bare resource path alone would let one workspace's schema be reused for the
-	// other while DB operations target the acting one.
-	function schemaCacheKey(input: DbInput): string {
-		return `${ws}:${getDbSchemasPath(input)}`
-	}
 
 	// Reported in place of the loading spinner: both queries run as jobs, so
 	// anything from a bad connection to a tag no worker serves surfaces here
@@ -97,6 +101,15 @@
 	// owns its slot so neither can clear the other's error on a refetch.
 	let schemaError = $state<string | undefined>(undefined)
 	let colDefsError = $state<string | undefined>(undefined)
+	function emptySchemaFor(db: DbInput): DBSchema {
+		return {
+			lang: db.type === 'ducklake' ? 'ducklake' : getLanguageByResourceType(db.resourceType),
+			schema: {},
+			publicOnly: undefined,
+			stringified: ''
+		} as DBSchema
+	}
+
 	let loadError = $derived(
 		schemaError
 			? { title: 'Could not load the database schema', message: schemaError }
@@ -136,14 +149,23 @@
 			const run = ++schemaRun
 			schemaError = undefined
 			if (!input) return
-			const dbSchemasPath = schemaCacheKey(input)
+			const dbSchemasPath = schemaCacheKey(ws, input)
 			if (input.type == 'database') {
+				let connection = input.resourcePath
+				try {
+					// The role'd reference, validated: an invalid role fails here rather than
+					// reading the schema as the data table's default role.
+					if (connection.startsWith('datatable://')) connection = getDatabaseArg(input).database!
+				} catch (e) {
+					schemaError = (e as Error)?.message ?? String(e)
+					return
+				}
 				// Reported through a local, not `schemaError` directly, so a superseded
 				// run's callback can't fail a load that already succeeded.
 				let queryError: string | undefined
 				const schema = await getDbSchemas(
 					input.resourceType,
-					input.resourcePath,
+					connection,
 					ws,
 					(message: string) => (queryError = message),
 					{ customTag: workerTag }
@@ -223,17 +245,23 @@
 	}}
 />
 
-<!-- The error branch comes first on purpose: `dbSchema` is read from a cache that
-	survives a failed refetch, so ordering it first would hide the failure behind
-	stale content. -->
-{#if loadError}
+<!-- A load error replaces only the data pane: the tree, its role badge and menus, and the REPL
+	stay usable, so another data table or role can be picked and the connection tried by hand.
+	The tree then gets an empty schema: the cached one survives a failed refetch and would pass
+	stale content off as what this connection reaches. -->
+{#snippet errorPane()}
 	<div class="h-full w-full flex flex-col items-center justify-center gap-3 p-8">
 		<div class="max-w-2xl w-full flex flex-col gap-3">
-			<Alert type="error" title={loadError.title} size="xs">
-				{loadError.message}
+			<Alert type="error" title={loadError?.title ?? ''} size="xs">
+				{loadError?.message}
 			</Alert>
 			<div class="self-start">
-				<Button size="xs" color="light" startIcon={{ icon: RefreshCcw }} on:click={() => refresh()}>
+				<Button
+					unifiedSize="sm"
+					variant="default"
+					startIcon={{ icon: RefreshCcw }}
+					on:click={() => refresh()}
+				>
 					Retry
 				</Button>
 			</div>
@@ -247,9 +275,12 @@
 			/>
 		</div>
 	</div>
-{:else if dbSchema && ws && input}
+{/snippet}
+
+{#if (loadError || dbSchema) && ws && input}
 	{@const _input = input}
 	{@const dbType = getDbType(_input)}
+	{@const shownSchema = loadError || !dbSchema ? emptySchemaFor(_input) : dbSchema}
 	<Splitpanes horizontal>
 		<Pane class="relative">
 			<!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -274,9 +305,11 @@
 			</div>
 			<DbManager
 				dbSupportsSchemas={dbSupportsSchemas(dbType)}
-				databaseIsEmpty={!Object.values(dbSchema.schema).flatMap((s) => Object.values(s)).length}
-				{dbSchema}
-				colDefs={colDefs.current}
+				databaseIsEmpty={!loadError &&
+					!Object.values(shownSchema.schema).flatMap((s) => Object.values(s)).length}
+				dbSchema={shownSchema}
+				mainPane={loadError ? errorPane : undefined}
+				colDefs={loadError ? undefined : colDefs.current}
 				dbTableOpsFactory={({ colDefs, tableKey, whereClause }) =>
 					dbTableOpsWithPreviewScripts({
 						colDefs,
@@ -306,7 +339,15 @@
 						: undefined}
 				{dbType}
 				refresh={() => refresh()}
-				{dbSelector}
+				{datatableTree}
+				{datatableTreeLoading}
+				{onSelectDatatable}
+				{onSelectRole}
+				workspace={ws}
+				currentRole={input.type === 'database' ? input.role : undefined}
+				bind:pendingAction
+				{onDatatableAction}
+				{canManageDatatable}
 				{onImport}
 				bind:selectedSchemaKey
 				bind:selectedTableKey
@@ -329,12 +370,12 @@
 					onSchemaChange={() => refresh()}
 					placeholderTableName={sortArray(
 						Object.keys(
-							dbSchema?.schema[
-								'public' in dbSchema?.schema
+							shownSchema.schema[
+								'public' in shownSchema.schema
 									? 'public'
-									: 'dbo' in dbSchema?.schema
+									: 'dbo' in shownSchema.schema
 										? 'dbo'
-										: Object.keys(dbSchema?.schema ?? {})?.[0]
+										: Object.keys(shownSchema.schema ?? {})?.[0]
 							] ?? {}
 						)
 					)?.[0]}
