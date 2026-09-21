@@ -361,12 +361,15 @@
 			existedInitially[ws] = !(r as any).no_deployed
 			if (ws === effectiveWorkspace) resource_type = r.resource_type
 			UserDraftDbSyncer.recordRemoteSync(query, (r as any).draft_saved_at)
-			UserDraft.seed(
-				'resource',
-				p,
-				((r as any).draft as ResourceState | undefined) ?? deployedState,
-				{ workspace: ws }
-			)
+			const loadedDraft = (r as any).draft as ResourceState | undefined
+			// Loading a draft makes this workspace one that opened with a draft, whatever it opened
+			// with before — a refused deletion opens gated, and gated the settling absorber would
+			// fold the version just loaded into the deployed baseline, leaving it silently clean
+			// with Save disabled. Ungate here rather than leaving it to the effect, so no write
+			// between the two is absorbed.
+			openedOnDraft[ws] = !!loadedDraft
+			if (loadedDraft) setGated(ws, false)
+			UserDraft.seed('resource', p, loadedDraft ?? deployedState, { workspace: ws })
 		} catch (e) {
 			// Nothing was given up above, so the conflict stands and the edit is still here to
 			// resolve again — which is the whole point of reading first.
