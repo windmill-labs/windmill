@@ -81,8 +81,8 @@
 		if ((mod.value as { type?: string })?.type !== 'aiagent') return all
 		const transforms = (mod.value as { input_transforms?: Record<string, unknown> })
 			?.input_transforms
-		// A step's own agent holds its output type; a linked one takes it from the agent, and until
-		// that has loaded no field is dropped for it.
+		// A step's own agent holds its output type; a linked one takes it from the agent, and reads as
+		// text until that has loaded.
 		const outputTransform = transforms?.output_type as
 			| { type?: string; value?: unknown }
 			| undefined

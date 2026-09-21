@@ -66,18 +66,27 @@
 		}
 	}
 
-	// A kind the mode does not offer cannot run, and switching the output type leaves the old kind
-	// behind. Its resource, model and reasoning effort belong to it, so they go with it rather than
-	// surfacing only as a failed run.
+	// Each mode offers kinds the other does not, so switching the output type swaps the provider: the
+	// one the step held is set aside and comes back with its mode, and a mode not seen yet starts
+	// empty rather than on a kind it cannot run.
+	type PickerMode = 'chat' | 'decision'
+	const heldByMode: Partial<Record<PickerMode, ProviderConfig>> = {}
+	let shownMode: PickerMode = untrack(() => (decision ? 'decision' : 'chat'))
 	$effect(() => {
-		const offered = offeredProviders
+		const mode: PickerMode = decision ? 'decision' : 'chat'
 		untrack(() => {
-			if (value?.kind && !offered.includes(value.kind)) {
-				value.kind = decision ? 'typesafe' : 'openai'
-				value.resource = ''
-				value.model = ''
-				value.reasoning_effort = undefined
+			if (mode === shownMode || !value) return
+			heldByMode[shownMode] = $state.snapshot(value) as ProviderConfig
+			const next = heldByMode[mode] ?? {
+				kind: mode === 'decision' ? 'typesafe' : 'openai',
+				resource: '',
+				model: ''
 			}
+			value.kind = next.kind
+			value.resource = next.resource
+			value.model = next.model
+			value.reasoning_effort = next.reasoning_effort
+			shownMode = mode
 		})
 	})
 
@@ -215,22 +224,26 @@
 		<!-- No auto-select: this picker spans every provider type, so a single candidate means "the
 		     only AI resource in the workspace" rather than "the only one of the kind this agent uses".
 		     Taking it would redefine the agent's provider and drop its model, on open and unasked. -->
-		<ResourcePicker
-			bind:value={
-				() => resourceValueToPath(value?.resource),
-				(v) => {
-					if (value) {
-						value.resource = pathToResourceValue(v) ?? ''
+		<!-- Remounted per mode: the picker empties its value whenever the types it offers change,
+		     which would drop the resource the switch above just restored. -->
+		{#key decision}
+			<ResourcePicker
+				bind:value={
+					() => resourceValueToPath(value?.resource),
+					(v) => {
+						if (value) {
+							value.resource = pathToResourceValue(v) ?? ''
+						}
 					}
 				}
-			}
-			resourceType={providerResourceTypes}
-			{disabled}
-			{workspace}
-			placeholder="Select an AI provider resource"
-			selectFirst={false}
-			onValueChange={onResourcePicked}
-		/>
+				resourceType={providerResourceTypes}
+				{disabled}
+				{workspace}
+				placeholder="Select an AI provider resource"
+				selectFirst={false}
+				onValueChange={onResourcePicked}
+			/>
+		{/key}
 	</div>
 
 	<div class="flex flex-col gap-1">
