@@ -1195,9 +1195,9 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                     , status
                     , worker
                     )
-                SELECT q.workspace_id, q.id, started_at, COALESCE($9::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(started_at, now()))))*1000), $3::text::jsonb, $10, $5, $6,
+                SELECT q.workspace_id, q.id, started_at, COALESCE($9::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(started_at, now()))))*1000), $3::text::jsonb, $10, COALESCE($5::text, q.canceled_by), COALESCE($6::text, q.canceled_reason),
                         flow_status, workflow_as_code_status,
-                        $8, CASE WHEN $4::BOOL THEN 'canceled'::job_status
+                        $8, CASE WHEN $4::BOOL OR q.canceled_by IS NOT NULL THEN 'canceled'::job_status
                         WHEN $7::BOOL THEN 'skipped'::job_status
                         WHEN $2::BOOL THEN 'success'::job_status
                         ELSE 'failure'::job_status END AS status,
@@ -1611,6 +1611,22 @@ async fn restart_job_if_perpetual_inner(
     };
 
     if restart {
+        // The worker reads the queue row on a widening interval, up to every 5s once a job has run
+        // for a minute, so a cancel landing after its last read reaches this as `canceled_by:
+        // None`. The completion above is what has it, and restarting a loop the canceller stopped
+        // is the whole of what "Scale down to 0" sometimes fails to do.
+        let canceled = sqlx::query_scalar!(
+            "SELECT canceled_by IS NOT NULL AS \"canceled!\" FROM v2_job_completed \
+             WHERE id = $1 AND workspace_id = $2",
+            queued_job.id,
+            &queued_job.workspace_id
+        )
+        .fetch_optional(db)
+        .await?
+        .unwrap_or(false);
+        if canceled {
+            return Ok(());
+        }
         let tx = PushIsolationLevel::IsolatedRoot(db.clone());
 
         // perpetual jobs can run one job per 10s max. If the job was faster than 10s, schedule the next one with the appropriate delay
