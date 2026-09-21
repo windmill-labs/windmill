@@ -157,3 +157,69 @@ async fn test_remote_deploy_proxy(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     Ok(())
 }
+
+/// A connect waits on the remote, which leaves time for the account to be deleted: its row must
+/// not land after the deletion's cleanup, under an address a later account could take.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_remote_deploy_connect_racing_account_deletion(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    // A remote whose `whoami` answers only once the deletion below has committed.
+    let (reached_tx, reached_rx) = tokio::sync::oneshot::channel::<()>();
+    let (release_tx, release_rx) = tokio::sync::oneshot::channel::<()>();
+    let gate = std::sync::Arc::new(tokio::sync::Mutex::new(Some((reached_tx, release_rx))));
+    let remote = axum::Router::new().route(
+        "/api/w/prod/users/whoami",
+        axum::routing::get(move || {
+            let gate = gate.clone();
+            async move {
+                if let Some((reached, release)) = gate.lock().await.take() {
+                    let _ = reached.send(());
+                    let _ = release.await;
+                }
+                axum::Json(json!({ "email": "remote@example.com" }))
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let remote_port = listener.local_addr()?.port();
+    tokio::spawn(async move { axum::serve(listener, remote).await });
+    sqlx::query!(
+        "UPDATE workspace_settings SET remote_deploy_target = $1
+         WHERE workspace_id = 'test-workspace'",
+        json!({ "base_url": format!("http://127.0.0.1:{remote_port}"), "workspace_id": "prod" })
+    )
+    .execute(&db)
+    .await?;
+
+    let connect = tokio::spawn(
+        client()
+            .post(format!(
+                "http://localhost:{port}/api/w/test-workspace/remote_deploy/connect"
+            ))
+            .header("Authorization", "Bearer SECRET_TOKEN_2")
+            .json(&json!({ "token": "remote-token" }))
+            .send(),
+    );
+    reached_rx.await?;
+    let resp = authed(client().delete(format!(
+        "http://localhost:{port}/api/users/delete/test2@windmill.dev"
+    )))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200);
+    release_tx.send(()).unwrap();
+    let _ = connect.await?;
+
+    let left = sqlx::query_scalar!(
+        "SELECT count(*) FROM remote_deploy_token WHERE email = 'test2@windmill.dev'"
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(left, Some(0));
+    Ok(())
+}

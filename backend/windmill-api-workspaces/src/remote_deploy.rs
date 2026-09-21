@@ -34,7 +34,7 @@ use windmill_common::{
     error::{error_source_chain, Error, Result},
     ssrf::validate_url_for_ssrf,
     utils::{configure_client, rd_string, require_admin},
-    variables::{build_crypt, decrypt, encrypt},
+    variables::{build_crypt, crypt_from_key_with_suffix, decrypt, encrypt},
     worker::CLOUD_HOSTED,
     DB,
 };
@@ -370,9 +370,40 @@ async fn connect(
         ))
     })?;
 
-    let mc = build_crypt(&db, &w_id).await?;
     let proxy_key = rd_string(32);
     let mut tx = db.begin().await?;
+    // The remote call above leaves time for the account to be deleted, renamed or removed from the
+    // workspace, each of which clears this table under a lock on one of these rows: holding them
+    // until commit keeps a row from landing after that cleanup, under an address a later account
+    // could take.
+    let account = sqlx::query_scalar!(
+        "SELECT 1 FROM password WHERE email = $1 FOR SHARE",
+        &authed.email
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    let member = sqlx::query_scalar!(
+        "SELECT 1 FROM usr WHERE workspace_id = $1 AND email = $2 FOR SHARE",
+        &w_id,
+        &authed.email
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    if account.is_none() && member.is_none() {
+        return Err(Error::BadRequest(format!(
+            "{} is not an account of this instance",
+            authed.email
+        )));
+    }
+    // From the key read under the lock a rotation takes, not from `build_crypt`: a rotation
+    // committing in between would re-encrypt every row but this one.
+    let key: String = sqlx::query_scalar!(
+        "SELECT key FROM workspace_key WHERE workspace_id = $1 AND kind = 'cloud' FOR SHARE",
+        &w_id
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    let mc = crypt_from_key_with_suffix(&key, "");
     // Only while the workspace still points at the target the token was just checked against.
     let connected_at = sqlx::query_scalar!(
         "INSERT INTO remote_deploy_token

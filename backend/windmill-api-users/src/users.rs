@@ -1704,14 +1704,6 @@ async fn delete_user(
     sqlx::query!("DELETE FROM token WHERE email = $1", &email_to_delete)
         .execute(&mut *tx)
         .await?;
-    // Keyed by email alone, so a later account with this address would otherwise act on the
-    // other instance as this one.
-    sqlx::query!(
-        "DELETE FROM remote_deploy_token WHERE email = $1",
-        &email_to_delete
-    )
-    .execute(&mut *tx)
-    .await?;
     sqlx::query!("DELETE FROM password WHERE email = $1", &email_to_delete)
         .execute(&mut *tx)
         .await?;
@@ -1722,6 +1714,16 @@ async fn delete_user(
         &email_to_delete
     )
     .fetch_all(&mut *tx)
+    .await?;
+
+    // Keyed by email alone, so a later account with this address would otherwise act on the
+    // other instance as this one. After the `password` and `usr` deletes: a connect holding those
+    // rows has committed by now, and its row is seen here.
+    sqlx::query!(
+        "DELETE FROM remote_deploy_token WHERE email = $1",
+        &email_to_delete
+    )
+    .execute(&mut *tx)
     .await?;
 
     for row in memberships {

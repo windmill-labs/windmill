@@ -152,17 +152,17 @@
 		try {
 			// Being superadmin here says nothing about the other instance, so a remote target is
 			// always asked.
+			let canPreserve = true
 			if (!$superadmin || isRemote) {
 				const targetUser = await UserService.whoami({ workspace: target! })
-				canPreserveOnBehalfOf =
+				canPreserve =
 					targetUser.is_admin ||
 					targetUser.is_super_admin ||
 					targetUser.groups?.includes('wm_deployers') ||
 					false
-			} else {
-				canPreserveOnBehalfOf = true
 			}
 			if (!stillCurrent()) return
+			canPreserveOnBehalfOf = canPreserve
 			canSeeTarget = 'yes'
 		} catch (e: any) {
 			if (!stillCurrent()) return
@@ -414,9 +414,18 @@
 			WorkspaceService.getDeployTo({ workspace }),
 			WorkspaceService.getRemoteDeployTarget({ workspace }).catch(() => undefined)
 		])
+		if (workspace !== $workspaceStore) return
 		parentWorkspace = deployTo.deploy_to
 		remoteStatus = remote
-		destination ??= parentWorkspace ? 'parent' : remote?.target ? 'remote' : undefined
+		// Keep the user's pick across a reload, but only while this workspace still has it: the
+		// drawer stays mounted when the workspace is switched.
+		const available = {
+			parent: parentWorkspace != undefined,
+			remote: remote?.target != undefined
+		}
+		if (!destination || !available[destination]) {
+			destination = available.parent ? 'parent' : available.remote ? 'remote' : undefined
+		}
 		notSet = destination == undefined
 	}
 

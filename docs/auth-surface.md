@@ -58,8 +58,11 @@ Symbols, not line numbers, are cited: they drift less.
   row's random `proxy_key` (a link riding the `SameSite=Lax` cookie cannot know it; a header would
   do, but the frontend's only per-call hook is the global `OpenAPI.HEADERS`, whose mere presence
   switches every download to in-memory blobs). The key is served `no-store`, withheld from the
-  credentials `require_own_credentials` refuses, and masked in request logs (`RedactedUri`, used
-  by the request span and the log context). The proxy also refuses a path the URL parser would rewrite,
+  credentials `require_own_credentials` refuses, and masked in this instance's own request logs
+  (`RedactedUri`, used by the request span and the log context); a reverse proxy in front still
+  writes the full path to its access log. `connect` holds the caller's `password`/`usr` rows and
+  the workspace key `FOR SHARE` until it commits, so account deletion, email change, removal and
+  key rotation cannot leave its row behind or under a stale key. The proxy also refuses a path the URL parser would rewrite,
   serves every response under `CSP: sandbox` + `nosniff`, forwards only the method, query, body,
   content-type and accept — never this instance's cookie or token — and turns the target's 401
   into a 502, because the browser logs the user out of *this* instance on an unhandled 401.
