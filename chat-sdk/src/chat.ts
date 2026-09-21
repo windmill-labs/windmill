@@ -287,8 +287,7 @@ class ChatImpl implements Chat {
       } finally {
         stopPolling()
       }
-      await this.#finishTurn(turn, result, isNew)
-      nextTurn = this.#nextTurnAfter(turn)
+      nextTurn = await this.#finishTurn(turn, result, isNew)
     } catch (e) {
       if (!turn.started) {
         // Nothing ran: the message is withdrawn rather than shown as a failed turn, and the
@@ -647,7 +646,7 @@ class ChatImpl implements Chat {
     this.#set({ messages, status: 'streaming' })
   }
 
-  async #finishTurn(turn: Turn, result: unknown, isNew: boolean): Promise<void> {
+  async #finishTurn(turn: Turn, result: unknown, isNew: boolean): Promise<RunningTurn | undefined> {
     if (!this.#turnActive(turn)) return
     if (this.#state.history === 'server') {
       turn.jobIds = await this.#turnJobIds(turn)
@@ -655,10 +654,11 @@ class ChatImpl implements Chat {
       const reconciled = await this.#reconcileTurn(turn)
       if (!this.#turnActive(turn)) return
       if (reconciled) {
-        this.#set({ status: 'idle' })
+        const nextTurn = this.#nextTurnAfter(turn)
+        this.#set({ status: nextTurn ? 'submitted' : 'idle' })
         this.#config.onFinish?.({ conversationId: turn.conversationId, jobId: turn.jobId, messages: this.#state.messages })
         if (isNew) await this.loadConversations().catch(() => {})
-        return
+        return nextTurn
       }
       // Server history just proved unreadable: the turn completes as local history.
     }
@@ -681,9 +681,11 @@ class ChatImpl implements Chat {
         messages = [...messages, assistantMessage(answer, true, turn.jobId)]
       }
     }
-    this.#set({ messages: finalized(messages), status: 'idle' })
+    const nextTurn = this.#nextTurnAfter(turn)
+    this.#set({ messages: finalized(messages), status: nextTurn ? 'submitted' : 'idle' })
     this.#persistLocal()
     this.#config.onFinish?.({ conversationId: turn.conversationId, jobId: turn.jobId, messages: this.#state.messages })
+    return nextTurn
   }
 
   /**

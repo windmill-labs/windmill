@@ -1060,6 +1060,8 @@ describe('createChat with server history', () => {
       }
     )
     const chat = createChat(options({}, fetch))
+    const statuses: string[] = []
+    chat.subscribe((state) => statuses.push(state.status))
     await chat.selectConversation('conv')
     await chat.resumeTurn({ jobId: 'job-1', userSeq: 50 })
     expect(calls.some((c) => c.url.pathname === streamPath)).toBe(true)
@@ -1071,6 +1073,7 @@ describe('createChat with server history', () => {
       ['row-53', 'second answer']
     ])
     expect(chat.getState().status).toBe('idle')
+    expect(statuses.slice(statuses.indexOf('submitted'), statuses.lastIndexOf('submitted') + 1)).not.toContain('idle')
   })
 
   test('a stream that keeps ending before the job completes hands the turn to polling', async () => {
