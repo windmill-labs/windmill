@@ -5439,7 +5439,7 @@ async fn test_duckdb_ffi(db: Pool<Postgres>) -> anyhow::Result<()> {
 }
 
 /// Test that flow substeps with tags that are not available for the workspace fail.
-/// This validates that `check_tag_available_for_workspace_internal` is properly called
+/// This validates that `check_tag_available_for_push` is properly called
 /// when pushing jobs from worker_flow.
 #[sqlx::test(fixtures("base"))]
 #[serial]
@@ -5512,16 +5512,85 @@ async fn test_flow_substep_tag_availability_check(db: Pool<Postgres>) -> anyhow:
     Ok(())
 }
 
+/// A step's `$flow_expr[...]` tag is checked on the queue it resolves to, not on its text: the
+/// custom tags list `bun` alone, which admits the step resolving to it and refuses the one that
+/// lands elsewhere.
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+#[serial]
+async fn test_flow_substep_tag_checked_on_resolved_value(db: Pool<Postgres>) -> anyhow::Result<()> {
+    use windmill_common::worker::{CustomTags, CUSTOM_TAGS_PER_WORKSPACE};
+
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+
+    CUSTOM_TAGS_PER_WORKSPACE.store(std::sync::Arc::new(CustomTags::from(vec![
+        "bun".to_string()
+    ])));
+
+    let step = |id: &str, tag: Option<&str>| {
+        json!({
+            "id": id,
+            "value": {
+                "type": "rawscript",
+                "language": "deno",
+                "content": "export function main() { return { lang: 'bun' } }",
+                "tag": tag,
+            },
+        })
+    };
+    let flow: FlowValue = serde_json::from_value(json!({
+        "modules": [
+            step("a", None),
+            step("b", Some("$flow_expr[results.a.lang]")),
+            step("c", Some("$flow_expr[results.a.lang]-gpu")),
+        ],
+    }))?;
+
+    // A non-superadmin, so the custom tags apply.
+    let job = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+        .as_user("test-user-2", "test2@windmill.dev")
+        .run_until_complete(&db, false, server.addr.port())
+        .await;
+    CUSTOM_TAGS_PER_WORKSPACE.store(std::sync::Arc::new(CustomTags::default()));
+
+    let b_tag = sqlx::query_scalar::<_, String>(
+        "SELECT tag FROM v2_job WHERE parent_job = $1 AND flow_step_id = 'b'",
+    )
+    .bind(job.id)
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(b_tag, "bun");
+
+    assert!(!job.success);
+    let result = job.json_result().unwrap();
+    let message = result["error"]["message"].as_str().unwrap_or_default();
+    assert!(
+        message.contains("Tag bun-gpu is not included in the allowed CUSTOM_TAGS"),
+        "got {result:?}"
+    );
+
+    Ok(())
+}
+
 /// The `*` fork marker only grants through a real `parent_workspace_id` lineage lookup, which the
 /// parse-level unit tests cannot reach: they hand `applies_to_workspace` a synthetic chain, so a
 /// regression in the lookup or in the `is_fork_scoped()` gate that skips it would pass them.
 #[sqlx::test(fixtures("base"))]
 #[serial]
 async fn test_fork_marker_tag_admission_through_lineage(db: Pool<Postgres>) -> anyhow::Result<()> {
-    use windmill_common::jobs::check_tag_available_for_workspace_internal;
     use windmill_common::worker::{CustomTags, CUSTOM_TAGS_PER_WORKSPACE};
 
     initialize_tracing().await;
+
+    // For a non-superadmin caller (a superadmin would bypass the scope check entirely).
+    async fn allowed(db: &Pool<Postgres>, w_id: &str, tag: &str) -> bool {
+        let no_args = std::collections::HashMap::new();
+        let args = windmill_queue::PushArgs::from(&no_args);
+        windmill_queue::check_tag_available_for_push(db, w_id, tag, &args, false, None)
+            .await
+            .is_ok()
+    }
 
     // The ancestor chain is cached process-wide by workspace id, so use one no other test takes.
     let fork = "wm-fork-tagmarker";
@@ -5538,27 +5607,18 @@ async fn test_fork_marker_tag_admission_through_lineage(db: Pool<Postgres>) -> a
         "bare(test-workspace)".to_string(),
     ])));
 
-    // A non-superadmin caller (a superadmin would bypass the scope check entirely).
-    let is_super_admin = false;
-
     for (w_id, tag) in [("test-workspace", "bare"), ("test-workspace", "forky")] {
         assert!(
-            check_tag_available_for_workspace_internal(&db, w_id, tag, is_super_admin, None)
-                .await
-                .is_ok(),
+            allowed(&db, w_id, tag).await,
             "{tag} should be available in the workspace it names"
         );
     }
     assert!(
-        check_tag_available_for_workspace_internal(&db, fork, "forky", is_super_admin, None)
-            .await
-            .is_ok(),
+        allowed(&db, fork, "forky").await,
         "a `*` tag must be granted to a fork through its parent lineage"
     );
     assert!(
-        check_tag_available_for_workspace_internal(&db, fork, "bare", is_super_admin, None)
-            .await
-            .is_err(),
+        !allowed(&db, fork, "bare").await,
         "an unmarked tag must not reach a fork of the workspace it names"
     );
 

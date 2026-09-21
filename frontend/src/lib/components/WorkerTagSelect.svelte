@@ -142,7 +142,7 @@
 </script>
 
 {#snippet startSnippet({ item })}
-	{#if tagsToWorkerExists}
+	{#if tagsToWorkerExists && !item.__is_create}
 		{#if tagsToWorkerExists[item.value]}
 			<Popover>
 				{#snippet text()}
@@ -174,6 +174,8 @@
 		placeholder={nullTag ? nullTag : (placeholder ?? 'lang default')}
 		items={safeSelectItems(items)}
 		bind:value={() => tag, (value) => ((tag = value), dispatch('change', value))}
+		onCreateItem={(value) => ((tag = value), dispatch('change', value))}
+		createText="Press Enter to use this tag"
 		{startSnippet}
 		bottomSnippet={refreshAll}
 	/>

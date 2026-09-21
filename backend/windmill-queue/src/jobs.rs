@@ -4696,6 +4696,57 @@ pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> Strin
     }
 }
 
+/// The queue an explicit `tag` sends a job pushed with `args` to, or `None` when `push` drops the
+/// tag and the job runs on its default one.
+pub async fn resolve_push_tag(
+    tag: &str,
+    args: &PushArgs<'_>,
+    workspace_id: &str,
+    db: &DB,
+) -> Option<String> {
+    // The flow runtime resolves a step's `$flow_expr[...]` before pushing it, so one still here
+    // was pushed with no flow state to read (a step test, a dependency job) and would name a
+    // queue no worker serves: the job runs on its default tag instead.
+    if tag.is_empty() || tag_reads_flow_expr(tag) {
+        return None;
+    }
+    // `$workspace` must resolve the same way the default tags do, or an explicit tag and a default
+    // tag from the same workspace address two different worker pools. Resolving costs a lookup,
+    // so pay it only for tags that actually interpolate `$workspace`.
+    let tag_ws = if tag.contains("$workspace") {
+        crate::tags::tag_workspace_id(workspace_id, db).await
+    } else {
+        workspace_id.to_string()
+    };
+    Some(interpolate_args(tag.to_string(), args, &tag_ws))
+}
+
+/// Refuses a `tag` the caller chose that the instance's custom tags do not let `w_id` use,
+/// judging the queue it resolves to. `args` must be the ones the job is pushed with: resolving
+/// with any others checks a queue the job does not land on.
+pub async fn check_tag_available_for_push(
+    db: &DB,
+    w_id: &str,
+    tag: &str,
+    args: &PushArgs<'_>,
+    is_super_admin: bool,
+    scope_tags: Option<Vec<&str>>,
+) -> Result<(), Error> {
+    let Some(resolved_tag) = resolve_push_tag(tag, args, w_id, db).await else {
+        return Ok(());
+    };
+    windmill_common::jobs::check_tag_available_for_workspace_internal(
+        db,
+        w_id,
+        tag,
+        &resolved_tag,
+        crate::tags::tag_workspace_id(w_id, db),
+        is_super_admin,
+        scope_tags,
+    )
+    .await
+}
+
 pub fn fullpath_with_workspace(
     workspace_id: &str,
     script_path: Option<&String>,
@@ -6535,23 +6586,9 @@ async fn push_inner<'c, 'd>(
         );
         windmill_common::worker::dedicated_worker_tag(workspace_id, &full_path)
     } else {
-        // The flow runtime resolves a step's `$flow_expr[...]` before pushing it, so one still here
-        // was pushed with no flow state to read (a step test, a dependency job) and would name a
-        // queue no worker serves: the job runs on its default tag instead.
-        if tag == Some("".to_string()) || tag.as_deref().is_some_and(tag_reads_flow_expr) {
-            tag = None;
-        }
-
-        // `$workspace` must resolve the same way the default tags below do, or an explicit tag and
-        // a default tag from the same workspace address two different worker pools. Resolving costs
-        // a lookup, so pay it only for tags that actually interpolate `$workspace`.
         let interpolated_tag = match tag {
+            Some(x) => resolve_push_tag(&x, &args, workspace_id, db).await,
             None => None,
-            Some(x) if x.contains("$workspace") => {
-                let tag_ws = crate::tags::tag_workspace_id(&workspace_id, db).await;
-                Some(interpolate_args(x, &args, &tag_ws))
-            }
-            Some(x) => Some(interpolate_args(x, &args, workspace_id)),
         };
         let effective_ws = per_workspace_tag(&workspace_id, db).await;
 

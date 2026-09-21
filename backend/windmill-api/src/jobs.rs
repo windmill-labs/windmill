@@ -7226,7 +7226,10 @@ pub async fn run_workflow_as_code(
 ) -> error::Result<(StatusCode, String)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
-    check_tag_available_for_workspace(&db, &w_id, &run_query.tag, &authed).await?;
+    let mut extra = HashMap::new();
+    extra.insert(ENTRYPOINT_OVERRIDE.to_string(), to_raw_value(&entrypoint));
+    let args = PushArgs { args: &task.args.unwrap_or_else(HashMap::new), extra: Some(extra) };
+    check_tag_available_for_workspace(&db, &w_id, &run_query.tag, &args, &authed).await?;
     check_scopes(&authed, || format!("jobs:run"))?;
 
     if !is_valid_entrypoint_name(&entrypoint) {
@@ -7320,10 +7323,6 @@ pub async fn run_workflow_as_code(
         i += 1;
     }
 
-    let mut extra = HashMap::new();
-    extra.insert(ENTRYPOINT_OVERRIDE.to_string(), to_raw_value(&entrypoint));
-
-    let args = PushArgs { args: &task.args.unwrap_or_else(HashMap::new), extra: Some(extra) };
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
     let tag = run_query.tag.clone().or(tag).or(Some(job.tag));
@@ -7360,7 +7359,7 @@ pub async fn run_workflow_as_code(
         tx,
         &w_id,
         job_payload,
-        PushArgs { args: &args.args, extra: args.extra },
+        args,
         authed.display_username(),
         email,
         permissioned_as,
@@ -7646,7 +7645,8 @@ pub async fn run_wait_result_job_by_path_get(
         .await?;
 
     let tag = run_query.tag.clone().or(tag);
-    check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
+    let push_args = PushArgs { args: &args.args, extra: args.extra };
+    check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
 
     let (email, permissioned_as, push_authed, tx) =
         if let Some(on_behalf_of) = on_behalf_authed.as_ref() {
@@ -7670,7 +7670,7 @@ pub async fn run_wait_result_job_by_path_get(
         tx,
         &w_id,
         job_payload,
-        PushArgs { args: &args.args, extra: args.extra },
+        push_args,
         authed.display_username(),
         email,
         permissioned_as,
@@ -7791,7 +7791,8 @@ pub async fn run_wait_result_script_by_path_internal(
         .await?;
 
     let tag = run_query.tag.clone().or(tag);
-    check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
+    let push_args = PushArgs { args: &args.args, extra: args.extra };
+    check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
 
     let (email, permissioned_as, push_authed, tx) =
         if let Some(on_behalf_of) = on_behalf_of.as_ref() {
@@ -7815,7 +7816,7 @@ pub async fn run_wait_result_script_by_path_internal(
         tx,
         &w_id,
         job_payload,
-        PushArgs { args: &args.args, extra: args.extra },
+        push_args,
         authed.display_username(),
         email,
         permissioned_as,
@@ -7904,7 +7905,8 @@ pub async fn run_wait_result_script_by_hash(
     check_scopes(&authed, || format!("jobs:run:scripts:{path}"))?;
 
     let tag = run_query.tag.clone().or(tag);
-    check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
+    let push_args = PushArgs { args: &args.args, extra: args.extra };
+    check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
 
     let (email, permissioned_as, push_authed, tx) = if let Some(obo) = on_behalf_of.as_ref() {
         (
@@ -7940,7 +7942,7 @@ pub async fn run_wait_result_script_by_hash(
                 && has_preprocessor.unwrap_or(false),
             labels,
         },
-        PushArgs { args: &args.args, extra: args.extra },
+        push_args,
         authed.display_username(),
         email,
         permissioned_as,
@@ -8465,7 +8467,6 @@ async fn run_preview_script(
     require_path_read_access_for_preview(&authed, &preview.path)?;
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tag = run_query.tag.clone().or(preview.tag.clone());
-    check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
 
     let preview_args = preview.args.unwrap_or_default();
@@ -8484,6 +8485,7 @@ async fn run_preview_script(
     }
     let extra = if extra.is_empty() { None } else { Some(extra) };
     let push_args = PushArgs { extra, args: &preview_args };
+    check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
 
     let (uuid, tx) = push(
         &db,
@@ -8840,7 +8842,6 @@ async fn run_bundle_preview_script(
 
             let scheduled_for = run_query.get_scheduled_for(&db).await?;
             let tag = run_query.tag.clone().or(preview.tag.clone());
-            check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
             let ltx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
 
             let args = preview.args.unwrap_or_default();
@@ -8855,6 +8856,7 @@ async fn run_bundle_preview_script(
                 m
             });
             let push_args = PushArgs { extra, args: &args };
+            check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
 
             is_tar = match preview.kind {
                 Some(PreviewKind::Tarbundle) => true,
@@ -9506,7 +9508,6 @@ async fn run_preview_flow_job(
     require_path_read_access_for_preview(&authed, &raw_flow.path)?;
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tag = run_query.tag.clone().or(raw_flow.tag.clone());
-    check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
 
     let chat_input_enabled = raw_flow.value.chat_input_enabled.unwrap_or(false);
@@ -9524,6 +9525,8 @@ async fn run_preview_flow_job(
             to_raw_value(temp_script_refs),
         );
     }
+    check_tag_available_for_workspace(&db, &w_id, &tag, &PushArgs::from(&flow_args), &authed)
+        .await?;
 
     let (uuid, mut tx) = push(
         &db,
@@ -9769,17 +9772,17 @@ async fn run_dynamic_select(
         }
     }
 
-    // Same tag-permission gate a normal run gets (run_flow / push_script_job_by_path_into_queue):
-    // a caller allowed to read the flow must still be allowed to use its worker tag. No-op for
-    // inline (tag is None); the script branch checked this inside its helper and returned above.
-    check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
-
     // Invoke the dyn-select entrypoint instead of `main`.
     let mut args = request.args.unwrap_or_default();
     args.insert(
         ENTRYPOINT_OVERRIDE.to_string(),
         serde_json::value::to_raw_value(&request.entrypoint_function)?,
     );
+
+    // Same tag-permission gate a normal run gets (run_flow / push_script_job_by_path_into_queue):
+    // a caller allowed to read the flow must still be allowed to use its worker tag. No-op for
+    // inline (tag is None); the script branch checked this inside its helper and returned above.
+    check_tag_available_for_workspace(&db, &w_id, &tag, &PushArgs::from(&args), &authed).await?;
 
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
@@ -9915,8 +9918,9 @@ pub async fn run_job_by_hash_inner(
     }
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tag = run_query.tag.clone().or(tag);
+    let push_args = PushArgs { args: &args.args, extra: args.extra };
 
-    check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
+    check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
 
     let (email, permissioned_as, push_authed, tx) = if let Some(obo) = on_behalf_of.as_ref() {
         (
@@ -9952,7 +9956,7 @@ pub async fn run_job_by_hash_inner(
                 && has_preprocessor.unwrap_or(false),
             labels,
         },
-        PushArgs { args: &args.args, extra: args.extra },
+        push_args,
         authed.display_username(),
         email,
         permissioned_as,

@@ -53,6 +53,14 @@
 		return matched ? { kind: matched[1], path: matched[2] } : undefined
 	})
 
+	// A job's tag is judged on what it resolves to, and a placeholder in a custom tag stands for
+	// any text (custom_tag_matches in backend/windmill-common/src/worker.rs), so an entry with no
+	// text around its placeholders admits every tag.
+	let dynamicTagAdmitsEveryTag = $derived(
+		dynamicTag != undefined &&
+			newTag.trim().replace(new RegExp(dynamicTagRegex.source, 'g'), '') == ''
+	)
+
 	let extractedCustomTag = $derived.by(() => {
 		let r = newTag.trim()
 		if (r == '') return undefined
@@ -216,6 +224,16 @@
 					{:else if dynamicTag}
 						<div>Interpolated tag based on args input of <b>{dynamicTag.path}</b></div>
 					{/if}
+					{#if dynamicTagAdmitsEveryTag}
+						<div class="mt-1 text-yellow-600 dark:text-yellow-500">
+							Allows every tag: nothing around the placeholder limits what it resolves to. Add a
+							fixed prefix or suffix, or list the tags themselves.
+						</div>
+					{:else if dynamicTag}
+						<div class="mt-1">
+							Allows any tag it resolves to, with the text around the placeholder as written
+						</div>
+					{/if}
 				</div>
 			{/if}
 		{/if}
@@ -269,6 +287,11 @@
 			<pre class="inline">a</pre> is the step id, or
 			<pre class="inline text-emphasis">$flow_expr[flow_input.a.b.c]</pre> and
 			<pre class="inline text-emphasis">$flow_expr[flow_env.a.b.c]</pre>.
+			<br />{#if variant !== 'drawer'}<br />{/if}
+			A dynamic tag is checked on the tag it resolves to: it is allowed when that tag is listed here,
+			or fits a listed dynamic tag such as
+			<pre class="inline text-emphasis">gpu-$args[size]</pre>, which allows any tag starting with
+			<pre class="inline">gpu-</pre>.
 		</span>
 	{/if}
 </div>

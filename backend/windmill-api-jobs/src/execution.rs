@@ -30,18 +30,15 @@ use windmill_common::{
         add_message_to_conversation_tx, message_attachments, MessageExtras, MessageType,
     },
     get_latest_flow_version_info_for_path,
-    jobs::{
-        check_tag_available_for_workspace_internal, format_result, script_path_to_payload,
-        JobPayload,
-    },
+    jobs::{format_result, script_path_to_payload, JobPayload},
     triggers::TriggerMetadata,
     users::username_to_permissioned_as,
     utils::StripPath,
     FlowVersionInfo, DB,
 };
 use windmill_queue::{
-    cancel_job, get_result_and_success_by_id_from_flow, parse_result_object, push, PushArgs,
-    PushArgsOwned, PushIsolationLevel,
+    cancel_job, check_tag_available_for_push, get_result_and_success_by_id_from_flow,
+    parse_result_object, push, PushArgs, PushArgsOwned, PushIsolationLevel,
 };
 
 use crate::types::RunJobQuery;
@@ -50,17 +47,19 @@ use crate::types::RunJobQuery;
 // Tag / license checks
 // ---------------------------------------------------------------------------
 
+/// `args` must be the ones the job is pushed with, see [`windmill_queue::check_tag_available_for_push`].
 pub async fn check_tag_available_for_workspace(
     db: &DB,
     w_id: &str,
     tag: &Option<String>,
+    args: &PushArgs<'_>,
     authed: &ApiAuthed,
 ) -> error::Result<()> {
     if let Some(tag) = tag.as_deref().filter(|t| !t.is_empty()) {
         let tags = get_scope_tags(authed);
         // Job-aware: a WM_TOKEN running as a superadmin must not unlock restricted tags.
         let is_super_admin = windmill_api_auth::is_super_admin_authed(db, authed).await?;
-        check_tag_available_for_workspace_internal(db, w_id, tag, is_super_admin, tags).await
+        check_tag_available_for_push(db, w_id, tag, args, is_super_admin, tags).await
     } else {
         Ok(())
     }
@@ -761,8 +760,9 @@ pub async fn run_flow<'c>(
     } = flow_version_info;
 
     let tag = run_query.tag.clone().or(tag);
+    let push_args = PushArgs { args: &args.args, extra: args.extra };
 
-    check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
+    check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
     let return_tx = tx_o.is_some();
@@ -802,7 +802,7 @@ pub async fn run_flow<'c>(
                 && has_preprocessor.unwrap_or(false),
             labels,
         },
-        PushArgs { args: &args.args, extra: args.extra },
+        push_args,
         authed.display_username(),
         email,
         permissioned_as,
@@ -988,7 +988,8 @@ pub async fn push_script_job_by_path_into_queue<'c>(
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
     let tag = run_query.tag.clone().or(tag);
-    check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
+    let push_args = PushArgs { args: &args.args, extra: args.extra };
+    check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
 
     let return_tx = tx_o.is_some();
 
@@ -1020,7 +1021,7 @@ pub async fn push_script_job_by_path_into_queue<'c>(
         tx,
         &w_id,
         job_payload,
-        PushArgs { args: &args.args, extra: args.extra },
+        push_args,
         authed.display_username(),
         email,
         permissioned_as,

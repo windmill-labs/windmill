@@ -44,8 +44,7 @@ use windmill_common::flow_status::{
 };
 use windmill_common::flows::{add_virtual_items_if_necessary, Branch, FlowNodeId, StopAfterIf};
 use windmill_common::jobs::{
-    check_tag_available_for_workspace_internal, script_path_to_payload, JobKind, JobPayload,
-    OnBehalfOf, RawCode, ENTRYPOINT_OVERRIDE,
+    script_path_to_payload, JobKind, JobPayload, OnBehalfOf, RawCode, ENTRYPOINT_OVERRIDE,
 };
 use windmill_common::runnable_settings::{
     ConcurrencySettingsWithCustom, DebouncingSettings, RunnableSettingsTrait,
@@ -68,8 +67,8 @@ use windmill_common::{
 };
 use windmill_queue::schedule::get_schedule_opt;
 use windmill_queue::{
-    add_completed_job, add_completed_job_error, append_logs, get_mini_pulled_job,
-    insert_concurrency_key_capped, interpolate_args, render_tag_path,
+    add_completed_job, add_completed_job_error, append_logs, check_tag_available_for_push,
+    get_mini_pulled_job, insert_concurrency_key_capped, interpolate_args, render_tag_path,
     report_error_to_workspace_handler_or_critical_side_channel, tag_reads_args,
     tag_reads_flow_expr, try_schedule_next_job, CanceledBy, FlowRunners, MiniCompletedJob,
     MiniPulledJob, PushArgs, PushIsolationLevel, SameWorkerPayload, WrappedError, RE_FLOW_EXPR_TAG,
@@ -1577,6 +1576,24 @@ pub async fn update_flow_status_after_job_completion_internal(
                     .await?;
                 }
                 if let Some(t) = tag {
+                    // The preprocessor's output picks this queue, which the check at push time
+                    // never saw.
+                    if tag_reads_args(&t) {
+                        let is_super_admin = windmill_common::auth::is_super_admin_email(
+                            db,
+                            &flow_job.permissioned_as_email,
+                        )
+                        .await?;
+                        check_tag_available_for_push(
+                            db,
+                            &flow_job.workspace_id,
+                            &t,
+                            &args,
+                            is_super_admin,
+                            None,
+                        )
+                        .await?;
+                    }
                     // `$workspace` is already resolved above; this fills in `$args`.
                     tag = Some(interpolate_args(t, &args, &flow_job.workspace_id));
                 }
@@ -4494,33 +4511,6 @@ async fn push_next_flow_job(
             )
         };
 
-        // Check tag availability for flow substeps to prevent abuse.
-        // Skip when the substep inherits the parent flow's tag: that tag was already
-        // validated at flow push time, and for dedicated flows it is the auto-generated
-        // `{workspace_id}:flow/{path}` tag which is never in CUSTOM_TAGS.
-        if let Some(tag_str) = tag
-            .as_deref()
-            .filter(|t| !t.is_empty() && *t != flow_job.tag.as_str())
-        {
-            // A step with its own on-behalf-of carries a cached dispatch address, up to one
-            // notify poll stale; accepted, see `get_email_from_permissioned_as`.
-            let is_super_admin = windmill_common::auth::is_super_admin_email(db, email).await?;
-            check_tag_available_for_workspace_internal(
-                db,
-                &flow_job.workspace_id,
-                tag_str,
-                is_super_admin,
-                None, // no token for flow substeps so no scopes so no scope_tags
-            )
-            .warn_after_seconds_with_sql(
-                1,
-                "check_tag_available_for_workspace_internal".to_string(),
-            )
-            .await?;
-        }
-
-        // Resolved only after the check: CUSTOM_TAGS allows the template, so its value may name
-        // any queue, as the value of an `$args[...]` tag does.
         let mut tag_err = None;
         let tag = match tag {
             Some(t) if err.is_none() && tag_reads_flow_expr(&t) => {
@@ -4542,6 +4532,30 @@ async fn push_next_flow_job(
             t => t,
         };
         let err = err.or(tag_err.as_ref());
+
+        // Check tag availability for flow substeps to prevent abuse. It runs on the tag with its
+        // `$flow_expr[...]` filled in, as `push` fills in the rest, since that is what picks the
+        // queue. Skip when the substep inherits the parent flow's tag: that tag was already
+        // validated at flow push time, and for dedicated flows it is the auto-generated
+        // `{workspace_id}:flow/{path}` tag which is never in CUSTOM_TAGS.
+        if let Some(tag_str) = tag
+            .as_deref()
+            .filter(|t| !t.is_empty() && *t != flow_job.tag.as_str())
+        {
+            // A step with its own on-behalf-of carries a cached dispatch address, up to one
+            // notify poll stale; accepted, see `get_email_from_permissioned_as`.
+            let is_super_admin = windmill_common::auth::is_super_admin_email(db, email).await?;
+            check_tag_available_for_push(
+                db,
+                &flow_job.workspace_id,
+                tag_str,
+                &push_args,
+                is_super_admin,
+                None, // no token for flow substeps so no scopes so no scope_tags
+            )
+            .warn_after_seconds_with_sql(1, "check_tag_available_for_push".to_string())
+            .await?;
+        }
 
         let evaluated_timeout = if let Some(timeout_transform) = &module.timeout {
             let ctx = get_transform_context(&flow_job, &previous_id, &status);

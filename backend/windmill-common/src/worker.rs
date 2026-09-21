@@ -104,6 +104,52 @@ impl CustomTags {
     }
 }
 
+/// Whether a job whose tag resolved to `tag` falls under the custom tag `entry`. An entry holding
+/// placeholders is a pattern over resolved tags: `$args[...]` and `$flow_expr[...]` match any
+/// text, since whoever pushes the job picks their values, and `$workspace` matches
+/// `tag_workspace`, what the job's own `$workspace` resolves to. The text around them must match
+/// as written: it is what confines `gpu-$args[size]` to the `gpu-` tags.
+pub fn custom_tag_matches(entry: &str, tag: &str, tag_workspace: &str) -> bool {
+    if !entry.contains('$') {
+        return entry == tag;
+    }
+    // The literal runs between wildcards, with `$workspace` substituted.
+    let mut pieces = vec![];
+    let mut current = String::new();
+    let mut last_end = 0;
+    for m in CUSTOM_TAG_PLACEHOLDER.find_iter(entry) {
+        current.push_str(&entry[last_end..m.start()]);
+        if m.as_str() == "$workspace" {
+            current.push_str(tag_workspace);
+        } else {
+            pieces.push(std::mem::take(&mut current));
+        }
+        last_end = m.end();
+    }
+    current.push_str(&entry[last_end..]);
+    pieces.push(current);
+
+    let [first, rest @ ..] = pieces.as_slice() else {
+        return false;
+    };
+    let Some((last, middle)) = rest.split_last() else {
+        return tag == first;
+    };
+    let Some(mut inner) = tag
+        .strip_prefix(first.as_str())
+        .and_then(|t| t.strip_suffix(last.as_str()))
+    else {
+        return false;
+    };
+    for piece in middle {
+        match inner.find(piece.as_str()) {
+            Some(i) => inner = &inner[i + piece.len()..],
+            None => return false,
+        }
+    }
+    true
+}
+
 /// Marker suffixed to a workspace id inside a custom tag's scope (`mytag(prod*)`) to extend the
 /// entry to that workspace's forks. `*` cannot appear in a workspace id (the `proper_id` check
 /// constraint restricts them to `^\w+(-\w+)*$`), so it can never collide with a real id.
@@ -475,6 +521,9 @@ lazy_static::lazy_static! {
     //
     // The optional `*` after each workspace id is the fork marker, see [`WorkspaceMatcher`].
     static ref CUSTOM_TAG_REGEX: Regex = Regex::new(r"^([\w-]+)\(((?:[\w-]+\*?\+)*[\w-]+\*?|(?:\^[\w-]+\*?)+)\)$").unwrap();
+
+    // The placeholders a job's tag is resolved from when it is pushed, see [`custom_tag_matches`].
+    static ref CUSTOM_TAG_PLACEHOLDER: Regex = Regex::new(r"\$workspace|\$(?:args|flow_expr)\[(?:\w+\.)*\w+\]").unwrap();
 
     pub static ref DISABLE_BUNDLING: bool = std::env::var("DISABLE_BUNDLING")
     .ok()
@@ -3068,6 +3117,34 @@ mod tests {
         let mut result = tags.to_string_vec(None);
         result.sort();
         assert_eq!(result, vec!["foo", "legacy(^ws1^ws2)", "urgent(ws1+ws2)"]);
+    }
+
+    #[test]
+    fn test_custom_tag_matches_resolved_tags() {
+        let matches = |entry, tag| custom_tag_matches(entry, tag, "ws1");
+
+        assert!(matches("gpu", "gpu"));
+        assert!(!matches("gpu", "gpu-large"));
+
+        // The text around a placeholder fences what its value can make of the tag.
+        assert!(matches("gpu-$args[size]", "gpu-large"));
+        assert!(matches("gpu-$flow_expr[results.a.size]", "gpu-"));
+        assert!(!matches("gpu-$args[size]", "prod"));
+        assert!(!matches("gpu-$args[size]", "xgpu-large"));
+        assert!(matches("$args[region]-gpu", "eu-gpu"));
+        assert!(!matches("$args[region]-gpu", "eu-gpu-x"));
+        assert!(matches("a-$args[x]-b-$args[y]-c", "a-1-b-2-c"));
+        assert!(!matches("a-$args[x]-b-$args[y]-c", "a-1-c"));
+        assert!(!matches("ab$args[x]ba", "aba"));
+
+        // A bare placeholder admits every tag.
+        assert!(matches("$flow_expr[results.a.tag]", "anything"));
+
+        // `$workspace` stands for the job's own workspace only.
+        assert!(matches("tag-$workspace", "tag-ws1"));
+        assert!(!matches("tag-$workspace", "tag-ws2"));
+        assert!(matches("$workspace-$args[size]", "ws1-large"));
+        assert!(!matches("$workspace-$args[size]", "ws2-large"));
     }
 
     #[test]
