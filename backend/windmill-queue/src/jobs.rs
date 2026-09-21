@@ -633,6 +633,11 @@ async fn cancel_persistent_script_jobs_internal<'c>(
 /// leaves the script non-perpetual moves nothing, so turning perpetual off keeps the runs going as
 /// it does today.
 ///
+/// Carries the authority of the deploy, which every caller has authorized: it cancels and pushes
+/// runs at `script_path` without an `Authed` of its own. A replacement runs as the deployed
+/// version's identity when it names one and otherwise as the identity of the run it replaces, and
+/// a run only moves to a tag that identity may use.
+///
 /// Errors are logged, never returned: a deploy stands whatever happens to the runs of its earlier
 /// versions.
 pub async fn restart_perpetual_runs_on_new_version(
@@ -641,10 +646,18 @@ pub async fn restart_perpetual_runs_on_new_version(
     script_path: &str,
     deployed_by: &str,
 ) {
-    if let Err(e) = restart_perpetual_runs_at_path(db, w_id, script_path, deployed_by).await {
-        tracing::error!(
-            "Could not restart the perpetual runs of {script_path} on the deployed version: {e:#}"
-        );
+    let loops = match restart_perpetual_runs_at_path(db, w_id, script_path, deployed_by).await {
+        Ok(loops) => loops,
+        Err(e) => {
+            tracing::error!(
+                "Could not restart the perpetual runs of {script_path} on the deployed version: {e:#}"
+            );
+            // The second pass is the retry.
+            true
+        }
+    };
+    if !loops {
+        return;
     }
     // A run that ended just before its cancel restarts itself on its own version, and only a
     // cancel this won is replaced, so that run is still on the earlier version. It is queued
@@ -667,21 +680,22 @@ pub async fn restart_perpetual_runs_on_new_version(
     });
 }
 
+/// Whether the deployed version loops, which is what the second pass is for.
 async fn restart_perpetual_runs_at_path(
     db: &Pool<Postgres>,
     w_id: &str,
     script_path: &str,
     deployed_by: &str,
-) -> error::Result<()> {
+) -> error::Result<bool> {
     // Built the way a run of this path is built anywhere else, so the next run takes the deployed
     // version's tag, timeout, language and identity. The arguments are reused from the run it
     // replaces, which a preprocessor already ran on.
     let (payload, tag, _, _, timeout, on_behalf_of) =
         script_path_to_payload(script_path, None, db.clone(), w_id, Some(true)).await?;
-    let JobPayload::ScriptHash { hash, .. } = &payload else {
-        return Ok(());
+    let JobPayload::ScriptHash { hash, dedicated_worker, .. } = &payload else {
+        return Ok(false);
     };
-    let hash = *hash;
+    let (hash, dedicated_worker) = (*hash, *dedicated_worker);
     let perpetual = sqlx::query_scalar!(
         "SELECT restart_unless_cancelled FROM script WHERE hash = $1 AND workspace_id = $2",
         hash.0,
@@ -692,10 +706,11 @@ async fn restart_perpetual_runs_at_path(
     .flatten()
     .unwrap_or(false);
     if !perpetual {
-        return Ok(());
+        return Ok(false);
     }
 
-    let runs = sqlx::query!(
+    let runs = sqlx::query_as!(
+        PerpetualRunToRestart,
         "SELECT q.id AS \"id!\", j.created_by, j.permissioned_as, j.permissioned_as_email, \
          j.trigger, j.trigger_kind AS \"trigger_kind: TriggerKindLabel\", \
          j.args AS \"args: sqlx::types::Json<HashMap<String, Box<RawValue>>>\" \
@@ -712,30 +727,118 @@ async fn restart_perpetual_runs_at_path(
     .await?;
 
     for run in runs {
-        let tx = db.begin().await?;
-        let (tx, canceled) = cancel_job(
-            deployed_by,
-            Some(format!("a new version of {script_path} was deployed")),
-            run.id,
-            w_id,
-            tx,
+        let id = run.id;
+        // Per run, so that a run this fails on leaves the others to move.
+        if let Err(e) = restart_perpetual_run(
             db,
-            false,
-            false,
+            w_id,
+            script_path,
+            deployed_by,
+            RestartOnVersion {
+                payload: &payload,
+                tag: tag.as_deref(),
+                timeout,
+                dedicated_worker,
+                on_behalf_of: on_behalf_of.as_ref(),
+            },
+            run,
         )
-        .await?;
-        tx.commit().await?;
-        if canceled.is_none() {
-            continue;
+        .await
+        {
+            tracing::error!(
+                "Could not restart perpetual run {id} on the version deployed at {script_path}: {e:#}"
+            );
         }
-        let (email, permissioned_as) = match on_behalf_of.as_ref() {
+    }
+    Ok(true)
+}
+
+/// A run of an earlier version at the path, and what its replacement inherits from it.
+struct PerpetualRunToRestart {
+    id: Uuid,
+    created_by: String,
+    permissioned_as: String,
+    permissioned_as_email: String,
+    trigger: Option<String>,
+    trigger_kind: Option<TriggerKindLabel>,
+    args: Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
+}
+
+/// What every run at the path moves to.
+struct RestartOnVersion<'a> {
+    payload: &'a JobPayload,
+    tag: Option<&'a str>,
+    timeout: Option<i32>,
+    dedicated_worker: Option<bool>,
+    on_behalf_of: Option<&'a windmill_common::jobs::OnBehalfOf>,
+}
+
+async fn restart_perpetual_run(
+    db: &Pool<Postgres>,
+    w_id: &str,
+    script_path: &str,
+    deployed_by: &str,
+    version: RestartOnVersion<'_>,
+    run: PerpetualRunToRestart,
+) -> error::Result<()> {
+    let RestartOnVersion { payload, tag, timeout, dedicated_worker, on_behalf_of } = version;
+    {
+        let (email, permissioned_as) = match on_behalf_of {
             Some(obo) => (obo.email.clone(), obo.permissioned_as.clone()),
-            None => (run.permissioned_as_email, run.permissioned_as),
+            None => (
+                run.permissioned_as_email.clone(),
+                run.permissioned_as.clone(),
+            ),
         };
-        let args = run.args.map(|args| args.0).unwrap_or_default();
+        // The run's own tag was checked when the loop started; the deployed version's has not
+        // been checked against the identity that would run it. A dedicated worker's tag is the
+        // script's own and names no worker group to gain access to.
+        if dedicated_worker != Some(true) {
+            if let Some(tag) = tag.filter(|tag| !tag.is_empty()) {
+                let is_super_admin =
+                    windmill_common::auth::is_super_admin_email(db, &email).await?;
+                if let Err(e) = windmill_common::jobs::check_tag_available_for_workspace_internal(
+                    db,
+                    w_id,
+                    tag,
+                    is_super_admin,
+                    None,
+                )
+                .await
+                {
+                    tracing::warn!(
+                        "Perpetual run {} stays on its version: the deployed version of \
+                         {script_path} has tag {tag}: {e}",
+                        run.id
+                    );
+                    return Ok(());
+                }
+            }
+        }
+        let args = run.args.clone().map(|args| args.0).unwrap_or_default();
+        let mut tx = db.begin().await?;
+        // Claiming the run and queueing its replacement in one transaction: a push that fails
+        // leaves the run looping on its own version rather than canceled with nothing to follow
+        // it, and a concurrent deploy cannot claim a run this one already has. A worker completes
+        // a run canceled this way when it next pulls it.
+        let claimed = sqlx::query_scalar!(
+            "UPDATE v2_job_queue SET canceled_by = $1, canceled_reason = $2, scheduled_for = now(), \
+             suspend = 0 WHERE id = $3 AND workspace_id = $4 AND canceled_by IS NULL RETURNING id",
+            deployed_by,
+            format!("a new version of {script_path} was deployed"),
+            run.id,
+            w_id
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        if claimed.is_none() {
+            // It ended or was canceled since the scan. Its own restart, if it had one, is a run of
+            // an earlier version the next pass picks up.
+            return Ok(());
+        }
         let (_, tx) = push(
             db,
-            PushIsolationLevel::IsolatedRoot(db.clone()),
+            PushIsolationLevel::Transaction(tx),
             w_id,
             payload.clone(),
             PushArgs::from(&args),
@@ -754,7 +857,7 @@ async fn restart_perpetual_runs_at_path(
             false,
             None,
             true,
-            tag.clone(),
+            tag.map(str::to_string),
             timeout,
             None,
             None,
@@ -766,6 +869,25 @@ async fn restart_perpetual_runs_at_path(
         )
         .await?;
         tx.commit().await?;
+        // Now that the replacement is queued: the children the run left behind, and, for a run no
+        // worker would pull, its completion.
+        match cancel_job(
+            deployed_by,
+            Some(format!("a new version of {script_path} was deployed")),
+            run.id,
+            w_id,
+            db.begin().await?,
+            db,
+            false,
+            false,
+        )
+        .await
+        {
+            Ok((tx, _)) => tx.commit().await?,
+            Err(e) => {
+                tracing::error!("Could not finish canceling perpetual run {}: {e:#}", run.id)
+            }
+        }
     }
     Ok(())
 }

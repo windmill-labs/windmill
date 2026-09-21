@@ -17,16 +17,28 @@ async fn insert_version(
     age_s: f64,
     perpetual: bool,
 ) -> anyhow::Result<()> {
+    insert_tagged_version(db, path, hash, age_s, perpetual, None).await
+}
+
+async fn insert_tagged_version(
+    db: &Pool<Postgres>,
+    path: &str,
+    hash: i64,
+    age_s: f64,
+    perpetual: bool,
+    tag: Option<&str>,
+) -> anyhow::Result<()> {
     sqlx::query(
         "INSERT INTO script (workspace_id, hash, path, summary, description, content, created_by, \
-            language, lock, restart_unless_cancelled, created_at) \
-         VALUES ($1, $2, $3, '', '', 'echo', 'test-user', 'bash', '', $4, \
-            now() - make_interval(secs => $5))",
+            language, lock, restart_unless_cancelled, tag, created_at) \
+         VALUES ($1, $2, $3, '', '', 'echo', 'test-user', 'bash', '', $4, $5, \
+            now() - make_interval(secs => $6))",
     )
     .bind(W_ID)
     .bind(hash)
     .bind(path)
     .bind(perpetual)
+    .bind(tag)
     .bind(age_s)
     .execute(db)
     .await?;
@@ -35,18 +47,28 @@ async fn insert_version(
 
 /// A run of `hash` a worker has started.
 async fn start_run(db: &Pool<Postgres>, path: &str, hash: i64) -> anyhow::Result<Uuid> {
+    start_run_as(db, path, hash, "test@windmill.dev").await
+}
+
+async fn start_run_as(
+    db: &Pool<Postgres>,
+    path: &str,
+    hash: i64,
+    email: &str,
+) -> anyhow::Result<Uuid> {
     let id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO v2_job (id, workspace_id, created_by, created_at, permissioned_as, \
             permissioned_as_email, kind, runnable_id, runnable_path, script_lang, tag, args, \
             visible_to_owner) \
-         VALUES ($1, $2, 'test-user', now(), 'u/test-user', 'test@windmill.dev', 'script', $3, \
+         VALUES ($1, $2, 'test-user', now(), 'u/test-user', $5, 'script', $3, \
             $4, 'bash', 'bash', '{\"n\": 1}', true)",
     )
     .bind(id)
     .bind(W_ID)
     .bind(hash)
     .bind(path)
+    .bind(email)
     .execute(db)
     .await?;
     sqlx::query(
@@ -93,6 +115,34 @@ async fn a_deploy_restarts_the_runs_of_earlier_versions(db: Pool<Postgres>) -> a
         args,
         json!({ "n": 1 }),
         "with the arguments of the run it replaces"
+    );
+    Ok(())
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn a_run_stays_on_its_version_when_it_may_not_use_the_deployed_tag(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    let path = "u/test-user/tagged";
+    insert_version(&db, path, 301, 60.0, true).await?;
+    // Runs as the fixture's user who is no superadmin, and no workspace tag allows this one.
+    let running = start_run_as(&db, path, 301, "test2@windmill.dev").await?;
+    insert_tagged_version(&db, path, 302, 0.0, true, Some("restricted")).await?;
+
+    restart_perpetual_runs_on_new_version(&db, W_ID, path, "test-user").await;
+
+    let queued: Vec<(Uuid, Option<String>)> = sqlx::query_as(
+        "SELECT q.id, q.canceled_reason FROM v2_job_queue q JOIN v2_job j USING (id) \
+         WHERE j.workspace_id = $1 AND j.runnable_path = $2",
+    )
+    .bind(W_ID)
+    .bind(path)
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(
+        queued,
+        vec![(running, None)],
+        "a tag the run's identity may not use leaves it as it is"
     );
     Ok(())
 }

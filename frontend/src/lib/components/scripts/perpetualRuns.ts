@@ -1,13 +1,16 @@
-import { JobService, ScriptService, type QueuedJob } from '$lib/gen'
+import { JobService, ScriptService, type QueuedJob, type Script } from '$lib/gen'
 import { computeDiff } from '$lib/components/schema/schemaUtils.svelte'
 
 const QUEUE_PAGE_SIZE = 1000
 
 export type PerpetualRunsAtPath = {
-	count: number
+	/** Undefined when the runs at the path could not be listed: the deploy restarts them either way. */
+	count: number | undefined
 	/** Arguments the deployed schema removes, retypes or newly requires, compared with the runs' versions. */
 	mismatchedArgs: string[]
 }
+
+const RUNS_UNKNOWN: PerpetualRunsAtPath = { count: undefined, mismatchedArgs: [] }
 
 // Every page: the deploy switches every perpetual run at the path, so one past the first page
 // still needs the prompt and its version's arguments compared.
@@ -31,21 +34,32 @@ export async function loadPerpetualRunsAtPath(
 	path: string,
 	schema: { [key: string]: any } | undefined
 ): Promise<PerpetualRunsAtPath | undefined> {
-	const queued = await listQueuedAtPath(workspace, path)
-	// Only what the backend restarts: never a flow step, and only a run of a perpetual version.
-	const candidates = queued.filter((job) => !job.is_flow_step && job.script_hash)
+	// A deploy restarts every perpetual run at the path whatever this finds, so anything it cannot
+	// read leaves the count unknown rather than reporting none and skipping the prompt.
+	let queued: QueuedJob[]
+	try {
+		queued = await listQueuedAtPath(workspace, path)
+	} catch (error) {
+		console.error('Could not list the runs of this perpetual script', error)
+		return RUNS_UNKNOWN
+	}
+	// Only what the backend restarts: never a flow step or a run already canceled, and only a run
+	// of a perpetual version.
+	const candidates = queued.filter((job) => !job.is_flow_step && !job.canceled && job.script_hash)
 	const hashes = [...new Set(candidates.map((job) => job.script_hash!))]
-	const versions = new Map(
-		await Promise.all(
-			hashes.map(
-				async (hash) =>
-					[
-						hash,
-						await ScriptService.getScriptByHash({ workspace, hash }).catch(() => undefined)
-					] as const
+	let versions: Map<string, Script>
+	try {
+		versions = new Map(
+			await Promise.all(
+				hashes.map(
+					async (hash) => [hash, await ScriptService.getScriptByHash({ workspace, hash })] as const
+				)
 			)
 		)
-	)
+	} catch (error) {
+		console.error('Could not read the versions the runs of this script are on', error)
+		return RUNS_UNKNOWN
+	}
 	const runs = candidates.filter((job) => versions.get(job.script_hash!)?.restart_unless_cancelled)
 	if (runs.length === 0) {
 		return undefined

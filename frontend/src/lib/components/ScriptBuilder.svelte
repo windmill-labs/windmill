@@ -10,7 +10,8 @@
 		PostgresTriggerService,
 		CaptureService,
 		type ScriptLang,
-		WorkerService
+		WorkerService,
+		JobService
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import {
@@ -278,7 +279,7 @@
 	let confirmDeploymentCallback: (triggersToDeploy: Trigger[]) => void = () => {}
 
 	let perpetualRunsToConfirm: PerpetualRunsAtPath | undefined = $state(undefined)
-	let confirmPerpetualRunsCallback: () => void = () => {}
+	let confirmPerpetualRunsCallback: (choice: 'restart' | 'stop') => void = () => {}
 
 	async function handleDraftTriggersConfirmed(event: CustomEvent<{ selectedTriggers: Trigger[] }>) {
 		const { selectedTriggers } = event.detail
@@ -665,16 +666,30 @@
 			script.path === initialPath
 		) {
 			loadingSave = true
-			const runs = await loadPerpetualRunsAtPath(opWorkspace!, initialPath, script.schema).catch(
-				(error) => {
-					console.error('Could not list the runs of this perpetual script', error)
-					return undefined
-				}
-			)
+			const runs = await loadPerpetualRunsAtPath(opWorkspace!, initialPath, script.schema)
 			loadingSave = false
 			if (runs) {
-				confirmPerpetualRunsCallback = () => {
+				confirmPerpetualRunsCallback = async (choice) => {
 					perpetualRunsToConfirm = undefined
+					// Stopping them first leaves the deploy nothing to restart.
+					if (choice === 'stop') {
+						loadingSave = true
+						try {
+							await JobService.cancelPersistentQueuedJobs({
+								workspace: opWorkspace!,
+								path: initialPath,
+								requestBody: { reason: 'stopped when a new version was deployed' }
+							})
+						} catch (error) {
+							loadingSave = false
+							sendUserToast(
+								`Could not stop the runs of this script, nothing was deployed: ${error.body ?? error.message}`,
+								true
+							)
+							return
+						}
+						loadingSave = false
+					}
 					editScript(stay, parentHash, deploymentMsg, triggersToDeploy, true)
 				}
 				perpetualRunsToConfirm = runs
@@ -1198,7 +1213,7 @@
 
 <PerpetualRunsDeployModal
 	runs={perpetualRunsToConfirm}
-	onConfirmed={() => confirmPerpetualRunsCallback()}
+	onConfirmed={(choice) => confirmPerpetualRunsCallback(choice)}
 	onCanceled={() => (perpetualRunsToConfirm = undefined)}
 />
 
