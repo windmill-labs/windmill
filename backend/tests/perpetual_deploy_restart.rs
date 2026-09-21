@@ -119,6 +119,47 @@ async fn a_deploy_restarts_the_runs_of_earlier_versions(db: Pool<Postgres>) -> a
     Ok(())
 }
 
+/// A run carries what started it until its own completion swaps in what the preprocessor returned,
+/// so a replacement pushed without one would hand `main` the raw arguments, and every iteration
+/// after it the same.
+#[sqlx::test(fixtures("base"))]
+async fn a_replacement_preprocesses_arguments_the_replaced_run_had_not(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    let path = "u/test-user/preprocessed";
+    insert_version(&db, path, 501, 60.0, true).await?;
+    let running = start_run(&db, path, 501).await?;
+    insert_version(&db, path, 502, 0.0, true).await?;
+    sqlx::query(
+        "UPDATE script SET has_preprocessor = true WHERE hash = ANY('{501,502}') AND workspace_id = $1",
+    )
+    .bind(W_ID)
+    .execute(&db)
+    .await?;
+    sqlx::query("UPDATE v2_job SET preprocessed = false WHERE id = $1")
+        .bind(running)
+        .execute(&db)
+        .await?;
+
+    restart_perpetual_runs_on_new_version(&db, W_ID, path, "test-user").await;
+
+    let preprocessed: Option<bool> = sqlx::query_scalar(
+        "SELECT preprocessed FROM v2_job \
+         WHERE workspace_id = $1 AND runnable_path = $2 AND id <> $3",
+    )
+    .bind(W_ID)
+    .bind(path)
+    .bind(running)
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        preprocessed,
+        Some(false),
+        "the replacement is queued to go through the preprocessor"
+    );
+    Ok(())
+}
+
 #[sqlx::test(fixtures("base"))]
 async fn a_run_stays_on_its_version_when_it_may_not_use_the_deployed_tag(
     db: Pool<Postgres>,

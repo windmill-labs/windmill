@@ -693,10 +693,10 @@ async fn restart_perpetual_runs_at_path(
     deployed_by: &str,
 ) -> error::Result<bool> {
     // Built the way a run of this path is built anywhere else, so the next run takes the deployed
-    // version's tag, timeout, language and identity. No preprocessor, as for every other restart
-    // of a loop: the arguments carried over are the ones its runs pass each other.
+    // version's tag, timeout, language and identity. Whether its preprocessor runs is decided per
+    // run, below.
     let (payload, tag, _, _, timeout, on_behalf_of) =
-        script_path_to_payload(script_path, None, db.clone(), w_id, Some(true)).await?;
+        script_path_to_payload(script_path, None, db.clone(), w_id, None).await?;
     let JobPayload::ScriptHash { hash, dedicated_worker, .. } = &payload else {
         return Ok(false);
     };
@@ -717,7 +717,7 @@ async fn restart_perpetual_runs_at_path(
     let runs = sqlx::query_as!(
         PerpetualRunToRestart,
         "SELECT q.id AS \"id!\", j.created_by, j.permissioned_as, j.permissioned_as_email, \
-         j.trigger, j.trigger_kind AS \"trigger_kind: TriggerKindLabel\", \
+         j.trigger, j.trigger_kind AS \"trigger_kind: TriggerKindLabel\", j.preprocessed, \
          j.args AS \"args: sqlx::types::Json<HashMap<String, Box<RawValue>>>\" \
          FROM v2_job_queue q JOIN v2_job j USING (id) \
          JOIN script s ON s.workspace_id = j.workspace_id AND s.hash = j.runnable_id \
@@ -766,6 +766,9 @@ struct PerpetualRunToRestart {
     permissioned_as_email: String,
     trigger: Option<String>,
     trigger_kind: Option<TriggerKindLabel>,
+    /// `Some(false)` while the run still carries the arguments it was started with: only its own
+    /// completion swaps in what a preprocessor returned.
+    preprocessed: Option<bool>,
     args: Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
 }
 
@@ -819,6 +822,12 @@ async fn restart_perpetual_run(
         }
     }
     let args = run.args.clone().map(|args| args.0).unwrap_or_default();
+    // A run whose own preprocessor has not run yet carries what started it, so the replacement has
+    // to run one: pushed without, those arguments reach `main` and every iteration after it.
+    let mut payload = payload.clone();
+    if let JobPayload::ScriptHash { apply_preprocessor, .. } = &mut payload {
+        *apply_preprocessor = *apply_preprocessor && run.preprocessed == Some(false);
+    }
     let mut tx = db.begin().await?;
     // Claiming the run and queueing its replacement in one transaction: a push that fails
     // leaves the run looping on its own version rather than canceled with nothing to follow
@@ -843,7 +852,7 @@ async fn restart_perpetual_run(
         db,
         PushIsolationLevel::Transaction(tx),
         w_id,
-        payload.clone(),
+        payload,
         PushArgs::from(&args),
         &run.created_by,
         &email,
