@@ -1,5 +1,35 @@
 # Changelog
 
+## [1.816.0](https://github.com/windmill-labs/windmill/compare/v1.815.0...v1.816.0) (2026-09-21)
+
+
+### Features
+
+* add an ACL editor for data table roles ([#11063](https://github.com/windmill-labs/windmill/issues/11063)) ([9994e03](https://github.com/windmill-labs/windmill/commit/9994e03bc75404503001a5db37e175b66e7371f2))
+* add per-model context window override in workspace AI settings ([#11232](https://github.com/windmill-labs/windmill/issues/11232)) ([c637b06](https://github.com/windmill-labs/windmill/commit/c637b06a548a5725aceb7504bcb62383d35614ac))
+* **ai-chat:** disclose an app's exposure on deploy, refuse drag-and-drop apps ([#11137](https://github.com/windmill-labs/windmill/issues/11137)) ([85b36a2](https://github.com/windmill-labs/windmill/commit/85b36a2de5f3fa08750b6d2ab8203f4b745cfdd2))
+* data table roles in the DB manager and raw apps ([#11139](https://github.com/windmill-labs/windmill/issues/11139)) ([e1e3692](https://github.com/windmill-labs/windmill/commit/e1e3692fbc82d50c021ef8bf8ca7019d760705f0))
+* drafts follow their item through a move; behind means base ≠ head ([#10577](https://github.com/windmill-labs/windmill/issues/10577)) ([f00b2fc](https://github.com/windmill-labs/windmill/commit/f00b2fcb1e65cb8f8e95d55f7cc58b816ac7d89d))
+* edit variables, resources and triggers in their own session tab ([#11206](https://github.com/windmill-labs/windmill/issues/11206)) ([6186a06](https://github.com/windmill-labs/windmill/commit/6186a0645d3f3e92e06b666a6b5774b8af2b488f))
+* let every EE instance set the announcement banner ([#11238](https://github.com/windmill-labs/windmill/issues/11238)) ([87761d1](https://github.com/windmill-labs/windmill/commit/87761d179799026ebaf9ed91bf589852b5453ee3))
+* snap-collapse the sidebar by dragging it to the left edge ([#11225](https://github.com/windmill-labs/windmill/issues/11225)) ([56a6ad3](https://github.com/windmill-labs/windmill/commit/56a6ad322e8354695a0a96eef9e83ffa135b3ad4))
+
+
+### Bug Fixes
+
+* bump git sync hub scripts to cli 1.815.1 ([#11239](https://github.com/windmill-labs/windmill/issues/11239)) ([9e0e835](https://github.com/windmill-labs/windmill/commit/9e0e835c6876305d3a44902fb1432fd9c2348a7c))
+* check custom_instance_user can connect during instance database setup ([#11244](https://github.com/windmill-labs/windmill/issues/11244)) ([1b0f119](https://github.com/windmill-labs/windmill/commit/1b0f119c7b8ac2aacf2e2b4428c57f661df87ae5))
+* **cli:** read wmill.yaml from the branch a git-sync deploy writes to ([#11236](https://github.com/windmill-labs/windmill/issues/11236)) ([974b026](https://github.com/windmill-labs/windmill/commit/974b0265f85f9cfac65bbd2f6ebbcb0e966e3301))
+* guard data table migration routes against operators and unauthorized authors ([#11243](https://github.com/windmill-labs/windmill/issues/11243)) ([b742544](https://github.com/windmill-labs/windmill/commit/b7425443e1e08be029fc676047f727f84b646323))
+* tell the user when a draft conflict has stopped their edits saving ([#11241](https://github.com/windmill-labs/windmill/issues/11241)) ([d8ebbc0](https://github.com/windmill-labs/windmill/commit/d8ebbc06f5c56dad2570115700d640105d856c57))
+
+
+### Performance Improvements
+
+* index audit logs by workspace and operation ([#11235](https://github.com/windmill-labs/windmill/issues/11235)) ([3b8c326](https://github.com/windmill-labs/windmill/commit/3b8c3264ecb33884420b1bdac9cae9c841e721a0))
+* keep the sessions page fast with many ai sessions ([#11224](https://github.com/windmill-labs/windmill/issues/11224)) ([4cbc944](https://github.com/windmill-labs/windmill/commit/4cbc944c0bcb938300c964437d745d15a3ea608f))
+* retire the legacy pre-partitioning audit table ([#11240](https://github.com/windmill-labs/windmill/issues/11240)) ([9f2685d](https://github.com/windmill-labs/windmill/commit/9f2685d788e624c9ed9db5cbaee456ea21af2b29))
+
 ## [1.815.0](https://github.com/windmill-labs/windmill/compare/v1.814.0...v1.815.0) (2026-09-18)
 
 
