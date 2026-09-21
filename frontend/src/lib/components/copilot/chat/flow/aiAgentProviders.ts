@@ -177,9 +177,7 @@ export function selectAiAgentProviderCandidates(
 		if (!configuredPaths.has(candidate.resourcePath)) return 2
 		return candidate.kind === defaultProviderKind ? 0 : 1
 	}
-	return candidates.sort(
-		(a, b) => rank(a) - rank(b) || a.resourcePath.localeCompare(b.resourcePath)
-	)
+	return candidates.sort((a, b) => rank(a) - rank(b) || a.resourcePath.localeCompare(b.resourcePath))
 }
 
 /** What a set of modules needs from the catalog: `needsCatalog` is false when no AI agent step

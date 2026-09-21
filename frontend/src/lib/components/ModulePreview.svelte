@@ -25,6 +25,8 @@
 		openFieldsKey?: string
 		/** Passed through to the form: fields it must offer whatever the step holds. */
 		runInputKeys?: readonly string[]
+		/** Passed through to the form: a linked agent's output type. */
+		linkedOutputType?: unknown
 	}
 
 	let {
@@ -40,7 +42,8 @@
 		onJobDone,
 		hideRunButton = false,
 		openFieldsKey = undefined,
-		runInputKeys = undefined
+		runInputKeys = undefined,
+		linkedOutputType = undefined
 	}: Props = $props()
 
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
@@ -91,5 +94,13 @@
 		</div>
 	{/if}
 
-	<ModulePreviewForm {pickableProperties} {mod} {schema} {focusArg} {openFieldsKey} {runInputKeys} />
+	<ModulePreviewForm
+		{pickableProperties}
+		{mod}
+		{schema}
+		{focusArg}
+		{openFieldsKey}
+		{runInputKeys}
+		{linkedOutputType}
+	/>
 </div>

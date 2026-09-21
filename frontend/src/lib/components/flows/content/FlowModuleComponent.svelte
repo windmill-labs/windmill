@@ -1350,6 +1350,7 @@
 											{onJobDone}
 											hideRunButton={debugMode && isDebuggableScript}
 											openFieldsKey={agentFieldsKey}
+											linkedOutputType={agentLinked ? linkedAgentBrain?.output_type : undefined}
 										/>
 									{:else if visibleSelected === 'chat' && canShowChatTab && flowModule.value.type === 'aiagent'}
 										<div class="flex-1 overflow-auto p-4">

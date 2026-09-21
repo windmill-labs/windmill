@@ -136,8 +136,34 @@ pub async fn run_systemone(
     Ok(DecisionResult {
         output: parsed.answers,
         model: parsed.model,
+        // Dropped when empty, as an agent's is, so `usage` is either counted or absent.
         usage: parsed
             .usage
-            .map(|u| TokenUsage::from_input_output(u.input_tokens, u.output_tokens)),
+            .map(|u| TokenUsage::from_input_output(u.input_tokens, u.output_tokens))
+            .filter(|u| !u.is_empty()),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// Refused are the values a flow produces when it forgot the input: no key, `null`, or a blank
+    /// string from an empty expression. Any other value, falsy ones included, is a state.
+    #[test]
+    fn decision_inputs_refuse_only_what_a_flow_forgot() {
+        let questions = json!({"urgent": {"type": "noul", "instructions": "Is it urgent?"}});
+        for state in [None, Some(json!(null)), Some(json!("  "))] {
+            let err = decision_inputs(state.as_ref(), Some(&questions)).unwrap_err();
+            assert!(err.to_string().contains("'state'"), "{err}");
+        }
+        for state in [json!(false), json!("0"), json!({}), json!([]), json!({"m": "hi"})] {
+            assert!(decision_inputs(Some(&state), Some(&questions)).is_ok(), "{state}");
+        }
+        for questions in [None, Some(json!({})), Some(json!([])), Some(json!("urgent"))] {
+            let err = decision_inputs(Some(&json!("hi")), questions.as_ref()).unwrap_err();
+            assert!(err.to_string().contains("'questions'"), "{err}");
+        }
+    }
 }

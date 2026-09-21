@@ -725,6 +725,19 @@ pub async fn handle_ai_agent_job(
                     .to_string(),
             ));
         }
+        let ignored = ignored_by_decision(&args, !tools.is_empty());
+        if !ignored.is_empty() {
+            append_logs(
+                &job.id,
+                &job.workspace_id,
+                format!(
+                    "Decision output reads only provider, state and questions, so it ignores the step's {}.\n",
+                    ignored.join(", ")
+                ),
+                conn,
+            )
+            .await;
+        }
         // A decision is one call that offers no tools, so its roster is never resolved: an MCP
         // server the step still lists is not contacted, and there is nothing a narrowing could name.
         args.enabled_tools = None;
@@ -2095,6 +2108,38 @@ pub async fn run_agent(
             final_usage
         },
     }))
+}
+
+/// The settings a decision step holds that its run never reads. A step switched from text output
+/// keeps them, and so does one linked to an agent that was, whose form no longer shows them.
+fn ignored_by_decision(args: &AIAgentArgs, has_tools: bool) -> Vec<&'static str> {
+    let non_empty = |s: &Option<String>| s.as_deref().is_some_and(|s| !s.trim().is_empty());
+    [
+        ("tools", has_tools),
+        ("enabled_tools", args.enabled_tools.is_some()),
+        ("system_prompt", non_empty(&args.system_prompt)),
+        ("user_message", non_empty(&args.user_message)),
+        (
+            "user_attachments",
+            args.user_attachments.as_ref().is_some_and(|a| !a.is_empty()),
+        ),
+        ("memory", !matches!(args.memory, None | Some(Memory::Off))),
+        ("memory_id", args.memory_id.is_some()),
+        ("previous_messages", args.previous_messages.is_some()),
+        (
+            "output_schema",
+            args.output_schema
+                .as_ref()
+                .and_then(|schema| schema.properties.as_ref())
+                .is_some_and(|properties| !properties.is_empty()),
+        ),
+        ("temperature", args.temperature.is_some()),
+        ("max_completion_tokens", args.max_completion_tokens.is_some()),
+        ("max_iterations", args.max_iterations.is_some()),
+    ]
+    .into_iter()
+    .filter_map(|(name, set)| set.then_some(name))
+    .collect()
 }
 
 /// Decision output: the step's questions answered about its state in a single call, with no loop,

@@ -36,6 +36,8 @@
 		/** Fields to offer whatever the step holds, for a surface where nothing else can set them
 		 *  (`AGENT_EDITOR_RUN_INPUTS`). */
 		runInputKeys?: readonly string[]
+		/** A linked agent's `output_type`, once its config has loaded: the step holds none of its own. */
+		linkedOutputType?: unknown
 	}
 
 	let {
@@ -46,7 +48,8 @@
 		autofocus = false,
 		focusArg = undefined,
 		openFieldsKey = undefined,
-		runInputKeys = []
+		runInputKeys = [],
+		linkedOutputType = undefined
 	}: Props = $props()
 
 	const { stepsInputArgs, flowStateStore, flowStore, previewArgs, opWorkspace } =
@@ -76,18 +79,21 @@
 		if ((mod.value as { type?: string })?.type !== 'aiagent') return all
 		const transforms = (mod.value as { input_transforms?: Record<string, unknown> })
 			?.input_transforms
-		const visible = initialVisibleAgentFields(transforms, schema?.properties)
-		for (const key of openAgentFields(openFieldsKey)) visible.add(key)
-		for (const key of runInputKeys) visible.add(key)
-		// The open fields can carry the other output type's from before a switch. Only a step's own
-		// agent says which output type it runs: a linked one takes it from the agent.
+		// A step's own agent holds its output type; a linked one takes it from the agent, and until
+		// that has loaded no field is dropped for it.
 		const outputTransform = transforms?.output_type as
 			| { type?: string; value?: unknown }
 			| undefined
-		if (outputTransform) {
-			const outputType = agentOutputType(
-				outputTransform.type === 'static' ? outputTransform.value : undefined
-			)
+		const outputType = outputTransform
+			? agentOutputType(outputTransform.type === 'static' ? outputTransform.value : undefined)
+			: linkedOutputType !== undefined
+				? agentOutputType(linkedOutputType)
+				: undefined
+		const visible = initialVisibleAgentFields(transforms, schema?.properties, outputType)
+		for (const key of openAgentFields(openFieldsKey)) visible.add(key)
+		for (const key of runInputKeys) visible.add(key)
+		// The open fields can carry the other output type's from before a switch.
+		if (outputType) {
 			for (const spec of AGENT_FIELDS) {
 				if (!agentFieldServes(spec, outputType)) visible.delete(spec.key)
 			}

@@ -64,6 +64,21 @@
 		}
 	}
 
+	// A kind the mode does not offer cannot run, and switching the output type leaves the old kind
+	// behind. Its resource, model and reasoning effort belong to it, so they go with it rather than
+	// surfacing only as a failed run.
+	$effect(() => {
+		const offered = offeredProviders
+		untrack(() => {
+			if (value?.kind && !offered.includes(value.kind)) {
+				value.kind = decision ? 'typesafe' : 'openai'
+				value.resource = ''
+				value.model = ''
+				value.reasoning_effort = undefined
+			}
+		})
+	})
+
 	let useAsDefault = $derived(isSameAsStoredConfig(value))
 
 	// Reactive items for the Select component
