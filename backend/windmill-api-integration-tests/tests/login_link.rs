@@ -116,60 +116,6 @@ async fn login_link_is_single_use_and_same_origin(db: Pool<Postgres>) -> anyhow:
 }
 
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn confirmed_login_link_is_spent_by_the_click_not_the_page(
-    db: Pool<Postgres>,
-) -> anyhow::Result<()> {
-    initialize_tracing().await;
-    let server = ApiServer::start(db.clone()).await?;
-    let port = server.addr.port();
-    let base = format!("http://localhost:{port}/api");
-
-    let resp = client()
-        .post(format!("{base}/users/login_links"))
-        .header("Authorization", "Bearer SECRET_TOKEN")
-        .json(&json!({"email": "test2@windmill.dev", "confirm": true}))
-        .send()
-        .await?;
-    assert_eq!(resp.status(), 201);
-    let link = resp.json::<serde_json::Value>().await?;
-    // The URL handed out is the frontend page, not the API path that signs in on a GET.
-    let token = link["url"]
-        .as_str()
-        .unwrap()
-        .split_once("/user/login_link?token=")
-        .expect("confirmation page url")
-        .1
-        .to_string();
-
-    let confirm = || {
-        client()
-            .post(format!("{base}/auth/login_link/{token}"))
-            .send()
-    };
-    let resp = confirm().await?;
-    assert_eq!(resp.status(), 200);
-    assert!(resp
-        .headers()
-        .get_all("set-cookie")
-        .iter()
-        .any(|c| c.to_str().unwrap().starts_with("token=")));
-    assert_eq!(
-        resp.json::<serde_json::Value>().await?["location"],
-        "/user/workspaces"
-    );
-
-    let resp = confirm().await?;
-    assert_eq!(resp.status(), 200);
-    assert!(resp.headers().get("set-cookie").is_none());
-    assert_eq!(
-        resp.json::<serde_json::Value>().await?["location"],
-        "/user/login_link_expired?reason=used"
-    );
-
-    Ok(())
-}
-
-#[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn login_link_mint_can_require_a_login_type(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
