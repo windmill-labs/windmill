@@ -88,7 +88,7 @@
 				includeDraftOnly: true
 			})
 		).map((x) => {
-			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore) && !$triggerLock, ...x }
+			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
 		})
 		$usedTriggerKinds = removeTriggerKindIfUnused(triggers.length, 'emails', $usedTriggerKinds)
 		emailDomain = await getEmailDomain()
@@ -345,6 +345,7 @@
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
 					{#each items.slice(0, nbDisplayed) as { workspace_id, workspaced_local_part, path, edited_by, edited_at, script_path, is_flow, extra_perms, canWrite, marked, local_part, mode, retry, error_handler_path, error_handler_args, labels, draft_only, is_draft } (path)}
+						{@const canEdit = canWrite && !$triggerLock}
 						{@const hasDraft =
 							getLocalDraftHint($workspaceStore, 'trigger_email', path) ?? is_draft}
 						{@const effectiveMode = draft_only ? 'disabled' : mode}
@@ -418,7 +419,7 @@
 												errorHandlerArgs: error_handler_args
 											}
 										}}
-										{canWrite}
+										canWrite={canEdit}
 										hideToggleLabels
 										hideDropdown
 									/>
@@ -436,14 +437,14 @@
 									<Button
 										on:click={() => emailTriggerEditor?.openEdit(path, is_flow)}
 										unifiedSize="md"
-										startIcon={canWrite
+										startIcon={canEdit
 											? { icon: Pen }
 											: {
 													icon: Eye
 												}}
 										variant="subtle"
 									>
-										{canWrite ? 'Edit' : 'View'}
+										{canEdit ? 'Edit' : 'View'}
 									</Button>
 									<Dropdown
 										items={[
@@ -454,7 +455,7 @@
 													goto(href)
 												}
 											},
-											...(canWrite && !draft_only && mode !== 'suspended'
+											...(canEdit && !draft_only && mode !== 'suspended'
 												? [
 														{
 															displayName: 'Suspend job execution',
@@ -466,8 +467,8 @@
 													]
 												: []),
 											{
-												displayName: canWrite ? 'Edit' : 'View',
-												icon: canWrite ? Pen : Eye,
+												displayName: canEdit ? 'Edit' : 'View',
+												icon: canEdit ? Pen : Eye,
 												action: () => {
 													emailTriggerEditor?.openEdit(path, is_flow)
 												}
@@ -503,8 +504,7 @@
 												displayName: 'Delete',
 												type: 'delete',
 												icon: Trash,
-												disabled:
-													!canWrite || !($userStore?.is_admin || $userStore?.is_super_admin),
+												disabled: !canEdit || !($userStore?.is_admin || $userStore?.is_super_admin),
 												action: async () => {
 													try {
 														await EmailTriggerService.deleteEmailTrigger({

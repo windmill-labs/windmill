@@ -45,7 +45,7 @@ fn audit_action_prefix_for_acl_kind(kind: &str) -> Option<&'static str> {
         "raw_app" => Some("raw_apps"),
         "resource" => Some("resources"),
         "variable" => Some("variables"),
-        _ => manage_kind_for_acl_kind(kind).map(|k| k.noun()),
+        _ => manage_kind_for_acl_kind(kind).map(|k| k.audit_prefix()),
     }
 }
 

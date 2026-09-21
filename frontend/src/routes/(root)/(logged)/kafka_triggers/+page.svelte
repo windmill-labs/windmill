@@ -79,7 +79,7 @@
 				includeDraftOnly: true
 			})
 		).map((x) => {
-			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore) && !$triggerLock, ...x }
+			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
 		})
 		$usedTriggerKinds = removeTriggerKindIfUnused(triggers.length, 'kafka', $usedTriggerKinds)
 		loading = false
@@ -367,6 +367,7 @@
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
 					{#each items.slice(0, nbDisplayed) as { path, edited_by, edited_at, script_path, is_flow, kafka_resource_path, topics, extra_perms, canWrite, marked, server_id, error, last_server_ping, mode, retry, error_handler_path, error_handler_args, labels, draft_only, is_draft } (path)}
+						{@const canEdit = canWrite && !$triggerLock}
 						{@const hasDraft =
 							getLocalDraftHint($workspaceStore, 'trigger_kafka', path) ?? is_draft}
 						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
@@ -476,7 +477,7 @@
 												errorHandlerArgs: error_handler_args
 											}
 										}}
-										{canWrite}
+										canWrite={canEdit}
 										hideToggleLabels
 										hideDropdown
 									/>
@@ -486,14 +487,14 @@
 									<Button
 										on:click={() => kafkaTriggerEditor?.openEdit(path, is_flow)}
 										unifiedSize="md"
-										startIcon={canWrite
+										startIcon={canEdit
 											? { icon: Pen }
 											: {
 													icon: Eye
 												}}
 										variant="subtle"
 									>
-										{canWrite ? 'Edit' : 'View'}
+										{canEdit ? 'Edit' : 'View'}
 									</Button>
 									<Dropdown
 										size="md"
@@ -505,7 +506,7 @@
 													goto(href)
 												}
 											},
-											...(canWrite && !draft_only && mode !== 'suspended'
+											...(canEdit && !draft_only && mode !== 'suspended'
 												? [
 														{
 															displayName: 'Suspend job execution',
@@ -520,7 +521,7 @@
 												displayName: 'Delete',
 												type: 'delete',
 												icon: Trash,
-												disabled: !canWrite,
+												disabled: !canEdit,
 												tooltip: $triggerLock,
 												action: async () => {
 													await KafkaTriggerService.deleteKafkaTrigger({
@@ -531,8 +532,8 @@
 												}
 											},
 											{
-												displayName: canWrite ? 'Edit' : 'View',
-												icon: canWrite ? Pen : Eye,
+												displayName: canEdit ? 'Edit' : 'View',
+												icon: canEdit ? Pen : Eye,
 												action: () => {
 													kafkaTriggerEditor?.openEdit(path, is_flow)
 												}

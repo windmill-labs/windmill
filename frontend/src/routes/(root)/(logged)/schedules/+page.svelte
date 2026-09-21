@@ -112,7 +112,7 @@
 		}
 
 		const result = (await ScheduleService.listSchedules(apiParams)).map((x) => {
-			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore) && !$scheduleLock, ...x }
+			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
 		})
 
 		// Extract unique values for autocomplete
@@ -407,6 +407,7 @@
 					{#each items.slice(0, nbDisplayed) as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, jobs, paused_until, labels, inherited_labels, draft_only, is_draft } (path)}
 						{@const hasDraft =
 							getLocalDraftHint($workspaceStore, 'trigger_schedule', path) ?? is_draft}
+						{@const canEdit = canWrite && !$scheduleLock}
 						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 						{@const avg_s = jobs
 							? jobs.reduce((acc, x) => acc + x.duration_ms, 0) / jobs.length
@@ -500,7 +501,7 @@
 									<DraftBadge {draft_only} is_draft={hasDraft} />
 									{#key toggleResetVersions[path] ?? 0}
 										<Toggle
-											disabled={draft_only || !canWrite}
+											disabled={draft_only || !!$scheduleLock}
 											options={{
 												title: draft_only
 													? 'Draft only: deploy the schedule to enable it'
@@ -539,10 +540,10 @@
 									<Button
 										on:click={() => scheduleEditor?.openEdit(path, is_flow)}
 										size="xs"
-										startIcon={{ icon: canWrite ? Pen : Eye }}
+										startIcon={{ icon: canEdit ? Pen : Eye }}
 										variant="subtle"
 									>
-										{canWrite ? 'Edit' : 'View'}
+										{canEdit ? 'Edit' : 'View'}
 									</Button>
 									<Dropdown
 										size="md"
@@ -567,7 +568,7 @@
 												displayName: 'Delete',
 												type: 'delete',
 												icon: Trash,
-												disabled: !canWrite,
+												disabled: !canEdit,
 												tooltip: $scheduleLock,
 												action: async () => {
 													await ScheduleService.deleteSchedule({
@@ -578,8 +579,8 @@
 												}
 											},
 											{
-												displayName: canWrite ? 'Edit' : 'View',
-												icon: canWrite ? Pen : Eye,
+												displayName: canEdit ? 'Edit' : 'View',
+												icon: canEdit ? Pen : Eye,
 												action: () => {
 													scheduleEditor?.openEdit(path, is_flow)
 												}

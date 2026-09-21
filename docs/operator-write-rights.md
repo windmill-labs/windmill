@@ -43,6 +43,21 @@ object is a write to it, but that router serves every kind there is, so it can o
 kind from inside the handlers. `manage_kind_for_acl_kind` holds that list, spelled out rather than
 matched on the `_trigger` suffix so a kind named otherwise cannot slip through ungated.
 
+It refuses with `PermissionDenied` (403), never `NotAuthorized` (401): the frontend reads an
+uncaught 401 as an expired session and logs the user out, so 401 here ejects an operator from the
+app rather than telling them why. Both integration tests assert the status for that reason.
+
+## In the UI
+
+Each list page derives a per-row `canEdit` from `canWrite && !$lock` and leaves `canWrite` itself
+alone, because `canWrite` also tells `SharedBadge` whether a row belongs to someone else — fold the
+lock into it and every row, including ones the operator owns and has never shared, claims to be
+shared read-only. Gate write affordances on `canEdit`, never the badge.
+
+The write actions inside an editor are gated in `TriggerEditorToolbar`, and sharing in
+`ShareModal`, which locks itself off the kind it was opened on rather than relying on each of the
+dozen menu entries that open it.
+
 The cache is per process, so withdrawing a right has to reach every replica: an `AFTER UPDATE OF
 operator_settings` trigger writes a `notify_operator_settings_change` row and `process_notify_event`
 drops the entry. Keep both ends if you touch either, or a workspace that withdrew a right keeps

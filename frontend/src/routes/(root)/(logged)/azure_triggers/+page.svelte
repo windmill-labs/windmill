@@ -86,7 +86,7 @@
 				includeDraftOnly: true
 			})
 		).map((x) => {
-			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore) && !$triggerLock, ...x }
+			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
 		})
 		$usedTriggerKinds = removeTriggerKindIfUnused(triggers.length, 'azure', $usedTriggerKinds)
 		loading = false
@@ -423,6 +423,7 @@
 		{:else if items?.length}
 			<div class="border rounded-md divide-y">
 				{#each items.slice(0, nbDisplayed) as { azure_resource_path, azure_mode, scope_resource_id, topic_name, subscription_name, workspace_id, path, edited_by, error, edited_at, script_path, is_flow, extra_perms, canWrite, mode, server_id, retry, error_handler_path, error_handler_args, draft_only, is_draft } (path)}
+					{@const canEdit = canWrite && !$triggerLock}
 					{@const hasDraft = getLocalDraftHint($workspaceStore, 'trigger_azure', path) ?? is_draft}
 					{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 					{@const ping = new Date()}
@@ -526,7 +527,7 @@
 												errorHandlerArgs: error_handler_args
 											}
 										}}
-										{canWrite}
+										canWrite={canEdit}
 										hideToggleLabels
 										hideDropdown
 									/>
@@ -548,14 +549,14 @@
 								<Button
 									on:click={() => azureTriggerEditor?.openEdit(path, is_flow)}
 									size="xs"
-									startIcon={canWrite
+									startIcon={canEdit
 										? { icon: Pen }
 										: {
 												icon: Eye
 											}}
 									variant="subtle"
 								>
-									{canWrite ? 'Edit' : 'View'}
+									{canEdit ? 'Edit' : 'View'}
 								</Button>
 								<Dropdown
 									items={[
@@ -566,7 +567,7 @@
 												goto(href)
 											}
 										},
-										...(canWrite && !draft_only && mode !== 'suspended'
+										...(canEdit && !draft_only && mode !== 'suspended'
 											? [
 													{
 														displayName: 'Suspend job execution',
@@ -578,8 +579,8 @@
 												]
 											: []),
 										{
-											displayName: canWrite ? 'Edit' : 'View',
-											icon: canWrite ? Pen : Eye,
+											displayName: canEdit ? 'Edit' : 'View',
+											icon: canEdit ? Pen : Eye,
 											action: () => {
 												azureTriggerEditor?.openEdit(path, is_flow)
 											}
@@ -615,7 +616,7 @@
 											displayName: 'Delete',
 											type: 'delete',
 											icon: Trash,
-											disabled: !canWrite,
+											disabled: !canEdit,
 											tooltip: $triggerLock,
 											action: async () => {
 												isDeleting = false

@@ -1218,8 +1218,18 @@ pub enum ManageKind {
 }
 
 impl ManageKind {
-    /// Words the refusal message, and prefixes the `/acls` audit action (`schedules.grant_acl`).
+    /// Plural noun for the refusal message.
     pub fn noun(&self) -> &'static str {
+        match self {
+            ManageKind::Schedules => "schedules",
+            ManageKind::Triggers => "triggers",
+        }
+    }
+
+    /// Prefixes the `/acls` audit action (`schedules.grant_acl`). Deliberately its own string
+    /// rather than `noun()`, which it happens to equal: audit actions are a stable key that rows
+    /// already on disk were written with, so rewording the message must not rename them.
+    pub fn audit_prefix(&self) -> &'static str {
         match self {
             ManageKind::Schedules => "schedules",
             ManageKind::Triggers => "triggers",
@@ -1295,7 +1305,10 @@ pub async fn check_operator_can_manage(
     kind: ManageKind,
 ) -> Result<()> {
     if is_operator && !operator_manage_rights(db, workspace_id).await?.has(kind) {
-        return Err(Error::NotAuthorized(format!(
+        // 403, not 401: the caller is authenticated and simply lacks the right. The frontend reads
+        // an uncaught 401 as a dead session and logs the user out, so `NotAuthorized` here would
+        // eject an operator from the app instead of telling them why.
+        return Err(Error::PermissionDenied(format!(
             "Operators cannot manage {} in this workspace",
             kind.noun()
         )));

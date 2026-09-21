@@ -105,7 +105,7 @@
 				includeDraftOnly: true
 			})
 		).map((x) => {
-			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore) && !$triggerLock, ...x }
+			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
 		})
 		$usedTriggerKinds = removeTriggerKindIfUnused(triggers.length, 'routes', $usedTriggerKinds)
 		loading = false
@@ -382,6 +382,7 @@
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
 					{#each items.slice(0, nbDisplayed) as { summary, workspace_id, workspaced_route, mode, path, edited_by, edited_at, script_path, route_path, is_flow, extra_perms, canWrite, marked, http_method, static_asset_config, retry, error_handler_path, error_handler_args, draft_only, is_draft } (path)}
+						{@const canEdit = canWrite && !$triggerLock}
 						{@const hasDraft = getLocalDraftHint($workspaceStore, 'trigger_http', path) ?? is_draft}
 						{@const effectiveMode = draft_only ? 'disabled' : mode}
 						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
@@ -452,7 +453,7 @@
 												errorHandlerArgs: error_handler_args
 											}
 										}}
-										{canWrite}
+										canWrite={canEdit}
 										hideToggleLabels
 										hideDropdown
 									/>
@@ -478,14 +479,14 @@
 									<Button
 										on:click={() => routeEditor?.openEdit(path, is_flow)}
 										unifiedSize="md"
-										startIcon={canWrite
+										startIcon={canEdit
 											? { icon: Pen }
 											: {
 													icon: Eye
 												}}
 										variant="subtle"
 									>
-										{canWrite ? 'Edit' : 'View'}
+										{canEdit ? 'Edit' : 'View'}
 									</Button>
 									<Dropdown
 										size="md"
@@ -497,7 +498,7 @@
 													goto(href)
 												}
 											},
-											...(canWrite && !draft_only && mode !== 'suspended'
+											...(canEdit && !draft_only && mode !== 'suspended'
 												? [
 														{
 															displayName: 'Suspend job execution',
@@ -509,8 +510,8 @@
 													]
 												: []),
 											{
-												displayName: canWrite ? 'Edit' : 'View',
-												icon: canWrite ? Pen : Eye,
+												displayName: canEdit ? 'Edit' : 'View',
+												icon: canEdit ? Pen : Eye,
 												action: () => {
 													routeEditor?.openEdit(path, is_flow)
 												}
@@ -546,7 +547,7 @@
 												displayName: 'Delete',
 												type: 'delete',
 												icon: Trash,
-												disabled: !canWrite,
+												disabled: !canEdit,
 												tooltip: $triggerLock,
 												action: async () => {
 													try {

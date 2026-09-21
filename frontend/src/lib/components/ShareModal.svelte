@@ -22,6 +22,7 @@
 	import Toggle from './Toggle.svelte'
 	import { Trash } from 'lucide-svelte'
 	import { DEMO_RESTRICTION_HINT, isDemoWorkspaceRestricted } from '$lib/cloud'
+	import { scheduleLock, triggerLock } from '$lib/operatorWriteRights'
 
 	const dispatch = createEventDispatcher()
 
@@ -50,7 +51,19 @@
 		| 'amqp_trigger'
 		| 'email_trigger'
 		| 'volume'
-	let kind: Kind
+	// $state so the write lock below tracks whichever object the drawer was last opened on. The
+	// cast keeps TS from narrowing it to the initial value, which openDrawer always replaces.
+	let kind: Kind = $state('script' as Kind)
+
+	// Sharing a schedule or a trigger is a write the workspace can withdraw from operators. Gated
+	// here rather than at each of the dozen menu entries that open this drawer, so a new entry
+	// point is covered too. Reading stays open: only the mutations below go away. Matching the
+	// suffix rather than listing the kinds — unlike the server, which is the actual boundary and
+	// spells them out — so a trigger kind added later greys out here without a second edit.
+	let writeLock = $derived(
+		kind === 'schedule' ? $scheduleLock : kind.endsWith('_trigger') ? $triggerLock : undefined
+	)
+	let sharingDisabled = $derived(restricted || !!writeLock)
 
 	let path: string = $state('')
 
@@ -251,9 +264,7 @@
 				</div>
 			{/if}
 			<div class="flex flex-col gap-2">
-				<span class="text-sm font-semibold text-emphasis"
-					>Extra members ({acls?.length ?? 0})</span
-				>
+				<span class="text-sm font-semibold text-emphasis">Extra members ({acls?.length ?? 0})</span>
 				{#if linkedVarPaths.length > 0}
 					<div class="flex flex-col gap-1.5 p-3 border rounded bg-surface-secondary text-xs">
 						<Toggle
@@ -274,8 +285,10 @@
 					>
 				{/if}
 				<div>
-					{#if own && restricted}
-						<Alert type="info" title="Sharing disabled">{DEMO_RESTRICTION_HINT}</Alert>
+					{#if own && sharingDisabled}
+						<Alert type="info" title="Sharing disabled">
+							{writeLock ?? DEMO_RESTRICTION_HINT}
+						</Alert>
 					{:else if own}
 						<div class="flex flex-row flex-wrap gap-2 items-center">
 							<div>
@@ -318,7 +331,7 @@
 										<tr>
 											<td>{owner}</td>
 											<td
-												>{#if own && !restricted}
+												>{#if own && !sharingDisabled}
 													<div>
 														<ToggleButtonGroup
 															selected={write ? 'writer' : 'viewer'}
@@ -341,7 +354,7 @@
 												{:else}{write ? 'Writer' : 'Viewer'}{/if}</td
 											>
 											<td>
-												{#if own}
+												{#if own && !writeLock}
 													<Button
 														variant="default"
 														destructive
