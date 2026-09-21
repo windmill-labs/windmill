@@ -13,7 +13,7 @@
 		ducklakes: {
 			name: string
 			catalog: {
-				resource_type: 'postgresql' | 'mysql' | 'instance'
+				resource_type: 'postgresql' | 'mysql' | 'instance' | 'external_instance'
 				resource_path?: string // Name of the database when resource_type is instance
 			}
 			storage: {
@@ -283,10 +283,9 @@
 			This workspace is a fork, and these settings are its own copy. Lakes marked
 			<span class="font-semibold">isolated</span> read the parent's tables through defer views and
 			write to a fork-scoped namespace that is cleaned up when the fork is deleted. Lakes marked
-			<span class="font-semibold">shared with parent</span> read and write the parent's physical
-			lake directly — editing their catalog or storage here repoints the shared lake for this
-			fork's jobs. The choice is made per lake when the fork is created and cannot be changed
-			here.
+			<span class="font-semibold">shared with parent</span> read and write the parent's physical lake
+			directly — editing their catalog or storage here repoints the shared lake for this fork's jobs.
+			The choice is made per lake when the fork is created and cannot be changed here.
 		</Alert>
 	</div>
 {/if}
@@ -359,8 +358,8 @@
 									isolated
 								</span>
 								<Tooltip>
-									Writes go to a fork-scoped namespace; reads of tables not yet materialized in
-									this fork defer to the parent. Deleting the fork cleans the namespace up.
+									Writes go to a fork-scoped namespace; reads of tables not yet materialized in this
+									fork defer to the parent. Deleting the fork cleans the namespace up.
 								</Tooltip>
 							{/if}
 						</div>
