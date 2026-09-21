@@ -87,6 +87,23 @@ describe('UserDraftDbSyncer.quiesce', () => {
 		expect(updateDraft).not.toHaveBeenCalled()
 	})
 
+	it('keeps a parked delete distinguishable from nothing parked', async () => {
+		const q = { workspace: 'w', itemKind: 'variable' as const, path: 'u/me/quiesce_delete' }
+
+		expect(UserDraftDbSyncer.peekPending(q)).toBeUndefined()
+
+		// Reverting to the deployed value, or discarding, parks a delete. Refused, it stays
+		// parked — and a resolution reading it has to keep meaning "remove the row", not fall
+		// back to whatever the server holds.
+		updateDraft.mockResolvedValueOnce({
+			status: 'conflict',
+			current_timestamp: '2020-01-02T00:00:00Z'
+		})
+		await UserDraftDbSyncer.save({ ...q, value: null, immediate: true })
+
+		expect(UserDraftDbSyncer.peekPending(q)).toEqual({ value: null })
+	})
+
 	it('cancels a debounced autosave so it cannot displace the write that follows', async () => {
 		const q = { workspace: 'w', itemKind: 'variable' as const, path: 'u/me/quiesce_c' }
 		vi.useFakeTimers()

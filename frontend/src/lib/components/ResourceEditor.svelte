@@ -310,10 +310,14 @@
 				// same draft, or its own resolution — owns the key now, and the edit this one was
 				// keeping is still parked for a later flush either way.
 				if (!stillOurs()) return
+				// A parked `null` is this tab's "no draft any more" — a discard, or an edit that
+				// landed back on the deployed value. Keeping that means removing the row, not
+				// writing the baseline back as a draft with no dirty banner to discard it through.
+				const parked = UserDraftDbSyncer.peekPending(query)
+				const mine = parked?.value === null ? null : $state.snapshot(states[ws]?.draft)
 				// Forced, so it goes over the row that refused us, and its response reseeds
 				// `last_sync` so the next ordinary save is conditional again.
-				const mine = $state.snapshot(states[ws]?.draft)
-				if (mine) await UserDraftDbSyncer.overwrite({ ...query, value: mine })
+				if (mine !== undefined) await UserDraftDbSyncer.overwrite({ ...query, value: mine })
 				// Say so rather than leave the alert up with no explanation: a write displaced by
 				// something typed meanwhile can still lose the race.
 				if (UserDraftDbSyncer.getConflict(query).conflict) {
@@ -455,19 +459,25 @@
 						itemKind: 'resource' as const,
 						path: initialPath
 					}
-					const refusedLocal = UserDraftDbSyncer.getConflict(conflictQuery).conflict
-						? (UserDraftDbSyncer.peekPending(conflictQuery)?.value as ResourceState | undefined)
+					const refused = UserDraftDbSyncer.getConflict(conflictQuery).conflict
+						? UserDraftDbSyncer.peekPending(conflictQuery)
 						: undefined
+					// A parked `null` is this tab's "no draft any more", which on screen is the
+					// deployed value — so only a payload with content counts as a local draft.
+					const refusedDraft = (refused?.value ?? undefined) as ResourceState | undefined
+					const hasLocalDraft = refused ? refused.value !== null : !!savedDraftState
 					// Open with this tab's refused version if there is one, else the saved
 					// draft, else the deployed.
-					const s: ResourceState = refusedLocal ?? savedDraftState ?? deployedState
-					openedOnDraft[ws] = !!(refusedLocal ?? savedDraftState)
+					const s: ResourceState = refused
+						? (refusedDraft ?? deployedState)
+						: (savedDraftState ?? deployedState)
+					openedOnDraft[ws] = hasLocalDraft
 					// Gate BEFORE the handle is acquired: `stopSync` queues on a
 					// not-yet-live entry, and the form can settle before the effect
 					// above gets a chance to run. Only worth doing when no draft exists
 					// yet — where one does, there is no phantom to prevent and
 					// suspending could only drop a write.
-					if (!savedDraftState && !refusedLocal) setGated(ws, true)
+					if (!hasLocalDraft) setGated(ws, true)
 					ensureHandle(ws, s)
 					initialStates[ws] = structuredClone(deployedState)
 					// Draft-only paths (`no_deployed`) have no row — saving must

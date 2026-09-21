@@ -185,10 +185,14 @@
 				// same draft, or its own resolution — owns the key now, and the edit this one was
 				// keeping is still parked for a later flush either way.
 				if (!stillOurs()) return
+				// A parked `null` is this tab's "no draft any more" — a discard, or an edit that
+				// landed back on the deployed value. Keeping that means removing the row, not
+				// writing the baseline back as a draft with no dirty banner to discard it through.
+				const parked = UserDraftDbSyncer.peekPending(query)
+				const mine = parked?.value === null ? null : $state.snapshot(states[ws]?.draft)
 				// Forced, so it goes over the row that refused us, and its response reseeds
 				// `last_sync` so the next ordinary save is conditional again.
-				const mine = $state.snapshot(states[ws]?.draft)
-				if (mine) await UserDraftDbSyncer.overwrite({ ...query, value: mine })
+				if (mine !== undefined) await UserDraftDbSyncer.overwrite({ ...query, value: mine })
 				// Say so rather than leave the alert up with no explanation: a write displaced by
 				// something typed meanwhile can still lose the race.
 				if (UserDraftDbSyncer.getConflict(query).conflict) {
@@ -326,12 +330,17 @@
 				// that refused it, so opening on that would quietly drop the edit the alert is
 				// about and leave "Keep mine" offering to keep the other one.
 				const conflictQuery = { workspace: ws, itemKind: 'variable' as const, path: p }
-				const refusedLocal = UserDraftDbSyncer.getConflict(conflictQuery).conflict
-					? (UserDraftDbSyncer.peekPending(conflictQuery)?.value as VariableState | undefined)
+				const refused = UserDraftDbSyncer.getConflict(conflictQuery).conflict
+					? UserDraftDbSyncer.peekPending(conflictQuery)
 					: undefined
+				// A parked `null` is this tab's "no draft any more", which on screen is the
+				// deployed value.
+				const refusedDraft = (refused?.value ?? undefined) as VariableState | undefined
 				// Open with this tab's refused version if there is one, else the saved draft,
 				// else the deployed.
-				const s: VariableState = refusedLocal ?? savedDraftState ?? deployedState
+				const s: VariableState = refused
+					? (refusedDraft ?? deployedState)
+					: (savedDraftState ?? deployedState)
 				ensureHandle(ws, s)
 				initialStates[ws] = structuredClone(deployedState)
 				// Draft-only paths (`no_deployed`) have no row — saving must
