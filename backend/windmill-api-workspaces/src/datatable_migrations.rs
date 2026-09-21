@@ -1389,6 +1389,21 @@ async fn delete_datatable_migration(
     // don't need the lock).
     drop(lock_client);
     let Some(name) = deleted_name else {
+        // Nothing matched either because another delete got there first, which is this one's
+        // outcome too, or because the definition was rewritten.
+        let still_defined = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM datatable_migrations \
+             WHERE workspace_id = $1 AND datatable = $2 AND timestamp = $3)",
+            &w_id,
+            &datatable_name,
+            timestamp,
+        )
+        .fetch_one(&db)
+        .await?
+        .unwrap_or(false);
+        if !still_defined {
+            return Ok(deleted_message);
+        }
         return Err(Error::BadRequest(format!(
             "Migration {} on data table '{}' changed while it was being deleted. Reload it and \
              retry.",
@@ -1475,9 +1490,8 @@ async fn upsert_datatable_migration(
         "Upserted migration {} in {}",
         payload.timestamp, datatable_name
     );
-    // A re-push of the definition as stored writes nothing, so it needs none of the checks below:
-    // writing it anyway would re-create a definition deleted since the read above. Nor is it
-    // counted, since `wmill sync push` has sent every migration on every sync.
+    // A re-push of the definition as stored changes nothing, so it is not checked, written, audited,
+    // synced or counted. Writing it anyway would re-create a definition deleted since the read above.
     if unchanged {
         return Ok(upserted_message);
     }
