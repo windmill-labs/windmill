@@ -66,8 +66,7 @@ import type { RawAppDomQuery } from '$lib/components/raw_apps/rawAppDom'
 import { dataUrlToImagePart, normalizeImageDataUrl, type AttachedImage } from '../imageUtils'
 import { sanitizeAttachmentName, textLineCount, type AttachedTextFile } from '../textFileUtils'
 import { modelSupportsVision } from '../../modelConfig'
-import { isWebSearchEnabledForProvider, tryGetCurrentModel } from '$lib/aiStore'
-import { providerSupportsWebSearch } from '../../lib'
+import { tryGetCurrentModel } from '$lib/aiStore'
 import { isChromiumBrowser } from '$lib/utils'
 import { isCloudHosted } from '$lib/cloud'
 import { BROWSER } from 'esm-env'
@@ -1320,18 +1319,10 @@ const buildGlobalSystemPrompt = (
 	previewTools: boolean,
 	folderCtx?: FolderPromptContext,
 	skills: AiSkillListItem[] = [],
-	mcpServers: McpServer[] = [],
-	webSearch: boolean = false
+	mcpServers: McpServer[] = []
 ) => {
 	const folderGuidance = buildFolderGuidance(username, folderCtx)
 	const folderGuidanceBlock = folderGuidance ? `\n${folderGuidance}` : ''
-	// Web search is a provider-hosted tool with no schema of ours, so the prompt is
-	// the only thing that can advertise it — and advertising one the provider does
-	// not serve invites tool calls that cannot be made. This tracks the two static
-	// gates; the chat loop's runtime probe can still disable it mid-conversation.
-	const webSearchBullet = webSearch
-		? `\n- For a third-party API the hub does not cover, search the web for the vendor's own API documentation rather than writing its endpoints and auth from memory, and link the page you relied on. Reserve it for external APIs: search_docs answers questions about Windmill itself, and search_hub_scripts is the better first stop for an integration Windmill already publishes.`
-		: ''
 	// `previewTools` doubles as "this is a session chat" — sessions are the only
 	// chats that get the preview tool set. The alpha heads-up only makes sense
 	// there, where the chat actively builds the pipeline on the canvas; the
@@ -1382,7 +1373,8 @@ Rules:
 - Use search_resource_types before write_resource, and get_trigger_schema before write_trigger: the trigger config fields differ per kind and are not listed in the write_trigger definition.
 - When script or raw app code needs an external npm package you are not fully familiar with, use search_npm_packages to find it and get its documentation and type definitions. Link the package documentation in your answer when you rely on it.
 - Hub scripts are prebuilt, vetted integrations for third-party services, hosted outside the workspace under \`hub/<version>/<app>/<name>\` paths. Check search_hub_scripts before hand-writing code against a third-party API, even when the user never mentions the hub; read a result with read_workspace_item type "script" and its hub path to get its code, language, and input schema. Use what you find in whichever way fits: reference the hub path directly from a flow module or app runnable when a script already does the job, copy it into a workspace draft and adapt it when it is close (record the source hub path in the draft's description), or take it as a worked example and write your own. A script that does not do what the user asked is still worth reading when it is the only example of that integration: pass its \`integration\` back to search_hub_scripts to list that integration's other scripts with their descriptions, or use the \`suggested_integrations\` a search hands back when it finds nothing.
-- Before writing your own code against an integration the hub covers, call get_hub_integration with its slug: it returns the resource type to take, its auth fields and the integration's most-used scripts, which beats inferring them from script bodies. Call it for the integration you are about to write against, whichever it is. A search marks an integration \`documented\` when the hub additionally holds provider knowledge checked against the live API — pagination, enums, error codes and gotchas — so read that closely where it appears rather than trusting your own memory of the API.${webSearchBullet}
+- Before writing your own code against an integration the hub covers, call get_hub_integration with its slug: it returns the resource type to take, its auth fields and the integration's most-used scripts, which beats inferring them from script bodies. Call it for the integration you are about to write against, whichever it is. A search marks an integration \`documented\` when the hub additionally holds provider knowledge checked against the live API — pagination, enums, error codes and gotchas — so read that closely where it appears rather than trusting your own memory of the API.
+- If you have a web search tool and the hub does not cover a third-party API, search for the vendor's own API documentation rather than writing its endpoints and auth from memory, and link the page you relied on. Reserve it for external APIs: search_docs answers questions about Windmill itself.
 - Use get_db_schema with a database resource path to fetch its tables and columns before writing SQL (or a script querying that database).
 - Use get_instructions before writing scripts, flows, resources, or apps. For scripts, pass the target language.
 ${pipelineBullet}
@@ -8420,11 +8412,6 @@ async function deleteWorkspaceItem(
 	)
 }
 
-function deriveWebSearchAvailability(): boolean {
-	const provider = tryGetCurrentModel()?.provider
-	return providerSupportsWebSearch(provider) && isWebSearchEnabledForProvider(provider)
-}
-
 export function prepareGlobalSystemMessage(
 	instructions?: { workspace?: string; user?: string },
 	opts?: {
@@ -8436,9 +8423,6 @@ export function prepareGlobalSystemMessage(
 		user?: GlobalPromptIdentity
 		skills?: AiSkillListItem[]
 		mcpServers?: McpServer[]
-		// Defaults to the current model's provider support, which reads the copilot
-		// model store; callers that must not touch it pass the value instead.
-		webSearch?: boolean
 	}
 ): ChatCompletionSystemMessageParam {
 	const user = opts?.user ?? get(userStore)
@@ -8450,14 +8434,12 @@ export function prepareGlobalSystemMessage(
 				isAdmin: user.is_admin ?? false
 			}
 		: undefined
-	const webSearch = opts?.webSearch ?? deriveWebSearchAvailability()
 	let content = buildGlobalSystemPrompt(
 		username,
 		opts?.previewTools ?? false,
 		folderCtx,
 		opts?.skills ?? [],
-		opts?.mcpServers ?? [],
-		webSearch
+		opts?.mcpServers ?? []
 	)
 	if (instructions?.workspace?.trim()) {
 		content = `${content}\n\nWORKSPACE INSTRUCTIONS (configured by a workspace admin, shared by everyone in this workspace — you cannot modify these):\n${instructions.workspace.trim()}`

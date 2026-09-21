@@ -6677,21 +6677,6 @@ describe('folder tools', () => {
 	})
 })
 
-// Web search is provider-hosted and has no tool schema of ours, so the prompt is
-// the only thing advertising it — on a provider that cannot serve it, the guidance
-// would invite a tool call the model has no way to make.
-describe('web search guidance', () => {
-	it('points at vendor API docs when the provider serves web search', () => {
-		const content = prepareGlobalSystemMessage(undefined, { webSearch: true }).content as string
-		expect(content).toContain("search the web for the vendor's own API documentation")
-	})
-
-	it('stays silent when the provider does not serve web search', () => {
-		const content = prepareGlobalSystemMessage(undefined, { webSearch: false }).content as string
-		expect(content).not.toContain('search the web')
-	})
-})
-
 describe('session pipeline surface (alpha)', () => {
 	it('gives the session prompt pipeline guidance plus an alpha heads-up', () => {
 		const content = prepareGlobalSystemMessage(undefined, { previewTools: true }).content as string
