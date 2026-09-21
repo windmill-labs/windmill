@@ -44,6 +44,28 @@ async fn start_perpetual_run(db: &Pool<Postgres>) -> anyhow::Result<Uuid> {
     Ok(id)
 }
 
+/// Waits for another connection to be stuck on the queue row of `id`, which is where the
+/// completion's delete lands while the cancel is uncommitted.
+async fn wait_until_blocked_on(db: &Pool<Postgres>, id: Uuid) -> anyhow::Result<()> {
+    for _ in 0..100 {
+        let blocked: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM pg_locks l JOIN v2_job_queue q \
+               ON q.ctid = ('(' || l.page || ',' || l.tuple || ')')::tid \
+             WHERE NOT l.granted AND l.locktype = 'tuple' AND q.id = $1) \
+             OR EXISTS (SELECT 1 FROM pg_stat_activity \
+             WHERE wait_event_type = 'Lock' AND query LIKE '%v2_job_queue%')",
+        )
+        .bind(id)
+        .fetch_one(db)
+        .await?;
+        if blocked {
+            return Ok(());
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    anyhow::bail!("the completion never reached the delete, so the race was not exercised")
+}
+
 /// The same cancel, one step earlier: still being written when the completion reads the queue row,
 /// which reads it without a lock. Only the delete that follows waits for the writer.
 #[sqlx::test(fixtures("base"))]
@@ -78,9 +100,10 @@ async fn a_cancel_still_being_written_is_kept(db: Pool<Postgres>) -> anyhow::Res
             .await
         }
     });
-    // Long enough for the completion to have read the queue row and reached the delete, which is
-    // where it waits for the cancel.
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    // Committing on a timer would let a slow completion read the cancel through the insert
+    // instead, leaving the half this test is for unexercised and green. Waiting for the delete to
+    // block on the row is what puts it there.
+    wait_until_blocked_on(&db, running).await?;
     cancel.commit().await?;
     completing.await??;
 

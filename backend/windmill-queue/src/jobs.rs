@@ -1629,10 +1629,10 @@ async fn restart_job_if_perpetual_inner(
     };
 
     if restart {
-        // The worker reads the queue row on a widening interval, up to every 5s once a job has run
-        // for a minute, so a cancel landing after its last read reaches this as `canceled_by:
-        // None`. The completion above is what has it, and restarting a loop the canceller stopped
-        // is the whole of what "Scale down to 0" sometimes fails to do.
+        // Not `canceled_by`: a worker reads the queue row on a widening interval, up to every 5s
+        // once a job has run for a minute, so a cancel landing after its last read reaches a
+        // completion carrying none. `commit_completed_job` takes it from the row instead, and the
+        // row it wrote is what says whether this loop was stopped.
         let canceled = sqlx::query_scalar!(
             "SELECT canceled_by IS NOT NULL AS \"canceled!\" FROM v2_job_completed \
              WHERE id = $1 AND workspace_id = $2",
