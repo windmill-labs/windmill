@@ -3522,23 +3522,38 @@ async fn create_pg_database(
         }
     }
 
-    let source_kind = managed_datatable_source_kind(&db, &w_id, &req.source).await?;
-    if source_kind == Some(DataTableCatalogResourceType::ExternalInstance) {
-        windmill_common::external_instance_pg::create_external_instance_database_unchecked(
-            &db,
-            &req.target_dbname,
-            "datatable",
-            Some(&w_id),
-        )
-        .await?;
-    } else if source_kind == Some(DataTableCatalogResourceType::Instance) {
-        windmill_common::create_custom_instance_database(
-            &db,
-            &req.target_dbname,
-            "datatable",
-            Some(&w_id),
-        )
-        .await?;
+    if let Some(source_kind) = managed_datatable_source_kind(&db, &w_id, &req.source).await? {
+        // Held until the copy is registered, as a rename migrates reservations to the new id under
+        // it once the old one is archived: a copy registered after that would be reserved for an
+        // id nothing answers on.
+        let mut tx = db.begin().await?;
+        windmill_common::workspaces::lock_fork_datatables(&mut tx, &w_id).await?;
+        let live = sqlx::query_scalar::<_, bool>("SELECT NOT deleted FROM workspace WHERE id = $1")
+            .bind(&w_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .unwrap_or(false);
+        if !live {
+            return Err(Error::BadRequest(format!("Workspace '{w_id}' is archived")));
+        }
+        if source_kind == DataTableCatalogResourceType::ExternalInstance {
+            windmill_common::external_instance_pg::create_external_instance_database_unchecked(
+                &db,
+                &req.target_dbname,
+                "datatable",
+                Some(&w_id),
+            )
+            .await?;
+        } else {
+            windmill_common::create_custom_instance_database(
+                &db,
+                &req.target_dbname,
+                "datatable",
+                Some(&w_id),
+            )
+            .await?;
+        }
+        tx.commit().await?;
     } else {
         let source_pg =
             resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.source).await?;
@@ -3694,10 +3709,16 @@ async fn import_pg_database(
                 ));
             }
             if let Some(kind) = managed_datatable_source_kind(&db, &w_id, &req.target).await? {
-                // Held until the restore is done, as fork finalization takes it: a fork must not
-                // commit this database while `psql` is still filling it.
+                // Held until the restore is done: fork finalization takes the first, and every
+                // save newly naming a database, in any workspace, the second. Nothing may start
+                // using this database while `psql` is still filling it.
                 let mut tx = db.begin().await?;
                 windmill_common::workspaces::lock_fork_datatables(&mut tx, &w_id).await?;
+                windmill_common::datatable_roles::lock_instance_databases_governance(
+                    &mut tx,
+                    [override_dbname.as_str()],
+                )
+                .await?;
                 windmill_common::ensure_fork_database_available_to(
                     &db,
                     kind,
@@ -3823,14 +3844,13 @@ async fn edit_ducklake_config(
     )
     .await?;
 
-    let old_ducklakes = sqlx::query_scalar!(
-        r#"
-            SELECT ws.ducklake->'ducklakes' AS ducklake_name
-            FROM workspace_settings ws
-            WHERE ws.workspace_id = $1
-        "#,
-        &w_id
+    // Under the row lock the save writes with, taken before the database locks below as fork
+    // cleanup takes the two.
+    let old_ducklakes = sqlx::query_scalar::<_, Option<serde_json::Value>>(
+        "SELECT ws.ducklake->'ducklakes' FROM workspace_settings ws
+         WHERE ws.workspace_id = $1 FOR UPDATE",
     )
+    .bind(&w_id)
     .fetch_one(&mut *tx)
     .await?
     .unwrap_or(serde_json::Value::Null);
@@ -3855,6 +3875,14 @@ async fn edit_ducklake_config(
         if unchanged {
             continue;
         }
+        // Before the registration check, whose refusal would otherwise tell a workspace admin
+        // which databases exist on the cluster.
+        if !is_superadmin {
+            return Err(Error::BadRequest(
+                "Only superadmins can create or modify ducklakes with Instance databases"
+                    .to_string(),
+            ));
+        }
         if *kind == DucklakeCatalogResourceType::ExternalInstance {
             windmill_common::external_instance_pg::ensure_external_instance_available()?;
             windmill_common::external_instance_pg::ensure_external_instance_database_registered(
@@ -3863,13 +3891,26 @@ async fn edit_ducklake_config(
             )
             .await?;
         }
-        if !is_superadmin {
-            return Err(Error::BadRequest(
-                "Only superadmins can create or modify ducklakes with Instance databases"
-                    .to_string(),
-            ));
-        }
     }
+
+    // Fork cleanup decides nothing uses an instance database under this lock, so a catalog newly
+    // put on one must not commit between its check and its drop.
+    windmill_common::datatable_roles::lock_instance_databases_governance(
+        &mut *tx,
+        new_config
+            .settings
+            .ducklakes
+            .iter()
+            .filter(|(name, dl)| {
+                dl.catalog.resource_type == DucklakeCatalogResourceType::Instance
+                    && old_ducklakes.get(name.as_str()).is_none_or(|old| {
+                        old.catalog.resource_type != DucklakeCatalogResourceType::Instance
+                            || old.catalog.resource_path != dl.catalog.resource_path
+                    })
+            })
+            .map(|(_, dl)| dl.catalog.resource_path.as_str()),
+    )
+    .await?;
 
     let config: serde_json::Value = serde_json::to_value(&new_config.settings)
         .map_err(|err| Error::internal_err(err.to_string()))?;
@@ -8386,6 +8427,15 @@ async fn apply_forked_datatable(
         windmill_common::external_instance_pg::ensure_external_instance_database_registered(
             tx,
             &fdt.new_dbname,
+        )
+        .await?;
+    }
+    if database.resource_type.is_windmill_managed() {
+        // Held until the fork commits, as every save newly naming a database takes it: none may
+        // claim the copy between the check below and this fork's entry landing on it.
+        windmill_common::datatable_roles::lock_instance_databases_governance(
+            &mut **tx,
+            [fdt.new_dbname.as_str()],
         )
         .await?;
     }

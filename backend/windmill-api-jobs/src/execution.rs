@@ -26,7 +26,9 @@ use windmill_api_auth::{check_scopes, get_scope_tags, ApiAuthed};
 use windmill_common::{
     db::{UserDB, UserDbWithAuthed},
     error::{self, Error},
-    flow_conversations::{add_message_to_conversation_tx, MessageType},
+    flow_conversations::{
+        add_message_to_conversation_tx, message_attachments, MessageExtras, MessageType,
+    },
     get_latest_flow_version_info_for_path,
     jobs::{
         check_tag_available_for_workspace_internal, format_result, script_path_to_payload,
@@ -653,9 +655,11 @@ pub async fn set_flow_memory_id(
 pub async fn process_flow_run_query_params(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     job_id: Uuid,
+    w_id: &str,
+    flow_path: &str,
     run_query: &RunJobQuery,
 ) -> error::Result<()> {
-    if let Some(memory_id) = run_query.memory_id {
+    if let Some(memory_id) = run_query.memory_key(w_id, flow_path) {
         set_flow_memory_id(tx, job_id, memory_id).await?;
     }
     Ok(())
@@ -669,10 +673,13 @@ pub async fn handle_chat_conversation_messages(
     run_query: &RunJobQuery,
     user_message_raw: Option<&Box<serde_json::value::RawValue>>,
     job_id: Uuid,
+    is_test: bool,
+    // The run's args, for the files the message carried.
+    args: &HashMap<String, Box<serde_json::value::RawValue>>,
 ) -> error::Result<()> {
     // Names the query parameter rather than the field: it is not a flow argument, and
     // supplying it as one is the first thing tried on reading `memory_id is required`.
-    let memory_id = run_query.memory_id.ok_or_else(|| {
+    let memory_id = run_query.memory_key(w_id, flow_path).ok_or_else(|| {
         windmill_common::error::Error::BadRequest(
             "memory_id is required for chat-enabled flows. Pass it as the `memory_id` query \
              parameter, not as a flow argument: it names the conversation the turn belongs to, \
@@ -701,11 +708,12 @@ pub async fn handle_chat_conversation_messages(
         &authed.username,
         &user_message,
         memory_id,
+        is_test,
     )
     .await?;
 
-    // The run this message started. Its args are the only record of what the message
-    // carried besides its text — attachments and every other flow input — and nothing
+    // The run this message started. The row keeps the files the message carried as
+    // references; its args are the only record of every other flow input, and nothing
     // written later points at them: an assistant row holds the AI agent step's job.
     add_message_to_conversation_tx(
         tx,
@@ -715,6 +723,7 @@ pub async fn handle_chat_conversation_messages(
         MessageType::User,
         None,
         true,
+        Some(&MessageExtras { attachments: message_attachments(args), ..Default::default() }),
     )
     .await?;
 
@@ -822,7 +831,7 @@ pub async fn run_flow<'c>(
     .await?;
 
     // Set memory_id if provided (for agent memory)
-    if let Some(memory_id) = run_query.memory_id {
+    if let Some(memory_id) = run_query.memory_key(w_id, flow_path) {
         set_flow_memory_id(&mut tx, uuid, memory_id).await?;
     }
 
@@ -836,6 +845,8 @@ pub async fn run_flow<'c>(
             &run_query,
             args.args.get("user_message"),
             uuid,
+            false,
+            &args.args,
         )
         .await?;
     }

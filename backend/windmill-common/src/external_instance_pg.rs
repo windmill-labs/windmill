@@ -129,6 +129,7 @@ pub(crate) async fn read_external_instance_pg_state<'c>(
     }
 }
 
+/// Authorization: reads the hidden cluster state and checks nothing. Callers MUST be superadmin.
 pub async fn external_instance_pg_status(db: &DB) -> Result<ExternalInstancePgStatus> {
     let configured = read_external_instance_pg_config(db).await?.is_some();
     let state = read_external_instance_pg_state(db).await?;
@@ -201,7 +202,20 @@ pub async fn ensure_external_instance_pg_removable(conn: &mut sqlx::PgConnection
     if state.databases.is_empty() && usages.is_empty() {
         return Ok(());
     }
-    let names = state
+    Err(Error::BadRequest(format!(
+        "The external instance cluster still holds databases in use ({}). Drop them and \
+         repoint the data tables and Ducklake catalogs using them before removing \
+         {EXTERNAL_INSTANCE_PG_SETTING}.",
+        databases_in_use(&state, &usages)
+    )))
+}
+
+/// The databases on the cluster, whether Windmill created them or a data table names them.
+fn databases_in_use(
+    state: &ExternalInstancePgState,
+    usages: &BTreeMap<String, BTreeSet<String>>,
+) -> String {
+    state
         .databases
         .keys()
         .chain(usages.keys())
@@ -209,11 +223,7 @@ pub async fn ensure_external_instance_pg_removable(conn: &mut sqlx::PgConnection
         .into_iter()
         .cloned()
         .collect::<Vec<_>>()
-        .join(", ");
-    Err(Error::BadRequest(format!(
-        "The external instance cluster still holds databases in use ({names}). Drop them and \
-         repoint the data tables and Ducklake catalogs using them before removing {EXTERNAL_INSTANCE_PG_SETTING}."
-    )))
+        .join(", ")
 }
 
 /// Refuse a workspace setting that newly names an `external_instance` database on an edition
@@ -269,7 +279,7 @@ pub async fn drop_external_instance_database_unchecked(
     exempt: Option<(&str, &str)>,
 ) -> Result<()> {
     crate::external_instance_pg_oss::drop_external_instance_database_unchecked(db, dbname, exempt)
-    .await
+        .await
 }
 
 /// Serializes everything that changes which databases exist on the external cluster, or which data
@@ -406,10 +416,11 @@ async fn ensure_external_instance_pg_not_repointed(
         return Ok(());
     }
     Err(Error::BadRequest(format!(
-        "The external instance cluster at {}:{} still holds databases in use. Drop them and repoint \
-         what uses them before pointing {EXTERNAL_INSTANCE_PG_SETTING} at another cluster.",
+        "The external instance cluster at {}:{} still holds databases in use ({}). Drop them and \
+         repoint what uses them before pointing {EXTERNAL_INSTANCE_PG_SETTING} at another cluster.",
         current.host.trim(),
-        current.port.unwrap_or(5432)
+        current.port.unwrap_or(5432),
+        databases_in_use(&state, &usages)
     )))
 }
 
