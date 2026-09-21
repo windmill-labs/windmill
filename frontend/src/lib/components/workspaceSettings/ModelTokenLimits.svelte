@@ -25,9 +25,8 @@
 		min: number
 		max: number
 		/**
-		 * What a model gets without an override. An `assumed` default is only a guess for
-		 * a model the built-in table does not know, so an override equal to it is kept: it
-		 * records the value as checked.
+		 * What a model gets without an override, shown as the empty field's placeholder.
+		 * `assumed` marks a guess for a model the built-in table does not know.
 		 */
 		getDefault: (provider: AIProvider, model: string) => { tokens: number; assumed: boolean }
 	} = $props()
@@ -39,10 +38,6 @@
 
 	const modelsByProvider = $derived(chatModelsByProvider(aiProviders))
 
-	function currentTokens(provider: AIProvider, model: string): number {
-		return limits[modelKey(provider, model)] ?? getDefault(provider, model).tokens
-	}
-
 	function isOverridden(provider: AIProvider, model: string): boolean {
 		return limits[modelKey(provider, model)] !== undefined
 	}
@@ -53,12 +48,7 @@
 			errors[key] = `Must be a whole number between ${min} and ${max}`
 			return
 		}
-		const fallback = getDefault(provider, model)
-		if (tokens === fallback.tokens && !fallback.assumed) {
-			resetModel(provider, model)
-		} else {
-			limits = { ...limits, [key]: tokens }
-		}
+		limits = { ...limits, [key]: tokens }
 		errors[key] = ''
 	}
 
@@ -116,7 +106,7 @@
 											<div class="flex items-center gap-2">
 												<div class="w-28">
 													<TextInput
-														value={currentTokens(provider as AIProvider, model)}
+														value={limits[key] ?? ''}
 														size="sm"
 														error={!!errors[key]}
 														inputProps={{
@@ -124,17 +114,20 @@
 															min,
 															max,
 															step: 1,
+															placeholder: String(fallback.tokens),
 															oninput: (e: Event & { currentTarget: HTMLInputElement }) => {
+																if (e.currentTarget.value === '') {
+																	resetModel(provider as AIProvider, model)
+																	return
+																}
 																const value = Number(e.currentTarget.value)
-																if (e.currentTarget.value !== '' && !isNaN(value)) {
+																if (!isNaN(value)) {
 																	updateTokens(provider as AIProvider, model, value)
 																}
 															},
 															onblur: (e: Event & { currentTarget: HTMLInputElement }) => {
 																// Resync a value the state refused, so what is shown is what is stored.
-																e.currentTarget.value = String(
-																	currentTokens(provider as AIProvider, model)
-																)
+																e.currentTarget.value = String(limits[key] ?? '')
 																errors[key] = ''
 															}
 														}}
