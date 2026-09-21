@@ -1455,7 +1455,7 @@ const searchHubScriptsSchema = z.object({
 		.string()
 		.optional()
 		.describe(
-			'Integration slug (e.g. "stripe") from a previous result\'s `integration` or `suggested_integrations`. Alone, lists that integration\'s scripts with descriptions, including ones that do not match your task but show how the integration is used. With `query`, narrows the search to it.'
+			"Integration slug (e.g. \"stripe\") from a previous result's `integration` or `suggested_integrations`, or the vendor the user named. Alone, lists that integration's scripts with descriptions, including ones that do not match your task but show how the integration is used. With `query`, narrows the search to it; pass it whenever the user names the vendor, since ranking alone can surface another integration's scripts that merely mention it."
 		)
 })
 
@@ -1478,7 +1478,6 @@ export function isHubPath(path: string): boolean {
 }
 
 const MAX_BROWSED_HUB_SCRIPTS = 20
-const MAX_MENTIONED_INTEGRATION_HITS = 3
 const MAX_FETCHED_HUB_SCRIPTS = 3
 const MAX_SUGGESTED_INTEGRATIONS = 5
 
@@ -1560,25 +1559,6 @@ function tokenMatchesSlug(token: string, slug: string): boolean {
 		// "google sheet" has to reach `gsheets`, "google drive" `gdrive`.
 		parts.some((p) => p.length >= 5 && extends_(p.slice(1), token))
 	)
-}
-
-/** The slug of an integration the query names outright, when it names exactly one.
- * Exact only: fuzzily, `send` in "send an invoice" reads as sendgrid. Even exact, a
- * match is weak evidence of intent — `monday`, `box` and `linear` are ordinary words
- * — so callers must treat it as a hint, never as a filter. */
-async function integrationNamedIn(query: string): Promise<string | undefined> {
-	const list = await loadHubIntegrations()
-	const words = new Set(
-		query
-			.toLowerCase()
-			.split(/[^a-z0-9]+/)
-			.filter(Boolean)
-	)
-	const named = list.filter(({ name }) => {
-		const slug = name.toLowerCase()
-		return words.has(slug) || slug.split(/[_-]/).some((part) => part && words.has(part))
-	})
-	return named.length === 1 ? named[0].name : undefined
 }
 
 export const clearHubIntegrationsCache = () => {
@@ -1733,68 +1713,28 @@ export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 		// than the semantic one: it takes no query, and it applies no similarity
 		// floor, so the near-misses worth reading as examples of how the integration
 		// is used survive instead of being cut.
-		let ranked: HubScriptHit[]
-		// Kept apart from the ranked hits rather than counted off the end, so capping
-		// below can keep the best of each instead of whatever the tail happens to hold.
-		let mentioned: HubScriptHit[] = []
-		let namedSlug: string | undefined
-		if (query) {
-			ranked = await ScriptService.queryHubScripts({ text: query, kind: 'script', app })
-			// Ranking can bury an integration the query names: "look up an account in
-			// salesforce" returns none of Salesforce's scripts, because Pinterest's say
-			// "Salesforce" too. Add its own hits rather than filtering to it, so a word
-			// that merely looks like a slug costs a few rows instead of the whole result.
-			if (!app) {
-				namedSlug = await integrationNamedIn(query)
-				if (namedSlug && !ranked.some((s) => s.app === namedSlug)) {
-					const own = await ScriptService.queryHubScripts({
-						text: query,
-						kind: 'script',
-						app: namedSlug
-					})
-					mentioned = own.slice(0, MAX_MENTIONED_INTEGRATION_HITS)
-				}
-			}
-		} else {
-			ranked =
-				(
+		const scripts: HubScriptHit[] = query
+			? await ScriptService.queryHubScripts({ text: query, kind: 'script', app })
+			: ((
 					await ScriptService.getTopHubScripts({
 						app,
 						kind: 'script',
 						limit: MAX_BROWSED_HUB_SCRIPTS
 					})
-				).asks ?? []
-		}
-		const scripts = [...ranked, ...mentioned]
+				).asks ?? [])
 
 		if (scripts.length === 0) {
 			// A whiffed search still leaves the integration browsable, which is what
 			// turns "no exact match" into a worked example to follow. Suggest against
 			// the slug too, so a browse for a misremembered one lands on the real name
 			// instead of dead-ending on an empty list.
-			const suggested = await suggestHubIntegrations(query ?? app ?? '')
+			const suggested = await suggestHubIntegrations([app, query].filter(Boolean).join(' '))
 			toolCallbacks.setToolStatus(toolId, { content: `No hub script found for ${subject}` })
 			return JSON.stringify({ results: [], suggested_integrations: suggested })
 		}
 
-		// Each result costs a content fetch, so cap the fan-out when content is wanted,
-		// keeping the best of both lists — dropping the named integration's hits would
-		// undo the reason they were fetched.
-		let matches = scripts
-		if (withContent && scripts.length > MAX_FETCHED_HUB_SCRIPTS) {
-			const keep = mentioned.slice(0, MAX_FETCHED_HUB_SCRIPTS - 1)
-			let head = ranked.slice(0, MAX_FETCHED_HUB_SCRIPTS - keep.length)
-			// Ranking can place the named integration just below the cap, in which case
-			// no hits were fetched for it and trimming would drop it altogether.
-			const buried =
-				!keep.length && namedSlug && !head.some((s) => s.app === namedSlug)
-					? ranked.find((s) => s.app === namedSlug)
-					: undefined
-			if (buried) {
-				head = [...head.slice(0, head.length - 1), buried]
-			}
-			matches = [...head, ...keep]
-		}
+		// Each result costs a content fetch, so cap the fan-out when content is wanted.
+		const matches = withContent ? scripts.slice(0, MAX_FETCHED_HUB_SCRIPTS) : scripts
 		toolCallbacks.setToolStatus(toolId, {
 			content: `Found ${matches.length} hub script${matches.length === 1 ? '' : 's'} for ${subject}`
 		})
