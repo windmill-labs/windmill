@@ -1500,9 +1500,13 @@ pub async fn lock_instance_databases<'a>(
 /// handed to anything yet.
 ///
 /// The lock, the check and the drop share one connection: a second one taken from the pool while
-/// the first is held could wait forever on a small pool.
+/// the first is held could wait forever on a small pool. That connection is detached from the
+/// pool, since a session lock outlives the future holding it: a cancellation between taking the
+/// lock and releasing it would otherwise hand a locked session back to the pool, where every
+/// later settings save waits on it. Detached, the connection is closed when it is dropped —
+/// cancellation included — and the server releases the lock with the session.
 pub async fn drop_unused_instance_database(db: &DB, dbname: &str) -> error::Result<Cleanup> {
-    let mut conn = db.acquire().await?;
+    let mut conn = db.acquire().await?.detach();
     let key = format!("instance_database:{dbname}");
     // A save blocked on this lock is about to name the database, but it may also roll back — a
     // later validation of its own, a superadmin check, a cancelled request. So it is let through
@@ -1514,7 +1518,7 @@ pub async fn drop_unused_instance_database(db: &DB, dbname: &str) -> error::Resu
     let dropped = loop {
         if let Err(e) = sqlx::query("SELECT pg_advisory_lock(hashtext($1))")
             .bind(&key)
-            .execute(&mut *conn)
+            .execute(&mut conn)
             .await
         {
             break Err(e.into());
@@ -1532,11 +1536,8 @@ pub async fn drop_unused_instance_database(db: &DB, dbname: &str) -> error::Resu
             Err(e) => break Err(e),
         }
     };
-    let unlocked = unlock_instance_database(&mut conn, &key).await;
-    if unlocked.is_err() {
-        // Closing the connection is what releases a session lock it could not release itself.
-        drop(conn.detach());
-    }
+    // Closing releases the lock with the session, so nothing here depends on the unlock landing.
+    let _ = sqlx::Connection::close(conn).await;
     dropped
 }
 
