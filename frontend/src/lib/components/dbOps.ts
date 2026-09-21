@@ -8,7 +8,8 @@ import { runScriptAndPollResult } from './jobs/utils'
 import { writingJobOptions } from './jobs/writingJob'
 import type { DBSchema, SQLSchema } from '$lib/stores'
 import { stringifySchema } from './copilot/lib'
-import type { DbInput, DbType } from './dbTypes'
+import { datatableReference, type DbInput, type DbType } from './dbTypes'
+import { withMigrationRole } from './datatableMigrationRole'
 import { assert } from '$lib/utils'
 import { WorkspaceService } from '$lib/gen'
 import { pendingMigrations } from './workspaceSettings/datatableMigrationUtils'
@@ -70,7 +71,9 @@ export function dbTableOpsWithPreviewScripts({
 }): IDbTableOps {
 	const dbType = getDbType(input)
 	const language = getLanguageByResourceType(dbType)
-	const dbArg = getDatabaseArg(input)
+	// Built per call: an invalid role throws there, as that operation's error, rather than while
+	// the manager renders.
+	const dbArg = () => getDatabaseArg(input)
 	const ducklake = input.type === 'ducklake' ? input.ducklake : undefined
 
 	function makeMarker(op: string, payload: Record<string, unknown>): string {
@@ -91,7 +94,7 @@ export function dbTableOpsWithPreviewScripts({
 			})
 			const result = await runScriptAndPollResult({
 				workspace,
-				requestBody: { args: { ...dbArg, quicksearch }, language, content, tag }
+				requestBody: { args: { ...dbArg(), quicksearch }, language, content, tag }
 			})
 			const count = result?.[0].count as number
 			return count
@@ -106,7 +109,7 @@ export function dbTableOpsWithPreviewScripts({
 			})
 			let items = (await runScriptAndPollResult({
 				workspace,
-				requestBody: { args: { ...dbArg, ...params }, language, content, tag }
+				requestBody: { args: { ...dbArg(), ...params }, language, content, tag }
 			})) as unknown[]
 			if (!items || !Array.isArray(items)) {
 				throw 'items is not an array'
@@ -123,7 +126,7 @@ export function dbTableOpsWithPreviewScripts({
 				{
 					workspace,
 					requestBody: {
-						args: { ...dbArg, value_to_update: newValue, ...values },
+						args: { ...dbArg(), value_to_update: newValue, ...values },
 						language,
 						content,
 						tag
@@ -135,14 +138,14 @@ export function dbTableOpsWithPreviewScripts({
 		onDelete: async ({ values }) => {
 			const content = makeMarker('DELETE', { table: tableKey, columns: colDefs })
 			await runScriptAndPollResult(
-				{ workspace, requestBody: { args: { ...dbArg, ...values }, language, content, tag } },
+				{ workspace, requestBody: { args: { ...dbArg(), ...values }, language, content, tag } },
 				writingJobOptions
 			)
 		},
 		onInsert: async ({ values }) => {
 			const content = makeMarker('INSERT', { table: tableKey, columns: colDefs })
 			await runScriptAndPollResult(
-				{ workspace, requestBody: { args: { ...dbArg, ...values }, language, content, tag } },
+				{ workspace, requestBody: { args: { ...dbArg(), ...values }, language, content, tag } },
 				writingJobOptions
 			)
 		}
@@ -246,6 +249,7 @@ export type IDbSchemaOps = {
 	previewAlterSql: (params: { values: AlterTableValues; schema?: string }) => Promise<string>
 	onCreateSchema: (params: { schema: string }) => Promise<void>
 	onDeleteSchema: (params: { schema: string }) => Promise<void>
+	onRenameSchema: (params: { schema: string; newSchema: string }) => Promise<void>
 	onFetchTableEditorDefinition: (params: {
 		table: string
 		schema?: string
@@ -283,7 +287,8 @@ export function dbSchemaOpsWithPreviewScripts({
 	tag?: string
 }): IDbSchemaOps {
 	const dbType = getDbType(input)
-	const dbArg = getDatabaseArg(input)
+	// Built per call, for the same reason as in the table ops above.
+	const dbArg = () => getDatabaseArg(input)
 	const language = getLanguageByResourceType(dbType)
 	const ducklake = input.type === 'ducklake' ? input.ducklake : undefined
 
@@ -293,6 +298,8 @@ export function dbSchemaOpsWithPreviewScripts({
 		input.type === 'database' && input.resourcePath.startsWith('datatable://')
 			? input.resourcePath.slice('datatable://'.length)
 			: undefined
+	// A migration declaring no role runs as admin, whatever role the manager connects as.
+	const migrationRole = input.type === 'database' ? (input.role ?? input.migrationRole) : undefined
 
 	function makeMarker(op: string, payload: Record<string, unknown>): string {
 		if (ducklake) payload.ducklake = ducklake
@@ -359,7 +366,7 @@ export function dbSchemaOpsWithPreviewScripts({
 			: undefined
 		if (!datatableName || !status?.enabled) {
 			await runScriptAndPollResult(
-				{ workspace, requestBody: { args: dbArg, content, language, tag } },
+				{ workspace, requestBody: { args: dbArg(), content, language, tag } },
 				writingJobOptions
 			)
 			return
@@ -373,12 +380,16 @@ export function dbSchemaOpsWithPreviewScripts({
 				throw new MigrationRunCancelled()
 			}
 		}
-		const codeUp = wrapMigration(await expandMarker(workspace, language, content))
+		// Wrapped before annotating: the annotation must lead, above `BEGIN;`.
+		const codeUp = withMigrationRole(
+			wrapMigration(await expandMarker(workspace, language, content)),
+			migrationRole
+		)
 		// Down migrations are only generated for Postgres for now.
 		let codeDown: string | undefined
 		if (downContent && dbType === 'postgresql') {
 			const downSql = (await expandMarker(workspace, language, downContent)).trim()
-			if (downSql) codeDown = wrapMigration(downSql)
+			if (downSql) codeDown = withMigrationRole(wrapMigration(downSql), migrationRole)
 		}
 		const created = await WorkspaceService.createDatatableMigration({
 			workspace,
@@ -415,7 +426,7 @@ export function dbSchemaOpsWithPreviewScripts({
 			const fkContent = makeMarker('FOREIGN_KEYS', { table, schema })
 			const fkResult = await runScriptAndPollResult({
 				workspace,
-				requestBody: { args: dbArg, content: fkContent, language, tag }
+				requestBody: { args: dbArg(), content: fkContent, language, tag }
 			})
 
 			let rawForeignKeys: RawForeignKey[]
@@ -501,6 +512,11 @@ export function dbSchemaOpsWithPreviewScripts({
 			const downContent = makeMarker('CREATE_SCHEMA', { schema })
 			await applyDdl(migrationName('drop_schema', schema), content, downContent)
 		},
+		onRenameSchema: async ({ schema, newSchema }) => {
+			const content = makeMarker('RENAME_SCHEMA', { schema, new_schema: newSchema })
+			const downContent = makeMarker('RENAME_SCHEMA', { schema: newSchema, new_schema: schema })
+			await applyDdl(migrationName('rename_schema', schema), content, downContent)
+		},
 		onFetchForeignKeys: fetchForeignKeys,
 		onFetchTableEditorDefinition: async ({ table, schema, colDefs }) => {
 			const foreignKeys = await fetchForeignKeys({ table, schema })
@@ -512,7 +528,7 @@ export function dbSchemaOpsWithPreviewScripts({
 					const pkContent = makeMarker('PRIMARY_KEY_CONSTRAINT', { table, schema })
 					const pkResult = (await runScriptAndPollResult({
 						workspace,
-						requestBody: { args: dbArg, content: pkContent, language, tag }
+						requestBody: { args: dbArg(), content: pkContent, language, tag }
 					})) as { constraint_name?: string; CONSTRAINT_NAME?: string }[]
 
 					if (pkResult && Array.isArray(pkResult) && pkResult.length > 0) {
@@ -611,7 +627,9 @@ export function getDefaultDbTag(input: DbInput): string {
 export function getDatabaseArg(input: DbInput | undefined) {
 	if (input?.type === 'database') {
 		if (input.resourcePath.startsWith('datatable://')) {
-			return { database: input.resourcePath }
+			return {
+				database: datatableReference(input.resourcePath.slice('datatable://'.length), input.role)
+			}
 		} else {
 			return { database: '$res:' + input.resourcePath }
 		}

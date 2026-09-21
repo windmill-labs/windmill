@@ -5519,6 +5519,21 @@ paths:
         - workspace
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: query
+          description: list only this data table; each listed data table opens a connection to its database
+          schema:
+            type: string
+        - name: role_for
+          in: query
+          description: the data table `role` applies to; every other one is listed as its default role
+          schema:
+            type: string
+        - name: role
+          in: query
+          description: the role to list `role_for` as; refused, in that entry's `error`, if the caller may not use it
+          schema:
+            type: string
       responses:
         "200":
           description: table metadata of all datatables
@@ -5550,6 +5565,11 @@ paths:
         - name: table_name
           in: query
           required: true
+          schema:
+            type: string
+        - name: role
+          in: query
+          description: the data table role to read the table as; defaults to the data table's default role
           schema:
             type: string
       responses:
@@ -33852,6 +33872,15 @@ components:
             $ref: "#/components/schemas/DatatableRoleTenants"
         governing_workspace_id:
           type: string
+        clone_of:
+          type: object
+          description: for a clone, the data table whose roles it takes
+          required: [workspace_id, datatable]
+          properties:
+            workspace_id:
+              type: string
+            datatable:
+              type: string
         editable:
           type: boolean
         available_roles:
@@ -34090,7 +34119,7 @@ components:
 
     DatatableAclInfo:
       type: object
-      required: [owner, roles, editable, supports_maintain, dbname, grants, children]
+      required: [owner, roles, editable, clone, supports_maintain, dbname, grants, children]
       properties:
         owner:
           type: string
@@ -34102,6 +34131,9 @@ components:
         editable:
           type: boolean
           description: whether the caller may plan and apply changes
+        clone:
+          type: boolean
+          description: whether this is a clone, whose grants stay as they were copied
         supports_maintain:
           type: boolean
           description: whether the server is Postgres 17+, which added the MAINTAIN table privilege
@@ -35254,6 +35286,16 @@ components:
               new_dbname:
                 type: string
                 description: "New database name for the fork"
+              fork_behavior:
+                type: string
+                enum:
+                  - schema_only
+                  - schema_and_data
+                description: >-
+                  What the fork request copies into `new_dbname`, which it creates — with the
+                  owners and grants of a data table under roles. This server refuses an entry
+                  without it; servers predating it expect `new_dbname` created and filled
+                  beforehand.
         shared_ducklakes:
           type: array
           items:
@@ -36217,6 +36259,17 @@ components:
                     type: string
                   datatable:
                     type: string
+              governed_by:
+                description: >-
+                  On a clone, the data table it was copied from, whose roles it takes. Server-owned
+                  like `reference`.
+                type: object
+                required: [workspace_id, datatable]
+                properties:
+                  workspace_id:
+                    type: string
+                  datatable:
+                    type: string
               migrations_enabled:
                 type: boolean
                 description: Whether the SQL migrations feature is opted in for this data table
@@ -36285,7 +36338,17 @@ components:
 
     DataTableTables:
       type: object
-      required: [datatable_name, schemas]
+      required:
+        [
+          datatable_name,
+          schemas,
+          instance,
+          permissioned,
+          usable_roles,
+          default_role,
+          can_create_schema,
+          creatable_schemas,
+        ]
       properties:
         datatable_name:
           type: string
@@ -36298,6 +36361,26 @@ components:
               type: string
         error:
           type: string
+        instance:
+          type: boolean
+          description: on the instance database, the only kind that can be under roles or have its access edited
+        permissioned:
+          type: boolean
+        usable_roles:
+          type: array
+          description: the roles the caller may connect as, by name; empty when not under roles
+          items:
+            type: string
+        default_role:
+          type: string
+        can_create_schema:
+          type: boolean
+          description: whether the role the listing connected as may create schemas
+        creatable_schemas:
+          type: array
+          description: the schemas the role the listing connected as may create in
+          items:
+            type: string
 
     DataTableTableSchema:
       type: object

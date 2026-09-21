@@ -197,6 +197,7 @@
 							     one long unbreakable string (a path list, a URL) sizes this column by
 							     that string and pushes it out of the panel — and any `truncate` inside
 							     never engages. -->
+
 							<div class={twMerge('ml-0 text-left flex-1 min-w-0', showIcon ? 'ml-4' : '')}>
 								<h3 class="text-lg font-medium text-primary">
 									{title}

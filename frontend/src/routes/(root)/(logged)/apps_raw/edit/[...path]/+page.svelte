@@ -535,7 +535,8 @@
 		aiChatManager.datatableCreationPolicy = {
 			enabled: !!result.data.datatable,
 			datatable: result.data.datatable,
-			schema: result.data.schema
+			schema: result.data.schema,
+			roles: result.data.roles
 		}
 		if (withPrompt && result.prompt) {
 			const prompt = result.prompt
