@@ -10,6 +10,7 @@
 	} from './utils'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
+	import { triggerLock } from '$lib/operatorWriteRights'
 	import { Button } from '$lib/components/common'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
@@ -288,6 +289,8 @@
 			loadingConfig ||
 			loadingForm ||
 			!can_write ||
+			// Drawer mode draws its own Save, outside the shared toolbar that carries the lock.
+			!!$triggerLock ||
 			!hasChanged ||
 			loadError !== undefined
 	)
@@ -419,6 +422,7 @@
 		variant="accent"
 		on:click={save}
 		disabled={saveDisabled}
+		title={$triggerLock}
 		{loading}
 	>
 		Save

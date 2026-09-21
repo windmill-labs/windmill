@@ -129,10 +129,8 @@
 		</Button>
 	{/if}
 {:else}
-	<!-- The draft branch: this toolbar inside a script or flow editor's Triggers panel. Only
-		 someone who can edit the runnable gets here, so `writeLock` is always undefined today —
-		 it is applied anyway because the operator builder-rights work (#11228, #11229) gives
-		 operators that editor, and this panel would otherwise be the one ungated way in. -->
+	<!-- This toolbar inside a script or flow editor's Triggers panel: another path to the same
+		 trigger writes, so it takes the same lock. -->
 	<div class="flex flex-row gap-2 items-center">
 		{#if triggerKind && historyPath}
 			<TriggerHistoryButton {triggerKind} path={historyPath} />

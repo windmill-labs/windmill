@@ -38,7 +38,10 @@ Two consequences to keep in mind when adding a route under one of these:
   routes alone rather than the whole mount.
 
 `check_operator_can_manage` is still the function underneath, for a write that cannot be reached
-through one of these routers.
+through one of these routers. `/acls/add` and `/acls/remove` are the case that needs it: sharing an
+object is a write to it, but that router serves every kind there is, so it can only be gated per
+kind from inside the handlers. `manage_kind_for_acl_kind` holds that list, spelled out rather than
+matched on the `_trigger` suffix so a kind named otherwise cannot slip through ungated.
 
 The cache is per process, so withdrawing a right has to reach every replica: an `AFTER UPDATE OF
 operator_settings` trigger writes a `notify_operator_settings_change` row and `process_notify_event`

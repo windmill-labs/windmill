@@ -168,12 +168,10 @@
 							<Button
 								on:click={() => onEdit?.(trigger)}
 								unifiedSize="md"
-								startIcon={{ icon: Pen }}
+								startIcon={{ icon: $triggerLock ? Eye : Pen }}
 								variant="subtle"
-								disabled={!!$triggerLock}
-								title={$triggerLock}
 							>
-								Edit
+								{$triggerLock ? 'View' : 'Edit'}
 							</Button>
 							<Dropdown
 								size="md"

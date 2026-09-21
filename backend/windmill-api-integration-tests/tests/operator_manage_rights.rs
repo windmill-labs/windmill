@@ -69,6 +69,18 @@ async fn test_operator_manage_rights(db: Pool<Postgres>) -> anyhow::Result<()> {
         .await?;
     assert_eq!(resp.status(), 200, "{}", resp.text().await?);
 
+    // Both polarities: a 401 alone would equally be the route's own ownership check refusing.
+    let share = async || -> anyhow::Result<(u16, String)> {
+        let resp = c
+            .post(format!("{api}/acls/add/schedule/u/operator/sched_default"))
+            .json(&json!({"owner": "u/alice", "write": true}))
+            .send()
+            .await?;
+        Ok((resp.status().as_u16(), resp.text().await?))
+    };
+    let (status, body) = share().await?;
+    assert_eq!(status, 200, "{body}");
+
     // An admin withdraws it.
     assert_eq!(
         set_settings(&api, json!({"manage_schedules": false})).await?,
@@ -81,6 +93,9 @@ async fn test_operator_manage_rights(db: Pool<Postgres>) -> anyhow::Result<()> {
         .send()
         .await?;
     assert_eq!(resp.status(), 401, "{}", resp.text().await?);
+
+    let (status, body) = share().await?;
+    assert_eq!(status, 401, "{body}");
 
     // A payload omitting the key must not restore it. This is what an older git-sync settings file
     // looks like, and what a serde or SQL default of either polarity would get wrong.

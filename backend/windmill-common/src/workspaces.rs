@@ -1218,7 +1218,8 @@ pub enum ManageKind {
 }
 
 impl ManageKind {
-    fn noun(&self) -> &'static str {
+    /// Words the refusal message, and prefixes the `/acls` audit action (`schedules.grant_acl`).
+    pub fn noun(&self) -> &'static str {
         match self {
             ManageKind::Schedules => "schedules",
             ManageKind::Triggers => "triggers",
