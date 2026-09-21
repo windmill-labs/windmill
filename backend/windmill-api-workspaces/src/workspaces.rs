@@ -9574,6 +9574,32 @@ async fn write_workspace_fork(
             )));
         }
     }
+    // Saves name an external database under the external cluster's lifecycle lock instead.
+    let external_copies: Vec<&str> = copies
+        .iter()
+        .filter(|c| {
+            c.source_database.resource_type == DataTableCatalogResourceType::ExternalInstance
+        })
+        .map(|c| c.dbname.as_str())
+        .collect();
+    if !external_copies.is_empty() {
+        windmill_common::external_instance_pg::lock_external_instance_pg_state(&mut tx).await?;
+    }
+    for dbname in &external_copies {
+        let uses = windmill_common::workspaces::managed_database_uses(
+            &mut tx,
+            DataTableCatalogResourceType::ExternalInstance,
+            dbname,
+            None,
+        )
+        .await?;
+        if !uses.is_empty() {
+            return Err(Error::BadRequest(format!(
+                "Database '{dbname}' copied for this fork is already used by {}; fork again",
+                uses.join(", ")
+            )));
+        }
+    }
 
     // Update forked datatable settings to point to new databases
     for fdt in &nw.forked_datatables {
