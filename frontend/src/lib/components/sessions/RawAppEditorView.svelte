@@ -172,9 +172,10 @@
 
 	// The inline mini-composer over a selected element sends a chat turn; the
 	// element is already an app_dom_selector chip, so it rides along as context.
-	// Mirror the composer: while a turn is streaming, queue it (a second concurrent
-	// sendRequest would race the shared abortController / streaming buffers) — it
-	// auto-sends when the current turn completes.
+	// Mirror the composer: while another send holds the chat — streaming, in
+	// preflight, or waiting for the transcript to be restored — queue it (a second
+	// concurrent sendRequest would race the shared abortController / streaming
+	// buffers) — it auto-sends when the current turn completes.
 	function onInlinePrompt(selector: string, prompt: string) {
 		// Snapshot the selection synchronously at submit time so a re-selection
 		// during the async send preflight (immediate path) or before the queue

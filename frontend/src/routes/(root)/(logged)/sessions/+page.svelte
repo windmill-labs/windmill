@@ -236,7 +236,7 @@
 	const mountedChatIds = new SvelteSet<string>()
 	function keepsChatMounted(id: string): boolean {
 		const m = getRuntime(id)?.manager
-		return !!m && (m.loading || m.sendInFlight || m.hasUnsentInput)
+		return !!m && (m.loading || m.sendInFlight || m.sendPending || m.hasUnsentInput)
 	}
 	function mountChat(id: string) {
 		mountedChatIds.delete(id)
