@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE usr SET created_at = now()\n         WHERE workspace_id = 'test-workspace' AND email = 'test2@windmill.dev'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "725f347cad26a8f5f0062527ebaf64927b2a5c5e5a3ee8eac8f8e7c1d5c36cf0"
+}

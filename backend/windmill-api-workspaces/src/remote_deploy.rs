@@ -34,7 +34,7 @@ use windmill_common::{
     error::{error_source_chain, Error, Result},
     ssrf::validate_url_for_ssrf,
     utils::{configure_client, rd_string, require_admin},
-    variables::{build_crypt, crypt_from_key_with_suffix, decrypt, encrypt},
+    variables::{build_crypt, decrypt, encrypt},
     worker::CLOUD_HOSTED,
     DB,
 };
@@ -210,6 +210,53 @@ fn unreachable(target: &RemoteDeployTarget, e: reqwest::Error) -> Error {
 /// Responses carrying a `proxy_key` must not be kept by any cache between here and the browser.
 const NO_STORE: [(header::HeaderName, &str); 1] = [(header::CACHE_CONTROL, "no-store")];
 
+struct StoredConnection {
+    token: String,
+    remote_email: String,
+    proxy_key: String,
+    connected_at: DateTime<Utc>,
+}
+
+/// The caller's connection to `target`, if they may still use it.
+///
+/// `connect` takes no lock against what clears these rows (a removal from the workspace, a target
+/// change, a key rotation): writers take those rows in every order, so any lock it held could close
+/// a deadlock. A row can therefore land just after one of them ran, and is voided here instead. It
+/// counts only for the target it was granted for, for a superadmin or a membership that began no
+/// later than the connect (so a re-add does not revive it), and while it decrypts.
+async fn load_connection(
+    db: &DB,
+    w_id: &str,
+    email: &str,
+    target: &RemoteDeployTarget,
+) -> Result<Option<StoredConnection>> {
+    let Some(row) = sqlx::query_as!(
+        StoredConnection,
+        "SELECT t.token, t.remote_email, t.proxy_key, t.connected_at FROM remote_deploy_token t
+         WHERE t.workspace_id = $1 AND t.email = $2 AND t.base_url = $3
+           AND t.remote_workspace_id = $4
+           AND (EXISTS (SELECT 1 FROM usr u WHERE u.workspace_id = t.workspace_id
+                          AND u.email = t.email AND u.created_at <= t.connected_at)
+                OR EXISTS (SELECT 1 FROM password p WHERE p.email = t.email AND p.super_admin))",
+        w_id,
+        email,
+        &target.base_url,
+        &target.workspace_id
+    )
+    .fetch_optional(db)
+    .await?
+    else {
+        return Ok(None);
+    };
+    match decrypt(&build_crypt(db, w_id).await?, row.token) {
+        Ok(token) => Ok(Some(StoredConnection { token, ..row })),
+        Err(e) => {
+            tracing::warn!("remote deploy token of {email} in {w_id} does not decrypt: {e}");
+            Ok(None)
+        }
+    }
+}
+
 async fn get_target(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -223,18 +270,13 @@ async fn get_target(
     // `require_own_credentials`) must not read it either: it could hand its owner a working link.
     let connection = match &target {
         Some(target) if require_own_credentials(&authed).is_ok() => {
-            sqlx::query_as!(
-                RemoteDeployConnection,
-                "SELECT remote_email, proxy_key, connected_at FROM remote_deploy_token
-                 WHERE workspace_id = $1 AND email = $2 AND base_url = $3
-                   AND remote_workspace_id = $4",
-                &w_id,
-                &authed.email,
-                &target.base_url,
-                &target.workspace_id
-            )
-            .fetch_optional(&db)
-            .await?
+            load_connection(&db, &w_id, &authed.email, target)
+                .await?
+                .map(|c| RemoteDeployConnection {
+                    remote_email: c.remote_email,
+                    proxy_key: c.proxy_key,
+                    connected_at: c.connected_at,
+                })
         }
         _ => None,
     };
@@ -346,8 +388,7 @@ async fn connect(
     let target = require_target(&db, &w_id).await?;
     // A token is only ever sent to the instance it was meant for. Without this, re-pointing the
     // target between the user getting a token and posting it here would hand it to the new one;
-    // a change after this check is caught before the insert below, and the token still goes to
-    // `target`, never to what the setting became.
+    // after this check the token still goes to `target` only, never to what the setting became.
     let requested = request.target.normalized()?;
     if requested.base_url != target.base_url || requested.workspace_id != target.workspace_id {
         return Err(Error::BadRequest(
@@ -385,76 +426,10 @@ async fn connect(
     })?;
 
     let proxy_key = rd_string(32);
+    let mc = build_crypt(&db, &w_id).await?;
+    // No lock against removals, target changes or key rotations: `load_connection` voids a row
+    // that lands after one of them.
     let mut tx = db.begin().await?;
-    // The remote call above leaves time for the caller to be removed from the workspace, which
-    // clears this table under a lock on the membership: holding it until commit keeps a row from
-    // landing after that cleanup. A superadmin needs no membership, and has none to lose.
-    // Writers take the account and the membership in both orders (deletion and renames account
-    // first, global offboarding memberships first), so no order is safe to wait in: the account
-    // is locked first, as the token's foreign key would otherwise take it last, and the membership
-    // is never waited for. A removal holding it is let finish, and the caller retries.
-    let superadmin = sqlx::query_scalar!(
-        "SELECT super_admin FROM password WHERE email = $1 FOR KEY SHARE",
-        &authed.email
-    )
-    .fetch_optional(&mut *tx)
-    .await?
-    .ok_or_else(|| {
-        Error::BadRequest(format!(
-            "{} is not an account of this instance",
-            authed.email
-        ))
-    })?;
-    let member = sqlx::query_scalar!(
-        "SELECT 1 FROM usr WHERE workspace_id = $1 AND email = $2 FOR SHARE NOWAIT",
-        &w_id,
-        &authed.email
-    )
-    .fetch_optional(&mut *tx)
-    .await
-    .map_err(|e| {
-        // 55P03 lock_not_available: the membership is being changed right now.
-        if e.as_database_error().and_then(|d| d.code()).as_deref() == Some("55P03") {
-            Error::BadRequest(format!(
-                "Your membership in workspace {w_id} is being changed; try again in a moment"
-            ))
-        } else {
-            e.into()
-        }
-    })?;
-    if member.is_none() && !superadmin {
-        return Err(Error::BadRequest(format!(
-            "Only a member of workspace {w_id} can connect it to a remote instance"
-        )));
-    }
-    // From the key read under the lock a rotation takes, not from `build_crypt`: a rotation
-    // committing in between would re-encrypt every row but this one.
-    let key: String = sqlx::query_scalar!(
-        "SELECT key FROM workspace_key WHERE workspace_id = $1 AND kind = 'cloud' FOR SHARE",
-        &w_id
-    )
-    .fetch_one(&mut *tx)
-    .await?;
-    let mc = crypt_from_key_with_suffix(&key, "");
-    // Only while the workspace still points at the target the token was just checked against,
-    // read under the lock `set_target` writes it under: an unlocked read could still see the old
-    // target of a change whose token cleanup already ran, and leave a row for it. After the key,
-    // the order a rotation takes the two in.
-    let current = sqlx::query_scalar!(
-        "SELECT remote_deploy_target FROM workspace_settings WHERE workspace_id = $1 FOR SHARE",
-        &w_id
-    )
-    .fetch_optional(&mut *tx)
-    .await?
-    .flatten()
-    .and_then(|t| serde_json::from_value::<RemoteDeployTarget>(t).ok());
-    if !current
-        .is_some_and(|c| c.base_url == target.base_url && c.workspace_id == target.workspace_id)
-    {
-        return Err(Error::BadRequest(
-            "The remote deploy target changed while connecting".to_string(),
-        ));
-    }
     let connected_at = sqlx::query_scalar!(
         "INSERT INTO remote_deploy_token
              (workspace_id, email, base_url, remote_workspace_id, token, remote_email, proxy_key)
@@ -565,35 +540,25 @@ async fn proxy(
     require_own_credentials(&authed)?;
     let target = require_target(&db, &w_id).await?;
     let url = forwarded_url(&target, uri.path(), uri.query())?;
-    let stored = sqlx::query!(
-        "SELECT token, proxy_key FROM remote_deploy_token
-         WHERE workspace_id = $1 AND email = $2 AND base_url = $3
-           AND remote_workspace_id = $4",
-        &w_id,
-        &authed.email,
-        &target.base_url,
-        &target.workspace_id
-    )
-    .fetch_optional(&db)
-    .await?
-    .ok_or_else(|| {
-        Error::BadRequest(format!(
-            "Connect to {} with your own token before deploying there",
-            target.base_url
-        ))
-    })?;
+    let stored = load_connection(&db, &w_id, &authed.email, &target)
+        .await?
+        .ok_or_else(|| {
+            Error::BadRequest(format!(
+                "Connect to {} with your own token before deploying there",
+                target.base_url
+            ))
+        })?;
     if !constant_time_eq::constant_time_eq(key.as_bytes(), stored.proxy_key.as_bytes()) {
         return Err(Error::BadRequest(
             "This remote deploy link is not yours or is out of date; reload the page".to_string(),
         ));
     }
-    let token = decrypt(&build_crypt(&db, &w_id).await?, stored.token)?;
 
     // Only what describes the payload: the caller's cookie and token belong to this instance.
     let mut request = remote_client(&target)
         .await?
         .request(method, url)
-        .bearer_auth(token)
+        .bearer_auth(stored.token)
         .body(body);
     for name in [header::CONTENT_TYPE, header::ACCEPT] {
         if let Some(value) = headers.get(&name) {

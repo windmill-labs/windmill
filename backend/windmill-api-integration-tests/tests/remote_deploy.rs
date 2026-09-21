@@ -117,6 +117,19 @@ async fn test_remote_deploy_proxy(db: Pool<Postgres>) -> anyhow::Result<()> {
         .await?;
     assert_eq!(resp.status(), 400);
 
+    // A connect locks nothing against a key rotation, so its row can land under the old key: that
+    // is no connection, which the drawer offers to replace, rather than an error on every deploy.
+    sqlx::query!(
+        "UPDATE remote_deploy_token SET token = 'not-under-this-key'
+         WHERE workspace_id = 'test-workspace'"
+    )
+    .execute(&db)
+    .await?;
+    let resp = authed(client().get(format!("{base}/target")))
+        .send()
+        .await?;
+    assert!(resp.json::<serde_json::Value>().await?["connection"].is_null());
+
     // A target that refuses the stored token must not answer 401: the browser reads an
     // unhandled 401 as its own session having expired and logs the user out of this instance.
     let mc = build_crypt(&db, "test-workspace").await?;
@@ -131,15 +144,38 @@ async fn test_remote_deploy_proxy(db: Pool<Postgres>) -> anyhow::Result<()> {
         .await?;
     assert_eq!(resp.status(), 502);
 
-    // Deleting the account must take its token with it, or the next account created with that
-    // address would act on the remote as this one.
-    let resp = client()
-        .post(format!("{base}/connect"))
-        .header("Authorization", "Bearer SECRET_TOKEN_2")
+    // Nor does a connect lock anything against a removal from the workspace, so its row can land
+    // after the removal cleared the table: a row older than its owner's membership must not come
+    // back with a re-add.
+    let as_test2 =
+        |builder: reqwest::RequestBuilder| builder.header("Authorization", "Bearer SECRET_TOKEN_2");
+    let resp = as_test2(client().post(format!("{base}/connect")))
         .json(&json!({"token": "SECRET_TOKEN_2", "target": target}))
         .send()
         .await?;
     assert_eq!(resp.status(), 200);
+    let key2 = resp.json::<serde_json::Value>().await?["proxy_key"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    sqlx::query!(
+        "UPDATE usr SET created_at = now()
+         WHERE workspace_id = 'test-workspace' AND email = 'test2@windmill.dev'"
+    )
+    .execute(&db)
+    .await?;
+    let resp = as_test2(client().get(format!("{base}/target")))
+        .send()
+        .await?;
+    assert!(resp.json::<serde_json::Value>().await?["connection"].is_null());
+    let resp = as_test2(client().get(format!("{base}/proxy/{key2}/users/whoami")))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 400);
+    assert!(resp.text().await?.contains("Connect to"));
+
+    // Deleting the account must take its token with it, or the next account created with that
+    // address would act on the remote as this one.
     let resp = authed(client().delete(format!(
         "http://localhost:{port}/api/users/delete/test2@windmill.dev"
     )))
@@ -165,219 +201,5 @@ async fn test_remote_deploy_proxy(db: Pool<Postgres>) -> anyhow::Result<()> {
         .await?;
     assert_eq!(resp.status(), 400);
 
-    Ok(())
-}
-
-/// A connect waits on the remote, which leaves time for the caller to be removed from the
-/// workspace: its row must not land after the removal's cleanup, to come back on a re-add.
-#[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn test_remote_deploy_connect_racing_workspace_removal(
-    db: Pool<Postgres>,
-) -> anyhow::Result<()> {
-    initialize_tracing().await;
-    let server = ApiServer::start(db.clone()).await?;
-    let port = server.addr.port();
-
-    // A remote whose `whoami` answers only once the removal below has committed.
-    let (reached_tx, reached_rx) = tokio::sync::oneshot::channel::<()>();
-    let (release_tx, release_rx) = tokio::sync::oneshot::channel::<()>();
-    let gate = std::sync::Arc::new(tokio::sync::Mutex::new(Some((reached_tx, release_rx))));
-    let remote = axum::Router::new().route(
-        "/api/w/prod/users/whoami",
-        axum::routing::get(move || {
-            let gate = gate.clone();
-            async move {
-                if let Some((reached, release)) = gate.lock().await.take() {
-                    let _ = reached.send(());
-                    let _ = release.await;
-                }
-                axum::Json(json!({ "email": "remote@example.com" }))
-            }
-        }),
-    );
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
-    let remote_port = listener.local_addr()?.port();
-    tokio::spawn(async move { axum::serve(listener, remote).await });
-    sqlx::query!(
-        "UPDATE workspace_settings SET remote_deploy_target = $1
-         WHERE workspace_id = 'test-workspace'",
-        json!({ "base_url": format!("http://127.0.0.1:{remote_port}"), "workspace_id": "prod" })
-    )
-    .execute(&db)
-    .await?;
-
-    let connect = tokio::spawn(
-        client()
-            .post(format!(
-                "http://localhost:{port}/api/w/test-workspace/remote_deploy/connect"
-            ))
-            .header("Authorization", "Bearer SECRET_TOKEN_2")
-            .json(&json!({
-                "token": "remote-token",
-                "target": { "base_url": format!("http://127.0.0.1:{remote_port}"), "workspace_id": "prod" }
-            }))
-            .send(),
-    );
-    tokio::time::timeout(std::time::Duration::from_secs(30), reached_rx).await??;
-    let resp = authed(client().delete(format!(
-        "http://localhost:{port}/api/w/test-workspace/users/delete/test-user-2"
-    )))
-    .send()
-    .await?;
-    assert_eq!(resp.status(), 200);
-    release_tx.send(()).unwrap();
-    // Refused for no longer being a member, rather than failing before it got this far.
-    let resp = connect.await??;
-    assert_eq!(resp.status(), 400);
-    assert!(resp.text().await?.contains("Only a member"));
-
-    let left = sqlx::query_scalar!(
-        "SELECT count(*) FROM remote_deploy_token WHERE email = 'test2@windmill.dev'"
-    )
-    .fetch_one(&db)
-    .await?;
-    assert_eq!(left, Some(0));
-    Ok(())
-}
-
-/// A target change whose token cleanup already ran, but which has not committed yet, must not let
-/// a connect leave a row behind for the old target, to come back if the setting is pointed at it
-/// again.
-#[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn test_remote_deploy_connect_racing_target_change(db: Pool<Postgres>) -> anyhow::Result<()> {
-    initialize_tracing().await;
-    let server = ApiServer::start(db.clone()).await?;
-    let port = server.addr.port();
-    let target =
-        json!({ "base_url": format!("http://localhost:{port}"), "workspace_id": "test-workspace" });
-    sqlx::query!(
-        "UPDATE workspace_settings SET remote_deploy_target = $1
-         WHERE workspace_id = 'test-workspace'",
-        target
-    )
-    .execute(&db)
-    .await?;
-
-    // What `set_target` does, held open.
-    let mut change = db.begin().await?;
-    sqlx::query!(
-        "UPDATE workspace_settings SET remote_deploy_target = $1
-         WHERE workspace_id = 'test-workspace'",
-        json!({ "base_url": format!("http://localhost:{port}"), "workspace_id": "other" })
-    )
-    .execute(&mut *change)
-    .await?;
-    sqlx::query!("DELETE FROM remote_deploy_token WHERE workspace_id = 'test-workspace'")
-        .execute(&mut *change)
-        .await?;
-
-    let connect = tokio::spawn(
-        authed(client().post(format!(
-            "http://localhost:{port}/api/w/test-workspace/remote_deploy/connect"
-        )))
-        .json(&json!({ "token": "SECRET_TOKEN", "target": target }))
-        .send(),
-    );
-    // Commit once the connect waits on the setting, or has finished without waiting.
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
-    loop {
-        let waiting: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM pg_stat_activity
-             WHERE datname = current_database() AND wait_event_type = 'Lock'",
-        )
-        .fetch_one(&db)
-        .await?;
-        if waiting > 0 || connect.is_finished() || std::time::Instant::now() > deadline {
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    }
-    change.commit().await?;
-    let resp = connect.await??;
-    assert_eq!(resp.status(), 400);
-
-    // Pointing back at the old target finds no connection to restore.
-    sqlx::query!(
-        "UPDATE workspace_settings SET remote_deploy_target = $1
-         WHERE workspace_id = 'test-workspace'",
-        target
-    )
-    .execute(&db)
-    .await?;
-    let left = sqlx::query_scalar!(
-        "SELECT count(*) FROM remote_deploy_token WHERE workspace_id = 'test-workspace'"
-    )
-    .fetch_one(&db)
-    .await?;
-    assert_eq!(left, Some(0));
-    Ok(())
-}
-
-/// Global offboarding removes memberships before the account, the reverse of the order `connect`
-/// takes them in. A connect caught between the two must fail cleanly and let the offboarding
-/// finish, rather than deadlock with it.
-#[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn test_remote_deploy_connect_racing_offboarding(db: Pool<Postgres>) -> anyhow::Result<()> {
-    initialize_tracing().await;
-    let server = ApiServer::start(db.clone()).await?;
-    let port = server.addr.port();
-    let target =
-        json!({ "base_url": format!("http://localhost:{port}"), "workspace_id": "test-workspace" });
-    sqlx::query!(
-        "UPDATE workspace_settings SET remote_deploy_target = $1
-         WHERE workspace_id = 'test-workspace'",
-        target
-    )
-    .execute(&db)
-    .await?;
-
-    // Offboarding, held after its membership removal.
-    let mut offboarding = db.begin().await?;
-    sqlx::query!(
-        "DELETE FROM usr WHERE workspace_id = 'test-workspace' AND email = 'test2@windmill.dev'"
-    )
-    .execute(&mut *offboarding)
-    .await?;
-
-    let connect = tokio::spawn(
-        client()
-            .post(format!(
-                "http://localhost:{port}/api/w/test-workspace/remote_deploy/connect"
-            ))
-            .header("Authorization", "Bearer SECRET_TOKEN_2")
-            .json(&json!({ "token": "SECRET_TOKEN_2", "target": target }))
-            .send(),
-    );
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
-    loop {
-        let waiting: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM pg_stat_activity
-             WHERE datname = current_database() AND wait_event_type = 'Lock'",
-        )
-        .fetch_one(&db)
-        .await?;
-        if waiting > 0 || connect.is_finished() || std::time::Instant::now() > deadline {
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    }
-    // The account last, as offboarding does.
-    sqlx::query!("DELETE FROM password WHERE email = 'test2@windmill.dev'")
-        .execute(&mut *offboarding)
-        .await?;
-    offboarding.commit().await?;
-
-    // Refused because the membership was changing, not aborted as a deadlock victim (which the
-    // API also reports as a 400).
-    let resp = connect.await??;
-    assert_eq!(resp.status(), 400);
-    let body = resp.text().await?;
-    assert!(body.contains("is being changed"), "{body}");
-    let left = sqlx::query_scalar!(
-        "SELECT count(*) FROM remote_deploy_token WHERE email = 'test2@windmill.dev'"
-    )
-    .fetch_one(&db)
-    .await?;
-    assert_eq!(left, Some(0));
     Ok(())
 }
