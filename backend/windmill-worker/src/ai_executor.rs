@@ -23,6 +23,7 @@ use windmill_mcp::McpClient;
 use crate::ai::tools::McpClientStub as McpClient;
 use windmill_ai::{
     ai_providers::AIProvider,
+    decision::{decision_inputs, run_systemone},
     image_handler::upload_image_to_s3,
     providers::{
         create_chat_completions_query_builder, create_query_builder, is_chat_completions_only,
@@ -121,8 +122,9 @@ fn prepare_auto_memory_messages_for_persistence(
 }
 
 /// The inputs a linked step supplies for itself; the resource holds the rest of the brain.
-const FLOW_LOCAL_AGENT_KEYS: [&str; 5] = [
+const FLOW_LOCAL_AGENT_KEYS: [&str; 6] = [
     "user_message",
+    "state",
     "user_attachments",
     "enabled_tools",
     "memory_id",
@@ -713,11 +715,16 @@ pub async fn handle_ai_agent_job(
 
     keep_authored_memory_id(&mut args, &step_input_transforms);
 
-    // Nesting is capped at flow → agent → nested agent. When this job is itself a nested tool,
-    // a linked resource's tool set may still contain AIAgent tools (the editor can't constrain a
-    // shared resource); don't advertise them — invoking one would only fail the depth check as a
-    // third-level agent.
-    let tools = if direct_parent_job_kind == JobKind::AIAgent {
+    let tools = if args.output_type == Some(StepOutputType::Decision) {
+        // A decision is one call that offers no tools, so its roster is never resolved: an MCP
+        // server the step still lists is not contacted, and there is nothing a narrowing could name.
+        args.enabled_tools = None;
+        Vec::new()
+    } else if direct_parent_job_kind == JobKind::AIAgent {
+        // Nesting is capped at flow → agent → nested agent. When this job is itself a nested tool,
+        // a linked resource's tool set may still contain AIAgent tools (the editor can't constrain
+        // a shared resource); don't advertise them — invoking one would only fail the depth check
+        // as a third-level agent.
         tools
             .into_iter()
             .filter(|t| {
@@ -1130,7 +1137,17 @@ pub async fn run_agent(
     // abort handles for spawned tool tasks
     tool_abort_handles: ToolAbortHandles,
 ) -> error::Result<Box<RawValue>> {
-    let output_type = args.output_type.as_ref().unwrap_or(&OutputType::Text);
+    let output_type = &match args.output_type {
+        Some(StepOutputType::Decision) => return run_decision(db, conn, job, args).await,
+        Some(StepOutputType::Image) => OutputType::Image,
+        Some(StepOutputType::Text) | None => OutputType::Text,
+    };
+    if args.provider.kind == AIProvider::TypeSafe {
+        return Err(Error::BadRequest(
+            "TypeSafe answers decisions, not messages: set the step's output type to decision"
+                .to_string(),
+        ));
+    }
     let credentials = args.provider.to_provider_credentials(db).await?;
     let base_url = &credentials.base_url;
     let api_key = credentials.api_key.as_deref().unwrap_or("");
@@ -2058,6 +2075,37 @@ pub async fn run_agent(
             final_usage
         },
     }))
+}
+
+/// Decision output: the step's questions answered about its state in a single call, with no loop,
+/// tools, memory or stream.
+async fn run_decision(
+    db: &DB,
+    conn: &Connection,
+    job: &MiniPulledJob,
+    args: &AIAgentArgs,
+) -> error::Result<Box<RawValue>> {
+    if args.provider.kind != AIProvider::TypeSafe {
+        return Err(Error::BadRequest(format!(
+            "Decision output needs a TypeSafe resource, not {:?}",
+            args.provider.kind
+        )));
+    }
+    let (state, questions) = decision_inputs(args.state.as_ref(), args.questions.as_ref())?;
+    let credentials = args.provider.to_provider_credentials(db).await?;
+    let timeout = resolve_job_timeout(conn, &job.workspace_id, job.id, job.timeout)
+        .await
+        .0;
+    let result = run_systemone(
+        &credentials,
+        args.provider.get_model(),
+        state,
+        questions,
+        timeout,
+    )
+    .await?;
+    windmill_common::feature_usage::log_feature_usage("ai_agent", "decision", "run");
+    Ok(to_raw_value(&result))
 }
 
 /// Whether the step asked for its answer as it is generated. Absence means on, matching the

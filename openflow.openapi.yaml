@@ -473,6 +473,7 @@ components:
         - togetherai
         - customai
         - aws_bedrock
+        - typesafe
 
     ProviderConfig:
       type: object
@@ -1061,7 +1062,32 @@ components:
                 - $ref: '#/components/schemas/InputTransform'
               description: |
                 Output format type.
-                Valid values: 'text' (default) - plain text response, 'image' - image generation
+                Valid values: 'text' (default) - plain text response, 'image' - image generation,
+                'decision' - typed answers to `questions` about `state` from a decision model
+                (TypeSafe's Jev, with a `typesafe` provider). A decision makes one call and reads
+                only provider, state and questions: no tools, memory, messages or streaming.
+            state:
+              allOf:
+                - $ref: '#/components/schemas/InputTransform'
+              description: |
+                Decision output only. What the questions are asked about: a string, an object
+                or an array of strings. An object with descriptive keys works best.
+                Example: { message: flow_input.message, plan: results.a.plan }
+            questions:
+              allOf:
+                - $ref: '#/components/schemas/InputTransform'
+              description: |
+                Decision output only. Object mapping each question name to
+                { type, instructions, criteria }, where type is:
+                - 'choice': criteria maps each option to its description (up to 255); the answer
+                  has choice, probabilities and confidence
+                - 'score': criteria is an ordered array of 2 to 10 level descriptions; the answer
+                  has score, legend, probabilities and confidence
+                - 'noul': yes/no, criteria optionally { true, false } descriptions; the answer is
+                  the probability noul (0 to 1)
+                The step's result is { output: { <name>: answer }, model, usage }.
+                Example: { intent: { type: 'choice', instructions: 'What does the customer want?',
+                criteria: { refund: 'Money back', bug: 'Something is broken' } } }
             user_message:
               allOf:
                 - $ref: '#/components/schemas/InputTransform'

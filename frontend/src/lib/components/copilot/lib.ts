@@ -73,7 +73,11 @@ const OPENAI_MODELS = [
 	'o3'
 ]
 
-export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
+/** The providers that chat. Every surface picking a model to talk to (the copilot, flow chat, an
+ *  agent's text or image output, eval judges) offers exactly these. */
+export type ChatAIProvider = Exclude<AIProvider, 'typesafe'>
+
+export const AI_PROVIDERS: Record<ChatAIProvider, AIProviderDetails> = {
 	openai: {
 		label: 'OpenAI',
 		defaultModels: OPENAI_MODELS
@@ -144,6 +148,27 @@ export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
 	}
 }
 
+/** TypeSafe's Jev answers typed questions instead of messages, so only an agent step with decision
+ *  output offers it. The pinned version is there for flows tuned against its probabilities. */
+export const DECISION_AI_PROVIDERS: Record<
+	Exclude<AIProvider, ChatAIProvider>,
+	AIProviderDetails
+> = {
+	typesafe: {
+		label: 'TypeSafe',
+		defaultModels: ['jev-latest', 'jev-1.13.0']
+	}
+}
+
+export function isChatAIProvider(provider: string): provider is ChatAIProvider {
+	return provider in AI_PROVIDERS
+}
+
+/** Label and default models of any provider kind, chat or decision. */
+export function aiProviderDetails(provider: AIProvider): AIProviderDetails {
+	return isChatAIProvider(provider) ? AI_PROVIDERS[provider] : DECISION_AI_PROVIDERS[provider]
+}
+
 export interface ModelResponse {
 	id: string
 	object: string
@@ -174,6 +199,12 @@ export async function fetchAvailableModels(
 	/** Cap on the listing response, for callers that fetch without a user asking. */
 	maxBytes?: number
 ): Promise<string[]> {
+	// TypeSafe's listing is not OpenAI-shaped (`name`, not `id`), and it serves one model under
+	// aliases, so its known ids are the list.
+	if (!isChatAIProvider(provider)) {
+		return DECISION_AI_PROVIDERS[provider].defaultModels
+	}
+
 	// Handle AWS Bedrock separately (needs both foundation-models and inference-profiles)
 	if (provider === 'aws_bedrock') {
 		const headers = {
@@ -487,7 +518,7 @@ const DEFAULT_COMPLETION_CONFIG: ChatCompletionCreateParams = {
 	messages: []
 }
 
-export const PROVIDER_COMPLETION_CONFIG_MAP: Record<AIProvider, ChatCompletionCreateParams> = {
+export const PROVIDER_COMPLETION_CONFIG_MAP: Record<ChatAIProvider, ChatCompletionCreateParams> = {
 	openai: DEFAULT_COMPLETION_CONFIG,
 	azure_openai: DEFAULT_COMPLETION_CONFIG,
 	azure_foundry: DEFAULT_COMPLETION_CONFIG,

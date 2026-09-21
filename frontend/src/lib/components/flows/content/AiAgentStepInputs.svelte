@@ -58,6 +58,8 @@
 		AGENT_TOOLS_ROW,
 		AGENT_FIELD_GROUPS,
 		agentFieldAppliesTo,
+		agentFieldServes,
+		agentOutputType,
 		agentMemoryMode,
 		historyInputApplies,
 		type AgentMemoryMode,
@@ -112,9 +114,10 @@
 		onDeleteTool?: (toolId: string) => void
 		/** Where the tool picker's popover belongs, for a surface that is not the flow editor. */
 		toolPickerPortal?: string
-		/** A linked agent's memory, once its config has loaded: whether it keeps managed memory decides
-		 *  which history inputs the step offers. */
-		linkedMemory?: { memory: unknown } | undefined
+		/** A linked agent's memory and output type, once its config has loaded: whether it keeps
+		 *  managed memory decides which history inputs the step offers, and its output type which of
+		 *  the flow-local inputs a run reads. */
+		linkedBrain?: { memory: unknown; output_type: unknown } | undefined
 	}
 
 	let {
@@ -145,7 +148,7 @@
 		onAddTool = undefined,
 		onDeleteTool = undefined,
 		toolPickerPortal = undefined,
-		linkedMemory = undefined
+		linkedBrain = undefined
 	}: Props = $props()
 
 	let ws = $derived(workspace ?? $workspaceStore)
@@ -189,7 +192,7 @@
 				? agentMemoryMode(transform?.value)
 				: undefined
 		}
-		return linkedMemory ? agentMemoryMode(linkedMemory.memory) : undefined
+		return linkedBrain ? agentMemoryMode(linkedBrain.memory) : undefined
 	})
 
 	// The one-of field rewrites a value that matches none of its options, so a legacy kind the step
@@ -250,7 +253,7 @@
 				? args?.memory?.type === 'static'
 					? args.memory.value
 					: undefined
-				: linkedMemory?.memory
+				: linkedBrain?.memory
 		)
 		return onThisForm
 			? `Ignored while memory is set to ${label}.`
@@ -282,10 +285,10 @@
 	}
 
 	let outputType = $derived.by(() => {
+		if (!('output_type' in schemaProperties)) return agentOutputType(linkedBrain?.output_type)
 		const transform = args?.['output_type']
-		return transform && transform.type === 'static' ? transform.value : undefined
+		return agentOutputType(transform?.type === 'static' ? transform.value : undefined)
 	})
-	let imageOutput = $derived(outputType === 'image')
 
 	// Which fields have a row. Never derived from `args`, or emptying a textbox would make its row
 	// vanish under the cursor: this only ever grows, and the x is the one thing that shrinks it.
@@ -298,7 +301,7 @@
 	// A field set from anywhere else — an undo, a schema that arrived late — brings its row back on
 	// its own.
 	$effect(() => {
-		const set = initialVisibleAgentFields(args, schemaProperties)
+		const set = initialVisibleAgentFields(args, schemaProperties, outputType)
 		untrack(() => {
 			for (const key of set) visible.add(key)
 		})
@@ -332,7 +335,7 @@
 
 	function rowsIn(group: AgentFieldGroup): AgentFieldSpec[] {
 		return scopedFields.filter(
-			(spec) => spec.group === group && isShown(spec.key) && !(imageOutput && spec.textOnly)
+			(spec) => spec.group === group && isShown(spec.key) && agentFieldServes(spec, outputType)
 		)
 	}
 
@@ -342,7 +345,7 @@
 				!spec.core &&
 				!spec.virtual &&
 				!isShown(spec.key) &&
-				!(imageOutput && spec.textOnly) &&
+				agentFieldServes(spec, outputType) &&
 				// Memory id's row appears on its own when it is offered, so the menu never adds it.
 				spec.key !== 'memory_id' &&
 				!(isHistoryKey(spec.key) && !historyInputApplies(spec.key, memoryMode))

@@ -28754,6 +28754,7 @@ components:
           togetherai,
           aws_bedrock,
           customai,
+          typesafe,
         ]
 
     GitSyncObjectType:

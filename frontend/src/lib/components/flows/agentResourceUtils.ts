@@ -7,6 +7,7 @@ import { AGENT_FIELDS, describeMemoryPolicy } from './agentFormFields'
 export const AGENT_BRAIN_KEYS = [
 	'provider',
 	'output_type',
+	'questions',
 	'system_prompt',
 	'streaming',
 	'memory',
@@ -25,6 +26,7 @@ export const AGENT_BRAIN_KEYS = [
  */
 export const AGENT_FLOW_LOCAL_KEYS = [
 	'user_message',
+	'state',
 	'user_attachments',
 	'enabled_tools',
 	'memory_id',
@@ -98,6 +100,7 @@ export function toolInputOverrides(
 export interface AIAgentConfig {
 	provider?: unknown
 	output_type?: string
+	questions?: unknown
 	system_prompt?: string
 	streaming?: boolean
 	memory?: unknown
@@ -187,6 +190,8 @@ export function summarizeAgentBrain(
 			value = typeof v === 'object' ? describeMemoryPolicy(v) : String(v)
 		} else if (key === 'output_schema') {
 			value = 'configured'
+		} else if (key === 'questions' && typeof v === 'object') {
+			value = Object.keys(v).join(', ')
 		} else if (typeof v === 'boolean') {
 			value = v ? 'on' : 'off'
 		} else if (typeof v === 'object') {

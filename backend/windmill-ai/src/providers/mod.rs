@@ -80,6 +80,10 @@ pub fn create_query_builder(
         AIProvider::AzureFoundry if AIProvider::is_anthropic_model(model) => Box::new(
             AnthropicQueryBuilder::new(AIProvider::AzureFoundry, AIPlatform::Standard),
         ),
+        // Only for forwarding through the API proxy, which is bearer auth on `<base>/<path>` as
+        // TypeSafe expects. TypeSafe serves no chat route, and `run_agent` refuses it before a
+        // chat request could be built.
+        AIProvider::TypeSafe => Box::new(OtherQueryBuilder::new(AIProvider::TypeSafe)),
         _ => Box::new(OtherQueryBuilder::new(credentials.provider.clone())),
     }
 }

@@ -68,6 +68,17 @@ pub enum OutputType {
     Image,
 }
 
+/// What an agent step produces. Text and image run the agent loop on a chat model, as the
+/// `OutputType` they map to; a decision is typed answers to `questions` about a `state`, from one
+/// call to a decision model (TypeSafe's Jev), so it never reaches a query builder.
+#[derive(Deserialize, Debug, Clone, Copy, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum StepOutputType {
+    Text,
+    Image,
+    Decision,
+}
+
 impl Default for OutputType {
     fn default() -> Self {
         OutputType::Text
@@ -130,7 +141,9 @@ struct AIAgentArgsRaw {
     temperature: Option<f32>,
     max_completion_tokens: Option<u32>,
     output_schema: Option<OpenAPISchema>,
-    output_type: Option<OutputType>,
+    output_type: Option<StepOutputType>,
+    state: Option<serde_json::Value>,
+    questions: Option<serde_json::Value>,
     #[serde(alias = "user_images")]
     user_attachments: Option<Vec<S3Object>>,
     streaming: Option<bool>,
@@ -158,7 +171,11 @@ pub struct AIAgentArgs {
     pub temperature: Option<f32>,
     pub max_completion_tokens: Option<u32>,
     pub output_schema: Option<OpenAPISchema>,
-    pub output_type: Option<OutputType>,
+    pub output_type: Option<StepOutputType>,
+    /// What a decision is about: a string, an object or an array. Read only by decision output.
+    pub state: Option<serde_json::Value>,
+    /// The typed questions a decision answers, keyed by name. Read only by decision output.
+    pub questions: Option<serde_json::Value>,
     pub user_attachments: Option<Vec<S3Object>>,
     pub streaming: Option<bool>,
     pub max_iterations: Option<usize>,
@@ -203,6 +220,8 @@ impl From<AIAgentArgsRaw> for AIAgentArgs {
             max_completion_tokens: raw.max_completion_tokens,
             output_schema: raw.output_schema,
             output_type: raw.output_type,
+            state: raw.state,
+            questions: raw.questions,
             user_attachments: raw.user_attachments,
             streaming: raw.streaming,
             max_iterations: raw.max_iterations,

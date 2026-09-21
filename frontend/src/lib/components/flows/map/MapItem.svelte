@@ -15,6 +15,7 @@
 	import type { FlowNodeState } from '$lib/components/graph'
 	import type { ModuleActionInfo } from '$lib/components/flows/flowDiff'
 	import { getGraphContext } from '$lib/components/graph/graphContext'
+	import { agentOutputType } from '$lib/components/flows/agentFormFields'
 
 	interface Props {
 		moduleId: string
@@ -75,6 +76,17 @@
 		maximizeSubflow,
 		menuItems = undefined
 	}: Props = $props()
+
+	// What an agent step is called until it is given a summary: a decision makes no agent loop.
+	let agentLabel = $derived.by(() => {
+		if (mod.value.type !== 'aiagent') return undefined
+		if (mod.value.agent) return mod.value.agent
+		const outputType = mod.value.input_transforms?.output_type
+		return agentOutputType(outputType?.type === 'static' ? outputType.value : undefined) ===
+			'decision'
+			? 'AI decision'
+			: 'AI Agent'
+	})
 
 	const { selectionManager, moveManager } = getGraphContext()
 
@@ -278,7 +290,7 @@
 					{...itemProps}
 					{nodeState}
 					label={mod.summary ||
-						(mod.value.type === 'aiagent' ? (mod.value.agent ?? 'AI Agent') : undefined) ||
+						agentLabel ||
 						(mod.id === 'preprocessor'
 							? 'Preprocessor'
 							: mod.id.startsWith('failure')

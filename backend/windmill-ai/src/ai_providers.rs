@@ -39,6 +39,7 @@ lazy_static::lazy_static! {
 pub const OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 pub const DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com/v1";
 pub const GOOGLE_AI_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta";
+pub const TYPESAFE_BASE_URL: &str = "https://api.typesafe.ai/v1";
 
 /// Hosts that serve the OpenAI API with Azure conventions: Azure OpenAI
 /// (`*.openai.azure.com`), AI Foundry (`*.services.ai.azure.com`,
@@ -122,6 +123,9 @@ pub enum AIProvider {
     CustomAI,
     #[serde(rename = "aws_bedrock")]
     AWSBedrock,
+    /// TypeSafe's Jev decision model. It answers typed questions rather than chatting, so only
+    /// an agent step with decision output runs it (`run_decision`), never the agent loop.
+    TypeSafe,
 }
 
 impl AIProvider {
@@ -177,6 +181,7 @@ impl AIProvider {
             AIProvider::TogetherAI => Ok("https://api.together.xyz/v1".to_string()),
             AIProvider::Anthropic => Ok("https://api.anthropic.com/v1".to_string()),
             AIProvider::Mistral => Ok("https://api.mistral.ai/v1".to_string()),
+            AIProvider::TypeSafe => Ok(TYPESAFE_BASE_URL.to_string()),
             p @ (AIProvider::CustomAI | AIProvider::AzureOpenAI | AIProvider::AzureFoundry) => {
                 Err(Error::BadRequest(format!(
                     "{:?} provider requires a base URL in the resource",

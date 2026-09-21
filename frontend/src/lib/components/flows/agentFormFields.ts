@@ -21,6 +21,24 @@ export const AGENT_FIELD_GROUPS: { id: AgentFieldGroup; label: string }[] = [
 	{ id: 'output', label: 'Output' }
 ]
 
+/** What an agent step produces, as `output_type` names it. */
+export type AgentOutputType = 'text' | 'image' | 'decision'
+
+/** The output types that run the agent loop, which a field serves unless it says otherwise. */
+const LOOP_OUTPUT_TYPES: readonly AgentOutputType[] = ['text', 'image']
+const EVERY_OUTPUT_TYPE: readonly AgentOutputType[] = ['text', 'image', 'decision']
+
+/** The output type an `output_type` value selects. An expression is only known once a run
+ *  evaluates it, so it reads as text, which is also what an absent key runs as. */
+export function agentOutputType(value: unknown): AgentOutputType {
+	return value === 'image' || value === 'decision' ? value : 'text'
+}
+
+/** Whether a run with this output type reads the field. */
+export function agentFieldServes(spec: AgentFieldSpec, outputType: AgentOutputType): boolean {
+	return (spec.outputTypes ?? LOOP_OUTPUT_TYPES).includes(outputType)
+}
+
 /** The tool roster, which reads `flowModule.value.tools` rather than an `input_transforms` key.
  *  It lives in the registry so the groups keep a single ordering. */
 export const AGENT_TOOLS_ROW = 'tools'
@@ -96,8 +114,10 @@ export interface AgentFieldSpec {
 	/** What leaving the field unset does, written for a reader, shown under the field's name in the
 	 *  add menu. */
 	defaultHint?: string
-	/** Ignored for image output, so the field hides while `output_type` is `'image'`. */
-	textOnly?: boolean
+	/** The output types whose runs read the field; it hides under any other. Unset means text and
+	 *  image, the two that run the agent loop: a decision reads only its provider, state and
+	 *  questions. */
+	outputTypes?: readonly AgentOutputType[]
 }
 
 export const AGENT_FIELDS: AgentFieldSpec[] = [
@@ -105,7 +125,8 @@ export const AGENT_FIELDS: AgentFieldSpec[] = [
 		key: 'provider',
 		group: 'model',
 		label: 'Provider',
-		core: true
+		core: true,
+		outputTypes: EVERY_OUTPUT_TYPE
 	},
 	// Not text-only, unlike the fields around it: image output runs through an ordinary chat model
 	// (OpenAI's `image_generation` tool, OpenRouter's `modalities`) that samples at this
@@ -123,6 +144,15 @@ export const AGENT_FIELDS: AgentFieldSpec[] = [
 		label: 'Max output tokens',
 		tooltip: 'The most tokens the model may produce in its answer.',
 		defaultHint: 'Default: the provider decides'
+	},
+	{
+		key: 'state',
+		group: 'messages',
+		label: 'State',
+		tooltip:
+			'What the questions are asked about: a text, an object or a list of texts. Name each part of an object, and send only what the questions need: detail they do not need makes the answers less accurate.',
+		core: true,
+		outputTypes: ['decision']
 	},
 	{
 		key: 'user_message',
@@ -146,7 +176,7 @@ export const AGENT_FIELDS: AgentFieldSpec[] = [
 		tooltip: 'Windmill stores the conversation and sends its last messages with each request.',
 		implicit: { kind: 'off' },
 		defaultHint: 'Default: off',
-		textOnly: true
+		outputTypes: ['text']
 	},
 	{
 		key: 'memory_id',
@@ -155,7 +185,7 @@ export const AGENT_FIELDS: AgentFieldSpec[] = [
 		tooltip:
 			'Conversation history id: runs with the same id share their history. Inherited uses the memory_id the run was started with: the conversation id in chat mode, or the memory_id query parameter otherwise. Without either, each run starts fresh. Custom sets the id on the step: a fixed id shares one history across all runs, an expression keeps one history per value.',
 		implicit: '',
-		textOnly: true
+		outputTypes: ['text']
 	},
 	{
 		key: 'previous_messages',
@@ -164,7 +194,7 @@ export const AGENT_FIELDS: AgentFieldSpec[] = [
 		tooltip: 'History the flow supplies, sent between the system message and the user message.',
 		implicit: [],
 		defaultHint: 'Default: none',
-		textOnly: true
+		outputTypes: ['text']
 	},
 	{
 		key: 'user_attachments',
@@ -204,9 +234,19 @@ export const AGENT_FIELDS: AgentFieldSpec[] = [
 		group: 'output',
 		label: 'Output type',
 		tooltip:
-			'Image output needs S3 storage on the workspace, ignores tools, and works with OpenAI, Google AI and the OpenRouter gemini-image-preview model.',
+			'Image output needs S3 storage on the workspace, ignores tools, and works with OpenAI, Google AI and the OpenRouter gemini-image-preview model. Decision output answers typed questions about a state with probabilities, and runs on a TypeSafe resource.',
 		implicit: 'text',
-		defaultHint: 'Default: text'
+		defaultHint: 'Default: text',
+		outputTypes: EVERY_OUTPUT_TYPE
+	},
+	{
+		key: 'questions',
+		group: 'output',
+		label: 'Questions',
+		tooltip:
+			'Each question by name, as { type, instructions, criteria }. choice picks one option: criteria maps each option to what it means. score places the state on a scale: criteria lists 2 to 10 levels in order. noul is yes or no: criteria can describe true and false. The result holds each answer with its probabilities under output.',
+		core: true,
+		outputTypes: ['decision']
 	},
 	{
 		key: 'output_schema',
@@ -214,7 +254,7 @@ export const AGENT_FIELDS: AgentFieldSpec[] = [
 		label: 'Output schema',
 		tooltip: 'A JSON schema the answer has to follow.',
 		defaultHint: 'Default: none',
-		textOnly: true
+		outputTypes: ['text']
 	},
 	{
 		key: 'streaming',
@@ -223,7 +263,7 @@ export const AGENT_FIELDS: AgentFieldSpec[] = [
 		tooltip: 'Send the answer back as it is generated, rather than once it is complete.',
 		implicit: true,
 		defaultHint: 'Default: on',
-		textOnly: true
+		outputTypes: ['text']
 	}
 ]
 
@@ -281,11 +321,17 @@ export function agentFieldAppliesTo(
  */
 export function initialVisibleAgentFields(
 	args: Record<string, InputTransform | any> | undefined,
-	schemaProperties: Record<string, any> | undefined
+	schemaProperties: Record<string, any> | undefined,
+	/** A linked step's comes from its agent, since the step holds no `output_type` of its own. */
+	outputType: AgentOutputType = agentOutputType(
+		args?.output_type?.type === 'static' ? args.output_type.value : undefined
+	)
 ): Set<string> {
 	const visible = new Set<string>()
 	for (const spec of AGENT_FIELDS) {
-		if (!agentFieldAppliesTo(spec, schemaProperties)) continue
+		if (!agentFieldAppliesTo(spec, schemaProperties) || !agentFieldServes(spec, outputType)) {
+			continue
+		}
 		if (agentFieldIsSet(spec, args?.[spec.key])) visible.add(spec.key)
 	}
 	return visible

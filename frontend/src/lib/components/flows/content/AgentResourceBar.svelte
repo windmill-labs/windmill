@@ -57,7 +57,7 @@
 		flowPath = '',
 		fromAgentEditor = false,
 		chatInputEnabled = false,
-		linkedMemory = $bindable()
+		linkedBrain = $bindable()
 	}: {
 		agent: string | undefined
 		inputTransforms: Record<string, InputTransform>
@@ -76,8 +76,8 @@
 		// is the wrong way in.
 		fromAgentEditor?: boolean
 		chatInputEnabled?: boolean
-		// The linked agent's memory once its config has loaded, for the step's history inputs.
-		linkedMemory?: { memory: unknown } | undefined
+		// The linked agent's memory and output type once its config has loaded, for the step's inputs.
+		linkedBrain?: { memory: unknown; output_type: unknown } | undefined
 	} = $props()
 
 	let ws = $derived(opWorkspace ?? $workspaceStore)
@@ -219,7 +219,9 @@
 		loadedInfo?.ws === ws && loadedInfo?.path === agent ? loadedInfo : undefined
 	)
 	$effect(() => {
-		linkedMemory = linkedInfo ? { memory: linkedInfo.config?.memory } : undefined
+		linkedBrain = linkedInfo
+			? { memory: linkedInfo.config?.memory, output_type: linkedInfo.config?.output_type }
+			: undefined
 	})
 	let inheritedTools = $derived(linkedInfo?.tools ?? [])
 	let brainParams = $derived(summarizeAgentBrain(linkedInfo?.config))

@@ -15,7 +15,12 @@
 	import { getResourceTypes } from './resourceTypesStore'
 	import { twMerge } from 'tailwind-merge'
 	import { workspaceStore } from '$lib/stores'
-	import { AGENT_FIELDS, initialVisibleAgentFields } from './flows/agentFormFields'
+	import {
+		AGENT_FIELDS,
+		agentFieldServes,
+		agentOutputType,
+		initialVisibleAgentFields
+	} from './flows/agentFormFields'
 	import { openAgentFields } from './flows/content/AiAgentStepInputs.svelte'
 
 	interface Props {
@@ -74,6 +79,19 @@
 		const visible = initialVisibleAgentFields(transforms, schema?.properties)
 		for (const key of openAgentFields(openFieldsKey)) visible.add(key)
 		for (const key of runInputKeys) visible.add(key)
+		// The open fields can carry the other output type's from before a switch. Only a step's own
+		// agent says which output type it runs: a linked one takes it from the agent.
+		const outputTransform = transforms?.output_type as
+			| { type?: string; value?: unknown }
+			| undefined
+		if (outputTransform) {
+			const outputType = agentOutputType(
+				outputTransform.type === 'static' ? outputTransform.value : undefined
+			)
+			for (const spec of AGENT_FIELDS) {
+				if (!agentFieldServes(spec, outputType)) visible.delete(spec.key)
+			}
+		}
 		const known = new Set(AGENT_FIELDS.map((f) => f.key))
 		// Listed in the agent form's order rather than the schema's, so the two read the same.
 		const position = new Map(AGENT_FIELDS.map((f, i) => [f.key, i]))
@@ -212,6 +230,9 @@
 								title={schema.properties[argName].title}
 								placeholder={schema.properties[argName].placeholder}
 								workspace={opWs}
+								otherArgs={isAgent
+									? { output_type: stepsInputArgs?.getStepInputArgs(mod.id, 'output_type') }
+									: undefined}
 							>
 								{#snippet fieldHeaderActions()}
 									{#if stepsInputArgs?.isArgManuallySet(mod.id, argName) && hasConfiguredInput(argName)}

@@ -106,7 +106,8 @@ function describeOption(option: AiAgentProviderOption): string {
 			? ' (the endpoint may also serve model names this list does not show)'
 			: ''
 	const modelList = models.length > 0 ? `${models.join(', ')}${more}${caveat}` : 'none listed'
-	return `- \`${option.resourceRef}\` (kind \`${option.kind}\`) — models: ${modelList}`
+	const decisionOnly = option.kind === 'typesafe' ? ', decision output only' : ''
+	return `- \`${option.resourceRef}\` (kind \`${option.kind}\`${decisionOnly}) — models: ${modelList}`
 }
 
 /**
@@ -176,7 +177,9 @@ export function selectAiAgentProviderCandidates(
 		if (!configuredPaths.has(candidate.resourcePath)) return 2
 		return candidate.kind === defaultProviderKind ? 0 : 1
 	}
-	return candidates.sort((a, b) => rank(a) - rank(b) || a.resourcePath.localeCompare(b.resourcePath))
+	return candidates.sort(
+		(a, b) => rank(a) - rank(b) || a.resourcePath.localeCompare(b.resourcePath)
+	)
 }
 
 /** What a set of modules needs from the catalog: `needsCatalog` is false when no AI agent step
@@ -276,6 +279,21 @@ function checkProviderValue(
 	return undefined
 }
 
+/** A decision runs only on a decision model, and a decision model answers nothing else. An
+ * `output_type` expression is only known at run time, so it is not checked. */
+function checkOutputTypeFits(kind: unknown, outputType: unknown): ProviderIssue | undefined {
+	const decisionKind = kind === 'typesafe'
+	if (decisionKind && outputType !== 'decision') {
+		return blocking(
+			'a `typesafe` resource only answers decisions: set output_type to "decision" and give the step state and questions, or use a chat provider'
+		)
+	}
+	if (!decisionKind && outputType === 'decision') {
+		return blocking('output_type "decision" runs on a `typesafe` resource, not a chat provider')
+	}
+	return undefined
+}
+
 /**
  * Reject AI agent steps whose provider config would fail at run time: a malformed provider, a
  * resource that is not an AI provider resource of the workspace, or a model the endpoint's own
@@ -297,7 +315,13 @@ export function validateAiAgentProviders(
 		// A missing provider is reported by collectProviderlessAgentIds, and a javascript
 		// transform resolves at run time with no value to check here.
 		if (!transform || transform.type !== 'static') return
-		const issue = checkProviderValue(transform.value, known)
+		const outputType = value.input_transforms?.output_type
+		const issue =
+			checkProviderValue(transform.value, known) ??
+			checkOutputTypeFits(
+				(transform.value as Record<string, unknown>)?.kind,
+				outputType?.type === 'static' ? outputType.value : undefined
+			)
 		if (!issue) return
 		if (issue.blocking) {
 			errors.push(`Step "${mod.id}": ${issue.message}`)
