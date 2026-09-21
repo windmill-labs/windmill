@@ -160,7 +160,7 @@ async fn run_background_migrations(db: &DB) -> Result<(), Error> {
         return Ok(());
     }
 
-    for step in [AUDIT_OPERATION_INDEX] {
+    for step in [AUDIT_OPERATION_INDEX, RETIRE_LEGACY_AUDIT] {
         if background_migration_done(&mut conn, step).await? {
             continue;
         }
@@ -170,6 +170,7 @@ async fn run_background_migrations(db: &DB) -> Result<(), Error> {
         loop {
             let run = match step {
                 AUDIT_OPERATION_INDEX => create_audit_operation_index(&mut conn).await,
+                RETIRE_LEGACY_AUDIT => retire_legacy_audit_table(&mut conn).await,
                 _ => unreachable!("background migration {step} has no step function"),
             };
             match run {
@@ -190,6 +191,7 @@ async fn run_background_migrations(db: &DB) -> Result<(), Error> {
 }
 
 const AUDIT_OPERATION_INDEX: &str = "audit_partitioned_workspace_operation_index";
+const RETIRE_LEGACY_AUDIT: &str = "retire_legacy_audit_table";
 
 // Short on purpose: a statement waiting for its lock is also a wait for every audit insert
 // queued behind it.
@@ -276,4 +278,138 @@ async fn create_audit_operation_index(conn: &mut PgConnection) -> Result<(), Err
         .await?;
     }
     Ok(())
+}
+
+const AUDIT_COLUMNS: &str =
+    "workspace_id, id, timestamp, username, operation, action_kind, resource, parameters, email, span";
+
+/// Moves the last 30 days of the pre-partitioning `audit` table into daily partitions and drops
+/// it with anything older. An empty `audit` view takes its place for servers still running an
+/// older version, which read it in a `UNION ALL` with `audit_partitioned`.
+async fn retire_legacy_audit_table(conn: &mut PgConnection) -> Result<(), Error> {
+    let is_table = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM pg_class WHERE oid = to_regclass('audit') AND relkind = 'r')",
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+    if !is_table {
+        return Ok(());
+    }
+    // Creating a partition and re-owning the sequence queue every audit insert (so every job
+    // push) behind them while they wait for their own lock, e.g. on a long-running reader, and
+    // the DROP queues older servers' reads the same way. Give up early and retry instead.
+    conn.execute(STEP_LOCK_TIMEOUT).await?;
+
+    let days: Vec<chrono::NaiveDate> = sqlx::query_scalar(
+        "SELECT DISTINCT timestamp::date FROM audit
+         WHERE timestamp > now() - interval '30 days' ORDER BY 1",
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    for day in days {
+        let next = day + chrono::Duration::days(1);
+        // Created outside any transaction: a partition created inside one keeps a lock on
+        // audit_partitioned that blocks every job push's audit insert until it commits.
+        conn.execute(
+            format!(
+                "CREATE TABLE IF NOT EXISTS \"audit_{}\" PARTITION OF audit_partitioned \
+                 FOR VALUES FROM ('{day}') TO ('{next}')",
+                day.format("%Y%m%d")
+            )
+            .as_str(),
+        )
+        .await?;
+        // One statement per day, so a row is always in exactly one of the two tables.
+        let moved = sqlx::query(&format!(
+            "WITH moved AS (
+                 DELETE FROM audit WHERE timestamp >= $1::date AND timestamp < $1::date + 1
+                 RETURNING {AUDIT_COLUMNS}
+             )
+             INSERT INTO audit_partitioned ({AUDIT_COLUMNS}) SELECT {AUDIT_COLUMNS} FROM moved"
+        ))
+        .bind(day)
+        .execute(&mut *conn)
+        .await?;
+        tracing::info!(
+            "Moved {} legacy audit rows of {day} into audit_partitioned",
+            moved.rows_affected()
+        );
+    }
+
+    // audit_partitioned draws its ids from this sequence, which dropping its owner would drop.
+    // Not in the transaction below: its lock stops every insert's nextval until commit, and the
+    // DROP can wait there on readers of the old table.
+    conn.execute("ALTER SEQUENCE audit_id_seq OWNED BY audit_partitioned.id")
+        .await?;
+    let mut tx = conn.begin().await?;
+    // Servers older than audit partitioning still write to the table during a rolling upgrade:
+    // rows they added after their day was moved above are swept up under the lock.
+    tx.execute("LOCK TABLE audit IN ACCESS EXCLUSIVE MODE")
+        .await?;
+    tx.execute(
+        format!(
+            "WITH moved AS (
+                 DELETE FROM audit WHERE timestamp > now() - interval '30 days'
+                 RETURNING {AUDIT_COLUMNS}
+             )
+             INSERT INTO audit_partitioned ({AUDIT_COLUMNS}) SELECT {AUDIT_COLUMNS} FROM moved"
+        )
+        .as_str(),
+    )
+    .await?;
+    tx.execute("DROP TABLE audit").await?;
+    tx.execute(
+        format!("CREATE VIEW audit AS SELECT {AUDIT_COLUMNS} FROM audit_partitioned WHERE false")
+            .as_str(),
+    )
+    .await?;
+    tx.execute("GRANT ALL ON audit TO windmill_user, windmill_admin")
+        .await?;
+    tx.commit().await?;
+    conn.execute("RESET lock_timeout").await?;
+    tracing::info!("Retired the legacy audit table");
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn retire_legacy_audit_table_keeps_the_last_30_days(db: DB) -> anyhow::Result<()> {
+        sqlx::query(
+            "INSERT INTO audit (workspace_id, id, timestamp, username, operation, action_kind)
+             VALUES ('w', -2, now() - interval '3 days', 'u', 'recent', 'execute'),
+                    ('w', -1, now() - interval '60 days', 'u', 'old', 'execute')",
+        )
+        .execute(&db)
+        .await?;
+
+        retire_legacy_audit_table(&mut *db.acquire().await?).await?;
+
+        let moved: Vec<(i64, String)> = sqlx::query_as(
+            "SELECT id, operation::text FROM audit_partitioned WHERE workspace_id = 'w'",
+        )
+        .fetch_all(&db)
+        .await?;
+        assert_eq!(moved, vec![(-2, "recent".to_string())]);
+
+        // The id sequence outlives the table that owned it.
+        sqlx::query(
+            "INSERT INTO audit_partitioned (workspace_id, username, operation, action_kind)
+             VALUES ('w', 'u', 'after', 'execute')",
+        )
+        .execute(&db)
+        .await?;
+
+        // Servers on an older version still read `audit` in a UNION with audit_partitioned.
+        let seen: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM (SELECT * FROM audit_partitioned UNION ALL SELECT * FROM audit) a
+             WHERE workspace_id = 'w'",
+        )
+        .fetch_one(&db)
+        .await?;
+        assert_eq!(seen, 2);
+        Ok(())
+    }
 }
