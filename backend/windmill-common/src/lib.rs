@@ -1869,19 +1869,23 @@ async fn finish_custom_instance_database(
 /// authorization: every database of a cluster answers to the same `custom_instance_user`, so a name
 /// is all it takes to reach another workspace's copy.
 ///
+/// Runs on `conn`: its callers hold a transaction with the fork lock while they check, and a
+/// second connection taken from the pool under it is how a small pool deadlocks.
+///
 /// Authorization: reads the global registries and every workspace's settings, and names other
 /// workspaces in its refusal. Callers MUST have authorized `w_id` for the caller first — a member
 /// of it forking or importing there — and MUST NOT call it on a workspace the caller is not in.
 pub async fn ensure_fork_database_available_to(
-    db: &DB,
+    conn: &mut sqlx::PgConnection,
     kind: workspaces::DataTableCatalogResourceType,
     dbname: &str,
     w_id: &str,
 ) -> error::Result<()> {
     let created_for = match kind {
         workspaces::DataTableCatalogResourceType::ExternalInstance => {
-            external_instance_pg::external_instance_databases(db)
+            external_instance_pg::read_external_instance_pg_state(&mut *conn)
                 .await?
+                .databases
                 .remove(dbname)
                 .and_then(|entry| entry.workspace_id)
         }
@@ -1890,7 +1894,7 @@ pub async fn ensure_fork_database_available_to(
              WHERE name = 'custom_instance_pg_databases'",
         )
         .bind(dbname)
-        .fetch_optional(db)
+        .fetch_optional(&mut *conn)
         .await?
         .flatten(),
     };
@@ -1899,8 +1903,7 @@ pub async fn ensure_fork_database_available_to(
             "Database '{dbname}' was not created for a fork of workspace '{w_id}'"
         )));
     }
-    let uses =
-        workspaces::managed_database_uses(&mut *db.acquire().await?, kind, dbname, None).await?;
+    let uses = workspaces::managed_database_uses(conn, kind, dbname, None).await?;
     if !uses.is_empty() {
         return Err(Error::BadRequest(format!(
             "Database '{dbname}' is already in use: {}",

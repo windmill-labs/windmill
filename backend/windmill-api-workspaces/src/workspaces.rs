@@ -3799,7 +3799,7 @@ async fn import_pg_database(
                 )
                 .await?;
                 windmill_common::ensure_fork_database_available_to(
-                    &db,
+                    &mut tx,
                     kind,
                     override_dbname,
                     &w_id,
@@ -8842,7 +8842,7 @@ async fn apply_forked_datatable(
         && !windmill_api_auth::is_super_admin_authed(db, authed).await?
     {
         windmill_common::ensure_fork_database_available_to(
-            db,
+            &mut **tx,
             database.resource_type,
             &fdt.new_dbname,
             parent_w_id,
