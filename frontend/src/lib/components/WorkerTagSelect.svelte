@@ -92,6 +92,8 @@
 		}
 		loading = false
 	}
+	// A dynamic tag is filled in when the job runs, so no worker can be looked up for its text.
+	const dynamicTagRegex = /\$(workspace|args\[|flow_expr\[)/
 	let items = $derived([
 		// ...(tag ? ['reset to default'] : [nullTag ? `default: ${nullTag}` : '']),
 		...(tag && tag != '' && !(currentTags ?? []).includes(tag) ? [tag] : []),
@@ -144,7 +146,7 @@
 </script>
 
 {#snippet startSnippet({ item })}
-	{#if tagsToWorkerExists && !item.__is_create}
+	{#if tagsToWorkerExists && !item.__is_create && !dynamicTagRegex.test(item.value)}
 		{#if tagsToWorkerExists[item.value]}
 			<Popover>
 				{#snippet text()}
@@ -162,7 +164,7 @@
 		{/if}
 	{/if}
 {/snippet}
-<div class="flex gap-1 items-center relative">
+<div class="flex gap-1 items-center relative" title={tag || undefined}>
 	{#if !noLabel}
 		<div class="text-primary text-xs">{placeholder ?? 'tag'}</div>
 	{/if}
@@ -184,16 +186,22 @@
 </div>
 
 {#snippet refreshAll()}
-	<Button
-		iconOnly
-		variant="subtle"
-		unifiedSize="sm"
-		startIcon={{ icon: RotateCw, classes: loading ? 'animate-spin' : '' }}
-		on:click={async () => {
-			loadWorkerGroups(true)
-			open = true
-		}}
-		btnClasses="rounded-none"
-		title="Refresh worker groups"
-	></Button>
+	<div class="flex items-center justify-between gap-2 border-t border-border-light">
+		<span class="max-w-64 px-4 py-1 text-2xs text-secondary">
+			<code>$args[…]</code> and <code>$flow_expr[…]</code> are filled in when the job runs, and must
+			land on an allowed tag
+		</span>
+		<Button
+			iconOnly
+			variant="subtle"
+			unifiedSize="sm"
+			startIcon={{ icon: RotateCw, classes: loading ? 'animate-spin' : '' }}
+			on:click={async () => {
+				loadWorkerGroups(true)
+				open = true
+			}}
+			btnClasses="rounded-none"
+			title="Refresh worker groups"
+		></Button>
+	</div>
 {/snippet}
