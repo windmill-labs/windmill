@@ -693,10 +693,10 @@ async fn restart_perpetual_runs_at_path(
     deployed_by: &str,
 ) -> error::Result<bool> {
     // Built the way a run of this path is built anywhere else, so the next run takes the deployed
-    // version's tag, timeout, language and identity. Whether its preprocessor runs is decided per
-    // run, from the arguments that run carries.
+    // version's tag, timeout, language and identity. No preprocessor, as for every other restart
+    // of a loop: the arguments carried over are the ones its runs pass each other.
     let (payload, tag, _, _, timeout, on_behalf_of) =
-        script_path_to_payload(script_path, None, db.clone(), w_id, None).await?;
+        script_path_to_payload(script_path, None, db.clone(), w_id, Some(true)).await?;
     let JobPayload::ScriptHash { hash, dedicated_worker, .. } = &payload else {
         return Ok(false);
     };
@@ -717,8 +717,7 @@ async fn restart_perpetual_runs_at_path(
     let runs = sqlx::query_as!(
         PerpetualRunToRestart,
         "SELECT q.id AS \"id!\", j.created_by, j.permissioned_as, j.permissioned_as_email, \
-         j.trigger, j.trigger_kind AS \"trigger_kind: TriggerKindLabel\", j.preprocessed, \
-         s.has_preprocessor AS \"version_has_preprocessor\", \
+         j.trigger, j.trigger_kind AS \"trigger_kind: TriggerKindLabel\", \
          j.args AS \"args: sqlx::types::Json<HashMap<String, Box<RawValue>>>\" \
          FROM v2_job_queue q JOIN v2_job j USING (id) \
          JOIN script s ON s.workspace_id = j.workspace_id AND s.hash = j.runnable_id \
@@ -767,12 +766,6 @@ struct PerpetualRunToRestart {
     permissioned_as_email: String,
     trigger: Option<String>,
     trigger_kind: Option<TriggerKindLabel>,
-    /// `Some(false)` while the run still carries the arguments it was started with, which only a
-    /// completion replaces with the preprocessed ones.
-    preprocessed: Option<bool>,
-    /// Of the version the run is on, not the deployed one: without a preprocessor there, the
-    /// arguments it carries are the ones it was started with whatever `preprocessed` says.
-    version_has_preprocessor: Option<bool>,
     args: Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
 }
 
@@ -826,15 +819,6 @@ async fn restart_perpetual_run(
         }
     }
     let args = run.args.clone().map(|args| args.0).unwrap_or_default();
-    // A run carries preprocessed arguments only once a completion has replaced them, and only on a
-    // version that preprocesses at all: on one that does not, what it carries is what it was
-    // started with, which a preprocessor the deployed version adds still has to see.
-    let carries_preprocessed_args =
-        run.version_has_preprocessor == Some(true) && run.preprocessed != Some(false);
-    let mut payload = payload.clone();
-    if let JobPayload::ScriptHash { apply_preprocessor, .. } = &mut payload {
-        *apply_preprocessor = *apply_preprocessor && !carries_preprocessed_args;
-    }
     let mut tx = db.begin().await?;
     // Claiming the run and queueing its replacement in one transaction: a push that fails
     // leaves the run looping on its own version rather than canceled with nothing to follow
@@ -859,7 +843,7 @@ async fn restart_perpetual_run(
         db,
         PushIsolationLevel::Transaction(tx),
         w_id,
-        payload,
+        payload.clone(),
         PushArgs::from(&args),
         &run.created_by,
         &email,

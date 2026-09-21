@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT q.id AS \"id!\", j.created_by, j.permissioned_as, j.permissioned_as_email, j.trigger, j.trigger_kind AS \"trigger_kind: TriggerKindLabel\", j.preprocessed, s.has_preprocessor AS \"version_has_preprocessor\", j.args AS \"args: sqlx::types::Json<HashMap<String, Box<RawValue>>>\" FROM v2_job_queue q JOIN v2_job j USING (id) JOIN script s ON s.workspace_id = j.workspace_id AND s.hash = j.runnable_id WHERE j.workspace_id = $1 AND j.runnable_path = $2 AND j.kind = 'script' AND j.flow_step_id IS NULL AND j.runnable_id != $3 AND q.canceled_by IS NULL AND s.restart_unless_cancelled",
+  "query": "SELECT q.id AS \"id!\", j.created_by, j.permissioned_as, j.permissioned_as_email, j.trigger, j.trigger_kind AS \"trigger_kind: TriggerKindLabel\", j.args AS \"args: sqlx::types::Json<HashMap<String, Box<RawValue>>>\" FROM v2_job_queue q JOIN v2_job j USING (id) JOIN script s ON s.workspace_id = j.workspace_id AND s.hash = j.runnable_id WHERE j.workspace_id = $1 AND j.runnable_path = $2 AND j.kind = 'script' AND j.flow_step_id IS NULL AND j.runnable_id != $3 AND q.canceled_by IS NULL AND s.restart_unless_cancelled",
   "describe": {
     "columns": [
       {
@@ -64,16 +64,6 @@
       },
       {
         "ordinal": 6,
-        "name": "preprocessed",
-        "type_info": "Bool"
-      },
-      {
-        "ordinal": 7,
-        "name": "version_has_preprocessor",
-        "type_info": "Bool"
-      },
-      {
-        "ordinal": 8,
         "name": "args: sqlx::types::Json<HashMap<String, Box<RawValue>>>",
         "type_info": "Jsonb"
       }
@@ -92,10 +82,8 @@
       false,
       true,
       true,
-      true,
-      true,
       true
     ]
   },
-  "hash": "9e2229b110e6f25e9befc138b9616e9f9ea25db15a7f373a9c4398da1ea750c6"
+  "hash": "ef17e1a9fe55927ea356bbc197a2d201e9a609f6867974f90453773cc163179c"
 }
