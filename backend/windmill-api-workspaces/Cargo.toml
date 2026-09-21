@@ -35,6 +35,7 @@ windmill-store.workspace = true
 
 axum.workspace = true
 chrono.workspace = true
+constant_time_eq.workspace = true
 futures = { workspace = true, optional = true }
 hex.workspace = true
 magic-crypt.workspace = true

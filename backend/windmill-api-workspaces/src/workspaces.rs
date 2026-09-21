@@ -9683,6 +9683,13 @@ async fn leave_workspace(
     )
     .execute(&mut *tx)
     .await?;
+    sqlx::query!(
+        "DELETE FROM remote_deploy_token WHERE email = $1 AND workspace_id = $2",
+        &authed.email,
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
 
     audit_log(
         &mut *tx,

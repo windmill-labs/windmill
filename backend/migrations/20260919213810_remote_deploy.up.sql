@@ -14,6 +14,9 @@ CREATE TABLE remote_deploy_token (
     remote_workspace_id VARCHAR(50) NOT NULL,
     token TEXT NOT NULL,
     remote_email VARCHAR(255) NOT NULL,
+    -- Part of every proxy URL, and readable only by its owner through the API: a link from
+    -- elsewhere, which rides the session cookie, cannot know it and so cannot spend the token.
+    proxy_key VARCHAR(64) NOT NULL,
     connected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (workspace_id, email)
 );

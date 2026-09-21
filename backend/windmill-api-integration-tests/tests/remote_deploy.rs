@@ -12,10 +12,6 @@ fn authed(builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
     builder.header("Authorization", "Bearer SECRET_TOKEN")
 }
 
-fn proxied(builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
-    authed(builder).header("X-Windmill-Remote-Deploy", "1")
-}
-
 /// The deploy target is this very server, which the proxy has no way to tell from another
 /// instance: it only ever knows the configured URL, the caller's stored token, and the path.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
@@ -51,7 +47,7 @@ async fn test_remote_deploy_proxy(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     // Deploying before connecting names the step that is missing, rather than reaching the target
     // with the caller's credentials for this instance.
-    let resp = proxied(client().get(format!("{base}/proxy/users/whoami")))
+    let resp = authed(client().get(format!("{base}/proxy/none/users/whoami")))
         .send()
         .await?;
     assert_eq!(resp.status(), 400);
@@ -69,12 +65,11 @@ async fn test_remote_deploy_proxy(db: Pool<Postgres>) -> anyhow::Result<()> {
         .send()
         .await?;
     assert_eq!(resp.status(), 200);
-    assert_eq!(
-        resp.json::<serde_json::Value>().await?["remote_email"],
-        "test@windmill.dev"
-    );
+    let connection = resp.json::<serde_json::Value>().await?;
+    assert_eq!(connection["remote_email"], "test@windmill.dev");
+    let key = connection["proxy_key"].as_str().unwrap().to_string();
 
-    let resp = proxied(client().get(format!("{base}/proxy/users/whoami")))
+    let resp = authed(client().get(format!("{base}/proxy/{key}/users/whoami")))
         .send()
         .await?;
     assert_eq!(resp.status(), 200);
@@ -88,9 +83,9 @@ async fn test_remote_deploy_proxy(db: Pool<Postgres>) -> anyhow::Result<()> {
         "test@windmill.dev"
     );
 
-    // A link (a navigation, or a page on another origin) cannot set the header, so it cannot
-    // spend the stored token.
-    let resp = authed(client().get(format!("{base}/proxy/users/whoami")))
+    // A link from elsewhere rides the session cookie but cannot know the key, so it cannot spend
+    // the stored token.
+    let resp = authed(client().get(format!("{base}/proxy/guessed/users/whoami")))
         .send()
         .await?;
     assert_eq!(resp.status(), 400);
@@ -104,7 +99,7 @@ async fn test_remote_deploy_proxy(db: Pool<Postgres>) -> anyhow::Result<()> {
     )
     .execute(&db)
     .await?;
-    let resp = proxied(client().get(format!("{base}/proxy/users/whoami")))
+    let resp = authed(client().get(format!("{base}/proxy/{key}/users/whoami")))
         .send()
         .await?;
     assert_eq!(resp.status(), 502);
@@ -138,7 +133,7 @@ async fn test_remote_deploy_proxy(db: Pool<Postgres>) -> anyhow::Result<()> {
         .send()
         .await?;
     assert!(resp.json::<serde_json::Value>().await?["connection"].is_null());
-    let resp = proxied(client().get(format!("{base}/proxy/users/whoami")))
+    let resp = authed(client().get(format!("{base}/proxy/{key}/users/whoami")))
         .send()
         .await?;
     assert_eq!(resp.status(), 400);

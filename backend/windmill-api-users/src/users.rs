@@ -2583,6 +2583,14 @@ pub async fn delete_workspace_user_internal(
     .await?;
 
     sqlx::query!(
+        "DELETE FROM remote_deploy_token WHERE email = $1 AND workspace_id = $2",
+        email_to_delete,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
         "DELETE FROM usr_to_group WHERE usr = $1 AND workspace_id = $2",
         username_to_delete,
         w_id
@@ -4116,6 +4124,13 @@ async fn leave_workspace(
         "DELETE FROM usr WHERE workspace_id = $1 AND username = $2",
         &w_id,
         authed.username
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query!(
+        "DELETE FROM remote_deploy_token WHERE email = $1 AND workspace_id = $2",
+        &authed.email,
+        &w_id
     )
     .execute(&mut *tx)
     .await?;

@@ -33,7 +33,7 @@ use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::{
     error::{error_source_chain, Error, JsonResult, Result},
     ssrf::validate_url_for_ssrf,
-    utils::{configure_client, require_admin},
+    utils::{configure_client, rd_string, require_admin},
     variables::{build_crypt, decrypt, encrypt},
     worker::CLOUD_HOSTED,
     DB,
@@ -41,24 +41,24 @@ use windmill_common::{
 
 lazy_static! {
     static ref REMOTE_WORKSPACE_ID: Regex = Regex::new("^[a-zA-Z0-9_-]{1,50}$").unwrap();
+    /// Shared so that a deploy's calls reuse connections. A cloud instance instead builds a client
+    /// per request, pinned to the addresses it just validated for that target.
+    static ref REMOTE_CLIENT: reqwest::Client = remote_client_builder().build().unwrap();
 }
 
 const PROXY_PREFIX: &str = "/remote_deploy/proxy/";
-
-/// Required on every proxied request. The session cookie is `SameSite=Lax`, so it rides a
-/// top-level navigation from any site, which carries no custom header; a cross-origin page
-/// cannot add one either, since this route answers no CORS preflight. Requiring it keeps the
-/// stored token from being spent by a link, whether to run something on the remote or to render
-/// its content on this origin. `Sec-Fetch-Site` is no substitute: plain-http instances never get it.
-pub const REMOTE_DEPLOY_HEADER: &str = "x-windmill-remote-deploy";
 
 pub fn workspaced_service(proxy_body_limit: usize) -> Router {
     Router::new()
         .route("/target", get(get_target).post(set_target))
         .route("/connect", post(connect))
         .route("/disconnect", post(disconnect))
+        // `{key}` is the caller's `proxy_key`. The session cookie is `SameSite=Lax`, so it rides a
+        // top-level navigation from any site: without a value such a link cannot know, it could
+        // spend the stored token, to run something on the remote or to render its content on this
+        // origin. `Sec-Fetch-Site` is no substitute, since plain-http instances never receive it.
         .route(
-            "/proxy/{*rest}",
+            "/proxy/{key}/{*rest}",
             any(proxy).layer(DefaultBodyLimit::max(proxy_body_limit)),
         )
 }
@@ -107,6 +107,8 @@ impl RemoteDeployTarget {
 #[derive(Serialize)]
 struct RemoteDeployConnection {
     remote_email: String,
+    /// Goes in every proxy URL, see [`workspaced_service`].
+    proxy_key: String,
     connected_at: DateTime<Utc>,
 }
 
@@ -158,22 +160,23 @@ async fn require_target(db: &DB, w_id: &str) -> Result<RemoteDeployTarget> {
     })
 }
 
-async fn remote_client(target: &RemoteDeployTarget) -> Result<reqwest::Client> {
-    let builder = configure_client(reqwest::ClientBuilder::new())
+fn remote_client_builder() -> reqwest::ClientBuilder {
+    configure_client(reqwest::ClientBuilder::new())
         .user_agent("windmill/remote-deploy")
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(10))
-        .timeout(Duration::from_secs(120));
+        .timeout(Duration::from_secs(120))
+}
+
+async fn remote_client(target: &RemoteDeployTarget) -> Result<reqwest::Client> {
     // A workspace admin chose the URL. A self-hosted instance may deploy into its own private
     // network, as it may reach a private git remote; a cloud workspace must not.
-    let builder = if *CLOUD_HOSTED {
-        validate_url_for_ssrf(&target.base_url)
-            .await?
-            .apply_dns_pinning(builder)
-    } else {
-        builder
-    };
-    builder
+    if !*CLOUD_HOSTED {
+        return Ok(REMOTE_CLIENT.clone());
+    }
+    validate_url_for_ssrf(&target.base_url)
+        .await?
+        .apply_dns_pinning(remote_client_builder())
         .build()
         .map_err(|e| Error::internal_err(format!("building the remote deploy client: {e}")))
 }
@@ -196,7 +199,7 @@ async fn get_target(
         Some(target) => {
             sqlx::query_as!(
                 RemoteDeployConnection,
-                "SELECT remote_email, connected_at FROM remote_deploy_token
+                "SELECT remote_email, proxy_key, connected_at FROM remote_deploy_token
                  WHERE workspace_id = $1 AND email = $2 AND base_url = $3
                    AND remote_workspace_id = $4",
                 &w_id,
@@ -229,6 +232,8 @@ async fn set_target(
                 .to_string(),
         ));
     }
+    // Everyone who connects afterwards hands their token to this URL.
+    require_own_credentials(&authed)?;
     require_admin(authed.is_admin, &authed.username)?;
     let target = request
         .target
@@ -337,25 +342,28 @@ async fn connect(
     })?;
 
     let mc = build_crypt(&db, &w_id).await?;
+    let proxy_key = rd_string(32);
     let mut tx = db.begin().await?;
     // Only while the workspace still points at the target the token was just checked against.
     let connected_at = sqlx::query_scalar!(
         "INSERT INTO remote_deploy_token
-             (workspace_id, email, base_url, remote_workspace_id, token, remote_email)
-         SELECT $1::text, $2::text, $3::text, $4::text, $5::text, $6::text
+             (workspace_id, email, base_url, remote_workspace_id, token, remote_email, proxy_key)
+         SELECT $1::text, $2::text, $3::text, $4::text, $5::text, $6::text, $7::text
          FROM workspace_settings
          WHERE workspace_id = $1::text AND remote_deploy_target->>'base_url' = $3::text
            AND remote_deploy_target->>'workspace_id' = $4::text
          ON CONFLICT (workspace_id, email) DO UPDATE SET
              base_url = EXCLUDED.base_url, remote_workspace_id = EXCLUDED.remote_workspace_id,
-             token = EXCLUDED.token, remote_email = EXCLUDED.remote_email, connected_at = now()
+             token = EXCLUDED.token, remote_email = EXCLUDED.remote_email,
+             proxy_key = EXCLUDED.proxy_key, connected_at = now()
          RETURNING connected_at",
         &w_id,
         &authed.email,
         &target.base_url,
         &target.workspace_id,
         encrypt(&mc, token),
-        &whoami.email
+        &whoami.email,
+        &proxy_key
     )
     .fetch_optional(&mut *tx)
     .await?
@@ -376,6 +384,7 @@ async fn connect(
 
     Ok(Json(RemoteDeployConnection {
         remote_email: whoami.email,
+        proxy_key,
         connected_at,
     }))
 }
@@ -410,7 +419,7 @@ async fn disconnect(
     ))
 }
 
-/// The remote URL for the request path after the proxy prefix, as the client sent it.
+/// The remote URL for the request path after the proxy prefix and key, as the client sent it.
 ///
 /// `url` rewrites a path while parsing it: it resolves dot segments (`%2e` spellings included)
 /// and turns backslashes into slashes. Either would reach a route other than the one this
@@ -423,6 +432,7 @@ fn forwarded_url(
 ) -> Result<url::Url> {
     let suffix = original_path
         .split_once(PROXY_PREFIX)
+        .and_then(|(_, keyed)| keyed.split_once('/'))
         .map(|(_, suffix)| suffix)
         .unwrap_or_default();
     let invalid = || Error::BadRequest(format!("Invalid remote deploy path: {suffix}"));
@@ -443,23 +453,17 @@ fn forwarded_url(
 async fn proxy(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
-    Path((w_id, _rest)): Path<(String, String)>,
+    Path((w_id, key, _rest)): Path<(String, String, String)>,
     OriginalUri(uri): OriginalUri,
     method: Method,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response> {
-    if !headers.contains_key(REMOTE_DEPLOY_HEADER) {
-        return Err(Error::BadRequest(format!(
-            "The remote deploy proxy only answers requests carrying the {REMOTE_DEPLOY_HEADER} \
-             header"
-        )));
-    }
     require_own_credentials(&authed)?;
     let target = require_target(&db, &w_id).await?;
     let url = forwarded_url(&target, uri.path(), uri.query())?;
-    let encrypted_token = sqlx::query_scalar!(
-        "SELECT token FROM remote_deploy_token
+    let stored = sqlx::query!(
+        "SELECT token, proxy_key FROM remote_deploy_token
          WHERE workspace_id = $1 AND email = $2 AND base_url = $3
            AND remote_workspace_id = $4",
         &w_id,
@@ -475,7 +479,12 @@ async fn proxy(
             target.base_url
         ))
     })?;
-    let token = decrypt(&build_crypt(&db, &w_id).await?, encrypted_token)?;
+    if !constant_time_eq::constant_time_eq(key.as_bytes(), stored.proxy_key.as_bytes()) {
+        return Err(Error::BadRequest(
+            "This remote deploy link is not yours or is out of date; reload the page".to_string(),
+        ));
+    }
+    let token = decrypt(&build_crypt(&db, &w_id).await?, stored.token)?;
 
     // Only what describes the payload: the caller's cookie and token belong to this instance.
     let mut request = remote_client(&target)
@@ -580,7 +589,7 @@ mod tests {
             base_url: "https://prod.example.com/windmill".to_string(),
             workspace_id: "prod".to_string(),
         };
-        let prefix = "/api/w/dev/remote_deploy/proxy";
+        let prefix = "/api/w/dev/remote_deploy/proxy/someKey";
         let url = forwarded_url(
             &target,
             &format!("{prefix}/scripts/get/p/f/team/my%20script"),

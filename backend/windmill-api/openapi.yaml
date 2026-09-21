@@ -4216,9 +4216,8 @@ paths:
       summary: get the workspace's deploy target on another instance, and the caller's connection to it
       description: |
         Once connected, deploy calls aimed at the target go through
-        `/w/{workspace}/remote_deploy/proxy/{route}`, which forwards any method to
-        `{base_url}/api/w/{target workspace}/{route}` with the caller's stored token. Every
-        proxied request must carry the `X-Windmill-Remote-Deploy` header.
+        `/w/{workspace}/remote_deploy/proxy/{proxy_key}/{route}`, which forwards any method to
+        `{base_url}/api/w/{target workspace}/{route}` with the caller's stored token.
       operationId: getRemoteDeployTarget
       tags:
         - workspace
@@ -36156,11 +36155,15 @@ components:
         remote_email:
           type: string
           description: identity the stored token has on the remote instance
+        proxy_key:
+          type: string
+          description: goes in every proxy URL, `/w/{workspace}/remote_deploy/proxy/{proxy_key}/{route}`
         connected_at:
           type: string
           format: date-time
       required:
         - remote_email
+        - proxy_key
         - connected_at
 
     RemoteDeployStatus:

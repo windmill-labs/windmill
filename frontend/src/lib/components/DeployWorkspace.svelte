@@ -430,7 +430,7 @@
 		destination === 'parent'
 			? parentWorkspace
 			: isRemote && remoteStatus?.connection
-				? remoteDeployWorkspace($workspaceStore!)
+				? remoteDeployWorkspace($workspaceStore!, remoteStatus.connection)
 				: undefined
 	)
 	let destinationLabel = $derived(

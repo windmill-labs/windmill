@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT token, proxy_key FROM remote_deploy_token\n         WHERE workspace_id = $1 AND email = $2 AND base_url = $3\n           AND remote_workspace_id = $4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "token",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "proxy_key",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "2cbf75deb031ee21cc6a5d3a175b8af375f246e06e87c9dd81167e966eb97c8d"
+}
