@@ -23,7 +23,7 @@ docker rm -f "$NAME" 2>/dev/null || true
 
 docker run -d --name "$NAME" -p "${PORT}:4566" \
     -e SERVICES=sqs \
-    localstack/localstack
+    localstack/localstack:3.8
 
 echo "Waiting for LocalStack to become ready..."
 for i in $(seq 1 30); do
@@ -41,5 +41,5 @@ aws --endpoint-url="http://localhost:${PORT}" \
 
 echo "LocalStack SQS listening on localhost:${PORT} with queue 'windmill-e2e-test'"
 echo ""
-echo "Run the test:"
-echo "  AWS_ENDPOINT_URL=http://localhost:${PORT} cargo test --test trigger_e2e test_sqs_e2e --features sqs_trigger,enterprise,private -- --ignored --nocapture"
+echo "Run the test (it is not #[ignore]d, so do not pass --ignored):"
+echo "  AWS_ENDPOINT_URL=http://localhost:${PORT} cargo test -p windmill-api-integration-tests --test trigger_e2e test_sqs_e2e --features sqs_trigger,enterprise,private -- --nocapture"

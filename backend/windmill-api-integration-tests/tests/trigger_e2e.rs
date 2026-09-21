@@ -1,10 +1,18 @@
 /*!
  * End-to-end integration tests for Windmill trigger listeners.
  *
- * Most tests are `#[ignore]` because they need an external service (MQTT broker,
- * NATS server, Kafka broker, ...) that nothing starts for them. `test_sqs_e2e` is
- * the exception: CI runs a LocalStack service for it, so it is not ignored. See
- * each test's doc comment for how to run it locally.
+ * Most tests are `#[ignore]` because they require a running external service
+ * (MQTT broker, NATS server, Kafka broker, etc.). `test_sqs_e2e` is the
+ * exception: CI starts LocalStack for it, so it runs unignored and must not be
+ * invoked with `--ignored`. See individual test doc comments for setup.
+ *
+ * Quick start — use the helper scripts in `tests/fixtures/` (paths relative to
+ * `backend/`):
+ * ```bash
+ * ./tests/fixtures/start_all_triggers.sh          # start all services
+ * ./tests/fixtures/start_all_triggers.sh oss      # start OSS services only
+ * ./tests/fixtures/start_all_triggers.sh stop     # tear down everything
+ * ```
  *
  * The general pattern:
  * 1. Insert a test script + trigger row + resource into the DB
@@ -704,14 +712,12 @@ async fn test_nats_e2e(db: Pool<Postgres>) -> anyhow::Result<()> {
 
 /// End-to-end test for SQS trigger (Enterprise only).
 ///
-/// CI provides LocalStack and the queue (see `backend-test.yml`). To run it locally:
+/// Unlike the other tests here this one is not `#[ignore]`d: CI starts LocalStack
+/// and creates the queue (see `backend-test.yml`). Locally, from `backend/`:
 /// ```bash
-/// docker run -d --rm -p 4566:4566 -e SERVICES=sqs localstack/localstack:3.8
-/// aws --endpoint-url http://localhost:4566 --region us-east-1 \
-///     sqs create-queue --queue-name windmill-e2e-test
-/// AWS_ENDPOINT_URL=http://localhost:4566 AWS_ACCESS_KEY_ID=test \
-/// AWS_SECRET_ACCESS_KEY=test AWS_REGION=us-east-1 \
-/// cargo test --test trigger_e2e test_sqs_e2e \
+/// ./tests/fixtures/start_sqs.sh
+/// AWS_ENDPOINT_URL=http://localhost:4566 \
+/// cargo test -p windmill-api-integration-tests --test trigger_e2e test_sqs_e2e \
 ///     --features sqs_trigger,enterprise,private -- --nocapture
 /// ```
 // `sqs_trigger` is what makes run_server spawn the SQS listener; the aws-sdk-sqs dev
