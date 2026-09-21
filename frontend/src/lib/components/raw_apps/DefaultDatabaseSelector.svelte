@@ -47,9 +47,12 @@
 	)
 
 	const datatableItems = $derived(toDatatableItems(datatables.current))
-	// Until the answer is for this data table and role, the schemas in hand belong to another.
+	// Until the answer is for this workspace, data table and role, the schemas in hand belong to
+	// another.
 	const schemaItems = $derived(
-		access.current.datatable === datatable && access.current.role === role
+		access.current.workspace === opWs &&
+			access.current.datatable === datatable &&
+			access.current.role === role
 			? toSchemaItems(access.current.schemas)
 			: []
 	)

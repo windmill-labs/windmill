@@ -501,8 +501,8 @@ struct CreateWorkspaceFork {
     id: String,
     name: String,
     color: Option<String>,
-    /// Datatable names that were forked. For each, the backend will update the
-    /// forked workspace's datatable config to point to the new database.
+    /// Data tables the fork gets a copy of rather than a pointer at the parent's. For each, the
+    /// fork's entry is pointed at the new database.
     #[serde(default)]
     forked_datatables: Vec<ForkedDatatableInfo>,
     /// Lakes the user explicitly chose to SHARE with the parent (the fork then reads and
@@ -534,6 +534,11 @@ struct CreateWorkspaceFork {
 struct ForkedDatatableInfo {
     name: String,
     new_dbname: String,
+    /// What this request copies into `new_dbname`, which it creates. Optional only so that the
+    /// entry older CLIs send — naming a database they created and filled themselves — is refused
+    /// with a message rather than a parse error.
+    #[serde(default)]
+    fork_behavior: Option<DataTableForkBehavior>,
 }
 
 #[derive(Deserialize)]
@@ -2233,8 +2238,8 @@ async fn list_datatables(
             name,
             resource_type: database.resource_type.as_ref().to_string(),
             resource_path: database.resource_path.clone(),
-            governing_workspace_id: (governing.workspace_id != w_id)
-                .then(|| governing.workspace_id.clone()),
+            governing_workspace_id: (governing.governing_workspace_id() != w_id)
+                .then(|| governing.governing_workspace_id().to_string()),
             permissioned: governing.datatable.permissions.is_some(),
         });
     }
@@ -2916,6 +2921,18 @@ fn truncate_column_default(default: String) -> String {
 mod tests {
     use super::*;
 
+    #[test]
+    fn a_dev_workspace_copies_into_the_fork_database_namespace() {
+        assert_eq!(
+            forked_datatable_dbname("wm-fork-my-fork", "main"),
+            "wm_fork_my_fork__main"
+        );
+        assert_eq!(
+            forked_datatable_dbname("my-dev", "main"),
+            "wm_fork_my_dev__main"
+        );
+    }
+
     /// The header of a pg_dump, followed by an object whose body also holds a `SET`.
     const DUMP: &str = "--\n\
         -- PostgreSQL database dump\n\
@@ -3410,7 +3427,10 @@ async fn server_setting_names(pg_db: &PgDatabase) -> Result<HashSet<String>> {
 /// so a dump that breaks partway through imports partially and reads as a success.
 /// ON_ERROR_STOP surfaces the failure and --single-transaction makes the restore
 /// all-or-nothing, leaving the target as it was and the import retryable.
-async fn pg_import_dump(target_db: &PgDatabase, dump_file: &DumpFile) -> Result<()> {
+///
+/// Authorization: none. Writes into `target_db` with the credentials it carries; callers MUST have
+/// authorized writing to that database.
+pub(crate) async fn pg_import_dump(target_db: &PgDatabase, dump_file: &DumpFile) -> Result<()> {
     let supported_settings = server_setting_names(target_db).await?;
     comment_out_unsupported_settings(dump_file, &supported_settings).await?;
 
@@ -3459,7 +3479,7 @@ async fn create_pg_database(
     // exists rather than leaving an empty registered `wm_fork_…` behind.
     if let Some(reference) = req.source.strip_prefix("datatable://") {
         let (name, _) = parse_datatable_ref_for(&db, &w_id, reference).await?;
-        ensure_datatable_is_clonable(&db, &w_id, &name).await?;
+        ensure_copied_without_roles(&ensure_datatable_is_clonable(&db, &w_id, &name).await?)?;
     }
 
     // Non-superadmin: restrict dbname to wm_fork_ prefix
@@ -3497,48 +3517,60 @@ async fn create_pg_database(
     } else {
         let source_pg =
             resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.source).await?;
-        let (client, connection) = source_pg.connect(Some(&db)).await?;
-        let join_handle = tokio::spawn(async move { connection.await });
-
-        let row = client
-            .query_one(
-                "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_database WHERE datname = $1)",
-                &[&req.target_dbname],
-            )
-            .await
-            .map_err(|e| {
-                Error::internal_err(format!(
-                    "Failed to check database existence: {}",
-                    pg_error_message(&e)
-                ))
-            })?;
-        let db_exists: bool = row.get(0);
-
-        if db_exists {
-            drop(client);
-            let _ = windmill_common::shutdown_pg_connection(join_handle).await;
-            return Err(Error::BadRequest(format!(
-                "Database '{}' already exists on the resource server",
-                req.target_dbname
-            )));
-        }
-
-        client
-            .execute(&format!("CREATE DATABASE \"{}\"", &req.target_dbname), &[])
-            .await
-            .map_err(|e| {
-                Error::internal_err(format!(
-                    "Failed to create database '{}': {}",
-                    req.target_dbname,
-                    pg_error_message(&e)
-                ))
-            })?;
-
-        drop(client);
-        windmill_common::shutdown_pg_connection(join_handle).await?;
+        create_database_on_server(&db, &source_pg, &req.target_dbname).await?;
     }
 
     Ok(format!("Created database '{}'", req.target_dbname))
+}
+
+/// `CREATE DATABASE` on the server `server` connects to, refusing a name already taken there.
+///
+/// Authorization: none. Callers MUST have authorized creating a database on that server — resolved
+/// from a data table or resource the caller may administer.
+pub(crate) async fn create_database_on_server(
+    db: &DB,
+    server: &PgDatabase,
+    dbname: &str,
+) -> Result<()> {
+    windmill_common::validate_dbname(dbname)?;
+    let (client, connection) = server.connect(Some(db)).await?;
+    let join_handle = tokio::spawn(async move { connection.await });
+
+    let row = client
+        .query_one(
+            "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_database WHERE datname = $1)",
+            &[&dbname],
+        )
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "Failed to check database existence: {}",
+                pg_error_message(&e)
+            ))
+        })?;
+    let db_exists: bool = row.get(0);
+
+    if db_exists {
+        drop(client);
+        let _ = windmill_common::shutdown_pg_connection(join_handle).await;
+        return Err(Error::BadRequest(format!(
+            "Database '{dbname}' already exists on the resource server"
+        )));
+    }
+
+    client
+        .execute(&format!("CREATE DATABASE \"{dbname}\""), &[])
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "Failed to create database '{dbname}': {}",
+                pg_error_message(&e)
+            ))
+        })?;
+
+    drop(client);
+    windmill_common::shutdown_pg_connection(join_handle).await?;
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -3550,48 +3582,22 @@ struct ImportPgDatabaseRequest {
     fork_behavior: DataTableForkBehavior,
 }
 
-/// Refuse to copy a data table that is under roles.
+/// Whether data table `name` of `w_id` has a shape a copy can be made of, returning what governs
+/// it. Checked before anything is created — by the fork request for the copies it makes, and by
+/// `create_pg_database` — and again when the fork's entry is written.
 ///
-/// `pg_dump` carries no roles and the import runs with `--no-privileges`, so a clone arrives with
-/// its objects owned by the admin connection and no `GRANT` for any role. The settings copy brings
-/// `permissions` across, so the fork's tenants pass Windmill's check, connect as the role they were
-/// given, and are then denied by Postgres on everything — a data table that looks configured and
-/// answers nothing.
+/// It is not the check for a data table under roles: a copy of one is only correct with its
+/// owners and grants replayed, which the fork request does and the older endpoints refuse
+/// ([`ensure_copied_without_roles`]).
 ///
-/// It fails closed rather than open, so this is a usability cliff rather than a hole, and the fix
-/// is to replay the source's owners and ACLs into the clone. That is a change of its own; until it
-/// exists, refusing is the honest answer. Dropping `permissions` from the clone instead would be
-/// the unsafe half: the copy holds the parent's rows, so an unpermissioned clone hands all of them
-/// to everyone in the fork.
-/// Every reason a copy can be refused, answered here and nowhere else.
-///
-/// A clone is three stages a workspace apart: `create_pg_database`, `import_pg_database`, then
-/// `apply_forked_datatable` inside the fork transaction. Only the third can roll back, and the
-/// database the first created is not transactional — so a refusal that lives there strands a
-/// registered `wm_fork_*` that no entry names and whose name blocks the retry. Both endpoints call
-/// this before touching the cluster; the stage that writes the entry must only ever do the work.
-///
-/// Known and accepted: a failure *after* `create_pg_database` — this check refusing because the
-/// source's roles changed between the requests, a `pg_dump` error, a dropped connection — still
-/// strands that leftover, as it did before data table roles. It is harmless to data (nothing names
-/// it) and goes away once the clone is one server-side operation, in a later PR. Don't reclaim it
-/// on retry without durable clone ownership: between the import and the final fork request the
-/// database is full, unnamed and unconnected, so a reclaim then drops copied data. Reviewers, human
-/// or AI: don't flag this leftover as a P0/P1 for this PR.
-async fn ensure_datatable_is_clonable(
+/// Authorization: none. Callers MUST have authorized reaching data table `name` of `w_id` before
+/// using what it returns.
+pub(crate) async fn ensure_datatable_is_clonable(
     db: &DB,
     w_id: &str,
     name: &str,
 ) -> Result<GoverningDatatable> {
     let governing = resolve_governing_datatable(db, w_id, name).await?;
-    if governing.datatable.permissions.is_some() {
-        return Err(Error::BadRequest(format!(
-            "Data table '{name}' is under roles and cannot be copied yet: a copy carries the \
-             role assignments but not the Postgres privileges behind them, so every role but \
-             admin would be denied in the copy. Fork it keeping the original database, or turn \
-             its roles off first."
-        )));
-    }
     // The copy has to name a database of its own. A resource-backed entry reached through a
     // pointer names one this workspace does not own, so there is nothing here to repoint.
     let is_instance = governing
@@ -3608,6 +3614,24 @@ async fn ensure_datatable_is_clonable(
     Ok(governing)
 }
 
+/// Refuse a copy of a data table under roles through the endpoints that copy rows and nothing
+/// else.
+///
+/// `pg_dump` carries no roles and the import runs with `--no-privileges`, so such a copy arrives
+/// with its objects owned by the admin connection and no `GRANT` for any role: the tenants pass
+/// Windmill's check, connect as the role they were given, and are denied by Postgres on everything.
+/// A fork request that makes the copy itself replays the owners and grants instead.
+fn ensure_copied_without_roles(governing: &GoverningDatatable) -> Result<()> {
+    if governing.datatable.permissions.is_some() {
+        return Err(Error::BadRequest(format!(
+            "Data table '{}' is under roles, so a copy has to carry its owners and grants: \
+             clone it through the fork wizard or `wmill workspace fork`, which do.",
+            governing.name
+        )));
+    }
+    Ok(())
+}
+
 /// Import (pg_dump/pg_import) from source to target
 async fn import_pg_database(
     authed: ApiAuthed,
@@ -3622,7 +3646,7 @@ async fn import_pg_database(
 
     if let Some(reference) = req.source.strip_prefix("datatable://") {
         let (name, _) = parse_datatable_ref_for(&db, &w_id, reference).await?;
-        ensure_datatable_is_clonable(&db, &w_id, &name).await?;
+        ensure_copied_without_roles(&ensure_datatable_is_clonable(&db, &w_id, &name).await?)?;
     }
 
     if req.fork_behavior == DataTableForkBehavior::SchemaAndData {
@@ -3765,6 +3789,15 @@ async fn edit_ducklake_config(
     }
 
     let mut tx = db.begin().await?;
+    windmill_common::lock_instance_databases(
+        &mut tx,
+        new_config.settings.ducklakes.values().filter_map(|lake| {
+            (lake.catalog.resource_type
+                == windmill_common::workspaces::DucklakeCatalogResourceType::Instance)
+                .then_some(lake.catalog.resource_path.as_str())
+        }),
+    )
+    .await?;
 
     let args_for_audit = format!("{:?}", new_config.settings);
     audit_log(
@@ -3886,6 +3919,16 @@ async fn edit_datatable_config(
     let mut tx = db.begin().await?;
     // Ahead of the settings row, as fork cleanup of this workspace takes the two.
     windmill_common::workspaces::lock_fork_datatables(&mut tx, &w_id).await?;
+    windmill_common::lock_instance_databases(
+        &mut tx,
+        new_config.settings.datatables.values().filter_map(|dt| {
+            dt.database
+                .as_ref()
+                .filter(|d| d.resource_type == DataTableCatalogResourceType::Instance)
+                .map(|d| d.resource_path.as_str())
+        }),
+    )
+    .await?;
 
     // Read under the row lock this transaction will write with. `permissions`, `reference` and
     // `forked_from` are carried across from what this read returns, so a permissions save
@@ -4011,12 +4054,28 @@ async fn edit_datatable_config(
         // hand the fork the database outright. `forked_from` is the clone stamp the fork flow
         // writes: whether an entry has one is carried the same way, since it is what marks the
         // database droppable, but the schema baseline inside it is the diff view's to advance.
+        // `governed_by` is a clone's `reference` for its roles, and clearing it would hand the
+        // fork the copied rows the same way.
         dt.permissions = old.and_then(|old| old.permissions.clone());
         dt.reference = old.and_then(|old| old.reference.clone());
+        dt.governed_by = old.and_then(|old| old.governed_by.clone());
         dt.forked_from = match old.and_then(|old| old.forked_from.as_ref()) {
             Some(stored) => Some(dt.forked_from.take().unwrap_or_else(|| stored.clone())),
             None => None,
         };
+        // A clone's roles and grants were replayed into the database it was copied into, and hold
+        // for that database alone: whoever saves, it stays where it is.
+        if dt.governed_by.is_some()
+            && !crate::datatable_clone::same_database(
+                &dt.database,
+                &old.and_then(|old| old.database.clone()),
+            )
+        {
+            return Err(Error::BadRequest(format!(
+                "Data table '{name}' is a clone taking its roles from the data table it was copied \
+                 from, and its grants hold for its own database only: it cannot be moved."
+            )));
+        }
         // Carrying the block onto a resource-backed entry would produce a data table the chokepoint
         // refuses on every job — a save that succeeds and breaks everything afterwards. Refuse it
         // instead: turning roles off first is one step, and it keeps discarding an access decision
@@ -4055,9 +4114,18 @@ async fn edit_datatable_config(
     // workspace does not own. Pointing an entry at another workspace's data table is not checked
     // here because it cannot be requested at all: `reference` is overwritten from the stored entry
     // above, for every caller.
+    //
+    // Compared against the entry the carried fields came from, not the one stored under the same
+    // name: otherwise swapping two names keeps each database in place while moving a clone's
+    // `governed_by` off the copy it governs.
     if !is_superadmin {
         for (name, dt) in new_config.settings.datatables.iter() {
-            let old_dt = old_datatables.get(name);
+            let old_dt = old_datatables.get(
+                rename_src
+                    .get(name.as_str())
+                    .copied()
+                    .unwrap_or(name.as_str()),
+            );
             if dt
                 .database
                 .as_ref()
@@ -4097,7 +4165,8 @@ async fn edit_datatable_config(
         .settings
         .datatables
         .iter()
-        .filter(|(_, dt)| dt.permissions.is_none())
+        // A clone carries its roles through `governed_by` rather than `permissions`.
+        .filter(|(_, dt)| dt.permissions.is_none() && dt.governed_by.is_none())
         .filter_map(|(name, dt)| {
             let db = dt
                 .database
@@ -4158,7 +4227,7 @@ async fn edit_datatable_config(
         sqlx::query_scalar(
             "SELECT DISTINCT dt.value->'database'->>'resource_path' FROM workspace_settings ws
              CROSS JOIN LATERAL jsonb_each(COALESCE(ws.datatable->'datatables', '{}'::jsonb)) dt
-             WHERE ws.workspace_id <> $1 AND dt.value ? 'permissions'
+             WHERE ws.workspace_id <> $1 AND (dt.value ? 'permissions' OR dt.value ? 'governed_by')
                AND dt.value->'database'->>'resource_type' = 'instance'",
         )
         .bind(&w_id)
@@ -4167,7 +4236,7 @@ async fn edit_datatable_config(
     };
     for (name, dbname) in newly_pointed {
         let governed_here = old_datatables.values().any(|old| {
-            old.permissions.is_some()
+            (old.permissions.is_some() || old.governed_by.is_some())
                 && old.database.as_ref().is_some_and(|d| {
                     d.resource_type == DataTableCatalogResourceType::Instance
                         && d.resource_path == dbname
@@ -4227,8 +4296,11 @@ async fn edit_datatable_config(
             r#"SELECT ws.workspace_id AS "workspace_id!", dt.key AS "datatable!"
                FROM workspace_settings ws
                CROSS JOIN LATERAL jsonb_each(COALESCE(ws.datatable->'datatables', '{}'::jsonb)) dt
-               WHERE dt.value->'reference'->>'workspace_id' = $1
-                 AND dt.value->'reference'->>'datatable' = $2"#,
+               WHERE EXISTS (
+                   SELECT 1 FROM (VALUES ('reference'), ('governed_by')) k(link)
+                   WHERE dt.value->k.link->>'workspace_id' = $1
+                     AND dt.value->k.link->>'datatable' = $2
+               )"#,
             &w_id,
             name,
         )
@@ -8356,6 +8428,7 @@ async fn create_workspace_fork_branch(
     // dangling branch on the synced repos.
     check_fork_w_id_conflict(&db, &nw.id).await?;
     purge_stale_fork_diff_state(&db, &nw.id).await?;
+    validate_forked_datatables(&db, &authed, &w_id, &nw).await?;
 
     Ok(Json(
         handle_fork_branch_creation(&authed.email, &authed.username, &db, &w_id, &nw.id).await?,
@@ -8395,8 +8468,9 @@ async fn snapshot_datatable_schema(
 /// a fork admin could then edit to widen their own access to it. A pointer has nothing local to
 /// edit: the parent's entry stays the only place the decision lives.
 ///
-/// The cloned data tables are skipped: they own a fresh database of their own, and they keep the
-/// copied `permissions` as their starting point, which they then govern.
+/// The cloned data tables are skipped: they own a fresh database of their own, and
+/// `apply_forked_datatable` has already dropped their copied `permissions` — for a clone of a data
+/// table under roles, in favor of `governed_by`.
 async fn point_kept_datatables_at_parent(
     tx: &mut Transaction<'_, Postgres>,
     parent_w_id: &str,
@@ -8451,6 +8525,7 @@ async fn point_kept_datatables_at_parent(
                 workspace_id: parent_w_id.to_string(),
                 datatable: name.clone(),
             }),
+            governed_by: None,
             forked_from: None,
             migrations_enabled: dt.migrations_enabled,
             permissions: None,
@@ -8471,7 +8546,8 @@ async fn point_kept_datatables_at_parent(
     Ok(())
 }
 
-/// Move every pointer in any workspace that names `(w_id, from)` to `(w_id, to)`.
+/// Move every pointer, and every clone's `governed_by`, in any workspace that names `(w_id, from)`
+/// to `(w_id, to)`.
 ///
 /// `EXISTS` rather than a `LIKE` over the whole document: the update rewrites the row, so matching
 /// every workspace that holds any pointer would rewrite rows to a byte-identical value and hold an
@@ -8487,17 +8563,22 @@ async fn repoint_datatable_references(
            SET datatable = (
                SELECT jsonb_set(ws.datatable, '{datatables}', jsonb_object_agg(
                    dt.key,
-                   CASE WHEN dt.value->'reference'->>'workspace_id' = $1
-                             AND dt.value->'reference'->>'datatable' = $2
-                       THEN jsonb_set(dt.value, '{reference,datatable}', to_jsonb($3::text))
-                       ELSE dt.value END
+                   (SELECT CASE WHEN r.v->'governed_by'->>'workspace_id' = $1
+                                     AND r.v->'governed_by'->>'datatable' = $2
+                               THEN jsonb_set(r.v, '{governed_by,datatable}', to_jsonb($3::text))
+                               ELSE r.v END
+                    FROM (SELECT CASE WHEN dt.value->'reference'->>'workspace_id' = $1
+                                           AND dt.value->'reference'->>'datatable' = $2
+                                     THEN jsonb_set(dt.value, '{reference,datatable}', to_jsonb($3::text))
+                                     ELSE dt.value END AS v) r)
                ))
                FROM jsonb_each(ws.datatable->'datatables') dt
            )
            WHERE EXISTS (
-               SELECT 1 FROM jsonb_each(COALESCE(ws.datatable->'datatables', '{}'::jsonb)) d
-               WHERE d.value->'reference'->>'workspace_id' = $1
-                 AND d.value->'reference'->>'datatable' = $2
+               SELECT 1 FROM jsonb_each(COALESCE(ws.datatable->'datatables', '{}'::jsonb)) d,
+                    LATERAL (VALUES ('reference'), ('governed_by')) k(link)
+               WHERE d.value->k.link->>'workspace_id' = $1
+                 AND d.value->k.link->>'datatable' = $2
            )"#,
         w_id,
         from,
@@ -8515,17 +8596,8 @@ async fn apply_forked_datatable(
     parent_w_id: &str,
     forked_w_id: &str,
     fdt: &ForkedDatatableInfo,
+    copy: &crate::datatable_clone::MadeCopy,
 ) -> Result<()> {
-    // Cloning reads the parent's whole schema as admin and hands the copy to the fork, so it is
-    // for the workspace that governs the data table — a fork can use one, never duplicate it.
-    windmill_common::workspaces::ensure_datatable_admin_access(
-        db,
-        parent_w_id,
-        &fdt.name,
-        &DatatableAccess::Authed(authed.to_authed_ref()),
-    )
-    .await?;
-    let governing = ensure_datatable_is_clonable(db, parent_w_id, &fdt.name).await?;
     windmill_common::validate_dbname(&fdt.new_dbname)?;
     if !fdt.new_dbname.starts_with("wm_fork_") {
         return Err(Error::BadRequest(format!(
@@ -8533,6 +8605,52 @@ async fn apply_forked_datatable(
             fdt.new_dbname
         )));
     }
+    // Held until the fork commits, as the permissions save holds them: the source moved onto
+    // another database, or put under roles or taken off them, since its copy was made would link
+    // the copy to roles its grants were not replayed for.
+    let locked = crate::datatable_clone::lock_settings_rows(tx, parent_w_id, &fdt.name).await?;
+    let governing = ensure_datatable_is_clonable(db, parent_w_id, &fdt.name).await?;
+    let under_roles = governing.datatable.permissions.is_some();
+    let unchanged = crate::datatable_clone::same_database(
+        &governing.datatable.database,
+        &Some(copy.source_database.clone()),
+    ) && copy.replayed == under_roles
+        && crate::datatable_clone::lock_settings_rows(tx, parent_w_id, &fdt.name).await? == locked;
+    if !unchanged {
+        return Err(Error::BadRequest(format!(
+            "Data table '{}' changed while it was being copied for this fork — its database, or \
+             whether it is under roles. Create the fork again.",
+            fdt.name
+        )));
+    }
+    // The fork keeps a snapshot of the source's schema, which under roles is only for those who may
+    // connect as one of them — as the copy itself was.
+    crate::datatable_permissions::ensure_reaches_governing_datatable(
+        db,
+        parent_w_id,
+        &fdt.name,
+        &governing,
+        authed,
+    )
+    .await?;
+    // Under roles, the copy holds rows the source's roles decide who reaches, so that entry keeps
+    // deciding. Settled from the source as it resolves now: the settings clone may have handed the
+    // fork a pointer, or a clone of its own. A copy of a data table without roles is the fork's,
+    // as it was before roles existed: everyone reached all of it already.
+    let governed_by = governing
+        .datatable
+        .permissions
+        .is_some()
+        .then(|| {
+            serde_json::to_value(governing.governor.clone().unwrap_or_else(|| {
+                windmill_common::workspaces::DataTableReference {
+                    workspace_id: governing.workspace_id.clone(),
+                    datatable: governing.name.clone(),
+                }
+            }))
+        })
+        .transpose()
+        .map_err(|e| Error::internal_err(format!("serializing a clone's governor: {e}")))?;
 
     // Snapshot the schema from the source (parent) datatable
     let schema = snapshot_datatable_schema(db, parent_w_id, &fdt.name).await?;
@@ -8593,33 +8711,42 @@ async fn apply_forked_datatable(
             "resource_type": "instance",
             "resource_path": &fdt.new_dbname,
         });
-        sqlx::query!(
+        sqlx::query(
             r#"UPDATE workspace_settings
                SET datatable = jsonb_set(
-                   jsonb_set(
-                       datatable #- ARRAY['datatables', $2, 'reference'],
-                       ARRAY['datatables', $2, 'database'], $3::jsonb),
-                   ARRAY['datatables', $2, 'forked_from'], $4::jsonb
-               )
+                   datatable #- ARRAY['datatables', $2, 'reference'],
+                   ARRAY['datatables', $2, 'database'], $3::jsonb)
                WHERE workspace_id = $1"#,
-            forked_w_id,
-            &fdt.name,
-            new_database,
-            forked_from,
         )
+        .bind(forked_w_id)
+        .bind(&fdt.name)
+        .bind(new_database)
         .execute(&mut **tx)
         .await?;
     } else {
-        // Resource: update the resource's dbname and mark as ws_specific
+        // Resource: point it at the copy and mark it ws_specific. What the settings clone carried is
+        // the source's resource and variables as they are now, which an edit made while the copy
+        // was being made can have changed, and changed back: the clone has to be what the copy's
+        // connection was resolved from.
         let resource_path = &database.resource_path;
-        sqlx::query!(
+        let cloned =
+            crate::datatable_clone::connection_snapshot(db, &mut **tx, forked_w_id, resource_path)
+                .await?;
+        if copy.connection.as_ref() != Some(&cloned) {
+            return Err(Error::BadRequest(format!(
+                "The resource of data table '{}' changed while it was being copied for this \
+                 fork. Create the fork again.",
+                fdt.name
+            )));
+        }
+        sqlx::query(
             r#"UPDATE resource
                SET value = jsonb_set(value, '{dbname}', to_jsonb($3::text))
                WHERE workspace_id = $1 AND path = $2"#,
-            forked_w_id,
-            resource_path,
-            &fdt.new_dbname,
         )
+        .bind(forked_w_id)
+        .bind(resource_path)
+        .bind(&fdt.new_dbname)
         .execute(&mut **tx)
         .await?;
 
@@ -8630,19 +8757,30 @@ async fn apply_forked_datatable(
         )
         .execute(&mut **tx)
         .await?;
-
-        // Set forked_from on the datatable config
-        sqlx::query!(
-            r#"UPDATE workspace_settings
-               SET datatable = jsonb_set(datatable, ARRAY['datatables', $2, 'forked_from'], $3::jsonb)
-               WHERE workspace_id = $1"#,
-            forked_w_id,
-            &fdt.name,
-            forked_from,
-        )
-        .execute(&mut **tx)
-        .await?;
     }
+
+    // The settings clone copied the source's `permissions` along, and a clone of a clone its
+    // `governed_by`: a clone keeps no `permissions` of its own, and a link only under roles.
+    sqlx::query(
+        r#"UPDATE workspace_settings
+           SET datatable = jsonb_set(
+               CASE WHEN $3::jsonb IS NULL
+                   THEN datatable #- ARRAY['datatables', $2, 'permissions']
+                                  #- ARRAY['datatables', $2, 'governed_by']
+                   ELSE jsonb_set(
+                       datatable #- ARRAY['datatables', $2, 'permissions'],
+                       ARRAY['datatables', $2, 'governed_by'], $3::jsonb)
+               END,
+               ARRAY['datatables', $2, 'forked_from'], $4::jsonb
+           )
+           WHERE workspace_id = $1"#,
+    )
+    .bind(forked_w_id)
+    .bind(&fdt.name)
+    .bind(governed_by)
+    .bind(forked_from)
+    .execute(&mut **tx)
+    .await?;
 
     Ok(())
 }
@@ -8978,7 +9116,169 @@ async fn create_workspace_fork(
         ensure_no_existing_dev_workspace(&db, &parent_workspace_id).await?;
     }
 
+    // Refused here, before any database exists; `make_copies` checks again under the locks.
+    validate_forked_datatables(&db, &authed, &parent_workspace_id, &nw).await?;
+
+    // Detached from the request: a client that goes away while the copies are made must still end
+    // with the fork created or no copy left behind, and dropping the handler's future would skip
+    // that cleanup.
+    tokio::spawn(async move {
+        let fork_id = nw.id.clone();
+        let copies = crate::datatable_clone::make_copies(
+            &db,
+            &authed,
+            &parent_workspace_id,
+            &copy_requests(&nw.forked_datatables),
+        )
+        .await?;
+        let replayed: Vec<DataTableForkBehavior> = copies
+            .iter()
+            .filter(|c| c.replayed)
+            .map(|c| c.behavior)
+            .collect();
+        match write_workspace_fork(
+            db.clone(),
+            authed,
+            parent_workspace_id,
+            nw,
+            dev_workspace_label,
+            &copies,
+        )
+        .await
+        {
+            Ok(message) => {
+                for behavior in replayed {
+                    windmill_common::feature_usage::log_feature_usage(
+                        "datatable",
+                        "clone_replayed",
+                        match behavior {
+                            DataTableForkBehavior::SchemaOnly => "schema_only",
+                            _ => "schema_and_data",
+                        },
+                    );
+                }
+                Ok(message)
+            }
+            // A commit whose acknowledgement was lost can still have committed, and a concurrent
+            // request for the same id can have: once the write has settled, the cleanup keeps
+            // whichever copies a committed fork names, and drops the rest.
+            Err(e) => match wait_for_fork_write(&db, &fork_id).await {
+                Ok(()) => Err(crate::datatable_clone::drop_copies_after(&db, copies, e).await),
+                Err(settle) => {
+                    tracing::error!(
+                        "Could not tell whether fork '{fork_id}' was created, so its copies were \
+                         kept: {settle}"
+                    );
+                    Err(e)
+                }
+            },
+        }
+    })
+    .await
+    .map_err(|e| Error::internal_err(format!("Creating the fork stopped unexpectedly: {e}")))?
+}
+
+/// The database a data table of the fork or dev workspace `fork_id` is copied into, as the wizard
+/// and the CLI derive it. A dev workspace's id has no `wm-fork-` prefix, and its copies are dropped
+/// by the same `wm_fork_` rule as a fork's. Dev workspace `x` and fork `wm-fork-x` share a name, as
+/// their branches do: the second to copy a data table of that name is refused at `CREATE`.
+fn forked_datatable_dbname(fork_id: &str, datatable: &str) -> String {
+    let suffix = fork_id
+        .strip_prefix(windmill_common::workspaces::WM_FORK_PREFIX)
+        .unwrap_or(fork_id);
+    format!("wm_fork_{}__{datatable}", suffix.replace('-', "_"))
+}
+
+/// Wait until no transaction writing fork `fork_id` is still running: the lock
+/// `write_workspace_fork` holds until its transaction ends is taken and released.
+async fn wait_for_fork_write(db: &DB, fork_id: &str) -> Result<()> {
+    let mut tx = db.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext('fork:' || $1))")
+        .bind(fork_id)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Everything about a fork's data tables that can be refused before a git branch or a database is
+/// created, and that the fork request re-checks.
+///
+/// Every data table is copied by the fork request, into a database it creates: an entry naming a
+/// database that already exists could reach a copy made for another fork — one left behind by a
+/// deleted fork included — without that copy's governance.
+async fn validate_forked_datatables(
+    db: &DB,
+    authed: &ApiAuthed,
+    parent_w_id: &str,
+    nw: &CreateWorkspaceFork,
+) -> Result<()> {
+    let mut names = HashSet::new();
+    for fdt in &nw.forked_datatables {
+        if fdt.fork_behavior.is_none() {
+            return Err(Error::BadRequest(format!(
+                "Data table '{}' names no `fork_behavior`: the fork request makes the copy of each \
+                 data table itself. Update the Windmill CLI.",
+                fdt.name
+            )));
+        }
+        let expected = forked_datatable_dbname(&nw.id, &fdt.name);
+        if fdt.new_dbname != expected {
+            return Err(Error::BadRequest(format!(
+                "Data table '{}' of fork '{}' is copied into database '{expected}', not '{}'",
+                fdt.name, nw.id, fdt.new_dbname
+            )));
+        }
+        if !names.insert(fdt.name.as_str()) {
+            return Err(Error::BadRequest(format!(
+                "Data table '{}' is named more than once in this fork",
+                fdt.name
+            )));
+        }
+    }
+    crate::datatable_clone::authorize_copies(
+        db,
+        authed,
+        parent_w_id,
+        &copy_requests(&nw.forked_datatables),
+    )
+    .await
+}
+
+/// The copies a fork request asks this request to make. [`validate_forked_datatables`] refuses an
+/// entry without a `fork_behavior`.
+fn copy_requests(
+    forked_datatables: &[ForkedDatatableInfo],
+) -> Vec<crate::datatable_clone::CopyRequest<'_>> {
+    forked_datatables
+        .iter()
+        .filter_map(|fdt| {
+            fdt.fork_behavior
+                .map(|behavior| crate::datatable_clone::CopyRequest {
+                    name: &fdt.name,
+                    dbname: &fdt.new_dbname,
+                    behavior,
+                })
+        })
+        .collect()
+}
+
+/// Write the fork, with its data tables pointed at `copies`.
+async fn write_workspace_fork(
+    db: DB,
+    authed: ApiAuthed,
+    parent_workspace_id: String,
+    nw: CreateWorkspaceFork,
+    dev_workspace_label: Option<String>,
+    copies: &[crate::datatable_clone::MadeCopy],
+) -> Result<String> {
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
+    // Held until this transaction ends: after an error, the copies' cleanup waits on it, so it reads
+    // whether the fork exists only once a commit still being resolved has settled.
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext('fork:' || $1))")
+        .bind(&nw.id)
+        .execute(&mut *tx)
+        .await?;
     // Before the settings clone reads the parent's data tables: a pointer this fork ends up with
     // must not be written after cleanup of the parent decided that nothing points at its copies.
     windmill_common::workspaces::lock_fork_datatables(&mut tx, &parent_workspace_id).await?;
@@ -9107,10 +9407,41 @@ async fn create_workspace_fork(
 
     repoint_unresolvable_cloned_identities(&mut tx, &forked_id, &authed).await?;
 
+    // Held until the fork commits, as settings saves naming these databases hold it: an entry
+    // saved elsewhere while a copy was being made would reach it without the governance written
+    // below, and the alias check on that save saw no governed entry yet.
+    let instance_copies: Vec<&str> = copies
+        .iter()
+        .filter(|c| c.source_database.resource_type == DataTableCatalogResourceType::Instance)
+        .map(|c| c.dbname.as_str())
+        .collect();
+    windmill_common::lock_instance_databases(&mut tx, instance_copies.iter().copied()).await?;
+    for dbname in &instance_copies {
+        let users = windmill_common::instance_database_users(&mut *tx, dbname).await?;
+        if !users.is_empty() {
+            return Err(Error::BadRequest(format!(
+                "Database '{dbname}' copied for this fork is already used by workspaces {}; \
+                 fork again",
+                users.join(", ")
+            )));
+        }
+    }
+
     // Update forked datatable settings to point to new databases
     for fdt in &nw.forked_datatables {
-        apply_forked_datatable(&db, &mut tx, &authed, &parent_workspace_id, &forked_id, fdt)
-            .await?;
+        let copy = copies.iter().find(|c| c.name == fdt.name).ok_or_else(|| {
+            Error::internal_err(format!("No copy was made of data table '{}'", fdt.name))
+        })?;
+        apply_forked_datatable(
+            &db,
+            &mut tx,
+            &authed,
+            &parent_workspace_id,
+            &forked_id,
+            fdt,
+            copy,
+        )
+        .await?;
     }
 
     point_kept_datatables_at_parent(
@@ -9169,6 +9500,20 @@ async fn create_workspace_fork(
         .await?;
     }
 
+    let copied = copies
+        .iter()
+        .map(|c| {
+            format!(
+                "{} ({})",
+                c.name,
+                match c.behavior {
+                    DataTableForkBehavior::SchemaOnly => "schema_only",
+                    _ => "schema_and_data",
+                }
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
     audit_log(
         &mut *tx,
         &authed,
@@ -9176,7 +9521,7 @@ async fn create_workspace_fork(
         ActionKind::Create,
         &forked_id,
         Some(nw.name.as_str()),
-        None,
+        (!copied.is_empty()).then(|| [("copied_datatables", copied.as_str())].into()),
     )
     .await?;
     tx.commit().await?;
