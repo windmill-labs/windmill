@@ -414,8 +414,9 @@ async fn connect(
         &w_id,
         &authed.email
     )
-    .fetch_one(&db)
-    .await?;
+    .fetch_optional(&db)
+    .await?
+    .ok_or_else(|| no_target(&w_id))?;
     let target = parse_target(start.remote_deploy_target)?.ok_or_else(|| no_target(&w_id))?;
     // A token is only ever sent to the instance it was meant for. Without this, re-pointing the
     // target between the user getting a token and posting it here would hand it to the new one;
@@ -461,9 +462,9 @@ async fn connect(
     // No lock against removals, target changes or key rotations: `load_connection` voids a row
     // that lands after one of them. A disconnect or a newer connect stamps the row itself, which
     // this one then leaves alone. Without a membership to bind to, the row is bound to the account
-    // through the credential making this request, which dies with it: the address could otherwise
-    // be deleted and taken by a new account while the remote call runs, and the foreign key would
-    // accept that one.
+    // through the credential making this request, which deleting the account removes (except
+    // through `leave_instance`, which leaves its tokens): the address could otherwise be deleted
+    // and taken by a new account while the remote call runs, and the foreign key would accept it.
     let mut tx = db.begin().await?;
     let connected_at = sqlx::query_scalar!(
         "INSERT INTO remote_deploy_token

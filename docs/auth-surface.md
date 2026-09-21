@@ -74,9 +74,12 @@ Symbols, not line numbers, are cited: they drift less.
   the same (or the owner is a superadmin) and it decrypts. So a target set A → B → A, or a
   removal and re-add, voids it whatever the clocks say. A superadmin with no membership is bound
   through the credential making the request instead: the insert requires its `token` row to
-  still exist, and deleting an account deletes its tokens, so an address deleted and taken by a
-  new account during the call does not inherit the connection (a JWT, having no row, cannot
-  connect a workspace its owner is not a member of). A disconnect empties and stamps the row
+  still exist, and `delete_user`, offboarding and SCIM removal delete an account's tokens, so an
+  address deleted that way and re-created during the call does not inherit the connection (a JWT,
+  having no row, cannot connect a workspace its owner is not a member of). `leave_instance`
+  deletes only the `password` row, leaving the tokens and the memberships, which is not covered.
+  Neither is a member's connect across an account re-creation: an address is not expected to pass
+  to another person. A disconnect empties and stamps the row
   (inserting one if needed) rather than deleting it, `connected_at` is when a connect started,
   and the connect's upsert leaves a row stamped after that alone, so an older connect cannot undo
   a disconnect or a newer connect. Connecting by redirect: the remote's
