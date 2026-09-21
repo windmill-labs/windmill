@@ -718,6 +718,7 @@ async fn restart_perpetual_runs_at_path(
         PerpetualRunToRestart,
         "SELECT q.id AS \"id!\", j.created_by, j.permissioned_as, j.permissioned_as_email, \
          j.trigger, j.trigger_kind AS \"trigger_kind: TriggerKindLabel\", j.preprocessed, \
+         s.has_preprocessor AS \"version_has_preprocessor\", \
          j.args AS \"args: sqlx::types::Json<HashMap<String, Box<RawValue>>>\" \
          FROM v2_job_queue q JOIN v2_job j USING (id) \
          JOIN script s ON s.workspace_id = j.workspace_id AND s.hash = j.runnable_id \
@@ -769,6 +770,9 @@ struct PerpetualRunToRestart {
     /// `Some(false)` while the run still carries the arguments it was started with, which only a
     /// completion replaces with the preprocessed ones.
     preprocessed: Option<bool>,
+    /// Of the version the run is on, not the deployed one: without a preprocessor there, the
+    /// arguments it carries are the ones it was started with whatever `preprocessed` says.
+    version_has_preprocessor: Option<bool>,
     args: Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
 }
 
@@ -822,11 +826,14 @@ async fn restart_perpetual_run(
         }
     }
     let args = run.args.clone().map(|args| args.0).unwrap_or_default();
-    // A run's arguments become the preprocessed ones only when it completes, so a loop's first
-    // iteration still holds what started it and its replacement has to preprocess them itself.
+    // A run carries preprocessed arguments only once a completion has replaced them, and only on a
+    // version that preprocesses at all: on one that does not, what it carries is what it was
+    // started with, which a preprocessor the deployed version adds still has to see.
+    let carries_preprocessed_args =
+        run.version_has_preprocessor == Some(true) && run.preprocessed != Some(false);
     let mut payload = payload.clone();
     if let JobPayload::ScriptHash { apply_preprocessor, .. } = &mut payload {
-        *apply_preprocessor = *apply_preprocessor && run.preprocessed == Some(false);
+        *apply_preprocessor = *apply_preprocessor && !carries_preprocessed_args;
     }
     let mut tx = db.begin().await?;
     // Claiming the run and queueing its replacement in one transaction: a push that fails
