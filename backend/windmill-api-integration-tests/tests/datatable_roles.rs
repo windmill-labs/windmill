@@ -1125,6 +1125,156 @@ async fn a_fork_waits_for_a_rename_of_the_data_table_it_keeps(
     Ok(())
 }
 
+async fn enable_migrations_on_main(db: &Pool<Postgres>) -> anyhow::Result<()> {
+    sqlx::query(
+        "UPDATE workspace_settings
+         SET datatable = jsonb_set(datatable, '{datatables,main,migrations_enabled}', 'true')
+         WHERE workspace_id = 'test-workspace'",
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+#[cfg(all(feature = "private", feature = "enterprise"))]
+#[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
+async fn a_migration_is_written_only_by_who_may_run_it(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    enable_migrations_on_main(&db).await?;
+    let server = ApiServer::start(db.clone()).await?;
+    let base = format!(
+        "http://localhost:{}/api/w/test-workspace/workspaces",
+        server.addr.port()
+    );
+    let create = |token: &str, body: Value| {
+        authed(
+            client()
+                .post(format!("{base}/create_datatable_migration/main"))
+                .json(&body),
+            token,
+        )
+        .send()
+    };
+    let upsert = |token: &str, code_up: &str| {
+        authed(
+            client()
+                .post(format!("{base}/upsert_datatable_migration/main"))
+                .json(&json!({"timestamp": 20260101000000i64, "name": "m", "code_up": code_up})),
+            token,
+        )
+        .send()
+    };
+
+    // `test-user-2` holds `analytics` and nothing else, so of a migration they may store only
+    // what they could run: SQL that declares no role runs as admin, in the up or the down.
+    for body in [
+        json!({"name": "m", "code_up": "DROP TABLE t"}),
+        json!({"name": "m", "code_up": "-- role analytics\nSELECT 1", "code_down": "DROP TABLE t"}),
+    ] {
+        let resp = create("SECRET_TOKEN_2", body.clone()).await?;
+        assert_eq!(resp.status(), 401, "{body}: {}", resp.text().await?);
+    }
+    let resp = create(
+        "SECRET_TOKEN_2",
+        json!({"name": "m", "code_up": "-- role analytics\nSELECT 1"}),
+    )
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+
+    // An admin's migration re-pushed as stored writes nothing new, so it passes; changing or
+    // deleting it does not.
+    let resp = upsert("SECRET_TOKEN", "DROP TABLE t").await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    let resp = upsert("SECRET_TOKEN_2", "DROP TABLE t").await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    let resp = upsert("SECRET_TOKEN_2", "DROP TABLE u").await?;
+    assert_eq!(resp.status(), 401, "{}", resp.text().await?);
+    let resp = authed(
+        client().delete(format!(
+            "{base}/delete_datatable_migration/main/20260101000000"
+        )),
+        "SECRET_TOKEN_2",
+    )
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 401, "{}", resp.text().await?);
+
+    let code_up: String = sqlx::query_scalar(
+        "SELECT code_up FROM datatable_migrations
+         WHERE workspace_id = 'test-workspace' AND timestamp = 20260101000000",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(code_up, "DROP TABLE t");
+    Ok(())
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
+async fn an_operator_neither_writes_nor_runs_a_migration(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    enable_migrations_on_main(&db).await?;
+    // Off roles, where every role check passes everyone, so only the operator guard is left to
+    // refuse.
+    sqlx::query(
+        "UPDATE workspace_settings SET datatable = datatable #- '{datatables,main,permissions}'
+         WHERE workspace_id = 'test-workspace'",
+    )
+    .execute(&db)
+    .await?;
+    // A token of its own: the auth cache is process-wide, and the other tests here authenticate
+    // `SECRET_TOKEN_3` in this workspace as a non-operator.
+    sqlx::raw_sql(
+        "UPDATE usr SET operator = true, role = 'Operator'
+         WHERE workspace_id = 'test-workspace' AND username = 'test-user-3';
+         INSERT INTO token (token_hash, token_prefix, token, email, label, super_admin)
+         VALUES (encode(sha256('DT_OPERATOR_TOKEN'::bytea), 'hex'), 'DT_OPERATO',
+                 'DT_OPERATOR_TOKEN', 'test3@windmill.dev', 'operator', false);",
+    )
+    .execute(&db)
+    .await?;
+    let server = ApiServer::start(db.clone()).await?;
+    let base = format!(
+        "http://localhost:{}/api/w/test-workspace/workspaces",
+        server.addr.port()
+    );
+    let migration = json!({"timestamp": 20260101000000i64, "name": "m", "code_up": "SELECT 1"});
+
+    for request in [
+        client()
+            .post(format!("{base}/create_datatable_migration/main"))
+            .json(&migration),
+        client()
+            .post(format!("{base}/upsert_datatable_migration/main"))
+            .json(&migration),
+        client().delete(format!(
+            "{base}/delete_datatable_migration/main/20260101000000"
+        )),
+        client().post(format!("{base}/run_datatable_migrations/main")),
+        client().post(format!("{base}/rollback_datatable_migrations/main")),
+        client().post(format!("{base}/generate_initial_datatable_migration/main")),
+    ] {
+        let resp = authed(request, "DT_OPERATOR_TOKEN").send().await?;
+        let status = resp.status();
+        let text = resp.text().await?;
+        assert!(
+            status == 401 && text.contains("Operators cannot"),
+            "{status}: {text}"
+        );
+    }
+
+    // The same write from a developer is accepted: what refused the operator is theirs alone.
+    let resp = authed(
+        client()
+            .post(format!("{base}/upsert_datatable_migration/main"))
+            .json(&migration),
+        "SECRET_TOKEN_2",
+    )
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    Ok(())
+}
+
 #[cfg(not(all(feature = "private", feature = "enterprise")))]
 const ENTERPRISE_REFUSAL: &str = "Data table roles are a Windmill Enterprise Edition feature";
 
