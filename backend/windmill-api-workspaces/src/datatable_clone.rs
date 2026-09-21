@@ -83,14 +83,13 @@ pub(crate) async fn connection_snapshot(
         if snapshot.resources.contains_key(&path) {
             continue;
         }
-        let value: Option<serde_json::Value> = sqlx::query_scalar(
-            "SELECT value FROM resource WHERE workspace_id = $1 AND path = $2",
-        )
-        .bind(w_id)
-        .bind(&path)
-        .fetch_optional(&mut *conn)
-        .await?
-        .flatten();
+        let value: Option<serde_json::Value> =
+            sqlx::query_scalar("SELECT value FROM resource WHERE workspace_id = $1 AND path = $2")
+                .bind(w_id)
+                .bind(&path)
+                .fetch_optional(&mut *conn)
+                .await?
+                .flatten();
         let mut strings = vec![];
         collect_strings(value.as_ref(), &mut strings);
         for reference in strings {
@@ -155,7 +154,9 @@ impl ConnectionSnapshot {
     {
         Box::pin(async move {
             if depth > 32 {
-                return Err(Error::BadRequest("resource references nest too deeply".to_string()));
+                return Err(Error::BadRequest(
+                    "resource references nest too deeply".to_string(),
+                ));
             }
             Ok(match value {
                 serde_json::Value::Object(map) => {
@@ -174,7 +175,8 @@ impl ConnectionSnapshot {
                 }
                 serde_json::Value::String(s) if s.starts_with("$res:") => {
                     let path = &s[5..];
-                    self.substitute(db, w_id, self.resource(path)?, depth + 1).await?
+                    self.substitute(db, w_id, self.resource(path)?, depth + 1)
+                        .await?
                 }
                 serde_json::Value::String(s) if s.starts_with("$var:") => {
                     let path = &s[5..];
@@ -182,7 +184,9 @@ impl ConnectionSnapshot {
                         .variables
                         .get(path)
                         .and_then(|v| v.as_ref())
-                        .ok_or_else(|| Error::NotFound(format!("variable {path} does not exist")))?;
+                        .ok_or_else(|| {
+                            Error::NotFound(format!("variable {path} does not exist"))
+                        })?;
                     serde_json::Value::String(match (secret, self.external_secrets.get(path)) {
                         (false, _) => stored.clone(),
                         (true, Some(external)) => external.clone(),
@@ -311,14 +315,15 @@ async fn drop_copy(db: &DB, source_database: &DataTableDatabase, dbname: &str) -
     if source_database.resource_type
         == windmill_common::workspaces::DataTableCatalogResourceType::Instance
     {
-        let users = windmill_common::drop_unused_instance_database(db, dbname).await?;
-        if users.is_empty() {
-            Ok(())
-        } else {
-            Err(Error::BadRequest(format!(
+        match windmill_common::drop_unused_instance_database(db, dbname).await? {
+            windmill_common::Cleanup::Dropped => Ok(()),
+            windmill_common::Cleanup::InUse(users) => Err(Error::BadRequest(format!(
                 "kept, since workspaces {} now use it",
                 users.join(", ")
-            )))
+            ))),
+            windmill_common::Cleanup::Waiter(pid) => Err(Error::BadRequest(format!(
+                "kept, since a request (pid {pid}) is still waiting to name it"
+            ))),
         }
     } else {
         // On a server of the workspace's own, where a resource edited meanwhile can already name it
@@ -371,8 +376,8 @@ async fn make_copy(
         }
         let server = serde_json::from_value(snapshot.resolve(db, &governing.workspace_id).await?)
             .map_err(|e| {
-                Error::internal_err(format!("Failed to parse database credentials: {e}"))
-            })?;
+            Error::internal_err(format!("Failed to parse database credentials: {e}"))
+        })?;
         (server, Some(snapshot))
     };
 
@@ -455,10 +460,11 @@ async fn fill(
     // On a connection of its own: the checks below take theirs from the pool, and a lock holder
     // drawn from the pool too could leave a small one with nothing to give them.
     let database_url = windmill_common::get_database_url().await?;
-    let mut lock_holder =
-        <sqlx::PgConnection as sqlx::Connection>::connect_with(&database_url.connect_options().await?)
-            .await
-            .map_err(|e| Error::internal_err(format!("Failed to connect to the database: {e}")))?;
+    let mut lock_holder = <sqlx::PgConnection as sqlx::Connection>::connect_with(
+        &database_url.connect_options().await?,
+    )
+    .await
+    .map_err(|e| Error::internal_err(format!("Failed to connect to the database: {e}")))?;
     let mut tx = sqlx::Connection::begin(&mut lock_holder).await?;
     lock_role_catalog(&mut tx).await?;
     lock_settings_rows(&mut tx, parent_w_id, name).await?;

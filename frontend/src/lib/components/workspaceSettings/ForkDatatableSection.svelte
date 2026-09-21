@@ -9,7 +9,7 @@
 
 <script lang="ts">
 	import { WorkspaceService } from '$lib/gen'
-	import { workspaceStore, userStore } from '$lib/stores'
+	import { workspaceStore, userStore, enterpriseLicense } from '$lib/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import { resource } from 'runed'
 	import Select from '../select/Select.svelte'
@@ -116,8 +116,9 @@
 								value: 'keep_original',
 								label: dt.permissioned ? 'Keep original (under roles)' : 'Keep original'
 							},
-							// A copy of a data table under roles is refused by the server, so it is not offered.
-							...(dt.permissioned
+							// A copy of a data table under roles carries the source's owners and grants,
+							// which only the Enterprise Edition replays: elsewhere the server refuses it.
+							...(dt.permissioned && !$enterpriseLicense
 								? []
 								: [
 										{ value: 'schema_only', label: 'Clone schema only' },

@@ -85,6 +85,7 @@
 			if (!isOpen || !workspace || !datatable) return undefined
 			try {
 				return {
+					workspace,
 					datatable,
 					...(await listUsableDatatableRoles(workspace, datatable))
 				}
@@ -93,6 +94,7 @@
 				// that is refused.
 				console.error('Failed to load datatable roles:', e)
 				return {
+					workspace,
 					datatable,
 					permissioned: false,
 					roles: [] as string[],
@@ -102,9 +104,12 @@
 		}
 	)
 
-	// A resource keeps its previous value while it refetches, and roles are per data table.
+	// A resource keeps its previous value while it refetches, and roles are per data table of one
+	// workspace: a fork and its parent both have a `main`, with their own roles on it.
 	const rolesOfCurrent = $derived(
-		usableRoles.current?.datatable === selectedDatatable ? usableRoles.current : undefined
+		usableRoles.current?.datatable === selectedDatatable && usableRoles.current?.workspace === opWs
+			? usableRoles.current
+			: undefined
 	)
 
 	// Mounting the manager fires its first queries, so it waits for the role: a round sent
@@ -210,8 +215,8 @@
 		)
 	}
 
-	// `undefined` where the workspace has no data table at all: the drawer opens on none, and
-	// its tree says so, rather than on a name that does not exist.
+	// `undefined` where the workspace has no data table at all: the drawer opens on none and
+	// shows its placeholder, rather than on a name that does not exist.
 	function selectDatatable(datatable: string | undefined, role?: string) {
 		// A row clicked under another data table has just set the selection it should open on.
 		openSchemaKey = selectedSchemaKey

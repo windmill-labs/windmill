@@ -1492,43 +1492,108 @@ pub async fn lock_instance_databases<'a>(
 }
 
 /// Drop instance database `dbname`, which a request just created, unless a workspace names it as a
-/// data table or a ducklake catalog — the workspaces returned, with nothing dropped. A database is
-/// registered on the instance as soon as it is created, so a superadmin can point a workspace at it
-/// before the request that created it gives up on it.
+/// data table or a ducklake catalog — then it is kept, and who keeps it is what comes back. A
+/// database is registered on the instance as soon as it is created, so a superadmin can point a
+/// workspace at it before the request that created it gives up on it.
 ///
 /// Authorization: none. Callers MUST pass only a database the same request created and has not
 /// handed to anything yet.
 ///
 /// The lock, the check and the drop share one connection: a second one taken from the pool while
-/// the first is held could wait forever on a small pool.
-pub async fn drop_unused_instance_database(db: &DB, dbname: &str) -> error::Result<Vec<String>> {
+/// the first is held could wait forever on a small pool. That connection is closed rather than
+/// returned, since a session lock outlives the future holding it: a cancellation between taking
+/// the lock and releasing it would otherwise hand a locked session back to the pool, where every
+/// later settings save waits on it. Closing on drop covers the cancellation and still counts the
+/// connection against the pool, which detaching it would not.
+pub async fn drop_unused_instance_database(db: &DB, dbname: &str) -> error::Result<Cleanup> {
     let mut conn = db.acquire().await?;
+    conn.close_on_drop();
     let key = format!("instance_database:{dbname}");
-    sqlx::query("SELECT pg_advisory_lock(hashtext($1))")
-        .bind(&key)
-        .execute(&mut *conn)
-        .await?;
-    let dropped = drop_if_unused_on(&mut conn, dbname).await;
-    let unlocked = sqlx::query("SELECT pg_advisory_unlock(hashtext($1))")
-        .bind(&key)
-        .execute(&mut *conn)
-        .await;
-    if unlocked.is_err() {
-        // Closing the connection is what releases a session lock it could not release itself.
-        drop(conn.detach());
-    }
+    // A save blocked on this lock is about to name the database, but it may also roll back — a
+    // later validation of its own, a superadmin check, a cancelled request. So it is let through
+    // and what it committed is read, rather than taken as a user: trusting it would strand the
+    // database, whose name then blocks every retry. A fresh waiter can always arrive, so after a
+    // few rounds the database is kept instead; the name is then a superadmin's to drop from
+    // instance settings, since a retry fails on the name before reaching this cleanup.
+    let mut rounds = 0;
+    let dropped = loop {
+        if let Err(e) = sqlx::query("SELECT pg_advisory_lock(hashtext($1))")
+            .bind(&key)
+            .execute(&mut *conn)
+            .await
+        {
+            break Err(e.into());
+        }
+        match drop_if_unused_on(&mut conn, dbname).await {
+            Ok(Cleanup::Waiter(_)) if rounds < 2 => {
+                rounds += 1;
+                // Releasing hands the lock to the waiter; re-taking it above then waits for that
+                // transaction to end, so the next round reads what it actually committed.
+                if let Err(e) = unlock_instance_database(&mut conn, &key).await {
+                    break Err(e);
+                }
+            }
+            Ok(outcome) => break Ok(outcome),
+            Err(e) => break Err(e),
+        }
+    };
+    // Dropping closes the connection, and the server releases the lock with the session, so
+    // nothing here depends on an unlock landing.
     dropped
 }
 
-async fn drop_if_unused_on(
+async fn unlock_instance_database(conn: &mut sqlx::PgConnection, key: &str) -> error::Result<()> {
+    sqlx::query("SELECT pg_advisory_unlock(hashtext($1))")
+        .bind(key)
+        .execute(&mut *conn)
+        .await?;
+    Ok(())
+}
+
+/// What [`drop_unused_instance_database`] did, and for whom when it kept the database.
+pub enum Cleanup {
+    Dropped,
+    /// Workspaces that name the database, as [`instance_database_users`] reports them.
+    InUse(Vec<String>),
+    /// A transaction still blocked on the lock after the rounds above, so what it will commit
+    /// stays unknown, named as its `pid`.
+    Waiter(i32),
+}
+
+async fn drop_if_unused_on(conn: &mut sqlx::PgConnection, dbname: &str) -> error::Result<Cleanup> {
+    let users = instance_database_users(conn, dbname).await?;
+    if !users.is_empty() {
+        return Ok(Cleanup::InUse(users));
+    }
+    // A settings save naming this database takes the same lock, so one waiting on it would read
+    // its own users after the drop and commit a reference to nothing.
+    if let Some(waiter) = waiting_for_instance_database(conn, dbname).await? {
+        return Ok(Cleanup::Waiter(waiter));
+    }
+    drop_custom_instance_database_on(conn, dbname).await?;
+    Ok(Cleanup::Dropped)
+}
+
+/// The `pid` of a transaction blocked on `dbname`'s instance-database lock. The lock is
+/// taken by key, so `pg_locks` reports it split across `classid` and `objid`, and it lists every
+/// database on the cluster — another Windmill on the same one holds its own locks under the same
+/// key.
+async fn waiting_for_instance_database(
     conn: &mut sqlx::PgConnection,
     dbname: &str,
-) -> error::Result<Vec<String>> {
-    let users = instance_database_users(conn, dbname).await?;
-    if users.is_empty() {
-        drop_custom_instance_database_on(conn, dbname).await?;
-    }
-    Ok(users)
+) -> error::Result<Option<i32>> {
+    let pid: Option<i32> = sqlx::query_scalar(
+        "SELECT l.pid FROM pg_locks l
+         WHERE l.locktype = 'advisory' AND NOT l.granted
+           AND l.database = (SELECT oid FROM pg_database WHERE datname = current_database())
+           AND l.classid = ((hashtext('instance_database:' || $1)::bigint >> 32) & 4294967295)::oid
+           AND l.objid = (hashtext('instance_database:' || $1)::bigint & 4294967295)::oid
+         LIMIT 1",
+    )
+    .bind(dbname)
+    .fetch_optional(&mut *conn)
+    .await?;
+    Ok(pid)
 }
 
 /// The workspaces naming instance database `dbname` as a data table or a ducklake catalog. Taken
@@ -1694,11 +1759,15 @@ pub async fn create_custom_instance_database(
     // rather than leave it behind.
     if let Err(e) = finish_custom_instance_database(db, dbname, tag).await {
         match drop_unused_instance_database(db, dbname).await {
-            Ok(users) if !users.is_empty() => tracing::warn!(
+            Ok(Cleanup::InUse(users)) => tracing::warn!(
                 "Kept '{dbname}' after failing to set it up: workspaces {} use it",
                 users.join(", ")
             ),
-            Ok(_) => {}
+            Ok(Cleanup::Waiter(pid)) => tracing::warn!(
+                "Kept '{dbname}' after failing to set it up: a request (pid {pid}) is still \
+                 waiting to name it. Drop it from instance settings once it is unused."
+            ),
+            Ok(Cleanup::Dropped) => {}
             Err(drop_err) => {
                 tracing::error!("Could not drop '{dbname}' after failing to set it up: {drop_err}")
             }

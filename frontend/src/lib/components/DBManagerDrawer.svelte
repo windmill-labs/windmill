@@ -72,6 +72,7 @@
 			if (!workspace || !datatable) return undefined
 			try {
 				return {
+					workspace,
 					datatable,
 					...(await listUsableDatatableRoles(workspace, datatable))
 				}
@@ -79,16 +80,24 @@
 				// Never leave the drawer waiting on this: fall back to the
 				// unpermissioned shape so it opens and the server picks the role.
 				console.error('Failed to load datatable roles:', e)
-				return { datatable, permissioned: false, roles: [], default_role: ADMIN_DATATABLE_ROLE }
+				return {
+					workspace,
+					datatable,
+					permissioned: false,
+					roles: [],
+					default_role: ADMIN_DATATABLE_ROLE
+				}
 			}
 		}
 	)
 
-	// A resource keeps its previous value while refetching, and roles are per data
-	// table: settling from the last one's answer would connect to the new data
-	// table as a role it may not even have.
+	// A resource keeps its previous value while refetching, and roles are per data table of one
+	// workspace: settling from another answer would connect to this data table as a role it may
+	// not even have.
 	const rolesOfCurrent = $derived(
-		usableRoles.current?.datatable === selectedDatatable ? usableRoles.current : undefined
+		usableRoles.current?.datatable === selectedDatatable && usableRoles.current?.workspace === ws
+			? usableRoles.current
+			: undefined
 	)
 
 	// Nothing that connects runs until the role is settled: a first round sent without a role
