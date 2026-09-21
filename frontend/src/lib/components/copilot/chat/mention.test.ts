@@ -94,11 +94,21 @@ describe('hasMention', () => {
 		expect(hasMention('Contact owner@app.ts', 'app.ts')).toBe(false)
 		expect(hasMention('Contact owner@app.ts about @app.ts', 'app.ts')).toBe(true)
 	})
+
+	it('treats punctuation next to a mention as a boundary', () => {
+		expect(hasMention('use @app.ts, then compare', 'app.ts')).toBe(true)
+		expect(hasMention('open (@app.ts)', 'app.ts')).toBe(true)
+	})
 })
 
 describe('mentionTitlesInText', () => {
 	it('extracts only standalone mentions for context synchronization', () => {
 		expect([...mentionTitlesInText('Contact owner@app.ts about @app.ts')]).toEqual(['app.ts'])
 		expect([...mentionTitlesInText('Contact owner@app.ts')]).toEqual([])
+	})
+
+	it('keeps punctuation-adjacent mentions synchronized', () => {
+		expect([...mentionTitlesInText('use @app.ts, then compare')]).toEqual(['app.ts'])
+		expect([...mentionTitlesInText('open (@app.ts)')]).toEqual(['app.ts'])
 	})
 })

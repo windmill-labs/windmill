@@ -30,11 +30,15 @@ export function formatMention(name: string): string {
 	return BARE_SAFE.test(name) ? `@${name}` : `@[${name.replace(/[\\\]]/g, '\\$&')}]`
 }
 
+function isMentionBoundary(char: string | undefined): boolean {
+	return char === undefined || !/\w/.test(char)
+}
+
 export function isStandaloneMention(text: string, match: RegExpMatchArray): boolean {
 	if (match.index === undefined) return false
 	const start = match.index
 	const end = start + match[0].length
-	return (start === 0 || /\s/.test(text[start - 1])) && (end === text.length || /\s/.test(text[end]))
+	return isMentionBoundary(text[start - 1]) && isMentionBoundary(text[end])
 }
 
 export function hasMention(text: string, title: string): boolean {

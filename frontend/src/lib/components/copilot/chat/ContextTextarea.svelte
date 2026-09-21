@@ -10,7 +10,13 @@
 	import { zIndexes } from '$lib/zIndexes'
 	import { twMerge } from 'tailwind-merge'
 	import { CHAT_INPUT_PADDING, getAiChatManager } from './aiChatManagerContext'
-	import { MENTION_RE, mentionTitle, formatMention, mentionTitlesInText } from './mention'
+	import {
+		MENTION_RE,
+		mentionTitle,
+		formatMention,
+		isStandaloneMention,
+		mentionTitlesInText
+	} from './mention'
 	import { createFloatingActions, createVirtualElement } from 'svelte-floating-ui'
 	import { flip, offset, shift } from 'svelte-floating-ui/dom'
 	import {
@@ -262,7 +268,12 @@
 			if (!att) return match
 			return `<span data-paste-id="${att.id}" class="rounded bg-surface-secondary text-secondary cursor-pointer pointer-events-auto">${match}</span>`
 		})
-		html = html.replace(MENTION_RE, (match) => {
+		html = html.replace(MENTION_RE, (match, ...args) => {
+			const offset = args[args.length - 2]
+			const mentionMatch = Object.assign([match], { index: offset }) as RegExpMatchArray
+			if (typeof offset !== 'number' || !isStandaloneMention(html, mentionMatch)) {
+				return match
+			}
 			const title = unescapeHtml(mentionTitle(match))
 			const inContext =
 				availableContext.find((c) => c.title === title) ||
