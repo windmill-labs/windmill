@@ -90,6 +90,8 @@ table mirrors the one the AI session's own compaction reads
 (`frontend/src/lib/components/copilot/modelConfig.ts`) and the two have to be updated together. The
 step's `context_window` overrides it, for a Custom AI deployment or a model the table cannot name;
 setting it too large never trips the trigger and the provider raises the context error itself.
+Workspace AI chat `context_window_per_model` overrides are separate and are not inherited by
+agent steps; configure a custom deployment's size on the step itself.
 
 `windmill-worker/src/ai/compaction.rs` keeps two histories: model context, which can be compacted,
 and the execution record, which retains the loaded history and every message produced by the run.
