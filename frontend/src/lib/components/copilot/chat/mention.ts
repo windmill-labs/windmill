@@ -35,16 +35,22 @@ function isWordChar(char: string | undefined): boolean {
 }
 
 function codePointBefore(text: string, index: number): string | undefined {
-	return Array.from(text.slice(0, index)).at(-1)
+	if (index <= 0) return undefined
+	const prev = text.charCodeAt(index - 1)
+	if (prev >= 0xdc00 && prev <= 0xdfff && index > 1) return text.slice(index - 2, index)
+	return text[index - 1]
 }
 
-export function isStandaloneMentionAt(text: string, token: string, index: number): boolean {
+// A mention is owned by this parser when the `@` starts a token. The trailing side is
+// intentionally open: non-spacing scripts often continue immediately after a mention,
+// while embedded forms like `owner@app.ts` are rejected by the leading boundary.
+export function hasMentionLeadingBoundary(text: string, index: number): boolean {
 	return !isWordChar(codePointBefore(text, index))
 }
 
 export function isStandaloneMention(text: string, match: RegExpMatchArray): boolean {
 	if (match.index === undefined) return false
-	return isStandaloneMentionAt(text, match[0], match.index)
+	return hasMentionLeadingBoundary(text, match.index)
 }
 
 export function hasMention(text: string, title: string): boolean {

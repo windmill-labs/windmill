@@ -14,7 +14,7 @@
 		MENTION_RE,
 		mentionTitle,
 		formatMention,
-		isStandaloneMentionAt,
+		hasMentionLeadingBoundary,
 		mentionTitlesInText
 	} from './mention'
 	import { createFloatingActions, createVirtualElement } from 'svelte-floating-ui'
@@ -270,7 +270,7 @@
 		})
 		html = html.replace(MENTION_RE, (match, ...args) => {
 			const offset = args[args.length - 2]
-			if (typeof offset !== 'number' || !isStandaloneMentionAt(html, match, offset)) {
+			if (typeof offset !== 'number' || !hasMentionLeadingBoundary(html, offset)) {
 				return match
 			}
 			const title = unescapeHtml(mentionTitle(match))

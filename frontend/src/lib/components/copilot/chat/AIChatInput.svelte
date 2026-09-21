@@ -596,10 +596,9 @@
 
 	/** Strip every `@title` token from the textarea — used when the user
 	 * deletes the corresponding badge so the badge X-button mirrors the
-	 * inverse (text-delete-to-badge-remove) sync. Only matches `@title` as a
-	 * standalone token (boundary on both sides) so substring matches don't
-	 * bleed into other words; only the whitespace adjacent to the removed
-	 * mention is collapsed so unrelated double-spaces stay intact. */
+	 * inverse (text-delete-to-badge-remove) sync. Only matches tokens whose
+	 * `@` starts a word, so embedded text like `owner@app.ts` is left alone
+	 * while punctuation and non-spacing text after the token still work. */
 	export function removeMention(title: string) {
 		// Pre-zap the textarea's mention diff snapshot so the upcoming strip
 		// doesn't refire the removal effect on a same-title sibling — the host
