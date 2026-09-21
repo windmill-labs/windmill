@@ -138,7 +138,7 @@
 
 	$effect(() => {
 		if (currentTags && open) {
-			loadTagsToWorkerExists(currentTags)
+			loadTagsToWorkerExists(items.filter((t) => !dynamicTagRegex.test(t)))
 		}
 	})
 
@@ -146,7 +146,8 @@
 </script>
 
 {#snippet startSnippet({ item })}
-	{#if tagsToWorkerExists && !item.__is_create && !dynamicTagRegex.test(item.value)}
+	<!-- A tag nothing was looked up for, like a dynamic one, gets no dot rather than a red one. -->
+	{#if tagsToWorkerExists && !item.__is_create && item.value in tagsToWorkerExists}
 		{#if tagsToWorkerExists[item.value]}
 			<Popover>
 				{#snippet text()}
@@ -188,8 +189,8 @@
 {#snippet refreshAll()}
 	<div class="flex items-center justify-between gap-2 border-t border-border-light">
 		<span class="max-w-64 px-4 py-1 text-2xs text-secondary">
-			<code>$args[…]</code> and <code>$flow_expr[…]</code> are filled in when the job runs, and must
-			land on an allowed tag
+			<code>$workspace</code>, <code>$args[…]</code> and <code>$flow_expr[…]</code> are filled in when
+			the job runs, and must land on an allowed tag
 		</span>
 		<Button
 			iconOnly
