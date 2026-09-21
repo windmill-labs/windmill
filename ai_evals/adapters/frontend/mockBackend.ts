@@ -1178,27 +1178,6 @@ const BENCHMARK_WORKERS = [
 	}
 ]
 
-const BENCHMARK_JOB_GET_PATH = /^\/api\/w\/([^/]+)\/jobs_u\/get\/([^/]+)$/
-const BENCHMARK_RUN_BY_PATH = /^\/api\/w\/([^/]+)\/jobs\/run\/(p|f)\/([^/]+)$/
-
-/** An intercepted request carries its args as a JSON string; anything else means none
- * were supplied. */
-function parseBenchmarkRequestBody(
-	body: BodyInit | null | undefined
-): Record<string, unknown> | undefined {
-	if (typeof body !== 'string') {
-		return undefined
-	}
-	try {
-		const parsed = JSON.parse(body)
-		return typeof parsed === 'object' && parsed !== null
-			? (parsed as Record<string, unknown>)
-			: undefined
-	} catch {
-		return undefined
-	}
-}
-
 /** True when `handleBenchmarkApiFetch` has an answer for this `/api/...` url.
  * Any other relative fetch must keep its normal (non-benchmark) behavior —
  * intercepting it with a synthetic 404 sends the model into retry loops. */
@@ -1210,8 +1189,6 @@ export function hasBenchmarkApiHandler(url: string): boolean {
 	const path = url.split('?')[0]
 	return (
 		path === '/api/workers/list' ||
-		BENCHMARK_JOB_GET_PATH.test(path) ||
-		BENCHMARK_RUN_BY_PATH.test(path) ||
 		path === '/api/embeddings/query_hub_scripts' ||
 		path.startsWith('/api/scripts/hub/get_full/') ||
 		BENCHMARK_AI_MODELS_PATH.test(path)
@@ -1234,36 +1211,6 @@ export function handleBenchmarkApiFetch(url: string, init?: RequestInit): Respon
 			.get(decodeURIComponent(aiModels[1]))
 			?.aiProviders?.find((entry) => entry.path === resourcePath)
 		return Response.json({ data: (seed?.models ?? []).map((id) => ({ id })) })
-	}
-	const jobGet = BENCHMARK_JOB_GET_PATH.exec(path)
-	if (jobGet) {
-		const id = decodeURIComponent(jobGet[2])
-		const job = getBenchmarkCompletedJob(decodeURIComponent(jobGet[1]), id)
-		if (!job) {
-			return Response.json({ error: `Job not found for "${id}"` }, { status: 404 })
-		}
-		// The real endpoint lets a caller drop the bulky fields. Ignoring that here would
-		// size the model's context off a payload it explicitly asked to shrink.
-		const query = new URLSearchParams(url.split('?')[1] ?? '')
-		if (query.get('no_logs') === 'true') {
-			delete job.logs
-		}
-		if (query.get('no_code') === 'true') {
-			delete job.raw_code
-		}
-		return Response.json(job)
-	}
-	const runByPath = BENCHMARK_RUN_BY_PATH.exec(path)
-	if (runByPath) {
-		const workspace = decodeURIComponent(runByPath[1])
-		const runnablePath = decodeURIComponent(runByPath[3])
-		const args = parseBenchmarkRequestBody(init?.body)
-		// The real endpoint answers with the bare job id as text, not JSON.
-		return new Response(
-			runByPath[2] === 'f'
-				? runBenchmarkFlowByPath({ workspace, path: runnablePath, args })
-				: runBenchmarkScriptByPath({ workspace, path: runnablePath, args })
-		)
 	}
 	if (path === '/api/embeddings/query_hub_scripts') {
 		const text = new URLSearchParams(url.split('?')[1] ?? '').get('text') ?? ''
