@@ -33652,6 +33652,8 @@ components:
           $ref: "#/components/schemas/LoggedWizardStatus"
         replication_user_error:
           type: string
+        user_connect:
+          $ref: "#/components/schemas/LoggedWizardStatus"
 
     CustomInstanceDbTag:
       type: string
