@@ -9,29 +9,24 @@ import {
 	getSessionContextPromptSection,
 	globalToolsFor,
 	prepareGlobalSystemMessage,
-	type AiSkillListItem,
-	type GlobalPromptIdentity,
 	type SessionPromptContext
 } from './core'
-import { createMcpTools, type McpServer } from './mcpTools'
+import { createMcpTools } from './mcpTools'
 import { getPipelinePromptSection, pipelineTools, type PipelineContext } from '../pipeline/core'
 
-export type GlobalAssemblyOpts = {
-	previewTools?: boolean
-	user?: GlobalPromptIdentity
-	skills?: AiSkillListItem[]
-	mcpServers?: McpServer[]
+// Derived, not retyped: an option added to prepareGlobalSystemMessage is reachable
+// here at once. Hand-listing the four would compile fine while leaving the new one
+// unreachable from this path, and only the eval harness — which calls the builder
+// directly — would get it.
+export type GlobalAssemblyOpts = NonNullable<Parameters<typeof prepareGlobalSystemMessage>[1]> & {
 	sessionContext?: SessionPromptContext
 	pipelineContext?: PipelineContext
 }
 
 export function assembleGlobalSystemMessage(
-	instructions: { workspace?: string; user?: string } | undefined,
+	instructions: Parameters<typeof prepareGlobalSystemMessage>[0],
 	opts: GlobalAssemblyOpts
 ): ChatCompletionSystemMessageParam {
-	// Forwarded whole, not field by field. Adding an option to GlobalAssemblyOpts is
-	// checked — the compiler rejects one its callers set but the type lacks. Re-listing
-	// the fields in this call is not: forget one and it is silently dropped.
 	const systemMessage = prepareGlobalSystemMessage(instructions, opts)
 	if (opts.sessionContext) {
 		systemMessage.content += getSessionContextPromptSection(opts.sessionContext)

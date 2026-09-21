@@ -53,9 +53,11 @@ describe('assembleGlobalSystemMessage', () => {
 
 	it('omits them when the contexts are absent', () => {
 		const content = assembleGlobalSystemMessage(undefined, {}).content as string
-		expect(content).not.toContain(getSessionContextPromptSection(sessionContext))
-		// The section's own heading, read from the code rather than retyped: a reword
-		// cannot quietly make this vacuous, and it catches a stray section for any folder.
-		expect(content).not.toContain(getPipelinePromptSection(pipelineContext).trim().split('\n')[0])
+		// Each section's own heading, read from the code rather than retyped: a reword
+		// cannot quietly make these vacuous, and a heading is the one part every variant
+		// shares, so a stray section built from any other context still trips them.
+		const heading = (s: string) => s.trim().split('\n')[0]
+		expect(content).not.toContain(heading(getSessionContextPromptSection(sessionContext)))
+		expect(content).not.toContain(heading(getPipelinePromptSection(pipelineContext)))
 	})
 })
