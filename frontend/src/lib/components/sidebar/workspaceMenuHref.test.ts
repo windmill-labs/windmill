@@ -17,7 +17,7 @@ describe('workspaceMenuHref', () => {
 		expect(
 			workspaceMenuHref({
 				pathname: '/sessions',
-				searchParams: new URLSearchParams('session=foo'),
+				searchParams: new URLSearchParams('session=foo&session_name=session-5'),
 				id: 'other-root',
 				sameFamily: false
 			})
