@@ -3,7 +3,6 @@
 	import Button from './common/button/Button.svelte'
 	import { runScriptAndPollResult } from './jobs/utils'
 	import { writingJobOptions } from './jobs/writingJob'
-	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { untrack } from 'svelte'
 	import { getLanguageByResourceType } from './apps/components/display/dbtable/utils'
@@ -14,6 +13,9 @@
 	import { wrapDucklakeQuery } from './ducklake'
 	import { splitSqlStatements, pruneComments } from './sqlDdl'
 	import DdlMigrationGuard from './DdlMigrationGuard.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	type Props = {
 		input: DbInput
@@ -39,7 +41,7 @@
 		workspace = undefined,
 		tag = undefined
 	}: Props = $props()
-	let ws = $derived(workspace ?? $workspaceStore)
+	let ws = $derived(workspace ?? $operatingWorkspace)
 	let dbType = $derived(getDbType(input))
 
 	// A datatable REPL targets `datatable://<name>`; surface DDL statements as
@@ -223,5 +225,10 @@
 </Splitpanes>
 
 {#if datatableName && ws}
-	<DdlMigrationGuard bind:this={ddlGuard} workspace={ws} datatable={datatableName} />
+	<DdlMigrationGuard
+		bind:this={ddlGuard}
+		workspace={ws}
+		datatable={datatableName}
+		role={input.type === 'database' ? (input.role ?? input.migrationRole) : undefined}
+	/>
 {/if}

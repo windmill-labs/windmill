@@ -26,7 +26,7 @@
 		AzureTriggerService,
 		EmailTriggerService
 	} from '$lib/gen'
-	import { superadmin, userStore, workspaceStore, type UserExt } from '$lib/stores'
+	import { superadmin, type UserExt } from '$lib/stores'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import { writable } from 'svelte/store'
 	import { Alert, Button } from './common'
@@ -45,6 +45,15 @@
 	import Select from './select/Select.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import InputError from './InputError.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace,
+		useOperatingWorkspaceHref
+	} from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const operatingHref = useOperatingWorkspaceHref()
 
 	type PathKind =
 		| 'resource'
@@ -81,15 +90,12 @@
 		disableEditing?: boolean
 		size?: 'sm' | 'md'
 		drawerOffset?: number
-		/** Workspace the folder list and path-existence checks run against.
-		 *  Defaults to the navigation `$workspaceStore`; pass the session's acting
-		 *  workspace when the editor operates on a workspace other than the one the
-		 *  top nav points at (see the sessions preview / dev-workspace flows). */
+		/** Workspace the folder list and path-existence checks run against. Defaults to the
+		 *  operating workspace (see `useOperatingWorkspace`). */
 		workspaceOverride?: string
 		/** The user acting in `workspaceOverride`, for the owner suggestion and the folder
-		 *  write flags. Omit it to stand in the navigation `$userStore`, who is a member of
-		 *  the navigation workspace only; pass `null` for "not known (yet)", which that user
-		 *  must not answer for either. */
+		 *  write flags. Omit it to stand in the user acting in the operating workspace; pass
+		 *  `null` for "not known (yet)", which no user must answer for. */
 		actingUser?: UserExt | null
 		/** One path that does not count as taken, for a caller creating something that may
 		 *  already have written there itself — a setup flow correcting its own failed attempt.
@@ -121,11 +127,11 @@
 		warnOnRename = true
 	}: Props = $props()
 
-	let ws = $derived(workspaceOverride ?? $workspaceStore)
-	// Sole place this component falls back to the ambient user, and only for a caller that
-	// passed none; everything below reads `user`, so a caller acting on another workspace is
-	// never mixed with the navigation user's memberships.
-	let user = $derived(actingUser === undefined ? $userStore : (actingUser ?? undefined))
+	let ws = $derived(workspaceOverride ?? $operatingWorkspace)
+	// Sole place this component falls back to an ambient user, and only for a caller that passed
+	// none: the one acting in `ws`, never the navigation user, whose memberships belong to
+	// another workspace. Everything below reads `user`.
+	let user = $derived(actingUser === undefined ? operatingUser.in(ws) : (actingUser ?? undefined))
 
 	$effect.pre(() => {
 		if (path == undefined) {
@@ -612,13 +618,13 @@
 					<Tooltip>
 						<ul>
 							{#each scripts || [] as path}
-								<li><a target="_blank" href="/scripts/edit/{path}">{path}</a></li>
+								<li><a target="_blank" href={operatingHref(`/scripts/edit/${path}`)}>{path}</a></li>
 							{/each}
 							{#each flows || [] as path}
-								<li><a target="_blank" href="/flows/edit/{path}">{path}</a></li>
+								<li><a target="_blank" href={operatingHref(`/flows/edit/${path}`)}>{path}</a></li>
 							{/each}
 							{#each apps || [] as path}
-								<li><a target="_blank" href="/apps/edit/{path}">{path}</a></li>
+								<li><a target="_blank" href={operatingHref(`/apps/edit/${path}`)}>{path}</a></li>
 							{/each}
 						</ul>
 					</Tooltip>
@@ -632,21 +638,33 @@
 						<ul class="list-disc">
 							{#each scripts || [] as scriptPath}
 								<li>
-									<a href={`/scripts/edit/${scriptPath}`} class="text-blue-400" target="_blank">
+									<a
+										href={operatingHref(`/scripts/edit/${scriptPath}`)}
+										class="text-blue-400"
+										target="_blank"
+									>
 										{scriptPath}
 									</a>
 								</li>
 							{/each}
 							{#each flows || [] as flowPath}
 								<li>
-									<a href={`/flows/edit/${flowPath}`} class="text-blue-400" target="_blank">
+									<a
+										href={operatingHref(`/flows/edit/${flowPath}`)}
+										class="text-blue-400"
+										target="_blank"
+									>
 										{flowPath}
 									</a>
 								</li>
 							{/each}
 							{#each apps || [] as appPath}
 								<li>
-									<a href={`/apps/edit/${appPath}`} class="text-blue-400" target="_blank">
+									<a
+										href={operatingHref(`/apps/edit/${appPath}`)}
+										class="text-blue-400"
+										target="_blank"
+									>
 										{appPath}
 									</a>
 								</li>

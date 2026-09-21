@@ -66,14 +66,12 @@ export function requiresMaxCompletionTokens(model: string) {
 // ids (anthropic.claude-sonnet-4-6-...-v1:0, gpt-5.2-2026-01-01) still resolve.
 // Conservative family fallbacks sit below the explicit entries; models not
 // listed at all resolve to undefined. Consumers that need a number regardless
-// (trim/compaction, the usage indicator) go through getModelContextWindow,
-// whose conservative 128K fallback keeps a limit enforced and is surfaced to
-// the user as an assumed window.
+// (trim/compaction, the usage indicator) go through
+// getEffectiveModelContextWindow, whose conservative 128K fallback keeps a
+// limit enforced and is surfaced to the user as an assumed window.
 //
-// Mirrored by MODEL_CONTEXT_WINDOWS in
-// `backend/windmill-ai/src/model_context.rs`, which an AI agent step's compaction
-// reads. Add a model to one and it must go in the other, or the same model compacts
-// at one size in a chat and another in an agent step.
+// Keep entries aligned with MODEL_CONTEXT_WINDOWS in
+// `backend/windmill-ai/src/model_context.rs`, used by AI agent compaction.
 const MODEL_CONTEXT_WINDOWS: [name: string, contextWindow: number][] = [
 	// Anthropic — Sonnet/Opus 4.6+ ship a 1M window at standard pricing (GA);
 	// Haiku, older Claude models (3.x, 4.0, 4.1, 4.5) and date-suffixed Claude 4
@@ -175,8 +173,9 @@ export function buildModelMatchers<T>(
 
 /**
  * The `provider:model` key the workspace AI settings use for their per-model maps
- * (`max_tokens_per_model`, `model_pricing`). A bare model id is not enough: the
- * same id can be served by more than one provider at different rates.
+ * (`max_tokens_per_model`, `model_pricing`, `context_window_per_model`). A bare
+ * model id is not enough: the same id can be served by more than one provider at
+ * different rates.
  *
  * Matched exactly, unlike the fuzzy tables above. Those tables generalize across
  * every route to one model on purpose; a per-model *setting* must not, or an
@@ -199,9 +198,41 @@ export function getKnownModelContextWindow(model: string): number | undefined {
 	return matchModel(MODEL_CONTEXT_WINDOW_MATCHERS, model)
 }
 
-export function getModelContextWindow(model: string) {
-	// Trim/compaction logic needs a number; assume a conservative window when unknown.
-	return getKnownModelContextWindow(model) ?? 128000
+/** Trim/compaction logic needs a number; assume a conservative window when unknown. */
+export const ASSUMED_CONTEXT_WINDOW = 128000
+
+/**
+ * What the built-in table states for a model, assuming a conservative window for one
+ * it does not list. Table only, so it ignores the workspace's `context_window_per_model`
+ * — deciding how much context to send goes through `getEffectiveModelContextWindow`
+ * instead. Named for the table because a plain `getModelContextWindow` is the obvious
+ * thing to reach for, and reaching for it here would silently skip the override.
+ */
+export function getModelContextWindowFromTable(model: string) {
+	return getKnownModelContextWindow(model) ?? ASSUMED_CONTEXT_WINDOW
+}
+
+/**
+ * The context window stated for a model: the workspace's override
+ * (`context_window_per_model`, passed in so this module stays free of stores)
+ * when one is set, otherwise the built-in table. Undefined only when neither
+ * knows the model, which is when a consumer falls back to an assumed window.
+ */
+export function getConfiguredModelContextWindow(
+	provider: AIProvider,
+	model: string,
+	overrides: Record<string, number> | undefined
+): number | undefined {
+	return overrides?.[modelKey(provider, model)] ?? getKnownModelContextWindow(model)
+}
+
+/** The window to budget against: the override, then the table, then the assumption. */
+export function getEffectiveModelContextWindow(
+	provider: AIProvider,
+	model: string,
+	overrides: Record<string, number> | undefined
+): number {
+	return getConfiguredModelContextWindow(provider, model, overrides) ?? ASSUMED_CONTEXT_WINDOW
 }
 
 /**

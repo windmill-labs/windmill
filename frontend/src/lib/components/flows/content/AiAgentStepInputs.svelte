@@ -30,7 +30,6 @@
 	import type { Schema } from '$lib/common'
 	import { deepEqual } from 'fast-equals'
 	import { type InputTransform } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { allTrue, type DynamicInput as DynamicInputTypes } from '$lib/utils'
 	import { getContext, untrack, type Snippet } from 'svelte'
 	import { SvelteSet } from 'svelte/reactivity'
@@ -69,6 +68,9 @@
 	import AgentToolRoster from './AgentToolRoster.svelte'
 	import AgentMemoryNotes from './AgentMemoryNotes.svelte'
 	import { memoryOptionLabel, memoryPropertyFor } from '../flowInfers'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		schema: Schema | { properties?: Record<string, any> }
@@ -148,7 +150,7 @@
 		linkedMemory = undefined
 	}: Props = $props()
 
-	let ws = $derived(workspace ?? $workspaceStore)
+	let ws = $derived(workspace ?? $operatingWorkspace)
 
 	let inputCheck: { [id: string]: boolean } = $state({})
 
