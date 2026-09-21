@@ -137,6 +137,16 @@ async fn ensure_may_edit_migration(
     code_up: &str,
     code_down: Option<&str>,
 ) -> Result<()> {
+    // Admin access reaches everything a role can, so it edits any definition without reading its
+    // annotation, which one saved before annotations were parsed may no longer pass. A refusal
+    // there would leave such a definition impossible to delete or fix.
+    let access = DatatableAccess::Authed(authed.to_authed_ref());
+    if ensure_datatable_admin_access(db, w_id, datatable_name, &access)
+        .await
+        .is_ok()
+    {
+        return Ok(());
+    }
     for sql in std::iter::once(code_up).chain(code_down) {
         ensure_migration_role_allowed(db, w_id, datatable_name, authed, sql, migration).await?;
     }
