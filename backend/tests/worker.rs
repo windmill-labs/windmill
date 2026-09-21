@@ -5573,51 +5573,72 @@ async fn test_flow_substep_tag_checked_on_resolved_value(db: Pool<Postgres>) -> 
     Ok(())
 }
 
-/// A flow's `$args[...]` tag is resolved again from its preprocessor's output, a value the check
-/// at push never saw, so that value is checked too.
+/// A flow whose preprocessor runs lands on its tag filled in from the preprocessor's output, so
+/// running it judges the tag as written: even raw args that fill it in to a listed tag do not
+/// admit a template nobody listed.
 #[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base", "hello"))]
 #[serial]
-async fn test_flow_tag_checked_after_preprocessor(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_flow_tag_judged_as_written_before_preprocessor(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
     use windmill_common::worker::{CustomTags, CUSTOM_TAGS_PER_WORKSPACE};
 
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
 
-    // The fixture's preprocessor returns `{ foo: "bar", bar: "baz" }`.
-    let run_with_flow_tag = |tag: &'static str| {
-        let db = db.clone();
-        let port = server.addr.port();
-        async move {
-            sqlx::query("UPDATE flow SET tag = $1 WHERE path = 'f/system/hello_with_preprocessor'")
-                .bind(tag)
-                .execute(&db)
-                .await
-                .unwrap();
-            // A non-superadmin, so the custom tags apply.
-            RunJob::from(JobPayload::Flow {
-                path: "f/system/hello_with_preprocessor".to_string(),
-                dedicated_worker: None,
-                apply_preprocessor: true,
-                version: 1443253234253456,
-                labels: None,
-            })
-            .as_user("test-user-2", "test2@windmill.dev")
-            .run_until_complete(&db, false, port)
-            .await
-        }
+    let set_flow_tag = |tag: &'static str| {
+        sqlx::query("UPDATE flow SET tag = $1 WHERE path = 'f/system/hello_with_preprocessor'")
+            .bind(tag)
+            .execute(&db)
     };
-    CUSTOM_TAGS_PER_WORKSPACE.store(std::sync::Arc::new(CustomTags::from(vec![
-        "pp-baz".to_string()
-    ])));
-    let refused = run_with_flow_tag("pp-$args[foo]").await;
-    // Nothing a flow's tag can read resolves `$flow_expr[...]`, so the flow keeps its tag.
-    let unresolvable = run_with_flow_tag("$flow_expr[flow_input.foo]").await;
-    CUSTOM_TAGS_PER_WORKSPACE.store(std::sync::Arc::new(CustomTags::default()));
+    // As a non-superadmin, so the custom tags apply.
+    let run_as_user = |entries: &[&str]| {
+        CUSTOM_TAGS_PER_WORKSPACE.store(std::sync::Arc::new(CustomTags::from(
+            entries.iter().map(|e| e.to_string()).collect(),
+        )));
+        reqwest::Client::new()
+            .post(format!(
+                "http://localhost:{port}/api/w/test-workspace/jobs/run/f/f/system/hello_with_preprocessor"
+            ))
+            .bearer_auth("SECRET_TOKEN_2")
+            .json(&json!({ "foo": "bar" }))
+            .send()
+    };
 
-    assert!(!refused.success);
-    let result = refused.json_result().unwrap().to_string();
-    assert!(result.contains("resolved to pp-bar"), "got {result}");
+    sqlx::query(
+        "UPDATE flow SET extra_perms = '{\"u/test-user-2\": false}'
+         WHERE path = 'f/system/hello_with_preprocessor'",
+    )
+    .execute(&db)
+    .await?;
+    set_flow_tag("pp-$args[foo]").await?;
+    let refused = run_as_user(&["pp-bar"]).await?;
+    let refused_status = refused.status();
+    let refused_body = refused.text().await?;
+    let admitted = run_as_user(&["pp-$args[foo]"]).await?.status();
+
+    // Nothing a flow's tag can read resolves `$flow_expr[...]`, so the flow keeps its tag.
+    set_flow_tag("$flow_expr[flow_input.foo]").await?;
+    CUSTOM_TAGS_PER_WORKSPACE.store(std::sync::Arc::new(CustomTags::default()));
+    let unresolvable = RunJob::from(JobPayload::Flow {
+        path: "f/system/hello_with_preprocessor".to_string(),
+        dedicated_worker: None,
+        apply_preprocessor: true,
+        version: 1443253234253456,
+        labels: None,
+    })
+    .as_user("test-user-2", "test2@windmill.dev")
+    .run_until_complete(&db, false, port)
+    .await;
+
+    assert_eq!(refused_status, 400, "got {refused_body}");
+    assert!(
+        refused_body.contains("Tag pp-$args[foo] is not included"),
+        "got {refused_body}"
+    );
+    assert!(admitted.is_success(), "got {admitted}");
 
     assert!(unresolvable.success, "got {:?}", unresolvable.json_result());
     let tag = sqlx::query_scalar::<_, String>("SELECT tag FROM v2_job WHERE id = $1")

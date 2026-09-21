@@ -4754,7 +4754,7 @@ pub async fn check_tag_written_as_available_for_push(
         db,
         w_id,
         written_tag,
-        &resolved_tag,
+        Some(&resolved_tag),
         crate::tags::tag_workspace_id(w_id, db),
         is_super_admin,
         scope_tags,

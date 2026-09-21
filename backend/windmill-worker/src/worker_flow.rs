@@ -67,7 +67,7 @@ use windmill_common::{
 };
 use windmill_queue::schedule::get_schedule_opt;
 use windmill_queue::{
-    add_completed_job, add_completed_job_error, append_logs, check_tag_available_for_push,
+    add_completed_job, add_completed_job_error, append_logs,
     check_tag_written_as_available_for_push, get_mini_pulled_job, insert_concurrency_key_capped,
     render_tag_path, report_error_to_workspace_handler_or_critical_side_channel, resolve_push_tag,
     tag_reads_args, tag_reads_flow_expr, try_schedule_next_job, CanceledBy, FlowRunners,
@@ -1587,27 +1587,12 @@ pub async fn update_flow_status_after_job_completion_internal(
                 .as_ref()
                 .and_then(|x| x.tag.as_deref())
             {
+                // Whoever ran the flow had this tag checked as written, not on any values
+                // (`check_tag_as_written_available_for_workspace` in `run_flow`), since only this
+                // point knows them: an entry admitting it as written admits every value here.
                 Some(t) => {
                     let no_args = HashMap::new();
                     let args = PushArgs::from(fetched_args.as_ref().unwrap_or(&no_args));
-                    // The preprocessor's output picks this queue, which the check at push time
-                    // never saw.
-                    if tag_reads_args(t) {
-                        let is_super_admin = windmill_common::auth::is_super_admin_email(
-                            db,
-                            &flow_job.permissioned_as_email,
-                        )
-                        .await?;
-                        check_tag_available_for_push(
-                            db,
-                            &flow_job.workspace_id,
-                            t,
-                            &args,
-                            is_super_admin,
-                            None,
-                        )
-                        .await?;
-                    }
                     resolve_push_tag(t, &args, &flow_job.workspace_id, db).await
                 }
                 None => None,

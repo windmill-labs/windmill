@@ -30,7 +30,10 @@ use windmill_common::{
         add_message_to_conversation_tx, message_attachments, MessageExtras, MessageType,
     },
     get_latest_flow_version_info_for_path,
-    jobs::{format_result, script_path_to_payload, JobPayload},
+    jobs::{
+        check_tag_available_for_workspace_internal, format_result, script_path_to_payload,
+        JobPayload,
+    },
     triggers::TriggerMetadata,
     users::username_to_permissioned_as,
     utils::StripPath,
@@ -60,6 +63,33 @@ pub async fn check_tag_available_for_workspace(
         // Job-aware: a WM_TOKEN running as a superadmin must not unlock restricted tags.
         let is_super_admin = windmill_api_auth::is_super_admin_authed(db, authed).await?;
         check_tag_available_for_push(db, w_id, tag, args, is_super_admin, tags).await
+    } else {
+        Ok(())
+    }
+}
+
+/// [`check_tag_available_for_workspace`] for a tag filled in from values nothing can check yet,
+/// such as a flow's preprocessor output: only an entry spelled exactly like it admits it.
+pub async fn check_tag_as_written_available_for_workspace(
+    db: &DB,
+    w_id: &str,
+    tag: &Option<String>,
+    authed: &ApiAuthed,
+) -> error::Result<()> {
+    if let Some(tag) = tag.as_deref().filter(|t| !t.is_empty()) {
+        let tags = get_scope_tags(authed);
+        // Job-aware: a WM_TOKEN running as a superadmin must not unlock restricted tags.
+        let is_super_admin = windmill_api_auth::is_super_admin_authed(db, authed).await?;
+        check_tag_available_for_workspace_internal(
+            db,
+            w_id,
+            tag,
+            None,
+            std::future::ready(w_id.to_string()),
+            is_super_admin,
+            tags,
+        )
+        .await
     } else {
         Ok(())
     }
@@ -761,11 +791,16 @@ pub async fn run_flow<'c>(
 
     let tag = run_query.tag.clone().or(tag);
     let push_args = PushArgs { args: &args.args, extra: args.extra };
+    let apply_preprocessor =
+        !run_query.skip_preprocessor.unwrap_or(false) && has_preprocessor.unwrap_or(false);
 
-    // A flow whose preprocessor runs lands on its tag resolved from the preprocessor's output,
-    // which is checked again then. Still check here on the raw args, failing closed: the later
-    // check cannot apply the caller's token tag scopes or job-token-aware superadmin status.
-    check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
+    // A flow whose preprocessor runs lands on its tag filled in from the preprocessor's output,
+    // after this caller's identity is gone, so its tag is judged as written, not on the raw args.
+    if apply_preprocessor {
+        check_tag_as_written_available_for_workspace(&db, &w_id, &tag, &authed).await?;
+    } else {
+        check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
+    }
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
     let return_tx = tx_o.is_some();
@@ -801,8 +836,7 @@ pub async fn run_flow<'c>(
             path: flow_path.to_string(),
             dedicated_worker,
             version,
-            apply_preprocessor: !run_query.skip_preprocessor.unwrap_or(false)
-                && has_preprocessor.unwrap_or(false),
+            apply_preprocessor,
             labels,
         },
         push_args,
