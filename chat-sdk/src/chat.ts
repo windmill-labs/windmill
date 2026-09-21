@@ -306,7 +306,7 @@ class ChatImpl implements Chat {
     } finally {
       if (this.#turn === turn) this.#turn = undefined
     }
-    if (nextTurn) await this.resumeTurn(nextTurn)
+    if (nextTurn && this.#state.conversationId === turn.conversationId) await this.resumeTurn(nextTurn)
   }
 
   stop = async (): Promise<void> => {

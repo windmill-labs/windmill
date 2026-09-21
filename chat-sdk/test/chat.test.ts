@@ -1127,6 +1127,46 @@ describe('createChat with server history', () => {
     expect(calls.some((c) => c.url.pathname.includes('getupdate_sse/job-2'))).toBe(false)
   })
 
+  test('a conversation switch during handoff does not resume the next turn elsewhere', async () => {
+    let releaseList!: (response: Response) => void
+    const listGate = new Promise<Response>((resolve) => {
+      releaseList = resolve
+    })
+    const { fetch, calls } = fetchMock(
+      run,
+      (c) =>
+        c.url.pathname === streamPath
+          ? sse([{ type: 'update', completed: true, only_result: { windmill_chat_answer: 'first answer' } }])
+          : undefined,
+      (c) =>
+        c.url.pathname.endsWith('/jobs_u/get/job-1')
+          ? json({ flow_status: { modules: [{ job: 'job-1' }] } })
+          : undefined,
+      (c) => {
+        if (!c.url.pathname.endsWith('/messages')) return undefined
+        if (c.url.pathname.includes('/flow_conversations/other/messages')) return json([])
+        return json([
+          messageRow(50, 'user', 'first', { job_id: 'job-1' }),
+          messageRow(51, 'assistant', 'first answer', { job_id: 'job-1' }),
+          messageRow(52, 'user', 'second', { job_id: 'job-2' })
+        ])
+      },
+      (c) => (c.url.pathname === '/api/w/ws/flow_conversations/list' ? listGate : undefined)
+    )
+    const chat = createChat(options({}, fetch))
+    const sent = chat.sendMessage('first')
+    while (!calls.some((c) => c.url.pathname === '/api/w/ws/flow_conversations/list')) {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    }
+    await chat.selectConversation('other')
+    releaseList(json([]))
+    await sent
+    expect(chat.getState().conversationId).toBe('other')
+    expect(chat.getState().status).toBe('idle')
+    expect(chat.getState().messages).toEqual([])
+    expect(calls.some((c) => c.url.pathname.includes('getupdate_sse/job-2'))).toBe(false)
+  })
+
   test('a stream that keeps ending before the job completes hands the turn to polling', async () => {
     let streams = 0
     const { fetch } = fetchMock(
