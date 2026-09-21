@@ -1729,8 +1729,26 @@ pub async fn get_datatable_resource_from_db_unchecked(
     w_id: &str,
     name: &str,
 ) -> Result<serde_json::Value> {
+    Ok(get_datatable_connection_and_kind_unchecked(db, w_id, name)
+        .await?
+        .0)
+}
+
+/// As [`get_datatable_resource_from_db_unchecked`], also reporting whether what it resolved to owns
+/// an instance database. One resolution answers both: a caller reading the kind separately can be
+/// handed one kind's connection and the other kind's checks by a save landing between the two, and
+/// the entry a pointer lands on is another workspace's to change.
+///
+/// Same authorization contract: the connection reaches every role.
+pub async fn get_datatable_connection_and_kind_unchecked(
+    db: &DB,
+    w_id: &str,
+    name: &str,
+) -> Result<(serde_json::Value, bool)> {
     let governing = resolve_governing_datatable(db, w_id, name).await?;
-    resolve_datatable_connection_unchecked(db, &governing, false).await
+    let is_instance = governing.is_instance();
+    let connection = resolve_datatable_connection_unchecked(db, &governing, false).await?;
+    Ok((connection, is_instance))
 }
 
 /// Same as [`get_datatable_resource_from_db_unchecked`] but for postgres trigger
