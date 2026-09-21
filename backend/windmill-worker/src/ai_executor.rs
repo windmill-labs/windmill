@@ -2171,11 +2171,13 @@ pub async fn run_agent(
     // iteration, so this is the only compaction a chat-shaped step ever gets: without it
     // the conversation is persisted whole and every later turn reloads it, until the
     // provider refuses the request outright.
-    let storage_bound = match (compactor.as_mut(), persist_capacity) {
-        (Some(compactor), Some(bytes)) => compactor.bound_by_storage(bytes),
-        _ => false,
-    };
-    let compacted = compact_if_needed(
+    //
+    // Two passes, in order. First the model window, off the provider's count for the last
+    // request: a chat-shaped turn never reached the in-loop check, so this is where an
+    // attachment that fills the model context is caught — it is a few bytes in the row,
+    // invisible to the storage measure below. Then, when the row is smaller than the
+    // model, a second pass bounds what is written to the database, measured in bytes.
+    compact_if_needed(
         CompactionContext {
             compactor: compactor.as_mut(),
             timeout: compaction_timeout,
@@ -2191,7 +2193,28 @@ pub async fn run_agent(
         &mut final_usage,
     )
     .await;
-    if storage_bound && compacted {
+    let storage_bound = match (compactor.as_mut(), persist_capacity) {
+        (Some(compactor), Some(bytes)) => compactor.bound_by_storage(bytes),
+        _ => false,
+    };
+    let compacted = storage_bound
+        && compact_if_needed(
+            CompactionContext {
+                compactor: compactor.as_mut(),
+                timeout: compaction_timeout,
+                credentials: &credentials,
+                args,
+                client,
+                workspace_id: &job.workspace_id,
+            },
+            query_builder.as_ref(),
+            include_usage,
+            &mut messages,
+            &mut last_request,
+            &mut final_usage,
+        )
+        .await;
+    if compacted {
         append_logs(
             &job.id,
             &job.workspace_id,
