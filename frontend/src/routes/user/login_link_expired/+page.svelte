@@ -17,7 +17,7 @@
 
 <CenteredModal
 	title="Sign-in link unavailable"
-	subtitle="{message} Sign-in links work once and for a few minutes: ask for a new one from where you got this link, or sign in another way."
+	subtitle="{message} Sign-in links work once and expire: ask for a new one from where you got this link, or sign in another way."
 >
 	<Button variant="accent" unifiedSize="lg" onClick={() => goto('/user/login')}>Go to login</Button>
 </CenteredModal>

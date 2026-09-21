@@ -38,7 +38,7 @@ use windmill_common::global_settings::HTTP_ROUTE_WORKSPACED_ROUTE;
 use windmill_common::query_builders::{render_db_quoted_identifier, DbType};
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::variables::{
-    build_crypt, decrypt, encrypt, SECRET_SALT, WORKSPACE_CRYPT_CACHE,
+    crypt_from_key_with_suffix, decrypt, encrypt, WORKSPACE_CRYPT_CACHE,
 };
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 use windmill_common::workspaces::GitRepositorySettings;
@@ -156,6 +156,10 @@ pub fn workspaced_service() -> Router {
         .route("/edit_deploy_ui_config", post(edit_deploy_ui_config))
         .route("/edit_default_app", post(edit_default_app))
         .route("/edit_guest_access", post(edit_guest_access))
+        .route(
+            "/edit_add_admins_and_developers_to_forks",
+            post(edit_add_admins_and_developers_to_forks),
+        )
         .route("/edit_guest_jwt_key", post(edit_guest_jwt_key))
         .route("/guest_usage", get(get_guest_usage))
         .route("/default_app", get(get_default_app))
@@ -339,6 +343,7 @@ pub struct WorkspaceSettings {
     pub guest_jwt_public_key: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub guest_jwt_jwks_url: Option<String>,
+    pub add_admins_and_developers_to_forks: bool,
 }
 
 /// Subset of `WorkspaceSettings` that is safe to return to any workspace
@@ -364,6 +369,8 @@ pub struct WorkspacePublicSettings {
     /// Not sensitive, and the app editor needs it to say whether the guest rung is
     /// live -- an app can be set to `guest` while the workspace has guests off.
     pub guest_access_enabled: bool,
+    /// Read by the fork dialog, which tells the forker who else the fork will include.
+    pub add_admins_and_developers_to_forks: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deploy_ui: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -556,6 +563,7 @@ struct UserWorkspace {
     /// screen off this.
     pub created_by: Option<String>,
     pub disabled: bool,
+    pub is_service_account: bool,
 }
 
 #[derive(Deserialize)]
@@ -1126,7 +1134,8 @@ async fn get_settings(
             error_handler_fallback_to_instance_alerts,
             guest_access_enabled,
             guest_jwt_public_key,
-            guest_jwt_jwks_url
+            guest_jwt_jwks_url,
+            add_admins_and_developers_to_forks
         FROM
             workspace_settings
         WHERE
@@ -1168,6 +1177,7 @@ async fn get_public_settings(
             teams_team_guid,
             mute_critical_alerts,
             guest_access_enabled,
+            add_admins_and_developers_to_forks,
             deploy_ui,
             large_file_storage,
             datatable
@@ -5387,6 +5397,47 @@ async fn edit_guest_access(
 }
 
 #[derive(Deserialize)]
+struct EditAddAdminsAndDevelopersToForks {
+    add_admins_and_developers_to_forks: bool,
+}
+
+async fn edit_add_admins_and_developers_to_forks(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(EditAddAdminsAndDevelopersToForks { add_admins_and_developers_to_forks }): Json<
+        EditAddAdminsAndDevelopersToForks,
+    >,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let mut tx = db.begin().await?;
+    sqlx::query!(
+        "UPDATE workspace_settings SET add_admins_and_developers_to_forks = $1 WHERE workspace_id = $2",
+        add_admins_and_developers_to_forks,
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.edit_add_admins_and_developers_to_forks",
+        ActionKind::Update,
+        &w_id,
+        Some(&add_admins_and_developers_to_forks.to_string()),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+
+    Ok(format!(
+        "Adding admins and developers to new forks set to {add_admins_and_developers_to_forks} for workspace {w_id}"
+    ))
+}
+
+#[derive(Deserialize)]
 struct EditGuestJwtKey {
     /// A PEM public key (RS or ES family), or a JWKS URL, at most one. Both empty clears the
     /// workspace key; verification then falls back to the instance issuer (`JWT_EXT_JWKS_URL`)
@@ -5974,9 +6025,6 @@ async fn set_encryption_key(
         ));
     }
 
-    // Build the previous cipher before the transaction (reads from cache/pool)
-    let previous_encryption_key = build_crypt(&db, w_id.as_str()).await?;
-
     let mut tx = db.begin().await?;
 
     // Under the row's lock, so two rotations racing serialize and each sees the key the
@@ -6010,17 +6058,14 @@ async fn set_encryption_key(
         None
     };
 
+    // From the keys read and written under the lock, never from `build_crypt`: its
+    // cache can still hold a key an earlier rotation replaced, and the git-sync
+    // secrets below are skipped rather than failed when they do not decrypt.
+    let previous_encryption_key = crypt_from_key_with_suffix(&previous_key, "");
+    let new_encryption_key = crypt_from_key_with_suffix(&request.new_key, "");
+
     let mut reencrypted_secret_paths: Vec<String> = Vec::new();
     if !request.skip_reencrypt.unwrap_or(false) {
-        // Build the new cipher directly from the key string, since the transaction
-        // hasn't committed yet and build_crypt() would read the old key from the pool.
-        let crypt_key = if let Some(ref salt) = SECRET_SALT.as_ref() {
-            format!("{}{}", request.new_key, salt)
-        } else {
-            request.new_key.clone()
-        };
-        let new_encryption_key = magic_crypt::new_magic_crypt!(crypt_key, 256);
-
         let mut truncated_new_key = request.new_key.clone();
         truncated_new_key.truncate(8);
         tracing::warn!(
@@ -6060,6 +6105,14 @@ async fn set_encryption_key(
         }
     }
 
+    reencrypt_git_sync_secrets(
+        &mut tx,
+        &w_id,
+        &previous_encryption_key,
+        &new_encryption_key,
+    )
+    .await?;
+
     tx.commit().await?;
 
     // Invalidate the cache only after the transaction has committed
@@ -6095,6 +6148,64 @@ async fn set_encryption_key(
     .await?;
 
     return Ok(());
+}
+
+/// Move the git-sync secrets the server keeps under the workspace key (stored
+/// repository tokens, webhook secrets) to the new key. They are never synced, so
+/// unlike variables they are still under the old key when the caller skips
+/// re-encryption.
+async fn reencrypt_git_sync_secrets(
+    conn: &mut sqlx::PgConnection,
+    w_id: &str,
+    old: &magic_crypt::MagicCrypt256,
+    new: &magic_crypt::MagicCrypt256,
+) -> Result<()> {
+    let Some((mut credentials, mut git_sync)) =
+        sqlx::query_as::<_, (serde_json::Value, Option<serde_json::Value>)>(
+            "SELECT git_credentials, git_sync FROM workspace_settings WHERE workspace_id = $1 FOR UPDATE",
+        )
+        .bind(w_id)
+        .fetch_optional(&mut *conn)
+        .await?
+    else {
+        return Ok(());
+    };
+    let reencrypt = |value: &mut serde_json::Value| {
+        let Some(ciphertext) = value.as_str() else {
+            return;
+        };
+        match decrypt(old, ciphertext.to_string()) {
+            Ok(plain) => *value = serde_json::Value::String(encrypt(new, &plain)),
+            // Left by an earlier rotation and unrecoverable either way; failing here
+            // would block every later rotation of the workspace.
+            Err(e) => tracing::warn!(
+                "a git-sync secret of workspace {w_id} does not decrypt under its current key, leaving it as is: {e}"
+            ),
+        }
+    };
+    for entry in credentials.as_array_mut().into_iter().flatten() {
+        if let Some(token) = entry.get_mut("token") {
+            reencrypt(token);
+        }
+    }
+    let repositories = git_sync
+        .as_mut()
+        .and_then(|g| g.get_mut("repositories"))
+        .and_then(|r| r.as_array_mut());
+    for repo in repositories.into_iter().flatten() {
+        if let Some(secret) = repo.pointer_mut("/auto_pull/webhook_secret") {
+            reencrypt(secret);
+        }
+    }
+    sqlx::query(
+        "UPDATE workspace_settings SET git_credentials = $2, git_sync = $3 WHERE workspace_id = $1",
+    )
+    .bind(w_id)
+    .bind(credentials)
+    .bind(git_sync)
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
 }
 
 #[derive(Serialize)]
@@ -6225,7 +6336,7 @@ async fn user_workspaces(
                 workspace.is_dev_workspace, workspace.dev_workspace_label,
                 workspace.owner AS \"created_by?\",
                 CASE WHEN usr.operator THEN workspace_settings.operator_settings ELSE NULL END as operator_settings,
-                usr.disabled
+                usr.disabled, usr.is_service_account
          FROM workspace
          JOIN usr ON usr.workspace_id = workspace.id
          JOIN workspace_settings ON workspace_settings.workspace_id = workspace.id
@@ -7046,7 +7157,8 @@ async fn update_workspace_settings(
             ducklake = source_ws.ducklake,
             dbt_warehouses = source_ws.dbt_warehouses,
             datatable = source_ws.datatable,
-            git_app_installations = source_ws.git_app_installations
+            git_app_installations = source_ws.git_app_installations,
+            add_admins_and_developers_to_forks = source_ws.add_admins_and_developers_to_forks
         FROM workspace_settings source_ws
         WHERE source_ws.workspace_id = $1
         AND workspace_settings.workspace_id = $2
@@ -7187,14 +7299,21 @@ async fn copy_workspace_members(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
     target_workspace_id: &str,
+    admins_and_developers_only: bool,
 ) -> Result<()> {
+    // Admins and developers join as manual members: the fork does not inherit the source's
+    // instance-group config, so a copied `instance_group` provenance would let the fork's
+    // reconciliation delete them and their data.
     sqlx::query!(
         "INSERT INTO usr (workspace_id, username, email, is_admin, created_at, operator, disabled, role, is_service_account, added_via)
-         SELECT $1, username, email, is_admin, created_at, operator, disabled, role, is_service_account, added_via
+         SELECT $1, username, email, is_admin, created_at, operator, disabled, role, is_service_account,
+                CASE WHEN $3 THEN NULL ELSE added_via END
          FROM usr WHERE workspace_id = $2
+           AND (NOT $3 OR (NOT operator AND NOT disabled AND NOT is_service_account))
          ON CONFLICT DO NOTHING",
         target_workspace_id,
         source_workspace_id,
+        admins_and_developers_only,
     )
     .execute(&mut **tx)
     .await?;
@@ -7608,6 +7727,127 @@ async fn clear_orphaned_compat_address(
     .bind(source_workspace_id)
     .execute(&mut **tx)
     .await?;
+    Ok(())
+}
+
+/// SQL boolean: the principal the `principal` expression yields resolves in the workspace bound as
+/// `$1`. The same predicate `clone_scripts` and `clone_flows` inline, whose `query!` macros cannot
+/// take a composed string, so keep the three in step.
+fn principal_resolves_sql(principal: &str) -> String {
+    format!(
+        "CASE WHEN {principal} LIKE 'u/%' THEN EXISTS (
+                SELECT 1 FROM usr u WHERE u.workspace_id = $1
+                  AND u.username = substring({principal} from 3)
+                UNION ALL
+                SELECT 1 FROM password pw WHERE pw.super_admin
+                  AND (pw.username = substring({principal} from 3)
+                       OR pw.email = substring({principal} from 3)))
+              WHEN {principal} LIKE 'g/%' THEN EXISTS (
+                SELECT 1 FROM group_ g WHERE g.workspace_id = $1
+                  AND g.name = substring({principal} from 3))
+              ELSE EXISTS (
+                SELECT 1 FROM usr u WHERE u.workspace_id = $1 AND u.username = {principal}
+                UNION ALL
+                SELECT 1 FROM password pw WHERE pw.email = {principal} AND pw.super_admin)
+         END"
+    )
+}
+
+/// Re-point the identities a fork clones verbatim at its creator when they name nobody in the fork,
+/// once its membership is final so copied members keep theirs. Unlike scripts and flows these
+/// cannot drop the identity: an app deploy rejects a preserved one that does not resolve, and
+/// publisher apps, schedules and triggers need one to run.
+async fn repoint_unresolvable_cloned_identities(
+    tx: &mut Transaction<'_, Postgres>,
+    target_workspace_id: &str,
+    authed: &ApiAuthed,
+) -> Result<()> {
+    let principal = username_to_permissioned_as(&authed.username);
+
+    sqlx::query(&format!(
+        "UPDATE app SET policy = policy
+             || jsonb_build_object('on_behalf_of', $2::text, 'on_behalf_of_email', $3::text)
+         WHERE workspace_id = $1 AND policy->>'on_behalf_of' IS NOT NULL
+           AND NOT ({})",
+        principal_resolves_sql("(policy->>'on_behalf_of')")
+    ))
+    .bind(target_workspace_id)
+    .bind(&principal)
+    .bind(&authed.email)
+    .execute(&mut **tx)
+    .await?;
+
+    // A draft holding a genuine NUL escape (the rule of `json_text_has_nul_escape`) is left as it
+    // is, since parsing it would abort the fork. The check must stay in a CASE: json `->>` raises on
+    // a NUL anywhere in the value, and Postgres reorders plain AND conditions.
+    let nul_escape = r"(^|[^\\])(\\\\)*\\u0000";
+    sqlx::query(&format!(
+        "UPDATE draft SET value = to_json(jsonb_set(jsonb_set(to_jsonb(value),
+             ARRAY['policy', 'on_behalf_of'], to_jsonb($2::text)),
+             ARRAY['policy', 'on_behalf_of_email'], to_jsonb($3::text)))
+         WHERE workspace_id = $1 AND typ IN ('app', 'raw_app')
+           AND CASE WHEN value::text ~ $4 THEN false
+                    ELSE value->'policy'->>'on_behalf_of' IS NOT NULL AND NOT ({}) END",
+        principal_resolves_sql("(value->'policy'->>'on_behalf_of')")
+    ))
+    .bind(target_workspace_id)
+    .bind(&principal)
+    .bind(&authed.email)
+    .bind(nul_escape)
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query(&format!(
+        "UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value),
+             ARRAY['permissioned_as'], to_jsonb($2::text)))
+         WHERE workspace_id = $1 AND starts_with(typ::text, 'trigger_')
+           AND CASE WHEN value::text ~ $3 THEN false
+                    ELSE value->>'permissioned_as' IS NOT NULL AND NOT ({}) END",
+        principal_resolves_sql("(value->>'permissioned_as')")
+    ))
+    .bind(target_workspace_id)
+    .bind(&principal)
+    .bind(nul_escape)
+    .execute(&mut **tx)
+    .await?;
+
+    let column_resolves = principal_resolves_sql("permissioned_as");
+
+    // SAFETY: every table name is a literal from this list, never user input.
+    for table in [
+        "http_trigger",
+        "websocket_trigger",
+        "kafka_trigger",
+        "nats_trigger",
+        "postgres_trigger",
+        "mqtt_trigger",
+        "amqp_trigger",
+        "sqs_trigger",
+        "gcp_trigger",
+        "azure_trigger",
+        "email_trigger",
+    ] {
+        sqlx::query(&format!(
+            "UPDATE {table} SET permissioned_as = $2
+             WHERE workspace_id = $1 AND NOT ({column_resolves})"
+        ))
+        .bind(target_workspace_id)
+        .bind(&principal)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    // `email` is still written for workers that predate `permissioned_as`.
+    sqlx::query(&format!(
+        "UPDATE schedule SET permissioned_as = $2, email = $3
+         WHERE workspace_id = $1 AND NOT ({column_resolves})"
+    ))
+    .bind(target_workspace_id)
+    .bind(&principal)
+    .bind(&authed.email)
+    .execute(&mut **tx)
+    .await?;
+
     Ok(())
 }
 
@@ -8056,14 +8296,32 @@ async fn clone_drafts(
     // filtered like `clone_scripts`: the address the draft still carries re-derives the
     // clone's own principal at deploy time, which is the more accurate answer of the two.
     sqlx::query!(
-        "INSERT INTO draft (workspace_id, path, typ, value, created_at, email)
+        // A script hash is content-addressed and copied as-is, so a script draft's base
+        // still names a version the clone has. `clone_flows` / `clone_apps` mint new ids,
+        // so those drafts arrive with no base (staleness falls back to the timestamps),
+        // lineage field included, or the next autosave would re-derive the source id.
+        //
+        // `clean` is `strip_json_nul`'s parity rule in SQL, so a pre-sanitizer U+0000
+        // escape cannot abort the clone on `to_jsonb` or arrive with its principal
+        // unstripped: escaped backslashes park on chr(1) (lossless, a `json` value's text
+        // cannot hold a raw control byte) so only a real NUL is removed, and chr(92)
+        // spells the backslash so no escape sequence reaches this source file.
+        r#"INSERT INTO draft (workspace_id, path, typ, value, created_at, email, base)
          SELECT $2, path, typ,
-                CASE WHEN typ IN ('script', 'flow')
-                     THEN to_json(to_jsonb(value) - 'on_behalf_of')
-                     ELSE value END,
-                created_at, email
-         FROM draft
-         WHERE workspace_id = $1 AND (email = $3 OR email IS NULL)",
+                to_json(
+                    CASE WHEN typ IN ('script', 'flow') THEN clean - 'on_behalf_of' ELSE clean END
+                    - CASE WHEN typ = 'flow' THEN 'version_id'
+                           WHEN typ IN ('app', 'raw_app') THEN 'parent_version'
+                           ELSE '' END
+                ),
+                created_at, email,
+                CASE WHEN typ = 'script' THEN base END
+         FROM (
+             SELECT d.path, d.typ, d.created_at, d.email, d.base,
+                    replace(replace(replace(d.value::text, chr(92) || chr(92), chr(1)), chr(92) || 'u0000', ''), chr(1), chr(92) || chr(92))::jsonb AS clean
+             FROM draft d
+             WHERE d.workspace_id = $1 AND (d.email = $3 OR d.email IS NULL)
+         ) s"#,
         source_workspace_id,
         target_workspace_id,
         authed_email,
@@ -8898,8 +9156,19 @@ async fn create_workspace_fork(
     // intended. Dev creation is already admin-gated, so this is transitively admin-only too. Done before
     // the explicit creator insert below so the creator (a parent member) is copied with full metadata
     // (operator/role/is_service_account/added_via), not the bare row the insert alone would leave.
+    // Independently, the parent's admins can have every fork of it start with its admins and
+    // developers; the forker cannot opt out, since the point is that those admins can review it.
     if nw.copy_members && nw.is_dev_workspace {
-        copy_workspace_members(&mut tx, &parent_workspace_id, &forked_id).await?;
+        copy_workspace_members(&mut tx, &parent_workspace_id, &forked_id, false).await?;
+    } else if sqlx::query_scalar!(
+        "SELECT add_admins_and_developers_to_forks FROM workspace_settings WHERE workspace_id = $1",
+        parent_workspace_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .unwrap_or(false)
+    {
+        copy_workspace_members(&mut tx, &parent_workspace_id, &forked_id, true).await?;
     }
 
     // Ensure the creator is a member of the fork even without copy_members (or if they aren't a parent
@@ -8960,6 +9229,8 @@ async fn create_workspace_fork(
     // attaches, no cron fires) so this is safe by construction. The user
     // re-enables in the fork, with parent-conflict warnings on enable.
     clone_triggers_and_schedules(&mut tx, &parent_workspace_id, &forked_id).await?;
+
+    repoint_unresolvable_cloned_identities(&mut tx, &forked_id, &authed).await?;
 
     // Update forked datatable settings to point to new databases
     for fdt in &nw.forked_datatables {

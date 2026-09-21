@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { toolReloadEffect, tabsToReload } from './previewReload'
 import type { SessionPreviewTab } from './sessionState.svelte'
+import { pageItemUrl } from './previewPaths'
 
 describe('toolReloadEffect', () => {
 	it('maps a non-item mutation to its own list page only', () => {
@@ -49,6 +50,26 @@ describe('toolReloadEffect', () => {
 
 	it('reloads nothing for a trigger of unknown kind rather than guessing', () => {
 		expect(toolReloadEffect('write_trigger', { kind: 'not_a_kind' }).pages).toEqual([])
+	})
+})
+
+describe('page item tabs', () => {
+	const tab = (url: string): SessionPreviewTab => ({ id: url, url, loc: url })
+	const kafkaA = tab('pageitem:trigger.kafka/u%2Fme%2Fa')
+	const kafkaB = tab('pageitem:trigger.kafka/u%2Fme%2Fb')
+	const list = tab('/kafka_triggers')
+
+	it('reloads only the trigger a write names, and its list page', () => {
+		const { pages, items } = toolReloadEffect('write_trigger', {
+			kind: 'kafka',
+			config: { path: 'u/me/a' }
+		})
+		const named = new Set(items.map((i) => pageItemUrl(i)))
+		expect(tabsToReload([kafkaA, kafkaB, list], new Set(pages), named)).toEqual([kafkaA, list])
+	})
+
+	it('reloads every tab of the kind when the tool names no item', () => {
+		expect(tabsToReload([kafkaA, kafkaB], new Set(['/kafka_triggers']))).toEqual([kafkaA, kafkaB])
 	})
 })
 

@@ -85,7 +85,8 @@
 		loadedFromDraft = false,
 		othersDraftsCount = 0,
 		onOpenOthersDrafts,
-		onRestore
+		onRestore,
+		onDeploy
 	}: AppEditorProps = $props()
 
 	migrateApp(untrack(() => app))
@@ -893,6 +894,7 @@
 			{othersDraftsCount}
 			{onOpenOthersDrafts}
 			{onRestore}
+			{onDeploy}
 			{policy}
 			{fromHub}
 			bind:this={appEditorHeader}

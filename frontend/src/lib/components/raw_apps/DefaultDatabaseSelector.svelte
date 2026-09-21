@@ -2,7 +2,6 @@
 	import { Settings } from 'lucide-svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import Select from '$lib/components/select/Select.svelte'
-	import { workspaceStore } from '$lib/stores'
 	import {
 		createDatatableAccessResource,
 		createDatatablesResource,
@@ -10,11 +9,11 @@
 		toSchemaItems
 	} from './datatableUtils.svelte'
 	import { Button } from '../common'
-	import { getRawAppOperatingWorkspace } from './rawAppWorkspace'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import { appDatatableRole } from './dataTableRefUtils'
 
-	const getOpWs = getRawAppOperatingWorkspace()
-	let opWs = $derived(getOpWs?.() ?? $workspaceStore)
+	const operatingWorkspace = useOperatingWorkspace()
+	let opWs = $derived($operatingWorkspace)
 
 	interface Props {
 		/** Currently selected datatable */
