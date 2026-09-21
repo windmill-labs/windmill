@@ -306,7 +306,7 @@ class ChatImpl implements Chat {
     } finally {
       if (this.#turn === turn) this.#turn = undefined
     }
-    if (nextTurn && this.#state.conversationId === turn.conversationId) await this.resumeTurn(nextTurn)
+    if (nextTurn) await this.resumeTurn(nextTurn)
   }
 
   stop = async (): Promise<void> => {
@@ -662,6 +662,7 @@ class ChatImpl implements Chat {
         this.#set({ status: nextTurn ? 'submitted' : 'idle' })
         this.#config.onFinish?.({ conversationId: turn.conversationId, jobId: turn.jobId, messages: this.#state.messages })
         if (isNew) await this.loadConversations().catch(() => {})
+        if (!this.#turnActive(turn)) return
         return nextTurn
       }
       // Server history just proved unreadable: the turn completes as local history.
