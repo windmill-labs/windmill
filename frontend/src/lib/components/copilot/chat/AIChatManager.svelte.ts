@@ -125,27 +125,25 @@ import {
 } from '$lib/aiStore'
 import type { WorkspaceMutationTarget } from './workspaceTools'
 import {
-	globalToolsFor,
 	loadWorkspaceSkills,
-	prepareGlobalSystemMessage,
 	resolveGlobalPromptIdentity,
 	type GlobalPromptIdentity,
 	prepareGlobalUserMessage,
 	type AiSkillListItem,
 	type ChatCommandItem,
 	type SessionPromptContext,
-	getSessionContextPromptSection,
 	type GlobalToolHelpers,
 	type GlobalActivePreviewContext
 } from './global/core'
+import {
+	assembleGlobalSystemMessage,
+	assembleGlobalTools,
+	type GlobalAssemblyOpts
+} from './global/globalAssembly'
 import { formatChatJobCompletion } from './datatableTools'
 import { isGlobalAiEnabled } from './global/gate'
-import { createMcpTools, loadMcpServers, type McpServer } from './global/mcpTools'
-import {
-	pipelineTools,
-	getPipelinePromptSection,
-	type PipelineAIChatHelpers
-} from './pipeline/core'
+import { loadMcpServers, type McpServer } from './global/mcpTools'
+import type { PipelineAIChatHelpers } from './pipeline/core'
 import { scopedKey, onUserChange, migrateLegacyLocalStorage } from '$lib/userScopedStorage'
 import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 import { AttachedFilesStore } from './files/attachedFiles.svelte'
@@ -2408,27 +2406,11 @@ export class AIChatManager implements ChatViewHost {
 		}
 	}
 
-	// Fetch the workspace's AI skills and, if GLOBAL mode is still active, rebuild
-	// the system message so the next chat-loop iteration advertises them. Ignore
-	// stale resolves so workspace changes cannot overwrite newer skills.
-	// Build the global-mode system message, tools, and helpers, layering on the
-	// pipeline surface when a /pipeline editor has registered helpers. Centralized
-	// so changeMode, refreshGlobalSkills, and setPipelineHelpers stay consistent —
-	// each rebuild would otherwise drop the pipeline augmentation the others added.
-	//
 	// Public because it is purely local, unlike `changeMode(GLOBAL)`, which also
 	// fires the three network refreshes.
 	configureGlobalMode = () => {
-		const systemMessage = prepareGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), {
-			previewTools: this.isSessionChat,
-			user: this.globalIdentity,
-			skills: this.globalSkills,
-			mcpServers: this.mcpServers
-		})
-		const sessionCtx = this.sessionContextResolver?.()
-		if (sessionCtx) {
-			systemMessage.content += getSessionContextPromptSection(sessionCtx)
-		}
+		const pipeline = this.pipelineAiChatHelpers
+		const opts = this.globalAssemblyOpts()
 		const baseHelpers: GlobalToolHelpers = {
 			// A session targets its own fixed (possibly forked) workspace, so capture it for
 			// permission gating. The global side-panel chat follows the live navigation
@@ -2458,24 +2440,24 @@ export class AIChatManager implements ChatViewHost {
 				this.rebuildGlobalSystemMessage()
 			}
 		}
-		const pipeline = this.pipelineAiChatHelpers
-		const mcpTools = createMcpTools(this.mcpServers)
-		if (pipeline) {
-			systemMessage.content += getPipelinePromptSection(pipeline.getPipelineContext())
-			this.tools = [
-				...globalToolsFor({ sessionPreview: this.isSessionChat }),
-				...pipelineTools,
-				...mcpTools
-			]
-			this.helpers = { ...baseHelpers, pipeline }
-		} else {
-			this.tools = [...globalToolsFor({ sessionPreview: this.isSessionChat }), ...mcpTools]
-			this.helpers = baseHelpers
-		}
-		this.systemMessage = systemMessage
+		this.tools = assembleGlobalTools(opts)
+		this.helpers = pipeline ? { ...baseHelpers, pipeline } : baseHelpers
+		this.systemMessage = assembleGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), opts)
 		this.syncArtifactsSession()
 	}
 
+	private globalAssemblyOpts = (): GlobalAssemblyOpts => ({
+		previewTools: this.isSessionChat,
+		user: this.globalIdentity,
+		skills: this.globalSkills,
+		mcpServers: this.mcpServers,
+		sessionContext: this.sessionContextResolver?.(),
+		pipelineContext: this.pipelineAiChatHelpers?.getPipelineContext()
+	})
+
+	// Fetch the workspace's AI skills and, if GLOBAL mode is still active, rebuild
+	// the system message so the next chat-loop iteration advertises them. Ignore
+	// stale resolves so workspace changes cannot overwrite newer skills.
 	refreshGlobalSkills = async (workspace = this.operatingWorkspace ?? '') => {
 		const refreshId = ++this.globalSkillsRefreshId
 		const skills = await loadWorkspaceSkills(workspace)
@@ -2550,24 +2532,10 @@ export class AIChatManager implements ChatViewHost {
 		if (this.mode !== AIMode.GLOBAL) {
 			return
 		}
-		const systemMessage = prepareGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), {
-			previewTools: this.isSessionChat,
-			user: this.globalIdentity,
-			skills: this.globalSkills,
-			mcpServers: this.mcpServers
-		})
-		// Preserve the session-state and active pipeline-editor augmentations that
-		// configureGlobalMode adds — otherwise update_user_instructions (which calls
-		// this) would drop them mid-session.
-		const sessionCtx = this.sessionContextResolver?.()
-		if (sessionCtx) {
-			systemMessage.content += getSessionContextPromptSection(sessionCtx)
-		}
-		const pipeline = this.pipelineAiChatHelpers
-		if (pipeline) {
-			systemMessage.content += getPipelinePromptSection(pipeline.getPipelineContext())
-		}
-		this.systemMessage = systemMessage
+		this.systemMessage = assembleGlobalSystemMessage(
+			getCustomPromptParts(AIMode.GLOBAL),
+			this.globalAssemblyOpts()
+		)
 	}
 
 	private expandGlobalSkillCommand = (instructions: string): string => {
