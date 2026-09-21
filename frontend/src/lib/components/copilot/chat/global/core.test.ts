@@ -3764,9 +3764,8 @@ describe('global AI tools', () => {
 		expect(getBackendDraft('raw_app', 'f/apps/legacy', { workspace: WORKSPACE })).toBeUndefined()
 	})
 
-	// getAppByPath and listApps are refused by the catalog, so this read is the only way
-	// left to ask who may open a deployed app. Both kinds answer: a drag-and-drop app can
-	// be anonymous too, and no other tool here can inspect one.
+	// This read is the only way to ask who may open a deployed app. Both kinds answer: a
+	// drag-and-drop app can be anonymous too, and no other tool here can inspect one.
 	it('reports who may open an app, whichever kind it is', async () => {
 		const readMode = async (app: any) => {
 			vi.mocked(AppService.getAppByPath).mockResolvedValueOnce(app)
@@ -7129,8 +7128,7 @@ describe('session-only preview tools gating', () => {
 		expect(names).not.toContain('list_app_runs')
 		expect(names).not.toContain('search_dom')
 		expect(names).not.toContain('read_dom')
-		// Not withheld: without it the side panel's only route to a deployed run is the raw
-		// endpoint, which confirms an opaque request body instead of the arguments.
+		// Not withheld: without it the side panel has no route to a deployed run at all.
 		expect(names).toContain('run_script')
 		// other tools are still present
 		expect(names).toContain('write_script')

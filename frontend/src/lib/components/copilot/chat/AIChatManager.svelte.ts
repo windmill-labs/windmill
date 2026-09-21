@@ -55,7 +55,7 @@ import { sendUserToast } from '$lib/toast'
 import { workspaceAIClients, getNonStreamingCompletion } from '../lib'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
 import { modelSupportsVision } from '../modelConfig'
-import { getModelContextWindow } from '../modelConfig'
+import { getEffectiveModelContextWindow } from '../modelConfig'
 import {
 	getCompactionSummaryPrompt,
 	formatCompactSummary,
@@ -3857,7 +3857,13 @@ export class AIChatManager implements ChatViewHost {
 			// assumed window rather than no limit: without one the context grows
 			// unbounded until the provider (or a proxy in front of it) times out.
 			// Guessing low only compacts earlier, which is always recoverable.
-			const contextWindow = model ? getModelContextWindow(model.model) : undefined
+			const contextWindow = model
+				? getEffectiveModelContextWindow(
+						model.provider,
+						model.model,
+						get(copilotInfo).contextWindowPerModel
+					)
+				: undefined
 			if (
 				contextWindow !== undefined &&
 				projectedContextTokens >= contextWindow * COMPACTION_TRIGGER_RATIO

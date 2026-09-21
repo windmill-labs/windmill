@@ -11,7 +11,16 @@
 	import { workspaceStore } from '$lib/stores'
 	import { copilotInfo } from '$lib/aiStore'
 	import { sendUserToast } from '$lib/toast'
-	import { AI_PROVIDERS, fetchAvailableModels, providerSupportsWebSearch } from '../copilot/lib'
+	import {
+		AI_PROVIDERS,
+		fetchAvailableModels,
+		getModelMaxTokens,
+		providerSupportsWebSearch
+	} from '../copilot/lib'
+	import {
+		getKnownModelContextWindow,
+		getModelContextWindowFromTable
+	} from '../copilot/modelConfig'
 	import { supportsAutocomplete } from '../copilot/utils'
 	import TestAiKey from '../copilot/TestAIKey.svelte'
 	import Label from '../Label.svelte'
@@ -77,6 +86,7 @@
 	let metadataModel: string | undefined = $state(undefined)
 	let customPrompts: Record<string, string> = $state({})
 	let maxTokensPerModel: Record<string, number> = $state({})
+	let contextWindowPerModel: Record<string, number> = $state({})
 	let modelPricing: Record<string, ModelPriceOverride> = $state({})
 	let usingOpenaiClientCredentialsOauth = $state(false)
 	let workspaceOverrideEditorOpened = $state(false)
@@ -91,6 +101,7 @@
 	let initialMetadataModel: string | undefined = $state(undefined)
 	let initialCustomPrompts: Record<string, string> = $state({})
 	let initialMaxTokensPerModel: Record<string, number> = $state({})
+	let initialContextWindowPerModel: Record<string, number> = $state({})
 	let initialModelPricing: Record<string, ModelPriceOverride> = $state({})
 	let initialPrompts: Record<string, string> = $state({})
 	let initialCopilotDisabled = $state(false)
@@ -122,6 +133,7 @@
 		codeCompletionModel = config?.code_completion_model?.model
 		customPrompts = clone(config?.custom_prompts ?? {})
 		maxTokensPerModel = clone(config?.max_tokens_per_model ?? {})
+		contextWindowPerModel = clone(config?.context_window_per_model ?? {})
 		modelPricing = clone(config?.model_pricing ?? {})
 		copilotDisabled = config?.copilot_disabled === true
 		sessionsStorageDisabled = config?.sessions_storage_disabled === true
@@ -140,6 +152,7 @@
 		initialCodeCompletionModel = codeCompletionModel
 		initialCustomPrompts = clone(customPrompts)
 		initialMaxTokensPerModel = clone(maxTokensPerModel)
+		initialContextWindowPerModel = clone(contextWindowPerModel)
 		initialModelPricing = clone(modelPricing)
 		initialPrompts = clone(customPrompts)
 		initialCopilotDisabled = copilotDisabled
@@ -159,6 +172,7 @@
 		codeCompletionModel = initialCodeCompletionModel
 		customPrompts = clone(initialCustomPrompts)
 		maxTokensPerModel = clone(initialMaxTokensPerModel)
+		contextWindowPerModel = clone(initialContextWindowPerModel)
 		modelPricing = clone(initialModelPricing)
 		copilotDisabled = initialCopilotDisabled
 		sessionsStorageDisabled = initialSessionsStorageDisabled
@@ -197,6 +211,7 @@
 			codeCompletionModel !== initialCodeCompletionModel ||
 			JSON.stringify(customPrompts) !== JSON.stringify(initialCustomPrompts) ||
 			JSON.stringify(maxTokensPerModel) !== JSON.stringify(initialMaxTokensPerModel) ||
+			JSON.stringify(contextWindowPerModel) !== JSON.stringify(initialContextWindowPerModel) ||
 			JSON.stringify(modelPricing) !== JSON.stringify(initialModelPricing) ||
 			copilotDisabled !== initialCopilotDisabled ||
 			sessionsStorageDisabled !== initialSessionsStorageDisabled ||
@@ -319,6 +334,8 @@
 					custom_prompts: Object.keys(custom_prompts).length > 0 ? custom_prompts : undefined,
 					max_tokens_per_model:
 						Object.keys(maxTokensPerModel).length > 0 ? maxTokensPerModel : undefined,
+					context_window_per_model:
+						Object.keys(contextWindowPerModel).length > 0 ? contextWindowPerModel : undefined,
 					model_pricing: Object.keys(modelPricing).length > 0 ? modelPricing : undefined,
 					copilot_disabled,
 					sessions_storage_disabled,
@@ -625,7 +642,31 @@
 			{/if}
 		</div>
 
-		<ModelTokenLimits {aiProviders} bind:maxTokensPerModel />
+		<ModelTokenLimits
+			{aiProviders}
+			bind:limits={maxTokensPerModel}
+			label="Model output limits"
+			description="Configure maximum token limits for each model. These limits apply to all AI chat interactions in the workspace."
+			min={1}
+			max={2_000_000}
+			getDefault={(provider, model) => ({
+				tokens: getModelMaxTokens(provider, model),
+				assumed: false
+			})}
+		/>
+
+		<ModelTokenLimits
+			{aiProviders}
+			bind:limits={contextWindowPerModel}
+			label="Model context windows"
+			description="The context size AI chat plans for with each model: older messages are summarized as a conversation nears it. Set it for models the built-in list does not know, such as local models served through Custom AI."
+			min={1024}
+			max={10_000_000}
+			getDefault={(_, model) => ({
+				tokens: getModelContextWindowFromTable(model),
+				assumed: getKnownModelContextWindow(model) === undefined
+			})}
+		/>
 
 		<SettingCard label="Custom system prompts" description={promptDescription}>
 			<div class="flex items-center gap-2 pt-1">
