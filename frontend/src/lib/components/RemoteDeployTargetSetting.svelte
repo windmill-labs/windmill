@@ -14,25 +14,37 @@
 
 	const targetResource = resource(
 		() => $workspaceStore,
-		async (workspace) => {
+		async (workspace, previous, { signal }) => {
+			if (workspace !== previous) {
+				baseUrl = ''
+				remoteWorkspaceId = ''
+			}
 			const status = workspace
 				? await WorkspaceService.getRemoteDeployTarget({ workspace })
 				: undefined
+			// runed keeps a superseded fetch's result: filling the form with it would let a save
+			// point the workspace switched to at the previous one's instance.
+			if (signal.aborted) throw new DOMException('superseded', 'AbortError')
 			baseUrl = status?.target?.base_url ?? ''
 			remoteWorkspaceId = status?.target?.workspace_id ?? ''
-			return status
+			return { workspace, target: status?.target }
 		}
 	)
-	let saved = $derived(targetResource.current?.target)
+	let loaded = $derived(
+		targetResource.current?.workspace === $workspaceStore ? targetResource.current : undefined
+	)
+	let saved = $derived(loaded?.target)
 	let hasChanges = $derived(
 		baseUrl !== (saved?.base_url ?? '') || remoteWorkspaceId !== (saved?.workspace_id ?? '')
 	)
 
 	async function save(target: { base_url: string; workspace_id: string } | undefined) {
+		const workspace = loaded?.workspace
+		if (!workspace) return
 		saving = true
 		try {
 			const message = await WorkspaceService.setRemoteDeployTarget({
-				workspace: $workspaceStore!,
+				workspace,
 				requestBody: { target }
 			})
 			sendUserToast(message)
@@ -71,7 +83,7 @@
 				<Button
 					variant="accent"
 					unifiedSize="sm"
-					disabled={!hasChanges || !baseUrl || !remoteWorkspaceId || saving}
+					disabled={!loaded || !hasChanges || !baseUrl || !remoteWorkspaceId || saving}
 					onclick={() => save({ base_url: baseUrl, workspace_id: remoteWorkspaceId })}
 				>
 					Save
