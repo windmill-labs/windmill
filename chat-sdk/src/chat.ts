@@ -681,7 +681,7 @@ class ChatImpl implements Chat {
         messages = [...messages, assistantMessage(answer, true, turn.jobId)]
       }
     }
-    const nextTurn = this.#nextTurnAfter(turn)
+    const nextTurn = this.#state.history === 'server' ? this.#nextTurnAfter(turn) : undefined
     this.#set({ messages: finalized(messages), status: nextTurn ? 'submitted' : 'idle' })
     this.#persistLocal()
     this.#config.onFinish?.({ conversationId: turn.conversationId, jobId: turn.jobId, messages: this.#state.messages })

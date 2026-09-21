@@ -1076,6 +1076,29 @@ describe('createChat with server history', () => {
     expect(statuses.slice(statuses.indexOf('submitted'), statuses.lastIndexOf('submitted') + 1)).not.toContain('idle')
   })
 
+  test('a fallback to local history during handoff does not leave the chat busy', async () => {
+    let messageFetches = 0
+    const { fetch, calls } = fetchMock(
+      (c) =>
+        c.url.pathname === streamPath
+          ? sse([{ type: 'update', completed: true, only_result: { windmill_chat_answer: 'first answer' } }])
+          : undefined,
+      (c) => {
+        if (!c.url.pathname.endsWith('/messages')) return undefined
+        messageFetches++
+        if (messageFetches === 1) return json([messageRow(50, 'user', 'first', { job_id: 'job-1' })])
+        if (messageFetches === 2) return json([messageRow(52, 'user', 'second', { job_id: 'job-2' })])
+        return text('forbidden', 403)
+      }
+    )
+    const chat = createChat(options({}, fetch))
+    await chat.selectConversation('conv')
+    await chat.resumeTurn({ jobId: 'job-1', userSeq: 50 })
+    expect(chat.getState().history).toBe('local')
+    expect(chat.getState().status).toBe('idle')
+    expect(calls.some((c) => c.url.pathname.includes('getupdate_sse/job-2'))).toBe(false)
+  })
+
   test('a stream that keeps ending before the job completes hands the turn to polling', async () => {
     let streams = 0
     const { fetch } = fetchMock(
