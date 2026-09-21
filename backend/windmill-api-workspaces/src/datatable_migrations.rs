@@ -1447,9 +1447,9 @@ async fn upsert_datatable_migration(
     // run-serialization lock across the applied-check and the write below so an
     // in-flight run can't record a version for the SQL we're about to overwrite.
     // Held until the end of the handler (well past the write). The exempt
-    // upserts need no lock: a new or unchanged one overwrites nothing, and one
-    // that only adds a down leaves the `code_up` a concurrent run is recording
-    // a version for untouched.
+    // upserts need no lock: a new one overwrites nothing, and one that only adds
+    // a down leaves the `code_up` a concurrent run is recording a version for
+    // untouched.
     let only_adds_down = existing.as_ref().is_some_and(|existing| {
         existing.name == payload.name
             && existing.code_up == payload.code_up
@@ -1461,22 +1461,41 @@ async fn upsert_datatable_migration(
             && existing.code_up == payload.code_up
             && existing.code_down == payload.code_down
     });
-    // An unchanged re-push is exempt because the write below refuses it unless the row still
-    // holds exactly this SQL, so it can store nothing new.
-    if !unchanged {
+    let upserted_message = format!(
+        "Upserted migration {} in {}",
+        payload.timestamp, datatable_name
+    );
+    // A re-push of the definition as stored writes nothing, so it needs none of the checks below:
+    // writing it anyway would re-create a definition deleted since the read above. Nor is it
+    // counted, since `wmill sync push` has sent every migration on every sync.
+    if unchanged {
+        return Ok(upserted_message);
+    }
+    ensure_may_edit_migration(
+        &db,
+        &w_id,
+        &datatable_name,
+        &authed,
+        &format!("Migration {} ({})", payload.timestamp, payload.name),
+        &payload.code_up,
+        payload.code_down.as_deref(),
+    )
+    .await?;
+    // Replacing a definition removes the one stored, so it answers to the same check as a delete.
+    if let Some(existing) = existing.as_ref() {
         ensure_may_edit_migration(
             &db,
             &w_id,
             &datatable_name,
             &authed,
-            &format!("Migration {} ({})", payload.timestamp, payload.name),
-            &payload.code_up,
-            payload.code_down.as_deref(),
+            &format!("Migration {} ({})", payload.timestamp, existing.name),
+            &existing.code_up,
+            existing.code_down.as_deref(),
         )
         .await?;
     }
     let _run_lock = match existing.as_ref() {
-        Some(_) if !only_adds_down && !unchanged => {
+        Some(_) if !only_adds_down => {
             // Fail closed: if we can't lock/read the applied set (e.g. the
             // data-table database is temporarily unreachable), refuse the change
             // rather than risk overwriting a migration that has already run.
@@ -1506,31 +1525,27 @@ async fn upsert_datatable_migration(
         _ => None,
     };
 
-    // An exempt upsert judged the row from an unlocked read and then writes
-    // without the lock, so that whole read is re-tested here, where `ON CONFLICT
-    // DO UPDATE` re-reads the row under a row lock. Otherwise a request working
-    // from a stale definition silently reverts whatever changed in between — a
-    // second addition's down, or a locked rewrite of the up whose new SQL a run
-    // may already have recorded a version for. Reading no row at all is part of
-    // the premise: the equality is NULL when `$8` is, so a version created in the
-    // meantime is refused rather than overwritten.
-    let recheck_observed = _run_lock.is_none();
+    // The role checks, and the exemptions from the lock, all judged the row from the unlocked read
+    // above, so that whole read is re-tested here, where `ON CONFLICT DO UPDATE` re-reads the row
+    // under a row lock. Otherwise a request working from a stale definition silently replaces
+    // whatever changed in between: SQL the role checks never saw, or a locked rewrite of the up
+    // whose new SQL a run may already have recorded a version for. Reading no row at all is part of
+    // the premise: the equality is NULL when `$7` is, so a version created in the meantime is
+    // refused rather than overwritten.
     let written = sqlx::query!(
         "INSERT INTO datatable_migrations (workspace_id, datatable, timestamp, name, code_up, code_down) \
          VALUES ($1, $2, $3, $4, $5, $6) \
          ON CONFLICT (workspace_id, datatable, timestamp) DO UPDATE \
          SET name = EXCLUDED.name, code_up = EXCLUDED.code_up, code_down = EXCLUDED.code_down \
-         WHERE NOT $7 \
-            OR (datatable_migrations.name = $8::text \
-                AND datatable_migrations.code_up = $9::text \
-                AND datatable_migrations.code_down IS NOT DISTINCT FROM $10::text)",
+         WHERE datatable_migrations.name = $7::text \
+           AND datatable_migrations.code_up = $8::text \
+           AND datatable_migrations.code_down IS NOT DISTINCT FROM $9::text",
         &w_id,
         &datatable_name,
         payload.timestamp,
         &payload.name,
         &payload.code_up,
         payload.code_down.as_deref(),
-        recheck_observed,
         existing.as_ref().map(|e| e.name.as_str()),
         existing.as_ref().map(|e| e.code_up.as_str()),
         existing.as_ref().and_then(|e| e.code_down.as_deref()),
@@ -1569,24 +1584,17 @@ async fn upsert_datatable_migration(
     )
     .await?;
 
-    // An unchanged re-push is not counted: `wmill sync push` sends every migration
-    // on every sync, so counting those would swamp the definitions people write.
-    if !unchanged {
-        windmill_common::feature_usage::log_feature_usage(
-            "datatable",
-            "migration_created",
-            if existing.is_none() {
-                "synced"
-            } else {
-                "edited"
-            },
-        );
-    }
+    windmill_common::feature_usage::log_feature_usage(
+        "datatable",
+        "migration_created",
+        if existing.is_none() {
+            "synced"
+        } else {
+            "edited"
+        },
+    );
 
-    Ok(format!(
-        "Upserted migration {} in {}",
-        payload.timestamp, datatable_name
-    ))
+    Ok(upserted_message)
 }
 
 /// Generate the first migration for a data table by snapshotting its current

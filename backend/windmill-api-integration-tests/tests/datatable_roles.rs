@@ -1181,14 +1181,16 @@ async fn a_migration_is_written_only_by_who_may_run_it(db: Pool<Postgres>) -> an
     .await?;
     assert_eq!(resp.status(), 200, "{}", resp.text().await?);
 
-    // An admin's migration re-pushed as stored writes nothing new, so it passes; changing or
-    // deleting it does not.
+    // An admin's migration re-pushed as stored writes nothing, so it passes. Replacing it removes
+    // SQL they could not run, even with SQL they could, so it is refused like deleting it.
     let resp = upsert("SECRET_TOKEN", "DROP TABLE t").await?;
     assert_eq!(resp.status(), 200, "{}", resp.text().await?);
     let resp = upsert("SECRET_TOKEN_2", "DROP TABLE t").await?;
     assert_eq!(resp.status(), 200, "{}", resp.text().await?);
-    let resp = upsert("SECRET_TOKEN_2", "DROP TABLE u").await?;
-    assert_eq!(resp.status(), 401, "{}", resp.text().await?);
+    for code_up in ["DROP TABLE u", "-- role analytics\nSELECT 1"] {
+        let resp = upsert("SECRET_TOKEN_2", code_up).await?;
+        assert_eq!(resp.status(), 401, "{code_up}: {}", resp.text().await?);
+    }
     let resp = authed(
         client().delete(format!(
             "{base}/delete_datatable_migration/main/20260101000000"
