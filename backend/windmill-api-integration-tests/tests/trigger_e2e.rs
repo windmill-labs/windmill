@@ -710,21 +710,21 @@ async fn test_nats_e2e(db: Pool<Postgres>) -> anyhow::Result<()> {
 
 /// End-to-end test for SQS trigger (Enterprise only).
 ///
-/// Requires LocalStack with the test queue. Setup:
+/// CI provides LocalStack and the queue (see `backend-test.yml`). To run it locally:
 /// ```bash
-/// ./tests/fixtures/start_sqs.sh
-/// ```
-///
-/// Run:
-/// ```bash
-/// AWS_ENDPOINT_URL=http://localhost:4566 \
+/// docker run -d --rm -p 4566:4566 -e SERVICES=sqs localstack/localstack:3.8
+/// aws --endpoint-url http://localhost:4566 --region us-east-1 \
+///     sqs create-queue --queue-name windmill-e2e-test
+/// AWS_ENDPOINT_URL=http://localhost:4566 AWS_ACCESS_KEY_ID=test \
+/// AWS_SECRET_ACCESS_KEY=test AWS_REGION=us-east-1 \
 /// cargo test --test trigger_e2e test_sqs_e2e \
-///     --features sqs_trigger,enterprise,private -- --ignored --nocapture
+///     --features sqs_trigger,enterprise,private -- --nocapture
 /// ```
 #[cfg(all(feature = "enterprise", feature = "private"))]
-#[ignore = "requires LocalStack SQS on localhost:4566"]
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_sqs_e2e(db: Pool<Postgres>) -> anyhow::Result<()> {
+    use aws_sdk_sqs::types::QueueAttributeName;
+
     initialize_tracing().await;
 
     // The SQS listener uses aws_config which respects AWS_ENDPOINT_URL for LocalStack.
@@ -779,15 +779,55 @@ async fn test_sqs_e2e(db: Pool<Postgres>) -> anyhow::Result<()> {
         .await;
     let sqs_client = aws_sdk_sqs::Client::new(&config);
 
+    let queue_url = "http://localhost:4566/000000000000/windmill-e2e-test";
     sqs_client
         .send_message()
-        .queue_url("http://localhost:4566/000000000000/windmill-e2e-test")
+        .queue_url(queue_url)
         .message_body("hello from sqs e2e test")
         .send()
         .await?;
 
     let job = poll_for_trigger_job(&db, script_path, "sqs", Duration::from_secs(30)).await?;
-    assert!(job.args.is_some(), "job should have args");
+    // The handler script has no preprocessor, so the args are exactly the v1 payload.
+    assert_eq!(
+        job.args.as_deref(),
+        Some(&json!({ "msg": "hello from sqs e2e test" })),
+        "the message body must reach the job unchanged"
+    );
+
+    // The ack half: a received message must be deleted, or every message is replayed
+    // forever once its visibility timeout lapses. Poll because the delete is issued
+    // after the job is pushed.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        let attrs = sqs_client
+            .get_queue_attributes()
+            .queue_url(queue_url)
+            .attribute_names(QueueAttributeName::ApproximateNumberOfMessages)
+            .attribute_names(QueueAttributeName::ApproximateNumberOfMessagesNotVisible)
+            .send()
+            .await?;
+        let count = |name| {
+            attrs
+                .attributes()
+                .and_then(|a| a.get(&name))
+                .map(String::as_str)
+                .unwrap_or("0")
+                .parse::<u32>()
+                .unwrap_or(0)
+        };
+        let visible = count(QueueAttributeName::ApproximateNumberOfMessages);
+        let in_flight = count(QueueAttributeName::ApproximateNumberOfMessagesNotVisible);
+        if visible == 0 && in_flight == 0 {
+            break;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            panic!(
+                "message was not deleted from the queue: {visible} visible, {in_flight} in flight"
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
 
     Ok(())
 }

@@ -43,6 +43,18 @@ jobs:
         options: >-
           --health-cmd "mysqladmin ping -h localhost" --health-interval 10s
           --health-timeout 5s --health-retries 5
+      # SQS for the sqs_trigger e2e test. The AWS SDK crates are bumped by Dependabot
+      # and the trigger's whole receive/ack path lives behind them, so it needs a broker
+      # in CI rather than a manual LocalStack someone remembers to start.
+      localstack:
+        image: localstack/localstack:3.8
+        ports:
+          - 4566:4566
+        env:
+          SERVICES: sqs
+        options: >-
+          --health-cmd "curl -sf http://localhost:4566/_localstack/health"
+          --health-interval 10s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -236,6 +248,13 @@ jobs:
           key: ${{ runner.os }}-duckdb-ffi-${{ hashFiles('./backend/windmill-duckdb-ffi-internal/src/**/*.rs', './backend/windmill-duckdb-ffi-internal/Cargo.toml', './backend/windmill-duckdb-ffi-internal/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-duckdb-ffi-
+      - name: Create the SQS test queue
+        run: |
+          aws --endpoint-url http://localhost:4566 --region us-east-1 \
+            sqs create-queue --queue-name windmill-e2e-test
+        env:
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
       - name: cargo test
         timeout-minutes: 30
         env:
@@ -255,6 +274,11 @@ jobs:
           RUST_LOG: "off"
           RUST_LOG_STYLE: never
           CARGO_NET_GIT_FETCH_WITH_CLI: true
+          # The SQS trigger builds its client through aws_config, which honours this.
+          AWS_ENDPOINT_URL: http://localhost:4566
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+          AWS_REGION: us-east-1
           # Cap parallel rustc/link jobs below the 16 available cores. The tail of
           # the build links ~128 full-graph test binaries (one per tests/*.rs file
           # across the workspace); at high parallelism enough heavy codegen+link
@@ -295,4 +319,4 @@ jobs:
           # never reaches it. Pin the target dir (matching the cache step above) so
           # its own tests run off this compile rather than a second bundled build.
           (cd windmill-duckdb-ffi-internal && export CARGO_TARGET_DIR="$PWD/target" && ./build_dev.sh && cargo test --release -p windmill_duckdb_ffi_internal)
-          DENO_PATH=$(which deno) BUN_PATH=$(which bun) NODE_BIN_PATH=$(which node) GO_PATH=$(which go) UV_PATH=$(which uv) PHP_PATH=$(which php) COMPOSER_PATH=$(which composer) RUBY_PATH=$(which ruby) RUBY_BUNDLE_PATH=$(which bundle) RUBY_GEM_PATH=$(which gem) POWERSHELL_PATH=$(which pwsh) DOTNET_PATH=$(which dotnet) cargo test --features enterprise,deno_core,duckdb,license,python,rust,scoped_cache,parquet,private,private_registry_test,csharp,php,ruby,mysql,quickjs,mcp,run_inline --all -- --nocapture --test-threads=10
+          DENO_PATH=$(which deno) BUN_PATH=$(which bun) NODE_BIN_PATH=$(which node) GO_PATH=$(which go) UV_PATH=$(which uv) PHP_PATH=$(which php) COMPOSER_PATH=$(which composer) RUBY_PATH=$(which ruby) RUBY_BUNDLE_PATH=$(which bundle) RUBY_GEM_PATH=$(which gem) POWERSHELL_PATH=$(which pwsh) DOTNET_PATH=$(which dotnet) cargo test --features enterprise,deno_core,duckdb,license,python,rust,scoped_cache,parquet,private,private_registry_test,csharp,php,ruby,mysql,quickjs,mcp,run_inline,sqs_trigger --all -- --nocapture --test-threads=10
