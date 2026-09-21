@@ -1496,9 +1496,14 @@ pub async fn do_duckdb(
                 .await?
                 {
                     probe_blocks.extend(q);
-                } else if let Some(q) =
-                    transform_attach_datatable(&query_block, conn, &mut hidden_passwords, job, job_dir)
-                        .await?
+                } else if let Some(q) = transform_attach_datatable(
+                    &query_block,
+                    conn,
+                    &mut hidden_passwords,
+                    job,
+                    job_dir,
+                )
+                .await?
                 {
                     probe_blocks.extend(q);
                 } else {
@@ -1575,9 +1580,14 @@ pub async fn do_duckdb(
                 .await?
                 {
                     v.extend(ducklake_query);
-                } else if let Some(datatable_query) =
-                    transform_attach_datatable(&query_block, conn, &mut hidden_passwords, job, job_dir)
-                        .await?
+                } else if let Some(datatable_query) = transform_attach_datatable(
+                    &query_block,
+                    conn,
+                    &mut hidden_passwords,
+                    job,
+                    job_dir,
+                )
+                .await?
                 {
                     v.extend(datatable_query);
                 } else {
@@ -2279,10 +2289,23 @@ fn pg_attach_verification<'a>(
         "pg_roots_{}.pem",
         hex::encode(&sha2::Sha256::digest(roots.as_bytes())[..8])
     ));
-    if !path.is_file() {
-        std::fs::write(&path, &roots)
-            .map_err(|e| Error::ExecutionErr(format!("Failed to write root certificates: {e}")))?;
-    }
+    // The job's modules are written in this directory first, so whatever already sits at this path
+    // may be caller-supplied: trusting it would let the caller pick the CA. Replace it, and
+    // `create_new` refuses to write through anything recreated there.
+    let write_roots = || -> std::io::Result<()> {
+        match std::fs::remove_file(&path) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e),
+            _ => {}
+        }
+        use std::io::Write;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)?
+            .write_all(roots.as_bytes())
+    };
+    write_roots()
+        .map_err(|e| Error::ExecutionErr(format!("Failed to write root certificates: {e}")))?;
     Ok(Some((mode, path)))
 }
 
@@ -2585,8 +2608,8 @@ fn fork_defer_statements(
             _ => a.catalog.resource_type.as_ref(),
         };
         stmts.push(get_attach_db_install_str(db_type)?.to_string());
-        let conn_str =
-            format_attach_db_conn_str(a.catalog_resource.clone(), db_type, job_dir)?.replace('\'', "''");
+        let conn_str = format_attach_db_conn_str(a.catalog_resource.clone(), db_type, job_dir)?
+            .replace('\'', "''");
         let storage = a
             .storage
             .storage
@@ -2910,6 +2933,15 @@ mod tests {
         assert!(std::fs::read_to_string(root.as_ref())
             .unwrap()
             .contains("-----BEGIN CERTIFICATE-----test"));
+        // A file a job module planted under the same name is not trusted.
+        std::fs::write(root.as_ref(), "-----BEGIN CERTIFICATE-----planted").unwrap();
+        assert_eq!(
+            pg_attach_uri(&pg("verify-full", Some(false)), &job_dir).unwrap(),
+            uri
+        );
+        assert!(!std::fs::read_to_string(root.as_ref())
+            .unwrap()
+            .contains("planted"));
         // Every certificate a job attaches keeps its own file: one attach must not evict another's.
         for i in 0..40 {
             let mut other = pg("verify-full", Some(false));
@@ -2918,11 +2950,17 @@ mod tests {
             let path = urlencoding::decode(other.split("sslrootcert=").nth(1).unwrap()).unwrap();
             assert!(std::path::Path::new(path.as_ref()).is_file(), "{path}");
         }
-        assert!(std::path::Path::new(root.as_ref()).is_file(), "the first file is still there");
+        assert!(
+            std::path::Path::new(root.as_ref()).is_file(),
+            "the first file is still there"
+        );
         let external = serde_json::to_value(pg("verify-full", Some(false))).unwrap();
         let attach = &pg_secret_attach_statements(external, "dt", &job_dir).unwrap()[3];
         assert!(
-            attach.starts_with(&format!("ATTACH 'sslmode=verify-full sslrootcert=''{}''", root)),
+            attach.starts_with(&format!(
+                "ATTACH 'sslmode=verify-full sslrootcert=''{}''",
+                root
+            )),
             "{attach}"
         );
         // A resource that never opted in keeps the historical downgrade.
@@ -3168,9 +3206,15 @@ mod tests {
         // Target currently a defer view → skip its CREATE, drop the view (+ companion).
         let defer = test_fork_defer(vec![("orders", false)], vec!["orders", "orders_current"]);
         let mut hp = Arc::new(Mutex::new(vec![]));
-        let stmts =
-            fork_defer_statements("lake", "_wm_target", &defer, Some("lake/orders"), &mut hp, "/tmp")
-                .unwrap();
+        let stmts = fork_defer_statements(
+            "lake",
+            "_wm_target",
+            &defer,
+            Some("lake/orders"),
+            &mut hp,
+            "/tmp",
+        )
+        .unwrap();
         let joined = stmts.join("\n");
         assert!(!joined.contains("CREATE VIEW"), "{joined}");
         assert!(
@@ -3185,15 +3229,22 @@ mod tests {
         // Target already a real table (NOT in fork_views, e.g. after a failed re-run whose
         // status can't be trusted) → no DROP VIEW, or the job would wedge on a type mismatch.
         let defer = test_fork_defer(vec![("orders", false)], vec![]);
-        let stmts =
-            fork_defer_statements("lake", "_wm_target", &defer, Some("lake/orders"), &mut hp, "/tmp")
-                .unwrap();
+        let stmts = fork_defer_statements(
+            "lake",
+            "_wm_target",
+            &defer,
+            Some("lake/orders"),
+            &mut hp,
+            "/tmp",
+        )
+        .unwrap();
         assert!(!stmts.join("\n").contains("DROP VIEW"), "{stmts:?}");
 
         // Target in a different lake → this lake's defer views are untouched.
         let defer = test_fork_defer(vec![("orders", false)], vec!["orders"]);
         let stmts =
-            fork_defer_statements("lake", "dl", &defer, Some("other/orders"), &mut hp, "/tmp").unwrap();
+            fork_defer_statements("lake", "dl", &defer, Some("other/orders"), &mut hp, "/tmp")
+                .unwrap();
         let joined = stmts.join("\n");
         assert!(
             joined.contains("CREATE VIEW IF NOT EXISTS dl.\"orders\""),
