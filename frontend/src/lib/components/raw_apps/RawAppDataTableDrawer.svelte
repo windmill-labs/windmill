@@ -210,8 +210,8 @@
 		)
 	}
 
-	// `undefined` where the workspace has no data table at all: the drawer opens on none, and
-	// its tree says so, rather than on a name that does not exist.
+	// `undefined` where the workspace has no data table at all: the drawer opens on none and
+	// shows its placeholder, rather than on a name that does not exist.
 	function selectDatatable(datatable: string | undefined, role?: string) {
 		// A row clicked under another data table has just set the selection it should open on.
 		openSchemaKey = selectedSchemaKey
