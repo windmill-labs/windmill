@@ -161,16 +161,16 @@ export async function pushVariable(
   // separate step both for the up-to-date short-circuit and after the write.
   const { extra_perms: localPerms, ...localVariableBody } = localVariable;
 
-  // The server reads an absent `value_expires_at` as "leave the stored date alone", so
-  // dropping the key from the file has to be sent as an explicit `null`. `isSuperset`
-  // only compares keys the file still has, so a removed expiry is also invisible to it:
-  // without both halves the clear never applies and every later push re-reports it.
-  const clearsValueExpiresAt =
-    localVariableBody.value_expires_at === undefined &&
-    (variable as ListableVariable | undefined)?.value_expires_at !== undefined &&
-    (variable as ListableVariable | undefined)?.value_expires_at !== null;
-
   if (variable) {
+    // The server reads an absent `value_expires_at` as "leave the stored date alone", so
+    // dropping the key from the file has to be sent as an explicit `null`. `isSuperset`
+    // only compares keys the file still has, so a removed expiry is also invisible to it:
+    // without both halves the clear never applies and every later push re-reports it.
+    const clearsValueExpiresAt =
+      localVariableBody.value_expires_at === undefined &&
+      variable.value_expires_at !== undefined &&
+      variable.value_expires_at !== null;
+
     if (!clearsValueExpiresAt && isSuperset(localVariableBody, variable)) {
       log.debug(`Variable ${remotePath} is up-to-date`);
     } else {
