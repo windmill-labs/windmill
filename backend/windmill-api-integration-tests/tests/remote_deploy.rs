@@ -148,8 +148,9 @@ async fn test_remote_deploy_proxy(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert_eq!(resp.status(), 502);
 
     // Nor does a connect lock anything against a removal from the workspace, so its row can land
-    // after the removal cleared the table: a row older than its owner's membership must not come
-    // back with a re-add.
+    // after the removal cleared the table: a row from an earlier membership must not come back
+    // with a re-add, even one whose `created_at` reads earlier than the connect (it is the start
+    // of the re-adding transaction).
     let as_test2 =
         |builder: reqwest::RequestBuilder| builder.header("Authorization", "Bearer SECRET_TOKEN_2");
     let resp = as_test2(client().post(format!("{base}/connect")))
@@ -169,7 +170,7 @@ async fn test_remote_deploy_proxy(db: Pool<Postgres>) -> anyhow::Result<()> {
         key2.as_str()
     );
     sqlx::query!(
-        "UPDATE usr SET created_at = now()
+        "UPDATE usr SET created_at = created_at - interval '1 hour'
          WHERE workspace_id = 'test-workspace' AND email = 'test2@windmill.dev'"
     )
     .execute(&db)
@@ -212,8 +213,15 @@ async fn test_remote_deploy_proxy(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert_eq!(resp.status(), 400);
 
     // The row for the old target outlived the change, as one from a connect in flight across it
-    // would: pointing the setting back must not revive it.
+    // would: pointing the setting back must not revive it, even with a stamp that reads earlier
+    // than the connect.
     set_target(format!("http://localhost:{port}"), "test-workspace").await;
+    sqlx::query!(
+        "UPDATE workspace_settings SET remote_deploy_target_changed_at = '2000-01-01'
+         WHERE workspace_id = 'test-workspace'"
+    )
+    .execute(&db)
+    .await?;
     let resp = authed(client().get(format!("{base}/target")))
         .send()
         .await?;
@@ -245,6 +253,45 @@ async fn test_remote_deploy_proxy(db: Pool<Postgres>) -> anyhow::Result<()> {
         .send()
         .await?;
     assert!(resp.json::<serde_json::Value>().await?["connection"].is_null());
+
+    // A superadmin outside the workspace has no membership to bind to, so the row is bound to the
+    // account by the credential making the request: an account deleted during the remote call,
+    // and its address taken by another, must not inherit it. A deleted credential that auth still
+    // holds in its cache stands in for one whose account went away mid-call.
+    sqlx::query!(
+        "DELETE FROM usr WHERE workspace_id = 'test-workspace' AND email = 'test@windmill.dev'"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!("DELETE FROM remote_deploy_token WHERE email = 'test@windmill.dev'")
+        .execute(&db)
+        .await?;
+    sqlx::query!(
+        "INSERT INTO token (token_hash, token_prefix, token, email, label, super_admin)
+         VALUES (encode(sha256('GONE_TOKEN'::bytea), 'hex'), 'GONE_TOKEN', 'GONE_TOKEN',
+                 'test@windmill.dev', 'gone', true)"
+    )
+    .execute(&db)
+    .await?;
+    let as_gone =
+        |builder: reqwest::RequestBuilder| builder.header("Authorization", "Bearer GONE_TOKEN");
+    let resp = as_gone(client().get(format!("{base}/target")))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200);
+    sqlx::query!("DELETE FROM token WHERE token_prefix = 'GONE_TOKEN'")
+        .execute(&db)
+        .await?;
+    let resp = as_gone(client().post(format!("{base}/connect")))
+        .json(&json!({"token": "SECRET_TOKEN", "target": target}))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 400);
+    let resp = authed(client().post(format!("{base}/connect")))
+        .json(&json!({"token": "SECRET_TOKEN", "target": target}))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200);
 
     Ok(())
 }

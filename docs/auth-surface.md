@@ -67,17 +67,19 @@ Symbols, not line numbers, are cited: they drift less.
   token only ever goes to that target. It takes no lock against what clears these rows (a removal
   from the workspace, a target change, a key rotation): their writers take the account, membership,
   key and settings rows in every order, so any lock held there could close a deadlock. A row can
-  therefore land just after one of them ran, and every read (`load_connection`) voids it instead:
-  a row counts only for the current target, if connected since the setting last changed
-  (`remote_deploy_target_changed_at`, so pointing it back does not revive it); for a superadmin or
-  a membership that began no later than the connect (so a re-add does not either); and while it
-  decrypts. `connected_at` is when the connect *started*, from the database clock, and each of
-  those changes leaves a later stamp: a target change the time its write runs
-  (`clock_timestamp()`), a re-add its membership's `created_at` (after the removal, itself after
-  any connect the member started). So a connect in flight across one never counts, however late
-  it lands. A disconnect empties and stamps the row rather
-  than deleting it, and the connect's upsert leaves a row stamped after its start alone, so an
-  older connect cannot undo a disconnect or a newer connect. Connecting by redirect: the remote's
+  therefore land after one of them ran, however long its remote call took, and every read
+  (`load_connection`) voids it instead, by identity rather than by comparing times: the connect
+  records, before its remote call, the target setting's version (`remote_deploy_target_changed_at`)
+  and the `created_at` of the owner's membership, and the row counts only while both are still
+  the same (or the owner is a superadmin) and it decrypts. So a target set A → B → A, or a
+  removal and re-add, voids it whatever the clocks say. A superadmin with no membership is bound
+  through the credential making the request instead: the insert requires its `token` row to
+  still exist, and deleting an account deletes its tokens, so an address deleted and taken by a
+  new account during the call does not inherit the connection (a JWT, having no row, cannot
+  connect a workspace its owner is not a member of). A disconnect empties and stamps the row
+  (inserting one if needed) rather than deleting it, `connected_at` is when a connect started,
+  and the connect's upsert leaves a row stamped after that alone, so an older connect cannot undo
+  a disconnect or a newer connect. Connecting by redirect: the remote's
   `/user/remote_deploy_authorize` page
   mints a token bound to the one remote workspace (`remote-deploy:<source host>`, a label
   reserved in `is_user_token` so its expiry emails nobody) only on an

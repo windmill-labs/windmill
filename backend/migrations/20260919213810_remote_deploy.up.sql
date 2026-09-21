@@ -1,6 +1,6 @@
 -- The workspace on another Windmill instance this workspace deploys into from the UI:
--- `{"base_url": ..., "workspace_id": ...}`, and when it last changed. A token connected before
--- that change counts for nothing, even once the setting points back at the target it was for.
+-- `{"base_url": ..., "workspace_id": ...}`, and when it last changed. A token connected under an
+-- earlier change counts for nothing, even once the setting points back at the target it was for.
 ALTER TABLE workspace_settings
     ADD COLUMN remote_deploy_target JSONB,
     ADD COLUMN remote_deploy_target_changed_at TIMESTAMPTZ;
@@ -21,7 +21,13 @@ CREATE TABLE remote_deploy_token (
     -- Part of every proxy URL, and readable only by its owner through the API: a link from
     -- elsewhere, which rides the session cookie, cannot know it and so cannot spend the token.
     proxy_key VARCHAR(64) NOT NULL,
+    -- When the connect that wrote the row started, or when a disconnect emptied it.
     connected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- What the connect ran under: the `created_at` of the owner's membership (NULL for a
+    -- superadmin with none) and the target's `remote_deploy_target_changed_at`. The row counts
+    -- only while both are still the same, so a re-add or a target change voids it.
+    member_since TIMESTAMPTZ,
+    target_changed_at TIMESTAMPTZ,
     PRIMARY KEY (workspace_id, email)
 );
 

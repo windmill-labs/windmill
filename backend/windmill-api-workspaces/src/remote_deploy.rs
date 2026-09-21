@@ -28,9 +28,10 @@ use lazy_static::lazy_static;
 use magic_crypt::MagicCrypt256;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use windmill_api_auth::{is_effectively_unscoped, ApiAuthed};
+use windmill_api_auth::{is_effectively_unscoped, ApiAuthed, Tokened};
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::{
+    auth::hash_token,
     error::{error_source_chain, Error, Result},
     ssrf::validate_url_for_ssrf,
     utils::{configure_client, rd_string, require_admin},
@@ -155,6 +156,20 @@ fn require_own_credentials(authed: &ApiAuthed) -> Result<()> {
     Ok(())
 }
 
+fn parse_target(target: Option<serde_json::Value>) -> Result<Option<RemoteDeployTarget>> {
+    target
+        .map(serde_json::from_value)
+        .transpose()
+        .map_err(|e| Error::internal_err(format!("reading the remote deploy target: {e}")))
+}
+
+fn no_target(w_id: &str) -> Error {
+    Error::BadRequest(format!(
+        "Workspace {w_id} has no remote deploy target. An admin sets it in the workspace \
+         settings, under Dev workspace"
+    ))
+}
+
 async fn load_target(db: &DB, w_id: &str) -> Result<Option<RemoteDeployTarget>> {
     let target = sqlx::query_scalar!(
         "SELECT remote_deploy_target FROM workspace_settings WHERE workspace_id = $1",
@@ -163,19 +178,11 @@ async fn load_target(db: &DB, w_id: &str) -> Result<Option<RemoteDeployTarget>> 
     .fetch_optional(db)
     .await?
     .flatten();
-    target
-        .map(serde_json::from_value)
-        .transpose()
-        .map_err(|e| Error::internal_err(format!("reading the remote deploy target: {e}")))
+    parse_target(target)
 }
 
 async fn require_target(db: &DB, w_id: &str) -> Result<RemoteDeployTarget> {
-    load_target(db, w_id).await?.ok_or_else(|| {
-        Error::BadRequest(format!(
-            "Workspace {w_id} has no remote deploy target. An admin sets it in the workspace \
-             settings, under Dev workspace"
-        ))
-    })
+    load_target(db, w_id).await?.ok_or_else(|| no_target(w_id))
 }
 
 fn remote_client_builder() -> reqwest::ClientBuilder {
@@ -221,11 +228,11 @@ struct StoredConnection {
 ///
 /// `connect` takes no lock against what clears these rows (a removal from the workspace, a target
 /// change, a key rotation): writers take those rows in every order, so any lock it held could close
-/// a deadlock. A row can therefore land just after one of them ran, and is voided here instead. It
-/// counts only for the target it was granted for, if connected since the setting last changed (so
-/// pointing the setting back does not revive it); for a superadmin or a membership that began no
-/// later than the connect (so a re-add does not either); and while it decrypts. `connected_at` is
-/// when the connect started (see `connect`), and an emptied row is a disconnect's.
+/// a deadlock. A row can therefore land after one of them ran, however long its remote call took,
+/// and is voided here instead, by identity rather than by comparing times: it counts only while
+/// the target setting and the owner's membership are the very ones it was connected under (see
+/// `member_since`, `target_changed_at`) or the owner is a superadmin, and while it decrypts. An
+/// emptied row is a disconnect's.
 async fn load_connection(
     db: &DB,
     w_id: &str,
@@ -235,12 +242,12 @@ async fn load_connection(
     let Some(row) = sqlx::query_as!(
         StoredConnection,
         "SELECT t.token, t.remote_email, t.proxy_key, t.connected_at FROM remote_deploy_token t
+         JOIN workspace_settings s ON s.workspace_id = t.workspace_id
          WHERE t.workspace_id = $1 AND t.email = $2 AND t.base_url = $3
            AND t.remote_workspace_id = $4 AND t.token <> ''
-           AND NOT EXISTS (SELECT 1 FROM workspace_settings s WHERE s.workspace_id = t.workspace_id
-                             AND s.remote_deploy_target_changed_at > t.connected_at)
+           AND s.remote_deploy_target_changed_at IS NOT DISTINCT FROM t.target_changed_at
            AND (EXISTS (SELECT 1 FROM usr u WHERE u.workspace_id = t.workspace_id
-                          AND u.email = t.email AND u.created_at <= t.connected_at)
+                          AND u.email = t.email AND u.created_at = t.member_since)
                 OR EXISTS (SELECT 1 FROM password p WHERE p.email = t.email AND p.super_admin))",
         w_id,
         email,
@@ -385,6 +392,7 @@ struct RemoteWhoami {
 
 async fn connect(
     authed: ApiAuthed,
+    Tokened { token: credential }: Tokened,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Json(request): Json<ConnectRequest>,
@@ -393,14 +401,22 @@ async fn connect(
     Json<RemoteDeployConnection>,
 )> {
     require_own_credentials(&authed)?;
-    // The row is stamped with when this connect started, not when it lands after the remote call:
-    // whatever voids a connection (a target change, a re-add, a disconnect, a newer connect)
-    // stamps a later time than every connect it should void, however late those land. From the
-    // database's clock, which stamps those too.
-    let started_at = sqlx::query_scalar!(r#"SELECT clock_timestamp() AS "now!""#)
-        .fetch_one(&db)
-        .await?;
-    let target = require_target(&db, &w_id).await?;
+    // Read before the remote call, which can take long enough for any of it to change: the row is
+    // bound to the target version and the membership seen here (see `load_connection`), and
+    // stamped with when this connect started, so that a disconnect or a newer connect made while
+    // it runs keeps it from landing.
+    let start = sqlx::query!(
+        r#"SELECT clock_timestamp() AS "started_at!", s.remote_deploy_target,
+                  s.remote_deploy_target_changed_at,
+                  (SELECT u.created_at FROM usr u
+                   WHERE u.workspace_id = s.workspace_id AND u.email = $2) AS member_since
+           FROM workspace_settings s WHERE s.workspace_id = $1"#,
+        &w_id,
+        &authed.email
+    )
+    .fetch_one(&db)
+    .await?;
+    let target = parse_target(start.remote_deploy_target)?.ok_or_else(|| no_target(&w_id))?;
     // A token is only ever sent to the instance it was meant for. Without this, re-pointing the
     // target between the user getting a token and posting it here would hand it to the new one;
     // after this check the token still goes to `target` only, never to what the setting became.
@@ -443,18 +459,24 @@ async fn connect(
     let proxy_key = rd_string(32);
     let mc = build_crypt(&db, &w_id).await?;
     // No lock against removals, target changes or key rotations: `load_connection` voids a row
-    // that lands after one of them. A disconnect or another connect stamps the row itself, which
-    // this one then leaves alone.
+    // that lands after one of them. A disconnect or a newer connect stamps the row itself, which
+    // this one then leaves alone. Without a membership to bind to, the row is bound to the account
+    // through the credential making this request, which dies with it: the address could otherwise
+    // be deleted and taken by a new account while the remote call runs, and the foreign key would
+    // accept that one.
     let mut tx = db.begin().await?;
     let connected_at = sqlx::query_scalar!(
         "INSERT INTO remote_deploy_token
              (workspace_id, email, base_url, remote_workspace_id, token, remote_email, proxy_key,
-              connected_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+              connected_at, member_since, target_changed_at)
+         SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+         WHERE $9::timestamptz IS NOT NULL
+            OR EXISTS (SELECT 1 FROM token WHERE token_hash = $11)
          ON CONFLICT (workspace_id, email) DO UPDATE SET
              base_url = EXCLUDED.base_url, remote_workspace_id = EXCLUDED.remote_workspace_id,
              token = EXCLUDED.token, remote_email = EXCLUDED.remote_email,
-             proxy_key = EXCLUDED.proxy_key, connected_at = EXCLUDED.connected_at
+             proxy_key = EXCLUDED.proxy_key, connected_at = EXCLUDED.connected_at,
+             member_since = EXCLUDED.member_since, target_changed_at = EXCLUDED.target_changed_at
          WHERE remote_deploy_token.connected_at < EXCLUDED.connected_at
          RETURNING connected_at",
         &w_id,
@@ -464,16 +486,24 @@ async fn connect(
         encrypt(&mc, token),
         &whoami.email,
         &proxy_key,
-        started_at
+        start.started_at,
+        start.member_since,
+        start.remote_deploy_target_changed_at,
+        hash_token(&credential)
     )
     .fetch_optional(&mut *tx)
     .await?
     .ok_or_else(|| {
-        Error::BadRequest(
-            "You disconnected or connected again while this connect was running, so it was not \
-             saved"
+        Error::BadRequest(match start.member_since {
+            Some(_) => "This connect was not saved: you disconnected or connected again while it \
+                        was running"
                 .to_string(),
-        )
+            None => format!(
+                "This connect was not saved: you disconnected, connected again or signed out \
+                 while it was running. Connecting workspace {w_id} without being one of its \
+                 members needs a session or an API token of this instance"
+            ),
+        })
     })?;
     audit_log(
         &mut *tx,
@@ -500,11 +530,15 @@ async fn disconnect(
 ) -> Result<String> {
     require_own_credentials(&authed)?;
     let mut tx = db.begin().await?;
-    // Emptied rather than deleted, and stamped: a connect that started before this must not bring
-    // the connection back when it lands (see `connect`).
+    // Emptied rather than deleted, and stamped, even with no connection yet: a connect that started
+    // before this must not bring one back when it lands (see `connect`).
     sqlx::query!(
-        "UPDATE remote_deploy_token SET token = '', proxy_key = '', connected_at = clock_timestamp()
-         WHERE workspace_id = $1 AND email = $2",
+        "INSERT INTO remote_deploy_token
+             (workspace_id, email, base_url, remote_workspace_id, token, remote_email, proxy_key,
+              connected_at)
+         VALUES ($1, $2, '', '', '', '', '', clock_timestamp())
+         ON CONFLICT (workspace_id, email) DO UPDATE SET
+             token = '', proxy_key = '', connected_at = clock_timestamp()",
         &w_id,
         &authed.email
     )
