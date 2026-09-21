@@ -224,7 +224,8 @@ struct StoredConnection {
 /// a deadlock. A row can therefore land just after one of them ran, and is voided here instead. It
 /// counts only for the target it was granted for, if connected since the setting last changed (so
 /// pointing the setting back does not revive it); for a superadmin or a membership that began no
-/// later than the connect (so a re-add does not either); and while it decrypts.
+/// later than the connect (so a re-add does not either); and while it decrypts. `connected_at` is
+/// when the connect started (see `connect`), and an emptied row is a disconnect's.
 async fn load_connection(
     db: &DB,
     w_id: &str,
@@ -235,7 +236,7 @@ async fn load_connection(
         StoredConnection,
         "SELECT t.token, t.remote_email, t.proxy_key, t.connected_at FROM remote_deploy_token t
          WHERE t.workspace_id = $1 AND t.email = $2 AND t.base_url = $3
-           AND t.remote_workspace_id = $4
+           AND t.remote_workspace_id = $4 AND t.token <> ''
            AND NOT EXISTS (SELECT 1 FROM workspace_settings s WHERE s.workspace_id = t.workspace_id
                              AND s.remote_deploy_target_changed_at > t.connected_at)
            AND (EXISTS (SELECT 1 FROM usr u WHERE u.workspace_id = t.workspace_id
@@ -340,7 +341,7 @@ async fn set_target(
     sqlx::query!(
         "UPDATE workspace_settings SET remote_deploy_target = $1::jsonb,
              remote_deploy_target_changed_at = CASE
-                 WHEN remote_deploy_target IS DISTINCT FROM $1::jsonb THEN now()
+                 WHEN remote_deploy_target IS DISTINCT FROM $1::jsonb THEN clock_timestamp()
                  ELSE remote_deploy_target_changed_at END
          WHERE workspace_id = $2",
         target_json,
@@ -392,6 +393,13 @@ async fn connect(
     Json<RemoteDeployConnection>,
 )> {
     require_own_credentials(&authed)?;
+    // The row is stamped with when this connect started, not when it lands after the remote call:
+    // whatever voids a connection (a target change, a re-add, a disconnect, a newer connect)
+    // stamps a later time than every connect it should void, however late those land. From the
+    // database's clock, which stamps those too.
+    let started_at = sqlx::query_scalar!(r#"SELECT clock_timestamp() AS "now!""#)
+        .fetch_one(&db)
+        .await?;
     let target = require_target(&db, &w_id).await?;
     // A token is only ever sent to the instance it was meant for. Without this, re-pointing the
     // target between the user getting a token and posting it here would hand it to the new one;
@@ -435,16 +443,19 @@ async fn connect(
     let proxy_key = rd_string(32);
     let mc = build_crypt(&db, &w_id).await?;
     // No lock against removals, target changes or key rotations: `load_connection` voids a row
-    // that lands after one of them.
+    // that lands after one of them. A disconnect or another connect stamps the row itself, which
+    // this one then leaves alone.
     let mut tx = db.begin().await?;
     let connected_at = sqlx::query_scalar!(
         "INSERT INTO remote_deploy_token
-             (workspace_id, email, base_url, remote_workspace_id, token, remote_email, proxy_key)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+             (workspace_id, email, base_url, remote_workspace_id, token, remote_email, proxy_key,
+              connected_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          ON CONFLICT (workspace_id, email) DO UPDATE SET
              base_url = EXCLUDED.base_url, remote_workspace_id = EXCLUDED.remote_workspace_id,
              token = EXCLUDED.token, remote_email = EXCLUDED.remote_email,
-             proxy_key = EXCLUDED.proxy_key, connected_at = now()
+             proxy_key = EXCLUDED.proxy_key, connected_at = EXCLUDED.connected_at
+         WHERE remote_deploy_token.connected_at < EXCLUDED.connected_at
          RETURNING connected_at",
         &w_id,
         &authed.email,
@@ -452,10 +463,18 @@ async fn connect(
         &target.workspace_id,
         encrypt(&mc, token),
         &whoami.email,
-        &proxy_key
+        &proxy_key,
+        started_at
     )
-    .fetch_one(&mut *tx)
-    .await?;
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or_else(|| {
+        Error::BadRequest(
+            "You disconnected or connected again while this connect was running, so it was not \
+             saved"
+                .to_string(),
+        )
+    })?;
     audit_log(
         &mut *tx,
         &authed,
@@ -481,8 +500,11 @@ async fn disconnect(
 ) -> Result<String> {
     require_own_credentials(&authed)?;
     let mut tx = db.begin().await?;
+    // Emptied rather than deleted, and stamped: a connect that started before this must not bring
+    // the connection back when it lands (see `connect`).
     sqlx::query!(
-        "DELETE FROM remote_deploy_token WHERE workspace_id = $1 AND email = $2",
+        "UPDATE remote_deploy_token SET token = '', proxy_key = '', connected_at = clock_timestamp()
+         WHERE workspace_id = $1 AND email = $2",
         &w_id,
         &authed.email
     )
@@ -614,7 +636,8 @@ async fn proxy(
 }
 
 /// Move the stored remote tokens to a new workspace key. A token that no longer decrypts is
-/// dropped: its owner connects again.
+/// dropped: its owner connects again. A disconnect's emptied row is kept, as the stamp that keeps
+/// an older connect from landing.
 pub(crate) async fn reencrypt_tokens(
     conn: &mut sqlx::PgConnection,
     w_id: &str,
@@ -622,7 +645,8 @@ pub(crate) async fn reencrypt_tokens(
     new: &MagicCrypt256,
 ) -> Result<()> {
     let rows = sqlx::query!(
-        "SELECT email, token FROM remote_deploy_token WHERE workspace_id = $1 FOR UPDATE",
+        "SELECT email, token FROM remote_deploy_token
+         WHERE workspace_id = $1 AND token <> '' FOR UPDATE",
         w_id
     )
     .fetch_all(&mut *conn)

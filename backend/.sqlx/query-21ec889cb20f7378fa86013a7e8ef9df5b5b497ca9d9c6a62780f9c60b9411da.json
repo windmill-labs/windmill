@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE remote_deploy_token SET token = '', proxy_key = '', connected_at = clock_timestamp()\n         WHERE workspace_id = $1 AND email = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "21ec889cb20f7378fa86013a7e8ef9df5b5b497ca9d9c6a62780f9c60b9411da"
+}

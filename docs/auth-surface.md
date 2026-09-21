@@ -71,7 +71,14 @@ Symbols, not line numbers, are cited: they drift less.
   a row counts only for the current target, if connected since the setting last changed
   (`remote_deploy_target_changed_at`, so pointing it back does not revive it); for a superadmin or
   a membership that began no later than the connect (so a re-add does not either); and while it
-  decrypts. Connecting by redirect: the remote's `/user/remote_deploy_authorize` page
+  decrypts. `connected_at` is when the connect *started*, from the database clock, and each of
+  those changes leaves a later stamp: a target change the time its write runs
+  (`clock_timestamp()`), a re-add its membership's `created_at` (after the removal, itself after
+  any connect the member started). So a connect in flight across one never counts, however late
+  it lands. A disconnect empties and stamps the row rather
+  than deleting it, and the connect's upsert leaves a row stamped after its start alone, so an
+  older connect cannot undo a disconnect or a newer connect. Connecting by redirect: the remote's
+  `/user/remote_deploy_authorize` page
   mints a token bound to the one remote workspace (`remote-deploy:<source host>`, a label
   reserved in `is_user_token` so its expiry emails nobody) only on an
   explicit Authorize, only for a callback whose path is `/remote_deploy/callback`, and refuses to

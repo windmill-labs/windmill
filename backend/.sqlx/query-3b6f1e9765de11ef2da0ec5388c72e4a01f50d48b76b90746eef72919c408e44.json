@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT email, token FROM remote_deploy_token WHERE workspace_id = $1 FOR UPDATE",
+  "query": "SELECT email, token FROM remote_deploy_token\n         WHERE workspace_id = $1 AND token <> '' FOR UPDATE",
   "describe": {
     "columns": [
       {
@@ -24,5 +24,5 @@
       false
     ]
   },
-  "hash": "cc85dd56892a8d3a8065a346382d8d5e7da4b69fc3b2a37417c09fbd4c38d577"
+  "hash": "3b6f1e9765de11ef2da0ec5388c72e4a01f50d48b76b90746eef72919c408e44"
 }

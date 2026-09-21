@@ -21,8 +21,9 @@ async fn test_remote_deploy_proxy(db: Pool<Postgres>) -> anyhow::Result<()> {
     let port = server.addr.port();
     let base = format!("http://localhost:{port}/api/w/test-workspace/remote_deploy");
 
-    // Planted rather than set through the route, which is enterprise-gated. Without the route's
-    // token cleanup, as a connect landing just after that cleanup leaves things.
+    // Planted rather than set through the route, which is enterprise-gated. Unlike the route, it
+    // deletes no token for another target, which is what a connect landing just after the
+    // route's cleanup leaves behind.
     let set_target = |base_url: String, workspace_id: &'static str| {
         let db = db.clone();
         async move {
@@ -213,6 +214,33 @@ async fn test_remote_deploy_proxy(db: Pool<Postgres>) -> anyhow::Result<()> {
     // The row for the old target outlived the change, as one from a connect in flight across it
     // would: pointing the setting back must not revive it.
     set_target(format!("http://localhost:{port}"), "test-workspace").await;
+    let resp = authed(client().get(format!("{base}/target")))
+        .send()
+        .await?;
+    assert!(resp.json::<serde_json::Value>().await?["connection"].is_null());
+
+    // A connect in flight across a disconnect must not undo it when it lands. The disconnect is
+    // stamped an hour ahead, as if every connect starting now had started before it.
+    let resp = authed(client().post(format!("{base}/connect")))
+        .json(&json!({"token": "SECRET_TOKEN", "target": target}))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200);
+    let resp = authed(client().post(format!("{base}/disconnect")))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200);
+    sqlx::query!(
+        "UPDATE remote_deploy_token SET connected_at = clock_timestamp() + interval '1 hour'
+         WHERE workspace_id = 'test-workspace' AND email = 'test@windmill.dev'"
+    )
+    .execute(&db)
+    .await?;
+    let resp = authed(client().post(format!("{base}/connect")))
+        .json(&json!({"token": "SECRET_TOKEN", "target": target}))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 400);
     let resp = authed(client().get(format!("{base}/target")))
         .send()
         .await?;
