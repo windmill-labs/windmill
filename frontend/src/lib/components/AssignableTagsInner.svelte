@@ -53,11 +53,30 @@
 		return matched ? { kind: matched[1], path: matched[2] } : undefined
 	})
 
-	// A job's tag is judged on what it resolves to, and a placeholder in a custom tag stands for
-	// any text (custom_tag_matches in backend/windmill-common/src/worker.rs), so an entry with no
-	// text around its placeholders admits every tag.
+	// Mirrors custom_tag_matches in backend/windmill-common/src/worker.rs: a job's tag is judged on
+	// what it resolves to, and a placeholder in a custom tag stands for any text, unless two of them
+	// are tied (same kind, and the same path or one inside the other). A tied entry admits only a
+	// tag written exactly like it; an untied one with no text around its placeholders admits all.
+	let dynamicTagPlaceholders = $derived(
+		[...newTag.trim().matchAll(new RegExp(dynamicTagRegex.source, 'g'))].map((m) => ({
+			kind: m[1],
+			path: m[2]
+		}))
+	)
+	let dynamicTagTied = $derived(
+		dynamicTagPlaceholders.some((a, i) =>
+			dynamicTagPlaceholders
+				.slice(i + 1)
+				.some(
+					(b) =>
+						a.kind == b.kind &&
+						(a.path == b.path || a.path.startsWith(b.path + '.') || b.path.startsWith(a.path + '.'))
+				)
+		)
+	)
 	let dynamicTagAdmitsEveryTag = $derived(
 		dynamicTag != undefined &&
+			!dynamicTagTied &&
 			newTag.trim().replace(new RegExp(dynamicTagRegex.source, 'g'), '') == ''
 	)
 
@@ -224,7 +243,12 @@
 					{:else if dynamicTag}
 						<div>Interpolated tag based on args input of <b>{dynamicTag.path}</b></div>
 					{/if}
-					{#if dynamicTagAdmitsEveryTag}
+					{#if dynamicTagTied}
+						<div class="mt-1">
+							Its placeholders read the same value, or one reads inside the other, so it allows only
+							jobs whose tag is written exactly like this
+						</div>
+					{:else if dynamicTagAdmitsEveryTag}
 						<div class="mt-1 text-yellow-600 dark:text-yellow-500">
 							Allows every tag: nothing around the placeholder limits what it resolves to. Add a
 							fixed prefix or suffix, or list the tags themselves.
