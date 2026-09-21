@@ -347,6 +347,12 @@
 			// opened meanwhile would otherwise get this one's baseline — and with it this one's
 			// path as its save target.
 			if (!stillOurs()) return
+			// Again, because the form stayed editable while the read was out: `quiesce` settles what
+			// is running when it is called, not the key for the rest of the resolution, so a
+			// keystroke since can have started a save of its own. Left running, its rejection lands
+			// after the baseline below and raises the conflict this just resolved.
+			await UserDraftDbSyncer.quiesce(query)
+			if (!stillOurs()) return
 			// Now, and not in `quiesce`: the refused payload belongs to the version being replaced,
 			// but until this point it was still the only copy of the edit, and a resolution that
 			// gave up before here has to leave it behind.
