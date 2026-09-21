@@ -57,7 +57,7 @@
 	import { splitterPointerCapture } from '$lib/utils/splitterPointerCapture'
 
 	// headerInset: extra left padding on the chat header so it clears a floating
-	// control (the collapsed-rail launcher) sitting at the screen's top-left.
+	// control (the detached sidebar's handle) sitting at the screen's top-left.
 	let {
 		sessionId,
 		headerInset = false

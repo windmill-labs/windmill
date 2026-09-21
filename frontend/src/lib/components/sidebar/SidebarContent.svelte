@@ -72,6 +72,7 @@
 	import GoogleCloudIcon from '../icons/triggers/GoogleCloudIcon.svelte'
 	import AzureIcon from '../icons/triggers/AzureIcon.svelte'
 	import { leaveCurrentWorkspace } from './leaveWorkspace'
+	import { sidebarPageAllowed, type OperatorPageKey } from './operatorRoutes'
 	import { markChangelogsOpened, readRecentChangelogs } from './changelogs'
 
 	const { recent: recentChangelogs, hasNew } = readRecentChangelogs()
@@ -188,6 +189,11 @@
 		return count
 	}
 
+	const currentWs = $derived($userWorkspaces?.find((w) => w.id === $workspaceStore))
+	function allows(key: OperatorPageKey) {
+		return sidebarPageAllowed($userStore?.operator, currentWs, key)
+	}
+
 	const itemClass = twMerge(
 		'text-secondary font-normal w-full block px-4 py-2 text-2xs data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
 	)
@@ -205,6 +211,7 @@
 				label: 'Runs',
 				href: `${base}/runs`,
 				icon: Play,
+				disabled: !allows('runs'),
 				aiId: 'sidebar-menu-link-runs',
 				aiDescription: 'Button to navigate to runs',
 				onclick: () => {
@@ -217,7 +224,7 @@
 				label: 'Variables',
 				href: `${base}/variables`,
 				icon: DollarSign,
-				disabled: $userStore?.operator,
+				disabled: !allows('variables'),
 				aiId: 'sidebar-menu-link-variables',
 				aiDescription: 'Button to navigate to variables'
 			},
@@ -225,7 +232,7 @@
 				label: 'Resources',
 				href: `${base}/resources`,
 				icon: Boxes,
-				disabled: $userStore?.operator,
+				disabled: !allows('resources'),
 				aiId: 'sidebar-menu-link-resources',
 				aiDescription: 'Button to navigate to resources'
 			},
@@ -233,6 +240,7 @@
 				label: 'Assets',
 				href: `${base}/assets`,
 				icon: Pyramid,
+				disabled: !allows('assets'),
 				aiId: 'sidebar-menu-link-assets',
 				aiDescription: 'Button to navigate to assets'
 			},
@@ -240,7 +248,7 @@
 				label: 'Folders',
 				href: `${base}/folders`,
 				icon: FolderOpen,
-				disabled: $userStore?.operator,
+				disabled: !allows('folders'),
 				aiId: 'sidebar-menu-link-folders',
 				aiDescription: 'Button to navigate to folders'
 			},
@@ -248,7 +256,7 @@
 				label: 'Groups',
 				href: `${base}/groups`,
 				icon: Users,
-				disabled: $userStore?.operator,
+				disabled: !allows('groups'),
 				aiId: 'sidebar-menu-link-groups',
 				aiDescription: 'Button to navigate to groups'
 			}
@@ -259,7 +267,7 @@
 			label: 'HTTP',
 			href: '/routes',
 			icon: Route,
-			disabled: $userStore?.operator,
+			disabled: !allows('triggers'),
 			kind: 'http',
 			aiId: 'sidebar-menu-link-http',
 			aiDescription: 'Button to navigate to HTTP routes'
@@ -268,7 +276,7 @@
 			label: 'WebSockets',
 			href: '/websocket_triggers',
 			icon: Unplug,
-			disabled: $userStore?.operator,
+			disabled: !allows('triggers'),
 			kind: 'ws',
 			aiId: 'sidebar-menu-link-ws',
 			aiDescription: 'Button to navigate to websocket triggers'
@@ -277,7 +285,7 @@
 			label: 'Postgres',
 			href: '/postgres_triggers',
 			icon: Database,
-			disabled: $userStore?.operator,
+			disabled: !allows('triggers'),
 			kind: 'postgres',
 			aiId: 'sidebar-menu-link-postgres',
 			aiDescription: 'Button to navigate to Postgres triggers'
@@ -286,7 +294,7 @@
 			label: 'Kafka' + ($enterpriseLicense ? '' : ' (EE)'),
 			href: '/kafka_triggers',
 			icon: KafkaIcon,
-			disabled: $userStore?.operator || !$enterpriseLicense,
+			disabled: !allows('triggers') || !$enterpriseLicense,
 			kind: 'kafka',
 			aiId: 'sidebar-menu-link-kafka',
 			aiDescription: 'Button to navigate to Kafka triggers'
@@ -295,7 +303,7 @@
 			label: 'NATS' + ($enterpriseLicense ? '' : ' (EE)'),
 			href: '/nats_triggers',
 			icon: NatsIcon,
-			disabled: $userStore?.operator || !$enterpriseLicense,
+			disabled: !allows('triggers') || !$enterpriseLicense,
 			kind: 'nats',
 			aiId: 'sidebar-menu-link-nats',
 			aiDescription: 'Button to navigate to NATS triggers'
@@ -304,7 +312,7 @@
 			label: 'SQS' + ($enterpriseLicense ? '' : ' (EE)'),
 			href: '/sqs_triggers',
 			icon: AwsIcon,
-			disabled: $userStore?.operator || !$enterpriseLicense,
+			disabled: !allows('triggers') || !$enterpriseLicense,
 			kind: 'sqs',
 			aiId: 'sidebar-menu-link-sqs',
 			aiDescription: 'Button to navigate to SQS triggers'
@@ -313,7 +321,7 @@
 			label: 'GCP Pub/Sub' + ($enterpriseLicense ? '' : ' (EE)'),
 			href: '/gcp_triggers',
 			icon: GoogleCloudIcon,
-			disabled: $userStore?.operator || !$enterpriseLicense,
+			disabled: !allows('triggers') || !$enterpriseLicense,
 			kind: 'gcp',
 			aiId: 'sidebar-menu-link-gcp',
 			aiDescription: 'Button to navigate to GCP Pub/Sub triggers'
@@ -322,7 +330,7 @@
 			label: 'Azure Event Grid' + ($enterpriseLicense ? '' : ' (EE)'),
 			href: '/azure_triggers',
 			icon: AzureIcon,
-			disabled: $userStore?.operator || !$enterpriseLicense,
+			disabled: !allows('triggers') || !$enterpriseLicense,
 			kind: 'azure',
 			aiId: 'sidebar-menu-link-azure',
 			aiDescription: 'Button to navigate to Azure Event Grid triggers'
@@ -331,7 +339,7 @@
 			label: 'MQTT',
 			href: '/mqtt_triggers',
 			icon: MqttIcon,
-			disabled: $userStore?.operator,
+			disabled: !allows('triggers'),
 			kind: 'mqtt',
 			aiId: 'sidebar-menu-link-mqtt',
 			aiDescription: 'Button to navigate to MQTT triggers'
@@ -340,7 +348,7 @@
 			label: 'AMQP',
 			href: '/amqp_triggers',
 			icon: AmqpIcon,
-			disabled: $userStore?.operator,
+			disabled: !allows('triggers'),
 			kind: 'amqp',
 			aiId: 'sidebar-menu-link-amqp',
 			aiDescription: 'Button to navigate to AMQP triggers'
@@ -349,7 +357,7 @@
 			label: 'Email',
 			href: '/email_triggers',
 			icon: MailIcon,
-			disabled: $userStore?.operator,
+			disabled: !allows('triggers'),
 			kind: 'email',
 			aiId: 'sidebar-menu-link-email',
 			aiDescription: 'Button to navigate to Email triggers'
@@ -375,7 +383,7 @@
 			label: 'Schedules',
 			href: `${base}/schedules`,
 			icon: Calendar,
-			disabled: !SIDEBAR_SHOW_SCHEDULES || $userStore?.operator,
+			disabled: !SIDEBAR_SHOW_SCHEDULES || !allows('schedules'),
 			aiId: 'sidebar-menu-link-schedules',
 			aiDescription: 'Button to navigate to schedules'
 		},
@@ -390,7 +398,6 @@
 	)
 	// Admins, superadmins, and fork creators reach workspace settings (the latter
 	// for the fork members screen; see isForkOwner / backend authorize_fork_owner_add_user).
-	const currentWs = $derived($userWorkspaces?.find((w) => w.id === $workspaceStore))
 	const canManageWorkspace = $derived(
 		$userStore?.is_admin || $superadmin || isForkOwner(currentWs, $userStore?.email)
 	)
@@ -460,7 +467,7 @@
 			label: 'Workers',
 			href: `${base}/workers`,
 			icon: ServerCog,
-			disabled: $userStore?.operator,
+			disabled: !allows('workers'),
 			aiId: 'sidebar-menu-link-workers',
 			aiDescription: 'Button to navigate to workers'
 		},
@@ -509,7 +516,7 @@
 					label: 'Audit logs',
 					href: `${base}/audit_logs`,
 					icon: Eye,
-					disabled: $userStore?.operator,
+					disabled: !allows('audit_logs'),
 					aiId: 'sidebar-menu-link-audit-logs',
 					aiDescription: 'Button to navigate to audit logs'
 				}
@@ -551,7 +558,7 @@
 								{#each triggerMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
 									<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
 								{/each}
-								{#if extraTriggerLinks.length > 0 && !$userStore?.operator}
+								{#if extraTriggerLinks.length > 0 && allows('triggers')}
 									<Menu {createMenu} usePointerDownOutside>
 										{#snippet triggr({ trigger })}
 											<MeltButton

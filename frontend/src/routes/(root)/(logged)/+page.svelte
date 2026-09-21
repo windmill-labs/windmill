@@ -270,8 +270,8 @@
 	<WorkspaceDraftsBanner />
 	<div class="max-w-7xl px-4 sm:px-8 md:px-8 h-fit w-full mb-6">
 		<!-- HomeAIChat carries both the AI composer and the AI-independent CLI/MCP connect row,
-		     so it shows whenever the sessions beta is on; the composer itself is gated on operator
-		     status and on the workspace inside the component, which owns its own vertical spacing
+		     so it shows whenever the sessions beta is on; the composer itself is gated on the
+		     workspace inside the component, which owns its own vertical spacing
 		     because the hero and the bare connect row want different amounts of it. -->
 		{#if isGlobalAiEnabled()}
 			<HomeAIChat />

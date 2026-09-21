@@ -50,8 +50,7 @@
 		strictWorkspaceSelect?: boolean
 		// Set by a picker embedded in a page that drives its own navigation, so switching
 		// workspaces must not navigate away from it. Separate from strictWorkspaceSelect,
-		// which only strips the sidebar-specific rows — the operator submenu sets that one
-		// and still wants the switch to move the page.
+		// which only strips the sidebar-specific rows.
 		keepPageOnSwitch?: boolean
 	}
 
@@ -117,7 +116,7 @@
 	// scope header's WorkspaceFamilyPicker remains the primary fork surface.
 	//
 	// strictWorkspaceSelect is used where this list has no scope header beside it
-	// (standalone pages such as svix webhook creation, the operator menu), so
+	// (standalone pages such as svix webhook creation), so
 	// there forks must stay directly selectable — list the full hierarchy
 	// unconditionally.
 	const hierarchy = $derived($userWorkspaces ? buildWorkspaceHierarchy($userWorkspaces) : [])

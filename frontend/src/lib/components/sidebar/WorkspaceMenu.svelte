@@ -55,6 +55,7 @@
 				showChevron
 				emphasizeLabel
 				disableTitle
+				labelClass="wm-workspace-name"
 				{trigger}
 			/>
 		</NameIdTooltip>

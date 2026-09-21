@@ -18,7 +18,8 @@
 		Crown,
 		Gauge,
 		Trash2,
-		KeyRound
+		KeyRound,
+		GraduationCap
 	} from 'lucide-svelte'
 	import { base } from '$app/paths'
 	import { goto } from '$lib/navigation'
@@ -38,6 +39,8 @@
 	import { USER_SETTINGS_HASH, SUPERADMIN_SETTINGS_HASH } from './settings'
 	import { accountSetup } from './accountSetup.svelte'
 	import { EXECUTIONS_HINT } from './executionsHint'
+	import { sidebarPageAllowed } from './operatorRoutes'
+	import { TOUR_PARAM, TOUR_PARAM_VALUE } from '$lib/components/tutorials/operatorTour'
 	import {
 		userWorkspaces,
 		workspaceStore,
@@ -248,6 +251,15 @@
 					icon: Settings,
 					action: () => goto(USER_SETTINGS_HASH)
 				},
+				...($userStore?.operator
+					? [
+							{
+								displayName: 'Take the tour',
+								icon: GraduationCap,
+								action: () => goto(`${base}/?${TOUR_PARAM}=${TOUR_PARAM_VALUE}`)
+							}
+						]
+					: []),
 				...(cloudHosted && $isPremiumStore === false
 					? [
 							{
@@ -307,6 +319,7 @@
 		label="Workers"
 		href="{base}/workers"
 		icon={ServerCog}
+		disabled={!sidebarPageAllowed($userStore?.operator, currentWs, 'workers')}
 		{isCollapsed}
 		aiId="sidebar-menu-link-workers"
 		aiDescription="Button to navigate to workers"
@@ -352,7 +365,7 @@
 			label="Audit logs"
 			href="{base}/audit_logs"
 			icon={Eye}
-			disabled={$userStore?.operator}
+			disabled={!sidebarPageAllowed($userStore?.operator, currentWs, 'audit_logs')}
 			{isCollapsed}
 			aiId="sidebar-menu-link-audit-logs"
 			aiDescription="Button to navigate to audit logs"

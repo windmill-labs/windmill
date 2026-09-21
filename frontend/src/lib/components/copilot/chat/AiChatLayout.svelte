@@ -4,7 +4,7 @@
 	import AiChat from './AIChat.svelte'
 	import SessionsBetaBanner from '$lib/components/sessions/SessionsBetaBanner.svelte'
 	import { zIndexes } from '$lib/zIndexes'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import { chatState } from './sharedChatState.svelte'
 	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 	import { copilotInfo } from '$lib/aiStore'
@@ -48,8 +48,8 @@
 	}: Props = $props()
 
 	// The desktop rail is fixed-positioned, so the content is offset by a matching
-	// left padding (in rem, matching the rail). Mobile/operator/borderless: no rail.
-	let contentPadLeft = $derived(noBorder || $userStore?.operator || isMobile ? 0 : sidebarWidth)
+	// left padding (in rem, matching the rail). Drawer (mobile or detached)/borderless: no rail.
+	let contentPadLeft = $derived(noBorder || isMobile ? 0 : sidebarWidth)
 
 	$effect(() => {
 		chatState.dockedChatAvailable = !disableAi
@@ -88,7 +88,7 @@
 	<div
 		class={classNames(
 			'py-0.5 px-4 sm:px-4 shadow-sm max-w-7xl md:hidden justify-start flex',
-			noBorder || $userStore?.operator ? 'hidden' : ''
+			noBorder ? 'hidden' : ''
 		)}
 	>
 		<Button

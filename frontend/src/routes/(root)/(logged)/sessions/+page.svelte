@@ -39,7 +39,7 @@
 	import { withWorkspaceParam } from '$lib/components/sessions/sessionMode.svelte'
 	import { enterSessionMode } from '$lib/components/sessions/sessionSwitch.svelte'
 	import type { SessionPreviewTabs } from '$lib/components/sessions/sessionPreviewTabs.svelte'
-	import { userStore, userWorkspaces, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import { userWorkspaces, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import {
 		getOrCreateRuntime,
 		getRuntime,
@@ -55,6 +55,7 @@
 	import { registerToolDisplayActionHandler } from '$lib/components/copilot/chat/createdResourceActions.svelte'
 	import { previewTargetForSessionTarget } from '$lib/components/sessions/sessionPreviewTabs.svelte'
 	import { base } from '$lib/base'
+	import { navDetached } from '$lib/components/sidebar/navDetached.svelte'
 	import {
 		artifactKey,
 		itemDisplayName,
@@ -182,7 +183,7 @@
 	// load. `recovering` also guards re-entry: recovery mutates the session list
 	// this effect tracks, while the URL that would stop it only updates on `goto`.
 	$effect(() => {
-		if (embedded || !globalEnabled || $userStore?.operator) return
+		if (embedded || !globalEnabled) return
 		if (!sessionState.hydrated || recovering) return
 		// A deliberate delete removes the open session ahead of its own navigation.
 		// Claiming that gap would take over the URL and tell the user the session
@@ -828,24 +829,6 @@
 				}}>Open sessions</Button
 			>
 		</div>
-	{:else if $userStore?.operator}
-		<!-- Operators are exempt from the sessions beta (the layout keeps their
-		     legacy docked chat); a direct URL must not bypass that. -->
-		<div class="p-8 flex flex-col items-start gap-3 text-secondary text-sm">
-			<p class="text-primary font-medium">AI Sessions are not available for operators</p>
-			<p>Use the Ask AI chat instead.</p>
-			<Button
-				size="xs"
-				onclick={() => {
-					try {
-						localStorage.setItem('ai-chat-open', 'true')
-					} catch {}
-					window.location.href = `${base}/`
-				}}
-			>
-				Open Ask AI chat
-			</Button>
-		</div>
 	{:else if !globalEnabled}
 		<!-- Direct navigation (bookmark, shared link) while the user has opted out
 		     of the beta: offer the way back in instead of a dead end. -->
@@ -898,7 +881,7 @@
 											: 'z-0 opacity-0 pointer-events-none'}"
 										aria-hidden={s.id !== activeSession?.id}
 									>
-										<SessionWrapper sessionId={s.id} />
+										<SessionWrapper sessionId={s.id} headerInset={navDetached.val} />
 									</div>
 								{/each}
 							</div>

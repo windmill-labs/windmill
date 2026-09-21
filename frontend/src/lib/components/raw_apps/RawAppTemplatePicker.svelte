@@ -128,7 +128,7 @@
 	const aiConfigLoaded = $derived(!!opWs && $copilotWorkspace === opWs)
 	// Say where the button leads: the route hands this prompt to a fresh AI
 	// session for everyone who has one, and drives the docked chat for the rest.
-	const handsOffToSession = $derived(prefersSessionHandoff($userStore?.operator))
+	const handsOffToSession = $derived(prefersSessionHandoff())
 	const isAiEnabled = $derived(aiConfigLoaded && $copilotInfo.enabled)
 
 	$effect(() => {

@@ -4,6 +4,7 @@
 	import { classes as alertClasses, icons as alertIcons } from '$lib/components/common/alert/model'
 	import { setSessionsBetaOptOut } from '$lib/components/copilot/chat/global/gate'
 	import { ExternalLink } from 'lucide-svelte'
+	import { userStore } from '$lib/stores'
 
 	// Prefilled title marks the issue as beta feedback for triage.
 	const FEEDBACK_ISSUE_URL =
@@ -42,15 +43,18 @@
 			>
 				Give feedback
 			</Button>
-			<span>·</span>
-			<Button
-				variant="subtle"
-				size="xs"
-				btnClasses="!py-0.5"
-				onclick={() => setSessionsBetaOptOut(true, `${base}/`)}
-			>
-				Switch back to legacy chat
-			</Button>
+			<!-- Operators have no legacy chat to fall back to. -->
+			{#if !$userStore?.operator}
+				<span>·</span>
+				<Button
+					variant="subtle"
+					size="xs"
+					btnClasses="!py-0.5"
+					onclick={() => setSessionsBetaOptOut(true, `${base}/`)}
+				>
+					Switch back to legacy chat
+				</Button>
+			{/if}
 		{:else}
 			<span class="font-medium">Try AI Sessions (beta)</span>
 			<span>·</span>

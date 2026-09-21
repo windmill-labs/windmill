@@ -41,7 +41,6 @@
 	import { AIBtnClasses } from '$lib/components/copilot/chat/AIButtonStyle'
 	import { prefersSessionHandoff } from '$lib/components/copilot/chat/global/gate'
 	import { copilotInfo } from '$lib/aiStore'
-	import { userStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { openSourceInSession } from './sessionSwitch.svelte'
 
@@ -66,7 +65,7 @@
 		 * says that clicking it leaves for a session. */
 		tooltip?: string
 		/** Rendered instead when the caller keeps a docked chat to drive — an
-		 * opted-out user or an operator (typically the editor's inline-chat
+		 * opted-out user (typically the editor's inline-chat
 		 * toggle). Never rendered inside the session panel. */
 		fallback?: Snippet
 	} = $props()
@@ -77,13 +76,8 @@
 	// SessionEditorTarget / the session wrapper); iframe preview tabs are not
 	// the top window.
 	const inSessionPanel = !!getContext('aiChatManager') || (BROWSER && window.self !== window.top)
-	// prefersSessionHandoff carries the operator clause: the sessions page refuses
-	// them, so an entry point on a page they can reach (Runs, the trigger lists)
-	// would only route them into that refusal.
 	const show = $derived(
-		!inSessionPanel &&
-			!!(source?.target || source?.page) &&
-			prefersSessionHandoff($userStore?.operator)
+		!inSessionPanel && !!(source?.target || source?.page) && prefersSessionHandoff()
 	)
 
 	// Not $state: only read inside open() as a re-entrancy latch, never rendered.

@@ -2492,7 +2492,7 @@ function allowedTriggerKinds(): PageTriggerKind[] {
 }
 
 // Pages an operator may reach: exactly the ones enabled in the workspace's
-// operator_settings, the same source OperatorMenu gates on. Operators are never admins, so
+// operator_settings, the same source the sidebar gates on. Operators are never admins, so
 // workspace_settings is excluded whatever the settings say.
 function operatorOpenPages(workspaceId: string | undefined): OpenPageName[] {
 	const settings = get(userWorkspaces).find((w) => w.id === workspaceId)?.operator_settings

@@ -507,7 +507,7 @@
 			setTimeout(async () => {
 				// Falls through when the hand-off has no path to open, so the click
 				// still reaches the legacy path (or its toast) instead of vanishing.
-				if (prefersSessionHandoff($userStore?.operator)) {
+				if (prefersSessionHandoff()) {
 					if (await rawAppEditor?.openInSession(prompt)) return
 				}
 				aiChatManager.changeMode(AIMode.APP)

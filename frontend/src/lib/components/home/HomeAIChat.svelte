@@ -107,16 +107,14 @@
 	// unlocked, so the far commoner unlocked workspace never pops the composer in mid-load.
 	let runOnlyWorkspace = $derived(isRuleActive('DisableDirectDeployment'))
 
-	// The composer hands off to /sessions, which refuses operators — so hide it from them (the
-	// prompt would be silently dropped) while the AI-independent CLI/MCP row below stays.
+	// The composer hands off to /sessions, so users opted out of the sessions beta don't get it
+	// (the prompt would be silently dropped) while the AI-independent CLI/MCP row below stays.
 	let showComposer = $derived(
-		prefersSessionHandoff($userStore?.operator) &&
-			!runOnlyWorkspace &&
-			!$copilotInfo.workspaceDisabled
+		prefersSessionHandoff() && !runOnlyWorkspace && !$copilotInfo.workspaceDisabled
 	)
 
 	// The hero's margins and centered column are for the full block. The lone button row left
-	// by a collapsed, operator, run-only or hidden-assistant view is a hint line and should
+	// by a collapsed, opted-out, run-only or hidden-assistant view is a hint line and should
 	// cost the page almost nothing: no top margin, and the content column's full width so it
 	// hugs the right edge instead of floating centered in empty space.
 	let hero = $derived(showComposer && !collapsed)
@@ -149,7 +147,7 @@
 	const FADE_MS = 600
 
 	// Rotate the example prompt every CYCLE_MS: fade the placeholder out, swap it, fade it back in.
-	// Only while the composer is shown — otherwise (operators) it would loop forever driving an
+	// Only while the composer is shown — otherwise it would loop forever driving an
 	// unrendered input — and not under reduced motion, where the first prompt simply stays put.
 	// The index lives outside the effect so re-showing the composer resumes the rotation from the
 	// prompt currently displayed rather than restarting it.
@@ -311,7 +309,7 @@
 				<div></div>
 			{/if}
 
-			<!-- Not AI-related, so shown even to operators / when the composer is hidden. -->
+			<!-- Not AI-related, so shown even when the composer is hidden. -->
 			<div class="flex flex-row items-center gap-1">
 				<Button
 					variant="subtle"
