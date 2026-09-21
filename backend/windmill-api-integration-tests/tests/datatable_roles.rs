@@ -1534,3 +1534,73 @@ async fn without_the_enterprise_edition_a_data_table_under_roles_is_refused_a_co
     assert!(err.to_string().contains(ENTERPRISE_REFUSAL), "{err}");
     Ok(())
 }
+
+/// A save blocked on an instance database's lock is not a user of it until it commits one: the
+/// cleanup for a database whose setup failed lets that save through and reads what it left.
+#[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
+async fn cleanup_waits_out_a_save_racing_it_for_an_instance_database(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let key = "instance_database:dt_probe";
+
+    // Queues cleanup behind `holder`, then a save behind cleanup, so cleanup takes the lock with
+    // the save already waiting on it — the ordering the waiter check is for.
+    let race = |commit: bool| {
+        let db = db.clone();
+        async move {
+            let mut holder = db.acquire().await?;
+            sqlx::query("SELECT pg_advisory_lock(hashtext($1))")
+                .bind(key)
+                .execute(&mut *holder)
+                .await?;
+
+            let cleanup = tokio::spawn({
+                let db = db.clone();
+                async move { windmill_common::drop_unused_instance_database(&db, "dt_probe").await }
+            });
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+
+            let save = tokio::spawn({
+                let db = db.clone();
+                async move {
+                    let mut tx = db.begin().await?;
+                    windmill_common::lock_instance_databases(&mut tx, ["dt_probe"]).await?;
+                    sqlx::query(
+                        r#"UPDATE workspace_settings SET datatable = jsonb_set(datatable,
+                             '{datatables,probe}',
+                             '{"database": {"resource_type": "instance", "resource_path": "dt_probe"}}')
+                           WHERE workspace_id = 'test-workspace'"#,
+                    )
+                    .execute(&mut *tx)
+                    .await?;
+                    if commit {
+                        tx.commit().await?;
+                    } else {
+                        tx.rollback().await?;
+                    }
+                    Ok::<_, anyhow::Error>(())
+                }
+            });
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+
+            sqlx::query("SELECT pg_advisory_unlock(hashtext($1))")
+                .bind(key)
+                .execute(&mut *holder)
+                .await?;
+            save.await??;
+            Ok::<_, anyhow::Error>(cleanup.await??)
+        }
+    };
+
+    assert!(
+        race(false).await?.is_empty(),
+        "a save that rolled back kept the database, whose name then blocks every retry"
+    );
+    assert_eq!(
+        race(true).await?,
+        vec!["test-workspace".to_string()],
+        "the database was dropped under a save that committed a reference to it"
+    );
+    Ok(())
+}
