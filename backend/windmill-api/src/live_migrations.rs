@@ -6,8 +6,9 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use sqlx::Postgres;
-use windmill_common::error::Error;
+use sqlx::{PgConnection, Postgres};
+use tokio::task::JoinHandle;
+use windmill_common::{db::DB, error::Error};
 
 use crate::db::CustomMigrator;
 use sqlx::migrate::Migrate;
@@ -118,6 +119,161 @@ async fn fix_flow_versioning_migration(migrator: &mut CustomMigrator) -> Result<
         }
 
         migrator.unlock().await?;
+    }
+    Ok(())
+}
+
+// Held for the whole background run so only one server does it at a time.
+const BACKGROUND_MIGRATIONS_LOCK_ID: i64 = 4_931_072_518_336_401;
+
+/// Schema changes too slow to hold server startup for, run by one server at a time after the
+/// sqlx migrations. Each step is recorded in `windmill_migrations` once done; a step interrupted
+/// by a restart or an error starts over on the next start and must resume safely.
+pub fn spawn_background_migrations(
+    db: DB,
+    mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
+) -> JoinHandle<()> {
+    tokio::spawn(async move {
+        tokio::select! {
+            r = run_background_migrations(&db) => {
+                if let Err(err) = r {
+                    tracing::error!("Background migrations stopped, retrying on the next start: {err:#}");
+                }
+            }
+            _ = killpill_rx.recv() => {
+                tracing::info!("Killpill received, stopping background migrations");
+            }
+        }
+    })
+}
+
+async fn run_background_migrations(db: &DB) -> Result<(), Error> {
+    // Detached so the pool's 5min statement_timeout, lifted here for the index builds, never
+    // comes back with this connection; closing it also releases the advisory lock.
+    let mut conn = db.acquire().await?.detach();
+    conn.execute("SET statement_timeout = 0").await?;
+    let locked = sqlx::query_scalar::<_, bool>("SELECT pg_try_advisory_lock($1)")
+        .bind(BACKGROUND_MIGRATIONS_LOCK_ID)
+        .fetch_one(&mut conn)
+        .await?;
+    if !locked {
+        return Ok(());
+    }
+
+    for step in [AUDIT_OPERATION_INDEX] {
+        if background_migration_done(&mut conn, step).await? {
+            continue;
+        }
+        // Steps bound the lock waits that would queue audit inserts behind them with
+        // lock_timeout, and resume where they stopped, so a lock timeout is retried here.
+        let mut attempt = 1;
+        loop {
+            let run = match step {
+                AUDIT_OPERATION_INDEX => create_audit_operation_index(&mut conn).await,
+                _ => unreachable!("background migration {step} has no step function"),
+            };
+            match run {
+                Ok(()) => break,
+                Err(err) if attempt < 10 && is_lock_timeout(&err) => {
+                    tracing::warn!(
+                        "Background migration {step} timed out on a lock, retrying in 30s: {err:#}"
+                    );
+                    attempt += 1;
+                    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                }
+                Err(err) => return Err(err),
+            }
+        }
+        mark_background_migration_done(&mut conn, step).await?;
+    }
+    Ok(())
+}
+
+const AUDIT_OPERATION_INDEX: &str = "audit_partitioned_workspace_operation_index";
+
+// Short on purpose: a statement waiting for its lock is also a wait for every audit insert
+// queued behind it.
+const STEP_LOCK_TIMEOUT: &str = "SET lock_timeout = '1s'";
+
+fn is_lock_timeout(err: &Error) -> bool {
+    matches!(err, Error::SqlErr { error: sqlx::Error::Database(db_err), .. }
+        if db_err.code().as_deref() == Some("55P03"))
+}
+
+async fn background_migration_done(conn: &mut PgConnection, name: &str) -> Result<bool, Error> {
+    Ok(sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM windmill_migrations WHERE name = $1)",
+    )
+    .bind(name)
+    .fetch_one(conn)
+    .await?)
+}
+
+async fn mark_background_migration_done(conn: &mut PgConnection, name: &str) -> Result<(), Error> {
+    sqlx::query("INSERT INTO windmill_migrations (name) VALUES ($1) ON CONFLICT DO NOTHING")
+        .bind(name)
+        .execute(conn)
+        .await?;
+    tracing::info!("Background migration {name} done");
+    Ok(())
+}
+
+const AUDIT_OPERATION_INDEX_KEY: &str = r#"(workspace_id, operation, id DESC, "timestamp")"#;
+
+/// A plain `CREATE INDEX` on the partitioned table holds a SHARE lock on every partition until the
+/// whole build ends, blocking the audit insert each job push makes in its own transaction. Each
+/// partition is built CONCURRENTLY instead and attached to a parent created `ON ONLY`, which turns
+/// valid once all partitions are attached. Partitions created later get the index from the parent.
+async fn create_audit_operation_index(conn: &mut PgConnection) -> Result<(), Error> {
+    // Metadata only, but it waits for every open transaction that wrote an audit row, and every
+    // audit insert (so every job push) queues behind it meanwhile. Give up early instead.
+    conn.execute(STEP_LOCK_TIMEOUT).await?;
+    let created = conn
+        .execute(
+            format!(
+                "CREATE INDEX IF NOT EXISTS ix_audit_partitioned_workspace_operation \
+                 ON ONLY audit_partitioned {AUDIT_OPERATION_INDEX_KEY}"
+            )
+            .as_str(),
+        )
+        .await;
+    conn.execute("RESET lock_timeout").await?;
+    created?;
+    let partitions: Vec<String> = sqlx::query_scalar(
+        "SELECT c.relname::text FROM pg_inherits p JOIN pg_class c ON c.oid = p.inhrelid
+         WHERE p.inhparent = 'audit_partitioned'::regclass
+           AND NOT EXISTS (
+               SELECT 1 FROM pg_inherits ip JOIN pg_index i ON i.indexrelid = ip.inhrelid
+               WHERE ip.inhparent = 'ix_audit_partitioned_workspace_operation'::regclass
+                 AND i.indrelid = c.oid)
+         ORDER BY c.relname DESC",
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    let quote = |name: &str| format!("\"{}\"", name.replace('"', "\"\""));
+    for partition in partitions {
+        let index = quote(&format!(
+            "{partition}_workspace_id_operation_id_timestamp_idx"
+        ));
+        tracing::info!("Building ix_audit_partitioned_workspace_operation on {partition}");
+        // An interrupted CONCURRENTLY build leaves an invalid index under this name.
+        conn.execute(format!("DROP INDEX CONCURRENTLY IF EXISTS {index}").as_str())
+            .await?;
+        conn.execute(
+            format!(
+                "CREATE INDEX CONCURRENTLY {index} ON {} {AUDIT_OPERATION_INDEX_KEY}",
+                quote(&partition)
+            )
+            .as_str(),
+        )
+        .await?;
+        conn.execute(
+            format!(
+                "ALTER INDEX ix_audit_partitioned_workspace_operation ATTACH PARTITION {index}"
+            )
+            .as_str(),
+        )
+        .await?;
     }
     Ok(())
 }
