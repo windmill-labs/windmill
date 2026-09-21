@@ -1095,9 +1095,10 @@
 							page’s create menu and hub-project picker are opened and from which entry point, the
 							name of any public hub project imported from the home page and how far that import
 							got, whether a pre-approved trial offer was opened, whether data tables are put under
-							roles and whether callers name a role or take the default, and which kinds of access
-							change (grant, revoke, ownership, default privileges) are applied to data tables, last
-							30 days)</li
+							roles and whether callers name a role or take the default, which kinds of access
+							change (grant, revoke, ownership, default privileges) are applied to data tables, and
+							whether a data table under roles is cloned into a fork with its schema only or with
+							its data, last 30 days)</li
 						>
 						<li
 							>feature adoption (counts of which flow, script, trigger, worker and data table
@@ -1165,9 +1166,10 @@
 							page’s create menu and hub-project picker are opened and from which entry point, the
 							name of any public hub project imported from the home page and how far that import
 							got, whether a pre-approved trial offer was opened, whether data tables are put under
-							roles and whether callers name a role or take the default, and which kinds of access
-							change (grant, revoke, ownership, default privileges) are applied to data tables, last
-							30 days)</li
+							roles and whether callers name a role or take the default, which kinds of access
+							change (grant, revoke, ownership, default privileges) are applied to data tables, and
+							whether a data table under roles is cloned into a fork with its schema only or with
+							its data, last 30 days)</li
 						>
 						<li
 							>feature adoption (counts of which flow, script, trigger, worker and data table

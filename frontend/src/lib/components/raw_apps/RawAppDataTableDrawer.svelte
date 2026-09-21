@@ -210,11 +210,17 @@
 		)
 	}
 
-	function selectDatatable(datatable: string, role?: string) {
+	// `undefined` where the workspace has no data table at all: the drawer opens on none, and
+	// its tree says so, rather than on a name that does not exist.
+	function selectDatatable(datatable: string | undefined, role?: string) {
 		// A row clicked under another data table has just set the selection it should open on.
 		openSchemaKey = selectedSchemaKey
 		openTableKey = selectedTableKey
 		selectedDatatable = datatable
+		if (datatable === undefined) {
+			selectedRole = undefined
+			return
+		}
 		// A data table opens as the role its picked tables were browsed as, else the one the app
 		// already uses it through.
 		connectAs(

@@ -1474,8 +1474,98 @@ pub fn validate_dbname(dbname: &str) -> error::Result<()> {
     Ok(())
 }
 
+/// Lock the instance databases among `names` until `tx` ends, in a stable order. Taken by every
+/// settings save naming an instance database, and by [`drop_unused_instance_database`]: a save
+/// cannot start using a database between that drop's check that nothing does and the drop.
+pub async fn lock_instance_databases<'a>(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    names: impl IntoIterator<Item = &'a str>,
+) -> error::Result<()> {
+    let names: std::collections::BTreeSet<&str> = names.into_iter().collect();
+    for name in names {
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtext('instance_database:' || $1))")
+            .bind(name)
+            .execute(&mut **tx)
+            .await?;
+    }
+    Ok(())
+}
+
+/// Drop instance database `dbname`, which a request just created, unless a workspace names it as a
+/// data table or a ducklake catalog — the workspaces returned, with nothing dropped. A database is
+/// registered on the instance as soon as it is created, so a superadmin can point a workspace at it
+/// before the request that created it gives up on it.
+///
+/// Authorization: none. Callers MUST pass only a database the same request created and has not
+/// handed to anything yet.
+///
+/// The lock, the check and the drop share one connection: a second one taken from the pool while
+/// the first is held could wait forever on a small pool.
+pub async fn drop_unused_instance_database(db: &DB, dbname: &str) -> error::Result<Vec<String>> {
+    let mut conn = db.acquire().await?;
+    let key = format!("instance_database:{dbname}");
+    sqlx::query("SELECT pg_advisory_lock(hashtext($1))")
+        .bind(&key)
+        .execute(&mut *conn)
+        .await?;
+    let dropped = drop_if_unused_on(&mut conn, dbname).await;
+    let unlocked = sqlx::query("SELECT pg_advisory_unlock(hashtext($1))")
+        .bind(&key)
+        .execute(&mut *conn)
+        .await;
+    if unlocked.is_err() {
+        // Closing the connection is what releases a session lock it could not release itself.
+        drop(conn.detach());
+    }
+    dropped
+}
+
+async fn drop_if_unused_on(
+    conn: &mut sqlx::PgConnection,
+    dbname: &str,
+) -> error::Result<Vec<String>> {
+    let users = instance_database_users(conn, dbname).await?;
+    if users.is_empty() {
+        drop_custom_instance_database_on(conn, dbname).await?;
+    }
+    Ok(users)
+}
+
+/// The workspaces naming instance database `dbname` as a data table or a ducklake catalog. Taken
+/// under [`lock_instance_databases`] for `dbname`, the answer holds until that lock is released.
+///
+/// Authorization: none, and it reads every workspace's settings. Callers MUST pass only a database
+/// their own request created, and may name the workspaces returned only to a caller allowed to
+/// create or drop instance databases.
+pub async fn instance_database_users(
+    conn: &mut sqlx::PgConnection,
+    dbname: &str,
+) -> error::Result<Vec<String>> {
+    Ok(sqlx::query_scalar(
+        "SELECT DISTINCT ws.workspace_id FROM workspace_settings ws
+         WHERE EXISTS (SELECT 1 FROM jsonb_each(CASE WHEN jsonb_typeof(ws.datatable->'datatables') = 'object'
+                                                THEN ws.datatable->'datatables' ELSE '{}'::jsonb END) dt
+                       WHERE dt.value->'database'->>'resource_type' = 'instance'
+                         AND dt.value->'database'->>'resource_path' = $1)
+            OR EXISTS (SELECT 1 FROM jsonb_each(CASE WHEN jsonb_typeof(ws.ducklake->'ducklakes') = 'object'
+                                                THEN ws.ducklake->'ducklakes' ELSE '{}'::jsonb END) dl
+                       WHERE dl.value->'catalog'->>'resource_type' = 'instance'
+                         AND dl.value->'catalog'->>'resource_path' = $1)",
+    )
+    .bind(dbname)
+    .fetch_all(conn)
+    .await?)
+}
+
 /// Drop a custom instance database: validate, terminate connections, DROP DATABASE, remove from global_settings.
 pub async fn drop_custom_instance_database(db: &DB, dbname: &str) -> error::Result<()> {
+    drop_custom_instance_database_on(&mut *db.acquire().await?, dbname).await
+}
+
+async fn drop_custom_instance_database_on(
+    conn: &mut sqlx::PgConnection,
+    dbname: &str,
+) -> error::Result<()> {
     let dbname = dbname.trim();
     validate_dbname(dbname)?;
 
@@ -1490,7 +1580,7 @@ pub async fn drop_custom_instance_database(db: &DB, dbname: &str) -> error::Resu
         "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_database WHERE datname = $1)",
         dbname
     )
-    .fetch_one(db)
+    .fetch_one(&mut *conn)
     .await?
     .unwrap_or(false);
 
@@ -1501,7 +1591,7 @@ pub async fn drop_custom_instance_database(db: &DB, dbname: &str) -> error::Resu
             "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{}' AND pid <> pg_backend_pid()",
             dbname.replace('\'', "''")
         ))
-        .execute(db)
+        .execute(&mut *conn)
         .await
         {
             tracing::warn!("Failed to terminate connections to '{}': {}", dbname, e);
@@ -1510,7 +1600,7 @@ pub async fn drop_custom_instance_database(db: &DB, dbname: &str) -> error::Resu
         // Drop the database
         // SAFETY: `dbname` has been validated via validate_dbname() before reaching this point.
         sqlx::query(&format!("DROP DATABASE IF EXISTS \"{}\"", dbname))
-            .execute(db)
+            .execute(&mut *conn)
             .await
             .map_err(|e| {
                 error::Error::internal_err(format!("Failed to drop database '{}': {}", dbname, e))
@@ -1526,7 +1616,7 @@ pub async fn drop_custom_instance_database(db: &DB, dbname: &str) -> error::Resu
         r#"UPDATE global_settings SET value = value #- ARRAY['databases', $1] WHERE name = 'custom_instance_pg_databases'"#,
         dbname
     )
-    .execute(db)
+    .execute(&mut *conn)
     .await?;
 
     Ok(())
@@ -1600,6 +1690,35 @@ pub async fn create_custom_instance_database(
             error::Error::internal_err(format!("Failed to create database '{}': {}", dbname, e))
         })?;
 
+    // Nothing names a database that failed past this point, and its name blocks the retry: drop it
+    // rather than leave it behind.
+    if let Err(e) = finish_custom_instance_database(db, dbname, tag).await {
+        match drop_unused_instance_database(db, dbname).await {
+            Ok(users) if !users.is_empty() => tracing::warn!(
+                "Kept '{dbname}' after failing to set it up: workspaces {} use it",
+                users.join(", ")
+            ),
+            Ok(_) => {}
+            Err(drop_err) => {
+                tracing::error!("Could not drop '{dbname}' after failing to set it up: {drop_err}")
+            }
+        }
+        return Err(e);
+    }
+
+    // A data table role can only reach a database it may CONNECT to, and PUBLIC's default CONNECT
+    // would otherwise let every role in regardless of what this instance defines. Best-effort: a
+    // failure here leaves the database usable as `admin`, and the next role change repairs it.
+    if let Err(e) = crate::datatable_roles::converge_connect_grants(db, dbname).await {
+        tracing::warn!("Could not set CONNECT grants on instance database '{dbname}': {e}");
+    }
+
+    tracing::info!("Created custom instance database '{}'", dbname);
+    Ok(())
+}
+
+/// Grant `custom_instance_user` its privileges on a database just created, and register it.
+async fn finish_custom_instance_database(db: &DB, dbname: &str, tag: &str) -> error::Result<()> {
     // Grant permissions to custom_instance_user
     let wmill_pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
     let new_pg_creds = PgDatabase { dbname: dbname.to_string(), ..wmill_pg_creds };
@@ -1634,15 +1753,6 @@ pub async fn create_custom_instance_database(
     )
     .execute(db)
     .await?;
-
-    // A data table role can only reach a database it may CONNECT to, and PUBLIC's default CONNECT
-    // would otherwise let every role in regardless of what this instance defines. Best-effort: a
-    // failure here leaves the database usable as `admin`, and the next role change repairs it.
-    if let Err(e) = crate::datatable_roles::converge_connect_grants(db, dbname).await {
-        tracing::warn!("Could not set CONNECT grants on instance database '{dbname}': {e}");
-    }
-
-    tracing::info!("Created custom instance database '{}'", dbname);
     Ok(())
 }
 
