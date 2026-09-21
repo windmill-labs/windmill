@@ -73,10 +73,11 @@ and the rest of the worktree environment. Scope every kill to this worktree — 
    from memory is how a backend silently loses `quickjs`.
 
 4. Persist the new set so a recreated pane starts with it: set `CARGO_FEATURES` in the worktree's
-   `.env.local`, which the worktree hooks write and every new pane sources. Under webmux, do
-   **not** edit `webmux/runtime.env` for this — webmux regenerates it from metadata and
-   `.env.local` every time the worktree is opened, so an edit there is lost on the next reopen.
-   Either way the change only affects a future pane; step 3 is what takes effect now.
+   `.env.local`, which the worktree hooks write. A herdr pane sources that file directly, so the
+   next pane picks the value up. A webmux pane sources `webmux/runtime.env` instead, which webmux
+   regenerates from metadata and `.env.local` when the worktree is *opened* — so the value lands
+   on the next reopen, not the next pane, and editing `runtime.env` by hand is lost at that same
+   reopen. Either way the change only affects a future pane; step 3 is what takes effect now.
 
 5. Re-read the pane (`herdr pane read <pane_id> --source recent-unwrapped`, or `tmux
    capture-pane`) until `health check completed` appears before hitting the API. A cold rebuild
