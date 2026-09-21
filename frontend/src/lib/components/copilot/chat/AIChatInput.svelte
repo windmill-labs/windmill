@@ -14,7 +14,7 @@
 	import { CHAT_INPUT_PADDING, getAiChatManager } from './aiChatManagerContext'
 	import { getChatViewHost } from './chatViewHost'
 	import { composerBoxClass, COMPOSER_FIELD_RESET } from './composerBox'
-	import { formatMention, MENTION_RE, mentionTitle, removeMentionFromText } from './mention'
+	import { formatMention, hasMention, removeMentionFromText } from './mention'
 	import { twMerge } from 'tailwind-merge'
 	import { tick, untrack, type Snippet } from 'svelte'
 	import Portal from '$lib/components/Portal.svelte'
@@ -581,9 +581,11 @@
 	/** Insert `@title` so button/menu picker paths stay in sync with
 	 * the inline `@<word>` mention path — both leave a visible token tied
 	 * to the selectedContext entry, which the textarea diffs on to
-	 * auto-remove items when the user deletes them. */
+	 * auto-remove items when the user deletes them. No-op when the same
+	 * standalone mention is already present, so picking the same item
+	 * again doesn't leave duplicate tokens. */
 	export function insertMention(title: string) {
-		if ([...draft.text.matchAll(MENTION_RE)].some((m) => mentionTitle(m[0]) === title)) return
+		if (hasMention(draft.text, title)) return
 		if (contextTextareaComponent) {
 			void contextTextareaComponent.insertMention(title)
 			return

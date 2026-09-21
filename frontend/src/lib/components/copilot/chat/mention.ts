@@ -30,6 +30,19 @@ export function formatMention(name: string): string {
 	return BARE_SAFE.test(name) ? `@${name}` : `@[${name.replace(/[\\\]]/g, '\\$&')}]`
 }
 
+export function isStandaloneMention(text: string, match: RegExpMatchArray): boolean {
+	if (match.index === undefined) return false
+	const start = match.index
+	const end = start + match[0].length
+	return (start === 0 || /\s/.test(text[start - 1])) && (end === text.length || /\s/.test(text[end]))
+}
+
+export function hasMention(text: string, title: string): boolean {
+	return [...text.matchAll(MENTION_RE)].some(
+		(m) => mentionTitle(m[0]) === title && isStandaloneMention(text, m)
+	)
+}
+
 export function removeMentionFromText(text: string, title: string): string {
 	let out = ''
 	let last = 0
@@ -37,10 +50,9 @@ export function removeMentionFromText(text: string, title: string): string {
 		if (m.index === undefined || mentionTitle(m[0]) !== title) continue
 		let start = m.index
 		let end = m.index + m[0].length
+		if (!isStandaloneMention(text, m)) continue
 		const hasLead = start > 0 && /\s/.test(text[start - 1])
 		const hasTrail = end < text.length && /\s/.test(text[end])
-		if (start > 0 && !hasLead) continue
-		if (end < text.length && !hasTrail) continue
 		if (hasLead && !hasTrail) start -= 1
 		if (!hasLead && hasTrail) end += 1
 		if (hasLead && hasTrail) end += 1

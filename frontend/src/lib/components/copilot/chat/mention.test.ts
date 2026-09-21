@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MENTION_RE, mentionTitle, formatMention, removeMentionFromText } from './mention'
+import { MENTION_RE, mentionTitle, formatMention, hasMention, removeMentionFromText } from './mention'
 
 describe('formatMention', () => {
 	it('leaves a simple name bare', () => {
@@ -79,5 +79,12 @@ describe('removeMentionFromText', () => {
 		expect(removeMentionFromText('Contact owner@app.ts about @app.ts', 'app.ts')).toBe(
 			'Contact owner@app.ts about'
 		)
+	})
+})
+
+describe('hasMention', () => {
+	it('does not treat embedded mention-like text as a selected context mention', () => {
+		expect(hasMention('Contact owner@app.ts', 'app.ts')).toBe(false)
+		expect(hasMention('Contact owner@app.ts about @app.ts', 'app.ts')).toBe(true)
 	})
 })
