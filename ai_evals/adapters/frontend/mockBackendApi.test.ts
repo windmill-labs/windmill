@@ -10,9 +10,6 @@ import {
 
 const WORKSPACE = 'benchmark-api-ws'
 
-// A relative `/api/...` call has no server to reach in this environment: without a
-// handler here the stub declines it and node's fetch throws, instead of returning a
-// result the model can act on.
 describe('benchmark API fetch handlers', () => {
 	beforeEach(() => resetBenchmarkMockBackend())
 	afterEach(() => resetBenchmarkMockBackend())
