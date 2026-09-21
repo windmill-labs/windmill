@@ -1304,11 +1304,17 @@ pub async fn update_flow_status_after_job_completion_internal(
                             false
                         };
                     success = true;
+                    // An AI decision whose chosen branch is empty completes with no job of its
+                    // own: its job, and so `results.<id>`, stays the decision's answers.
+                    let job = match module_status.decision_job() {
+                        Some(decision_job) if job_id_for_status.is_nil() => decision_job,
+                        _ => *job_id_for_status,
+                    };
                     (
                         true,
                         Some(FlowStatusModule::Success {
                             id: module_status.id(),
-                            job: job_id_for_status.clone(),
+                            job,
                             flow_jobs,
                             flow_jobs_success,
                             flow_jobs_duration,
@@ -3913,11 +3919,10 @@ async fn push_next_flow_job(
                 // we get the args from the last failed job, except for a decision with branches:
                 // it may have failed in its branch, whose sub-flow took the flow's args, so it
                 // asks again from its own inputs.
-                if matches!(
-                    module.get_value(),
-                    Ok(FlowModuleValue::AIDecision { ref branches, ref default, .. })
-                        if !branches.is_empty() || !default.is_empty()
-                ) {
+                if module
+                    .get_value()
+                    .is_ok_and(|value| value.is_branched_ai_decision())
+                {
                     None
                 } else {
                     status.retry.failed_jobs.last()
@@ -5417,18 +5422,18 @@ async fn compute_next_flow_transform(
         }
         // The decision job runs as an AI agent job; the arm below takes over once a decision with
         // branches has answered.
-        FlowModuleValue::AIDecision { ref branches, ref default, tag, .. }
+        ref value @ FlowModuleValue::AIDecision { ref tag, .. }
             if !matches!(
                 status_module,
                 FlowStatusModule::InProgress { decision_job: Some(_), branch_chosen: None, .. }
             ) =>
         {
-            let has_branches = !branches.is_empty() || !default.is_empty();
+            let has_branches = value.is_branched_ai_decision();
             let path = get_path(flow_job, status, module);
             Ok(NextFlowTransform::Continue(
                 ContinuePayload::SingleJob(JobPayloadWithTag {
                     payload: JobPayload::AIAgent { path },
-                    tag: tag.filter(|t| !t.trim().is_empty()),
+                    tag: tag.clone().filter(|t| !t.trim().is_empty()),
                     delete_after_use,
                     delete_after_secs,
                     timeout: None,
@@ -5728,7 +5733,16 @@ async fn compute_next_flow_transform(
                         ..
                     } => {
                         let mut branch_chosen = BranchChosen::Default;
-                        let idcontext = get_transform_context(&flow_job, previous_id, &status);
+                        // `results.<previous id>` reads `previous_result`, which for an answered
+                        // decision is its own answers, so the decision is the previous step here.
+                        let predicate_previous_id = match status_module {
+                            FlowStatusModule::InProgress { decision_job: Some(_), .. } => {
+                                module.id.as_str()
+                            }
+                            _ => previous_id,
+                        };
+                        let idcontext =
+                            get_transform_context(&flow_job, predicate_previous_id, &status);
                         let mut predicate_err: Option<Error> = None;
                         for (i, b) in branches.iter().enumerate() {
                             let pred_res = compute_bool_from_expr(

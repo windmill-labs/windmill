@@ -1150,13 +1150,29 @@ impl BranchChoiceShell {
                 FlowModuleValue::BranchOne { branches, default, default_node }
             }
             BranchChoiceShell::AIDecision { input_transforms, default_node, tag } => {
-                FlowModuleValue::AIDecision { input_transforms, branches, default, default_node, tag }
+                FlowModuleValue::AIDecision {
+                    input_transforms,
+                    branches,
+                    default,
+                    default_node,
+                    tag,
+                }
             }
         }
     }
 }
 
 impl FlowModuleValue {
+    /// Whether this is an AI decision that runs a branch once it has answered. A deployed flow
+    /// moves a default's steps into `default_node`, leaving `default` empty.
+    pub fn is_branched_ai_decision(&self) -> bool {
+        matches!(
+            self,
+            FlowModuleValue::AIDecision { branches, default, default_node, .. }
+                if !branches.is_empty() || !default.is_empty() || default_node.is_some()
+        )
+    }
+
     /// Splits a step that runs one of its branches into its branches, its default and the rest,
     /// so a pass rewriting branches handles `BranchOne` and AI decisions alike. Any other step is
     /// given back unchanged.
@@ -1164,16 +1180,22 @@ impl FlowModuleValue {
         self,
     ) -> Result<(Vec<Branch>, Vec<FlowModule>, BranchChoiceShell), FlowModuleValue> {
         match self {
-            FlowModuleValue::BranchOne { branches, default, default_node } => {
-                Ok((branches, default, BranchChoiceShell::BranchOne { default_node }))
-            }
-            FlowModuleValue::AIDecision { input_transforms, branches, default, default_node, tag } => {
-                Ok((
-                    branches,
-                    default,
-                    BranchChoiceShell::AIDecision { input_transforms, default_node, tag },
-                ))
-            }
+            FlowModuleValue::BranchOne { branches, default, default_node } => Ok((
+                branches,
+                default,
+                BranchChoiceShell::BranchOne { default_node },
+            )),
+            FlowModuleValue::AIDecision {
+                input_transforms,
+                branches,
+                default,
+                default_node,
+                tag,
+            } => Ok((
+                branches,
+                default,
+                BranchChoiceShell::AIDecision { input_transforms, default_node, tag },
+            )),
             other => Err(other),
         }
     }
@@ -1707,6 +1729,13 @@ mod tests {
             output["branches"][0]["expr"],
             json!("previous_result.output.intent.choice === 'refund'")
         );
+        assert!(val.is_branched_ai_decision());
+
+        // A deployed default-only decision keeps its default as a flow node.
+        let deployed =
+            json!({"type": "aidecision", "input_transforms": {}, "default": [], "default_node": 5});
+        let val: FlowModuleValue = serde_json::from_value(deployed).unwrap();
+        assert!(val.is_branched_ai_decision());
     }
 
     #[test]

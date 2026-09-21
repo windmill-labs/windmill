@@ -124,7 +124,7 @@ pub enum AIProvider {
     #[serde(rename = "aws_bedrock")]
     AWSBedrock,
     /// TypeSafe's Jev decision model. It answers typed questions rather than chatting, so only
-    /// an agent step with decision output runs it (`run_decision`), never the agent loop.
+    /// an AI decision runs it (`run_systemone`), never the agent loop.
     TypeSafe,
 }
 

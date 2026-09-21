@@ -52,24 +52,25 @@ async fn test_ai_decision_runs_the_branch_its_answer_picks(
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
 
+    let decision_inputs = json!({
+        "provider": {"type": "static", "value": {
+            "kind": "typesafe",
+            "resource": {"api_key": "key", "base_url": format!("http://127.0.0.1:{stub_port}/v1")},
+            "model": "jev-latest"
+        }},
+        "state": {"type": "static", "value": "I was charged twice"},
+        "questions": {"type": "static", "value": {"intent": {
+            "type": "choice",
+            "instructions": "What does the customer want?",
+            "criteria": {"refund": "Money back", "bug": "Something is broken"}
+        }}}
+    });
     let flow: FlowValue = serde_json::from_value(json!({
         "modules": [{
             "id": "d",
             "value": {
                 "type": "aidecision",
-                "input_transforms": {
-                    "provider": {"type": "static", "value": {
-                        "kind": "typesafe",
-                        "resource": {"api_key": "key", "base_url": format!("http://127.0.0.1:{stub_port}/v1")},
-                        "model": "jev-latest"
-                    }},
-                    "state": {"type": "static", "value": "I was charged twice"},
-                    "questions": {"type": "static", "value": {"intent": {
-                        "type": "choice",
-                        "instructions": "What does the customer want?",
-                        "criteria": {"refund": "Money back", "bug": "Something is broken"}
-                    }}}
-                },
+                "input_transforms": decision_inputs,
                 "branches": [
                     {
                         "expr": "previous_result.output.intent.choice === 'bug'",
@@ -113,6 +114,58 @@ async fn test_ai_decision_runs_the_branch_its_answer_picks(
     assert!(
         decision_job.is_some(),
         "the decision job is kept once the branch has run"
+    );
+
+    // A branch condition still reads the step before the decision as `results.<id>`, while
+    // `previous_result` is the answers. Once an empty branch is chosen, `results.d` stays the
+    // answers for every later step, not only the next one.
+    let flow: FlowValue = serde_json::from_value(json!({
+        "modules": [
+            {"id": "pre", "value": {
+                "type": "rawscript",
+                "language": "deno",
+                "content": "export function main(){ return { allow: true } }",
+                "input_transforms": {}
+            }},
+            {"id": "d", "value": {
+                "type": "aidecision",
+                "input_transforms": decision_inputs,
+                "branches": [{
+                    "expr": "results.pre.allow && previous_result.output.intent.choice === 'refund'",
+                    "modules": []
+                }]
+            }},
+            {"id": "next", "value": {"type": "identity"}},
+            {"id": "after", "value": {
+                "type": "rawscript",
+                "language": "deno",
+                "content": "export function main(choice){ return choice }",
+                "input_transforms": {"choice": {
+                    "type": "javascript",
+                    "expr": "results.d.output.intent.choice"
+                }}
+            }}
+        ]
+    }))?;
+    let job = run_job_in_new_worker_until_complete(
+        &db,
+        false,
+        JobPayload::RawFlow { value: flow, path: None, restarted_from: None },
+        port,
+    )
+    .await;
+    assert_eq!(job.json_result(), Some(json!("refund")));
+    let status: FlowStatus = serde_json::from_value(job.flow_status.expect("flow status"))?;
+    assert!(
+        matches!(
+            &status.modules[1],
+            FlowStatusModule::Success {
+                branch_chosen: Some(BranchChosen::Branch { branch: 0 }),
+                ..
+            }
+        ),
+        "the branch reading the previous step was not chosen: {:?}",
+        status.modules[1]
     );
     Ok(())
 }

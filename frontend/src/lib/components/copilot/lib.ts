@@ -148,8 +148,8 @@ export const AI_PROVIDERS: Record<ChatAIProvider, AIProviderDetails> = {
 	}
 }
 
-/** TypeSafe's Jev answers typed questions instead of messages, so only an agent step with decision
- *  output offers it. The pinned version is there for flows tuned against its probabilities. */
+/** TypeSafe's Jev answers typed questions instead of messages, so only an AI decision offers it.
+ *  The pinned version is there for flows tuned against its probabilities. */
 export const DECISION_AI_PROVIDERS: Record<
 	Exclude<AIProvider, ChatAIProvider>,
 	AIProviderDetails

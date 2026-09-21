@@ -491,9 +491,7 @@ async fn execute_windmill_tool(
             }
         }
         // A tool returns its answers to the calling model, so it has no flow to branch into.
-        FlowModuleValue::AIDecision { branches, default, .. }
-            if !branches.is_empty() || !default.is_empty() =>
-        {
+        ref value @ FlowModuleValue::AIDecision { .. } if value.is_branched_ai_decision() => {
             return Err(Error::BadRequest(format!(
                 "The AI decision tool {} has branches, which only a flow step can run",
                 tool_call.function.name

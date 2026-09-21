@@ -1,4 +1,4 @@
--- The credential an AI agent step with decision output runs TypeSafe's Jev with. Seeded under
+-- The credential an AI decision step runs TypeSafe's Jev with. Seeded under
 -- 'admins' so every workspace sees it, in the shape the hub gives the other AI providers, which
 -- the step reads as `api_key` and `base_url`. A hub sync that later publishes the same name
 -- updates the schema in place.
@@ -26,7 +26,7 @@ VALUES (
         },
         "required": ["api_key"]
     }',
-    'API key for TypeSafe''s Jev decision model, which answers typed questions with calibrated probabilities. Used by AI agent steps with decision output.',
+    'API key for TypeSafe''s Jev decision model, which answers typed questions with calibrated probabilities. Used by AI decision steps and tools.',
     'system',
     now()
 )

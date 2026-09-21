@@ -61,7 +61,10 @@ use crate::{
     common::{
         build_args_map, resolve_job_timeout, transform_json_value, OccupancyMetrics, StreamNotifier,
     },
-    handle_child::{run_future_with_polling_update_job_poller_graceful, GracefulPollOutcome},
+    handle_child::{
+        run_future_with_polling_update_job_poller,
+        run_future_with_polling_update_job_poller_graceful, GracefulPollOutcome,
+    },
 };
 
 lazy_static::lazy_static! {
@@ -631,6 +634,10 @@ pub async fn handle_ai_agent_job(
             job,
             &local_args,
             direct_parent_job_kind == JobKind::AIAgent,
+            canceled_by,
+            mem_peak,
+            occupancy_metrics,
+            worker_name,
         )
         .await;
     }
@@ -2116,6 +2123,10 @@ async fn handle_ai_decision(
     job: &MiniPulledJob,
     local_args: &HashMap<String, Box<RawValue>>,
     as_tool: bool,
+    canceled_by: &mut Option<CanceledBy>,
+    mem_peak: &mut i32,
+    occupancy_metrics: &mut OccupancyMetrics,
+    worker_name: &str,
 ) -> error::Result<Box<RawValue>> {
     let args = serde_json::from_str::<AIDecisionArgs>(&serde_json::to_string(local_args)?)?;
     if args.provider.kind != AIProvider::TypeSafe {
@@ -2129,12 +2140,24 @@ async fn handle_ai_decision(
     let timeout = resolve_job_timeout(conn, &job.workspace_id, job.id, job.timeout)
         .await
         .0;
-    let result = run_systemone(
-        &credentials,
-        args.provider.get_model(),
-        state,
-        questions,
-        timeout,
+    // Under the job poller, so the job keeps its heartbeat and a cancel drops the request.
+    let result = run_future_with_polling_update_job_poller(
+        job.id,
+        job.timeout,
+        conn,
+        mem_peak,
+        canceled_by,
+        run_systemone(
+            &credentials,
+            args.provider.get_model(),
+            state,
+            questions,
+            timeout,
+        ),
+        worker_name,
+        &job.workspace_id,
+        &mut Some(occupancy_metrics),
+        Box::pin(futures::stream::once(async { 0 })),
     )
     .await?;
     windmill_common::feature_usage::log_feature_usage(
@@ -2169,7 +2192,12 @@ fn decision_tool_description(input_transforms: &HashMap<String, InputTransform>)
                 Some("score") => {
                     let levels = criteria
                         .and_then(|c| c.as_array())
-                        .map(|c| c.iter().filter_map(|l| l.as_str()).collect::<Vec<_>>().join(" < "))
+                        .map(|c| {
+                            c.iter()
+                                .filter_map(|l| l.as_str())
+                                .collect::<Vec<_>>()
+                                .join(" < ")
+                        })
                         .unwrap_or_default();
                     format!("a score over {levels}")
                 }
