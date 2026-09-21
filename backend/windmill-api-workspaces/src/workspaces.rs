@@ -3563,7 +3563,7 @@ async fn create_pg_database(
         }
         if source_kind == DataTableCatalogResourceType::ExternalInstance {
             windmill_common::external_instance_pg::create_external_instance_database_unchecked(
-                &db,
+                &mut tx,
                 &req.target_dbname,
                 "datatable",
                 Some(&w_id),

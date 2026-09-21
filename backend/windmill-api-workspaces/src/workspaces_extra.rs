@@ -1505,14 +1505,22 @@ pub async fn drop_forked_datatable_databases(
                             "the data table changed while it was being cleaned up".to_string(),
                         ));
                     }
+                    let external = resource_type
+                        == windmill_common::workspaces::DataTableCatalogResourceType::ExternalInstance;
+                    if external {
+                        // Before the governance lock, in the order settings saves and fork
+                        // finalization take the two.
+                        windmill_common::external_instance_pg::lock_external_instance_pg_state(
+                            &mut tx,
+                        )
+                        .await?;
+                    }
                     windmill_common::datatable_roles::lock_instance_databases_governance(
                         &mut tx,
                         [db_to_drop.as_str()],
                     )
                     .await?;
-                    if resource_type
-                        != windmill_common::workspaces::DataTableCatalogResourceType::ExternalInstance
-                    {
+                    if !external {
                         let uses = windmill_common::workspaces::managed_database_uses(
                             &mut tx,
                             windmill_common::workspaces::DataTableCatalogResourceType::Instance,
@@ -1537,12 +1545,10 @@ pub async fn drop_forked_datatable_databases(
                     .bind(&dt_name)
                     .execute(&mut *tx)
                     .await?;
-                    if resource_type
-                        == windmill_common::workspaces::DataTableCatalogResourceType::ExternalInstance
-                    {
+                    if external {
                         // Checks the uses of the database itself, and unregisters it.
                         windmill_common::external_instance_pg::drop_external_instance_database_unchecked(
-                            &db,
+                            &mut tx,
                             &db_to_drop,
                             Some((w_id.as_str(), dt_name.as_str())),
                         )

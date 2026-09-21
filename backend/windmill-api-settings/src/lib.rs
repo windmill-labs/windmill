@@ -1909,10 +1909,12 @@ async fn create_external_instance_pg_database(
 ) -> JsonResult<()> {
     require_super_admin(&db, &authed).await?;
     let tag = body.tag.as_deref().unwrap_or("datatable");
+    let mut tx = db.begin().await?;
     windmill_common::external_instance_pg::create_external_instance_database_unchecked(
-        &db, &dbname, tag, None,
+        &mut tx, &dbname, tag, None,
     )
     .await?;
+    tx.commit().await?;
     windmill_audit::audit_oss::audit_log(
         &db,
         &authed,
@@ -1933,10 +1935,12 @@ async fn drop_external_instance_pg_database(
 ) -> JsonResult<()> {
     require_super_admin(&db, &authed).await?;
     // A data table naming a dropped database fails on every job, far from the drop that caused it.
+    let mut tx = db.begin().await?;
     windmill_common::external_instance_pg::drop_external_instance_database_unchecked(
-        &db, &dbname, None,
+        &mut tx, &dbname, None,
     )
     .await?;
+    tx.commit().await?;
     windmill_audit::audit_oss::audit_log(
         &db,
         &authed,

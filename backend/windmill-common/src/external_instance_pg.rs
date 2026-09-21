@@ -179,7 +179,7 @@ pub async fn external_instance_database_usages<'c>(
 /// Refuse to unset the cluster while Windmill still has databases on it, or a workspace still
 /// points at one: every data table there would stop resolving. Allowed on every edition, so a
 /// downgraded instance can still clear a setting it no longer uses.
-pub async fn ensure_external_instance_pg_removable(conn: &mut sqlx::PgConnection) -> Result<()> {
+async fn ensure_external_instance_pg_removable(conn: &mut sqlx::PgConnection) -> Result<()> {
     let state = read_external_instance_pg_state(&mut *conn).await?;
     let usages = external_instance_database_usages(&mut *conn).await?;
     if state.databases.is_empty() && usages.is_empty() {
@@ -231,16 +231,19 @@ pub async fn external_instance_connection_unchecked(
 /// Create `dbname` on the external cluster and register it. Refuses a name already taken there,
 /// whoever took it.
 ///
+/// Runs on `tx`, which it takes [`lock_external_instance_pg_state`] on: the registration lands when
+/// the caller commits. Take that lock before any database governance lock, as saves do.
+///
 /// Authorization: checks nothing. Callers MUST be superadmin, or be cloning a data table they may
 /// fork into a `wm_fork_` database.
 pub async fn create_external_instance_database_unchecked(
-    db: &DB,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     dbname: &str,
     tag: &str,
     for_workspace: Option<&str>,
 ) -> Result<()> {
     crate::external_instance_pg_oss::create_external_instance_database_unchecked(
-        db,
+        tx,
         dbname,
         tag,
         for_workspace,
@@ -253,14 +256,17 @@ pub async fn create_external_instance_database_unchecked(
 /// ([`crate::workspaces::managed_database_uses`]), except the `exempt` data table entry: the fork
 /// copy being cleaned up.
 ///
+/// Runs on `tx`, like [`create_external_instance_database_unchecked`]: the database is gone at
+/// once, its registry entry when the caller commits.
+///
 /// Authorization: checks nothing. Callers MUST be superadmin, or be deleting the fork that owns
 /// this `wm_fork_` database.
 pub async fn drop_external_instance_database_unchecked(
-    db: &DB,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     dbname: &str,
     exempt: Option<(&str, &str)>,
 ) -> Result<()> {
-    crate::external_instance_pg_oss::drop_external_instance_database_unchecked(db, dbname, exempt)
+    crate::external_instance_pg_oss::drop_external_instance_database_unchecked(tx, dbname, exempt)
         .await
 }
 
