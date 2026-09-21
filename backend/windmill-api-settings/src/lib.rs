@@ -1912,9 +1912,9 @@ async fn setup_custom_instance_pg_database_inner(
         .await
         .map_err(|e| custom_instance_user_connect_error(&user_creds.host, dbname, e))?;
     let join_handle = tokio::spawn(async move { connection.await });
-    drop(client);
-    windmill_common::shutdown_pg_connection(join_handle).await?;
     logs.user_connect = "OK".to_string();
+    drop(client); // /!\ Drop before joining to avoid deadlock
+    windmill_common::shutdown_pg_connection(join_handle).await?;
 
     Ok(())
 }
