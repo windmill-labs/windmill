@@ -325,6 +325,13 @@
 				}
 				return
 			}
+			// Settle the key BEFORE reading, so what comes back is the version the server is left
+			// holding: a write this tab started can still be in flight — a forced one it walked
+			// away from included — and a response fetched past it describes a version about to be
+			// replaced, which would then be seeded along with its already-stale `last_sync`.
+			// Nothing is given up by waiting; `quiesce` only stops the pipeline.
+			await UserDraftDbSyncer.quiesce(query)
+			if (!stillOurs()) return
 			// Read BEFORE giving anything up: until the server has answered, the refused payload is
 			// still the only copy of this tab's edit, and the conflict is still true.
 			const r = await ResourceService.getResource({ workspace: ws, path: p, getDraft: true })
@@ -339,12 +346,6 @@
 			// resource's: the drawer stays closable while the read is out, and another resource
 			// opened meanwhile would otherwise get this one's baseline — and with it this one's
 			// path as its save target.
-			if (!stillOurs()) return
-			// Anything an autosave queued while the read was out belongs to the version being
-			// replaced. Dropping is not enough on its own: a POST the runner already started
-			// cannot be cancelled, and if it settles after the baseline below, its rejection
-			// raises the conflict again. So wait for the chain to go quiet first.
-			await UserDraftDbSyncer.quiesce(query)
 			if (!stillOurs()) return
 			// Now, and not in `quiesce`: the refused payload belongs to the version being replaced,
 			// but until this point it was still the only copy of the edit, and a resolution that
@@ -368,7 +369,16 @@
 			// with Save disabled. Ungate here rather than leaving it to the effect, so no write
 			// between the two is absorbed.
 			openedOnDraft[ws] = !!loadedDraft
-			if (loadedDraft) setGated(ws, false)
+			if (loadedDraft) {
+				setGated(ws, false)
+			} else {
+				// Accepting "there is no draft" has to shut the gate, the way discarding one does.
+				// The edit that raised the conflict set `userEdited`, and left open, the form's
+				// settling writes — schema defaults materializing over the loaded value — read as
+				// the user's and recreate the draft just accepted away.
+				userEdited[ws] = false
+				setGated(ws, true)
+			}
 			UserDraft.seed('resource', p, loadedDraft ?? deployedState, { workspace: ws })
 		} catch (e) {
 			// Nothing was given up above, so the conflict stands and the edit is still here to
