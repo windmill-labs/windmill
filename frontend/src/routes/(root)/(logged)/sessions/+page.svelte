@@ -148,7 +148,7 @@
 	)
 
 	$effect(() => {
-		if (sessionId || !activeSession) return
+		if (embedded || sessionId || !activeSession) return
 		const id = activeSession.id
 		untrack(() => void goto(sessionPageHref(id), { replaceState: true }))
 	})
