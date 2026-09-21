@@ -323,10 +323,13 @@ export const extractAllModules = (modules: FlowModule[]): FlowModule[] => {
 		if (m.value.type === 'branchall') {
 			return [m, ...extractAllModules(m.value.branches.flatMap((b) => b.modules))]
 		}
-		if (m.value.type === 'branchone') {
+		if (m.value.type === 'branchone' || m.value.type === 'aidecision') {
 			return [
 				m,
-				...extractAllModules([...m.value.branches.flatMap((b) => b.modules), ...m.value.default])
+				...extractAllModules([
+					...(m.value.branches ?? []).flatMap((b) => b.modules),
+					...(m.value.default ?? [])
+				])
 			]
 		}
 		return [m]

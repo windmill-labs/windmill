@@ -659,6 +659,7 @@ components:
         - $ref: '#/components/schemas/BranchAll'
         - $ref: '#/components/schemas/Identity'
         - $ref: '#/components/schemas/AiAgent'
+        - $ref: '#/components/schemas/AiDecision'
       discriminator:
         propertyName: type
         mapping:
@@ -671,6 +672,7 @@ components:
           branchall: '#/components/schemas/BranchAll'
           identity: '#/components/schemas/Identity'
           aiagent: '#/components/schemas/AiAgent'
+          aidecision: '#/components/schemas/AiDecision'
 
     RawScript:
       type: object
@@ -1062,32 +1064,7 @@ components:
                 - $ref: '#/components/schemas/InputTransform'
               description: |
                 Output format type.
-                Valid values: 'text' (default) - plain text response, 'image' - image generation,
-                'decision' - typed answers to `questions` about `state` from a decision model
-                (TypeSafe's Jev, with a `typesafe` provider). A decision makes one call and reads
-                only provider, state and questions: no tools, memory, messages or streaming.
-            state:
-              allOf:
-                - $ref: '#/components/schemas/InputTransform'
-              description: |
-                Decision output only. What the questions are asked about: a string, an object
-                or an array of strings. An object with descriptive keys works best.
-                Example: { message: flow_input.message, plan: results.a.plan }
-            questions:
-              allOf:
-                - $ref: '#/components/schemas/InputTransform'
-              description: |
-                Decision output only. Object mapping each question name to
-                { type, instructions, criteria }, where type is:
-                - 'choice': criteria maps each option to its description (up to 255); the answer
-                  has choice, probabilities and confidence
-                - 'score': criteria is an ordered array of 2 to 10 level descriptions; the answer
-                  has score, legend, probabilities and confidence
-                - 'noul': yes/no, criteria optionally { true, false } descriptions; the answer is
-                  the probability noul (0 to 1)
-                The step's result is { output: { <name>: answer }, model, usage }.
-                Example: { intent: { type: 'choice', instructions: 'What does the customer want?',
-                criteria: { refund: 'Money back', bug: 'Something is broken' } } }
+                Valid values: 'text' (default) - plain text response, 'image' - image generation
             user_message:
               allOf:
                 - $ref: '#/components/schemas/InputTransform'
@@ -1197,8 +1174,7 @@ components:
             Path of a reusable `ai_agent` resource (hybrid linking). When set, the agent brain
             config (provider/model/system prompt/etc.) and tool set are resolved at runtime from
             that resource; the module's input_transforms then only carry the flow-local inputs
-            (user_message, a decision's state, user_attachments, enabled_tools and the history inputs
-            memory_id and previous_messages).
+            (user_message, user_attachments, enabled_tools and the history inputs memory_id and previous_messages).
         tool_inputs:
           type: object
           description: |
@@ -1214,6 +1190,89 @@ components:
         parallel:
           type: boolean
           description: If true, the agent can execute multiple tool calls in parallel
+      required:
+        - type
+        - input_transforms
+
+    AiDecision:
+      type: object
+      description: |
+        AI decision step: one call to a decision model (TypeSafe's Jev) that answers typed
+        questions about a state with calibrated probabilities, instead of generating text.
+        Prefer it over an AI agent to classify, route, score or check something: it is fast,
+        cheap and its answers are structured. Its result is { output: { <question name>: answer },
+        model, usage }, so a later step reads e.g. results.<id>.output.intent.choice.
+        With branches, it then runs the first branch whose expr holds against the answers, like
+        a branchone, else default; the step's result is then the chosen branch's result, and an
+        empty branch returns the answers. Usable as an AI agent tool (without branches), where the
+        calling agent supplies the state.
+      properties:
+        input_transforms:
+          type: object
+          description: Input parameters for the decision mapped to their values
+          properties:
+            # A provider config whose kind is 'typesafe', model 'jev-latest' unless pinned.
+            provider:
+              $ref: '#/components/schemas/ProviderTransform'
+            state:
+              allOf:
+                - $ref: '#/components/schemas/InputTransform'
+              description: |
+                What the questions are asked about: a string, an object or an array of strings.
+                An object with descriptive keys holding only what the questions need works best.
+                Example: { message: flow_input.message, plan: results.a.plan }
+            questions:
+              allOf:
+                - $ref: '#/components/schemas/InputTransform'
+              description: |
+                Object mapping each question name to { type, instructions, criteria }, where type is:
+                - 'choice': criteria maps each option to its description (up to 255); the answer
+                  has choice, probabilities and confidence
+                - 'score': criteria is an ordered array of 2 to 10 level descriptions; the answer
+                  has score, legend, probabilities and confidence
+                - 'noul': yes/no, criteria optionally { true, false } descriptions; the answer is
+                  the probability noul (0 to 1)
+                Example: { intent: { type: 'choice', instructions: 'What does the customer want?',
+                criteria: { refund: 'Money back', bug: 'Something is broken' } } }
+          required:
+            - provider
+            - state
+            - questions
+        branches:
+          type: array
+          description: |
+            Optional branches evaluated in order after the decision answers; the first whose expr
+            is true runs. previous_result is the decision's result, so a branch on a choice reads
+            previous_result.output.<question>.choice === '<option>'.
+          items:
+            type: object
+            properties:
+              summary:
+                type: string
+                description: Short description of this branch, usually the option it handles
+              expr:
+                type: string
+                description: JavaScript expression returning a boolean, evaluated against the answers (previous_result)
+              modules:
+                type: array
+                description: Steps to execute if this branch's expr is true
+                items:
+                  $ref: '#/components/schemas/FlowModule'
+            required:
+              - modules
+              - expr
+        default:
+          type: array
+          description: Steps to execute when the decision has branches and none matches
+          items:
+            $ref: '#/components/schemas/FlowModule'
+        type:
+          type: string
+          enum:
+            - aidecision
+        tag:
+          type: string
+          description: Worker group tag for execution routing. If not set, the step runs on the flow's tag (default `flow`)
       required:
         - type
         - input_transforms
@@ -1330,6 +1389,10 @@ components:
               type: integer
           required:
             - type
+        decision_job:
+          type: string
+          format: uuid
+          description: The decision job of an AI decision step with branches, whose job is the branch it chose
         branchall:
           type: object
           properties:

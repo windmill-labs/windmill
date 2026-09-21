@@ -242,7 +242,7 @@ function findRawScriptsInModules(
       for (const b of m.value.branches ?? []) {
         results.push(...findRawScriptsInModules(b.modules));
       }
-    } else if (m.value.type === "branchone") {
+    } else if (m.value.type === "branchone" || m.value.type === "aidecision") {
       for (const b of m.value.branches ?? []) {
         results.push(...findRawScriptsInModules(b.modules));
       }

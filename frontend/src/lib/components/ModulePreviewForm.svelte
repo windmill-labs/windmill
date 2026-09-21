@@ -14,12 +14,7 @@
 	import type SimpleEditor from './SimpleEditor.svelte'
 	import { getResourceTypes } from './resourceTypesStore'
 	import { twMerge } from 'tailwind-merge'
-	import {
-		AGENT_FIELDS,
-		agentFieldServes,
-		agentOutputType,
-		initialVisibleAgentFields
-	} from './flows/agentFormFields'
+	import { AGENT_FIELDS, initialVisibleAgentFields } from './flows/agentFormFields'
 	import { openAgentFields } from './flows/content/AiAgentStepInputs.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
@@ -38,8 +33,6 @@
 		/** Fields to offer whatever the step holds, for a surface where nothing else can set them
 		 *  (`AGENT_EDITOR_RUN_INPUTS`). */
 		runInputKeys?: readonly string[]
-		/** A linked agent's `output_type`, once its config has loaded: the step holds none of its own. */
-		linkedOutputType?: unknown
 	}
 
 	let {
@@ -50,8 +43,7 @@
 		autofocus = false,
 		focusArg = undefined,
 		openFieldsKey = undefined,
-		runInputKeys = [],
-		linkedOutputType = undefined
+		runInputKeys = []
 	}: Props = $props()
 
 	const { stepsInputArgs, flowStateStore, flowStore, previewArgs, opWorkspace } =
@@ -81,25 +73,9 @@
 		if ((mod.value as { type?: string })?.type !== 'aiagent') return all
 		const transforms = (mod.value as { input_transforms?: Record<string, unknown> })
 			?.input_transforms
-		// A step's own agent holds its output type; a linked one takes it from the agent, and reads as
-		// text until that has loaded.
-		const outputTransform = transforms?.output_type as
-			| { type?: string; value?: unknown }
-			| undefined
-		const outputType = outputTransform
-			? agentOutputType(outputTransform.type === 'static' ? outputTransform.value : undefined)
-			: linkedOutputType !== undefined
-				? agentOutputType(linkedOutputType)
-				: undefined
-		const visible = initialVisibleAgentFields(transforms, schema?.properties, outputType)
+		const visible = initialVisibleAgentFields(transforms, schema?.properties)
 		for (const key of openAgentFields(openFieldsKey)) visible.add(key)
 		for (const key of runInputKeys) visible.add(key)
-		// The open fields can carry the other output type's from before a switch.
-		if (outputType) {
-			for (const spec of AGENT_FIELDS) {
-				if (!agentFieldServes(spec, outputType)) visible.delete(spec.key)
-			}
-		}
 		const known = new Set(AGENT_FIELDS.map((f) => f.key))
 		// Listed in the agent form's order rather than the schema's, so the two read the same.
 		const position = new Map(AGENT_FIELDS.map((f, i) => [f.key, i]))
@@ -238,9 +214,6 @@
 								title={schema.properties[argName].title}
 								placeholder={schema.properties[argName].placeholder}
 								workspace={opWs}
-								otherArgs={isAgent
-									? { output_type: stepsInputArgs?.getStepInputArgs(mod.id, 'output_type') }
-									: undefined}
 							>
 								{#snippet fieldHeaderActions()}
 									{#if stepsInputArgs?.isArgManuallySet(mod.id, argName) && hasConfiguredInput(argName)}

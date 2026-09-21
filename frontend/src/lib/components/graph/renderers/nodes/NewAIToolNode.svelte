@@ -114,6 +114,14 @@
 					})
 					close()
 				}}
+				on:pickAiDecisionTool={(e) => {
+					data.eventHandlers.insert({
+						index: -1,
+						agentId: data.agentModuleId,
+						kind: 'aiDecisionTool'
+					})
+					close()
+				}}
 			/>
 		{/snippet}
 	</Popover>

@@ -8,7 +8,7 @@
 
 import { expect, test, describe } from "bun:test";
 import { replacePathScriptsWithLocal, type LocalScriptInfo } from "../windmill-utils-internal/src/inline-scripts/replacer.ts";
-import type { FlowModule } from "../windmill-utils-internal/src/gen/types.gen.ts";
+import type { AiDecision, FlowModule } from "../windmill-utils-internal/src/gen/types.gen.ts";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -305,6 +305,44 @@ describe("replacePathScriptsWithLocal nested structures", () => {
     expect(defaultModule.value.type).toBe("rawscript");
     expect((defaultModule.value as any).content).toBe("default code");
     expect((defaultModule.value as any).language).toBe("bash");
+  });
+
+  test("processes modules inside aidecision, with or without branches", async () => {
+    const branchModule = makePathScriptModule("b1", "f/scripts/branch");
+    const defaultModule = makePathScriptModule("d1", "f/scripts/default");
+    const makeDecision = (id: string, branching: Partial<AiDecision>): FlowModule => ({
+      id,
+      value: {
+        type: "aidecision" as const,
+        input_transforms: {
+          provider: {
+            type: "static",
+            value: { kind: "typesafe", resource: "$res:u/admin/typesafe", model: "jev-latest" },
+          },
+          state: { type: "javascript", expr: "flow_input" },
+          questions: { type: "static", value: {} },
+        },
+        ...branching,
+      },
+    });
+
+    const scriptReader = async (scriptPath: string): Promise<LocalScriptInfo | undefined> =>
+      ({ content: `${scriptPath} code`, language: "bun" });
+
+    await replacePathScriptsWithLocal(
+      [
+        makeDecision("routed", {
+          branches: [{ modules: [branchModule], expr: "true" }],
+          default: [defaultModule],
+        }),
+        makeDecision("plain", {}),
+      ],
+      scriptReader,
+      noopLogger,
+    );
+
+    expect((branchModule.value as any).content).toBe("f/scripts/branch code");
+    expect((defaultModule.value as any).content).toBe("f/scripts/default code");
   });
 
   test("handles empty modules array", async () => {

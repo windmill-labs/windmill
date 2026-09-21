@@ -1,5 +1,5 @@
 import { AGENT_HISTORY_KEYS } from './agentFormFields'
-import type { AiAgent, FlowModule, FlowModuleValue, InputTransform } from '$lib/gen'
+import type { AiAgent, AiDecision, FlowModule, FlowModuleValue, InputTransform } from '$lib/gen'
 import { loadStoredConfig } from '../aiProviderStorage'
 import { AI_AGENT_SCHEMA } from './flowInfers'
 import { forbiddenIds } from './idUtils'
@@ -45,7 +45,12 @@ export function getToolNameError(
 	return undefined
 }
 
-export const SPECIAL_TOOL_KINDS = ['mcpTool', 'websearchTool', 'aiAgentTool'] as const
+export const SPECIAL_TOOL_KINDS = [
+	'mcpTool',
+	'websearchTool',
+	'aiAgentTool',
+	'aiDecisionTool'
+] as const
 export type SpecialToolKind = (typeof SPECIAL_TOOL_KINDS)[number]
 
 // Type aliases for better readability
@@ -53,6 +58,9 @@ export type AgentTool = NonNullable<AiAgent['tools']>[number]
 export type FlowModuleTool = AgentTool & { value: { tool_type: 'flowmodule' } & FlowModuleValue }
 export type AiAgentTool = AgentTool & {
 	value: { tool_type: 'flowmodule' } & { type: 'aiagent' } & FlowModuleValue
+}
+export type AiDecisionTool = AgentTool & {
+	value: { tool_type: 'flowmodule' } & AiDecision
 }
 export type McpTool = AgentTool & {
 	value: {
@@ -97,6 +105,32 @@ export function isWebsearchTool(tool: AgentTool): tool is WebsearchTool {
  *  of `{user_message}` and nothing else (`AI_AGENT_TOOL_SCHEMA` in `ai_executor.rs`); anything else
  *  left AI-filled here is dropped from that schema and never reaches the model. */
 export const AI_AGENT_TOOL_AI_KEYS = ['user_message']
+
+/** Likewise for a decision used as a tool: the calling agent supplies what it decides about
+ *  (`AI_DECISION_TOOL_SCHEMA` in `ai_executor.rs`). */
+export const AI_DECISION_TOOL_AI_KEYS = ['state']
+
+/** A new decision: on TypeSafe's latest Jev, with a question to show the shape. */
+export function newAiDecisionInputTransforms(): AiDecision['input_transforms'] {
+	return {
+		provider: { type: 'static', value: { kind: 'typesafe', resource: '', model: 'jev-latest' } },
+		state: { type: 'static', value: undefined },
+		questions: {
+			type: 'static',
+			value: {
+				intent: {
+					type: 'choice',
+					instructions: 'What does the message ask for?',
+					criteria: {
+						question: 'An answer to a question',
+						action: 'Something to be done',
+						other: 'Anything else'
+					}
+				}
+			}
+		}
+	}
+}
 
 /** What a tool is called wherever it is named: its own name, else what it points at. Never its id,
  *  which is internal. Undefined when it has nothing to be called yet — an MCP tool with no server
@@ -157,6 +191,19 @@ export function createAiAgentTool(id: string): AiAgentTool {
 			input_transforms
 		}
 	} as AiAgentTool
+}
+
+/** Create an AI decision tool. It never has branches: the answers go back to the calling agent. */
+export function createAiDecisionTool(id: string): AiDecisionTool {
+	return {
+		id,
+		summary: '',
+		value: {
+			tool_type: 'flowmodule',
+			type: 'aidecision',
+			input_transforms: { ...newAiDecisionInputTransforms(), state: { type: 'ai' } }
+		}
+	}
 }
 
 /**

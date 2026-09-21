@@ -75,7 +75,7 @@ function extractAndReplaceInlineScripts(
 					modules: extractAndReplaceInlineScripts(newModule.value.modules, session)
 				}
 			}
-		} else if (newModule.value.type === 'branchone') {
+		} else if (newModule.value.type === 'branchone' || newModule.value.type === 'aidecision') {
 			if (newModule.value.branches) {
 				newModule.value = {
 					...newModule.value,
@@ -159,7 +159,7 @@ function restoreInlineScriptReferences(
 					modules: restoreInlineScriptReferences(newModule.value.modules, session)
 				}
 			}
-		} else if (newModule.value.type === 'branchone') {
+		} else if (newModule.value.type === 'branchone' || newModule.value.type === 'aidecision') {
 			if (newModule.value.branches) {
 				newModule.value = {
 					...newModule.value,
@@ -236,7 +236,7 @@ export function findUnresolvedInlineScriptRefs(modules: FlowModule[]): string[] 
 			if (module.value.modules) {
 				module.value.modules.forEach(checkModule)
 			}
-		} else if (module.value.type === 'branchone') {
+		} else if (module.value.type === 'branchone' || module.value.type === 'aidecision') {
 			if (module.value.branches) {
 				module.value.branches.forEach((branch) => {
 					branch.modules?.forEach(checkModule)

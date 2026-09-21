@@ -48,6 +48,28 @@
 	let codeViewer: Drawer | undefined = $state()
 </script>
 
+{#snippet choiceBranchList(branches: { summary?: string; expr: string }[])}
+	<div class="flex-col flex gap-2">
+		<div class="flex flex-row gap-4 text-sm p-2">
+			<Badge large={true} color="blue">Default branch</Badge>
+			<p class="italic text-primary"
+				>If none of the predicates' expressions evaluated in-order match, this branch is chosen</p
+			>
+		</div>
+		{#each branches as v, i}
+			<div class="flex flex-col gap-4-2 items-center">
+				<div class="w-full flex gap-2 px-2 pt-4 pb-2">
+					<Badge large={true} color="blue">Branch {i + 1}</Badge>
+					<span>{v.summary}</span>
+				</div>
+				<div class="w-full border p-2">
+					<HighlightCode language="frontend" code={v.expr} />
+				</div>
+			</div>
+		{/each}
+	</div>
+{/snippet}
+
 <HighlightTheme />
 
 <Drawer bind:this={codeViewer} size="900px">
@@ -255,25 +277,18 @@
 			<p class="font-medium text-secondary text-center pt-4 pb-8">
 				Only one branch will run based on a predicate
 			</p>
-			<div class="flex-col flex gap-2">
-				<div class="flex flex-row gap-4 text-sm p-2">
-					<Badge large={true} color="blue">Default branch</Badge>
-					<p class="italic text-primary"
-						>If none of the predicates' expressions evaluated in-order match, this branch is chosen</p
-					>
-				</div>
-				{#each stepDetail.value.branches as v, i}
-					<div class="flex flex-col gap-4-2 items-center">
-						<div class="w-full flex gap-2 px-2 pt-4 pb-2">
-							<Badge large={true} color="blue">Branch {i + 1}</Badge>
-							<span>{v.summary}</span>
-						</div>
-						<div class="w-full border p-2">
-							<HighlightCode language="frontend" code={v.expr} />
-						</div>
-					</div>
-				{/each}
+			{@render choiceBranchList(stepDetail.value.branches)}
+		{:else if stepDetail.value.type == 'aidecision'}
+			<div class="text-xs">
+				<h3 class="mb-1 font-semibold mt-2 text-xs text-emphasis">Step inputs</h3>
+				<InputTransformsViewer inputTransforms={stepDetail.value.input_transforms ?? {}} />
 			</div>
+			{#if stepDetail.value.branches?.length}
+				<p class="font-medium text-secondary text-center pt-4 pb-8">
+					Only one branch will run based on the answers
+				</p>
+				{@render choiceBranchList(stepDetail.value.branches)}
+			{/if}
 		{:else if stepDetail.value.type == 'flow'}
 			<div class="text-sm mb-1 flex justify-between flex-row items-center">
 				<span class="text-xs font-normal text-secondary"

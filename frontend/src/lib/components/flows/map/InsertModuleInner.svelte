@@ -27,6 +27,9 @@
 		kind?: 'script' | 'trigger' | 'preprocessor' | 'failure'
 		allowTrigger?: boolean
 		toolMode?: boolean
+		/** Picking a tool for an agent that is itself a tool, which cannot run agent or decision
+		 *  tools: the server drops them from its roster. */
+		nestedAgent?: boolean
 		/** Narrow layout (450px instead of 650px). Defaults on for the preprocessor
 		 *  and failure pickers; set it when the container cannot fit the wide one. */
 		small?: boolean
@@ -39,6 +42,7 @@
 		kind = 'script',
 		allowTrigger = true,
 		toolMode = false,
+		nestedAgent = false,
 		small: smallProp = undefined
 	}: Props = $props()
 
@@ -232,13 +236,22 @@
 							dispatch('close')
 						}}
 					/>
-					<TopLevelNode
-						label="AI Agent"
-						onSelect={() => {
-							dispatch('pickAiAgentTool')
-							dispatch('close')
-						}}
-					/>
+					{#if !nestedAgent}
+						<TopLevelNode
+							label="AI Agent"
+							onSelect={() => {
+								dispatch('pickAiAgentTool')
+								dispatch('close')
+							}}
+						/>
+						<TopLevelNode
+							label="AI decision"
+							onSelect={() => {
+								dispatch('pickAiDecisionTool')
+								dispatch('close')
+							}}
+						/>
+					{/if}
 				{:else}
 					{#if customUi?.triggers != false && allowTrigger}
 						<TopLevelNode
@@ -313,6 +326,13 @@
 								loadSavedAgents()
 								// Clicking leaves focus on this button, where Enter would only re-select it.
 								stepGen?.focus()
+							}}
+						/>
+						<TopLevelNode
+							label="AI decision"
+							onSelect={() => {
+								dispatch('close')
+								dispatch('new', { kind: 'aidecision' })
 							}}
 						/>
 					{/if}

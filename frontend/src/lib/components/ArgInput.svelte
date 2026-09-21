@@ -1475,7 +1475,7 @@
 				{disabled}
 				{actions}
 				{workspace}
-				decision={otherArgs?.output_type === 'decision'}
+				decision={format === 'ai-decision-provider'}
 			/>
 		{:else if inputCat == 'email'}
 			<input

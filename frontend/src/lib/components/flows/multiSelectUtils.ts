@@ -1,5 +1,6 @@
 import type { FlowModule } from '$lib/gen'
 import { dfs } from './dfs'
+import { choiceBranches, choiceDefault, isBranchChoice } from './branchChoice'
 
 /** Virtual/non-module node IDs that should be filtered out of multi-select operations */
 const VIRTUAL_ID_PREFIXES = ['Input', 'Result', 'Trigger', 'preprocessor', 'failure']
@@ -34,9 +35,9 @@ function buildAncestorMap(modules: FlowModule[]): Map<string, Set<string>> {
 				walk(val.modules, childAncestors)
 			} else if (val.type === 'branchall') {
 				for (const branch of val.branches) walk(branch.modules, childAncestors)
-			} else if (val.type === 'branchone') {
-				for (const branch of val.branches) walk(branch.modules, childAncestors)
-				walk(val.default, childAncestors)
+			} else if (isBranchChoice(val)) {
+				for (const branch of choiceBranches(val)) walk(branch.modules, childAncestors)
+				walk(choiceDefault(val), childAncestors)
 			}
 		}
 	}

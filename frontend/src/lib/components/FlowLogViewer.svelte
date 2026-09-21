@@ -8,7 +8,8 @@
 		FoldVertical,
 		UnfoldVertical,
 		ExternalLink,
-		Keyboard
+		Keyboard,
+		Scale
 	} from 'lucide-svelte'
 	import { base } from '$lib/base'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
@@ -26,6 +27,12 @@
 	import FlowTimelineBar from './FlowTimelineBar.svelte'
 	import { getActiveReplay } from './recording/replay.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import {
+		choiceBranches,
+		choiceDefault,
+		hasChoiceBranches,
+		isBranchChoice
+	} from './flows/branchChoice'
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -181,9 +188,12 @@
 						currentEntryHasError = true
 						parentsWithErrors.add(module.id)
 					}
-				} else if (module.value.type === 'branchone' || module.value.type === 'branchall') {
-					if (module.value.branches.length > 0) {
-						for (const branch of module.value.branches) {
+				} else if (isBranchChoice(module.value) || module.value.type === 'branchall') {
+					const branches = isBranchChoice(module.value)
+						? choiceBranches(module.value)
+						: module.value.branches
+					if (branches.length > 0) {
+						for (const branch of branches) {
 							const subflowHasError = traverseModules(branch.modules, module.id)
 							if (subflowHasError) {
 								currentEntryHasError = true
@@ -191,9 +201,9 @@
 							}
 						}
 					}
-					if (module.value.type === 'branchone' && module.value.default.length > 0) {
+					if (isBranchChoice(module.value) && choiceDefault(module.value).length > 0) {
 						// Also check default branch
-						const subflowHasError = traverseModules(module.value.default, module.id)
+						const subflowHasError = traverseModules(choiceDefault(module.value), module.id)
 						if (subflowHasError) {
 							currentEntryHasError = true
 							parentsWithErrors.add(module.id)
@@ -361,7 +371,7 @@
 			module.value.type === 'forloopflow' ||
 			module.value.type === 'whileloopflow' ||
 			module.value.type === 'branchall' ||
-			module.value.type === 'branchone'
+			hasChoiceBranches(module.value)
 		)
 	}
 
@@ -374,19 +384,22 @@
 				label: module.summary || '',
 				flowId: `${module.id}-subflow`
 			})
-		} else if (module.value.type === 'branchall' || module.value.type === 'branchone') {
-			// Add default branch for branchone
-			if (module.value.type === 'branchone') {
+		} else if (module.value.type === 'branchall' || hasChoiceBranches(module.value)) {
+			const branches = isBranchChoice(module.value)
+				? choiceBranches(module.value)
+				: module.value.branches
+			// Add default branch for branchone and AI decisions
+			if (isBranchChoice(module.value)) {
 				subflows.push({
-					modules: module.value.default,
+					modules: choiceDefault(module.value),
 					label: 'default',
 					flowId: `${module.id}-subflow-default`
 				})
 			}
 
 			// Add all branches
-			for (let i = 0; i < module.value.branches.length; i++) {
-				const branch = module.value.branches[i]
+			for (let i = 0; i < branches.length; i++) {
+				const branch = branches[i]
 				subflows.push({
 					modules: branch.modules,
 					label: branch.summary || `branch ${i + 1}`,
@@ -665,10 +678,9 @@
 								{@const isCollapsible = !hasEmptySubflowValue}
 								{@const jobId = localModuleStates[module.id]?.job_id}
 								{@const moduleItems = timelineItems?.[module.id]}
-								{@const branchChosen =
-									module.value.type === 'branchone'
-										? (localModuleStates[module.id]?.branchChosen ?? 0)
-										: undefined}
+								{@const branchChosen = hasChoiceBranches(module.value)
+									? (localModuleStates[module.id]?.branchChosen ?? 0)
+									: undefined}
 								<FlowLogRow
 									id={module.id}
 									{isCollapsible}
@@ -711,6 +723,8 @@
 															Branch to all
 														{:else if module.value.type === 'branchone'}
 															Branch to one
+														{:else if module.value.type === 'aidecision'}
+															AI decision
 														{:else if module.value.type === 'flow'}
 															Subflow
 														{:else}
@@ -1007,6 +1021,8 @@
 			<Repeat size={10} class={classes} />
 		{:else if stepType === 'branchall' || stepType === 'branchone'}
 			<GitBranch size={10} class={classes} />
+		{:else if stepType === 'aidecision'}
+			<Scale size={10} class={classes} />
 		{:else}
 			<Code strokeWidth={2.5} size={10} class={classes} />
 		{/if}

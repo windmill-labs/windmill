@@ -24,8 +24,7 @@
 		 *  other than the one being navigated. Resources and the models read off them are per
 		 *  workspace, so without it this offers what the wrong one holds. */
 		workspace?: string | undefined
-		/** Offer the decision providers (TypeSafe) in place of the chat ones, for an agent step with
-		 *  decision output. */
+		/** Offer the decision providers (TypeSafe) in place of the chat ones, for an AI decision. */
 		decision?: boolean
 	}
 
@@ -52,12 +51,13 @@
 	// do not share a model list.
 	let modelsCache = new Map<string, string[]>()
 
-	// The resource picker offers every provider type of the mode at once and the pick is what names
-	// the kind.
-	let offeredProviders = $derived(Object.keys(decision ? DECISION_AI_PROVIDERS : AI_PROVIDERS))
-	let providerResourceTypes = $derived(offeredProviders.join(','))
+	// The resource picker offers every provider type at once and the pick is what names the kind.
+	// One list for the component's life: it is what the picker queries with.
+	const offeredProviders = Object.keys(
+		untrack(() => decision) ? DECISION_AI_PROVIDERS : AI_PROVIDERS
+	)
+	const providerResourceTypes = offeredProviders.join(',')
 
-	// Read once: only a field that holds nothing yet is given the mode's default kind.
 	if (!_uncheckedValue) {
 		_uncheckedValue = {
 			kind: untrack(() => decision) ? 'typesafe' : 'openai',
@@ -65,30 +65,6 @@
 			model: ''
 		}
 	}
-
-	// Each mode offers kinds the other does not, so switching the output type swaps the provider: the
-	// one the step held is set aside and comes back with its mode, and a mode not seen yet starts
-	// empty rather than on a kind it cannot run.
-	type PickerMode = 'chat' | 'decision'
-	const heldByMode: Partial<Record<PickerMode, ProviderConfig>> = {}
-	let shownMode: PickerMode = untrack(() => (decision ? 'decision' : 'chat'))
-	$effect(() => {
-		const mode: PickerMode = decision ? 'decision' : 'chat'
-		untrack(() => {
-			if (mode === shownMode || !value) return
-			heldByMode[shownMode] = $state.snapshot(value) as ProviderConfig
-			const next = heldByMode[mode] ?? {
-				kind: mode === 'decision' ? 'typesafe' : 'openai',
-				resource: '',
-				model: ''
-			}
-			value.kind = next.kind
-			value.resource = next.resource
-			value.model = next.model
-			value.reasoning_effort = next.reasoning_effort
-			shownMode = mode
-		})
-	})
 
 	let useAsDefault = $derived(isSameAsStoredConfig(value))
 
@@ -224,26 +200,22 @@
 		<!-- No auto-select: this picker spans every provider type, so a single candidate means "the
 		     only AI resource in the workspace" rather than "the only one of the kind this agent uses".
 		     Taking it would redefine the agent's provider and drop its model, on open and unasked. -->
-		<!-- Remounted per mode: the picker empties its value whenever the types it offers change,
-		     which would drop the resource the switch above just restored. -->
-		{#key decision}
-			<ResourcePicker
-				bind:value={
-					() => resourceValueToPath(value?.resource),
-					(v) => {
-						if (value) {
-							value.resource = pathToResourceValue(v) ?? ''
-						}
+		<ResourcePicker
+			bind:value={
+				() => resourceValueToPath(value?.resource),
+				(v) => {
+					if (value) {
+						value.resource = pathToResourceValue(v) ?? ''
 					}
 				}
-				resourceType={providerResourceTypes}
-				{disabled}
-				{workspace}
-				placeholder="Select an AI provider resource"
-				selectFirst={false}
-				onValueChange={onResourcePicked}
-			/>
-		{/key}
+			}
+			resourceType={providerResourceTypes}
+			{disabled}
+			{workspace}
+			placeholder="Select an AI provider resource"
+			selectFirst={false}
+			onValueChange={onResourcePicked}
+		/>
 	</div>
 
 	<div class="flex flex-col gap-1">
@@ -276,7 +248,7 @@
 		</div>
 	{/if}
 
-	<!-- The default seeds new agents, which start on text output. -->
+	<!-- The default seeds new agents, which a decision provider cannot run. -->
 	{#if !decision}
 		<div class="flex justify-end">
 			<Toggle

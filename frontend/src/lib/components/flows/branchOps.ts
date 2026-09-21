@@ -6,6 +6,7 @@ import type { History } from '$lib/history.svelte'
 import { push } from '$lib/history.svelte'
 import { dfs } from './dfs'
 import { findModuleInFlow } from './flowTree'
+import { choiceBranches, ensureChoiceArrays, isBranchChoice } from './branchChoice'
 
 type BranchList = Array<{ summary?: string; expr?: string; modules: FlowModule[] }>
 
@@ -15,22 +16,25 @@ type Ctx = {
 	history: History<ExtendedOpenFlow>
 }
 
-/** Append an empty branch to a branchone/branchall step. */
+/** Append an empty branch to a branchone/branchall step or an AI decision. */
 export function addBranch(moduleId: string, { flowStore, history }: Omit<Ctx, 'flowStateStore'>) {
 	push(history, flowStore.val)
 	const module = findModuleInFlow(flowStore.val.value, moduleId)
 	if (!module) throw new Error(`Node ${moduleId} not found`)
 
-	if (module.value.type === 'branchone' || module.value.type === 'branchall') {
-		module.value.branches.push({ summary: '', expr: 'false', modules: [] })
+	if (isBranchChoice(module.value) || module.value.type === 'branchall') {
+		const branches: BranchList = isBranchChoice(module.value)
+			? ensureChoiceArrays(module.value).branches
+			: module.value.branches
+		branches.push({ summary: '', expr: 'false', modules: [] })
 	}
 }
 
 /**
  * Drop a branch and the flow state of every step inside it.
  *
- * `index` counts the way the graph lays the branches out, where a branchone's default
- * occupies slot 0 — one ahead of the same branch's position in `value.branches`. Callers
+ * `index` counts the way the graph lays the branches out, where a branchone's (or an AI
+ * decision's) default occupies slot 0 — one ahead of the same branch's position in `value.branches`. Callers
  * working from the array (the settings panel) must add that offset back.
  */
 export function removeBranch(
@@ -42,16 +46,18 @@ export function removeBranch(
 	const module = findModuleInFlow(flowStore.val.value, moduleId)
 	if (!module) throw new Error(`Node ${moduleId} not found`)
 
-	if (module.value.type === 'branchone' || module.value.type === 'branchall') {
-		const offset = module.value.type === 'branchone' ? 1 : 0
-		const at = index - offset
+	if (isBranchChoice(module.value) || module.value.type === 'branchall') {
+		const branches = isBranchChoice(module.value)
+			? choiceBranches(module.value)
+			: module.value.branches
+		const at = index - (isBranchChoice(module.value) ? 1 : 0)
 
-		if (module.value.branches[at]?.modules) {
-			const leaves = dfs(module.value.branches[at].modules, (mod) => mod.id)
+		if (branches[at]?.modules) {
+			const leaves = dfs(branches[at].modules, (mod) => mod.id)
 			leaves.forEach((leafId: string) => delete flowStateStore.val[leafId])
 		}
 
-		module.value.branches.splice(at, 1)
+		branches.splice(at, 1)
 	}
 }
 
@@ -66,9 +72,11 @@ export function reorderBranches(
 ) {
 	const module = findModuleInFlow(flowStore.val.value, moduleId)
 	if (!module) throw new Error(`Node ${moduleId} not found`)
-	if (module.value.type !== 'branchone' && module.value.type !== 'branchall') return
+	if (!isBranchChoice(module.value) && module.value.type !== 'branchall') return
 
-	const current = module.value.branches
+	const current = isBranchChoice(module.value)
+		? choiceBranches(module.value)
+		: module.value.branches
 	// A drag that lands where it started must not spend an undo entry.
 	if (ordered.length === current.length && ordered.every((b, i) => b === current[i])) return
 
@@ -77,6 +85,9 @@ export function reorderBranches(
 }
 
 /** Slot a branch occupies in the graph's numbering, from its index in `value.branches`. */
-export function graphBranchIndex(type: 'branchone' | 'branchall', arrayIndex: number): number {
-	return type === 'branchone' ? arrayIndex + 1 : arrayIndex
+export function graphBranchIndex(
+	type: 'branchone' | 'branchall' | 'aidecision',
+	arrayIndex: number
+): number {
+	return type === 'branchall' ? arrayIndex : arrayIndex + 1
 }

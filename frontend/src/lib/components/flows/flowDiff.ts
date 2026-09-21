@@ -66,6 +66,17 @@ function normalizeModuleForComparison(module: FlowModule): FlowModule {
 				...branch,
 				modules: branch.modules.map((m) => normalizeModuleForComparison(m))
 			}))
+		} else if (value.type === 'aidecision') {
+			// An AI decision without branches omits both arrays, the same as empty ones.
+			const def = (value.default ?? []).map((m) => normalizeModuleForComparison(m))
+			const branches = (value.branches ?? []).map((branch) => ({
+				...branch,
+				modules: branch.modules.map((m) => normalizeModuleForComparison(m))
+			}))
+			if (def.length) value.default = def
+			else delete value.default
+			if (branches.length) value.branches = branches
+			else delete value.branches
 		} else if (value.type === 'branchall') {
 			value.branches = value.branches.map((branch) => ({
 				...branch,
@@ -251,9 +262,9 @@ function prependModuleId(module: FlowModule, prefix: string): FlowModule {
 	// Recursively prefix nested module IDs
 	if (newModule.value.type === 'forloopflow' || newModule.value.type === 'whileloopflow') {
 		newModule.value.modules = newModule.value.modules.map((m) => prependModuleId(m, prefix))
-	} else if (newModule.value.type === 'branchone') {
-		newModule.value.default = newModule.value.default.map((m) => prependModuleId(m, prefix))
-		newModule.value.branches = newModule.value.branches.map((branch) => ({
+	} else if (newModule.value.type === 'branchone' || newModule.value.type === 'aidecision') {
+		newModule.value.default = newModule.value.default?.map((m) => prependModuleId(m, prefix))
+		newModule.value.branches = newModule.value.branches?.map((branch) => ({
 			...branch,
 			modules: branch.modules.map((m) => prependModuleId(m, prefix))
 		}))
@@ -339,9 +350,9 @@ function fixDuplicateIds(merged: FlowValue, beforeFlow: FlowValue): void {
 	function processNestedModules(module: FlowModule): void {
 		if (module.value.type === 'forloopflow' || module.value.type === 'whileloopflow') {
 			module.value.modules = module.value.modules.map((m) => processModule(m))
-		} else if (module.value.type === 'branchone') {
-			module.value.default = module.value.default.map((m) => processModule(m))
-			for (const branch of module.value.branches) {
+		} else if (module.value.type === 'branchone' || module.value.type === 'aidecision') {
+			module.value.default = module.value.default?.map((m) => processModule(m))
+			for (const branch of module.value.branches ?? []) {
 				branch.modules = branch.modules.map((m) => processModule(m))
 			}
 		} else if (module.value.type === 'branchall') {

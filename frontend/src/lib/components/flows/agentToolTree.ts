@@ -84,12 +84,12 @@ function findAgentToolOwnerInNode(
 		return undefined
 	}
 
-	if (node.value.type === 'branchone') {
-		const defaultOwner = findAgentToolOwnerInModules(node.value.default, toolId, depth)
+	if (node.value.type === 'branchone' || node.value.type === 'aidecision') {
+		const defaultOwner = findAgentToolOwnerInModules(node.value.default ?? [], toolId, depth)
 		if (defaultOwner) {
 			return defaultOwner
 		}
-		for (const branch of node.value.branches) {
+		for (const branch of node.value.branches ?? []) {
 			const owner = findAgentToolOwnerInModules(branch.modules, toolId, depth)
 			if (owner) {
 				return owner
@@ -148,11 +148,11 @@ function collectFlowNodeIdsFromNode(node: FlowNodeLike): string[] {
 		return ids
 	}
 
-	if (node.value.type === 'branchone') {
-		for (const module of node.value.default) {
+	if (node.value.type === 'branchone' || node.value.type === 'aidecision') {
+		for (const module of node.value.default ?? []) {
 			ids.push(...collectFlowNodeIds(module))
 		}
-		for (const branch of node.value.branches) {
+		for (const branch of node.value.branches ?? []) {
 			for (const module of branch.modules) {
 				ids.push(...collectFlowNodeIds(module))
 			}
@@ -174,7 +174,7 @@ function collectFlowNodeIdsFromNode(node: FlowNodeLike): string[] {
 export function collectProviderlessAgentIds(modules: unknown): string[] {
 	const ids: string[] = []
 	forEachAiAgentModule(modules, (mod, v) => {
-		if (!v.agent && !v.input_transforms?.provider) {
+		if (v.type === 'aiagent' && !v.agent && !v.input_transforms?.provider) {
 			ids.push(mod.id)
 		}
 	})

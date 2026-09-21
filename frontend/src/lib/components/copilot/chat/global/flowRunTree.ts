@@ -152,7 +152,8 @@ const FAN_OUT_MODULE_TYPES = new Set([
 	'whileloopflow',
 	'branchall',
 	'branchone',
-	'aiagent'
+	'aiagent',
+	'aidecision'
 ])
 
 function shapeGroup(group: ChildGroup, opts: ShapeOpts): Record<string, any> {

@@ -246,14 +246,6 @@ fn build_run_flow(
     }))?)
 }
 
-/// Each agent input a case supplies, with the case input it is read from. A case carries a message,
-/// which a decision agent is asked its questions about: `state` is read by no other output type.
-const CASE_INPUTS: [(&str, &str); 3] = [
-    ("user_message", "user_message"),
-    ("user_attachments", "user_attachments"),
-    ("state", "user_message"),
-];
-
 /// The agent step, reading its case from the iteration rather than from the flow's arguments.
 fn agent_module(config: &AgentDraft) -> Result<serde_json::Value> {
     let flow = build_case_flow(config)?;
@@ -263,12 +255,12 @@ fn agent_module(config: &AgentDraft) -> Result<serde_json::Value> {
             .entry("input_transforms")
             .or_insert_with(|| serde_json::json!({}));
         if let Some(transforms) = transforms.as_object_mut() {
-            for (key, input) in CASE_INPUTS {
+            for key in ["user_message", "user_attachments"] {
                 transforms.insert(
                     key.to_string(),
                     serde_json::json!({
                         "type": "javascript",
-                        "expr": format!("flow_input.iter.value.input.{}", input),
+                        "expr": format!("flow_input.iter.value.input.{}", key),
                     }),
                 );
             }
@@ -281,15 +273,15 @@ fn agent_module(config: &AgentDraft) -> Result<serde_json::Value> {
 /// through `FlowValue` rather than trusted as raw JSON.
 fn build_case_flow(config: &AgentDraft) -> Result<windmill_common::flows::FlowValue> {
     // The configuration runs exactly as authored: its own brain transforms are the module's, and
-    // the case supplies its inputs (`CASE_INPUTS`) over the top.
+    // the case supplies the message and the attachments over the top.
     let mut input_transforms = match &config.input_transforms {
         serde_json::Value::Object(map) => map.clone(),
         _ => serde_json::Map::new(),
     };
-    for (key, input) in CASE_INPUTS {
+    for key in ["user_message", "user_attachments"] {
         input_transforms.insert(
             key.to_string(),
-            serde_json::json!({ "type": "javascript", "expr": format!("flow_input.{}", input) }),
+            serde_json::json!({ "type": "javascript", "expr": format!("flow_input.{}", key) }),
         );
     }
 

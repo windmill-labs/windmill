@@ -17,7 +17,7 @@ export function agentSteps(modules: FlowModule[] | undefined): FlowModule[] {
 			}
 			if (value?.type === 'forloopflow' || value?.type === 'whileloopflow') {
 				walk(value.modules ?? [])
-			} else if (value?.type === 'branchone') {
+			} else if (value?.type === 'branchone' || value?.type === 'aidecision') {
 				walk(value.default ?? [])
 				for (const branch of value.branches ?? []) walk(branch.modules ?? [])
 			} else if (value?.type === 'branchall') {

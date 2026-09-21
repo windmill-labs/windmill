@@ -16,12 +16,7 @@ import {
 	DUPLICATE_MODULE_PREFIX,
 	NEW_MODULE_PREFIX
 } from './flowDiff'
-import {
-	findModuleInFlow,
-	findModuleParent,
-	removeFlowModule,
-	replaceFlowModule
-} from './flowTree'
+import { findModuleInFlow, findModuleParent, removeFlowModule, replaceFlowModule } from './flowTree'
 import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 import type { StateStore } from '$lib/utils'
 import type DiffDrawer from '../DiffDrawer.svelte'
@@ -49,6 +44,9 @@ function createSkeletonModule(module: FlowModule): FlowModule {
 	} else if (clone.value.type === 'branchone') {
 		clone.value.default = []
 		clone.value.branches.forEach((b: any) => (b.modules = []))
+	} else if (clone.value.type === 'aidecision') {
+		if (clone.value.default) clone.value.default = []
+		clone.value.branches?.forEach((b: any) => (b.modules = []))
 	} else if (clone.value.type === 'branchall') {
 		clone.value.branches.forEach((b: any) => (b.modules = []))
 	} else if (clone.value.type === 'aiagent') {

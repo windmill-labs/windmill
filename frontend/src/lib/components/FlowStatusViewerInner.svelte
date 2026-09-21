@@ -17,6 +17,7 @@
 	} from '$lib/gen'
 	import { base } from '$lib/base'
 	import FlowJobResult from './FlowJobResult.svelte'
+	import DecisionAnswers from './DecisionAnswers.svelte'
 	import WorkflowTimeline from './WorkflowTimeline.svelte'
 	import DisplayResult from './DisplayResult.svelte'
 
@@ -667,7 +668,8 @@
 						mod.id ?? '',
 						{
 							type: mod.type,
-							...branchChosen
+							...branchChosen,
+							decision_job: mod.decision_job
 						},
 						true
 					)
@@ -2208,6 +2210,12 @@
 																			args={node.args}
 																		/>
 																	</div>
+																{/if}
+																{#if node.decision_job && node.decision_job !== node.job_id && !isReplay}
+																	<DecisionAnswers
+																		jobId={node.decision_job}
+																		workspaceId={job.workspace_id ?? $operatingWorkspace ?? ''}
+																	/>
 																{/if}
 																{#if node.workflow_as_code_status}
 																	<div>

@@ -8,6 +8,7 @@ import { linkedToolsScope, setLinkedAgentTools } from './linkedAgentToolsStore.s
 import { fetchAgentWithDraft, normalizeAgentRef } from './linkedAgentDrafts'
 import { loadFlowModuleState } from './flowStateUtils.svelte'
 import { emptyFlowModuleState } from './utils.svelte'
+import { choiceBranches, choiceDefault, isBranchChoice } from './branchChoice'
 import type { StateStore } from '$lib/utils'
 
 export type FlowModuleState = {
@@ -71,13 +72,13 @@ async function mapFlowModule(
 		await mapFlowModules(value.modules, modulesState, workspace, scope)
 	}
 
-	if (value.type === 'branchone') {
-		await mapFlowModules(value.default, modulesState, workspace, scope)
+	if (isBranchChoice(value)) {
+		await mapFlowModules(choiceDefault(value), modulesState, workspace, scope)
 	}
 
-	if (value.type === 'branchone' || value.type === 'branchall') {
+	if (isBranchChoice(value) || value.type === 'branchall') {
 		await Promise.all(
-			value.branches.map(
+			(isBranchChoice(value) ? choiceBranches(value) : value.branches).map(
 				(branchModule: { summary?: string; skip_failure?: boolean; modules: Array<FlowModule> }) =>
 					mapFlowModules(branchModule.modules, modulesState, workspace, scope)
 			)

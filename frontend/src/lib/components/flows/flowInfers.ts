@@ -24,8 +24,6 @@ export function memoryOptionLabel(memory: any): string | undefined {
 	return memory?.kind ? MEMORY_OPTION_LABELS[memory.kind] : undefined
 }
 
-const TEXT_OUTPUT_ONLY = "fields.output_type !== 'image' && fields.output_type !== 'decision'"
-
 export const AI_AGENT_SCHEMA: Schema = {
 	$schema: 'https://json-schema.org/draft/2020-12/schema',
 	properties: {
@@ -36,33 +34,17 @@ export const AI_AGENT_SCHEMA: Schema = {
 		output_type: {
 			type: 'string',
 			description:
-				'Whether the answer is text, an image or a decision. An image needs S3 storage on the workspace, and ignores tools. A decision answers typed questions with probabilities, on a TypeSafe resource.',
-			enum: ['text', 'image', 'decision'],
+				'Whether the answer is text or an image. An image needs S3 storage on the workspace, and ignores tools.',
+			enum: ['text', 'image'],
 			default: 'text'
-		},
-		// Untyped, so the static editor takes any JSON: TypeSafe reads a string, an object or an
-		// array of strings. No `showExpr`: a linked step holds no `output_type` to evaluate one
-		// against, and a hidden field is cleared. `agentFieldServes` decides where it shows.
-		state: {
-			type: undefined,
-			description:
-				'What the questions are asked about: a text, an object or a list of texts. Name each part of an object, and send only what the questions need.'
-		},
-		questions: {
-			type: 'object',
-			description:
-				'Each question by name, as { type, instructions, criteria }. The type is choice (criteria maps each option to what it means), score (criteria lists 2 to 10 levels in order) or noul (yes or no, criteria can describe true and false).',
-			showExpr: "fields.output_type === 'decision'"
 		},
 		user_message: {
 			type: 'string',
-			description: 'The message sent to the agent as the user turn.',
-			showExpr: "fields.output_type !== 'decision'"
+			description: 'The message sent to the agent as the user turn.'
 		},
 		system_prompt: {
 			type: 'string',
 			description: 'Sets how the agent behaves. Sent ahead of everything else.',
-			showExpr: "fields.output_type !== 'decision'",
 			// The one field people write paragraphs into, so it opens as a text area.
 			minRows: 5,
 			placeholder:
@@ -72,7 +54,7 @@ export const AI_AGENT_SCHEMA: Schema = {
 			type: 'boolean',
 			description: 'Stream the answer as it is produced.',
 			default: true,
-			showExpr: TEXT_OUTPUT_ONLY
+			showExpr: "fields.output_type !== 'image'"
 		},
 		memory: {
 			type: 'object',
@@ -108,13 +90,13 @@ export const AI_AGENT_SCHEMA: Schema = {
 					required: ['kind', 'context_length']
 				}
 			],
-			showExpr: TEXT_OUTPUT_ONLY
+			showExpr: "fields.output_type !== 'image'"
 		},
 		memory_id: {
 			type: 'string',
 			description:
 				'Names the memory this step reads and writes, overriding the memory id the run was started with. Read only while managed memory is on, and not at all by an older auto or manual memory.',
-			showExpr: TEXT_OUTPUT_ONLY
+			showExpr: "fields.output_type !== 'image'"
 		},
 		previous_messages: {
 			type: 'array',
@@ -156,13 +138,13 @@ export const AI_AGENT_SCHEMA: Schema = {
 				},
 				required: ['role']
 			},
-			showExpr: TEXT_OUTPUT_ONLY
+			showExpr: "fields.output_type !== 'image'"
 		},
 		output_schema: {
 			type: 'object',
 			description: 'A JSON schema the answer has to follow.',
 			format: 'json-schema',
-			showExpr: TEXT_OUTPUT_ONLY
+			showExpr: "fields.output_type !== 'image'"
 		},
 		user_attachments: {
 			type: 'array',
@@ -170,8 +152,7 @@ export const AI_AGENT_SCHEMA: Schema = {
 			items: {
 				type: 'object',
 				resourceType: 's3object'
-			},
-			showExpr: "fields.output_type !== 'decision'"
+			}
 		},
 		// The step's own roster fills `items.enum` in, so the static editor offers the tools this
 		// agent actually has (`AiAgentStepInputs`). Absence, not an empty list, is what carries every
@@ -185,24 +166,20 @@ export const AI_AGENT_SCHEMA: Schema = {
 			description: 'Which of the agent tools a run may call.',
 			items: {
 				type: 'string'
-			},
-			showExpr: "fields.output_type !== 'decision'"
+			}
 		},
 		max_completion_tokens: {
 			type: 'number',
-			description: 'The most tokens the answer may use.',
-			showExpr: "fields.output_type !== 'decision'"
+			description: 'The most tokens the answer may use.'
 		},
 		temperature: {
 			type: 'number',
-			description: 'How random the generation is, from 0 for deterministic up to 2.',
-			showExpr: "fields.output_type !== 'decision'"
+			description: 'How random the generation is, from 0 for deterministic up to 2.'
 		},
 		max_iterations: {
 			type: 'number',
 			description: 'How many times the agent may loop over calling the model and running tools.',
-			default: 10,
-			showExpr: "fields.output_type !== 'decision'"
+			default: 10
 		}
 	},
 	// `output_type` defaults to text on the backend, so leaving it unset is valid: the form drops
@@ -212,8 +189,6 @@ export const AI_AGENT_SCHEMA: Schema = {
 	order: [
 		'provider',
 		'output_type',
-		'state',
-		'questions',
 		'user_message',
 		'system_prompt',
 		'streaming',
@@ -227,6 +202,33 @@ export const AI_AGENT_SCHEMA: Schema = {
 		'temperature',
 		'max_iterations'
 	]
+}
+
+/** The inputs of an AI decision step: one call to a decision model (TypeSafe's Jev). */
+export const AI_DECISION_SCHEMA: Schema = {
+	$schema: 'https://json-schema.org/draft/2020-12/schema',
+	properties: {
+		provider: {
+			type: 'object',
+			format: 'ai-decision-provider',
+			description: 'The TypeSafe resource and model the decision runs on.'
+		},
+		// Untyped, so the static editor takes any JSON: TypeSafe reads a string, an object or an
+		// array of strings.
+		state: {
+			type: undefined,
+			description:
+				'What the questions are asked about: a text, an object or a list of texts. Name each part of an object, and send only what the questions need: detail they do not need makes the answers less accurate.'
+		},
+		questions: {
+			type: 'object',
+			description:
+				'Each question by name, as { type, instructions, criteria }. choice picks one option: criteria maps each option to what it means. score places the state on a scale: criteria lists 2 to 10 levels in order. noul is yes or no: criteria can describe true and false.'
+		}
+	},
+	required: ['provider', 'state', 'questions'],
+	type: 'object',
+	order: ['provider', 'state', 'questions']
 }
 
 /** Memory shapes older editors wrote. The step form offers one only to a step that still holds it,
@@ -385,6 +387,15 @@ export async function loadSchemaFromModule(
 			// renders (`InputTransformForm` binds `schema.properties[argName]`), and the tool names
 			// one step offers would otherwise become every step's.
 			schema: structuredClone(AI_AGENT_SCHEMA)
+		}
+	} else if (mod.type === 'aidecision') {
+		const input_transforms = mod.input_transforms ?? {}
+		return {
+			input_transforms: Object.keys(AI_DECISION_SCHEMA.properties ?? {}).reduce((accu, key) => {
+				accu[key] = input_transforms[key] ?? { type: 'static', value: undefined }
+				return accu
+			}, {}),
+			schema: structuredClone(AI_DECISION_SCHEMA)
 		}
 	}
 

@@ -52,7 +52,13 @@ export function dfsByModule(
 						let found: FlowModule[] | undefined = rec(id, submodules)
 
 						if (found) {
-							return getParents ? [...found, module] : [...found, ...modules.slice(0, i).reverse()]
+							// An AI decision has answered before its branches run, so they can read
+							// `results.<id>`. Last, since it is not their `previous_result`: a branch
+							// starts from the flow's input.
+							const answered = module.value.type === 'aidecision' ? [module] : []
+							return getParents
+								? [...found, module]
+								: [...found, ...modules.slice(0, i).reverse(), ...answered]
 						}
 					}
 				}

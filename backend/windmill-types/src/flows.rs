@@ -369,7 +369,7 @@ impl FlowValue {
                         }
                     }
                 }
-                BranchOne { default, branches, .. } => {
+                BranchOne { default, branches, .. } | AIDecision { default, branches, .. } => {
                     Self::traverse_leafs(default.iter().collect(), cb)?;
                     for branch in branches {
                         Self::traverse_leafs(branch.modules.iter().collect(), cb)?;
@@ -741,7 +741,8 @@ impl FlowModule {
             | FlowModuleValue::WhileloopFlow { modules, .. } => {
                 Self::traverse_modules(modules, cb)?;
             }
-            FlowModuleValue::BranchOne { branches, default, .. } => {
+            FlowModuleValue::BranchOne { branches, default, .. }
+            | FlowModuleValue::AIDecision { branches, default, .. } => {
                 for branch in branches {
                     Self::traverse_modules(&branch.modules, cb)?;
                 }
@@ -1100,9 +1101,8 @@ pub enum FlowModuleValue {
         omit_output_from_conversation: bool,
         /// When set, the agent brain config (provider/model/system prompt/etc.) and tools are
         /// resolved at runtime from this `ai_agent` resource path (hybrid linking). The module's
-        /// `input_transforms` then only carry the flow-local inputs: user_message, a decision's
-        /// state, user_attachments, enabled_tools and the history inputs memory_id and
-        /// previous_messages.
+        /// `input_transforms` then only carry the flow-local inputs: user_message,
+        /// user_attachments, enabled_tools and the history inputs memory_id and previous_messages.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         agent: Option<String>,
         /// Binds an agent's tools to *this* flow's context, keyed by tool id then input key, without
@@ -1111,10 +1111,72 @@ pub enum FlowModuleValue {
         #[serde(default, skip_serializing_if = "HashMap::is_empty")]
         tool_inputs: HashMap<String, HashMap<String, InputTransform>>,
     },
+    /// One call to a decision model (TypeSafe's Jev) answering the typed `questions` of its
+    /// `input_transforms` about a `state`. With `branches`, it then runs the first branch whose
+    /// `expr` holds against the answers (`previous_result`), as `BranchOne` does, else `default`.
+    AIDecision {
+        input_transforms: HashMap<String, InputTransform>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        branches: Vec<Branch>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        default: Vec<FlowModule>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        default_node: Option<FlowNodeId>,
+        #[serde(skip_serializing_if = "is_none_or_empty")]
+        tag: Option<String>,
+    },
 }
 
 fn is_none_or_empty(expr: &Option<String>) -> bool {
     expr.is_none() || expr.as_ref().unwrap().is_empty()
+}
+
+/// What a step that runs one of its branches keeps besides them: a `BranchOne` or an AI decision.
+pub enum BranchChoiceShell {
+    BranchOne {
+        default_node: Option<FlowNodeId>,
+    },
+    AIDecision {
+        input_transforms: HashMap<String, InputTransform>,
+        default_node: Option<FlowNodeId>,
+        tag: Option<String>,
+    },
+}
+
+impl BranchChoiceShell {
+    pub fn rebuild(self, branches: Vec<Branch>, default: Vec<FlowModule>) -> FlowModuleValue {
+        match self {
+            BranchChoiceShell::BranchOne { default_node } => {
+                FlowModuleValue::BranchOne { branches, default, default_node }
+            }
+            BranchChoiceShell::AIDecision { input_transforms, default_node, tag } => {
+                FlowModuleValue::AIDecision { input_transforms, branches, default, default_node, tag }
+            }
+        }
+    }
+}
+
+impl FlowModuleValue {
+    /// Splits a step that runs one of its branches into its branches, its default and the rest,
+    /// so a pass rewriting branches handles `BranchOne` and AI decisions alike. Any other step is
+    /// given back unchanged.
+    pub fn into_branch_choice(
+        self,
+    ) -> Result<(Vec<Branch>, Vec<FlowModule>, BranchChoiceShell), FlowModuleValue> {
+        match self {
+            FlowModuleValue::BranchOne { branches, default, default_node } => {
+                Ok((branches, default, BranchChoiceShell::BranchOne { default_node }))
+            }
+            FlowModuleValue::AIDecision { input_transforms, branches, default, default_node, tag } => {
+                Ok((
+                    branches,
+                    default,
+                    BranchChoiceShell::AIDecision { input_transforms, default_node, tag },
+                ))
+            }
+            other => Err(other),
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -1255,6 +1317,13 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 agent: untagged.agent,
                 tool_inputs: untagged.tool_inputs.unwrap_or_default(),
             }),
+            "aidecision" => Ok(FlowModuleValue::AIDecision {
+                input_transforms: untagged.input_transforms.unwrap_or_default(),
+                branches: untagged.branches.unwrap_or_default(),
+                default: untagged.default.unwrap_or_default(),
+                default_node: untagged.default_node,
+                tag: untagged.tag,
+            }),
             other => Err(serde::de::Error::unknown_variant(
                 other,
                 &[
@@ -1267,6 +1336,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                     "rawscript",
                     "identity",
                     "aiagent",
+                    "aidecision",
                 ],
             )),
         }
@@ -1608,6 +1678,35 @@ mod tests {
 
         let output = serde_json::to_string(&val).unwrap();
         assert!(!output.contains("tag"));
+    }
+
+    /// A decision without branches is written as nothing but its inputs, and one with branches
+    /// keeps them, so a plain decision step's YAML carries no empty branch fields.
+    #[test]
+    fn ai_decision_round_trips_with_and_without_branches() {
+        let plain = json!({"type": "aidecision", "input_transforms": {}});
+        let val: FlowModuleValue = serde_json::from_value(plain.clone()).unwrap();
+        assert!(
+            matches!(val, FlowModuleValue::AIDecision { ref branches, .. } if branches.is_empty())
+        );
+        assert_eq!(serde_json::to_value(&val).unwrap(), plain);
+
+        let branched = json!({
+            "type": "aidecision",
+            "input_transforms": {},
+            "branches": [{"expr": "previous_result.output.intent.choice === 'refund'", "modules": []}],
+            "default": [{"id": "b", "value": {"type": "identity"}}]
+        });
+        let val: FlowModuleValue = serde_json::from_value(branched).unwrap();
+        let FlowModuleValue::AIDecision { branches, default, .. } = &val else {
+            panic!("expected aidecision module");
+        };
+        assert_eq!((branches.len(), default.len()), (1, 1));
+        let output = serde_json::to_value(&val).unwrap();
+        assert_eq!(
+            output["branches"][0]["expr"],
+            json!("previous_result.output.intent.choice === 'refund'")
+        );
     }
 
     #[test]

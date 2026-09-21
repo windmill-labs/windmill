@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { FlowModule } from '$lib/gen'
 	import { getContext } from 'svelte'
-	import { getStepPropPicker } from '../previousResults'
+	import { buildExtraLib, getStepPropPicker } from '../previousResults'
 	import type { FlowEditorContext } from '../types'
 	import InputTransformForm from '$lib/components/InputTransformForm.svelte'
 	import PredicateGen from '$lib/components/copilot/PredicateGen.svelte'
@@ -32,8 +32,8 @@
 	const { previewArgs, flowStateStore, flowStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
-	let stepPropPicker = $derived(
-		getStepPropPicker(
+	let stepPropPicker = $derived.by(() => {
+		const picker = getStepPropPicker(
 			flowStateStore.val,
 			parentModule,
 			previousModule,
@@ -42,7 +42,29 @@
 			previewArgs.val,
 			false
 		)
-	)
+		if (parentModule.value.type !== 'aidecision') return picker
+		// An AI decision's branches are chosen from its own answers, its `previous_result`.
+		const priorIds = {
+			...picker.pickableProperties.priorIds,
+			[parentModule.id]: flowStateStore.val[parentModule.id]?.previewResult ?? {}
+		}
+		const pickableProperties = {
+			...picker.pickableProperties,
+			priorIds,
+			previousId: parentModule.id,
+			hasResume: false
+		}
+		return {
+			pickableProperties,
+			extraLib: buildExtraLib(
+				pickableProperties.flow_input,
+				priorIds,
+				false,
+				parentModule.id,
+				flowStore.val.value.flow_env
+			)
+		}
+	})
 </script>
 
 <PropPickerWrapper

@@ -1,5 +1,6 @@
 import type { FlowModule, InputTransform, OpenFlow } from '$lib/gen'
 import { collectDescendantFlowModules, getChildModuleBranches } from './flowTree'
+import { choiceBranches, isBranchChoice } from './branchChoice'
 
 type ModuleBranches = FlowModule[][]
 
@@ -51,7 +52,7 @@ function filterDependentComponents(modules: FlowModule[], id: string): Record<st
 				modules
 					.map((mod) => [mod.id, getModuleExprs(mod).filter((expr) => expr.includes(`flow_input`))])
 					.filter((x) => x[1].length > 0)
-		  )
+			)
 		: Object.fromEntries(
 				modules
 					.map((mod) => [
@@ -62,17 +63,20 @@ function filterDependentComponents(modules: FlowModule[], id: string): Record<st
 						})
 					])
 					.filter((x) => x[1].length > 0)
-		  )
+			)
 }
 
 function getModuleExprs(x: FlowModule): string[] {
 	let exprs: string[] = []
 	if (x.value.type === 'forloopflow') {
 		exprs.push(...getExpr(x.value.iterator))
-	} else if (x.value.type === 'branchone') {
-		x.value.branches.map((branch) => {
+	} else if (isBranchChoice(x.value)) {
+		choiceBranches(x.value).map((branch) => {
 			exprs.push(branch.expr)
 		})
+		if (x.value.type === 'aidecision') {
+			exprs.push(...exprsOfInputTransforms(x.value.input_transforms))
+		}
 	} else if (x.value.type === 'flow' || x.value.type === 'script' || x.value.type == 'rawscript') {
 		exprs.push(...exprsOfInputTransforms(x.value.input_transforms))
 		exprs.push(...getExpr(x.sleep))

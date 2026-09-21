@@ -1,4 +1,11 @@
 import type { FlowModule } from '$lib/gen'
+import {
+	choiceBranches,
+	choiceDefault,
+	choiceModuleArrays,
+	ensureChoiceArrays,
+	isBranchChoice
+} from './branchChoice'
 
 export type FlowModuleTree = {
 	modules?: FlowModule[] | null
@@ -49,8 +56,8 @@ export function getChildModuleBranches(module: FlowModule): FlowModule[][] {
 		return [module.value.modules]
 	}
 
-	if (module.value.type === 'branchone') {
-		return [module.value.default, ...module.value.branches.map((branch) => branch.modules)]
+	if (isBranchChoice(module.value)) {
+		return choiceModuleArrays(module.value)
 	}
 
 	if (module.value.type === 'branchall') {
@@ -58,9 +65,7 @@ export function getChildModuleBranches(module: FlowModule): FlowModule[][] {
 	}
 
 	if (module.value.type === 'aiagent' && module.value.tools) {
-		return [
-			(module.value.tools as FlowModule[]).filter((tool) => isFlowModuleToolCandidate(tool))
-		]
+		return [(module.value.tools as FlowModule[]).filter((tool) => isFlowModuleToolCandidate(tool))]
 	}
 
 	return []
@@ -120,7 +125,7 @@ function visitNestedFlowNodesOfModule(
 								parentId: module.id,
 								index: childIndex
 							}) as ArrayBackedModuleParentLocation
-					: module.value.type === 'branchone'
+					: isBranchChoice(module.value)
 						? branchIndex === 0
 							? (childIndex: number) =>
 									({
@@ -212,11 +217,11 @@ export function collectAllFlowModuleIds(flow: FlowModuleTree): string[] {
 
 			if (module.value.type === 'forloopflow' || module.value.type === 'whileloopflow') {
 				walkModules(module.value.modules)
-			} else if (module.value.type === 'branchone') {
-				for (const branch of module.value.branches) {
+			} else if (isBranchChoice(module.value)) {
+				for (const branch of choiceBranches(module.value)) {
 					walkModules(branch.modules)
 				}
-				walkModules(module.value.default)
+				walkModules(choiceDefault(module.value))
 			} else if (module.value.type === 'branchall') {
 				for (const branch of module.value.branches) {
 					walkModules(branch.modules)
@@ -265,17 +270,24 @@ export function collectFlowNodes(flow: FlowModuleTree): FlowNodeLocation[] {
 		})
 	}
 
-	visitFlowNodesInModules(flow.modules ?? [], (index) => ({ type: 'root', index }), (match) => {
-		matches.push({
-			module: match.module,
-			location: match.location
-		})
-	})
+	visitFlowNodesInModules(
+		flow.modules ?? [],
+		(index) => ({ type: 'root', index }),
+		(match) => {
+			matches.push({
+				module: match.module,
+				location: match.location
+			})
+		}
+	)
 
 	return matches
 }
 
-export function findModuleInModules(modules: FlowModule[], moduleId: string): FlowModule | undefined {
+export function findModuleInModules(
+	modules: FlowModule[],
+	moduleId: string
+): FlowModule | undefined {
 	return (
 		findFlowNodeInModules(modules, moduleId, (index) => ({ type: 'root', index }))?.module ??
 		undefined
@@ -308,7 +320,10 @@ export function findModuleInFlow(flow: FlowModuleTree, moduleId: string): FlowMo
 	return findFlowNode(flow, moduleId)?.module ?? null
 }
 
-export function findModuleParent(flow: FlowModuleTree, moduleId: string): ModuleParentLocation | null {
+export function findModuleParent(
+	flow: FlowModuleTree,
+	moduleId: string
+): ModuleParentLocation | null {
 	return findFlowNode(flow, moduleId)?.location ?? null
 }
 
@@ -340,27 +355,31 @@ function resolveModuleArrayByLocation(
 		return parentModule.value.modules ?? null
 	}
 
-	if (location.type === 'branchone-default' && parentModule.value.type === 'branchone') {
+	if (location.type === 'branchone-default' && isBranchChoice(parentModule.value)) {
+		if (options.createIfMissing) {
+			return ensureChoiceArrays(parentModule.value).default
+		}
 		return parentModule.value.default ?? null
 	}
 
-	if (location.type === 'branchone-branch' && parentModule.value.type === 'branchone') {
-		let branch = parentModule.value.branches[location.branchIndex]
+	if (location.type === 'branchone-branch' && isBranchChoice(parentModule.value)) {
+		let branch = choiceBranches(parentModule.value)[location.branchIndex]
 		if (!branch && options.templateFlow) {
 			const templateParent = findModuleInFlow(options.templateFlow, location.parentId)
 			const templateBranch =
-				templateParent?.value.type === 'branchone'
-					? templateParent.value.branches[location.branchIndex]
+				templateParent && isBranchChoice(templateParent.value)
+					? choiceBranches(templateParent.value)[location.branchIndex]
 					: undefined
 			if (templateBranch) {
-				while (parentModule.value.branches.length <= location.branchIndex) {
-					parentModule.value.branches.push({ expr: '', modules: [] })
+				const { branches } = ensureChoiceArrays(parentModule.value)
+				while (branches.length <= location.branchIndex) {
+					branches.push({ expr: '', modules: [] })
 				}
-				parentModule.value.branches[location.branchIndex] = {
+				branches[location.branchIndex] = {
 					...templateBranch,
 					modules: []
 				}
-				branch = parentModule.value.branches[location.branchIndex]
+				branch = branches[location.branchIndex]
 			}
 		}
 		return branch?.modules ?? null

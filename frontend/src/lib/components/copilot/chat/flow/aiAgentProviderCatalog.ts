@@ -16,8 +16,8 @@ import {
 
 // Read lazily: evaluating this at module scope makes `AI_PROVIDERS` a load-time requirement
 // for everything that reaches this module, the whole global chat included. Decision kinds are
-// included so a decision step's resource validates; `validateAiAgentProviders` keeps each kind to
-// its output type.
+// included so an AI decision step's resource validates; `validateAiAgentProviders` keeps each kind
+// to its step type.
 const aiResourceTypes = () =>
 	[...Object.keys(AI_PROVIDERS), ...Object.keys(DECISION_AI_PROVIDERS)] as AIProvider[]
 

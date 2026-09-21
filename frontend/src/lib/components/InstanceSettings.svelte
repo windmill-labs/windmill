@@ -1085,10 +1085,10 @@
 							model identifiers, the names of public hub scripts used, the languages debug sessions
 							are started for, whether AI chat skills are turned on or off and how often one is
 							loaded, whether an AI agent run narrows the tools it may call and whether that leaves
-							it with none, how often an AI agent step answers with a decision, whether SSO logins
-							evaluate an IdP groups claim (SAML or OIDC) and change a membership, the plan tier and
-							quota shown when the execution meter is opened, whether app sandbox isolation is
-							turned on, whether a step's workspace script is edited from the flow editor, which
+							it with none, how often an AI decision runs as a step or as an agent tool, whether SSO
+							logins evaluate an IdP groups claim (SAML or OIDC) and change a membership, the plan
+							tier and quota shown when the execution meter is opened, whether app sandbox isolation
+							is turned on, whether a step's workspace script is edited from the flow editor, which
 							skin approval steps are given, how many AI sessions are brought back from the
 							workspace object storage backup, how data tables and their migrations are set up and
 							used, how often an empty workspace home is seen, how often the home page’s create menu
@@ -1156,10 +1156,10 @@
 							model identifiers, the names of public hub scripts used, the languages debug sessions
 							are started for, whether AI chat skills are turned on or off and how often one is
 							loaded, whether an AI agent run narrows the tools it may call and whether that leaves
-							it with none, how often an AI agent step answers with a decision, whether SSO logins
-							evaluate an IdP groups claim (SAML or OIDC) and change a membership, the plan tier and
-							quota shown when the execution meter is opened, whether app sandbox isolation is
-							turned on, whether a step's workspace script is edited from the flow editor, which
+							it with none, how often an AI decision runs as a step or as an agent tool, whether SSO
+							logins evaluate an IdP groups claim (SAML or OIDC) and change a membership, the plan
+							tier and quota shown when the execution meter is opened, whether app sandbox isolation
+							is turned on, whether a step's workspace script is edited from the flow editor, which
 							skin approval steps are given, how many AI sessions are brought back from the
 							workspace object storage backup, how data tables and their migrations are set up and
 							used, how often an empty workspace home is seen, how often the home page’s create menu

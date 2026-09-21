@@ -194,6 +194,7 @@ struct UntaggedFlowStatusModule {
     skipped: Option<bool>,
     agent_actions: Option<Vec<AgentAction>>,
     agent_actions_success: Option<Vec<bool>>,
+    decision_job: Option<Uuid>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -255,6 +256,10 @@ pub enum FlowStatusModule {
         agent_actions: Option<Vec<AgentAction>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         agent_actions_success: Option<Vec<bool>>,
+        /// The decision job of an AI decision step with branches. Set while it runs and once it
+        /// has answered, when `job` becomes the chosen branch's sub-flow.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        decision_job: Option<Uuid>,
     },
     Success {
         id: String,
@@ -277,6 +282,9 @@ pub enum FlowStatusModule {
         agent_actions: Option<Vec<AgentAction>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         agent_actions_success: Option<Vec<bool>>,
+        /// The decision job of an AI decision step with branches, whose `job` is the branch run.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        decision_job: Option<Uuid>,
     },
     Failure {
         id: String,
@@ -349,6 +357,7 @@ impl<'de> Deserialize<'de> for FlowStatusModule {
                 progress: untagged.progress,
                 agent_actions: untagged.agent_actions,
                 agent_actions_success: untagged.agent_actions_success,
+                decision_job: untagged.decision_job,
             }),
             "Success" => Ok(FlowStatusModule::Success {
                 id: untagged
@@ -366,6 +375,7 @@ impl<'de> Deserialize<'de> for FlowStatusModule {
                 skipped: untagged.skipped.unwrap_or(false),
                 agent_actions: untagged.agent_actions,
                 agent_actions_success: untagged.agent_actions_success,
+                decision_job: untagged.decision_job,
             }),
             "Failure" => Ok(FlowStatusModule::Failure {
                 id: untagged
@@ -496,6 +506,8 @@ impl FlowStatusModule {
                 total.is_some_and(|t| t > 0 && it.index + 1 == t)
             }
             FlowStatusModule::InProgress { branchall: Some(ba), .. } => ba.branch + 1 == ba.len,
+            // An AI decision that has answered but not yet branched still has its branch to run.
+            FlowStatusModule::InProgress { decision_job: Some(_), branch_chosen: None, .. } => false,
             // Single-child leaf / subflow / branch-one: the child ran, nothing else to advance.
             FlowStatusModule::InProgress { .. } => true,
             _ => false,
@@ -507,6 +519,14 @@ impl FlowStatusModule {
             FlowStatusModule::InProgress { agent_actions, .. } => agent_actions.clone(),
             FlowStatusModule::Success { agent_actions, .. } => agent_actions.clone(),
             FlowStatusModule::Failure { agent_actions, .. } => agent_actions.clone(),
+            _ => None,
+        }
+    }
+
+    pub fn decision_job(&self) -> Option<Uuid> {
+        match self {
+            FlowStatusModule::InProgress { decision_job, .. }
+            | FlowStatusModule::Success { decision_job, .. } => *decision_job,
             _ => None,
         }
     }
@@ -700,6 +720,22 @@ mod tests {
         assert!(!module(serde_json::json!({
             "type": "Success", "id": "a", "job": "00000000-0000-0000-0000-000000000000",
             "skipped": false
+        }))
+        .is_between_steps_complete());
+    }
+
+    #[test]
+    fn between_steps_complete_ai_decision_only_once_branched() {
+        let nil = "00000000-0000-0000-0000-000000000000";
+        // Answered, branch still to run: reusing it would skip the branch.
+        assert!(!module(serde_json::json!({
+            "type": "InProgress", "id": "a", "job": nil, "decision_job": nil
+        }))
+        .is_between_steps_complete());
+        // Its branch ran: like a BranchOne.
+        assert!(module(serde_json::json!({
+            "type": "InProgress", "id": "a", "job": nil, "decision_job": nil,
+            "branch_chosen": { "type": "default" }
         }))
         .is_between_steps_complete());
     }

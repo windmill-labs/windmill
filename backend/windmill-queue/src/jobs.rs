@@ -7349,6 +7349,7 @@ fn create_restarted_module(
                 progress: None,
                 agent_actions: None,
                 agent_actions_success: None,
+                decision_job: None,
             })
         }
         Ok(FlowModuleValue::ForloopFlow { parallel, .. }) => {
@@ -7395,6 +7396,7 @@ fn create_restarted_module(
                 progress: None,
                 agent_actions: None,
                 agent_actions_success: None,
+                decision_job: None,
             })
         }
         _ => Err(Error::internal_err(format!(
@@ -7455,6 +7457,7 @@ fn reuse_completed_zombie_module(module: FlowStatusModule) -> FlowStatusModule {
             branch_chosen,
             agent_actions,
             agent_actions_success,
+            decision_job,
             ..
         } => FlowStatusModule::Success {
             id,
@@ -7471,6 +7474,7 @@ fn reuse_completed_zombie_module(module: FlowStatusModule) -> FlowStatusModule {
             skipped: false,
             agent_actions,
             agent_actions_success,
+            decision_job,
         },
         other => other,
     }

@@ -3076,6 +3076,7 @@ fn flow_tree_entry_label(
         "forloopflow" => " forloop",
         "whileloopflow" => " whileloop",
         "aiagent" => " ai-agent",
+        "aidecision" => " ai-decision",
         _ => "",
     };
 
@@ -3092,7 +3093,11 @@ fn flow_tree_entry_label(
         "flow" | "flowpreview" | "flownode" | "singlestepflow" | "aiagent"
     ) {
         // Intermediate flow job (loop iteration or branch)
-        if parent_module_type == "branchone" {
+        if parent_module_type == "aidecision" {
+            // Its decision job, then the flow job of the branch it chose, share the step.
+            let phase = if kind == "aiagent" { "decision" } else { "selected branch" };
+            format!("Step {}{} ({})", path, kind_label, phase)
+        } else if parent_module_type == "branchone" {
             // sibling_index is a row number among sibling jobs, not the chosen
             // branch (branchone only enqueues the branch it selected) — don't
             // pretend to know which branch ran.
@@ -3460,7 +3465,7 @@ struct ResolvedStepJob {
 fn is_fan_out_module(parent_module_type: &str) -> bool {
     matches!(
         parent_module_type,
-        "forloopflow" | "whileloopflow" | "branchall" | "branchone" | "aiagent"
+        "forloopflow" | "whileloopflow" | "branchall" | "branchone" | "aiagent" | "aidecision"
     )
 }
 
@@ -6958,6 +6963,12 @@ async fn resolve_nested_restart(
             FlowModuleValue::WhileloopFlow { .. } => {
                 return Err(Error::BadRequest(format!(
                     "Restart inside a WhileLoop step ('{}') is not supported",
+                    parent_step_id
+                )));
+            }
+            FlowModuleValue::AIDecision { .. } => {
+                return Err(Error::BadRequest(format!(
+                    "Restart inside an AI decision step ('{}') is not supported",
                     parent_step_id
                 )));
             }

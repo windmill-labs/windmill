@@ -27952,6 +27952,8 @@ components:
       $ref: "../../openflow.openapi.yaml#/components/schemas/AiTransform"
     ProviderConfig:
       $ref: "../../openflow.openapi.yaml#/components/schemas/ProviderConfig"
+    ProviderTransform:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/ProviderTransform"
     MemoryConfig:
       $ref: "../../openflow.openapi.yaml#/components/schemas/MemoryConfig"
     FlowModuleValue:
@@ -27972,6 +27974,8 @@ components:
       $ref: "../../openflow.openapi.yaml#/components/schemas/BranchAll"
     AiAgent:
       $ref: "../../openflow.openapi.yaml#/components/schemas/AiAgent"
+    AiDecision:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/AiDecision"
     Identity:
       $ref: "../../openflow.openapi.yaml#/components/schemas/Identity"
     FlowStatus:

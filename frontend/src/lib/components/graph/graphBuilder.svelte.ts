@@ -17,6 +17,7 @@ import {
 } from './flowStructure'
 import { groupKey, type FlowGroup } from './groupEditor.svelte'
 import { computeGroupModuleIds } from './groupDetectionUtils'
+import { choiceBranches, choiceDefault, hasChoiceBranches } from '../flows/branchChoice'
 
 export type InsertKind =
 	| 'script'
@@ -29,9 +30,11 @@ export type InsertKind =
 	| 'approval'
 	| 'end'
 	| 'aiagent'
+	| 'aidecision'
 	| 'mcpTool'
 	| 'websearchTool'
 	| 'aiAgentTool'
+	| 'aiDecisionTool'
 
 export type InlineScript = {
 	language: RawScript['language']
@@ -1022,7 +1025,8 @@ export function graphBuilder(
 						)
 
 						previousId = endNode.id
-					} else if (module.value.type === 'branchone') {
+					} else if (hasChoiceBranches(module.value)) {
+						const choice = module.value
 						addNode(module)
 
 						const endNode: NodeLayout = {
@@ -1045,7 +1049,7 @@ export function graphBuilder(
 								insertable: extra.insertable,
 								preLabel: undefined,
 								selected: false,
-								modules: module.value.default
+								modules: choiceDefault(choice)
 							},
 							type: 'branchOneStart'
 						}
@@ -1067,7 +1071,7 @@ export function graphBuilder(
 							parentIndex ? `${parentIndex}-${index}` : index.toString()
 						)
 
-						module.value.branches.forEach((branch, branchIndex) => {
+						choiceBranches(choice).forEach((branch, branchIndex) => {
 							// Start node by branch
 
 							const startNode: NodeLayout = {

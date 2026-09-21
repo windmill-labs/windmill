@@ -164,9 +164,9 @@ export function extractInlineScripts(
         assigner,
         options
       );
-    } else if (m.value.type == "branchone") {
+    } else if (m.value.type == "branchone" || m.value.type == "aidecision") {
       return [
-        ...m.value.branches.flatMap((b) =>
+        ...(m.value.branches ?? []).flatMap((b) =>
           extractInlineScripts(
             b.modules,
             mapping,
@@ -177,7 +177,7 @@ export function extractInlineScripts(
           )
         ),
         ...extractInlineScripts(
-          m.value.default,
+          m.value.default ?? [],
           mapping,
           separator,
           defaultTs,
@@ -252,8 +252,8 @@ export function extractCurrentMapping(
       m.value.branches.forEach((b) =>
         extractCurrentMapping(b.modules, mapping)
       );
-    } else if (m.value.type === "branchone") {
-      m.value.branches.forEach((b) =>
+    } else if (m.value.type === "branchone" || m.value.type === "aidecision") {
+      (m.value.branches ?? []).forEach((b) =>
         extractCurrentMapping(b.modules, mapping)
       );
       extractCurrentMapping(m.value.default, mapping);

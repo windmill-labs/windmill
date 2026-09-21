@@ -1,4 +1,4 @@
-//! Decision output: one call to TypeSafe's System One endpoint, which answers typed questions
+//! AI decision steps: one call to TypeSafe's System One endpoint, which answers typed questions
 //! (`choice`, `score`, `noul`) about a state with calibrated probabilities instead of text.
 
 use std::time::Duration;
@@ -10,9 +10,19 @@ use windmill_common::error::{Error, Result};
 use crate::{
     credentials::ProviderCredentials,
     proxy::{common_outbound_headers, retain_effective_credentials},
-    types::TokenUsage,
+    types::{ProviderWithResource, TokenUsage},
     utils::pinned_ai_client_for,
 };
+
+/// The inputs of an AI decision step or tool, as its `input_transforms` resolve them.
+#[derive(Deserialize, Debug)]
+pub struct AIDecisionArgs {
+    pub provider: ProviderWithResource,
+    #[serde(default)]
+    pub state: Option<Value>,
+    #[serde(default)]
+    pub questions: Option<Value>,
+}
 
 /// The alias TypeSafe keeps on its current model, sent when the step names none.
 pub const TYPESAFE_DEFAULT_MODEL: &str = "jev-latest";
@@ -39,8 +49,8 @@ struct SystemOneUsage {
     output_tokens: Option<i32>,
 }
 
-/// A decision step's result. `output` holds the answers keyed by question name, where a text
-/// agent's holds its answer, so a later step reads both as `results.<step>.output`.
+/// A decision's result. `output` holds the answers keyed by question name, where an agent's
+/// holds its answer, so a later step reads both as `results.<step>.output`.
 #[derive(Serialize)]
 pub struct DecisionResult {
     pub output: Box<RawValue>,
@@ -51,7 +61,7 @@ pub struct DecisionResult {
     pub usage: Option<TokenUsage>,
 }
 
-/// The state and questions of a decision step, refused here rather than by the endpoint when
+/// The state and questions of a decision, refused here rather than by the endpoint when
 /// either is missing or of a shape TypeSafe rejects: a flow that passes an empty expression result
 /// should read what it forgot, without a request going out.
 pub fn decision_inputs<'a>(
@@ -61,18 +71,18 @@ pub fn decision_inputs<'a>(
     let state = match state {
         None | Some(Value::Null) => {
             return Err(Error::BadRequest(
-                "'state' must be provided for decision output".to_string(),
+                "'state' must be provided for an AI decision".to_string(),
             ))
         }
         Some(Value::String(s)) if s.trim().is_empty() => {
             return Err(Error::BadRequest(
-                "'state' must be provided for decision output".to_string(),
+                "'state' must be provided for an AI decision".to_string(),
             ))
         }
         Some(state @ (Value::String(_) | Value::Object(_) | Value::Array(_))) => state,
         Some(_) => {
             return Err(Error::BadRequest(
-                "'state' must be a text, an object or an array for decision output".to_string(),
+                "'state' must be a text, an object or an array for an AI decision".to_string(),
             ))
         }
     };
@@ -80,7 +90,7 @@ pub fn decision_inputs<'a>(
         match questions {
             Some(Value::Object(questions)) if !questions.is_empty() => questions,
             _ => return Err(Error::BadRequest(
-                "'questions' must be an object naming at least one question for decision output"
+                "'questions' must be an object naming at least one question for an AI decision"
                     .to_string(),
             )),
         };

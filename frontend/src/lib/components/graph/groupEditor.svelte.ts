@@ -1,4 +1,5 @@
 import type { FlowModule } from '$lib/gen'
+import { choiceBranches, choiceDefault, hasChoiceBranches } from '../flows/branchChoice'
 import type { StateStore } from '$lib/utils'
 import type { ExtendedOpenFlow } from '../flows/types'
 
@@ -295,16 +296,17 @@ export function getContainerInnerArrays(mod: FlowModule): ContainerInnerArray[] 
 				}
 			}
 		]
-	} else if (val.type === 'branchone') {
+	} else if (hasChoiceBranches(mod.value)) {
+		const choice = mod.value
 		return [
 			{
-				get: () => val.default,
+				get: () => choiceDefault(choice),
 				set: (v) => {
-					val.default = v
+					choice.default = v
 				},
 				label: 'Default'
 			},
-			...val.branches.map((b: any, i: number) => ({
+			...choiceBranches(choice).map((b: any, i: number) => ({
 				get: () => b.modules,
 				set: (v: any) => {
 					b.modules = v

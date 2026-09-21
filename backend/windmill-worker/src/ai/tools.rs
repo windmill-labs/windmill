@@ -360,7 +360,8 @@ async fn execute_windmill_tool(
         FlowModuleValue::Script { input_transforms, .. }
         | FlowModuleValue::RawScript { input_transforms, .. }
         | FlowModuleValue::FlowScript { input_transforms, .. }
-        | FlowModuleValue::AIAgent { input_transforms, .. } => input_transforms,
+        | FlowModuleValue::AIAgent { input_transforms, .. }
+        | FlowModuleValue::AIDecision { input_transforms, .. } => input_transforms,
         _ => {
             return Err(Error::internal_err(format!(
                 "Unsupported tool: {}",
@@ -402,7 +403,10 @@ async fn execute_windmill_tool(
         tool_call_args.insert(key.clone(), result);
     }
 
-    let is_ai_agent_tool = matches!(tool_value, FlowModuleValue::AIAgent { .. });
+    let returns_envelope = matches!(
+        tool_value,
+        FlowModuleValue::AIAgent { .. } | FlowModuleValue::AIDecision { .. }
+    );
 
     let job_payload = match tool_value {
         FlowModuleValue::Script { path: script_path, hash: script_hash, tag_override, .. } => {
@@ -463,13 +467,15 @@ async fn execute_windmill_tool(
             let has_nested_agent_tools = sub_tools.iter().any(|t| {
                 matches!(
                     t.value,
-                    windmill_common::flows::ToolValue::FlowModule(FlowModuleValue::AIAgent { .. })
+                    windmill_common::flows::ToolValue::FlowModule(
+                        FlowModuleValue::AIAgent { .. } | FlowModuleValue::AIDecision { .. }
+                    )
                 )
             });
             if has_nested_agent_tools {
                 return Err(Error::internal_err(
                     "AI agent tools cannot be nested beyond 2 levels. The nested agent tool contains \
-                     AIAgent sub-tools, which would exceed the maximum nesting depth.".to_string()
+                     AI agent or AI decision sub-tools, which would exceed the maximum nesting depth.".to_string()
                 ));
             }
             let path = format!("{}/tools/{}", ctx.job.runnable_path(), tool_module.id);
@@ -484,6 +490,27 @@ async fn execute_windmill_tool(
                 on_behalf_of: None,
             }
         }
+        // A tool returns its answers to the calling model, so it has no flow to branch into.
+        FlowModuleValue::AIDecision { branches, default, .. }
+            if !branches.is_empty() || !default.is_empty() =>
+        {
+            return Err(Error::BadRequest(format!(
+                "The AI decision tool {} has branches, which only a flow step can run",
+                tool_call.function.name
+            )));
+        }
+        // Runs as an AI agent job, whose handler finds this tool on the calling agent and answers
+        // it as a decision.
+        FlowModuleValue::AIDecision { .. } => JobPayloadWithTag {
+            payload: JobPayload::AIAgent {
+                path: format!("{}/tools/{}", ctx.job.runnable_path(), tool_module.id),
+            },
+            tag: None,
+            delete_after_use: tool_module.delete_after_use.unwrap_or(false),
+            delete_after_secs: None,
+            timeout: None,
+            on_behalf_of: None,
+        },
         _ => {
             return Err(Error::internal_err(format!(
                 "Unsupported tool: {}",
@@ -647,7 +674,7 @@ async fn execute_windmill_tool(
                 tool_module,
                 job_id,
                 outcome.is_success(),
-                is_ai_agent_tool,
+                returns_envelope,
                 inner_job_completed_rx,
                 messages,
                 final_events_str,
@@ -735,7 +762,7 @@ async fn handle_tool_execution_success(
     tool_module: &windmill_common::flows::FlowModule,
     job_id: Uuid,
     success: bool,
-    is_ai_agent_tool: bool,
+    returns_envelope: bool,
     inner_job_completed_rx: JobCompletedReceiver,
     messages: &mut Vec<OpenAIMessage>,
     final_events_str: &mut String,
@@ -796,8 +823,9 @@ async fn handle_tool_execution_success(
     // A nested agent returns the whole `AIAgentResult` envelope: on top of `output` it carries
     // the child's entire message history, stream log and token usage. Feeding that back would
     // grow the caller's context by the child's full transcript on every call, so the caller only
-    // sees `output`. The envelope stays intact in the tool job's completed row.
-    let tool_result = if is_ai_agent_tool && job_success {
+    // sees `output`, as it does of a decision's. The envelope stays intact in the tool job's
+    // completed row.
+    let tool_result = if returns_envelope && job_success {
         extract_ai_agent_output(&result).unwrap_or_else(|| result.get().to_string())
     } else {
         result.get().to_string()
