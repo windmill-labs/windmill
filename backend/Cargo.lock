@@ -15526,6 +15526,7 @@ version = "1.816.0"
 dependencies = [
  "axum 0.8.9",
  "chrono",
+ "constant_time_eq 0.3.1",
  "futures",
  "hex",
  "http 1.5.0",
@@ -15533,6 +15534,7 @@ dependencies = [
  "lazy_static",
  "magic-crypt",
  "regex",
+ "reqwest 0.13.5",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -15541,6 +15543,7 @@ dependencies = [
  "tokio",
  "tokio-postgres",
  "tracing",
+ "url",
  "uuid",
  "windmill-api-auth",
  "windmill-api-jobs",

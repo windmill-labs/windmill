@@ -8,6 +8,7 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 
 	import DeployToSetting from '$lib/components/DeployToSetting.svelte'
+	import RemoteDeployTargetSetting from '$lib/components/RemoteDeployTargetSetting.svelte'
 	import DevWorkspaceSetting from '$lib/components/DevWorkspaceSetting.svelte'
 	import ErrorOrRecoveryHandler from '$lib/components/ErrorOrRecoveryHandler.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
@@ -1551,6 +1552,12 @@
 										Merge into another workspace
 									</Button>
 								</div>
+							</div>
+							<!-- The other destination the lineage cannot express: a workspace on another
+							     instance. Its own section, since it needs a credential per person. -->
+							<div class="flex flex-col gap-2 max-w-2xl mt-8 pt-6 border-t">
+								<span class="text-xs font-semibold text-emphasis">Deploy to another instance</span>
+								<RemoteDeployTargetSetting />
 							</div>
 						{:else if tab == 'rulesets'}
 							<SettingsPageHeader

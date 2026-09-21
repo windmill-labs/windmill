@@ -4187,6 +4187,100 @@ paths:
                   deploy_to:
                     type: string
 
+  /w/{workspace}/remote_deploy/target:
+    get:
+      summary: get the workspace's deploy target on another instance, and the caller's connection to it
+      description: |
+        Once connected, deploy calls aimed at the target go through
+        `/w/{workspace}/remote_deploy/proxy/{proxy_key}/{route}`, which forwards any method to
+        `{base_url}/api/w/{target workspace}/{route}` with the caller's stored token.
+      operationId: getRemoteDeployTarget
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: remote deploy target and the caller's connection to it
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RemoteDeployStatus"
+    post:
+      summary: set or clear the workspace's deploy target on another instance
+      description: Changing the target drops every token stored for the previous one.
+      operationId: setRemoteDeployTarget
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                target:
+                  $ref: "#/components/schemas/RemoteDeployTarget"
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/remote_deploy/connect:
+    post:
+      summary: store the caller's own token for the remote deploy target
+      description: |
+        The token is checked against the target's whoami before it is stored. `target` names the
+        target the token was obtained for, and the request is refused if the workspace now points
+        elsewhere, so a token is never sent to an instance it was not meant for.
+      operationId: connectRemoteDeploy
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+                target:
+                  $ref: "#/components/schemas/RemoteDeployTarget"
+              required:
+                - token
+                - target
+      responses:
+        "200":
+          description: the stored connection
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RemoteDeployConnection"
+
+  /w/{workspace}/remote_deploy/disconnect:
+    post:
+      summary: forget the caller's token for the remote deploy target
+      operationId: disconnectRemoteDeploy
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/workspaces/is_premium:
     get:
       summary: get if workspace is premium
@@ -36531,6 +36625,44 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/GitSyncObjectType"
+
+    RemoteDeployTarget:
+      type: object
+      properties:
+        base_url:
+          type: string
+          description: root URL of the remote Windmill instance, without /api
+        workspace_id:
+          type: string
+          description: workspace on the remote instance that deploys land in
+      required:
+        - base_url
+        - workspace_id
+
+    RemoteDeployConnection:
+      type: object
+      properties:
+        remote_email:
+          type: string
+          description: identity the stored token has on the remote instance
+        proxy_key:
+          type: string
+          description: goes in every proxy URL, `/w/{workspace}/remote_deploy/proxy/{proxy_key}/{route}`
+        connected_at:
+          type: string
+          format: date-time
+      required:
+        - remote_email
+        - proxy_key
+        - connected_at
+
+    RemoteDeployStatus:
+      type: object
+      properties:
+        target:
+          $ref: "#/components/schemas/RemoteDeployTarget"
+        connection:
+          $ref: "#/components/schemas/RemoteDeployConnection"
 
     WorkspaceDefaultScripts:
       type: object

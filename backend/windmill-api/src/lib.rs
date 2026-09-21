@@ -731,6 +731,12 @@ pub async fn run_server(
                             path_autocomplete::workspaced_service(),
                         )
                         .nest("/raw_apps", raw_apps::workspaced_service())
+                        .nest(
+                            "/remote_deploy",
+                            windmill_api_workspaces::remote_deploy::workspaced_service(
+                                request_size_limit * 5,
+                            ),
+                        )
                         // CORS so the opaque-origin app iframe can read
                         // resources/list, resources/type/* with a scoped token.
                         .nest(
