@@ -7,6 +7,12 @@ import type { UserDraftItemKind } from '$lib/gen'
 // The gate's two refusals, from a module that holds prose and one size limit: under the
 // shallow-import rule below, the rest of plan mode is not reachable from here.
 import { PLAN_MODE_MESSAGES } from './planModeMessages'
+// Import-free leaf, so it satisfies the shallow-import rule below.
+import {
+	openItemPreviewAction,
+	type OpenItemPreviewAction,
+	type PreviewCardKind
+} from './itemPreview'
 
 // The tool modules that import this one (workspaceTools, flow/core, global/core, ...)
 // call createToolDef and read SPECIAL_MODULE_IDS at *module scope*, so if a chunk cycle
@@ -526,34 +532,10 @@ export type NavigateAction = {
 	page: string
 }
 
-/** Kinds of previewable item a write tool can land — the subset of draft item
- * kinds a session preview can host. */
-export type PreviewCardKind = 'script' | 'flow' | 'raw_app'
-
-// A discrete card shown on a tool call that created or updated a workspace item.
-// Clicking it opens the item's live preview in the session side panel — or focuses
-// the tab if it is already open. The handler is registered by the sessions page
-// (the only surface with a preview panel).
-export type OpenItemPreviewAction = {
-	id: string
-	type: 'open_item_preview'
-	label: string
-	previewKind: PreviewCardKind
-	path: string
-}
+// Re-exported: most consumers reach these through this module.
+export { openItemPreviewAction, type PreviewCardKind, type OpenItemPreviewAction }
 
 export type ToolDisplayAction = CreatedResourceAction | NavigateAction | OpenItemPreviewAction
-
-/** Build the action a preview card dispatches from its (kind, path). */
-export function openItemPreviewAction(kind: PreviewCardKind, path: string): OpenItemPreviewAction {
-	return {
-		id: `open-item-preview:${kind}:${path}`,
-		type: 'open_item_preview',
-		label: `Open ${kind === 'raw_app' ? 'app' : kind} preview`,
-		previewKind: kind,
-		path
-	}
-}
 
 export type UserQuestionDisplay = {
 	question: string
@@ -571,6 +553,57 @@ export function answeredChoices(q: UserQuestionDisplay): string[] | undefined {
 	return q.selectedChoices ?? (q.selectedChoice ? [q.selectedChoice] : undefined)
 }
 
+/** Argument form for a deployed-script run, persisted with the transcript — every
+ * field has to stay plain JSON. */
+export type RunFormDisplay = {
+	path: string
+	summary?: string
+	/** What the run is, in the card's own words: a deployed script run, or a preview of the
+	 * draft being written. Only the tense of the row's label turns on it. */
+	kind?: 'run' | 'test'
+	/** What is being run, for the noun the card says it in.
+	 * Absent on cards recorded before flows had a form, which were all scripts. */
+	runnableKind?: 'script' | 'flow'
+	/** Of whatever version is about to run: the deployed script, or the draft a test
+	 * previews. Only the rendered form reads it, so it is dropped once one of the flags
+	 * below unmounts that form: kept, every settled card would carry a copy of the schema
+	 * — password and file defaults included — in history forever. */
+	schema?: Record<string, any>
+	/** The script the `dynselect-` helper runs: the draft a script test run previews, since a
+	 * deployed helper would answer for the wrong version, or the one a flow schema carries on
+	 * itself. Dropped with the schema once the form unmounts, so no settled card keeps a copy
+	 * of the code. */
+	code?: string
+	lang?: ScriptLang
+	/** Prefill only: the card's `parameters` records what the job started with. */
+	args: Record<string, any>
+	/** Proposed arguments emptied because their declared type had no reading of them.
+	 * Named on the card: an empty field is otherwise the caller having sent nothing. */
+	clearedKeys?: string[]
+	/** Proposed arguments a disabled field overrode with its default. Named for the same
+	 * reason: the field renders locked, so the value it holds is not the proposed one. */
+	resetKeys?: string[]
+	/** File arguments emptied out of the proposal. Named so an empty field reads as the
+	 * caller's value having been removed, not as the field having none. */
+	strippedKeys?: string[]
+	/** Either one unmounts the form, so set exactly one, and only once the loop has
+	 * stopped waiting on this card. */
+	submitted?: boolean
+	canceled?: boolean
+	/** The job exists. Distinct from `submitted`, which flips a round trip earlier — in
+	 * between, whether the server queued a job is unknown, so a turn stopped there is
+	 * recorded as neither started nor canceled. */
+	started?: boolean
+}
+
+/** What a run form is being filled with while it waits. Held by the chat manager, not by
+ * the form, so the chat card and the preview pane edit one draft rather than two copies.
+ * The schema rides along because SchemaForm binds and reorders it. */
+export type RunFormDraft = {
+	args: Record<string, any>
+	schema: Record<string, any>
+}
+
 /** One page hit from a provider-side web search (OpenAI sources carry no title). */
 export type WebSearchSource = {
 	url: string
@@ -583,6 +616,9 @@ export type ToolDisplayMessage = {
 	content: string
 	parameters?: any
 	result?: any
+	/** What the job has streamed of its result so far, while it is still running.
+	 * Cleared when the job lands: `result` is then the whole of it. */
+	resultStream?: string
 	logs?: string
 	isLoading?: boolean
 	/** Arguments fully streamed but execution not started (see queuedToolStatus). */
@@ -593,9 +629,24 @@ export type ToolDisplayMessage = {
 	autoCollapseDetails?: boolean
 	isStreamingArguments?: boolean
 	toolName?: string
+	/** What marks this row with its provider. Recorded rather than looked up, because the
+	 * server listing lives only in memory and a reloaded transcript does not have it. The
+	 * workspace rides along: a chat is readable from any workspace, and the same path names
+	 * a different server in each. */
+	mcpServer?: { workspace: string; path: string }
+	/** The run behind the call. Flow chats only: the card links to it. */
+	jobId?: string
 	showFade?: boolean
 	actions?: ToolDisplayAction[]
 	userQuestion?: UserQuestionDisplay
+	runForm?: RunFormDisplay
+	/** A run this call inspected rather than started, rendered by the same card. The card
+	 * reads its panes from this job, so the user sees its own args and result in full, and its
+	 * logs as a 4000-char tail, while the model keeps the capped envelope the tool returned.
+	 * `runId` and `step` are the address the call was made with, kept so the card can name what
+	 * was inspected the way the tool's own row did: a step job names neither the step nor the
+	 * run it belongs to. */
+	inspectedRun?: { jobId: string; workspace: string; runId: string; step?: string }
 	webSearchSources?: WebSearchSource[]
 	/** Data URL of an image the tool produced (e.g. take_screenshot), shown on the card. */
 	imageUrl?: string
@@ -629,6 +680,16 @@ export type AssistantDisplayMessage = BaseDisplayMessage & {
 	 * would look like it is still streaming forever.
 	 */
 	streaming?: boolean
+	/** Flow step that produced this message, when the conversation is a flow run
+	 * rather than a copilot turn. Rendered as a label above the content. */
+	stepName?: string
+	/** The run behind this answer. Flow chats only: a copilot turn happens in the
+	 * browser and has no job. */
+	jobId?: string
+	/** When the answer arrived: the server's time for a flow chat's stored row, the browser's
+	 * for a copilot answer, which is stamped as it lands. Absent on a copilot chat restored
+	 * from history, which predates the stamp. */
+	createdAt?: string
 }
 
 /**
@@ -671,6 +732,18 @@ export function isActiveUserQuestion(message: DisplayMessage | undefined): boole
 	)
 }
 
+export function isActiveRunForm(message: DisplayMessage | undefined): boolean {
+	return Boolean(
+		message &&
+			message.role === 'tool' &&
+			message.runForm &&
+			message.isLoading &&
+			!message.error &&
+			!message.runForm.submitted &&
+			!message.runForm.canceled
+	)
+}
+
 // The loop is parked on the user: an unanswered askUserQuestion, or a tool call
 // staged for confirmation. The manager stays `loading` through both, so anything
 // rendering progress must ask here first or it reports "the AI is working".
@@ -694,6 +767,12 @@ export function pendingUserActionDetail(
 		if (isActiveUserQuestion(message)) {
 			return { action: 'question', toolCallId: message.tool_call_id }
 		}
+		// A run form is a confirmation carrying arguments, not a question: it parks the
+		// turn the same way, but Run or Cancel resolves it and typing never does — so it
+		// must not claim the answer affordance a pending question offers.
+		if (isActiveRunForm(message)) {
+			return { action: 'confirmation', toolCallId: message.tool_call_id }
+		}
 		if (message.needsConfirmation && message.isLoading) {
 			return { action: 'confirmation', toolCallId: message.tool_call_id }
 		}
@@ -705,11 +784,11 @@ export function pendingUserActionDetail(
 // the sessions page) react to mutating tools — refreshing previews — without
 // the tool layer knowing about the UI. Single slot; the consumer filters by name
 // and reads the tool args (e.g. the mutated item's `path`) to scope its refresh.
-let toolCompletionListener: ((toolName: string, args: any) => void) | undefined
+// `workspace` is the one the tool acted on: a path names an item only within it.
+export type ToolCompletionListener = (toolName: string, args: any, workspace: string) => void
+let toolCompletionListener: ToolCompletionListener | undefined
 
-export function setToolCompletionListener(
-	fn: ((toolName: string, args: any) => void) | undefined
-): void {
+export function setToolCompletionListener(fn: ToolCompletionListener | undefined): void {
 	toolCompletionListener = fn
 }
 
@@ -737,7 +816,7 @@ async function callTool<T>({
 		)
 	}
 	const result = await tool.fn({ args, workspace, helpers, toolCallbacks, toolId })
-	toolCompletionListener?.(functionName, args)
+	toolCompletionListener?.(functionName, args, workspace)
 	return result
 }
 
@@ -976,6 +1055,9 @@ export async function processToolCall<T>({
 		}
 
 		let result = ''
+		// A tool that asks for consent itself settles the call as declined or blocked and
+		// returns normally, so without this both telemeter as successful runs.
+		let settledInsideTool: 'declined' | 'blocked_plan_mode' | undefined = undefined
 		try {
 			result = await callTool({
 				tools,
@@ -983,10 +1065,17 @@ export async function processToolCall<T>({
 				args,
 				workspace: workspaceId,
 				helpers,
-				toolCallbacks,
+				toolCallbacks: {
+					...toolCallbacks,
+					setToolStatus: (toolId, status) => {
+						if (status?.declinedByUser) settledInsideTool = 'declined'
+						else if (status?.blockedByPlanMode) settledInsideTool = 'blocked_plan_mode'
+						toolCallbacks.setToolStatus(toolId, status)
+					}
+				},
 				toolId: toolCall.id
 			})
-			logToolOutcome('ok')
+			logToolOutcome(settledInsideTool ?? 'ok')
 			toolCallbacks.setToolStatus(toolCall.id, {
 				isLoading: false,
 				isStreamingArguments: false
@@ -1087,6 +1176,10 @@ export interface Tool<T> {
 	 * is true. */
 	refuseInPlanMode?: (p: { args: any; helpers: T }) => ToolRejection | undefined
 	requiresConfirmation?: boolean
+	/** The tool's own argument form is its confirmation, and the bypass posture answers that
+	 * form — so no card is waited on, yet a decision is still being made for the user. The
+	 * list of what the posture bypasses is built from both this and `requiresConfirmation`. */
+	bypassedByAutoAccept?: boolean
 	/** Header shown on the confirmation card before the tool runs. Pass a function
 	 * to derive it from the parsed arguments (e.g. name the script being tested). */
 	confirmationMessage?: string | ((args: any) => string)
@@ -1247,6 +1340,16 @@ export interface ToolCallbacks {
 		toolId: string,
 		question: UserQuestionDisplay
 	) => Promise<string[] | undefined>
+	/** Park the loop on an argument form and resolve with the args the user submitted, or
+	 * undefined if they cancelled. Wired only where the form can be rendered. `autoAccepted`
+	 * says YOLO already answered it with what it opened with, so there is no card to wait on. */
+	requestRunArgs?: (
+		toolId: string,
+		form: RunFormDisplay,
+		opts?: { autoAccepted?: boolean }
+	) => Promise<Record<string, any> | undefined>
+	/** The submitted form's job is queued. Wired alongside requestRunArgs. */
+	markRunFormStarted?: (toolId: string) => void
 	/** Records a workspace item the tool call created/edited/deleted, by its
 	 * canonical (itemKind, storagePath). Session chats wire this to accumulate the
 	 * chat's modified-items mask; the global side-panel chat omits it (no-op). */
@@ -1506,7 +1609,7 @@ export async function buildSchemaForTool(
 
 // Constants for result formatting
 const MAX_RESULT_LENGTH = 12000
-const MAX_LOG_LENGTH = 4000
+export const MAX_LOG_LENGTH = 4000
 export const MAX_RUNNABLE_CONTENT_LENGTH = 20000
 
 /** How long a test run is awaited inline before it detaches into the background
@@ -1535,13 +1638,16 @@ export interface TestRunConfig {
 	detachAfterMs?: number
 	/** Human label for the jobs tray row (path / step id). Defaults to the job id. */
 	label?: string
-	/** Overrides the default "…test started, waiting for completion" status while the
+	/** Overrides the default "…started, waiting for completion" status while the
 	 * job runs inline (e.g. an SQL tool shows "SQL running…"). */
 	runningMessage?: string
-	/** Noun for the human-facing status strings ("<X> test completed successfully").
-	 * Defaults to `contextName`, which also carries the jobs-tray kind and so cannot
-	 * always name what ran: an app's path runnable queues a flow job. */
+	/** The item noun in the human-facing status strings ("Flow test completed
+	 * successfully"). Defaults to `contextName`, which also carries the jobs-tray kind
+	 * and so cannot always name what ran: an app's path runnable queues a flow job. */
 	completionName?: string
+	/** The action noun in those same strings ("Script run completed successfully").
+	 * Defaults to "test", so a tool running the deployed item for real passes "run". */
+	actionNoun?: string
 	/** Custom terminal formatting for the INLINE completion path (callers whose
 	 * result isn't a plain test-run summary, e.g. exec_datatable_sql shaping rows).
 	 * Returns the string handed to the model plus the tool-card patch. When omitted,
@@ -1560,6 +1666,46 @@ export interface TestRunConfig {
 export type BackgroundJobFormatter = (job: CompletedJob) => {
 	llmText: string
 	card: Partial<ToolDisplayMessage>
+}
+
+/** Reads a running job's output incrementally through `getJobUpdates`, the only endpoint
+ * carrying `new_result_stream` — `getJob` returns logs but never the partial result. Each
+ * reader keeps its own offsets, so one starting over refetches from zero. Best-effort: a
+ * failed poll answers `undefined` and mutates nothing, so the next resumes from the same
+ * offsets and a run always lands on `getJob` alone. */
+export function createJobUpdateReader(jobId: string, workspace: string) {
+	let logs = ''
+	let resultStream = ''
+	let logOffset = 0
+	let streamOffset = 0
+	let started = false
+	return {
+		async poll(): Promise<{ completed: boolean; logs: string; resultStream: string } | undefined> {
+			let update: Awaited<ReturnType<typeof JobService.getJobUpdates>>
+			try {
+				update = await JobService.getJobUpdates({
+					workspace,
+					id: jobId,
+					running: started,
+					logOffset,
+					streamOffset
+				})
+			} catch {
+				return undefined
+			}
+			started ||= update.running ?? false
+			// Both kept as a tail: the offsets come from the server, so dropping the head
+			// costs nothing here, and neither is the record of the run — the logs are on the
+			// job, and a streamed partial is replaced by the result the moment it lands.
+			if (update.new_logs) logs = (logs + update.new_logs).slice(-MAX_LOG_LENGTH)
+			if (update.new_result_stream) {
+				resultStream = (resultStream + update.new_result_stream).slice(-MAX_LOG_LENGTH)
+			}
+			if (update.log_offset) logOffset = update.log_offset
+			if (update.stream_offset) streamOffset = update.stream_offset
+			return { completed: update.completed ?? false, logs, resultStream }
+		}
+	}
 }
 
 // Common job polling function.
@@ -1581,24 +1727,54 @@ export async function pollJobCompletion(
 	const maxAttempts = detachEnabled ? Math.ceil((options?.detachAfterMs ?? 0) / 1000) : 60
 	let attempts = 0
 	let job: CompletedJob | null = null
+	const reader = createJobUpdateReader(jobId, workspace)
 
 	while (attempts < maxAttempts) {
 		await new Promise((resolve) => setTimeout(resolve, 1000))
 		attempts++
 
 		try {
+			const update = await reader.poll()
+			// The tray's snapshot is trimmed of logs (it is persisted), so the card is the
+			// only place a running job's output can land. Cards that hide their logs while
+			// loading are unaffected; the run card follows them line by line.
+			if (update) {
+				toolCallbacks.setToolStatus(toolId, {
+					logs: formatLogs(update.logs),
+					resultStream: update.resultStream || undefined
+				})
+			}
+
+			// Ask for the logs when the run may be over — the tail written between the last
+			// poll and the end is only on the job itself — or when there is no reader output
+			// to have collected them.
+			const wantLogs = !update || update.completed
 			const fetchedJob = await JobService.getJob({
 				workspace: workspace,
 				id: jobId,
-				noLogs: false,
+				noLogs: !wantLogs,
 				noCode: true
 			})
-
 			if (fetchedJob.type === 'CompletedJob') {
-				job = fetchedJob
+				// The updates can still call a landed job unfinished, so a completion seen on
+				// a logless fetch is fetched again rather than settled without them: the model
+				// reads these logs, and their absence is indistinguishable from a silent run.
+				job = wantLogs
+					? fetchedJob
+					: ((await JobService.getJob({
+							workspace: workspace,
+							id: jobId,
+							noLogs: false,
+							noCode: true
+						})) as CompletedJob)
 				break
 			}
-			// Keep the tray's status + Job snapshot fresh during the inline wait.
+			// With no reader, this is the only place the card's logs can come from.
+			if (!update) {
+				toolCallbacks.setToolStatus(toolId, { logs: formatLogs(fetchedJob.logs) })
+			}
+			// The badge needs the real Job to tell running from suspended or scheduled, which
+			// the updates do not say.
 			toolCallbacks.onJobStatus?.(jobId, {
 				status: deriveChatJobStatus(fetchedJob),
 				job: trimJob(fetchedJob)
@@ -1696,13 +1872,13 @@ export async function buildTestRunArgs(
 }
 
 // The string handed back to the model when a job is backgrounded. It carries the
-// job id so the model can pull status/logs on demand (get_job_logs / list_runs),
+// job id so the model can pull status/args/result/logs on demand (get_run / list_runs),
 // and tells it the completion will be reported later (notify-only wake).
 function backgroundedSummary(jobId: string, label: string): string {
 	return (
 		`Job ${jobId} for "${label}" is taking a while and is now running in the background — ` +
 		`the chat is free to continue and you'll be told when it finishes. ` +
-		`To inspect it now, call get_job_logs with id="${jobId}" (or list_runs); ` +
+		`To inspect it now, call get_run with id="${jobId}" (or list_runs); ` +
 		`to stop it, call cancel_job with id="${jobId}".`
 	)
 }
@@ -1712,20 +1888,28 @@ function backgroundedSummary(jobId: string, label: string): string {
 // fills its card the same way one that finished inline does.
 export function completedJobToolStatus(job: CompletedJob): Partial<ToolDisplayMessage> {
 	// A canceled job isn't a `success`, but it isn't a failure either — the user
-	// stopped it — so don't dress the card as an error.
+	// stopped it — so don't dress the card as an error. It still has the result the run
+	// page shows for a canceled run, which names who stopped it, so keep that.
 	if (job.canceled) {
-		return { content: 'Background job canceled', logs: formatLogs(job.logs) }
+		return {
+			content: 'Background job canceled',
+			result: formatResult(job.result),
+			logs: formatLogs(job.logs),
+			resultStream: undefined
+		}
 	}
 	return {
 		content: `Background job ${job.success ? 'completed successfully' : 'failed'}`,
 		result: formatResult(job.result),
 		logs: formatLogs(job.logs),
+		// The partial is the result now, so nothing streamed is kept beside it.
+		resultStream: undefined,
 		...(job.success ? {} : { error: getErrorMessage(job.result) })
 	}
 }
 
 // Short completion note handed to the model on its next turn (notify-only wake).
-// Carries the id so the model can pull full logs via get_job_logs on demand.
+// Carries the id so the model can pull the args, result and logs via get_run on demand.
 export function backgroundJobCompletionNote(
 	jobId: string,
 	label: string,
@@ -1740,21 +1924,24 @@ export function backgroundJobCompletionNote(
 	const resultHead = formattedResult ?? formatResult(job.result).slice(0, 2000)
 	const flowHint =
 		!job.success && (job.job_kind === 'flow' || job.job_kind === 'flowpreview')
-			? ` For per-step statuses and results call get_flow_run_details with id="${jobId}".`
+			? ` For per-step statuses and results call get_run with id="${jobId}".`
 			: ''
 	return (
 		`Background job ${jobId} for "${label}" ${status}.\n` +
 		`Result: ${resultHead}\n` +
-		`(For full logs call get_job_logs with id="${jobId}".${flowHint})`
+		`(For the args, result and logs call get_run with id="${jobId}".${flowHint})`
 	)
 }
 
-// Main execution function for test runs
 export async function executeTestRun(config: TestRunConfig): Promise<string> {
 	// Detach-into-background is enabled only when the host wired the job hooks
 	// (global/sessions chat). Otherwise this stays a blocking call.
 	const detachEnabled = !!config.toolCallbacks.onJobStarted
 	const label = config.label ?? config.contextName
+	const actionNoun = config.actionNoun ?? 'test'
+	// Stands on its own where the status strings are prefixed by the item, so its
+	// default carries the noun.
+	const failureNoun = config.actionNoun ?? 'test run'
 	try {
 		config.toolCallbacks.setToolStatus(config.toolId, {
 			content: config.startMessage || `Starting ${config.contextName} test...`
@@ -1779,7 +1966,8 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 		})
 
 		config.toolCallbacks.setToolStatus(config.toolId, {
-			content: config.runningMessage ?? `${contextName} test started, waiting for completion...`
+			content:
+				config.runningMessage ?? `${contextName} ${actionNoun} started, waiting for completion...`
 		})
 
 		const outcome = await pollJobCompletion(
@@ -1799,7 +1987,7 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 		if (outcome === 'detached') {
 			config.toolCallbacks.onJobDetached?.(jobId)
 			config.toolCallbacks.setToolStatus(config.toolId, {
-				content: `${contextName} test running in background (job ${jobId})`
+				content: `${contextName} ${actionNoun} running in background (job ${jobId})`
 			})
 			return backgroundedSummary(jobId, label)
 		}
@@ -1818,19 +2006,22 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 		}
 
 		config.toolCallbacks.setToolStatus(config.toolId, {
-			content: `${contextName} test ${job.success ? 'completed successfully' : 'failed'}`,
+			content: `${contextName} ${actionNoun} ${job.success ? 'completed successfully' : 'failed'}`,
 			result: formatResult(job.result),
 			logs: formatLogs(job.logs),
+			// The partial is the result now, so the card reads it off `result` alone and the
+			// transcript stops carrying a second copy of a streamed answer.
+			resultStream: undefined,
 			...(job.success ? {} : { error: getErrorMessage(job.result) })
 		})
 
 		const summary = formatResultSummary(job.result, job.logs, job.success)
-		// get_flow_run_details only exists in the global/sessions chat (the same
-		// hosts that wire the job hooks) — don't advertise it to in-editor chats.
+		// get_run only exists in the global/sessions chat (the same hosts that wire
+		// the job hooks) — don't advertise it to in-editor chats.
 		if (detachEnabled && config.contextName === 'flow' && !job.success) {
 			return (
 				summary +
-				`\n\nFor per-step statuses and results (subflow steps included), call get_flow_run_details with id="${jobId}".`
+				`\n\nFor per-step statuses and results (subflow steps included), call get_run with id="${jobId}".`
 			)
 		}
 		return summary
@@ -1841,33 +2032,60 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 		// the flow it could not find — losing the one diagnostic the run exists for.
 		const errorMessage = formatToolError(error)
 		config.toolCallbacks.setToolStatus(config.toolId, {
-			content: `Test execution failed`,
+			content: `Execution failed`,
 			error: errorMessage
 		})
-		throw new Error(`Failed to execute test run: ${errorMessage}`)
+		throw new Error(`Failed to execute ${failureNoun}: ${errorMessage}`)
 	}
 }
 
 type FlowStepScriptLoader = (
 	moduleValue: { path: string; hash?: string },
 	workspace: string
-) => Promise<{ content: string; language: ScriptLang }>
+) => Promise<{ content: string; language: ScriptLang; schema?: Record<string, any> }>
 
-type FlowStepPreviewLoader = (path: string, workspace: string) => Promise<FlowValue | undefined>
+/** A subflow step's target. `previewValue` is set only when a draft exists — that is what
+ * decides between previewing the draft and running the deployed flow by path — while
+ * `schema` describes whichever of the two is about to run. */
+type FlowStepSubflowLoader = (
+	path: string,
+	workspace: string
+) => Promise<{ previewValue?: FlowValue; schema?: Record<string, any> } | undefined>
 
-export type FlowStepTestRunConfig = {
+type FlowStepRunConfig = {
 	flowValue: FlowValue
 	stepId: string
-	args?: Record<string, any> | null
 	workspace: string
 	toolCallbacks: ToolCallbacks
 	toolId: string
+	loadScript?: FlowStepScriptLoader
+	loadSubflow?: FlowStepSubflowLoader
+}
+
+export type FlowStepTestRunConfig = FlowStepRunConfig & {
+	args?: Record<string, any> | null
 	background?: boolean
 	/** Inline wait budget (ms) before the step job detaches into the tray; forwarded
 	 * to executeTestRun. Ignored when `background` is set. */
 	detachAfterMs?: number
-	loadScript?: FlowStepScriptLoader
-	loadFlowPreviewValue?: FlowStepPreviewLoader
+}
+
+/** One step resolved to the job it would start, short of starting it, so a caller that
+ * puts an argument form in front of the run can build the form's fields from the same
+ * read the job uses. Schema inference lives with the caller: this module is kept on a
+ * shallow import list (see the note at the top of the file). */
+export type ResolvedFlowStepRun = {
+	module: FlowModule
+	runnableKind: 'script' | 'flow'
+	/** A subflow step carries `schema` instead, having no code of its own to read. */
+	code?: string
+	lang?: ScriptLang
+	schema?: Record<string, any>
+	startMessage: string
+	/** Takes the arguments as submitted. The preprocessor's entrypoint override is added
+	 * here rather than by the caller: it is declared by no schema, so anything that
+	 * conforms arguments to one would drop it. */
+	startJob: (args: Record<string, any>) => Promise<string>
 }
 
 function normalizeFlowStepArgs(args: Record<string, any> | null | undefined): Record<string, any> {
@@ -1893,25 +2111,26 @@ function getAvailableFlowStepIds(flowValue: FlowValue): string {
 async function loadDeployedScriptForFlowStep(
 	moduleValue: { path: string; hash?: string },
 	workspace: string
-): Promise<{ content: string; language: ScriptLang }> {
+): Promise<{ content: string; language: ScriptLang; schema?: Record<string, any> }> {
 	const script = moduleValue.hash
 		? await ScriptService.getScriptByHash({ workspace, hash: moduleValue.hash })
 		: await ScriptService.getScriptByPath({ workspace, path: moduleValue.path })
-	return { content: script.content, language: script.language }
+	return {
+		content: script.content,
+		language: script.language,
+		schema: script.schema as Record<string, any> | undefined
+	}
 }
 
-export async function executeFlowStepTestRun({
+export async function resolveFlowStepRun({
 	flowValue,
 	stepId,
-	args,
 	workspace,
 	toolCallbacks,
 	toolId,
-	background,
-	detachAfterMs,
 	loadScript = loadDeployedScriptForFlowStep,
-	loadFlowPreviewValue
-}: FlowStepTestRunConfig): Promise<string> {
+	loadSubflow
+}: FlowStepRunConfig): Promise<ResolvedFlowStepRun> {
 	const targetModule = findModuleInFlow(flowValue, stepId) ?? undefined
 
 	if (!targetModule) {
@@ -1925,94 +2144,76 @@ export async function executeFlowStepTestRun({
 	}
 
 	const moduleValue = targetModule.value
-	const stepArgs = normalizeFlowStepArgs(args)
+	const withEntrypoint = (args: Record<string, any>) => flowStepArgsForModule(targetModule.id, args)
 
 	if (moduleValue.type === 'rawscript') {
-		return executeTestRun({
-			jobStarter: () =>
+		return {
+			module: targetModule,
+			runnableKind: 'script',
+			code: moduleValue.content ?? '',
+			lang: moduleValue.language,
+			startMessage: `Starting test run of step "${stepId}"...`,
+			startJob: (args) =>
 				JobService.runScriptPreview({
 					workspace,
 					requestBody: {
 						content: moduleValue.content ?? '',
 						language: moduleValue.language,
-						args: flowStepArgsForModule(targetModule.id, stepArgs)
+						args: withEntrypoint(args)
 					}
-				}),
-			workspace,
-			toolCallbacks,
-			toolId,
-			startMessage: `Starting test run of step "${stepId}"...`,
-			contextName: 'script',
-			label: `step ${stepId}`,
-			background,
-			detachAfterMs
-		})
+				})
+		}
 	}
 
 	if (moduleValue.type === 'script') {
 		const script = await loadScript(moduleValue, workspace)
-		return executeTestRun({
-			jobStarter: () =>
+		return {
+			module: targetModule,
+			runnableKind: 'script',
+			code: script.content,
+			lang: script.language,
+			schema: script.schema,
+			startMessage: `Starting test run of script step "${stepId}"...`,
+			startJob: (args) =>
 				JobService.runScriptPreview({
 					workspace,
 					requestBody: {
 						path: moduleValue.path,
 						content: script.content,
 						language: script.language,
-						args: flowStepArgsForModule(targetModule.id, stepArgs)
+						args: withEntrypoint(args)
 					}
-				}),
-			workspace,
-			toolCallbacks,
-			toolId,
-			startMessage: `Starting test run of script step "${stepId}"...`,
-			contextName: 'script',
-			label: `step ${stepId}`,
-			background,
-			detachAfterMs
-		})
+				})
+		}
 	}
 
 	if (moduleValue.type === 'flow') {
-		const previewValue = await loadFlowPreviewValue?.(moduleValue.path, workspace)
-		if (previewValue) {
-			return executeTestRun({
-				jobStarter: () =>
-					JobService.runFlowPreview({
-						workspace,
-						requestBody: {
+		const subflow = await loadSubflow?.(moduleValue.path, workspace)
+		const previewValue = subflow?.previewValue
+		return {
+			module: targetModule,
+			runnableKind: 'flow',
+			schema: subflow?.schema,
+			startMessage: previewValue
+				? `Starting test run of draft flow step "${stepId}"...`
+				: `Starting test run of flow step "${stepId}"...`,
+			startJob: (args) =>
+				previewValue
+					? JobService.runFlowPreview({
+							workspace,
+							requestBody: { path: moduleValue.path, value: previewValue, args }
+						})
+					: JobService.runFlowByPath({
+							workspace,
 							path: moduleValue.path,
-							value: previewValue,
-							args: stepArgs
-						}
-					}),
-				workspace,
-				toolCallbacks,
-				toolId,
-				startMessage: `Starting test run of draft flow step "${stepId}"...`,
-				contextName: 'flow',
-				label: `step ${stepId}`,
-				background,
-				detachAfterMs
-			})
+							requestBody: args,
+							// As the flow editor's own step test does: these are the subflow's main input
+							// schema's arguments, and a preprocessor would take them for a trigger event
+							// and hand the flow its own output instead. A parent flow runs a subflow step
+							// the same way (apply_preprocessor: false).
+							skipPreprocessor: true
+						})
 		}
-
-		return executeTestRun({
-			jobStarter: () =>
-				JobService.runFlowByPath({
-					workspace,
-					path: moduleValue.path,
-					requestBody: stepArgs
-				}),
-			workspace,
-			toolCallbacks,
-			toolId,
-			startMessage: `Starting test run of flow step "${stepId}"...`,
-			contextName: 'flow',
-			label: `step ${stepId}`,
-			background,
-			detachAfterMs
-		})
 	}
 
 	toolCallbacks.setToolStatus(toolId, {
@@ -2022,6 +2223,26 @@ export async function executeFlowStepTestRun({
 	throw new Error(
 		`Cannot test step of type "${moduleValue.type}". Supported types: rawscript, script, flow`
 	)
+}
+
+export async function executeFlowStepTestRun({
+	args,
+	background,
+	detachAfterMs,
+	...config
+}: FlowStepTestRunConfig): Promise<string> {
+	const resolved = await resolveFlowStepRun(config)
+	return executeTestRun({
+		jobStarter: () => resolved.startJob(normalizeFlowStepArgs(args)),
+		workspace: config.workspace,
+		toolCallbacks: config.toolCallbacks,
+		toolId: config.toolId,
+		startMessage: resolved.startMessage,
+		contextName: resolved.runnableKind,
+		label: `step ${config.stepId}`,
+		background,
+		detachAfterMs
+	})
 }
 
 function formatLogs(logs: string | undefined): undefined | string {

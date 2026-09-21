@@ -25,15 +25,33 @@
 		 * resume and offer to run the whole bundle again.
 		 */
 		lowestStep?: number
+		/**
+		 * The steps before the optional setup one. The wizard route asks all three; a surface
+		 * that opens with the destination already settled passes only the ones it runs.
+		 */
+		labels?: string[]
+		/** What to call the optional setup step, where the surface knows it more precisely. */
+		setupLabel?: string
+		/**
+		 * Where a click on an earlier step goes. Without it the step is rewritten in the URL,
+		 * which is how the wizard route holds its position. The guards above it — nothing to
+		 * go back to, an import in flight — apply either way.
+		 */
+		onNavigate?: (step: number) => void
 	}
 
-	let { step, hasSetup = false, lowestStep = 1 }: Props = $props()
+	let {
+		step,
+		hasSetup = false,
+		lowestStep = 1,
+		labels = IMPORT_WIZARD_LABELS,
+		setupLabel = IMPORT_WIZARD_SETUP_LABEL,
+		onNavigate
+	}: Props = $props()
 
 	// Most projects ship no data table migrations, so the wizard is three steps and
 	// says so. A fourth appears only once there is something to configure.
-	const tabs = $derived(
-		hasSetup ? [...IMPORT_WIZARD_LABELS, IMPORT_WIZARD_SETUP_LABEL] : IMPORT_WIZARD_LABELS
-	)
+	const tabs = $derived(hasSetup ? [...labels, setupLabel] : labels)
 
 	// `maxReachedIndex` is the current step, so Stepper renders everything past it as
 	// unreachable and only the steps behind it as clickable — the wizard has no way to
@@ -49,6 +67,10 @@
 		// and no way to resolve.
 		if (importIsRunning()) {
 			sendUserToast('Wait for the import to finish before going back.', true)
+			return
+		}
+		if (onNavigate) {
+			onNavigate(index + 1)
 			return
 		}
 		// Every step shares one route, so going back is a `step` rewrite that leaves

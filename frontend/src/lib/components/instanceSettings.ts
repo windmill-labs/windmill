@@ -1,5 +1,8 @@
 import type { ButtonType } from './common/button/model'
+import { allowedOriginsSettingError } from './triggers/http/utils'
 import { z } from 'zod'
+import { instanceBannerFormError } from './instanceBanner'
+import { parseMaxTokenExpirationDays } from '$lib/tokenExpiration'
 import { writable } from 'svelte/store'
 
 /**
@@ -30,6 +33,10 @@ export interface Setting {
 	placeholder?: string
 	cloudonly?: boolean
 	ee_only?: string
+	/** Ceiling a `seconds` field enforces on a build without a license, when CE genuinely caps
+	 * the value. Not implied by `ee_only`: a setting can be EE-badged because the feature it
+	 * configures is EE while the value itself has the same range on either edition. */
+	ceMaxSeconds?: number
 	tooltip?: string
 	key: string
 	// If value is not specified for first element, it will automatcally use undefined
@@ -64,6 +71,7 @@ export interface Setting {
 		| 'webhook_base_url'
 		| 'ws_connectivity'
 		| 'retention_overrides'
+		| 'instance_banner'
 	storage: SettingStorage
 	advancedToggle?: {
 		label: string
@@ -263,6 +271,22 @@ export const settings: Record<string, Setting[]> = {
 			hideInQuickSetup: true
 		},
 		{
+			label: 'HTTP route default allowed origins',
+			description:
+				'Origins that HTTP routes allow to call them from a browser when the route sets none of its own. A route overrides this with its own list, and opts out entirely by setting its allowed origins to *. Leave unset for no instance-wide default, so every route is callable from any origin unless it restricts itself.',
+			key: 'http_route_default_allowed_origins',
+			fieldType: 'text',
+			placeholder: 'https://app.example.com, https://admin.example.com',
+			storage: 'setting',
+			error:
+				'Each origin must be visible ASCII with no comma, and there can be at most 100 of them. null is not allowed, since every sandboxed iframe sends it.',
+			// The same check the API applies, so a value it would refuse cannot be
+			// saved here and then silently drop to no restriction at the next boot.
+			isValid: (value: unknown) => allowedOriginsSettingError(value) === undefined,
+			ee_only: '',
+			hideInQuickSetup: true
+		},
+		{
 			label: 'Audit log retention (days)',
 			key: 'audit_log_retention_days',
 			description: 'How long to keep audit log entries in the database. Default: 365 days.',
@@ -271,6 +295,45 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only: '',
 			hideInQuickSetup: true
+		},
+		{
+			label: 'Maximum token expiration (days)',
+			key: 'max_token_expiration_days',
+			description:
+				'Furthest ahead an API token a user creates can expire, in days. A token asking for longer, or for no expiration, is created with this expiration instead. Service accounts are exempt, so automation can keep longer-lived credentials. Leave empty to let users pick any expiration, including none.',
+			fieldType: 'number',
+			placeholder: 'no limit',
+			storage: 'setting',
+			hideInQuickSetup: true,
+			error: 'Must be a whole number of days, from 1 to 1,000,000',
+			// The server reads anything else as no ceiling at all.
+			isValid: (value: unknown) =>
+				value === undefined ||
+				value === null ||
+				value === '' ||
+				parseMaxTokenExpirationDays(value) !== undefined
+		},
+		{
+			label: 'Disable token in MCP URLs',
+			description:
+				'Reject the ?token= query parameter on the MCP endpoints, so MCP clients authenticate with an Authorization header or through the OAuth flow. A token in a URL is a credential that ends up in browser history, proxy logs and referrers. Existing MCP URLs carrying a token stop working. Servers and workers pick this up within a minute; dedicated MCP servers (MODE=mcp) apply it when they next restart.',
+			key: 'mcp_disable_token_query_param',
+			fieldType: 'boolean',
+			storage: 'setting',
+			hideInQuickSetup: true
+		},
+		{
+			label: 'Announcement banner',
+			description:
+				'Message shown above every page of the instance, for maintenance windows and incidents.',
+			key: 'instance_banner',
+			fieldType: 'instance_banner',
+			storage: 'setting',
+			// The banner only renders on EE, so the card is disabled without a license.
+			ee_only: '',
+			hideInQuickSetup: true,
+			// Gates Save. The card renders the specific message itself, so no `error` here.
+			isValid: (value: any) => instanceBannerFormError(value) == undefined
 		}
 	],
 	Jobs: [
@@ -283,6 +346,8 @@ export const settings: Record<string, Setting[]> = {
 			placeholder: '30',
 			storage: 'setting',
 			ee_only: 'You can only adjust this setting to above 30 days in the EE version',
+			// Mirrors CE_MAX_RETENTION_PERIOD_SECS, which the backend clamps to on write.
+			ceMaxSeconds: 60 * 60 * 24 * 30,
 			cloudonly: false
 		},
 		{
@@ -526,6 +591,17 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		},
 		{
+			label: 'Back AI sessions up to the instance object storage',
+			description:
+				"Browsers back their AI sessions up to their workspace's object storage, encrypted with the workspace key. When this is on and instance object storage is configured, a workspace without object storage of its own uses the instance object storage instead, under the same encryption; configuring a storage for the workspace moves its backups there and deletes what it kept in the instance storage. On by default; turn off to keep the AI sessions of such workspaces in the browser only.",
+			key: 'ai_sessions_instance_storage_fallback',
+			fieldType: 'boolean',
+			defaultValue: () => true,
+			storage: 'setting',
+			ee_only: '',
+			hideInQuickSetup: true
+		},
+		{
 			label: 'Store audit logs in object storage',
 			description:
 				'When enabled and instance object storage is configured, audit logs are also exported as newline-delimited JSON to the dedicated logs/audit/ folder (partitioned by day). Export is incremental and runs off the hot path. Enabling (or re-enabling) anchors the export at ~now: while it stays enabled, every audit log committed from that point on is exported (transactions in flight at the moment of enabling may include a bounded set of just-prior rows). Pre-existing history, and any window during which export was disabled, are NOT exported by this cursor — use the opt-in backfill API to export a chosen historical range, back to when audit-log partitioning was introduced (older rows in the legacy audit table are not exported, and a window overlapping them is rejected): POST /settings/audit_logs_s3_backfill {from, to} (status at GET /settings/audit_logs_s3_backfill_status).',
@@ -656,6 +732,16 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'text',
 			placeholder: 'okta',
 			storage: 'setting'
+		},
+		{
+			label: 'SSO groups claim',
+			description:
+				'Name of the SAML attribute or OIDC userinfo claim carrying the user\'s IdP groups ("http://schemas.microsoft.com/ws/2008/06/identity/claims/groups" on Entra SAML, "groups" for most OIDC providers). Its values must be the same group ids that SCIM stored as the instance groups\' external id (Entra emits object ids in both), since matching is by external id only. When set, every SSO login reconciles the user\'s membership in those SCIM-provisioned instance groups against the claim, so IdP group changes take effect at the next login instead of waiting for the SCIM push. Instance groups without an external id are never touched, and a login whose claim is absent or empty changes nothing. Leave empty to disable.',
+			key: 'sso_groups_claim',
+			fieldType: 'text',
+			placeholder: 'groups',
+			storage: 'setting',
+			ee_only: ''
 		}
 	],
 	'DB Health': [],
@@ -972,6 +1058,24 @@ export const settings: Record<string, Setting[]> = {
 			defaultValue: () => ({ enabled: false, enabled_languages: [...OTEL_TRACING_PROXY_LANGUAGES] })
 		},
 		{
+			label: 'HTTP Request Tracing retention in secs',
+			key: 'otel_traces_retention_secs',
+			description:
+				'How long a captured HTTP request span is kept in the database, and therefore how far back the job details view can show a job its requests. Independent of the job retention period, so a span may outlive its job or be swept while the job remains. Defaults to 7 days. Leave it empty for the default.',
+			fieldType: 'seconds',
+			storage: 'setting',
+			cloudonly: false,
+			// Badged EE because only the EE proxy captures spans, but deliberately no
+			// `ceMaxSeconds`: a CE build still sweeps rows an EE-era instance left behind, and
+			// the backend accepts the same range on either edition.
+			ee_only: 'HTTP Request Tracing is an EE feature',
+			error:
+				'HTTP Request Tracing retention must be between 1 second and 100 years, leave it empty for the default',
+			isValid: (value: any) =>
+				value == undefined ||
+				(typeof value === 'number' && value > 0 && value <= 60 * 60 * 24 * 365 * 100)
+		},
+		{
 			label: 'Prometheus',
 			description:
 				'Expose Prometheus metrics for workers and servers on port 8001 at /metrics. <a target="_blank" href="https://www.windmill.dev/docs/advanced/instance_settings#expose-metrics">Learn more</a>',
@@ -982,6 +1086,23 @@ export const settings: Record<string, Setting[]> = {
 			triggersRestart: true
 		}
 	],
+	'Service logs': [
+		{
+			label: 'Retention in secs',
+			key: 'service_log_retention_secs',
+			description:
+				'How long a service log is kept, across every copy of it: the entry in the database, the file on the disk of the process that wrote it, and — once instance object storage is configured and the indexer has ingested it — its line in the columnar store that search and the log viewer read. Search reaches back at most this far, and less when the indexer time window under Indexer is shorter. Defaults to 14 days. There is no keep-forever setting here — leave it empty for the default.',
+			fieldType: 'seconds',
+			storage: 'setting',
+			cloudonly: false,
+			error:
+				'Service log retention must be between 1 second and 100 years — leave it empty for the default',
+			isValid: (value: any) =>
+				value == undefined ||
+				(typeof value === 'number' && value > 0 && value <= 60 * 60 * 24 * 365 * 100)
+		}
+	],
+
 	Indexer: [
 		{
 			label: '',
@@ -1174,6 +1295,12 @@ export const instanceSettingsNavigationGroups = [
 				isEE: true
 			},
 			{
+				id: 'service_logs',
+				label: 'Service logs',
+				aiId: 'instance-settings-service-logs',
+				aiDescription: 'Service log retention settings'
+			},
+			{
 				id: 'indexer',
 				label: 'Indexer',
 				aiId: 'instance-settings-indexer',
@@ -1256,6 +1383,7 @@ export const tabToCategoryMap: Record<string, string> = {
 	webhooks: 'Webhooks',
 	otel_prom: 'OTEL/Prom',
 	indexer: 'Indexer',
+	service_logs: 'Service logs',
 	telemetry: 'Telemetry',
 	secret_storage: 'Secret Storage',
 	object_storage: 'Object Storage',
@@ -1291,6 +1419,7 @@ export const categoryToTabMap: Record<string, string> = {
 	Webhooks: 'webhooks',
 	'OTEL/Prom': 'otel_prom',
 	Indexer: 'indexer',
+	'Service logs': 'service_logs',
 	Telemetry: 'telemetry',
 	'Secret Storage': 'secret_storage',
 	'Object Storage': 'object_storage',

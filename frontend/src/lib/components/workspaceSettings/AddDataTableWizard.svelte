@@ -34,6 +34,7 @@
 	import DataTableConnectionReport from './DataTableConnectionReport.svelte'
 	import { useSupabaseOauth } from './supabaseOauth.svelte'
 	import { probeDatatableConnection } from './datatableProbe'
+	import { logDatatableWizard } from './datatableTelemetry'
 	import {
 		anythingClaimed,
 		claimOf,
@@ -526,11 +527,13 @@
 		await loadTargetUser()
 		reset(parked ?? resume)
 		opened = true
+		logDatatableWizard({ step: 'opened' })
 	}
 
 	function selectProvider(key: Provider) {
 		if (key === wiz.provider) return
 		wiz.provider = key
+		logDatatableWizard({ step: 'picked', provider: key })
 		invalidate()
 		if (key === 'instance') wiz.instance.dbName ??= defaultInstanceDbName()
 	}
@@ -832,6 +835,11 @@
 					claims,
 					createdProjects
 				}
+			}
+			// The setup's own verdict, so a data table that exists counts as done even when the
+			// caller's appended `onFinishAlso` step failed after it.
+			if (wiz.provider) {
+				logDatatableWizard({ step: result?.ok ? 'done' : 'failed', provider: wiz.provider })
 			}
 			onDone()
 		}

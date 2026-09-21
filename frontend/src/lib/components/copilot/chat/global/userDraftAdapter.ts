@@ -141,6 +141,7 @@ function scriptDraftToWorkspaceItem(path: string, draft: NewScript): WorkspaceIt
 		summary: draft.summary,
 		language: draft.language,
 		value: draft.content,
+		schema: draft.schema,
 		parentHash: draft.parent_hash,
 		isDraft: true
 	}
@@ -175,6 +176,9 @@ function appDraftToWorkspaceItem(path: string, draft: AppDraftValue): WorkspaceI
 		summary: value.summary,
 		parentVersionId: value.parent_version,
 		value,
+		// The chat only ever addresses the `raw_app` draft kind (see itemKindFor),
+		// so every app draft it can see is a code app.
+		rawApp: true,
 		isDraft: true
 	}
 }
@@ -541,6 +545,7 @@ function backendDraftRowToWorkspaceItem(
 		value: undefined,
 		isDraft: true,
 		triggerKind,
+		rawApp: row.kind === 'raw_app' ? true : undefined,
 		...(isLiveDraft ? { isLiveDraft: true } : {})
 	}
 }

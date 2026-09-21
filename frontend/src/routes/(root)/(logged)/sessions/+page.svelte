@@ -21,6 +21,8 @@
 		type Scope
 	} from '$lib/components/sessions/PreviewRouterPicker.svelte'
 	import { goto } from '$lib/navigation'
+	import { resource } from 'runed'
+	import { WorkspaceService } from '$lib/gen'
 	import SessionWrapper from '$lib/components/sessions/SessionWrapper.svelte'
 	import PreviewTabHost from '$lib/components/sessions/PreviewTabHost.svelte'
 	import { useIsDarkMode } from '$lib/components/DarkModeObserver.svelte'
@@ -31,6 +33,7 @@
 		isTearingDownOpenSession,
 		selectSession,
 		sessionInCurrentFamily,
+		sessionPageHref,
 		sessionState,
 		type SessionPreviewTab
 	} from '$lib/components/sessions/sessionState.svelte'
@@ -57,13 +60,18 @@
 		artifactKey,
 		itemDisplayName,
 		matchPreviewPage,
+		pageItemUrl,
 		pageKey,
 		parseArtifactRoute,
+		parsePageItemRoute,
+		type PageItemRef,
 		parsePreviewItemRoute,
 		previewLocationLabel,
+		workspacePageHref,
 		type PreviewTarget
 	} from '$lib/components/sessions/previewRouter'
 	import { toolReloadEffect, tabsToReload } from '$lib/components/sessions/previewReload'
+	import { pageItemForListPath } from '$lib/components/sessions/previewPaths'
 	import {
 		leafKeyFor,
 		loadKind,
@@ -100,7 +108,8 @@
 				() => import('$lib/components/sessions/ScriptEditorView.svelte'),
 				() => import('$lib/components/sessions/FlowEditorView.svelte'),
 				() => import('$lib/components/sessions/RawAppEditorView.svelte'),
-				() => import('$lib/components/sessions/PipelineEditorView.svelte')
+				() => import('$lib/components/sessions/PipelineEditorView.svelte'),
+				() => import('$lib/components/sessions/PageItemEditorView.svelte')
 			]
 			for (const load of loaders) {
 				if (disposed) return
@@ -119,28 +128,37 @@
 		}
 	})
 
-	const sessionName = $derived(page.url.searchParams.get('session_name') ?? '')
-
-	// Unfiltered resolution by name: drives the recovery effect below and the
-	// active-session lookup.
-	const sessionByName = $derived(
-		sessionName ? sessionState.sessions.find((s) => s.name === sessionName) : undefined
-	)
+	const sessionId = $derived(page.url.searchParams.get('session') ?? '')
+	// Links from before sessions were addressed by id name a per-browser `session-N`.
+	const legacySessionName = $derived(page.url.searchParams.get('session_name') ?? '')
+	const requestsSession = $derived(!!sessionId || !!legacySessionName)
 
 	// Opening a session deliberately does NOT switch the global workspace: the
 	// chat targets the session's own workspace via the manager's workspace
 	// resolver, so the user's active (navigation-mode) workspace is left alone.
 
-	// Resolve by name without applying the sidebar scope filter so an open
-	// chat survives within-family workspace switches.
-	const activeSession = $derived(sessionState.sessions.find((s) => s.name === sessionName))
+	// Resolved without applying the sidebar scope filter so an open chat survives
+	// within-family workspace switches.
+	const activeSession = $derived(
+		sessionId
+			? sessionState.sessions.find((s) => s.id === sessionId)
+			: legacySessionName
+				? sessionState.sessions.find((s) => s.name === legacySessionName)
+				: undefined
+	)
+
+	$effect(() => {
+		if (embedded || sessionId || !activeSession) return
+		const id = activeSession.id
+		untrack(() => void goto(sessionPageHref(id), { replaceState: true }))
+	})
 
 	// Family reconcile: a workspace switch can land this page with no session
 	// selected or with another family's session in the URL (the sidebar picker's
 	// link navigation keeps the route), and a chat must not bleed across
 	// families. Re-enter session mode scoped to the active family: keep the open
 	// chat when it belongs there, else its most recent active session, else a
-	// fresh one. A `session_name` that resolves to nothing is left to the
+	// fresh one. A `session` that resolves to nothing is left to the
 	// recovery effect below.
 	$effect(() => {
 		if (embedded || !sessionState.hydrated) return
@@ -153,15 +171,14 @@
 		$workspaceStore
 		$userWorkspaces
 		const current = activeSession
-		const shouldReenter = current ? !sessionInCurrentFamily(current) : !sessionName
+		const shouldReenter = current ? !sessionInCurrentFamily(current) : !requestsSession
 		if (!shouldReenter) return
 		untrack(() => void enterSessionMode({ replace: true }))
 	})
 
 	// Held across the swap so the session layout mounts once, after the navigation
-	// settles. A recovered session often takes the very name that was missing, so
-	// the URL resolves before `goto` returns; mounting the panes mid-navigation
-	// makes Splitpanes miss the collapsed pane's `maxSize: 0` and leave it open.
+	// settles: mounting the panes mid-navigation makes Splitpanes miss the collapsed
+	// pane's `maxSize: 0` and leave it open.
 	let recovering = $state(false)
 
 	// Bounds the wait for the workspace list the guard above needs. The list can
@@ -186,7 +203,7 @@
 		// they just deleted couldn't be found.
 		if (isTearingDownOpenSession()) return
 		if ($usersWorkspaceStore === undefined && !workspaceListOverdue) return
-		if (!sessionName || sessionByName) return
+		if (!requestsSession || activeSession) return
 		untrack(() => void recoverToNewSession())
 	})
 
@@ -212,18 +229,38 @@
 			// deep links the same way they react to picker clicks.
 			selectSession(session.id)
 			getOrCreateRuntime(session)
+			mountChat(session.id)
 		})
 	})
 
-	// Warm = sessions with a live runtime. The picker eagerly creates runtimes
-	// for its visible sessions, so this tracks whatever it shows. Keeping warm
-	// chats mounted (stacked, visibility-toggled) preserves their scroll/draft
-	// state across switches.
+	// Warm = sessions with a live runtime: the ones visited this page load plus
+	// any a chat tool or a running job started.
 	const warmSessions = $derived(
 		listRuntimes()
 			.map((r) => sessionState.sessions.find((s) => s.id === r.sessionId))
 			.filter((s): s is NonNullable<typeof s> => s != null)
 	)
+
+	// Chat columns stay mounted (stacked, visibility-toggled) so switching back
+	// keeps scroll position, MRU-capped like preview tabs: every mounted column
+	// is a full transcript in the DOM. Unmounting drops only the column — the
+	// runtime keeps the chat — so a column is kept while its composer holds
+	// unsent input (component-local) or its turn is running.
+	const MAX_MOUNTED_CHATS = 5
+	const mountedChatIds = new SvelteSet<string>()
+	function keepsChatMounted(id: string): boolean {
+		const m = getRuntime(id)?.manager
+		return !!m && (m.loading || m.sendInFlight || m.sendPending || m.hasUnsentInput)
+	}
+	function mountChat(id: string) {
+		mountedChatIds.delete(id)
+		mountedChatIds.add(id)
+		for (const oldest of [...mountedChatIds]) {
+			if (mountedChatIds.size <= MAX_MOUNTED_CHATS) break
+			if (oldest !== id && !keepsChatMounted(oldest)) mountedChatIds.delete(oldest)
+		}
+	}
+	const mountedChatSessions = $derived(warmSessions.filter((s) => mountedChatIds.has(s.id)))
 
 	// Mark the active session "seen" up to its current message count: arrive →
 	// clear unread; AI streams a new message while we're here → clear again. The
@@ -248,7 +285,7 @@
 			const target = findEmptyLandingSession() ?? createSession()
 			selectSession(target.id)
 			markSessionRecovered(target.id)
-			await goto(`/sessions?session_name=${encodeURIComponent(target.name)}`, {
+			await goto(sessionPageHref(target.id), {
 				replaceState: true
 			})
 			await tick()
@@ -277,6 +314,36 @@
 	const previewWorkspace = $derived(
 		(activeSession ? getEffectiveWorkspaceId(activeSession) : undefined) ?? $workspaceStore
 	)
+
+	// Whether that workspace hid the AI assistant (`ai_config.copilot_disabled`). Read
+	// directly rather than from `copilotInfo`: that store holds whichever workspace loaded
+	// last, and the gate below unmounts the session wrapper that would refresh it, so a
+	// hidden verdict would stick across session and workspace switches. Tagged with its
+	// workspace and guarded against a superseded response like the protection-rules
+	// resource: runed keeps the previous `current` while a new source loads, so a switch
+	// would otherwise be judged on the previous workspace's verdict. A failed read leaves
+	// the page usable, as an unloaded config does everywhere else.
+	const workspaceAiHidden = resource(
+		() => previewWorkspace,
+		async (workspace, _prev, { signal }) => {
+			if (!workspace) return { workspace, hidden: false }
+			let hidden = false
+			try {
+				hidden = (await WorkspaceService.getCopilotInfo({ workspace })).copilot_disabled === true
+			} catch (e) {
+				console.error(`Failed to read the AI config of workspace ${workspace}:`, e)
+			}
+			// The generated client can't take an abort signal, so drop a superseded response here.
+			if (signal.aborted) throw new DOMException('superseded', 'AbortError')
+			return { workspace, hidden }
+		}
+	)
+	// Only a verdict for the workspace currently judged counts; `undefined` means it has not
+	// landed yet.
+	const aiHiddenVerdict = $derived.by(() => {
+		const current = workspaceAiHidden.current
+		return current && current.workspace === previewWorkspace ? current.hidden : undefined
+	})
 
 	// Lazy-mount gate: a tab's content only renders once its key lands here (on
 	// first activation) — so restoring a session with N saved tabs boots just
@@ -459,9 +526,10 @@
 	// Page path shown after the workspace breadcrumb — the active tab's observed
 	// location, so the breadcrumb tracks where the user browses inside the tab.
 	const displayPath = $derived(owner?.activeTab?.loc ?? owner?.activeTab?.url ?? `${base}/`)
-	// Artifacts have no workspace page, so "Open in workspace" can't resolve for them.
 	const activeArtifact = $derived(owner?.activeTab ? parseArtifactRoute(owner.activeTab.url) : null)
-	const activeTabIsArtifact = $derived(activeArtifact != null)
+	const activeWorkspaceHref = $derived(
+		owner?.activeTab ? workspacePageHref(owner.activeTab.loc || owner.activeTab.url) : `${base}/`
+	)
 	// The active session's artifacts, surfaced as an "Artifacts" branch in the
 	// preview pickers.
 	const sessionArtifacts = $derived(activeRuntime?.manager.artifacts.artifacts ?? [])
@@ -514,54 +582,54 @@
 
 	// Reload mounted preview tabs affected by a mutating chat tool. Item and pipeline
 	// tabs are live editors that self-sync from the store the chat mutates, so nothing
-	// reloads them. Only list-page tabs (schedules, resources, …) are iframes, and each
-	// reloads only when a tool actually changed *its* page (toolReloadEffect) — so a
+	// reloads them. List-page tabs (schedules, resources, …) and page item tabs reload
+	// only when a tool actually changed *their* page or item (toolReloadEffect) — so a
 	// schedule write leaves the Resources tab alone, and a purely local tool (saving
 	// user instructions) reloads nothing.
 	const tabHosts: Record<string, PreviewTabHost | undefined> = {}
 
 	let reloadHandle: ReturnType<typeof setTimeout> | undefined
-	// Base-stripped list-page paths (e.g. `/schedules`) a chat round touched since
-	// the last flush — see toolReloadEffect for how tools map to pages.
-	let pendingPages = new Set<string>()
+	// Per workspace a chat round touched since the last flush: base-stripped list-page paths
+	// (e.g. `/schedules`, see toolReloadEffect) and the page items its tools named, as tab
+	// urls. By workspace because a path names an item only within one: a write in one fork
+	// must not remount the same path's editor in a session on another.
+	let pending = new Map<string, { pages: Set<string>; items: Set<string> }>()
 
-	// Reload the mounted list-page tabs a chat round changed, across all warm
-	// sessions (a hidden preview would otherwise show pre-mutation content on
-	// return). tabsToReload picks only the tabs whose page is in `pages`.
-	function reloadTabs(pages: Set<string>) {
+	// Reload the mounted tabs a chat round changed in each warm session acting on that
+	// workspace (a hidden preview would otherwise show pre-mutation content on return).
+	function flushReload() {
+		const touched = pending
+		pending = new Map()
 		for (const s of warmSessions) {
+			const scope = touched.get(getEffectiveWorkspaceId(s) ?? $workspaceStore ?? '')
 			const owner = getRuntime(s.id)?.previewTabs
-			if (!owner) continue
-			for (const tab of tabsToReload(owner.tabs, pages)) {
+			if (!scope || !owner) continue
+			for (const tab of tabsToReload(owner.tabs, scope.pages, scope.items)) {
 				const key = tabKey(s.id, tab.id)
 				if (mountedTabKeys.has(key)) tabHosts[key]?.reload()
 			}
 		}
 	}
-	function flushReload() {
-		const pages = pendingPages
-		pendingPages = new Set()
-		reloadTabs(pages)
-	}
 	$effect(() => {
 		// Debounced so a burst of writes (the AI editing several files) reloads once.
-		setToolCompletionListener((name, args) => {
-			const { pages } = toolReloadEffect(name, args)
+		setToolCompletionListener((name, args, workspace) => {
+			const { pages, items } = toolReloadEffect(name, args)
 			if (pages.length === 0) return
-			for (const p of pages) pendingPages.add(p)
+			let scope = pending.get(workspace)
+			if (!scope) pending.set(workspace, (scope = { pages: new Set(), items: new Set() }))
+			for (const p of pages) scope.pages.add(p)
+			for (const item of items) scope.items.add(pageItemUrl(item))
 			clearTimeout(reloadHandle)
 			reloadHandle = setTimeout(flushReload, 500)
 		})
 		return () => {
 			clearTimeout(reloadHandle)
-			pendingPages = new Set()
+			pending = new Map()
 			setToolCompletionListener(undefined)
 		}
 	})
 
-	// Preview cards on create/update tool calls dispatch here. Open
-	// (or focus, if already shown) the item's preview in the active session's panel —
-	// the visible chat is always the active session, so `owner` is its panel. Read
+	// The visible chat is always the active session, so `owner` is its panel. Read
 	// `owner` lazily inside the handler (not in the effect body) so this registers
 	// once, not on every session switch.
 	$effect(() => {
@@ -572,6 +640,22 @@
 			const target = previewTargetForSessionTarget(action.previewKind, action.path)
 			if (!target) return
 			o.open(target)
+		})
+	})
+	// Variables, resources, schedules and triggers the chat links to open as tabs of their
+	// own here, rather than in the drawers the layout opens them in elsewhere.
+	$effect(() => {
+		return registerToolDisplayActionHandler('open_created_resource', (action) => {
+			if (action.type !== 'open_created_resource') return
+			const ref: PageItemRef | undefined =
+				action.resource === 'trigger'
+					? action.triggerKind && {
+							kind: 'trigger',
+							triggerKind: action.triggerKind,
+							path: action.path
+						}
+					: { kind: action.resource, path: action.path }
+			if (ref) owner?.open({ type: 'pageitem', ref })
 		})
 	})
 
@@ -709,7 +793,8 @@
 		const path =
 			tab.friendlyPath ??
 			listedItemFor(tab, workspace)?.draftPath ??
-			parsePreviewItemRoute(tab.loc)?.itemPath
+			parsePreviewItemRoute(tab.loc)?.itemPath ??
+			parsePageItemRoute(tab.loc)?.path
 		return path && path !== label ? `${label}\n${path}` : label
 	}
 
@@ -747,6 +832,14 @@
 						? { kind: 'app', raw_app: true, path: d.path, summary: '' }
 						: { kind: d.kind, path: d.path, summary: '' }
 				owner?.navigate({ type: 'item', item })
+				return
+			}
+			// A row opened on a list page inside a preview tab: its editor opens as a tab of its
+			// own, leaving the list where it is.
+			if (d.type === 'wm.session.openPageItem') {
+				if (typeof d.pagePath !== 'string' || typeof d.path !== 'string') return
+				const ref = pageItemForListPath(d.pagePath, d.path)
+				if (ref) owner?.open({ type: 'pageitem', ref })
 				return
 			}
 			// A job clicked inside a preview tab: open the run detail in a NEW tab so the
@@ -827,293 +920,315 @@
 		<div class="flex-1 flex items-center justify-center">
 			<Loader2 class="animate-spin" />
 		</div>
-	{:else if !sessionName}
+	{:else if !requestsSession}
 		<div class="p-8 text-secondary">No session selected — pick one in the sidebar.</div>
-	{:else if !sessionByName || recovering}
+	{:else if !activeSession || recovering}
 		<!-- A tick while recovery swaps in an empty session, or the length of a
 		     fork teardown's HTTP round trip while a delete holds recovery off. -->
 		<div class="flex-1 flex items-center justify-center">
 			<Loader2 class="animate-spin" />
 		</div>
 	{:else}
-		<div class="flex-1 min-h-0 flex flex-row relative" use:splitterPointerCapture>
-			<Splitpanes
-				horizontal={false}
-				class="flex-1 min-h-0 session-splitter {previewCollapsed ? 'splitter-off' : ''}"
+		<!-- The hidden-assistant verdict overlays the session stack rather than replacing
+		     it: warm sessions and mounted preview editors must survive a cross-workspace
+		     switch, and a verdict still loading would otherwise tear them down on every
+		     one. The covered stack is inert so nothing under the overlay takes focus. -->
+		<div class="flex-1 min-h-0 flex flex-col relative">
+			<div
+				class="flex-1 min-h-0 flex flex-row relative z-0"
+				use:splitterPointerCapture
+				inert={aiHiddenVerdict !== false}
 			>
-				{#if !fullscreen}
-					<!-- Chat column. Warm sessions stay mounted (stacked, visibility-toggled)
-					     so switching between them preserves chat scroll/draft state. -->
-					<Pane bind:size={chatPaneSize} minSize={25} class="flex flex-col min-h-0">
-						<div class="relative flex-1 min-h-0">
-							{#each warmSessions as s (s.id)}
-								<div
-									class="absolute inset-0 flex flex-col {s.id === activeSession?.id
-										? 'z-10 opacity-100 pointer-events-auto'
-										: 'z-0 opacity-0 pointer-events-none'}"
-									aria-hidden={s.id !== activeSession?.id}
-								>
-									<SessionWrapper sessionId={s.id} />
-								</div>
-							{/each}
-						</div>
-					</Pane>
-				{/if}
+				<Splitpanes
+					horizontal={false}
+					class="flex-1 min-h-0 session-splitter {previewCollapsed ? 'splitter-off' : ''}"
+				>
+					{#if !fullscreen}
+						<!-- Chat column. Recently visited sessions stay mounted (stacked,
+					     visibility-toggled) — see mountChat. -->
+						<Pane bind:size={chatPaneSize} minSize={25} class="flex flex-col min-h-0">
+							<div class="relative flex-1 min-h-0">
+								{#each mountedChatSessions as s (s.id)}
+									<div
+										class="absolute inset-0 flex flex-col {s.id === activeSession?.id
+											? 'z-10 opacity-100 pointer-events-auto'
+											: 'z-0 opacity-0 pointer-events-none'}"
+										aria-hidden={s.id !== activeSession?.id}
+									>
+										<SessionWrapper sessionId={s.id} />
+									</div>
+								{/each}
+							</div>
+						</Pane>
+					{/if}
 
-				<!-- Preview panel: the live Windmill page, framed like the editor pane.
+					<!-- Preview panel: the live Windmill page, framed like the editor pane.
 				     Always mounted (collapse resizes it to 0 — see previewPaneSize) so
 				     warm sessions' preview hosts survive a collapsed active session. -->
-				<Pane
-					bind:size={previewPaneSize}
-					minSize={previewCollapsed ? 0 : 30}
-					maxSize={previewCollapsed ? 0 : 100}
-					class="flex flex-col min-h-0"
-				>
-					<div class="flex-1 min-h-0 flex flex-col {fullscreen ? 'p-0' : 'p-2 pl-0'}">
-						<div
-							class="flex flex-col flex-1 min-h-0 overflow-hidden relative bg-surface {fullscreen
-								? ''
-								: 'rounded-md border border-light'}"
-						>
-							{#if !fullscreen}
-								<!-- Collapse the preview panel — floats over the top-left corner so
+					<Pane
+						bind:size={previewPaneSize}
+						minSize={previewCollapsed ? 0 : 30}
+						maxSize={previewCollapsed ? 0 : 100}
+						class="flex flex-col min-h-0"
+					>
+						<div class="flex-1 min-h-0 flex flex-col {fullscreen ? 'p-0' : 'p-2 pl-0'}">
+							<div
+								class="flex flex-col flex-1 min-h-0 overflow-hidden relative bg-surface {fullscreen
+									? ''
+									: 'rounded-md border border-light'}"
+							>
+								{#if !fullscreen}
+									<!-- Collapse the preview panel — floats over the top-left corner so
 									     the tab strip keeps the full width. -->
-								<button
-									type="button"
-									onclick={() => owner?.setCollapsed(true)}
-									title="Collapse preview"
-									aria-label="Collapse preview"
-									class="absolute top-1 left-1 z-30 inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
-								>
-									<PanelRightClose size={14} />
-								</button>
-							{/if}
+									<button
+										type="button"
+										onclick={() => owner?.setCollapsed(true)}
+										title="Collapse preview"
+										aria-label="Collapse preview"
+										class="absolute top-1 left-1 z-30 inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
+									>
+										<PanelRightClose size={14} />
+									</button>
+								{/if}
 
-							<!-- Open-in-full-page + full-screen toggle, floating over the top-right
+								<!-- Open-in-full-page + full-screen toggle, floating over the top-right
 								     corner to mirror the collapse control. -->
-							<div class="absolute top-1 right-1 z-30 flex items-center gap-0.5">
-								{#if !activeTabIsArtifact}
-									<a
-										href={withWorkspaceParam(
-											owner?.activeTab?.loc || owner?.activeTab?.url || `${base}/`,
-											previewWorkspace
-										)}
-										title="Open in workspace"
-										aria-label="Open in workspace"
+								<div class="absolute top-1 right-1 z-30 flex items-center gap-0.5">
+									{#if activeWorkspaceHref}
+										<a
+											href={withWorkspaceParam(activeWorkspaceHref, previewWorkspace)}
+											title="Open in workspace"
+											aria-label="Open in workspace"
+											class="inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
+										>
+											<ExternalLink size={14} />
+										</a>
+									{/if}
+									<button
+										type="button"
+										onclick={() => (fullscreen = !fullscreen)}
+										title={fullscreen ? 'Exit full screen' : 'Full screen'}
+										aria-label={fullscreen ? 'Exit full screen' : 'Full screen'}
 										class="inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
 									>
-										<ExternalLink size={14} />
-									</a>
-								{/if}
-								<button
-									type="button"
-									onclick={() => (fullscreen = !fullscreen)}
-									title={fullscreen ? 'Exit full screen' : 'Full screen'}
-									aria-label={fullscreen ? 'Exit full screen' : 'Full screen'}
-									class="inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
-								>
-									{#if fullscreen}
-										<Minimize2 size={14} />
-									{:else}
-										<Maximize2 size={14} />
-									{/if}
-								</button>
-							</div>
+										{#if fullscreen}
+											<Minimize2 size={14} />
+										{:else}
+											<Maximize2 size={14} />
+										{/if}
+									</button>
+								</div>
 
-							<!-- Tab strip: open preview pages, shared with the raw-app editor
+								<!-- Tab strip: open preview pages, shared with the raw-app editor
 								     (DraggableTabs). Clicking the active tab (label or accessory chevron)
 								     toggles its breadcrumb picker; the "+" trailing opens the router picker.
 								     Left/right padding clears the floating collapse/fullscreen buttons. -->
-							<DraggableTabs
-								tabs={previewTabItems}
-								activeId={owner?.activeId ?? ''}
-								onSelect={selectTab}
-								onActiveClick={() => (activeTabPickerOpen = !activeTabPickerOpen)}
-								onClose={closeTab}
-								onReorder={reorderTabs}
-								class="session-preview-tab-strip h-8 border-b border-light bg-surface-secondary/50 {fullscreen
-									? 'pl-1.5'
-									: 'pl-9'} pr-16"
-							>
-								{#snippet tabAccessory(_tab, isActive)}
-									{#if isActive}
-										<!-- Any active-tab click toggles the picker (`onActiveClick`); the tab
+								<DraggableTabs
+									tabs={previewTabItems}
+									activeId={owner?.activeId ?? ''}
+									onSelect={selectTab}
+									onActiveClick={() => (activeTabPickerOpen = !activeTabPickerOpen)}
+									onClose={closeTab}
+									onReorder={reorderTabs}
+									class="session-preview-tab-strip h-8 border-b border-light bg-surface-secondary/50 {fullscreen
+										? 'pl-1.5'
+										: 'pl-9'} pr-16"
+								>
+									{#snippet tabAccessory(_tab, isActive)}
+										{#if isActive}
+											<!-- Any active-tab click toggles the picker (`onActiveClick`); the tab
 										     is excluded from pointerdown-outside so toggle doesn't race close.
 										     The trigger is an inert whole-tab overlay (anchor only — clickable
 										     would break dnd reorder); the chevron is purely visual. -->
-										<Popover
-											placement="bottom-start"
-											usePointerDownOutside
-											excludeSelectors=".drawer, .session-preview-tab-strip [role='tab'][aria-selected='true']"
-											disableFocusTrap
-											closeOnOtherPopoverOpen
-											enableFlyTransition
-											bind:isOpen={activeTabPickerOpen}
-											openFocus="[data-workspace-picker-search]"
-											contentClasses="flex flex-col overflow-hidden"
-											class="absolute inset-0 pointer-events-none"
-											triggerAttrs={{
-												'aria-label': 'Change preview',
-												tabindex: -1,
-												// The inert trigger only ever receives focus from melt's
-												// close-time restore; hand it straight to the tab so
-												// arrow/Delete tab shortcuts keep working.
-												onfocus: (e: FocusEvent) =>
-													(e.currentTarget as HTMLElement)
-														.closest<HTMLElement>('[role="tab"]')
-														?.focus()
-											}}
-										>
-											{#snippet content()}
-												<!-- The picker snapshots its scope at mount, but `friendlyPath` is
+											<Popover
+												placement="bottom-start"
+												usePointerDownOutside
+												excludeSelectors=".drawer, .session-preview-tab-strip [role='tab'][aria-selected='true']"
+												disableFocusTrap
+												closeOnOtherPopoverOpen
+												enableFlyTransition
+												bind:isOpen={activeTabPickerOpen}
+												openFocus="[data-workspace-picker-search]"
+												contentClasses="flex flex-col overflow-hidden"
+												class="absolute inset-0 pointer-events-none"
+												triggerAttrs={{
+													'aria-label': 'Change preview',
+													tabindex: -1,
+													// The inert trigger only ever receives focus from melt's
+													// close-time restore; hand it straight to the tab so
+													// arrow/Delete tab shortcuts keep working.
+													onfocus: (e: FocusEvent) =>
+														(e.currentTarget as HTMLElement)
+															.closest<HTMLElement>('[role="tab"]')
+															?.focus()
+												}}
+											>
+												{#snippet content()}
+													<!-- The picker snapshots its scope at mount, but `friendlyPath` is
 												     stamped async once the editor cell loads — a picker opened
 												     before the stamp is scoped to the `draft_<uuid>` storage
 												     folder while the tree groups the draft under its friendly
 												     folder. Remount on the scope dir so it re-lands on the item. -->
-												{#key activePickerScope?.dir ?? ''}
-													<PreviewRouterPicker
-														initialScope={activePickerScope}
-														initialHighlight={activePickerHighlight}
-														{currentItem}
-														workspaceId={previewWorkspace}
-														artifacts={sessionArtifacts}
-														onPick={(t) => {
-															activeTabPickerOpen = false
-															navigatePreviewTo(t)
-														}}
-													/>
-												{/key}
-											{/snippet}
-										</Popover>
-										<ChevronDown
-											size={12}
-											class="shrink-0 text-tertiary group-hover:text-primary"
-										/>
-									{/if}
-								{/snippet}
-								{#snippet afterTabs()}
-									<Popover
-										placement="bottom-start"
-										usePointerDownOutside
-										excludeSelectors=".drawer"
-										disableFocusTrap
-										closeOnOtherPopoverOpen
-										bind:isOpen={newTabOpen}
-										enableFlyTransition
-										openFocus="[data-workspace-picker-search]"
-										contentClasses="flex flex-col overflow-hidden"
-										class="shrink-0 inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover cursor-pointer"
-									>
-										{#snippet trigger()}
-											<Plus size={14} />
-										{/snippet}
-										{#snippet content()}
-											<PreviewRouterPicker
-												workspaceId={previewWorkspace}
-												artifacts={sessionArtifacts}
-												onPick={(t) => {
-													newTabOpen = false
-													openInNewTab(t)
-												}}
+													{#key activePickerScope?.dir ?? ''}
+														<PreviewRouterPicker
+															initialScope={activePickerScope}
+															initialHighlight={activePickerHighlight}
+															{currentItem}
+															workspaceId={previewWorkspace}
+															artifacts={sessionArtifacts}
+															onPick={(t) => {
+																activeTabPickerOpen = false
+																navigatePreviewTo(t)
+															}}
+														/>
+													{/key}
+												{/snippet}
+											</Popover>
+											<ChevronDown
+												size={12}
+												class="shrink-0 text-tertiary group-hover:text-primary"
 											/>
-										{/snippet}
-									</Popover>
-								{/snippet}
-							</DraggableTabs>
-
-							<!-- One host per tab of every warm session, stacked and
-								     visibility-toggled so switching tabs or sessions never reloads
-								     a mounted tab — hosts live as long as the session's runtime,
-								     content-gated by the shared mount MRU. Each host renders a
-								     live editor (script/flow/raw_app target) or an iframe fallback. -->
-							<div class="relative flex-1 min-h-0">
-								{#each warmSessions as s (s.id)}
-									{@const rt = getRuntime(s.id)}
-									{@const tabs = rt?.previewTabs}
-									{#each tabs?.tabs ?? [] as tab (tab.id)}
-										<!-- tabHosts is an imperative ref-bag (only tabHosts[key]?.reload() in
-										     reloadTabs); it is intentionally a plain object so component
-										     instances aren't proxied. Nothing reads it reactively, so the
-										     non-reactive binding is fine. -->
-										<!-- svelte-ignore binding_property_non_reactive -->
-										<PreviewTabHost
-											bind:this={tabHosts[tabKey(s.id, tab.id)]}
-											{tab}
-											session={s}
-											runtime={rt}
-											active={s.id === activeSession?.id && tab.id === tabs?.activeId}
-											collapsed={(tabs?.collapsed ?? false) && !fullscreen}
-											mounted={mountedTabKeys.has(tabKey(s.id, tab.id))}
-											label={tabLabelFor(tab, s.workspace_id ?? '')}
-											darkMode={isDarkMode.val}
-											{fullscreen}
-											onNavigate={navigateEditorTo}
-											onLoad={(frame) => tabs && onTabLoad(tabs, tab, frame)}
-										/>
-									{/each}
-								{/each}
-								{#if (owner?.tabs.length ?? 0) === 0}
-									<!-- New session with nothing to preview: an empty state with a
-										     picker to open one, instead of defaulting to the home page. -->
-									<div
-										class="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center px-6 bg-surface"
-									>
-										<MonitorPlay size={28} class="text-tertiary" />
-										<div class="flex flex-col gap-1">
-											<span class="text-sm font-medium text-secondary">No preview open</span>
-											<span class="text-xs text-tertiary max-w-xs"
-												>Open a page, flow, script or app to preview it alongside the chat.</span
-											>
-										</div>
+										{/if}
+									{/snippet}
+									{#snippet afterTabs()}
 										<Popover
-											placement="bottom"
+											placement="bottom-start"
 											usePointerDownOutside
 											excludeSelectors=".drawer"
 											disableFocusTrap
 											closeOnOtherPopoverOpen
-											bind:isOpen={emptyStateNewTabOpen}
+											bind:isOpen={newTabOpen}
 											enableFlyTransition
 											openFocus="[data-workspace-picker-search]"
 											contentClasses="flex flex-col overflow-hidden"
+											class="shrink-0 inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover cursor-pointer"
 										>
 											{#snippet trigger()}
-												<span
-													class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs border border-light text-secondary hover:bg-surface-hover cursor-pointer"
-												>
-													<Plus size={14} /> Open a preview
-												</span>
+												<Plus size={14} />
 											{/snippet}
 											{#snippet content()}
 												<PreviewRouterPicker
 													workspaceId={previewWorkspace}
 													artifacts={sessionArtifacts}
 													onPick={(t) => {
-														emptyStateNewTabOpen = false
+														newTabOpen = false
 														openInNewTab(t)
 													}}
 												/>
 											{/snippet}
 										</Popover>
-									</div>
-								{/if}
+									{/snippet}
+								</DraggableTabs>
+
+								<!-- One host per tab of every warm session, stacked and
+								     visibility-toggled so switching tabs or sessions never reloads
+								     a mounted tab — hosts live as long as the session's runtime,
+								     content-gated by the shared mount MRU. Each host renders a
+								     live editor (script/flow/raw_app target) or an iframe fallback. -->
+								<div class="relative flex-1 min-h-0">
+									{#each warmSessions as s (s.id)}
+										{@const rt = getRuntime(s.id)}
+										{@const tabs = rt?.previewTabs}
+										{#each tabs?.tabs ?? [] as tab (tab.id)}
+											<!-- tabHosts is an imperative ref-bag (only tabHosts[key]?.reload() in
+										     reloadTabs); it is intentionally a plain object so component
+										     instances aren't proxied. Nothing reads it reactively, so the
+										     non-reactive binding is fine. -->
+											<!-- svelte-ignore binding_property_non_reactive -->
+											<PreviewTabHost
+												bind:this={tabHosts[tabKey(s.id, tab.id)]}
+												{tab}
+												session={s}
+												runtime={rt}
+												active={s.id === activeSession?.id && tab.id === tabs?.activeId}
+												collapsed={(tabs?.collapsed ?? false) && !fullscreen}
+												mounted={mountedTabKeys.has(tabKey(s.id, tab.id))}
+												label={tabLabelFor(tab, s.workspace_id ?? '')}
+												darkMode={isDarkMode.val}
+												{fullscreen}
+												onNavigate={navigateEditorTo}
+												onLoad={(frame) => tabs && onTabLoad(tabs, tab, frame)}
+											/>
+										{/each}
+									{/each}
+									{#if (owner?.tabs.length ?? 0) === 0}
+										<!-- New session with nothing to preview: an empty state with a
+										     picker to open one, instead of defaulting to the home page. -->
+										<div
+											class="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center px-6 bg-surface"
+										>
+											<MonitorPlay size={28} class="text-tertiary" />
+											<div class="flex flex-col gap-1">
+												<span class="text-sm font-medium text-secondary">No preview open</span>
+												<span class="text-xs text-tertiary max-w-xs"
+													>Open a page, flow, script or app to preview it alongside the chat.</span
+												>
+											</div>
+											<Popover
+												placement="bottom"
+												usePointerDownOutside
+												excludeSelectors=".drawer"
+												disableFocusTrap
+												closeOnOtherPopoverOpen
+												bind:isOpen={emptyStateNewTabOpen}
+												enableFlyTransition
+												openFocus="[data-workspace-picker-search]"
+												contentClasses="flex flex-col overflow-hidden"
+											>
+												{#snippet trigger()}
+													<span
+														class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs border border-light text-secondary hover:bg-surface-hover cursor-pointer"
+													>
+														<Plus size={14} /> Open a preview
+													</span>
+												{/snippet}
+												{#snippet content()}
+													<PreviewRouterPicker
+														workspaceId={previewWorkspace}
+														artifacts={sessionArtifacts}
+														onPick={(t) => {
+															emptyStateNewTabOpen = false
+															openInNewTab(t)
+														}}
+													/>
+												{/snippet}
+											</Popover>
+										</div>
+									{/if}
+								</div>
 							</div>
 						</div>
-					</div>
-				</Pane>
-			</Splitpanes>
-			{#if previewCollapsed && !fullscreen}
-				<!-- Collapsed preview: no rail — a floating launcher in the top-right to
+					</Pane>
+				</Splitpanes>
+				{#if previewCollapsed && !fullscreen}
+					<!-- Collapsed preview: no rail — a floating launcher in the top-right to
 				     reopen the side panel. -->
-				<div class="absolute top-2 right-3 z-50">
-					<Button
-						variant="subtle"
-						unifiedSize="sm"
-						startIcon={{ icon: PanelRightOpen }}
-						title="Open side panel"
-						onclick={() => owner?.setCollapsed(false)}
-					>
-						Open side panel
-					</Button>
+					<div class="absolute top-2 right-3 z-50">
+						<Button
+							variant="subtle"
+							unifiedSize="sm"
+							startIcon={{ icon: PanelRightOpen }}
+							title="Open side panel"
+							onclick={() => owner?.setCollapsed(false)}
+						>
+							Open side panel
+						</Button>
+					</div>
+				{/if}
+			</div>
+			{#if aiHiddenVerdict === undefined}
+				<div class="absolute inset-0 z-20 flex items-center justify-center bg-surface">
+					<Loader2 class="animate-spin" />
+				</div>
+			{:else if aiHiddenVerdict}
+				<!-- The workspace hid the assistant, and the sidebar switch with it, so only a
+				     direct URL or a session acting on such a workspace lands here. -->
+				<div
+					class="absolute inset-0 z-20 bg-surface p-8 flex flex-col items-start gap-3 text-secondary text-sm"
+				>
+					<p class="text-primary font-medium">AI Sessions are hidden in this workspace</p>
+					<p>A workspace admin hid AI sessions in the workspace settings.</p>
+					<Button unifiedSize="sm" onclick={() => goto('/')}>Back to workspace</Button>
 				</div>
 			{/if}
 		</div>

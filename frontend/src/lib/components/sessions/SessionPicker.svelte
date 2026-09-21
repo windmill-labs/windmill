@@ -1,5 +1,6 @@
 <script lang="ts">
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import Checkbox from '$lib/components/common/checkbox/Checkbox.svelte'
 	import { Badge, Button } from '$lib/components/common'
 	import {
@@ -22,6 +23,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { goto } from '$lib/navigation'
+	import { takeNewSessionSeed, type NewSessionSeed } from './sessionSwitch.svelte'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 	import { slide } from 'svelte/transition'
 	import {
@@ -31,6 +33,7 @@
 		reconcileAfterWorkspaceChange,
 		renameSession,
 		selectSession,
+		sessionPageHref,
 		sessionLastActivityAt,
 		sessionState,
 		setNewSessionWorkspace,
@@ -42,8 +45,9 @@
 	import { unreadCountFor } from './sessionUnread.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import {
-		getOrCreateRuntime,
+		ensureSessionChatPeek,
 		getRuntime,
+		getSessionChatPeek,
 		getSessionChatStatus,
 		removeSession,
 		resetSessionPreviewTabs
@@ -85,7 +89,7 @@
 	// displayMessages array vs. the localStorage-backed lastSeen map;
 	// both are reactive so the badge updates without polling.
 	function unreadFor(session: Session): number {
-		return unreadCountFor(session.id, getRuntime(session.id))
+		return unreadCountFor(session.id, getRuntime(session.id), getSessionChatPeek(session.id))
 	}
 
 	// Whether the composer for a session holds non-whitespace text. We
@@ -376,14 +380,12 @@
 		}
 	})
 
-	// Eagerly create a runtime per VISIBLE session so the status dot reflects
-	// the persisted chat (last message, pending confirmation, etc.) without
-	// requiring the user to open the session first. Sessions outside the
-	// current workspace scope are left cold to avoid opening IDB connections
-	// for unrelated work.
+	// Read each VISIBLE session's stored chat so the status dot and unread count
+	// reflect it without the user opening the session. A runtime per listed
+	// session would hold every listed chat in memory for as long as the page lives.
 	$effect(() => {
 		for (const session of visibleSessions) {
-			getOrCreateRuntime(session)
+			if (!getRuntime(session.id)) void ensureSessionChatPeek(session)
 		}
 	})
 
@@ -400,7 +402,7 @@
 		// so opening one must not change the user's active (navigation) workspace.
 		// Open the dedicated sessions page; its preview panel iframes the
 		// session's view (captured page / editor target).
-		await goto(`/sessions?session_name=${encodeURIComponent(session.name)}`)
+		await goto(sessionPageHref(session.id))
 		if (restoreFocus) {
 			// goto() resets focus to <body> — put it back on the active session button
 			// so subsequent arrow keys keep navigating the list.
@@ -414,15 +416,50 @@
 	}
 
 	async function createAndOpen() {
-		const fresh = createSession()
 		// A new session opened from a Windmill page adopts that page as its first
-		// preview tab. Skip when already on the sessions page (nothing meaningful to
-		// capture) so the preview starts empty until the chat opens something.
+		// preview tab.
 		if (!onSessionsPage) {
-			const url = page.url.pathname + page.url.search
-			resetSessionPreviewTabs(fresh.id, url)
+			await createAndOpenWith(page.url.pathname + page.url.search)
+			return
 		}
+		// On the sessions page there is nothing meaningful on screen to capture,
+		// except the item the user just left to get here: that one is offered (once)
+		// before the session is created, and answerSeedOffer picks up from there.
+		const seed = takeNewSessionSeed()
+		if (seed) {
+			seedOffer = seed
+			seedOfferOpen = true
+			return
+		}
+		await createAndOpenWith(undefined)
+	}
+
+	// `previewUrl` undefined leaves the preview empty until the chat opens something.
+	async function createAndOpenWith(previewUrl: string | undefined) {
+		const fresh = createSession()
+		if (previewUrl) resetSessionPreviewTabs(fresh.id, previewUrl)
 		await activate(fresh)
+	}
+
+	// The item createAndOpen is asking about. Closing the dialog any other way than
+	// answering (Escape, the corner X, the backdrop) creates nothing: the click was
+	// met with a question, not a session. Kept after the dialog closes, since the
+	// title reads it through the close fade; `seedOfferOpen` alone gates rendering.
+	let seedOffer = $state<NewSessionSeed | undefined>(undefined)
+	let seedOfferOpen = $state(false)
+	// Focus moves onto the primary answer as the dialog opens. Enter is left to
+	// the focused button (the dialog does not bind it), and the "New session"
+	// button that opened the dialog would otherwise keep focus and answer Enter
+	// with a second, unasked session underneath.
+	let keepButton: Button | undefined = $state(undefined)
+	$effect(() => {
+		if (seedOfferOpen) keepButton?.focus()
+	})
+	async function answerSeedOffer(keep: boolean) {
+		const offer = seedOffer
+		seedOfferOpen = false
+		if (!offer) return
+		await createAndOpenWith(keep ? offer.url : undefined)
 	}
 
 	// The `+` on a workspace group header: a new session parked on that group's
@@ -572,14 +609,14 @@
 
 	// After deleting the open session, land somewhere usable: the newest remaining
 	// session, else a fresh one. The page derives the visible session from the
-	// `session_name` query, so leaving the URL on a deleted session would fall
+	// `session` query, so leaving the URL on a deleted session would fall
 	// through to recovery and open a blank one rather than their recent work.
 	async function openReplacementSession() {
 		const next = sessionState.sessions[0]
 		if (next) await activate(next)
 		else {
 			const fresh = createSession()
-			await goto(`/sessions?session_name=${encodeURIComponent(fresh.name)}`)
+			await goto(sessionPageHref(fresh.id))
 		}
 	}
 
@@ -731,7 +768,9 @@
 									{/if}
 									{#each group.sessions as session (session.id)}
 										{@const runtime = getRuntime(session.id)}
-										{@const status = runtime ? getSessionChatStatus(runtime) : 'idle'}
+										{@const status = runtime
+											? getSessionChatStatus(runtime)
+											: (getSessionChatPeek(session.id)?.status ?? 'idle')}
 										{@const isSelected =
 											sessionActive && session.id === sessionState.currentSessionId}
 										{@const unread = unreadFor(session)}
@@ -949,7 +988,9 @@
 				{/snippet}
 				{#snippet sessionRow(session, indented, treeDepth)}
 					{@const runtime = getRuntime(session.id)}
-					{@const status = runtime ? getSessionChatStatus(runtime) : 'idle'}
+					{@const status = runtime
+						? getSessionChatStatus(runtime)
+						: (getSessionChatPeek(session.id)?.status ?? 'idle')}
 					{@const isSelected = sessionActive && session.id === sessionState.currentSessionId}
 					{@const isEditing = editingId === session.id}
 					{@const unread = unreadFor(session)}
@@ -1257,7 +1298,7 @@
 	<div class="flex flex-col gap-3">
 		<p>
 			Delete session <span class="font-medium text-primary"
-				>{pendingDelete?.summary ?? pendingDelete?.name}</span
+				>{pendingDelete?.summary ?? 'Untitled session'}</span
 			>? This cannot be undone.
 		</p>
 		{#if pendingDeleteForkId}
@@ -1300,3 +1341,30 @@
 		{/if}
 	</div>
 </ConfirmationModal>
+
+<!-- Two answers of equal standing, so Enter is left to whichever button has
+     focus rather than bound to one of them by the dialog. -->
+<Modal
+	bind:open={seedOfferOpen}
+	kind="X"
+	enterConfirms={false}
+	title="Keep this {seedOffer?.route.kind ?? 'item'} in the new session?"
+	description="You came here from {seedOffer?.route.itemPath ?? ''}."
+>
+	<p class="text-sm text-secondary">
+		Keeping it opens it in the preview, so the chat starts with it as context.
+	</p>
+	<div class="flex justify-end gap-2 mt-4">
+		<Button variant="default" unifiedSize="sm" onClick={() => answerSeedOffer(false)}>
+			Start empty
+		</Button>
+		<Button
+			bind:this={keepButton}
+			variant="accent"
+			unifiedSize="sm"
+			onClick={() => answerSeedOffer(true)}
+		>
+			Keep in preview
+		</Button>
+	</div>
+</Modal>

@@ -237,9 +237,15 @@ export async function pushWorkspaceSettings(
   }
 
   // Exclude fields that are never applied here: slack_team_id/slack_name are OAuth-only,
-  // and name is not applied on pull (see below), so a name-only diff stays a no-op.
+  // and name is never applied (see below), so a name-only diff stays a no-op. color is
+  // applied only when the file carries it, so an unset one leaves the comparison too.
   const { slack_team_id: _lst, slack_name: _lsn, name: _ln, ...comparableLocal } = localSettings;
   const { slack_team_id: _rst, slack_name: _rsn, name: _rn, ...comparableRemote } = settings;
+  const colorManaged = localSettings.color != null;
+  if (!colorManaged) {
+    delete comparableLocal.color;
+    delete comparableRemote.color;
+  }
   if (isSuperset(comparableLocal, comparableRemote)) {
     log.debug(`Workspace settings are up to date`);
     return;
@@ -256,8 +262,19 @@ export async function pushWorkspaceSettings(
     });
   }
 
-  // Handle auto_invite using grouped format
-  if (!deepEqual(localSettings.auto_invite, settings.auto_invite)) {
+  // Handle auto_invite using grouped format. The domain invite and the instance groups
+  // are applied by separate endpoints, each rewriting only its own keys.
+  const {
+    instance_groups: localGroups,
+    instance_groups_roles: localGroupRoles,
+    ...localDomainInvite
+  } = localSettings.auto_invite ?? {};
+  const {
+    instance_groups: remoteGroups,
+    instance_groups_roles: remoteGroupRoles,
+    ...remoteDomainInvite
+  } = settings.auto_invite ?? {};
+  if (!deepEqual(localDomainInvite, remoteDomainInvite)) {
     log.debug(`Updating auto invite...`);
 
     const localAutoInvite = localSettings.auto_invite;
@@ -293,6 +310,20 @@ export async function pushWorkspaceSettings(
           : {},
       });
     }
+  }
+
+  // Only when settings.yaml declares instance_groups: clearing a group removes the
+  // workspace members it granted, so an absent key must never clear it.
+  if (
+    localGroups != undefined &&
+    (!deepEqual(localGroups, remoteGroups) ||
+      !deepEqual(localGroupRoles ?? {}, remoteGroupRoles ?? {}))
+  ) {
+    log.debug(`Updating instance groups...`);
+    await wmill.editInstanceGroups({
+      workspace,
+      requestBody: { groups: localGroups, roles: localGroupRoles ?? {} },
+    });
   }
 
   if (!deepEqual(localSettings.ai_config, settings.ai_config)) {
@@ -394,10 +425,9 @@ export async function pushWorkspaceSettings(
     });
   }
 
-  // Workspace display name is intentionally not applied on pull: settings.yaml is shared
-  // across a repo's branches, so applying it would let one workspace's name overwrite
-  // another's when both sync the same repo. It stays in the file (written on push), but a
-  // live workspace is only renamed by its owner.
+  // Workspace display name is intentionally never applied by `sync push`: settings.yaml is
+  // shared across a repo's branches, so applying it would let one workspace's name overwrite
+  // another's when both sync the same repo. `sync pull` still records it.
 
   if (localSettings.mute_critical_alerts != settings.mute_critical_alerts) {
     log.debug(`Updating mute critical alerts...`);
@@ -409,7 +439,9 @@ export async function pushWorkspaceSettings(
     });
   }
 
-  if (localSettings.color != settings.color) {
+  // A color is applied only when the file carries one: `sync pull` omits the key for a
+  // workspace without a color, so an unset key means "not managed by git", never "clear".
+  if (colorManaged && localSettings.color != settings.color) {
     log.debug(`Updating workspace color...`);
     await wmill.changeWorkspaceColor({
       workspace,
@@ -429,10 +461,17 @@ export async function pushWorkspaceSettings(
 
   if (!deepEqual(localSettings.datatable, settings.datatable)) {
     log.debug(`Updating datatable config...`);
-    await wmill.editDataTableConfig({
+    const { stranded_references } = await wmill.editDataTableConfig({
       workspace,
       requestBody: { settings: localSettings.datatable ?? { datatables: {} } },
     });
+    if (stranded_references?.length) {
+      log.warn(
+        `Removed data tables governed data tables in other workspaces, which no longer resolve: ${stranded_references
+          .map((r) => `${r.workspace_id}/${r.datatable}`)
+          .join(", ")}. A superadmin can point them somewhere else.`,
+      );
+    }
   }
 
   if (localSettings.slack_command_script != settings.slack_command_script) {

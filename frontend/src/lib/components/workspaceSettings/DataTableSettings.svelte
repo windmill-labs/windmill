@@ -12,6 +12,10 @@
 				resource_type: 'postgresql' | 'instance'
 				resource_path?: string | undefined
 			}
+			/** Set on a fork's entry: it names the workspace whose data table governs this one, and
+			 * owns no database of its own. Read-only here — only forking writes it, and the server
+			 * carries it across a save rather than taking it from this form. */
+			reference?: { workspace_id: string; datatable: string }
 		}[]
 	}
 
@@ -24,7 +28,10 @@
 				s.dataTables.push({
 					id: randomUUID(),
 					name,
-					...rest
+					...rest,
+					// A pointer entry owns no database. The row renders read-only in that case, so this
+					// placeholder is never shown or sent.
+					database: rest.database ?? { resource_type: 'instance' }
 				})
 			}
 		}
@@ -38,6 +45,12 @@
 			const database = dataTable.database
 			if (dataTable.name in s.datatables)
 				throw 'Settings contain duplicate dataTable name: ' + dataTable.name
+			// A pointer owns no database, so it has nothing to validate and nothing to send: the
+			// server keeps the stored reference whatever this payload says.
+			if (dataTable.reference) {
+				s.datatables[dataTable.name] = {}
+				continue
+			}
 			if (!database.resource_path) throw 'No resource selected for ' + dataTable.name
 			if (database.resource_type === 'instance' && database.resource_path === 'windmill')
 				throw dataTable.name + ' database cannot be called "windmill"'
@@ -51,11 +64,10 @@
 </script>
 
 <script lang="ts">
-	import { Plus, PlugZap } from 'lucide-svelte'
+	import { History, KeyRound, Plus, PlugZap, Trash2 } from 'lucide-svelte'
+	import DropdownV2 from '../DropdownV2.svelte'
 
 	import Button from '../common/button/Button.svelte'
-
-	import CloseButton from '../common/CloseButton.svelte'
 
 	import ResourcePicker from '../ResourcePicker.svelte'
 	import SettingsPageHeader from '../settings/SettingsPageHeader.svelte'
@@ -79,7 +91,7 @@
 		type GetSettingsResponse,
 		type TestDataTableConnectionResponse
 	} from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, superadmin, workspaceStore } from '$lib/stores'
 	import { createAsyncConfirmationModal } from '../common/confirmationModal/asyncConfirmationModal.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { resource } from 'runed'
@@ -87,8 +99,10 @@
 	import { Popover } from '../meltComponents'
 	import ExploreAssetButton from '../ExploreAssetButton.svelte'
 	import DataTableMigrationsButton from './DataTableMigrationsButton.svelte'
+	import DataTablePermissionsButton from './DataTablePermissionsButton.svelte'
+	import InstanceRolesButton from './InstanceRolesButton.svelte'
 	import { deepEqual } from 'fast-equals'
-	import { clone } from '$lib/utils'
+	import { clone, onlyAlphaNumAndUnderscore } from '$lib/utils'
 	import SettingsFooter from './SettingsFooter.svelte'
 	import Alert from '../common/alert/Alert.svelte'
 	import MissingWorkerTagAlert from '../jobs/MissingWorkerTagAlert.svelte'
@@ -208,12 +222,28 @@
 			const deleted_datatables = dataTableSettings.dataTables
 				.filter((d) => !tempIds.has(d.id))
 				.map((d) => d.name)
-			await WorkspaceService.editDataTableConfig({
+			const result = await WorkspaceService.editDataTableConfig({
 				workspace: $workspaceStore!,
 				requestBody: { settings, renames, deleted_datatables }
 			})
 			dataTableSettings = clone(tempSettings)
-			sendUserToast('Data table settings saved successfully')
+			// A delete can leave another workspace's data table governed by nothing. Swallowing
+			// that is what made it silent for the person who caused it.
+			const stranded = result?.stranded_references ?? []
+			if (stranded.length > 0) {
+				sendUserToast(
+					`These data tables were governed by one you deleted and no longer resolve: ${stranded
+						.map((s) => `${s.workspace_id}/${s.datatable}`)
+						.join(', ')}. Their databases still exist; a superadmin can point them at another ` +
+						`workspace's data table.`,
+					'warning',
+					[],
+					undefined,
+					20000
+				)
+			} else {
+				sendUserToast('Data table settings saved successfully')
+			}
 		} catch (e) {
 			sendUserToast(e, true)
 			console.error('Error saving data table settings', e)
@@ -253,6 +283,9 @@
 	}
 
 	let confirmationModal = createAsyncConfirmationModal()
+	// Each mounts its own modal or drawer; the row menu opens them.
+	let migrationsButtons = $state<Record<string, DataTableMigrationsButton | undefined>>({})
+	let permissionsButtons = $state<Record<string, DataTablePermissionsButton | undefined>>({})
 	let dirtyMap = $derived.by(() => {
 		const map: Record<string, boolean> = {}
 		for (let i = 0; i < tempSettings.dataTables.length; i++) {
@@ -284,7 +317,13 @@
 	title="Data tables"
 	description="Relational storage the whole workspace shares under one name. Scripts, flows and apps address it as <span class='font-mono'>datatable://main</span> instead of picking a PostgreSQL resource, so nobody needs access to the credentials to query it, and you can point that name at another database without touching a line of code. Browse and edit tables, and version schema changes as migrations, from here."
 	link="https://www.windmill.dev/docs/core_concepts/persistent_storage/data_tables"
-/>
+>
+	{#snippet actions()}
+		{#if $superadmin && $enterpriseLicense && !isCloudHosted()}
+			<InstanceRolesButton />
+		{/if}
+	{/snippet}
+</SettingsPageHeader>
 
 {#if isCloudHosted()}
 	<Alert type="info" title="Instance database not available on cloud" class="mb-4" size="xs">
@@ -350,71 +389,103 @@
 		{#each tempSettings.dataTables as dataTable, dataTableIndex (dataTable.id)}
 			<Row>
 				<Cell first class="w-48 relative">
-					<TextInput bind:value={dataTable.name} inputProps={{ placeholder: 'Name', id: 'name' }} />
+					{#if dataTable.reference}
+						<span class="font-mono text-sm">{dataTable.name}</span>
+					{:else}
+						<TextInput
+							bind:value={dataTable.name}
+							inputProps={{ placeholder: 'Name', id: 'name' }}
+						/>
+					{/if}
 				</Cell>
 				<Cell>
-					<div class="flex gap-2">
-						<div class="relative">
-							{#if dataTable.database.resource_type === 'instance'}
-								<Tooltip wrapperClass="absolute mt-[0.6rem] right-2 z-20" placement="bottom-start">
-									Use Windmill's PostgreSQL instance
-								</Tooltip>
-							{/if}
-							<Select
-								items={[
-									{ value: 'postgresql', label: 'PostgreSQL' },
-									{
-										value: 'instance',
-										label: 'Instance',
-										disabled: isCloudHosted(),
-										subtitle: $isCustomInstanceDbEnabled
-											? undefined
-											: isCloudHosted()
-												? 'Not available on cloud'
-												: 'Superadmin only'
-									}
-								]}
-								bind:value={
-									() => dataTable.database.resource_type,
-									(resource_type) => {
-										dataTable.database = {
-											resource_type,
-											resource_path:
-												resource_type === 'instance' ? defaultInstanceDbName() : undefined
+					{#if dataTable.reference}
+						<div class="flex items-center gap-1 text-sm text-secondary">
+							<span>Governed by</span>
+							<span class="font-mono">{dataTable.reference.workspace_id}</span>
+							<span>/</span>
+							<span class="font-mono">{dataTable.reference.datatable}</span>
+							<Tooltip>
+								This fork uses its parent's data table rather than a copy of it, so the database and
+								its roles are decided in that workspace.
+							</Tooltip>
+						</div>
+					{:else}
+						<div class="flex gap-2">
+							<div class="relative">
+								{#if dataTable.database.resource_type === 'instance'}
+									<Tooltip
+										wrapperClass="absolute mt-[0.6rem] right-2 z-20"
+										placement="bottom-start"
+									>
+										Use Windmill's PostgreSQL instance
+									</Tooltip>
+								{/if}
+								<Select
+									items={[
+										{ value: 'postgresql', label: 'PostgreSQL' },
+										{
+											value: 'instance',
+											label: 'Instance',
+											disabled: isCloudHosted(),
+											subtitle: $isCustomInstanceDbEnabled
+												? undefined
+												: isCloudHosted()
+													? 'Not available on cloud'
+													: 'Superadmin only'
+										}
+									]}
+									bind:value={
+										() => dataTable.database.resource_type,
+										(resource_type) => {
+											dataTable.database = {
+												resource_type,
+												resource_path:
+													resource_type === 'instance' ? defaultInstanceDbName() : undefined
+											}
 										}
 									}
-								}
-								id="database-type-select"
-								class="w-28"
-							/>
-						</div>
-						<div class="flex items-center gap-1 w-80 relative">
-							{#if dataTable.database.resource_type !== 'instance'}
-								<ResourcePicker
-									class="flex-1"
-									bind:value={dataTable.database.resource_path}
-									resourceType={dataTable.database.resource_type}
+									id="database-type-select"
+									class="w-28"
 								/>
-							{:else}
-								<CustomInstanceDbSelect
-									class="flex-1"
-									{confirmationModal}
-									{customInstanceDbs}
-									bind:value={dataTable.database.resource_path}
-									tag="datatable"
-								/>
-							{/if}
+							</div>
+							<div class="flex items-center gap-1 w-80 relative">
+								{#if dataTable.database.resource_type !== 'instance'}
+									<ResourcePicker
+										class="flex-1"
+										bind:value={dataTable.database.resource_path}
+										resourceType={dataTable.database.resource_type}
+									/>
+								{:else}
+									<CustomInstanceDbSelect
+										class="flex-1"
+										{confirmationModal}
+										{customInstanceDbs}
+										bind:value={dataTable.database.resource_path}
+										tag="datatable"
+									/>
+								{/if}
+							</div>
 						</div>
-					</div>
+					{/if}
 				</Cell>
 
 				<Cell class="whitespace-nowrap">
 					<div class="flex gap-2">
 						<DataTableMigrationsButton
+							bind:this={migrationsButtons[dataTable.name]}
+							hideTrigger
 							workspace={$workspaceStore ?? ''}
 							datatable={dataTable.name}
-							disabled={!!dirtyMap[dataTable.name]}
 						/>
+						{#if $enterpriseLicense && !isCloudHosted()}
+							<DataTablePermissionsButton
+								bind:this={permissionsButtons[dataTable.name]}
+								hideTrigger
+								workspace={$workspaceStore ?? ''}
+								datatable={dataTable.name}
+							/>
+						{/if}
 						<Button
 							size="xs"
 							color="light"
@@ -448,7 +519,41 @@
 					</div>
 				</Cell>
 				<Cell class="w-12">
-					<CloseButton small on:close={() => removeDataTable(dataTableIndex)} />
+					<DropdownV2
+						items={() => [
+							{
+								displayName: 'Migrations',
+								icon: History,
+								// Both act on the saved data table, which unsaved edits are not.
+								disabled: !!dirtyMap[dataTable.name],
+								tooltip: dirtyMap[dataTable.name] ? 'Save the settings first' : undefined,
+								action: () => migrationsButtons[dataTable.name]?.open()
+							},
+							...($enterpriseLicense && !isCloudHosted()
+								? [
+										{
+											displayName: 'Roles',
+											icon: KeyRound,
+											disabled: !!dirtyMap[dataTable.name],
+											tooltip: dirtyMap[dataTable.name] ? 'Save the settings first' : undefined,
+											action: () => permissionsButtons[dataTable.name]?.open()
+										}
+									]
+								: []),
+							// A fork's pointer entry is written by forking and kept by the server, not this form.
+							...(dataTable.reference
+								? []
+								: [
+										{
+											displayName: 'Remove',
+											icon: Trash2,
+											type: 'delete' as const,
+											action: () => removeDataTable(dataTableIndex)
+										}
+									])
+						]}
+						btnId={'datatable-settings-actions-' + onlyAlphaNumAndUnderscore(dataTable.name)}
+					/>
 				</Cell>
 			</Row>
 		{/each}

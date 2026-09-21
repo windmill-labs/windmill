@@ -4,7 +4,6 @@
 	const bubble = createBubbler()
 	import type { Schema } from '$lib/common'
 	import { VariableService, type ScriptLang } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { Button } from './common'
 	import ItemPicker from './ItemPicker.svelte'
 	import VariableEditor from './VariableEditor.svelte'
@@ -36,6 +35,9 @@
 	import Section from '$lib/components/Section.svelte'
 	import Editor from './Editor.svelte'
 	import AddPropertyV2 from './schema/AddPropertyV2.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	// export let openEditTab: () => void = () => {}
 	const dispatch = createEventDispatcher()
@@ -43,6 +45,8 @@
 	interface Props {
 		schema: Schema | any
 		hiddenArgs?: string[]
+		/** Fields another part of the app owns: shown, but not renameable, deletable or retypeable. */
+		lockedArgs?: string[]
 		args?: Record<string, any>
 		shouldHideNoInputs?: boolean
 		noVariablePicker?: boolean
@@ -89,6 +93,7 @@
 	let {
 		schema = $bindable(),
 		hiddenArgs = [],
+		lockedArgs = [],
 		args = $bindable(undefined),
 		shouldHideNoInputs = false,
 		noVariablePicker = false,
@@ -125,7 +130,7 @@
 		workspace = undefined
 	}: Props = $props()
 
-	let ws = $derived(workspace ?? $workspaceStore)
+	let ws = $derived(workspace ?? $operatingWorkspace)
 
 	$effect.pre(() => {
 		if (args == undefined) {
@@ -587,6 +592,7 @@
 						>
 							{#if keys.length > 0}
 								{#each keys as argName, i (argName)}
+									{@const locked = lockedArgs.includes(argName)}
 									<div>
 										<!-- svelte-ignore a11y_click_events_have_key_events -->
 										<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -605,7 +611,7 @@
 										>
 											<div class="flex flex-row gap-2 text-sm">
 												{argName}
-												{#if !uiOnly}
+												{#if !uiOnly && !locked}
 													<div onclick={stopPropagation(preventDefault(bubble('click')))}>
 														<Popover placement="bottom-end" closeButton>
 															{#snippet trigger()}
@@ -654,7 +660,7 @@
 												<span class="text-red-500 text-xs"> Required </span>
 											{/if}
 
-											{#if !uiOnly}
+											{#if !uiOnly && !locked}
 												<button
 													class="delete-schema-field-button
 													rounded-full p-1 text-gray-500 bg-white
@@ -701,6 +707,7 @@
 																		<ToggleButtonGroup
 																			tabListClass="flex-wrap"
 																			class="h-auto"
+																			disabled={lockedArgs.includes(opened ?? '')}
 																			bind:selected={
 																				() => computeSelected(schema.properties[opened ?? '']),
 																				(v) => {

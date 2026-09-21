@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT resource_type, count(*) as \"count!\" FROM resource WHERE workspace_id = $1 GROUP BY resource_type",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "resource_type",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "69c9ac0e5761c00a9e9a7ff96431e5ebfce96786448fb5273d49f13978df65c0"
+}

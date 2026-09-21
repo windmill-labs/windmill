@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT max(log_ts) FROM log_file\n         WHERE hostname = $1 AND log_ts < (SELECT max(log_ts) FROM log_file WHERE hostname = $1)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "max",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "67a83afb708c90b2132cba81a0701dfc8b5e7aedf2f26fc1fe5be8f685cf709c"
+}

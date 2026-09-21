@@ -37,6 +37,10 @@ pub mod bench;
 pub mod cache;
 pub mod client;
 pub mod data_metrics;
+pub mod datatable_roles;
+#[cfg(all(feature = "private", feature = "enterprise"))]
+mod datatable_roles_ee;
+pub mod datatable_roles_oss;
 pub mod db;
 #[cfg(all(feature = "enterprise", feature = "private"))]
 mod db_entra_ee;
@@ -67,6 +71,7 @@ pub mod flow_status;
 pub mod flows;
 pub mod folders;
 pub mod global_settings;
+pub mod guest_jwt;
 pub mod indexer;
 pub mod instance_config;
 pub mod job_metrics;
@@ -110,6 +115,7 @@ pub use pipeline_advanced_ee as pipeline_advanced;
 pub use pipeline_advanced_oss as pipeline_advanced;
 pub mod query_builders;
 pub mod queue;
+pub mod queue_metrics;
 pub mod result_stream;
 pub mod runnable_settings;
 pub mod schedule;
@@ -147,8 +153,93 @@ pub const DEFAULT_MAX_CONNECTIONS_INDEXER: u32 = 5;
 
 pub const DEFAULT_HUB_BASE_URL: &str = "https://hub.windmill.dev";
 pub const PRIVATE_HUB_MIN_VERSION: i32 = 10_000_000;
-pub const SERVICE_LOG_RETENTION_SECS: i64 = 60 * 60 * 24 * 14; // 2 weeks retention period for logs
+pub const DEFAULT_SERVICE_LOG_RETENTION_SECS: i64 = 60 * 60 * 24 * 14; // 2 weeks retention period for logs
+pub const DEFAULT_OTEL_TRACES_RETENTION_SECS: i64 = 60 * 60 * 24 * 7; // 1 week retention period for HTTP request spans
+pub const DEFAULT_AI_SHARED_ARTIFACT_RETENTION_SECS: i64 = 60 * 60 * 24 * 30;
 pub const WM_DEPLOYERS_GROUP: &str = "wm_deployers";
+
+/// A century. Every consumer has to survive `now - retention`, and the ceilings are much lower
+/// than an `i64`: `DateTime` subtraction panics past year 262143, and the `(<n> s)::interval`
+/// the cleanup queries build overflows Postgres' microsecond field.
+const MAX_RETENTION_SECS: i64 = 60 * 60 * 24 * 365 * 100;
+
+/// Clamp a configured retention window, in seconds, to one a cutoff can be built from.
+///
+/// Shared by the retention windows that have no "keep forever" spelling, so that an unusable
+/// value can never reach a cutoff. The two unusable directions are not the same mistake and must
+/// not share a landing point: too large still says "keep these for a very long time", so it is
+/// capped and the intent survives, whereas falling back would delete data the operator meant to
+/// keep. A non-positive value has no such reading — every cutoff is `now - retention`, so it
+/// lands at or after `now` and the next sweep expires the entire history. `0` is both what an
+/// operator types by analogy with job retention, where it does mean keep forever, and what the
+/// settings UI writes into a field that was merely focused, so it falls back to the default.
+fn clamp_retention_secs(configured: i64, default: i64, what: &str) -> i64 {
+    if configured > MAX_RETENTION_SECS {
+        tracing::warn!(
+            "{what} retention of {configured}s exceeds the maximum of {MAX_RETENTION_SECS}s, \
+             capping it there"
+        );
+        MAX_RETENTION_SECS
+    } else if configured >= 1 {
+        configured
+    } else {
+        tracing::warn!(
+            "{what} retention of {configured}s would expire the entire history, \
+             falling back to the default of {default}s"
+        );
+        default
+    }
+}
+
+/// Apply a configured service log retention, in seconds.
+///
+/// The only way into [`SERVICE_LOG_RETENTION_SECS`]. Expiry reaches every copy of a log line:
+/// the row, the file on disk, and the object-storage object.
+pub fn set_service_log_retention_secs(configured: i64) {
+    let effective = clamp_retention_secs(
+        configured,
+        DEFAULT_SERVICE_LOG_RETENTION_SECS,
+        "service log",
+    );
+    SERVICE_LOG_RETENTION_SECS.store(effective, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Apply a configured OTEL trace retention, in seconds.
+///
+/// The only way into [`OTEL_TRACES_RETENTION_SECS`].
+pub fn set_otel_traces_retention_secs(configured: i64) {
+    let effective = clamp_retention_secs(
+        configured,
+        DEFAULT_OTEL_TRACES_RETENTION_SECS,
+        "otel traces",
+    );
+    OTEL_TRACES_RETENTION_SECS.store(effective, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// How long an HTTP request tracing span stays in `otel_traces`, in seconds.
+///
+/// Spans are keyed by the job they were captured for and read back by the job detail view, so
+/// this is the outer bound on how far back that view can show a job's HTTP requests. It is
+/// independent of job retention: a span can outlive its job, or be swept while the job remains.
+pub fn otel_traces_retention_secs() -> i64 {
+    OTEL_TRACES_RETENTION_SECS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// How long a service log line stays retrievable, in seconds.
+///
+/// The outer bound on everything service-log: the `log_file` rows, the raw files in object
+/// storage, the columnar store queried by retrieval, and — through
+/// [`indexer::service_log_index_window_secs`] — the search index.
+pub fn service_log_retention_secs() -> i64 {
+    SERVICE_LOG_RETENTION_SECS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// How long a shared AI session artifact stays viewable, in seconds, counted from the last time
+/// its author shared it. Read by both the API, which stops serving an expired share, and the
+/// monitor, which deletes it — so both must agree, which is why they share this one reader.
+pub fn ai_shared_artifact_retention_secs() -> i64 {
+    *AI_SHARED_ARTIFACT_RETENTION_SECS
+}
 
 /// Canonical form of a base URL, used as one of the inputs to the offline-license
 /// instance hash (`compute_instance_hash`).
@@ -203,14 +294,16 @@ pub fn check_on_behalf_of_preservation(
     None
 }
 
-/// Resolves the identity to store when creating/updating a flow or script.
+/// Resolves the identity to store when creating/updating a flow, script or app.
 ///
-/// The permissioned_as is the only stored identity — it decides what the job may access,
-/// and the address is derived from it at read time — so the two can never name different
-/// accounts. Callers may supply either: a bare email (every client written before the
-/// principal existed) is resolved to the principal it names, and an email that names
-/// nobody is rejected rather than recorded, since it could only produce a runnable that
-/// cannot authenticate.
+/// The permissioned_as is the identity: it decides what the job may access, and the address is
+/// a function of it, so the two can never name different accounts. For a script or flow the
+/// address is derived at read time; an app still stores it, as a compatibility copy written
+/// through from the principal on every save and returned verbatim by the app reads (see
+/// `docs/app-policy-email-removal.md`). Callers may supply either: a bare email (every client
+/// written before the principal existed) is resolved to the principal it names, and an email
+/// that names nobody is rejected rather than recorded, since it could only produce a runnable
+/// that cannot authenticate.
 ///
 /// Returns `None` when the runnable has no on-behalf-of identity, and the caller's own
 /// identity when they are not allowed to preserve someone else's.
@@ -218,6 +311,18 @@ pub fn check_on_behalf_of_preservation(
 /// Resolves through the non-RLS pool and authorizes nothing itself — `authed` decides only
 /// whether preservation is allowed, and its role flags are not re-checked against `w_id`.
 /// Callers must already be authorized for the workspace they pass.
+///
+/// Known, accepted race. The lookup runs on the pool, outside the caller's write transaction, so
+/// an account renamed or removed between the two has its sweep run before the write is visible,
+/// and the write stores the old principal. The runnable then fails to authenticate until it is
+/// deployed with a current identity, with two exceptions: an app naming an external superadmin
+/// keeps running as that account through its stored address, and if the freed username is later
+/// given to another account, the stale principal binds to that account and runs as it. Every
+/// caller shares this (scripts, flows and apps, address-only inputs included), and it needs a
+/// rename or removal of the exact account inside the lookup-to-commit gap. Closing it means
+/// serializing every identity write against every identity mutation, across all runnable kinds
+/// (a `usr` row lock in each write, with each sweep ordered after the account change), which no
+/// single caller can do on its own; it is left open deliberately.
 pub async fn resolve_on_behalf_of(
     on_behalf_of_email: Option<&str>,
     on_behalf_of: Option<&str>,
@@ -375,6 +480,23 @@ lazy_static::lazy_static! {
     /// workspace configured before its override could be read.
     pub static ref JOB_RETENTION_SECS_OVERRIDES_LOADED: AtomicBool = AtomicBool::new(false);
     pub static ref AUDIT_LOG_RETENTION_DAYS: AtomicI64 = AtomicI64::new(0);
+    /// Private on purpose: [`set_service_log_retention_secs`] is the only writer, so a value that
+    /// would expire every service log cannot reach a cutoff. Read it with
+    /// [`service_log_retention_secs`].
+    static ref SERVICE_LOG_RETENTION_SECS: AtomicI64 = AtomicI64::new(DEFAULT_SERVICE_LOG_RETENTION_SECS);
+    /// Private on purpose, same as [`SERVICE_LOG_RETENTION_SECS`]:
+    /// [`set_otel_traces_retention_secs`] is the only writer, [`otel_traces_retention_secs`] the
+    /// only reader.
+    static ref OTEL_TRACES_RETENTION_SECS: AtomicI64 = AtomicI64::new(DEFAULT_OTEL_TRACES_RETENTION_SECS);
+    /// Read it with [`ai_shared_artifact_retention_secs`].
+    static ref AI_SHARED_ARTIFACT_RETENTION_SECS: i64 = clamp_retention_secs(
+        std::env::var("AI_SHARED_ARTIFACT_RETENTION_SECS")
+            .ok()
+            .and_then(|s| s.parse::<i64>().ok())
+            .unwrap_or(DEFAULT_AI_SHARED_ARTIFACT_RETENTION_SECS),
+        DEFAULT_AI_SHARED_ARTIFACT_RETENTION_SECS,
+        "AI shared artifact",
+    );
 
     pub static ref MONITOR_LOGS_ON_OBJECT_STORE: AtomicBool = AtomicBool::new(false);
 
@@ -902,6 +1024,20 @@ impl Future for TokioPgConnection {
     }
 }
 
+impl TokioPgConnection {
+    /// Drive the connection and hand back what the server sends outside of a query's response —
+    /// notices above all, which driving it as a future silently discards.
+    pub fn poll_message(
+        &mut self,
+        cx: &mut core::task::Context<'_>,
+    ) -> core::task::Poll<Option<Result<tokio_postgres::AsyncMessage, tokio_postgres::Error>>> {
+        match self {
+            TokioPgConnection::Tls(conn) => conn.poll_message(cx),
+            TokioPgConnection::NoTls(conn) => conn.poll_message(cx),
+        }
+    }
+}
+
 impl PgDatabase {
     /// The role the connection logs in as, whichever way it authenticates.
     pub fn login_name(&self) -> &str {
@@ -1338,8 +1474,163 @@ pub fn validate_dbname(dbname: &str) -> error::Result<()> {
     Ok(())
 }
 
+/// Lock the instance databases among `names` until `tx` ends, in a stable order. Taken by every
+/// settings save naming an instance database, and by [`drop_unused_instance_database`]: a save
+/// cannot start using a database between that drop's check that nothing does and the drop.
+pub async fn lock_instance_databases<'a>(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    names: impl IntoIterator<Item = &'a str>,
+) -> error::Result<()> {
+    let names: std::collections::BTreeSet<&str> = names.into_iter().collect();
+    for name in names {
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtext('instance_database:' || $1))")
+            .bind(name)
+            .execute(&mut **tx)
+            .await?;
+    }
+    Ok(())
+}
+
+/// Drop instance database `dbname`, which a request just created, unless a workspace names it as a
+/// data table or a ducklake catalog — then it is kept, and who keeps it is what comes back. A
+/// database is registered on the instance as soon as it is created, so a superadmin can point a
+/// workspace at it before the request that created it gives up on it.
+///
+/// Authorization: none. Callers MUST pass only a database the same request created and has not
+/// handed to anything yet.
+///
+/// The lock, the check and the drop share one connection: a second one taken from the pool while
+/// the first is held could wait forever on a small pool. That connection is closed rather than
+/// returned, since a session lock outlives the future holding it: a cancellation between taking
+/// the lock and releasing it would otherwise hand a locked session back to the pool, where every
+/// later settings save waits on it. Closing on drop covers the cancellation and still counts the
+/// connection against the pool, which detaching it would not.
+pub async fn drop_unused_instance_database(db: &DB, dbname: &str) -> error::Result<Cleanup> {
+    let mut conn = db.acquire().await?;
+    conn.close_on_drop();
+    let key = format!("instance_database:{dbname}");
+    // A save blocked on this lock is about to name the database, but it may also roll back — a
+    // later validation of its own, a superadmin check, a cancelled request. So it is let through
+    // and what it committed is read, rather than taken as a user: trusting it would strand the
+    // database, whose name then blocks every retry. A fresh waiter can always arrive, so after a
+    // few rounds the database is kept instead; the name is then a superadmin's to drop from
+    // instance settings, since a retry fails on the name before reaching this cleanup.
+    let mut rounds = 0;
+    let dropped = loop {
+        if let Err(e) = sqlx::query("SELECT pg_advisory_lock(hashtext($1))")
+            .bind(&key)
+            .execute(&mut *conn)
+            .await
+        {
+            break Err(e.into());
+        }
+        match drop_if_unused_on(&mut conn, dbname).await {
+            Ok(Cleanup::Waiter(_)) if rounds < 2 => {
+                rounds += 1;
+                // Releasing hands the lock to the waiter; re-taking it above then waits for that
+                // transaction to end, so the next round reads what it actually committed.
+                if let Err(e) = unlock_instance_database(&mut conn, &key).await {
+                    break Err(e);
+                }
+            }
+            Ok(outcome) => break Ok(outcome),
+            Err(e) => break Err(e),
+        }
+    };
+    // Dropping closes the connection, and the server releases the lock with the session, so
+    // nothing here depends on an unlock landing.
+    dropped
+}
+
+async fn unlock_instance_database(conn: &mut sqlx::PgConnection, key: &str) -> error::Result<()> {
+    sqlx::query("SELECT pg_advisory_unlock(hashtext($1))")
+        .bind(key)
+        .execute(&mut *conn)
+        .await?;
+    Ok(())
+}
+
+/// What [`drop_unused_instance_database`] did, and for whom when it kept the database.
+pub enum Cleanup {
+    Dropped,
+    /// Workspaces that name the database, as [`instance_database_users`] reports them.
+    InUse(Vec<String>),
+    /// A transaction still blocked on the lock after the rounds above, so what it will commit
+    /// stays unknown, named as its `pid`.
+    Waiter(i32),
+}
+
+async fn drop_if_unused_on(conn: &mut sqlx::PgConnection, dbname: &str) -> error::Result<Cleanup> {
+    let users = instance_database_users(conn, dbname).await?;
+    if !users.is_empty() {
+        return Ok(Cleanup::InUse(users));
+    }
+    // A settings save naming this database takes the same lock, so one waiting on it would read
+    // its own users after the drop and commit a reference to nothing.
+    if let Some(waiter) = waiting_for_instance_database(conn, dbname).await? {
+        return Ok(Cleanup::Waiter(waiter));
+    }
+    drop_custom_instance_database_on(conn, dbname).await?;
+    Ok(Cleanup::Dropped)
+}
+
+/// The `pid` of a transaction blocked on `dbname`'s instance-database lock. The lock is
+/// taken by key, so `pg_locks` reports it split across `classid` and `objid`, and it lists every
+/// database on the cluster — another Windmill on the same one holds its own locks under the same
+/// key.
+async fn waiting_for_instance_database(
+    conn: &mut sqlx::PgConnection,
+    dbname: &str,
+) -> error::Result<Option<i32>> {
+    let pid: Option<i32> = sqlx::query_scalar(
+        "SELECT l.pid FROM pg_locks l
+         WHERE l.locktype = 'advisory' AND NOT l.granted
+           AND l.database = (SELECT oid FROM pg_database WHERE datname = current_database())
+           AND l.classid = ((hashtext('instance_database:' || $1)::bigint >> 32) & 4294967295)::oid
+           AND l.objid = (hashtext('instance_database:' || $1)::bigint & 4294967295)::oid
+         LIMIT 1",
+    )
+    .bind(dbname)
+    .fetch_optional(&mut *conn)
+    .await?;
+    Ok(pid)
+}
+
+/// The workspaces naming instance database `dbname` as a data table or a ducklake catalog. Taken
+/// under [`lock_instance_databases`] for `dbname`, the answer holds until that lock is released.
+///
+/// Authorization: none, and it reads every workspace's settings. Callers MUST pass only a database
+/// their own request created, and may name the workspaces returned only to a caller allowed to
+/// create or drop instance databases.
+pub async fn instance_database_users(
+    conn: &mut sqlx::PgConnection,
+    dbname: &str,
+) -> error::Result<Vec<String>> {
+    Ok(sqlx::query_scalar(
+        "SELECT DISTINCT ws.workspace_id FROM workspace_settings ws
+         WHERE EXISTS (SELECT 1 FROM jsonb_each(CASE WHEN jsonb_typeof(ws.datatable->'datatables') = 'object'
+                                                THEN ws.datatable->'datatables' ELSE '{}'::jsonb END) dt
+                       WHERE dt.value->'database'->>'resource_type' = 'instance'
+                         AND dt.value->'database'->>'resource_path' = $1)
+            OR EXISTS (SELECT 1 FROM jsonb_each(CASE WHEN jsonb_typeof(ws.ducklake->'ducklakes') = 'object'
+                                                THEN ws.ducklake->'ducklakes' ELSE '{}'::jsonb END) dl
+                       WHERE dl.value->'catalog'->>'resource_type' = 'instance'
+                         AND dl.value->'catalog'->>'resource_path' = $1)",
+    )
+    .bind(dbname)
+    .fetch_all(conn)
+    .await?)
+}
+
 /// Drop a custom instance database: validate, terminate connections, DROP DATABASE, remove from global_settings.
 pub async fn drop_custom_instance_database(db: &DB, dbname: &str) -> error::Result<()> {
+    drop_custom_instance_database_on(&mut *db.acquire().await?, dbname).await
+}
+
+async fn drop_custom_instance_database_on(
+    conn: &mut sqlx::PgConnection,
+    dbname: &str,
+) -> error::Result<()> {
     let dbname = dbname.trim();
     validate_dbname(dbname)?;
 
@@ -1354,7 +1645,7 @@ pub async fn drop_custom_instance_database(db: &DB, dbname: &str) -> error::Resu
         "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_database WHERE datname = $1)",
         dbname
     )
-    .fetch_one(db)
+    .fetch_one(&mut *conn)
     .await?
     .unwrap_or(false);
 
@@ -1365,7 +1656,7 @@ pub async fn drop_custom_instance_database(db: &DB, dbname: &str) -> error::Resu
             "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{}' AND pid <> pg_backend_pid()",
             dbname.replace('\'', "''")
         ))
-        .execute(db)
+        .execute(&mut *conn)
         .await
         {
             tracing::warn!("Failed to terminate connections to '{}': {}", dbname, e);
@@ -1374,7 +1665,7 @@ pub async fn drop_custom_instance_database(db: &DB, dbname: &str) -> error::Resu
         // Drop the database
         // SAFETY: `dbname` has been validated via validate_dbname() before reaching this point.
         sqlx::query(&format!("DROP DATABASE IF EXISTS \"{}\"", dbname))
-            .execute(db)
+            .execute(&mut *conn)
             .await
             .map_err(|e| {
                 error::Error::internal_err(format!("Failed to drop database '{}': {}", dbname, e))
@@ -1390,10 +1681,45 @@ pub async fn drop_custom_instance_database(db: &DB, dbname: &str) -> error::Resu
         r#"UPDATE global_settings SET value = value #- ARRAY['databases', $1] WHERE name = 'custom_instance_pg_databases'"#,
         dbname
     )
-    .execute(db)
+    .execute(&mut *conn)
     .await?;
 
     Ok(())
+}
+
+/// What `custom_instance_user` holds on an instance database.
+///
+/// `WITH GRANT OPTION` throughout: this is the connection every data table resolves to as `admin`,
+/// and it is the one that hands privileges to data table roles. Postgres refuses to let a role pass
+/// on a privilege it does not itself hold with grant option, so without these an admin could own
+/// the database and still be unable to grant `SELECT` on it to `analytics`.
+pub(crate) fn instance_db_grants(dbname: &str) -> String {
+    format!(
+        "GRANT CONNECT ON DATABASE \"{dbname}\" TO custom_instance_user WITH GRANT OPTION;
+         GRANT CREATE ON DATABASE \"{dbname}\" TO custom_instance_user WITH GRANT OPTION;
+         DO $$ BEGIN
+           IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'public') THEN
+             GRANT USAGE ON SCHEMA public TO custom_instance_user WITH GRANT OPTION;
+             GRANT CREATE ON SCHEMA public TO custom_instance_user WITH GRANT OPTION;
+             ALTER DEFAULT PRIVILEGES IN SCHEMA public
+                 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO custom_instance_user;
+           END IF;
+         END $$;"
+    )
+}
+
+/// Re-apply [`instance_db_grants`] to an instance database provisioned before data table roles
+/// existed, whose grants carry no grant option. Connects as the instance's own Postgres user —
+/// the database and `public` schema owner — since only it can hand out an option it holds.
+///
+/// Authorization: reaches an instance database with the server's own credentials and checks
+/// nothing. Callers MUST have authorized administration of `dbname` — superadmin, or an admin of
+/// the workspace governing a data table on it.
+pub async fn ensure_instance_db_grant_options_unchecked(
+    db: &DB,
+    dbname: &str,
+) -> error::Result<()> {
+    crate::datatable_roles_oss::ensure_instance_db_grant_options_unchecked(db, dbname).await
 }
 
 /// Create a custom instance database: CREATE DATABASE, grant permissions, register in global_settings.
@@ -1429,23 +1755,46 @@ pub async fn create_custom_instance_database(
             error::Error::internal_err(format!("Failed to create database '{}': {}", dbname, e))
         })?;
 
+    // Nothing names a database that failed past this point, and its name blocks the retry: drop it
+    // rather than leave it behind.
+    if let Err(e) = finish_custom_instance_database(db, dbname, tag).await {
+        match drop_unused_instance_database(db, dbname).await {
+            Ok(Cleanup::InUse(users)) => tracing::warn!(
+                "Kept '{dbname}' after failing to set it up: workspaces {} use it",
+                users.join(", ")
+            ),
+            Ok(Cleanup::Waiter(pid)) => tracing::warn!(
+                "Kept '{dbname}' after failing to set it up: a request (pid {pid}) is still \
+                 waiting to name it. Drop it from instance settings once it is unused."
+            ),
+            Ok(Cleanup::Dropped) => {}
+            Err(drop_err) => {
+                tracing::error!("Could not drop '{dbname}' after failing to set it up: {drop_err}")
+            }
+        }
+        return Err(e);
+    }
+
+    // A data table role can only reach a database it may CONNECT to, and PUBLIC's default CONNECT
+    // would otherwise let every role in regardless of what this instance defines. Best-effort: a
+    // failure here leaves the database usable as `admin`, and the next role change repairs it.
+    if let Err(e) = crate::datatable_roles::converge_connect_grants(db, dbname).await {
+        tracing::warn!("Could not set CONNECT grants on instance database '{dbname}': {e}");
+    }
+
+    tracing::info!("Created custom instance database '{}'", dbname);
+    Ok(())
+}
+
+/// Grant `custom_instance_user` its privileges on a database just created, and register it.
+async fn finish_custom_instance_database(db: &DB, dbname: &str, tag: &str) -> error::Result<()> {
     // Grant permissions to custom_instance_user
     let wmill_pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
     let new_pg_creds = PgDatabase { dbname: dbname.to_string(), ..wmill_pg_creds };
     let (client, connection) = new_pg_creds.connect(Some(db)).await?;
     let join_handle = tokio::spawn(async move { connection.await });
 
-    if let Err(e) = client
-        .batch_execute(&format!(
-            "GRANT CONNECT ON DATABASE \"{dbname}\" TO custom_instance_user;
-             GRANT USAGE ON SCHEMA public TO custom_instance_user;
-             GRANT CREATE ON SCHEMA public TO custom_instance_user;
-             GRANT CREATE ON DATABASE \"{dbname}\" TO custom_instance_user;
-             ALTER DEFAULT PRIVILEGES IN SCHEMA public
-                 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO custom_instance_user;"
-        ))
-        .await
-    {
+    if let Err(e) = client.batch_execute(&instance_db_grants(dbname)).await {
         tracing::warn!(
             "Failed to grant permissions on '{}': {}. Continuing.",
             dbname,
@@ -1473,8 +1822,6 @@ pub async fn create_custom_instance_database(
     )
     .execute(db)
     .await?;
-
-    tracing::info!("Created custom instance database '{}'", dbname);
     Ok(())
 }
 
@@ -1782,11 +2129,9 @@ pub async fn on_behalf_of_from_permissioned_as(
     let Some(permissioned_as) = permissioned_as else {
         return Ok(None);
     };
-    // Uncached: the address is copied onto the job row, where it stays for the life of the run
-    // and decides the superadmin flag and the instance groups. Nothing evicts the cache across
-    // processes, so a cached read would keep minting jobs under an address the account no longer
-    // holds for up to a minute after it moves.
-    let email = users::get_email_from_permissioned_as_uncached(permissioned_as, w_id, db).await?;
+    // Cached on purpose, up to one notify poll stale: the accepted dispatch case
+    // `get_email_from_permissioned_as` documents.
+    let email = users::get_email_from_permissioned_as(permissioned_as, w_id, db).await?;
     Ok(Some(jobs::OnBehalfOf {
         email,
         permissioned_as: permissioned_as.to_string(),

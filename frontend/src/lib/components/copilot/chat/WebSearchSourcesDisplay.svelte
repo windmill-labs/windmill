@@ -2,6 +2,7 @@
 	import { Globe } from 'lucide-svelte'
 	import { SvelteSet } from 'svelte/reactivity'
 	import type { WebSearchSource } from './shared'
+	import { isOfflineReplay } from '$lib/components/recording/offlineReplay.svelte'
 
 	interface Props {
 		sources: WebSearchSource[]
@@ -38,6 +39,12 @@
 
 	const failedFavicons = new SvelteSet<string>()
 
+	// The favicon is a request to a third party, and the public replay page promises
+	// to issue none — a recording comes from an arbitrary origin, so its cited
+	// hostnames must not leak from a viewer's browser either. Degrades to the same
+	// Globe the blocked/failed case already uses.
+	const noFavicons = $derived(isOfflineReplay())
+
 	// Favicons come from Google's public favicon service, which discloses each
 	// consulted hostname to a third party from the user's browser — an accepted
 	// tradeoff for now (blocked/air-gapped environments degrade to the Globe
@@ -62,7 +69,7 @@
 				title={source.url}
 				class="flex items-center gap-2 py-1 px-1.5 rounded hover:bg-surface-hover min-w-0"
 			>
-				{#if failedFavicons.has(hostname)}
+				{#if noFavicons || failedFavicons.has(hostname)}
 					<Globe class="w-3.5 h-3.5 shrink-0 text-tertiary" />
 				{:else}
 					<img

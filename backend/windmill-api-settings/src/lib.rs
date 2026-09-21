@@ -17,6 +17,9 @@ mod audit_logs_s3;
 mod audit_logs_s3_backfill;
 #[cfg(feature = "parquet")]
 mod background_task;
+#[cfg(all(feature = "private", feature = "enterprise"))]
+mod datatable_roles_ee;
+mod datatable_roles_oss;
 #[cfg(feature = "private")]
 mod ee;
 pub mod ee_oss;
@@ -58,9 +61,11 @@ use windmill_common::{
         AI_CONFIG_SETTING, APP_WORKSPACED_ROUTE_SETTING, AUTOMATE_USERNAME_CREATION_SETTING,
         CRITICAL_ALERT_MUTE_UI_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
         DISABLE_HUB_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
-        GITHUB_APP_WEBHOOK_BASE_URL_SETTING, HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
-        HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING, MAX_RETENTION_OVERRIDE_WORKSPACES,
-        RETENTION_PERIOD_SECS_OVERRIDES_SETTING, RUFF_CONFIG_SETTING,
+        GITHUB_APP_WEBHOOK_BASE_URL_SETTING, HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING,
+        HTTP_ROUTE_WORKSPACED_ROUTE_SETTING, HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING,
+        INSTANCE_BANNER_SETTING, MAX_RETENTION_OVERRIDE_WORKSPACES,
+        MAX_TOKEN_EXPIRATION_DAYS_SETTING, MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING,
+        RETENTION_PERIOD_SECS_OVERRIDES_SETTING, RUFF_CONFIG_SETTING, UNIQUE_ID_SETTING,
         WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
         WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
         WS_BASE_URL_SETTING,
@@ -113,6 +118,9 @@ async fn get_ruff_config_unauthed(Extension(db): Extension<DB>) -> error::Result
 pub fn global_service() -> Router {
     #[warn(unused_mut)]
     let r = Router::new()
+        // `/local` is the path in openapi.yaml, so every generated client (getLocal) calls it;
+        // `/envs` stays for callers that found the route in the code.
+        .route("/local", get(get_local_settings))
         .route("/envs", get(get_local_settings))
         .route(
             "/global/{key}",
@@ -146,6 +154,16 @@ pub fn global_service() -> Router {
         .route(
             "/list_custom_instance_pg_databases",
             post(list_custom_instance_pg_databases),
+        )
+        .route(
+            "/datatable_roles",
+            get(datatable_roles_oss::list_datatable_roles)
+                .post(datatable_roles_oss::create_datatable_role),
+        )
+        .route(
+            "/datatable_roles/{id}",
+            post(datatable_roles_oss::update_datatable_role)
+                .delete(datatable_roles_oss::delete_datatable_role),
         )
         .route(
             "/refresh_custom_instance_user_pwd",
@@ -284,15 +302,28 @@ pub async fn test_s3_bucket(
     use bytes::Bytes;
     use futures::StreamExt;
 
-    // The probe executes on the API server itself. On multi-tenant Cloud that is a shared control
-    // plane, so we constrain untrusted callers to remove the SSRF / credential-exfiltration /
-    // local-filesystem surface (see validate_object_storage_test). On self-hosted instances the
-    // object store usually lives on the local/private network and all authenticated users are
-    // trusted, so testing there stays unrestricted. Super admins keep the unrestricted path too.
+    // The probe executes on the API server itself and reflects the upstream response into the
+    // error, so any authenticated caller could otherwise use it as an SSRF / port-scan primitive
+    // against the server's network, exfiltrate its ambient credentials, or write to its local
+    // disk (see validate_object_storage_test). That holds on self-hosted instances as much as on
+    // Cloud, so only super admins get the unrestricted path.
     let is_super_admin = windmill_api_auth::is_super_admin_authed(&db, &authed).await?;
-    let restrict = !is_super_admin && *CLOUD_HOSTED;
+    let restrict = !is_super_admin;
     if restrict {
-        validate_object_storage_test(&test_s3_bucket).await?;
+        validate_object_storage_test(&test_s3_bucket)
+            .await
+            .map_err(|e| match e {
+                // A job token never counts as a super admin (it is capped at workspace admin), so
+                // a super admin calling this route from a script is told why rather than that
+                // they lack a privilege they hold.
+                error::Error::NotAuthorized(msg) if authed.job_id.is_some() => {
+                    error::Error::NotAuthorized(format!(
+                        "{msg} A job token ($WM_TOKEN) is never treated as a super admin; call \
+                         this route with a user token instead."
+                    ))
+                }
+                e => e,
+            })?;
     }
 
     let client = build_object_store_from_settings(test_s3_bucket, Some(&db))
@@ -355,8 +386,8 @@ pub async fn test_s3_bucket(
     }
 }
 
-// Hardening for the object-storage connectivity test by an untrusted (non-super-admin) caller on
-// Cloud. The probe runs on the shared API server, so without these constraints an authenticated
+// Hardening for the object-storage connectivity test by an untrusted (non-super-admin) caller.
+// The probe runs on the API server, so without these constraints an authenticated
 // user could coerce the server into connecting to arbitrary internal endpoints (SSRF), signing
 // requests with the instance role (credential exfiltration), or reading/writing the server's local
 // disk (filesystem object store).
@@ -365,6 +396,11 @@ async fn validate_object_storage_test(settings: &ObjectSettings) -> error::Resul
     fn non_empty(opt: &Option<String>) -> bool {
         opt.as_ref().is_some_and(|s| !s.is_empty())
     }
+
+    // Every refusal names the way out: the resource usually works in jobs (workers reach the
+    // endpoint directly), so without it the refusal reads as a broken resource.
+    const ALTERNATIVE: &str =
+        "Ask a super admin to run it, or test the resource from a script, which runs on a worker.";
 
     // Reject backends that rely on the server's identity or local filesystem, require explicit
     // credentials for the rest (so the server never falls back to its own ambient credentials), and
@@ -376,20 +412,25 @@ async fn validate_object_storage_test(settings: &ObjectSettings) -> error::Resul
     let effective_endpoint: Option<String> = match settings {
         ObjectSettings::Filesystem(_) => {
             return Err(error::Error::NotAuthorized(
-                "Testing a local filesystem object store requires a super admin".to_string(),
+                "Testing a local filesystem object store requires a super admin: it runs on the \
+                 Windmill server and reads and writes the server's local disk. Ask a super admin \
+                 to run it."
+                    .to_string(),
             ));
         }
         ObjectSettings::AwsOidc(_) => {
-            return Err(error::Error::NotAuthorized(
-                "Testing OIDC-based object storage requires a super admin".to_string(),
-            ));
+            return Err(error::Error::NotAuthorized(format!(
+                "Testing OIDC-based object storage requires a super admin: it runs on the \
+                 Windmill server with the server's own identity. {ALTERNATIVE}"
+            )));
         }
         ObjectSettings::S3(s3) => {
             if !(non_empty(&s3.access_key) && non_empty(&s3.secret_key)) {
-                return Err(error::Error::NotAuthorized(
-                    "Testing S3 storage without explicit credentials requires a super admin"
-                        .to_string(),
-                ));
+                return Err(error::Error::NotAuthorized(format!(
+                    "Testing S3 storage without an explicit access key and secret key requires a \
+                     super admin: it runs on the Windmill server, which would use its own ambient \
+                     credentials. {ALTERNATIVE}"
+                )));
             }
             let region = s3
                 .region
@@ -413,10 +454,11 @@ async fn validate_object_storage_test(settings: &ObjectSettings) -> error::Resul
         }
         ObjectSettings::Azure(azure) => {
             if !non_empty(&azure.access_key) {
-                return Err(error::Error::NotAuthorized(
-                    "Testing Azure storage without an explicit access key requires a super admin"
-                        .to_string(),
-                ));
+                return Err(error::Error::NotAuthorized(format!(
+                    "Testing Azure storage without an explicit access key requires a super admin: \
+                     it runs on the Windmill server, which would use its own ambient credentials. \
+                     {ALTERNATIVE}"
+                )));
             }
             Some(
                 azure
@@ -432,10 +474,11 @@ async fn validate_object_storage_test(settings: &ObjectSettings) -> error::Resul
             // otherwise an untrusted caller could probe with the server's identity (the very
             // SSRF/credential-exfil this function guards against).
             if windmill_object_store::gcs_service_account_key_is_blank(&gcs.service_account_key) {
-                return Err(error::Error::NotAuthorized(
-                    "Testing GCS storage without a service account key requires a super admin"
-                        .to_string(),
-                ));
+                return Err(error::Error::NotAuthorized(format!(
+                    "Testing GCS storage without a service account key requires a super admin: \
+                     it runs on the Windmill server, which would use its own ambient credentials. \
+                     {ALTERNATIVE}"
+                )));
             }
             // The service-account-key JSON can override the data-plane URL (`gcs_base_url`) and the
             // OAuth token endpoint (`token_uri`); the GCS client connects to whatever they point at.
@@ -492,10 +535,15 @@ async fn validate_public_endpoint(endpoint: &str) -> error::Result<()> {
     // attempts (a name resolving to both a public and a private address).
     for addr in addrs {
         if is_forbidden_ip(addr.ip()) {
-            return Err(error::Error::NotAuthorized(
-                "Testing object storage at a private, loopback, or link-local endpoint requires a super admin"
-                    .to_string(),
-            ));
+            // The resolved address stays out of the message: it is the server's resolver's
+            // answer, and this message is only ever shown to the caller being constrained.
+            return Err(error::Error::NotAuthorized(format!(
+                "Testing object storage at '{host}', which resolves to a private, loopback, or \
+                 link-local address, requires a super admin: this test runs on the Windmill \
+                 server, which is not allowed to probe internal addresses for non-super-admins. \
+                 Ask a super admin to run it, or test the resource from a script, which runs on \
+                 a worker."
+            )));
         }
     }
     Ok(())
@@ -897,6 +945,8 @@ async fn run_setting_pre_write_hook(
         AI_CONFIG_SETTING => {
             windmill_ai::ai_types::validate_model_pricing_json(value)
                 .map_err(error::Error::BadRequest)?;
+            windmill_ai::ai_types::validate_token_maps_json(value)
+                .map_err(error::Error::BadRequest)?;
         }
         AUTOMATE_USERNAME_CREATION_SETTING => {
             if value.as_bool().unwrap_or(false) {
@@ -1013,6 +1063,12 @@ async fn run_setting_pre_write_hook(
                     ));
                 }
             }
+        }
+        HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING => {
+            // Rejected at write time rather than at boot: a mistyped origin
+            // matches no request, so it would silently block the very app it
+            // names with nothing but a log line to go on.
+            windmill_common::global_settings::parse_allowed_origins_setting(Some(value))?;
         }
         HTTP_ROUTE_WORKSPACED_ROUTE_SETTING => {
             let serde_json::Value::Bool(workspaced_route) = value else {
@@ -1139,6 +1195,24 @@ async fn run_setting_pre_write_hook(
                     return Err(error::Error::BadRequest(format!(
                         "{GITHUB_APP_WEBHOOK_BASE_URL_SETTING} must be a URL string"
                     )));
+                }
+            }
+        }
+        MAX_TOKEN_EXPIRATION_DAYS_SETTING => {
+            windmill_common::global_settings::parse_max_token_expiration_days(Some(value))
+                .map_err(|e| {
+                    error::Error::BadRequest(format!("{MAX_TOKEN_EXPIRATION_DAYS_SETTING}: {e}"))
+                })?;
+        }
+        INSTANCE_BANNER_SETTING => {
+            match value {
+                // Clearing (delete row) is handled by the caller; allow it through.
+                serde_json::Value::Null => {}
+                serde_json::Value::String(s) if s.trim().is_empty() => {}
+                v => {
+                    windmill_common::global_settings::validate_instance_banner(v).map_err(|e| {
+                        error::Error::BadRequest(format!("{INSTANCE_BANNER_SETTING}: {e}"))
+                    })?;
                 }
             }
         }
@@ -1276,12 +1350,27 @@ pub async fn get_global_setting(
         && key != AUTOMATE_USERNAME_CREATION_SETTING
         && key != DEFAULT_TAGS_WORKSPACES_SETTING
         && key != HUB_BASE_URL_SETTING
+        // `wmill hub pull` reads it from a job, and no job token clears the gate. It binds an
+        // offline license only together with `license_key`, which stays gated.
+        && key != UNIQUE_ID_SETTING
         && key != HUB_ACCESSIBLE_URL_SETTING
         && key != DISABLE_HUB_SETTING
         && key != EMAIL_DOMAIN_SETTING
         && key != APP_WORKSPACED_ROUTE_SETTING
         && key != HTTP_ROUTE_WORKSPACED_ROUTE_SETTING
+        // The route editor shows the inherited default to whoever is editing a
+        // trigger, who is usually not a superadmin. Not a secret either: any
+        // browser discovers the list by reading Access-Control-Allow-Origin off
+        // a response.
+        && key != HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING
         && key != WS_BASE_URL_SETTING
+        && key != INSTANCE_BANNER_SETTING
+        // The token form reads it to stop offering expirations the server would shorten.
+        && key != MAX_TOKEN_EXPIRATION_DAYS_SETTING
+        // Whoever is wiring up an MCP client reads it to know whether a URL-borne token
+        // would be refused, and they are usually not a superadmin. Not a secret: pointing
+        // any MCP client at the instance discovers the same answer.
+        && key != MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING
     {
         require_super_admin(&db, &authed).await?;
     }
@@ -1593,6 +1682,8 @@ struct CustomInstanceDbLogs {
     replication_user: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     replication_user_error: Option<String>,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    user_connect: String,
 }
 
 async fn list_custom_instance_pg_databases(
@@ -1810,7 +1901,55 @@ async fn setup_custom_instance_pg_database_inner(
         }
     }
 
+    // Everything above logged in as the DATABASE_URL user, but whatever uses the database logs
+    // in as custom_instance_user. A proxy that routes on the login name can accept one and
+    // refuse the other, which would otherwise surface only once a data table first connects.
+    let user_creds = PgDatabase {
+        user: Some(windmill_common::datatable_roles::CUSTOM_INSTANCE_USER.to_string()),
+        password: Some(windmill_common::utils::get_custom_pg_instance_password(db).await?),
+        ..pg_creds
+    };
+    let (client, connection) = user_creds
+        .connect(Some(db))
+        .await
+        .map_err(|e| custom_instance_user_connect_error(&user_creds.host, dbname, e))?;
+    let join_handle = tokio::spawn(async move { connection.await });
+    logs.user_connect = "OK".to_string();
+    drop(client); // /!\ Drop before joining to avoid deadlock
+    windmill_common::shutdown_pg_connection(join_handle).await?;
+
     Ok(())
+}
+
+fn custom_instance_user_connect_error(host: &str, dbname: &str, e: error::Error) -> error::Error {
+    let cause = match &e {
+        error::Error::Anyhow { error, .. } => format!("{error:#}"),
+        e => e.to_string(),
+    };
+    // Supavisor, Supabase's pooler, reads the tenant to route to from the login
+    // (`<user>.<project_ref>`), and only knows the logins configured for that tenant.
+    let lower = cause.to_lowercase();
+    let routing_refused = [
+        "enoidentifier",
+        "tenant identifier",
+        "tenant or user",
+        "tenant/user",
+    ]
+    .iter()
+    .any(|signature| lower.contains(signature));
+    if routing_refused {
+        error::Error::BadConfig(format!(
+            "DATABASE_URL reaches Postgres through a connection pooler ({host}) that picks the \
+             server to route to from the login name, and it refused custom_instance_user, the \
+             role Windmill uses for instance databases ({cause}). Instance databases cannot be \
+             used through this pooler: use your own Postgres database instead, or point \
+             DATABASE_URL at the Postgres server directly rather than at the pooler."
+        ))
+    } else {
+        error::Error::ExecutionErr(format!(
+            "Could not connect to {dbname} as custom_instance_user: {cause}"
+        ))
+    }
 }
 
 async fn drop_custom_instance_pg_database(
@@ -2004,6 +2143,22 @@ struct CachedResourceType {
     #[allow(dead_code)]
     app: String,
     description: Option<String>,
+    /// Doubly optional, and read through a wrapping deserializer: this struct also
+    /// decodes the on-disk cache, where an absent key means "written before the
+    /// column, leave the stored extension alone" and an explicit null means the hub
+    /// dropped it. Plain serde folds both into `None`.
+    #[serde(
+        default,
+        deserialize_with = "windmill_common::more_serde::double_option"
+    )]
+    format_extension: Option<Option<String>>,
+    /// Doubly optional like `format_extension`: no key leaves the stored name alone, an explicit
+    /// null (the hub naming nothing) clears it.
+    #[serde(
+        default,
+        deserialize_with = "windmill_common::more_serde::double_option"
+    )]
+    display_name: Option<Option<String>>,
 }
 
 #[derive(serde::Deserialize)]
@@ -2013,6 +2168,13 @@ struct HubResourceTypeRaw {
     schema: Option<String>,
     app: String,
     description: Option<String>,
+    #[serde(default)]
+    format_extension: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "windmill_common::more_serde::double_option"
+    )]
+    display_name: Option<Option<String>>,
 }
 
 async fn fetch_resource_types_from_hub() -> error::Result<Vec<CachedResourceType>> {
@@ -2054,6 +2216,8 @@ async fn fetch_resource_types_from_hub() -> error::Result<Vec<CachedResourceType
                 schema,
                 app: rt.app,
                 description: rt.description,
+                format_extension: Some(rt.format_extension),
+                display_name: rt.display_name,
             })
         })
         .collect())
@@ -2106,11 +2270,21 @@ async fn sync_cached_resource_types(
     let mut synced_count = 0;
 
     for rt in &resource_types {
+        // A name too long for the column counts as absent, leaving the stored one alone: one bad
+        // entry must not fail the upsert and end the rest of the sync.
+        let display_name = match &rt.display_name {
+            Some(Some(name)) if name.chars().count() > 100 => None,
+            other => other.clone(),
+        };
         let exists: Option<bool> = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM resource_type WHERE workspace_id = 'admins' AND name = $1 AND schema IS NOT DISTINCT FROM $2 AND description IS NOT DISTINCT FROM $3)",
+            "SELECT EXISTS(SELECT 1 FROM resource_type WHERE workspace_id = 'admins' AND name = $1 AND schema IS NOT DISTINCT FROM $2 AND description IS NOT DISTINCT FROM $3 AND ($5 IS NOT TRUE OR format_extension IS NOT DISTINCT FROM $4) AND ($7 IS NOT TRUE OR display_name IS NOT DISTINCT FROM $6))",
             &rt.name,
             rt.schema.as_ref(),
             rt.description.as_deref(),
+            rt.format_extension.clone().flatten(),
+            rt.format_extension.is_some(),
+            display_name.clone().flatten(),
+            display_name.is_some(),
         )
         .fetch_one(&db)
         .await?;
@@ -2120,13 +2294,30 @@ async fn sync_cached_resource_types(
         }
 
         sqlx::query!(
-            "INSERT INTO resource_type (workspace_id, name, schema, description, edited_at)
-             VALUES ('admins', $1, $2, $3, now())
+            // Whether the payload carried the key at all is what decides: present
+            // (even as null) is authoritative and may clear, absent means a cache
+            // written before the column and must leave the stored value alone.
+            "INSERT INTO resource_type (workspace_id, name, schema, description, format_extension, display_name, edited_at)
+             VALUES ('admins', $1, $2, $3, $4, $6, now())
              ON CONFLICT (workspace_id, name) DO UPDATE
-             SET schema = EXCLUDED.schema, description = EXCLUDED.description, edited_at = now()",
+             SET schema = EXCLUDED.schema, description = EXCLUDED.description,
+                 -- A fileset is a set of files, so it cannot also be one file.
+                 -- Create and update reject the pair; this writer bypasses both, so
+                 -- it declines the extension rather than persisting the forbidden
+                 -- combination onto a same-named local fileset.
+                 format_extension = CASE
+                     WHEN resource_type.is_fileset THEN NULL
+                     WHEN $5 THEN EXCLUDED.format_extension
+                     ELSE resource_type.format_extension END,
+                 display_name = CASE WHEN $7 THEN EXCLUDED.display_name ELSE resource_type.display_name END,
+                 edited_at = now()",
             &rt.name,
             rt.schema.as_ref(),
             rt.description.as_deref(),
+            rt.format_extension.clone().flatten(),
+            rt.format_extension.is_some(),
+            display_name.clone().flatten(),
+            display_name.is_some(),
         )
         .execute(&db)
         .await?;
@@ -2162,6 +2353,34 @@ async fn sync_cached_resource_types(
 mod tests {
     use std::collections::BTreeMap;
     use windmill_common::instance_config::{GlobalSettings, InstanceConfig, WorkerGroupConfig};
+
+    #[test]
+    fn supavisor_refusing_custom_instance_user_is_named() {
+        use windmill_common::error::{to_anyhow, Error};
+        let connect_error = |message: &str| {
+            let e = Error::from(to_anyhow(std::io::Error::other(message.to_string())));
+            super::custom_instance_user_connect_error(
+                "aws-0-eu-west-1.pooler.supabase.com",
+                "dt",
+                e,
+            )
+        };
+        for supavisor in [
+            "db error: FATAL: (ENOIDENTIFIER) no tenant identifier provided",
+            "db error: FATAL: Tenant or user not found",
+        ] {
+            assert!(
+                matches!(connect_error(supavisor), Error::BadConfig(m) if m.contains("connection pooler")),
+                "{supavisor}"
+            );
+        }
+        assert!(matches!(
+            connect_error(
+                "db error: FATAL: password authentication failed for user \"custom_instance_user\""
+            ),
+            Error::ExecutionErr(_)
+        ));
+    }
 
     #[test]
     fn instance_config_yaml_round_trip() {

@@ -2,11 +2,13 @@
 	import { untrack } from 'svelte'
 	import { UserService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { workspaceStore } from '$lib/stores'
 	import Button from '../common/button/Button.svelte'
 	import Modal from '../common/modal/Modal.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 	import ScopesPicker from './ScopesPicker.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		open: boolean
@@ -35,7 +37,7 @@
 	const isMcp = $derived(
 		(initialScopes ?? []).length > 0 && (initialScopes ?? []).every((s) => s.startsWith('mcp:'))
 	)
-	const mcpWorkspaceId = $derived(tokenWorkspaceId ?? $workspaceStore ?? '')
+	const mcpWorkspaceId = $derived(tokenWorkspaceId ?? $operatingWorkspace ?? '')
 
 	let labelValue = $state('')
 	let pickedScopes = $state<string[] | null>(null)

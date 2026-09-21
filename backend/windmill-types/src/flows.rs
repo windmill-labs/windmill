@@ -98,6 +98,11 @@ pub struct ListableFlow {
     pub deployment_msg: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    /// Projected from the flow value so a list can mark a flow that opens as a
+    /// chat without fetching every flow's value.
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chat_input_enabled: Option<bool>,
     /// True when the authed user has a draft for this flow (draft-only or layered
     /// over the deployed row). See ListableScript in scripts.rs.
     #[serde(default)]
@@ -538,6 +543,20 @@ pub struct Suspend {
     pub hide_cancel: Option<bool>,
     #[serde(skip_serializing_if = "false_or_empty")]
     pub continue_on_disapprove_timeout: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skin: Option<ApprovalSkin>,
+}
+
+/// How an approval request is presented, on the approval page and in Slack/Teams messages.
+#[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ApprovalSkin {
+    Minimal,
+    /// A skin this server does not know renders as the detailed one rather than failing to
+    /// deserialize the whole flow, so a flow authored against a newer version still runs.
+    #[default]
+    #[serde(other)]
+    Detailed,
 }
 
 fn false_or_empty(v: &Option<bool>) -> bool {
@@ -1081,7 +1100,8 @@ pub enum FlowModuleValue {
         omit_output_from_conversation: bool,
         /// When set, the agent brain config (provider/model/system prompt/etc.) and tools are
         /// resolved at runtime from this `ai_agent` resource path (hybrid linking). The module's
-        /// `input_transforms` then only carry the flow-local inputs (user_message/user_attachments).
+        /// `input_transforms` then only carry the flow-local inputs: user_message,
+        /// user_attachments, enabled_tools and the history inputs memory_id and previous_messages.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         agent: Option<String>,
         /// Binds an agent's tools to *this* flow's context, keyed by tool id then input key, without
@@ -1363,6 +1383,23 @@ mod tests {
         });
         let val: FlowValue = serde_json::from_value(input).unwrap();
         assert_eq!(val.modules.len(), 1);
+    }
+
+    #[test]
+    fn suspend_skin_unknown_value_falls_back_to_detailed() {
+        let skin_of = |skin: &str| {
+            let val: FlowValue = serde_json::from_value(json!({
+                "modules": [{
+                    "id": "a",
+                    "value": {"type": "identity"},
+                    "suspend": {"required_events": 1, "skin": skin}
+                }]
+            }))
+            .unwrap();
+            val.modules[0].suspend.as_ref().unwrap().skin
+        };
+        assert_eq!(skin_of("minimal"), Some(ApprovalSkin::Minimal));
+        assert_eq!(skin_of("not_a_skin_yet"), Some(ApprovalSkin::Detailed));
     }
 
     #[test]

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { endsWithUnterminatedStatement, splitSqlStatements, stripSqlComments } from './sqlDdl'
+import {
+	endsWithUnterminatedStatement,
+	joinSqlStatements,
+	splitSqlRuns,
+	splitSqlStatements,
+	stripSqlComments
+} from './sqlDdl'
 
 describe('endsWithUnterminatedStatement', () => {
 	it('reports a missing terminator on the final statement', () => {
@@ -65,5 +71,38 @@ describe('splitSqlStatements', () => {
 			"SELECT 'it\\'s; still data' AS v",
 			'SELECT 2'
 		])
+	})
+})
+
+describe('splitSqlRuns', () => {
+	it('groups adjacent DDL statements and breaks the run on a non-DDL one', () => {
+		expect(
+			splitSqlRuns(
+				'CREATE TABLE a (id int); ALTER TABLE a ADD b int; INSERT INTO a VALUES (1); DROP TABLE a;'
+			)
+		).toEqual([
+			{ isDdl: true, statements: ['CREATE TABLE a (id int)', 'ALTER TABLE a ADD b int'] },
+			{ isDdl: false, statements: ['INSERT INTO a VALUES (1)'] },
+			{ isDdl: true, statements: ['DROP TABLE a'] }
+		])
+	})
+
+	it('keeps a leading comment with the statement it introduces', () => {
+		expect(splitSqlRuns('-- add it\nCREATE TABLE a (id int);')).toEqual([
+			{ isDdl: true, statements: ['-- add it\nCREATE TABLE a (id int)'] }
+		])
+	})
+})
+
+describe('joinSqlStatements', () => {
+	it('keeps a terminator out of a statement-trailing line comment', () => {
+		expect(joinSqlStatements(['CREATE TABLE a (id int)', 'ALTER TABLE a ADD b int'])).toBe(
+			'CREATE TABLE a (id int);\nALTER TABLE a ADD b int;'
+		)
+		// A `;` appended after the comment would be commented out, gluing this
+		// statement onto the next one.
+		expect(joinSqlStatements(['CREATE TABLE a (id int) -- new', 'ALTER TABLE a ADD b int'])).toBe(
+			'CREATE TABLE a (id int) -- new\n;\nALTER TABLE a ADD b int;'
+		)
 	})
 })

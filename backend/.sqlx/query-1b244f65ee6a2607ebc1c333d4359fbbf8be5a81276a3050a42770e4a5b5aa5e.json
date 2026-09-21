@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM otel_traces WHERE ctid IN (\n                 SELECT ctid FROM otel_traces\n                 WHERE start_time_unix_nano < EXTRACT(\n                     EPOCH FROM now() - ($1::bigint::text || ' s')::interval\n                 )::bigint * 1000000000\n                 LIMIT $2\n             )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1b244f65ee6a2607ebc1c333d4359fbbf8be5a81276a3050a42770e4a5b5aa5e"
+}

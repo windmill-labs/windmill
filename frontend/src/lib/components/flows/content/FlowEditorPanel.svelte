@@ -198,6 +198,7 @@
 					savedModule={savedModuleById(savedFlow?.value.modules, flowModule.id)}
 					{forceTestTab}
 					{highlightArg}
+					{flowModuleSchemaMap}
 				/>
 			{/each}
 		{/key}

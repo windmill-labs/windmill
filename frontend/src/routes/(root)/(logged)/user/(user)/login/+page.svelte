@@ -141,6 +141,12 @@
 	}
 </script>
 
+<svelte:head>
+	<!-- Linked with a different `rd` from every page, so a crawler meets many URLs
+	     for this one form. Nothing about a login page belongs in an index. -->
+	<meta name="robots" content="noindex, nofollow" />
+</svelte:head>
+
 <!-- Anchored to the top, not centered: the card grows when the password form opens or an
 	error appears, and centering would slide the mark and the fields under the pointer. -->
 <div class="flex flex-col pt-24 pb-12 sm:px-6 lg:px-8 relative bg-surface-secondary min-h-screen">

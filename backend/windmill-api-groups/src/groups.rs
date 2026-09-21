@@ -22,7 +22,10 @@ use windmill_common::{
     error::{Error, JsonResult, Result},
     utils::{not_found_if_none, paginate, Pagination},
 };
-use windmill_common::{db::UserDB, users::username_to_permissioned_as};
+use windmill_common::{
+    db::UserDB,
+    users::{username_to_permissioned_as, usr_accepts_email},
+};
 
 use serde::{Deserialize, Serialize};
 use sqlx::{query_scalar, FromRow, Postgres, Transaction};
@@ -797,6 +800,15 @@ async fn delete_group(
     }
     not_found_if_none(get_group_opt(&mut tx, &w_id, &name).await?, "Group", &name)?;
 
+    // A tenant list names a principal, so a freed name must not linger in one: a later group
+    // reusing it would silently inherit the data table access this one had.
+    windmill_common::workspaces::remove_datatable_tenant_in_workspace(
+        &mut tx,
+        &w_id,
+        &format!("g/{name}"),
+    )
+    .await?;
+
     sqlx::query!(
         "DELETE FROM usr_to_group WHERE group_ = $1 AND workspace_id = $2",
         name,
@@ -974,6 +986,15 @@ async fn add_user_igroup(
     Json(Email { email }): Json<Email>,
 ) -> Result<String> {
     require_super_admin(&db, &authed).await?;
+
+    // `email_to_igroup` has no shape constraint of its own; `usr`, which the member is
+    // promoted into on reconcile, has `proper_email`, and a value failing it there would
+    // roll back every member of the group.
+    if !usr_accepts_email(&db, &email).await? {
+        return Err(Error::BadRequest(format!(
+            "'{email}' is not a valid email address"
+        )));
+    }
 
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
 
@@ -1427,6 +1448,16 @@ async fn overwrite_igroups(
 
         if let Some(emails) = &igroup.emails {
             for email in emails.iter() {
+                // An export can carry a member the source instance stored before ingest
+                // validated member values; it is dropped rather than failing the import.
+                if !usr_accepts_email(&mut *tx, email).await? {
+                    tracing::warn!(
+                        "Skipping member '{}' of imported instance group '{}': not an email address",
+                        email,
+                        igroup.name
+                    );
+                    continue;
+                }
                 sqlx::query!(
                     "INSERT INTO email_to_igroup (email, igroup) VALUES ($1, $2)",
                     email,

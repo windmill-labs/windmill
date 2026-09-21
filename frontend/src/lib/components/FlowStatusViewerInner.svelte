@@ -15,7 +15,6 @@
 		type FlowNote,
 		type FlowValue
 	} from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { base } from '$lib/base'
 	import FlowJobResult from './FlowJobResult.svelte'
 	import WorkflowTimeline from './WorkflowTimeline.svelte'
@@ -65,11 +64,13 @@
 	import { getActiveReplay } from './recording/replay.svelte'
 	import { publishLinkedAgentTools } from './flows/flowState'
 	import {
-		getLinkedAgentTools,
 		linkedToolsScope,
 		releaseLinkedToolsScope,
 		retainLinkedToolsScope
 	} from './flows/linkedAgentToolsStore.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	let {
 		flowState: flowStateStore,
@@ -169,7 +170,7 @@
 		isSubflow = false,
 		reducedPolling = false,
 		wideResults = false,
-		workspace = $workspaceStore,
+		workspace = $operatingWorkspace,
 		prefix = undefined,
 		topModuleStates = undefined,
 		refreshGlobal,
@@ -243,7 +244,7 @@
 						resourceMetadataCache[asset.path] = undefined
 						if (!isReplay) {
 							ResourceService.getResource({
-								workspace: workspace ?? $workspaceStore!,
+								workspace: workspace ?? $operatingWorkspace!,
 								path: asset.path
 							})
 								.then((r) => (resourceMetadataCache[asset.path] = r))
@@ -279,7 +280,7 @@
 	// resolving in the navigation one finds nothing, or an unrelated resource sharing the path. The
 	// store scope stays keyed on `workspace` to match what FlowGraphV2 reads — the job id in the key
 	// already makes the bucket unique.
-	let agentFetchWorkspace = $derived(workspaceId ?? job?.workspace_id ?? $workspaceStore)
+	let agentFetchWorkspace = $derived(workspaceId ?? job?.workspace_id ?? $operatingWorkspace)
 	// Hold this scope for as long as the viewer is mounted, so the store's cap can't drop tools the
 	// run still needs (nothing would refetch them — the set of linked steps hasn't changed).
 	$effect(() => {
@@ -294,7 +295,9 @@
 		untrack(() => {
 			for (const entry of refs ? refs.split('\u0001') : []) {
 				const [moduleId, agentPath] = entry.split('\u0000')
-				publishLinkedAgentTools(agentPath, ws, scope, moduleId)
+				// Without the draft: this viewer describes a run that has already happened, and it ran
+				// the deployed agent.
+				publishLinkedAgentTools(agentPath, ws, scope, moduleId, false)
 			}
 		})
 	})
@@ -626,7 +629,7 @@
 				) {
 					if (!isReplay) {
 						JobService.getJob({
-							workspace: workspaceId ?? $workspaceStore ?? '',
+							workspace: workspaceId ?? $operatingWorkspace ?? '',
 							id: mod.job ?? '',
 							noLogs: true,
 							noCode: true
@@ -721,7 +724,7 @@
 						})
 						if (!isReplay) {
 							JobService.getStartedAtByIds({
-								workspace: workspaceId ?? $workspaceStore ?? '',
+								workspace: workspaceId ?? $operatingWorkspace ?? '',
 								requestBody: missingStartedAtIds
 							})
 								.then((jobs) => {
@@ -1568,7 +1571,7 @@
 									let storedJob = storedListJobs[j]
 									if (!storedJob && !isReplay) {
 										storedJob = await JobService.getJob({
-											workspace: workspaceId ?? $workspaceStore ?? '',
+											workspace: workspaceId ?? $operatingWorkspace ?? '',
 											id: loopJobId,
 											noLogs: true,
 											noCode: true
@@ -2119,6 +2122,7 @@
 														tagLabel={customUi?.tagLabel}
 														workspaceId={isReplay ? undefined : job?.workspace_id}
 														jobId={isReplay ? undefined : job?.id}
+														runKey={job?.id}
 														filename={job.id}
 														loading={job['running']}
 														tag={job?.tag}
@@ -2133,22 +2137,13 @@
 															id={isReplay ? undefined : job.id}
 															workspace={isReplay
 																? undefined
-																: (job.workspace_id ?? $workspaceStore ?? 'no_w')}
+																: (job.workspace_id ?? $operatingWorkspace ?? 'no_w')}
 															args={job.args}
 														/>
 													{:else}
 														<p class="text-secondary">No arguments</p>
 													{/if}
 												{:else if node}
-													{@const module =
-														stepDetail && typeof stepDetail !== 'string' ? stepDetail : undefined}
-													{@const agentTools =
-														module && module.value.type === 'aiagent'
-															? module.value.agent
-																? getLinkedAgentTools(linkedToolsViewScope, module.id)
-																: (module.value.tools ?? [])
-															: undefined}
-													{@const parentLoopsPrefix = getParentLoopsPrefix(module?.id ?? '')}
 													{#if node.flow_jobs_results}
 														<div>
 															<span class="pl-1 text-emphasis text-xs font-medium"
@@ -2209,7 +2204,7 @@
 																			id={isReplay ? undefined : node.job_id}
 																			workspace={isReplay
 																				? undefined
-																				: (job.workspace_id ?? $workspaceStore ?? 'no_w')}
+																				: (job.workspace_id ?? $operatingWorkspace ?? 'no_w')}
 																			args={node.args}
 																		/>
 																	</div>
@@ -2234,6 +2229,7 @@
 																tagLabel={customUi?.tagLabel}
 																workspaceId={isReplay ? undefined : job?.workspace_id}
 																jobId={isReplay ? undefined : node.job_id}
+																runKey={node.job_id}
 																loading={node.type != 'Success' && node.type != 'Failure'}
 																waitingForExecutor={node.type == 'WaitingForExecutor'}
 																refreshLog={node.type == 'InProgress'}
@@ -2243,30 +2239,6 @@
 																tag={node.tag}
 																logs={node.logs}
 																downloadLogs={!hideDownloadLogs && !isReplay}
-																aiAgentStatus={agentTools &&
-																node?.job_id &&
-																(node.type === 'Success' || node.type === 'Failure')
-																	? {
-																			tools: agentTools,
-																			agentJob: {
-																				id: node.job_id,
-																				result: node.result,
-																				logs: node.logs,
-																				args: node.args,
-																				success: node.type === 'Success',
-																				type: 'CompletedJob'
-																			},
-																			storedToolCallJobs: module
-																				? toolCallStore?.getLocalToolCallJobs(parentLoopsPrefix)
-																				: undefined,
-																			onToolJobLoaded: (job, idx) => {
-																				if (module) {
-																					const storeKey = parentLoopsPrefix + module.id + '-' + idx
-																					toolCallStore?.setStoredToolCallJob(storeKey, job)
-																				}
-																			}
-																		}
-																	: undefined}
 															/>
 														</div>
 													</div>

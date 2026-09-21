@@ -85,7 +85,8 @@
 		loadedFromDraft = false,
 		othersDraftsCount = 0,
 		onOpenOthersDrafts,
-		onRestore
+		onRestore,
+		onDeploy
 	}: AppEditorProps = $props()
 
 	migrateApp(untrack(() => app))
@@ -472,15 +473,6 @@
 	}
 
 	let appEditorHeader: AppEditorHeader | undefined = $state(undefined)
-
-	export function triggerTutorial() {
-		const urlParams = new URLSearchParams(window.location.search)
-		const tutorial = urlParams.get('tutorial')
-
-		if (tutorial) {
-			appEditorHeader?.runTutorialById(tutorial)
-		}
-	}
 
 	let box: HTMLElement | undefined = $state(undefined)
 	function parseScroll() {
@@ -902,6 +894,7 @@
 			{othersDraftsCount}
 			{onOpenOthersDrafts}
 			{onRestore}
+			{onDeploy}
 			{policy}
 			{fromHub}
 			bind:this={appEditorHeader}

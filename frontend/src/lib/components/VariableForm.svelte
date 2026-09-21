@@ -10,12 +10,15 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { Loader2, RotateCcw } from 'lucide-svelte'
 	import autosize from '$lib/autosize'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { type UserExt } from '$lib/stores'
 	import { isOwner } from '$lib/utils'
 	import { isEncryptedDraftValue } from '$lib/encryptedDraft'
 	import EncryptedDraftField from './EncryptedDraftField.svelte'
 	import DateTimeInput from './DateTimeInput.svelte'
 	import { base } from '$lib/base'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Variable {
 		value: string
@@ -37,6 +40,11 @@
 		onLoadSecret?: () => void
 		/** Workspace the path is validated against; defaults to the nav workspace. */
 		workspace?: string | undefined
+		/** The user acting in `workspace`, resolved by the editor above. `undefined` while
+		 * `null` while that lookup is pending or after it failed: every check below then
+		 * refuses, rather than answering with the navigation user's rights in another
+		 * workspace. */
+		actingUser: UserExt | null
 	}
 
 	let {
@@ -51,10 +59,11 @@
 		can_write,
 		edit,
 		onLoadSecret,
-		workspace = undefined
+		workspace = undefined,
+		actingUser
 	}: Props = $props()
 
-	let ws = $derived(workspace ?? $workspaceStore)
+	let ws = $derived(workspace ?? $operatingWorkspace)
 
 	// Enabling seeds a date rather than revealing an empty picker, mirroring how
 	// `ScriptAdvancedSettings` seeds a timeout of 300s. An empty DateTimeInput renders a time
@@ -86,13 +95,14 @@
 <div class="flex flex-col gap-1">
 	<label for="path" class="text-xs font-semibold text-emphasis">Path</label>
 	<Path
-		disabled={initialPath != '' && !isOwner(initialPath, $userStore, ws)}
+		disabled={initialPath != '' && !isOwner(initialPath, actingUser ?? undefined, ws)}
 		bind:error={pathError}
 		bind:path
 		{initialPath}
 		namePlaceholder="variable"
 		kind="variable"
 		workspaceOverride={workspace}
+		{actingUser}
 	/>
 	<LabelsInput bind:labels />
 </div>
@@ -104,7 +114,7 @@
 	<Toggle
 		on:change={() => edit && !hasStagedValue && onLoadSecret?.()}
 		bind:checked={variable.is_secret}
-		disabled={edit && ($userStore?.operator || isEncryptedDraftValue(variable.value))}
+		disabled={edit && (!actingUser || actingUser.operator || isEncryptedDraftValue(variable.value))}
 	/>
 	{#if variable.is_secret}
 		<Alert type="info" title="Audit log for each access">
@@ -146,7 +156,7 @@
 				>
 					Reset
 				</Button>
-			{:else if $userStore?.operator}
+			{:else if actingUser?.operator}
 				<div class="p-2 border">Operators cannot load secret value</div>
 			{:else}
 				<Button size="xs" variant="default" on:click={() => onLoadSecret?.()}>

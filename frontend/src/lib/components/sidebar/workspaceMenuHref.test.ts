@@ -6,18 +6,18 @@ describe('workspaceMenuHref', () => {
 		expect(
 			workspaceMenuHref({
 				pathname: '/sessions',
-				searchParams: new URLSearchParams('session_name=foo'),
+				searchParams: new URLSearchParams('session=foo'),
 				id: 'wm-fork-bar',
 				sameFamily: true
 			})
-		).toBe('/sessions?session_name=foo&workspace=wm-fork-bar')
+		).toBe('/sessions?session=foo&workspace=wm-fork-bar')
 	})
 
 	it('drops the open session for a cross-family target', () => {
 		expect(
 			workspaceMenuHref({
 				pathname: '/sessions',
-				searchParams: new URLSearchParams('session_name=foo'),
+				searchParams: new URLSearchParams('session=foo&session_name=session-5'),
 				id: 'other-root',
 				sameFamily: false
 			})
@@ -44,5 +44,19 @@ describe('workspaceMenuHref', () => {
 				sameFamily: true
 			})
 		).toBe('/runs?workspace=w')
+	})
+
+	// An operator lands on home in the workspace they switch into. The href has to carry
+	// that too, not just the click handler: this is what a middle-click opens.
+	it('points at home, dropping the current page and its params, when landOnHome is set', () => {
+		expect(
+			workspaceMenuHref({
+				pathname: '/runs',
+				searchParams: new URLSearchParams('workspace=old&job=123&session=s'),
+				id: 'target',
+				sameFamily: true,
+				landOnHome: true
+			})
+		).toBe('/?workspace=target')
 	})
 })

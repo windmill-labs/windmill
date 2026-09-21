@@ -60,6 +60,8 @@
 		documentationLink?: string | undefined
 		disableFocusTrap?: boolean
 		openFocus?: string | HTMLElement | (() => HTMLElement | null) | null | undefined
+		/** Element to focus when the popover closes; defaults to the trigger, `null` leaves focus alone. */
+		closeFocus?: string | HTMLElement | (() => HTMLElement | null) | null | undefined
 		escapeBehavior?: EscapeBehaviorType
 		enableFlyTransition?: boolean
 		onKeyDown?: (e: KeyboardEvent) => void
@@ -99,6 +101,7 @@
 		documentationLink = undefined,
 		disableFocusTrap = false,
 		openFocus = undefined,
+		closeFocus = undefined,
 		escapeBehavior = 'close',
 		enableFlyTransition = false,
 		onKeyDown = () => {},
@@ -133,6 +136,7 @@
 		disableFocusTrap: untrack(() => disableFocusTrap),
 		escapeBehavior: untrack(() => escapeBehavior),
 		openFocus: untrack(() => openFocus),
+		closeFocus: untrack(() => closeFocus),
 		onOpenChange: ({ curr, next }) => {
 			if (curr != next) {
 				dispatch('openChange', next)
@@ -190,6 +194,9 @@
 	}
 
 	async function getMenuElements(): Promise<HTMLElement[]> {
+		// Runs on every pointerdown anywhere, for every mounted popover. Skip the
+		// whole-document query when the outside handler below cannot act anyway.
+		if (!usePointerDownOutside || (!isOpen && !fullScreen)) return []
 		const selector = excludeSelectors ? `[data-popover], ${excludeSelectors}` : '[data-popover]'
 		return Array.from(document.querySelectorAll(selector)) as HTMLElement[]
 	}

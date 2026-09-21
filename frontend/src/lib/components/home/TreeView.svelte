@@ -1,6 +1,7 @@
 <script lang="ts">
 	import TreeView from './TreeView.svelte'
 	import { onDestroy, untrack } from 'svelte'
+	import ResizeTransitionWrapper from '$lib/components/common/ResizeTransitionWrapper.svelte'
 
 	import { ChevronDown, ChevronUp, Folder, FolderTree, NetworkIcon, User } from 'lucide-svelte'
 	import Item from './Item.svelte'
@@ -31,8 +32,9 @@
 		// `all` pages the prefix to the end in one call instead of fetching a single page.
 		onExpandOwner?: (prefix: string, more?: boolean, opts?: { all?: boolean }) => void
 		onCollapseOwner?: (prefix: string) => void
-		// Position of this node among the rendered root nodes; "expand all" only
-		// auto-loads the first EXPAND_ALL_LOAD_LIMIT of them (see the effect below).
+		// This root owner's place in line for "expand all", which only auto-loads the first
+		// EXPAND_ALL_LOAD_LIMIT (see the effect below). Not always its rendered position:
+		// owners nested under a grouping row are ranked after the rest.
 		rootIndex?: number
 		showEditButton?: boolean
 		// Path prefix of the parent node, so this one can name its own (`ownerLoad` and
@@ -42,6 +44,10 @@
 		// is grouped under this node is only part of it: counts render as "N+" and the
 		// node offers to load the rest of itself.
 		ancestorHasMore?: boolean
+		// Visual nesting on top of `depth`. `depth` stays semantic (0 is a top-level owner
+		// that loads lazily), so an owner shown inside a grouping row is indented through
+		// this rather than by raising its depth.
+		indent?: number
 	}
 
 	let {
@@ -58,8 +64,11 @@
 		rootIndex = 0,
 		showEditButton = true,
 		parentPrefix,
-		ancestorHasMore = false
+		ancestorHasMore = false,
+		indent = 0
 	}: Props = $props()
+
+	let visualDepth = $derived(depth + indent)
 
 	// Bounds the request burst from "expand all": however many root owners the tree
 	// renders (its slice grows as you scroll), it fetches at most this many. Lazy owners
@@ -255,7 +264,7 @@
 		>
 			<div
 				class={twMerge('flex flex-row items-center gap-4 text-sm font-semibold')}
-				style={depth > 0 ? `padding-left: ${depth * 16}px;` : ''}
+				style={visualDepth > 0 ? `padding-left: ${visualDepth * 16}px;` : ''}
 			>
 				<div class="flex justify-center items-center">
 					{#if isUser(item)}
@@ -297,120 +306,125 @@
 				{/if}
 			</button>
 		</div>
-		{#if opened || isSearching}
-			<div>
-				{#if hasPipeline && isFolder(item)}
-					<!-- py-3 matches common/table/Row.svelte so this row sits at
+		<!-- ResizeObserver, not a slide: a freshly-opened owner fetches its rows, so its height
+		     changes twice (open-empty, then rows land) and a slide would only animate the first. -->
+		<ResizeTransitionWrapper vertical innerClass="w-full">
+			{#if opened || isSearching}
+				<div>
+					{#if hasPipeline && isFolder(item)}
+						<!-- py-3 matches common/table/Row.svelte so this row sits at
 					     the same height as the script/flow/app rows that follow
 					     it under the same folder; py-2 was visibly shorter. -->
-					<a
-						href="{base}/pipeline/{encodeURIComponent(item.folderName)}"
-						class="flex items-center gap-4 px-4 py-3 border-b text-sm hover:bg-surface-hover transition-colors"
-						style="padding-left: {(depth + 1) * 16}px;"
-					>
-						<NetworkIcon size={16} class="text-emerald-600 dark:text-emerald-400" />
-						<span class="text-xs font-medium text-emphasis">Pipeline</span>
-					</a>
-				{/if}
-				{#each item.items.slice(0, effectiveMax) as subItem, index ((subItem['path'] ? subItem['type'] + '__' + subItem['path'] + '__' + index : undefined) ?? 'folder__' + subItem['folderName'] + '__' + index)}
-					<TreeView
-						{isSearching}
-						{collapseAll}
-						item={subItem}
-						{pipelineFolders}
-						{ownerLoad}
-						{onExpandOwner}
-						{onCollapseOwner}
-						parentPrefix={nodePrefix}
-						ancestorHasMore={nodeHasMore}
-						on:scriptChanged
-						on:flowChanged
-						on:appChanged
-						on:rawAppChanged
-						on:reload
-						{showCode}
-						{showEditButton}
-						depth={depth + 1}
-					/>
-				{/each}
-				{#if effectiveMax < item.items.length}
-					<div
-						class="px-4 py-2 border-b flex flex-row items-center justify-between gap-4 bg-surface-secondary"
-						style="padding-left: {(depth + 1) * 16}px;"
-					>
-						<!-- Rows, not items: this slices the node's own entries, where a subfolder
-						     is one row standing for everything under it. -->
-						<span class="text-xs text-secondary">
-							Showing {effectiveMax} of {item.items.length} loaded rows
-						</span>
-						<Button
-							unifiedSize="sm"
-							variant="subtle"
-							on:click={() => {
-								// Grown from what is rendered, not from showMax: the lazy ceiling can
-								// already be showing more than showMax, and stepping that would take
-								// several clicks to change anything on screen.
-								showMax = Math.min(item.items.length, effectiveMax + showMoreStep)
-							}}
+						<a
+							href="{base}/pipeline/{encodeURIComponent(item.folderName)}"
+							class="flex items-center gap-4 px-4 py-3 border-b text-sm hover:bg-surface-hover transition-colors"
+							style="padding-left: {(visualDepth + 1) * 16}px;"
 						>
-							Show more
-						</Button>
-					</div>
-				{/if}
-				{#if nodePrefix != undefined && ownerLoad != undefined}
-					{#if nodeState?.loading && item.items.length === 0}
-						<!-- Show the spinner only on the first load, when there's nothing yet. A
+							<NetworkIcon size={16} class="text-emerald-600 dark:text-emerald-400" />
+							<span class="text-xs font-medium text-emphasis">Pipeline</span>
+						</a>
+					{/if}
+					{#each item.items.slice(0, effectiveMax) as subItem, index ((subItem['path'] ? subItem['type'] + '__' + subItem['path'] + '__' + index : undefined) ?? 'folder__' + subItem['folderName'] + '__' + index)}
+						<TreeView
+							{isSearching}
+							{collapseAll}
+							item={subItem}
+							{pipelineFolders}
+							{ownerLoad}
+							{onExpandOwner}
+							{onCollapseOwner}
+							parentPrefix={nodePrefix}
+							ancestorHasMore={nodeHasMore}
+							on:scriptChanged
+							on:flowChanged
+							on:appChanged
+							on:rawAppChanged
+							on:reload
+							{showCode}
+							{showEditButton}
+							depth={depth + 1}
+							{indent}
+						/>
+					{/each}
+					{#if effectiveMax < item.items.length}
+						<div
+							class="px-4 py-2 border-b flex flex-row items-center justify-between gap-4 bg-surface-secondary"
+							style="padding-left: {(visualDepth + 1) * 16}px;"
+						>
+							<!-- Rows, not items: this slices the node's own entries, where a subfolder
+						     is one row standing for everything under it. -->
+							<span class="text-xs text-secondary">
+								Showing {effectiveMax} of {item.items.length} loaded rows
+							</span>
+							<Button
+								unifiedSize="sm"
+								variant="subtle"
+								on:click={() => {
+									// Grown from what is rendered, not from showMax: the lazy ceiling can
+									// already be showing more than showMax, and stepping that would take
+									// several clicks to change anything on screen.
+									showMax = Math.min(item.items.length, effectiveMax + showMoreStep)
+								}}
+							>
+								Show more
+							</Button>
+						</div>
+					{/if}
+					{#if nodePrefix != undefined && ownerLoad != undefined}
+						{#if nodeState?.loading && item.items.length === 0}
+							<!-- Show the spinner only on the first load, when there's nothing yet. A
 						     re-sort/re-filter re-fetch keeps the old rows visible and swaps them
 						     in place, so flashing "Loading…" under them would just be noise. -->
-						<div class="text-center text-xs py-2 text-secondary">Loading…</div>
-					{:else if nodeHasMore && (collapseAll || nodeState?.loading || effectiveMax >= item.items.length)}
-						<!-- Every folder pages within its own prefix, so completing a subfolder
+							<div class="text-center text-xs py-2 text-secondary">Loading…</div>
+						{:else if nodeHasMore && (collapseAll || nodeState?.loading || effectiveMax >= item.items.length)}
+							<!-- Every folder pages within its own prefix, so completing a subfolder
 						     doesn't mean paging everything its owner holds. Under "expand all" this
 						     waits for the client "Show more" above, so the two pagers don't stack
 						     under every open node at once — but never while loading, or a long run
 						     would unmount its own spinner on its first page. Spelling out the counts
 						     is the point: without them this reads as an optional extra rather than
 						     as rows still missing. -->
-						<div
-							class="px-4 py-2 border-b flex flex-row items-center justify-between gap-4 bg-surface-secondary"
-							style="padding-left: {(depth + 1) * 16}px;"
-						>
-							<span class="text-xs text-secondary">
-								Showing {loadedHere}{ownerTotal != undefined ? ` of ${ownerTotal}` : ''} items in {nodePrefix}
-							</span>
-							<div class="flex flex-row items-center gap-2 shrink-0">
-								<Button
-									unifiedSize="sm"
-									variant="subtle"
-									loading={nodeState?.loading && !loadingAll}
-									disabled={nodeState?.loading}
-									on:click={() =>
-										nodePrefix != undefined &&
-										onExpandOwner?.(nodePrefix, nodeState?.loaded ?? false)}
-								>
-									Load more
-								</Button>
-								<!-- Same call, paged to the end: a folder several pages deep otherwise
+							<div
+								class="px-4 py-2 border-b flex flex-row items-center justify-between gap-4 bg-surface-secondary"
+								style="padding-left: {(visualDepth + 1) * 16}px;"
+							>
+								<span class="text-xs text-secondary">
+									Showing {loadedHere}{ownerTotal != undefined ? ` of ${ownerTotal}` : ''} items in {nodePrefix}
+								</span>
+								<div class="flex flex-row items-center gap-2 shrink-0">
+									<Button
+										unifiedSize="sm"
+										variant="subtle"
+										loading={nodeState?.loading && !loadingAll}
+										disabled={nodeState?.loading}
+										on:click={() =>
+											nodePrefix != undefined &&
+											onExpandOwner?.(nodePrefix, nodeState?.loaded ?? false)}
+									>
+										Load more
+									</Button>
+									<!-- Same call, paged to the end: a folder several pages deep otherwise
 								     takes a click per page to reach an exact count. -->
-								<Button
-									unifiedSize="sm"
-									variant="subtle"
-									loading={nodeState?.loading && loadingAll}
-									disabled={nodeState?.loading}
-									on:click={() => {
-										if (nodePrefix == undefined) return
-										loadingAll = true
-										onExpandOwner?.(nodePrefix, nodeState?.loaded ?? false, { all: true })
-									}}
-								>
-									Load all
-								</Button>
+									<Button
+										unifiedSize="sm"
+										variant="subtle"
+										loading={nodeState?.loading && loadingAll}
+										disabled={nodeState?.loading}
+										on:click={() => {
+											if (nodePrefix == undefined) return
+											loadingAll = true
+											onExpandOwner?.(nodePrefix, nodeState?.loaded ?? false, { all: true })
+										}}
+									>
+										Load all
+									</Button>
+								</div>
 							</div>
-						</div>
+						{/if}
 					{/if}
-				{/if}
-			</div>
-		{/if}
+				</div>
+			{/if}
+		</ResizeTransitionWrapper>
 	</div>
 {:else}
 	<Item
@@ -422,6 +436,6 @@
 		on:appChanged
 		on:rawAppChanged
 		on:reload
-		{depth}
+		depth={visualDepth}
 	/>
 {/if}

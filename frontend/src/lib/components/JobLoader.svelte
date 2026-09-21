@@ -14,7 +14,6 @@
 		type WorkflowStatus,
 		type OpenFlow
 	} from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { getViewToken } from '$lib/viewToken'
 	import { WM_LOGS_SKIPPED } from '$lib/consts'
 	import { getContext, onDestroy, tick, untrack } from 'svelte'
@@ -22,6 +21,9 @@
 	import { sendUserToast } from '$lib/toast'
 	import { DynamicInput, isScriptPreview } from '$lib/utils'
 	import { getActiveReplay, getReplayStartTime } from './recording/replay.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	// Will be set to number if job is not a flow
 
@@ -75,7 +77,7 @@
 		children
 	}: Props = $props()
 
-	let workspace = $derived(workspaceOverride ?? $workspaceStore)
+	let workspace = $derived(workspaceOverride ?? $operatingWorkspace)
 
 	let syncIteration: number = 0
 	let errorIteration = 0

@@ -18,8 +18,9 @@ use windmill_common::{
     error::{Error, JsonResult, Result},
     trigger_history::{self, TriggerHistoryEvent, TriggerOperation, TriggerSource},
     user_drafts::{
-        delete_all_drafts_for_path, delete_own_draft_for_path, fetch_draft_only_list_rows,
-        overlay_or_draft_only, UserDraftItemKind, WithDraftOverlay, WithDraftQuery,
+        delete_all_drafts_for_path, delete_draft_only_for_path, delete_own_draft_for_path,
+        fetch_draft_only_list_rows, overlay_or_draft_only, UserDraftItemKind, WithDraftOverlay,
+        WithDraftQuery,
     },
     utils::{paginate, Pagination, StripPath},
     worker::CLOUD_HOSTED,
@@ -96,14 +97,14 @@ pub trait TriggerCrud: Send + Sync + 'static {
     const DEPLOYMENT_NAME: &'static str;
     const ADDITIONAL_SELECT_FIELDS: &[&'static str] = &[];
     const IS_ALLOWED_ON_CLOUD: bool;
-    /// Whether enabling this trigger in a fork while the parent has the same
-    /// path enabled is a real conflict (shared upstream resource). True for
+    /// Whether enabling this trigger in a fork while an ancestor workspace has
+    /// the same path is a real conflict (shared upstream resource). True for
     /// listener-based kinds where two consumers compete (Kafka group, PG slot,
     /// SQS queue, etc.) and for Websocket where both subscribers fire on every
     /// broadcast. False for kinds whose upstream identifier is implicitly
     /// workspace-scoped at runtime (HTTP routes, Email local_part — clones for
     /// the non-workspaced sub-case are filtered out, so any cloned row is
-    /// already collision-free vs. the parent).
+    /// already collision-free vs. its ancestors).
     const FORK_CONFLICT_ON_ENABLE: bool = true;
 
     fn get_deployed_object(path: String, parent_path: Option<String>) -> DeployedObject;
@@ -554,6 +555,8 @@ async fn create_trigger<T: TriggerCrud>(
         )));
     }
 
+    new_trigger.error_handling.validate()?;
+
     handler
         .validate_new(&db, &workspace_id, &new_trigger.config)
         .await?;
@@ -815,6 +818,8 @@ async fn update_trigger<T: TriggerCrud>(
         )
     })?;
 
+    edit_trigger.error_handling.validate()?;
+
     handler
         .validate_edit(&db, &workspace_id, &edit_trigger.config, path)
         .await?;
@@ -986,6 +991,18 @@ async fn delete_trigger<T: TriggerCrud>(
         .await?;
 
     if !deleted {
+        drop(tx);
+        if delete_draft_only_for_path(
+            &db,
+            &workspace_id,
+            T::user_draft_item_kind(),
+            path,
+            &authed.email,
+        )
+        .await?
+        {
+            return Ok(format!("Draft-only trigger '{}' deleted", path));
+        }
         return Err(Error::NotFound(format!(
             "Trigger not found at path: {}",
             path
@@ -1078,52 +1095,12 @@ async fn exists_trigger<T: TriggerCrud>(
 #[derive(serde::Deserialize)]
 struct SetTriggerModePayload {
     mode: TriggerMode,
-    /// When true, bypass the parent-state warning that would otherwise reject
-    /// enabling a trigger that's already enabled in the parent workspace.
-    /// The frontend sets this after the user confirms the duplicate-execution
-    /// dialog. See windmill-trigger/src/handler.rs::set_trigger_mode for the
-    /// full check.
+    /// When true, bypass the fork-conflict warning that would otherwise reject
+    /// enabling a trigger an ancestor workspace also has at this path. The
+    /// frontend sets this after the user confirms the duplicate-execution
+    /// dialog. See `set_trigger_mode` for the full check.
     #[serde(default)]
     force: bool,
-}
-
-/// Returns the parent workspace id when this workspace is a fork *and* the
-/// parent has a row at the same trigger path. Used to gate enabling a trigger
-/// in a fork behind an explicit `force=true` confirmation: the fork's row was
-/// cloned from the parent, so its upstream identifier (Kafka group, PG slot,
-/// SQS queue URL, etc.) is shared by construction. The risk is independent of
-/// the parent's current `mode`: if the parent is enabled, the two listeners
-/// compete; if it's disabled, the fork can destructively take over shared
-/// state (e.g. advance the PG WAL, claim an MQTT client_id) before the parent
-/// re-enables. Either way, the user should be asked to confirm.
-async fn parent_has_trigger(
-    tx: &mut PgConnection,
-    table_name: &str,
-    workspace_id: &str,
-    path: &str,
-) -> Result<Option<String>> {
-    let parent: Option<String> =
-        sqlx::query_scalar("SELECT parent_workspace_id FROM workspace WHERE id = $1")
-            .bind(workspace_id)
-            .fetch_optional(&mut *tx)
-            .await?
-            .flatten();
-    let Some(parent_id) = parent else {
-        return Ok(None);
-    };
-    let exists: Option<bool> = sqlx::query_scalar(&format!(
-        "SELECT EXISTS(SELECT 1 FROM {} WHERE workspace_id = $1 AND path = $2)",
-        table_name
-    ))
-    .bind(&parent_id)
-    .bind(path)
-    .fetch_one(&mut *tx)
-    .await?;
-    Ok(if exists == Some(true) {
-        Some(parent_id)
-    } else {
-        None
-    })
 }
 
 async fn set_trigger_mode<T: TriggerCrud>(
@@ -1140,22 +1117,28 @@ async fn set_trigger_mode<T: TriggerCrud>(
     let mut tx = user_db.begin(&authed).await?;
 
     // Block transitioning a trigger in a fork to any mode that attaches a
-    // listener (Enabled or Suspended) when the parent has the same path,
+    // listener (Enabled or Suspended) when an ancestor has the same path,
     // unless the caller passes force=true. Suspended still keeps the
     // listener attached — it just stops auto-running queued jobs — so a
     // suspended fork would still split Kafka events / share a PG slot
-    // with the parent. The cloned upstream identifier is shared by
-    // construction; the risk is independent of the parent's current mode.
-    // Skipped for kinds where the upstream identifier is already
-    // workspace-scoped at runtime (HTTP, Email).
+    // with the ancestor. The risk is independent of the ancestor's current
+    // mode: enabled, the two listeners compete; disabled, the fork can
+    // destructively take over shared state (advance the PG WAL, claim an
+    // MQTT client_id) before it re-enables. Skipped for kinds where the
+    // upstream identifier is already workspace-scoped at runtime (HTTP, Email).
     if T::FORK_CONFLICT_ON_ENABLE && payload.mode != TriggerMode::Disabled && !payload.force {
-        if let Some(parent_id) =
-            parent_has_trigger(&mut *tx, T::TABLE_NAME, &workspace_id, path).await?
+        if let Some(ancestor_id) = windmill_common::workspaces::nearest_fork_ancestor_having(
+            &mut *tx,
+            T::TABLE_NAME,
+            &workspace_id,
+            path,
+        )
+        .await?
         {
             return Err(Error::BadRequest(format!(
                 "fork-conflict:{}:{}",
                 T::TRIGGER_TYPE,
-                parent_id
+                ancestor_id
             )));
         }
     }

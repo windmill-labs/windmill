@@ -26,7 +26,12 @@
 	import Portal from '$lib/components/Portal.svelte'
 	import DropdownV2 from '../DropdownV2.svelte'
 	import MissingWorkerTagAlert from '../jobs/MissingWorkerTagAlert.svelte'
-	import { superadmin, userStore } from '$lib/stores'
+	import { superadmin } from '$lib/stores'
+	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
+	import { parseMigrationRole, withMigrationRole } from '../datatableMigrationRole'
+
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	let {
 		workspace,
@@ -52,9 +57,11 @@
 	let loadError = $state<string | undefined>(undefined)
 	let loading = $state(false)
 	let busy = $state(false)
+	// pg_dump can take a while, so the snapshot gets its own flag to spin its button.
+	let generatingInitial = $state(false)
 
 	// Only workspace admins and super admins can opt a data table in or out.
-	const canManage = $derived(!!$userStore?.is_admin || !!$superadmin)
+	const canManage = $derived(!!actingUser?.is_admin || !!$superadmin)
 
 	let newMigrationModal = $state<NewDataTableMigrationModal | undefined>(undefined)
 	let newMigrationOpen = $state(false)
@@ -82,8 +89,9 @@
 
 	function startAddDownMigration() {
 		// Same transaction frame the new-migration modal starts from, so the down
-		// applies atomically.
-		downDraft = DOWN_TEMPLATE
+		// applies atomically. It rolls back as the role the up ran as.
+		const upRole = viewMigration ? parseMigrationRole(viewMigration.code_up) : undefined
+		downDraft = withMigrationRole(DOWN_TEMPLATE, upRole?.kind === 'role' ? upRole.role : undefined)
 		addingDown = true
 	}
 
@@ -163,6 +171,10 @@
 	function openList() {
 		listOpen = true
 		loadMigrations()
+	}
+
+	export function open() {
+		openList()
 	}
 
 	// Open the list modal and the detail view for a specific migration. Used to
@@ -280,6 +292,7 @@
 		})
 		if (!confirmed) return
 		busy = true
+		generatingInitial = true
 		try {
 			await WorkspaceService.generateInitialDatatableMigration({
 				workspace,
@@ -291,6 +304,7 @@
 			sendUserToast(`Failed to generate initial migration: ${e?.body ?? e?.message ?? e}`, true)
 		} finally {
 			busy = false
+			generatingInitial = false
 		}
 	}
 
@@ -493,12 +507,13 @@
 			<div class="flex flex-col grow min-h-0 overflow-auto border rounded-md divide-y">
 				{#if migrations.length === 0}
 					<div class="flex flex-col items-center gap-3 p-6 text-sm text-tertiary">
-						<span>No migrations yet</span>
+						<span>{generatingInitial ? 'Snapshotting current schema…' : 'No migrations yet'}</span>
 						<Button
 							variant="subtle"
 							size="xs"
 							startIcon={{ icon: Camera }}
 							disabled={busy}
+							loading={generatingInitial}
 							on:click={generateInitial}
 						>
 							Generate initial migration

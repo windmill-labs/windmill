@@ -23,7 +23,7 @@ use windmill_ai::ai_cache::current_instance_ai_config_revision;
 use windmill_ai::ai_providers::{
     empty_string_as_none, AIPlatform, AIProvider, ProviderConfig, ProviderModel,
 };
-use windmill_ai::ai_types::MAX_MODEL_RATE;
+use windmill_ai::ai_types::{validate_token_limit, CONTEXT_WINDOWS, MAX_MODEL_RATE, OUTPUT_LIMITS};
 use windmill_ai::credentials::ProviderCredentials;
 #[cfg(feature = "bedrock")]
 use windmill_ai::providers::bedrock::{
@@ -409,6 +409,19 @@ impl ExpiringProviderCredentials {
     }
 }
 
+/// Set on the copilot config when the workspace has no AI provider of its own and is
+/// running on Windmill's free tier, so the client can label the lent model as free, warn
+/// before the grant runs out, and tell the user to add their own key once it has — rather
+/// than showing the same "no provider configured" state a never-configured workspace gets.
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
+pub struct FreeTierInfo {
+    /// The grant is spent: no provider is served and the user must bring their own key.
+    pub exhausted: bool,
+    /// Fraction of the grant consumed, 0.0..=1.0. A ratio, not a dollar amount — the
+    /// pricing model stays server-side.
+    pub used_ratio: f64,
+}
+
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct AIConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -423,10 +436,36 @@ pub struct AIConfig {
     pub custom_prompts: Option<HashMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tokens_per_model: Option<HashMap<String, i32>>,
+    /// Response-only: this same struct is the request body for saving a workspace's AI
+    /// config, and `skip_deserializing` is what stops a client from storing a forged
+    /// free-tier marker. Only the server sets it, per-request.
+    #[serde(skip_serializing_if = "Option::is_none", skip_deserializing)]
+    pub free_tier: Option<FreeTierInfo>,
     /// Per-model price overrides, keyed `provider:model` like `max_tokens_per_model`.
     /// Only models whose rates differ from the built-in table are stored.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_pricing: Option<HashMap<String, ModelPriceOverride>>,
+    /// Per-model context windows the chat budgets its history against, keyed
+    /// `provider:model` like `max_tokens_per_model`. Overrides the client's built-in
+    /// table, which a model served through a custom endpoint is usually missing from.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context_window_per_model: Option<HashMap<String, i32>>,
+    /// Hides the Windmill AI assistant (chat, sessions, generation, completion, fixes) from
+    /// the workspace UI. Only the workspace's own row is consulted: the flag holds even when
+    /// the providers served come from the instance config or the free tier. AI agent steps
+    /// and the AI sandbox are unaffected, so the providers stay in force.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub copilot_disabled: bool,
+    /// Stops browsers from backing their AI sessions up to the workspace's object storage
+    /// (`ai_sessions.rs`). Read from the workspace's own row like `copilot_disabled`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub sessions_storage_disabled: bool,
+    /// The server's sweep (`ai_sessions.rs`) deletes the backup of a session no push has
+    /// reached for this many days. The copies in members' browsers are untouched. Unset
+    /// keeps backups until the user deletes the session. Read from the workspace's own row
+    /// like `copilot_disabled`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sessions_retention_days: Option<u32>,
 }
 
 /// Negotiated rates in USD per million tokens. An unset cache rate is read as the
@@ -463,12 +502,38 @@ impl ModelPriceOverride {
     }
 }
 
+/// Ten years: past any plausible retention, and well within what a day count is turned into.
+pub const MAX_SESSIONS_RETENTION_DAYS: u32 = 3650;
+
 impl AIConfig {
     pub fn validate_model_pricing(&self) -> Result<()> {
         for (key, price) in self.model_pricing.iter().flatten() {
             price.validate(key)?;
         }
         Ok(())
+    }
+
+    pub fn validate_token_limits(&self) -> Result<()> {
+        for (entries, bounds) in [
+            (&self.context_window_per_model, &CONTEXT_WINDOWS),
+            (&self.max_tokens_per_model, &OUTPUT_LIMITS),
+        ] {
+            for (key, tokens) in entries.iter().flatten() {
+                validate_token_limit(bounds, key, i64::from(*tokens)).map_err(Error::BadRequest)?;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn validate_sessions_retention(&self) -> Result<()> {
+        match self.sessions_retention_days {
+            Some(days) if !(1..=MAX_SESSIONS_RETENTION_DAYS).contains(&days) => {
+                Err(Error::BadRequest(format!(
+                    "AI session retention must be between 1 and {MAX_SESSIONS_RETENTION_DAYS} days (got {days})"
+                )))
+            }
+            _ => Ok(()),
+        }
     }
 
     pub fn has_providers(&self) -> bool {
@@ -494,10 +559,17 @@ pub fn workspaced_service() -> Router {
                 // could make the server allocate and parse an arbitrarily large one.
                 // Sized well above a full batch of the shape below.
                 .layer(DefaultBodyLimit::max(AI_USAGE_BODY_LIMIT)),
+        )
+        .nest(
+            "/shared_artifacts",
+            crate::ai_shared_artifacts::workspaced_service(),
         );
 
     #[cfg(feature = "bedrock")]
     let router = router.route("/check_bedrock_credentials", get(check_bedrock_credentials));
+
+    #[cfg(feature = "parquet")]
+    let router = router.nest("/sessions", crate::ai_sessions::workspaced_service());
 
     router
 }
@@ -1013,83 +1085,119 @@ async fn proxy(
         check_scopes(&authed, || format!("resources:read:{}", resource_path))?;
     }
 
-    let mut credentials = match workspace_cache {
-        Some(request_cache) if !request_cache.is_expired() && forced_resource_path.is_none() => {
-            request_cache.credentials
-        }
-        _ => {
-            let (resource_path, save_to_cache, resource_workspace, instance_ai_config_revision) =
-                if let Some(resource_path) = forced_resource_path {
-                    // forced resource path
-                    (resource_path, false, w_id.clone(), None)
-                } else {
-                    let workspace_ai_config = sqlx::query_scalar!(
-                        "SELECT ai_config FROM workspace_settings WHERE workspace_id = $1",
-                        &w_id
-                    )
-                    .fetch_one(&db)
-                    .await?;
+    // Set when serving the request through Windmill's free AI tier (the lent key). Holds
+    // the per-user concurrency lock and drives response metering.
+    let mut free_lease: Option<crate::ai_free_tier_oss::FreeTierLease> = None;
+    let mut credentials = 'cred: {
+        match workspace_cache {
+            Some(request_cache)
+                if !request_cache.is_expired() && forced_resource_path.is_none() =>
+            {
+                request_cache.credentials
+            }
+            _ => {
+                let (resource_path, save_to_cache, resource_workspace, instance_ai_config_revision) =
+                    if let Some(resource_path) = forced_resource_path {
+                        // forced resource path
+                        (resource_path, false, w_id.clone(), None)
+                    } else {
+                        let workspace_ai_config = sqlx::query_scalar!(
+                            "SELECT ai_config FROM workspace_settings WHERE workspace_id = $1",
+                            &w_id
+                        )
+                        .fetch_one(&db)
+                        .await?;
 
-                    let (ai_config_value, resource_workspace, instance_ai_config_revision) = {
-                        let ws_has_config = workspace_ai_config
-                            .as_ref()
-                            .and_then(|v| serde_json::from_value::<AIConfig>(v.clone()).ok())
-                            .is_some_and(|config| config.has_providers());
+                        let (ai_config_value, resource_workspace, instance_ai_config_revision) = {
+                            let ws_has_config = workspace_ai_config
+                                .as_ref()
+                                .and_then(|v| serde_json::from_value::<AIConfig>(v.clone()).ok())
+                                .is_some_and(|config| config.has_providers());
 
-                        if ws_has_config {
-                            (workspace_ai_config.unwrap(), w_id.clone(), None)
-                        } else {
-                            let instance_config = sqlx::query_scalar!(
-                                "SELECT value FROM global_settings WHERE name = 'ai_config'"
-                            )
-                            .fetch_optional(&db)
-                            .await?;
+                            if ws_has_config {
+                                (workspace_ai_config.unwrap(), w_id.clone(), None)
+                            } else {
+                                let instance_config = sqlx::query_scalar!(
+                                    "SELECT value FROM global_settings WHERE name = 'ai_config'"
+                                )
+                                .fetch_optional(&db)
+                                .await?;
 
-                            match instance_config {
-                                Some(config) => (
-                                    config,
-                                    "admins".to_string(),
-                                    Some(current_instance_ai_config_revision()),
-                                ),
-                                None => {
-                                    return Err(Error::internal_err(
-                                        "AI resource not configured".to_string(),
-                                    ));
+                                let instance_has_config =
+                                    instance_config.as_ref().is_some_and(|v| {
+                                        serde_json::from_value::<AIConfig>(v.clone())
+                                            .ok()
+                                            .is_some_and(|c| c.has_providers())
+                                    });
+                                match instance_config {
+                                    // An instance `ai_config` row with no usable provider (e.g. `{}`
+                                    // or `{"providers":{}}`) is treated as unconfigured, exactly as
+                                    // build_copilot_settings_state does — otherwise its mere presence
+                                    // would suppress the free-tier fallback below.
+                                    Some(config) if instance_has_config => (
+                                        config,
+                                        "admins".to_string(),
+                                        Some(current_instance_ai_config_revision()),
+                                    ),
+                                    _ => {
+                                        // Nothing configured: fall back to Windmill's free AI tier
+                                        // (EE-only) if a lent key is set and both the user's
+                                        // one-time grant and the instance's daily cap have room.
+                                        // Errors once the grant is spent, the day is capped, or the
+                                        // user already has a request in flight; None otherwise.
+                                        // Ineligible identities (e.g. service accounts) are refused
+                                        // inside the helper, so every path treats them alike.
+                                        let free =
+                                            crate::ai_free_tier_oss::resolve_free_tier_credentials(
+                                                &provider,
+                                                &db,
+                                                &ai_path,
+                                                &authed.email,
+                                                &body,
+                                            )
+                                            .await?;
+                                        if let Some((free_credentials, lease)) = free {
+                                            free_lease = Some(lease);
+                                            break 'cred free_credentials;
+                                        }
+                                        return Err(Error::internal_err(
+                                            "AI resource not configured".to_string(),
+                                        ));
+                                    }
                                 }
                             }
+                        };
+
+                        let mut ai_config = serde_json::from_value::<AIConfig>(ai_config_value)
+                            .map_err(|e| Error::BadRequest(e.to_string()))?;
+
+                        let provider_config = ai_config
+                            .providers
+                            .as_mut()
+                            .and_then(|providers| providers.remove(&provider))
+                            .ok_or_else(|| {
+                                Error::BadRequest(format!("Provider {:?} not configured", provider))
+                            })?;
+
+                        if provider_config.resource_path.is_empty() {
+                            return Err(Error::BadRequest("Resource path is empty".to_string()));
                         }
+
+                        (
+                            provider_config.resource_path,
+                            true,
+                            resource_workspace,
+                            instance_ai_config_revision,
+                        )
                     };
 
-                    let mut ai_config = serde_json::from_value::<AIConfig>(ai_config_value)
-                        .map_err(|e| Error::BadRequest(e.to_string()))?;
-
-                    let provider_config = ai_config
-                        .providers
-                        .as_mut()
-                        .and_then(|providers| providers.remove(&provider))
-                        .ok_or_else(|| {
-                            Error::BadRequest(format!("Provider {:?} not configured", provider))
-                        })?;
-
-                    if provider_config.resource_path.is_empty() {
-                        return Err(Error::BadRequest("Resource path is empty".to_string()));
-                    }
-
-                    (
-                        provider_config.resource_path,
-                        true,
-                        resource_workspace,
-                        instance_ai_config_revision,
-                    )
-                };
-
-            // For user-specified resources, fetch through an RLS-scoped
-            // connection so PostgreSQL row-level security enforces the same
-            // folder/group boundaries as the regular resource API. For the
-            // workspace/instance ai_config path, the resource_path was already
-            // validated by an admin/devops user when configuring the workspace,
-            // so the raw pool is used.
-            let resource = if is_user_specified_resource {
+                // For user-specified resources, fetch through an RLS-scoped
+                // connection so PostgreSQL row-level security enforces the same
+                // folder/group boundaries as the regular resource API. For the
+                // workspace/instance ai_config path, the resource_path was already
+                // validated by an admin/devops user when configuring the workspace,
+                // so the raw pool is used.
+                let resource = if is_user_specified_resource {
                 let mut tx = user_db.clone().begin(&authed).await?;
                 let res = sqlx::query_scalar::<_, Option<sqlx::types::Json<Box<RawValue>>>>(
                     "SELECT value FROM resource WHERE path = $1 AND workspace_id = $2",
@@ -1112,37 +1220,44 @@ async fn proxy(
             .ok_or_else(|| Error::NotFound(format!("Could not find the resource {}, update the resource path in the workspace settings", resource_path)))?
             .ok_or_else(|| Error::BadRequest(format!("Empty resource value for {}", resource_path)))?;
 
-            let resource = serde_json::from_str::<AIResource>(resource.0.get())
-                .map_err(|e| Error::BadRequest(e.to_string()))?;
+                let resource = serde_json::from_str::<AIResource>(resource.0.get())
+                    .map_err(|e| Error::BadRequest(e.to_string()))?;
 
-            // Enforce RLS on $var: resolution when the resource path was
-            // user-specified (X-Resource-Path header) so users can only read
-            // variables they have permission to access.
-            let enforce_authed = if is_user_specified_resource {
-                Some(&authed)
-            } else {
-                None
-            };
-            let credentials = resolve_provider_credentials(
-                &provider,
-                &db,
-                &resource_workspace,
-                resource,
-                enforce_authed,
-            )
-            .await?;
-            if save_to_cache {
-                AI_REQUEST_CACHE.insert(
-                    (w_id.clone(), provider.clone()),
-                    ExpiringProviderCredentials::new(
-                        credentials.clone(),
-                        instance_ai_config_revision,
-                    ),
-                );
+                // Enforce RLS on $var: resolution when the resource path was
+                // user-specified (X-Resource-Path header) so users can only read
+                // variables they have permission to access.
+                let enforce_authed = if is_user_specified_resource {
+                    Some(&authed)
+                } else {
+                    None
+                };
+                let credentials = resolve_provider_credentials(
+                    &provider,
+                    &db,
+                    &resource_workspace,
+                    resource,
+                    enforce_authed,
+                )
+                .await?;
+                if save_to_cache {
+                    AI_REQUEST_CACHE.insert(
+                        (w_id.clone(), provider.clone()),
+                        ExpiringProviderCredentials::new(
+                            credentials.clone(),
+                            instance_ai_config_revision,
+                        ),
+                    );
+                }
+                credentials
             }
-            credentials
         }
     };
+
+    // Free tier: pin the model and clamp max_tokens server-side before forwarding,
+    // since the request body is otherwise client-controlled.
+    if free_lease.is_some() {
+        body = crate::ai_free_tier_oss::enforce_free_tier_body(&body)?;
+    }
 
     if let Some(fim_transform) =
         maybe_transform_fim_request(&provider, &ai_path, &credentials.base_url, &body)?
@@ -1291,8 +1406,32 @@ async fn proxy(
 
     let status_code = response.status();
     let headers = response.headers().clone();
+    let is_sse = is_sse_response(&headers);
+
+    // Free tier: reconcile the cost reserved up-front against what the response actually
+    // used, holding the per-user lock (via the lease) until it is recorded. The chat
+    // streams (SSE), where the usage report only arrives in the final chunk; the
+    // non-streaming JSON path is handled for completeness.
+    if let Some(lease) = free_lease {
+        let body = if is_sse {
+            axum::body::Body::from_stream(inject_keepalives(
+                Box::pin(crate::ai_free_tier_oss::meter_usage(
+                    response.bytes_stream(),
+                    db.clone(),
+                    lease,
+                )),
+                Duration::from_secs(KEEPALIVE_INTERVAL_SECS),
+            ))
+        } else {
+            let bytes = response.bytes().await.map_err(to_anyhow)?;
+            crate::ai_free_tier_oss::record_json_usage(db.clone(), lease, &bytes);
+            axum::body::Body::from(bytes)
+        };
+        return Ok((status_code, headers, body));
+    }
+
     let stream = response.bytes_stream();
-    let body = if is_sse_response(&headers) {
+    let body = if is_sse {
         axum::body::Body::from_stream(inject_keepalives(
             stream,
             Duration::from_secs(KEEPALIVE_INTERVAL_SECS),

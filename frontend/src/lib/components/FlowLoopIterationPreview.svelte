@@ -1,15 +1,18 @@
 <script lang="ts">
 	import { type Job, JobService, type FlowModule, type RestartedFrom } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { Button } from './common'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
 	import { runFlowPreview } from './flows/utils.svelte'
+	import { sendUserToast } from '$lib/toast'
 	import SchemaForm from './SchemaForm.svelte'
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
 	import FlowProgressBar from './flows/FlowProgressBar.svelte'
 	import { CornerDownLeft, Play, RefreshCw, X } from 'lucide-svelte'
 	import type { Schema } from '$lib/common'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		open: boolean
@@ -101,15 +104,22 @@
 		// The preview flow holds only the loop body, so it inherits none of the flow's settings:
 		// carry the tag over so the iteration lands on the worker group the flow runs on.
 		const newFlow = { value: { modules }, summary: '', tag: flowStore.val.tag }
-		jobId = await runFlowPreview(
-			whileLoop ? withWhileLoopIter(args) : args,
-			newFlow,
-			$pathStore,
-			restartedFrom,
-			undefined,
-			undefined,
-			opWorkspace?.()
-		)
+		try {
+			jobId = await runFlowPreview(
+				whileLoop ? withWhileLoopIter(args) : args,
+				newFlow,
+				$pathStore,
+				restartedFrom,
+				undefined,
+				undefined,
+				opWorkspace?.()
+			)
+		} catch (err: any) {
+			// `runFlowPreview` resolves a linked agent's draft first and refuses when it cannot be read.
+			// Without this the rejection is unhandled and the button just does nothing.
+			sendUserToast(`Could not run preview: ${err?.body ?? err}`, true)
+			return
+		}
 		isRunning = true
 	}
 
@@ -157,7 +167,7 @@
 					try {
 						jobId &&
 							(await JobService.cancelQueuedJob({
-								workspace: opWorkspace?.() ?? $workspaceStore ?? '',
+								workspace: opWorkspace?.() ?? $operatingWorkspace ?? '',
 								id: jobId,
 								requestBody: {}
 							}))
