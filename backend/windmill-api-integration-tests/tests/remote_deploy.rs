@@ -121,8 +121,8 @@ async fn test_remote_deploy_proxy(db: Pool<Postgres>) -> anyhow::Result<()> {
         .await?;
     assert_eq!(resp.status(), 502);
 
-    // Rows are keyed by email alone: deleting the account must take its token with it, or the
-    // next account created with that address would act on the remote as this one.
+    // Deleting the account must take its token with it, or the next account created with that
+    // address would act on the remote as this one.
     let resp = client()
         .post(format!("{base}/connect"))
         .header("Authorization", "Bearer SECRET_TOKEN_2")
@@ -158,17 +158,17 @@ async fn test_remote_deploy_proxy(db: Pool<Postgres>) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// A connect waits on the remote, which leaves time for the account to be deleted: its row must
-/// not land after the deletion's cleanup, under an address a later account could take.
+/// A connect waits on the remote, which leaves time for the caller to be removed from the
+/// workspace: its row must not land after the removal's cleanup, to come back on a re-add.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn test_remote_deploy_connect_racing_account_deletion(
+async fn test_remote_deploy_connect_racing_workspace_removal(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
 
-    // A remote whose `whoami` answers only once the deletion below has committed.
+    // A remote whose `whoami` answers only once the removal below has committed.
     let (reached_tx, reached_rx) = tokio::sync::oneshot::channel::<()>();
     let (release_tx, release_rx) = tokio::sync::oneshot::channel::<()>();
     let gate = std::sync::Arc::new(tokio::sync::Mutex::new(Some((reached_tx, release_rx))));
@@ -207,7 +207,7 @@ async fn test_remote_deploy_connect_racing_account_deletion(
     );
     reached_rx.await?;
     let resp = authed(client().delete(format!(
-        "http://localhost:{port}/api/users/delete/test2@windmill.dev"
+        "http://localhost:{port}/api/w/test-workspace/users/delete/test-user-2"
     )))
     .send()
     .await?;

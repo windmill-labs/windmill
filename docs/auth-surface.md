@@ -46,10 +46,12 @@ Symbols, not line numbers, are cited: they drift less.
   (`windmill-api-auth/src/lib.rs`) errors on `authed.job_id.is_some()`. A script that needs
   `users/create`, `tokens/impersonate`, `set_login_type`, … must use a dedicated superadmin user
   token stored as a secret, never `$WM_TOKEN`. Token scopes cannot narrow superadmin routes.
-- **A remote deploy token is a credential for another instance**, held per email and workspace
-  (`remote_deploy_token`, encrypted under the workspace key, re-keyed by `set_encryption_key`,
-  deleted with the account or the membership and moved by `change_user_email`, since a recycled
-  address would otherwise inherit it). The row records the target it was granted for, and
+- **A remote deploy token is a credential for another instance**, held per account and workspace
+  (`remote_deploy_token`, encrypted under the workspace key, re-keyed by `set_encryption_key`).
+  Its `email` references `password(email)` with `ON DELETE/UPDATE CASCADE`, so whatever deletes or
+  renames an account takes the token along and a recycled address cannot inherit it; removal from
+  a workspace deletes it explicitly (`delete_workspace_user_internal`, both `leave_workspace`). The
+  row records the target it was granted for, and
   `remote_deploy::proxy` only sends it to a target still matching the workspace setting, so
   re-pointing the setting cannot redirect anyone's token to a URL of the admin's choosing.
   `require_own_credentials` refuses job, scoped and read-only tokens (on `set_target` too): the
@@ -60,9 +62,14 @@ Symbols, not line numbers, are cited: they drift less.
   switches every download to in-memory blobs). The key is served `no-store`, withheld from the
   credentials `require_own_credentials` refuses, and masked in this instance's own request logs
   (`RedactedUri`, used by the request span and the log context); a reverse proxy in front still
-  writes the full path to its access log. `connect` holds the caller's `password`/`usr` rows and
-  the workspace key `FOR SHARE` until it commits, so account deletion, email change, removal and
-  key rotation cannot leave its row behind or under a stale key. The proxy also refuses a path the URL parser would rewrite,
+  writes the full path to its access log. `connect` requires a membership (held `FOR SHARE` until
+  it commits) unless the caller is a superadmin, and reads the workspace key under the lock a
+  rotation takes, so neither a removal nor a rotation during its remote call leaves a row behind
+  or under a stale key. Connecting by redirect: the remote's `/user/remote_deploy_authorize` page
+  mints a token bound to the one remote workspace (`remote-deploy:<source host>`) only on an
+  explicit Authorize, only for a callback whose path is `/remote_deploy/callback`, and refuses to
+  render inside a frame; the token travels in the fragment, and the callback checks a single-use
+  `state` the drawer stored, so no other page can plant a token as the user's. The proxy also refuses a path the URL parser would rewrite,
   serves every response under `CSP: sandbox` + `nosniff`, forwards only the method, query, body,
   content-type and accept — never this instance's cookie or token — and turns the target's 401
   into a 502, because the browser logs the user out of *this* instance on an unhandled 401.

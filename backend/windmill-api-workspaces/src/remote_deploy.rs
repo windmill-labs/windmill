@@ -372,16 +372,10 @@ async fn connect(
 
     let proxy_key = rd_string(32);
     let mut tx = db.begin().await?;
-    // The remote call above leaves time for the account to be deleted, renamed or removed from the
-    // workspace, each of which clears this table under a lock on one of these rows: holding them
-    // until commit keeps a row from landing after that cleanup, under an address a later account
-    // could take.
-    let account = sqlx::query_scalar!(
-        "SELECT 1 FROM password WHERE email = $1 FOR SHARE",
-        &authed.email
-    )
-    .fetch_optional(&mut *tx)
-    .await?;
+    // The remote call above leaves time for the caller to be removed from the workspace, which
+    // clears this table under a lock on the membership: holding it until commit keeps a row from
+    // landing after that cleanup. A superadmin needs no membership, and has none to lose. Account
+    // deletion and renames are the foreign key's to handle.
     let member = sqlx::query_scalar!(
         "SELECT 1 FROM usr WHERE workspace_id = $1 AND email = $2 FOR SHARE",
         &w_id,
@@ -389,11 +383,18 @@ async fn connect(
     )
     .fetch_optional(&mut *tx)
     .await?;
-    if account.is_none() && member.is_none() {
-        return Err(Error::BadRequest(format!(
-            "{} is not an account of this instance",
-            authed.email
-        )));
+    if member.is_none() {
+        let superadmin = sqlx::query_scalar!(
+            "SELECT super_admin FROM password WHERE email = $1",
+            &authed.email
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        if superadmin != Some(true) {
+            return Err(Error::BadRequest(format!(
+                "Only a member of workspace {w_id} can connect it to a remote instance"
+            )));
+        }
     }
     // From the key read under the lock a rotation takes, not from `build_crypt`: a rotation
     // committing in between would re-encrypt every row but this one.
@@ -426,7 +427,19 @@ async fn connect(
         &proxy_key
     )
     .fetch_optional(&mut *tx)
-    .await?
+    .await
+    .map_err(|e| {
+        if e.as_database_error()
+            .is_some_and(|db_e| db_e.is_foreign_key_violation())
+        {
+            Error::BadRequest(format!(
+                "{} is not an account of this instance",
+                authed.email
+            ))
+        } else {
+            e.into()
+        }
+    })?
     .ok_or_else(|| {
         Error::BadRequest("The remote deploy target changed while connecting".to_string())
     })?;

@@ -1716,16 +1716,6 @@ async fn delete_user(
     .fetch_all(&mut *tx)
     .await?;
 
-    // Keyed by email alone, so a later account with this address would otherwise act on the
-    // other instance as this one. After the `password` and `usr` deletes: a connect holding those
-    // rows has committed by now, and its row is seen here.
-    sqlx::query!(
-        "DELETE FROM remote_deploy_token WHERE email = $1",
-        &email_to_delete
-    )
-    .execute(&mut *tx)
-    .await?;
-
     for row in memberships {
         let username = row.username;
         // A tenant list names a principal of its workspace, so the name has to be freed in every
@@ -2046,14 +2036,6 @@ async fn change_user_email(
 
     sqlx::query!(
         "UPDATE token SET email = $1 WHERE email = $2",
-        &new_email,
-        &old_email
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    sqlx::query!(
-        "UPDATE remote_deploy_token SET email = $1 WHERE email = $2",
         &new_email,
         &old_email
     )
