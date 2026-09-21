@@ -52,17 +52,30 @@ pub struct DecisionResult {
 }
 
 /// The state and questions of a decision step, refused here rather than by the endpoint when
-/// either is missing: a flow that passes an empty expression result should read what it forgot.
+/// either is missing or of a shape TypeSafe rejects: a flow that passes an empty expression result
+/// should read what it forgot, without a request going out.
 pub fn decision_inputs<'a>(
     state: Option<&'a Value>,
     questions: Option<&'a Value>,
 ) -> Result<(&'a Value, &'a Map<String, Value>)> {
     let state = match state {
-        None | Some(Value::Null) => None,
-        Some(Value::String(s)) if s.trim().is_empty() => None,
-        Some(state) => Some(state),
-    }
-    .ok_or_else(|| Error::BadRequest("'state' must be provided for decision output".to_string()))?;
+        None | Some(Value::Null) => {
+            return Err(Error::BadRequest(
+                "'state' must be provided for decision output".to_string(),
+            ))
+        }
+        Some(Value::String(s)) if s.trim().is_empty() => {
+            return Err(Error::BadRequest(
+                "'state' must be provided for decision output".to_string(),
+            ))
+        }
+        Some(state @ (Value::String(_) | Value::Object(_) | Value::Array(_))) => state,
+        Some(_) => {
+            return Err(Error::BadRequest(
+                "'state' must be a text, an object or an array for decision output".to_string(),
+            ))
+        }
+    };
     let questions =
         match questions {
             Some(Value::Object(questions)) if !questions.is_empty() => questions,
@@ -149,16 +162,17 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    /// Refused are the values a flow produces when it forgot the input: no key, `null`, or a blank
-    /// string from an empty expression. Any other value, falsy ones included, is a state.
+    /// Refused are the values a flow produces when it forgot the input (no key, `null`, a blank
+    /// string from an empty expression) and the scalars TypeSafe rejects. A text, an object or an
+    /// array is a state, whatever it holds.
     #[test]
-    fn decision_inputs_refuse_only_what_a_flow_forgot() {
+    fn decision_inputs_refuse_what_typesafe_would() {
         let questions = json!({"urgent": {"type": "noul", "instructions": "Is it urgent?"}});
-        for state in [None, Some(json!(null)), Some(json!("  "))] {
+        for state in [None, Some(json!(null)), Some(json!("  ")), Some(json!(false)), Some(json!(0))] {
             let err = decision_inputs(state.as_ref(), Some(&questions)).unwrap_err();
             assert!(err.to_string().contains("'state'"), "{err}");
         }
-        for state in [json!(false), json!("0"), json!({}), json!([]), json!({"m": "hi"})] {
+        for state in [json!("0"), json!({}), json!([]), json!({"m": "hi"})] {
             assert!(decision_inputs(Some(&state), Some(&questions)).is_ok(), "{state}");
         }
         for questions in [None, Some(json!({})), Some(json!([])), Some(json!("urgent"))] {
