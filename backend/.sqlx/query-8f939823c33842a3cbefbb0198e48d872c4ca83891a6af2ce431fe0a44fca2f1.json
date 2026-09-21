@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM remote_deploy_token WHERE workspace_id = 'test-workspace'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "8f939823c33842a3cbefbb0198e48d872c4ca83891a6af2ce431fe0a44fca2f1"
+}

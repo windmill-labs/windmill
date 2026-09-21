@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
-import { remoteDeployAuthorizeUrl, takePendingConnect } from './remoteDeploy'
+import { PENDING_TTL_MS, remoteDeployAuthorizeUrl, takePendingConnect } from './remoteDeploy'
 
 const target = { base_url: 'https://prod.example.com', workspace_id: 'prod' }
 
@@ -33,10 +33,12 @@ describe('remote deploy connect state', () => {
 		expect(takePendingConnect(second)?.workspace).toBe('staging')
 	})
 
-	it('expires an attempt left unfinished', () => {
+	it('expires an attempt left unfinished, and drops it from storage', () => {
 		vi.useFakeTimers()
-		const state = startConnect()
-		vi.advanceTimersByTime(16 * 60_000)
-		expect(takePendingConnect(state)).toBeUndefined()
+		const abandoned = startConnect()
+		vi.advanceTimersByTime(PENDING_TTL_MS + 60_000)
+		startConnect()
+		expect(localStorage.length).toBe(1)
+		expect(takePendingConnect(abandoned)).toBeUndefined()
 	})
 })

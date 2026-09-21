@@ -35,7 +35,7 @@ export function remoteHost(url: string): string {
 export const CALLBACK_PATH = '/remote_deploy/callback'
 export const CHANNEL = 'windmill-remote-deploy'
 const PENDING_PREFIX = 'remote-deploy-connect:'
-const PENDING_TTL_MS = 15 * 60_000
+export const PENDING_TTL_MS = 15 * 60_000
 
 type PendingConnect = {
 	workspace: string
@@ -61,6 +61,7 @@ export function remoteDeployAuthorizeUrl(
 	workspace: string,
 	returnTo: string
 ): string {
+	dropExpiredConnects()
 	const state = randomSecret(16)
 	const pending: PendingConnect = { workspace, target, returnTo, at: Date.now() }
 	localStorage.setItem(PENDING_PREFIX + state, JSON.stringify(pending))
@@ -70,6 +71,19 @@ export function remoteDeployAuthorizeUrl(
 		state
 	})
 	return `${target.base_url}/user/remote_deploy_authorize?${params}`
+}
+
+/** An attempt abandoned before its callback would otherwise stay in storage for good. */
+function dropExpiredConnects() {
+	for (let i = localStorage.length - 1; i >= 0; i--) {
+		const key = localStorage.key(i)
+		if (!key?.startsWith(PENDING_PREFIX)) continue
+		let at = 0
+		try {
+			at = JSON.parse(localStorage.getItem(key) ?? '{}').at ?? 0
+		} catch {}
+		if (Date.now() - at > PENDING_TTL_MS) localStorage.removeItem(key)
+	}
 }
 
 /** The attempt `state` names, used once: a replayed callback finds nothing to match. */

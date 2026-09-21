@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state'
+	import { untrack } from 'svelte'
 	import { WorkspaceService, type RemoteDeployConnection, type RemoteDeployTarget } from '$lib/gen'
 	import {
 		CHANNEL,
@@ -63,6 +64,16 @@
 	}
 
 	$effect(() => () => clearInterval(popupWatch))
+
+	// The drawer stays mounted across a workspace switch: a token pasted for one target must not
+	// be submitted to the next one.
+	$effect(() => {
+		;[workspace, target.base_url, target.workspace_id]
+		untrack(() => {
+			token = undefined
+			error = undefined
+		})
+	})
 
 	// The callback page runs in the popup, or in this tab when the popup was blocked.
 	$effect(() => {

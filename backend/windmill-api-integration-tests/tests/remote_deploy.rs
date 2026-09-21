@@ -239,3 +239,75 @@ async fn test_remote_deploy_connect_racing_workspace_removal(
     assert_eq!(left, Some(0));
     Ok(())
 }
+
+/// A target change whose token cleanup already ran, but which has not committed yet, must not let
+/// a connect leave a row behind for the old target, to come back if the setting is pointed at it
+/// again.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_remote_deploy_connect_racing_target_change(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let target = json!({ "base_url": format!("http://localhost:{port}"), "workspace_id": "test-workspace" });
+    sqlx::query!(
+        "UPDATE workspace_settings SET remote_deploy_target = $1
+         WHERE workspace_id = 'test-workspace'",
+        target
+    )
+    .execute(&db)
+    .await?;
+
+    // What `set_target` does, held open.
+    let mut change = db.begin().await?;
+    sqlx::query!(
+        "UPDATE workspace_settings SET remote_deploy_target = $1
+         WHERE workspace_id = 'test-workspace'",
+        json!({ "base_url": format!("http://localhost:{port}"), "workspace_id": "other" })
+    )
+    .execute(&mut *change)
+    .await?;
+    sqlx::query!("DELETE FROM remote_deploy_token WHERE workspace_id = 'test-workspace'")
+        .execute(&mut *change)
+        .await?;
+
+    let connect = tokio::spawn(
+        authed(client().post(format!(
+            "http://localhost:{port}/api/w/test-workspace/remote_deploy/connect"
+        )))
+        .json(&json!({ "token": "SECRET_TOKEN", "target": target }))
+        .send(),
+    );
+    // Commit once the connect waits on the setting, or has finished without waiting.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    loop {
+        let waiting: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pg_stat_activity
+             WHERE datname = current_database() AND wait_event_type = 'Lock'",
+        )
+        .fetch_one(&db)
+        .await?;
+        if waiting > 0 || connect.is_finished() || std::time::Instant::now() > deadline {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    change.commit().await?;
+    let resp = connect.await??;
+    assert_eq!(resp.status(), 400);
+
+    // Pointing back at the old target finds no connection to restore.
+    sqlx::query!(
+        "UPDATE workspace_settings SET remote_deploy_target = $1
+         WHERE workspace_id = 'test-workspace'",
+        target
+    )
+    .execute(&db)
+    .await?;
+    let left = sqlx::query_scalar!(
+        "SELECT count(*) FROM remote_deploy_token WHERE workspace_id = 'test-workspace'"
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(left, Some(0));
+    Ok(())
+}

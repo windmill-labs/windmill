@@ -346,7 +346,7 @@ async fn connect(
     let target = require_target(&db, &w_id).await?;
     // A token is only ever sent to the instance it was meant for. Without this, re-pointing the
     // target between the user getting a token and posting it here would hand it to the new one;
-    // a change after this check is caught by the insert below, and the token still goes to
+    // a change after this check is caught before the insert below, and the token still goes to
     // `target`, never to what the setting became.
     let requested = request.target.normalized()?;
     if requested.base_url != target.base_url || requested.workspace_id != target.workspace_id {
@@ -424,14 +424,29 @@ async fn connect(
     .fetch_one(&mut *tx)
     .await?;
     let mc = crypt_from_key_with_suffix(&key, "");
-    // Only while the workspace still points at the target the token was just checked against.
+    // Only while the workspace still points at the target the token was just checked against,
+    // read under the lock `set_target` writes it under: an unlocked read could still see the old
+    // target of a change whose token cleanup already ran, and leave a row for it. After the key,
+    // the order a rotation takes the two in.
+    let current = sqlx::query_scalar!(
+        "SELECT remote_deploy_target FROM workspace_settings WHERE workspace_id = $1 FOR SHARE",
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten()
+    .and_then(|t| serde_json::from_value::<RemoteDeployTarget>(t).ok());
+    if !current
+        .is_some_and(|c| c.base_url == target.base_url && c.workspace_id == target.workspace_id)
+    {
+        return Err(Error::BadRequest(
+            "The remote deploy target changed while connecting".to_string(),
+        ));
+    }
     let connected_at = sqlx::query_scalar!(
         "INSERT INTO remote_deploy_token
              (workspace_id, email, base_url, remote_workspace_id, token, remote_email, proxy_key)
-         SELECT $1::text, $2::text, $3::text, $4::text, $5::text, $6::text, $7::text
-         FROM workspace_settings
-         WHERE workspace_id = $1::text AND remote_deploy_target->>'base_url' = $3::text
-           AND remote_deploy_target->>'workspace_id' = $4::text
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
          ON CONFLICT (workspace_id, email) DO UPDATE SET
              base_url = EXCLUDED.base_url, remote_workspace_id = EXCLUDED.remote_workspace_id,
              token = EXCLUDED.token, remote_email = EXCLUDED.remote_email,
@@ -445,11 +460,8 @@ async fn connect(
         &whoami.email,
         &proxy_key
     )
-    .fetch_optional(&mut *tx)
-    .await?
-    .ok_or_else(|| {
-        Error::BadRequest("The remote deploy target changed while connecting".to_string())
-    })?;
+    .fetch_one(&mut *tx)
+    .await?;
     audit_log(
         &mut *tx,
         &authed,
