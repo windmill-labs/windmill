@@ -23,7 +23,7 @@ use windmill_ai::ai_cache::current_instance_ai_config_revision;
 use windmill_ai::ai_providers::{
     empty_string_as_none, AIPlatform, AIProvider, ProviderConfig, ProviderModel,
 };
-use windmill_ai::ai_types::{validate_context_window, MAX_MODEL_RATE};
+use windmill_ai::ai_types::{validate_token_limit, CONTEXT_WINDOWS, MAX_MODEL_RATE, OUTPUT_LIMITS};
 use windmill_ai::credentials::ProviderCredentials;
 #[cfg(feature = "bedrock")]
 use windmill_ai::providers::bedrock::{
@@ -513,9 +513,14 @@ impl AIConfig {
         Ok(())
     }
 
-    pub fn validate_context_windows(&self) -> Result<()> {
-        for (key, window) in self.context_window_per_model.iter().flatten() {
-            validate_context_window(key, i64::from(*window)).map_err(Error::BadRequest)?;
+    pub fn validate_token_limits(&self) -> Result<()> {
+        for (entries, bounds) in [
+            (&self.context_window_per_model, &CONTEXT_WINDOWS),
+            (&self.max_tokens_per_model, &OUTPUT_LIMITS),
+        ] {
+            for (key, tokens) in entries.iter().flatten() {
+                validate_token_limit(bounds, key, i64::from(*tokens)).map_err(Error::BadRequest)?;
+            }
         }
         Ok(())
     }

@@ -236,40 +236,62 @@ pub fn validate_model_pricing_json(ai_config: &serde_json::Value) -> Result<(), 
 }
 
 // ============================================================================
-// Model context windows
+// Per-model token maps
 // ============================================================================
 
-/// Bounds of a `context_window_per_model` override. The chat compacts its history
-/// as it nears the window, so a value below any real model's window would compact
-/// every turn; the ceiling is far above any shipped model and only catches typos.
-const MIN_CONTEXT_WINDOW: i64 = 1024;
-const MAX_CONTEXT_WINDOW: i64 = 10_000_000;
+/// One `provider:model` -> tokens map of the AI config, with the bounds the API
+/// documents for it. Both maps are validated the same way, so the bounds live here
+/// rather than at each call site.
+pub struct TokenMap {
+    pub field: &'static str,
+    pub label: &'static str,
+    pub min: i64,
+    pub max: i64,
+}
 
-pub fn validate_context_window(key: &str, window: i64) -> Result<(), String> {
-    if (MIN_CONTEXT_WINDOW..=MAX_CONTEXT_WINDOW).contains(&window) {
+/// The chat compacts its history as it nears the window, so a value below any real
+/// model's window would compact every turn; the ceiling is far above any shipped
+/// model and only catches typos.
+pub const CONTEXT_WINDOWS: TokenMap = TokenMap {
+    field: "context_window_per_model",
+    label: "Context window",
+    min: 1024,
+    max: 10_000_000,
+};
+
+/// The completion cap the chat asks the provider for.
+pub const OUTPUT_LIMITS: TokenMap =
+    TokenMap { field: "max_tokens_per_model", label: "Output limit", min: 1, max: 2_000_000 };
+
+pub const TOKEN_MAPS: [TokenMap; 2] = [CONTEXT_WINDOWS, OUTPUT_LIMITS];
+
+pub fn validate_token_limit(map: &TokenMap, key: &str, tokens: i64) -> Result<(), String> {
+    if (map.min..=map.max).contains(&tokens) {
         Ok(())
     } else {
         Err(format!(
-            "Context window for {} must be between {} and {} tokens",
-            key, MIN_CONTEXT_WINDOW, MAX_CONTEXT_WINDOW
+            "{} for {} must be between {} and {} tokens",
+            map.label, key, map.min, map.max
         ))
     }
 }
 
-/// Bound the `context_window_per_model` map of the untyped instance AI config, for
-/// the reason given on `validate_model_pricing_json`.
-pub fn validate_context_windows_json(ai_config: &serde_json::Value) -> Result<(), String> {
-    let windows = match ai_config.get("context_window_per_model") {
-        None | Some(serde_json::Value::Null) => return Ok(()),
-        Some(v) => v
-            .as_object()
-            .ok_or_else(|| "context_window_per_model must be an object".to_string())?,
-    };
-    for (key, window) in windows {
-        let window = window
-            .as_i64()
-            .ok_or_else(|| format!("Context window for {} must be an integer", key))?;
-        validate_context_window(key, window)?;
+/// Bound these maps in the untyped instance AI config, for the reason given on
+/// `validate_model_pricing_json`.
+pub fn validate_token_maps_json(ai_config: &serde_json::Value) -> Result<(), String> {
+    for map in TOKEN_MAPS.iter() {
+        let entries = match ai_config.get(map.field) {
+            None | Some(serde_json::Value::Null) => continue,
+            Some(v) => v
+                .as_object()
+                .ok_or_else(|| format!("{} must be an object", map.field))?,
+        };
+        for (key, tokens) in entries {
+            let tokens = tokens
+                .as_i64()
+                .ok_or_else(|| format!("{} for {} must be an integer", map.label, key))?;
+            validate_token_limit(map, key, tokens)?;
+        }
     }
     Ok(())
 }
@@ -280,20 +302,21 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn instance_context_windows_are_bounded_integers() {
-        let windows = |value| json!({ "context_window_per_model": { "customai:m": value } });
-        assert!(validate_context_windows_json(&json!({})).is_ok());
-        assert!(validate_context_windows_json(&windows(json!(MIN_CONTEXT_WINDOW))).is_ok());
-        assert!(validate_context_windows_json(&windows(json!(MAX_CONTEXT_WINDOW))).is_ok());
-        for bad in [
-            json!(MIN_CONTEXT_WINDOW - 1),
-            json!(65536.5),
-            json!("65536"),
-        ] {
-            assert!(validate_context_windows_json(&windows(bad)).is_err());
+    fn instance_token_maps_are_bounded_integers() {
+        assert!(validate_token_maps_json(&json!({})).is_ok());
+        for map in TOKEN_MAPS.iter() {
+            let entry = |value| json!({ map.field: { "customai:m": value } });
+            assert!(validate_token_maps_json(&entry(json!(map.min))).is_ok());
+            assert!(validate_token_maps_json(&entry(json!(map.max))).is_ok());
+            for bad in [
+                json!(map.min - 1),
+                json!(map.max + 1),
+                json!(4096.5),
+                json!("4096"),
+            ] {
+                assert!(validate_token_maps_json(&entry(bad)).is_err());
+            }
+            assert!(validate_token_maps_json(&json!({ map.field: [4096] })).is_err());
         }
-        assert!(
-            validate_context_windows_json(&json!({ "context_window_per_model": [65536] })).is_err()
-        );
     }
 }
