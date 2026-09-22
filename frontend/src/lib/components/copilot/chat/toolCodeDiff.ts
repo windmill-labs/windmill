@@ -155,6 +155,10 @@ function lines(value: string): string[] {
 	return result
 }
 
+function hasFinalNewline(value: string): boolean {
+	return value.endsWith('\n')
+}
+
 export function toolDiffLines(diff: ToolCodeDiff, streaming = false): ToolDiffLine[] {
 	const before = lines(diff.before)
 	const after = lines(diff.after)
@@ -216,6 +220,13 @@ export function toolDiffLines(diff: ToolCodeDiff, streaming = false): ToolDiffLi
 	newIndex += trailingContext
 	appendChangedLines(result, 'removed', before, oldIndex, before.length, removedRanges)
 	appendChangedLines(result, 'added', after, newIndex, after.length, addedRanges)
+	if (hasFinalNewline(diff.before) !== hasFinalNewline(diff.after)) {
+		result.push(
+			hasFinalNewline(diff.before)
+				? { kind: 'removed', content: '', oldLine: before.length + 1 }
+				: { kind: 'added', content: '', newLine: after.length + 1 }
+		)
+	}
 
 	return result
 }

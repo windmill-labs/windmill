@@ -70,7 +70,7 @@
 <HighlightTheme />
 
 <div
-	class="tool-code-diff max-h-[400px] overflow-auto bg-white text-xs leading-[18px] text-[#2d3748] dark:bg-[#1e1e1e] dark:text-[#d4d4d4]"
+	class="tool-code-diff max-h-[400px] overflow-auto bg-surface-tertiary text-xs leading-[18px] text-primary"
 >
 	{#each visibleRows as row, index (row.kind === 'collapsed'
 		? `collapsed:${row.key}`
@@ -79,7 +79,7 @@
 			<Button
 				unifiedSize="2xs"
 				variant="subtle"
-				btnClasses="grid min-h-7 w-full grid-cols-[0.875rem_2.9375rem_minmax(0,1fr)] items-center gap-0 rounded-none bg-[#f5f5f5] px-0 py-1 text-left text-xs font-normal leading-[18px] text-[#989da5] hover:bg-[#e8e8e8] dark:bg-[#2d2d30] dark:text-[#858585] dark:hover:bg-[#37373d]"
+				btnClasses="grid min-h-7 w-full grid-cols-[0.875rem_2.9375rem_minmax(0,1fr)] items-center gap-0 rounded-none bg-surface-secondary px-0 py-1 text-left text-xs font-normal leading-[18px] text-hint hover:bg-surface-hover"
 				onclick={() => expand(row.key)}
 			>
 				<span class="text-right">...</span>
@@ -90,8 +90,8 @@
 			</Button>
 		{:else}
 			<div class="diff-line-{row.kind} grid grid-cols-[0.875rem_2.9375rem_minmax(0,1fr)]">
-				<span class="text-right text-[#989da5]">{row.oldLine ?? ''}</span>
-				<span class="grid grid-cols-[1.125rem_0.875rem_0.9375rem] text-[#989da5]">
+				<span class="text-right text-hint">{row.oldLine ?? ''}</span>
+				<span class="grid grid-cols-[1.125rem_0.875rem_0.9375rem] text-hint">
 					<span></span><span class="text-right">{row.newLine ?? ''}</span><span
 						>{row.kind === 'added' ? '+' : row.kind === 'removed' ? '-' : ''}</span
 					>
@@ -99,16 +99,16 @@
 				<Highlight {language} code={row.content} let:highlighted>
 					<span
 						class="relative min-w-0 whitespace-pre {row.kind === 'added'
-							? 'bg-[rgba(155,185,85,0.2)]'
+							? 'bg-green-500/20'
 							: row.kind === 'removed'
-								? 'bg-[rgba(255,0,0,0.2)]'
+								? 'bg-red-500/20'
 								: ''}"
 					>
 						{#each row.changedRanges ?? [] as range}
 							<span
 								class="pointer-events-none absolute top-0 z-0 h-[18px] {row.kind === 'added'
-									? 'bg-[rgba(156,204,44,0.25)]'
-									: 'bg-[rgba(255,0,0,0.2)]'}"
+									? 'bg-green-500/25'
+									: 'bg-red-500/20'}"
 								style={rangeStyle(row.content, range)}
 							></span>
 						{/each}
@@ -127,34 +127,34 @@
 
 	.diff-line-added > span:nth-child(-n + 2),
 	.diff-line-removed > span:nth-child(-n + 2) {
-		color: #c2c9d1;
+		@apply text-hint;
 	}
 
 	.tool-code-diff :global(.hljs-keyword),
 	.tool-code-diff :global(.hljs-literal),
 	.tool-code-diff :global(.hljs-built_in) {
-		color: #0000ff;
+		@apply text-accent;
 	}
 
 	.tool-code-diff :global(.hljs-string) {
-		color: #a31515;
+		@apply text-red-500;
 	}
 
 	.tool-code-diff :global(.hljs-title.class_),
 	.tool-code-diff :global(.hljs-type) {
-		color: #267f99;
+		@apply text-accent;
 	}
 
 	.tool-code-diff :global(.hljs-title.function_) {
-		color: #2d3748;
+		@apply text-primary;
 	}
 
 	.tool-code-diff :global(.hljs-attr),
 	.tool-code-diff :global(.hljs-subst) {
-		color: #2d3748;
+		@apply text-primary;
 	}
 
 	.tool-code-diff :global(.hljs-number) {
-		color: #098658;
+		@apply text-green-500;
 	}
 </style>

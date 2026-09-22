@@ -130,6 +130,13 @@ describe('toolCodeDiff', () => {
 		})
 	})
 
+	it('keeps a final newline as a diffable line', () => {
+		expect(toolDiffLines({ before: 'one', after: 'one\n', lang: 'plaintext' })).toEqual([
+			{ kind: 'context', content: 'one', oldLine: 1, newLine: 1 },
+			{ kind: 'added', content: '', newLine: 2 }
+		])
+	})
+
 	it('keeps both gutters correct across removed and added lines', () => {
 		expect(
 			toolDiffLines({
