@@ -9,7 +9,13 @@
 	import DiagramAutoFit from './DiagramAutoFit.svelte'
 	import { buildRelationIndex, type DbRelation } from '../dbRelations'
 	import { DbDiagramHighlight, setDbDiagramHighlight } from './dbDiagramHighlight.svelte'
-	import { buildDiagramTables, cardHeight, layoutTables, CARD_WIDTH } from './dbDiagramModel'
+	import {
+		buildDiagramTables,
+		cardHeight,
+		layoutTables,
+		visibleColumns,
+		CARD_WIDTH
+	} from './dbDiagramModel'
 	import type { DBSchema } from '$lib/stores'
 	import type { ColumnDef } from '../apps/components/display/dbtable/utils'
 	import type { SelectedTable } from '../DBManager.svelte'
@@ -65,6 +71,19 @@
 				onOpenTable: () => onOpenTable?.({ schema: table.schema, table: table.table })
 			}
 		}))
+	})
+
+	// A pin whose table was unchecked, or whose column was folded away by
+	// collapsing its card, would leave the canvas dimmed around nothing on screen.
+	$effect(() => {
+		const pinned = highlight.pinned
+		if (!pinned) return
+		const table = tables.find((t) => t.key === pinned.table)
+		const shown =
+			!!table &&
+			(!pinned.column ||
+				visibleColumns(table, expanded.has(table.key)).some((c) => c.name === pinned.column))
+		if (!shown) highlight.pinned = undefined
 	})
 
 	let fitKey = $derived(tables.map((t) => t.key).join('\n'))

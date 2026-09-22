@@ -118,7 +118,8 @@ export function buildRelationIndex(relations: DbRelation[]): RelationIndex {
 			add(index.linkedColumns, fromColumn, toColumn)
 			add(index.linkedColumns, toColumn, fromColumn)
 
-			// A self-referencing key would otherwise register only once.
+			// Both ends of the pair under both tables: hovering either table has to
+			// light its own column and the one it is paired with.
 			for (const table of [fromTable, toTable]) {
 				add(index.relatedColumns, table, fromColumn)
 				add(index.relatedColumns, table, toColumn)

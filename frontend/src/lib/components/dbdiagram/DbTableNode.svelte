@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { ChevronDown, ChevronUp, KeyRound, Link2, Table2 } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
+	import { Button } from '$lib/components/common'
 	import { columnKeyIn, type RelationIndex } from '../dbRelations'
 	import { getDbDiagramHighlight } from './dbDiagramHighlight.svelte'
 	import {
@@ -98,21 +99,17 @@
 	{/each}
 
 	{#if hasExpandToggle(table)}
-		<button
-			class="flex items-center gap-1 px-2 w-full text-2xs text-tertiary hover:bg-surface-hover"
-			style="height: {ROW_HEIGHT}px"
-			onclick={(e) => {
-				e.stopPropagation()
-				data.onToggleExpand()
-			}}
-		>
-			{#if data.expanded}
-				<ChevronUp size={11} class="shrink-0" />
-				<span>Show less</span>
-			{:else}
-				<ChevronDown size={11} class="shrink-0" />
-				<span>{hidden} more</span>
-			{/if}
-		</button>
+		<div class="flex items-center px-1" style="height: {ROW_HEIGHT}px">
+			<Button
+				variant="subtle"
+				unifiedSize="2xs"
+				startIcon={{ icon: data.expanded ? ChevronUp : ChevronDown }}
+				wrapperClasses="w-full"
+				btnClasses="w-full justify-start"
+				onClick={() => data.onToggleExpand()}
+			>
+				{data.expanded ? 'Show less' : `${hidden} more`}
+			</Button>
+		</div>
 	{/if}
 </div>

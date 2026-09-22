@@ -1090,12 +1090,12 @@
 							whether app sandbox isolation is turned on, whether a step's workspace script is
 							edited from the flow editor, which skin approval steps are given, how many AI sessions
 							are brought back from the workspace object storage backup, how data tables and their
-							migrations are set up and used, whether the database manager is opened on data or on
-							the schema diagram, how often an empty workspace home is seen, how often the home
-							page’s create menu and hub-project picker are opened and from which entry point, the
-							name of any public hub project imported from the home page and how far that import
-							got, whether a pre-approved trial offer was opened, whether data tables are put under
-							roles and whether callers name a role or take the default, which kinds of access
+							migrations are set up and used, how often the database manager is switched between its
+							data and schema diagram views, how often an empty workspace home is seen, how often
+							the home page’s create menu and hub-project picker are opened and from which entry
+							point, the name of any public hub project imported from the home page and how far that
+							import got, whether a pre-approved trial offer was opened, whether data tables are put
+							under roles and whether callers name a role or take the default, which kinds of access
 							change (grant, revoke, ownership, default privileges) are applied to data tables, and
 							whether a data table under roles is cloned into a fork with its schema only or with
 							its data, last 30 days)</li
@@ -1161,12 +1161,12 @@
 							whether app sandbox isolation is turned on, whether a step's workspace script is
 							edited from the flow editor, which skin approval steps are given, how many AI sessions
 							are brought back from the workspace object storage backup, how data tables and their
-							migrations are set up and used, whether the database manager is opened on data or on
-							the schema diagram, how often an empty workspace home is seen, how often the home
-							page’s create menu and hub-project picker are opened and from which entry point, the
-							name of any public hub project imported from the home page and how far that import
-							got, whether a pre-approved trial offer was opened, whether data tables are put under
-							roles and whether callers name a role or take the default, which kinds of access
+							migrations are set up and used, how often the database manager is switched between its
+							data and schema diagram views, how often an empty workspace home is seen, how often
+							the home page’s create menu and hub-project picker are opened and from which entry
+							point, the name of any public hub project imported from the home page and how far that
+							import got, whether a pre-approved trial offer was opened, whether data tables are put
+							under roles and whether callers name a role or take the default, which kinds of access
 							change (grant, revoke, ownership, default privileges) are applied to data tables, and
 							whether a data table under roles is cloned into a fork with its schema only or with
 							its data, last 30 days)</li
