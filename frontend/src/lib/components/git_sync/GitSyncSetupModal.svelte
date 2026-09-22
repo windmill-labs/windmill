@@ -270,9 +270,15 @@
 		if (!connection || !workspace) return
 		connecting = true
 		connectError = undefined
+		// Read once: the fields stay editable while the request is in flight, and reading the
+		// path again afterwards would configure a repository this run never created.
+		const submitted = { path: newPath, connection, branch, folder }
 		try {
-			await createRepositoryResource(workspace, newPath, connection, { branch, folder })
-			enterConfigure(newPath)
+			await createRepositoryResource(workspace, submitted.path, submitted.connection, {
+				branch: submitted.branch,
+				folder: submitted.folder
+			})
+			enterConfigure(submitted.path)
 		} catch (e) {
 			connectError = apiErrorMessage(e)
 		} finally {
@@ -315,7 +321,11 @@
 					{#snippet resourceIcon()}
 						<Database size={18} class="text-secondary" />
 					{/snippet}
-					<div role="radiogroup" aria-label="How to connect the repository" class="contents">
+					<div
+						role="radiogroup"
+						aria-label="How to connect the repository"
+						class="flex flex-col gap-2"
+					>
 						{@render providerCard(
 							'github_app',
 							githubIcon,
