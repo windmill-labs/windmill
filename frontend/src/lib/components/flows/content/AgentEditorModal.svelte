@@ -1,5 +1,7 @@
 <script lang="ts">
-	import { FlaskConical, History, Save } from 'lucide-svelte'
+	import { FlaskConical, FormInput, History, MessageSquare, Save } from 'lucide-svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { onDestroy, untrack } from 'svelte'
 	import { resource } from 'runed'
 	import Modal, { type ModalTrailSegment } from '$lib/components/common/modal/Modal.svelte'
@@ -93,6 +95,7 @@
 	})
 
 	let draft = $derived(host?.draftHandle())
+	let testPane = $derived(host?.testPaneHandle())
 	// The load refused this path, so there is no agent to deploy, evaluate or show a history of:
 	// the dialog carries only the refusal the host renders.
 	let refused = $derived(draft?.refusal != null)
@@ -268,6 +271,38 @@
 			{#snippet settings()}
 				<div class="flex flex-row items-center gap-2 shrink-0">
 					{#if !inEvals && !refused}
+						<!-- Switches the editor's right-hand pane, and is drawn only once the agent has
+						     loaded and the pane has picked its first mode. -->
+						{#if testPane?.mode}
+							<ToggleButtonGroup
+								bind:selected={
+									() => testPane?.mode,
+									(mode) => {
+										if (testPane) testPane.mode = mode
+									}
+								}
+								noWFull
+							>
+								{#snippet children({ item })}
+									<ToggleButton
+										size="sm"
+										value="chat"
+										label="Chat"
+										icon={MessageSquare}
+										tooltip="Chat with the agent: each message runs it, and it remembers the conversation"
+										{item}
+									/>
+									<ToggleButton
+										size="sm"
+										value="form"
+										label="Form"
+										icon={FormInput}
+										tooltip="Run the agent once, on the inputs in a form"
+										{item}
+									/>
+								{/snippet}
+							</ToggleButtonGroup>
+						{/if}
 						{#if readOnly}
 							<Badge
 								color="gray"
