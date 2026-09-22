@@ -310,7 +310,10 @@ export async function fetchAvailableModels(
 }
 
 export function getModelMaxTokens(provider: AIProvider, model: string) {
-	if (model.includes('gpt-5')) {
+	if (/^(deepseek-flash|deepseek-v4-(flash|pro))$/.test(model.split('/').pop() ?? '')) {
+		// DeepSeek counts reasoning against the output budget as well as the answer.
+		return 393216
+	} else if (model.includes('gpt-5')) {
 		return 128000
 	} else if (
 		(provider === 'azure_openai' || provider === 'openai' || provider === 'azure_foundry') &&

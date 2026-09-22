@@ -116,11 +116,29 @@ async function setupClients() {
 
 beforeEach(async () => {
 	await setupClients()
-})
+}, 60000)
 
 afterEach(() => {
 	vi.restoreAllMocks()
 	h.currentModel = undefined
+})
+
+describe('DeepSeek output budget', () => {
+	it.each(['deepseek-flash', 'deepseek-v4-flash', 'deepseek-v4-pro'])(
+		'sends the full reasoning and answer budget for %s',
+		async (model) => {
+			const { getCompletion, getNonStreamingMetadataCompletion, METADATA_MAX_TOKENS } =
+				await import('./lib')
+			h.currentModel = { provider: 'deepseek', model }
+
+			await getCompletion(messages, new AbortController())
+			expect(openaiCreate.mock.calls[0][0].max_tokens).toBe(393216)
+
+			openaiCreate.mockClear()
+			await getNonStreamingMetadataCompletion(messages, new AbortController())
+			expect(openaiCreate.mock.calls[0][0].max_tokens).toBe(METADATA_MAX_TOKENS)
+		}
+	)
 })
 
 describe('Anthropic Messages API routing', () => {
