@@ -20,11 +20,14 @@
 	let selectedProject: string | undefined = $state(undefined)
 	let loading = $state(false)
 	let listError: string | undefined = $state(undefined)
-	/** The token the current listing was made with: a project chosen under another
-	 * token must not be stored with this one. */
+	/** What the current listing was made with: a project chosen against another token or
+	 * another instance must not be stored under the ones on screen now. */
 	let listedToken = $state('')
+	let listedBaseUrl = $state('')
 
-	const staleListing = $derived(projects.length > 0 && token !== listedToken)
+	const staleListing = $derived(
+		projects.length > 0 && (token !== listedToken || baseUrl !== listedBaseUrl)
+	)
 	const project = $derived(projects.find((p) => p.path_with_namespace === selectedProject))
 
 	$effect(() => {
@@ -38,12 +41,14 @@
 		loading = true
 		listError = undefined
 		const listedWith = token
+		const listedAgainst = baseUrl
 		try {
 			projects = await GitSyncService.listGitlabProjects({
 				workspace,
-				requestBody: { base_url: baseUrl, token: listedWith }
+				requestBody: { base_url: listedAgainst, token: listedWith }
 			})
 			listedToken = listedWith
+			listedBaseUrl = listedAgainst
 			selectedProject = projects[0]?.path_with_namespace
 			if (projects.length === 0) {
 				listError = 'The token can see no project with at least the Developer role'
@@ -90,7 +95,8 @@
 	{/if}
 	{#if staleListing}
 		<span class="text-xs text-secondary">
-			The token changed. List the projects again to choose one it can reach.
+			The token or the instance changed. List the projects again to choose one they can
+			reach.
 		</span>
 	{:else if projects.length > 0}
 		<label class="flex flex-col gap-1">

@@ -10,6 +10,7 @@
 	import Path from '../Path.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 	import EEOnly from '../EEOnly.svelte'
+	import RadioCard from '../common/radioCard/RadioCard.svelte'
 	import GithubIcon from '../icons/GithubIcon.svelte'
 	import GitlabIcon from '../icons/GitlabIcon.svelte'
 	import GitlabProjectConnectForm from './setup/GitlabProjectConnectForm.svelte'
@@ -165,6 +166,7 @@
 	async function reset() {
 		step = 1
 		done = undefined
+		applying = false
 		githubApp?.dispose()
 		githubApp = undefined
 		hasResource = false
@@ -260,8 +262,7 @@
 	bind:isOpen={opened}
 	target="#content"
 	formStyling
-	closeOnOutsideClick={!busy}
-	closeOnEscape={!busy}
+	preventDismiss={busy}
 	{title}
 	contentClasses="flex flex-col"
 	fixedWidth="md"
@@ -504,25 +505,19 @@
 	subtitle: string,
 	eeOnly: boolean = false
 )}
-	{@const selected = provider === key}
-	<button
-		class="text-left border rounded-md p-3 flex gap-3 items-start transition-colors {selected
-			? 'border-border-selected/50 bg-surface-accent-selected'
-			: 'border-border-light hover:bg-surface-hover'} disabled:opacity-60 disabled:cursor-not-allowed"
-		disabled={eeOnly}
-		onclick={() => selectProvider(key)}
-	>
-		<span class="mt-0.5 shrink-0">{@render icon()}</span>
-		<span class="flex flex-col gap-0.5 min-w-0">
-			<span
-				class="text-xs font-medium flex items-center gap-2 {selected
-					? 'text-accent'
-					: 'text-emphasis'}"
-			>
-				{title}
-				{#if eeOnly}<EEOnly />{/if}
-			</span>
-			<span class="text-xs text-secondary font-normal">{subtitle}</span>
+	{#snippet description()}
+		<span class="flex items-center gap-2">
+			<span>{subtitle}</span>
+			{#if eeOnly}<EEOnly />{/if}
 		</span>
-	</button>
+	{/snippet}
+	<RadioCard
+		label={title}
+		{description}
+		selected={provider === key}
+		disabled={eeOnly}
+		{icon}
+		showRadio={false}
+		onSelect={() => selectProvider(key)}
+	/>
 {/snippet}

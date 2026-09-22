@@ -145,10 +145,14 @@
 		setupMode = mode
 		setupTitle =
 			mode === 'promotion'
-				? 'Add a promotion repository'
-				: repositories.length === 0
-					? 'Configure Git Sync'
-					: 'Add a secondary sync repository'
+				? primaryPromotion
+					? 'Add a secondary promotion repository'
+					: 'Add a promotion repository'
+				: primarySync
+					? 'Add a secondary sync repository'
+					: repositories.length === 0
+						? 'Configure Git Sync'
+						: 'Add a sync repository'
 		setupOpen = true
 	}
 
@@ -193,12 +197,13 @@
 		return `${primary ? 'Primary' : 'Secondary'} ${promotion ? 'promotion' : 'sync'} repository`
 	}
 
-	// Shown without EE too, disabled, so CE users see what the upgrade unlocks.
-	const showAddSecondarySync = $derived(
-		!devSingleRepo &&
-			!!primarySync &&
-			!primarySync.repo.isUnsavedConnection &&
-			!hasUnsavedConnection
+	// Shown without EE too, disabled, so CE users see what the upgrade unlocks. Offered with
+	// no sync repository as well: a workspace that configured promotion first still has none.
+	const showAddSync = $derived(
+		!devSingleRepo && !primarySync?.repo.isUnsavedConnection && !hasUnsavedConnection
+	)
+	const addSyncLabel = $derived(
+		primarySync ? 'Add secondary sync repository' : 'Add sync repository'
 	)
 	const showAddPromotion = $derived(showPromotion && !devSingleRepo && !hasUnsavedConnection)
 </script>
@@ -329,9 +334,9 @@
 					{/each}
 				</div>
 
-				{#if showAddSecondarySync || showAddPromotion}
+				{#if showAddSync || showAddPromotion}
 					<div class="flex gap-4 mt-3">
-						{#if showAddSecondarySync}
+						{#if showAddSync}
 							<div class="flex items-center gap-1">
 								<Button
 									unifiedSize="sm"
@@ -340,7 +345,7 @@
 									disabled={!$enterpriseLicense}
 									onClick={() => openSetup('sync')}
 								>
-									Add secondary sync repository
+									{addSyncLabel}
 								</Button>
 								{#if !$enterpriseLicense}<EEOnly />{/if}
 							</div>

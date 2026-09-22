@@ -33,6 +33,9 @@
 		 * window, so a stacked pair would both close on one press; set it
 		 * false on the underlying modal while its child is up. */
 		closeOnEscape?: boolean
+		/** Blocks every way out — the header ✕, Escape and an outside click — for a dialog
+		 * holding work in flight that a dismissal would orphan. */
+		preventDismiss?: boolean
 		/** Wider side padding and a lighter title, for a dialog whose body is a form rather
 		 *  than a list. Opt-in: every other Modal2 keeps the padding and heading it had. */
 		formStyling?: boolean
@@ -54,6 +57,7 @@
 		contentClasses = '',
 		closeOnOutsideClick = true,
 		closeOnEscape = true,
+		preventDismiss = false,
 		formStyling = false,
 		headerLeft,
 		headerRight,
@@ -99,7 +103,7 @@
 	})
 
 	function handleKeyDown(event: KeyboardEvent) {
-		if (!isOpen || !closeOnEscape) return
+		if (!isOpen || !closeOnEscape || preventDismiss) return
 		// Hidden hosts stay mounted and still receive window keys — see overlayHost.
 		if (!hostActive()) return
 		if (!(disposable?.isTopmost() ?? true)) return
@@ -142,7 +146,10 @@
 							)}
 							use:clickOutside={{
 								onClickOutside: () =>
-									closeOnOutsideClick && (disposable?.isTopmost() ?? true) && close(),
+									closeOnOutsideClick &&
+									!preventDismiss &&
+									(disposable?.isTopmost() ?? true) &&
+									close(),
 								// A dropdown opened from inside the dialog portals its menu out of it, so a
 								// click on one of its items lands outside this node and would close the
 								// dialog under the menu.
@@ -165,10 +172,11 @@
 														<div class="w-8">
 															<button
 																id="modal-close-button"
+																disabled={preventDismiss}
 																onclick={() => {
 																	close()
 																}}
-																class="hover:bg-surface-hover rounded-full w-8 h-8 flex items-center justify-center transition-all"
+																class="hover:bg-surface-hover rounded-full w-8 h-8 flex items-center justify-center transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
 															>
 																<X class="text-primary " />
 															</button>
