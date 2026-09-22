@@ -953,26 +953,32 @@ pub async fn maybe_refresh_folders(
 /// `docs/operator-write-rights.md` before putting a new route under one of these routers.
 pub async fn gate_operator_writes(
     State(kind): State<ManageKind>,
-    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(params): Path<HashMap<String, String>>,
     request: Request,
     next: Next,
 ) -> Result<Response> {
-    if !matches!(
+    if matches!(
         *request.method(),
         http::Method::GET | http::Method::HEAD | http::Method::OPTIONS
     ) {
-        // Absent only if this is layered outside `/w/{workspace_id}`, which is a wiring mistake:
-        // refuse rather than let the write through unchecked.
-        let w_id = params.get("workspace_id").ok_or_else(|| {
-            Error::internal_err(
-                "operator write gate layered outside a workspaced router".to_string(),
-            )
-        })?;
-        check_operator_can_manage(&db, w_id, authed.is_operator, kind).await?;
+        return Ok(next.run(request).await);
     }
-    Ok(next.run(request).await)
+
+    // Resolved here rather than taken as an extractor so that reads, which are the traffic under
+    // these routers, do not pay for it: `ApiAuthed` memoizes nothing between extractions, so
+    // whatever this layer resolves the handler behind it resolves again.
+    let (mut parts, body) = request.into_parts();
+    let authed = <ApiAuthed as FromRequestParts<()>>::from_request_parts(&mut parts, &()).await?;
+
+    // Absent only if this is layered outside `/w/{workspace_id}`, which is a wiring mistake:
+    // refuse rather than let the write through unchecked.
+    let w_id = params.get("workspace_id").ok_or_else(|| {
+        Error::internal_err("operator write gate layered outside a workspaced router".to_string())
+    })?;
+    check_operator_can_manage(&db, w_id, authed.is_operator, kind).await?;
+
+    Ok(next.run(Request::from_parts(parts, body)).await)
 }
 
 // ------------ FromRequestParts impls (direct call to auth module) ------------
