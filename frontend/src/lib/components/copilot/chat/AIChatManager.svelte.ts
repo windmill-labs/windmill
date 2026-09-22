@@ -717,7 +717,17 @@ export class AIChatManager implements ChatViewHost {
 		role: 'system',
 		content: ''
 	})
-	tools = $state<Tool<any>[]>([])
+	/** The sources the current mode assembled, concatenated. Private, because neither view
+	 * over it is this list: a consumer reading it would advertise a tool set no request ever
+	 * carries. */
+	#assembledTools = $state<Tool<any>[]>([])
+	/** What the request carries: the assembled tools plus the plan-mode transition the current
+	 * posture offers. Read by the request path and by the YOLO disclosure. */
+	tools: Tool<any>[] = $derived([...this.#assembledTools, ...this.planMode.tools])
+	/** What the assistant can call in this session, posture-independent: both plan-mode
+	 * transitions, whichever one is offered right now. A reference answer, so flipping the
+	 * autonomy picker must not change it. */
+	availableTools: Tool<any>[] = $derived([...this.#assembledTools, ...this.planMode.availableTools])
 	helpers = $state<any | undefined>(undefined)
 
 	scriptEditorOptions = $state<ScriptOptions | undefined>(undefined)
@@ -1764,7 +1774,7 @@ export class AIChatManager implements ChatViewHost {
 		try {
 			this.apiTools = await loadApiTools()
 			if (this.mode === AIMode.API) {
-				this.tools = [searchDocsTool, readDocsPageTool, ...this.apiTools]
+				this.#assembledTools = [searchDocsTool, readDocsPageTool, ...this.apiTools]
 			}
 		} catch (err) {
 			console.error('Error loading api tools', err)
@@ -2346,7 +2356,7 @@ export class AIChatManager implements ChatViewHost {
 				customPrompt
 			)
 			this.systemMessage.content = this.systemMessage.content
-			this.tools = [...prepareScriptTools(currentModel, lang, context)]
+			this.#assembledTools = [...prepareScriptTools(currentModel, lang, context)]
 			this.helpers = {
 				getScriptOptions: () => {
 					return {
@@ -2378,7 +2388,7 @@ export class AIChatManager implements ChatViewHost {
 			this.systemMessage = prepareFlowSystemMessage(customPrompt)
 			this.systemMessage.content = this.systemMessage.content
 			this.appendFlowAiAgentProviders(this.systemMessage)
-			this.tools = [...flowTools]
+			this.#assembledTools = [...flowTools]
 			this.helpers = {
 				...(this.flowAiChatHelpers ?? {}),
 				getWorkspaceMutationTarget: this.getFlowWorkspaceMutationTarget
@@ -2386,17 +2396,17 @@ export class AIChatManager implements ChatViewHost {
 		} else if (mode === AIMode.NAVIGATOR) {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareNavigatorSystemMessage(customPrompt)
-			this.tools = [this.changeModeTool, ...navigatorTools]
+			this.#assembledTools = [this.changeModeTool, ...navigatorTools]
 			this.helpers = {}
 		} else if (mode === AIMode.ASK) {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareAskSystemMessage(customPrompt)
-			this.tools = [...askTools]
+			this.#assembledTools = [...askTools]
 			this.helpers = {}
 		} else if (mode === AIMode.API) {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareApiSystemMessage(customPrompt)
-			this.tools = [searchDocsTool, readDocsPageTool, ...this.apiTools]
+			this.#assembledTools = [searchDocsTool, readDocsPageTool, ...this.apiTools]
 			this.helpers = {}
 		} else if (mode === AIMode.GLOBAL) {
 			this.configureGlobalMode()
@@ -2406,7 +2416,7 @@ export class AIChatManager implements ChatViewHost {
 		} else if (mode === AIMode.APP) {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareAppSystemMessage(customPrompt)
-			this.tools = [...getAppTools()]
+			this.#assembledTools = [...getAppTools()]
 			this.helpers = this.appAiChatHelpers
 		}
 	}
@@ -2445,7 +2455,7 @@ export class AIChatManager implements ChatViewHost {
 				this.rebuildGlobalSystemMessage()
 			}
 		}
-		this.tools = assembleGlobalTools(opts)
+		this.#assembledTools = assembleGlobalTools(opts)
 		this.helpers = pipeline ? { ...baseHelpers, pipeline } : baseHelpers
 		this.systemMessage = assembleGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), opts)
 		this.syncArtifactsSession()
@@ -2941,7 +2951,7 @@ export class AIChatManager implements ChatViewHost {
 		try {
 			// Use JS getters so runChatLoop re-reads tools/helpers/systemMessage/modelProvider
 			// on each iteration. This is critical for changeModeTool (Navigator → Script/Flow)
-			// which reassigns this.tools, this.helpers, this.systemMessage mid-loop.
+			// which reassigns #assembledTools, this.helpers, this.systemMessage mid-loop.
 			const self = this
 			// Pinned for the whole turn, like the `workspace` the loop routes through:
 			// the global chat's operating workspace follows workspaceStore, so a switch
@@ -2966,7 +2976,7 @@ export class AIChatManager implements ChatViewHost {
 					return base
 				},
 				get tools() {
-					return [...self.tools, ...self.planMode.tools]
+					return self.tools
 				},
 				get helpers() {
 					return self.helpers
