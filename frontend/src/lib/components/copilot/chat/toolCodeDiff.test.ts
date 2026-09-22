@@ -90,6 +90,12 @@ describe('toolCodeDiff', () => {
 		})
 	})
 
+	it('shows a streamed full-code editor update without replacements', () => {
+		expect(
+			toolCodeDiff(message({ toolName: 'edit_code', parameters: '{"code":"console.log(1)' }))
+		).toEqual({ before: '', after: 'console.log(1)', lang: 'plaintext' })
+	})
+
 	it('shows streamed full-script updates before the saved diff is available', () => {
 		expect(
 			toolCodeDiff(

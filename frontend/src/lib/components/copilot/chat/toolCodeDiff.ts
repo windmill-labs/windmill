@@ -17,7 +17,9 @@ const ARGS_DIFF_BY_TOOL: Record<string, (params: unknown) => ToolCodeDiff | unde
 			const diffs = (params as { diffs: unknown[] }).diffs
 			return argumentDiffs(diffs.map(streamingEditArguments))
 		}
-		if (typeof params === 'string') return argumentDiffs(streamingEditArgumentsArray(params))
+		if (typeof params === 'string') {
+			return argumentDiffs(streamingEditArgumentsArray(params)) ?? fullContentArgumentDiff(params, 'code')
+		}
 		return argumentDiff(streamingEditArguments(params)) ?? fullContentArgumentDiff(params, 'code')
 	}
 }
