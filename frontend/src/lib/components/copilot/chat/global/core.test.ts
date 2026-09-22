@@ -2024,6 +2024,24 @@ describe('global AI tools', () => {
 		})
 	})
 
+	it('records a creation diff for a new script draft', async () => {
+		const statuses: any[] = []
+
+		await callGlobalTool(
+			'write_script',
+			{
+				path: 'f/scripts/new-script',
+				language: 'python3',
+				content: 'print("hello")'
+			},
+			{ ...toolCallbacks, setToolStatus: (_toolId, status) => statuses.push(status) }
+		)
+
+		expect(statuses).toContainEqual({
+			codeDiff: { before: '', after: 'print("hello")', lang: 'python' }
+		})
+	})
+
 	it('tells a code app from a drag-and-drop app', async () => {
 		vi.mocked(AppService.listApps).mockResolvedValueOnce([
 			{ path: 'f/apps/code', summary: 'Code app', raw_app: true },

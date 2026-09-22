@@ -77,7 +77,7 @@
 			<Button
 				unifiedSize="2xs"
 				variant="subtle"
-				btnClasses="grid min-h-7 w-full grid-cols-[0.875rem_2.9375rem_minmax(0,1fr)] items-center rounded-none bg-[#f5f5f5] py-1 text-left text-xs font-normal leading-[18px] text-[#989da5] hover:bg-[#e8e8e8] dark:bg-[#2d2d30] dark:text-[#858585] dark:hover:bg-[#37373d]"
+				btnClasses="grid min-h-7 w-full grid-cols-[0.875rem_2.9375rem_minmax(0,1fr)] items-center gap-0 rounded-none bg-[#f5f5f5] px-0 py-1 text-left text-xs font-normal leading-[18px] text-[#989da5] hover:bg-[#e8e8e8] dark:bg-[#2d2d30] dark:text-[#858585] dark:hover:bg-[#37373d]"
 				onclick={() => expand(row.key)}
 			>
 				<span class="text-right">...</span>

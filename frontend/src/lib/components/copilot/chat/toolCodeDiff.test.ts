@@ -108,7 +108,13 @@ describe('toolCodeDiff', () => {
 		expect(hasToolCodeDiff('edit_script')).toBe(true)
 		expect(hasToolCodeDiff('edit_code')).toBe(true)
 		expect(hasToolCodeDiff('write_script')).toBe(true)
+		expect(hasToolCodeDiff('__proto__')).toBe(false)
+		expect(hasToolCodeDiff('toString')).toBe(false)
 		expect(hasToolCodeDiff(undefined)).toBe(false)
+	})
+
+	it('ignores tool names inherited from Object.prototype', () => {
+		expect(toolCodeDiff(message({ toolName: 'constructor', parameters: {} }))).toBeUndefined()
 	})
 
 	it('counts added and removed lines independently', () => {
@@ -179,9 +185,7 @@ describe('toolCodeDiff', () => {
 	})
 
 	it('renders a newly created file', () => {
-		expect(
-			toolDiffLines({ before: '', after: 'print("hello")', lang: 'python' })
-		).toEqual([
+		expect(toolDiffLines({ before: '', after: 'print("hello")', lang: 'python' })).toEqual([
 			{
 				kind: 'added',
 				content: 'print("hello")',

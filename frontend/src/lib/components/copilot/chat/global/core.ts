@@ -5168,14 +5168,11 @@ function writeScriptDraft(
 		override: args.override,
 		codeDiff:
 			codeDiff ??
-			((base, draft) =>
-				base
-					? {
-							before: base.content,
-							after: draft.content,
-							lang: scriptLangToEditorLang(draft.language)
-						}
-					: undefined)
+			((base, draft) => ({
+				before: base?.content ?? '',
+				after: draft.content,
+				lang: scriptLangToEditorLang(draft.language)
+			}))
 	})
 }
 

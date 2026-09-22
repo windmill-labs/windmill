@@ -25,7 +25,7 @@ const LANGUAGE_BY_MONACO: Record<string, LanguageType<string>> = {
 	rust,
 	graphql,
 	csharp,
-	nu: plaintext,
+	nu: python,
 	java,
 	r,
 	go,

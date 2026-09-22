@@ -18,7 +18,10 @@ const ARGS_DIFF_BY_TOOL: Record<string, (params: unknown) => ToolCodeDiff | unde
 			return argumentDiffs(diffs.map(streamingEditArguments))
 		}
 		if (typeof params === 'string') {
-			return argumentDiffs(streamingEditArgumentsArray(params)) ?? fullContentArgumentDiff(params, 'code')
+			return (
+				argumentDiffs(streamingEditArgumentsArray(params)) ??
+				fullContentArgumentDiff(params, 'code')
+			)
 		}
 		return argumentDiff(streamingEditArguments(params)) ?? fullContentArgumentDiff(params, 'code')
 	}
@@ -71,7 +74,9 @@ function streamingEditArguments(
 	}
 }
 
-function streamingEditArgumentsArray(partialJson: string): { old_string?: string; new_string?: string }[] {
+function streamingEditArgumentsArray(
+	partialJson: string
+): { old_string?: string; new_string?: string }[] {
 	const oldStrings = partialJsonStrings(partialJson, 'old_string')
 	const newStrings = partialJsonStrings(partialJson, 'new_string')
 	return Array.from({ length: Math.max(oldStrings.length, newStrings.length) }, (_, index) => ({
@@ -100,16 +105,21 @@ function partialJsonStrings(partialJson: string, key: string): string[] {
 }
 
 export function hasToolCodeDiff(toolName: string | undefined): boolean {
-	return toolName !== undefined && toolName in ARGS_DIFF_BY_TOOL
+	return toolName !== undefined && Object.hasOwn(ARGS_DIFF_BY_TOOL, toolName)
 }
 
 export function toolCodeDiff(message: ToolDisplayMessage): ToolCodeDiff | undefined {
 	if (message.codeDiff) return message.codeDiff
 	if (!message.toolName) return undefined
-	return ARGS_DIFF_BY_TOOL[message.toolName]?.(message.parameters)
+	return Object.hasOwn(ARGS_DIFF_BY_TOOL, message.toolName)
+		? ARGS_DIFF_BY_TOOL[message.toolName](message.parameters)
+		: undefined
 }
 
-export function diffLineCounts(diff: ToolCodeDiff, streaming = false): { added: number; removed: number } {
+export function diffLineCounts(
+	diff: ToolCodeDiff,
+	streaming = false
+): { added: number; removed: number } {
 	if (streaming) {
 		return { added: lines(diff.after).length, removed: lines(diff.before).length }
 	}
@@ -173,16 +183,34 @@ export function toolDiffLines(diff: ToolCodeDiff, streaming = false): ToolDiffLi
 	for (const change of changes) {
 		const oldStart = change.original.startLineNumber - 1
 		const newStart = change.modified.startLineNumber - 1
-		appendContextLines(result, before, after, oldIndex, newIndex, Math.min(oldStart - oldIndex, newStart - newIndex))
-		appendChangedLines(result, 'removed', before, oldStart, change.original.endLineNumberExclusive - 1, removedRanges)
-		appendChangedLines(result, 'added', after, newStart, change.modified.endLineNumberExclusive - 1, addedRanges)
+		appendContextLines(
+			result,
+			before,
+			after,
+			oldIndex,
+			newIndex,
+			Math.min(oldStart - oldIndex, newStart - newIndex)
+		)
+		appendChangedLines(
+			result,
+			'removed',
+			before,
+			oldStart,
+			change.original.endLineNumberExclusive - 1,
+			removedRanges
+		)
+		appendChangedLines(
+			result,
+			'added',
+			after,
+			newStart,
+			change.modified.endLineNumberExclusive - 1,
+			addedRanges
+		)
 		oldIndex = Math.min(change.original.endLineNumberExclusive - 1, before.length)
 		newIndex = Math.min(change.modified.endLineNumberExclusive - 1, after.length)
 	}
-	const trailingContext = Math.max(
-		0,
-		Math.min(before.length - oldIndex, after.length - newIndex)
-	)
+	const trailingContext = Math.max(0, Math.min(before.length - oldIndex, after.length - newIndex))
 	appendContextLines(result, before, after, oldIndex, newIndex, trailingContext)
 	oldIndex += trailingContext
 	newIndex += trailingContext
