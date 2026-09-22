@@ -34,7 +34,12 @@ async fn model(Json(body): Json<Value>) -> ([(&'static str, &'static str); 1], S
     )
 }
 
-async fn run_batch(db: Pool<Postgres>, parallel: bool, limited: bool) -> anyhow::Result<()> {
+async fn run_batch(
+    db: Pool<Postgres>,
+    parallel: bool,
+    limited: bool,
+    unsupported: bool,
+) -> anyhow::Result<()> {
     std::env::set_var("ALLOW_PRIVATE_AI_BASE_URLS", "true");
     let server = ApiServer::start(db.clone()).await?;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
@@ -68,19 +73,21 @@ async fn run_batch(db: Pool<Postgres>, parallel: bool, limited: bool) -> anyhow:
             else { format!("return {i};") };
         json!({"id":format!("t{i}"),"summary":format!("tool_{i}"),"value":{
             "type":"rawscript", "language":"bun", "input_transforms":{},
-            "tag": if parallel { "bun" } else { "unserved-tool-tag" },
+            "tag": if unsupported && i != 1 { "unserved-tool-tag" } else { "bun" },
             "concurrent_limit": if limited { Some(1) } else { None },
             "custom_concurrency_key": if limited { Some("agent-tool-test") } else { None },
             "content":format!("export async function main() {{ {wait} await Bun.sleep({}); {finish} }}", if i == 0 {200} else {0})
         }})
     }).collect();
-    let flow: FlowValue = serde_json::from_value(json!({"modules":[{"id":"agent","value":{
-        "type":"aiagent", "tools":tools, "input_transforms":{
-            "provider":{"type":"static","value":{"kind":"customai","model":"queue-test","resource":{"base_url":format!("{base}/v1")}}},
-            "user_message":{"type":"static","value":"run the tools"},
-            "max_iterations":{"type":"static","value":3}
-        }
-    }}]}))?;
+    let flow: FlowValue = serde_json::from_value(
+        json!({"modules":[{"id":"agent","timeout":if unsupported {Some(3)} else {None},"value":{
+            "type":"aiagent", "tools":tools, "input_transforms":{
+                "provider":{"type":"static","value":{"kind":"customai","model":"queue-test","resource":{"base_url":format!("{base}/v1")}}},
+                "user_message":{"type":"static","value":"run the tools"},
+                "max_iterations":{"type":"static","value":3}
+            }
+        }}]}),
+    )?;
     let id = RunJob::from(JobPayload::RawFlow {
         value: flow,
         path: Some("u/test/agent_queue".into()),
@@ -102,6 +109,30 @@ async fn run_batch(db: Pool<Postgres>, parallel: bool, limited: bool) -> anyhow:
     )
     .await?;
     let result = completed_job(id, &db).await;
+    if unsupported {
+        assert!(
+            !result.success,
+            "agent must time out waiting for unsupported tools"
+        );
+        let children: Vec<(String, bool, bool)> = sqlx::query_as(
+            "SELECT j.runnable_path, c.status = 'success', c.started_at IS NULL
+            FROM v2_job j JOIN v2_job_completed c USING(id)
+            WHERE j.parent_job IN (SELECT id FROM v2_job WHERE parent_job = $1)
+            ORDER BY j.runnable_path",
+        )
+        .bind(id)
+        .fetch_all(&db)
+        .await?;
+        assert_eq!(children.len(), 3);
+        assert_eq!(
+            children.iter().map(|c| (c.1, c.2)).collect::<Vec<_>>(),
+            vec![(false, true), (true, false), (false, true)],
+            "neither the first-tool reservation nor fallback may execute unsupported tags"
+        );
+        stub.abort();
+        server.close().await?;
+        return Ok(());
+    }
     assert!(result.success, "{:?}", result.result);
     let result = result.json_result().expect("agent result");
     let messages: Vec<_> = result["messages"]
@@ -162,7 +193,7 @@ async fn run_batch(db: Pool<Postgres>, parallel: bool, limited: bool) -> anyhow:
 #[sqlx::test(fixtures("base"))]
 #[serial_test::serial]
 async fn parent_drains_tools_without_another_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
-    run_batch(db, false, false).await
+    run_batch(db, false, false, false).await
 }
 
 #[sqlx::test(fixtures("base"))]
@@ -170,12 +201,20 @@ async fn parent_drains_tools_without_another_worker(db: Pool<Postgres>) -> anyho
 async fn parent_keeps_first_tool_while_another_worker_runs_siblings(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {
-    run_batch(db, true, false).await
+    run_batch(db, true, false, false).await
 }
 
 #[cfg(all(feature = "enterprise", feature = "private"))]
 #[sqlx::test(fixtures("base"))]
 #[serial_test::serial]
 async fn reserved_tool_obeys_shared_concurrency_limit(db: Pool<Postgres>) -> anyhow::Result<()> {
-    run_batch(db, true, true).await
+    run_batch(db, true, true, false).await
+}
+
+#[sqlx::test(fixtures("base"))]
+#[serial_test::serial]
+async fn parent_leaves_unsupported_first_and_remaining_tools_queued(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    run_batch(db, false, false, true).await
 }

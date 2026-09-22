@@ -34,7 +34,7 @@ use windmill_common::{
     flow_conversations::{MessageExtras, MessageType},
     flow_status::AgentAction,
     flows::FlowModuleValue,
-    worker::{make_tool_job_pull_query, to_raw_value, Connection},
+    worker::{make_tool_job_pull_query, to_raw_value, Connection, WORKER_CONFIG},
 };
 use windmill_queue::{
     get_mini_pulled_job, pull, push, try_admit_owned_job, MiniCompletedJob, MiniPulledJob,
@@ -328,7 +328,7 @@ async fn enqueue_windmill_tool(
     tool: &Tool,
     actions: &mut Vec<AgentAction>,
     reserved: bool,
-) -> Result<Uuid, Error> {
+) -> Result<(Uuid, bool), Error> {
     // Regular Windmill tools must have a module
     let tool_module = tool.module.as_ref().ok_or_else(|| {
         Error::internal_err(format!("Tool {} has no module", tool_call.function.name))
@@ -541,7 +541,7 @@ async fn enqueue_windmill_tool(
         None,
         job_priority,
         job_perms.as_ref(),
-        reserved,
+        false,
         None,
         None,
         None,
@@ -549,21 +549,40 @@ async fn enqueue_windmill_tool(
     .await?;
 
     let mut tx = tx;
-    if reserved {
-        // Running ownership reserves the first child; its normal tag allows zombie recovery.
-        sqlx::query!(
-            "UPDATE v2_job_queue SET worker = $1 WHERE id = $2",
+    let reserved = if reserved {
+        let tags = local_tool_tags();
+        // Reserve a supported first tool before commit so other workers cannot race it.
+        let claimed = sqlx::query!(
+            "UPDATE v2_job_queue SET worker = $1, running = true, started_at = now()
+            WHERE id = $2 AND tag = ANY($3)",
             ctx.worker_name,
             uuid,
+            &tags,
         )
         .execute(&mut *tx)
-        .await?;
-        sqlx::query!("UPDATE v2_job_runtime SET ping = now() WHERE id = $1", uuid)
-            .execute(&mut *tx)
-            .await?;
-    }
+        .await?
+        .rows_affected()
+            == 1;
+        if claimed {
+            sqlx::query!("UPDATE v2_job_runtime SET ping = now() WHERE id = $1", uuid)
+                .execute(&mut *tx)
+                .await?;
+        }
+        claimed
+    } else {
+        false
+    };
     tx.commit().await?;
-    Ok(uuid)
+    Ok((uuid, reserved))
+}
+
+fn local_tool_tags() -> Vec<String> {
+    WORKER_CONFIG
+        .load()
+        .priority_tags_sorted
+        .iter()
+        .flat_map(|group| group.tags.iter().cloned())
+        .collect()
 }
 
 fn spawn_local_tool(
@@ -703,9 +722,10 @@ async fn execute_windmill_tools(
                     .await?;
             }
         }
-        job_ids.push(enqueue_windmill_tool(ctx, call, tool, actions, index == 0).await?);
-        if index == 0 {
-            let job = get_mini_pulled_job(ctx.db, &job_ids[0])
+        let (id, reserved) = enqueue_windmill_tool(ctx, call, tool, actions, index == 0).await?;
+        job_ids.push(id);
+        if reserved {
+            let job = get_mini_pulled_job(ctx.db, &id)
                 .await?
                 .ok_or_else(|| Error::internal_err("Reserved tool job not found".to_string()))?;
             local = Some(spawn_local_tool(ctx, job, true));
@@ -823,7 +843,10 @@ async fn claim_local_tool(
     ctx: &ToolExecutionContext<'_>,
     pending: &[Uuid],
 ) -> Result<Option<tokio::task::JoinHandle<Result<OccupancyMetrics, Error>>>, Error> {
-    let query = (String::new(), make_tool_job_pull_query(pending));
+    let query = (
+        String::new(),
+        make_tool_job_pull_query(pending, &local_tool_tags()),
+    );
     #[cfg(feature = "benchmark")]
     let mut bench = windmill_common::bench::BenchmarkIter::new();
     let mut pulled = pull(
