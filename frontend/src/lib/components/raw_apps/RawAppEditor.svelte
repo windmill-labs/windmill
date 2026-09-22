@@ -606,16 +606,16 @@
 	}
 
 	// Ask the UI Builder iframe to open a document, taking the keyboard only when
-	// the user picked it. When the iframe doesn't hold the file's current content
+	// the user picked it. For a file whose current content the iframe doesn't hold
 	// yet, `populateFiles` opens `iframeDocument` in the same message as that
 	// content: opening first errors on a new file and races the write on a changed
 	// one (the iframe applies the edit twice). It also opens it on iframe load.
+	// Documents outside `files` (wmill.ts, ui/, node_modules/) never go through it.
 	function openInIframe(path: string, focus = false) {
 		iframeDocument = path
-		const held =
-			path === WMILL_TS_PATH ||
-			(iframeFiles?.[path] !== undefined && iframeFiles[path] === files?.[path])
-		if (iframeLoaded && held) {
+		const content = files?.[path]
+		if (iframeLoaded && (content === undefined || iframeFiles?.[path] === content)) {
+			iframeFocusPending = false
 			iframe?.contentWindow?.postMessage({ type: 'selectFile', path, focus }, '*')
 		} else {
 			iframeFocusPending = focus
