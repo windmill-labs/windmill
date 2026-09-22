@@ -21,6 +21,7 @@
 	import { getGitSyncContext } from './GitSyncContext.svelte'
 	import ConfigureSyncStep from './setup/ConfigureSyncStep.svelte'
 	import GitPushPreview from './GitPushPreview.svelte'
+	import GitSyncSuccessContent from './GitSyncSuccessContent.svelte'
 	import { ResourceService } from '$lib/gen'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { apiErrorMessage } from '$lib/utils'
@@ -43,10 +44,13 @@
 		'Choose a provider',
 		'Connect the repository',
 		'Configure sync',
-		'Initialize the repository'
+		'Initialize the repository',
+		'Done'
 	]
 
-	let step: 1 | 2 | 3 | 4 = $state(1)
+	let step: 1 | 2 | 3 | 4 | 5 = $state(1)
+	/** What the last step reports, set by the save that got there. */
+	let done: { savedWithoutInit: boolean; autoPullOn: boolean } | undefined = $state(undefined)
 
 	/** Resource path of the unsaved repository step 3 configures. By path rather than
 	 * index, as the context's list can shift under it. */
@@ -85,16 +89,6 @@
 				githubApp?.dispose()
 				discardDraft()
 			})
-	})
-
-	// Saved, by this dialog or by the Push modal initializing the repository: done.
-	$effect(() => {
-		if (draft && !draft.isUnsavedConnection) {
-			untrack(() => {
-				draftPath = undefined
-				opened = false
-			})
-		}
 	})
 
 	/** Drops the unsaved repository, keeping the resource, which stays pickable. */
@@ -140,7 +134,13 @@
 		saving = true
 		saveError = undefined
 		try {
-			await ctx.saveRepository(draftIdx, withoutInit)
+			// The last step says what the success modal would have, so it stays quiet.
+			await ctx.saveRepository(draftIdx, withoutInit, false)
+			done = {
+				savedWithoutInit: withoutInit,
+				autoPullOn: draft?.auto_pull?.enabled === true
+			}
+			step = 5
 		} catch (e) {
 			saveError = apiErrorMessage(e)
 		} finally {
@@ -150,6 +150,7 @@
 
 	async function reset() {
 		step = 1
+		done = undefined
 		githubApp?.dispose()
 		githubApp = undefined
 		hasResource = false
@@ -309,6 +310,13 @@
 							/>
 						{/if}
 					{/if}
+				{:else if step === 5}
+					{#if done}
+						<GitSyncSuccessContent
+							savedWithoutInit={done.savedWithoutInit}
+							autoPullOn={done.autoPullOn}
+						/>
+					{/if}
 				{:else if step === 4}
 					{#if draft}
 						<GitPushPreview
@@ -395,7 +403,7 @@
 
 			<div class="flex justify-between items-center pt-3">
 				<div>
-					{#if step > 1}
+					{#if step > 1 && step < 5}
 						<Button
 							unifiedSize="sm"
 							variant="default"
@@ -410,7 +418,9 @@
 						</Button>
 					{/if}
 				</div>
-				{#if step === 4}
+				{#if step === 5}
+					<Button unifiedSize="sm" variant="accent" onClick={() => (opened = false)}>Close</Button>
+				{:else if step === 4}
 					<div class="flex items-center gap-2">
 						<Button
 							unifiedSize="sm"

@@ -506,7 +506,9 @@ export function createGitSyncContext(workspace: string) {
 		}
 	}
 
-	async function saveRepository(idx: number, savedWithoutInit = false) {
+	/** `announce` off for a caller that reports the save itself — the setup dialog ends on a
+	 *  step saying the same thing, and a modal over it would say it twice. */
+	async function saveRepository(idx: number, savedWithoutInit = false, announce = true) {
 		const repo = repositories[idx]
 		if (!repo || !validateRepository(repo, idx)) {
 			throw new Error('Cannot save invalid repository')
@@ -553,7 +555,9 @@ export function createGitSyncContext(workspace: string) {
 			repoToSave.detectionState = undefined
 			repoToSave.extractedSettings = undefined
 			// Show success modal for new connections
-			showSuccessModal(savedWithoutInit, repoToSave.auto_pull?.enabled === true)
+			if (announce) {
+				showSuccessModal(savedWithoutInit, repoToSave.auto_pull?.enabled === true)
+			}
 		}
 	}
 
