@@ -578,6 +578,7 @@
 			activeTabId = PREVIEW_TAB_ID
 			selectedRunnable = undefined
 			selectedDocument = undefined
+			iframeFocusPending = undefined
 			return
 		}
 		if (next.kind === 'file') {
@@ -590,6 +591,7 @@
 		activeTabId = ensureRunnableTab(next.key)
 		selectedDocument = undefined
 		selectedRunnable = next.key
+		iframeFocusPending = undefined
 	}
 
 	function activateTab(id: string, opts?: { force?: boolean; focus?: boolean }) {
@@ -615,10 +617,10 @@
 		iframeDocument = path
 		const content = files?.[path]
 		if (iframeLoaded && (content === undefined || iframeFiles?.[path] === content)) {
-			iframeFocusPending = false
+			iframeFocusPending = undefined
 			iframe?.contentWindow?.postMessage({ type: 'selectFile', path, focus }, '*')
 		} else {
-			iframeFocusPending = focus
+			iframeFocusPending = focus ? path : undefined
 		}
 	}
 
@@ -822,12 +824,13 @@
 	let iframeLoaded = $state(false) // @hmr:keep
 	// The files the iframe holds: last posted to it, or last reported by it.
 	let iframeFiles: Record<string, string> | undefined
-	// A user-picked document `openInIframe` left for `populateFiles` to open.
-	let iframeFocusPending = false
-	// Last keystroke in the editor or edit reported by the iframe. AI edits only
-	// move the editor to their file once the user has paused this long.
-	let lastUserEditAt = 0
-	const USER_EDIT_IDLE_MS = 3000
+	// The document the user picked that `openInIframe` left for `populateFiles` to
+	// open. It takes the keyboard only if it is still the document being opened.
+	let iframeFocusPending: string | undefined
+	// Last keystroke or click in the editor, or edit reported by the iframe. AI
+	// edits only move the editor to their file once the user has paused this long.
+	let lastUserInputAt = 0
+	const USER_IDLE_MS = 3000
 	// Briefly drops the `setActiveDocument` echo VS Code fires while we're
 	// pushing the initial file set — the iframe auto-opens a default editor
 	// during boot which we don't want to treat as a user-driven activation.
@@ -900,7 +903,7 @@
 		const target = iframe?.contentWindow
 		if (!target) return
 		iframeFiles = { ...newFiles }
-		iframeFocusPending = false
+		iframeFocusPending = undefined
 		const files = Object.fromEntries(
 			Object.entries(newFiles).filter(([path, _]) => !path.endsWith('/'))
 		)
@@ -918,8 +921,8 @@
 		const target = iframe?.contentWindow
 		if (!target) return
 		iframeFiles = { ...newFiles }
-		const focus = iframeFocusPending
-		iframeFocusPending = false
+		const focus = iframeFocusPending === pathToSelect
+		iframeFocusPending = undefined
 		const files = Object.fromEntries(
 			Object.entries(newFiles).filter(([path, _]) => !path.endsWith('/'))
 		)
@@ -1051,7 +1054,7 @@
 				files[path] = content
 				// Follow the AI to the file it edits, but never pull a user who is editing
 				// off their file. The files effect sends the content.
-				if (Date.now() - lastUserEditAt < USER_EDIT_IDLE_MS) ensureFileTab(path)
+				if (Date.now() - lastUserInputAt < USER_IDLE_MS) ensureFileTab(path)
 				else select({ kind: 'file', path })
 				return lint()
 			},
@@ -1435,7 +1438,7 @@
 			// Only mark pending changes if files actually changed (ignore echo from setFilesInIframe)
 			if (!deepEqual(files, normalizedFiles)) {
 				files = normalizedFiles
-				lastUserEditAt = Date.now()
+				lastUserInputAt = Date.now()
 				historyManager.markPendingChanges()
 			}
 		} else if (e.data.type === 'getBundle') {
@@ -2381,7 +2384,8 @@
 />
 <div
 	bind:clientWidth={rootWidth}
-	onkeydowncapture={() => (lastUserEditAt = Date.now())}
+	onkeydowncapture={() => (lastUserInputAt = Date.now())}
+	onpointerdowncapture={() => (lastUserInputAt = Date.now())}
 	class="max-h-full overflow-hidden h-full min-h-0 flex flex-col"
 >
 	<RawAppEditorHeader
