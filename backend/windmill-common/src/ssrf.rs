@@ -8,6 +8,8 @@ pub const ALLOW_PRIVATE_SAML_METADATA_URLS_ENV: &str = "ALLOW_PRIVATE_SAML_METAD
 
 pub const ALLOW_PRIVATE_GUEST_JWKS_URLS_ENV: &str = "ALLOW_PRIVATE_GUEST_JWKS_URLS";
 
+pub const ALLOW_PRIVATE_WEBHOOK_URLS_ENV: &str = "ALLOW_PRIVATE_WEBHOOK_URLS";
+
 /// Lets every git call reach hosts on a private network, whoever it is made for.
 /// Without it, [`private_git_host_allowed`] decides.
 pub const ALLOW_LOCAL_GIT_REMOTES_ENV: &str = "ALLOW_LOCAL_GIT_REMOTES";
@@ -207,6 +209,12 @@ pub fn allow_private_saml_metadata_urls() -> bool {
         .is_some_and(|v| v == "true" || v == "1")
 }
 
+fn allow_private_webhook_urls() -> bool {
+    std::env::var(ALLOW_PRIVATE_WEBHOOK_URLS_ENV)
+        .ok()
+        .is_some_and(|v| v == "true" || v == "1")
+}
+
 fn allow_local_git_remotes() -> bool {
     std::env::var(ALLOW_LOCAL_GIT_REMOTES_ENV)
         .ok()
@@ -321,6 +329,26 @@ pub async fn validate_mcp_server_url(url: &str) -> Result<ValidatedTarget, SsrfV
     validate_url_for_ssrf(url).await
 }
 
+/// Save-time check only: the webhook is sent later from another task that resolves
+/// the host again, so the returned target cannot be pinned onto that connect.
+pub async fn validate_webhook_url(url: &str) -> Result<ValidatedTarget, SsrfValidationError> {
+    let parsed =
+        url::Url::parse(url).map_err(|e| SsrfValidationError::InvalidUrl(e.to_string()))?;
+
+    match parsed.scheme() {
+        "http" | "https" => {}
+        scheme => return Err(SsrfValidationError::DisallowedScheme(scheme.to_string())),
+    }
+
+    let host = parsed.host_str().ok_or(SsrfValidationError::MissingHost)?;
+
+    if allow_private_webhook_urls() {
+        return Ok(ValidatedTarget::unpinned(host));
+    }
+
+    validate_url_for_ssrf(url).await
+}
+
 /// Validate an MCP-related URL and return the [`ValidatedTarget`] so the caller
 /// can pin the connect: the OAuth registration/discovery/token requests carry
 /// secrets, so they must target the validated address (see
@@ -353,6 +381,16 @@ pub fn saml_ssrf_error_message(e: &SsrfValidationError) -> String {
         SsrfValidationError::Private { .. } => format!(
             "{e}. If you need to use private/internal SAML metadata URLs, \
              set the {ALLOW_PRIVATE_SAML_METADATA_URLS_ENV}=true environment variable"
+        ),
+        _ => e.to_string(),
+    }
+}
+
+pub fn webhook_ssrf_error_message(e: &SsrfValidationError) -> String {
+    match e {
+        SsrfValidationError::Private { .. } => format!(
+            "{e}. If you need to use private/internal webhook URLs, \
+             set the {ALLOW_PRIVATE_WEBHOOK_URLS_ENV}=true environment variable"
         ),
         _ => e.to_string(),
     }
@@ -680,6 +718,71 @@ mod tests {
         ));
         assert!(matches!(
             validate_saml_metadata_url("not-a-url").await,
+            Err(SsrfValidationError::InvalidUrl(_))
+        ));
+    }
+
+    struct PrivateWebhookUrlsEnvGuard {
+        previous: Option<String>,
+    }
+
+    impl PrivateWebhookUrlsEnvGuard {
+        fn set(value: Option<&str>) -> Self {
+            let previous = std::env::var(ALLOW_PRIVATE_WEBHOOK_URLS_ENV).ok();
+            match value {
+                Some(value) => std::env::set_var(ALLOW_PRIVATE_WEBHOOK_URLS_ENV, value),
+                None => std::env::remove_var(ALLOW_PRIVATE_WEBHOOK_URLS_ENV),
+            }
+            Self { previous }
+        }
+    }
+
+    impl Drop for PrivateWebhookUrlsEnvGuard {
+        fn drop(&mut self) {
+            match &self.previous {
+                Some(value) => std::env::set_var(ALLOW_PRIVATE_WEBHOOK_URLS_ENV, value),
+                None => std::env::remove_var(ALLOW_PRIVATE_WEBHOOK_URLS_ENV),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn validate_webhook_url_blocks_private_by_default_with_env_hint() {
+        let _lock = TEST_ENV_LOCK.lock().await;
+        let _guard = PrivateWebhookUrlsEnvGuard::set(None);
+
+        let private_error = validate_webhook_url("http://127.0.0.1/hook")
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            private_error,
+            SsrfValidationError::Private { resolved: false }
+        ));
+        assert!(
+            webhook_ssrf_error_message(&private_error).contains("ALLOW_PRIVATE_WEBHOOK_URLS=true")
+        );
+
+        let invalid_error = validate_webhook_url("ftp://example.com/hook")
+            .await
+            .unwrap_err();
+        assert!(
+            !webhook_ssrf_error_message(&invalid_error).contains(ALLOW_PRIVATE_WEBHOOK_URLS_ENV)
+        );
+    }
+
+    #[tokio::test]
+    async fn validate_webhook_url_allows_private_when_env_is_set_but_keeps_syntax_guards() {
+        let _lock = TEST_ENV_LOCK.lock().await;
+        let _guard = PrivateWebhookUrlsEnvGuard::set(Some("true"));
+
+        assert!(validate_webhook_url("http://127.0.0.1/hook").await.is_ok());
+        assert!(validate_webhook_url("http://10.0.0.1/hook").await.is_ok());
+        assert!(matches!(
+            validate_webhook_url("file:///etc/passwd").await,
+            Err(SsrfValidationError::DisallowedScheme(_))
+        ));
+        assert!(matches!(
+            validate_webhook_url("not-a-url").await,
             Err(SsrfValidationError::InvalidUrl(_))
         ));
     }
