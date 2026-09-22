@@ -81,6 +81,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { navDetached } from '$lib/components/sidebar/navDetached.svelte'
 	import { navHandleSlot } from '$lib/components/sidebar/navHandlePlacement.svelte'
+	import PageHeaderBar from '$lib/components/PageHeaderBar.svelte'
 	import NavHandle from '$lib/components/sidebar/NavHandle.svelte'
 	import { sidebarPageAllowed } from '$lib/components/sidebar/operatorRoutes'
 	import GlobalSearchModal from '$lib/components/search/GlobalSearchModal.svelte'
@@ -1041,6 +1042,25 @@
 
 <!-- Windmill brand mark anchoring the sidebar bottom (the header slot is taken
      by the workspace picker). -->
+<!-- The page header's first control: one toggle for the sidebar, shown or hidden. -->
+{#snippet sidebarToggle()}
+	{@const hidden = navDetached.val}
+	<Tooltip class="flex" placement="bottom" small>
+		<button
+			class="p-1.5 rounded hover:bg-surface-hover"
+			aria-label={hidden ? 'Show sidebar' : 'Hide sidebar'}
+			onclick={() => setDetached(!hidden)}
+		>
+			{#if hidden}
+				<PanelLeft size={16} class="flex-shrink-0 text-hint" />
+			{:else}
+				<PanelLeftDashed size={16} class="flex-shrink-0 text-hint" />
+			{/if}
+		</button>
+		{#snippet text()}{hidden ? 'Show sidebar' : 'Hide sidebar'}{/snippet}
+	</Tooltip>
+{/snippet}
+
 {#snippet brandMark(collapsed: boolean)}
 	<div class="flex items-center gap-x-1.5 text-xs font-semibold text-emphasis">
 		<WindmillIcon white={darkMode} height="16px" width="16px" />
@@ -1198,31 +1218,10 @@
 								class="h-full flex flex-col"
 								style:background-color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}
 							>
-								<!-- Workspace picker as the drawer header (replaces the Windmill logo). -->
-								<div class="flex-shrink-0 px-2 h-12 w-52 flex items-center gap-1">
-									<Menubar class="w-full min-w-0">
-										{#snippet children({ createMenu })}
-											<WorkspaceMenu {createMenu} />
-										{/snippet}
-									</Menubar>
-									{#if detachedFloating}
-										<!-- Same spot as the docked sidebar's detach button, so the two swap in place. -->
-										<Tooltip class="flex" placement="bottom" small>
-											<button
-												class="p-1.5 -mr-1 rounded hover:bg-surface-hover"
-												aria-label="Attach sidebar"
-												onclick={() => setDetached(false)}
-											>
-												<PanelLeft size={14} class="flex-shrink-0 h-3.5 w-3.5 text-hint" />
-											</button>
-											{#snippet text()}Attach sidebar{/snippet}
-										</Tooltip>
-									{/if}
-								</div>
-
+								<!-- Top row: the workspace ⇄ sessions switch, as in the docked rail. The
+								     workspace picker lives in the page header. -->
 								{#if !embedded && sessionsSwitchShown}
-									<!-- The switch: workspace navigation ⇄ sessions sidebar. -->
-									<div class="px-2 pb-1 w-52">
+									<div class="flex-shrink-0 px-2 h-12 w-52 flex items-center">
 										<SessionModeSwitch
 											mode={sessionMode ? 'session' : 'nav'}
 											onToggle={() => (preserveMenuOnNextNav = true)}
@@ -1345,34 +1344,15 @@
 							)}
 							onpointerdown={startSidebarResize}
 						></div>
-						<!-- Workspace picker as the sidebar header (replaces the Windmill logo).
-							     Kept in both modes: it scopes which workspace family's sessions
-							     the sessions sidebar shows. -->
-						<div class="flex-shrink-0 px-2 h-12 flex items-center gap-1">
-							<Menubar class="w-full min-w-0">
-								{#snippet children({ createMenu })}
-									<WorkspaceMenu {createMenu} {isCollapsed} />
-								{/snippet}
-							</Menubar>
-							{#if !isCollapsed}
-								<!-- Same spot as the detached card's attach button, so the two swap in place.
-								     The icon-only rail has no room for it and keeps the footer copy. -->
-								<Tooltip class="flex" placement="bottom" small>
-									<button
-										class="p-1.5 -mr-1 rounded hover:bg-surface-hover"
-										aria-label="Detach sidebar"
-										onclick={() => setDetached(true)}
-									>
-										<PanelLeftDashed size={14} class="flex-shrink-0 h-3.5 w-3.5 text-hint" />
-									</button>
-									{#snippet text()}Detach sidebar{/snippet}
-								</Tooltip>
-							{/if}
-						</div>
-
+						<!-- Top row: the workspace ⇄ sessions switch, level with the page header's own
+						     row so the two read as one band. The workspace picker itself lives in that
+						     header now, which is why nothing names the workspace here. -->
 						{#if !embedded && sessionsSwitchShown}
-							<!-- The switch: workspace navigation ⇄ sessions sidebar. -->
-							<div class="px-2 pb-1 {isCollapsed ? 'flex justify-center' : ''}">
+							<div
+								class="flex-shrink-0 px-2 h-12 flex items-center {isCollapsed
+									? 'justify-center'
+									: ''}"
+							>
 								<SessionModeSwitch mode={sessionMode ? 'session' : 'nav'} {isCollapsed} />
 							</div>
 						{/if}
@@ -1650,7 +1630,13 @@
 				transitionClass={sidebarTransitionClass}
 				isMobile={useDrawer}
 				onMenuOpen={() => navHandleSlot.open()}
-			/>
+			>
+				{#snippet header()}
+					{#if !menuHidden && !devOnly}
+						<PageHeaderBar toggle={sidebarToggle} />
+					{/if}
+				{/snippet}
+			</AiChatLayout>
 		</div>
 	</div>
 {:else}
