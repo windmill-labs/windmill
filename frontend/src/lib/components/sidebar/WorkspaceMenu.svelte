@@ -14,9 +14,17 @@
 		createMenu: MenubarBuilders['createMenu']
 		// When used outside of the side bar, where links to workspace settings and such don't make as much sense.
 		strictWorkspaceSelect?: boolean
+		// Denser trigger for the page header bar: a smaller disc and a lighter name, so the
+		// workspace reads as the scope of the breadcrumb beside it rather than a heading.
+		compact?: boolean
 	}
 
-	let { isCollapsed = false, createMenu, strictWorkspaceSelect = false }: Props = $props()
+	let {
+		isCollapsed = false,
+		createMenu,
+		strictWorkspaceSelect = false,
+		compact = false
+	}: Props = $props()
 
 	// The active workspace's family root — shown in the trigger so a forked active workspace still
 	// surfaces its family name here (the fork itself is shown in the breadcrumb). Resolved exactly
@@ -53,9 +61,10 @@
 				{isCollapsed}
 				color={familyColor}
 				showChevron
-				emphasizeLabel
+				emphasizeLabel={!compact}
 				disableTitle
-				labelClass="wm-workspace-name"
+				{compact}
+				labelClass={compact ? 'wm-workspace-name text-primary font-medium' : 'wm-workspace-name'}
 				{trigger}
 			/>
 		</NameIdTooltip>

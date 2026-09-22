@@ -28,6 +28,8 @@
 		editable?: boolean
 		onSaved?: (newPath: string) => void
 		kind?: 'flow' | 'script'
+		/** Drop the path line from the trigger, for a host that shows the path itself. */
+		hidePath?: boolean
 	}
 
 	let {
@@ -37,7 +39,8 @@
 		inheritedLabels = undefined,
 		editable = false,
 		onSaved,
-		kind = 'flow'
+		kind = 'flow',
+		hidePath = false
 	}: Props = $props()
 
 	let editSummary = $state('')
@@ -110,9 +113,12 @@
 			<div
 				class={'min-w-0 truncate flex flex-col items-start px-2 py-1 rounded-md transition-colors cursor-pointer hover:bg-surface-hover'}
 			>
-				<span class="text-2xs leading-tight text-tertiary font-mono font-normal truncate max-w-full"
-					>{path}</span
-				>
+				{#if !hidePath}
+					<span
+						class="text-2xs leading-tight text-tertiary font-mono font-normal truncate max-w-full"
+						>{path}</span
+					>
+				{/if}
 				<div class="flex items-center gap-3 max-w-full">
 					<span
 						class="text-sm font-semibold truncate {emptyString(summary)
@@ -233,7 +239,7 @@
 	</Popover>
 {:else}
 	<div class="min-w-0 truncate flex flex-col px-2">
-		{#if !emptyString(summary)}
+		{#if !emptyString(summary) && !hidePath}
 			<span class="text-[10px] leading-tight text-tertiary font-mono truncate">{path}</span>
 		{/if}
 		<span class="text-sm font-semibold text-emphasis truncate">

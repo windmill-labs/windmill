@@ -12,6 +12,7 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 	import BreadcrumbSegment from '$lib/components/BreadcrumbSegment.svelte'
 	import EditorHeader from '$lib/components/EditorHeader.svelte'
 	import { pageHeader } from './pageHeaderRegistry.svelte'
+	import ContextBridge from './ContextBridge.svelte'
 	import { kindKey, KIND_LABEL_LOWER } from '$lib/components/workspacePicker'
 
 	interface Props {
@@ -31,13 +32,14 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 
 	<Menubar>
 		{#snippet children({ createMenu })}
-			<WorkspaceMenu {createMenu} strictWorkspaceSelect={false} />
+			<WorkspaceMenu {createMenu} compact strictWorkspaceSelect={false} />
 		{/snippet}
 	</Menubar>
 
 	{#if item}
 		<EditorHeader
 			inline
+			hideSummary={!!item.summaryContent}
 			kind={item.kind}
 			raw_app={item.raw_app}
 			savedPath={item.savedPath}
@@ -49,6 +51,9 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 			bind:path={() => item.path, (v) => item.onPathChange?.(v ?? '')}
 			bind:summary={() => item.summary, (v) => item.onSummaryChange?.(v ?? '')}
 		/>
+		{#if item.summaryContent}
+			<div class="min-w-0">{@render item.summaryContent()}</div>
+		{/if}
 	{:else if section}
 		<nav aria-label="Breadcrumb" class="contents">
 			<BreadcrumbSegment
@@ -63,7 +68,11 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 
 	{#if content?.actions}
 		<div class="ml-auto flex items-center gap-2 shrink-0">
-			{@render content.actions()}
+			{#key content.contexts}
+				<ContextBridge contexts={content.contexts}>
+					{@render content.actions()}
+				</ContextBridge>
+			{/key}
 		</div>
 	{/if}
 </div>

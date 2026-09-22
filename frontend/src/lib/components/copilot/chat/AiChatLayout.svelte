@@ -21,8 +21,6 @@
 		transitionClass?: string
 		isMobile?: boolean
 		children: any
-		/** The bar every route wears, rendered above the page content and inside the rail's offset. */
-		header?: import('svelte').Snippet
 		onMenuOpen?: () => void
 		disableAi?: boolean
 		// Whether this layout loads the workspace AI config. It gates far more than
@@ -43,7 +41,6 @@
 		transitionClass = 'transition-all ease-in-out duration-200',
 		isMobile = false,
 		children,
-		header,
 		onMenuOpen,
 		disableAi,
 		loadAiConfig = true,
@@ -116,7 +113,6 @@
 				<main class="flex-1 flex flex-col min-h-0">
 					<div class="relative w-full flex-1 flex flex-col min-h-0">
 						{@render burgerRow()}
-						{@render header?.()}
 						<div class="flex-1 min-h-0">
 							{@render children?.()}
 						</div>
@@ -146,7 +142,6 @@
 		style:padding-left="{contentPadLeft}rem"
 	>
 		{@render burgerRow()}
-		{@render header?.()}
 		<div class="flex-1 min-h-0 flex flex-col">
 			{@render children?.()}
 		</div>

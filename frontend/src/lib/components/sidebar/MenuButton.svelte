@@ -54,6 +54,8 @@
 		// Classes for the label line only — `class` reaches the button, the label and the
 		// sublabel alike, which is the wrong tool for colouring one line of the two.
 		labelClass?: string | undefined
+		// Draw the colour disc at 20px rather than 26px, for denser rows such as the page header.
+		compact?: boolean
 	}
 
 	let {
@@ -79,7 +81,8 @@
 		emphasizeLabel = false,
 		disableTitle = false,
 		ariaLabel = undefined,
-		labelClass = undefined
+		labelClass = undefined,
+		compact = false
 	}: Props = $props()
 
 	let buttonRef: HTMLButtonElement | HTMLAnchorElement | undefined = $state(undefined)
@@ -134,11 +137,23 @@
 			{#if icon}
 				{@const SvelteComponent = icon}
 				{#if color}
-					<svg width="26" height="26" viewBox="0 0 26 26" class="flex-shrink-0 -ml-[5px]">
-						<circle cx="13" cy="13" r="13" fill={color} />
-						<foreignObject x="5" y="5" width="16" height="16">
+					{@const disc = compact ? 20 : 26}
+					{@const glyph = compact ? 12 : 16}
+					<svg
+						width={disc}
+						height={disc}
+						viewBox="0 0 {disc} {disc}"
+						class="flex-shrink-0 {compact ? '-ml-[3px]' : '-ml-[5px]'}"
+					>
+						<circle cx={disc / 2} cy={disc / 2} r={disc / 2} fill={color} />
+						<foreignObject
+							x={(disc - glyph) / 2}
+							y={(disc - glyph) / 2}
+							width={glyph}
+							height={glyph}
+						>
 							<SvelteComponent
-								size={16}
+								size={glyph}
 								class={twMerge(sidebarClasses.iconText, 'transition-colors', iconClasses)}
 								{...iconProps}
 							/>

@@ -82,7 +82,6 @@
 	import { navDetached } from '$lib/components/sidebar/navDetached.svelte'
 	import { navHandleSlot } from '$lib/components/sidebar/navHandlePlacement.svelte'
 	import PageHeaderBar from '$lib/components/PageHeaderBar.svelte'
-	import NavHandle from '$lib/components/sidebar/NavHandle.svelte'
 	import { sidebarPageAllowed } from '$lib/components/sidebar/operatorRoutes'
 	import GlobalSearchModal from '$lib/components/search/GlobalSearchModal.svelte'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
@@ -95,7 +94,7 @@
 	import DraftMigrationErrorModal from '$lib/components/DraftMigrationErrorModal.svelte'
 	import InstanceBanner from '$lib/components/InstanceBanner.svelte'
 	import { onDestroy, setContext, untrack } from 'svelte'
-	import { cubicInOut, cubicOut } from 'svelte/easing'
+	import { cubicOut } from 'svelte/easing'
 	import { base } from '$app/paths'
 	import { Menubar, Tooltip } from '$lib/components/meltComponents'
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
@@ -510,10 +509,6 @@
 	let detachedFloating = $derived(navDetached.val && innerWidth >= 768)
 	// The handle and the edge band both open the card this layout owns.
 	navHandleSlot.setOpener(() => (menuOpen = true))
-	let onHome = $derived(page.url.pathname === `${base}/`)
-	let currentWorkspaceName = $derived(
-		$userWorkspaces?.find((w) => w.id === $workspaceStore)?.name ?? $workspaceStore ?? ''
-	)
 
 	// Set once the user docks or detaches, so the rail that mounts from then on skips its
 	// app-entry animation (`wm-sidebar-in`) and only plays `railMorph`.
@@ -540,36 +535,6 @@
 				(offscreen ? `transform:translateX(calc(${-u} * (100% + 0.5rem)));` : '')
 		}
 	}
-	const JOIN_PICKER_MS = 110
-	// The home-page workspace name travels to the card's workspace picker as the card opens,
-	// and back as it closes, so the name reads as one label joining the picker. It aims where
-	// the picker will be once the card has finished sliding (the card's current translate is
-	// undone), grows to the picker's font size, and fades out as it arrives (in as it leaves),
-	// so the handover to the picker's own label has no hard cut.
-	// Any other mount or unmount of the name (arriving on or leaving home) plays nothing.
-	function joinPicker(node: HTMLElement) {
-		const card = document.querySelector<HTMLElement>('[data-nav-card]')
-		const target = card?.querySelector<HTMLElement>('.wm-workspace-name')
-		const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-		if (!card || !target || reduced) return { duration: 0 }
-		const slide = new DOMMatrix(getComputedStyle(card).transform).m41
-		// Opening: the card is still off-screen, sliding in. Closing: it is still fully open.
-		const cardIsMoving = menuOpen ? slide !== 0 : slide === 0
-		if (!cardIsMoving) return { duration: 0 }
-		const from = node.getBoundingClientRect()
-		const to = target.getBoundingClientRect()
-		const dx = to.left - (menuOpen ? slide : 0) - from.left
-		const dy = to.top + to.height / 2 - (from.top + from.height / 2)
-		const scale =
-			parseFloat(getComputedStyle(target).fontSize) / parseFloat(getComputedStyle(node).fontSize)
-		return {
-			duration: JOIN_PICKER_MS,
-			easing: cubicInOut,
-			css: (_t: number, u: number) =>
-				`transform-origin: left center; transform: translate(${dx * u}px, ${dy * u}px) scale(${1 + (scale - 1) * u}); opacity: ${1 - u};`
-		}
-	}
-
 	// Matches the edge band's `duration-200`, so the drawer opens as the tint finishes.
 	const EDGE_OPEN_DELAY_MS = 200
 	let edgeOpenTimer: ReturnType<typeof setTimeout> | undefined
@@ -1046,9 +1011,13 @@
 {#snippet sidebarToggle()}
 	{@const hidden = navDetached.val}
 	<Tooltip class="flex" placement="bottom" small>
+		<!-- Hidden, hovering slides the card in for a look; the click is what puts the sidebar
+		     back for good. -->
 		<button
+			data-nav-handle
 			class="p-1.5 rounded hover:bg-surface-hover"
 			aria-label={hidden ? 'Show sidebar' : 'Hide sidebar'}
+			onmouseenter={() => hidden && navHandleSlot.open()}
 			onclick={() => setDetached(!hidden)}
 		>
 			{#if hidden}
@@ -1124,25 +1093,6 @@
 					onmouseleave={() => clearTimeout(edgeOpenTimer)}
 				></div>
 			{/if}
-			{#if detachedFloating && !devOnly}
-				<!-- The detached sidebar's handle: hover or click opens the card, which starts below it
-				     rather than over it, so the trigger stays visible and reachable. Docking is the
-				     card header's own button. -->
-				<div class="absolute top-1 left-1 z5000 flex items-center">
-					<NavHandle />
-					<!-- Plain text, outside the handle's hover area: on home it names the workspace,
-					     with a ground so it stays legible over the page scrolling under it. Hidden
-					     while the card is open, which would otherwise sit under it. -->
-					{#if onHome && !menuOpen}
-						<span
-							class="pl-0.5 pr-1.5 py-0.5 rounded-md bg-surface text-xs text-secondary truncate"
-							transition:joinPicker
-						>
-							{currentWorkspaceName}
-						</span>
-					{/if}
-				</div>
-			{/if}
 			{#if useDrawer}
 				<div
 					class={classNames(
@@ -1167,9 +1117,15 @@
 					<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 					<!-- Detached, the drawer is a floating card rather than a full-height panel, and it
 					     starts right below the handle that opened it, wherever that handle sits. -->
+					<!-- Detached, this outside-click catcher starts where the card does rather than at
+					     the top of the viewport: it would otherwise cover the header's toggle, whose
+					     hover opened the card, and swallow the click meant to put the sidebar back. -->
 					<div
-						class={classNames('fixed inset-0 flex z-40', detachedFloating ? 'pl-1 pb-2' : '')}
-						style:padding-top={detachedFloating ? `${navHandleSlot.cardTop}px` : undefined}
+						class={classNames(
+							'fixed left-0 right-0 bottom-0 flex z-40',
+							detachedFloating ? 'pl-1 pb-2' : 'top-0'
+						)}
+						style:top={detachedFloating ? `${navHandleSlot.cardTop}px` : undefined}
 						onclick={(e) => {
 							if (e.target === e.currentTarget) menuOpen = false
 						}}
@@ -1218,8 +1174,7 @@
 								class="h-full flex flex-col"
 								style:background-color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}
 							>
-								<!-- Top row: the workspace ⇄ sessions switch, as in the docked rail. The
-								     workspace picker lives in the page header. -->
+								<!-- Top row: the workspace ⇄ sessions switch, as in the docked rail. -->
 								{#if !embedded && sessionsSwitchShown}
 									<div class="flex-shrink-0 px-2 h-12 w-52 flex items-center">
 										<SessionModeSwitch
@@ -1230,8 +1185,8 @@
 								{/if}
 
 								{#if !sessionMode}
-									<!-- Workspace scope (fork picker): part of the top workspace group. -->
-									<div class="pb-1 w-52 {sessionsSwitchShown ? '' : '-mt-1'}">
+									<!-- Workspace scope (fork picker), under the switch. -->
+									<div class="pb-1 w-52 {sessionsSwitchShown ? '' : 'pt-2'}">
 										<WorkspaceScopeHeader isCollapsed={false} />
 									</div>
 								{/if}
@@ -1319,7 +1274,7 @@
 					id="sidebar"
 					class={classNames(
 						dockToggled ? '' : 'wm-sidebar-in',
-						'flex flex-col fixed inset-y-0 z-40 ',
+						'flex flex-col fixed top-12 bottom-0 z-40 ',
 						sidebarTransitionClass,
 						devOnly ? '!hidden' : ''
 					)}
@@ -1346,7 +1301,7 @@
 						></div>
 						<!-- Top row: the workspace ⇄ sessions switch, level with the page header's own
 						     row so the two read as one band. The workspace picker itself lives in that
-						     header now, which is why nothing names the workspace here. -->
+						     header, which is why nothing names the workspace here. -->
 						{#if !embedded && sessionsSwitchShown}
 							<div
 								class="flex-shrink-0 px-2 h-12 flex items-center {isCollapsed
@@ -1358,10 +1313,8 @@
 						{/if}
 
 						{#if !sessionMode}
-							<!-- Workspace scope (fork picker): part of the top workspace group,
-								     together with the family menu and the mode switch above. Without
-								     the switch, pull it up so the group still reads as one block. -->
-							<div class="pb-1 {sessionsSwitchShown ? '' : '-mt-1'}">
+							<!-- Workspace scope (fork picker), under the switch. -->
+							<div class="pb-1 {sessionsSwitchShown ? '' : 'pt-2'}">
 								<WorkspaceScopeHeader {isCollapsed} />
 							</div>
 						{/if}
@@ -1580,6 +1533,10 @@
 			</div>
 		{/if}
 		<div class="flex flex-col h-full w-full">
+			{#if !menuHidden && !devOnly}
+				<!-- The band runs the full width, above the sidebar: the sidebar starts under it. -->
+				<PageHeaderBar toggle={sidebarToggle} />
+			{/if}
 			{#if $enterpriseLicense && !menuHidden}
 				<!-- Announcements are an EE feature, so the component never mounts on CE: no
 				     fetch, no poll, no listener there. Also skipped when the menu is hidden —
@@ -1630,13 +1587,7 @@
 				transitionClass={sidebarTransitionClass}
 				isMobile={useDrawer}
 				onMenuOpen={() => navHandleSlot.open()}
-			>
-				{#snippet header()}
-					{#if !menuHidden && !devOnly}
-						<PageHeaderBar toggle={sidebarToggle} />
-					{/if}
-				{/snippet}
-			</AiChatLayout>
+			/>
 		</div>
 	</div>
 {:else}

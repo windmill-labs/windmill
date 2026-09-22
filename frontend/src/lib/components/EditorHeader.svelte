@@ -55,6 +55,8 @@
 		 * dropped, leaving only the summary. Used by the condensed session-
 		 * preview top bar to save vertical room. */
 		hidePath?: boolean
+		/** Drop the summary, for a host that renders its own after the path. */
+		hideSummary?: boolean
 		/** Workspace whose items the breadcrumb picker lists; defaults to the operating
 		 * workspace (see `useOperatingWorkspace`). */
 		workspaceId?: string
@@ -75,6 +77,7 @@
 		summaryEditable = true,
 		pathEditable = true,
 		hidePath = false,
+		hideSummary = false,
 		workspaceId,
 		inline = false
 	}: Props = $props()
@@ -263,16 +266,18 @@
 	{/if}
 
 	<!-- Summary -->
-	<div class="max-w-full {inline ? 'min-w-0' : '-mt-[2px]'}" title={summary}>
-		<EditableInput
-			value={summary ?? ''}
-			placeholder="Add a summary..."
-			editable={summaryEditable}
-			commitOnInput
-			size="sm"
-			onSave={handleSummarySave}
-			textClass="text-xs font-semibold text-emphasis leading-tight"
-			class="max-w-full"
-		/>
-	</div>
+	{#if !hideSummary}
+		<div class="max-w-full {inline ? 'min-w-0' : '-mt-[2px]'}" title={summary}>
+			<EditableInput
+				value={summary ?? ''}
+				placeholder="Add a summary..."
+				editable={summaryEditable}
+				commitOnInput
+				size="sm"
+				onSave={handleSummarySave}
+				textClass="text-xs font-semibold text-emphasis leading-tight"
+				class="max-w-full"
+			/>
+		</div>
+	{/if}
 </div>

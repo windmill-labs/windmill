@@ -8,6 +8,9 @@ export type PageHeaderItem = {
 	/** The item's saved path, so a mid-rename breadcrumb and picker stay coherent. */
 	savedPath?: string
 	summary?: string
+	/** Rendered after the path instead of the editable summary — for a page whose summary is
+	 *  itself a control, such as a detail page's rename-and-labels popover. */
+	summaryContent?: Snippet
 	raw_app?: boolean
 	/** Which workspace the breadcrumb's pickers read (a session editor acts on its fork). */
 	workspaceId?: string
@@ -31,6 +34,9 @@ export type PageHeaderContent = {
 	section?: PageHeaderSection
 	/** Rendered at the right end of the bar — the page's own buttons. */
 	actions?: Snippet
+	/** Contexts those buttons look up. They render under the header, not under the page that
+	 *  wrote them, so anything the page's tree provides has to travel with them. */
+	contexts?: Map<any, any>
 }
 
 // The bar belongs to the root layout and is always on screen; a route page fills its breadcrumb
