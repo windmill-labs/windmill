@@ -3,6 +3,17 @@ import { AGENT_FLOW_LOCAL_KEYS } from '../agentResourceUtils'
 import { agentMemoryMode, keepsManagedMemory } from '../agentFormFields'
 
 /**
+ * What an agent's chat runs, and files its conversations, under. Conversations are keyed by path
+ * alone, and a flow may share the agent's, so the suffix is one no flow path can carry (its
+ * segments are `[\w-]`): otherwise each would list the other's chats, and continuing one would run
+ * a step that never saw its memory. The first two segments, which the server checks a preview
+ * run's path against, stay the agent's.
+ */
+export function agentChatPath(agentPath: string): string {
+	return `${agentPath}.chat`
+}
+
+/**
  * The inputs of the flow a saved agent is chatted with: the message, and the files the composer's
  * paperclip uploads. `user_message` is the name the server requires of a chat-mode run.
  */

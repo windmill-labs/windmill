@@ -4,7 +4,12 @@
 	import { Info, MessageSquareOff } from 'lucide-svelte'
 	import { Alert, Button } from '$lib/components/common'
 	import FlowChat from '../conversations/FlowChat.svelte'
-	import { AGENT_CHAT_SCHEMA, agentChatFlow, agentChatGap } from '../conversations/agentEditorChat'
+	import {
+		AGENT_CHAT_SCHEMA,
+		agentChatFlow,
+		agentChatGap,
+		agentChatPath
+	} from '../conversations/agentEditorChat'
 	import { runFlowPreview } from '../utils.svelte'
 	import { deepEqual } from 'fast-equals'
 	import type { Flow, FlowModule, InputTransform, Job, OpenFlow } from '$lib/gen'
@@ -315,6 +320,8 @@
 	let testIsLoading = $state(false)
 	let scriptProgress = $state(undefined)
 
+	let chatPath = $derived(agentChatPath(path))
+
 	/** One chat turn: the agent as edited, not as deployed, the same as a run from the form. */
 	async function runChatTurn(
 		userMessage: string,
@@ -325,7 +332,7 @@
 		return await runFlowPreview(
 			{ ...(inputs ?? {}), user_message: userMessage },
 			agentChatFlow($state.snapshot(agentModule) as FlowModule),
-			path,
+			chatPath,
 			undefined,
 			conversationId,
 			undefined,
@@ -554,13 +561,12 @@
 								</div>
 							{/if}
 							<!-- Hidden rather than unmounted while memory is off: switching it off mid-turn must
-							     not end the chat following that turn. The agent's path names its conversations, as
-							     it names the form's runs: test chats, since what runs is the agent as edited. -->
+							     not end the chat following that turn. Test chats, since what runs is the agent as
+							     edited. -->
 							<div class={chatGap?.memory ? 'hidden' : 'flex flex-col flex-1 min-h-0'}>
 								<FlowChat
 									onRunFlow={runChatTurn}
-									{path}
-									identity={`agent:${path}`}
+									path={chatPath}
 									conversationKind="test"
 									subject="agent"
 									frame="none"

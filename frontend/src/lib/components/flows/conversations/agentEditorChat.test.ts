@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import type { FlowModule } from '$lib/gen'
-import { agentChatFlow, agentChatGap } from './agentEditorChat'
+import { agentChatFlow, agentChatGap, agentChatPath } from './agentEditorChat'
+
+describe('agentChatPath', () => {
+	it('is a path no flow can take, so a same-path flow never shares its conversations', () => {
+		const flowPath = /^[ufg](\/[\w-]+){2,}$/
+		expect('f/support/agent').toMatch(flowPath)
+		expect(agentChatPath('f/support/agent')).not.toMatch(flowPath)
+	})
+})
 
 function agent(inputTransforms: Record<string, any>): FlowModule {
 	return {
@@ -35,6 +43,10 @@ describe('agentChatGap', () => {
 		expect(
 			agentChatGap({ memory: { type: 'static', value: { kind: 'window', context_length: 10 } } })
 		).toBeUndefined()
+	})
+
+	it('reads an agent with no memory setting as off, and offers to turn it on', () => {
+		expect(agentChatGap({})).toEqual({ memory: true, memoryCanTurnOn: true, noStream: undefined })
 	})
 
 	it('flags memory off and streaming off', () => {
