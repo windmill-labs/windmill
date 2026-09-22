@@ -55,6 +55,9 @@
 	let saveError: string | undefined = $state(undefined)
 	let provider: Provider | undefined = $state(undefined)
 	let existingPath: string | undefined = $state(undefined)
+	/** The workspace has a git_repository resource no repository uses yet, so picking one is
+	 *  offered up front rather than behind the hint. */
+	let hasResource = $state(false)
 
 	let connection: RepoConnection | undefined = $state(undefined)
 	let newPath = $state('')
@@ -138,6 +141,7 @@
 		step = 1
 		githubApp?.dispose()
 		githubApp = undefined
+		hasResource = false
 		provider = undefined
 		existingPath = undefined
 		connection = undefined
@@ -152,6 +156,7 @@
 				resourceType: 'git_repository'
 			})
 			const firstUnused = resources.find((r) => !usedResourcePaths.includes(r.path))
+			hasResource = !!firstUnused
 			if (provider === undefined && firstUnused) {
 				provider = 'existing'
 				existingPath = firstUnused.path
@@ -268,7 +273,7 @@
 						'Connect a GitLab repository with an access token.'
 					)}
 
-					{#if provider === 'existing'}
+					{#if hasResource || provider === 'existing'}
 						{#snippet resourceIcon()}
 							<Database size={18} class="text-secondary" />
 						{/snippet}
@@ -278,11 +283,13 @@
 							'Use an existing git_repository resource',
 							'Pick a resource that already holds the repository URL and its credentials.'
 						)}
-						<ResourcePicker
-							bind:value={existingPath}
-							resourceType="git_repository"
-							excludedValues={usedResourcePaths}
-						/>
+						{#if provider === 'existing'}
+							<ResourcePicker
+								bind:value={existingPath}
+								resourceType="git_repository"
+								excludedValues={usedResourcePaths}
+							/>
+						{/if}
 					{/if}
 				{:else if step === 3}
 					{#if draftIdx !== -1}
@@ -365,7 +372,7 @@
 						>
 							Back
 						</Button>
-					{:else if provider !== 'existing'}
+					{:else if !hasResource && provider !== 'existing'}
 						<Button variant="subtle" unifiedSize="sm" onClick={() => selectProvider('existing')}>
 							Use an existing resource instead
 						</Button>
