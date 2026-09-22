@@ -124,21 +124,29 @@ afterEach(() => {
 })
 
 describe('DeepSeek output budget', () => {
-	it.each(['deepseek-flash', 'deepseek-v4-flash', 'deepseek-v4-pro'])(
-		'sends the full reasoning and answer budget for %s',
-		async (model) => {
-			const { getCompletion, getNonStreamingMetadataCompletion, METADATA_MAX_TOKENS } =
-				await import('./lib')
-			h.currentModel = { provider: 'deepseek', model }
+	it.each([
+		'deepseek-flash',
+		'deepseek-v4-flash',
+		'deepseek-v4-pro',
+		'deepseek-chat',
+		'deepseek-reasoner'
+	])('sends the full reasoning and answer budget for %s', async (model) => {
+		const { getCompletion } = await import('./lib')
+		h.currentModel = { provider: 'deepseek', model }
 
-			await getCompletion(messages, new AbortController())
-			expect(openaiCreate.mock.calls[0][0].max_tokens).toBe(393216)
+		await getCompletion(messages, new AbortController())
+		expect(openaiCreate.mock.calls[0][0].max_tokens).toBe(393216)
+	})
 
-			openaiCreate.mockClear()
-			await getNonStreamingMetadataCompletion(messages, new AbortController())
-			expect(openaiCreate.mock.calls[0][0].max_tokens).toBe(METADATA_MAX_TOKENS)
-		}
-	)
+	it('preserves the metadata cap and third-party provider defaults', async () => {
+		const { getNonStreamingMetadataCompletion, getModelMaxTokens, METADATA_MAX_TOKENS } =
+			await import('./lib')
+		h.currentModel = { provider: 'deepseek', model: 'deepseek-flash' }
+		await getNonStreamingMetadataCompletion(messages, new AbortController())
+		expect(openaiCreate.mock.calls[0][0].max_tokens).toBe(METADATA_MAX_TOKENS)
+		expect(getModelMaxTokens('customai', 'deepseek-flash')).toBe(8192)
+		expect(getModelMaxTokens('azure_foundry', 'deepseek-v4-pro')).toBe(8192)
+	})
 })
 
 describe('Anthropic Messages API routing', () => {

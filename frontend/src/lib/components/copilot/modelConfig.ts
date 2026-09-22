@@ -100,6 +100,7 @@ const MODEL_CONTEXT_WINDOWS: [name: string, contextWindow: number][] = [
 	// deepseek-reasoner aliases were retired 2026-07-24 but can still sit in a
 	// saved selection, so they keep resolving to the window they had.
 	['deepseek-v4', 1_000_000],
+	['deepseek-flash', 1_000_000],
 	['deepseek-chat', 1_000_000],
 	['deepseek-reasoner', 1_000_000],
 	['deepseek', 128_000],

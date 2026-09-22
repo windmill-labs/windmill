@@ -15,6 +15,7 @@ import { get, type Writable } from 'svelte/store'
 import { OpenAPI, ResourceService, type Script } from '../../gen'
 import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
 import {
+	parseModelId,
 	requiresMaxCompletionTokens,
 	usesAnthropicMessagesApi,
 	usesOpenRouterPromptCaching
@@ -310,7 +311,10 @@ export async function fetchAvailableModels(
 }
 
 export function getModelMaxTokens(provider: AIProvider, model: string) {
-	if (/^(deepseek-flash|deepseek-v4-(flash|pro))$/.test(model.split('/').pop() ?? '')) {
+	if (
+		provider === 'deepseek' &&
+		/^(deepseek-(flash|chat|reasoner)|deepseek-v4-(flash|pro))$/.test(parseModelId(model).base)
+	) {
 		// DeepSeek counts reasoning against the output budget as well as the answer.
 		return 393216
 	} else if (model.includes('gpt-5')) {
