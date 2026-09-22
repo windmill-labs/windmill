@@ -697,45 +697,66 @@
 	})
 
 	// Fetched once for the whole database rather than per table: the diagram needs
-	// every relation at once, and the per-table query would be one job each. The
-	// result carries the database it was read from, and the metadata it was read
-	// beside — which is what the cards are built from.
-	let relationsError = $state<string | undefined>(undefined)
-	let relations = resource(
-		[() => viewMode, () => databaseKey, () => colDefs],
-		async ([mode, key, defs], _prev, { data, signal }) => {
-			// Re-read only when the database itself was reloaded: toggling back to
-			// the diagram must not queue the query again. A read that failed is not
-			// an answer about this database, so leaving and coming back retries it.
-			const answered = data?.databaseKey === key && data?.defs === defs && !data.failed
-			// The metadata can land after the schema, and its arrival re-runs this; a
-			// read started without it would be a second full-database job that an
-			// abort cannot recall from the queue.
-			if (mode !== 'diagram' || answered || defs === undefined) return data
-			relationsError = undefined
-			let read: DbRelation[] = []
-			let error: string | undefined
-			try {
-				read = await dbSchemaOps.onFetchAllForeignKeys()
-			} catch (e) {
-				error = (e as any)?.body ?? (e as Error)?.message ?? String(e)
-			}
-			// The manager is not remounted on every database change and a queued job
-			// cannot be recalled, so a slow read can land after the next database's.
-			// An AbortError keeps it out of `current`, where it would decorate that
-			// database's tables with this one's relations.
-			if (signal.aborted) throw new DOMException('Superseded', 'AbortError')
-			relationsError = error
-			return { databaseKey: key, defs, relations: read, failed: error !== undefined }
-		}
+	// every relation at once, and the per-table query would be one job each. A
+	// queued job cannot be recalled, so there is at most one read per database and
+	// metadata, kept across mode changes — not a `resource`, which abandons a run
+	// on any change of its inputs, a toggle included. A read is replaced only by
+	// another database, reloaded metadata, or a retry after failing.
+	type RelationsRead = {
+		databaseKey: string | undefined
+		/** The metadata it was read beside, which is what the cards are built from. */
+		defs: Record<string, ColumnDef[]>
+		token: number
+		status: 'loading' | 'ok' | 'failed'
+		relations: DbRelation[]
+		error?: string
+	}
+	let relationsRead = $state.raw<RelationsRead | undefined>(undefined)
+	let relationsToken = 0
+
+	$effect(() => {
+		const key = databaseKey
+		// The metadata can land after the schema; its arrival re-runs this.
+		const defs = colDefs
+		if (viewMode !== 'diagram' || defs === undefined) return
+		untrack(() => {
+			const current = relationsRead
+			const reusable =
+				!!current &&
+				current.databaseKey === key &&
+				current.defs === defs &&
+				current.status !== 'failed'
+			if (reusable) return
+			const token = ++relationsToken
+			relationsRead = { databaseKey: key, defs, token, status: 'loading', relations: [] }
+			dbSchemaOps.onFetchAllForeignKeys().then(
+				(relations) => settleRelations(token, { status: 'ok', relations }),
+				(e) =>
+					settleRelations(token, {
+						status: 'failed',
+						relations: [],
+						error: (e as any)?.body ?? (e as Error)?.message ?? String(e)
+					})
+			)
+		})
+	})
+
+	/** A read that has since been replaced answers about something no longer shown. */
+	function settleRelations(
+		token: number,
+		outcome: Pick<RelationsRead, 'status' | 'relations' | 'error'>
+	) {
+		if (relationsRead?.token !== token) return
+		relationsRead = { ...relationsRead, ...outcome }
+	}
+
+	// Only ever shown beside the database and metadata it was read from.
+	let shownRelationsRead = $derived(
+		relationsRead?.databaseKey === databaseKey && relationsRead?.defs === colDefs
+			? relationsRead
+			: undefined
 	)
-	// Relations are shown only alongside the database they were read from, so a
-	// result that is merely not superseded yet cannot decorate another one.
-	let currentRelations = $derived(
-		relations.current?.databaseKey === databaseKey && relations.current?.defs === colDefs
-			? relations.current.relations
-			: []
-	)
+	let currentRelations = $derived(shownRelationsRead?.relations ?? [])
 
 	/** The schema a database's diagram opens on. `selected.schemaKey` follows the
 	 * tree and is only replaced once it is empty, so after a switch between
@@ -1170,8 +1191,8 @@
 				{colDefs}
 				selectedTables={diagramTables}
 				relations={currentRelations}
-				loading={relations.loading}
-				error={relationsError}
+				loading={shownRelationsRead?.status === 'loading'}
+				error={shownRelationsRead?.error}
 				onOpenTable={({ schema, table }) => {
 					onViewMode?.('data')
 					selectTable(currentDatatable, schema, table)
