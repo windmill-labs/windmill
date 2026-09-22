@@ -101,23 +101,25 @@
 	])
 
 	let lastCheck: number | undefined = undefined
-	async function loadTagsToWorkerExists(tags: string[]) {
-		if (lastCheck && Date.now() - lastCheck < 5000) {
-			return
-		}
+	// Each run reads the list as it is then, so a tag typed in since the last run is looked up
+	// too, and a run too soon after the last one is deferred rather than dropped.
+	async function loadTagsToWorkerExists() {
 		if (timeout) {
 			clearTimeout(timeout)
 		}
+		const wait = lastCheck ? 5000 - (Date.now() - lastCheck) : 0
+		if (wait > 0) {
+			timeout = setTimeout(loadTagsToWorkerExists, wait)
+			return
+		}
 		if (open) {
 			tagsToWorkerExists = await WorkerService.existsWorkersWithTags({
-				tags: tags.join(','),
+				tags: items.filter((t) => !dynamicTagRegex.test(t)).join(','),
 				workspace: effectiveWorkspace
 			})
 			lastCheck = Date.now()
 			if (visible) {
-				timeout = setTimeout(() => {
-					loadTagsToWorkerExists(tags)
-				}, 5000)
+				timeout = setTimeout(loadTagsToWorkerExists, 5000)
 			}
 		}
 	}
@@ -138,7 +140,7 @@
 
 	$effect(() => {
 		if (currentTags && open) {
-			loadTagsToWorkerExists(items.filter((t) => !dynamicTagRegex.test(t)))
+			loadTagsToWorkerExists()
 		}
 	})
 
