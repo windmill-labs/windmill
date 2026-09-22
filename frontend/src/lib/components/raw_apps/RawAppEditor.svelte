@@ -566,7 +566,10 @@
 	// The only writer of `activeTabId`, `selectedRunnable` and `selectedDocument`.
 	// Everything switches through here, so the three can't disagree: one left
 	// stale marks two sidebar rows selected, or leaves a tab over an empty pane.
-	function select(next: EditorSelection, opts?: { force?: boolean; notifyIframe?: boolean }): void {
+	function select(
+		next: EditorSelection,
+		opts?: { force?: boolean; notifyIframe?: boolean; focus?: boolean }
+	): void {
 		if (next.kind === 'preview') {
 			// In split mode Preview is always shown on the right, so selecting it is
 			// a no-op (would collapse the left pane). `force` lets closeTab fall back
@@ -581,7 +584,7 @@
 			activeTabId = ensureFileTab(next.path)
 			selectedRunnable = undefined
 			selectedDocument = next.path
-			if (opts?.notifyIframe !== false) openInIframe(next.path)
+			if (opts?.notifyIframe !== false) openInIframe(next.path, opts?.focus)
 			return
 		}
 		activeTabId = ensureRunnableTab(next.key)
@@ -589,7 +592,7 @@
 		selectedRunnable = next.key
 	}
 
-	function activateTab(id: string, opts?: { force?: boolean }) {
+	function activateTab(id: string, opts?: { force?: boolean; focus?: boolean }) {
 		if (!tabs.some((t) => t.id === id)) return
 		select(selectionOfTab(id), opts)
 	}
@@ -602,13 +605,20 @@
 		closeTab(runnableTabId(key))
 	}
 
-	// Ask the UI Builder iframe to open a document. `populateFiles` replays
-	// `iframeDocument` on iframe load, so record it even when the iframe isn't
-	// ready yet (the postMessage is then skipped).
-	function openInIframe(path: string) {
+	// Ask the UI Builder iframe to open a document, taking the keyboard only when
+	// the user picked it. When the iframe doesn't hold the file's current content
+	// yet, `populateFiles` opens `iframeDocument` in the same message as that
+	// content: opening first errors on a new file and races the write on a changed
+	// one (the iframe applies the edit twice). It also opens it on iframe load.
+	function openInIframe(path: string, focus = false) {
 		iframeDocument = path
-		if (iframeLoaded) {
-			iframe?.contentWindow?.postMessage({ type: 'selectFile', path }, '*')
+		const held =
+			path === WMILL_TS_PATH ||
+			(iframeFiles?.[path] !== undefined && iframeFiles[path] === files?.[path])
+		if (iframeLoaded && held) {
+			iframe?.contentWindow?.postMessage({ type: 'selectFile', path, focus }, '*')
+		} else {
+			iframeFocusPending = focus
 		}
 	}
 
@@ -810,7 +820,14 @@
 	}
 
 	let iframeLoaded = $state(false) // @hmr:keep
+	// The files the iframe holds: last posted to it, or last reported by it.
 	let iframeFiles: Record<string, string> | undefined
+	// A user-picked document `openInIframe` left for `populateFiles` to open.
+	let iframeFocusPending = false
+	// Last keystroke in the editor or edit reported by the iframe. AI edits only
+	// move the editor to their file once the user has paused this long.
+	let lastUserEditAt = 0
+	const USER_EDIT_IDLE_MS = 3000
 	// Briefly drops the `setActiveDocument` echo VS Code fires while we're
 	// pushing the initial file set — the iframe auto-opens a default editor
 	// during boot which we don't want to treat as a user-driven activation.
@@ -858,8 +875,9 @@
 
 	function populateFiles() {
 		if (files) {
-			// Manual edits and session autosave echoes already match the iframe. Sending them
-			// back can reopen its document while the user is still typing.
+			// `files` is reassigned with unchanged content (the session draft sync, history
+			// restores, the iframe's own reports). Re-sending it makes the iframe reopen its
+			// document and rewrite the files under the user's cursor.
 			if (deepEqual(files, iframeFiles)) return
 			suppressSetActiveDocument = true
 			if (suppressTimer !== undefined) clearTimeout(suppressTimer)
@@ -879,11 +897,14 @@
 		}
 	}
 	function setFilesInIframe(newFiles: Record<string, string>) {
+		const target = iframe?.contentWindow
+		if (!target) return
 		iframeFiles = { ...newFiles }
+		iframeFocusPending = false
 		const files = Object.fromEntries(
 			Object.entries(newFiles).filter(([path, _]) => !path.endsWith('/'))
 		)
-		iframe?.contentWindow?.postMessage(
+		target.postMessage(
 			{
 				type: 'setFiles',
 				files: files
@@ -893,16 +914,21 @@
 	}
 
 	function setFilesAndSelectInIframe(newFiles: Record<string, string>, pathToSelect: string) {
-		iframeFiles = { ...newFiles }
 		iframeDocument = pathToSelect
+		const target = iframe?.contentWindow
+		if (!target) return
+		iframeFiles = { ...newFiles }
+		const focus = iframeFocusPending
+		iframeFocusPending = false
 		const files = Object.fromEntries(
 			Object.entries(newFiles).filter(([path, _]) => !path.endsWith('/'))
 		)
-		iframe?.contentWindow?.postMessage(
+		target.postMessage(
 			{
 				type: 'setFilesAndSelect',
 				files: files,
-				pathToSelect: pathToSelect
+				pathToSelect: pathToSelect,
+				focus
 			},
 			'*'
 		)
@@ -1018,14 +1044,15 @@
 				return frontendFiles
 			},
 			setFrontendFile: (path, content): LintResult => {
-				console.log('setting frontend file', path, content)
+				console.log('setting frontend file', path, `${content.length} chars`)
 				if (!files) {
 					files = {}
 				}
 				files[path] = content
-				// AI edits must not switch away from the file the user is editing.
-				// The files effect syncs the iframe; a direct update here races it.
-				ensureFileTab(path)
+				// Follow the AI to the file it edits, but never pull a user who is editing
+				// off their file. The files effect sends the content.
+				if (Date.now() - lastUserEditAt < USER_EDIT_IDLE_MS) ensureFileTab(path)
+				else select({ kind: 'file', path })
 				return lint()
 			},
 			deleteFrontendFile: (path) => {
@@ -1408,6 +1435,7 @@
 			// Only mark pending changes if files actually changed (ignore echo from setFilesInIframe)
 			if (!deepEqual(files, normalizedFiles)) {
 				files = normalizedFiles
+				lastUserEditAt = Date.now()
 				historyManager.markPendingChanges()
 			}
 		} else if (e.data.type === 'getBundle') {
@@ -2116,7 +2144,7 @@
 	// future `FileExplorer` caller feeds folder paths back in.
 	function handleSelectPath(path: string) {
 		if (!path || path.endsWith('/')) return
-		select({ kind: 'file', path })
+		select({ kind: 'file', path }, { focus: true })
 	}
 
 	// Track previous values for change detection
@@ -2351,7 +2379,11 @@
 	gateJobIds={false}
 	extraSourceWindow={() => externalPreviewWindow}
 />
-<div bind:clientWidth={rootWidth} class="max-h-full overflow-hidden h-full min-h-0 flex flex-col">
+<div
+	bind:clientWidth={rootWidth}
+	onkeydowncapture={() => (lastUserEditAt = Date.now())}
+	class="max-h-full overflow-hidden h-full min-h-0 flex flex-col"
+>
 	<RawAppEditorHeader
 		bind:this={header}
 		bind:jobs
@@ -2489,7 +2521,7 @@
 								<DraggableTabs
 									tabs={leftPaneTabs}
 									activeId={activeTabId}
-									onSelect={(id) => activateTab(id)}
+									onSelect={(id) => activateTab(id, { focus: true })}
 									onClose={(id) => closeTab(id)}
 									onReorder={(next) => reorderTabs(next)}
 								>
@@ -2574,7 +2606,7 @@
 								<DraggableTabs
 									tabs={rightPaneTabs}
 									activeId={rightPaneActiveId}
-									onSelect={(id) => activateTab(id)}
+									onSelect={(id) => activateTab(id, { focus: true })}
 									onClose={(id) => closeTab(id)}
 									onReorder={(next) => reorderTabs(next)}
 								>
