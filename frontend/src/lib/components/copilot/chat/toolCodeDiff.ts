@@ -156,10 +156,16 @@ export function toolDiffLines(diff: ToolCodeDiff, streaming = false): ToolDiffLi
 		appendContextLines(result, before, after, oldIndex, newIndex, Math.min(oldStart - oldIndex, newStart - newIndex))
 		appendChangedLines(result, 'removed', before, oldStart, change.original.endLineNumberExclusive - 1, removedRanges)
 		appendChangedLines(result, 'added', after, newStart, change.modified.endLineNumberExclusive - 1, addedRanges)
-		oldIndex = change.original.endLineNumberExclusive - 1
-		newIndex = change.modified.endLineNumberExclusive - 1
+		oldIndex = Math.min(change.original.endLineNumberExclusive - 1, before.length)
+		newIndex = Math.min(change.modified.endLineNumberExclusive - 1, after.length)
 	}
-	appendContextLines(result, before, after, oldIndex, newIndex, Math.min(before.length - oldIndex, after.length - newIndex))
+	const trailingContext = Math.max(
+		0,
+		Math.min(before.length - oldIndex, after.length - newIndex)
+	)
+	appendContextLines(result, before, after, oldIndex, newIndex, trailingContext)
+	oldIndex += trailingContext
+	newIndex += trailingContext
 	appendChangedLines(result, 'removed', before, oldIndex, before.length, removedRanges)
 	appendChangedLines(result, 'added', after, newIndex, after.length, addedRanges)
 

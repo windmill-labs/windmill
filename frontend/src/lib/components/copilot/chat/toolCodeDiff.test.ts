@@ -136,6 +136,26 @@ describe('toolCodeDiff', () => {
 		])
 	})
 
+	it('keeps unchanged trailing lines out of the change counts', () => {
+		const diff = { before: 'one\ntwo\nthree', after: 'one\nnew\nthree', lang: 'plaintext' }
+
+		expect(diffLineCounts(diff)).toEqual({ added: 1, removed: 1 })
+		expect(toolDiffLines(diff).filter((line) => line.content === 'three')).toEqual([
+			{ kind: 'context', content: 'three', oldLine: 3, newLine: 3 }
+		])
+	})
+
+	it('does not report changes for identical files', () => {
+		const diff = { before: 'one\ntwo\nthree', after: 'one\ntwo\nthree', lang: 'plaintext' }
+
+		expect(diffLineCounts(diff)).toEqual({ added: 0, removed: 0 })
+		expect(toolDiffLines(diff)).toEqual([
+			{ kind: 'context', content: 'one', oldLine: 1, newLine: 1 },
+			{ kind: 'context', content: 'two', oldLine: 2, newLine: 2 },
+			{ kind: 'context', content: 'three', oldLine: 3, newLine: 3 }
+		])
+	})
+
 	it('renders a newly created file', () => {
 		expect(
 			toolDiffLines({ before: '', after: 'print("hello")', lang: 'python' })
