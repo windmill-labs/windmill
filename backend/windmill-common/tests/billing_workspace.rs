@@ -105,18 +105,23 @@ async fn paid_seats_and_fork_count(db: Pool<Postgres>) {
     insert_member(&db, "seat-root", "dev2@w.dev", false, false, false).await;
     insert_member(&db, "seat-root", "op1@w.dev", true, false, false).await;
     insert_member(&db, "seat-root", "op2@w.dev", true, false, false).await;
-    // A service account is billed as an operator even with a developer role.
+    // A service account is half a seat even with a developer role, counted apart from operators.
     insert_member(&db, "seat-root", "svc@w.dev", false, false, true).await;
     // Not billed.
     insert_member(&db, "seat-root", "disabled@w.dev", false, true, false).await;
     insert_member(&db, "seat-root", "svc-disabled@w.dev", false, true, true).await;
 
-    // 2 developers + 3 operators -> ceil(2 + 0.5*3) = 4.
+    // 2 developers + (2 operators + 1 service account)/2 -> ceil(3.5) = 4.
     assert_eq!(count_paid_seats(&db, "seat-root").await.unwrap(), 4);
     let breakdown = billable_seats(&db, "seat-root").await.unwrap();
     assert_eq!(
-        (breakdown.developers, breakdown.operators, breakdown.seats),
-        (2, 3, 4)
+        (
+            breakdown.developers,
+            breakdown.operators,
+            breakdown.service_accounts,
+            breakdown.seats
+        ),
+        (2, 2, 1, 4)
     );
 
     insert_ws(&db, "seat-fork1", Some("seat-root"), false).await;

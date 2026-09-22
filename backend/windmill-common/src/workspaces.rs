@@ -823,6 +823,7 @@ pub async fn count_workspace_forks(db: &crate::DB, root: &str) -> Result<i64> {
 pub struct BillableSeats {
     pub developers: i64,
     pub operators: i64,
+    pub service_accounts: i64,
     pub seats: i64,
 }
 
@@ -1043,8 +1044,9 @@ pub async fn guest_app_admits<'c, E: sqlx::Executor<'c, Database = sqlx::Postgre
     Ok(admits.unwrap_or(false))
 }
 
-/// Billable members of `w_id` and the seats they cost, as `ceil(developers + operators/2)`. A service
-/// account is billed as an operator whatever its role; a disabled member is not billed.
+/// Billable members of `w_id` and the seats they cost, as
+/// `ceil(developers + (operators + service_accounts)/2)`. A service account is half a seat whatever
+/// its role; a disabled member is not billed.
 ///
 /// The workspace is invoiced by a job outside this codebase that counts the same rows with its own
 /// SQL. The two must be changed together: this rule disagreeing with that one is what bills a
@@ -1056,7 +1058,8 @@ pub async fn billable_seats(db: &crate::DB, w_id: &str) -> Result<BillableSeats>
     let row = sqlx::query!(
         r#"SELECT
             COUNT(*) FILTER (WHERE NOT operator AND NOT disabled AND NOT is_service_account) AS "developers!",
-            COUNT(*) FILTER (WHERE (operator OR is_service_account) AND NOT disabled) AS "operators!"
+            COUNT(*) FILTER (WHERE operator AND NOT disabled AND NOT is_service_account) AS "operators!",
+            COUNT(*) FILTER (WHERE is_service_account AND NOT disabled) AS "service_accounts!"
         FROM usr WHERE workspace_id = $1"#,
         w_id
     )
@@ -1066,7 +1069,9 @@ pub async fn billable_seats(db: &crate::DB, w_id: &str) -> Result<BillableSeats>
     Ok(BillableSeats {
         developers: row.developers,
         operators: row.operators,
-        seats: ((row.developers as f64) + 0.5 * (row.operators as f64)).ceil() as i64,
+        service_accounts: row.service_accounts,
+        seats: ((row.developers as f64) + 0.5 * ((row.operators + row.service_accounts) as f64))
+            .ceil() as i64,
     })
 }
 
