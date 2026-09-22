@@ -20,6 +20,7 @@
 	import { onDestroy } from 'svelte'
 	import { getGitSyncContext } from './GitSyncContext.svelte'
 	import ConfigureSyncStep from './setup/ConfigureSyncStep.svelte'
+	import GitPushPreview from './GitPushPreview.svelte'
 	import { ResourceService } from '$lib/gen'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { apiErrorMessage } from '$lib/utils'
@@ -38,9 +39,14 @@
 
 	const ctx = getGitSyncContext()
 
-	const STEPS = ['Choose a provider', 'Connect the repository', 'Configure sync']
+	const STEPS = [
+		'Choose a provider',
+		'Connect the repository',
+		'Configure sync',
+		'Initialize the repository'
+	]
 
-	let step: 1 | 2 | 3 = $state(1)
+	let step: 1 | 2 | 3 | 4 = $state(1)
 
 	/** Resource path of the unsaved repository step 3 configures. By path rather than
 	 * index, as the context's list can shift under it. */
@@ -51,6 +57,7 @@
 			: ctx.repositories.findIndex((r) => r.git_repo_resource_path === draftPath)
 	)
 	const draft = $derived(draftIdx === -1 ? undefined : ctx.repositories[draftIdx])
+	let push: GitPushPreview | undefined = $state()
 	let saving = $state(false)
 	let saveError: string | undefined = $state(undefined)
 	let provider: Provider | undefined = $state(undefined)
@@ -115,6 +122,10 @@
 	 * existing resource to use rather than reconnecting from scratch. */
 	function back() {
 		if (connecting || saving) return
+		if (step === 4) {
+			step = 3
+			return
+		}
 		if (step === 3 && draftPath) {
 			const path = draftPath
 			discardDraft()
@@ -124,12 +135,12 @@
 		step = 1
 	}
 
-	async function saveDraft() {
+	async function saveDraft(withoutInit = false) {
 		if (draftIdx === -1) return
 		saving = true
 		saveError = undefined
 		try {
-			await ctx.saveRepository(draftIdx)
+			await ctx.saveRepository(draftIdx, withoutInit)
 		} catch (e) {
 			saveError = apiErrorMessage(e)
 		} finally {
@@ -184,6 +195,13 @@
 				: (draft?.detectionState === 'no-wmill' || draft?.detectionState === 'has-wmill') && !saving
 	)
 
+	// Steps this run skips: connecting, when an existing resource is used, and initializing,
+	// when the repository already holds a Windmill configuration.
+	const disabledIndices = $derived([
+		...(provider === 'existing' ? [1] : []),
+		...(draft?.detectionState === 'has-wmill' ? [3] : [])
+	])
+
 	function selectProvider(p: Provider) {
 		if (p !== provider) connection = undefined
 		provider = p
@@ -237,7 +255,7 @@
 			tabs={STEPS}
 			selectedIndex={step - 1}
 			maxReachedIndex={step - 1}
-			disabledIndices={provider === 'existing' ? [1] : []}
+			{disabledIndices}
 			small
 			on:click={(e) => {
 				if (e.detail.index === 0 && step > 1) back()
@@ -290,6 +308,20 @@
 								excludedValues={usedResourcePaths}
 							/>
 						{/if}
+					{/if}
+				{:else if step === 4}
+					{#if draft}
+						<GitPushPreview
+							bind:this={push}
+							gitRepoResourcePath={draft.git_repo_resource_path}
+							uiState={draft.settings}
+							onSuccess={() => void saveDraft()}
+						/>
+					{/if}
+					{#if saveError}
+						<Alert type="error" size="xs" title="Could not save the repository">
+							{saveError}
+						</Alert>
 					{/if}
 				{:else if step === 3}
 					{#if draftIdx !== -1}
@@ -378,16 +410,37 @@
 						</Button>
 					{/if}
 				</div>
-				{#if step === 3}
+				{#if step === 4}
+					<div class="flex items-center gap-2">
+						<Button
+							unifiedSize="sm"
+							variant="default"
+							disabled={push?.status().applying || push?.status().previewing || saving}
+							loading={saving}
+							onClick={() => saveDraft(true)}
+						>
+							Save without initializing
+						</Button>
+						<Button
+							unifiedSize="sm"
+							variant="accent"
+							disabled={!push?.status().canApply || saving}
+							loading={push?.status().applying}
+							onClick={() => push?.apply()}
+						>
+							Initialize repository
+						</Button>
+					</div>
+				{:else if step === 3}
 					{#if draft?.detectionState === 'no-wmill'}
 						<Button
 							unifiedSize="sm"
 							variant="accent"
 							disabled={!canContinue}
 							endIcon={{ icon: ArrowRight }}
-							onClick={() => ctx.showPushModal(draftIdx)}
+							onClick={() => (step = 4)}
 						>
-							Initialize repository
+							Next
 						</Button>
 					{:else}
 						<Button
@@ -395,7 +448,7 @@
 							variant="accent"
 							disabled={!canContinue}
 							loading={saving}
-							onClick={saveDraft}
+							onClick={() => void saveDraft()}
 						>
 							Save and connect
 						</Button>
