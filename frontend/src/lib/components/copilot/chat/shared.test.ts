@@ -1510,6 +1510,18 @@ describe('pollJobCompletion detach', () => {
 	})
 })
 
+describe('backgroundJobCompletionNote', () => {
+	// A failed run's card lands on the error, with the logs a tab away: the model must stay
+	// free to quote them, so only a success says the user already sees the run.
+	it('tells the model not to repeat a successful result, and not a failed one', async () => {
+		const { backgroundJobCompletionNote } = await import('./shared')
+		const note = (success: boolean) =>
+			backgroundJobCompletionNote('j1', 'u/a/s', { success, result: [1, 2] } as any)
+		expect(note(true)).toContain('Do not repeat')
+		expect(note(false)).not.toContain('Do not repeat')
+	})
+})
+
 describe('deriveChatJobStatus', () => {
 	// CompletedJob is discriminated by the presence of a `success` key; the branch
 	// order deliberately mirrors JobStatusIcon so the badge and scalar never drift.

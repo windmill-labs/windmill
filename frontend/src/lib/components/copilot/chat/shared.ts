@@ -1873,9 +1873,10 @@ export async function buildTestRunArgs(
 
 // Said with the result rather than in the system prompt: there, models still copied a
 // result's table or JSON into the reply, under a card that already renders it. Only for
-// the generic card completedJobToolStatus fills — a formatCompletion card shows its own.
+// a successful run in the generic card completedJobToolStatus fills: a failed run's card
+// lands on the error with the logs a tab away, and a formatCompletion card shows its own.
 const RESULT_SHOWN_NOTE =
-	'The user already sees this run in full under your call. Do not repeat its result or logs in your reply: say what it shows, quoting only the values your conclusion rests on.'
+	"The user already sees this run's result in its card. Do not repeat the result or logs in your reply: say what it shows, quoting only the values your conclusion rests on."
 
 // The string handed back to the model when a job is backgrounded. It carries the
 // job id so the model can pull status/args/result/logs on demand (get_run / list_runs),
@@ -1934,7 +1935,7 @@ export function backgroundJobCompletionNote(
 			: ''
 	return (
 		`Background job ${jobId} for "${label}" ${status}.\n` +
-		(formattedResult === undefined ? `${RESULT_SHOWN_NOTE}\n` : '') +
+		(job.success && formattedResult === undefined ? `${RESULT_SHOWN_NOTE}\n` : '') +
 		`Result: ${resultHead}\n` +
 		`(For the args, result and logs call get_run with id="${jobId}".${flowHint})`
 	)
@@ -2022,10 +2023,11 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 			...(job.success ? {} : { error: getErrorMessage(job.result) })
 		})
 
-		// detachEnabled marks the global/sessions chat, the only host rendering this card
-		// open with the full result; the in-editor chats read the summary alone.
+		// detachEnabled marks the global/sessions chat; the in-editor chats read the summary
+		// alone. The card opening on the result is up to each tool: a run card does, a
+		// generic one only with `autoCollapseDetails: false` at its registration.
 		const summary =
-			(detachEnabled ? `${RESULT_SHOWN_NOTE}\n` : '') +
+			(detachEnabled && job.success ? `${RESULT_SHOWN_NOTE}\n` : '') +
 			formatResultSummary(job.result, job.logs, job.success)
 		// get_run only exists in the global/sessions chat (the same hosts that wire
 		// the job hooks) — don't advertise it to in-editor chats.
