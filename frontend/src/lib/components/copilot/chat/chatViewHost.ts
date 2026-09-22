@@ -147,7 +147,10 @@ export interface ChatViewHost {
 	 * True where the bytes are forwarded somewhere — object storage — rather than read
 	 * in the browser. */
 	attachmentsAsBlobs: boolean
-	tools: Tool<any>[]
+	/** What this chat's next request carries, the current posture's plan-mode transition
+	 * included. A consumer narrows it by tool metadata; assembling its own list from the
+	 * sources behind it is how the advertised set and the sent set drift apart. */
+	readonly tools: Tool<any>[]
 	autonomyMode: AIAutonomyMode
 	setAutonomyMode: (mode: AIAutonomyMode) => void
 	readonly autoAcceptEditsActive: boolean
