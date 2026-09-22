@@ -26,6 +26,7 @@ import { getModelContextWindow } from '../../modelConfig'
 import type { ReviewChangesOpts } from '../monaco-adapter'
 import { getCurrentModel } from '$lib/aiStore'
 import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/metadata'
+import { scriptLangToEditorLang } from '$lib/scripts'
 import { getScriptPrompt, getWorkflowAsCodePrompt } from '$system_prompts'
 
 // Score threshold for npm packages search filtering
@@ -821,7 +822,12 @@ export const editCodeToolWithDiff: Tool<ScriptChatHelpers> = {
 
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Code changes applied`,
-				result: 'Success'
+				result: 'Success',
+				codeDiff: {
+					before: oldCode,
+					after: updatedCode,
+					lang: scriptLangToEditorLang(scriptOptions.lang)
+				}
 			})
 			return `Applied changes to the script editor.`
 		} catch (error) {

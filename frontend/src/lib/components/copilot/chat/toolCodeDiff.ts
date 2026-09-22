@@ -7,15 +7,41 @@ import type { ToolCodeDiff, ToolDisplayMessage } from './shared'
 // exist: while the arguments stream, when the call failed, and for transcripts saved before
 // calls recorded one. The replaced snippet alone has no language or surrounding lines.
 const ARGS_DIFF_BY_TOOL: Record<string, (params: unknown) => ToolCodeDiff | undefined> = {
-	edit_script: (params) => {
-		const edit = streamingEditArguments(params)
-		return typeof edit?.old_string === 'string' || typeof edit?.new_string === 'string'
-			? {
-					before: typeof edit.old_string === 'string' ? edit.old_string : '',
-					after: typeof edit.new_string === 'string' ? edit.new_string : '',
-					lang: 'plaintext'
-				}
-			: undefined
+	edit_script: (params) => argumentDiff(streamingEditArguments(params)),
+	edit_code: (params) => {
+		if (
+			params &&
+			typeof params === 'object' &&
+			Array.isArray((params as { diffs?: unknown }).diffs)
+		) {
+			const diffs = (params as { diffs: unknown[] }).diffs
+			return argumentDiffs(diffs.map(streamingEditArguments))
+		}
+		return argumentDiff(streamingEditArguments(params))
+	}
+}
+
+function argumentDiff(
+	edit: { old_string?: string; new_string?: string } | undefined
+): ToolCodeDiff | undefined {
+	return typeof edit?.old_string === 'string' || typeof edit?.new_string === 'string'
+		? {
+				before: typeof edit.old_string === 'string' ? edit.old_string : '',
+				after: typeof edit.new_string === 'string' ? edit.new_string : '',
+				lang: 'plaintext'
+			}
+		: undefined
+}
+
+function argumentDiffs(
+	edits: ({ old_string?: string; new_string?: string } | undefined)[]
+): ToolCodeDiff | undefined {
+	const diffs = edits.map(argumentDiff).filter((diff): diff is ToolCodeDiff => diff !== undefined)
+	if (diffs.length === 0) return undefined
+	return {
+		before: diffs.map((diff) => diff.before).join('\n'),
+		after: diffs.map((diff) => diff.after).join('\n'),
+		lang: 'plaintext'
 	}
 }
 

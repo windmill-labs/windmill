@@ -54,8 +54,29 @@ describe('toolCodeDiff', () => {
 		).toEqual({ before: 'before\nline', after: 'after', lang: 'plaintext' })
 	})
 
+	it('uses each replacement from an in-editor edit while its arguments stream', () => {
+		expect(
+			toolCodeDiff(
+				message({
+					toolName: 'edit_code',
+					parameters: {
+						diffs: [
+							{ old_string: 'first old', new_string: 'first new' },
+							{ old_string: 'second old', new_string: 'second new' }
+						]
+					}
+				})
+			)
+		).toEqual({
+			before: 'first old\nsecond old',
+			after: 'first new\nsecond new',
+			lang: 'plaintext'
+		})
+	})
+
 	it('only marks tools with a defined argument diff as diff-capable', () => {
 		expect(hasToolCodeDiff('edit_script')).toBe(true)
+		expect(hasToolCodeDiff('edit_code')).toBe(true)
 		expect(hasToolCodeDiff('write_script')).toBe(false)
 		expect(hasToolCodeDiff(undefined)).toBe(false)
 	})
