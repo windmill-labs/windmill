@@ -1,7 +1,11 @@
 <script lang="ts">
 	import { getContext, setContext, untrack } from 'svelte'
 	import { writable } from 'svelte/store'
-	import { Alert } from '$lib/components/common'
+	import { Info, MessageSquareOff } from 'lucide-svelte'
+	import { Alert, Button } from '$lib/components/common'
+	import FlowChat from '../conversations/FlowChat.svelte'
+	import { AGENT_CHAT_SCHEMA, agentChatFlow, agentChatGap } from '../conversations/agentEditorChat'
+	import { runFlowPreview } from '../utils.svelte'
 	import { deepEqual } from 'fast-equals'
 	import type { Flow, FlowModule, InputTransform, Job, OpenFlow } from '$lib/gen'
 	import { emptySchema, type StateStore } from '$lib/utils'
@@ -30,7 +34,12 @@
 		type AIAgentConfig
 	} from '../agentResourceUtils'
 	import { agentArgsToTransforms } from '../linkedAgentDrafts'
-	import { AGENT_EDITOR_RUN_INPUTS, AGENT_TOOLS_ROW } from '../agentFormFields'
+	import {
+		AGENT_EDITOR_RUN_INPUTS,
+		AGENT_TOOLS_ROW,
+		DEFAULT_AGENT_MEMORY,
+		keepsManagedMemory
+	} from '../agentFormFields'
 	import { toolDisplayName, type AgentTool } from '../agentToolUtils'
 	import { useAgentDraft } from '../agentDraft.svelte'
 	import Path from '$lib/components/Path.svelte'
@@ -199,6 +208,17 @@
 	// apart from the echo of their own write.
 	let lastArgs = $state<string | undefined>(undefined)
 
+	// Picked on the first load, after which it is the reader's: following the memory setting live
+	// would pull them out of a chat for switching memory off in the form.
+	let testMode = $state<'form' | 'chat' | undefined>(undefined)
+	// Mounted the first time it is shown, then only hidden: unmounting destroys the SDK chat,
+	// which stops following the turn in flight, and its answer would never show.
+	let chatMounted = $state(false)
+	function showTestMode(mode: 'form' | 'chat') {
+		testMode = mode
+		if (mode === 'chat') chatMounted = true
+	}
+
 	// draft.args -> module. Only when the draft moved on its own (a load, an external write, a
 	// discard); an edit made in the form arrives here as its own echo and is skipped.
 	$effect(() => {
@@ -217,6 +237,7 @@
 				} as any
 			}
 			flowStore.val.value.modules = [built]
+			if (testMode === undefined) showTestMode(keepsManagedMemory(args.memory) ? 'chat' : 'form')
 			// Caught rather than left to float: a tool whose shape the schema loader cannot read
 			// would otherwise reject into the global unhandled-rejection handler, which reports the
 			// bare message and no stack — saying nothing about which agent or tool caused it. The
@@ -294,6 +315,41 @@
 	let testIsLoading = $state(false)
 	let scriptProgress = $state(undefined)
 
+	/** One chat turn: the agent as edited, not as deployed, the same as a run from the form. */
+	async function runChatTurn(
+		userMessage: string,
+		conversationId: string,
+		inputs?: Record<string, any>
+	): Promise<string | undefined> {
+		if (!agentModule) return undefined
+		return await runFlowPreview(
+			{ ...(inputs ?? {}), user_message: userMessage },
+			agentChatFlow($state.snapshot(agentModule) as FlowModule),
+			path,
+			undefined,
+			conversationId,
+			undefined,
+			workspace
+		)
+	}
+
+	// What the composer reads for its model button and paperclip.
+	let chatModules = $derived(agentModule ? agentChatFlow(agentModule).value.modules : undefined)
+	let chatGap = $derived(agentChatGap(agentValue?.input_transforms))
+
+	function turnOnMemory() {
+		if (!agentValue) return
+		agentValue.input_transforms.memory = {
+			type: 'static',
+			value: structuredClone(DEFAULT_AGENT_MEMORY)
+		}
+	}
+
+	function turnOnStreaming() {
+		if (!agentValue) return
+		agentValue.input_transforms.streaming = { type: 'static', value: true }
+	}
+
 	// Adding a tool goes straight into it: the editor has no graph to show the new node on, so the
 	// tool it just created is the only place the click can land.
 	async function addTool(detail: { kind: string; script?: any; flow?: any; inlineScript?: any }) {
@@ -341,6 +397,18 @@
 	export function draftHandle() {
 		return draft
 	}
+	/** The switch between the form and the chat, which the dialog's header holds. `mode` is
+	 *  undefined until the agent loads and picks the first one. */
+	export function testPaneHandle() {
+		return {
+			get mode() {
+				return testMode
+			},
+			set mode(mode: 'form' | 'chat' | undefined) {
+				if (mode) showTestMode(mode)
+			}
+		}
+	}
 </script>
 
 {#if draft.refusal}
@@ -359,7 +427,7 @@
 		<!-- Resizable as the step panel's config and test are: a long system prompt and a long
 		     answer want opposite splits, and only the reader knows which they are on. -->
 		<Splitpanes class="h-full">
-			<Pane size={66} minSize={30}>
+			<Pane size={55} minSize={30}>
 				<div class="h-full min-h-0 overflow-auto">
 					<div class="px-4 pt-4">
 						<Label label="Path">
@@ -410,37 +478,99 @@
 					</PropPickerWrapper>
 				</div>
 			</Pane>
-			<!-- Laid out as the script editor's preview column is: what a run takes above what it
-			     produced, both alongside what is being edited. -->
-			<Pane size={34} minSize={20}>
-				<Splitpanes horizontal class="h-full">
-					<Pane size={40} minSize={15}>
-						<div class="h-full overflow-auto">
-							<ModulePreview
-								mod={agentModule as FlowModule}
-								schema={flowLocalAgentSchema(schema)}
-								pickableProperties={stepPropPicker?.pickableProperties}
-								runInputKeys={AGENT_EDITOR_RUN_INPUTS}
-								bind:testJob
-								bind:testIsLoading
-								bind:scriptProgress
-							/>
+			<Pane size={45} minSize={20}>
+				<div class="h-full min-h-0 flex flex-col">
+					<!-- Laid out as the script editor's preview column is: what a run takes above what it
+					     produced, both alongside what is being edited. -->
+					<div class="flex-1 min-h-0 {testMode === 'chat' ? 'hidden' : ''}">
+						<Splitpanes horizontal class="h-full">
+							<Pane size={40} minSize={15}>
+								<div class="h-full overflow-auto">
+									<ModulePreview
+										mod={agentModule as FlowModule}
+										schema={flowLocalAgentSchema(schema)}
+										pickableProperties={stepPropPicker?.pickableProperties}
+										runInputKeys={AGENT_EDITOR_RUN_INPUTS}
+										bind:testJob
+										bind:testIsLoading
+										bind:scriptProgress
+									/>
+								</div>
+							</Pane>
+							<Pane size={60} minSize={20}>
+								<ModulePreviewResultViewer
+									lang="deno"
+									editor={undefined}
+									diffEditor={undefined}
+									mod={agentModule as FlowModule}
+									{testJob}
+									{testIsLoading}
+									{scriptProgress}
+									disableMock
+									disableHistory
+								/>
+							</Pane>
+						</Splitpanes>
+					</div>
+					{#if chatMounted}
+						<div class={testMode === 'chat' ? 'flex flex-col flex-1 min-h-0' : 'hidden'}>
+							{#if chatGap?.memory}
+								<div
+									class="flex-1 flex flex-col items-center justify-center gap-2 px-8 text-center"
+								>
+									<MessageSquareOff size={32} class="text-hint mb-2" />
+									<p class="text-sm font-semibold text-emphasis">Chat needs managed memory</p>
+									<p class="text-xs text-secondary max-w-xs">
+										{chatGap.memoryCanTurnOn
+											? 'Without it, every message would be answered without the ones before it.'
+											: 'This agent replays a fixed list of messages. Switch its memory to managed to chat with it.'}
+									</p>
+									{#if chatGap.memoryCanTurnOn && !readOnly}
+										<Button
+											unifiedSize="sm"
+											variant="default"
+											btnClasses="bg-surface mt-2"
+											onClick={turnOnMemory}
+										>
+											Turn on managed memory
+										</Button>
+									{/if}
+								</div>
+							{:else if chatGap?.noStream}
+								<div
+									class="shrink-0 flex items-center gap-2 px-4 py-1.5 border-b text-2xs text-secondary"
+								>
+									<Info size={12} class="shrink-0" />
+									<span class="flex-1">
+										{chatGap.noStream === 'image'
+											? 'Image answers do not stream: each one shows once its run ends.'
+											: 'Streaming is off: each answer shows once its run ends.'}
+									</span>
+									{#if chatGap.noStream === 'off' && !readOnly}
+										<Button unifiedSize="2xs" variant="subtle" onClick={turnOnStreaming}>
+											Turn on
+										</Button>
+									{/if}
+								</div>
+							{/if}
+							<!-- Hidden rather than unmounted while memory is off: switching it off mid-turn must
+							     not end the chat following that turn. The agent's path names its conversations, as
+							     it names the form's runs: test chats, since what runs is the agent as edited. -->
+							<div class={chatGap?.memory ? 'hidden' : 'flex flex-col flex-1 min-h-0'}>
+								<FlowChat
+									onRunFlow={runChatTurn}
+									{path}
+									identity={`agent:${path}`}
+									conversationKind="test"
+									subject="agent"
+									frame="none"
+									inputSchema={AGENT_CHAT_SCHEMA}
+									flowModules={chatModules}
+								/>
+							</div>
 						</div>
-					</Pane>
-					<Pane size={60} minSize={20}>
-						<ModulePreviewResultViewer
-							lang="deno"
-							editor={undefined}
-							diffEditor={undefined}
-							mod={agentModule as FlowModule}
-							{testJob}
-							{testIsLoading}
-							{scriptProgress}
-							disableMock
-							disableHistory
-						/>
-					</Pane>
-				</Splitpanes>
+					{/if}
+				</div>
 			</Pane>
 		</Splitpanes>
 	</div>

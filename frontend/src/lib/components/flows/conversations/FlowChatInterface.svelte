@@ -44,6 +44,8 @@
 		wideLayout?: boolean
 		/** What this surface's runs create: previews in the editor, deployed runs on the flow page. */
 		conversationKind?: 'test' | 'deployed'
+		/** What a message runs, as the composer names it. */
+		subject?: 'flow' | 'agent'
 	}
 
 	let {
@@ -56,7 +58,8 @@
 		workspace = undefined,
 		description = undefined,
 		wideLayout = false,
-		conversationKind = 'deployed'
+		conversationKind = 'deployed',
+		subject = 'flow'
 	}: Props = $props()
 
 	// Derive helperScript for dynamic inputs from schema
@@ -273,7 +276,7 @@
 		{:else}
 			<MessageCircle size={48} class="mx-auto mb-4 opacity-50" />
 			<p class="text-lg font-medium">Start a conversation</p>
-			<p class="text-sm">Send a message to run the flow and see the results</p>
+			<p class="text-sm">Send a message to run the {subject} and see the results</p>
 			{#if !emptyString(description)}
 				<div class="mt-6 pt-4 border-t max-w-md text-left text-xs text-tertiary">
 					<GfmMarkdown md={description ?? ''} noPadding prose="sm" />
@@ -336,7 +339,7 @@
 		{wideLayout}
 		{emptyHint}
 		footerSettings={modalSchema || showModelButton ? footerSettings : undefined}
-		placeholder="Send a message to run the flow"
+		placeholder="Send a message to run the {subject}"
 		disabled={deploymentInProgress || !!modelGap || !!wrongKindReason}
 		disabledMessage={deploymentInProgress
 			? 'Deployment in progress'
