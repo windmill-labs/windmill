@@ -1018,8 +1018,8 @@
 				}
 				files[path] = content
 				// AI edits must not switch away from the file the user is editing.
+				// The files effect syncs the iframe; a direct update here races it.
 				ensureFileTab(path)
-				setFilesInIframe(files)
 				return lint()
 			},
 			deleteFrontendFile: (path) => {
