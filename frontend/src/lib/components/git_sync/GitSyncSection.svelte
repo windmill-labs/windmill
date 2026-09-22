@@ -199,9 +199,7 @@
 
 	// Shown without EE too, disabled, so CE users see what the upgrade unlocks. Offered with
 	// no sync repository as well: a workspace that configured promotion first still has none.
-	const showAddSync = $derived(
-		!devSingleRepo && !primarySync?.repo.isUnsavedConnection && !hasUnsavedConnection
-	)
+	const showAddSync = $derived(!devSingleRepo && !hasUnsavedConnection)
 	const addSyncLabel = $derived(
 		primarySync ? 'Add secondary sync repository' : 'Add sync repository'
 	)

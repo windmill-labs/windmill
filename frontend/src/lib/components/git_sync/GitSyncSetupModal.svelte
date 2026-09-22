@@ -72,6 +72,9 @@
 	let hasResource = $state(false)
 
 	let connection: RepoConnection | undefined = $state(undefined)
+	/** Path of the resource the run creates. `Path` keeps whatever non-empty path it is bound
+	 * to, so it has to be cleared when the repository changes — otherwise the second
+	 * repository is offered the first one's path, which is already taken. */
 	let newPath = $state('')
 	let newPathError = $state('')
 	let branch = $state('')
@@ -173,6 +176,9 @@
 		provider = undefined
 		existingPath = undefined
 		connection = undefined
+		newPath = ''
+		newPathError = ''
+		namedFor = undefined
 		branch = ''
 		folder = ''
 		connectError = undefined
@@ -196,6 +202,23 @@
 
 	$effect(() => {
 		if (opened) untrack(() => reset())
+	})
+
+	// Cast: the only writes to `connection` are the `bind:` on the provider forms, which the
+	// checker does not see as assignments — it narrows the variable to `undefined` without it.
+	const repoName = $derived.by(() => {
+		const url = (connection as RepoConnection | undefined)?.url
+		return url ? repoSlug(url) : undefined
+	})
+	let namedFor: string | undefined = $state(undefined)
+	$effect(() => {
+		const name = repoName
+		untrack(() => {
+			if (name === namedFor) return
+			namedFor = name
+			newPath = ''
+			newPathError = ''
+		})
 	})
 
 	// GitLab without EE has no server-side token store nor project listing, so it
@@ -286,46 +309,47 @@
 					{#snippet githubIcon()}
 						<GithubIcon height={18} width={18} />
 					{/snippet}
-					{@render providerCard(
-						'github_app',
-						githubIcon,
-						'GitHub App (recommended)',
-						'Install the Windmill GitHub App on your repository. Enables webhooks, pull requests and commit checks.',
-						!$enterpriseLicense
-					)}
-					{@render providerCard(
-						'github_pat',
-						githubIcon,
-						'GitHub personal access token',
-						'Connect a GitHub repository with a fine-grained personal access token.'
-					)}
 					{#snippet gitlabIcon()}
 						<GitlabIcon height={18} width={18} />
 					{/snippet}
-					{@render providerCard(
-						'gitlab',
-						gitlabIcon,
-						'GitLab',
-						'Connect a GitLab repository with an access token.'
-					)}
-
-					{#if hasResource || provider === 'existing'}
-						{#snippet resourceIcon()}
-							<Database size={18} class="text-secondary" />
-						{/snippet}
+					{#snippet resourceIcon()}
+						<Database size={18} class="text-secondary" />
+					{/snippet}
+					<div role="radiogroup" aria-label="How to connect the repository" class="contents">
 						{@render providerCard(
-							'existing',
-							resourceIcon,
-							'Use an existing git_repository resource',
-							'Pick a resource that already holds the repository URL and its credentials.'
+							'github_app',
+							githubIcon,
+							'GitHub App (recommended)',
+							'Install the Windmill GitHub App on your repository. Enables webhooks, pull requests and commit checks.',
+							!$enterpriseLicense
 						)}
-						{#if provider === 'existing'}
-							<ResourcePicker
-								bind:value={existingPath}
-								resourceType="git_repository"
-								excludedValues={usedResourcePaths}
-							/>
+						{@render providerCard(
+							'github_pat',
+							githubIcon,
+							'GitHub personal access token',
+							'Connect a GitHub repository with a fine-grained personal access token.'
+						)}
+						{@render providerCard(
+							'gitlab',
+							gitlabIcon,
+							'GitLab',
+							'Connect a GitLab repository with an access token.'
+						)}
+						{#if hasResource || provider === 'existing'}
+							{@render providerCard(
+								'existing',
+								resourceIcon,
+								'Use an existing git_repository resource',
+								'Pick a resource that already holds the repository URL and its credentials.'
+							)}
 						{/if}
+					</div>
+					{#if provider === 'existing'}
+						<ResourcePicker
+							bind:value={existingPath}
+							resourceType="git_repository"
+							excludedValues={usedResourcePaths}
+						/>
 					{/if}
 				{:else if step === 5}
 					{#if done}

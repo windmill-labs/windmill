@@ -237,18 +237,17 @@ wmill sync pull --workspace ${$workspaceStore} --repository ${gitRepoResourcePat
 
 		<!-- Nothing to copy commands for until the changes are known. -->
 		<div class={isPreviewLoading ? 'hidden' : ''}>
-			<button
-				class="flex items-center gap-2 text-xs text-secondary hover:text-primary transition-colors"
-				onclick={() => (showCliInstructions = !showCliInstructions)}
-			>
-				<Terminal size={14} />
-				<span>CLI instructions</span>
-				{#if showCliInstructions}
-					<ChevronUp size={14} />
-				{:else}
-					<ChevronDown size={14} />
-				{/if}
-			</button>
+			<div class="flex">
+				<Button
+					variant="subtle"
+					unifiedSize="xs"
+					startIcon={{ icon: Terminal }}
+					endIcon={{ icon: showCliInstructions ? ChevronUp : ChevronDown }}
+					onClick={() => (showCliInstructions = !showCliInstructions)}
+				>
+					CLI instructions
+				</Button>
+			</div>
 
 			{#if showCliInstructions}
 				<div class="relative mt-2">
