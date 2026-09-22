@@ -13,7 +13,10 @@ on:
 
 jobs:
   notify_discord_when_pr_opened:
-    if: (github.event.pull_request.draft == false) && (github.event.action == 'opened' || github.event.action == 'ready_for_review')
+    # Bot PRs are excluded for the same reason as the AI reviews: a Dependabot
+    # lockfile bump is not something the team wants announced in a thread, and this
+    # job has been failing on every one of them, which makes a real failure invisible.
+    if: (github.event.pull_request.draft == false) && (github.event.action == 'opened' || github.event.action == 'ready_for_review') && (github.event.pull_request.user.login != 'dependabot[bot]')
     uses: ./.github/workflows/shareable-discord-notification.yml
     with:
       PR_TITLE: ${{ github.event.pull_request.title }}
