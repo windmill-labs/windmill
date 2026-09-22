@@ -718,9 +718,10 @@ export function createGitSyncContext(workspace: string) {
 			legacyImported: false,
 			isUnsavedConnection: true,
 			collapsed: false
-			// Pull-from-Git defaults are applied by the repository card once the
-			// selected resource resolves: only app-backed repos (instant webhook
-			// delivery) default to auto-pull on; polling is opt-in for token repos.
+			// Pull-from-Git defaults are applied once the selected resource resolves, by
+			// whoever is configuring the connection (see applyNewConnectionDefaults): only
+			// app-backed repos (instant webhook delivery) default to auto-pull on; polling is
+			// opt-in for token repos.
 		})
 		gitSyncTestJobs.push({
 			jobId: '',

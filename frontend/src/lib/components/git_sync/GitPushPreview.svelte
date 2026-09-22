@@ -19,9 +19,12 @@ buttons — the setup dialog puts them in its own footer, the standalone modal i
 		gitRepoResourcePath: string
 		uiState: SettingsObject
 		onSuccess?: () => void
+		/** Told when a push starts and ends, so a host that can outlive this component knows a
+		 *  push is in flight — this one is destroyed the moment its dialog closes. */
+		onApplyStateChange?: (applying: boolean) => void
 	}
 
-	let { gitRepoResourcePath, uiState, onSuccess }: Props = $props()
+	let { gitRepoResourcePath, uiState, onSuccess, onApplyStateChange }: Props = $props()
 
 	let previewJobId = $state<string | null>(null)
 	let previewJobStatus = $state<'running' | 'success' | 'failure' | undefined>(undefined)
@@ -75,6 +78,7 @@ wmill sync pull --workspace ${$workspaceStore} --repository ${gitRepoResourcePat
 			previewJobStatus = undefined
 		} else {
 			isApplying = true
+			onApplyStateChange?.(true)
 			applyError = ''
 			applyJobId = null
 			applyJobStatus = undefined
@@ -151,6 +155,7 @@ wmill sync pull --workspace ${$workspaceStore} --repository ${gitRepoResourcePat
 				isPreviewLoading = false
 			} else {
 				isApplying = false
+				onApplyStateChange?.(false)
 			}
 		}
 	}

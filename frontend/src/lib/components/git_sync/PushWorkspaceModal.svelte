@@ -54,7 +54,7 @@
 	     the far right and Cancel on the left. -->
 	{#snippet actions()}
 		<Button
-			size="sm"
+			unifiedSize="sm"
 			variant="accent"
 			onclick={() => push?.apply()}
 			disabled={!status.canApply}
@@ -73,7 +73,7 @@
 		</Button>
 		{#if isNewConnection && onSaveWithoutInit}
 			<Button
-				size="sm"
+				unifiedSize="sm"
 				variant="default"
 				onclick={onSaveWithoutInit}
 				disabled={status.applying || status.previewing}

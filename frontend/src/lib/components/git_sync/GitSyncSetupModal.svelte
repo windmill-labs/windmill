@@ -79,8 +79,12 @@
 	let connectError: string | undefined = $state(undefined)
 	let githubApp: GithubAppSetup | undefined = $state(undefined)
 
+	/** A push started from step 4. Owned here rather than read off `GitPushPreview`: closing
+	 *  the dialog destroys that component in the same flush as the dismissal, so its state is
+	 *  already gone by the time the dismissal is handled. */
+	let applying = $state(false)
 	/** Work in flight that a dismissal must not cut short. */
-	const busy = $derived(connecting || saving || push?.status().applying === true)
+	const busy = $derived(connecting || saving || applying)
 
 	onDestroy(() => {
 		githubApp?.dispose()
@@ -125,7 +129,7 @@
 	/** From step 3 the resource already exists, so going back offers it as the
 	 * existing resource to use rather than reconnecting from scratch. */
 	function back() {
-		if (connecting || saving) return
+		if (busy) return
 		if (step === 4) {
 			step = 3
 			return
@@ -335,6 +339,7 @@
 							bind:this={push}
 							gitRepoResourcePath={draft.git_repo_resource_path}
 							uiState={draft.settings}
+							onApplyStateChange={(v) => (applying = v)}
 							onSuccess={() => void saveDraft()}
 						/>
 					{/if}
@@ -419,12 +424,12 @@
 						<Button
 							unifiedSize="sm"
 							variant="default"
-							disabled={connecting || saving}
+							disabled={busy}
 							onClick={back}
 						>
 							Back
 						</Button>
-					{:else if !hasResource && provider !== 'existing'}
+					{:else if step === 1 && !hasResource && provider !== 'existing'}
 						<Button variant="subtle" unifiedSize="sm" onClick={() => selectProvider('existing')}>
 							Use an existing resource instead
 						</Button>

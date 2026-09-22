@@ -26,7 +26,8 @@ export function parseRepoUrl(raw: string): URL | undefined {
 	} catch {
 		return undefined
 	}
-	if (u.protocol !== 'https:' && u.protocol !== 'http:') return undefined
+	// https only: the token is embedded in this URL, and plain http would put it on the wire.
+	if (u.protocol !== 'https:') return undefined
 	if (u.pathname.replace(/\/+$/, '').split('/').filter(Boolean).length < 2) return undefined
 	u.username = ''
 	u.password = ''

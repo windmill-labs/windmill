@@ -270,7 +270,7 @@
 					<Button unifiedSize="md" variant="accent" onClick={() => openSetup('sync')}>
 						Configure Git Sync
 					</Button>
-					{#if showPromotion && !isFork}
+					{#if !isFork}
 						<div class="flex items-center gap-1">
 							<Button
 								unifiedSize="sm"
