@@ -112,17 +112,18 @@
 
 	let setupMode = $state<'sync' | 'promotion'>('sync')
 	let setupOpen = $state(false)
+	// Fixed when the dialog opens: the dialog adds its own unsaved repository to the list.
+	let setupTitle = $state('')
 	function openSetup(mode: 'sync' | 'promotion') {
 		setupMode = mode
+		setupTitle =
+			mode === 'promotion'
+				? 'Add a promotion repository'
+				: repositories.length === 0
+					? 'Configure Git Sync'
+					: 'Add a secondary sync repository'
 		setupOpen = true
 	}
-	const setupTitle = $derived(
-		setupMode === 'promotion'
-			? 'Add a promotion repository'
-			: repositories.length === 0
-				? 'Configure Git Sync'
-				: 'Add a secondary sync repository'
-	)
 
 	// Keyed by resource path rather than index: deleting a repository shifts the
 	// indexes, and reloading the settings replaces the objects.
@@ -140,16 +141,6 @@
 	function openSettings(path: string) {
 		settingsPath = path
 		settingsDrawer?.openDrawer()
-	}
-
-	function addWithResource(path: string) {
-		if (!gitSyncContext) return
-		const before = gitSyncContext.repositories.length
-		if (setupMode === 'promotion') gitSyncContext.addPromotionRepository()
-		else gitSyncContext.addSyncRepository()
-		if (gitSyncContext.repositories.length === before) return
-		gitSyncContext.repositories[before].git_repo_resource_path = path
-		openSettings(path)
 	}
 
 	function cardProps(idx: number) {
@@ -350,8 +341,8 @@
 		<GitSyncSetupModal
 			bind:opened={setupOpen}
 			title={setupTitle}
+			mode={setupMode}
 			{usedResourcePaths}
-			onResource={addWithResource}
 		/>
 
 		<Drawer

@@ -18,6 +18,8 @@
 	import { createRepositoryResource, repoSlug, type RepoConnection } from './setup/repoConnection'
 	import { GithubAppSetup } from './setup/githubAppSetup.svelte'
 	import { onDestroy } from 'svelte'
+	import { getGitSyncContext } from './GitSyncContext.svelte'
+	import ConfigureSyncStep from './setup/ConfigureSyncStep.svelte'
 	import { ResourceService } from '$lib/gen'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { apiErrorMessage } from '$lib/utils'
@@ -27,17 +29,30 @@
 	type Props = {
 		opened: boolean
 		title: string
+		mode: 'sync' | 'promotion'
 		/** Resources already attached to a repository of this workspace, which cannot be picked twice. */
 		usedResourcePaths: string[]
-		/** The git_repository resource the repository is to be synced with, picked or just created. */
-		onResource: (path: string) => void
 	}
 
-	let { opened = $bindable(), title, usedResourcePaths, onResource }: Props = $props()
+	let { opened = $bindable(), title, mode, usedResourcePaths }: Props = $props()
+
+	const ctx = getGitSyncContext()
 
 	const STEPS = ['Choose a provider', 'Connect the repository', 'Configure sync']
 
-	let step: 1 | 2 = $state(1)
+	let step: 1 | 2 | 3 = $state(1)
+
+	/** Resource path of the unsaved repository step 3 configures. By path rather than
+	 * index, as the context's list can shift under it. */
+	let draftPath: string | undefined = $state(undefined)
+	const draftIdx = $derived(
+		draftPath === undefined
+			? -1
+			: ctx.repositories.findIndex((r) => r.git_repo_resource_path === draftPath)
+	)
+	const draft = $derived(draftIdx === -1 ? undefined : ctx.repositories[draftIdx])
+	let saving = $state(false)
+	let saveError: string | undefined = $state(undefined)
 	let provider: Provider | undefined = $state(undefined)
 	let existingPath: string | undefined = $state(undefined)
 
@@ -50,10 +65,74 @@
 	let connectError: string | undefined = $state(undefined)
 	let githubApp: GithubAppSetup | undefined = $state(undefined)
 
-	onDestroy(() => githubApp?.dispose())
-	$effect(() => {
-		if (!opened) untrack(() => githubApp?.dispose())
+	onDestroy(() => {
+		githubApp?.dispose()
+		discardDraft()
 	})
+	$effect(() => {
+		if (!opened)
+			untrack(() => {
+				githubApp?.dispose()
+				discardDraft()
+			})
+	})
+
+	// Saved, by this dialog or by the Push modal initializing the repository: done.
+	$effect(() => {
+		if (draft && !draft.isUnsavedConnection) {
+			untrack(() => {
+				draftPath = undefined
+				opened = false
+			})
+		}
+	})
+
+	/** Drops the unsaved repository, keeping the resource, which stays pickable. */
+	function discardDraft() {
+		if (draftIdx !== -1 && ctx.repositories[draftIdx]?.isUnsavedConnection) {
+			void ctx.removeRepository(draftIdx)
+		}
+		draftPath = undefined
+	}
+
+	function enterConfigure(path: string) {
+		discardDraft()
+		const before = ctx.repositories.length
+		if (mode === 'promotion') ctx.addPromotionRepository()
+		else ctx.addSyncRepository()
+		// Refused (CE is limited to one repository): the context toasted why.
+		if (ctx.repositories.length === before) return
+		ctx.repositories[before].git_repo_resource_path = path
+		draftPath = path
+		saveError = undefined
+		step = 3
+	}
+
+	/** From step 3 the resource already exists, so going back offers it as the
+	 * existing resource to use rather than reconnecting from scratch. */
+	function back() {
+		if (connecting || saving) return
+		if (step === 3 && draftPath) {
+			const path = draftPath
+			discardDraft()
+			provider = 'existing'
+			existingPath = path
+		}
+		step = 1
+	}
+
+	async function saveDraft() {
+		if (draftIdx === -1) return
+		saving = true
+		saveError = undefined
+		try {
+			await ctx.saveRepository(draftIdx)
+		} catch (e) {
+			saveError = apiErrorMessage(e)
+		} finally {
+			saving = false
+		}
+	}
 
 	async function reset() {
 		step = 1
@@ -95,7 +174,9 @@
 			? provider === 'existing'
 				? !!existingPath
 				: provider !== undefined
-			: !!connection && !!newPath && !newPathError && !connecting
+			: step === 2
+				? !!connection && !!newPath && !newPathError && !connecting
+				: (draft?.detectionState === 'no-wmill' || draft?.detectionState === 'has-wmill') && !saving
 	)
 
 	function selectProvider(p: Provider) {
@@ -107,15 +188,10 @@
 		}
 	}
 
-	function finish(path: string) {
-		opened = false
-		onResource(path)
-	}
-
 	async function next() {
 		if (step === 1) {
 			if (provider === 'existing') {
-				if (existingPath) finish(existingPath)
+				if (existingPath) enterConfigure(existingPath)
 			} else {
 				connectError = undefined
 				step = 2
@@ -133,7 +209,7 @@
 		connectError = undefined
 		try {
 			await createRepositoryResource(workspace, newPath, connection, { branch, folder })
-			finish(newPath)
+			enterConfigure(newPath)
 		} catch (e) {
 			connectError = apiErrorMessage(e)
 		} finally {
@@ -158,7 +234,7 @@
 			maxReachedIndex={step - 1}
 			small
 			on:click={(e) => {
-				if (e.detail.index === 0 && !connecting) step = 1
+				if (e.detail.index === 0 && step > 1) back()
 			}}
 		/>
 
@@ -212,6 +288,17 @@
 								Use an existing resource instead
 							</Button>
 						</div>
+					{/if}
+				{:else if step === 3}
+					{#if draftIdx !== -1}
+						{#key draftPath}
+							<ConfigureSyncStep idx={draftIdx} {mode} />
+						{/key}
+					{/if}
+					{#if saveError}
+						<Alert type="error" size="xs" title="Could not save the repository">
+							{saveError}
+						</Alert>
 					{/if}
 				{:else if $workspaceStore}
 					<div class="flex flex-col gap-6">
@@ -274,27 +361,51 @@
 
 			<div class="flex justify-between items-center pt-3">
 				<div>
-					{#if step === 2}
+					{#if step > 1}
 						<Button
 							unifiedSize="sm"
 							variant="default"
-							disabled={connecting}
-							onClick={() => (step = 1)}
+							disabled={connecting || saving}
+							onClick={back}
 						>
 							Back
 						</Button>
 					{/if}
 				</div>
-				<Button
-					unifiedSize="sm"
-					variant="accent"
-					disabled={!canContinue}
-					loading={connecting}
-					endIcon={connecting ? undefined : { icon: ArrowRight }}
-					onClick={next}
-				>
-					{step === 2 ? 'Connect' : 'Next'}
-				</Button>
+				{#if step === 3}
+					{#if draft?.detectionState === 'no-wmill'}
+						<Button
+							unifiedSize="sm"
+							variant="accent"
+							disabled={!canContinue}
+							endIcon={{ icon: ArrowRight }}
+							onClick={() => ctx.showPushModal(draftIdx)}
+						>
+							Initialize repository
+						</Button>
+					{:else}
+						<Button
+							unifiedSize="sm"
+							variant="accent"
+							disabled={!canContinue}
+							loading={saving}
+							onClick={saveDraft}
+						>
+							Save and connect
+						</Button>
+					{/if}
+				{:else}
+					<Button
+						unifiedSize="sm"
+						variant="accent"
+						disabled={!canContinue}
+						loading={connecting}
+						endIcon={connecting ? undefined : { icon: ArrowRight }}
+						onClick={next}
+					>
+						{step === 2 ? 'Connect' : 'Next'}
+					</Button>
+				{/if}
 			</div>
 		</div>
 	</div>
