@@ -145,6 +145,9 @@
 		}
 	}
 	async function getMenuElements(): Promise<HTMLElement[]> {
+		// Runs on every pointerdown anywhere, for every mounted dropdown. Skip the
+		// whole-document query when the outside handler below cannot act anyway.
+		if (!usePointerDownOutside || !open) return []
 		return Array.from(document.querySelectorAll('[data-menu]')) as HTMLElement[]
 	}
 </script>

@@ -40,8 +40,9 @@ export function createDatatablesResource(getWorkspace: () => string | undefined)
 }
 
 export type DatatableRoles = {
-	/** The data table this answers for: while a switch is in flight, `current` still holds the
-	 * previous one's roles, which say nothing about the one now selected. */
+	/** The workspace and data table this answers for: while a switch is in flight, `current` still
+	 * holds the previous ones' roles, and a fork and its parent both have a `main` of their own. */
+	workspace: string | undefined
 	datatable: string | undefined
 	/** Whether the data table is under roles. Without roles `roles` is empty because there is
 	 * nothing to pick, which is not the same as a permissioned one this caller may use no role of. */
@@ -61,6 +62,7 @@ export function createRolesResource(
 	getWorkspace: () => string | undefined = () => get(workspaceStore)
 ) {
 	const initialValue: DatatableRoles = {
+		workspace: undefined,
 		datatable: undefined,
 		permissioned: false,
 		failed: false,
@@ -71,7 +73,11 @@ export function createRolesResource(
 		() => [getDatatable() ?? '', getWorkspace() ?? ''] as const,
 		latestOnly(
 			async ([datatableName, workspace]: readonly [string, string]): Promise<DatatableRoles> => {
-				const empty = { ...initialValue, datatable: datatableName || undefined }
+				const empty = {
+					...initialValue,
+					workspace: workspace || undefined,
+					datatable: datatableName || undefined
+				}
 				if (!datatableName || !workspace) return empty
 				try {
 					const res = await listUsableDatatableRoles(workspace, datatableName)
@@ -94,8 +100,9 @@ export function createRolesResource(
 }
 
 export type DatatableAccess = {
-	/** What this answers for. Until both match the selection, the schemas and the right to
-	 * create one belong to another data table or another role. */
+	/** What this answers for. Until all three match the selection, the schemas and the right to
+	 * create one belong to another workspace, data table or role. */
+	workspace: string | undefined
 	datatable: string | undefined
 	role: string | undefined
 	/** The request failed, or the server kept the entry with an error (a role this caller may
@@ -119,6 +126,7 @@ export function createDatatableAccessResource(
 	getReady: () => boolean = () => true
 ) {
 	const initialValue: DatatableAccess = {
+		workspace: undefined,
 		datatable: undefined,
 		role: undefined,
 		failed: false,
@@ -137,6 +145,7 @@ export function createDatatableAccessResource(
 			]): Promise<DatatableAccess> => {
 				const asked = {
 					...initialValue,
+					workspace: workspace || undefined,
 					datatable: datatable || undefined,
 					role: role || undefined
 				}

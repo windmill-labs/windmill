@@ -44,8 +44,9 @@
 	import { unreadCountFor } from './sessionUnread.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import {
-		getOrCreateRuntime,
+		ensureSessionChatPeek,
 		getRuntime,
+		getSessionChatPeek,
 		getSessionChatStatus,
 		removeSession,
 		resetSessionPreviewTabs
@@ -87,7 +88,7 @@
 	// displayMessages array vs. the localStorage-backed lastSeen map;
 	// both are reactive so the badge updates without polling.
 	function unreadFor(session: Session): number {
-		return unreadCountFor(session.id, getRuntime(session.id))
+		return unreadCountFor(session.id, getRuntime(session.id), getSessionChatPeek(session.id))
 	}
 
 	// Whether the composer for a session holds non-whitespace text. We
@@ -378,14 +379,12 @@
 		}
 	})
 
-	// Eagerly create a runtime per VISIBLE session so the status dot reflects
-	// the persisted chat (last message, pending confirmation, etc.) without
-	// requiring the user to open the session first. Sessions outside the
-	// current workspace scope are left cold to avoid opening IDB connections
-	// for unrelated work.
+	// Read each VISIBLE session's stored chat so the status dot and unread count
+	// reflect it without the user opening the session. A runtime per listed
+	// session would hold every listed chat in memory for as long as the page lives.
 	$effect(() => {
 		for (const session of visibleSessions) {
-			getOrCreateRuntime(session)
+			if (!getRuntime(session.id)) void ensureSessionChatPeek(session)
 		}
 	})
 
@@ -768,7 +767,9 @@
 									{/if}
 									{#each group.sessions as session (session.id)}
 										{@const runtime = getRuntime(session.id)}
-										{@const status = runtime ? getSessionChatStatus(runtime) : 'idle'}
+										{@const status = runtime
+											? getSessionChatStatus(runtime)
+											: (getSessionChatPeek(session.id)?.status ?? 'idle')}
 										{@const isSelected =
 											sessionActive && session.id === sessionState.currentSessionId}
 										{@const unread = unreadFor(session)}
@@ -986,7 +987,9 @@
 				{/snippet}
 				{#snippet sessionRow(session, indented, treeDepth)}
 					{@const runtime = getRuntime(session.id)}
-					{@const status = runtime ? getSessionChatStatus(runtime) : 'idle'}
+					{@const status = runtime
+						? getSessionChatStatus(runtime)
+						: (getSessionChatPeek(session.id)?.status ?? 'idle')}
 					{@const isSelected = sessionActive && session.id === sessionState.currentSessionId}
 					{@const isEditing = editingId === session.id}
 					{@const unread = unreadFor(session)}

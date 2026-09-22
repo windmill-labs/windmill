@@ -107,24 +107,61 @@ async fn ensure_migration_role_allowed(
     datatable_name: &str,
     authed: &ApiAuthed,
     sql: &str,
-    timestamp: i64,
-    name: &str,
+    migration: &str,
 ) -> Result<()> {
-    let context = format!("Migration {timestamp} ({name})");
     let access = DatatableAccess::Authed(authed.to_authed_ref());
     match SqlAnnotations::datatable_role(sql)? {
         Some(role) => {
-            ensure_can_use_datatable_role(db, w_id, datatable_name, Some(&role), &access, &context)
+            ensure_can_use_datatable_role(db, w_id, datatable_name, Some(&role), &access, migration)
                 .await
         }
         None => ensure_datatable_admin_access(db, w_id, datatable_name, &access)
             .await
             .map_err(|e| {
                 Error::NotAuthorized(format!(
-                    "{context} declares no role, so it would run as admin. {e}"
+                    "{migration} declares no role, so it would run as admin. {e}"
                 ))
             }),
     }
+}
+
+/// Refuse writing or deleting a migration definition unless this caller may run both its up and its
+/// down. A definition is run later by whoever applies or rolls back pending migrations, as the role
+/// it declares, so gating only the run would let anyone plant SQL for a data table's admin to run.
+async fn ensure_may_edit_migration(
+    db: &DB,
+    w_id: &str,
+    datatable_name: &str,
+    authed: &ApiAuthed,
+    migration: &str,
+    code_up: &str,
+    code_down: Option<&str>,
+) -> Result<()> {
+    // Admin access reaches everything a role can, so it edits any definition without reading its
+    // annotation, which one saved before annotations were parsed may no longer pass. A refusal
+    // there would leave such a definition impossible to delete or fix.
+    let access = DatatableAccess::Authed(authed.to_authed_ref());
+    if ensure_datatable_admin_access(db, w_id, datatable_name, &access)
+        .await
+        .is_ok()
+    {
+        return Ok(());
+    }
+    for sql in std::iter::once(code_up).chain(code_down) {
+        ensure_migration_role_allowed(db, w_id, datatable_name, authed, sql, migration).await?;
+    }
+    Ok(())
+}
+
+/// Operators run deployed code only, and a migration is SQL written or run by hand. Checked before
+/// anything else, including the role checks: on a data table not under roles those pass everyone.
+fn ensure_not_operator(authed: &ApiAuthed) -> Result<()> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot manage or run data table migrations".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 #[derive(Serialize)]
@@ -436,6 +473,7 @@ async fn run_datatable_migrations(
     Path((w_id, datatable_name)): Path<(String, String)>,
     Query(query): Query<RunDatatableMigrationsQuery>,
 ) -> JsonResult<RunDatatableMigrationsResult> {
+    ensure_not_operator(&authed)?;
     // Before the admin connection is opened at all: the bookkeeping below is created and read
     // through it, so a caller no role covers must be refused here rather than after the fact.
     crate::datatable_permissions::ensure_reaches_datatable(&db, &w_id, &datatable_name, &authed)
@@ -503,8 +541,7 @@ async fn run_datatable_migrations(
             &datatable_name,
             &authed,
             &m.code_up,
-            m.timestamp,
-            &m.name,
+            &format!("Migration {} ({})", m.timestamp, m.name),
         )
         .await?;
         run_datatable_migration_job(&db, &user_db, &authed, &w_id, &database_arg, &m.code_up)
@@ -573,6 +610,7 @@ async fn rollback_datatable_migrations(
     Path((w_id, datatable_name)): Path<(String, String)>,
     Query(query): Query<RollbackDatatableMigrationsQuery>,
 ) -> JsonResult<RollbackDatatableMigrationsResult> {
+    ensure_not_operator(&authed)?;
     // Before the admin connection is opened at all: the bookkeeping below is created and read
     // through it, so a caller no role covers must be refused here rather than after the fact.
     crate::datatable_permissions::ensure_reaches_datatable(&db, &w_id, &datatable_name, &authed)
@@ -666,8 +704,7 @@ async fn rollback_datatable_migrations(
         &datatable_name,
         &authed,
         &code_down,
-        version,
-        &definition.name,
+        &format!("Migration {} ({})", version, definition.name),
     )
     .await?;
 
@@ -1213,9 +1250,20 @@ async fn create_datatable_migration(
     Path((w_id, datatable_name)): Path<(String, String)>,
     Json(payload): Json<CreateDatatableMigration>,
 ) -> JsonResult<DatatableMigration> {
+    ensure_not_operator(&authed)?;
     validate_datatable_path_segment(&datatable_name)?;
     validate_migration_name(&payload.name)?;
     ensure_datatable_migrations_enabled(&db, &w_id, &datatable_name).await?;
+    ensure_may_edit_migration(
+        &db,
+        &w_id,
+        &datatable_name,
+        &authed,
+        &format!("Migration '{}'", payload.name),
+        &payload.code_up,
+        payload.code_down.as_deref(),
+    )
+    .await?;
 
     let mut tx = db.begin().await?;
     let timestamp = insert_datatable_migration_def(
@@ -1267,6 +1315,34 @@ async fn delete_datatable_migration(
     Extension(db): Extension<DB>,
     Path((w_id, datatable_name, timestamp)): Path<(String, String, i64)>,
 ) -> Result<String> {
+    ensure_not_operator(&authed)?;
+    let deleted_message = format!("Deleted migration {} from {}", timestamp, datatable_name);
+
+    // A definition already gone is not an error: `wmill sync push` deletes whatever the repo
+    // dropped, which may no longer exist here.
+    let Some(definition) = sqlx::query!(
+        "SELECT name, code_up, code_down FROM datatable_migrations \
+         WHERE workspace_id = $1 AND datatable = $2 AND timestamp = $3",
+        &w_id,
+        &datatable_name,
+        timestamp,
+    )
+    .fetch_optional(&db)
+    .await?
+    else {
+        return Ok(deleted_message);
+    };
+    ensure_may_edit_migration(
+        &db,
+        &w_id,
+        &datatable_name,
+        &authed,
+        &format!("Migration {} ({})", timestamp, definition.name),
+        &definition.code_up,
+        definition.code_down.as_deref(),
+    )
+    .await?;
+
     // Hold the run-serialization lock across the applied-check and the delete: a
     // run snapshots a migration's SQL before recording its version, so an
     // unserialized delete could race it and leave `_wm_migrations` pointing at a
@@ -1294,19 +1370,46 @@ async fn delete_datatable_migration(
         )));
     }
 
+    // Delete only the SQL the role check above cleared: it read the definition without the lock,
+    // and a rewrite that landed since was never checked.
     let deleted_name = sqlx::query_scalar!(
         "DELETE FROM datatable_migrations \
          WHERE workspace_id = $1 AND datatable = $2 AND timestamp = $3 \
+           AND code_up = $4 AND code_down IS NOT DISTINCT FROM $5 \
          RETURNING name",
         &w_id,
         &datatable_name,
         timestamp,
+        &definition.code_up,
+        definition.code_down.as_deref(),
     )
     .fetch_optional(&db)
     .await?;
     // The definition is removed; runs may resume (audit/deploy metadata below
     // don't need the lock).
     drop(lock_client);
+    let Some(name) = deleted_name else {
+        // Nothing matched either because another delete got there first, which is this one's
+        // outcome too, or because the definition was rewritten.
+        let still_defined = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM datatable_migrations \
+             WHERE workspace_id = $1 AND datatable = $2 AND timestamp = $3)",
+            &w_id,
+            &datatable_name,
+            timestamp,
+        )
+        .fetch_one(&db)
+        .await?
+        .unwrap_or(false);
+        if !still_defined {
+            return Ok(deleted_message);
+        }
+        return Err(Error::BadRequest(format!(
+            "Migration {} on data table '{}' changed while it was being deleted. Reload it and \
+             retry.",
+            timestamp, datatable_name
+        )));
+    };
 
     audit_log(
         &db,
@@ -1319,23 +1422,10 @@ async fn delete_datatable_migration(
     )
     .await?;
 
-    // Only tally a change if a migration was actually deleted.
-    if let Some(name) = deleted_name {
-        record_datatable_migration_deployment(
-            &authed,
-            &db,
-            &w_id,
-            &datatable_name,
-            timestamp,
-            &name,
-        )
+    record_datatable_migration_deployment(&authed, &db, &w_id, &datatable_name, timestamp, &name)
         .await?;
-    }
 
-    Ok(format!(
-        "Deleted migration {} from {}",
-        timestamp, datatable_name
-    ))
+    Ok(deleted_message)
 }
 
 #[derive(Deserialize)]
@@ -1356,6 +1446,7 @@ async fn upsert_datatable_migration(
     Path((w_id, datatable_name)): Path<(String, String)>,
     Json(payload): Json<UpsertDatatableMigration>,
 ) -> Result<String> {
+    ensure_not_operator(&authed)?;
     validate_datatable_path_segment(&datatable_name)?;
     validate_migration_name(&payload.name)?;
     ensure_datatable_migrations_enabled(&db, &w_id, &datatable_name).await?;
@@ -1381,9 +1472,9 @@ async fn upsert_datatable_migration(
     // run-serialization lock across the applied-check and the write below so an
     // in-flight run can't record a version for the SQL we're about to overwrite.
     // Held until the end of the handler (well past the write). The exempt
-    // upserts need no lock: a new or unchanged one overwrites nothing, and one
-    // that only adds a down leaves the `code_up` a concurrent run is recording
-    // a version for untouched.
+    // upserts need no lock: a new one overwrites nothing, and one that only adds
+    // a down leaves the `code_up` a concurrent run is recording a version for
+    // untouched.
     let only_adds_down = existing.as_ref().is_some_and(|existing| {
         existing.name == payload.name
             && existing.code_up == payload.code_up
@@ -1395,8 +1486,40 @@ async fn upsert_datatable_migration(
             && existing.code_up == payload.code_up
             && existing.code_down == payload.code_down
     });
+    let upserted_message = format!(
+        "Upserted migration {} in {}",
+        payload.timestamp, datatable_name
+    );
+    // A re-push of the definition as stored changes nothing, so it is not checked, written, audited,
+    // synced or counted. Writing it anyway would re-create a definition deleted since the read above.
+    if unchanged {
+        return Ok(upserted_message);
+    }
+    ensure_may_edit_migration(
+        &db,
+        &w_id,
+        &datatable_name,
+        &authed,
+        &format!("Migration {} ({})", payload.timestamp, payload.name),
+        &payload.code_up,
+        payload.code_down.as_deref(),
+    )
+    .await?;
+    // Replacing a definition removes the one stored, so it answers to the same check as a delete.
+    if let Some(existing) = existing.as_ref() {
+        ensure_may_edit_migration(
+            &db,
+            &w_id,
+            &datatable_name,
+            &authed,
+            &format!("Migration {} ({})", payload.timestamp, existing.name),
+            &existing.code_up,
+            existing.code_down.as_deref(),
+        )
+        .await?;
+    }
     let _run_lock = match existing.as_ref() {
-        Some(_) if !only_adds_down && !unchanged => {
+        Some(_) if !only_adds_down => {
             // Fail closed: if we can't lock/read the applied set (e.g. the
             // data-table database is temporarily unreachable), refuse the change
             // rather than risk overwriting a migration that has already run.
@@ -1426,31 +1549,27 @@ async fn upsert_datatable_migration(
         _ => None,
     };
 
-    // An exempt upsert judged the row from an unlocked read and then writes
-    // without the lock, so that whole read is re-tested here, where `ON CONFLICT
-    // DO UPDATE` re-reads the row under a row lock. Otherwise a request working
-    // from a stale definition silently reverts whatever changed in between — a
-    // second addition's down, or a locked rewrite of the up whose new SQL a run
-    // may already have recorded a version for. Reading no row at all is part of
-    // the premise: the equality is NULL when `$8` is, so a version created in the
-    // meantime is refused rather than overwritten.
-    let recheck_observed = _run_lock.is_none();
+    // The role checks, and the exemptions from the lock, all judged the row from the unlocked read
+    // above, so that whole read is re-tested here, where `ON CONFLICT DO UPDATE` re-reads the row
+    // under a row lock. Otherwise a request working from a stale definition silently replaces
+    // whatever changed in between: SQL the role checks never saw, or a locked rewrite of the up
+    // whose new SQL a run may already have recorded a version for. Reading no row at all is part of
+    // the premise: the equality is NULL when `$7` is, so a version created in the meantime is
+    // refused rather than overwritten.
     let written = sqlx::query!(
         "INSERT INTO datatable_migrations (workspace_id, datatable, timestamp, name, code_up, code_down) \
          VALUES ($1, $2, $3, $4, $5, $6) \
          ON CONFLICT (workspace_id, datatable, timestamp) DO UPDATE \
          SET name = EXCLUDED.name, code_up = EXCLUDED.code_up, code_down = EXCLUDED.code_down \
-         WHERE NOT $7 \
-            OR (datatable_migrations.name = $8::text \
-                AND datatable_migrations.code_up = $9::text \
-                AND datatable_migrations.code_down IS NOT DISTINCT FROM $10::text)",
+         WHERE datatable_migrations.name = $7::text \
+           AND datatable_migrations.code_up = $8::text \
+           AND datatable_migrations.code_down IS NOT DISTINCT FROM $9::text",
         &w_id,
         &datatable_name,
         payload.timestamp,
         &payload.name,
         &payload.code_up,
         payload.code_down.as_deref(),
-        recheck_observed,
         existing.as_ref().map(|e| e.name.as_str()),
         existing.as_ref().map(|e| e.code_up.as_str()),
         existing.as_ref().and_then(|e| e.code_down.as_deref()),
@@ -1489,24 +1608,17 @@ async fn upsert_datatable_migration(
     )
     .await?;
 
-    // An unchanged re-push is not counted: `wmill sync push` sends every migration
-    // on every sync, so counting those would swamp the definitions people write.
-    if !unchanged {
-        windmill_common::feature_usage::log_feature_usage(
-            "datatable",
-            "migration_created",
-            if existing.is_none() {
-                "synced"
-            } else {
-                "edited"
-            },
-        );
-    }
+    windmill_common::feature_usage::log_feature_usage(
+        "datatable",
+        "migration_created",
+        if existing.is_none() {
+            "synced"
+        } else {
+            "edited"
+        },
+    );
 
-    Ok(format!(
-        "Upserted migration {} in {}",
-        payload.timestamp, datatable_name
-    ))
+    Ok(upserted_message)
 }
 
 /// Generate the first migration for a data table by snapshotting its current
@@ -1519,6 +1631,7 @@ async fn generate_initial_datatable_migration(
     Extension(db): Extension<DB>,
     Path((w_id, datatable_name)): Path<(String, String)>,
 ) -> JsonResult<DatatableMigration> {
+    ensure_not_operator(&authed)?;
     // Returns a `pg_dump` of the whole schema and writes into the data table's own bookkeeping, so
     // it answers to the workspace that governs it rather than to whoever is asking.
     ensure_datatable_admin_access(
