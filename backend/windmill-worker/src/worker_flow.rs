@@ -1305,10 +1305,14 @@ pub async fn update_flow_status_after_job_completion_internal(
                             false
                         };
                     success = true;
-                    // An AI decision whose chosen branch is empty completes with no job of its
-                    // own: its job, and so `results.<id>`, stays the decision's answers.
+                    // An AI decision can complete with no job of its own (an empty chosen branch,
+                    // or re-entry after a restart): it keeps its branch's job, else the decision's,
+                    // so `results.<id>` stays the step's result.
                     let job = match module_status.decision_job() {
-                        Some(decision_job) if job_id_for_status.is_nil() => decision_job,
+                        Some(decision_job) if job_id_for_status.is_nil() => module_status
+                            .job()
+                            .filter(|job| !job.is_nil())
+                            .unwrap_or(decision_job),
                         _ => *job_id_for_status,
                     };
                     (
@@ -3308,16 +3312,16 @@ async fn push_next_flow_job(
     {
         let result = if flow.modules.is_empty() {
             to_raw_value(arc_flow_job_args.as_ref())
-        } else if let FlowStatusModule::Success { branch_chosen: Some(_), decision_job, .. } =
-            &status_module
+        } else if let FlowStatusModule::Success {
+            branch_chosen: Some(_), job, decision_job, ..
+        } = &status_module
         {
-            match (&last_job_result, decision_job) {
+            // Re-entered without the in-memory result, after a restart: the chosen branch's job
+            // holds it, and an AI decision's empty branch (no job) returns its answers.
+            let stored = Some(*job).filter(|job| !job.is_nil()).or(*decision_job);
+            match (&last_job_result, stored) {
                 (Some(result), _) => result.as_ref().clone(),
-                // Re-entered without the in-memory result (the worker restarted after an empty
-                // branch was chosen): an AI decision's empty branch returns its answers.
-                (None, Some(decision_job)) => {
-                    completed_job_result(db, &flow_job.workspace_id, decision_job).await?
-                }
+                (None, Some(job)) => completed_job_result(db, &flow_job.workspace_id, &job).await?,
                 (None, None) => to_raw_value(&json!("{}")),
             }
         } else {

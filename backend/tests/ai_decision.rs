@@ -8,6 +8,7 @@ use std::sync::{
 use axum::{routing::post, Json, Router};
 use serde_json::{json, Value};
 use sqlx::{Pool, Postgres};
+use uuid::Uuid;
 use windmill_common::{
     flow_status::{BranchChosen, FlowStatus, FlowStatusModule},
     flows::FlowValue,
@@ -113,17 +114,55 @@ async fn test_ai_decision_runs_the_branch_its_answer_picks(
     assert_eq!(job.json_result(), Some(json!("handled refund")));
 
     let status: FlowStatus = serde_json::from_value(job.flow_status.expect("flow status"))?;
-    let FlowStatusModule::Success { branch_chosen, decision_job, .. } = &status.modules[0] else {
+    let FlowStatusModule::Success { job: branch_job, branch_chosen, decision_job, .. } =
+        status.modules[0].clone()
+    else {
         panic!("decision step did not succeed: {:?}", status.modules[0]);
     };
     assert!(matches!(
         branch_chosen,
         Some(BranchChosen::Branch { branch: 1 })
     ));
-    assert!(
-        decision_job.is_some(),
-        "the decision job is kept once the branch has run"
-    );
+    let decision_job = decision_job.expect("the decision job is kept once the branch has run");
+
+    // Re-entered after a restart, with the step's status written but no result in memory, the
+    // step returns its branch's result, or the answers when the chosen branch was empty.
+    for (planted_job, expected) in [
+        (branch_job, json!("handled refund")),
+        (Uuid::nil(), json!("refund")),
+    ] {
+        let flow: FlowValue = serde_json::from_value(json!({"modules": [{"id": "d", "value": {
+            "type": "aidecision",
+            "input_transforms": decision_inputs,
+            "branches": [{"expr": "true", "modules": []}]
+        }}]}))?;
+        let planted = json!({
+            "type": "Success", "id": "d", "job": planted_job,
+            "branch_chosen": {"type": "branch", "branch": 0}, "decision_job": decision_job
+        });
+        let job = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete_with(&db, false, port, |id| {
+                let (db, planted) = (db.clone(), planted.clone());
+                async move {
+                    sqlx::query(
+                        "UPDATE v2_job_status SET flow_status = jsonb_set(flow_status, '{modules,0}', $1) WHERE id = $2",
+                    )
+                    .bind(planted)
+                    .bind(id)
+                    .execute(&db)
+                    .await
+                    .unwrap();
+                }
+            })
+            .await;
+        let result = job.json_result().expect("a result");
+        let result = if planted_job.is_nil() {
+            result["output"]["intent"]["choice"].clone()
+        } else {
+            result
+        };
+        assert_eq!(result, expected);
+    }
 
     // A branch condition still reads the step before the decision as `results.<id>`, while
     // `previous_result` is the answers. Once an empty branch is chosen, `results.d` stays the
