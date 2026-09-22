@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { getContext, setContext, untrack } from 'svelte'
 	import { writable } from 'svelte/store'
-	import { Info, MessageSquareOff } from 'lucide-svelte'
+	import { Info, MessageCircleOff } from 'lucide-svelte'
 	import { Alert, Button } from '$lib/components/common'
 	import FlowChat from '../conversations/FlowChat.svelte'
 	import {
@@ -525,7 +525,7 @@
 								<div
 									class="flex-1 flex flex-col items-center justify-center gap-2 px-8 text-center"
 								>
-									<MessageSquareOff size={32} class="text-hint mb-2" />
+									<MessageCircleOff size={48} class="text-tertiary opacity-50 mb-2" />
 									<p class="text-sm font-semibold text-emphasis">Chat needs managed memory</p>
 									<p class="text-xs text-secondary max-w-xs">
 										{chatGap.memoryCanTurnOn
