@@ -11,13 +11,7 @@
 		UserService,
 		WorkspaceService
 	} from '$lib/gen'
-	import {
-		capitalize,
-		classNames,
-		getContrastTextColor,
-		getModifierKey,
-		sendUserToast
-	} from '$lib/utils'
+	import { capitalize, classNames, getModifierKey, sendUserToast } from '$lib/utils'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 	import { isSessionPreviewFrame } from '$lib/components/sessions/sessionMode.svelte'
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
@@ -54,7 +48,6 @@
 		nonMemberWorkspaces,
 		setNonMemberWorkspaces,
 		clearNonMemberWorkspaces,
-		workspaceColor,
 		type UserWorkspace
 	} from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
@@ -87,6 +80,8 @@
 	import { deepEqual } from 'fast-equals'
 	import { twMerge } from 'tailwind-merge'
 	import { navDetached } from '$lib/components/sidebar/navDetached.svelte'
+	import { navHandleSlot } from '$lib/components/sidebar/navHandlePlacement.svelte'
+	import NavHandle from '$lib/components/sidebar/NavHandle.svelte'
 	import { sidebarPageAllowed } from '$lib/components/sidebar/operatorRoutes'
 	import GlobalSearchModal from '$lib/components/search/GlobalSearchModal.svelte'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
@@ -512,7 +507,8 @@
 	let useDrawer = $derived(innerWidth < 768 || navDetached.val)
 	// Below 768px the burger row opens the drawer; wider, a detached sidebar has a floating handle.
 	let detachedFloating = $derived(navDetached.val && innerWidth >= 768)
-	let handleIconColor = $derived(getContrastTextColor($workspaceColor))
+	// The handle and the edge band both open the card this layout owns.
+	navHandleSlot.setOpener(() => (menuOpen = true))
 	let onHome = $derived(page.url.pathname === `${base}/`)
 	let currentWorkspaceName = $derived(
 		$userWorkspaces?.find((w) => w.id === $workspaceStore)?.name ?? $workspaceStore ?? ''
@@ -543,7 +539,6 @@
 				(offscreen ? `transform:translateX(calc(${-u} * (100% + 0.5rem)));` : '')
 		}
 	}
-	// Shared by the name and the colour pastille below, which travel to the picker together.
 	const JOIN_PICKER_MS = 110
 	// The home-page workspace name travels to the card's workspace picker as the card opens,
 	// and back as it closes, so the name reads as one label joining the picker. It aims where
@@ -572,29 +567,6 @@
 			css: (_t: number, u: number) =>
 				`transform-origin: left center; transform: translate(${dx * u}px, ${dy * u}px) scale(${1 + (scale - 1) * u}); opacity: ${1 - u};`
 		}
-	}
-
-	// How far the handle's colour pastille must travel to land on the card's workspace pastille.
-	// Measured when the card opens (the two discs are the same size, so it is a plain slide) and
-	// aimed where the picker will be once the card has finished sliding in, like the name above.
-	let pastilleJoin = $state({ dx: 0, dy: 0 })
-	function openNavCard() {
-		const from = document
-			.querySelector('[data-nav-handle] circle')
-			?.closest('svg')
-			?.getBoundingClientRect()
-		const card = document.querySelector<HTMLElement>('[data-nav-card]')
-		const to = card
-			?.querySelector('.wm-workspace-name')
-			?.closest('button')
-			?.querySelector('circle')
-			?.closest('svg')
-			?.getBoundingClientRect()
-		if (from && card && to) {
-			const slide = new DOMMatrix(getComputedStyle(card).transform).m41
-			pastilleJoin = { dx: to.left - slide - from.left, dy: to.top - from.top }
-		}
-		menuOpen = true
 	}
 
 	// Matches the edge band's `duration-200`, so the drawer opens as the tint finishes.
@@ -1127,49 +1099,17 @@
 					aria-hidden="true"
 					onmouseenter={() => {
 						clearTimeout(edgeOpenTimer)
-						edgeOpenTimer = setTimeout(openNavCard, EDGE_OPEN_DELAY_MS)
+						edgeOpenTimer = setTimeout(() => navHandleSlot.open(), EDGE_OPEN_DELAY_MS)
 					}}
 					onmouseleave={() => clearTimeout(edgeOpenTimer)}
 				></div>
 			{/if}
 			{#if detachedFloating && !devOnly}
-				<!-- The detached sidebar's handle, kept visible above the open card. Hover opens the
-				     card; a click docks the sidebar again. -->
+				<!-- The detached sidebar's handle: hover or click opens the card, which starts below it
+				     rather than over it, so the trigger stays visible and reachable. Docking is the
+				     card header's own button. -->
 				<div class="absolute top-1 left-1 z5000 flex items-center">
-					<!-- svelte-ignore a11y_no_static_element_interactions -->
-					<!-- The colour pastille slides into the card's workspace picker as the card opens,
-					     leaving the panel icon behind as the attach button. `overflow-visible` lets the
-					     disc travel outside its 26×26 box; the icon's own `transition-colors` carries it
-					     from the contrast colour to the plain one as the disc leaves. -->
-					<div
-						data-nav-handle
-						onmouseenter={openNavCard}
-						style:--join-dx="{pastilleJoin.dx}px"
-						style:--join-dy="{pastilleJoin.dy}px"
-						class={classNames(
-							'[&_svg]:overflow-visible [&_circle]:transition-[transform,opacity] [&_circle]:duration-[110ms] [&_circle]:ease-in-out motion-reduce:[&_circle]:transition-none',
-							menuOpen
-								? '[&_circle]:opacity-0 [&_circle]:[transform:translate(var(--join-dx,0px),var(--join-dy,0px))]'
-								: ''
-						)}
-					>
-						<Tooltip class="flex" placement="right" small>
-							<MenuButton
-								class="!text-xs"
-								buttonClass="!pl-3.5 !pr-1 !w-auto"
-								icon={PanelLeft}
-								isCollapsed={false}
-								lightMode
-								color={$workspaceColor ?? 'rgb(var(--color-surface-sunken))'}
-								iconProps={handleIconColor && !menuOpen
-									? { style: `color: ${handleIconColor}` }
-									: undefined}
-								ariaLabel="Attach sidebar"
-								on:click={() => setDetached(false)}
-							/>
-							{#snippet text()}Attach sidebar{/snippet}
-						</Tooltip>
-					</div>
+					<NavHandle />
 					<!-- Plain text, outside the handle's hover area: on home it names the workspace,
 					     with a ground so it stays legible over the page scrolling under it. Hidden
 					     while the card is open, which would otherwise sit under it. -->
@@ -1205,10 +1145,11 @@
 					{/if}
 
 					<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-					<!-- Detached, the drawer is a card below the handle (pt-11 clears it) rather than a
-					     full-height panel; the handle stays on top to show where it came from. -->
+					<!-- Detached, the drawer is a floating card rather than a full-height panel, and it
+					     starts right below the handle that opened it, wherever that handle sits. -->
 					<div
-						class={classNames('fixed inset-0 flex z-40', detachedFloating ? 'pt-11 pl-1 pb-2' : '')}
+						class={classNames('fixed inset-0 flex z-40', detachedFloating ? 'pl-1 pb-2' : '')}
+						style:padding-top={detachedFloating ? `${navHandleSlot.cardTop}px` : undefined}
 						onclick={(e) => {
 							if (e.target === e.currentTarget) menuOpen = false
 						}}
@@ -1258,12 +1199,25 @@
 								style:background-color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}
 							>
 								<!-- Workspace picker as the drawer header (replaces the Windmill logo). -->
-								<div class="flex-shrink-0 px-2 h-12 w-52 flex items-center">
-									<Menubar class="w-full">
+								<div class="flex-shrink-0 px-2 h-12 w-52 flex items-center gap-1">
+									<Menubar class="w-full min-w-0">
 										{#snippet children({ createMenu })}
 											<WorkspaceMenu {createMenu} />
 										{/snippet}
 									</Menubar>
+									{#if detachedFloating}
+										<!-- Same spot as the docked sidebar's detach button, so the two swap in place. -->
+										<Tooltip class="flex" placement="bottom" small>
+											<button
+												class="p-1.5 -mr-1 rounded hover:bg-surface-hover"
+												aria-label="Attach sidebar"
+												onclick={() => setDetached(false)}
+											>
+												<PanelLeft size={14} class="flex-shrink-0 h-3.5 w-3.5 text-hint" />
+											</button>
+											{#snippet text()}Attach sidebar{/snippet}
+										</Tooltip>
+									{/if}
 								</div>
 
 								{#if !embedded && sessionsSwitchShown}
@@ -1356,18 +1310,6 @@
 
 								<div class="px-4 pt-3 pb-3.5 w-52 flex items-center justify-between">
 									{@render brandMark(false)}
-									{#if detachedFloating}
-										<Tooltip class="flex" placement="top" small>
-											<button
-												class="p-2 -m-2 rounded hover:bg-surface-hover"
-												aria-label="Attach sidebar"
-												onclick={() => setDetached(false)}
-											>
-												<PanelLeft size={14} class="flex-shrink-0 h-3.5 w-3.5 text-hint" />
-											</button>
-											{#snippet text()}Attach sidebar{/snippet}
-										</Tooltip>
-									{/if}
 								</div>
 							</div>
 						</div>
@@ -1406,12 +1348,26 @@
 						<!-- Workspace picker as the sidebar header (replaces the Windmill logo).
 							     Kept in both modes: it scopes which workspace family's sessions
 							     the sessions sidebar shows. -->
-						<div class="flex-shrink-0 px-2 h-12 flex items-center">
-							<Menubar class="w-full">
+						<div class="flex-shrink-0 px-2 h-12 flex items-center gap-1">
+							<Menubar class="w-full min-w-0">
 								{#snippet children({ createMenu })}
 									<WorkspaceMenu {createMenu} {isCollapsed} />
 								{/snippet}
 							</Menubar>
+							{#if !isCollapsed}
+								<!-- Same spot as the detached card's attach button, so the two swap in place.
+								     The icon-only rail has no room for it and keeps the footer copy. -->
+								<Tooltip class="flex" placement="bottom" small>
+									<button
+										class="p-1.5 -mr-1 rounded hover:bg-surface-hover"
+										aria-label="Detach sidebar"
+										onclick={() => setDetached(true)}
+									>
+										<PanelLeftDashed size={14} class="flex-shrink-0 h-3.5 w-3.5 text-hint" />
+									</button>
+									{#snippet text()}Detach sidebar{/snippet}
+								</Tooltip>
+							{/if}
 						</div>
 
 						{#if !embedded && sessionsSwitchShown}
@@ -1512,17 +1468,19 @@
 						>
 							{@render brandMark(isCollapsed)}
 							<div class="flex {isCollapsed ? 'flex-col gap-3' : 'gap-3'}">
-								<!-- p-2/-m-2 widens the hit area to ~32px without moving the icon. -->
-								<Tooltip class="flex" placement="top" small>
-									<button
-										class="p-2 -m-2 rounded hover:bg-surface-hover"
-										aria-label="Detach sidebar"
-										onclick={() => setDetached(true)}
-									>
-										<PanelLeftDashed size={14} class="flex-shrink-0 h-3.5 w-3.5 text-hint" />
-									</button>
-									{#snippet text()}Detach sidebar{/snippet}
-								</Tooltip>
+								{#if isCollapsed}
+									<!-- p-2/-m-2 widens the hit area to ~32px without moving the icon. -->
+									<Tooltip class="flex" placement="top" small>
+										<button
+											class="p-2 -m-2 rounded hover:bg-surface-hover"
+											aria-label="Detach sidebar"
+											onclick={() => setDetached(true)}
+										>
+											<PanelLeftDashed size={14} class="flex-shrink-0 h-3.5 w-3.5 text-hint" />
+										</button>
+										{#snippet text()}Detach sidebar{/snippet}
+									</Tooltip>
+								{/if}
 								{#if !$userStore?.operator}
 									<button
 										class="p-2 -m-2 rounded hover:bg-surface-hover"
@@ -1691,9 +1649,7 @@
 				sidebarWidth={railWidth}
 				transitionClass={sidebarTransitionClass}
 				isMobile={useDrawer}
-				onMenuOpen={() => {
-					menuOpen = true
-				}}
+				onMenuOpen={() => navHandleSlot.open()}
 			/>
 		</div>
 	</div>
