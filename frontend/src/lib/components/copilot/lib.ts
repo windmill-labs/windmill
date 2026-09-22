@@ -15,11 +15,17 @@ import { get, type Writable } from 'svelte/store'
 import { OpenAPI, ResourceService, type Script } from '../../gen'
 import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
 import {
+	getKnownModelMaxOutputTokens,
 	requiresMaxCompletionTokens,
 	usesAnthropicMessagesApi,
 	usesOpenRouterPromptCaching
 } from './modelConfig'
-import { applyReasoningToConfig } from './reasoningRegistry'
+import {
+	applyReasoningToConfig,
+	requestsReasoning,
+	stripLegacyThinkingSuffix,
+	type ReasoningEffort
+} from './reasoningRegistry'
 import { formatResourceTypes } from './utils'
 import {
 	appendPendingToolImages,
@@ -310,45 +316,28 @@ export async function fetchAvailableModels(
 	return data?.data.map((m) => m.id) ?? []
 }
 
-export function getModelMaxTokens(provider: AIProvider, model: string) {
-	if (provider === 'deepseek') {
-		// DeepSeek thinks by default and counts the thinking toward max_tokens, so
-		// the 8192 fallback cuts long turns off mid-thought. 131072 is DeepSeek's
-		// own default at the highest effort (65536 at the default one).
-		return 131072
-	} else if (model.includes('gpt-5')) {
-		return 128000
-	} else if (
-		(provider === 'azure_openai' || provider === 'openai' || provider === 'azure_foundry') &&
-		model.startsWith('o')
-	) {
-		return 100000
-	} else if (
-		// Raising this further would also raise the worst case of the
-		// non-streaming completion path, which the Anthropic SDK refuses once
-		// the request could run past ~10 minutes.
-		model.includes('claude-sonnet') ||
-		model.includes('claude-haiku') ||
-		model.includes('claude-fable') ||
-		model.includes('claude-mythos') ||
-		// Opus only from 4.5 on. Opus 4.1 and older cap at 32K and fall through
-		// to the row below. Dots are normalized because OpenRouter writes
-		// `anthropic/claude-opus-4.5` where Anthropic writes `claude-opus-4-5`.
-		/claude-opus-(4-(5|6|7|8)|5)(?!\d)/.test(model.replace(/\./g, '-')) ||
-		model.includes('gemini-2.5') ||
-		model.includes('gemini-3')
-	) {
-		return 64000
-	} else if (model.includes('gpt-4.1')) {
-		return 32768
-	} else if (model.includes('claude-opus')) {
-		return 32000
-	} else if (model.includes('gpt-4o') || model.includes('codestral')) {
-		return 16384
-	} else if (model.includes('gpt-4-turbo') || model.includes('gpt-3.5')) {
-		return 4096
-	}
-	return 8192
+// Thinking counts toward max_tokens, so a model outside the table that is asked to
+// reason gets more room than the plain fallback. Custom AI never does: the registry
+// does not know its models, and the per-model override is its way to a larger budget.
+const FALLBACK_MAX_TOKENS = 8192
+const REASONING_FALLBACK_MAX_TOKENS = 32768
+
+/**
+ * The output budget a request sends when the workspace sets no override. `reasoningEffort`
+ * is the effort the request carries, as `resolveRequestReasoning` resolves it.
+ */
+export function getModelMaxTokens(
+	provider: AIProvider,
+	model: string,
+	reasoningEffort?: ReasoningEffort
+): number {
+	const bareModel = stripLegacyThinkingSuffix(model)
+	return (
+		getKnownModelMaxOutputTokens(bareModel) ??
+		(requestsReasoning(provider, bareModel, reasoningEffort)
+			? REASONING_FALLBACK_MAX_TOKENS
+			: FALLBACK_MAX_TOKENS)
+	)
 }
 
 // Resolves the completion token cap for a model: the workspace's per-model
@@ -356,8 +345,16 @@ export function getModelMaxTokens(provider: AIProvider, model: string) {
 // Anthropic request paths so both honor the same limit. `cap` bounds the result
 // (used by short metadata completions, see METADATA_MAX_TOKENS) — a hard ceiling
 // that wins over both the workspace override and the default.
-function resolveMaxTokens(modelProvider: AIProviderModel, cap?: number): number {
-	const defaultMaxTokens = getModelMaxTokens(modelProvider.provider, modelProvider.model)
+function resolveMaxTokens(
+	modelProvider: AIProviderModel,
+	cap?: number,
+	reasoningEffort?: ReasoningEffort
+): number {
+	const defaultMaxTokens = getModelMaxTokens(
+		modelProvider.provider,
+		modelProvider.model,
+		reasoningEffort
+	)
 	const modelKey = `${modelProvider.provider}:${modelProvider.model}`
 	let customMaxTokensStore: Record<string, number> | undefined
 	try {
@@ -379,9 +376,10 @@ export const METADATA_MAX_TOKENS = 4096
 function getModelSpecificConfig(
 	modelProvider: AIProviderModel,
 	tools?: OpenAI.Chat.Completions.ChatCompletionTool[],
-	maxTokensCap?: number
+	maxTokensCap?: number,
+	reasoningEffort?: ReasoningEffort
 ) {
-	const maxTokens = resolveMaxTokens(modelProvider, maxTokensCap)
+	const maxTokens = resolveMaxTokens(modelProvider, maxTokensCap, reasoningEffort)
 	if (
 		(modelProvider.provider === 'openai' ||
 			modelProvider.provider === 'azure_openai' ||
@@ -903,7 +901,8 @@ export function getProviderAndCompletionConfig<K extends boolean>({
 	tools,
 	forceModelProvider,
 	maxTokensCap,
-	promptCaching
+	promptCaching,
+	reasoningEffort
 }: {
 	messages: ChatCompletionMessageParam[]
 	stream: K
@@ -913,6 +912,9 @@ export function getProviderAndCompletionConfig<K extends boolean>({
 	// Opt-in: a cache write costs more than an uncached read, so it only pays off where
 	// the same prefix is sent again. True for the chat loop, false for one-shot calls.
 	promptCaching?: boolean
+	// The effort the caller will add with `applyReasoningToConfig`. Only sizes the
+	// output budget here: a request that reasons needs room for the thinking.
+	reasoningEffort?: ReasoningEffort
 }): {
 	provider: AIProvider
 	config: K extends true
@@ -929,7 +931,7 @@ export function getProviderAndCompletionConfig<K extends boolean>({
 		provider: modelProvider.provider,
 		config: {
 			...providerConfig,
-			...getModelSpecificConfig(modelProvider, tools, maxTokensCap),
+			...getModelSpecificConfig(modelProvider, tools, maxTokensCap, reasoningEffort),
 			messages: processedMessages,
 			stream
 		} as any
@@ -1135,7 +1137,8 @@ export async function getCompletion(
 		stream: true,
 		tools,
 		forceModelProvider: options?.forceModelProvider,
-		promptCaching: options?.promptCaching
+		promptCaching: options?.promptCaching,
+		reasoningEffort: options?.reasoningEffort
 	})
 
 	// Use Responses API for OpenAI and Azure OpenAI

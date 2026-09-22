@@ -287,10 +287,38 @@ describe('parseOpenAICompletion tool call arguments', () => {
 })
 
 describe('output token limit', () => {
-	it("gives DeepSeek DeepSeek's own thinking-mode budget rather than the 8192 fallback", async () => {
+	it('follows the model through every host that serves it', async () => {
 		const { getModelMaxTokens } = await import('./lib')
 		expect(getModelMaxTokens('deepseek', 'deepseek-flash')).toBe(131072)
-		expect(getModelMaxTokens('deepseek', 'deepseek-v4-pro')).toBe(131072)
+		expect(getModelMaxTokens('azure_foundry', 'DeepSeek-V4-Pro')).toBe(131072)
+		expect(getModelMaxTokens('openrouter', 'deepseek/deepseek-v4-pro')).toBe(131072)
+		// gpt-oss reasons whether or not the chat sends an effort.
+		expect(getModelMaxTokens('groq', 'openai/gpt-oss-120b')).toBe(16000)
+		expect(getModelMaxTokens('openrouter', 'openai/o3')).toBe(100000)
+		// A legacy `/thinking` selection is its base model, not the `thinking` row.
+		expect(getModelMaxTokens('anthropic', 'claude-sonnet-4-5/thinking')).toBe(64000)
+	})
+
+	it('gives a model outside the table room to think only when the request asks it to', async () => {
+		const { getModelMaxTokens } = await import('./lib')
+		expect(getModelMaxTokens('openrouter', 'x-ai/grok-4.3', 'high')).toBe(32768)
+		expect(getModelMaxTokens('openrouter', 'x-ai/grok-4.3', 'none')).toBe(8192)
+		expect(getModelMaxTokens('openrouter', 'x-ai/grok-4.3')).toBe(8192)
+		// The registry does not know Custom AI models, so an effort says nothing about them.
+		expect(getModelMaxTokens('customai', 'local-model', 'high')).toBe(8192)
+	})
+
+	it('sizes the budget from the effort the same request carries', async () => {
+		const { getCompletion } = await import('./lib')
+		const create = vi.fn()
+
+		await getCompletion([], new AbortController(), undefined, {
+			forceModelProvider: { provider: 'mistral', model: 'mistral-medium-latest' },
+			openaiClient: { chat: { completions: { create } } } as any,
+			reasoningEffort: 'high'
+		})
+
+		expect(create.mock.calls[0][0]).toMatchObject({ max_tokens: 32768, reasoning_effort: 'high' })
 	})
 
 	it('fails a response cut off at the output token limit instead of ending the turn', async () => {

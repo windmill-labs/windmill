@@ -117,6 +117,51 @@ const MODEL_CONTEXT_WINDOWS: [name: string, contextWindow: number][] = [
 	['codestral', 32_000]
 ]
 
+// Output token budgets, matched like the context windows above so one row covers
+// every host of a model: native API, Azure AI Foundry, OpenRouter, Together, Bedrock.
+// A host rejects any request above its own limit, so each value is one every host of
+// the model accepts, not the vendor's maximum. Models not listed fall back in
+// `getModelMaxTokens`.
+const MODEL_MAX_OUTPUT_TOKENS: [name: string, maxOutputTokens: number][] = [
+	// Anthropic — the Anthropic SDK refuses a non-streaming request whose max_tokens
+	// implies more than ~10 minutes, so these stay below the models' own maximum.
+	// Opus caps at 32K before 4.5.
+	['claude-opus-4.5', 64_000],
+	['claude-opus-4.6', 64_000],
+	['claude-opus-4.7', 64_000],
+	['claude-opus-4.8', 64_000],
+	['claude-opus-5', 64_000],
+	['claude-opus', 32_000],
+	['claude-sonnet', 64_000],
+	['claude-haiku', 64_000],
+	['claude-fable', 64_000],
+	['claude-mythos', 64_000],
+	// OpenAI
+	['gpt-5', 128_000],
+	['gpt-4.1', 32_768],
+	['gpt-4o', 16_384],
+	['gpt-4-turbo', 4_096],
+	['gpt-3.5', 4_096],
+	['o1', 100_000],
+	['o3', 100_000],
+	['o4-mini', 100_000],
+	// gpt-oss reasons on every request. Bedrock documents 16K, where Groq takes 65536
+	['gpt-oss', 16_000],
+	// Google
+	['gemini-3', 64_000],
+	['gemini-2.5', 64_000],
+	// DeepSeek — thinks by default and counts the thinking toward max_tokens. 131072
+	// is DeepSeek's own default at the highest effort. R1 is capped by its OpenRouter
+	// host.
+	['deepseek-v4', 131_072],
+	['deepseek-flash', 131_072],
+	['deepseek-r1', 16_000],
+	['codestral', 16_384],
+	// Models named for thinking reason on every request, whether or not the chat sends
+	// an effort. Every one OpenRouter lists takes at least this much.
+	['thinking', 32_768]
+]
+
 // Version separators differ by route to the same model: Anthropic writes
 // `claude-opus-4-8`, OpenRouter writes `anthropic/claude-opus-4.8`. Collapsing
 // dots to dashes on both sides keeps one table entry covering every route —
@@ -195,6 +240,12 @@ const MODEL_CONTEXT_WINDOW_MATCHERS = buildModelMatchers(MODEL_CONTEXT_WINDOWS)
 
 export function getKnownModelContextWindow(model: string): number | undefined {
 	return matchModel(MODEL_CONTEXT_WINDOW_MATCHERS, model)
+}
+
+const MODEL_MAX_OUTPUT_TOKEN_MATCHERS = buildModelMatchers(MODEL_MAX_OUTPUT_TOKENS)
+
+export function getKnownModelMaxOutputTokens(model: string): number | undefined {
+	return matchModel(MODEL_MAX_OUTPUT_TOKEN_MATCHERS, model)
 }
 
 /** Trim/compaction logic needs a number; assume a conservative window when unknown. */
