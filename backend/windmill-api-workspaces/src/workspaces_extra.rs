@@ -1534,20 +1534,19 @@ pub async fn drop_forked_datatable_databases(
                         [db_to_drop.as_str()],
                     )
                     .await?;
-                    if !external {
-                        let uses = windmill_common::workspaces::managed_database_uses(
-                            &mut tx,
-                            windmill_common::workspaces::DataTableCatalogResourceType::Instance,
-                            &db_to_drop,
-                            Some((w_id.as_str(), dt_name.as_str())),
-                        )
-                        .await?;
-                        if !uses.is_empty() {
-                            return Err(Error::BadRequest(format!(
-                                "it is still used by {}",
-                                uses.join(", ")
-                            )));
-                        }
+                    // Before the entry is removed: child fork pointers are found through it.
+                    let uses = windmill_common::workspaces::managed_database_uses(
+                        &mut tx,
+                        resource_type,
+                        &db_to_drop,
+                        Some((w_id.as_str(), dt_name.as_str())),
+                    )
+                    .await?;
+                    if !uses.is_empty() {
+                        return Err(Error::BadRequest(format!(
+                            "it is still used by {}",
+                            uses.join(", ")
+                        )));
                     }
                     // The entry goes with the database: a fork this one is cloned into afterwards
                     // must not inherit a pointer at a data table whose database is gone.
