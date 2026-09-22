@@ -272,7 +272,7 @@
 					{@render providerCard(
 						'github_app',
 						githubIcon,
-						'GitHub App',
+						'GitHub App (recommended)',
 						'Install the Windmill GitHub App on your repository. Enables webhooks, pull requests and commit checks.',
 						!$enterpriseLicense
 					)}

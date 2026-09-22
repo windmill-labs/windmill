@@ -139,7 +139,12 @@
 							)}
 							use:clickOutside={{
 								onClickOutside: () =>
-									closeOnOutsideClick && (disposable?.isTopmost() ?? true) && close()
+									closeOnOutsideClick && (disposable?.isTopmost() ?? true) && close(),
+								// A dropdown opened from inside the dialog portals its menu out of it, so a
+								// click on one of its items lands outside this node and would close the
+								// dialog under the menu.
+								exclude: async () =>
+									Array.from(document.querySelectorAll('[data-menu]')) as HTMLElement[]
 							}}
 						>
 							<List gap="md">

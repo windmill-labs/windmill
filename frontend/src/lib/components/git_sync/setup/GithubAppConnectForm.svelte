@@ -1,9 +1,16 @@
 <script lang="ts">
-	import { ExternalLink, Loader2, RotateCw } from 'lucide-svelte'
+	import { Download, ExternalLink, Loader2, Minus, RotateCw, Upload } from 'lucide-svelte'
 	import { Alert, Button } from '$lib/components/common'
 	import Select from '$lib/components/select/Select.svelte'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import RepositorySelector from '$lib/components/RepositorySelector.svelte'
-	import { addInstallationToWorkspace } from '$lib/githubApp'
+	import {
+		addInstallationToWorkspace,
+		deleteInstallation,
+		exportInstallation,
+		importInstallation
+	} from '$lib/githubApp'
 	import type { RepoConnection } from './repoConnection'
 	import type { GithubAppSetup } from './githubAppSetup.svelte'
 
@@ -42,6 +49,42 @@
 	async function useFrom(installationId: number, sourceWorkspace: string) {
 		await addInstallationToWorkspace(workspace, installationId, sourceWorkspace, reload)
 	}
+
+	/** Pasting a JWT exported from another Windmill instance. */
+	let importing = $state(false)
+
+	// Export hands out a JWT the other instance imports; an installation reached through a
+	// GitHub Enterprise Server of its own is not transferable that way.
+	const installationActions = $derived([
+		...(selected && !selected.github_base_url
+			? [
+					{
+						displayName: 'Copy installation token (to another instance)',
+						icon: Download,
+						action: () => void exportInstallation(workspace, selected.installation_id)
+					}
+				]
+			: []),
+		...(gh.isGhesSelfManaged
+			? []
+			: [
+					{
+						displayName: 'Import an installation from another instance',
+						icon: Upload,
+						action: () => (importing = true)
+					}
+				]),
+		...(selected && !selected.provisioned_by_admin
+			? [
+					{
+						displayName: 'Remove installation from this workspace',
+						icon: Minus,
+						type: 'delete' as const,
+						action: () => void deleteInstallation(workspace, selected.installation_id, reload)
+					}
+				]
+			: [])
+	])
 </script>
 
 <div class="flex flex-col gap-4">
@@ -129,7 +172,41 @@
 				disabled={gh.loadingGithubInstallations}
 				onClick={reload}
 			/>
+			{#if installationActions.length > 0}
+				<DropdownV2 items={installationActions} />
+			{/if}
 		</div>
+
+		{#if importing}
+			<div class="flex flex-col gap-1">
+				<span class="text-xs font-semibold text-emphasis">Installation token</span>
+				<span class="text-xs text-secondary">
+					Paste the token copied from the instance that holds the installation.
+				</span>
+				<div class="flex items-center gap-2">
+					<TextInput
+						bind:value={gh.importJwt}
+						size="sm"
+						class="flex-1 min-w-0"
+						inputProps={{ placeholder: 'JWT token', autocomplete: 'off' }}
+					/>
+					<Button
+						variant="default"
+						unifiedSize="sm"
+						disabled={!gh.importJwt}
+						onClick={async () => {
+							await importInstallation(workspace, gh.importJwt, () => {
+								gh.importJwt = ''
+								importing = false
+								void reload()
+							})
+						}}
+					>
+						Import
+					</Button>
+				</div>
+			</div>
+		{/if}
 
 		{#if elsewhere.length > 0}
 			<div class="flex flex-col gap-1">
