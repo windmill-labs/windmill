@@ -169,6 +169,7 @@
 								title="Include path filters"
 								bind:items={include_path}
 								placeholder="Add filter (e.g. f/**)"
+								emptyHint="No include filter yet"
 							>
 								{#snippet tooltip()}
 									<Tooltip>
@@ -185,6 +186,7 @@
 								title="Exclude path filters"
 								bind:items={excludes}
 								placeholder="Add filter (e.g. f/**)"
+								emptyHint="No exclude filter yet"
 							>
 								{#snippet tooltip()}
 									<Tooltip>
@@ -335,11 +337,6 @@
 							</div>
 						</div>
 					</div>
-				</div>
-			</div>
-			<div class="mt-6 p-2 border-t">
-				<div class="text-xs text-primary mb-2">
-					{isInitialSetup ? 'Configure initial sync settings' : 'Review migration settings'}
 				</div>
 			</div>
 		{:else}

@@ -7,7 +7,8 @@
 		title = '',
 		tooltip = undefined,
 		items = $bindable([] as string[]),
-		placeholder = 'Add filter (e.g. f/**)'
+		placeholder = 'Add filter (e.g. f/**)',
+		emptyHint = 'No filter yet'
 	} = $props()
 
 	let newItem = $state('')
@@ -35,19 +36,28 @@
 		{/if}
 	</div>
 
-	<div class="flex flex-wrap gap-2 items-center mb-1">
-		{#each items as item, idx (item)}
-			<span class="flex items-center bg-gray-100 rounded-full px-3 py-1 text-xs text-gray-700">
-				{item}
-				<button
-					class="ml-2 text-gray-400 hover:text-red-500 focus:outline-none"
-					onclick={() => removeItem(idx)}
-					aria-label="Remove filter"
-				>
-					<X size={14} />
-				</button>
-			</span>
-		{/each}
+	<div
+		class="flex-1 min-h-20 overflow-y-auto rounded-md border border-border-light p-2 flex flex-wrap gap-2 {items.length ===
+		0
+			? 'items-center justify-center'
+			: 'content-start'}"
+	>
+		{#if items.length === 0}
+			<div class="text-center text-xs text-hint">{emptyHint}</div>
+		{:else}
+			{#each items as item, idx (item)}
+				<span class="flex items-center bg-gray-100 rounded-full px-3 py-1 text-xs text-gray-700">
+					{item}
+					<button
+						class="ml-2 text-gray-400 hover:text-red-500 focus:outline-none"
+						onclick={() => removeItem(idx)}
+						aria-label="Remove filter"
+					>
+						<X size={14} />
+					</button>
+				</span>
+			{/each}
+		{/if}
 	</div>
 
 	<!-- Its own row at the bottom, so adding or removing filters above does not move it. -->
