@@ -13,10 +13,6 @@
 
 	const diff = $derived(toolCodeDiff(message))
 	const isStreaming = $derived(Boolean(message.isStreamingArguments))
-	const lines = $derived(diff ? toolDiffLines(diff, isStreaming) : undefined)
-	const counts = $derived(
-		diff ? (isStreaming ? diffLineCounts(diff, true) : toolDiffLineCounts(lines ?? [])) : undefined
-	)
 
 	// Keyed by call id: a bare flag would carry the expansion onto the next message that
 	// reuses this instance. An active or failed call opens by itself, and remains open
@@ -31,6 +27,14 @@
 		}
 	})
 	const expanded = $derived(toggled?.id === message.tool_call_id ? toggled.open : opensByDefault)
+	const lines = $derived(diff && expanded ? toolDiffLines(diff, isStreaming) : undefined)
+	const counts = $derived(
+		diff && expanded
+			? isStreaming
+				? diffLineCounts(diff, true)
+				: toolDiffLineCounts(lines ?? [])
+			: undefined
+	)
 
 	const isRunning = $derived(Boolean(message.isLoading && !message.needsConfirmation))
 	const showPreviewChip = $derived(
@@ -65,7 +69,7 @@
 	contentClass="p-0 overflow-hidden space-y-0"
 	{headerRight}
 >
-	{#if diff}
+	{#if diff && expanded}
 		<ToolCodeDiffView {diff} diffLines={lines} streaming={isStreaming} />
 	{/if}
 	{#if message.error}

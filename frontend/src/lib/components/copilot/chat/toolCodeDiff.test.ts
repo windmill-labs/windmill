@@ -74,6 +74,22 @@ describe('toolCodeDiff', () => {
 		})
 	})
 
+	it('uses each replacement while in-editor edit arguments are incomplete', () => {
+		expect(
+			toolCodeDiff(
+				message({
+					toolName: 'edit_code',
+					parameters:
+						'{"diffs":[{"old_string":"first old","new_string":"first new"},{"old_string":"second old","new_string":"second new'
+				})
+			)
+		).toEqual({
+			before: 'first old\nsecond old',
+			after: 'first new\nsecond new',
+			lang: 'plaintext'
+		})
+	})
+
 	it('shows streamed full-script updates before the saved diff is available', () => {
 		expect(
 			toolCodeDiff(

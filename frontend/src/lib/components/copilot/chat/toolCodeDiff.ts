@@ -17,6 +17,7 @@ const ARGS_DIFF_BY_TOOL: Record<string, (params: unknown) => ToolCodeDiff | unde
 			const diffs = (params as { diffs: unknown[] }).diffs
 			return argumentDiffs(diffs.map(streamingEditArguments))
 		}
+		if (typeof params === 'string') return argumentDiffs(streamingEditArgumentsArray(params))
 		return argumentDiff(streamingEditArguments(params)) ?? fullContentArgumentDiff(params, 'code')
 	}
 }
@@ -68,15 +69,32 @@ function streamingEditArguments(
 	}
 }
 
-function partialJsonString(partialJson: string, key: string): string | undefined {
-	const match = partialJson.match(new RegExp(`"${key}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)`))
-	if (!match?.[1]) return undefined
+function streamingEditArgumentsArray(partialJson: string): { old_string?: string; new_string?: string }[] {
+	const oldStrings = partialJsonStrings(partialJson, 'old_string')
+	const newStrings = partialJsonStrings(partialJson, 'new_string')
+	return Array.from({ length: Math.max(oldStrings.length, newStrings.length) }, (_, index) => ({
+		old_string: oldStrings[index],
+		new_string: newStrings[index]
+	}))
+}
 
-	try {
-		return JSON.parse(`"${match[1]}"`)
-	} catch {
-		return undefined
+function partialJsonString(partialJson: string, key: string): string | undefined {
+	return partialJsonStrings(partialJson, key)[0]
+}
+
+function partialJsonStrings(partialJson: string, key: string): string[] {
+	const matches = partialJson.matchAll(new RegExp(`"${key}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)`, 'g'))
+	const result: string[] = []
+	for (const match of matches) {
+		if (!match[1]) continue
+
+		try {
+			result.push(JSON.parse(`"${match[1]}"`))
+		} catch {
+			continue
+		}
 	}
+	return result
 }
 
 export function hasToolCodeDiff(toolName: string | undefined): boolean {
