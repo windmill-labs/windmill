@@ -133,9 +133,11 @@
 				isInitialSetup={repo.detectionState === 'no-wmill'}
 				requiresMigration={false}
 				useIndividualBranch={repo.use_individual_branch}
-			/>
-
-			<GitSyncModeDisplay {mode} {targetBranch} repository={repo} />
+			>
+				{#snippet subtitle()}
+					<GitSyncModeDisplay {mode} {targetBranch} repository={repo} />
+				{/snippet}
+			</GitSyncFilterSettings>
 
 			{#if mode === 'promotion'}
 				<Toggle

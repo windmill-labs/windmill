@@ -1,13 +1,10 @@
 <script lang="ts">
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { Filter, ChevronDown } from 'lucide-svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import FilterList from './FilterList.svelte'
-	import { Tabs, Tab, Button, Section } from '$lib/components/common'
+	import { Tabs, Tab, Section } from '$lib/components/common'
 	import type { GitSyncObjectType } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { twMerge } from 'tailwind-merge'
-	import { slide } from 'svelte/transition'
 
 	type GitSyncTypeMap = {
 		scripts: boolean
@@ -46,11 +43,10 @@
 		isInitialSetup = false,
 		requiresMigration = false,
 		actions = undefined,
-		useIndividualBranch = false
+		useIndividualBranch = false,
+		title = 'Filter settings',
+		subtitle = undefined
 	} = $props()
-
-	// Component state
-	let collapsed = $state(false)
 
 	// Determine if component should be editable or read-only
 	const isEditable = $derived(isInitialSetup || requiresMigration)
@@ -123,12 +119,10 @@
 	}
 </script>
 
-<div class="rounded-lg shadow-sm border p-0 w-full">
-	<!-- Card Header -->
-	<div class="flex items-center justify-between min-h-10 px-4 py-1 border-b">
+<div class="w-full">
+	<div class="flex flex-col gap-0.5">
 		<div class="flex items-center gap-2">
-			<Filter size={14} class="text-primary" />
-			<span class="font-semibold text-xs text-emphasis">Git Sync filter settings</span>
+			<h4 class="font-semibold text-sm text-emphasis">{title}</h4>
 			{#if isLegacyRepo}
 				<Tooltip>
 					This repository uses legacy configuration format and inherits settings from
@@ -142,21 +136,13 @@
 				</Tooltip>
 			{/if}
 		</div>
-		<Button
-			unifiedSize="sm"
-			variant="subtle"
-			startIcon={{
-				icon: ChevronDown,
-				classes: twMerge('transition duration-150', collapsed ? '' : 'rotate-180')
-			}}
-			onClick={() => (collapsed = !collapsed)}
-			iconOnly
-		/>
+		{#if subtitle}
+			{@render subtitle()}
+		{/if}
 	</div>
-	{#if !collapsed}
 		{#if isEditable}
 			<!-- Editable mode -->
-			<div class="px-4 py-2" transition:slide={{ duration: 150 }}>
+			<div class="py-2">
 				<div class="grid grid-cols-1 md:grid-cols-2 md:gap-8">
 					<div class="flex flex-col gap-2">
 						<Tabs bind:selected={filtersTab}>
@@ -339,7 +325,7 @@
 			</div>
 		{:else}
 			<!-- Read-only view -->
-			<div class="px-4 py-2">
+			<div class="py-2">
 				<div class="grid grid-cols-1 md:grid-cols-2 md:gap-8">
 					<div class="flex flex-col gap-3">
 						<div>
@@ -449,5 +435,4 @@ git push
 				</div>
 			</div>
 		{/if}
-	{/if}
 </div>
