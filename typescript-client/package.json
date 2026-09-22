@@ -15,9 +15,9 @@
   },
   "sideEffects": false,
   "devDependencies": {
-    "@types/node": "^20.17.16",
-    "tsdown": "^0.12.9",
-    "typescript": "^5.4.5"
+    "@types/node": "^26.6.2",
+    "tsdown": "^0.23.0",
+    "typescript": "^7.0.2"
   },
   "main": "dist/index.js",
   "module": "dist/index.mjs",
