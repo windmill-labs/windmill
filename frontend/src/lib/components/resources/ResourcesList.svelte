@@ -204,9 +204,11 @@
 	)
 	let filters = useUrlSyncedFilterInstance(untrack(() => resourcesFilterSchema))
 	// A link can carry the user folders filter to someone it is not offered to, where it would sit
-	// set with no chip to clear it. Dropped once the acting user is known, never while loading.
+	// set with no chip to clear it. Dropped only once a user is actually known: `resolved` holds for
+	// the navigation workspace even while its user is still loading.
 	$effect(() => {
-		if (!operatingUser.resolved($operatingWorkspace) || userFoldersFilterType !== undefined) return
+		if (!operatingUser.resolved($operatingWorkspace) || !operatingUser.current) return
+		if (userFoldersFilterType !== undefined) return
 		if (!filters.val.user_folders_only) return
 		untrack(() => {
 			const { user_folders_only: _, ...rest } = filters.val
