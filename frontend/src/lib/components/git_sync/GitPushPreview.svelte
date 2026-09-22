@@ -156,16 +156,18 @@ wmill sync pull --workspace ${$workspaceStore} --repository ${gitRepoResourcePat
 	}
 </script>
 
-<div class="flex flex-col gap-4">
-	<p class="text-xs text-secondary">
-		Here is what will get pushed to the repository, according to the filters you set.
-	</p>
-
+<div class="flex flex-col gap-4 h-full">
 	{#if isPreviewLoading}
-		<div class="flex items-center gap-2 text-sm text-hint">
-			<Loader2 size={16} class="animate-spin" />
+		<div
+			class="flex-1 min-h-24 flex flex-col items-center justify-center gap-2 text-sm text-hint"
+		>
+			<Loader2 size={36} class="animate-spin" />
 			Listing the changes to push...
 		</div>
+	{:else}
+		<p class="text-xs text-secondary">
+			Here is what will get pushed to the repository, according to the filters you set.
+		</p>
 	{/if}
 
 	{#if previewError}
@@ -212,7 +214,8 @@ wmill sync pull --workspace ${$workspaceStore} --repository ${gitRepoResourcePat
 			{/if}
 		{/each}
 
-		<div>
+		<!-- Nothing to copy commands for until the changes are known. -->
+		<div class={isPreviewLoading ? 'hidden' : ''}>
 			<button
 				class="flex items-center gap-2 text-xs text-secondary hover:text-primary transition-colors"
 				onclick={() => (showCliInstructions = !showCliInstructions)}
