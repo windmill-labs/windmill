@@ -175,11 +175,11 @@ wmill sync pull --workspace ${$workspaceStore} --repository ${gitRepoResourcePat
 	{/if}
 
 	{#if previewResult && !previewError}
-		<div class="flex flex-col gap-2">
+		<div class="flex flex-col gap-2 flex-1 min-h-0">
 			<h4 class="text-sm font-semibold text-primary">Changes to push</h4>
 
 			{#if previewResult.changes?.length > 0}
-				<GitDiffPreview {previewResult} maxHeightClass="max-h-80" />
+				<GitDiffPreview {previewResult} heightClass="flex-1 min-h-0" />
 			{:else}
 				<div class="text-sm text-secondary">
 					The repository already matches this workspace: there is nothing to push.
