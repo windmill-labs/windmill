@@ -853,6 +853,9 @@
 			}, 500)
 			const doc = untrack(() => iframeDocument)
 			if (doc !== undefined && isOpenableDocument(doc)) {
+				// Plain setFiles opens the iframe's default document after a content change.
+				// Preserving this document may focus the hidden iframe; eliminating that
+				// transfer requires a focus-preserving update API in the UI Builder.
 				setFilesAndSelectInIframe(files, doc)
 			} else {
 				// Deleted or renamed away since we last told the iframe to open it;
