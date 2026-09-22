@@ -12,7 +12,7 @@ use serde_json::json;
 use sqlx::{Pool, Postgres};
 
 use axum::http::StatusCode;
-use windmill_api_auth::ApiAuthed;
+use windmill_api_auth::{ApiAuthed, ScopePathFilter};
 use windmill_common::{
     error::Error,
     variables::{build_crypt, encrypt},
@@ -661,12 +661,62 @@ async fn test_rename_moves_native_trigger(db: Pool<Postgres>) -> anyhow::Result<
         None,
         Some("f/test/after"),
         Some(false),
+        ScopePathFilter::AllowAll,
     )
     .await?;
     assert_eq!(
         triggers.len(),
         2,
         "the moved trigger should be listed under the new path"
+    );
+
+    Ok(())
+}
+
+// ============================================================================
+// 6. Token scope filtering on list
+// ============================================================================
+
+/// A `native_triggers:read:f/test/*` token must only list triggers under `f/test/`, on the `/`
+/// boundary (`f/testx/` is out of scope).
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_list_native_triggers_scope_filter(db: Pool<Postgres>) -> anyhow::Result<()> {
+    for (i, path) in ["f/testx/out", "f/test/in"].into_iter().enumerate() {
+        insert_test_script(&db, path).await?;
+        store_native_trigger(
+            &db,
+            "test-workspace",
+            ServiceName::Nextcloud,
+            &format!("ext-{i}"),
+            &NativeTriggerConfig {
+                script_path: path.to_string(),
+                is_flow: false,
+                webhook_token: format!("abcdefghij123456789{i}"),
+            },
+            json!({"event": "OCP\\Files\\Events\\Node\\NodeCreatedEvent"}),
+            None,
+            true,
+        )
+        .await?;
+    }
+
+    let triggers = list_native_triggers(
+        &db,
+        "test-workspace",
+        ServiceName::Nextcloud,
+        None,
+        None,
+        None,
+        None,
+        ScopePathFilter::Restricted { exact: vec![], prefix: vec!["f/test".to_string()] },
+    )
+    .await?;
+    assert_eq!(
+        triggers
+            .iter()
+            .map(|t| t.script_path.as_str())
+            .collect::<Vec<_>>(),
+        vec!["f/test/in"]
     );
 
     Ok(())
