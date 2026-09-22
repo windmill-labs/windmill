@@ -74,10 +74,18 @@ describe('toolCodeDiff', () => {
 		})
 	})
 
+	it('shows streamed full-script updates before the saved diff is available', () => {
+		expect(
+			toolCodeDiff(
+				message({ toolName: 'write_script', parameters: '{"content":"print(\\\"hello\\\")' })
+			)
+		).toEqual({ before: '', after: 'print("hello")', lang: 'plaintext' })
+	})
+
 	it('only marks tools with a defined argument diff as diff-capable', () => {
 		expect(hasToolCodeDiff('edit_script')).toBe(true)
 		expect(hasToolCodeDiff('edit_code')).toBe(true)
-		expect(hasToolCodeDiff('write_script')).toBe(false)
+		expect(hasToolCodeDiff('write_script')).toBe(true)
 		expect(hasToolCodeDiff(undefined)).toBe(false)
 	})
 

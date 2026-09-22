@@ -879,7 +879,12 @@ export const editCodeTool: Tool<ScriptChatHelpers> = {
 
 			toolCallbacks.setToolStatus(toolId, {
 				content: 'Code changes applied',
-				result: 'Success'
+				result: 'Success',
+				codeDiff: {
+					before: oldCode,
+					after: args.code,
+					lang: scriptLangToEditorLang(scriptOptions.lang)
+				}
 			})
 			return 'Code has been applied to the script editor.'
 		} catch (error) {

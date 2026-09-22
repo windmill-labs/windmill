@@ -1,8 +1,3 @@
-<!--
-@component
-A tool call that edited code, shown as a diff. Monaco loads only while the card is open,
-so a transcript full of edits mounts no editor until one is asked for.
--->
 <script lang="ts">
 	import type { ToolDisplayMessage } from './shared'
 	import ChatCollapsibleCard from './ChatCollapsibleCard.svelte'

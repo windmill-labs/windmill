@@ -5,9 +5,10 @@ import type { ToolCodeDiff, ToolDisplayMessage } from './shared'
 
 // Builds a diff from a call's own arguments, for the moments the saved `codeDiff` does not
 // exist: while the arguments stream, when the call failed, and for transcripts saved before
-// calls recorded one. The replaced snippet alone has no language or surrounding lines.
+// calls recorded one. Argument diffs have no language or surrounding lines.
 const ARGS_DIFF_BY_TOOL: Record<string, (params: unknown) => ToolCodeDiff | undefined> = {
 	edit_script: (params) => argumentDiff(streamingEditArguments(params)),
+	write_script: (params) => fullContentArgumentDiff(params, 'content'),
 	edit_code: (params) => {
 		if (
 			params &&
@@ -17,8 +18,18 @@ const ARGS_DIFF_BY_TOOL: Record<string, (params: unknown) => ToolCodeDiff | unde
 			const diffs = (params as { diffs: unknown[] }).diffs
 			return argumentDiffs(diffs.map(streamingEditArguments))
 		}
-		return argumentDiff(streamingEditArguments(params))
+		return argumentDiff(streamingEditArguments(params)) ?? fullContentArgumentDiff(params, 'code')
 	}
+}
+
+function fullContentArgumentDiff(params: unknown, key: string): ToolCodeDiff | undefined {
+	const content =
+		params && typeof params === 'object'
+			? (params as Record<string, unknown>)[key]
+			: typeof params === 'string'
+				? partialJsonString(params, key)
+				: undefined
+	return typeof content === 'string' ? { before: '', after: content, lang: 'plaintext' } : undefined
 }
 
 function argumentDiff(
@@ -141,7 +152,7 @@ function monacoCharacterRanges(diff: ToolCodeDiff): {
 	}
 	const changes = new DefaultLinesDiffComputer().computeDiff(before, after, {
 		ignoreTrimWhitespace: false,
-		maxComputationTimeMs: 0,
+				maxComputationTimeMs: 1000,
 		computeMoves: false,
 		extendToSubwords: false
 	})

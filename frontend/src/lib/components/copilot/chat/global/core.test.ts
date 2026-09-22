@@ -3080,12 +3080,17 @@ describe('global AI tools', () => {
 			kind: 'script'
 		} as any)
 
-		await callGlobalTool('write_script', {
-			path: 'f/scripts/existing',
-			summary: 'new summary',
-			language: 'bun',
-			content: 'new content'
-		})
+		const statuses: any[] = []
+		await callGlobalTool(
+			'write_script',
+			{
+				path: 'f/scripts/existing',
+				summary: 'new summary',
+				language: 'bun',
+				content: 'new content'
+			},
+			{ ...toolCallbacks, setToolStatus: (_toolId, status) => statuses.push(status) }
+		)
 
 		expect(
 			getBackendDraft<any>('script', 'f/scripts/existing', { workspace: WORKSPACE })
@@ -3096,6 +3101,9 @@ describe('global AI tools', () => {
 			description: 'deployed description',
 			content: 'new content',
 			language: 'bun'
+		})
+		expect(statuses).toContainEqual({
+			codeDiff: { before: 'old deployed content', after: 'new content', lang: 'typescript' }
 		})
 	})
 

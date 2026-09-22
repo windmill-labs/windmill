@@ -4,6 +4,7 @@
 	import { toolCodeDiffLanguage } from './toolCodeDiffLanguage'
 	import Highlight from 'svelte-highlight'
 	import HighlightTheme from '$lib/components/HighlightTheme.svelte'
+	import { Button } from '$lib/components/common'
 
 	interface Props {
 		diff: ToolCodeDiff
@@ -67,13 +68,14 @@
 <HighlightTheme />
 
 <div
-	class="tool-code-diff max-h-[400px] overflow-auto bg-white text-xs leading-[18px] text-[#2d3748]"
+	class="tool-code-diff max-h-[400px] overflow-auto bg-white text-xs leading-[18px] text-[#2d3748] dark:bg-[#1e1e1e] dark:text-[#d4d4d4]"
 >
 	{#each visibleRows as row, index (row.kind === 'collapsed' ? row.key : `${row.oldLine}:${row.newLine}:${index}`)}
 		{#if row.kind === 'collapsed'}
-			<button
-				type="button"
-				class="grid min-h-7 w-full grid-cols-[0.875rem_2.9375rem_minmax(0,1fr)] items-center bg-[#f5f5f5] py-1 text-left text-xs font-normal leading-[18px] text-[#989da5] hover:bg-[#e8e8e8]"
+			<Button
+				unifiedSize="2xs"
+				variant="subtle"
+				btnClasses="grid min-h-7 w-full grid-cols-[0.875rem_2.9375rem_minmax(0,1fr)] items-center rounded-none bg-[#f5f5f5] py-1 text-left text-xs font-normal leading-[18px] text-[#989da5] hover:bg-[#e8e8e8] dark:bg-[#2d2d30] dark:text-[#858585] dark:hover:bg-[#37373d]"
 				onclick={() => expand(row.key)}
 			>
 				<span class="text-right">...</span>
@@ -81,7 +83,7 @@
 					<span></span><span class="text-right">...</span><span>...</span>
 				</span>
 				<span>{row.count} unchanged lines</span>
-			</button>
+			</Button>
 		{:else}
 			<div class="diff-line-{row.kind} grid grid-cols-[0.875rem_2.9375rem_minmax(0,1fr)]">
 				<span class="text-right text-[#989da5]">{row.oldLine ?? ''}</span>

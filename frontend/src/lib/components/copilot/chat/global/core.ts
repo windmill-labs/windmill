@@ -5082,7 +5082,11 @@ async function writeDraft<T, A>(
 	path: string,
 	args: A,
 	ctx: WriteDraftCtx,
-	opts: { triggerKind?: TriggerKind; override?: boolean; codeDiff?: ToolCodeDiff } = {}
+	opts: {
+		triggerKind?: TriggerKind
+		override?: boolean
+		codeDiff?: ToolCodeDiff | ((base: T | undefined, draft: T) => ToolCodeDiff | undefined)
+	} = {}
 ): Promise<string> {
 	const { workspace } = ctx
 	startDraftWrite(ctx, type, path)
@@ -5101,7 +5105,8 @@ async function writeDraft<T, A>(
 		triggerKind: opts.triggerKind,
 		force: opts.override
 	})
-	return finishDraftWrite(result, existed, ctx, opts.codeDiff)
+	const codeDiff = typeof opts.codeDiff === 'function' ? opts.codeDiff(base, draft) : opts.codeDiff
+	return finishDraftWrite(result, existed, ctx, codeDiff)
 }
 
 type ScriptDraftArgs = {
@@ -5161,7 +5166,16 @@ function writeScriptDraft(
 ): Promise<string> {
 	return writeDraft(SCRIPT_SPEC, 'script', args.path, args, ctx, {
 		override: args.override,
-		codeDiff
+		codeDiff:
+			codeDiff ??
+			((base, draft) =>
+				base
+					? {
+							before: base.content,
+							after: draft.content,
+							lang: scriptLangToEditorLang(draft.language)
+						}
+					: undefined)
 	})
 }
 
