@@ -5,7 +5,10 @@
  * Please see the included NOTICE for copyright information and
  * LICENSE-AGPL for a copy of the license.
  */
-use crate::{db::ApiAuthed, utils::check_scopes};
+use crate::{
+    db::ApiAuthed,
+    utils::{build_scope_path_predicate, check_scopes},
+};
 use axum::{
     body::Body,
     extract::{Extension, Json, Path, Query},
@@ -105,11 +108,14 @@ async fn list_apps(
 
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
-    let rows = sqlx::query_as::<_, ListableApp>(&sql)
+    let mut rows = sqlx::query_as::<_, ListableApp>(&sql)
         .fetch_all(&mut *tx)
         .await?;
 
     tx.commit().await?;
+
+    let allowed = build_scope_path_predicate(&authed, "raw_apps", "read");
+    rows.retain(|r| allowed(&r.path));
 
     Ok(Json(rows))
 }
