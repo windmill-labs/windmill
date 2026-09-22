@@ -45,6 +45,7 @@
 	let newPath = $state('')
 	let newPathError = $state('')
 	let branch = $state('')
+	let folder = $state('')
 	let connecting = $state(false)
 	let connectError: string | undefined = $state(undefined)
 	let githubApp: GithubAppSetup | undefined = $state(undefined)
@@ -62,6 +63,7 @@
 		existingPath = undefined
 		connection = undefined
 		branch = ''
+		folder = ''
 		connectError = undefined
 		const workspace = $workspaceStore
 		if (!workspace) return
@@ -130,7 +132,7 @@
 		connecting = true
 		connectError = undefined
 		try {
-			await createRepositoryResource(workspace, newPath, connection, branch)
+			await createRepositoryResource(workspace, newPath, connection, { branch, folder })
 			finish(newPath)
 		} catch (e) {
 			connectError = apiErrorMessage(e)
@@ -232,6 +234,14 @@
 										branch.
 									</span>
 									<TextInput bind:value={branch} inputProps={{ placeholder: 'Default branch' }} />
+								</label>
+								<label class="flex flex-col gap-1">
+									<span class="text-xs font-semibold text-emphasis">Folder</span>
+									<span class="text-xs text-secondary">
+										Where in the repository the workspace is kept, relative to its root. Leave empty
+										for the root. The folder must already exist in the repository.
+									</span>
+									<TextInput bind:value={folder} inputProps={{ placeholder: 'Repository root' }} />
 								</label>
 								<div class="flex flex-col gap-1">
 									<span class="text-xs font-semibold text-emphasis">Save as resource</span>

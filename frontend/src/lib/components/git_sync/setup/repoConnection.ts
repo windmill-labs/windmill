@@ -62,8 +62,11 @@ export async function createRepositoryResource(
 	workspace: string,
 	path: string,
 	conn: RepoConnection,
-	branch: string | undefined
+	location: { branch?: string; folder?: string }
 ): Promise<void> {
+	const branch = location.branch?.trim()
+	// Relative to the repository root, which is how the sync script joins it.
+	const folder = location.folder?.trim().replace(/^\/+|\/+$/g, '')
 	let url = conn.url
 	let createdVariable = false
 	if (conn.tokenUrl) {
@@ -97,7 +100,8 @@ export async function createRepositoryResource(
 				description: `Git repository ${conn.url}`,
 				value: {
 					url,
-					...(branch?.trim() ? { branch: branch.trim() } : {}),
+					...(branch ? { branch } : {}),
+					...(folder ? { folder } : {}),
 					is_github_app: !!conn.isGithubApp
 				}
 			}
