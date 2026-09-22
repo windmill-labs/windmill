@@ -5669,6 +5669,11 @@ const runFormCancelled = (toolName: string, noun: string) =>
  * array argument the form let them paste into. */
 const MAX_SUBMITTED_ARGS_LENGTH = 4000
 
+/** In the tool result rather than the system prompt: there, models still copied a result's
+ * table or JSON into the reply, under a card that already renders it. */
+const RESULT_SHOWN_NOTE =
+	'The user already sees this run in full under your call. Do not repeat its result or logs in your reply: say what it shows, quoting only the values your conclusion rests on.'
+
 /** The card's own copy is bounded separately, and far higher: it is what the details pane
  * renders, and JobArgs stops rendering the JSON in full at this size regardless. */
 const MAX_PERSISTED_ARGS_LENGTH = 100_000
@@ -5916,7 +5921,7 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 	const ran = deepEqual(redacted, proposed)
 		? 'Ran with the arguments the form opened with, unedited.'
 		: `Ran with arguments: ${shown}`
-	return `${ran}${cleared}${reset}${stripped}${undeclared}\n${outcome}`
+	return `${ran}${cleared}${reset}${stripped}${undeclared}\n${RESULT_SHOWN_NOTE}\n${outcome}`
 }
 
 async function runDeployedScript(
@@ -6655,7 +6660,7 @@ async function testRunAppRunnable(
 		'$lib/components/apps/components/helpers/executeRunnable'
 	)
 
-	return executeTestRun({
+	const outcome = await executeTestRun({
 		jobStarter: () =>
 			executeRunnable(
 				runnable as unknown as Runnable,
@@ -6684,6 +6689,7 @@ async function testRunAppRunnable(
 		detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
 		label: `${path} / ${key}`
 	})
+	return `${RESULT_SHOWN_NOTE}\n${outcome}`
 }
 
 async function deleteAppRunnable(
