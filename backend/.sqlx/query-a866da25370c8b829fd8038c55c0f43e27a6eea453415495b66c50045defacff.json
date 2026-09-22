@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM usr WHERE workspace_id = 'test-workspace' AND email = 'test@windmill.dev'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "a866da25370c8b829fd8038c55c0f43e27a6eea453415495b66c50045defacff"
+}

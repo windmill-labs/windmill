@@ -5960,6 +5960,13 @@ async fn set_encryption_key(
         &new_encryption_key,
     )
     .await?;
+    crate::remote_deploy::reencrypt_tokens(
+        &mut tx,
+        &w_id,
+        &previous_encryption_key,
+        &new_encryption_key,
+    )
+    .await?;
 
     tx.commit().await?;
 
@@ -10143,13 +10150,25 @@ async fn leave_workspace(
         &format!("u/{}", authed.username),
     )
     .await?;
-    sqlx::query!(
+    let left = sqlx::query!(
         "DELETE FROM usr WHERE workspace_id = $1 AND email = $2",
         &w_id,
         &authed.email
     )
     .execute(&mut *tx)
-    .await?;
+    .await?
+    .rows_affected();
+    // A superadmin deploys from workspaces it is no member of; leaving none is no reason to drop
+    // its connection.
+    if left > 0 {
+        sqlx::query!(
+            "DELETE FROM remote_deploy_token WHERE email = $1 AND workspace_id = $2",
+            &authed.email,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
 
     audit_log(
         &mut *tx,

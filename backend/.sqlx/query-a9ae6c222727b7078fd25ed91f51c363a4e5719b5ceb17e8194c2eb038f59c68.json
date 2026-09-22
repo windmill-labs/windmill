@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE remote_deploy_token SET token = 'not-under-this-key'\n         WHERE workspace_id = 'test-workspace'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "a9ae6c222727b7078fd25ed91f51c363a4e5719b5ceb17e8194c2eb038f59c68"
+}
