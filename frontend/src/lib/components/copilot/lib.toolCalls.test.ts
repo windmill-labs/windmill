@@ -306,6 +306,10 @@ describe('output token limit', () => {
 		expect(getModelMaxTokens('openrouter', 'x-ai/grok-4.3')).toBe(8192)
 		// The registry does not know Custom AI models, so an effort says nothing about them.
 		expect(getModelMaxTokens('customai', 'local-model', 'high')).toBe(8192)
+		// A self-hosted open-weight model runs at its operator's context length, not the
+		// vendor's, while a Custom AI proxy in front of a hosted model keeps its row.
+		expect(getModelMaxTokens('customai', 'deepseek-v4-pro', 'high')).toBe(8192)
+		expect(getModelMaxTokens('customai', 'gpt-5')).toBe(128000)
 	})
 
 	it('sizes the budget from the effort the same request carries', async () => {

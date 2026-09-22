@@ -333,7 +333,7 @@ export function getModelMaxTokens(
 ): number {
 	const bareModel = stripLegacyThinkingSuffix(model)
 	return (
-		getKnownModelMaxOutputTokens(bareModel) ??
+		getKnownModelMaxOutputTokens(provider, bareModel) ??
 		(requestsReasoning(provider, bareModel, reasoningEffort)
 			? REASONING_FALLBACK_MAX_TOKENS
 			: FALLBACK_MAX_TOKENS)

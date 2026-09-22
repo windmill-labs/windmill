@@ -145,18 +145,24 @@ const MODEL_MAX_OUTPUT_TOKENS: [name: string, maxOutputTokens: number][] = [
 	['o1', 100_000],
 	['o3', 100_000],
 	['o4-mini', 100_000],
-	// gpt-oss reasons on every request. Bedrock documents 16K, where Groq takes 65536
-	['gpt-oss', 16_000],
 	// Google
 	['gemini-3', 64_000],
 	['gemini-2.5', 64_000],
+	['codestral', 16_384]
+]
+
+// Open-weight models, which a self-hosted server (Custom AI) caps at whatever context
+// length its operator set, often below these: vLLM rejects a request whose prompt plus
+// max_tokens exceeds it. So these rows only apply to the providers that host them.
+const OPEN_WEIGHT_MAX_OUTPUT_TOKENS: [name: string, maxOutputTokens: number][] = [
+	// gpt-oss reasons on every request. Bedrock documents 16K, where Groq takes 65536
+	['gpt-oss', 16_000],
 	// DeepSeek — thinks by default and counts the thinking toward max_tokens. 131072
 	// is DeepSeek's own default at the highest effort. R1 is capped by its OpenRouter
 	// host.
 	['deepseek-v4', 131_072],
 	['deepseek-flash', 131_072],
 	['deepseek-r1', 16_000],
-	['codestral', 16_384],
 	// Models named for thinking reason on every request, whether or not the chat sends
 	// an effort. Every one OpenRouter lists takes at least this much.
 	['thinking', 32_768]
@@ -243,9 +249,16 @@ export function getKnownModelContextWindow(model: string): number | undefined {
 }
 
 const MODEL_MAX_OUTPUT_TOKEN_MATCHERS = buildModelMatchers(MODEL_MAX_OUTPUT_TOKENS)
+const OPEN_WEIGHT_MAX_OUTPUT_TOKEN_MATCHERS = buildModelMatchers(OPEN_WEIGHT_MAX_OUTPUT_TOKENS)
 
-export function getKnownModelMaxOutputTokens(model: string): number | undefined {
-	return matchModel(MODEL_MAX_OUTPUT_TOKEN_MATCHERS, model)
+export function getKnownModelMaxOutputTokens(
+	provider: AIProvider,
+	model: string
+): number | undefined {
+	return (
+		matchModel(MODEL_MAX_OUTPUT_TOKEN_MATCHERS, model) ??
+		(provider === 'customai' ? undefined : matchModel(OPEN_WEIGHT_MAX_OUTPUT_TOKEN_MATCHERS, model))
+	)
 }
 
 /** Trim/compaction logic needs a number; assume a conservative window when unknown. */
