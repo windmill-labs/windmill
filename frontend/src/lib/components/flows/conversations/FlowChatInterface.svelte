@@ -94,7 +94,7 @@
 	const modelWiring = $derived(resolveAgentModelWiring(flowModules))
 	// An agent with nothing to call cannot answer, and the composer cannot fix it, so the
 	// chat says what to go and do instead of offering controls that write nowhere.
-	const modelGap = $derived(agentModelGap(modelWiring))
+	const modelGap = $derived(agentModelGap(modelWiring, subject))
 	const showModelButton = $derived(showsModelButton(modelWiring))
 
 	// LocalStorage helpers

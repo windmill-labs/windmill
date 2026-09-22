@@ -242,15 +242,19 @@ export function resolveAgentModelWiring(
  * about it, because no flow input feeds either field. Saying so beats a dead model button.
  * A field the flow exposes is never a gap: the reader picks it in the composer.
  */
-export function agentModelGap(wiring: AgentModelWiring | undefined): string | undefined {
+export function agentModelGap(
+	wiring: AgentModelWiring | undefined,
+	subject: 'flow' | 'agent' = 'flow'
+): string | undefined {
 	// No agent, several of them, or an expression we cannot read: not ours to judge.
 	if (!wiring || wiring.whole) return undefined
 	// Asked of each agent rather than of what they agree on: agents that merely disagree
 	// about the model all have one, and the message would be false — while an agent with
 	// an empty model still cannot run, however well the others are configured.
-	return wiring.someAgentCannotRun
-		? 'Pick a provider and model on the AI agent step to use this chat.'
-		: undefined
+	if (!wiring.someAgentCannotRun) return undefined
+	return subject === 'agent'
+		? 'Pick a provider and model for this agent to use this chat.'
+		: 'Pick a provider and model on the AI agent step to use this chat.'
 }
 
 /**
