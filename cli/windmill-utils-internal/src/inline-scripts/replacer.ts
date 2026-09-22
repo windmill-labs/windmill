@@ -102,11 +102,11 @@ export async function replaceInlineScripts(
         await Promise.all(module.value.branches.map(async (branch) => {
           await replaceInlineScripts(branch.modules, fileReader, logger, localPath, separator, removeLocks, missing);
         }));
-      } else if (module.value.type === "branchone") {
-        await Promise.all(module.value.branches.map(async (branch) => {
+      } else if (module.value.type === "branchone" || module.value.type === "aidecision") {
+        await Promise.all((module.value.branches ?? []).map(async (branch) => {
           await replaceInlineScripts(branch.modules, fileReader, logger, localPath, separator, removeLocks, missing);
         }));
-        await replaceInlineScripts(module.value.default, fileReader, logger, localPath, separator, removeLocks, missing);
+        await replaceInlineScripts(module.value.default ?? [], fileReader, logger, localPath, separator, removeLocks, missing);
       } else if (module.value.type === "aiagent") {
         await Promise.all((module.value.tools ?? []).map(async (tool) => {
           const toolValue = tool.value;
@@ -177,11 +177,11 @@ export async function replacePathScriptsWithLocal(
       await Promise.all(module.value.branches.map(async (branch) => {
         await replacePathScriptsWithLocal(branch.modules, scriptReader, logger);
       }));
-    } else if (module.value.type === "branchone") {
-      await Promise.all(module.value.branches.map(async (branch) => {
+    } else if (module.value.type === "branchone" || module.value.type === "aidecision") {
+      await Promise.all((module.value.branches ?? []).map(async (branch) => {
         await replacePathScriptsWithLocal(branch.modules, scriptReader, logger);
       }));
-      await replacePathScriptsWithLocal(module.value.default, scriptReader, logger);
+      await replacePathScriptsWithLocal(module.value.default ?? [], scriptReader, logger);
     } else if (module.value.type === "aiagent") {
       await Promise.all((module.value.tools ?? []).map(async (tool) => {
         const toolValue = tool.value;
@@ -226,11 +226,11 @@ function collectPathScriptPathsFromModules(
       for (const branch of module.value.branches) {
         collectPathScriptPathsFromModules(branch.modules, paths);
       }
-    } else if (module.value.type === "branchone") {
-      for (const branch of module.value.branches) {
+    } else if (module.value.type === "branchone" || module.value.type === "aidecision") {
+      for (const branch of module.value.branches ?? []) {
         collectPathScriptPathsFromModules(branch.modules, paths);
       }
-      collectPathScriptPathsFromModules(module.value.default, paths);
+      collectPathScriptPathsFromModules(module.value.default ?? [], paths);
     } else if (module.value.type === "aiagent") {
       for (const tool of module.value.tools ?? []) {
         const toolValue = tool.value;

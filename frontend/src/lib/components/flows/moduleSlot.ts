@@ -1,4 +1,5 @@
 import type { FlowModule } from '$lib/gen'
+import { choiceBranches, choiceDefault, isBranchChoice } from './branchChoice'
 
 /**
  * A read/write slot for one step, anchored by id rather than by array position. Editors
@@ -49,9 +50,9 @@ export function savedModuleById(
 			}
 			const v = m.value
 			if (v.type === 'forloopflow' || v.type === 'whileloopflow') walk(v.modules)
-			else if (v.type === 'branchone') {
-				walk(v.default)
-				for (const b of v.branches) walk(b.modules)
+			else if (isBranchChoice(v)) {
+				walk(choiceDefault(v))
+				for (const b of choiceBranches(v)) walk(b.modules)
 			} else if (v.type === 'branchall') {
 				for (const b of v.branches) walk(b.modules)
 			}

@@ -26,6 +26,12 @@
 	import type { TriggerContext } from '$lib/components/triggers'
 	import { formatCron } from '$lib/utils'
 	import AgentToolWrapper from './AgentToolWrapper.svelte'
+	import {
+		choiceBranches,
+		choiceDefault,
+		isBranchChoice,
+		type BranchChoiceValue
+	} from '../branchChoice'
 	const { selectionManager, flowStateStore, opWorkspace } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 	const selectedId = $derived(selectionManager.getSelectedId())
@@ -210,7 +216,7 @@
 				preprocessorModule={selectedId === 'preprocessor'}
 			/>
 		{/if}
-	{:else if flowModule.value.type === 'rawscript' || flowModule.value.type === 'script' || flowModule.value.type === 'flow' || flowModule.value.type === 'aiagent'}
+	{:else if flowModule.value.type === 'rawscript' || flowModule.value.type === 'script' || flowModule.value.type === 'flow' || flowModule.value.type === 'aiagent' || flowModule.value.type === 'aidecision'}
 		<FlowModuleComponent
 			{noEditor}
 			bind:flowModule
@@ -247,7 +253,8 @@
 			{highlightArg}
 		/>
 	{/each}
-{:else if flowModule.value.type === 'branchone'}
+{:else if isBranchChoice(flowModule.value)}
+	{@const choice = flowModule.value}
 	{#if selectedId === `${flowModule?.id}-branch-default`}
 		<div class="h-full flex flex-col">
 			<FlowCard {noEditor} title="Default branch">
@@ -259,9 +266,9 @@
 			</FlowCard>
 		</div>
 	{:else}
-		{#each flowModule.value.default as child, index (child.id ?? index)}
+		{#each choiceDefault(choice) as child, index (child.id ?? index)}
 			{@const slot = moduleSlot(
-				() => (flowModule.value as { default: FlowModule[] }).default,
+				() => choiceDefault(flowModule.value as BranchChoiceValue),
 				child.id,
 				child
 			)}
@@ -270,7 +277,7 @@
 				{noEditor}
 				bind:flowModule={slot.get, slot.set}
 				bind:parentModule={flowModule}
-				previousModule={flowModule.value.default[index - 1]}
+				previousModule={choiceDefault(choice)[index - 1]}
 				savedModule={savedModuleById(savedModule, child.id)}
 				{enableAi}
 				{forceTestTab}
@@ -278,7 +285,7 @@
 			/>
 		{/each}
 	{/if}
-	{#each flowModule.value.branches as branch, branchIndex (branch)}
+	{#each choiceBranches(choice) as branch, branchIndex (branch)}
 		{#if selectedId === `${flowModule?.id}-branch-${branchIndex}`}
 			<FlowBranchOneWrapper
 				{noEditor}
@@ -295,7 +302,7 @@
 					{noEditor}
 					bind:flowModule={slot.get, slot.set}
 					bind:parentModule={flowModule}
-					previousModule={flowModule.value.branches[branchIndex].modules[index - 1]}
+					previousModule={branch.modules[index - 1]}
 					savedModule={savedModuleById(savedModule, child.id)}
 					{enableAi}
 					{forceTestTab}

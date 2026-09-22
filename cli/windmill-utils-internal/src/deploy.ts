@@ -271,7 +271,7 @@ function getSubModules(flowModule: any): any[][] {
     return (flowModule.value.branches ?? []).map(
       (branch: any) => branch.modules ?? []
     );
-  } else if (type === "branchone") {
+  } else if (type === "branchone" || type === "aidecision") {
     return [
       ...(flowModule.value.branches ?? []).map((b: any) => b.modules ?? []),
       flowModule.value.default ?? [],

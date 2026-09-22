@@ -31,10 +31,11 @@
 	import InputTransformSchemaForm from '$lib/components/InputTransformSchemaForm.svelte'
 	import AgentResourceBar from './AgentResourceBar.svelte'
 	import AiAgentStepInputs from './AiAgentStepInputs.svelte'
+	import AiDecisionBranches from './AiDecisionBranches.svelte'
 	import AgentToolBindings from './AgentToolBindings.svelte'
 	import { getLinkedAgentTools, linkedToolsScope } from '../linkedAgentToolsStore.svelte'
 	import { flowLocalAgentSchema } from '../agentResourceUtils'
-	import { AI_AGENT_TOOL_AI_KEYS } from '../agentToolUtils'
+	import { AI_AGENT_TOOL_AI_KEYS, AI_DECISION_TOOL_AI_KEYS } from '../agentToolUtils'
 	import DiffEditor from '$lib/components/DiffEditor.svelte'
 	import type { ButtonProp } from '$lib/components/diffEditorTypes'
 	import { loadSchemaFromModule } from '../flowInfers'
@@ -310,7 +311,8 @@
 					flowModule.value.type == 'rawscript' ||
 					flowModule.value.type == 'script' ||
 					flowModule.value.type == 'flow' ||
-					flowModule.value.type == 'aiagent'
+					flowModule.value.type == 'aiagent' ||
+					flowModule.value.type == 'aidecision'
 				) {
 					if (!deepEqual(flowModule.value.input_transforms, input_transforms)) {
 						flowModule.value.input_transforms = input_transforms
@@ -859,7 +861,11 @@
 						console.log('tagChange', e.detail)
 						if (flowModule.value.type == 'script') {
 							flowModule.value.tag_override = e.detail
-						} else if (flowModule.value.type == 'rawscript' || flowModule.value.type == 'aiagent') {
+						} else if (
+							flowModule.value.type == 'rawscript' ||
+							flowModule.value.type == 'aiagent' ||
+							flowModule.value.type == 'aidecision'
+						) {
 							flowModule.value.tag = e.detail
 						}
 					}}
@@ -1118,6 +1124,9 @@
 										{#if !preprocessorModule}
 											<Tab value="inputs" label={isAgentTool ? 'Tool input' : 'Step Input'} />
 										{/if}
+										{#if flowModule.value.type === 'aidecision' && !isAgentTool}
+											<Tab value="branches" label="Branches" />
+										{/if}
 										<Tab value="test" label={isAgentTool ? 'Test this tool' : 'Test this step'} />
 										{#if canShowChatTab && flowModule.value.type === 'aiagent'}
 											<Tab
@@ -1134,7 +1143,7 @@
 											</Tab>
 										{/if}
 									</Tabs>
-									{#if visibleSelected === 'inputs' && (flowModule.value.type == 'rawscript' || flowModule.value.type == 'script' || flowModule.value.type == 'flow' || flowModule.value.type == 'aiagent')}
+									{#if visibleSelected === 'inputs' && (flowModule.value.type == 'rawscript' || flowModule.value.type == 'script' || flowModule.value.type == 'flow' || flowModule.value.type == 'aiagent' || flowModule.value.type == 'aidecision')}
 										<div class="flex-1 overflow-auto" id="flow-editor-step-input">
 											<!-- `sidePane` under `staticOnly`: that column only opens on a connect,
 											     and there is no connect button to open it. -->
@@ -1283,7 +1292,10 @@
 														{isAgentTool}
 														noConnect={staticOnly}
 														noJavascript={staticOnly}
-														allowedAiTransforms={undefined}
+														allowedAiTransforms={isAgentTool &&
+														flowModule.value.type === 'aidecision'
+															? AI_DECISION_TOOL_AI_KEYS
+															: undefined}
 														helperScript={retrieveDynCodeAndLang(flowModule.value)}
 														chatInputEnabled={flowStore.val.value?.chat_input_enabled ?? false}
 														workspace={opWs}
@@ -1316,6 +1328,10 @@
 													/>
 												{/if}
 											</PropPickerWrapper>
+										</div>
+									{:else if visibleSelected === 'branches' && flowModule.value.type === 'aidecision'}
+										<div class="flex-1 overflow-auto p-4" style="scrollbar-gutter: stable">
+											<AiDecisionBranches {flowModule} {previousModule} {enableAi} />
 										</div>
 									{:else if visibleSelected === 'test'}
 										{#if debugMode && isDebuggableScript}
@@ -1489,7 +1505,7 @@
 						</Splitpanes>
 					{/snippet}
 
-					{#if flowModule.value.type === 'aiagent' || (noEditor && flowModule.value.type !== 'flow')}
+					{#if flowModule.value.type === 'aiagent' || flowModule.value.type === 'aidecision' || (noEditor && flowModule.value.type !== 'flow')}
 						<!-- Top pane has no content to show (aiagent has no editor; rawscript/script
 						gate their content on !noEditor). Skip the Splitpanes wrapper entirely so
 						there's no orphan splitter. type === 'flow' still renders FlowPathViewer

@@ -29,8 +29,10 @@ import type { InlineScript, InsertKind } from '$lib/components/graph/graphBuilde
 import {
 	agentToolToFlowModule,
 	createAiAgentTool,
+	createAiDecisionTool,
 	createMcpTool,
 	createWebsearchTool,
+	newAiDecisionInputTransforms,
 	newFlowModuleAgentTool,
 	SPECIAL_TOOL_KINDS,
 	type AgentTool,
@@ -49,7 +51,8 @@ export async function loadFlowModuleState(
 			flowModule.value.type == 'script' ||
 			flowModule.value.type == 'rawscript' ||
 			flowModule.value.type == 'flow' ||
-			flowModule.value.type == 'aiagent'
+			flowModule.value.type == 'aiagent' ||
+			flowModule.value.type == 'aidecision'
 		) {
 			flowModule.value.input_transforms = input_transforms
 		}
@@ -237,6 +240,18 @@ export async function createAiAgent(
 	return [aiAgentFlowModules, flowModuleState]
 }
 
+export async function createAiDecision(id: string): Promise<[FlowModule, FlowModuleState]> {
+	const decisionModule: FlowModule = {
+		id,
+		summary: '',
+		value: { type: 'aidecision', input_transforms: newAiDecisionInputTransforms() }
+	}
+
+	const flowModuleState = await loadFlowModuleState(decisionModule)
+
+	return [decisionModule, flowModuleState]
+}
+
 export async function createFlow(id: string): Promise<[FlowModule, FlowModuleState]> {
 	const flowFlowModules: FlowModule = {
 		id,
@@ -367,12 +382,12 @@ export function sliceModules(
 			}
 			if (m.value.type === 'forloopflow') {
 				m.value.modules = sliceModules(m.value.modules, upTo, idOrders)
-			} else if (m.value.type === 'branchone') {
-				m.value.branches = m.value.branches.map((b) => {
+			} else if (m.value.type === 'branchone' || m.value.type === 'aidecision') {
+				m.value.branches = m.value.branches?.map((b) => {
 					b.modules = sliceModules(b.modules, upTo, idOrders)
 					return b
 				})
-				m.value.default = sliceModules(m.value.default, upTo, idOrders)
+				m.value.default = m.value.default && sliceModules(m.value.default, upTo, idOrders)
 			} else if (m.value.type === 'branchall') {
 				m.value.branches = m.value.branches.map((b) => {
 					b.modules = sliceModules(b.modules, upTo, idOrders)
@@ -501,6 +516,8 @@ export async function createNewModule(
 		;[module, state] = await createBranches(module.id)
 	} else if (kind == 'branchall') {
 		;[module, state] = await createBranchAll(module.id)
+	} else if (kind == 'aidecision') {
+		;[module, state] = await createAiDecision(module.id)
 	} else if (kind == 'aiagent') {
 		;[module, state] = await createAiAgent(
 			module.id,
@@ -578,6 +595,14 @@ export async function insertNewModuleAtIndex(
 			workspace
 		)
 		;(modules as AgentTool[]).splice(index, 0, aiAgentTool)
+		return modules as AgentTool[]
+	} else if (toolKind === 'aiDecisionTool') {
+		const aiDecisionTool = createAiDecisionTool(module.id)
+		flowStateStore.val[module.id] = await loadFlowModuleState(
+			agentToolToFlowModule(aiDecisionTool),
+			workspace
+		)
+		;(modules as AgentTool[]).splice(index, 0, aiDecisionTool)
 		return modules as AgentTool[]
 	} else if (toolKind === 'flowmoduleTool') {
 		const agentTool = newFlowModuleAgentTool(module)

@@ -1,8 +1,15 @@
 import type { FlowModule } from '$lib/gen'
+import { choiceBranches, choiceDefault, isBranchChoice } from './flows/branchChoice'
 
 export type NestedRestartStep = { step_id: string; branch_or_iteration_n?: number }
 
-export type ContainerType = 'branchone' | 'forloopflow' | 'flow' | 'whileloopflow' | 'branchall'
+export type ContainerType =
+	| 'branchone'
+	| 'forloopflow'
+	| 'flow'
+	| 'whileloopflow'
+	| 'branchall'
+	| 'aidecision'
 
 export type AncestorEntry = {
 	stepId: string
@@ -45,17 +52,17 @@ export function findStepPath(modules: FlowModule[], targetId: string): StepPath 
 					]
 				}
 			}
-		} else if (value.type === 'branchone') {
+		} else if (isBranchChoice(value)) {
 			const allBranches: { idx: number; modules: FlowModule[] }[] = [
-				{ idx: -1, modules: value.default }
+				{ idx: -1, modules: choiceDefault(value) }
 			]
-			value.branches.forEach((b, i) => allBranches.push({ idx: i, modules: b.modules }))
+			choiceBranches(value).forEach((b, i) => allBranches.push({ idx: i, modules: b.modules }))
 			for (const { idx, modules: bm } of allBranches) {
 				const sub = findStepPath(bm, targetId)
 				if (sub) {
 					return {
 						target: sub.target,
-						ancestors: [{ stepId: mod.id, type: 'branchone', branchIndex: idx }, ...sub.ancestors]
+						ancestors: [{ stepId: mod.id, type: value.type, branchIndex: idx }, ...sub.ancestors]
 					}
 				}
 			}
@@ -246,6 +253,8 @@ export function buildNestedRestartPath(opts: {
 			(a) =>
 				a.type === 'branchall' ||
 				a.type === 'whileloopflow' ||
+				// The server refuses it: restarting inside would re-ask the decision.
+				a.type === 'aidecision' ||
 				a.parallel === true ||
 				(a.type === 'branchone' &&
 					i === 0 &&

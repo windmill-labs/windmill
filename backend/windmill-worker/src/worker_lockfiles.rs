@@ -1697,7 +1697,10 @@ async fn lock_modules(
                     }
                     .into()
                 }
-                FlowModuleValue::BranchOne { branches, default, default_node } => {
+                value @ (FlowModuleValue::BranchOne { .. } | FlowModuleValue::AIDecision { .. }) => {
+                    let (branches, default, shell) = value.into_branch_choice().map_err(|_| {
+                        Error::internal_err("expected a step choosing a branch".to_string())
+                    })?;
                     let mut nbranches = vec![];
                     for mut b in branches {
                         let nmodules;
@@ -1757,12 +1760,7 @@ async fn lock_modules(
                     .await?;
                     errors.extend(ninner_errors);
                     nmodified_ids.extend(ninner_modified_ids);
-                    e.value = FlowModuleValue::BranchOne {
-                        branches: nbranches,
-                        default: ndefault,
-                        default_node,
-                    }
-                    .into();
+                    e.value = shell.rebuild(nbranches, ndefault).into();
                 }
                 FlowModuleValue::Script { path, hash, .. }
                     if !path.starts_with("hub/") && !skip_flow_update =>
@@ -2220,7 +2218,8 @@ async fn reduce_flow<'c>(
                 )
                 .await?;
             }
-            BranchOne { branches, default, default_node, .. } => {
+            BranchOne { branches, default, default_node, .. }
+            | AIDecision { branches, default, default_node, .. } => {
                 for branch in branches.iter_mut() {
                     tx = insert_flow_modules(
                         tx,

@@ -660,6 +660,15 @@ pub async fn update_flow_status_after_job_completion_internal(
             false
         };
 
+        // An AI decision with branches that has just answered: its branch is still to run, so the
+        // step holds and its stop predicate waits for the branch's result.
+        let decision_answered = success
+            && matches!(
+                module_status,
+                FlowStatusModule::InProgress { decision_job: Some(decision_job), branch_chosen: None, .. }
+                    if decision_job == job_id_for_status
+            );
+
         let (
             mut stop_early,
             mut stop_early_err_msg,
@@ -681,6 +690,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     && !is_branch_all // we don't support stop_early per branch
                     && !parallel_loop // we don't support anymore stop_early per iteration when parallel for loop (removed from frontend)
                     && !is_identity_job // don't evaluate stop_after_if for skipped (identity) steps
+                    && !decision_answered
                     && if let Some(expr) = current_module
                         .stop_after_if
                         .as_ref()
@@ -762,6 +772,18 @@ pub async fn update_flow_status_after_job_completion_internal(
 
         let mut nresult = None;
         let (inc_step_counter, new_status) = match module_status {
+            // Inside its branches, `results.<id>` is the decision's answers; once its branch has
+            // run, the step's result is the branch's, as a BranchOne's is.
+            FlowStatusModule::InProgress { id, .. } if decision_answered => {
+                set_flow_leaf_job(
+                    &mut tx,
+                    id.clone(),
+                    JobResult::SingleJob(*job_id_for_status),
+                    flow,
+                )
+                .await?;
+                (false, None)
+            }
             FlowStatusModule::InProgress {
                 iterator,
                 branchall,
@@ -1047,6 +1069,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                              skipped: stop_early && skip_if_stop_early,
                              agent_actions: None,
                              agent_actions_success: None,
+                             decision_job: None,
                          }
                      } else {
                          success = false;
@@ -1060,6 +1083,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                              failed_retries: vec![],
                              agent_actions: None,
                              agent_actions_success: None,
+                             decision_job: None,
                          }
                      };
                     let r = sqlx::query_scalar!(
@@ -1281,11 +1305,21 @@ pub async fn update_flow_status_after_job_completion_internal(
                             false
                         };
                     success = true;
+                    // An AI decision can complete with no job of its own (an empty chosen branch,
+                    // or re-entry after a restart): it keeps its branch's job, else the decision's,
+                    // so `results.<id>` stays the step's result.
+                    let job = match module_status.decision_job() {
+                        Some(decision_job) if job_id_for_status.is_nil() => module_status
+                            .job()
+                            .filter(|job| !job.is_nil())
+                            .unwrap_or(decision_job),
+                        _ => *job_id_for_status,
+                    };
                     (
                         true,
                         Some(FlowStatusModule::Success {
                             id: module_status.id(),
-                            job: job_id_for_status.clone(),
+                            job,
                             flow_jobs,
                             flow_jobs_success,
                             flow_jobs_duration,
@@ -1295,6 +1329,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                             skipped: is_skipped,
                             agent_actions: module_status.agent_actions(),
                             agent_actions_success: module_status.agent_actions_success(),
+                            decision_job: module_status.decision_job(),
                         }),
                     )
                 } else {
@@ -1340,6 +1375,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                             failed_retries: old_status.retry.failed_jobs.clone(),
                             agent_actions: module_status.agent_actions(),
                             agent_actions_success: module_status.agent_actions_success(),
+                            decision_job: module_status.decision_job(),
                         }),
                     )
                 }
@@ -1456,20 +1492,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 })?;
 
                 if let Some(job_result) = new_status.job_result() {
-                    sqlx::query!(
-                         "UPDATE v2_job_status
-                         SET flow_leaf_jobs = JSONB_SET(coalesce(flow_leaf_jobs, '{}'::jsonb), ARRAY[$1::TEXT], $2)
-                         WHERE COALESCE((SELECT flow_innermost_root_job FROM v2_job WHERE id = $3), $3) = id",
-                         new_status.id(),
-                         json!(job_result),
-                         flow
-                     )
-                     .execute(&mut *tx)
-                     .await.map_err(|e| {
-                         Error::internal_err(format!(
-                             "error while setting leaf jobs: {e:#}"
-                         ))
-                     })?;
+                    set_flow_leaf_job(&mut tx, new_status.id(), job_result, flow).await?;
                 }
             }
         }
@@ -3287,23 +3310,28 @@ async fn push_next_flow_job(
     if (flow.modules.is_empty() && !step.is_preprocessor_step())
         || matches!(status_module, FlowStatusModule::Success { .. })
     {
+        let result = if flow.modules.is_empty() {
+            to_raw_value(arc_flow_job_args.as_ref())
+        } else if let FlowStatusModule::Success {
+            branch_chosen: Some(_), job, decision_job, ..
+        } = &status_module
+        {
+            // Re-entered without the in-memory result, after a restart: the chosen branch's job
+            // holds it, and an AI decision's empty branch (no job) returns its answers.
+            let stored = Some(*job).filter(|job| !job.is_nil()).or(*decision_job);
+            match (&last_job_result, stored) {
+                (Some(result), _) => result.as_ref().clone(),
+                (None, Some(job)) => completed_job_result(db, &flow_job.workspace_id, &job).await?,
+                (None, None) => to_raw_value(&json!("{}")),
+            }
+        } else {
+            // it has to be an empty for loop event
+            serde_json::from_str("[]").unwrap()
+        };
         return Ok(PushNextFlowJob::Done(Some(UpdateFlow {
             flow: flow_job.id,
             success: true,
-            result: if flow.modules.is_empty() {
-                to_raw_value(arc_flow_job_args.as_ref())
-            } else if matches!(
-                status_module,
-                FlowStatusModule::Success { branch_chosen: Some(_), .. }
-            ) {
-                last_job_result
-                    .as_ref()
-                    .map(|x| x.as_ref().clone())
-                    .unwrap_or_else(|| to_raw_value(&json!("{}")))
-            } else {
-                // it has to be an empty for loop event
-                serde_json::from_str("[]").unwrap()
-            },
+            result,
             stop_early_override: None,
             w_id: flow_job.workspace_id.clone(),
             worker_dir: worker_dir.to_string(),
@@ -3418,6 +3446,19 @@ async fn push_next_flow_job(
     let mut arc_last_job_result = if status_module.is_failure() {
         // if job is being retried, pass the result of its previous failure
         last_job_result.unwrap_or_else(|| Arc::new(to_raw_value(&json!("{}"))))
+    } else if let FlowStatusModule::InProgress {
+        decision_job: Some(decision_job),
+        branch_chosen: None,
+        ..
+    } = &status_module
+    {
+        // An AI decision choosing its branch reads its own answers, even as the first step.
+        match last_job_result {
+            Some(result) => result,
+            None => Arc::new(
+                completed_job_result(db, flow_job.workspace_id.as_str(), decision_job).await?,
+            ),
+        }
     } else if matches!(step, Step::Step { idx: 0, .. }) || step.is_preprocessor_step() {
         // if it's the first job executed in the flow, pass the flow args
         Arc::new(to_raw_value(&flow_job.args))
@@ -3886,8 +3927,17 @@ async fn push_next_flow_job(
                     };
                 }
 
-                // we get the args from the last failed job
-                status.retry.failed_jobs.last()
+                // we get the args from the last failed job, except for a decision with branches:
+                // it may have failed in its branch, whose sub-flow took the flow's args, so it
+                // asks again from its own inputs.
+                if module
+                    .get_value()
+                    .is_ok_and(|value| value.is_branched_ai_decision())
+                {
+                    None
+                } else {
+                    status.retry.failed_jobs.last()
+                }
             /* Start the failure module ... */
             } else {
                 /* push_next_flow_job is called with the current step on FlowStatusModule::Failure.
@@ -4032,12 +4082,23 @@ async fn push_next_flow_job(
                 .map(Marc::new)
                 .map_err(|e| error::Error::internal_err(format!("identity: {e:#}")))
             }
+            // An answered decision pushes its branch, which takes the flow's args as a BranchOne's
+            // does; the decision job itself takes its inputs.
+            Ok(FlowModuleValue::AIDecision { .. })
+                if matches!(
+                    status_module,
+                    FlowStatusModule::InProgress { decision_job: Some(_), branch_chosen: None, .. }
+                ) =>
+            {
+                Ok(arc_flow_job_args.clone())
+            }
             Ok(
                 FlowModuleValue::Script { input_transforms, .. }
                 | FlowModuleValue::RawScript { input_transforms, .. }
                 | FlowModuleValue::FlowScript { input_transforms, .. }
                 | FlowModuleValue::Flow { input_transforms, .. }
-                | FlowModuleValue::AIAgent { input_transforms, .. },
+                | FlowModuleValue::AIAgent { input_transforms, .. }
+                | FlowModuleValue::AIDecision { input_transforms, .. },
             ) => {
                 let ctx = get_transform_context(&flow_job, &previous_id, &status);
                 transform_context = Some(ctx);
@@ -4132,6 +4193,7 @@ async fn push_next_flow_job(
                     skipped: false,
                     agent_actions: None,
                     agent_actions_success: None,
+                    decision_job: status_module.decision_job(),
                 }),
                 flow_job.id
             )
@@ -4807,6 +4869,7 @@ async fn push_next_flow_job(
                 progress: None,
                 agent_actions: None,
                 agent_actions_success: None,
+                decision_job: None,
             }
         }
         NextStatus::AllFlowJobs { iterator, branchall, .. } => {
@@ -4831,6 +4894,7 @@ async fn push_next_flow_job(
                 progress: None,
                 agent_actions: None,
                 agent_actions_success: None,
+                decision_job: None,
             }
         }
         NextStatus::NextBranchStep(NextBranch {
@@ -4862,6 +4926,7 @@ async fn push_next_flow_job(
                 progress: None,
                 agent_actions: None,
                 agent_actions_success: None,
+                decision_job: None,
             }
         }
 
@@ -4879,7 +4944,29 @@ async fn push_next_flow_job(
             progress: None,
             agent_actions: None,
             agent_actions_success: None,
+            decision_job: status_module.decision_job(),
         },
+        // Written as InProgress rather than WaitingForExecutor: starting the job only sets the
+        // module's `type` and `job`, which keeps `decision_job` for the hold that follows.
+        NextStatus::DecisionPending => {
+            let job = one_uuid?;
+            FlowStatusModule::InProgress {
+                job,
+                iterator: None,
+                flow_jobs: None,
+                flow_jobs_success: None,
+                flow_jobs_duration: None,
+                branch_chosen: None,
+                branchall: None,
+                id: status_module.id(),
+                parallel: false,
+                while_loop: false,
+                progress: None,
+                agent_actions: None,
+                agent_actions_success: None,
+                decision_job: Some(job),
+            }
+        }
         NextStatus::NextStep => {
             FlowStatusModule::WaitingForExecutor { id: status_module.id(), job: one_uuid? }
         }
@@ -5101,9 +5188,32 @@ struct NextBranch {
     flow_jobs_duration: Option<FlowJobsDuration>,
 }
 
+/// Points `results.<step_id>` of the flow's root at `job_result`.
+async fn set_flow_leaf_job(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    step_id: String,
+    job_result: JobResult,
+    flow: Uuid,
+) -> error::Result<()> {
+    sqlx::query!(
+        "UPDATE v2_job_status
+                         SET flow_leaf_jobs = JSONB_SET(coalesce(flow_leaf_jobs, '{}'::jsonb), ARRAY[$1::TEXT], $2)
+                         WHERE COALESCE((SELECT flow_innermost_root_job FROM v2_job WHERE id = $3), $3) = id",
+        step_id,
+        json!(job_result),
+        flow
+    )
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| Error::internal_err(format!("error while setting leaf jobs: {e:#}")))?;
+    Ok(())
+}
+
 #[derive(Debug)]
 enum NextStatus {
     NextStep,
+    /// The decision job of an AI decision with branches, whose branch follows once it answers.
+    DecisionPending,
     BranchChosen(BranchChosen),
     NextBranchStep(NextBranch),
     NextLoopIteration {
@@ -5319,6 +5429,32 @@ async fn compute_next_flow_transform(
             Ok(NextFlowTransform::Continue(
                 ContinuePayload::SingleJob(payload),
                 NextStatus::NextStep,
+            ))
+        }
+        // The decision job runs as an AI agent job; the arm below takes over once a decision with
+        // branches has answered.
+        ref value @ FlowModuleValue::AIDecision { ref tag, .. }
+            if !matches!(
+                status_module,
+                FlowStatusModule::InProgress { decision_job: Some(_), branch_chosen: None, .. }
+            ) =>
+        {
+            let has_branches = value.is_branched_ai_decision();
+            let path = get_path(flow_job, status, module);
+            Ok(NextFlowTransform::Continue(
+                ContinuePayload::SingleJob(JobPayloadWithTag {
+                    payload: JobPayload::AIAgent { path },
+                    tag: tag.clone().filter(|t| !t.trim().is_empty()),
+                    delete_after_use,
+                    delete_after_secs,
+                    timeout: None,
+                    on_behalf_of: None,
+                }),
+                if has_branches {
+                    NextStatus::DecisionPending
+                } else {
+                    NextStatus::NextStep
+                },
             ))
         }
         FlowModuleValue::AIAgent { tag, .. } => {
@@ -5580,7 +5716,10 @@ async fn compute_next_flow_transform(
                 }
             }
         }
-        FlowModuleValue::BranchOne { branches, default, default_node } => {
+        // An AI decision with branches arrives here once it has answered, and chooses its branch
+        // against the answers (`arc_last_job_result`) exactly as a BranchOne does.
+        FlowModuleValue::BranchOne { branches, default, default_node }
+        | FlowModuleValue::AIDecision { branches, default, default_node, .. } => {
             // Branch lock for nested restart: if this BranchOne is the target of a
             // nested restart, reuse the branch that was originally chosen instead of
             // re-evaluating predicates. The lock is opt-in via `restarted_from.nested`
@@ -5598,9 +5737,23 @@ async fn compute_next_flow_transform(
                 match status_module {
                     FlowStatusModule::WaitingForPriorSteps { .. }
                     | FlowStatusModule::WaitingForEvents { .. }
-                    | FlowStatusModule::WaitingForExecutor { .. } => {
+                    | FlowStatusModule::WaitingForExecutor { .. }
+                    | FlowStatusModule::InProgress {
+                        decision_job: Some(_),
+                        branch_chosen: None,
+                        ..
+                    } => {
                         let mut branch_chosen = BranchChosen::Default;
-                        let idcontext = get_transform_context(&flow_job, previous_id, &status);
+                        // `results.<previous id>` reads `previous_result`, which for an answered
+                        // decision is its own answers, so the decision is the previous step here.
+                        let predicate_previous_id = match status_module {
+                            FlowStatusModule::InProgress { decision_job: Some(_), .. } => {
+                                module.id.as_str()
+                            }
+                            _ => previous_id,
+                        };
+                        let idcontext =
+                            get_transform_context(&flow_job, predicate_previous_id, &status);
                         let mut predicate_err: Option<Error> = None;
                         for (i, b) in branches.iter().enumerate() {
                             let pred_res = compute_bool_from_expr(
@@ -6415,19 +6568,27 @@ pub async fn get_previous_job_result(
             // Empty branch — no real job was executed, return empty object
             Ok(None)
         }
-        Some(FlowStatusModule::Success { job, .. }) => Ok(Some(
-            sqlx::query_scalar!(
-                "SELECT result AS \"result!: Json<Box<RawValue>>\"
-                 FROM v2_job_completed WHERE id = $1 AND workspace_id = $2",
-                job,
-                w_id
-            )
-            .fetch_one(db)
-            .await?
-            .0,
-        )),
+        Some(FlowStatusModule::Success { job, .. }) => {
+            Ok(Some(completed_job_result(db, w_id, job).await?))
+        }
         _ => Ok(None),
     }
+}
+
+async fn completed_job_result(
+    db: &sqlx::Pool<sqlx::Postgres>,
+    w_id: &str,
+    job: &Uuid,
+) -> error::Result<Box<RawValue>> {
+    Ok(sqlx::query_scalar!(
+        "SELECT result AS \"result!: Json<Box<RawValue>>\"
+                 FROM v2_job_completed WHERE id = $1 AND workspace_id = $2",
+        job,
+        w_id
+    )
+    .fetch_one(db)
+    .await?
+    .0)
 }
 
 #[cfg(test)]

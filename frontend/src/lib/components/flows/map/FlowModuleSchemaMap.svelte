@@ -786,10 +786,17 @@
 								if (mod.value.iterator.type === 'javascript') {
 									mod.value.iterator.expr = replaceId(mod.value.iterator.expr, id, newId)
 								}
-							} else if (mod?.value?.type === 'branchone') {
-								mod.value.branches.forEach((branch) => {
+							} else if (mod?.value?.type === 'branchone' || mod?.value?.type === 'aidecision') {
+								mod.value.branches?.forEach((branch) => {
 									branch.expr = replaceId(branch.expr, id, newId)
 								})
+								if (mod.value.type === 'aidecision') {
+									for (const transform of Object.values(mod.value.input_transforms)) {
+										if (transform?.type === 'javascript') {
+											transform.expr = replaceId(transform.expr, id, newId)
+										}
+									}
+								}
 							}
 						})
 					}

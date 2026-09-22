@@ -240,7 +240,12 @@
 				const flow = await FlowService.getFlowByPath({ workspace: $workspaceStore!, path })
 				return getAllModules(flow.value.modules, flow.value.failure_module).flatMap((x) => {
 					let result: { kind: Kind; path: string }[] = []
-					if (x.value.type == 'script' || x.value.type == 'rawscript' || x.value.type == 'flow') {
+					if (
+						x.value.type == 'script' ||
+						x.value.type == 'rawscript' ||
+						x.value.type == 'flow' ||
+						x.value.type == 'aidecision'
+					) {
 						result.push(...collectTransformRefs(x.value.input_transforms))
 					}
 					if (x.value.type == 'script') {

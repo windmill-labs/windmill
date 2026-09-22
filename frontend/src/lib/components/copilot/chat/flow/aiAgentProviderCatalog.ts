@@ -1,5 +1,10 @@
 import { ResourceService, WorkspaceService, type AIConfig, type AIProvider } from '$lib/gen'
-import { AI_PROVIDERS, fetchAvailableModels } from '../../lib'
+import {
+	AI_PROVIDERS,
+	DECISION_AI_PROVIDERS,
+	aiProviderDetails,
+	fetchAvailableModels
+} from '../../lib'
 import {
 	collectAiAgentProviderRefs,
 	isModelId,
@@ -10,8 +15,11 @@ import {
 } from './aiAgentProviders'
 
 // Read lazily: evaluating this at module scope makes `AI_PROVIDERS` a load-time requirement
-// for everything that reaches this module, the whole global chat included.
-const aiResourceTypes = () => Object.keys(AI_PROVIDERS) as AIProvider[]
+// for everything that reaches this module, the whole global chat included. Decision kinds are
+// included so an AI decision step's resource validates; `validateAiAgentProviders` keeps each kind
+// to its step type.
+const aiResourceTypes = () =>
+	[...Object.keys(AI_PROVIDERS), ...Object.keys(DECISION_AI_PROVIDERS)] as AIProvider[]
 
 /** Kinds whose model listing `fetchAvailableModels` narrows before returning it: OpenAI and Azure
  * OpenAI keep only `gpt-`/`o`/`codex` ids (so a fine-tune never appears), Bedrock keeps text
@@ -27,8 +35,9 @@ const FILTERED_MODEL_LISTING_KINDS: ReadonlySet<string> = new Set([
 /** Kinds whose endpoint serves ids its listing does not contain, so an unlisted id is never
  * grounds for calling it wrong. OpenRouter appends routing suffixes — `:online`, `:nitro`,
  * `:floor` — to any listed model without listing the combinations, and it carries no `base_url`
- * of its own (the backend supplies it), so `customEndpoint` does not cover it. */
-const ALIASING_MODEL_LISTING_KINDS: ReadonlySet<string> = new Set(['openrouter'])
+ * of its own (the backend supplies it), so `customEndpoint` does not cover it. TypeSafe's list is
+ * the ids Windmill knows, not a listing: it also serves `jev-preview` and every pinned version. */
+const ALIASING_MODEL_LISTING_KINDS: ReadonlySet<string> = new Set(['openrouter', 'typesafe'])
 
 /** Each resource costs one model listing call against the provider. A workspace with a
  * long tail of AI resources would otherwise stall every flow write. */
@@ -260,8 +269,6 @@ async function loadOption(
 	// Without a live listing, a model id cannot be ruled out: offer the configured
 	// models (then the curated defaults) as a hint, but leave the check off.
 	const fallback =
-		configuredModels.length > 0
-			? configuredModels
-			: (AI_PROVIDERS[candidate.kind]?.defaultModels ?? [])
+		configuredModels.length > 0 ? configuredModels : aiProviderDetails(candidate.kind).defaultModels
 	return { ...base, models: sanitizeModelListing(fallback, false), modelsAreLive: false }
 }

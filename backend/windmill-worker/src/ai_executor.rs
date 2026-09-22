@@ -23,6 +23,7 @@ use windmill_mcp::McpClient;
 use crate::ai::tools::McpClientStub as McpClient;
 use windmill_ai::{
     ai_providers::AIProvider,
+    decision::{decision_inputs, run_systemone, AIDecisionArgs},
     image_handler::upload_image_to_s3,
     providers::{
         create_chat_completions_query_builder, create_query_builder, is_chat_completions_only,
@@ -60,7 +61,10 @@ use crate::{
     common::{
         build_args_map, resolve_job_timeout, transform_json_value, OccupancyMetrics, StreamNotifier,
     },
-    handle_child::{run_future_with_polling_update_job_poller_graceful, GracefulPollOutcome},
+    handle_child::{
+        run_future_with_polling_update_job_poller,
+        run_future_with_polling_update_job_poller_graceful, GracefulPollOutcome,
+    },
 };
 
 lazy_static::lazy_static! {
@@ -72,6 +76,20 @@ lazy_static::lazy_static! {
             "user_message": { "type": "string" },
         },
         "required": ["user_message"],
+        "additionalProperties": false,
+    }));
+
+    // Text only: the model writes the state as it reads the conversation, and a schema offering a
+    // union of types is refused by some providers' strict tool schemas.
+    static ref AI_DECISION_TOOL_SCHEMA: Box<RawValue> = to_raw_value(&serde_json::json!({
+        "type": "object",
+        "properties": {
+            "state": {
+                "type": "string",
+                "description": "What the questions are asked about, with only what they need.",
+            },
+        },
+        "required": ["state"],
         "additionalProperties": false,
     }));
 }
@@ -394,7 +412,8 @@ fn overlay_tool_inputs(
             FlowModuleValue::Script { input_transforms, .. }
             | FlowModuleValue::RawScript { input_transforms, .. }
             | FlowModuleValue::FlowScript { input_transforms, .. }
-            | FlowModuleValue::AIAgent { input_transforms, .. } => input_transforms,
+            | FlowModuleValue::AIAgent { input_transforms, .. }
+            | FlowModuleValue::AIDecision { input_transforms, .. } => input_transforms,
             _ => continue,
         };
         for (key, transform) in overrides {
@@ -607,6 +626,22 @@ pub async fn handle_ai_agent_job(
 
     let summary = module.summary.clone();
 
+    let module_value = module.get_value()?;
+    if let FlowModuleValue::AIDecision { .. } = module_value {
+        return handle_ai_decision(
+            conn,
+            db,
+            job,
+            &local_args,
+            direct_parent_job_kind == JobKind::AIAgent,
+            canceled_by,
+            mem_peak,
+            occupancy_metrics,
+            worker_name,
+        )
+        .await;
+    }
+
     let FlowModuleValue::AIAgent {
         tools: module_tools,
         omit_output_from_conversation,
@@ -614,7 +649,7 @@ pub async fn handle_ai_agent_job(
         tool_inputs,
         input_transforms: step_input_transforms,
         ..
-    } = module.get_value()?
+    } = module_value
     else {
         return Err(Error::internal_err(
             "AI agent module is not an AI agent".to_string(),
@@ -714,16 +749,18 @@ pub async fn handle_ai_agent_job(
     keep_authored_memory_id(&mut args, &step_input_transforms);
 
     // Nesting is capped at flow → agent → nested agent. When this job is itself a nested tool,
-    // a linked resource's tool set may still contain AIAgent tools (the editor can't constrain a
-    // shared resource); don't advertise them — invoking one would only fail the depth check as a
-    // third-level agent.
+    // a linked resource's tool set may still contain AIAgent or AIDecision tools (the editor can't
+    // constrain a shared resource); don't advertise them — invoking one would only fail the depth
+    // check as a third level.
     let tools = if direct_parent_job_kind == JobKind::AIAgent {
         tools
             .into_iter()
             .filter(|t| {
                 !matches!(
                     &t.value,
-                    ToolValue::FlowModule(FlowModuleValue::AIAgent { .. })
+                    ToolValue::FlowModule(
+                        FlowModuleValue::AIAgent { .. } | FlowModuleValue::AIDecision { .. }
+                    )
                 )
             })
             .collect()
@@ -896,6 +933,18 @@ pub async fn handle_ai_agent_job(
                         ),
                         input_transforms,
                         None,
+                    )
+                }
+                FlowModuleValue::AIDecision { input_transforms, .. } => {
+                    // The calling model supplies only the state: the questions are the tool.
+                    let description = decision_tool_description(&input_transforms);
+                    (
+                        Some(
+                            RawValue::from_string(AI_DECISION_TOOL_SCHEMA.get().to_string())
+                                .expect("AI_DECISION_TOOL_SCHEMA should always be valid JSON"),
+                        ),
+                        input_transforms,
+                        description,
                     )
                 }
                 _ => {
@@ -1131,6 +1180,11 @@ pub async fn run_agent(
     tool_abort_handles: ToolAbortHandles,
 ) -> error::Result<Box<RawValue>> {
     let output_type = args.output_type.as_ref().unwrap_or(&OutputType::Text);
+    if args.provider.kind == AIProvider::TypeSafe {
+        return Err(Error::BadRequest(
+            "TypeSafe answers decisions, not messages: use an AI decision step".to_string(),
+        ));
+    }
     let credentials = args.provider.to_provider_credentials(db).await?;
     let base_url = &credentials.base_url;
     let api_key = credentials.api_key.as_deref().unwrap_or("");
@@ -2058,6 +2112,104 @@ pub async fn run_agent(
             final_usage
         },
     }))
+}
+
+/// An AI decision, run as a flow step or as a tool of an agent: its questions answered about its
+/// state in one call, with no loop, tools, memory or stream. It writes no conversation row: it is
+/// not an agent step, so a chat flow posts its result like any other step's.
+async fn handle_ai_decision(
+    conn: &Connection,
+    db: &DB,
+    job: &MiniPulledJob,
+    local_args: &HashMap<String, Box<RawValue>>,
+    as_tool: bool,
+    canceled_by: &mut Option<CanceledBy>,
+    mem_peak: &mut i32,
+    occupancy_metrics: &mut OccupancyMetrics,
+    worker_name: &str,
+) -> error::Result<Box<RawValue>> {
+    let args = serde_json::from_str::<AIDecisionArgs>(&serde_json::to_string(local_args)?)?;
+    if args.provider.kind != AIProvider::TypeSafe {
+        return Err(Error::BadRequest(format!(
+            "An AI decision runs on a TypeSafe resource, not {:?}",
+            args.provider.kind
+        )));
+    }
+    let (state, questions) = decision_inputs(args.state.as_ref(), args.questions.as_ref())?;
+    let credentials = args.provider.to_provider_credentials(db).await?;
+    let timeout = resolve_job_timeout(conn, &job.workspace_id, job.id, job.timeout)
+        .await
+        .0;
+    // Under the job poller, so the job keeps its heartbeat and a cancel drops the request.
+    let result = run_future_with_polling_update_job_poller(
+        job.id,
+        job.timeout,
+        conn,
+        mem_peak,
+        canceled_by,
+        run_systemone(
+            &credentials,
+            args.provider.get_model(),
+            state,
+            questions,
+            timeout,
+        ),
+        worker_name,
+        &job.workspace_id,
+        &mut Some(occupancy_metrics),
+        Box::pin(futures::stream::once(async { 0 })),
+    )
+    .await?;
+    windmill_common::feature_usage::log_feature_usage(
+        "ai_decision",
+        "run",
+        if as_tool { "tool" } else { "step" },
+    );
+    Ok(to_raw_value(&result))
+}
+
+/// What a decision tool tells the calling model it answers, read off its static questions. None
+/// when they come from an expression, which only a run evaluates.
+fn decision_tool_description(input_transforms: &HashMap<String, InputTransform>) -> Option<String> {
+    let InputTransform::Static { value } = input_transforms.get("questions")? else {
+        return None;
+    };
+    let questions = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(value.get())
+        .ok()
+        .filter(|questions| !questions.is_empty())?;
+    let described = questions
+        .iter()
+        .map(|(name, question)| {
+            let criteria = question.get("criteria");
+            let kind = match question.get("type").and_then(|t| t.as_str()) {
+                Some("choice") => {
+                    let options = criteria
+                        .and_then(|c| c.as_object())
+                        .map(|c| c.keys().cloned().collect::<Vec<_>>().join(", "))
+                        .unwrap_or_default();
+                    format!("one of {options}")
+                }
+                Some("score") => {
+                    let levels = criteria
+                        .and_then(|c| c.as_array())
+                        .map(|c| {
+                            c.iter()
+                                .filter_map(|l| l.as_str())
+                                .collect::<Vec<_>>()
+                                .join(" < ")
+                        })
+                        .unwrap_or_default();
+                    format!("a score over {levels}")
+                }
+                _ => "yes or no".to_string(),
+            };
+            format!("{name} ({kind})")
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+    Some(format!(
+        "Answers these questions about the state it is given, with probabilities: {described}."
+    ))
 }
 
 /// Whether the step asked for its answer as it is generated. Absence means on, matching the

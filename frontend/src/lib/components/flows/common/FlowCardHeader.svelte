@@ -244,6 +244,9 @@
 					{:else if flowModuleValue.type === 'aiagent'}
 						<Badge color="indigo">AI Agent</Badge>
 						<input bind:value={summary} placeholder="Summary" class="w-full grow" />
+					{:else if flowModuleValue.type === 'aidecision'}
+						<Badge color="indigo">AI decision</Badge>
+						<input bind:value={summary} placeholder="Summary" class="w-full grow" />
 					{/if}
 				</div>
 			</span>

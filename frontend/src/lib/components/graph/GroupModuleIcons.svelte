@@ -101,6 +101,7 @@
 		if (type === 'flow') return 'Flow'
 		if (type === 'identity') return 'Identity'
 		if (type === 'aiagent') return 'AI Agent'
+		if (type === 'aidecision') return 'AI decision'
 		return mod.id
 	}
 

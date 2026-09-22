@@ -693,7 +693,7 @@ export function setInputCat(
 		return 'list'
 	} else if (type == 'object' && format?.startsWith('resource')) {
 		return 'resource-object'
-	} else if (type == 'object' && format == 'ai-provider') {
+	} else if (type == 'object' && (format == 'ai-provider' || format == 'ai-decision-provider')) {
 		return 'ai-provider'
 	} else if (type == 'object' && DynamicInput.isDynInputFormat(format)) {
 		return 'dynamic'

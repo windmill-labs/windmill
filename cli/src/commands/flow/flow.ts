@@ -410,12 +410,12 @@ async function get(opts: GlobalOptions & { json?: boolean }, path: string) {
           const type = mod.value?.type ?? "unknown";
           const detail = mod.value?.language ?? mod.value?.path ?? "";
           console.log(`${indent}${mod.id}: ${type}${detail ? " (" + detail + ")" : ""}`);
-          if (type === "branchall" || type === "branchone") {
+          if (type === "branchall" || type === "branchone" || type === "aidecision") {
             for (const branch of mod.value?.branches ?? []) {
               console.log(`${indent}  Branch: ${branch.summary || "(default)"}`);
               if (branch.modules) printModules(branch.modules, indent + "    ");
             }
-            if (type === "branchone" && mod.value?.default) {
+            if (type !== "branchall" && mod.value?.default) {
               console.log(`${indent}  Default:`);
               printModules(mod.value.default, indent + "    ");
             }
@@ -912,7 +912,7 @@ function findStepInModules(modules: any[], stepId: string): any | undefined {
     if (v.type === "forloopflow" || v.type === "whileloopflow") {
       const found = findStepInModules(v.modules ?? [], stepId);
       if (found) return found;
-    } else if (v.type === "branchone") {
+    } else if (v.type === "branchone" || v.type === "aidecision") {
       for (const b of v.branches ?? []) {
         const found = findStepInModules(b.modules ?? [], stepId);
         if (found) return found;
@@ -938,7 +938,7 @@ function collectStepIds(flowValue: any): string[] {
       if (!v) continue;
       if (v.type === "forloopflow" || v.type === "whileloopflow") {
         walkModules(v.modules ?? []);
-      } else if (v.type === "branchone") {
+      } else if (v.type === "branchone" || v.type === "aidecision") {
         for (const b of v.branches ?? []) walkModules(b.modules ?? []);
         walkModules(v.default ?? []);
       } else if (v.type === "branchall") {
@@ -1172,7 +1172,7 @@ const command = new Command()
   .action(run as any)
   .command(
     "preview",
-    "preview a local flow without deploying it. Runs the flow definition from local files and uses local PathScripts by default. Pass --step <id> to run only one module in isolation (resolves nested steps inside branchone/branchall/forloopflow/whileloopflow plus the special preprocessor/failure modules; supported step types: rawscript, script, flow)."
+    "preview a local flow without deploying it. Runs the flow definition from local files and uses local PathScripts by default. Pass --step <id> to run only one module in isolation (resolves nested steps inside branchone/aidecision/branchall/forloopflow/whileloopflow plus the special preprocessor/failure modules; supported step types: rawscript, script, flow)."
   )
   .arguments("<flow_path:string>")
   .option(

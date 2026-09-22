@@ -9,6 +9,7 @@
 	import { getContext } from 'svelte'
 	import { getGraphContext } from '../../graphContext'
 	import { getFlowRunStatusContext } from '../../flowRunStatus.svelte'
+	import { hasChoiceBranches } from '$lib/components/flows/branchChoice'
 
 	interface Props {
 		data: ModuleN['data']
@@ -224,7 +225,7 @@
 				: undefined}
 		/>
 
-		{#if (data.module?.value?.type === 'branchall' || data.module?.value?.type === 'branchone') && data.insertable}
+		{#if data.module?.value && (data.module.value.type === 'branchall' || hasChoiceBranches(data.module.value)) && data.insertable}
 			<div class="absolute -bottom-10 left-1/2 transform -translate-x-1/2 z-10 flex gap-1">
 				<button
 					title="Add branch"

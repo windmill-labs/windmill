@@ -190,7 +190,8 @@ pub async fn resolve_module(
         ForloopFlow { modules, modules_node, .. } | WhileloopFlow { modules, modules_node, .. } => {
             resolve_modules(db, workspace_id, modules, modules_node.take(), with_code).await?;
         }
-        BranchOne { branches, default, default_node } => {
+        BranchOne { branches, default, default_node }
+        | AIDecision { branches, default, default_node, .. } => {
             resolve_modules(db, workspace_id, default, default_node.take(), with_code).await?;
             for branch in branches {
                 resolve_modules(

@@ -107,6 +107,30 @@ describe('validateAiAgentProviders', () => {
 		).not.toThrow()
 		expect(warnings).toHaveLength(1)
 	})
+
+	it('keeps TypeSafe to AI decisions, including one inside a decision branch', () => {
+		const typesafe = {
+			type: 'static',
+			value: { kind: 'typesafe', resource: '$res:u/admin/typesafe', model: 'jev-latest' }
+		}
+		const anthropic = {
+			type: 'static',
+			value: { kind: 'anthropic', resource: '$res:u/admin/anthropic', model: 'claude-sonnet-5' }
+		}
+		const decision = (provider: unknown, branches: unknown[] = []) => ({
+			id: 'd',
+			value: { type: 'aidecision', input_transforms: { provider }, branches }
+		})
+
+		expect(() => validateAiAgentProviders([decision(anthropic)], undefined)).toThrow(
+			/Step "d".*must be "typesafe"/
+		)
+		expect(() => validateAiAgentProviders(agentStep(typesafe), undefined)).toThrow(
+			/Step "agent".*use an "aidecision" step/
+		)
+		const nested = [decision(typesafe, [{ expr: 'true', modules: [...agentStep(typesafe)] }])]
+		expect(() => validateAiAgentProviders(nested, undefined)).toThrow(/Step "agent"/)
+	})
 })
 
 describe('formatAiAgentProvidersPrompt', () => {
@@ -120,10 +144,12 @@ describe('formatAiAgentProvidersPrompt', () => {
 		expect(
 			formatAiAgentProvidersPrompt({ ...COMPLETE, defaultModel }, { canAskUser: true })
 		).toContain('the workspace default')
-		expect(formatAiAgentProvidersPrompt({ ...AMBIGUOUS, defaultModel }, { canAskUser: true })).toContain(
+		expect(
+			formatAiAgentProvidersPrompt({ ...AMBIGUOUS, defaultModel }, { canAskUser: true })
+		).toContain('askUserQuestion')
+		expect(formatAiAgentProvidersPrompt(COMPLETE, { canAskUser: true })).toContain(
 			'askUserQuestion'
 		)
-		expect(formatAiAgentProvidersPrompt(COMPLETE, { canAskUser: true })).toContain('askUserQuestion')
 	})
 
 	it('never names askUserQuestion for a chat that does not have the tool', () => {
@@ -135,9 +161,10 @@ describe('formatAiAgentProvidersPrompt', () => {
 
 describe('collectAiAgentProviderRefs', () => {
 	it('needs the catalog only for a step that states its own static provider', () => {
-		expect(
-			collectAiAgentProviderRefs(anthropicProvider('claude-sonnet-5'))
-		).toEqual({ needsCatalog: true, resourceRefs: ['$res:u/admin/anthropic'] })
+		expect(collectAiAgentProviderRefs(anthropicProvider('claude-sonnet-5'))).toEqual({
+			needsCatalog: true,
+			resourceRefs: ['$res:u/admin/anthropic']
+		})
 		expect(
 			collectAiAgentProviderRefs([{ id: 'a', value: { type: 'aiagent', agent: 'u/admin/saved' } }])
 		).toEqual({ needsCatalog: false, resourceRefs: [] })
@@ -159,7 +186,10 @@ describe('an authoritative empty catalog', () => {
 		)
 		// Not knowing the resources is not the same as knowing there are none.
 		expect(
-			formatAiAgentProvidersPrompt({ options: [], resourcesAreComplete: false }, { canAskUser: true })
+			formatAiAgentProvidersPrompt(
+				{ options: [], resourcesAreComplete: false },
+				{ canAskUser: true }
+			)
 		).toBe('')
 	})
 

@@ -44,8 +44,8 @@ interface ModuleVisitor {
 
 /**
  * Recursively walks all modules in a flow value, visiting leaf modules and
- * AI agent tools. Handles branchone, branchall, forloopflow, whileloopflow,
- * and aiagent nesting.
+ * AI agent tools. Handles branchone, aidecision, branchall, forloopflow,
+ * whileloopflow, and aiagent nesting.
  */
 function walkModules(modules: any[], visitor: ModuleVisitor) {
   for (const module of modules) {
@@ -57,7 +57,7 @@ function walkModules(modules: any[], visitor: ModuleVisitor) {
       for (const branch of val.branches ?? []) {
         walkModules(branch.modules, visitor);
       }
-    } else if (val.type === "branchone") {
+    } else if (val.type === "branchone" || val.type === "aidecision") {
       for (const branch of val.branches ?? []) {
         walkModules(branch.modules, visitor);
       }

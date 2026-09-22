@@ -44,6 +44,8 @@ export type GraphModuleState = {
 	logs?: string
 	flow_jobs_results?: any
 	branchChosen?: number
+	/** A branched AI decision's own job: `job_id` is the chosen branch's once it runs. */
+	decision_job?: string
 	result?: any
 	tag?: string
 	scheduled_for?: Date

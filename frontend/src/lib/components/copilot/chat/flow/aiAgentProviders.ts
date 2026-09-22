@@ -29,6 +29,9 @@ export type AiAgentProviderCatalog = {
 	defaultModel?: { kind: AIProvider; model: string }
 }
 
+/** The provider an AI decision step runs on, and the one kind an AI agent step cannot. */
+const DECISION_PROVIDER_KIND = 'typesafe'
+
 /** A model id as every provider writes one: `claude-sonnet-5`, `meta-llama/Llama-3.3-70B`,
  * `anthropic.claude-haiku-4-5-20251001-v1:0`, `ft:gpt-4o:acme::abc`. Anything else is not
  * rendered: a resource may point at a gateway someone else controls, and its listing lands in a
@@ -146,11 +149,14 @@ This workspace has none, so an AI agent step has no model to run on. ${
 	const truncationLine = catalog.resourcesAreComplete
 		? ''
 		: '\nThis list is incomplete: the workspace has AI provider resources that are not shown.'
+	const decisionLine = catalog.options.some((o) => o.kind === DECISION_PROVIDER_KIND)
+		? `\nA \`${DECISION_PROVIDER_KIND}\` resource serves AI decision steps only, and AI decision steps run on nothing else.`
+		: ''
 	return `## AI provider resources in this workspace
 
 An AI agent step's \`model\` must be one of the ids listed below for the resource it references — never a model id from memory, which the endpoint would reject at run time.
 
-${catalog.options.map(describeOption).join('\n')}${truncationLine}
+${catalog.options.map(describeOption).join('\n')}${truncationLine}${decisionLine}
 ${choiceLine}`
 }
 
@@ -224,7 +230,8 @@ function blocking(message: string): ProviderIssue {
 
 function checkProviderValue(
 	value: unknown,
-	catalog: AiAgentProviderCatalog
+	catalog: AiAgentProviderCatalog,
+	stepType: string
 ): ProviderIssue | undefined {
 	if (typeof value === 'string') {
 		return blocking(
@@ -237,6 +244,16 @@ function checkProviderValue(
 	const { kind, resource, model } = value as Record<string, unknown>
 	if (typeof kind !== 'string' || kind === '') {
 		return blocking(`provider.kind is missing. Expected ${PROVIDER_SHAPE}`)
+	}
+	if (stepType === 'aidecision' && kind !== DECISION_PROVIDER_KIND) {
+		return blocking(
+			`an AI decision step runs on TypeSafe: provider.kind must be "${DECISION_PROVIDER_KIND}", not "${kind}"`
+		)
+	}
+	if (stepType !== 'aidecision' && kind === DECISION_PROVIDER_KIND) {
+		return blocking(
+			`TypeSafe answers decisions, not messages: use an "aidecision" step rather than an AI agent`
+		)
 	}
 	if (typeof resource !== 'string' || !resource.startsWith('$res:')) {
 		return blocking(
@@ -277,9 +294,9 @@ function checkProviderValue(
 }
 
 /**
- * Reject AI agent steps whose provider config would fail at run time: a malformed provider, a
- * resource that is not an AI provider resource of the workspace, or a model the endpoint's own
- * listing rules out.
+ * Reject AI agent and AI decision steps whose provider config would fail at run time: a malformed
+ * provider, a kind the step cannot run on, a resource that is not an AI provider resource of the
+ * workspace, or a model the endpoint's own listing rules out.
  *
  * Everything the catalog could not establish is reported through `warnings` instead of blocking,
  * so an incomplete catalog never rejects a provider that would have worked.
@@ -297,7 +314,7 @@ export function validateAiAgentProviders(
 		// A missing provider is reported by collectProviderlessAgentIds, and a javascript
 		// transform resolves at run time with no value to check here.
 		if (!transform || transform.type !== 'static') return
-		const issue = checkProviderValue(transform.value, known)
+		const issue = checkProviderValue(transform.value, known, value.type)
 		if (!issue) return
 		if (issue.blocking) {
 			errors.push(`Step "${mod.id}": ${issue.message}`)

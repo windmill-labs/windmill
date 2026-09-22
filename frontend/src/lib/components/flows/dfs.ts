@@ -1,4 +1,5 @@
 import type { FlowModule } from '$lib/gen'
+import { choiceModuleArrays, isBranchChoice } from './branchChoice'
 
 type FlowDfsOptions = { skipToolNodes?: boolean }
 
@@ -13,8 +14,8 @@ function traverseFlowModules(
 		if (module.value.type == 'forloopflow' || module.value.type == 'whileloopflow') {
 			visit(module, modules, [module.value.modules])
 			traverseFlowModules(module.value.modules, visit, opts)
-		} else if (module.value.type == 'branchone') {
-			const allBranches = [module.value.default, ...module.value.branches.map((b) => b.modules)]
+		} else if (isBranchChoice(module.value)) {
+			const allBranches = choiceModuleArrays(module.value)
 			visit(module, modules, allBranches)
 
 			for (const branch of allBranches) {

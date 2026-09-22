@@ -7,10 +7,10 @@ export function getStraightLinePath({ sourceX, sourceY, targetY }) {
 
 export function computeBorderStatus(
 	branchIndex: number,
-	type: 'branchone' | 'branchall',
+	type: 'branchone' | 'branchall' | 'aidecision',
 	graphModuleState: GraphModuleState | undefined
 ): FlowStatusModule['type'] | undefined {
-	if (type === 'branchone') {
+	if (type !== 'branchall') {
 		const branchChosen = graphModuleState?.branchChosen
 
 		if (branchChosen === branchIndex) {

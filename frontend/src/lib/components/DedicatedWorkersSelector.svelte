@@ -361,10 +361,11 @@
 					runners.push(...extractRunnersFromModules(value.modules))
 					break
 				case 'branchone':
-					for (const branch of value.branches) {
+				case 'aidecision':
+					for (const branch of value.branches ?? []) {
 						runners.push(...extractRunnersFromModules(branch.modules))
 					}
-					runners.push(...extractRunnersFromModules(value.default))
+					runners.push(...extractRunnersFromModules(value.default ?? []))
 					break
 				case 'branchall':
 					for (const branch of value.branches) {

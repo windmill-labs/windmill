@@ -9,6 +9,7 @@
 		Globe,
 		Plug,
 		Repeat,
+		Scale,
 		Square,
 		Zap
 	} from 'lucide-svelte'
@@ -45,6 +46,7 @@
 		'Branch to one': { icon: GitBranch },
 		'Branch to all': { icon: GitBranch },
 		'AI Agent': { icon: BotIcon, showChevron: true, iconClass: 'text-ai' },
+		'AI decision': { icon: Scale, iconClass: 'text-ai' },
 		'AI Sandbox': { icon: BotIcon, showChevron: true, iconClass: 'text-ai' },
 		'Claude Code': { icon: BotIcon, iconClass: 'text-ai' },
 		MCP: { icon: Plug },

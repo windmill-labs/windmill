@@ -1470,7 +1470,13 @@
 				{showSchemaExplorer}
 			/>
 		{:else if inputCat == 'ai-provider'}
-			<AIProviderPicker bind:value {disabled} {actions} {workspace} />
+			<AIProviderPicker
+				bind:value
+				{disabled}
+				{actions}
+				{workspace}
+				decision={format === 'ai-decision-provider'}
+			/>
 		{:else if inputCat == 'email'}
 			<input
 				{autofocus}

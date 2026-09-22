@@ -8,7 +8,12 @@ import { VIRTUAL_NODE_IDS } from './groupDetectionUtils'
 // Types
 // ---------------------------------------------------------------------------
 
-export type ContainerKind = 'forloopflow' | 'whileloopflow' | 'branchone' | 'branchall'
+export type ContainerKind =
+	| 'forloopflow'
+	| 'whileloopflow'
+	| 'branchone'
+	| 'branchall'
+	| 'aidecision'
 
 export type StructureBranch = {
 	label?: string

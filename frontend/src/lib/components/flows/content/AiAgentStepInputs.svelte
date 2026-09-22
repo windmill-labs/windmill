@@ -560,6 +560,7 @@
 										{onAddTool}
 										{onDeleteTool}
 										pickerPortal={toolPickerPortal}
+										nestedAgent={isAgentTool}
 									/>
 								{:else}
 									<!-- Inert rather than merely button-less: every control below writes into
