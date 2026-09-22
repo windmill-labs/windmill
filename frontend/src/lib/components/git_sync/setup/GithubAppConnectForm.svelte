@@ -1,29 +1,22 @@
 <script lang="ts">
-	import { onDestroy, untrack } from 'svelte'
 	import { ExternalLink, Loader2, RotateCw } from 'lucide-svelte'
 	import { Alert, Button } from '$lib/components/common'
 	import Select from '$lib/components/select/Select.svelte'
 	import RepositorySelector from '$lib/components/RepositorySelector.svelte'
-	import {
-		addInstallationToWorkspace,
-		createGitHubAppState,
-		loadGithubInstallations,
-		startInstallationCheck,
-		stopInstallationCheck,
-		type GitHubAppState
-	} from '$lib/githubApp'
+	import { addInstallationToWorkspace } from '$lib/githubApp'
 	import type { RepoConnection } from './repoConnection'
+	import type { GithubAppSetup } from './githubAppSetup.svelte'
 
 	type Props = {
 		workspace: string
+		setup: GithubAppSetup
 		connection: RepoConnection | undefined
 	}
 
-	let { workspace, connection = $bindable() }: Props = $props()
+	let { workspace, setup, connection = $bindable() }: Props = $props()
 
-	let gh: GitHubAppState = $state(createGitHubAppState())
-
-	const usable = $derived(gh.workspaceGithubInstallations.filter((i) => !i.error))
+	const gh = $derived(setup.gh)
+	const usable = $derived(setup.usable)
 	const broken = $derived(gh.workspaceGithubInstallations.filter((i) => !!i.error))
 	// Installations reachable from another workspace the user is in, deduplicated.
 	const elsewhere = $derived(
@@ -38,23 +31,7 @@
 		usable.find((i) => i.installation_id === gh.selectedGHAppInstallationId)
 	)
 
-	async function reload() {
-		try {
-			await loadGithubInstallations(gh, workspace)
-		} catch {
-			// loadGithubInstallations toasts its own failure
-		}
-		if (!usable.some((i) => i.installation_id === gh.selectedGHAppInstallationId)) {
-			gh.selectedGHAppInstallationId = usable[0]?.installation_id
-			gh.selectedGHAppRepository = undefined
-		}
-	}
-
-	$effect(() => {
-		workspace
-		untrack(() => reload())
-	})
-	onDestroy(() => stopInstallationCheck(gh))
+	const reload = () => setup.reload()
 
 	$effect(() => {
 		connection = gh.selectedGHAppRepository
@@ -68,15 +45,20 @@
 </script>
 
 <div class="flex flex-col gap-4">
-	{#if gh.loadingGithubInstallations && gh.workspaceGithubInstallations.length === 0}
+	{#if (!setup.loaded || gh.loadingGithubInstallations) && gh.workspaceGithubInstallations.length === 0}
 		<div class="flex items-center gap-2 text-xs text-secondary">
 			<Loader2 size={14} class="animate-spin" /> Loading GitHub App installations...
 		</div>
 	{:else}
 		{#if usable.length === 0}
 			<Alert type="info" size="xs" bgClass="border-0" title="">
-				Install the Windmill GitHub App on the GitHub account or organization that owns the
-				repository, then come back here.
+				{#if gh.isCheckingInstallation}
+					Finish installing the Windmill GitHub App in the tab that opened. This dialog picks up the
+					installation on its own.
+				{:else}
+					Install the Windmill GitHub App on the GitHub account or organization that owns the
+					repository, then come back here.
+				{/if}
 			</Alert>
 		{:else}
 			<label class="flex flex-col gap-1">
@@ -124,14 +106,13 @@
 			<Button
 				variant="default"
 				unifiedSize="sm"
-				href={gh.githubInstallationUrl}
-				target="_blank"
-				disabled={!gh.githubInstallationUrl || gh.isCheckingInstallation}
+				disabled={!gh.githubInstallationUrl}
 				startIcon={gh.isCheckingInstallation
 					? { icon: Loader2, classes: 'animate-spin' }
 					: undefined}
-				endIcon={gh.isCheckingInstallation ? undefined : { icon: ExternalLink }}
-				onClick={() => startInstallationCheck(gh, workspace, reload)}
+				endIcon={{ icon: ExternalLink }}
+				title={gh.isCheckingInstallation ? 'Open the GitHub installation page again' : undefined}
+				onClick={() => setup.openInstall()}
 			>
 				{gh.isCheckingInstallation
 					? 'Waiting for the installation...'

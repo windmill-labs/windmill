@@ -16,6 +16,8 @@
 	import GithubAppConnectForm from './setup/GithubAppConnectForm.svelte'
 	import TokenUrlConnectForm from './setup/TokenUrlConnectForm.svelte'
 	import { createRepositoryResource, repoSlug, type RepoConnection } from './setup/repoConnection'
+	import { GithubAppSetup } from './setup/githubAppSetup.svelte'
+	import { onDestroy } from 'svelte'
 	import { ResourceService } from '$lib/gen'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { apiErrorMessage } from '$lib/utils'
@@ -45,9 +47,17 @@
 	let branch = $state('')
 	let connecting = $state(false)
 	let connectError: string | undefined = $state(undefined)
+	let githubApp: GithubAppSetup | undefined = $state(undefined)
+
+	onDestroy(() => githubApp?.dispose())
+	$effect(() => {
+		if (!opened) untrack(() => githubApp?.dispose())
+	})
 
 	async function reset() {
 		step = 1
+		githubApp?.dispose()
+		githubApp = undefined
 		provider = undefined
 		existingPath = undefined
 		connection = undefined
@@ -89,6 +99,10 @@
 	function selectProvider(p: Provider) {
 		if (p !== provider) connection = undefined
 		provider = p
+		if (p === 'github_app' && !githubApp && $workspaceStore) {
+			githubApp = new GithubAppSetup($workspaceStore)
+			void githubApp.reload()
+		}
 	}
 
 	function finish(path: string) {
@@ -103,6 +117,11 @@
 			} else {
 				connectError = undefined
 				step = 2
+				// Nothing to pick from yet: go straight to installing. Only while this click
+				// is still being handled, or the browser blocks the tab.
+				if (provider === 'github_app' && githubApp?.loaded && githubApp.usable.length === 0) {
+					githubApp.openInstall()
+				}
 			}
 			return
 		}
@@ -144,15 +163,6 @@
 		<div class="flex-1 flex flex-col min-h-0">
 			<div class="flex-1 overflow-y-auto flex flex-col gap-2">
 				{#if step === 1}
-					{#snippet gitlabIcon()}
-						<GitlabIcon height={18} width={18} />
-					{/snippet}
-					{@render providerCard(
-						'gitlab',
-						gitlabIcon,
-						'GitLab',
-						'Connect a GitLab repository with an access token.'
-					)}
 					{#snippet githubIcon()}
 						<GithubIcon height={18} width={18} />
 					{/snippet}
@@ -168,6 +178,15 @@
 						githubIcon,
 						'GitHub personal access token',
 						'Connect a GitHub repository with a fine-grained personal access token.'
+					)}
+					{#snippet gitlabIcon()}
+						<GitlabIcon height={18} width={18} />
+					{/snippet}
+					{@render providerCard(
+						'gitlab',
+						gitlabIcon,
+						'GitLab',
+						'Connect a GitLab repository with an access token.'
 					)}
 
 					{#if provider === 'existing'}
@@ -194,8 +213,8 @@
 					{/if}
 				{:else if $workspaceStore}
 					<div class="flex flex-col gap-6">
-						{#if provider === 'github_app'}
-							<GithubAppConnectForm workspace={$workspaceStore} bind:connection />
+						{#if provider === 'github_app' && githubApp}
+							<GithubAppConnectForm workspace={$workspaceStore} setup={githubApp} bind:connection />
 						{:else if gitlabHeld}
 							<GitlabProjectConnectForm workspace={$workspaceStore} bind:connection />
 						{:else if provider === 'gitlab'}
