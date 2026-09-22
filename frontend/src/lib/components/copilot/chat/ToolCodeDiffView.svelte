@@ -2,7 +2,7 @@
 	import type { ToolCodeDiff } from './shared'
 	import { toolDiffLines, type CharacterRange, type ToolDiffLine } from './toolCodeDiff'
 	import { toolCodeDiffLanguage } from './toolCodeDiffLanguage'
-	import Highlight from 'svelte-highlight'
+	import hljs, { type HighlightResult } from 'highlight.js/lib/core'
 	import HighlightTheme from '$lib/components/HighlightTheme.svelte'
 	import { Button } from '$lib/components/common'
 
@@ -13,13 +13,27 @@
 	}
 
 	type VisibleRow = ToolDiffLine | { kind: 'collapsed'; key: string; count: number }
+	type HighlightedLine = ToolDiffLine & { highlighted: string }
 
 	let { diff, streaming = false, diffLines }: Props = $props()
 
 	const CONTEXT_LINES = 3
 	let expandedSections = $state<Set<string>>(new Set())
-	const lines = $derived(diffLines ?? toolDiffLines(diff, streaming))
+	const diffRows = $derived(diffLines ?? toolDiffLines(diff, streaming))
 	const language = $derived(toolCodeDiffLanguage(diff.lang))
+	const lines = $derived.by(() => {
+		if (!hljs.getLanguage(language.name)) hljs.registerLanguage(language.name, language.register)
+
+		let originalContinuation: HighlightResult['_top']
+		let modifiedContinuation: HighlightResult['_top']
+		return diffRows.map((row): HighlightedLine => {
+			const continuation = row.kind === 'removed' ? originalContinuation : modifiedContinuation
+			const result = hljs.highlight(language.name, row.content, true, continuation)
+			if (row.kind !== 'added') originalContinuation = result._top
+			if (row.kind !== 'removed') modifiedContinuation = result._top
+			return { ...row, highlighted: result.value }
+		})
+	})
 	const visibleRows = $derived.by(() => {
 		const result: VisibleRow[] = []
 		for (let index = 0; index < lines.length; ) {
@@ -96,25 +110,23 @@
 						>{row.kind === 'added' ? '+' : row.kind === 'removed' ? '-' : ''}</span
 					>
 				</span>
-				<Highlight {language} code={row.content} let:highlighted>
-					<span
-						class="relative min-w-0 whitespace-pre {row.kind === 'added'
-							? 'bg-green-500/20'
-							: row.kind === 'removed'
-								? 'bg-red-500/20'
-								: ''}"
-					>
-						{#each row.changedRanges ?? [] as range}
-							<span
-								class="pointer-events-none absolute top-0 z-0 h-[18px] {row.kind === 'added'
-									? 'bg-green-500/25'
-									: 'bg-red-500/20'}"
-								style={rangeStyle(row.content, range)}
-							></span>
-						{/each}
-						<span class="relative z-[1]">{@html highlighted || '&nbsp;'}</span>
-					</span>
-				</Highlight>
+				<span
+					class="relative min-w-0 whitespace-pre {row.kind === 'added'
+						? 'bg-green-500/20'
+						: row.kind === 'removed'
+							? 'bg-red-500/20'
+							: ''}"
+				>
+					{#each row.changedRanges ?? [] as range}
+						<span
+							class="pointer-events-none absolute top-0 z-0 h-[18px] {row.kind === 'added'
+								? 'bg-green-500/25'
+								: 'bg-red-500/20'}"
+							style={rangeStyle(row.content, range)}
+						></span>
+					{/each}
+					<span class="relative z-[1]">{@html row.highlighted || '&nbsp;'}</span>
+				</span>
 			</div>
 		{/if}
 	{/each}
@@ -133,16 +145,16 @@
 	.tool-code-diff :global(.hljs-keyword),
 	.tool-code-diff :global(.hljs-literal),
 	.tool-code-diff :global(.hljs-built_in) {
-		@apply text-accent;
+		@apply text-blue-700;
 	}
 
 	.tool-code-diff :global(.hljs-string) {
-		@apply text-red-500;
+		@apply text-red-700;
 	}
 
 	.tool-code-diff :global(.hljs-title.class_),
 	.tool-code-diff :global(.hljs-type) {
-		@apply text-accent;
+		@apply text-cyan-800;
 	}
 
 	.tool-code-diff :global(.hljs-title.function_) {
@@ -155,6 +167,6 @@
 	}
 
 	.tool-code-diff :global(.hljs-number) {
-		@apply text-green-500;
+		@apply text-green-700;
 	}
 </style>

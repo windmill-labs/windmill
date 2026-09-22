@@ -137,6 +137,15 @@ describe('toolCodeDiff', () => {
 		])
 	})
 
+	it('does not add a final-newline row when creating or deleting a file', () => {
+		expect(toolDiffLines({ before: '', after: 'one\n', lang: 'plaintext' })).toEqual([
+			{ kind: 'added', content: 'one', newLine: 1, changedRanges: [{ start: 0, length: 3 }] }
+		])
+		expect(toolDiffLines({ before: 'one\n', after: '', lang: 'plaintext' })).toEqual([
+			{ kind: 'removed', content: 'one', oldLine: 1, changedRanges: [{ start: 0, length: 3 }] }
+		])
+	})
+
 	it('keeps both gutters correct across removed and added lines', () => {
 		expect(
 			toolDiffLines({

@@ -220,7 +220,11 @@ export function toolDiffLines(diff: ToolCodeDiff, streaming = false): ToolDiffLi
 	newIndex += trailingContext
 	appendChangedLines(result, 'removed', before, oldIndex, before.length, removedRanges)
 	appendChangedLines(result, 'added', after, newIndex, after.length, addedRanges)
-	if (hasFinalNewline(diff.before) !== hasFinalNewline(diff.after)) {
+	if (
+		diff.before !== '' &&
+		diff.after !== '' &&
+		hasFinalNewline(diff.before) !== hasFinalNewline(diff.after)
+	) {
 		result.push(
 			hasFinalNewline(diff.before)
 				? { kind: 'removed', content: '', oldLine: before.length + 1 }
