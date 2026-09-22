@@ -258,21 +258,14 @@
 			paths: allPaths,
 			scriptPaths: allScriptPaths,
 			labels: allLabels,
-			// Offered until the acting user is known: the searchbar drops a set filter its schema
-			// lacks, so gating it on a user still loading would erase the one a location restores.
-			showUserFoldersFilter:
-				userFoldersFilterType !== undefined || !operatingUser.resolved($operatingWorkspace),
+			showUserFoldersFilter: userFoldersFilterType !== undefined,
 			userFoldersLabel:
 				userFoldersFilterType === 'only f/*'
 					? 'Only f/*'
 					: `Only u/${operatingUser.current?.username} and f/*`
 		})
 	)
-	// Synced over the page's whole vocabulary: the keys are read once, before the acting user
-	// that gates one of them may have loaded.
-	let filters = useUrlSyncedFilterInstance(
-		buildSchedulesFilterSchema({ paths: [], scriptPaths: [], showUserFoldersFilter: true })
-	)
+	let filters = useUrlSyncedFilterInstance(untrack(() => schedulesFilterSchema))
 
 	let activeFilters = $derived(hasActiveFilters(filters.val))
 	let allFolders = $derived(
@@ -289,7 +282,7 @@
 	let presets = $derived([
 		...allFolders.map((f) => ({ name: `f/${f}`, value: `path_start:\\ f/${f}/` })),
 		...allLabels.map((l) => ({ name: l, value: `label:\\ ${l}` })),
-		...(schedulesFilterSchema.user_folders_only
+		...(!schedulesFilterSchema.user_folders_only.hidden
 			? [
 					{
 						name: schedulesFilterSchema.user_folders_only.label ?? '?',

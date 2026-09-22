@@ -195,26 +195,14 @@
 			resourceTypes: allResourceTypes,
 			owners: allOwners,
 			labels: allLabels,
-			// Offered until the acting user is known: the searchbar drops a set filter its schema
-			// lacks, so gating it on a user still loading would erase the one a location restores.
-			showUserFoldersFilter:
-				userFoldersFilterType !== undefined || !operatingUser.resolved($operatingWorkspace),
+			showUserFoldersFilter: userFoldersFilterType !== undefined,
 			userFoldersLabel:
 				userFoldersFilterType === 'only f/*'
 					? 'Only f/*'
 					: `Only u/${operatingUser.current?.username} and f/*`
 		})
 	)
-	// Synced over the page's whole vocabulary: the keys are read once, before the acting user
-	// that gates one of them may have loaded.
-	let filters = useUrlSyncedFilterInstance(
-		buildResourcesFilterSchema({
-			paths: [],
-			resourceTypes: [],
-			owners: [],
-			showUserFoldersFilter: true
-		})
-	)
+	let filters = useUrlSyncedFilterInstance(untrack(() => resourcesFilterSchema))
 	let itemFolders = $derived(
 		Array.from(
 			new Set(
@@ -261,7 +249,7 @@
 	let folderPresets = $derived([
 		...itemFolders.map((f) => ({ name: `f/${f}`, value: `path_start:\\ f/${f}/` })),
 		...allLabels.map((l) => ({ name: l, value: `label:\\ ${l}` })),
-		...(resourcesFilterSchema.user_folders_only
+		...(!resourcesFilterSchema.user_folders_only.hidden
 			? [
 					{
 						name: resourcesFilterSchema.user_folders_only.label ?? '?',
