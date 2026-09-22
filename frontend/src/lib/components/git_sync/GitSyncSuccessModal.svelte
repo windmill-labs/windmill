@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Modal from '$lib/components/common/modal/Modal.svelte'
+	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { CheckCircle2, ExternalLink, ArrowRight } from 'lucide-svelte'
 
 	interface Props {
@@ -39,16 +40,10 @@
 
 		<!-- Optional setup section -->
 		{#if autoPullOn}
-			<div class="bg-green-50 border border-green-200 rounded-lg p-4">
-				<h4 class="font-medium text-green-900 mb-2 flex items-center gap-2">
-					<ArrowRight class="h-4 w-4" />
-					Pull from Git is on
-				</h4>
-				<p class="text-sm text-green-800">
-					New commits to the tracked branch deploy into this workspace automatically. You can
-					adjust this anytime on the repository card.
-				</p>
-			</div>
+			<Alert type="success" title="Pull from Git is on">
+				New commits to the tracked branch deploy into this workspace automatically. You can adjust
+				this anytime on the repository card.
+			</Alert>
 		{:else}
 			<div class="bg-amber-50 border border-amber-200 rounded-lg p-4">
 				<h4 class="font-medium text-amber-900 mb-2 flex items-center gap-2">
@@ -59,20 +54,20 @@
 					Turn on "Automatically deploy changes from Git" on the repository to have Windmill pull
 					new commits into this workspace for you.
 				</p>
-			<div class="flex flex-col gap-2">
-				<p class="text-sm text-amber-700">
-					Prefer to control deployment from your own pipeline (tests, custom gating, deploy on PR
-					merge)? Set up GitHub Actions or similar CI/CD workflows instead.
-				</p>
-				<div class="mt-3">
-					<a
-						href="https://www.windmill.dev/docs/advanced/deploy_gh_gl#github-actions-setup"
-						target="_blank"
-						class="text-sm text-amber-700 hover:text-amber-900 underline flex items-center gap-1"
-					>
-						<ExternalLink class="h-3 w-3" />
-						Learn more about CI-based deployment
-					</a>
+				<div class="flex flex-col gap-2">
+					<p class="text-sm text-amber-700">
+						Prefer to control deployment from your own pipeline (tests, custom gating, deploy on PR
+						merge)? Set up GitHub Actions or similar CI/CD workflows instead.
+					</p>
+					<div class="mt-3">
+						<a
+							href="https://www.windmill.dev/docs/advanced/deploy_gh_gl#github-actions-setup"
+							target="_blank"
+							class="text-sm text-amber-700 hover:text-amber-900 underline flex items-center gap-1"
+						>
+							<ExternalLink class="h-3 w-3" />
+							Learn more about CI-based deployment
+						</a>
 					</div>
 				</div>
 			</div>
