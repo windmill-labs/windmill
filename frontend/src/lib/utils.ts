@@ -1669,6 +1669,8 @@ export function conditionalMelt(node: HTMLElement, meltItem: AnyMeltElement | un
 
 export type Item = {
 	displayName: string
+	/** A second, dimmer line under `displayName`, always shown (e.g. an item's path). */
+	subtitle?: string
 	action?: (e: MouseEvent) => void
 	icon?: any
 	iconColor?: string

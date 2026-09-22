@@ -8,6 +8,7 @@
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import {
 		Plus,
+		Bot,
 		Code2,
 		LayoutDashboard,
 		ChevronDown,
@@ -120,6 +121,21 @@
 					}
 				] as Option[])
 			: []),
+		{
+			key: 'agent',
+			label: 'AI agent',
+			icon: Bot,
+			accent: 'purple',
+			tagline: 'A reusable agent with tools',
+			description:
+				'Pick a model, write the system prompt and give the agent tools: scripts, flows, MCP servers or other agents. Test it from the editor and link it from any flow.',
+			bullets: [
+				'Any provider and model',
+				'Tools from scripts, flows and MCP',
+				'Shared across flows'
+			],
+			onSelect: () => goto(`${base}/agents/add`)
+		},
 		...(HOME_SHOW_CREATE_APP
 			? ([
 					{

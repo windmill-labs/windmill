@@ -33,7 +33,11 @@
 		wideLayout = false,
 		frame = 'top',
 		conversationKind = 'deployed',
-		parallelTurns = false
+		parallelTurns = false,
+		conversationId = undefined,
+		hideSidebar = false,
+		inputPreface = undefined,
+		emptyHint = undefined
 	}: FlowChatProps = $props()
 
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
@@ -69,8 +73,16 @@
 	// conversation, and tracked, the first send of a fresh chat would select the conversation
 	// it just created and so abort its own turn. Waits for a workspace, which an embedded
 	// editor resolves from its session rather than having on the first run.
+	// A caller naming a conversation is followed instead, each time it names another one; `null`
+	// asks for a fresh one.
 	$effect(() => {
-		if (workspace) untrack(() => manager.selectLatestConversation())
+		if (!workspace) return
+		const chosen = conversationId
+		untrack(() => {
+			if (chosen === null) manager.createConversation({ clearMessages: true })
+			else if (chosen) manager.selectConversation(chosen)
+			else manager.selectLatestConversation()
+		})
 	})
 
 	// Ends whatever is still running when the panel goes away, which is the only thing that
@@ -107,7 +119,9 @@
 
 <!-- The column's max width and side padding come from AIChatDisplay itself. -->
 <div class="flex overflow-hidden flex-1 {FRAME_CLASS[frame]}">
-	<FlowConversationsSidebar {manager} {description} />
+	{#if !hideSidebar}
+		<FlowConversationsSidebar {manager} {description} />
+	{/if}
 	<!-- pb-3 on the chat alone, not on the row: the transcript and composer stop short of
 	     the panel edge the way the session chat does, while the sidebar and the border
 	     dividing it from the chat still reach the bottom. -->
@@ -121,6 +135,8 @@
 			{identity}
 			{description}
 			{wideLayout}
+			{inputPreface}
+			emptyHintOverride={emptyHint}
 		/>
 	</div>
 </div>
