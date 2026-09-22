@@ -158,7 +158,7 @@
 			<!-- Editable mode -->
 			<div class="px-4 py-2" transition:slide={{ duration: 150 }}>
 				<div class="grid grid-cols-1 md:grid-cols-2 md:gap-8">
-					<div class="flex flex-col gap-2 h-full">
+					<div class="flex flex-col gap-2">
 						<Tabs bind:selected={filtersTab}>
 							<Tab value="includes" label="Includes"></Tab>
 							<Tab value="excludes" label="Excludes"></Tab>
@@ -169,7 +169,6 @@
 								title="Include path filters"
 								bind:items={include_path}
 								placeholder="Add filter (e.g. f/**)"
-								emptyHint="No include filter yet"
 							>
 								{#snippet tooltip()}
 									<Tooltip>
@@ -186,7 +185,6 @@
 								title="Exclude path filters"
 								bind:items={excludes}
 								placeholder="Add filter (e.g. f/**)"
-								emptyHint="No exclude filter yet"
 							>
 								{#snippet tooltip()}
 									<Tooltip>
