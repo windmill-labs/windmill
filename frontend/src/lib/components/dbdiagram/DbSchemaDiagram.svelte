@@ -51,7 +51,8 @@
 
 	// Laid out from scratch on every change to the selection or to a card's
 	// height. There are no edges to keep stable, so a fresh packing reads better
-	// than leaving holes where deselected tables were.
+	// than leaving holes where deselected tables were — and cards are not draggable,
+	// since a moved card would snap back at the next layout.
 	let nodes = $state.raw<Node[]>([])
 	$effect(() => {
 		const positions = layoutTables(tables, expanded)
@@ -111,6 +112,7 @@
 				maxZoom={1.6}
 				proOptions={{ hideAttribution: true }}
 				elementsSelectable={false}
+				nodesDraggable={false}
 				zoomOnDoubleClick={false}
 				deleteKey={null}
 				onpaneclick={() => highlight.clear()}

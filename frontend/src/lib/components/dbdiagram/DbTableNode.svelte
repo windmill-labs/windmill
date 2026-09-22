@@ -52,10 +52,12 @@
 	onmouseenter={() => highlight.hover({ table: table.key })}
 	onmouseleave={() => highlight.hover(undefined)}
 	onclick={() => highlight.togglePin({ table: table.key })}
-	ondblclick={data.onOpenTable}
 	role="button"
 	tabindex="-1"
 >
+	<!-- Opening the table is the header's alone: the rows move under the pointer when
+	     the card expands, so a double-click on the expand control would land on one. -->
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		class={twMerge(
 			'flex items-center gap-1.5 px-2 border-b border-border-light',
@@ -63,6 +65,7 @@
 		)}
 		style="height: {HEADER_HEIGHT}px"
 		title={table.key}
+		ondblclick={data.onOpenTable}
 	>
 		<Table2 size={13} class="shrink-0 text-secondary" />
 		<span class="truncate text-xs font-semibold text-emphasis">{table.table}</span>
