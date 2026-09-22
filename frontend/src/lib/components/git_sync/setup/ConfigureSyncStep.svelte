@@ -173,21 +173,25 @@
 			{/if}
 		{/if}
 
-		{#if repo.detectionJobId && repo.detectionState !== 'no-wmill' && repo.detectionState !== 'has-wmill'}
-			<div class="mt-auto flex items-center gap-2 text-2xs text-secondary">
-				{#if repo.detectionJobStatus === 'success'}
-					<CheckCircle2 size={12} class="text-green-600" />
-				{:else if repo.detectionJobStatus === 'failure'}
-					<XCircle size={12} class="text-red-700" />
+		{#if repo.detectionState !== 'no-wmill' && repo.detectionState !== 'has-wmill'}
+			<!-- Holds its row from the start: the job id only arrives once the check job has been
+			     started, and letting the row appear then shifts everything above it. -->
+			<div class="mt-auto flex items-center gap-2 min-h-4 text-2xs text-secondary">
+				{#if repo.detectionJobId}
+					{#if repo.detectionJobStatus === 'success'}
+						<CheckCircle2 size={12} class="text-green-600" />
+					{:else if repo.detectionJobStatus === 'failure'}
+						<XCircle size={12} class="text-red-700" />
+					{/if}
+					<span class="text-hint">Check job:</span>
+					<a
+						target="_blank"
+						class="underline"
+						href={`/run/${repo.detectionJobId}?workspace=${$workspaceStore}`}
+					>
+						{repo.detectionJobId}
+					</a>
 				{/if}
-				<span class="text-hint">Check job:</span>
-				<a
-					target="_blank"
-					class="underline"
-					href={`/run/${repo.detectionJobId}?workspace=${$workspaceStore}`}
-				>
-					{repo.detectionJobId}
-				</a>
 			</div>
 		{/if}
 	</div>
