@@ -5772,6 +5772,8 @@ async fn test_scoped_custom_tag_pattern_admission(db: Pool<Postgres>) -> anyhow:
         "$args[size]-secret(test-workspace)".to_string(),
         "gpu-secret(other)".to_string(),
         "$workspace-$args[size](test-workspace*)".to_string(),
+        "urgent".to_string(),
+        "urgent(other)".to_string(),
     ])));
 
     let confined = check(&db, "test-workspace", "gpu-$args[size]", "secret").await;
@@ -5792,6 +5794,11 @@ async fn test_scoped_custom_tag_pattern_admission(db: Pool<Postgres>) -> anyhow:
         (
             "confined tag from its workspace",
             allowed(&db, "other", "gpu-secret", "").await,
+        ),
+        // Listing the tag by name without a scope as well keeps it open everywhere.
+        (
+            "tag listed both globally and scoped",
+            allowed(&db, "test-workspace", "urgent", "").await,
         ),
         // The fork's `$workspace` is its parent's, whose tags its lineage reaches. Written as the
         // resolved tag, not as the entry, so only the pattern can admit it.

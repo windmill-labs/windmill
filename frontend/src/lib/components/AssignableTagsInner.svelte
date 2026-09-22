@@ -179,7 +179,7 @@
 {/snippet}
 
 {#snippet dynamicTagInfo(scoped: boolean)}
-	{#if tagName.includes('$workspace') && !dynamicTag}
+	{#if tagName.includes('$workspace')}
 		<div>Interpolated tag based on workspace id the job was created in </div>
 	{/if}
 	{#if dynamicTag?.kind == 'flow_expr'}
@@ -285,10 +285,18 @@
 					{/if}
 				</div>
 				{@render dynamicTagInfo(true)}
-				{#if !dynamic}
-					<div class="mt-1">
-						Workspaces outside this scope cannot use it, even through a dynamic tag it fits
-					</div>
+				<!-- Only an editor loads the entries as written, which tell a global `tag` from `tag(ws)`. -->
+				{#if !dynamic && tagEditor}
+					{#if (customTags ?? []).includes(tagName)}
+						<div class="mt-1 text-yellow-600 dark:text-yellow-500">
+							<code>{tagName}</code> is also listed without workspaces, which keeps it open to every
+							workspace
+						</div>
+					{:else}
+						<div class="mt-1">
+							Workspaces outside this scope cannot use it, even through a dynamic tag it fits
+						</div>
+					{/if}
 				{/if}
 			</div>
 		{:else if newTag.trim()}
@@ -375,7 +383,7 @@
 			<pre class="inline text-emphasis">gpu-$args[size](workspace1+workspace2)</pre>, to allow those
 			tags only in some workspaces. A tag listed by its own name for some workspaces, e.g.
 			<pre class="inline text-emphasis">gpu-secret(workspace1)</pre>, stays limited to them even
-			when a dynamic tag fits it.
+			when a dynamic tag fits it, unless it is also listed without workspaces.
 		</span>
 	{/if}
 </div>
