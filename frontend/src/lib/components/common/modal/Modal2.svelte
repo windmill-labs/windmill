@@ -11,7 +11,7 @@
 	import { zIndexes } from '$lib/zIndexes'
 	import { chatState } from '$lib/components/copilot/chat/sharedChatState.svelte'
 	import Disposable from '../drawer/Disposable.svelte'
-	import { setTopmostSurface } from '../overlayHost.svelte'
+	import { overlayHostActive, setTopmostSurface } from '../overlayHost.svelte'
 	import { untrack } from 'svelte'
 
 	interface Props {
@@ -91,6 +91,7 @@
 	// resource picker's editor) stacks above it, and so Escape and outside clicks aimed
 	// at that drawer do not close the dialog underneath.
 	let disposable: Disposable | undefined = $state(undefined)
+	const hostActive = overlayHostActive()
 	setTopmostSurface(() => disposable?.isTopmost() ?? true)
 	$effect(() => {
 		isOpen
@@ -99,6 +100,8 @@
 
 	function handleKeyDown(event: KeyboardEvent) {
 		if (!isOpen || !closeOnEscape) return
+		// Hidden hosts stay mounted and still receive window keys — see overlayHost.
+		if (!hostActive()) return
 		if (!(disposable?.isTopmost() ?? true)) return
 		if (event.key === 'Escape') {
 			event.preventDefault()
