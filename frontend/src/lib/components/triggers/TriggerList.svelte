@@ -163,7 +163,7 @@
 
 	async function loadTriggers(): Promise<void> {
 		const workspace = $operatingWorkspace!
-		const listed = (await config.list({ workspace, includeDraftOnly: true })) as TriggerRow[]
+		const listed = await config.list({ workspace, includeDraftOnly: true })
 		triggers = listed.map((x) => ({
 			canWrite: canWrite(x.path, x.extra_perms!, operatingUser.current),
 			...x
@@ -189,9 +189,7 @@
 	let interval: ReturnType<typeof setInterval> | undefined = untrack(() => config.status)
 		? setInterval(async () => {
 				try {
-					const newTriggers = (await config.list({
-						workspace: $operatingWorkspace!
-					})) as TriggerRow[]
+					const newTriggers = await config.list({ workspace: $operatingWorkspace! })
 					for (let i = 0; i < triggers.length; i++) {
 						const newTrigger = newTriggers.find((x) => x.path === triggers[i].path)
 						if (newTrigger) {

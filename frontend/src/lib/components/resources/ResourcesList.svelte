@@ -195,14 +195,26 @@
 			resourceTypes: allResourceTypes,
 			owners: allOwners,
 			labels: allLabels,
-			showUserFoldersFilter: userFoldersFilterType !== undefined,
+			// Offered until the acting user is known: the searchbar drops a set filter its schema
+			// lacks, so gating it on a user still loading would erase the one a location restores.
+			showUserFoldersFilter:
+				userFoldersFilterType !== undefined || !operatingUser.resolved($operatingWorkspace),
 			userFoldersLabel:
 				userFoldersFilterType === 'only f/*'
 					? 'Only f/*'
 					: `Only u/${operatingUser.current?.username} and f/*`
 		})
 	)
-	let filters = useUrlSyncedFilterInstance(untrack(() => resourcesFilterSchema))
+	// Synced over the page's whole vocabulary: the keys are read once, before the acting user
+	// that gates one of them may have loaded.
+	let filters = useUrlSyncedFilterInstance(
+		buildResourcesFilterSchema({
+			paths: [],
+			resourceTypes: [],
+			owners: [],
+			showUserFoldersFilter: true
+		})
+	)
 	let itemFolders = $derived(
 		Array.from(
 			new Set(
@@ -815,7 +827,7 @@
 			fixedOverflowWidgets={false}
 		/>
 		{#snippet actions()}
-			<Button size="sm" on:click={inferJson}>Infer</Button>
+			<Button unifiedSize="sm" on:click={inferJson}>Infer</Button>
 		{/snippet}
 	</DrawerContent>
 </Drawer>
@@ -1529,7 +1541,7 @@
 												{:else if operatingUser.current?.is_admin || operatingUser.current?.is_super_admin}
 													<div class="flex flex-row-reverse gap-2">
 														<Button
-															size="xs"
+															unifiedSize="sm"
 															variant="default"
 															disabled={!showCreateButtons}
 															btnClasses="border-0"
@@ -1540,8 +1552,8 @@
 															Delete
 														</Button>
 														<Button
-															size="xs"
-															color="light"
+															unifiedSize="sm"
+															variant="default"
 															disabled={!showCreateButtons}
 															startIcon={{ icon: Pen }}
 															on:click={() => startEditResourceType(name)}

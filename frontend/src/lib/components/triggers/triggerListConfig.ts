@@ -56,7 +56,7 @@ export type TriggerRow = Pick<
 		KeysOfUnion<AnyTrigger>,
 		'path' | 'script_path' | 'is_flow' | 'mode' | 'edited_by' | 'edited_at'
 	>]?: FieldOf<AnyTrigger, K>
-} & { draft_only?: boolean; is_draft?: boolean }
+}
 
 type Call<A> = (a: A) => Promise<unknown>
 
@@ -110,7 +110,7 @@ export type TriggerListConfig = {
 	deleteToastLabel?: string
 	/** Report a failed delete through a toast. */
 	catchDelete: boolean
-	list: Call<{ workspace: string; includeDraftOnly?: boolean }>
+	list: (a: { workspace: string; includeDraftOnly?: boolean }) => Promise<TriggerRow[]>
 	setMode: Call<{
 		workspace: string
 		path: string

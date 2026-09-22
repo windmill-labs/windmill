@@ -94,14 +94,21 @@
 			paths: allPaths,
 			owners: allOwners,
 			labels: allLabels,
-			showUserFoldersFilter: userFoldersFilterType !== undefined,
+			// Offered until the acting user is known: the searchbar drops a set filter its schema
+			// lacks, so gating it on a user still loading would erase the one a location restores.
+			showUserFoldersFilter:
+				userFoldersFilterType !== undefined || !operatingUser.resolved($operatingWorkspace),
 			userFoldersLabel:
 				userFoldersFilterType === 'only f/*'
 					? 'Only f/*'
 					: `Only u/${operatingUser.current?.username} and f/*`
 		})
 	)
-	let filters = useUrlSyncedFilterInstance(untrack(() => variablesFilterSchema))
+	// Synced over the page's whole vocabulary: the keys are read once, before the acting user
+	// that gates one of them may have loaded.
+	let filters = useUrlSyncedFilterInstance(
+		buildVariablesFilterSchema({ paths: [], owners: [], showUserFoldersFilter: true })
+	)
 	let itemFolders = $derived(
 		Array.from(
 			new Set(

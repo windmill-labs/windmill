@@ -258,14 +258,21 @@
 			paths: allPaths,
 			scriptPaths: allScriptPaths,
 			labels: allLabels,
-			showUserFoldersFilter: userFoldersFilterType !== undefined,
+			// Offered until the acting user is known: the searchbar drops a set filter its schema
+			// lacks, so gating it on a user still loading would erase the one a location restores.
+			showUserFoldersFilter:
+				userFoldersFilterType !== undefined || !operatingUser.resolved($operatingWorkspace),
 			userFoldersLabel:
 				userFoldersFilterType === 'only f/*'
 					? 'Only f/*'
 					: `Only u/${operatingUser.current?.username} and f/*`
 		})
 	)
-	let filters = useUrlSyncedFilterInstance(untrack(() => schedulesFilterSchema))
+	// Synced over the page's whole vocabulary: the keys are read once, before the acting user
+	// that gates one of them may have loaded.
+	let filters = useUrlSyncedFilterInstance(
+		buildSchedulesFilterSchema({ paths: [], scriptPaths: [], showUserFoldersFilter: true })
+	)
 
 	let activeFilters = $derived(hasActiveFilters(filters.val))
 	let allFolders = $derived(
@@ -366,7 +373,7 @@
 			documentationLink="https://www.windmill.dev/docs/core_concepts/scheduling"
 		>
 			<Button
-				size="lg"
+				unifiedSize="md"
 				variant="accent"
 				startIcon={{ icon: Plus }}
 				on:click={() => scheduleEditor?.openNew(false)}
@@ -552,7 +559,7 @@
 									</Button>
 									<Button
 										on:click={() => editSchedule(path, is_flow)}
-										size="xs"
+										unifiedSize="md"
 										startIcon={{ icon: canWrite ? Pen : Eye }}
 										variant="subtle"
 									>
@@ -687,7 +694,7 @@
 		{#if items && items?.length > 15 && nbDisplayed < items.length}
 			<div class="flex items-center gap-4 text-xs font-semibold text-emphasis">
 				<span>{nbDisplayed} items out of {items.length}</span>
-				<Button size="xs" variant="subtle" on:click={() => (nbDisplayed += 30)}>
+				<Button unifiedSize="sm" variant="subtle" on:click={() => (nbDisplayed += 30)}>
 					Load 30 more
 				</Button>
 			</div>

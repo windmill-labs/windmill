@@ -4,15 +4,17 @@
 	 * workspace and the admin bypass in its popover. Renders nothing for operators, who have no edit
 	 * affordance for it to explain.
 	 */
-	import { userWorkspaces } from '$lib/stores'
+	import { userWorkspaces, workspaceStore } from '$lib/stores'
+	import { resource } from 'runed'
 	import {
-		canUserBypassRuleKind,
-		getActiveRulesetsForKind,
-		isRuleActive
+		canUserBypassRuleKindInRulesets,
+		fetchProtectionRulesForWorkspace,
+		getActiveRulesetsForKindInRulesets,
+		isRuleActiveInRulesets,
+		protectionRulesState
 	} from '$lib/workspaceProtectionRules.svelte'
 	import { findCanonicalDevWorkspace } from '$lib/utils/workspaceHierarchy'
 	import { devLabelKey, devLabelNoun } from '$lib/utils/devWorkspaceLabel'
-	import { canCreateFork } from '$lib/utils/editInFork'
 	import { switchWorkspace } from '$lib/storeUtils'
 	import { Badge, Button } from './common'
 	import Popover from './meltComponents/Popover.svelte'
@@ -26,12 +28,31 @@
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
 
-	let activeDeployRulesets = $derived(getActiveRulesetsForKind('DisableDirectDeployment'))
-	let canBypass = $derived(canUserBypassRuleKind('DisableDirectDeployment', operatingUser.current))
+	// The shared rules state holds the navigation workspace's rules, so a host acting on another
+	// workspace (an AI session's fork) has to ask for that one's.
+	const foreignRules = resource(
+		() => ($operatingWorkspace !== $workspaceStore ? $operatingWorkspace : undefined),
+		(workspace) => (workspace ? fetchProtectionRulesForWorkspace(workspace) : Promise.resolve([]))
+	)
+	let rulesets = $derived(
+		$operatingWorkspace === $workspaceStore
+			? (protectionRulesState.rulesets ?? [])
+			: (foreignRules.current ?? [])
+	)
+
+	let activeDeployRulesets = $derived(
+		getActiveRulesetsForKindInRulesets(rulesets, 'DisableDirectDeployment')
+	)
+	let canBypass = $derived(
+		canUserBypassRuleKindInRulesets(rulesets, 'DisableDirectDeployment', operatingUser.current)
+	)
 	let canonicalDev = $derived(findCanonicalDevWorkspace($operatingWorkspace, $userWorkspaces))
 	// Forking may itself be blocked by DisableWorkspaceForking, so only suggest it
 	// when the user can actually fork this workspace.
-	let canFork = $derived(canCreateFork(operatingUser.current))
+	let canFork = $derived(
+		!isRuleActiveInRulesets(rulesets, 'DisableWorkspaceForking') ||
+			canUserBypassRuleKindInRulesets(rulesets, 'DisableWorkspaceForking', operatingUser.current)
+	)
 	let editAdvice = $derived(
 		canFork
 			? 'You will need to either fork the workspace, or make your changes locally and submit a PR to an authorized user.'
@@ -41,7 +62,9 @@
 	// The toggle is only offered to a user who can bypass, but the answer can change under a
 	// workspace switch, so the checked flag alone never grants the edit.
 	let bypassActive = $derived(canBypass && overrideChecked)
-	let canEdit = $derived(!isRuleActive('DisableDirectDeployment') || bypassActive)
+	let canEdit = $derived(
+		!isRuleActiveInRulesets(rulesets, 'DisableDirectDeployment') || bypassActive
+	)
 
 	let {
 		onUpdateCanEditStatus = (value) => {}
