@@ -142,7 +142,7 @@
 		settingsDrawer?.openDrawer()
 	}
 
-	function addWithExistingResource(path: string) {
+	function addWithResource(path: string) {
 		if (!gitSyncContext) return
 		const before = gitSyncContext.repositories.length
 		if (setupMode === 'promotion') gitSyncContext.addPromotionRepository()
@@ -351,7 +351,7 @@
 			bind:opened={setupOpen}
 			title={setupTitle}
 			{usedResourcePaths}
-			onExistingResource={addWithExistingResource}
+			onResource={addWithResource}
 		/>
 
 		<Drawer
