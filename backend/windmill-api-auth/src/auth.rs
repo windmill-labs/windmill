@@ -1073,7 +1073,8 @@ fn no_auth_admin_authed() -> ApiAuthed {
 }
 
 /// Resolves OptJobAuthed from request parts.
-/// Takes ownership of Parts and returns them back.
+/// Takes ownership of Parts and returns them back, memoized into the extensions so a
+/// second extraction in the same request is free.
 #[allow(unreachable_code, unused_mut)]
 pub async fn resolve_opt_job_authed(
     mut parts: Parts,
@@ -1089,10 +1090,11 @@ pub async fn resolve_opt_job_authed(
         ));
     }
 
-    let already_authed = parts.extensions.get::<OptJobAuthed>().cloned();
-
-    if let Some(authed) = already_authed {
-        return Ok((authed, parts));
+    // Safe only while what the route checks below read is fixed before the first
+    // extraction: path and method always are, `workspace_id` only while every
+    // `GatewayWorkspaceId` writer stays layered outside auth extraction.
+    if let Some(opt_job_authed) = parts.extensions.get::<OptJobAuthed>().cloned() {
+        return Ok((opt_job_authed, parts));
     }
 
     let already_tokened = parts.extensions.get::<Tokened>().cloned();
@@ -1185,6 +1187,9 @@ pub async fn resolve_opt_job_authed(
                 if let Some(workspace_id) = workspace_id {
                     Span::current().record("workspace_id", &workspace_id);
                 }
+                // Separate from the ApiAuthed insert above, which handlers taking
+                // `Extension<ApiAuthed>` read.
+                parts.extensions.insert(opt_job_authed.clone());
                 return Ok((opt_job_authed, parts));
             }
         }
@@ -1310,4 +1315,64 @@ pub async fn list_tokens_internal(
     };
 
     Ok(Json(tokens))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Dropping the `AUTH_CACHE` entry between the two resolutions is what makes a memo
+    /// hit observable: only a working memo can answer the second one.
+    #[tokio::test]
+    async fn resolve_opt_job_authed_is_memoized() {
+        // Never connected: an AUTH_CACHE hit resolves without a query, and AuthCache
+        // only needs the handle to exist. Without the timeout a regression — which
+        // falls through to a real lookup — spends sqlx's 30s default failing.
+        let db = sqlx::postgres::PgPoolOptions::new()
+            .acquire_timeout(std::time::Duration::from_millis(50))
+            .connect_lazy("postgres://memo@127.0.0.1:1/memo")
+            .expect("lazy pool");
+
+        let token = "memo_guard_token";
+        let key = (String::new(), token.to_string());
+        AUTH_CACHE.insert(
+            key.clone(),
+            ExpiringAuthCache {
+                authed: ApiAuthed {
+                    email: "memo@windmill.dev".to_string(),
+                    username: "memo".to_string(),
+                    ..Default::default()
+                },
+                expiry: chrono::Utc::now() + chrono::Duration::hours(1),
+                job_id: None,
+            },
+        );
+
+        #[cfg(feature = "enterprise")]
+        let cache = AuthCache::new(db, None, None);
+        #[cfg(not(feature = "enterprise"))]
+        let cache = AuthCache::new(db, None);
+
+        let mut parts = http::Request::builder()
+            .uri("/api/version")
+            .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
+            .body(())
+            .unwrap()
+            .into_parts()
+            .0;
+        parts.extensions.insert(Arc::new(cache));
+
+        let (_, parts) = resolve_opt_job_authed(parts)
+            .await
+            .map_err(|(e, _)| e)
+            .expect("first resolution");
+
+        AUTH_CACHE.remove(&key);
+
+        let (second, _) = resolve_opt_job_authed(parts)
+            .await
+            .map_err(|(e, _)| e)
+            .expect("second resolution must hit the memo, not re-resolve");
+        assert_eq!(second.authed.username, "memo");
+    }
 }
