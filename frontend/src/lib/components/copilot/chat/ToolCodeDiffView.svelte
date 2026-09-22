@@ -72,7 +72,9 @@
 <div
 	class="tool-code-diff max-h-[400px] overflow-auto bg-white text-xs leading-[18px] text-[#2d3748] dark:bg-[#1e1e1e] dark:text-[#d4d4d4]"
 >
-	{#each visibleRows as row, index (row.kind === 'collapsed' ? row.key : `${row.oldLine}:${row.newLine}:${index}`)}
+	{#each visibleRows as row, index (row.kind === 'collapsed'
+		? `collapsed:${row.key}`
+		: `line:${row.oldLine}:${row.newLine}:${index}`)}
 		{#if row.kind === 'collapsed'}
 			<Button
 				unifiedSize="2xs"
