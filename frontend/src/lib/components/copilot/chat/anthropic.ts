@@ -141,7 +141,8 @@ export async function getAnthropicCompletion(
 	const { provider, config } = getProviderAndCompletionConfig({
 		messages,
 		stream: true,
-		forceModelProvider: options?.forceModelProvider
+		forceModelProvider: options?.forceModelProvider,
+		reasoningEffort: options?.reasoningEffort
 	})
 	const { system, messages: anthropicMessages } = convertOpenAIToAnthropicMessages(messages)
 	let anthropicTools = convertOpenAIToolsToAnthropic(tools)

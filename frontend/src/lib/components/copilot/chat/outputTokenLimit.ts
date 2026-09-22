@@ -10,3 +10,8 @@ export class OutputTokenLimitError extends Error {
 		this.name = 'OutputTokenLimitError'
 	}
 }
+
+/** Shown instead on Windmill's free tier, whose server clamps the output below any
+ * workspace setting: pointing at that setting would send the user to a no-op. */
+export const FREE_TIER_OUTPUT_TOKEN_LIMIT_MESSAGE =
+	"The response was cut off at the free tier's output token limit. Ask it to continue, or add your own API key in the workspace AI settings for a higher limit."

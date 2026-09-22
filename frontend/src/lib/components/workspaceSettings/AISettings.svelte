@@ -21,6 +21,7 @@
 		getKnownModelContextWindow,
 		getModelContextWindowFromTable
 	} from '../copilot/modelConfig'
+	import { resolveRequestReasoning } from '../copilot/reasoningRegistry'
 	import { supportsAutocomplete } from '../copilot/utils'
 	import TestAiKey from '../copilot/TestAIKey.svelte'
 	import Label from '../Label.svelte'
@@ -650,7 +651,8 @@
 			min={1}
 			max={2_000_000}
 			getDefault={(provider, model) => ({
-				tokens: getModelMaxTokens(provider, model),
+				// What a chat sends at the default effort; the budget depends on it.
+				tokens: getModelMaxTokens(provider, model, resolveRequestReasoning({ provider, model })),
 				assumed: false
 			})}
 		/>

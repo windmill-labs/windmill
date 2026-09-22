@@ -272,7 +272,8 @@ export async function getOpenAIResponsesCompletion(
 		messages,
 		stream: true,
 		tools,
-		forceModelProvider: options?.forceModelProvider
+		forceModelProvider: options?.forceModelProvider,
+		reasoningEffort: options?.reasoningEffort
 	})
 	const { instructions, input } = convertMessagesToResponsesInput(messages)
 	const responsesConfig = applyReasoningToConfig(
@@ -331,7 +332,8 @@ export async function* getOpenAIResponsesCompletionStream(
 		messages,
 		stream: true,
 		tools,
-		forceModelProvider: options?.forceModelProvider
+		forceModelProvider: options?.forceModelProvider,
+		reasoningEffort: options?.reasoningEffort
 	})
 	const { instructions, input } = convertMessagesToResponsesInput(messages)
 	// No prompt cache key here: a rejected key has to be retried without it, and this is
