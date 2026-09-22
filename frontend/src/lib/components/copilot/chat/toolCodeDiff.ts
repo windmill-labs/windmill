@@ -148,6 +148,7 @@ export type ToolDiffLine = {
 export type CharacterRange = { start: number; length: number; extendsToEnd?: boolean }
 
 const STREAMING_PREVIEW_LINES = 200
+const ADVANCED_DIFF_LINE_LIMIT = 1_000
 
 function lines(value: string): string[] {
 	const result = value.split('\n')
@@ -162,7 +163,9 @@ function hasFinalNewline(value: string): boolean {
 export function toolDiffLines(diff: ToolCodeDiff, streaming = false): ToolDiffLine[] {
 	const before = lines(diff.before)
 	const after = lines(diff.after)
-	if (streaming) return streamingDiffLines(before, after)
+	if (streaming || before.length + after.length > ADVANCED_DIFF_LINE_LIMIT) {
+		return streamingDiffLines(before, after)
+	}
 
 	const result: ToolDiffLine[] = []
 	const monacoBefore = monacoLines(diff.before)

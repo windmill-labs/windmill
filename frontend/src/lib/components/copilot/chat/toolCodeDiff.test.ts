@@ -259,6 +259,13 @@ describe('toolCodeDiff', () => {
 		})
 	})
 
+	it('avoids expensive alignment for large completed diffs', () => {
+		const before = Array.from({ length: 1_000 }, (_, index) => `before ${index}`).join('\n')
+		const after = Array.from({ length: 1_000 }, (_, index) => `after ${index}`).join('\n')
+
+		expect(toolDiffLines({ before, after, lang: 'plaintext' })).toHaveLength(400)
+	})
+
 	it('has a highlighter for every supported editor language', () => {
 		expect(TOOL_CODE_DIFF_LANGUAGES).toEqual(
 			expect.arrayContaining([
