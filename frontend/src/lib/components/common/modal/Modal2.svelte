@@ -102,10 +102,13 @@
 		untrack(() => (isOpen ? disposable?.openDrawer() : disposable?.closeDrawer()))
 	})
 
-	/** Whether this dialog was the overlay on top when the press started. `clickOutside` awaits
-	 * its async `exclude` before reporting, and an overlay above closes itself in that gap — by
-	 * the time the report lands, the dialog looks topmost and would close along with it. */
+	/** Whether this dialog was the overlay on top when the interaction started. `clickOutside`
+	 * awaits its async `exclude` before reporting, and an overlay above closes itself in that
+	 * gap — by the time the report lands, the dialog looks topmost and would close with it. */
 	let topmostAtPress = true
+	function snapshotTopmost() {
+		topmostAtPress = disposable?.isTopmost() ?? true
+	}
 
 	function handleKeyDown(event: KeyboardEvent) {
 		if (!isOpen || !closeOnEscape || preventDismiss) return
@@ -129,7 +132,12 @@
 
 <svelte:window
 	onkeydown={handleKeyDown}
-	onpointerdowncapture={() => (topmostAtPress = disposable?.isTopmost() ?? true)}
+	onpointerdowncapture={snapshotTopmost}
+	onclickcapture={(e) => {
+		// A keyboard-activated control emits a click with no pointer event before it (`detail`
+		// 0), so the pointerdown snapshot would be whatever a previous interaction left.
+		if (e.detail === 0) snapshotTopmost()
+	}}
 />
 
 <Disposable bind:open={isOpen} bind:this={disposable} preventEscape {minZIndex}>
