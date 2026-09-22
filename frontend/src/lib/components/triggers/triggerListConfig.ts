@@ -10,33 +10,53 @@ import {
 	PostgresTriggerService,
 	SqsTriggerService,
 	WebsocketTriggerService,
+	type AmqpTrigger,
+	type AzureTrigger,
+	type EmailTrigger,
+	type GcpTrigger,
+	type HttpTrigger,
+	type KafkaTrigger,
+	type MqttTrigger,
+	type NatsTrigger,
+	type PostgresTrigger,
+	type SqsTrigger,
 	type TriggerMode,
-	type UserDraftItemKind
+	type UserDraftItemKind,
+	type WebsocketTrigger
 } from '$lib/gen'
 import type { TriggerKind as UsedTriggerKind } from '$lib/components/triggers'
 import type { TriggerKind } from '$lib/components/sessions/previewPaths'
 
-/** A row of any trigger list: the fields every kind shares, plus its own. */
-export type TriggerRow = {
-	path: string
-	script_path: string
-	is_flow: boolean
-	summary?: string
-	extra_perms?: Record<string, boolean>
-	edited_by?: string
-	edited_at?: string
-	mode: TriggerMode
-	error?: string
-	last_server_ping?: string
-	server_id?: string
-	labels?: string[]
-	draft_only?: boolean
-	is_draft?: boolean
-	retry?: any
-	error_handler_path?: string
-	error_handler_args?: Record<string, any>
-	[key: string]: any
-}
+type AnyTrigger =
+	| HttpTrigger
+	| WebsocketTrigger
+	| PostgresTrigger
+	| KafkaTrigger
+	| NatsTrigger
+	| MqttTrigger
+	| AmqpTrigger
+	| SqsTrigger
+	| GcpTrigger
+	| AzureTrigger
+	| EmailTrigger
+type KeysOfUnion<T> = T extends unknown ? keyof T : never
+type FieldOf<T, K extends PropertyKey> = T extends unknown
+	? K extends keyof T
+		? T[K]
+		: never
+	: never
+
+/** A row of any trigger list: the fields every kind shares, plus every kind's own as optional,
+ * so a field read by one kind's branch is still checked against the generated types. */
+export type TriggerRow = Pick<
+	HttpTrigger,
+	'path' | 'script_path' | 'is_flow' | 'mode' | 'edited_by' | 'edited_at'
+> & {
+	[K in Exclude<
+		KeysOfUnion<AnyTrigger>,
+		'path' | 'script_path' | 'is_flow' | 'mode' | 'edited_by' | 'edited_at'
+	>]?: FieldOf<AnyTrigger, K>
+} & { draft_only?: boolean; is_draft?: boolean }
 
 type Call<A> = (a: A) => Promise<unknown>
 

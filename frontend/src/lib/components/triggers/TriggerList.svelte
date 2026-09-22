@@ -291,8 +291,8 @@
 				cleanups.push(() =>
 					PostgresTriggerService.deletePostgresReplicationSlot({
 						workspace,
-						path: row.postgres_resource_path,
-						requestBody: { name: row.replication_slot_name }
+						path: row.postgres_resource_path!,
+						requestBody: { name: row.replication_slot_name! }
 					})
 				)
 			}
@@ -300,13 +300,13 @@
 				cleanups.push(() =>
 					PostgresTriggerService.deletePostgresPublication({
 						workspace,
-						path: row.postgres_resource_path,
-						publication: row.publication_name
+						path: row.postgres_resource_path!,
+						publication: row.publication_name!
 					})
 				)
 			}
 		} else if (triggerKind === 'gcp' && deleteA) {
-			const requestBody = { subscription_id: row.subscription_id, project_id: row.project_id }
+			const requestBody = { subscription_id: row.subscription_id!, project_id: row.project_id }
 			cleanups.push(() =>
 				row.gcp_resource_path
 					? GcpTriggerService.deleteGcpSubscription({
@@ -323,12 +323,12 @@
 			cleanups.push(() =>
 				AzureTriggerService.deleteAzureSubscription({
 					workspace,
-					path: row.azure_resource_path,
+					path: row.azure_resource_path!,
 					requestBody: {
-						azure_mode: row.azure_mode,
-						scope_resource_id: row.scope_resource_id,
+						azure_mode: row.azure_mode!,
+						scope_resource_id: row.scope_resource_id!,
 						topic_name: row.topic_name ?? undefined,
-						subscription_name: row.subscription_name
+						subscription_name: row.subscription_name!
 					}
 				})
 			)
@@ -474,7 +474,7 @@
 						'r',
 						row.route_path,
 						(row.workspaced_route ?? false) || globalHttpWorkspacedRoute,
-						row.workspace_id
+						row.workspace_id!
 					)
 				}
 			case 'gcp':
@@ -483,7 +483,7 @@
 					? undefined
 					: {
 							label: 'Copy URL',
-							value: getHttpRoute(`${triggerKind}/w`, row.path, true, row.workspace_id)
+							value: getHttpRoute(`${triggerKind}/w`, row.path, true, row.workspace_id!)
 						}
 			case 'email':
 				return { label: 'Copy email address', value: emailAddress(row) }
@@ -496,7 +496,7 @@
 		return getEmailAddress(
 			row.local_part,
 			row.workspaced_local_part ?? false,
-			row.workspace_id,
+			row.workspace_id!,
 			emailDomain ?? ''
 		)
 	}
@@ -531,17 +531,17 @@
 			{#if row.summary}
 				{row.summary}
 			{:else}
-				{row.http_method.toUpperCase()}
+				{row.http_method!.toUpperCase()}
 				/{isCloudHosted() || row.workspaced_route || globalHttpWorkspacedRoute
 					? row.workspace_id + '/' + row.route_path
 					: row.route_path}
 			{/if}
 		{:else if triggerKind === 'websocket'}
-			{websocketUrl(row.url)}
+			{websocketUrl(row.url!)}
 		{:else if triggerKind === 'kafka'}
-			{row.kafka_resource_path} - {row.topics.join(', ')}
+			{row.kafka_resource_path} - {row.topics!.join(', ')}
 		{:else if triggerKind === 'nats'}
-			{row.nats_resource_path} - {row.subjects.join(', ')}
+			{row.nats_resource_path} - {row.subjects!.join(', ')}
 		{:else if triggerKind === 'email'}
 			{emailAddress(row)}
 		{:else if triggerKind === 'gcp'}
