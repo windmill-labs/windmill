@@ -1,4 +1,3 @@
-import { diffLines } from 'diff'
 // This is Monaco's advanced diff engine; it supplies the same multi-line inner ranges.
 import { DefaultLinesDiffComputer } from '@codingame/monaco-vscode-api/vscode/vs/editor/common/diff/defaultLinesDiffComputer/defaultLinesDiffComputer'
 import type { ToolCodeDiff, ToolDisplayMessage } from './shared'
@@ -90,12 +89,20 @@ export function toolCodeDiff(message: ToolDisplayMessage): ToolCodeDiff | undefi
 	return ARGS_DIFF_BY_TOOL[message.toolName]?.(message.parameters)
 }
 
-export function diffLineCounts(diff: ToolCodeDiff): { added: number; removed: number } {
+export function diffLineCounts(diff: ToolCodeDiff, streaming = false): { added: number; removed: number } {
+	if (streaming) {
+		return { added: lines(diff.after).length, removed: lines(diff.before).length }
+	}
+
+	return toolDiffLineCounts(toolDiffLines(diff))
+}
+
+export function toolDiffLineCounts(lines: ToolDiffLine[]): { added: number; removed: number } {
 	let added = 0
 	let removed = 0
-	for (const change of diffLines(diff.before, diff.after)) {
-		if (change.added) added += change.count ?? 0
-		else if (change.removed) removed += change.count ?? 0
+	for (const line of lines) {
+		if (line.kind === 'added') added++
+		else if (line.kind === 'removed') removed++
 	}
 	return { added, removed }
 }
@@ -110,66 +117,106 @@ export type ToolDiffLine = {
 
 export type CharacterRange = { start: number; length: number; extendsToEnd?: boolean }
 
+const STREAMING_PREVIEW_LINES = 200
+
 function lines(value: string): string[] {
 	const result = value.split('\n')
 	if (result.at(-1) === '') result.pop()
 	return result
 }
 
-export function toolDiffLines(diff: ToolCodeDiff): ToolDiffLine[] {
-	const result: ToolDiffLine[] = []
-	let oldLine = 1
-	let newLine = 1
-	const { added, removed } = monacoCharacterRanges(diff)
+export function toolDiffLines(diff: ToolCodeDiff, streaming = false): ToolDiffLine[] {
+	const before = lines(diff.before)
+	const after = lines(diff.after)
+	if (streaming) return streamingDiffLines(before, after)
 
-	for (const change of diffLines(diff.before, diff.after)) {
-		const kind = change.added ? 'added' : change.removed ? 'removed' : 'context'
-		for (const content of lines(change.value)) {
-			const lineNumber = kind === 'removed' ? oldLine : newLine
-			const changedRanges = kind === 'removed' ? removed.get(lineNumber) : added.get(lineNumber)
-			result.push({
-				kind,
-				content,
-				oldLine: kind === 'added' ? undefined : oldLine++,
-				newLine: kind === 'removed' ? undefined : newLine++,
-				...(changedRanges?.length ? { changedRanges } : {})
-			})
+	const result: ToolDiffLine[] = []
+	const monacoBefore = monacoLines(diff.before)
+	const monacoAfter = monacoLines(diff.after)
+	const changes = new DefaultLinesDiffComputer().computeDiff(monacoBefore, monacoAfter, {
+		ignoreTrimWhitespace: false,
+		maxComputationTimeMs: 1000,
+		computeMoves: false,
+		extendToSubwords: false
+	}).changes
+	const removedRanges = new Map<number, CharacterRange[]>()
+	const addedRanges = new Map<number, CharacterRange[]>()
+	for (const change of changes) {
+		for (const innerChange of change.innerChanges ?? []) {
+			addCharacterRanges(removedRanges, monacoBefore, innerChange.originalRange)
+			addCharacterRanges(addedRanges, monacoAfter, innerChange.modifiedRange)
 		}
 	}
+
+	let oldIndex = 0
+	let newIndex = 0
+	for (const change of changes) {
+		const oldStart = change.original.startLineNumber - 1
+		const newStart = change.modified.startLineNumber - 1
+		appendContextLines(result, before, after, oldIndex, newIndex, Math.min(oldStart - oldIndex, newStart - newIndex))
+		appendChangedLines(result, 'removed', before, oldStart, change.original.endLineNumberExclusive - 1, removedRanges)
+		appendChangedLines(result, 'added', after, newStart, change.modified.endLineNumberExclusive - 1, addedRanges)
+		oldIndex = change.original.endLineNumberExclusive - 1
+		newIndex = change.modified.endLineNumberExclusive - 1
+	}
+	appendContextLines(result, before, after, oldIndex, newIndex, Math.min(before.length - oldIndex, after.length - newIndex))
+	appendChangedLines(result, 'removed', before, oldIndex, before.length, removedRanges)
+	appendChangedLines(result, 'added', after, newIndex, after.length, addedRanges)
 
 	return result
 }
 
-function monacoCharacterRanges(diff: ToolCodeDiff): {
-	removed: Map<number, CharacterRange[]>
-	added: Map<number, CharacterRange[]>
-} {
-	const before = monacoLines(diff.before)
-	const after = monacoLines(diff.after)
-	const result = {
-		removed: new Map<number, CharacterRange[]>(),
-		added: new Map<number, CharacterRange[]>()
-	}
-	const changes = new DefaultLinesDiffComputer().computeDiff(before, after, {
-		ignoreTrimWhitespace: false,
-				maxComputationTimeMs: 1000,
-		computeMoves: false,
-		extendToSubwords: false
-	})
-
-	for (const change of changes.changes) {
-		for (const innerChange of change.innerChanges ?? []) {
-			addCharacterRanges(result.removed, before, innerChange.originalRange)
-			addCharacterRanges(result.added, after, innerChange.modifiedRange)
-		}
-	}
-
-	return result
+function streamingDiffLines(before: string[], after: string[]): ToolDiffLine[] {
+	return [
+		...before
+			.slice(0, STREAMING_PREVIEW_LINES)
+			.map((content, index) => ({ kind: 'removed' as const, content, oldLine: index + 1 })),
+		...after
+			.slice(0, STREAMING_PREVIEW_LINES)
+			.map((content, index) => ({ kind: 'added' as const, content, newLine: index + 1 }))
+	]
 }
 
 function monacoLines(value: string): string[] {
 	const result = lines(value)
 	return result.length ? result : ['']
+}
+
+function appendContextLines(
+	result: ToolDiffLine[],
+	before: string[],
+	after: string[],
+	oldStart: number,
+	newStart: number,
+	count: number
+): void {
+	for (let index = 0; index < count; index++) {
+		result.push({
+			kind: 'context',
+			content: before[oldStart + index],
+			oldLine: oldStart + index + 1,
+			newLine: newStart + index + 1
+		})
+	}
+}
+
+function appendChangedLines(
+	result: ToolDiffLine[],
+	kind: 'added' | 'removed',
+	source: string[],
+	start: number,
+	end: number,
+	ranges: Map<number, CharacterRange[]>
+): void {
+	for (let index = start; index < Math.min(end, source.length); index++) {
+		const changedRanges = ranges.get(index + 1)
+		result.push({
+			kind,
+			content: source[index],
+			...(kind === 'added' ? { newLine: index + 1 } : { oldLine: index + 1 }),
+			...(changedRanges?.length ? { changedRanges } : {})
+		})
+	}
 }
 
 function addCharacterRanges(

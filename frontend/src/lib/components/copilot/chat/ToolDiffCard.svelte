@@ -3,7 +3,7 @@
 	import ChatCollapsibleCard from './ChatCollapsibleCard.svelte'
 	import ToolCodeDiffView from './ToolCodeDiffView.svelte'
 	import ToolPreviewCard from './ToolPreviewCard.svelte'
-	import { diffLineCounts, toolCodeDiff } from './toolCodeDiff'
+	import { diffLineCounts, toolCodeDiff, toolDiffLineCounts, toolDiffLines } from './toolCodeDiff'
 
 	interface Props {
 		message: ToolDisplayMessage
@@ -12,7 +12,11 @@
 	let { message }: Props = $props()
 
 	const diff = $derived(toolCodeDiff(message))
-	const counts = $derived(diff ? diffLineCounts(diff) : undefined)
+	const isStreaming = $derived(Boolean(message.isStreamingArguments))
+	const lines = $derived(diff ? toolDiffLines(diff, isStreaming) : undefined)
+	const counts = $derived(
+		diff ? (isStreaming ? diffLineCounts(diff, true) : toolDiffLineCounts(lines ?? [])) : undefined
+	)
 
 	// Keyed by call id: a bare flag would carry the expansion onto the next message that
 	// reuses this instance. An active or failed call opens by itself, and remains open
@@ -62,7 +66,7 @@
 	{headerRight}
 >
 	{#if diff}
-		<ToolCodeDiffView {diff} />
+		<ToolCodeDiffView {diff} diffLines={lines} streaming={isStreaming} />
 	{/if}
 	{#if message.error}
 		<div

@@ -8,15 +8,17 @@
 
 	interface Props {
 		diff: ToolCodeDiff
+		streaming?: boolean
+		diffLines?: ToolDiffLine[]
 	}
 
 	type VisibleRow = ToolDiffLine | { kind: 'collapsed'; key: string; count: number }
 
-	let { diff }: Props = $props()
+	let { diff, streaming = false, diffLines }: Props = $props()
 
 	const CONTEXT_LINES = 3
 	let expandedSections = $state<Set<string>>(new Set())
-	const lines = $derived(toolDiffLines(diff))
+	const lines = $derived(diffLines ?? toolDiffLines(diff, streaming))
 	const language = $derived(toolCodeDiffLanguage(diff.lang))
 	const visibleRows = $derived.by(() => {
 		const result: VisibleRow[] = []

@@ -162,6 +162,41 @@ describe('toolCodeDiff', () => {
 		])
 	})
 
+	it('uses Monaco line alignment for reordered lines', () => {
+		expect(
+			toolDiffLines({
+				before: 'const a = 1\nconst b = 2',
+				after: 'const b = 2\nconst a = 1',
+				lang: 'typescript'
+			})
+		).toEqual([
+			{
+				kind: 'added',
+				content: 'const b = 2',
+				newLine: 1,
+				changedRanges: [{ start: 0, length: 11, extendsToEnd: true }]
+			},
+			{ kind: 'context', content: 'const a = 1', oldLine: 1, newLine: 2 },
+			{
+				kind: 'removed',
+				content: 'const b = 2',
+				oldLine: 2,
+				changedRanges: [{ start: 0, length: 11 }]
+			}
+		])
+	})
+
+	it('avoids expensive alignment while arguments stream', () => {
+		const before = Array.from({ length: 1_000 }, (_, index) => `before ${index}`).join('\n')
+		const after = Array.from({ length: 1_000 }, (_, index) => `after ${index}`).join('\n')
+
+		expect(toolDiffLines({ before, after, lang: 'plaintext' }, true)).toHaveLength(400)
+		expect(diffLineCounts({ before, after, lang: 'plaintext' }, true)).toEqual({
+			added: 1_000,
+			removed: 1_000
+		})
+	})
+
 	it('has a highlighter for every supported editor language', () => {
 		expect(TOOL_CODE_DIFF_LANGUAGES).toEqual(
 			expect.arrayContaining([
