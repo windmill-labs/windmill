@@ -150,10 +150,8 @@ buttons — the setup dialog puts them in its own footer, the standalone modal i
 </script>
 
 <div class="flex flex-col gap-4">
-	<p class="text-sm text-secondary">
-		Push your current workspace content to the connected Git repository based on the configured
-		filters. This does not update the git sync settings in <span class="font-mono">wmill.yaml</span>
-		— they can only be pulled from the repository, which is their source of truth.
+	<p class="text-xs text-secondary">
+		Here is what will get pushed to the repository, according to the filters you set.
 	</p>
 
 	{#if isPreviewLoading}
