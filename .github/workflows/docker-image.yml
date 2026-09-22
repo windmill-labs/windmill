@@ -40,9 +40,9 @@ jobs:
     runs-on: ubicloud
     if: (github.event_name != 'workflow_dispatch') || (github.event.inputs &&
       !github.event.inputs.ee)
-    # Jobs that consume this image must reference it by this digest, never by
-    # :dev: concurrent main-branch runs push :dev too, so a tag run reading it
-    # can ship a main build under the release version.
+    # Jobs that build from, extract or retag this image must reference it by
+    # this digest: concurrent main-branch runs push :dev too, so a tag run
+    # reading :dev can ship a main build under the release version.
     outputs:
       digest: ${{ steps.docker_build.outputs.digest }}
     steps:
