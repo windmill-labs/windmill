@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { AgentAccessPolicy } from '../agentAccessPolicy'
 
 vi.mock('monaco-editor', () => ({
 	editor: {},
@@ -7241,6 +7242,31 @@ describe('session-only preview tools gating', () => {
 		const content = prepareGlobalSystemMessage().content as string
 		expect(content).not.toContain(WS_HEADER)
 		expect(content).not.toContain(USER_HEADER)
+	})
+
+	it('omits instructions and advertises only the selected session scopes', () => {
+		const accessPolicy = new AgentAccessPolicy('alice', {
+			version: 2,
+			baseline: 'deselected',
+			overrides: ['folder:finance']
+		})
+		const content = prepareGlobalSystemMessage(
+			{ workspace: 'Workspace secret.', user: 'Personal preference.' },
+			{
+				user: {
+					username: 'alice',
+					folders: ['finance', 'people'],
+					folders_read: ['finance', 'people']
+				},
+				accessPolicy
+			}
+		).content as string
+
+		expect(content).toContain('Only these scopes are selected: f/finance')
+		expect(content).not.toContain('Workspace secret.')
+		expect(content).not.toContain('Personal preference.')
+		expect(content).toContain('f/finance')
+		expect(content).not.toContain('f/people')
 	})
 })
 

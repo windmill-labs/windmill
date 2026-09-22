@@ -13,6 +13,7 @@ import {
 } from './core'
 import { createMcpTools } from './mcpTools'
 import { getPipelinePromptSection, pipelineTools, type PipelineContext } from '../pipeline/core'
+import { filterToolsForAgentAccess } from '../agentAccessPolicy'
 
 // Derived, not retyped: an option added to prepareGlobalSystemMessage is reachable
 // here at once. Hand-listing the four would compile fine while leaving the new one
@@ -39,7 +40,10 @@ export function assembleGlobalSystemMessage(
 
 export function assembleGlobalTools(opts: GlobalAssemblyOpts): Tool<any>[] {
 	return [
-		...globalToolsFor({ sessionPreview: opts.previewTools ?? false }),
+		...filterToolsForAgentAccess(
+			globalToolsFor({ sessionPreview: opts.previewTools ?? false }),
+			opts.accessPolicy
+		),
 		...(opts.pipelineContext ? pipelineTools : []),
 		...createMcpTools(opts.mcpServers ?? [])
 	]

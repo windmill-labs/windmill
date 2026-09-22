@@ -10,6 +10,9 @@ export type ToolSummary = {
 	 * `SchemaViewer` reads it to mark the rows and renders nothing without it, and a
 	 * tool whose arguments are all optional legitimately omits it. */
 	parameters: Record<string, any>
+	/** The tool reads and never changes anything, which is what plan mode admits.
+	 * `planModeSafe` fails closed there, so an untagged tool counts as a write here too. */
+	readOnly: boolean
 }
 
 /** Tool definitions as the modal lists them: name-sorted, so a list of dozens is
@@ -19,7 +22,8 @@ export function summarizeTools(tools: readonly Tool<any>[]): ToolSummary[] {
 		.map((t) => ({
 			name: t.def.function.name,
 			description: t.def.function.description ?? '',
-			parameters: { required: [], ...(t.def.function.parameters ?? {}) }
+			parameters: { required: [], ...(t.def.function.parameters ?? {}) },
+			readOnly: t.planModeSafe === true
 		}))
 		.sort((a, b) => a.name.localeCompare(b.name))
 }

@@ -36,6 +36,11 @@ export interface EvalCaseRuntimeSpec {
   // Global session chats: start the case in plan mode, so the workspace-changing tools are
   // refused until the model hands over a plan with exit_plan_mode.
   planMode?: boolean;
+  // Global session chats: browser-local context selection presented to the agent.
+  contextSelection?: {
+    baseline: "selected" | "deselected";
+    overrides: Array<"personal" | "workspace" | `folder:${string}`>;
+  };
 }
 
 export interface FlowValidationSpec {
@@ -223,9 +228,7 @@ export interface ToolValidationSpec {
 }
 
 export type EvalValidationSpec =
-  | FlowValidationSpec
-  | AppValidationSpec
-  | GlobalValidationSpec;
+  FlowValidationSpec | AppValidationSpec | GlobalValidationSpec;
 
 /**
  * Expectations on what the assistant SAID, for cases where the deliverable is

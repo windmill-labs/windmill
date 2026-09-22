@@ -59,6 +59,7 @@ import { forLater } from '$lib/forLater'
 import { scriptLangToEditorLang } from '$lib/scripts'
 import { getCurrentModel } from '$lib/aiStore'
 import { type editor as meditor } from 'monaco-editor'
+import { toolAccessRejection } from './agentAccessPolicy'
 
 // Prettify function for code arguments - extracts and formats code from JSON
 function prettifyCodeArguments(content: string): string {
@@ -968,7 +969,10 @@ export async function processToolCall<T>({
 		}
 
 		const rejection = normalizeToolRejection(
-			await tool?.validateBeforeConfirmation?.({ args, workspace: workspaceId, helpers })
+			tool
+				? (toolAccessRejection(tool.def.function.name, args, helpers) ??
+						(await tool.validateBeforeConfirmation?.({ args, workspace: workspaceId, helpers })))
+				: undefined
 		)
 		if (rejection) {
 			logToolOutcome('rejected')
