@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT COUNT(DISTINCT email) FROM usr\n                 WHERE is_service_account AND NOT disabled AND workspace_id NOT LIKE 'wm-fork%'",
+  "query": "SELECT COUNT(DISTINCT email) FROM usr WHERE is_service_account AND NOT disabled",
   "describe": {
     "columns": [
       {
@@ -16,5 +16,5 @@
       null
     ]
   },
-  "hash": "e60b837837f9ca9ec9587c6f7b66aed1162fe85cb31c0414bc7e9b93a0684b43"
+  "hash": "3190736818379ad22628aae3c5a25ab0199084b35664cbb0a586917bfa0da075"
 }
