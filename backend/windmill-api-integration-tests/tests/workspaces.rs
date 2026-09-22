@@ -319,6 +319,13 @@ async fn test_workspace_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
         .unwrap();
     assert_eq!(resp.status(), 200);
 
+    let resp = authed(client().post(format!("{base}/edit_webhook")))
+        .json(&json!({"webhook": "http://127.0.0.1/hook"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400, "private webhook URL must be refused");
+
     // --- edit_auto_invite (EE-gated) ---
     let resp = authed(client().post(format!("{base}/edit_auto_invite")))
         .json(&json!({"operator": false, "invite_all": false, "auto_add": false}))
