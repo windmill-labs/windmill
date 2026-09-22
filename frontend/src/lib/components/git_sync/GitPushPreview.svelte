@@ -6,7 +6,7 @@ buttons — the setup dialog puts them in its own footer, the standalone modal i
 -->
 <script lang="ts">
 	import { untrack } from 'svelte'
-	import { Alert } from '$lib/components/common'
+	import { Alert, CopyButton } from '$lib/components/common'
 	import { Loader2, XCircle, Terminal, ChevronDown, ChevronUp } from 'lucide-svelte'
 	import GitDiffPreview from '../GitDiffPreview.svelte'
 	import { JobService } from '$lib/gen'
@@ -34,6 +34,13 @@ buttons — the setup dialog puts them in its own footer, the standalone modal i
 	let applyError = $state('')
 
 	let showCliInstructions = $state(false)
+	const cliInstructions = $derived(`# Setup (only needed if local folder not initialized yet)
+npm install -g windmill-cli
+wmill workspace add ${$workspaceStore} ${$workspaceStore} ${window.location.origin}
+wmill init --workspace ${$workspaceStore} --repository ${gitRepoResourcePath}
+
+# Pull workspace content to git repository
+wmill sync pull --workspace ${$workspaceStore} --repository ${gitRepoResourcePath}`)
 	let previewResult = $state<SyncResponse | null>(null)
 
 	/** What the host needs to label and enable its buttons. */
@@ -172,7 +179,7 @@ buttons — the setup dialog puts them in its own footer, the standalone modal i
 			<h4 class="text-sm font-semibold text-primary">Changes to push</h4>
 
 			{#if previewResult.changes?.length > 0}
-				<GitDiffPreview {previewResult} />
+				<GitDiffPreview {previewResult} maxHeightClass="max-h-80" />
 			{:else}
 				<div class="text-sm text-secondary">
 					The repository already matches this workspace: there is nothing to push.
@@ -220,16 +227,10 @@ buttons — the setup dialog puts them in its own footer, the standalone modal i
 			</button>
 
 			{#if showCliInstructions}
-				<div class="mt-2 bg-surface-secondary rounded-lg p-3">
-					<pre class="text-xs bg-surface p-3 rounded overflow-x-auto whitespace-pre-wrap break-all">
-# Setup (only needed if local folder not initialized yet)
-npm install -g windmill-cli
-wmill workspace add {$workspaceStore} {$workspaceStore} {window.location.origin}
-wmill init --workspace {$workspaceStore} --repository {gitRepoResourcePath}
-
-# Pull workspace content to git repository
-wmill sync pull --workspace {$workspaceStore} --repository {gitRepoResourcePath}</pre
-					>
+				<div class="relative mt-2">
+					<CopyButton value={cliInstructions} class="absolute top-1 right-1" />
+					<pre
+						class="text-xs bg-surface-sunken rounded-lg p-3 pr-10 overflow-x-auto whitespace-pre-wrap break-all">{cliInstructions}</pre>
 				</div>
 			{/if}
 		</div>
