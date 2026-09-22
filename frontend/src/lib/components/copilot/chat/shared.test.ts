@@ -205,6 +205,47 @@ describe('buildContextString', () => {
 })
 
 describe('processToolCall', () => {
+	it('blocks a deselected folder before confirmation or execution', async () => {
+		const { AgentAccessPolicy } = await import('./agentAccessPolicy')
+		const { createToolDef, processToolCall } = await import('./shared')
+		const fn = vi.fn()
+		const requestConfirmation = vi.fn()
+		const result = await processToolCall({
+			tools: [
+				{
+					def: createToolDef(z.object({ path: z.string() }), 'delete_workspace_item', 'Delete'),
+					requiresConfirmation: true,
+					fn
+				}
+			],
+			toolCall: {
+				id: 'blocked_call',
+				type: 'function',
+				function: {
+					name: 'delete_workspace_item',
+					arguments: JSON.stringify({ path: 'f/people/payroll' })
+				}
+			},
+			helpers: {
+				agentAccessPolicy: new AgentAccessPolicy('alice', {
+					version: 2,
+					baseline: 'deselected',
+					overrides: ['folder:finance']
+				})
+			},
+			workspace: 'test-workspace',
+			toolCallbacks: {
+				setToolStatus: vi.fn(),
+				removeToolStatus: vi.fn(),
+				requestConfirmation
+			}
+		})
+
+		expect(requestConfirmation).not.toHaveBeenCalled()
+		expect(fn).not.toHaveBeenCalled()
+		expect(result.content).toContain('does not include f/people/payroll')
+	})
+
 	it('returns pre-confirmation validation errors without asking for confirmation', async () => {
 		const { createToolDef, processToolCall } = await import('./shared')
 		const error = 'the script needs to be deployed before doing this action'

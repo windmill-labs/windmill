@@ -1,7 +1,7 @@
 import type { AttachedBlob } from './blobUtils'
 import type { ChatViewHost } from './chatViewHost'
 import type { ScriptLang } from '$lib/gen/types.gen'
-import { JobService, type CompletedJob } from '$lib/gen'
+import { FolderService, JobService, type CompletedJob } from '$lib/gen'
 import type { FlowOptions, ScriptOptions } from './ContextManager.svelte'
 import { getAiAgentProviderCatalog } from './flow/aiAgentProviderCatalog'
 import { formatAiAgentProvidersPrompt } from './flow/aiAgentProviders'
@@ -154,6 +154,11 @@ import type { ArtifactVersionTarget } from '$lib/components/sessions/previewRout
 import { appendAttachedFilesRoster } from './files/fileTools'
 import { ENTER_PLAN_MODE_TOOL, EXIT_PLAN_MODE_TOOL } from './planMode'
 import { PlanModeController, type PlanModeHost } from './planModeController.svelte'
+import {
+	createAgentAccessPolicy,
+	filterToolsForAgentAccess,
+	type AgentAccessPolicy
+} from './agentAccessPolicy'
 
 // Compaction of the stored history: once the projected request size
 // (contextTokens — the provider's report when current, a fresh chars/4
@@ -1334,6 +1339,34 @@ export class AIChatManager implements ChatViewHost {
 	private globalIdentity = $state<GlobalPromptIdentity | undefined>(undefined)
 	private globalIdentityRefreshId = 0
 
+	get agentContextUsername(): string {
+		return this.globalIdentity?.username ?? ''
+	}
+
+	get agentContextFolders(): string[] {
+		return [
+			...new Set([
+				...(this.globalIdentity?.folders ?? []),
+				...(this.globalIdentity?.folders_read ?? [])
+			])
+		]
+	}
+
+	private currentSessionAccessPolicy(): AgentAccessPolicy | undefined {
+		if (!this.isSessionChat) return undefined
+		return createAgentAccessPolicy(
+			this.operatingWorkspace ?? '',
+			this.globalIdentity?.username ?? ''
+		)
+	}
+
+	private contextSelectionVersion = $state(0)
+
+	contextSelectionChanged = () => {
+		this.contextSelectionVersion++
+		if (!this.loading && this.mode === AIMode.GLOBAL) this.configureGlobalMode()
+	}
+
 	// Built-in session-chat slash commands, listed in the command picker
 	// alongside workspace skills. Unlike a skill, these run locally and never
 	// reach the model; the submit path intercepts them first, so they shadow any
@@ -1356,12 +1389,21 @@ export class AIChatManager implements ChatViewHost {
 	// skills at execution (the submit interception), so listing both would offer
 	// a row that cannot run. Two skills may still share a name; the picker keys
 	// those by path and the submit path declines to guess between them.
-	sessionCommands: ChatCommandItem[] = $derived([
-		...this.sessionBuiltinCommands,
-		...this.globalSkills
-			.filter((s) => !this.sessionBuiltinCommands.some((b) => b.name === s.name))
-			.map((s) => ({ ...s, kind: 'skill' as const }))
-	])
+	sessionCommands: ChatCommandItem[] = $derived.by(() => {
+		this.contextSelectionVersion
+		const accessPolicy = this.currentSessionAccessPolicy()
+		const skills = accessPolicy
+			? accessPolicy.filterPaths(this.globalSkills, (skill) => skill.path)
+			: this.globalSkills
+		return [
+			...this.sessionBuiltinCommands,
+			...skills
+				.filter(
+					(skill) => !this.sessionBuiltinCommands.some((builtin) => builtin.name === skill.name)
+				)
+				.map((skill) => ({ ...skill, kind: 'skill' as const }))
+		]
+	})
 
 	allowedModes: Record<AIMode, boolean> = $derived({
 		script:
@@ -2417,17 +2459,27 @@ export class AIChatManager implements ChatViewHost {
 	// Public because it is purely local, unlike `changeMode(GLOBAL)`, which also
 	// fires the three network refreshes.
 	configureGlobalMode = () => {
-		const systemMessage = prepareGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), {
+		const accessPolicy = this.currentSessionAccessPolicy()
+		const promptParts = getCustomPromptParts(AIMode.GLOBAL)
+		const skills = accessPolicy
+			? accessPolicy.filterPaths(this.globalSkills, (skill) => skill.path)
+			: this.globalSkills
+		const mcpServers = accessPolicy
+			? accessPolicy.filterPaths(this.mcpServers, (server) => server.path)
+			: this.mcpServers
+		const systemMessage = prepareGlobalSystemMessage(promptParts, {
 			previewTools: this.isSessionChat,
 			user: this.globalIdentity,
-			skills: this.globalSkills,
-			mcpServers: this.mcpServers
+			skills,
+			mcpServers,
+			accessPolicy
 		})
 		const sessionCtx = this.sessionContextResolver?.()
 		if (sessionCtx) {
 			systemMessage.content += getSessionContextPromptSection(sessionCtx)
 		}
 		const baseHelpers: GlobalToolHelpers = {
+			agentAccessPolicy: accessPolicy,
 			// A session targets its own fixed (possibly forked) workspace, so capture it for
 			// permission gating. The global side-panel chat follows the live navigation
 			// workspace instead, so leave it unset there — allowedOpenPages reads the store.
@@ -2457,17 +2509,17 @@ export class AIChatManager implements ChatViewHost {
 			}
 		}
 		const pipeline = this.pipelineAiChatHelpers
-		const mcpTools = createMcpTools(this.mcpServers)
+		const mcpTools = createMcpTools(mcpServers)
+		const sessionTools = filterToolsForAgentAccess(
+			globalToolsFor({ sessionPreview: this.isSessionChat }),
+			accessPolicy
+		)
 		if (pipeline) {
 			systemMessage.content += getPipelinePromptSection(pipeline.getPipelineContext())
-			this.tools = [
-				...globalToolsFor({ sessionPreview: this.isSessionChat }),
-				...pipelineTools,
-				...mcpTools
-			]
+			this.tools = [...sessionTools, ...pipelineTools, ...mcpTools]
 			this.helpers = { ...baseHelpers, pipeline }
 		} else {
-			this.tools = [...globalToolsFor({ sessionPreview: this.isSessionChat }), ...mcpTools]
+			this.tools = [...sessionTools, ...mcpTools]
 			this.helpers = baseHelpers
 		}
 		this.systemMessage = systemMessage
@@ -2495,6 +2547,13 @@ export class AIChatManager implements ChatViewHost {
 	refreshGlobalIdentity = async (workspace = this.operatingWorkspace ?? '') => {
 		const refreshId = ++this.globalIdentityRefreshId
 		const identity = await resolveGlobalPromptIdentity(workspace)
+		if (identity?.is_admin) {
+			try {
+				identity.folders = await FolderService.listFolderNames({ workspace })
+			} catch (error) {
+				console.warn('Unable to load folders for session context selection', error)
+			}
+		}
 		if (refreshId !== this.globalIdentityRefreshId) {
 			return
 		}
@@ -2548,11 +2607,17 @@ export class AIChatManager implements ChatViewHost {
 		if (this.mode !== AIMode.GLOBAL) {
 			return
 		}
+		const accessPolicy = this.currentSessionAccessPolicy()
 		const systemMessage = prepareGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), {
 			previewTools: this.isSessionChat,
 			user: this.globalIdentity,
-			skills: this.globalSkills,
-			mcpServers: this.mcpServers
+			skills: accessPolicy
+				? accessPolicy.filterPaths(this.globalSkills, (skill) => skill.path)
+				: this.globalSkills,
+			mcpServers: accessPolicy
+				? accessPolicy.filterPaths(this.mcpServers, (server) => server.path)
+				: this.mcpServers,
+			accessPolicy
 		})
 		// Preserve the session-state and active pipeline-editor augmentations that
 		// configureGlobalMode adds — otherwise update_user_instructions (which calls
@@ -2583,8 +2648,12 @@ export class AIChatManager implements ChatViewHost {
 		}
 		// A path identifies one skill; a name shared by two would otherwise silently
 		// apply instructions the user did not choose, so it is left unexpanded.
-		const byPath = this.globalSkills.find((s) => s.path === match[1])
-		const matches = byPath ? [byPath] : this.globalSkills.filter((s) => s.name === match[1])
+		const accessPolicy = this.currentSessionAccessPolicy()
+		const skills = accessPolicy
+			? accessPolicy.filterPaths(this.globalSkills, (skill) => skill.path)
+			: this.globalSkills
+		const byPath = skills.find((skill) => skill.path === match[1])
+		const matches = byPath ? [byPath] : skills.filter((skill) => skill.name === match[1])
 		if (matches.length !== 1) {
 			return instructions
 		}
@@ -2941,6 +3010,7 @@ export class AIChatManager implements ChatViewHost {
 		systemMessage?: ChatCompletionSystemMessageParam
 		onWebSearchUnavailable?: () => void
 	}) => {
+		if (this.mode === AIMode.GLOBAL && this.isSessionChat) this.configureGlobalMode()
 		// Fresh batch for this turn — drop any images an aborted prior turn left buffered.
 		this.pendingToolImages.clear()
 		// Stale from a prior turn it would misattribute a pre-first-iteration failure.
@@ -3027,7 +3097,8 @@ export class AIChatManager implements ChatViewHost {
 							this.contextManager.getSelectedContext(),
 							{
 								workspace: this.operatingWorkspace,
-								activePreview: this.activePreviewResolver?.()
+								activePreview: this.activePreviewResolver?.(),
+								accessPolicy: this.currentSessionAccessPolicy()
 							}
 						)
 					}
@@ -3816,6 +3887,7 @@ export class AIChatManager implements ChatViewHost {
 					userMessage = prepareGlobalUserMessage(modelInstructions, oldSelectedContext, {
 						workspace: this.operatingWorkspace,
 						activePreview: this.activePreviewResolver?.(),
+						accessPolicy: this.currentSessionAccessPolicy(),
 						images: sentImages,
 						files: files
 					})

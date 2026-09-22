@@ -94,6 +94,8 @@ import {
 } from '../flow/inlineScriptsUtils'
 import { searchNpmPackagesTool } from '../script/core'
 import type { McpServer } from './mcpTools'
+import type { AgentAccessPolicy } from '../agentAccessPolicy'
+import { setEditableFolderSelected } from '../contextSummary/selectedEditableFolders'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
 import { isSkillEnabled } from '../skills/enabledSkills'
 import {
@@ -315,6 +317,7 @@ export type GlobalActivePreviewContext = {
 
 export type GlobalUserMessageOptions = {
 	workspace?: string
+	accessPolicy?: AgentAccessPolicy
 	activeEditor?: GlobalActiveEditorContext
 	activePreview?: GlobalActivePreviewContext
 	/** Images attached to this message; delivered as image_url content parts. */
@@ -1317,7 +1320,8 @@ const buildGlobalSystemPrompt = (
 	previewTools: boolean,
 	folderCtx?: FolderPromptContext,
 	skills: AiSkillListItem[] = [],
-	mcpServers: McpServer[] = []
+	mcpServers: McpServer[] = [],
+	accessPolicy?: AgentAccessPolicy
 ) => {
 	const folderGuidance = buildFolderGuidance(username, folderCtx)
 	const folderGuidanceBlock = folderGuidance ? `\n${folderGuidance}` : ''
@@ -1347,7 +1351,11 @@ const buildGlobalSystemPrompt = (
 			}. Use that to judge whether a feature is available before promising it.`
 		: ''
 
-	return `You are Windmill's global workspace assistant.
+	const accessPolicyBlock = accessPolicy
+		? `\n\nSession context selection:\n- ${accessPolicy.promptSummary()}\n- Treat this selection as authoritative. Never ask a tool to read, modify, run, or preview an item outside it. When listing workspace items under a restricted selection, pass a selected path_prefix. If access is blocked, ask the user to enable that scope in Context.`
+		: ''
+
+	return `You are Windmill's global workspace assistant.${accessPolicyBlock}
 
 The current user's workspace username is "${username}".${instanceLine}
 
@@ -3389,7 +3397,7 @@ export const globalTools: Tool<{}>[] = [
 			'List workspace items and drafts. Returns metadata only, up to limit items per item type per page (default 50); pass page to continue past a full page.'
 		),
 		planModeSafe: true,
-		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
+		fn: async ({ args, workspace, helpers, toolId, toolCallbacks }) => {
 			const parsed = listWorkspaceItemsSchema.parse(args)
 			const types = getRequestedTypes(parsed.types)
 			const limit = parsed.limit ?? 50
@@ -3438,7 +3446,9 @@ export const globalTools: Tool<{}>[] = [
 			// No cross-type truncation: each type is already capped at `limit` rows by
 			// its own list call, and slicing the concatenation would silently drop the
 			// later types' rows while their next page skips past them.
-			const results = Array.from(byKey.values()).filter((item) => itemMatches(item, parsed.query))
+			let results = Array.from(byKey.values()).filter((item) => itemMatches(item, parsed.query))
+			const accessPolicy = (helpers as GlobalToolHelpers).agentAccessPolicy
+			if (accessPolicy) results = accessPolicy.filterPaths(results, (item) => item.path)
 
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Listed ${results.length} workspace item(s)`
@@ -3494,7 +3504,7 @@ export const globalTools: Tool<{}>[] = [
 		requiresConfirmation: true,
 		confirmationMessage: 'Create folder',
 		showDetails: true,
-		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
+		fn: async ({ args, workspace, helpers, toolId, toolCallbacks }) => {
 			const parsed = createFolderSchema.parse(args)
 			if (!VALID_FOLDER_NAME.test(parsed.name)) {
 				const error =
@@ -3517,6 +3527,9 @@ export const globalTools: Tool<{}>[] = [
 					if (!user.folders) user.folders = []
 					if (!user.folders.includes(parsed.name)) user.folders.push(parsed.name)
 				}
+				const accessPolicy = (helpers as GlobalToolHelpers).agentAccessPolicy
+				accessPolicy?.grantCreatedFolder(parsed.name)
+				setEditableFolderSelected(workspace, `folder:${parsed.name}`, true)
 				const message = `Created folder \`f/${parsed.name}\`. You can now write items to \`f/${parsed.name}/<name>\`.`
 				toolCallbacks.setToolStatus(toolId, { content: message })
 				return JSON.stringify({ success: true, message })
@@ -4420,6 +4433,7 @@ type WriteDraftCtx = {
 export type SessionToolHelpers = { sessionId?: string }
 
 export type GlobalToolHelpers = SessionToolHelpers & {
+	agentAccessPolicy?: AgentAccessPolicy
 	/** Runs the flow editor mounted on `storagePath`, if one is. `memoryId` names the
 	 * chat-mode conversation the turn belongs to. */
 	testActiveFlow?: (
@@ -7695,9 +7709,13 @@ async function diffSearch(
 	if (failedPaths.length > 0) {
 		unflushedNote += `\nWarning: ${failedPaths.length === 1 ? 'this diff' : 'these diffs'} could not be computed and ${failedPaths.length === 1 ? 'was' : 'were'} NOT searched (matches may be missing): ${failedPaths.join(', ')}. Retry, or read the item${failedPaths.length === 1 ? '' : 's'} directly for the error.`
 	}
-	const filtered = args.file_glob
-		? units.filter((u) => appFileMatchesGlob(u.subject, args.file_glob as string))
+	const accessPolicy = (ctx.helpers as GlobalToolHelpers).agentAccessPolicy
+	const accessibleUnits = accessPolicy
+		? units.filter((unit) => accessPolicy.allows({ kind: 'workspace_path', path: unit.subject }))
 		: units
+	const filtered = args.file_glob
+		? accessibleUnits.filter((u) => appFileMatchesGlob(u.subject, args.file_glob as string))
+		: accessibleUnits
 
 	const needle = query.toLowerCase()
 	const maxMatches = Math.min(
@@ -8327,28 +8345,44 @@ export function prepareGlobalSystemMessage(
 		user?: GlobalPromptIdentity
 		skills?: AiSkillListItem[]
 		mcpServers?: McpServer[]
+		accessPolicy?: AgentAccessPolicy
 	}
 ): ChatCompletionSystemMessageParam {
 	const user = opts?.user ?? get(userStore)
 	const username = user?.username ?? ''
-	const folderCtx: FolderPromptContext | undefined = user
+	let folderCtx: FolderPromptContext | undefined = user
 		? {
 				folders: user.folders,
 				foldersRead: user.folders_read ?? user.folders,
 				isAdmin: user.is_admin ?? false
 			}
 		: undefined
+	if (folderCtx && opts?.accessPolicy) {
+		folderCtx = {
+			...folderCtx,
+			folders: folderCtx.folders?.filter((folder) =>
+				opts.accessPolicy!.allows({ kind: 'workspace_path', path: `f/${folder}/item` })
+			),
+			foldersRead: folderCtx.foldersRead?.filter((folder) =>
+				opts.accessPolicy!.allows({ kind: 'workspace_path', path: `f/${folder}/item` })
+			)
+		}
+	}
 	let content = buildGlobalSystemPrompt(
 		username,
 		opts?.previewTools ?? false,
 		folderCtx,
 		opts?.skills ?? [],
-		opts?.mcpServers ?? []
+		opts?.mcpServers ?? [],
+		opts?.accessPolicy
 	)
-	if (instructions?.workspace?.trim()) {
+	if (
+		instructions?.workspace?.trim() &&
+		opts?.accessPolicy?.isScopeSelected('workspace') !== false
+	) {
 		content = `${content}\n\nWORKSPACE INSTRUCTIONS (configured by a workspace admin, shared by everyone in this workspace — you cannot modify these):\n${instructions.workspace.trim()}`
 	}
-	if (instructions?.user?.trim()) {
+	if (instructions?.user?.trim() && opts?.accessPolicy?.isScopeSelected('personal') !== false) {
 		content = `${content}\n\nUSER INSTRUCTIONS (this user's personal instructions — update them with the update_user_instructions tool when the user asks you to remember, change, or stop something):\n${instructions.user.trim()}`
 	}
 
@@ -8375,15 +8409,27 @@ export function prepareGlobalUserMessage(
 	selectedContext: ContextElement[] = [],
 	options: GlobalUserMessageOptions = {}
 ): ChatCompletionUserMessageParam {
-	const selectedWorkspaceItems = selectedContext.filter(
-		(context) =>
-			context.type === 'workspace_script' ||
-			context.type === 'workspace_flow' ||
-			context.type === 'workspace_app'
-	)
-	const activeEditor =
+	const selectedWorkspaceItems = selectedContext
+		.filter(
+			(context) =>
+				context.type === 'workspace_script' ||
+				context.type === 'workspace_flow' ||
+				context.type === 'workspace_app'
+		)
+		.filter(
+			(context) =>
+				!options.accessPolicy ||
+				options.accessPolicy.allows({ kind: 'workspace_path', path: context.path })
+		)
+	const resolvedActiveEditor =
 		options.activeEditor ??
 		(options.workspace ? getActiveGlobalEditorContext(options.workspace) : undefined)
+	const activeEditor =
+		resolvedActiveEditor &&
+		(!options.accessPolicy ||
+			options.accessPolicy.allows({ kind: 'workspace_path', path: resolvedActiveEditor.path }))
+			? resolvedActiveEditor
+			: undefined
 	let content = ''
 
 	if (activeEditor) {
@@ -8393,7 +8439,12 @@ export function prepareGlobalUserMessage(
 		content += `isLiveDraft: true\n\n`
 	}
 
-	if (options.activePreview) {
+	if (
+		options.activePreview &&
+		(!options.activePreview.open ||
+			!options.accessPolicy ||
+			options.accessPolicy.allows({ kind: 'workspace_path', path: options.activePreview.open }))
+	) {
 		content += '## ACTIVE PREVIEW\n'
 		content += `page: ${options.activePreview.label}\n`
 		content += `location: ${options.activePreview.location}\n`

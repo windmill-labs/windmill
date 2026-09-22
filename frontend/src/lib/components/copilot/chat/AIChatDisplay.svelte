@@ -235,8 +235,19 @@
 	let aiChatInput: AIChatInput | undefined = $state()
 	let assistantSettings: AssistantSettingsModal | undefined = $state()
 	const folderAccessState = new FolderAccessState(
-		() => aiChatManager.operatingWorkspace ?? $workspaceStore ?? ''
+		() => aiChatManager.operatingWorkspace ?? $workspaceStore ?? '',
+		() => aiChatManager.agentContextUsername,
+		() => aiChatManager.agentContextFolders,
+		() => aiChatManager.globalSkills,
+		() => aiChatManager.mcpServers,
+		() => aiChatManager.contextSelectionChanged()
 	)
+
+	$effect(() => {
+		if (chatHost.mode === AIMode.GLOBAL && chatHost.isSessionChat) {
+			void folderAccessState.refreshItems(aiChatManager.operatingWorkspace ?? $workspaceStore ?? '')
+		}
+	})
 	// The "+" menu's skill and MCP rows: enough state to check and flip one, with
 	// everything else about them behind the assistant settings modal.
 	const skillsMenu = new SkillsMenu(aiChatManager, () => assistantSettings?.open('skills'))
@@ -1239,13 +1250,17 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 							<AIChatModelSettings promptSettings={false} />
 						{/if}
 						{@render footerSettings?.()}
-						{#if chatHost.mode === AIMode.GLOBAL}
+						{#if chatHost.mode === AIMode.GLOBAL && chatHost.isSessionChat}
 							<AssistantSettingsModal bind:this={assistantSettings}>
 								{#snippet workingFolders(onChange, disabled)}
 									<WorkingFolders state={folderAccessState} {onChange} {disabled} />
 								{/snippet}
 								{#snippet folderSelection()}
-									<FolderAccessTree state={folderAccessState} title="Select folders" />
+									<FolderAccessTree
+										state={folderAccessState}
+										title="Select folders"
+										showHistoryNote
+									/>
 								{/snippet}
 							</AssistantSettingsModal>
 						{/if}

@@ -6,7 +6,11 @@
 	import { scopeRecap, type AccessScope } from './folderAccess'
 	import type { FolderAccessState } from './folderAccessState.svelte'
 
-	let { state, title = 'Context' }: { state: FolderAccessState; title?: string } = $props()
+	let {
+		state,
+		title = 'Context',
+		showHistoryNote = false
+	}: { state: FolderAccessState; title?: string; showHistoryNote?: boolean } = $props()
 
 	function scopeIcon(scope: AccessScope) {
 		if (scope.kind === 'personal') return UserRound
@@ -90,4 +94,9 @@
 			</div>
 		{/each}
 	</div>
+	{#if showHistoryNote}
+		<p class="px-2 pt-2 text-2xs text-secondary">
+			Changes apply to future turns. Earlier messages remain in this session.
+		</p>
+	{/if}
 </div>

@@ -15,6 +15,10 @@ import {
 } from "../../../../../frontend/src/lib/components/copilot/chat/global/userDraftAdapter";
 import { appendPlanModeInstructions } from "../../../../../frontend/src/lib/components/copilot/chat/planMode";
 import type { Tool as ProductionTool } from "../../../../../frontend/src/lib/components/copilot/chat/shared";
+import {
+  AgentAccessPolicy,
+  filterToolsForAgentAccess,
+} from "../../../../../frontend/src/lib/components/copilot/chat/agentAccessPolicy";
 import { createEvalPlanTools } from "./planModeTools";
 import { UserDraft } from "../../../../../frontend/src/lib/userDraft.svelte";
 import {
@@ -121,6 +125,10 @@ export interface GlobalEvalOptions {
   // Start in plan mode: the gate refuses every tool without `planModeSafe`, and the two plan
   // tools are offered. Needs sessionChat, which is what plan mode is gated on in production.
   planMode?: boolean;
+  contextSelection?: {
+    baseline: "selected" | "deselected";
+    overrides: Array<"personal" | "workspace" | `folder:${string}`>;
+  };
   model?: string;
   maxIterations?: number;
   provider?: AIProvider;
@@ -178,11 +186,18 @@ export async function runGlobalEval(
           chatId: evalArtifacts.helpers.getChatId(),
         })
       : undefined;
+    const accessPolicy = options.contextSelection
+      ? new AgentAccessPolicy(options.user?.username ?? "eval", {
+          version: 2,
+          ...options.contextSelection,
+        })
+      : undefined;
     // Pass the seeded identity straight to the prompt builder rather than mutating
     // the process-global `userStore`, so concurrent cases never race on it.
     const baseSystemMessage = prepareGlobalSystemMessage(undefined, {
       user: options.user,
       previewTools: options.sessionChat ?? false,
+      accessPolicy,
     });
     const rawResult = await runEval({
       userPrompt,
@@ -201,14 +216,20 @@ export async function runGlobalEval(
       userMessage: prepareGlobalUserMessage(userPrompt, [], {
         ...(injectActiveEditorContext ? { workspace: workspaceRoot } : {}),
         activePreview: panel?.activePreview(),
+        accessPolicy,
       }),
       tools: [
-        ...getGlobalEvalTools(options.sessionChat ?? false),
+        ...filterToolsForAgentAccess(
+          getGlobalEvalTools(options.sessionChat ?? false),
+          accessPolicy,
+        ),
         ...(planMode?.tools ?? []),
       ],
-      helpers: panel
-        ? { ...evalArtifacts.helpers, openArtifact: panel.openArtifact }
-        : evalArtifacts.helpers,
+      helpers: {
+        ...evalArtifacts.helpers,
+        ...(panel ? { openArtifact: panel.openArtifact } : {}),
+        agentAccessPolicy: accessPolicy,
+      },
       apiKey,
       getOutput: async () => ({
         ...(await collectGlobalDraftState(workspaceRoot)),
