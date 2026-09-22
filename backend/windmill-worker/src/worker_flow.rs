@@ -44,8 +44,7 @@ use windmill_common::flow_status::{
 };
 use windmill_common::flows::{add_virtual_items_if_necessary, Branch, FlowNodeId, StopAfterIf};
 use windmill_common::jobs::{
-    check_tag_available_for_workspace_internal, script_path_to_payload, JobKind, JobPayload,
-    OnBehalfOf, RawCode, ENTRYPOINT_OVERRIDE,
+    script_path_to_payload, JobKind, JobPayload, OnBehalfOf, RawCode, ENTRYPOINT_OVERRIDE,
 };
 use windmill_common::runnable_settings::{
     ConcurrencySettingsWithCustom, DebouncingSettings, RunnableSettingsTrait,
@@ -68,11 +67,12 @@ use windmill_common::{
 };
 use windmill_queue::schedule::get_schedule_opt;
 use windmill_queue::{
-    add_completed_job, add_completed_job_error, append_logs, get_mini_pulled_job,
-    insert_concurrency_key_capped, interpolate_args, render_tag_path,
-    report_error_to_workspace_handler_or_critical_side_channel, tag_reads_args,
-    tag_reads_flow_expr, try_schedule_next_job, CanceledBy, FlowRunners, MiniCompletedJob,
-    MiniPulledJob, PushArgs, PushIsolationLevel, SameWorkerPayload, WrappedError, RE_FLOW_EXPR_TAG,
+    add_completed_job, add_completed_job_error, append_logs,
+    check_tag_written_as_available_for_push, get_mini_pulled_job, insert_concurrency_key_capped,
+    render_tag_path, report_error_to_workspace_handler_or_critical_side_channel, resolve_push_tag,
+    tag_reads_args, tag_reads_flow_expr, try_schedule_next_job, CanceledBy, FlowRunners,
+    MiniCompletedJob, MiniPulledJob, PushArgs, PushIsolationLevel, SameWorkerPayload, WrappedError,
+    RE_FLOW_EXPR_TAG,
 };
 
 use windmill_audit::audit_oss::audit_log;
@@ -1520,15 +1520,6 @@ pub async fn update_flow_status_after_job_completion_internal(
                         .is_some_and(|ck| ck.contains("$args"))
             });
             let require_args = concurrency_requires_args || has_debouncing;
-            let mut tag = tag_and_concurrency_key.as_ref().and_then(|x| x.tag.clone());
-            // `$workspace` does not depend on the preprocessor's output, so it has to resolve even
-            // when nothing forced us to fetch args. Leaving it to the `$args` branch below writes a
-            // `$workspace`-only tag back verbatim, naming a queue no worker serves.
-            if let Some(t) = tag.as_ref().filter(|t| t.contains("$workspace")) {
-                let tag_ws =
-                    windmill_queue::tags::tag_workspace_id(&flow_job.workspace_id, db).await;
-                tag = Some(t.replace("$workspace", &tag_ws));
-            }
             let concurrency_key = tag_and_concurrency_key
                 .as_ref()
                 .and_then(|x| x.concurrency_key.clone());
@@ -1576,10 +1567,6 @@ pub async fn update_flow_status_after_job_completion_internal(
                     )
                     .await?;
                 }
-                if let Some(t) = tag {
-                    // `$workspace` is already resolved above; this fills in `$args`.
-                    tag = Some(interpolate_args(t, &args, &flow_job.workspace_id));
-                }
             } else if concurrent_limit.is_some() {
                 insert_concurrency_key_capped(
                     &flow_job.workspace_id,
@@ -1593,6 +1580,23 @@ pub async fn update_flow_status_after_job_completion_internal(
                 )
                 .await?;
             }
+
+            // Resolved as `push` resolves a tag, so a `$flow_expr[...]` or empty one comes out as
+            // `None` and the job keeps its current tag instead of queueing on the literal text.
+            let tag = match tag_and_concurrency_key
+                .as_ref()
+                .and_then(|x| x.tag.as_deref())
+            {
+                // `run_flow` checked this tag for whoever ran the flow, an `$args[...]` in it as
+                // written since only this point knows its values: an entry admitting it as
+                // written admits every value here.
+                Some(t) => {
+                    let no_args = HashMap::new();
+                    let args = PushArgs::from(fetched_args.as_ref().unwrap_or(&no_args));
+                    resolve_push_tag(t, &args, &flow_job.workspace_id, db).await
+                }
+                None => None,
+            };
 
             let scheduled_for: Option<chrono::DateTime<chrono::Utc>> = {
                 #[cfg(feature = "private")]
@@ -4494,33 +4498,7 @@ async fn push_next_flow_job(
             )
         };
 
-        // Check tag availability for flow substeps to prevent abuse.
-        // Skip when the substep inherits the parent flow's tag: that tag was already
-        // validated at flow push time, and for dedicated flows it is the auto-generated
-        // `{workspace_id}:flow/{path}` tag which is never in CUSTOM_TAGS.
-        if let Some(tag_str) = tag
-            .as_deref()
-            .filter(|t| !t.is_empty() && *t != flow_job.tag.as_str())
-        {
-            // A step with its own on-behalf-of carries a cached dispatch address, up to one
-            // notify poll stale; accepted, see `get_email_from_permissioned_as`.
-            let is_super_admin = windmill_common::auth::is_super_admin_email(db, email).await?;
-            check_tag_available_for_workspace_internal(
-                db,
-                &flow_job.workspace_id,
-                tag_str,
-                is_super_admin,
-                None, // no token for flow substeps so no scopes so no scope_tags
-            )
-            .warn_after_seconds_with_sql(
-                1,
-                "check_tag_available_for_workspace_internal".to_string(),
-            )
-            .await?;
-        }
-
-        // Resolved only after the check: CUSTOM_TAGS allows the template, so its value may name
-        // any queue, as the value of an `$args[...]` tag does.
+        let written_tag = tag.clone();
         let mut tag_err = None;
         let tag = match tag {
             Some(t) if err.is_none() && tag_reads_flow_expr(&t) => {
@@ -4542,6 +4520,31 @@ async fn push_next_flow_job(
             t => t,
         };
         let err = err.or(tag_err.as_ref());
+
+        // Check tag availability for flow substeps to prevent abuse. It runs on the tag with its
+        // `$flow_expr[...]` filled in, as `push` fills in the rest, since that is what picks the
+        // queue. Skip when the substep inherits the parent flow's tag: that tag was already
+        // validated at flow push time, and for dedicated flows it is the auto-generated
+        // `{workspace_id}:flow/{path}` tag which is never in CUSTOM_TAGS.
+        if let Some(tag_str) = tag
+            .as_deref()
+            .filter(|t| !t.is_empty() && *t != flow_job.tag.as_str())
+        {
+            // A step with its own on-behalf-of carries a cached dispatch address, up to one
+            // notify poll stale; accepted, see `get_email_from_permissioned_as`.
+            let is_super_admin = windmill_common::auth::is_super_admin_email(db, email).await?;
+            check_tag_written_as_available_for_push(
+                db,
+                &flow_job.workspace_id,
+                written_tag.as_deref().unwrap_or(tag_str),
+                tag_str,
+                &push_args,
+                is_super_admin,
+                None, // no token for flow substeps so no scopes so no scope_tags
+            )
+            .warn_after_seconds_with_sql(1, "check_tag_available_for_push".to_string())
+            .await?;
+        }
 
         let evaluated_timeout = if let Some(timeout_transform) = &module.timeout {
             let ctx = get_transform_context(&flow_job, &previous_id, &status);

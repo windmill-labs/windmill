@@ -4450,9 +4450,11 @@ async fn execute_component(
     // — like `/jobs/run/preview` — confine it to worker tags the caller may use
     // (a `if_jobs:filter_tags`-restricted token must not escape its filter).
     // `is_preview` implies an authed caller (the guard above returns otherwise).
+    let push_args = PushArgs { args: &args.args, extra: args.extra };
     if is_preview {
         if let Some(authed) = opt_authed.as_ref() {
-            crate::jobs::check_tag_available_for_workspace(&db, &w_id, &tag, authed).await?;
+            crate::jobs::check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, authed)
+                .await?;
         }
     }
     // Identity is already resolved to the requesting user in preview mode (the
@@ -4483,7 +4485,7 @@ async fn execute_component(
         tx,
         &w_id,
         job_payload,
-        PushArgs { args: &args.args, extra: args.extra },
+        push_args,
         &username,
         email,
         permissioned_as,

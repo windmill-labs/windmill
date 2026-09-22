@@ -17,7 +17,7 @@ use crate::{
     get_latest_deployed_hash_for_path, get_latest_flow_version_info_for_path,
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     utils::{StripPath, HTTP_CLIENT},
-    worker::{to_raw_value, CUSTOM_TAGS_PER_WORKSPACE, WINDMILL_DIR},
+    worker::{custom_tag_matches, to_raw_value, CUSTOM_TAGS_PER_WORKSPACE, WINDMILL_DIR},
     workspaces::workspace_with_fork_ancestors,
     FlowVersionInfo, ScriptHashInfo, Tag,
 };
@@ -337,32 +337,54 @@ lazy_static::lazy_static! {
 // `is_super_admin` is passed in (not derived from an email here) so callers can
 // make it job-token-aware: a job's WM_TOKEN must never count as superadmin
 // (GHSA-hfh4-cx4h-3fcr). See `is_super_admin_authed` at the request wrapper.
+//
+// Custom tags judge `resolved_tag`, the queue the job actually lands on, and `tag` only as the
+// job's author wrote it: a dynamic tag names any queue its values do. Callers go through
+// `windmill_queue::check_tag_available_for_push`, which resolves it the way `push` does.
+// `resolved_tag` is `None` when the values are not known yet: only an entry spelled like `tag`
+// admits it then. `tag_workspace` resolves to what the job's `$workspace` stands for.
 pub async fn check_tag_available_for_workspace_internal(
     db: &DB,
     w_id: &str,
     tag: &str,
+    resolved_tag: Option<&str>,
+    tag_workspace: impl Future<Output = String>,
     is_super_admin: bool,
     scope_tags: Option<Vec<&str>>,
 ) -> error::Result<()> {
-    let mut is_tag_in_scope_tags = None;
-    let mut is_tag_in_workspace_custom_tags = false;
-
-    if let Some(scope_tags) = scope_tags.as_ref() {
-        is_tag_in_scope_tags = Some(scope_tags.contains(&tag));
-    }
+    let is_tag_in_scope_tags = scope_tags.as_ref().map(|scope_tags| {
+        scope_tags.contains(&tag) || resolved_tag.is_some_and(|r| scope_tags.contains(&r))
+    });
 
     let custom_tags_per_w = CUSTOM_TAGS_PER_WORKSPACE.load();
-    if custom_tags_per_w.global.contains(&tag.to_string()) {
-        is_tag_in_workspace_custom_tags = true;
-    } else if let Some(specific_tag) = custom_tags_per_w.specific.get(tag) {
-        // Only a fork-scoped tag can match through the lineage, so every other tag keeps the
-        // ancestor lookup off the push path entirely.
-        let chain = if specific_tag.is_fork_scoped() {
-            workspace_with_fork_ancestors(db, w_id).await?
-        } else {
-            vec![w_id.to_string()]
-        };
-        is_tag_in_workspace_custom_tags = specific_tag.applies_to_workspace(&chain);
+    // Only an entry reading `$workspace` needs it, so every other tag keeps its lookup off the
+    // push path.
+    let tag_workspace = if resolved_tag.is_some()
+        && custom_tags_per_w
+            .global
+            .iter()
+            .any(|t| t.contains("$workspace"))
+    {
+        tag_workspace.await
+    } else {
+        w_id.to_string()
+    };
+    // A job whose tag is written exactly as an entry resolves inside what that entry admits, which
+    // is the only way in for an entry `custom_tag_matches` cannot turn into a pattern.
+    let mut is_tag_in_workspace_custom_tags = custom_tags_per_w.global.iter().any(|entry| {
+        entry == tag || resolved_tag.is_some_and(|r| custom_tag_matches(entry, r, &tag_workspace))
+    });
+    if !is_tag_in_workspace_custom_tags {
+        if let Some(specific_tag) = custom_tags_per_w.specific.get(resolved_tag.unwrap_or(tag)) {
+            // Only a fork-scoped tag can match through the lineage, so every other tag keeps the
+            // ancestor lookup off the push path entirely.
+            let chain = if specific_tag.is_fork_scoped() {
+                workspace_with_fork_ancestors(db, w_id).await?
+            } else {
+                vec![w_id.to_string()]
+            };
+            is_tag_in_workspace_custom_tags = specific_tag.applies_to_workspace(&chain);
+        }
     }
 
     match is_tag_in_scope_tags {
@@ -375,6 +397,12 @@ pub async fn check_tag_available_for_workspace_internal(
     }
 
     if !is_super_admin {
+        let tag = match resolved_tag {
+            Some(resolved_tag) if resolved_tag != tag => {
+                format!("{tag} (resolved to {resolved_tag})")
+            }
+            _ => tag.to_string(),
+        };
         if scope_tags.is_some() && is_tag_in_scope_tags.is_some() {
             return Err(Error::BadRequest(format!(
                 "Tag {tag} is not available in your scope"
@@ -385,7 +413,7 @@ pub async fn check_tag_available_for_workspace_internal(
             return Err(Error::BadRequest(format!("{tag} is not available to you")));
         } else {
             return Err(error::Error::BadRequest(format!(
-            "Only super admins are allowed to use tags that are not included in the allowed CUSTOM_TAGS: {:?}",
+            "Tag {tag} is not included in the allowed CUSTOM_TAGS, which only super admins can go beyond: {:?}",
             custom_tags_per_w
         )));
         }

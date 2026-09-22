@@ -2,7 +2,8 @@
 	import { preventDefault, stopPropagation } from 'svelte/legacy'
 
 	import { Button } from './common'
-	import { ExternalLink, Loader2, X } from 'lucide-svelte'
+	import { AlertTriangle, ExternalLink, Loader2, X } from 'lucide-svelte'
+	import Popover from './meltComponents/Popover.svelte'
 	import { SettingService, WorkerService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { superadmin, devopsRole } from '$lib/stores'
@@ -52,6 +53,43 @@
 		let matched = r.match(dynamicTagRegex)
 		return matched ? { kind: matched[1], path: matched[2] } : undefined
 	})
+
+	// Mirrors custom_tag_matches in backend/windmill-common/src/worker.rs: a job's tag is judged on
+	// what it resolves to, and a placeholder in a custom tag stands for any text, unless two of them
+	// are tied (same kind, and the same path or one inside the other). A tied entry admits only a
+	// tag written exactly like it; an untied one is a pattern fenced only by its fixed text.
+	function placeholdersOf(entry: string) {
+		return [...entry.matchAll(new RegExp(dynamicTagRegex.source, 'g'))].map((m) => ({
+			kind: m[1],
+			path: m[2],
+			start: m.index,
+			end: m.index + m[0].length
+		}))
+	}
+	function isTied(entry: string) {
+		const placeholders = placeholdersOf(entry)
+		return placeholders.some((a, i) =>
+			placeholders
+				.slice(i + 1)
+				.some(
+					(b) =>
+						a.kind == b.kind &&
+						(a.path == b.path || a.path.startsWith(b.path + '.') || b.path.startsWith(a.path + '.'))
+				)
+		)
+	}
+	// With nothing fixed at its start or its end, a pattern reaches almost any tag.
+	function reachesAnyTag(entry: string) {
+		const placeholders = placeholdersOf(entry)
+		return (
+			placeholders.length > 0 &&
+			!isTied(entry) &&
+			placeholders[0].start == 0 &&
+			placeholders[placeholders.length - 1].end == entry.length
+		)
+	}
+	let dynamicTagTied = $derived(isTied(newTag.trim()))
+	let dynamicTagReachesAnyTag = $derived(reachesAnyTag(newTag.trim()))
 
 	let extractedCustomTag = $derived.by(() => {
 		let r = newTag.trim()
@@ -126,6 +164,12 @@
 
 <svelte:window onkeydown={onKeyDown} />
 
+{#snippet reachesAnyTagWarning()}
+	Nothing fixed at its start or its end, so it allows anyone to reach almost any tag. We highly
+	recommend a prefix or a suffix, ideally both, to limit its reach: for instance
+	<code>gpu-$args[size]</code> or <code>gpu-$args[size]-eu</code>.
+{/snippet}
+
 <div
 	class="flex flex-col gap-2"
 	class:w-72={variant === 'popover'}
@@ -138,6 +182,23 @@
 			{#each customTags as customTag}
 				<Badge color="blue">
 					{customTag}
+					{#if reachesAnyTag(customTag)}
+						<Popover
+							openOnHover
+							placement="top"
+							class="inline-flex items-center"
+							triggerAttrs={{ 'aria-label': 'Warning: this tag allows reaching almost any tag' }}
+						>
+							{#snippet trigger()}
+								<AlertTriangle size={14} class="text-yellow-500" />
+							{/snippet}
+							{#snippet content()}
+								<div class="max-w-72 p-3 text-xs text-primary">
+									{@render reachesAnyTagWarning()}
+								</div>
+							{/snippet}
+						</Popover>
+					{/if}
 
 					{#if tagEditor}
 						<button
@@ -216,6 +277,20 @@
 					{:else if dynamicTag}
 						<div>Interpolated tag based on args input of <b>{dynamicTag.path}</b></div>
 					{/if}
+					{#if dynamicTagTied}
+						<div class="mt-1">
+							Its placeholders read the same value, or one reads inside the other, so it allows only
+							jobs whose tag is written exactly like this
+						</div>
+					{:else if dynamicTagReachesAnyTag}
+						<div class="mt-1 text-yellow-600 dark:text-yellow-500">
+							{@render reachesAnyTagWarning()}
+						</div>
+					{:else if dynamicTag}
+						<div class="mt-1">
+							Allows any tag it resolves to, with the text around the placeholder as written
+						</div>
+					{/if}
 				</div>
 			{/if}
 		{/if}
@@ -269,6 +344,11 @@
 			<pre class="inline">a</pre> is the step id, or
 			<pre class="inline text-emphasis">$flow_expr[flow_input.a.b.c]</pre> and
 			<pre class="inline text-emphasis">$flow_expr[flow_env.a.b.c]</pre>.
+			<br />{#if variant !== 'drawer'}<br />{/if}
+			A dynamic tag is checked on the tag it resolves to: it is allowed when that tag is listed here,
+			or fits a listed dynamic tag such as
+			<pre class="inline text-emphasis">gpu-$args[size]</pre>, which allows any tag starting with
+			<pre class="inline">gpu-</pre>.
 		</span>
 	{/if}
 </div>
