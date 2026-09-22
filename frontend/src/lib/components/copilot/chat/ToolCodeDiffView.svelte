@@ -73,7 +73,7 @@
 		{#if row.kind === 'collapsed'}
 			<button
 				type="button"
-				class="grid w-full grid-cols-[0.875rem_2.9375rem_minmax(0,1fr)] bg-[#f5f5f5] text-left text-[#989da5] hover:bg-[#e8e8e8]"
+				class="grid min-h-7 w-full grid-cols-[0.875rem_2.9375rem_minmax(0,1fr)] items-center bg-[#f5f5f5] py-1 text-left text-xs font-normal leading-[18px] text-[#989da5] hover:bg-[#e8e8e8]"
 				onclick={() => expand(row.key)}
 			>
 				<span class="text-right">...</span>
