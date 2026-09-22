@@ -317,8 +317,11 @@ export async function fetchAvailableModels(
 }
 
 // Thinking counts toward max_tokens, so a model outside the table that is asked to
-// reason gets more room than the plain fallback. Custom AI never does: the registry
-// does not know its models, and the per-model override is its way to a larger budget.
+// reason gets more room than the plain fallback. A host rejects a budget above the
+// model's cap, so the reasoning fallback must stay within the cap of every model it
+// reaches (true of every reasoning model OpenRouter serves outside the table). Custom
+// AI never gets it: the registry does not know its models, and the per-model override
+// is its way to a larger budget.
 const FALLBACK_MAX_TOKENS = 8192
 const REASONING_FALLBACK_MAX_TOKENS = 32768
 

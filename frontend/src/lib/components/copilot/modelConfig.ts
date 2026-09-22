@@ -147,8 +147,7 @@ const MODEL_MAX_OUTPUT_TOKENS: [name: string, maxOutputTokens: number][] = [
 	['o4-mini', 100_000],
 	// Google
 	['gemini-3', 64_000],
-	['gemini-2.5', 64_000],
-	['codestral', 16_384]
+	['gemini-2.5', 64_000]
 ]
 
 // Open-weight models, which a self-hosted server (Custom AI) caps at whatever context
@@ -163,6 +162,8 @@ const OPEN_WEIGHT_MAX_OUTPUT_TOKENS: [name: string, maxOutputTokens: number][] =
 	['deepseek-v4', 131_072],
 	['deepseek-flash', 131_072],
 	['deepseek-r1', 16_000],
+	// Mistral
+	['codestral', 16_384],
 	// Models named for thinking reason on every request, whether or not the chat sends
 	// an effort. Every one OpenRouter lists takes at least this much.
 	['thinking', 32_768]
