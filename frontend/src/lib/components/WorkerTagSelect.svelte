@@ -92,6 +92,8 @@
 		}
 		loading = false
 	}
+	// A dynamic tag is filled in when the job runs, so no worker can be looked up for its text.
+	const dynamicTagRegex = /\$(workspace|args\[|flow_expr\[)/
 	let items = $derived([
 		// ...(tag ? ['reset to default'] : [nullTag ? `default: ${nullTag}` : '']),
 		...(tag && tag != '' && !(currentTags ?? []).includes(tag) ? [tag] : []),
@@ -99,23 +101,25 @@
 	])
 
 	let lastCheck: number | undefined = undefined
-	async function loadTagsToWorkerExists(tags: string[]) {
-		if (lastCheck && Date.now() - lastCheck < 5000) {
-			return
-		}
+	// Each run reads the list as it is then, so a tag typed in since the last run is looked up
+	// too, and a run too soon after the last one is deferred rather than dropped.
+	async function loadTagsToWorkerExists() {
 		if (timeout) {
 			clearTimeout(timeout)
 		}
+		const wait = lastCheck ? 5000 - (Date.now() - lastCheck) : 0
+		if (wait > 0) {
+			timeout = setTimeout(loadTagsToWorkerExists, wait)
+			return
+		}
 		if (open) {
 			tagsToWorkerExists = await WorkerService.existsWorkersWithTags({
-				tags: tags.join(','),
+				tags: items.filter((t) => !dynamicTagRegex.test(t)).join(','),
 				workspace: effectiveWorkspace
 			})
 			lastCheck = Date.now()
 			if (visible) {
-				timeout = setTimeout(() => {
-					loadTagsToWorkerExists(tags)
-				}, 5000)
+				timeout = setTimeout(loadTagsToWorkerExists, 5000)
 			}
 		}
 	}
@@ -136,7 +140,7 @@
 
 	$effect(() => {
 		if (currentTags && open) {
-			loadTagsToWorkerExists(currentTags)
+			loadTagsToWorkerExists()
 		}
 	})
 
@@ -144,7 +148,8 @@
 </script>
 
 {#snippet startSnippet({ item })}
-	{#if tagsToWorkerExists}
+	<!-- A tag nothing was looked up for, like a dynamic one, gets no dot rather than a red one. -->
+	{#if tagsToWorkerExists && !item.__is_create && item.value in tagsToWorkerExists}
 		{#if tagsToWorkerExists[item.value]}
 			<Popover>
 				{#snippet text()}
@@ -162,7 +167,7 @@
 		{/if}
 	{/if}
 {/snippet}
-<div class="flex gap-1 items-center relative">
+<div class="flex gap-1 items-center relative" title={tag || undefined}>
 	{#if !noLabel}
 		<div class="text-primary text-xs">{placeholder ?? 'tag'}</div>
 	{/if}
@@ -176,22 +181,30 @@
 		placeholder={nullTag ? nullTag : (placeholder ?? 'lang default')}
 		items={safeSelectItems(items)}
 		bind:value={() => tag, (value) => ((tag = value), dispatch('change', value))}
+		onCreateItem={(value) => ((tag = value), dispatch('change', value))}
+		createText="Press Enter to use this tag"
 		{startSnippet}
 		bottomSnippet={refreshAll}
 	/>
 </div>
 
 {#snippet refreshAll()}
-	<Button
-		iconOnly
-		variant="subtle"
-		unifiedSize="sm"
-		startIcon={{ icon: RotateCw, classes: loading ? 'animate-spin' : '' }}
-		on:click={async () => {
-			loadWorkerGroups(true)
-			open = true
-		}}
-		btnClasses="rounded-none"
-		title="Refresh worker groups"
-	></Button>
+	<div class="flex items-center justify-between gap-2 border-t border-border-light">
+		<span class="max-w-64 px-4 py-1 text-2xs text-secondary">
+			<code>$workspace</code>, <code>$args[…]</code> and <code>$flow_expr[…]</code> are filled in when
+			the job runs, and must land on an allowed tag
+		</span>
+		<Button
+			iconOnly
+			variant="subtle"
+			unifiedSize="sm"
+			startIcon={{ icon: RotateCw, classes: loading ? 'animate-spin' : '' }}
+			on:click={async () => {
+				loadWorkerGroups(true)
+				open = true
+			}}
+			btnClasses="rounded-none"
+			title="Refresh worker groups"
+		></Button>
+	</div>
 {/snippet}

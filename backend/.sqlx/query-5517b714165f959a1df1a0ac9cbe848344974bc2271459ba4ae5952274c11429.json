@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_settings SET remote_deploy_target_changed_at = '2000-01-01'\n         WHERE workspace_id = 'test-workspace'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "5517b714165f959a1df1a0ac9cbe848344974bc2271459ba4ae5952274c11429"
+}

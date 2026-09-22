@@ -10,7 +10,13 @@
 	import { zIndexes } from '$lib/zIndexes'
 	import { twMerge } from 'tailwind-merge'
 	import { CHAT_INPUT_PADDING, getAiChatManager } from './aiChatManagerContext'
-	import { MENTION_RE, mentionTitle, formatMention } from './mention'
+	import {
+		MENTION_RE,
+		mentionTitle,
+		formatMention,
+		hasMentionLeadingBoundary,
+		mentionTitlesInText
+	} from './mention'
 	import { createFloatingActions, createVirtualElement } from 'svelte-floating-ui'
 	import { flip, offset, shift } from 'svelte-floating-ui/dom'
 	import {
@@ -65,17 +71,11 @@
 
 	const aiChatManager = getAiChatManager()
 
-	function extractMentions(text: string): Set<string> {
-		const out = new Set<string>()
-		for (const m of text.matchAll(MENTION_RE)) out.add(mentionTitle(m[0]))
-		return out
-	}
-
 	// Titles currently appearing as `@title` mentions in the textarea. Compared
 	// against the previous snapshot in a $effect (NOT inside handleInput —
 	// the picker mutates `value` programmatically via `updateInstructionsWithContext`,
 	// which doesn't fire `oninput`, so a handleInput-only diff goes stale).
-	const mentionedTitles = $derived(extractMentions(value))
+	const mentionedTitles = $derived(mentionTitlesInText(value))
 	let prevMentionedTitles = $state<Set<string>>(new Set())
 
 	let showContextTooltip = $state(false)
@@ -268,7 +268,11 @@
 			if (!att) return match
 			return `<span data-paste-id="${att.id}" class="rounded bg-surface-secondary text-secondary cursor-pointer pointer-events-auto">${match}</span>`
 		})
-		html = html.replace(MENTION_RE, (match) => {
+		html = html.replace(MENTION_RE, (match, ...args) => {
+			const offset = args[args.length - 2]
+			if (typeof offset !== 'number' || !hasMentionLeadingBoundary(html, offset)) {
+				return match
+			}
 			const title = unescapeHtml(mentionTitle(match))
 			const inContext =
 				availableContext.find((c) => c.title === title) ||
@@ -564,6 +568,23 @@
 		addContextToSelection(contextElement)
 		updateInstructionsWithContext(contextElement)
 		showContextTooltip = false
+	}
+
+	export async function insertMention(title: string) {
+		const token = formatMention(title)
+		const selectionStart = textarea?.selectionStart ?? value.length
+		const selectionEnd = textarea?.selectionEnd ?? selectionStart
+		const { from, to, ids } = tokensOverlapping(selectionStart, selectionEnd)
+		const before = value.slice(0, from)
+		const after = value.slice(to)
+		const prefix = before.length === 0 || /\s$/.test(before) ? '' : ' '
+		const suffix = after.length === 0 ? ' ' : /^\s/.test(after) ? '' : ' '
+		const inserted = `${prefix}${token}${suffix}`
+		replacePasteRange(from, to, ids, inserted)
+		await tick()
+		const pos = from + inserted.length
+		textarea?.setSelectionRange(pos, pos)
+		textarea?.focus()
 	}
 
 	function refreshCommandSkills() {
