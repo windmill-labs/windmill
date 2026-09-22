@@ -14,7 +14,17 @@ callers that already know which section they mean, such as the "+" menu's Manage
 </script>
 
 <script lang="ts">
-	import { BookOpen, Boxes, Paperclip, Plug, ScrollText, SlidersHorizontal } from 'lucide-svelte'
+	import type { Snippet } from 'svelte'
+	import {
+		ArrowLeft,
+		BookOpen,
+		Boxes,
+		Paperclip,
+		Plug,
+		ScrollText,
+		SlidersHorizontal
+	} from 'lucide-svelte'
+	import PagedContent from '$lib/components/common/modal/PagedContent.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
 	import SidebarNavigation from '$lib/components/common/sidebar/SidebarNavigation.svelte'
@@ -29,6 +39,14 @@ callers that already know which section they mean, such as the "+" menu's Manage
 	import AssistantMcpSection from './AssistantMcpSection.svelte'
 	import AssistantFilesSection from './AssistantFilesSection.svelte'
 
+	let {
+		workingFolders,
+		folderSelection
+	}: {
+		workingFolders?: Snippet<[onChange: () => void, disabled: boolean]>
+		folderSelection?: Snippet
+	} = $props()
+	let editingFolders = $state(false)
 	const aiChatManager = getAiChatManager()
 
 	let isOpen = $state(false)
@@ -74,6 +92,12 @@ callers that already know which section they mean, such as the "+" menu's Manage
 	 * user was brought here to see. */
 	function onKeydown(event: KeyboardEvent) {
 		if (!isOpen || event.key !== 'Escape') return
+		if (editingFolders) {
+			event.preventDefault()
+			event.stopImmediatePropagation()
+			editingFolders = false
+			return
+		}
 		const blocker = blockingSection
 		if (!blocker || blocker === section) return
 		event.preventDefault()
@@ -110,6 +134,7 @@ callers that already know which section they mean, such as the "+" menu's Manage
 
 	/** Opens on `target`, or back on whichever section was last read. */
 	export function open(target: AssistantSettingsSection = section) {
+		editingFolders = false
 		section = target
 		isOpen = true
 		refresh()
@@ -170,69 +195,110 @@ callers that already know which section they mean, such as the "+" menu's Manage
 	{/snippet}
 </Tooltip>
 
-<Modal2
-	bind:isOpen
-	title="Assistant settings"
-	fixedWidth="md"
-	fixedHeight="lg"
-	closeOnOutsideClick={!blocksClose}
-	closeOnEscape={!blocksClose}
->
-	{#snippet headerLeft()}
-		<p class="pl-3 pt-1 text-xs text-secondary truncate">
-			What the assistant can see and use in this session.
-		</p>
-	{/snippet}
+{#snippet headerLeft()}
+	<p class="pl-3 pt-1 text-xs text-secondary truncate">
+		What the assistant can see and use in this session.
+	</p>
+{/snippet}
 
-	<div class="w-full flex min-h-0 gap-4">
-		<div class="w-52 shrink-0 flex flex-col border-r border-border-light pr-3">
-			<SidebarNavigation
-				groups={[{ items: sections }]}
-				selectedId={section}
-				onNavigate={(id) => select(id as AssistantSettingsSection)}
-			/>
+{#snippet foldersPage()}
+	<div class="flex h-full min-h-0 flex-col gap-4">
+		<div class="flex items-center gap-2">
+			<Button
+				variant="subtle"
+				unifiedSize="sm"
+				startIcon={{ icon: ArrowLeft }}
+				onclick={() => (editingFolders = false)}>Back</Button
+			>
+			<span class="text-sm text-primary">Working folders</span>
 		</div>
+		<div class="min-h-0 grow overflow-y-auto scrollbar-subtle [scrollbar-gutter:stable]">
+			{@render folderSelection?.()}
+		</div>
+	</div>
+{/snippet}
+{#snippet settingsPage()}
+	<div class="w-full h-full flex min-h-0 flex-col gap-4">
+		{@render workingFolders?.(() => (editingFolders = true), blocksClose)}
+		<div class="w-full flex grow min-h-0 gap-4">
+			<div class="w-52 shrink-0 flex flex-col border-r border-border-light pr-3">
+				<SidebarNavigation
+					groups={[{ items: sections }]}
+					selectedId={section}
+					onNavigate={(id) => select(id as AssistantSettingsSection)}
+				/>
+			</div>
 
-		<div class="grow min-w-0 flex flex-col min-h-0">
-			<!-- Every section stays mounted while the modal is open: the sidebar badges
+			<div class="grow min-w-0 flex flex-col min-h-0">
+				<!-- Every section stays mounted while the modal is open: the sidebar badges
 			     count what each one loaded, so hiding is display-only. Tools, Skills and MCP
 			     own their own scrolling — each is a list and a detail page laid over each
 			     other — so only Instructions scrolls here. -->
-			<div class="{section === 'tools' ? 'flex' : 'hidden'} grow min-h-0 flex-col overflow-hidden">
-				<AssistantToolsSection {tools} active={section === 'tools'} bind:blocksClose={toolsBusy} />
-			</div>
-			<!-- Skills owns its own scrolling: its list and its editor are PagedContent pages
+				<div
+					class="{section === 'tools' ? 'flex' : 'hidden'} grow min-h-0 flex-col overflow-hidden"
+				>
+					<AssistantToolsSection
+						{tools}
+						active={!editingFolders && section === 'tools'}
+						bind:blocksClose={toolsBusy}
+					/>
+				</div>
+				<!-- Skills owns its own scrolling: its list and its editor are PagedContent pages
 			     laid over each other, and each keeps a scroll position of its own. -->
-			<div class="{section === 'skills' ? 'flex' : 'hidden'} grow min-h-0 flex-col overflow-hidden">
-				<AssistantSkillsSection
-					{ws}
-					active={section === 'skills'}
-					bind:count={skillCount}
-					bind:blocksClose={skillsBusy}
-				/>
-			</div>
-			<div
-				class="{section === 'instructions' ? 'block' : 'hidden'} grow min-h-0 overflow-y-auto pr-2"
-			>
-				<AssistantInstructionsSection
-					{ws}
-					active={section === 'instructions'}
-					bind:blocksClose={instructionsBusy}
-				/>
-			</div>
-			<!-- Like Skills, MCP owns its own scrolling: its list and its connect form are
+				<div
+					class="{section === 'skills' ? 'flex' : 'hidden'} grow min-h-0 flex-col overflow-hidden"
+				>
+					<AssistantSkillsSection
+						{ws}
+						active={!editingFolders && section === 'skills'}
+						bind:count={skillCount}
+						bind:blocksClose={skillsBusy}
+					/>
+				</div>
+				<div
+					class="{section === 'instructions'
+						? 'block'
+						: 'hidden'} grow min-h-0 overflow-y-auto pr-2"
+				>
+					<AssistantInstructionsSection
+						{ws}
+						active={!editingFolders && section === 'instructions'}
+						bind:blocksClose={instructionsBusy}
+					/>
+				</div>
+				<!-- Like Skills, MCP owns its own scrolling: its list and its connect form are
 			     PagedContent pages laid over each other. -->
-			<div class="{section === 'mcp' ? 'flex' : 'hidden'} grow min-h-0 flex-col overflow-hidden">
-				<AssistantMcpSection
-					{ws}
-					active={section === 'mcp'}
-					bind:count={mcpCount}
-					bind:blocksClose={mcpBusy}
-				/>
-			</div>
-			<div class="{section === 'files' ? 'block' : 'hidden'} grow min-h-0 overflow-y-auto pr-2">
-				<AssistantFilesSection bind:count={fileCount} bind:blocksClose={filesBusy} />
+				<div class="{section === 'mcp' ? 'flex' : 'hidden'} grow min-h-0 flex-col overflow-hidden">
+					<AssistantMcpSection
+						{ws}
+						active={!editingFolders && section === 'mcp'}
+						bind:count={mcpCount}
+						bind:blocksClose={mcpBusy}
+					/>
+				</div>
+				<div class="{section === 'files' ? 'block' : 'hidden'} grow min-h-0 overflow-y-auto pr-2">
+					<AssistantFilesSection bind:count={fileCount} bind:blocksClose={filesBusy} />
+				</div>
 			</div>
 		</div>
 	</div>
+{/snippet}
+
+<Modal2
+	bind:isOpen
+	title="Assistant settings"
+	{headerLeft}
+	fixedWidth="md"
+	fixedHeight="lg"
+	closeOnOutsideClick={!blocksClose}
+	closeOnEscape={!blocksClose && !editingFolders}
+>
+	<PagedContent
+		class="w-full grow min-h-0"
+		current={editingFolders ? 'folders' : 'settings'}
+		pages={[
+			{ key: 'settings', content: settingsPage },
+			{ key: 'folders', content: foldersPage }
+		]}
+	/>
 </Modal2>

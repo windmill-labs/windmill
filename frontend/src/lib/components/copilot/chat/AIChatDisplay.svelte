@@ -38,7 +38,9 @@
 	import AIChatModelSettings from './AIChatModelSettings.svelte'
 	import ScrollFade from '$lib/components/ScrollFade.svelte'
 	import AssistantSettingsModal from './AssistantSettingsModal.svelte'
-	import AgentContextSummary from './contextSummary/AgentContextSummary.svelte'
+	import WorkingFolders from './contextSummary/WorkingFolders.svelte'
+	import FolderAccessTree from './contextSummary/FolderAccessTree.svelte'
+	import { FolderAccessState } from './contextSummary/folderAccessState.svelte'
 	import { SkillsMenu } from './skills/skillsMenu.svelte'
 	import { McpMenu } from '$lib/components/mcp/mcpMenu.svelte'
 	import ChatMode from './ChatMode.svelte'
@@ -69,6 +71,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { copilotInfo } from '$lib/aiStore'
+	import { workspaceStore } from '$lib/stores'
 	import { base } from '$lib/base'
 
 	const MAX_YOLO_TOOLTIP_TOOLS = 8
@@ -231,6 +234,9 @@
 
 	let aiChatInput: AIChatInput | undefined = $state()
 	let assistantSettings: AssistantSettingsModal | undefined = $state()
+	const folderAccessState = new FolderAccessState(
+		() => aiChatManager.operatingWorkspace ?? $workspaceStore ?? ''
+	)
 	// The "+" menu's skill and MCP rows: enough state to check and flip one, with
 	// everything else about them behind the assistant settings modal.
 	const skillsMenu = new SkillsMenu(aiChatManager, () => assistantSettings?.open('skills'))
@@ -585,6 +591,9 @@
 			? `w-full max-w-3xl mx-auto ${agentGutter ? 'px-8' : 'px-7'}`
 			: `w-full max-w-2xl mx-auto ${agentGutter ? 'px-8' : 'px-3'}`
 	)
+	const showEmptySessionContext = $derived(
+		messages.length === 0 && chatHost.mode === AIMode.GLOBAL && chatHost.isSessionChat
+	)
 
 	const waitingForUserAction = $derived(chatHost.loading && !!pendingUserAction(messages))
 
@@ -687,7 +696,11 @@
 <!-- tabindex="-1": clicks on non-focusable chat content must move focus into
 the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 <div
-	class="flex flex-col h-full relative outline-none"
+	class={twMerge(
+		'flex flex-col h-full relative outline-none',
+		showEmptySessionContext ? 'overflow-y-auto scrollbar-subtle' : ''
+	)}
+	style={showEmptySessionContext ? 'scrollbar-gutter: stable;' : undefined}
 	tabindex="-1"
 	bind:this={panelEl}
 	ondragenter={onPanelDragEnter}
@@ -815,6 +828,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 		<div class="flex-1 min-h-0 relative">
 			<div
 				class="absolute inset-0 overflow-y-scroll pt-2 scrollbar-subtle"
+				style="scrollbar-gutter: stable;"
 				bind:this={scrollElement}
 				onscroll={onScroll}
 			>
@@ -886,7 +900,11 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 
 	<!-- Same horizontal padding as the transcript above: the composer's edges line up with
 	     the messages rather than sitting closer to the panel edge. -->
-	<div class="relative {columnClass} pb-2">
+	<div
+		class="{showEmptySessionContext
+			? 'sticky top-0 z-20 shrink-0 bg-surface'
+			: 'relative'} {columnClass} pb-2"
+	>
 		{#if showFlowPendingActionControls}
 			<div class="absolute -top-10 w-full flex flex-row justify-center gap-2">
 				<Button
@@ -1222,7 +1240,14 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 						{/if}
 						{@render footerSettings?.()}
 						{#if chatHost.mode === AIMode.GLOBAL}
-							<AssistantSettingsModal bind:this={assistantSettings} />
+							<AssistantSettingsModal bind:this={assistantSettings}>
+								{#snippet workingFolders(onChange, disabled)}
+									<WorkingFolders state={folderAccessState} {onChange} {disabled} />
+								{/snippet}
+								{#snippet folderSelection()}
+									<FolderAccessTree state={folderAccessState} title="Select folders" />
+								{/snippet}
+							</AssistantSettingsModal>
 						{/if}
 
 						{#if chatHost.mode === AIMode.APP && appContext && (appContext.inspectorElement || appContext.codeSelection)}
@@ -1291,15 +1316,15 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 	</div>
 	<!-- After the composer, so an empty session puts the input at the top and what the
 	     agent is carrying underneath it. -->
-	{#if messages.length === 0 && chatHost.mode === AIMode.GLOBAL && chatHost.isSessionChat}
-		<div class="flex-1 min-h-0 overflow-y-auto">
+	{#if showEmptySessionContext}
+		<div class="shrink-0 min-h-0">
 			<!-- Same max width and gutter as the composer above, so the two line up. -->
 			<div
 				class={wideLayout
 					? 'w-full max-w-3xl mx-auto px-6 pt-8 pb-2'
 					: 'w-full max-w-2xl mx-auto px-2 pt-8 pb-2'}
 			>
-				<AgentContextSummary onManage={(section) => assistantSettings?.open(section)} />
+				<FolderAccessTree state={folderAccessState} />
 			</div>
 		</div>
 	{/if}
