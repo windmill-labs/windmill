@@ -96,7 +96,7 @@ const MODEL_CONTEXT_WINDOWS: [name: string, contextWindow: number][] = [
 	['gemini-3.1', 1_000_000],
 	['gemini-3', 1_000_000],
 	['gemini-2.5', 1_000_000],
-	// DeepSeek — the V4 family (pro / flash) is 1M. The deepseek-chat /
+	// DeepSeek — Flash and the V4 family (pro / flash) are 1M. The deepseek-chat /
 	// deepseek-reasoner aliases were retired 2026-07-24 but can still sit in a
 	// saved selection, so they keep resolving to the window they had.
 	['deepseek-v4', 1_000_000],

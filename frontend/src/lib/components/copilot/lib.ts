@@ -315,7 +315,8 @@ export function getModelMaxTokens(provider: AIProvider, model: string) {
 		provider === 'deepseek' &&
 		/^(deepseek-(flash|chat|reasoner)|deepseek-v4-(flash|pro))$/.test(parseModelId(model).base)
 	) {
-		// DeepSeek counts reasoning against the output budget as well as the answer.
+		// DeepSeek's documented 384K output ceiling includes reasoning as well as the answer.
+		// https://api-docs.deepseek.com/api/create-chat-completion/
 		return 393216
 	} else if (model.includes('gpt-5')) {
 		return 128000
