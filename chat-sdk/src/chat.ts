@@ -253,11 +253,21 @@ class ChatImpl implements Chat {
         turn.jobId = newest.jobId
         userSeq = newest.seq!
       }
-      // The stream replays the turn from its start, so the rows it already wrote go and
-      // come back as it replays them. The message that started it stays: it is the turn's
-      // anchor, and a long turn can have pushed it off the page this chat opened on.
-      let messages = this.#state.messages.filter((m) => m.seq !== undefined && m.seq <= userSeq)
-      let user = messages.find((m) => m.seq === userSeq)
+      // The stream replays the turn from its start, so what this chat shows of it goes and
+      // comes back as it replays: its rows, and what an earlier follow of it streamed or
+      // failed with, its own unread question included. The message that started it stays:
+      // it is the turn's anchor, and a long turn can have pushed it off the page this chat
+      // opened on. An earlier turn's answer that only its flow result gave has no row and so
+      // no seq; it names that turn's job, and it stays wherever the fallback put it.
+      const held = this.#state.messages
+      const at = held.findIndex((m) => m.seq === userSeq)
+      let user = at === -1 ? undefined : held[at]
+      let messages = held.filter((m, i) => {
+        if (m.seq !== undefined) return m.seq < userSeq
+        if (m.pending || m.jobId === turn.jobId) return false
+        return m.jobId !== undefined || (at !== -1 && i < at)
+      })
+      if (user) messages = [...messages, user]
       if (!user) {
         const [row] = await this.#api.listMessages(conversationId, {
           afterSeq: userSeq - 1,
@@ -690,6 +700,8 @@ class ChatImpl implements Chat {
     this.#set({ messages: finalized(messages), status: nextTurn ? 'submitted' : 'idle' })
     this.#persistLocal()
     this.#config.onFinish?.({ conversationId: turn.conversationId, jobId: turn.jobId, messages: this.#state.messages })
+    // `onFinish` can switch conversation, and the next turn belongs to this one.
+    if (!this.#turnActive(turn)) return
     return nextTurn
   }
 

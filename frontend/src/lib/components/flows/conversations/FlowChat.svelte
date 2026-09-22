@@ -15,7 +15,7 @@
 	import type { FlowEditorContext } from '../types'
 	import { ApiError, type FlowModule } from '$lib/gen'
 	import { FlowChatPool, type FlowChatPoolState } from './flowChatPool'
-	import { FlowChatViewHost } from './flowChatViewHost.svelte'
+	import { FlowChatViewHost, type ComposerAttachment } from './flowChatViewHost.svelte'
 	import { FRAME_CLASS, type ChatFrame } from './flowChatProps'
 
 	interface Props {
@@ -79,7 +79,7 @@
 	// turns on its own chat in the pool, so several can answer at once.
 	let listChat = $state<Chat | undefined>(undefined)
 	let listState = $state<ChatState | undefined>(undefined)
-	let pool = $state<FlowChatPool<FlowChatViewHost> | undefined>(undefined)
+	let pool = $state<FlowChatPool<FlowChatViewHost, ComposerAttachment> | undefined>(undefined)
 	let poolState = $state<FlowChatPoolState | undefined>(undefined)
 	let sidebar = $state<FlowConversationsSidebar | undefined>(undefined)
 
@@ -118,14 +118,20 @@
 		}
 		const api = new WindmillChatApi({ baseUrl, workspace: ws })
 		const createdList = createChat(options)
-		const createdPool = new FlowChatPool<FlowChatViewHost>({
+		const createdPool = new FlowChatPool<FlowChatViewHost, ComposerAttachment>({
 			createChat: () => createChat(options),
-			createHost: (chat) => new FlowChatViewHost(chat),
+			createHost: (turns) => new FlowChatViewHost(turns),
 			disposeHost: (host) => host.dispose(),
-			hasUnsentDraft: (host) => host.hasUnsentDraft,
-			resumeTurn: (host, turn) => host.resumeTurn(turn),
-			moveUnsentDraft: (from, to) => to.adoptUnsentDraft(from.takeUnsentDraft()),
-			isRunFinished: async (jobId) => (await api.getCompletedResult(jobId)).completed
+			// Every kind: a conversation the reader follows keeps running whatever the filter lists.
+			listRecent: async (page) =>
+				(await api.listConversations(flowPath, { page, perPage: 50, kind: 'all' })).map(
+					(row) => ({
+						id: row.id,
+						runningTurn: row.running_turn
+							? { jobId: row.running_turn.job_id, userSeq: row.running_turn.user_seq }
+							: undefined
+					})
+				)
 		})
 		const unsubscribeList = createdList.subscribe((s) => (listState = s))
 		const unsubscribePool = createdPool.subscribe((s) => (poolState = s))
@@ -145,9 +151,6 @@
 		void poolState?.selectedId
 		return pool?.selected
 	})
-	const shownIsTest = $derived(
-		listState?.conversations.find((c) => c.id === poolState?.selectedId)?.isTest
-	)
 
 	// Derive additional inputs schema (excluding user_message) for chat mode
 	const additionalInputsSchema = $derived.by(() => {
@@ -186,7 +189,7 @@
 				<FlowChatInterface
 					chat={shown.chat}
 					chatHost={shown.host}
-					isTest={shownIsTest}
+					isTestOf={(id) => listState?.conversations.find((c) => c.id === id)?.isTest}
 					{deploymentInProgress}
 					{additionalInputsSchema}
 					{flowModules}

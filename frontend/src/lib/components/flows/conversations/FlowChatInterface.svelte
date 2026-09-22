@@ -33,8 +33,8 @@
 		/** The conversation's host, which outlives this panel: FlowChat remounts the panel per
 		 * conversation, under `{#key}`, so a later value of either prop never reaches it. */
 		chatHost: FlowChatViewHost
-		/** Whether the shown conversation is a test chat, once the list has said. */
-		isTest?: boolean
+		/** Whether a conversation is a test chat, once the list has said. */
+		isTestOf?: (conversationId: string) => boolean | undefined
 		deploymentInProgress?: boolean
 		additionalInputsSchema?: Record<string, any>
 		/** The flow's modules, read for the AI agent inputs the composer drives: the provider wiring
@@ -54,7 +54,7 @@
 	let {
 		chat,
 		chatHost: chatHostProp,
-		isTest = undefined,
+		isTestOf = undefined,
 		deploymentInProgress = false,
 		additionalInputsSchema,
 		flowModules,
@@ -199,6 +199,12 @@
 	})
 	setChatViewHost(chatHost)
 
+	// Read off the host's own conversation: a message queued here goes out after the reader
+	// has moved on, when the shown conversation may be of the other kind.
+	const isTest = $derived.by(() => {
+		const id = chatHost.state.conversationId
+		return id === undefined ? undefined : isTestOf?.(id)
+	})
 	// A chat of the other kind can be read from here but not added to: the server refuses a
 	// preview run into a deployed conversation and the reverse, so the composer says why first.
 	const wrongKindReason = $derived.by(() => {

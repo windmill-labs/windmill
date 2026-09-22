@@ -1,37 +1,16 @@
-import type { Chat, ChatMessage, ChatState, Conversation, RunningTurn } from 'windmill-chat'
+import type { Chat, ChatState, Conversation } from 'windmill-chat'
+import { ConversationTurns, isBusy, lastTurnFailed, type DraftSender } from './conversationTurns'
 
-/**
- * Whether the turn the user message at `index` started failed: its last row before the
- * next user message reports `success: false`. The last row, not any row: a tool call can
- * fail and the agent still answer, and that turn completed.
- */
-export function turnFailed(messages: readonly ChatMessage[], index: number): boolean {
-	let last: ChatMessage | undefined
-	for (let i = index + 1; i < messages.length; i++) {
-		const message = messages[i]
-		if (message.role === 'user') break
-		last = message
-	}
-	return last?.success === false
-}
-
-/** Whether the latest turn failed, per `turnFailed`. False before any turn. */
-export function lastTurnFailed(messages: readonly ChatMessage[]): boolean {
-	for (let i = messages.length - 1; i >= 0; i--) {
-		if (messages[i].role === 'user') return turnFailed(messages, i)
-	}
-	return false
-}
-
-export function isBusy(status: ChatState['status']): boolean {
-	return status === 'submitted' || status === 'streaming'
-}
-
-/** Reads of one run that may fail before its row stops saying the turn is running. */
+/** Listing reads in a row that may fail before the rows stop saying their turns run. */
 const POLL_GIVE_UP = 3
+/** Pages of the listing one poll reads at most, looking for the rows it watches. */
+const POLL_PAGES = 5
 
 /** What a conversation's row says about it. */
 export type ConversationActivity = 'running' | 'error' | 'idle'
+
+/** The part of a listed conversation that says whether a turn runs in it. */
+export type ListedConversation = Pick<Conversation, 'id' | 'runningTurn'>
 
 export interface FlowChatPoolState {
 	/** The conversation shown. Unset for a new chat that has not run its first turn. */
@@ -40,6 +19,8 @@ export interface FlowChatPoolState {
 	activity: Record<string, ConversationActivity>
 	/** Answers that arrived in a conversation while another one was shown. */
 	unread: Record<string, number>
+	/** Conversations holding a queued message. */
+	queued: Record<string, true>
 }
 
 export interface PooledChat<H> {
@@ -47,26 +28,25 @@ export interface PooledChat<H> {
 	host: H
 }
 
-export interface FlowChatPoolOptions<H> {
+export interface FlowChatPoolOptions<H extends DraftSender<A>, A> {
 	/** A chat on the flow with no conversation selected. */
 	createChat(): Chat
-	createHost(chat: Chat): H
+	/** The view of one conversation; its sends go through `turns`. */
+	createHost(turns: ConversationTurns<A>): H
 	disposeHost(host: H): void
-	/** Whether the host holds text that was typed and never sent: queued behind the turn,
-	 * or handed back by a turn that refused it. Such a chat is never released. */
-	hasUnsentDraft(host: H): boolean
-	/** Follows a turn another page started, through the host so what it queues waits for it. */
-	resumeTurn(host: H, turn: RunningTurn): void
-	/** Hands what was typed in a chat being released to the one taking its place. */
-	moveUnsentDraft(from: H, to: H): void
-	/** Whether a run has ended, for a running conversation this page holds no chat for. */
-	isRunFinished(jobId: string): Promise<boolean>
+	/**
+	 * A page of the flow's conversations of every kind, most recently active first, as the
+	 * server lists them now; empty past the last one. Read while a conversation this pool
+	 * follows no chat for is running, so its row stops saying so once its turn ends.
+	 */
+	listRecent(page: number): Promise<readonly ListedConversation[]>
 	/** Settled conversations kept in memory beside the shown and the busy ones. */
 	keepSettled?: number
 	pollMs?: number
 }
 
-interface Entry<H> extends PooledChat<H> {
+interface Entry<H, A> extends PooledChat<H> {
+	turns: ConversationTurns<A>
 	unsubscribe: () => void
 	lastShownAt: number
 	/** Assistant messages already counted, so a message counts once as it settles. */
@@ -86,26 +66,28 @@ interface Entry<H> extends PooledChat<H> {
  * Plain TypeScript on the `windmill-chat` API, with the view host left generic: nothing
  * here is specific to Svelte or to the app, so it can move into the SDK as is.
  */
-export class FlowChatPool<H> {
-	readonly #options: FlowChatPoolOptions<H>
-	readonly #entries = new Map<string, Entry<H>>()
+export class FlowChatPool<H extends DraftSender<A>, A> {
+	readonly #options: FlowChatPoolOptions<H, A>
+	readonly #entries = new Map<string, Entry<H, A>>()
 	/** The chat a new conversation starts on; it joins `#entries` once its first turn names it. */
-	#draft: Entry<H> | undefined
-	/** Turns running in conversations this pool is not following, as the list reported them. */
-	readonly #running = new Map<string, RunningTurn>()
-	/** Failed reads in a row, per conversation, for a run this pool has no chat for. */
-	readonly #pollFailures = new Map<string, number>()
+	#draft: Entry<H, A> | undefined
+	/** Turns running in conversations this pool is not following, as a listing reported them. */
+	readonly #running = new Map<string, NonNullable<Conversation['runningTurn']>>()
+	/** The clock of the listing each conversation's row was last taken from. */
+	readonly #listedAt = new Map<string, number>()
 	/** Chats on their way out, kept until the send that withdrew them has settled. */
-	readonly #retiring = new Set<Entry<H>>()
+	readonly #retiring = new Set<Entry<H, A>>()
 	readonly #unread = new Map<string, number>()
 	readonly #listeners = new Set<(state: FlowChatPoolState) => void>()
 	#selectedId: string | undefined
-	#state: FlowChatPoolState = { selectedId: undefined, activity: {}, unread: {} }
-	#poll: ReturnType<typeof setInterval> | undefined
+	#state: FlowChatPoolState = { selectedId: undefined, activity: {}, unread: {}, queued: {} }
+	#poll: ReturnType<typeof setTimeout> | undefined
+	#polling = false
+	#pollFailures = 0
 	#clock = 0
 	#destroyed = false
 
-	constructor(options: FlowChatPoolOptions<H>) {
+	constructor(options: FlowChatPoolOptions<H, A>) {
 		this.#options = options
 		this.newChat()
 	}
@@ -134,6 +116,7 @@ export class FlowChatPool<H> {
 	/** Shows a new chat, reusing the one already waiting for its first message. */
 	newChat = (): PooledChat<H> => {
 		if (!this.#draft) this.#draft = this.#track(undefined)
+		this.#draft.lastShownAt = ++this.#clock
 		this.#selectedId = undefined
 		this.#publish()
 		return this.#draft
@@ -146,18 +129,21 @@ export class FlowChatPool<H> {
 			entry = this.#track(conversationId)
 			this.#entries.set(conversationId, entry)
 		}
+		const leaving = this.#selectedId
 		this.#selectedId = conversationId
 		entry.lastShownAt = ++this.#clock
 		this.#unread.delete(conversationId)
 		const turn = this.#running.get(conversationId)
 		if (turn && !entry.busy) {
 			this.#running.delete(conversationId)
-			this.#options.resumeTurn(entry.host, turn)
+			entry.turns.resume(turn)
 		} else if (entry.loaded && !entry.busy) {
 			// Held while another conversation was shown: another tab may have written since.
 			void entry.chat.refreshMessages()
 		}
-		this.#evict()
+		// Not the conversation being left: its composer is still mounted, and hands what the
+		// reader wrote in it to its turns only as the panel goes.
+		this.#evict(leaving)
 		this.#publish()
 	}
 
@@ -166,18 +152,19 @@ export class FlowChatPool<H> {
 
 	/**
 	 * What a listing requested at `since` said. A conversation it reports running that no
-	 * chat here is following gets its run polled, so its row stops saying so when the run
-	 * ends. A turn that ended here after the request is not running, whatever it said.
+	 * chat here is following is watched through `listRecent` until its row stops saying so.
+	 * Neither a turn that ended here after the request nor a row a later listing already
+	 * reported is taken from it, whichever of the two responses lands last.
 	 */
-	setListed = (conversations: readonly Conversation[], since: number): void => {
+	setListed = (conversations: readonly ListedConversation[], since: number): void => {
 		for (const conversation of conversations) {
-			const followed = this.#entries.get(conversation.id)
+			const id = conversation.id
+			if ((this.#listedAt.get(id) ?? 0) > since) continue
+			this.#listedAt.set(id, since)
+			const followed = this.#entries.get(id)
 			const stale = followed && (followed.busy || followed.settledAt > since)
-			if (conversation.runningTurn && !stale) {
-				this.#running.set(conversation.id, conversation.runningTurn)
-			} else {
-				this.#running.delete(conversation.id)
-			}
+			if (conversation.runningTurn && !stale) this.#running.set(id, conversation.runningTurn)
+			else this.#running.delete(id)
 		}
 		// The shown conversation follows its turn now rather than waiting for a poll to end it.
 		if (this.#selectedId !== undefined && this.#running.has(this.#selectedId)) {
@@ -200,7 +187,7 @@ export class FlowChatPool<H> {
 
 	destroy = (): void => {
 		this.#destroyed = true
-		clearInterval(this.#poll)
+		clearTimeout(this.#poll)
 		for (const entry of this.#entries.values()) this.#release(entry)
 		for (const entry of this.#retiring) this.#release(entry)
 		if (this.#draft) this.#release(this.#draft)
@@ -210,14 +197,16 @@ export class FlowChatPool<H> {
 		this.#listeners.clear()
 	}
 
-	#track(conversationId: string | undefined): Entry<H> {
+	#track(conversationId: string | undefined): Entry<H, A> {
 		const chat = this.#options.createChat()
 		// Selected before the host exists: a host treats a change of conversation as the
 		// reader leaving one, and this chat never leaves its conversation.
 		if (conversationId !== undefined) void chat.selectConversation(conversationId)
-		const entry: Entry<H> = {
+		const turns = new ConversationTurns<A>(chat, () => entry.host)
+		const entry: Entry<H, A> = {
 			chat,
-			host: this.#options.createHost(chat),
+			turns,
+			host: this.#options.createHost(turns),
 			unsubscribe: () => {},
 			lastShownAt: ++this.#clock,
 			counted: new Set(),
@@ -225,11 +214,19 @@ export class FlowChatPool<H> {
 			busy: false,
 			settledAt: 0
 		}
-		entry.unsubscribe = chat.subscribe((state) => this.#onChatState(entry, state))
+		const unsubscribeChat = chat.subscribe((state) => this.#onChatState(entry, state))
+		// What waits in a chat decides whether it may be released, and marks its row.
+		const unsubscribeTurns = turns.subscribe(() => {
+			if (!this.#destroyed) this.#publish()
+		})
+		entry.unsubscribe = () => {
+			unsubscribeChat()
+			unsubscribeTurns()
+		}
 		return entry
 	}
 
-	#onChatState(entry: Entry<H>, state: ChatState): void {
+	#onChatState(entry: Entry<H, A>, state: ChatState): void {
 		if (this.#destroyed) return
 		if (entry === this.#draft && state.conversationId !== undefined) {
 			// The new chat's first turn named its conversation.
@@ -264,7 +261,7 @@ export class FlowChatPool<H> {
 	}
 
 	/** Takes an entry back out of the list of conversations, as the chat that starts one. */
-	#undoNewConversation(entry: Entry<H>): void {
+	#undoNewConversation(entry: Entry<H, A>): void {
 		for (const [key, held] of this.#entries) {
 			if (held !== entry) continue
 			this.#entries.delete(key)
@@ -279,12 +276,12 @@ export class FlowChatPool<H> {
 		}
 		// A new chat opened meanwhile is the draft now, so this chat has nowhere to show. It
 		// is released only once its send has reported what it could not do — the refusal
-		// reaches it after this — and what the reader typed moves to the chat in its place.
+		// reaches it after this — and what the reader wrote moves to the chat in its place.
 		const kept = this.#draft
 		this.#retiring.add(entry)
 		setTimeout(() => {
 			if (this.#destroyed || !this.#retiring.delete(entry)) return
-			this.#options.moveUnsentDraft(entry.host, kept.host)
+			kept.turns.adopt(entry.turns.takeHeld())
 			this.#release(entry)
 			this.#publish()
 		}, 0)
@@ -299,60 +296,79 @@ export class FlowChatPool<H> {
 	}
 
 	/** Settled chats past the budget go, least recently shown first; their unread count stays. */
-	#evict(): void {
+	#evict(spared?: string): void {
 		const settled = [...this.#entries.entries()].filter(
 			([id, entry]) =>
-				id !== this.#selectedId &&
-				!isBusy(entry.chat.getState().status) &&
-				!this.#options.hasUnsentDraft(entry.host)
+				id !== this.#selectedId && !isBusy(entry.chat.getState().status) && entry.turns.releasable
 		)
 		settled.sort(([, a], [, b]) => b.lastShownAt - a.lastShownAt)
 		for (const [id, entry] of settled.slice(this.#options.keepSettled ?? 5)) {
+			if (id === spared) continue
 			this.#release(entry)
 			this.#entries.delete(id)
 		}
 	}
 
-	#release(entry: Entry<H>): void {
+	#release(entry: Entry<H, A>): void {
 		entry.unsubscribe()
 		this.#options.disposeHost(entry.host)
+		entry.turns.dispose()
 		entry.chat.destroy()
 	}
 
 	#schedulePoll(): void {
 		if (this.#running.size === 0) {
-			clearInterval(this.#poll)
+			clearTimeout(this.#poll)
 			this.#poll = undefined
 			return
 		}
-		if (this.#poll) return
-		this.#poll = setInterval(() => void this.#pollRuns(), this.#options.pollMs ?? 3000)
+		if (this.#poll || this.#polling) return
+		this.#poll = setTimeout(() => void this.#relist(), this.#options.pollMs ?? 3000)
 	}
 
-	async #pollRuns(): Promise<void> {
-		await Promise.all(
-			[...this.#running].map(async ([id, turn]) => {
-				const finished = await this.#options
-					.isRunFinished(turn.jobId)
-					.then((done) => {
-						this.#pollFailures.delete(id)
-						return done
-					})
-					.catch(() => {
-						// A run whose job cannot be read — purged, refused, gone — would otherwise
-						// keep its row running and its poll going for the life of the page. After a
-						// few tries the row goes quiet; opening the conversation reads its rows.
-						const failures = (this.#pollFailures.get(id) ?? 0) + 1
-						this.#pollFailures.set(id, failures)
-						return failures >= POLL_GIVE_UP
-					})
-				if (finished && this.#running.get(id) === turn) {
-					this.#running.delete(id)
-					this.#pollFailures.delete(id)
-				}
-			})
-		)
+	/** One listing for every running row this pool follows no chat for. */
+	async #relist(): Promise<void> {
+		this.#poll = undefined
+		this.#polling = true
+		const since = this.listingStarted()
+		const watched = [...this.#running.keys()]
+		const rows: ListedConversation[] = []
+		let failed = false
+		try {
+			// Page 1 holds the running rows but for a turn that has written nothing for a while,
+			// behind conversations active since: the pages after it are read until every watched
+			// row is found or the listing ends.
+			for (let page = 1; page <= POLL_PAGES; page++) {
+				const batch = await this.#options.listRecent(page)
+				rows.push(...batch)
+				const seen = new Set(rows.map((row) => row.id))
+				if (batch.length === 0 || watched.every((id) => seen.has(id))) break
+			}
+			this.#pollFailures = 0
+		} catch {
+			failed = true
+			// A listing that keeps failing would otherwise keep rows running and the poll going
+			// for the life of the page. After a few tries the rows go quiet; opening a
+			// conversation reads its own rows.
+			if (++this.#pollFailures >= POLL_GIVE_UP) {
+				this.#running.clear()
+				this.#pollFailures = 0
+			}
+		} finally {
+			this.#polling = false
+		}
 		if (this.#destroyed) return
+		if (!failed) {
+			// A watched row on no page read is gone from the listing, or has been quiet while
+			// more conversations than those pages hold were active: either way it goes quiet
+			// here, and opening it reads its own rows. A later listing that reported it stands.
+			const seen = new Set(rows.map((row) => row.id))
+			for (const id of watched) {
+				if (!seen.has(id) && (this.#listedAt.get(id) ?? 0) <= since) this.#running.delete(id)
+			}
+			this.setListed(rows, since)
+			return
+		}
 		this.#schedulePoll()
 		this.#publish()
 	}
@@ -365,10 +381,15 @@ export class FlowChatPool<H> {
 			const value = this.#activity(id)
 			if (value !== 'idle') activity[id] = value
 		}
+		const queued: Record<string, true> = {}
+		for (const [id, entry] of this.#entries) {
+			if (entry.turns.queued.text) queued[id] = true
+		}
 		this.#state = {
 			selectedId: this.#selectedId,
 			activity,
-			unread: Object.fromEntries(this.#unread)
+			unread: Object.fromEntries(this.#unread),
+			queued
 		}
 		for (const listener of this.#listeners) listener(this.#state)
 	}

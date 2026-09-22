@@ -25,13 +25,13 @@
 	import { tick, untrack } from 'svelte'
 	import type { Chat, Conversation, ConversationKind } from 'windmill-chat'
 	import type { FlowChatPool, FlowChatPoolState } from './flowChatPool'
-	import type { FlowChatViewHost } from './flowChatViewHost.svelte'
+	import type { ComposerAttachment, FlowChatViewHost } from './flowChatViewHost.svelte'
 
 	interface Props {
 		/** Lists, renames and deletes the flow's conversations; runs no turn itself. */
 		listChat: Chat
 		/** The conversations' own chats: which one is shown, and what each is doing. */
-		pool: FlowChatPool<FlowChatViewHost>
+		pool: FlowChatPool<FlowChatViewHost, ComposerAttachment>
 		poolState: FlowChatPoolState
 		/**
 		 * Which conversations the list holds at first. The editor shows its own test chats,
@@ -390,7 +390,7 @@
 							</div>
 						{:else}
 							{@const unread = poolState.unread[conversation.id] ?? 0}
-							{@const queued = !!pool.get(conversation.id)?.host.queuedMessage}
+							{@const queued = !!poolState.queued[conversation.id]}
 							<Button
 								unifiedSize="md"
 								variant="subtle"

@@ -696,6 +696,23 @@
 		return mergedIntoDraft
 	}
 
+	/** Everything the composer holds, taken out of it: for a host that keeps the draft while
+	 * no composer shows its conversation. Paste tokens are expanded, as for a queued message. */
+	export function takeDraft(): {
+		text: string
+		images: AttachedImage[]
+		files: AttachedTextFile[]
+		blobs: AttachedBlob[]
+	} {
+		const taken = draft.take()
+		return {
+			text: expanded(chatDraft(taken.text, taken.pastes)),
+			images: taken.images,
+			files: taken.files,
+			blobs: taken.blobs
+		}
+	}
+
 	/** Insert a plain @filename mention for an attached file (used by the @ menu Files category). */
 	export function insertFileMention(name: string) {
 		const sep = draft.text.length === 0 || draft.text.endsWith(' ') ? '' : ' '

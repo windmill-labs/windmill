@@ -1167,6 +1167,142 @@ describe('createChat with server history', () => {
     expect(calls.some((c) => c.url.pathname.includes('getupdate_sse/job-2'))).toBe(false)
   })
 
+  test('resuming a later turn keeps an earlier answer that only the flow result gave', async () => {
+    const { fetch } = fetchMock(
+      run,
+      (c) =>
+        c.url.pathname === streamPath
+          ? sse([{ type: 'update', completed: true, only_result: { windmill_chat_answer: 'first answer' } }])
+          : undefined,
+      (c) =>
+        c.url.pathname === '/api/w/ws/jobs_u/getupdate_sse/job-2'
+          ? sse([{ type: 'update', completed: true, only_result: { windmill_chat_answer: 'second answer' } }])
+          : undefined,
+      (c) =>
+        c.url.pathname.endsWith('/jobs_u/get/job-1')
+          ? json({ flow_status: { modules: [{ job: 'step-1' }] } })
+          : undefined,
+      (c) =>
+        c.url.pathname.endsWith('/jobs_u/get/job-2')
+          ? json({ flow_status: { modules: [{ job: 'step-2' }] } })
+          : undefined,
+      (c) => {
+        if (!c.url.pathname.endsWith('/messages')) return undefined
+        const after = c.url.searchParams.get('after_seq')
+        if (after === '51') return json([messageRow(52, 'user', 'second', { job_id: 'job-2' })])
+        if (after === '52') return json([messageRow(53, 'assistant', 'second answer', { job_id: 'step-2' })])
+        // The first answer never got a row: the turn finishes from the flow result.
+        return json([messageRow(50, 'user', 'first', { job_id: 'job-1' })])
+      },
+      (c) => (c.url.pathname === '/api/w/ws/flow_conversations/list' ? json([]) : undefined)
+    )
+    const chat = createChat(options({}, fetch))
+    await chat.sendMessage('first')
+    await chat.resumeTurn({ jobId: 'job-2', userSeq: 52 })
+    expect(chat.getState().messages.map((m) => m.content)).toEqual([
+      'first',
+      'first answer',
+      'second',
+      'second answer'
+    ])
+  })
+
+  test('resuming a turn this chat lost drops what it had shown of that turn', async () => {
+    let streams = 0
+    const { fetch } = fetchMock(
+      (c) => {
+        if (c.url.pathname !== streamPath) return undefined
+        return ++streams === 1
+          ? sse([
+              { type: 'update', new_result_stream: ndjson({ type: 'token_delta', content: 'partial' }), stream_offset: 1 },
+              { type: 'error', error: 'stream broke' }
+            ])
+          : sse([{ type: 'update', completed: true, only_result: { windmill_chat_answer: 'the answer' } }])
+      },
+      (c) =>
+        c.url.pathname.endsWith('/jobs_u/get/job-1')
+          ? json({ flow_status: { modules: [{ job: 'step-1' }] } })
+          : undefined,
+      (c) => {
+        if (!c.url.pathname.endsWith('/messages')) return undefined
+        if (c.url.searchParams.get('after_seq') === '50') {
+          return json([messageRow(51, 'assistant', 'the answer', { job_id: 'step-1' })])
+        }
+        return json([messageRow(50, 'user', 'question', { job_id: 'job-1' })])
+      }
+    )
+    const chat = createChat(options({}, fetch))
+    await chat.selectConversation('conv')
+    await chat.resumeTurn({ jobId: 'job-1', userSeq: 50 })
+    expect(chat.getState().status).toBe('error')
+    // The run goes on; following it again replays the whole answer under its question.
+    await chat.resumeTurn({ jobId: 'job-1', userSeq: 50 })
+    expect(chat.getState().messages.map((m) => m.content)).toEqual(['question', 'the answer'])
+  })
+
+  test('resuming a turn this chat sent and lost shows its question once', async () => {
+    let streams = 0
+    const { fetch } = fetchMock(
+      run,
+      (c) => {
+        if (c.url.pathname !== streamPath) return undefined
+        return ++streams === 1
+          ? sse([
+              { type: 'update', new_result_stream: ndjson({ type: 'token_delta', content: 'partial' }), stream_offset: 1 },
+              { type: 'error', error: 'stream broke' }
+            ])
+          : sse([{ type: 'update', completed: true, only_result: { windmill_chat_answer: 'the answer' } }])
+      },
+      (c) =>
+        c.url.pathname.endsWith('/jobs_u/get/job-1')
+          ? json({ flow_status: { modules: [{ job: 'step-1' }] } })
+          : undefined,
+      (c) => {
+        if (!c.url.pathname.endsWith('/messages')) return undefined
+        const after = c.url.searchParams.get('after_seq')
+        if (after === '49') return json([messageRow(50, 'user', 'question', { job_id: 'job-1' })])
+        if (after === '50') return json([messageRow(51, 'assistant', 'the answer', { job_id: 'step-1' })])
+        // The stream fails before the question's row is read.
+        return json([])
+      },
+      (c) => (c.url.pathname === '/api/w/ws/flow_conversations/list' ? json([]) : undefined)
+    )
+    const chat = createChat(options({}, fetch))
+    await chat.sendMessage('question')
+    expect(chat.getState().status).toBe('error')
+    await chat.resumeTurn({ jobId: 'job-1', userSeq: 50 })
+    expect(chat.getState().messages.map((m) => m.content)).toEqual(['question', 'the answer'])
+  })
+
+  test('a conversation switch from onFinish does not resume the next turn elsewhere', async () => {
+    const { fetch, calls } = fetchMock(
+      run,
+      (c) =>
+        c.url.pathname === streamPath
+          ? sse([{ type: 'update', completed: true, only_result: { windmill_chat_answer: 'first answer' } }])
+          : undefined,
+      (c) =>
+        c.url.pathname.endsWith('/jobs_u/get/job-1')
+          ? json({ flow_status: { modules: [{ job: 'job-1' }] } })
+          : undefined,
+      (c) => {
+        if (!c.url.pathname.endsWith('/messages')) return undefined
+        if (c.url.pathname.includes('/flow_conversations/other/messages')) return json([])
+        // No answer row lands, so the turn finishes from the flow result.
+        return json([
+          messageRow(50, 'user', 'first', { job_id: 'job-1' }),
+          messageRow(52, 'user', 'second', { job_id: 'job-2' })
+        ])
+      },
+      (c) => (c.url.pathname === '/api/w/ws/flow_conversations/list' ? json([]) : undefined)
+    )
+    const chat = createChat(options({ onFinish: () => void chat.selectConversation('other') }, fetch))
+    await chat.sendMessage('first')
+    expect(chat.getState().conversationId).toBe('other')
+    expect(chat.getState().messages).toEqual([])
+    expect(calls.some((c) => c.url.pathname.includes('getupdate_sse/job-2'))).toBe(false)
+  })
+
   test('stopping during handoff does not resume the next turn', async () => {
     let releaseList!: (response: Response) => void
     const listGate = new Promise<Response>((resolve) => {

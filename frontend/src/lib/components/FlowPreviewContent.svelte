@@ -467,12 +467,14 @@
 				<div class="flex flex-row justify-center w-full mb-6">
 					<FlowChat
 						onRunFlow={async (userMessage, conversationId, additionalInputs) => {
-							await runPreview(
+							// Its own run's id, not `jobId`: several test chats can start a run at
+							// once, and `jobId` is whichever started last.
+							const started = await runPreview(
 								{ user_message: userMessage, ...(additionalInputs ?? {}) },
 								undefined,
 								conversationId
 							)
-							return jobId ?? ''
+							return started ?? ''
 						}}
 						conversationKind="test"
 						frame="boxed"
