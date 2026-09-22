@@ -91,8 +91,8 @@
 {#if repo}
 	<div class="flex flex-col gap-4 h-full">
 		{#if !repo.detectionState || repo.detectionState === 'idle' || repo.detectionState === 'loading'}
-			<div class="flex items-center gap-2 text-xs text-secondary">
-				<Loader2 size={14} class="animate-spin" />
+			<div class="flex-1 flex flex-col items-center justify-center gap-2 text-sm text-hint">
+				<Loader2 size={36} class="animate-spin" />
 				Checking the repository...
 			</div>
 		{:else if repo.detectionState === 'error'}
