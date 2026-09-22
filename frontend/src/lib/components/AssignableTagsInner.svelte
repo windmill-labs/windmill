@@ -39,7 +39,8 @@
 	const dispatch = createEventDispatcher()
 
 	// Mirrors CUSTOM_TAG_REGEX in backend/windmill-common/src/worker.rs — keep both in sync.
-	const customTagRegex = /^([\w-]+)\(((?:[\w-]+\*?\+)*[\w-]+\*?|(?:\^[\w-]+\*?)+)\)$/
+	const customTagRegex =
+		/^((?:[\w-]|\$workspace|\$(?:args|flow_expr)\[(?:\w+\.)*\w+\])+)\(((?:[\w-]+\*?\+)*[\w-]+\*?|(?:\^[\w-]+\*?)+)\)$/
 	// Mirrors RE_ARG_TAG and RE_FLOW_EXPR_TAG in backend/windmill-queue/src/jobs.rs.
 	const dynamicTagRegex = /\$(args|flow_expr)\[((?:\w+\.)*\w+)\]/
 
@@ -47,10 +48,16 @@
 		return w.includeForks ? `${w.id} (and its forks)` : w.id
 	}
 
+	// What an entry matches job tags against: a workspace specific entry's name, which may be
+	// dynamic like any other entry.
+	function nameOf(entry: string) {
+		return entry.match(customTagRegex)?.[1] ?? entry
+	}
+	let tagName = $derived(nameOf(newTag.trim()))
+
 	let dynamicTag = $derived.by(() => {
-		let r = newTag.trim()
-		if (r == '') return undefined
-		let matched = r.match(dynamicTagRegex)
+		if (tagName == '') return undefined
+		let matched = tagName.match(dynamicTagRegex)
 		return matched ? { kind: matched[1], path: matched[2] } : undefined
 	})
 
@@ -88,8 +95,8 @@
 			placeholders[placeholders.length - 1].end == entry.length
 		)
 	}
-	let dynamicTagTied = $derived(isTied(newTag.trim()))
-	let dynamicTagReachesAnyTag = $derived(reachesAnyTag(newTag.trim()))
+	let dynamicTagTied = $derived(isTied(tagName))
+	let dynamicTagReachesAnyTag = $derived(reachesAnyTag(tagName))
 
 	let extractedCustomTag = $derived.by(() => {
 		let r = newTag.trim()
@@ -164,10 +171,40 @@
 
 <svelte:window onkeydown={onKeyDown} />
 
-{#snippet reachesAnyTagWarning()}
-	Nothing fixed at its start or its end, so it allows anyone to reach almost any tag. We highly
-	recommend a prefix or a suffix, ideally both, to limit its reach: for instance
-	<code>gpu-$args[size]</code> or <code>gpu-$args[size]-eu</code>.
+{#snippet reachesAnyTagWarning(scoped: boolean)}
+	Nothing fixed at its start or its end, so it allows anyone{scoped ? ' in its workspaces' : ''} to reach
+	almost any tag. We highly recommend a prefix or a suffix, ideally both, to limit its reach: for instance
+	<code>gpu-$args[size]</code>
+	or <code>gpu-$args[size]-eu</code>.
+{/snippet}
+
+{#snippet dynamicTagInfo(scoped: boolean)}
+	{#if tagName.includes('$workspace')}
+		<div>Interpolated tag based on workspace id the job was created in </div>
+	{/if}
+	{#if dynamicTag?.kind == 'flow_expr'}
+		<div>
+			Interpolated tag based on the flow value at <b>{dynamicTag.path}</b>, resolved when the flow
+			step starts
+		</div>
+	{:else if dynamicTag}
+		<div>Interpolated tag based on args input of <b>{dynamicTag.path}</b></div>
+	{/if}
+	{#if dynamicTagTied}
+		<div class="mt-1">
+			Its placeholders read the same value, or one reads inside the other, so it allows only jobs
+			whose tag is written exactly like this
+		</div>
+	{:else if dynamicTagReachesAnyTag}
+		<div class="mt-1 text-yellow-600 dark:text-yellow-500">
+			{@render reachesAnyTagWarning(scoped)}
+		</div>
+	{:else if dynamicTag}
+		<div class="mt-1">
+			Allows any tag it resolves to{scoped ? ' in these workspaces' : ''}, with the text around the
+			placeholder as written
+		</div>
+	{/if}
 {/snippet}
 
 <div
@@ -180,9 +217,10 @@
 	{:else}
 		<div class="flex flex-row flex-wrap gap-y-1 gap-x-2">
 			{#each customTags as customTag}
+				{@const name = nameOf(customTag)}
 				<Badge color="blue">
 					{customTag}
-					{#if reachesAnyTag(customTag)}
+					{#if reachesAnyTag(name)}
 						<Popover
 							openOnHover
 							placement="top"
@@ -194,7 +232,7 @@
 							{/snippet}
 							{#snippet content()}
 								<div class="max-w-72 p-3 text-xs text-primary">
-									{@render reachesAnyTagWarning()}
+									{@render reachesAnyTagWarning(name != customTag)}
 								</div>
 							{/snippet}
 						</Popover>
@@ -229,8 +267,11 @@
 			</Button>
 		</div>
 		{#if extractedCustomTag}
+			{@const dynamic = tagName.includes('$workspace') || dynamicTag != undefined}
 			<div class="text-2xs text-primary p-2 bg-surface-secondary rounded">
-				<div class="font-medium mb-1">Workspace specific tag</div>
+				<div class="font-medium mb-1">
+					Workspace specific {#if dynamic}dynamic tag{:else}tag{/if}
+				</div>
 				<div>
 					<b>Tag:</b>
 					{extractedCustomTag.tag}
@@ -243,6 +284,20 @@
 						All workspaces except {extractedCustomTag.workspaces?.map(formatWorkspace).join(', ')}
 					{/if}
 				</div>
+				{@render dynamicTagInfo(true)}
+				<!-- Only an editor loads the entries as written, which tell a global `tag` from `tag(ws)`. -->
+				{#if !dynamic && tagEditor}
+					{#if (customTags ?? []).includes(tagName)}
+						<div class="mt-1 text-yellow-600 dark:text-yellow-500">
+							<code>{tagName}</code> is also listed without workspaces, which keeps it open to every
+							workspace
+						</div>
+					{:else}
+						<div class="mt-1">
+							Workspaces outside this scope cannot use it, even through a dynamic tag it fits
+						</div>
+					{/if}
+				{/if}
 			</div>
 		{:else if newTag.trim()}
 			{#if newTag.includes('(') || newTag.includes(')') || newTag.includes('+') || newTag.includes('^') || newTag.includes('*') || ((newTag.includes('.') || newTag.includes('$args[') || newTag.includes('$flow_expr[')) && !dynamicTag)}
@@ -266,31 +321,7 @@
 						<b>Tag:</b>
 						{newTag.trim()}
 					</div>
-					{#if newTag.includes('$workspace') && !dynamicTag}
-						<div>Interpolated tag based on workspace id the job was created in </div>
-					{/if}
-					{#if dynamicTag?.kind == 'flow_expr'}
-						<div>
-							Interpolated tag based on the flow value at <b>{dynamicTag.path}</b>, resolved when
-							the flow step starts
-						</div>
-					{:else if dynamicTag}
-						<div>Interpolated tag based on args input of <b>{dynamicTag.path}</b></div>
-					{/if}
-					{#if dynamicTagTied}
-						<div class="mt-1">
-							Its placeholders read the same value, or one reads inside the other, so it allows only
-							jobs whose tag is written exactly like this
-						</div>
-					{:else if dynamicTagReachesAnyTag}
-						<div class="mt-1 text-yellow-600 dark:text-yellow-500">
-							{@render reachesAnyTagWarning()}
-						</div>
-					{:else if dynamicTag}
-						<div class="mt-1">
-							Allows any tag it resolves to, with the text around the placeholder as written
-						</div>
-					{/if}
+					{@render dynamicTagInfo(false)}
 				</div>
 			{/if}
 		{/if}
@@ -348,7 +379,11 @@
 			A dynamic tag is checked on the tag it resolves to: it is allowed when that tag is listed here,
 			or fits a listed dynamic tag such as
 			<pre class="inline text-emphasis">gpu-$args[size]</pre>, which allows any tag starting with
-			<pre class="inline">gpu-</pre>.
+			<pre class="inline">gpu-</pre>. Scope it like any other tag, e.g.
+			<pre class="inline text-emphasis">gpu-$args[size](workspace1+workspace2)</pre>, to allow those
+			tags only in some workspaces. A tag listed by its own name for some workspaces, e.g.
+			<pre class="inline text-emphasis">gpu-secret(workspace1)</pre>, stays limited to them even
+			when a dynamic tag fits it, unless it is also listed without workspaces.
 		</span>
 	{/if}
 </div>

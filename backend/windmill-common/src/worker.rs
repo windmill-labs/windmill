@@ -41,6 +41,8 @@ use crate::{
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct CustomTags {
     pub global: Vec<String>,
+    /// Keyed by the entry's name, which may hold placeholders like a global entry: only a name
+    /// without any can be looked up by the tag it admits, the others through [`custom_tag_matches`].
     pub specific: HashMap<String, SpecificTagData>,
 }
 
@@ -83,20 +85,7 @@ impl CustomTags {
         } else {
             self.specific
                 .iter()
-                .map(|(tag, tag_data)| {
-                    let separator = tag_data.tag_type.corresponding_separator();
-                    let mut workspaces = tag_data
-                        .workspaces
-                        .iter()
-                        .map(|w| w.to_string())
-                        .collect::<Vec<_>>()
-                        .join(&*separator.to_string());
-                    if tag_data.tag_type == SpecificTagType::AllExcluding {
-                        // the AllExcluding tag syntax has a leading separator
-                        workspaces.insert(0, separator);
-                    }
-                    format!("{}({})", tag, workspaces)
-                })
+                .map(|(tag, tag_data)| tag_data.authored(tag))
                 .collect::<Vec<String>>()
         };
         let all_tags = self.global.clone();
@@ -260,6 +249,22 @@ impl SpecificTagData {
     /// lineage lookup for the (overwhelmingly common) fork-agnostic tag.
     pub fn is_fork_scoped(&self) -> bool {
         self.workspaces.iter().any(|w| w.include_forks)
+    }
+
+    /// The entry named `name` with this scope, as written in the custom tags: `tag(ws1+ws2)`.
+    pub fn authored(&self, name: &str) -> String {
+        let separator = self.tag_type.corresponding_separator();
+        let mut workspaces = self
+            .workspaces
+            .iter()
+            .map(|w| w.to_string())
+            .collect::<Vec<_>>()
+            .join(&*separator.to_string());
+        if self.tag_type == SpecificTagType::AllExcluding {
+            // the AllExcluding tag syntax has a leading separator
+            workspaces.insert(0, separator);
+        }
+        format!("{}({})", name, workspaces)
     }
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -542,7 +547,9 @@ lazy_static::lazy_static! {
 
 
 
-    //    ^([\w-]+)         # Group 1: tag name
+    //    ^(                # Group 1: tag name, a pattern when it holds placeholders
+    //      (?:[\w-]|\$workspace|\$(?:args|flow_expr)\[(?:\w+\.)*\w+\])+
+    //    )
     //    \(                # Literal '('
     //    (                 # Group 2: the full workspace list
     //      (?:[\w-]+\*?\+)*[\w-]+\*?   # NoneExcept pattern: ws1+ws2*
@@ -551,8 +558,9 @@ lazy_static::lazy_static! {
     //    )
     //    \)$               # Closing ')'
     //
-    // The optional `*` after each workspace id is the fork marker, see [`WorkspaceMatcher`].
-    static ref CUSTOM_TAG_REGEX: Regex = Regex::new(r"^([\w-]+)\(((?:[\w-]+\*?\+)*[\w-]+\*?|(?:\^[\w-]+\*?)+)\)$").unwrap();
+    // The placeholders are CUSTOM_TAG_PLACEHOLDER's. The optional `*` after each workspace id is
+    // the fork marker, see [`WorkspaceMatcher`].
+    static ref CUSTOM_TAG_REGEX: Regex = Regex::new(r"^((?:[\w-]|\$workspace|\$(?:args|flow_expr)\[(?:\w+\.)*\w+\])+)\(((?:[\w-]+\*?\+)*[\w-]+\*?|(?:\^[\w-]+\*?)+)\)$").unwrap();
 
     // The placeholders a job's tag is resolved from when it is pushed, see [`custom_tag_matches`].
     static ref CUSTOM_TAG_PLACEHOLDER: Regex = Regex::new(r"\$workspace|\$(?:args|flow_expr)\[(?:\w+\.)*\w+\]").unwrap();
@@ -3183,6 +3191,58 @@ mod tests {
         assert!(!matches("tag-$workspace", "tag-ws2"));
         assert!(matches("$workspace-$args[size]", "ws1-large"));
         assert!(!matches("$workspace-$args[size]", "ws2-large"));
+    }
+
+    #[test]
+    fn test_scoped_custom_tag_patterns_parse_and_round_trip() {
+        let input = vec![
+            "gpu-$args[size](ws1+ws2)".to_string(),
+            "cpu-$flow_expr[results.a.size](^ws1)".to_string(),
+            "$workspace-$args[x](prod*)".to_string(),
+            "t-$args[id]-$args[id](ws1)".to_string(),
+        ];
+        let tags = CustomTags::from(input.clone());
+
+        assert!(tags.global.is_empty());
+        assert_eq!(
+            tags.specific["gpu-$args[size]"],
+            SpecificTagData {
+                tag_type: SpecificTagType::NoneExcept,
+                workspaces: vec![matcher("ws1"), matcher("ws2")],
+            }
+        );
+        assert_eq!(
+            tags.specific["cpu-$flow_expr[results.a.size]"],
+            SpecificTagData {
+                tag_type: SpecificTagType::AllExcluding,
+                workspaces: vec![matcher("ws1")],
+            }
+        );
+        assert!(tags.specific["$workspace-$args[x]"].is_fork_scoped());
+        assert!(tags.specific.contains_key("t-$args[id]-$args[id]"));
+
+        let mut result = tags.to_string_vec(None);
+        result.sort();
+        let mut expected = input;
+        expected.sort();
+        assert_eq!(result, expected);
+
+        let mut for_ws1 = tags.to_string_vec(Some(&chain(&["ws1"])));
+        for_ws1.sort();
+        assert_eq!(for_ws1, vec!["gpu-$args[size]", "t-$args[id]-$args[id]"]);
+
+        // Only the placeholders a tag resolves from make a name a pattern: anything else is no
+        // scoped entry at all.
+        for literal in [
+            "gpu-$foo(ws1)",
+            "gpu-$args[](ws1)",
+            "gpu-$args[a.](ws1)",
+            "gpu.x(ws1)",
+        ] {
+            let tags = CustomTags::from(vec![literal.to_string()]);
+            assert_eq!(tags.global, vec![literal]);
+            assert!(tags.specific.is_empty());
+        }
     }
 
     #[test]
