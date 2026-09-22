@@ -89,7 +89,7 @@
 </script>
 
 {#if repo}
-	<div class="flex flex-col gap-4">
+	<div class="flex flex-col gap-4 h-full">
 		{#if !repo.detectionState || repo.detectionState === 'idle' || repo.detectionState === 'loading'}
 			<div class="flex items-center gap-2 text-xs text-secondary">
 				<Loader2 size={14} class="animate-spin" />
@@ -119,24 +119,6 @@
 			<Alert type="success" size="xs" bgClass="border-0" title="Existing Windmill repository">
 				The repository already holds a Windmill configuration. Its sync settings are loaded below.
 			</Alert>
-		{/if}
-
-		{#if repo.detectionJobId && repo.detectionState !== 'no-wmill' && repo.detectionState !== 'has-wmill'}
-			<div class="flex items-center gap-2 text-2xs text-secondary">
-				{#if repo.detectionJobStatus === 'success'}
-					<CheckCircle2 size={12} class="text-green-600" />
-				{:else if repo.detectionJobStatus === 'failure'}
-					<XCircle size={12} class="text-red-700" />
-				{/if}
-				Check job:
-				<a
-					target="_blank"
-					class="underline"
-					href={`/run/${repo.detectionJobId}?workspace=${$workspaceStore}`}
-				>
-					{repo.detectionJobId}
-				</a>
-			</div>
 		{/if}
 
 		{#if repo.detectionState === 'no-wmill' || repo.detectionState === 'has-wmill'}
@@ -189,6 +171,24 @@
 					{/if}
 				</div>
 			{/if}
+		{/if}
+
+		{#if repo.detectionJobId}
+			<div class="mt-auto flex items-center gap-2 text-2xs text-secondary">
+				{#if repo.detectionJobStatus === 'success'}
+					<CheckCircle2 size={12} class="text-green-600" />
+				{:else if repo.detectionJobStatus === 'failure'}
+					<XCircle size={12} class="text-red-700" />
+				{/if}
+				<span class="text-hint">Check job:</span>
+				<a
+					target="_blank"
+					class="underline"
+					href={`/run/${repo.detectionJobId}?workspace=${$workspaceStore}`}
+				>
+					{repo.detectionJobId}
+				</a>
+			</div>
 		{/if}
 	</div>
 {/if}
