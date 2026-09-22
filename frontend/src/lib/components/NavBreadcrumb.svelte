@@ -49,14 +49,18 @@ same weight, size and icon size, so the line reads as one control rather than fo
 		type WorkspaceItem
 	} from '$lib/components/workspacePicker'
 	import type { PageHeaderItem, PageHeaderSection } from './pageHeaderRegistry.svelte'
+	import type { Snippet } from 'svelte'
 
 	let {
 		item,
 		section,
+		hint,
 		actingWorkspaceId
 	}: {
 		item?: PageHeaderItem
 		section?: PageHeaderSection
+		/** A page's own mark next to its name, such as its documentation tooltip. */
+		hint?: Snippet
 		/** The workspace the page acts on, when it differs from the one the app is pointed at. */
 		actingWorkspaceId?: string
 	} = $props()
@@ -296,11 +300,15 @@ same weight, size and icon size, so the line reads as one control rather than fo
 		>
 			{#if section.content}{@render section.content()}{:else}{section.label}{/if}
 		</span>
+		{#if hint}{@render hint()}{/if}
 	{:else if routePage}
 		{@const RouteIcon = routePage.icon}
-		<span class="{SEGMENT} hover:bg-transparent hover:text-primary" aria-current="page">
+		<!-- shrink-0: a page's own name is short and is the one part of the trail worth keeping
+		     whole, so the workspace and fork names give way first when the bar is full. -->
+		<span class="{SEGMENT} shrink-0 hover:bg-transparent hover:text-primary" aria-current="page">
 			{#if RouteIcon}<RouteIcon size={ICON} class="flex-shrink-0 text-tertiary" />{/if}
 			<span class="truncate">{routePage.label}</span>
 		</span>
+		{#if hint}{@render hint()}{/if}
 	{/if}
 </nav>

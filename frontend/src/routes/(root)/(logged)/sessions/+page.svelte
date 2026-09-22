@@ -932,7 +932,7 @@
 						<Pane
 							bind:size={chatPaneSize}
 							minSize={25}
-							class="flex flex-col min-h-0 {previewCollapsed || fullscreen ? '' : 'pt-10'}"
+							class="flex flex-col min-h-0 {previewCollapsed || fullscreen ? '' : 'pt-11'}"
 						>
 							<div class="relative flex-1 min-h-0">
 								{#each warmSessions as s (s.id)}

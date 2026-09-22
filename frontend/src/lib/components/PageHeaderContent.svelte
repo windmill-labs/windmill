@@ -13,6 +13,7 @@ the header, so nesting is decided by the caller rather than guessed from context
 	let {
 		item,
 		section,
+		hint,
 		actions,
 		contexts,
 		barPlacement,
@@ -25,6 +26,7 @@ the header, so nesting is decided by the caller rather than guessed from context
 		const id = pageHeader.register(() => ({
 			item,
 			section,
+			hint,
 			actions,
 			contexts,
 			barPlacement,

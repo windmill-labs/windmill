@@ -77,7 +77,7 @@
 
 <script lang="ts">
 	import { CalendarIcon, RefreshCw } from 'lucide-svelte'
-	import { Button } from '../common'
+	import { Button, type ButtonType } from '../common'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import Popover from '../meltComponents/Popover.svelte'
@@ -94,9 +94,18 @@
 		value: Timeframe
 		wrapperClasses?: string
 		onClick?: () => void
+		/** Sizes the three buttons of the control itself; the presets inside the popover keep md. */
+		unifiedSize?: ButtonType.UnifiedSize
 	}
 
-	let { loading = false, onClick, items, value = $bindable(), wrapperClasses }: Props = $props()
+	let {
+		loading = false,
+		onClick,
+		items,
+		value = $bindable(),
+		wrapperClasses,
+		unifiedSize = 'md'
+	}: Props = $props()
 
 	let isOpen = $state(false)
 
@@ -141,7 +150,7 @@
 
 <div class="relative flex {wrapperClasses}">
 	<Button
-		unifiedSize="md"
+		{unifiedSize}
 		wrapperClasses="flex-1"
 		btnClasses="!rounded-r-none whitespace-nowrap"
 		onClick={() => onClick?.()}
@@ -154,7 +163,7 @@
 	{#if value.type === 'manual'}
 		<Button
 			btnClasses="!rounded-none border-l-0"
-			unifiedSize="md"
+			{unifiedSize}
 			onClick={() => (value = { ...items[0] })}
 		>
 			Reset
@@ -168,7 +177,7 @@
 	>
 		{#snippet trigger()}
 			<Button
-				unifiedSize="md"
+				{unifiedSize}
 				iconOnly
 				btnClasses="!rounded-l-none border-l-0"
 				endIcon={{ icon: CalendarIcon }}

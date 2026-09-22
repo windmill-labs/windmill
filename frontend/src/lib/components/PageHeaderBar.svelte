@@ -32,7 +32,7 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 
 <div
 	data-page-header
-	class="flex items-center gap-1 h-10 px-2 shrink-0 min-w-0 bg-surface border-b {showBorder
+	class="flex items-center gap-1 h-11 px-2 shrink-0 min-w-0 bg-surface border-b {showBorder
 		? ''
 		: 'border-transparent'}"
 >
@@ -54,7 +54,17 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 		</div>
 	{/if}
 
-	<NavBreadcrumb {item} {section} actingWorkspaceId={content?.actingWorkspaceId} />
+	<!-- The breadcrumb yields width grudgingly (shrink-[0.1]): when a page fills the bar with
+	     controls, they are what should narrow, not the name of where the user is. It still gives
+	     way rather than pushing them off the bar once there is nothing left to take. -->
+	<div class="flex min-w-0 shrink-[0.1]">
+		<NavBreadcrumb
+			{item}
+			{section}
+			hint={content?.hint}
+			actingWorkspaceId={content?.actingWorkspaceId}
+		/>
+	</div>
 
 	{#if item && (item.summaryContent || item.summary)}
 		<!-- A dot rather than a slash: the summary names the same item the path just located, it is
@@ -72,7 +82,9 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 	{/if}
 
 	{#if actions.length > 0}
-		<div class="ml-auto flex items-center gap-2 shrink-0">
+		<!-- min-w-0, not shrink-0: a page whose actions are a filter row (Runs) puts a control in
+		     here that can give width back, and it can only do that if this box may shrink. -->
+		<div class="ml-auto flex items-center gap-2 min-w-0 pl-4">
 			{#each actions as entry, i (i)}
 				{#key entry.contexts}
 					<ContextBridge contexts={entry.contexts}>

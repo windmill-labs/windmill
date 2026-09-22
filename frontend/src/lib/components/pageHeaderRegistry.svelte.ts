@@ -36,6 +36,9 @@ export type PageHeaderContent = {
 	section?: PageHeaderSection
 	/** Rendered at the right end of the bar — the page's own buttons. */
 	actions?: Snippet
+	/** Rendered right after the page's name in the breadcrumb, for what reads as part of that name
+	 *  rather than as an action — a page's documentation tooltip. */
+	hint?: Snippet
 	/** The workspace this page acts on, when it is not the one the app is pointed at — a session
 	 *  running in a fork. The breadcrumb then names that workspace, and its fork part shows only
 	 *  when it really is a fork. */
@@ -80,6 +83,7 @@ export const pageHeader = {
 			const c = e.get()
 			if (c.item !== undefined) merged.item = c.item
 			if (c.section !== undefined) merged.section = c.section
+			if (c.hint !== undefined) merged.hint = c.hint
 			if (c.contexts !== undefined) merged.contexts = c.contexts
 			if (c.barPlacement !== undefined) merged.barPlacement = c.barPlacement
 			if (c.actingWorkspaceId !== undefined) merged.actingWorkspaceId = c.actingWorkspaceId
