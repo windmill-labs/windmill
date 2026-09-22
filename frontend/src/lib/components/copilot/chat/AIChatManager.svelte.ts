@@ -719,8 +719,8 @@ export class AIChatManager implements ChatViewHost {
 	})
 	/** The sources the current mode assembled, concatenated. Private, because neither view
 	 * over it is this list: a consumer reading it would advertise a tool set no request ever
-	 * carries. Narrowing (WIN-2371's permission filter) belongs here, after the concatenation,
-	 * so a source added later cannot arrive unfiltered. */
+	 * carries. Narrowing belongs here, after the concatenation, so a source added later
+	 * cannot arrive unfiltered. */
 	#assembledTools = $state<Tool<any>[]>([])
 	/** What the request carries: the assembled tools plus the plan-mode transition the current
 	 * posture offers. Read by the request path and by the YOLO disclosure. */
