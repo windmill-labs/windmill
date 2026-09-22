@@ -1,6 +1,8 @@
 <script lang="ts">
-	import { ExternalLink, ChevronDown, ChevronRight, Plus } from 'lucide-svelte'
-	import { Button, Alert } from '$lib/components/common'
+	import { ExternalLink, Plus, Settings, GitBranch } from 'lucide-svelte'
+	import { Button, Alert, Badge, Drawer, DrawerContent } from '$lib/components/common'
+	import GitSyncSetupModal from './GitSyncSetupModal.svelte'
+	import EEOnly from '$lib/components/EEOnly.svelte'
 	import SettingsPageHeader from '$lib/components/settings/SettingsPageHeader.svelte'
 	import { setGitSyncContext } from './GitSyncContext.svelte'
 	import GitSyncRepositoryCard from './GitSyncRepositoryCard.svelte'
@@ -78,14 +80,12 @@
 	// A dev workspace reuses the single repo it inherited from prod: whether it's
 	// currently in sync or promotion mode, it's the same one card, toggled between
 	// the two — so a dev never configures a separate promotion repo.
-	const devPrimaryRepo = $derived(isDevWorkspace ? (primarySync ?? primaryPromotion) : null)
 	// The single-repo dev UX (one card + promotion toggle, secondaries hidden) is
 	// only safe when the dev actually has one repo — i.e. it inherited prod's on
 	// fork. An ATTACHED dev keeps its own repos: with more than one, fall back to
 	// the normal layout so none are hidden and we don't present an unrelated repo
 	// as prod's promotion target.
 	const devSingleRepo = $derived(isDevWorkspace && (gitSyncContext?.repositories?.length ?? 0) <= 1)
-	const secondarySync = $derived(gitSyncContext?.getSecondarySyncRepositories() || [])
 	const secondaryPromotion = $derived(gitSyncContext?.getSecondaryPromotionRepositories() || [])
 	// Fork creation keeps only sync-mode repositories and a fork is refused a
 	// promotion one, so the single way a fork holds one is a dev workspace
@@ -104,15 +104,85 @@
 		return `${base}/workspace_settings?workspace=${parent}&tab=dev_workspace`
 	})
 
-	// State for collapsible sections
-	let secondarySyncExpanded = $state(false)
-	let secondaryPromotionExpanded = $state(false)
-
-	// Check if any secondary repositories are unsaved
-	const hasUnsavedSecondary = $derived(secondarySync.some((s) => s.repo.isUnsavedConnection))
-	const hasUnsavedSecondaryPromotion = $derived(
-		secondaryPromotion.some((s) => s.repo.isUnsavedConnection)
+	const repositories = $derived(gitSyncContext?.repositories ?? [])
+	const hasUnsavedConnection = $derived(repositories.some((r) => r.isUnsavedConnection))
+	const usedResourcePaths = $derived(
+		repositories.map((r) => r.git_repo_resource_path).filter((p) => !!p?.trim())
 	)
+
+	let setupMode = $state<'sync' | 'promotion'>('sync')
+	let setupOpen = $state(false)
+	function openSetup(mode: 'sync' | 'promotion') {
+		setupMode = mode
+		setupOpen = true
+	}
+	const setupTitle = $derived(
+		setupMode === 'promotion'
+			? 'Add a promotion repository'
+			: repositories.length === 0
+				? 'Configure Git Sync'
+				: 'Add a secondary sync repository'
+	)
+
+	// Keyed by resource path rather than index: deleting a repository shifts the
+	// indexes, and reloading the settings replaces the objects.
+	let settingsPath: string | undefined = $state(undefined)
+	const settingsIdx = $derived(
+		settingsPath === undefined
+			? -1
+			: repositories.findIndex((r) => r.git_repo_resource_path === settingsPath)
+	)
+	let settingsDrawer: Drawer | undefined = $state(undefined)
+	$effect(() => {
+		if (settingsPath !== undefined && settingsIdx === -1)
+			untrack(() => settingsDrawer?.closeDrawer())
+	})
+	function openSettings(path: string) {
+		settingsPath = path
+		settingsDrawer?.openDrawer()
+	}
+
+	function addWithExistingResource(path: string) {
+		if (!gitSyncContext) return
+		const before = gitSyncContext.repositories.length
+		if (setupMode === 'promotion') gitSyncContext.addPromotionRepository()
+		else gitSyncContext.addSyncRepository()
+		if (gitSyncContext.repositories.length === before) return
+		gitSyncContext.repositories[before].git_repo_resource_path = path
+		openSettings(path)
+	}
+
+	function cardProps(idx: number) {
+		const repo = repositories[idx]
+		if (devSingleRepo) {
+			return {
+				variant: 'primary-sync' as const,
+				mode: repo?.use_individual_branch ? ('promotion' as const) : ('sync' as const),
+				devPromotion: !!$enterpriseLicense
+			}
+		}
+		if (idx === primarySync?.idx) return { variant: 'primary-sync' as const, mode: 'sync' as const }
+		if (idx === primaryPromotion?.idx)
+			return { variant: 'primary-promotion' as const, mode: 'promotion' as const }
+		return { variant: 'secondary' as const, isSecondary: true }
+	}
+
+	function rowLabel(idx: number): string {
+		const repo = repositories[idx]
+		const promotion = !!repo?.use_individual_branch
+		if (devSingleRepo) return promotion ? 'Git Promotion' : 'Git Sync'
+		const primary = idx === primarySync?.idx || idx === primaryPromotion?.idx
+		return `${primary ? 'Primary' : 'Secondary'} ${promotion ? 'promotion' : 'sync'} repository`
+	}
+
+	// Shown without EE too, disabled, so CE users see what the upgrade unlocks.
+	const showAddSecondarySync = $derived(
+		!devSingleRepo &&
+			!!primarySync &&
+			!primarySync.repo.isUnsavedConnection &&
+			!hasUnsavedConnection
+	)
+	const showAddPromotion = $derived(showPromotion && !devSingleRepo && !hasUnsavedConnection)
 </script>
 
 {#if !gitSyncContext}
@@ -132,7 +202,7 @@
 		{#snippet actions()}
 			{#if (gitSyncAllowed || gitSyncStatus.user_count != null) && gitSyncContext?.repositories != undefined}
 				<Button
-					variant="accent"
+					variant={repositories.length > 0 ? 'accent' : 'default'}
 					target="_blank"
 					endIcon={{ icon: ExternalLink }}
 					href={`/runs?job_kinds=deploymentcallbacks&workspace=${$workspaceStore}`}
@@ -166,161 +236,90 @@
 		<div class="mb-2"></div>
 	{/if}
 	{#if (gitSyncAllowed || gitSyncStatus.user_count != null) && gitSyncContext?.repositories != undefined}
-		<!-- Primary Sync Repository -->
-		<div class="space-y-6 pt-6">
-			<GitSyncRepositoryCard
-				variant="primary-sync"
-				mode={devSingleRepo && devPrimaryRepo?.repo?.use_individual_branch ? 'promotion' : 'sync'}
-				idx={(devSingleRepo ? devPrimaryRepo : primarySync)?.idx ?? null}
-				repository={(devSingleRepo ? devPrimaryRepo : primarySync)?.repo ?? null}
-				onAdd={() => gitSyncContext.addSyncRepository()}
-				isCollapsible={false}
-				showEmptyState={(devSingleRepo ? devPrimaryRepo : primarySync)?.repo == null}
-				devPromotion={devSingleRepo && !!$enterpriseLicense}
-			/>
-
-			{#if $enterpriseLicense}
-				<!-- Secondary Sync Repositories (EE only; a dev workspace has a single inherited repo) -->
-				{#if primarySync && !primarySync.repo?.isUnsavedConnection && !devSingleRepo}
-					{#if secondarySync.length > 0 || secondarySyncExpanded}
-						<div class="mt-4">
-							<button
-								class="flex items-center gap-2 text-sm text-secondary hover:text-primary transition-colors"
-								onclick={() => (secondarySyncExpanded = !secondarySyncExpanded)}
-							>
-								{#if secondarySyncExpanded}
-									<ChevronDown size={16} />
-								{:else}
-									<ChevronRight size={16} />
-								{/if}
-								Secondary sync repositories ({secondarySync.length})
-							</button>
-
-							{#if secondarySyncExpanded}
-								<div class="mt-3 space-y-3">
-									{#if secondarySync.length === 0}
-										<div class="text-sm text-secondary italic">
-											No secondary sync repositories configured
-										</div>
-									{:else}
-										{#each secondarySync as { repo, idx } (repo.git_repo_resource_path)}
-											<div class="pl-4">
-												<GitSyncRepositoryCard variant="secondary" {idx} isSecondary={true} />
-											</div>
-										{/each}
+		<div class="pt-6">
+			{#if repositories.length === 0}
+				<div
+					class="flex flex-col items-center gap-3 text-center py-10 px-4 border rounded-md bg-surface-tertiary"
+				>
+					<GitBranch size={24} class="text-secondary" />
+					<div class="flex flex-col gap-1 items-center">
+						<span class="font-semibold text-sm text-emphasis">No repository connected</span>
+						<p class="text-xs text-secondary max-w-sm">
+							Commit every deploy of this workspace to a Git repository, and deploy new commits back
+							into it.
+						</p>
+					</div>
+					<Button unifiedSize="md" variant="accent" onClick={() => openSetup('sync')}>
+						Configure Git Sync
+					</Button>
+				</div>
+			{:else}
+				<div class="flex flex-col border rounded-md divide-y bg-surface-tertiary">
+					{#each repositories as repo, idx (idx)}
+						{@const validation = gitSyncContext.getValidation(idx)}
+						<div class="flex items-center justify-between gap-4 px-4 py-3">
+							<div class="flex flex-col gap-0.5 min-w-0">
+								<div class="flex items-center gap-2 min-w-0">
+									<span class="text-xs font-medium text-emphasis truncate">
+										{repo.git_repo_resource_path || 'No resource selected'}
+									</span>
+									{#if repo.isUnsavedConnection}
+										<Badge small color="yellow">Not saved</Badge>
+									{:else if validation?.hasChanges}
+										<Badge small color="yellow">Unsaved changes</Badge>
 									{/if}
-
-									{#if !hasUnsavedSecondary}
-										<div class="pl-4">
-											<Button
-												size="xs"
-												variant="default"
-												startIcon={{ icon: Plus }}
-												onclick={() => gitSyncContext.addSyncRepository()}
-											>
-												Add secondary sync
-											</Button>
-										</div>
+									{#if repo.legacyImported}
+										<Badge small color="orange">Legacy configuration</Badge>
 									{/if}
 								</div>
-							{/if}
+								<span class="text-2xs text-secondary">{rowLabel(idx)}</span>
+							</div>
+							<Button
+								unifiedSize="sm"
+								variant="default"
+								startIcon={{ icon: Settings }}
+								onClick={() => openSettings(repo.git_repo_resource_path)}
+							>
+								Settings
+							</Button>
 						</div>
-					{:else}
-						<!-- Collapsed state when no secondary repos exist -->
-						{#if !hasUnsavedSecondary}
-							<div class="mt-2">
-								<button
-									class="text-xs text-primary hover:text-secondary transition-colors"
-									onclick={() => {
-										secondarySyncExpanded = true
-										gitSyncContext.addSyncRepository()
-									}}
+					{/each}
+				</div>
+
+				{#if showAddSecondarySync || showAddPromotion}
+					<div class="flex gap-4 mt-3">
+						{#if showAddSecondarySync}
+							<div class="flex items-center gap-1">
+								<Button
+									unifiedSize="sm"
+									variant="default"
+									startIcon={{ icon: Plus }}
+									disabled={!$enterpriseLicense}
+									onClick={() => openSetup('sync')}
 								>
-									+ Add secondary sync repository
-								</button>
+									Add secondary sync repository
+								</Button>
+								{#if !$enterpriseLicense}<EEOnly />{/if}
 							</div>
 						{/if}
-					{/if}
-				{/if}
-
-				<!-- Primary Promotion Repository (EE only; roots only — a dev promotes via the
-					toggle on its single inherited repo, not a separate promotion repo) -->
-				{#if showPromotion && !devSingleRepo}
-					<div class="mt-6">
-						<GitSyncRepositoryCard
-							variant="primary-promotion"
-							mode="promotion"
-							idx={primaryPromotion?.idx ?? null}
-							repository={primaryPromotion?.repo ?? null}
-							onAdd={() => gitSyncContext.addPromotionRepository()}
-							isCollapsible={false}
-							showEmptyState={primaryPromotion?.repo === null}
-						/>
-
-						<!-- Secondary Promotion Repositories -->
-						{#if primaryPromotion && !primaryPromotion.repo?.isUnsavedConnection}
-							{#if secondaryPromotion.length > 0 || secondaryPromotionExpanded}
-								<div class="mt-4">
-									<button
-										class="flex items-center gap-2 text-sm text-secondary hover:text-primary transition-colors"
-										onclick={() => (secondaryPromotionExpanded = !secondaryPromotionExpanded)}
-									>
-										{#if secondaryPromotionExpanded}
-											<ChevronDown size={16} />
-										{:else}
-											<ChevronRight size={16} />
-										{/if}
-										Secondary promotion repositories ({secondaryPromotion.length})
-									</button>
-
-									{#if secondaryPromotionExpanded}
-										<div class="mt-3 space-y-3">
-											{#if secondaryPromotion.length === 0}
-												<div class="text-sm text-secondary italic">
-													No secondary promotion repositories configured
-												</div>
-											{:else}
-												{#each secondaryPromotion as { repo, idx } (repo.git_repo_resource_path)}
-													<div class="pl-4">
-														<GitSyncRepositoryCard variant="secondary" {idx} isSecondary={true} />
-													</div>
-												{/each}
-											{/if}
-
-											{#if !hasUnsavedSecondaryPromotion}
-												<div class="pl-4">
-													<Button
-														size="xs"
-														variant="default"
-														startIcon={{ icon: Plus }}
-														onclick={() => gitSyncContext.addPromotionRepository()}
-													>
-														Add secondary promotion
-													</Button>
-												</div>
-											{/if}
-										</div>
-									{/if}
-								</div>
-							{:else}
-								<!-- Collapsed state when no secondary promotion repos exist -->
-								{#if !hasUnsavedSecondaryPromotion}
-									<div class="mt-2">
-										<button
-											class="text-xs text-primary hover:text-secondary transition-colors"
-											onclick={() => {
-												secondaryPromotionExpanded = true
-												gitSyncContext.addPromotionRepository()
-											}}
-										>
-											+ Add secondary promotion repository
-										</button>
-									</div>
-								{/if}
-							{/if}
+						{#if showAddPromotion}
+							<div class="flex items-center gap-1">
+								<Button
+									unifiedSize="sm"
+									variant="default"
+									startIcon={{ icon: Plus }}
+									disabled={!$enterpriseLicense}
+									onClick={() => openSetup('promotion')}
+								>
+									Add promotion repository
+								</Button>
+								{#if !$enterpriseLicense}<EEOnly />{/if}
+							</div>
 						{/if}
 					</div>
-				{:else if !showPromotion}
+				{/if}
+
+				{#if $enterpriseLicense && !showPromotion}
 					<div class="mt-6">
 						<Alert
 							type="info"
@@ -347,6 +346,34 @@
 				{/if}
 			{/if}
 		</div>
+
+		<GitSyncSetupModal
+			bind:opened={setupOpen}
+			title={setupTitle}
+			{usedResourcePaths}
+			onExistingResource={addWithExistingResource}
+		/>
+
+		<Drawer
+			bind:this={settingsDrawer}
+			size="1000px"
+			on:afterClose={() => (settingsPath = undefined)}
+		>
+			<DrawerContent
+				title={settingsIdx !== -1 ? rowLabel(settingsIdx) : 'Repository settings'}
+				on:close={() => settingsDrawer?.closeDrawer()}
+			>
+				{#if settingsIdx !== -1}
+					{#key settingsIdx}
+						<GitSyncRepositoryCard
+							idx={settingsIdx}
+							isCollapsible={false}
+							{...cardProps(settingsIdx)}
+						/>
+					{/key}
+				{/if}
+			</DrawerContent>
+		</Drawer>
 
 		<!-- Modals -->
 		<GitSyncModalManager />
