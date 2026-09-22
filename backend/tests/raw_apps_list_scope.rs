@@ -34,6 +34,8 @@ async fn test_raw_apps_list_filters_by_token_scope(db: Pool<Postgres>) -> anyhow
         ("u/test-userx/d", 1),
         ("u/test-user/a", 2),
         ("u/test-user/sub/b", 3),
+        // A `prefix/*` grant also covers the path at the prefix itself.
+        ("u/test-user", 4),
     ] {
         sqlx::query(
             "INSERT INTO raw_app (path, workspace_id, data, edited_at)
@@ -60,14 +62,15 @@ async fn test_raw_apps_list_filters_by_token_scope(db: Pool<Postgres>) -> anyhow
         list_paths(port, "SECRET_TOKEN", "").await?,
         [
             "f/other/c",
+            "u/test-user",
             "u/test-user/a",
             "u/test-user/sub/b",
             "u/test-userx/d"
         ]
     );
     assert_eq!(
-        list_paths(port, "SCOPED_TOKEN", "per_page=2").await?,
-        ["u/test-user/a", "u/test-user/sub/b"]
+        list_paths(port, "SCOPED_TOKEN", "per_page=3").await?,
+        ["u/test-user", "u/test-user/a", "u/test-user/sub/b"]
     );
     Ok(())
 }
