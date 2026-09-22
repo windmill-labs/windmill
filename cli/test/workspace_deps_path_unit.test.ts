@@ -13,6 +13,11 @@ test("workspace dependency paths parse the same with either separator", () => {
     expect(
       workspaceDependenciesPathToLanguageAndFilename(`dependencies${sep}team.package.json`),
     ).toEqual({ name: "team", language: "bun" });
+    expect(
+      workspaceDependenciesPathToLanguageAndFilename(
+        `dependencies${sep}team${sep}python.requirements.in`,
+      ),
+    ).toEqual({ name: "team/python", language: "python3" });
   }
   expect(isWorkspaceDependencies("f\\dependencies\\requirements.in")).toBe(false);
 });
