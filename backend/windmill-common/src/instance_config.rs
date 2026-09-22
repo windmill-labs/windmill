@@ -264,6 +264,8 @@ pub struct GlobalSettings {
     pub disable_hub: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auto_build_binary_on_deploy: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ai_sessions_instance_storage_fallback: Option<bool>,
 
     // String settings
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -829,6 +831,8 @@ pub struct CustomInstanceDbLogs {
     pub replication_user: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub replication_user_error: Option<String>,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub user_connect: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -1025,9 +1029,10 @@ const NESTED_SENSITIVE_FIELDS: &[(&str, &[&str])] = &[
     ),
     (
         "object_store_cache_config",
-        &["secret_key", "serviceAccountKey"],
+        &["secret_key", "serviceAccountKey", "accessKey"],
     ),
     ("custom_instance_pg_databases", &["user_pwd"]),
+    ("github_enterprise_app", &["private_key"]),
 ];
 
 fn redact_json_value(value: &serde_json::Value) -> serde_json::Value {
@@ -1288,8 +1293,9 @@ pub fn diff_worker_configs(
     ConfigsDiff { upserts, deletes }
 }
 
-/// Declaratively replace the global settings, rejecting a `github_app_webhook_base_url`
-/// the API would reject.
+/// Declaratively replace the global settings, rejecting a
+/// `github_app_webhook_base_url` or `http_route_default_allowed_origins` the
+/// API would reject.
 ///
 /// Every declarative writer (the `sync-config` CLI, the Kubernetes operator's
 /// ConfigMap sync) MUST go through this rather than calling
@@ -1347,6 +1353,17 @@ pub async fn sync_global_settings_declarative(
             // never the submitted value, so they are safe to surface here.
             .map_err(|e| anyhow::anyhow!("{banner_key}: {e}"))?,
     }
+
+    // An origin list that cannot be parsed is dropped at boot, leaving the
+    // empty default — which is no restriction at all. Rejecting it here is what
+    // keeps a typo in a ConfigMap from silently widening CORS instance-wide.
+    let origins_key = crate::global_settings::HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING;
+    crate::global_settings::parse_allowed_origins_setting(desired.get(origins_key))
+        .map_err(|e| anyhow::anyhow!("{origins_key}: {e}"))?;
+
+    let max_expiration_key = crate::global_settings::MAX_TOKEN_EXPIRATION_DAYS_SETTING;
+    crate::global_settings::parse_max_token_expiration_days(desired.get(max_expiration_key))
+        .map_err(|e| anyhow::anyhow!("{max_expiration_key}: {e}"))?;
 
     let diff = diff_global_settings(current, desired, ApplyMode::Replace);
     apply_settings_diff(db, &diff).await?;
@@ -2629,6 +2646,26 @@ mod tests {
         assert!(!formatted.contains("my-super-secret-12345"));
         assert!(formatted.contains("client-id"));
         assert!(formatted.contains("****"));
+    }
+
+    #[test]
+    fn format_setting_value_redacts_nested_credentials() {
+        let val = serde_json::json!({
+            "type": "Azure",
+            "accountName": "acct",
+            "containerName": "c",
+            "accessKey": "azure-storage-account-key-12345"
+        });
+        let formatted = format_setting_value("object_store_cache_config", &val);
+        assert!(!formatted.contains("azure-storage-account-key-12345"));
+        assert!(formatted.contains("acct"));
+
+        let val = serde_json::json!({
+            "app_id": 1,
+            "private_key": "-----BEGIN RSA PRIVATE KEY-----\nMIIEsecretbody\n-----END RSA PRIVATE KEY-----"
+        });
+        let formatted = format_setting_value("github_enterprise_app", &val);
+        assert!(!formatted.contains("MIIEsecretbody"));
     }
 
     #[test]

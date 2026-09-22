@@ -1,3 +1,5 @@
+import type { AttachedBlob } from './blobUtils'
+import type { ChatViewHost } from './chatViewHost'
 import type { ScriptLang } from '$lib/gen/types.gen'
 import { JobService, type CompletedJob } from '$lib/gen'
 import type { FlowOptions, ScriptOptions } from './ContextManager.svelte'
@@ -53,7 +55,7 @@ import { sendUserToast } from '$lib/toast'
 import { workspaceAIClients, getNonStreamingCompletion } from '../lib'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
 import { modelSupportsVision } from '../modelConfig'
-import { getModelContextWindow } from '../modelConfig'
+import { getEffectiveModelContextWindow } from '../modelConfig'
 import {
 	getCompactionSummaryPrompt,
 	formatCompactSummary,
@@ -93,7 +95,7 @@ import { copilotInfo } from '$lib/aiStore'
 import { copilotWorkspaceRequested, loadCopilot } from '$lib/components/copilot/loadCopilot'
 import { askTools, prepareAskSystemMessage, prepareAskUserMessage } from './ask/core'
 import { readDocsPageTool, searchDocsTool } from './docs/core'
-import { TypewriterReveal } from './typewriterReveal'
+import { prefersInstantReveal, TypewriterReveal } from './typewriterReveal'
 import { chatState, DEFAULT_SIZE, triggerablesByAi } from './sharedChatState.svelte'
 import {
 	createAppBackendRunnableContextElement,
@@ -135,11 +137,15 @@ import {
 	type GlobalToolHelpers,
 	type GlobalActivePreviewContext
 } from './global/core'
-import { assembleGlobalSystemMessage, assembleGlobalTools } from './global/sessionAssembly'
+import {
+	assembleGlobalSystemMessage,
+	assembleGlobalTools,
+	type GlobalAssemblyOpts
+} from './global/globalAssembly'
 import { formatChatJobCompletion } from './datatableTools'
 import { isGlobalAiEnabled } from './global/gate'
 import { loadMcpServers, type McpServer } from './global/mcpTools'
-import { type PipelineAIChatHelpers } from './pipeline/core'
+import type { PipelineAIChatHelpers } from './pipeline/core'
 import { scopedKey, onUserChange, migrateLegacyLocalStorage } from '$lib/userScopedStorage'
 import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 import { AttachedFilesStore } from './files/attachedFiles.svelte'
@@ -148,11 +154,6 @@ import type { ArtifactVersionTarget } from '$lib/components/sessions/previewRout
 import { appendAttachedFilesRoster } from './files/fileTools'
 import { ENTER_PLAN_MODE_TOOL, EXIT_PLAN_MODE_TOOL } from './planMode'
 import { PlanModeController, type PlanModeHost } from './planModeController.svelte'
-
-// SSR and users who prefer reduced motion get no typewriter pacing.
-function prefersInstantReveal(): boolean {
-	return !BROWSER || (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false)
-}
 
 // Compaction of the stored history: once the projected request size
 // (contextTokens — the provider's report when current, a fresh chars/4
@@ -441,9 +442,31 @@ function planModeHostFor(m: AIChatManager): PlanModeHost {
 	}
 }
 
-export class AIChatManager {
+export class AIChatManager implements ChatViewHost {
 	contextManager = new ContextManager()
 	historyManager = new HistoryManager()
+	// The copilot owns its model choice and its own transcript, so both chat
+	// affordances apply here. See ChatViewHost for hosts where they don't.
+	supportsModelSettings = true
+	supportsMessageEditing = true
+	// The copilot turn is the attachments themselves when there is no text.
+	requiresMessageText = false
+	// Attachments and linked folders are GLOBAL-mode affordances. Declared as
+	// getters because `mode` changes under a mounted composer.
+	get supportsMessageAttachments() {
+		return this.mode === AIMode.GLOBAL
+	}
+	get supportsLinkedFolders() {
+		return this.mode === AIMode.GLOBAL
+	}
+	// The copilot reads attachments in the browser, so non-image files decode to text.
+	attachmentsAsBlobs = false
+	// The copilot decodes its attachments, so nothing ever lands in the blob lane.
+	queuedBlobs: AttachedBlob[] = []
+	// Steers the OS file picker toward text + image formats (a soft hint; both attach to
+	// the message — text files after a content sniff).
+	attachmentAccept =
+		'image/*,text/*,.txt,.csv,.tsv,.json,.jsonl,.ndjson,.md,.markdown,.log,.yaml,.yml,.toml,.ini,.cfg,.conf,.env,.xml,.html,.htm,.css,.js,.mjs,.cjs,.ts,.tsx,.jsx,.py,.rb,.rs,.go,.java,.kt,.c,.h,.cpp,.cc,.cs,.php,.sh,.bash,.zsh,.sql,.svelte,.vue,.dockerfile'
 	/** Files the user attached to the current GLOBAL-mode conversation. */
 	attachedFiles = new AttachedFilesStore()
 	/** Markdown artifacts the copilot created for the current session. */
@@ -714,14 +737,22 @@ export class AIChatManager {
 	>(undefined)
 	scriptEditorShowDiffMode = $state<(() => void) | undefined>(undefined)
 	scriptEditorGetLintErrors = $state<(() => ScriptLintResult) | undefined>(undefined)
+	/** The editor a FLOW-mode chat belongs to: the page owning the chat names itself here, and a
+	 * nested editor (a subflow drawer) takes it over while it is open. Unset in a session chat,
+	 * which keeps every open editor tab mounted and could only name an arbitrary one — a session
+	 * resolves an editor by its storage path through `flowEditorFor`. */
 	flowAiChatHelpers = $state<FlowAIChatHelpers | undefined>(undefined)
+	/** Every mounted flow editor. */
+	#flowEditors = new Set<FlowAIChatHelpers>()
 	appAiChatHelpers = $state<AppAIChatHelpers | undefined>(undefined)
-	/** Datatable creation policy: enabled flag, datatable name, and optional schema */
+	/** Datatable creation policy: enabled flag, datatable name, optional schema, and the role the
+	 * app uses each data table through */
 	datatableCreationPolicy = $state<{
 		enabled: boolean
 		datatable: string | undefined
 		schema: string | undefined
-	}>({ enabled: false, datatable: undefined, schema: undefined })
+		roles?: Record<string, string>
+	}>({ enabled: false, datatable: undefined, schema: undefined, roles: undefined })
 	pendingNewCode = $state<string | undefined>(undefined)
 	apiTools = $state<Tool<any>[]>([])
 	aiChatInput = $state<AIChatInput | null>(null)
@@ -2205,7 +2236,7 @@ export class AIChatManager {
 	 * Gated on `sendInFlight` as well as `loading`: `loading` only rises after a
 	 * send's attachment upkeep, so between the two a click would slip past. */
 	sendOrQueue(text: string) {
-		if (this.loading || this.sendInFlight) {
+		if (this.loading || this.sendInFlight || this.sendPending) {
 			this.queueMessage(text)
 			return
 		}
@@ -2391,28 +2422,11 @@ export class AIChatManager {
 		}
 	}
 
-	// Fetch the workspace's AI skills and, if GLOBAL mode is still active, rebuild
-	// the system message so the next chat-loop iteration advertises them. Ignore
-	// stale resolves so workspace changes cannot overwrite newer skills.
-	// Build the global-mode system message, tools, and helpers, layering on the
-	// pipeline surface when a /pipeline editor has registered helpers. Centralized
-	// so changeMode, refreshGlobalSkills, setPipelineHelpers and the send pre-flight stay
-	// consistent — each rebuild would otherwise drop the pipeline augmentation the
-	// others added.
-	//
 	// Public because it is purely local, unlike `changeMode(GLOBAL)`, which also
 	// fires the three network refreshes.
 	configureGlobalMode = () => {
-		const pipelineCtx = this.pipelineAiChatHelpers?.getPipelineContext()
-		const systemMessage = assembleGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), {
-			previewTools: this.isSessionChat,
-			user: this.globalIdentity,
-			skills: this.globalSkills,
-			mcpServers: this.mcpServers,
-			access: this.sessionAccess,
-			sessionContext: this.sessionContextResolver?.(),
-			pipelineContext: pipelineCtx
-		})
+		const pipeline = this.pipelineAiChatHelpers
+		const opts = this.globalAssemblyOpts()
 		const baseHelpers: GlobalToolHelpers = {
 			// A session targets its own fixed (possibly forked) workspace, so capture it for
 			// permission gating. The global side-panel chat follows the live navigation
@@ -2426,7 +2440,8 @@ export class AIChatManager {
 						openArtifact: this.openArtifact
 					}
 				: {}),
-			testActiveFlow: async (args?: Record<string, any>) => this.flowAiChatHelpers?.testFlow(args),
+			testActiveFlow: async (storagePath: string, args?: Record<string, any>, memoryId?: string) =>
+				this.flowEditorFor(storagePath)?.testFlow(args, memoryId),
 			getModifiedItems: () => (this.modifiedItems ? [...this.modifiedItems] : undefined),
 			attachedFiles: this.attachedFiles,
 			getUserInstructions: () => getUserCustomPrompts()[AIMode.GLOBAL] ?? '',
@@ -2441,17 +2456,25 @@ export class AIChatManager {
 				this.rebuildGlobalSystemMessage()
 			}
 		}
-		const pipeline = this.pipelineAiChatHelpers
-		this.tools = assembleGlobalTools({
-			sessionPreview: this.isSessionChat,
-			pipeline: !!pipeline,
-			mcpServers: this.mcpServers
-		})
+		this.tools = assembleGlobalTools(opts)
 		this.helpers = pipeline ? { ...baseHelpers, pipeline } : baseHelpers
-		this.systemMessage = systemMessage
+		this.systemMessage = assembleGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), opts)
 		this.syncArtifactsSession()
 	}
 
+	private globalAssemblyOpts = (): GlobalAssemblyOpts => ({
+		previewTools: this.isSessionChat,
+		user: this.globalIdentity,
+		skills: this.globalSkills,
+		mcpServers: this.mcpServers,
+		access: this.sessionAccess,
+		sessionContext: this.sessionContextResolver?.(),
+		pipelineContext: this.pipelineAiChatHelpers?.getPipelineContext()
+	})
+
+	// Fetch the workspace's AI skills and, if GLOBAL mode is still active, rebuild
+	// the system message so the next chat-loop iteration advertises them. Ignore
+	// stale resolves so workspace changes cannot overwrite newer skills.
 	refreshGlobalSkills = async (workspace = this.operatingWorkspace ?? '') => {
 		const refreshId = ++this.globalSkillsRefreshId
 		const skills = await loadWorkspaceSkills(workspace)
@@ -2542,15 +2565,10 @@ export class AIChatManager {
 		if (this.mode !== AIMode.GLOBAL) {
 			return
 		}
-		this.systemMessage = assembleGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), {
-			previewTools: this.isSessionChat,
-			user: this.globalIdentity,
-			skills: this.globalSkills,
-			mcpServers: this.mcpServers,
-			access: this.sessionAccess,
-			sessionContext: this.sessionContextResolver?.(),
-			pipelineContext: this.pipelineAiChatHelpers?.getPipelineContext()
-		})
+		this.systemMessage = assembleGlobalSystemMessage(
+			getCustomPromptParts(AIMode.GLOBAL),
+			this.globalAssemblyOpts()
+		)
 	}
 
 	private expandGlobalSkillCommand = (instructions: string): string => {
@@ -2802,6 +2820,23 @@ export class AIChatManager {
 
 	clearComposerStaged(key: string) {
 		this.#composerStaged.delete(key)
+		this.#composersWithDraft.delete(key)
+	}
+
+	// Composers whose draft is non-empty. The draft itself is component-local, so
+	// this is the only way to know an unmount would lose unsent input.
+	#composersWithDraft = new SvelteSet<string>()
+
+	setComposerHasDraft(key: string, hasDraft: boolean) {
+		if (hasDraft) this.#composersWithDraft.add(key)
+		else this.#composersWithDraft.delete(key)
+	}
+
+	/** Unsent input an unmount of this chat would lose: a composer draft, or a
+	 *  queued message (whose text may be empty when it carries only attachments
+	 *  or context). */
+	get hasUnsentInput(): boolean {
+		return this.#composersWithDraft.size > 0 || this.#hasQueuedMessage()
 	}
 
 	/** Release the outgoing-files reservation identified by `key` (a per-send token).
@@ -3157,7 +3192,39 @@ export class AIChatManager {
 		return this.#sendsInFlight > 0
 	}
 
+	// Resolves once this chat's stored transcript has been restored. A session
+	// runtime hands its manager out before that finishes, and `loadPastChat`
+	// refuses to swap a transcript under a send, so a turn started first lands in
+	// a chat of its own and is lost when the session's real one loads.
+	//
+	// Cleared once awaited, and only awaited when set: every later send — and
+	// every send of the chats that have no gate — reaches the `sendInFlight`
+	// counter below synchronously, which is what makes a second Enter queue
+	// behind the first instead of starting a turn of its own.
+	#ready: Promise<unknown> | undefined
+	setReadyGate(ready: Promise<unknown> | undefined) {
+		this.#ready = ready
+	}
+
+	#sendsAwaitingReady = $state(0)
+	/** A send parked on the gate above. It has not reached `sendInFlight` yet —
+	 * and must not, since `loadPastChat` reads that flag and would then skip the
+	 * restore this send is waiting for — so every guard that decides between
+	 * sending and queueing tests this as well. */
+	get sendPending(): boolean {
+		return this.#sendsAwaitingReady > 0
+	}
+
 	sendRequest = async (options: Parameters<typeof this.sendRequestImpl>[0] = {}) => {
+		if (this.#ready) {
+			this.#sendsAwaitingReady++
+			try {
+				await this.#ready
+			} finally {
+				this.#sendsAwaitingReady--
+				this.#ready = undefined
+			}
+		}
 		// A turn with nowhere to render still streams, spends tokens and applies
 		// tool calls — entirely off-screen. Refuse instead. `sendInlineRequest` is
 		// exempt: the ⌘K widget renders its own composer inside Monaco.
@@ -3845,7 +3912,13 @@ export class AIChatManager {
 			// assumed window rather than no limit: without one the context grows
 			// unbounded until the provider (or a proxy in front of it) times out.
 			// Guessing low only compacts earlier, which is always recoverable.
-			const contextWindow = model ? getModelContextWindow(model.model) : undefined
+			const contextWindow = model
+				? getEffectiveModelContextWindow(
+						model.provider,
+						model.model,
+						get(copilotInfo).contextWindowPerModel
+					)
+				: undefined
 			if (
 				contextWindow !== undefined &&
 				projectedContextTokens >= contextWindow * COMPACTION_TRIGGER_RATIO
@@ -3944,6 +4017,9 @@ export class AIChatManager {
 								{
 									role: 'assistant',
 									content: this.currentReply,
+									// Stamped as it lands. A chat restored from history predates this and
+									// simply shows no time rather than a made-up one.
+									createdAt: new Date().toISOString(),
 									...(this.currentReasoning
 										? { reasoning: this.currentReasoning, reasoningDurationMs }
 										: {}),
@@ -4680,7 +4756,11 @@ export class AIChatManager {
 	}
 
 	setFlowHelpers = (flowHelpers: FlowAIChatHelpers) => {
-		this.flowAiChatHelpers = flowHelpers
+		this.#flowEditors.add(flowHelpers)
+		// Only a chat that can reach FLOW mode names an editor (see `flowAiChatHelpers`).
+		if (!this.isSessionChat) {
+			this.flowAiChatHelpers = flowHelpers
+		}
 		untrack(() => {
 			if (this.autoAcceptEditsActive) {
 				this.acceptPendingFlowEdits(flowHelpers)
@@ -4688,8 +4768,15 @@ export class AIChatManager {
 		})
 
 		return () => {
-			this.flowAiChatHelpers = undefined
+			this.#flowEditors.delete(flowHelpers)
+			if (!this.isSessionChat) {
+				this.flowAiChatHelpers = undefined
+			}
 		}
+	}
+
+	private flowEditorFor(storagePath: string): FlowAIChatHelpers | undefined {
+		return [...this.#flowEditors].find((helpers) => helpers.getStoragePath() === storagePath)
 	}
 
 	// Registered by the /pipeline editor while it is mounted. Rebuilds the global

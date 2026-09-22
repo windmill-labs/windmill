@@ -26,7 +26,9 @@ use windmill_api_auth::{check_scopes, get_scope_tags, ApiAuthed};
 use windmill_common::{
     db::{UserDB, UserDbWithAuthed},
     error::{self, Error},
-    flow_conversations::{add_message_to_conversation_tx, MessageType},
+    flow_conversations::{
+        add_message_to_conversation_tx, message_attachments, MessageExtras, MessageType,
+    },
     get_latest_flow_version_info_for_path,
     jobs::{
         check_tag_available_for_workspace_internal, format_result, script_path_to_payload,
@@ -38,8 +40,8 @@ use windmill_common::{
     FlowVersionInfo, DB,
 };
 use windmill_queue::{
-    cancel_job, get_result_and_success_by_id_from_flow, push, PushArgs, PushArgsOwned,
-    PushIsolationLevel,
+    cancel_job, check_tag_available_for_push, get_result_and_success_by_id_from_flow,
+    parse_result_object, push, tag_reads_args, PushArgs, PushArgsOwned, PushIsolationLevel,
 };
 
 use crate::types::RunJobQuery;
@@ -48,7 +50,27 @@ use crate::types::RunJobQuery;
 // Tag / license checks
 // ---------------------------------------------------------------------------
 
+/// `args` must be the ones the job is pushed with, see [`windmill_queue::check_tag_available_for_push`].
 pub async fn check_tag_available_for_workspace(
+    db: &DB,
+    w_id: &str,
+    tag: &Option<String>,
+    args: &PushArgs<'_>,
+    authed: &ApiAuthed,
+) -> error::Result<()> {
+    if let Some(tag) = tag.as_deref().filter(|t| !t.is_empty()) {
+        let tags = get_scope_tags(authed);
+        // Job-aware: a WM_TOKEN running as a superadmin must not unlock restricted tags.
+        let is_super_admin = windmill_api_auth::is_super_admin_authed(db, authed).await?;
+        check_tag_available_for_push(db, w_id, tag, args, is_super_admin, tags).await
+    } else {
+        Ok(())
+    }
+}
+
+/// [`check_tag_available_for_workspace`] for a tag filled in from values nothing can check yet,
+/// such as a flow's preprocessor output: only an entry spelled exactly like it admits it.
+pub async fn check_tag_as_written_available_for_workspace(
     db: &DB,
     w_id: &str,
     tag: &Option<String>,
@@ -58,7 +80,16 @@ pub async fn check_tag_available_for_workspace(
         let tags = get_scope_tags(authed);
         // Job-aware: a WM_TOKEN running as a superadmin must not unlock restricted tags.
         let is_super_admin = windmill_api_auth::is_super_admin_authed(db, authed).await?;
-        check_tag_available_for_workspace_internal(db, w_id, tag, is_super_admin, tags).await
+        check_tag_available_for_workspace_internal(
+            db,
+            w_id,
+            tag,
+            None,
+            std::future::ready(w_id.to_string()),
+            is_super_admin,
+            tags,
+        )
+        .await
     } else {
         Ok(())
     }
@@ -374,9 +405,9 @@ pub async fn run_wait_result_internal(
 }
 
 pub fn result_to_response(result: Box<RawValue>, success: bool) -> error::Result<Response> {
-    let composite_result = serde_json::from_str::<WindmillCompositeResult>(result.get());
+    let composite_result = parse_result_object::<WindmillCompositeResult>(result.get());
     match composite_result {
-        Ok(WindmillCompositeResult {
+        Some(WindmillCompositeResult {
             windmill_status_code,
             windmill_content_type,
             windmill_headers,
@@ -653,9 +684,11 @@ pub async fn set_flow_memory_id(
 pub async fn process_flow_run_query_params(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     job_id: Uuid,
+    w_id: &str,
+    flow_path: &str,
     run_query: &RunJobQuery,
 ) -> error::Result<()> {
-    if let Some(memory_id) = run_query.memory_id {
+    if let Some(memory_id) = run_query.memory_key(w_id, flow_path) {
         set_flow_memory_id(tx, job_id, memory_id).await?;
     }
     Ok(())
@@ -668,10 +701,19 @@ pub async fn handle_chat_conversation_messages(
     flow_path: &str,
     run_query: &RunJobQuery,
     user_message_raw: Option<&Box<serde_json::value::RawValue>>,
+    job_id: Uuid,
+    is_test: bool,
+    // The run's args, for the files the message carried.
+    args: &HashMap<String, Box<serde_json::value::RawValue>>,
 ) -> error::Result<()> {
-    let memory_id = run_query.memory_id.ok_or_else(|| {
+    // Names the query parameter rather than the field: it is not a flow argument, and
+    // supplying it as one is the first thing tried on reading `memory_id is required`.
+    let memory_id = run_query.memory_key(w_id, flow_path).ok_or_else(|| {
         windmill_common::error::Error::BadRequest(
-            "memory_id is required for chat-enabled flows".to_string(),
+            "memory_id is required for chat-enabled flows. Pass it as the `memory_id` query \
+             parameter, not as a flow argument: it names the conversation the turn belongs to, \
+             so a fresh UUID starts one and reusing a UUID continues it."
+                .to_string(),
         )
     })?;
 
@@ -695,17 +737,22 @@ pub async fn handle_chat_conversation_messages(
         &authed.username,
         &user_message,
         memory_id,
+        is_test,
     )
     .await?;
 
+    // The run this message started. The row keeps the files the message carried as
+    // references; its args are the only record of every other flow input, and nothing
+    // written later points at them: an assistant row holds the AI agent step's job.
     add_message_to_conversation_tx(
         tx,
         memory_id,
-        None,
+        Some(job_id),
         &user_message,
         MessageType::User,
         None,
         true,
+        Some(&MessageExtras { attachments: message_attachments(args), ..Default::default() }),
     )
     .await?;
 
@@ -742,9 +789,25 @@ pub async fn run_flow<'c>(
         ..
     } = flow_version_info;
 
-    let tag = run_query.tag.clone().or(tag);
+    let flow_tag = tag;
+    let tag = run_query.tag.clone().or(flow_tag.clone());
+    let push_args = PushArgs { args: &args.args, extra: args.extra };
+    let apply_preprocessor =
+        !run_query.skip_preprocessor.unwrap_or(false) && has_preprocessor.unwrap_or(false);
 
-    check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
+    if !apply_preprocessor || run_query.tag.is_some() {
+        check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
+    }
+    // `push` drops the tag of a flow whose preprocessor runs, and the worker then puts the flow on
+    // its own tag filled in from the preprocessor's output, after this caller's identity is gone.
+    // So that tag is the one to check, and an `$args[...]` in it is judged as written.
+    if apply_preprocessor {
+        if flow_tag.as_deref().is_some_and(tag_reads_args) {
+            check_tag_as_written_available_for_workspace(&db, &w_id, &flow_tag, &authed).await?;
+        } else {
+            check_tag_available_for_workspace(&db, &w_id, &flow_tag, &push_args, &authed).await?;
+        }
+    }
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
     let return_tx = tx_o.is_some();
@@ -780,11 +843,10 @@ pub async fn run_flow<'c>(
             path: flow_path.to_string(),
             dedicated_worker,
             version,
-            apply_preprocessor: !run_query.skip_preprocessor.unwrap_or(false)
-                && has_preprocessor.unwrap_or(false),
+            apply_preprocessor,
             labels,
         },
-        PushArgs { args: &args.args, extra: args.extra },
+        push_args,
         authed.display_username(),
         email,
         permissioned_as,
@@ -813,7 +875,7 @@ pub async fn run_flow<'c>(
     .await?;
 
     // Set memory_id if provided (for agent memory)
-    if let Some(memory_id) = run_query.memory_id {
+    if let Some(memory_id) = run_query.memory_key(w_id, flow_path) {
         set_flow_memory_id(&mut tx, uuid, memory_id).await?;
     }
 
@@ -826,6 +888,9 @@ pub async fn run_flow<'c>(
             &flow_path.to_string(),
             &run_query,
             args.args.get("user_message"),
+            uuid,
+            false,
+            &args.args,
         )
         .await?;
     }
@@ -967,7 +1032,8 @@ pub async fn push_script_job_by_path_into_queue<'c>(
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
     let tag = run_query.tag.clone().or(tag);
-    check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
+    let push_args = PushArgs { args: &args.args, extra: args.extra };
+    check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
 
     let return_tx = tx_o.is_some();
 
@@ -999,7 +1065,7 @@ pub async fn push_script_job_by_path_into_queue<'c>(
         tx,
         &w_id,
         job_payload,
-        PushArgs { args: &args.args, extra: args.extra },
+        push_args,
         authed.display_username(),
         email,
         permissioned_as,
@@ -1191,5 +1257,14 @@ mod result_to_response_tests {
             );
             assert!(res.is_err(), "hop-by-hop header must be rejected: {name}");
         }
+    }
+
+    #[tokio::test]
+    async fn array_result_is_not_a_composite_response() {
+        let json = r#"[201,"text/html",null,null,"<h1>hi</h1>"]"#;
+        let resp = result_to_response(raw(json), true).expect("response");
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(body_bytes(resp).await, json.as_bytes());
     }
 }

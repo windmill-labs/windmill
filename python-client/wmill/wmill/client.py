@@ -1430,16 +1430,19 @@ class Windmill:
             },
         )
 
-    def datatable(self, name: str = "main"):
+    def datatable(self, name: str = "main", *, role: Optional[str] = None):
         """Get a DataTable client for SQL queries.
 
         Args:
             name: Database name (default: "main")
+            role: Connect as this data table role instead of the data table's default one.
+                Only meaningful on a data table under roles, and only for a role you are a
+                tenant of.
 
         Returns:
             DataTableClient instance
         """
-        return DataTableClient(self, name)
+        return DataTableClient(self, name, role=role)
 
     def ducklake(self, name: str = "main"):
         """Get a DuckLake client for DuckDB queries.
@@ -2278,16 +2281,17 @@ def username_to_email(username: str) -> str:
 
 
 @init_global_client
-def datatable(name: str = "main") -> DataTableClient:
+def datatable(name: str = "main", *, role: Optional[str] = None) -> DataTableClient:
     """Get a DataTable client for SQL queries.
 
     Args:
         name: Database name (default: "main")
+        role: Connect as this data table role instead of the data table's default one.
 
     Returns:
         DataTableClient instance
     """
-    return _client.datatable(name)
+    return _client.datatable(name, role=role)
 
 @init_global_client
 def ducklake(name: str = "main") -> DucklakeClient:
@@ -2362,17 +2366,28 @@ def stream_result(stream) -> None:
     for text in stream:
         append_to_result_stream(text)
 
+# Interpolated into a `-- role <name>` line, so a value carrying a newline could append
+# statements of its own. Mirrors the server's own role-name rule.
+_ROLE_NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,63}$")
+
+
 class DataTableClient:
     """Client for executing SQL queries against Windmill DataTables."""
 
-    def __init__(self, client: Windmill, name: str):
+    def __init__(self, client: Windmill, name: str, role: Optional[str] = None):
         """Initialize DataTableClient.
 
         Args:
             client: Windmill client instance
             name: DataTable name
+            role: Data table role to connect as, or None for the data table's default
         """
+        if role is not None and not _ROLE_NAME_RE.match(role):
+            raise ValueError(
+                f"Invalid data table role '{role}': only letters, digits, '_' and '-' are allowed"
+            )
         self.client = client
+        self.role = role
         self.name, self.schema = parse_sql_client_name(name)
     def query(self, sql: str, *args) -> SqlQuery:
         """Execute a SQL query against the DataTable.
@@ -2393,6 +2408,9 @@ class DataTableClient:
             args_dict[f"arg{i+1}"] = arg
             args_def += f"-- ${i+1} arg{i+1} ({infer_sql_type(arg)})\n"
         sql = args_def + sql
+        # Must lead: the executor's annotation parser stops at the first non-comment line.
+        if self.role is not None:
+            sql = f"-- role {self.role}\n" + sql
         return SqlQuery(
             sql,
             lambda sql: self.client.run_inline_script_preview(
@@ -3085,6 +3103,8 @@ class WorkflowCtx:
         form: dict | None = None,
         self_approval: bool = True,
         key: str | None = None,
+        skin: str | None = None,
+        description: str | dict | None = None,
     ):
         if key is not None:
             _assert_usable_step_key(key, "wait_for_approval key")
@@ -3113,6 +3133,8 @@ class WorkflowCtx:
             "timeout": timeout,
             "form": form,
             "self_approval_disabled": not self_approval,
+            "skin": skin,
+            "description": description,
             "steps": [],
         })
 
@@ -3322,6 +3344,14 @@ def task(
     retries is the sum of every backoff pending in it, not the longest one, and
     it grows with both the width of the fan-out and ``attempts``. Retries with
     no ``delay`` all go out in a single round.
+
+    ``cache_ttl`` serves a previous result of the task for that many seconds
+    instead of running it again. A task is keyed on its step key (its name and
+    call order) and the workflow's input, not on the arguments it is called
+    with, so cache one only when whether it runs, and what it receives, follow
+    from the workflow's input alone. A ``task_script`` target is keyed on the
+    arguments it is called with. It has no effect on a ``task_flow`` target,
+    which keeps its flow's own cache policy.
 
     Usage::
 
@@ -3559,6 +3589,8 @@ async def wait_for_approval(
     form: dict | None = None,
     self_approval: bool = True,
     key: str | None = None,
+    skin: Literal["detailed", "minimal"] | None = None,
+    description: str | dict | None = None,
 ) -> dict:
     """Suspend the workflow and wait for an external approval.
 
@@ -3573,6 +3605,10 @@ async def wait_for_approval(
         form: Optional form schema for the approval page.
         self_approval: Whether the user who triggered the flow can approve it (default True).
         key: Optional checkpoint key naming this approval step.
+        skin: ``"minimal"`` shows approvers only the request (form and approve/reject)
+            instead of the detailed page with the workflow's details.
+        description: Shown to approvers above the form: a string, or a rich value such as
+            ``{"markdown": "..."}``.
 
     Example::
 
@@ -3583,7 +3619,12 @@ async def wait_for_approval(
     ctx: WorkflowCtx | None = _workflow_ctx.get(None)
     if ctx is not None:
         return await ctx._wait_for_approval(
-            timeout=timeout, form=form, self_approval=self_approval, key=key
+            timeout=timeout,
+            form=form,
+            self_approval=self_approval,
+            key=key,
+            skin=skin,
+            description=description,
         )
     raise RuntimeError("wait_for_approval can only be called inside a @workflow")
 
@@ -3653,6 +3694,8 @@ async def _run_workflow_async(func, checkpoint: dict, input_args: dict):
                 "key": info["key"],
                 "timeout": info.get("timeout"),
                 "form": info.get("form"),
+                "skin": info.get("skin"),
+                "description": info.get("description"),
             }
         if mode == "sleep":
             return {

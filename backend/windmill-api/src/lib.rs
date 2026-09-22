@@ -69,6 +69,11 @@ mod ai;
 #[cfg(feature = "private")]
 mod ai_free_tier_ee;
 mod ai_free_tier_oss;
+#[cfg(feature = "parquet")]
+mod ai_sessions;
+#[cfg(feature = "parquet")]
+pub use ai_sessions::sweep_expired_ai_session_backups;
+mod ai_shared_artifacts;
 mod apps;
 mod apps_raw_bundle;
 pub use apps::invalidate_app_policy_cache;
@@ -80,6 +85,7 @@ pub mod azure_proxy_ee;
 mod azure_proxy_oss;
 mod capture;
 mod concurrency_groups;
+mod csrf;
 mod db;
 mod db_health;
 mod dbt;
@@ -554,7 +560,7 @@ pub async fn run_server(
         if server_mode || mcp_mode {
             use mcp::{
                 add_www_authenticate_header, add_www_authenticate_header_gateway,
-                extract_workspace_from_token,
+                extract_workspace_from_token, reject_token_query_param,
             };
             let (mcp_router, mcp_cancellation_token) = setup_mcp_server(
                 db.clone(),
@@ -567,15 +573,17 @@ pub async fn run_server(
             let workspaced_mcp_router = mcp_router
                 .clone()
                 .route_layer(from_extractor::<ApiAuthed>())
+                .layer(axum::middleware::from_fn(reject_token_query_param))
                 .layer(axum::middleware::from_fn(add_www_authenticate_header))
                 .layer(axum::middleware::from_fn(extract_and_store_workspace_id));
             // Gateway MCP router — resolves workspace from token
             let gateway_mcp_router = mcp_router
                 .route_layer(from_extractor::<ApiAuthed>())
+                .layer(axum::middleware::from_fn(extract_workspace_from_token))
+                .layer(axum::middleware::from_fn(reject_token_query_param))
                 .layer(axum::middleware::from_fn(
                     add_www_authenticate_header_gateway,
-                ))
-                .layer(axum::middleware::from_fn(extract_workspace_from_token));
+                ));
             (
                 workspaced_mcp_router,
                 gateway_mcp_router,
@@ -658,9 +666,13 @@ pub async fn run_server(
                             "/workspace_dependencies",
                             workspace_dependencies::workspaced_service(),
                         )
+                        // CORS so a chat UI on another origin (an external site, or
+                        // a sandboxed raw app with its frontend SDK token) can read
+                        // its conversation history. Bearer-only, like variables.
                         .nest(
                             "/flow_conversations",
-                            windmill_api_flow_conversations::workspaced_service(),
+                            windmill_api_flow_conversations::workspaced_service()
+                                .layer(cors.clone()),
                         )
                         // CORS so an opaque-origin app iframe (WIN-2006 embed,
                         // no separate domain) can read folders/listnames with a
@@ -719,6 +731,12 @@ pub async fn run_server(
                             path_autocomplete::workspaced_service(),
                         )
                         .nest("/raw_apps", raw_apps::workspaced_service())
+                        .nest(
+                            "/remote_deploy",
+                            windmill_api_workspaces::remote_deploy::workspaced_service(
+                                request_size_limit * 5,
+                            ),
+                        )
                         // CORS so the opaque-origin app iframe can read
                         // resources/list, resources/type/* with a scoped token.
                         .nest(

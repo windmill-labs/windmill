@@ -332,7 +332,7 @@ async fn create_schedule(
     )
     .await?;
     // email is still written for backwards compat with old workers that don't know about permissioned_as
-    let resolved_email = windmill_common::users::get_email_from_permissioned_as(
+    let resolved_email = windmill_common::users::get_email_from_permissioned_as_uncached(
         &resolved_permissioned_as,
         &w_id,
         &db,
@@ -545,18 +545,14 @@ async fn edit_schedule(
     reject_reserved_schedule_path(path)?;
 
     let authed = maybe_refresh_folders(&path, &w_id, authed, &db).await;
-    let mut tx = user_db.begin(&authed).await?;
 
     // Check schedule for error
     ScheduleType::from_str(&es.schedule, es.cron_version.as_deref(), true)?;
 
-    // Validate dynamic_skip if provided
-    if let Some(handler_path) = &es.dynamic_skip {
-        validate_dynamic_skip(&mut tx, &w_id, handler_path).await?;
-    }
-
     let resolved_edited_by = resolve_edited_by(&authed);
 
+    // Resolved on the (non-RLS) pool before the RLS transaction opens: the lookup mid-transaction
+    // would hold a second connection while `tx` is checked out.
     let resolved_permissioned_as = resolve_permissioned_as(
         es.permissioned_as.as_ref(),
         es.preserve_permissioned_as,
@@ -568,7 +564,7 @@ async fn edit_schedule(
     let resolved_email = if resolved_permissioned_as
         != windmill_common::users::username_to_permissioned_as(&authed.username)
     {
-        windmill_common::users::get_email_from_permissioned_as(
+        windmill_common::users::get_email_from_permissioned_as_uncached(
             &resolved_permissioned_as,
             &w_id,
             &db,
@@ -584,6 +580,13 @@ async fn edit_schedule(
         Some(&resolved_permissioned_as),
         Some(&resolved_email),
     )?;
+
+    let mut tx = user_db.begin(&authed).await?;
+
+    // Validate dynamic_skip if provided
+    if let Some(handler_path) = &es.dynamic_skip {
+        validate_dynamic_skip(&mut tx, &w_id, handler_path).await?;
+    }
 
     let before = trigger_history::snapshot_row(&mut *tx, "schedule", &w_id, path).await?;
 
@@ -1126,35 +1129,23 @@ pub async fn set_enabled(
     check_scopes(&authed, || format!("schedules:write:{}", path))?;
     reject_reserved_schedule_path(path)?;
 
-    // Block enabling a schedule in a fork when the parent has the same path
-    // (regardless of parent's enabled flag), unless force=true. Two enabled
-    // crons fire in lockstep; even when the parent is currently disabled the
-    // user is likely to re-enable it later, at which point both fire — better
-    // to surface that risk at every fork-side enable. There's no namespacing
-    // fix for schedules (Phase 3 doesn't help cron); the user has to confirm
-    // or point the script at fork-only side effects.
+    // Block enabling a schedule in a fork when an ancestor has the same path
+    // (regardless of its enabled flag), unless force=true. Two enabled crons
+    // fire in lockstep; even when the ancestor is currently disabled the user
+    // is likely to re-enable it later, at which point both fire — better to
+    // surface that risk at every fork-side enable. There's no namespacing fix
+    // for schedules (Phase 3 doesn't help cron); the user has to confirm or
+    // point the script at fork-only side effects.
     if payload.enabled && !payload.force {
-        let parent_id: Option<String> = sqlx::query_scalar!(
-            "SELECT parent_workspace_id FROM workspace WHERE id = $1",
-            &w_id
+        if let Some(ancestor_id) = windmill_common::workspaces::nearest_fork_ancestor_having(
+            &mut *tx, "schedule", &w_id, path,
         )
-        .fetch_optional(&mut *tx)
         .await?
-        .flatten();
-        if let Some(parent_id) = parent_id {
-            let exists: Option<bool> = sqlx::query_scalar!(
-                "SELECT EXISTS(SELECT 1 FROM schedule WHERE workspace_id = $1 AND path = $2)",
-                &parent_id,
-                path,
-            )
-            .fetch_one(&mut *tx)
-            .await?;
-            if exists == Some(true) {
-                return Err(Error::BadRequest(format!(
-                    "fork-conflict:schedule:{}",
-                    parent_id
-                )));
-            }
+        {
+            return Err(Error::BadRequest(format!(
+                "fork-conflict:schedule:{}",
+                ancestor_id
+            )));
         }
     }
     let before = trigger_history::snapshot_row(&mut *tx, "schedule", &w_id, path).await?;
@@ -1696,9 +1687,9 @@ pub use windmill_queue::schedule::clear_schedule;
 #[derive(Deserialize)]
 pub struct SetEnabled {
     pub enabled: bool,
-    /// Bypass the parent-state warning when enabling a schedule in a fork
-    /// whose parent has the same path enabled. The frontend sets this after
-    /// the user confirms the duplicate-firing dialog.
+    /// Bypass the fork-conflict warning when enabling a schedule in a fork
+    /// while an ancestor workspace has the same path. The frontend sets this
+    /// after the user confirms the duplicate-firing dialog.
     #[serde(default)]
     pub force: bool,
 }

@@ -45,11 +45,13 @@
 			const settings = await WorkspaceService.getPublicSettings({ workspace: $workspaceStore })
 			const datatables = settings.datatable?.datatables ?? {}
 			forkedDatatables = Object.entries(datatables)
-				.filter(([_, dt]) => dt.forked_from != null)
+				// A clone owns its database and is droppable; an entry pointing at the parent's is
+				// not this workspace's to drop, and never carries a clone stamp anyway.
+				.filter(([_, dt]) => dt.forked_from != null && dt.database != null)
 				.map(([name, dt]) => ({
 					name,
-					resourceType: dt.database.resource_type ?? 'instance',
-					resourcePath: dt.database.resource_path ?? '',
+					resourceType: dt.database?.resource_type ?? 'instance',
+					resourcePath: dt.database?.resource_path ?? '',
 					dropOnDelete: true
 				}))
 		} catch {
@@ -120,7 +122,12 @@
 			}
 		}
 
-		await WorkspaceService.deleteWorkspace({ workspace })
+		const result = await WorkspaceService.deleteWorkspace({ workspace })
+		// The server names any data table in another workspace that this delete left governed by
+		// nothing. Only surfaced when there is something to say.
+		if (typeof result === 'string' && result.includes('no longer resolve')) {
+			sendUserToast(result, 'warning', [], undefined, 20000)
+		}
 		await deleteSessionsForWorkspace(workspace).catch((e) =>
 			console.error('Session cleanup after workspace delete failed', e)
 		)
@@ -151,8 +158,11 @@
 </script>
 
 {#if currentWsIsFork}
+	<!-- `alwaysPortal`: this sits in the sidebar, whose mobile slide-in panel keeps a `transform`
+	     that would otherwise confine the dialog to the panel's width. -->
 	<ConfirmationModal
 		{open}
+		alwaysPortal
 		title="Delete forked workspace"
 		confirmationText="Remove"
 		on:canceled={() => {

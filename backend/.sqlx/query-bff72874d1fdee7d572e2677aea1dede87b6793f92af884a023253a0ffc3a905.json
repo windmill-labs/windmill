@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE app SET policy = jsonb_set(\n            jsonb_set(policy, ARRAY['on_behalf_of'], to_jsonb($1::text)),\n            ARRAY['on_behalf_of_email'], to_jsonb($4::text)\n        ) WHERE policy->>'on_behalf_of' = $2 AND workspace_id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bff72874d1fdee7d572e2677aea1dede87b6793f92af884a023253a0ffc3a905"
+}

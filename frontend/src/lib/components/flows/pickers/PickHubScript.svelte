@@ -4,17 +4,21 @@
 	import { capitalize } from '$lib/utils'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
 	import { APP_TO_ICON_COMPONENT } from '$lib/components/icons'
+	import { listHubIntegrationsShared } from '$lib/components/displayNameLoaders'
 	import ListFilters from '$lib/components/home/ListFilters.svelte'
-	import { IntegrationService, ScriptService, type HubScriptKind } from '$lib/gen'
+	import { ScriptService, type HubScriptKind } from '$lib/gen'
 	import { Loader2 } from 'lucide-svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import { disableHubStore, workspaceStore } from '$lib/stores'
+	import { disableHubStore } from '$lib/stores'
 	import { logHubScriptPick } from '$lib/utils/featureUsage'
 	import {
 		alphabetical,
 		byPopularity,
 		localCountsByIntegration
 	} from '$lib/components/pickerPopularity'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		kind?: HubScriptKind & string
@@ -64,8 +68,8 @@
 			hubNotAvailable = false
 			// Independent reads, so they share one round trip before first paint.
 			const [integrations, local] = await Promise.all([
-				IntegrationService.listHubIntegrations({ kind: filterKind }),
-				$workspaceStore ? localCountsByIntegration($workspaceStore) : {}
+				listHubIntegrationsShared(filterKind),
+				$operatingWorkspace ? localCountsByIntegration($operatingWorkspace) : {}
 			])
 			const hubPicks = Object.fromEntries(integrations.map((x) => [x.name, x.picks ?? 0]))
 			popularity = byPopularity(hubPicks, local)

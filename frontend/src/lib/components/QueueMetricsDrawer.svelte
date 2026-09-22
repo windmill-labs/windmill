@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Drawer, DrawerContent } from './common'
 	import QueueMetricsDrawerInner from './QueueMetricsDrawerInner.svelte'
+	import QueueStatusTable from './QueueStatusTable.svelte'
 	import QueueAlerts from './QueueAlerts.svelte'
 	import WorkspaceFairnessEvents from './WorkspaceFairnessEvents.svelte'
 	import { enterpriseLicense } from '$lib/stores'
@@ -17,11 +18,15 @@
 		on:close={drawer.closeDrawer}
 		documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups#queue-metrics"
 	>
-		<QueueAlerts />
+		<QueueStatusTable />
 
 		<div class="py-8"></div>
 
 		<QueueMetricsDrawerInner />
+
+		<div class="py-8"></div>
+
+		<QueueAlerts />
 
 		{#if $enterpriseLicense}
 			<div class="py-8"></div>

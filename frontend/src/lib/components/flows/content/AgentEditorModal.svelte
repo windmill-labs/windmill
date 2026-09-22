@@ -12,13 +12,13 @@
 	import EvalsPane from '$lib/components/aiEvals/EvalsPane.svelte'
 	import type { EvalsLocation } from '$lib/components/aiEvals/evalUtils'
 	import { ResourceService, type AgentDraft } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import {
 		agentEditorTarget,
 		agentWriteCount,
 		type AgentEditorTarget,
 		closeAgentEditor,
 		markAgentWritten,
+		openAgentEditor,
 		showAgentEditorTool,
 		showAgentEditorView
 	} from '../agentEditorStore.svelte'
@@ -26,6 +26,9 @@
 	import { publishLinkedAgentTools } from '../flowState'
 	import { linkedModulesForAgent, linkedToolsScope } from '../linkedAgentToolsStore.svelte'
 	import AgentEditorHost from './AgentEditorHost.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		enableAi?: boolean
@@ -35,9 +38,12 @@
 		 *  running its own two-way sync against the one draft row. Required rather than defaulted: a
 		 *  mount that guesses wrong renders nothing, and silence is a poor way to find that out. */
 		owns: (target: AgentEditorTarget) => boolean
+		/** A deploy moved the agent from `from` to `to`. What names the old path belongs to the surface
+		 *  that opened the editor: a flow's own steps, a page's URL. */
+		onRenamed?: (from: string, to: string) => void
 	}
 
-	let { enableAi = false, owns }: Props = $props()
+	let { enableAi = false, owns, onRenamed = undefined }: Props = $props()
 
 	// Every target names the surface that opened it, and only a flow step or a resource row can:
 	// an agent used as a tool of the agent being edited stays part of it, with no way in this editor
@@ -57,7 +63,7 @@
 		if (p) untrack(() => (lastShownAgent = p))
 	})
 
-	let ws = $derived(target?.workspace ?? $workspaceStore)
+	let ws = $derived(target?.workspace ?? $operatingWorkspace)
 	let host = $state<ReturnType<typeof AgentEditorHost> | undefined>(undefined)
 	let versionDrawer: Drawer | undefined = $state(undefined)
 	let saving = $state(false)
@@ -178,9 +184,10 @@
 		if (!at.host) return
 		// The host graph resolves a linked agent's tool nodes from the resource, so it has to re-read
 		// what the write just changed. Every step of that flow linking this agent, not only the one
-		// the editor was opened from: they all show tools the write may have moved.
+		// the editor was opened from: they all show tools the write may have moved. Looked up under
+		// the path the editor opened, since a rename is about to move those steps off it.
 		const scope = linkedToolsScope(at.ws, at.host.flowPath)
-		const moduleIds = new Set(linkedModulesForAgent(scope, path))
+		const moduleIds = new Set(linkedModulesForAgent(scope, at.path))
 		moduleIds.add(at.host.moduleId)
 		return Promise.all(
 			// With the draft: a deploy leaves none, but a version restore leaves the draft standing and
@@ -202,10 +209,21 @@
 		}
 	}
 
-	/** What a successful deploy has to reconcile. The path is the one it wrote, which `deploy` holds
-	 *  to the one the editor opened: this editor does not rename. */
+	/** What a successful deploy has to reconcile. `savedPath` is the path it wrote, which a rename
+	 *  moves off the one the editor opened. */
 	async function onSaved(savedPath: string) {
-		await reconcile(deployingFor ?? currentWriteTarget(), savedPath)
+		const at = deployingFor ?? currentWriteTarget()
+		// Before the rename is announced: it finds the steps to refresh under the old path.
+		const reconciled = reconcile(at, savedPath)
+		if (at && savedPath !== at.path) {
+			onRenamed?.(at.path, savedPath)
+			// The dialog is keyed on the path, so this reloads it on the renamed agent. Only while it
+			// still shows the one deployed: it can be closed or pointed elsewhere mid-request.
+			if (target?.path === at.path) {
+				openAgentEditor({ path: savedPath, workspace: target.workspace, host: target.host })
+			}
+		}
+		await reconciled
 	}
 </script>
 

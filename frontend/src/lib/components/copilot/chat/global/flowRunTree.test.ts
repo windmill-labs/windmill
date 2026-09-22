@@ -190,4 +190,29 @@ describe('shapeFlowRunTree', () => {
 		expect(parsed.steps[1].result).toBeUndefined()
 		expect(parsed.steps[1].result_total_chars).toBe(700)
 	})
+
+	it('spends the tree budget on the tree, not on the run payloads carried with it', () => {
+		const entries = [root()]
+		for (let i = 1; i <= 12; i++) {
+			entries.push(
+				entry({
+					step_path: `s${i}`,
+					flow_step_id: `s${i}`,
+					status: 'failure',
+					success: false,
+					result_prefix: 'y'.repeat(700),
+					result_length: 700
+				})
+			)
+		}
+		const logs = 'L'.repeat(12000)
+		const rendered = shapeFlowRunTree({ entries }, { status: 'failure', logs })
+
+		// Counting the overrides against the budget would shrink this tree away
+		// even though the tree itself fits: the model asked for the payloads.
+		expect(rendered.length).toBeGreaterThan(20000)
+		const parsed = JSON.parse(rendered)
+		expect(parsed.run.logs).toBe(logs)
+		expect(parsed.steps[0].result.length).toBe(700)
+	})
 })

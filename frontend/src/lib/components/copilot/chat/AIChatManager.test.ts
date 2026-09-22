@@ -191,15 +191,18 @@ beforeEach(() => {
 })
 
 function createFlowHelpers({
-	hasPendingChanges,
-	acceptAllModuleActions,
-	testFlow = vi.fn()
+	hasPendingChanges = () => false,
+	acceptAllModuleActions = vi.fn(),
+	testFlow = vi.fn(),
+	storagePath = 'u/admin/live_flow'
 }: {
-	hasPendingChanges: () => boolean
-	acceptAllModuleActions: () => void
+	hasPendingChanges?: () => boolean
+	acceptAllModuleActions?: () => void
 	testFlow?: FlowAIChatHelpers['testFlow']
-}): FlowAIChatHelpers {
+	storagePath?: string
+} = {}): FlowAIChatHelpers {
 	return {
+		getStoragePath: () => storagePath,
 		getFlowAndSelectedId: vi.fn(),
 		getRootModules: vi.fn(),
 		inlineScriptSession: { get: vi.fn(), set: vi.fn(), clear: vi.fn() },
@@ -511,6 +514,25 @@ describe('AIChatManager.sendOrQueue', () => {
 		releaseUpkeep?.()
 		await sending
 	})
+
+	// A session's chat is restored after its manager is handed out, so the first
+	// send waits on that restore — before `sendInFlight`, which the restore reads
+	// to decide whether to bail.
+	it('queues while a send waits on the chat restore gate', async () => {
+		const manager = new AIChatManager()
+		let openGate: (() => void) | undefined
+		manager.setReadyGate(new Promise<void>((resolve) => (openGate = resolve)))
+		manager.instructions = 'first turn'
+		const sending = manager.sendRequest()
+		await vi.waitFor(() => expect(manager.sendPending).toBe(true))
+		expect(manager.sendInFlight).toBe(false)
+
+		manager.sendOrQueue('fix the failing run')
+		expect(manager.queuedMessage).toBe('fix the failing run')
+
+		openGate?.()
+		await sending
+	})
 })
 
 describe('AIChatManager request errors', () => {
@@ -577,11 +599,11 @@ describe('AIChatManager global skills', () => {
 		mocks.tryGetCurrentModel.mockReturnValue(model)
 	})
 
-	// Only selected skills reach the prompt, and the selection is keyed by
-	// workspace and account (see skills/enabledSkills.ts).
-	function selectSkills(workspace: string, ...paths: string[]) {
+	// Every readable skill reaches the prompt; only the paths someone decided about
+	// are stored, keyed by workspace and account (see skills/enabledSkills.ts).
+	function turnOffSkills(workspace: string, ...paths: string[]) {
 		const stored = JSON.parse(localStorage.getItem('wm_skills_enabled') ?? '{}')
-		stored[`${workspace}:${TEST_EMAIL}`] = paths
+		stored[`${workspace}:${TEST_EMAIL}`] = Object.fromEntries(paths.map((p) => [p, false]))
 		localStorage.setItem('wm_skills_enabled', JSON.stringify(stored))
 	}
 
@@ -591,8 +613,6 @@ describe('AIChatManager global skills', () => {
 			resolveParentSkills = resolve
 		})
 		mocks.workspace = 'parent'
-		selectSkills('parent', 'f/skills/parent-skill')
-		selectSkills('child', 'f/skills/child-skill')
 		mocks.listResource.mockImplementation(({ workspace }: { workspace: string }) => {
 			if (workspace === 'parent') {
 				return parentSkills
@@ -636,12 +656,12 @@ describe('AIChatManager global skills', () => {
 		expect(manager.systemMessage.content).not.toContain('parent-skill')
 	})
 
-	it('leaves a readable but unselected skill out of the prompt', async () => {
+	it('leaves a skill turned off out of the prompt', async () => {
 		mocks.listResource.mockResolvedValue([
-			{ path: 'f/skills/selected', description: 'the one turned on' },
-			{ path: 'f/skills/unselected', description: 'readable but never turned on' }
+			{ path: 'f/skills/selected', description: 'left on, like every skill starts' },
+			{ path: 'f/skills/unselected', description: 'the one turned off' }
 		])
-		selectSkills('test_workspace', 'f/skills/selected')
+		turnOffSkills('test_workspace', 'f/skills/unselected')
 
 		const manager = new AIChatManager()
 		manager.isSessionChat = true
@@ -656,7 +676,6 @@ describe('AIChatManager global skills', () => {
 		mocks.listResource.mockResolvedValue([
 			{ path: 'u/admin/review-code', description: 'review code for bugs' }
 		])
-		selectSkills('test_workspace', 'u/admin/review-code')
 		mocks.runChatLoop.mockImplementation(async (config: any) => {
 			const userMessage = config.messages[config.messages.length - 1]
 			expect(userMessage.content).toContain('Use the skill at "u/admin/review-code". find bugs')
@@ -683,7 +702,6 @@ describe('AIChatManager global skills', () => {
 			{ path: 'u/admin/deploy', description: 'personal deploy steps' },
 			{ path: 'f/team/deploy', description: 'the team deploy steps' }
 		])
-		selectSkills('test_workspace', 'u/admin/deploy', 'f/team/deploy')
 		mocks.runChatLoop.mockImplementation(async (config: any) => {
 			// Picking either one would silently apply instructions the user did not
 			// choose, so the text is left alone for the model to ask about.
@@ -853,19 +871,38 @@ describe('AIChatManager autonomy mode', () => {
 
 		manager.isSessionChat = true
 		manager.sessionId = 'htc1xouxd96dcyo6ruqo39'
+		manager.setFlowHelpers(createFlowHelpers({ testFlow }))
+
+		manager.changeMode(AIMode.GLOBAL)
+		const jobId = await manager.helpers.testActiveFlow('u/admin/live_flow', { name: 'Ada' })
+
+		expect(jobId).toBe('job-flow-preview')
+		// Second argument is the chat-mode memory id, which only `test_run_flow`'s
+		// own `memory_id` supplies — never the session id.
+		expect(testFlow).toHaveBeenCalledWith({ name: 'Ada' }, undefined)
+		// A session chat resolves an editor by its storage path, so it never names one.
+		expect(manager.flowAiChatHelpers).toBeUndefined()
+	})
+
+	// Session tabs keep every open flow editor mounted, so the last one to register is routinely
+	// a different flow than the one being tested.
+	it('tests the flow editor mounted on the storage path, not the last one registered', async () => {
+		const manager = new AIChatManager()
+		const testTarget = vi.fn(async () => 'job-target-flow')
+		const testLast = vi.fn(async () => 'job-last-flow')
+
 		manager.setFlowHelpers(
-			createFlowHelpers({
-				hasPendingChanges: () => false,
-				acceptAllModuleActions: vi.fn(),
-				testFlow
-			})
+			createFlowHelpers({ testFlow: testTarget, storagePath: 'u/admin/live_flow' })
+		)
+		manager.setFlowHelpers(
+			createFlowHelpers({ testFlow: testLast, storagePath: 'u/admin/other_flow' })
 		)
 
 		manager.changeMode(AIMode.GLOBAL)
-		const jobId = await manager.helpers.testActiveFlow({ name: 'Ada' })
+		const jobId = await manager.helpers.testActiveFlow('u/admin/live_flow', { name: 'Ada' })
 
-		expect(jobId).toBe('job-flow-preview')
-		expect(testFlow).toHaveBeenCalledWith({ name: 'Ada' })
+		expect(jobId).toBe('job-target-flow')
+		expect(testLast).not.toHaveBeenCalled()
 	})
 })
 

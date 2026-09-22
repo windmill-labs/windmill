@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ResourceDescriptionField from './ResourceDescriptionField.svelte'
 	import type { Schema } from '$lib/common'
 	import type { Resource, ResourceType } from '$lib/gen'
 	import { onDestroy } from 'svelte'
@@ -7,24 +8,23 @@
 	import { Alert, Skeleton } from './common'
 	import Path from './Path.svelte'
 	import LabelsInput from './LabelsInput.svelte'
-	import Required from './Required.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { type UserExt } from '$lib/stores'
 	import SchemaForm from './SchemaForm.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import FilesetEditor from './FilesetEditor.svelte'
 	import Toggle from './Toggle.svelte'
 	import TestConnection from './TestConnection.svelte'
-	import { Pen } from 'lucide-svelte'
-	import autosize from '$lib/autosize'
 	import GfmMarkdown from './GfmMarkdown.svelte'
 	import TestTriggerConnection from './triggers/TestTriggerConnection.svelte'
 	import GitHubAppIntegration from './GitHubAppIntegration.svelte'
 	import GitLabIntegration from './GitLabIntegration.svelte'
-	import Button from './common/button/Button.svelte'
 	import ResourceGen from './copilot/ResourceGen.svelte'
 	import SyncResourceTypes from './SyncResourceTypes.svelte'
 	import Label from './Label.svelte'
 	import ResourcePathHint from './ResourcePathHint.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		path: string
@@ -38,7 +38,9 @@
 		viewJsonSchema: boolean
 		jsonError: string
 		deployTo: string | undefined
-		can_write: boolean
+		/** `undefined` while the acting user or the resource is still being resolved: neither a
+		 * grant nor the denial the read-only alert announces. */
+		can_write: boolean | undefined
 		resource_type: string | undefined
 		resourceTypeInfo: ResourceType | undefined
 		resourceSchema: Schema | undefined
@@ -48,6 +50,11 @@
 		/** Workspace the path is validated against and the connection is tested in;
 		 * defaults to the nav workspace. */
 		workspace?: string | undefined
+		/** The user acting in `workspace`, resolved by the editor above. `undefined` while
+		 * `null` while that lookup is pending or after it failed: every check below then
+		 * refuses, rather than answering with the navigation user's rights in another
+		 * workspace. */
+		actingUser: UserExt | null
 		/** Fired once the GitLab picker has stored the picked project's token, so a
 		 * form that would otherwise file the URL as a secret knows it holds none. */
 		onCredentialStored?: () => void
@@ -73,12 +80,12 @@
 		resourceToEdit,
 		onLoadResourceType,
 		workspace = undefined,
+		actingUser,
 		onCredentialStored
 	}: Props = $props()
 
-	let ws = $derived(workspace ?? $workspaceStore)
+	let ws = $derived(workspace ?? $operatingWorkspace)
 
-	let editDescription = $state(false)
 	let rawCode: string | undefined = $state(undefined)
 	let textFileContent: string = $state('')
 
@@ -153,7 +160,7 @@
 
 {#if !hidePath}
 	<div>
-		{#if !can_write}
+		{#if can_write === false}
 			<div class="my-2">
 				<Alert type="warning" title="Only read access">
 					You only have read access to this resource and cannot edit it
@@ -163,12 +170,13 @@
 		<Label label="Path">
 			<ResourcePathHint />
 			<Path
-				disabled={initialPath != '' && !isOwner(initialPath, $userStore, ws)}
+				disabled={initialPath != '' && !isOwner(initialPath, actingUser ?? undefined, ws)}
 				bind:path
 				{initialPath}
 				namePlaceholder="resource"
 				kind="resource"
 				workspaceOverride={workspace}
+				{actingUser}
 			/>
 		</Label>
 	</div>
@@ -184,36 +192,7 @@
 	</Label>
 {/if}
 
-<div class="flex flex-col gap-1">
-	<h4 class="inline-flex items-center gap-2 text-xs text-emphasis font-semibold"
-		>Resource description <Required required={false} />
-		{#if can_write}
-			<Button
-				variant="subtle"
-				unifiedSize="xs"
-				btnClasses={editDescription ? 'bg-surface-hover' : ''}
-				startIcon={{ icon: Pen }}
-				on:click={() => (editDescription = !editDescription)}
-			/>
-		{/if}
-	</h4>
-	{#if can_write && editDescription}
-		<div class="relative">
-			<div class="text-2xs text-primary absolute -top-4 right-0">GH Markdown</div>
-			<textarea
-				class="text-xs text-primary font-normal"
-				disabled={!can_write}
-				use:autosize
-				bind:value={description}
-				placeholder="Describe what this resource is for"
-			></textarea>
-		</div>
-	{:else if description == undefined || description == ''}
-		<div class="text-xs text-secondary font-normal">No description provided</div>
-	{:else}
-		<GfmMarkdown md={description} prose="sm" noPadding />
-	{/if}
-</div>
+<ResourceDescriptionField bind:description canWrite={can_write} />
 
 <div class="flex flex-col gap-1">
 	<div class="w-full flex gap-4 flex-row-reverse items-center">
@@ -246,7 +225,7 @@
 				workspaceOverride={workspace}
 			/>
 		{/if}
-		{#if resource_type === 'git_repository' && $workspaceStore && ($userStore?.is_admin || $userStore?.is_super_admin)}
+		{#if resource_type === 'git_repository' && ws && (actingUser?.is_admin || actingUser?.is_super_admin)}
 			<GitHubAppIntegration
 				resourceType={resource_type}
 				{args}

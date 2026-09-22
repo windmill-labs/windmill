@@ -104,6 +104,84 @@ impl CustomTags {
     }
 }
 
+/// Whether a job whose tag resolved to `tag` falls under the custom tag `entry`. An entry holding
+/// placeholders is a pattern over resolved tags: `$args[...]` and `$flow_expr[...]` match any
+/// text, since whoever pushes the job picks their values, and `$workspace` matches
+/// `tag_workspace`, what the job's own `$workspace` resolves to. The text around them must match
+/// as written: it is what confines `gpu-$args[size]` to the `gpu-` tags.
+///
+/// Placeholders whose values are tied, a repeat or one reading inside another, make an entry no
+/// wildcard pattern describes (`t-$args[id]-$args[id]` never resolves to `t-a-b`). Such an entry
+/// matches nothing here: it admits only a job whose tag is written exactly as the entry is.
+pub fn custom_tag_matches(entry: &str, tag: &str, tag_workspace: &str) -> bool {
+    if !entry.contains('$') {
+        return entry == tag;
+    }
+    let dynamic: Vec<&str> = CUSTOM_TAG_PLACEHOLDER
+        .find_iter(entry)
+        .map(|m| m.as_str())
+        .filter(|p| *p != "$workspace")
+        .collect();
+    let tied = dynamic
+        .iter()
+        .enumerate()
+        .any(|(i, a)| dynamic[i + 1..].iter().any(|b| placeholders_tied(a, b)));
+    if tied {
+        return false;
+    }
+    // The literal runs between wildcards, with `$workspace` substituted.
+    let mut pieces = vec![];
+    let mut current = String::new();
+    let mut last_end = 0;
+    for m in CUSTOM_TAG_PLACEHOLDER.find_iter(entry) {
+        current.push_str(&entry[last_end..m.start()]);
+        if m.as_str() == "$workspace" {
+            current.push_str(tag_workspace);
+        } else {
+            pieces.push(std::mem::take(&mut current));
+        }
+        last_end = m.end();
+    }
+    current.push_str(&entry[last_end..]);
+    pieces.push(current);
+
+    let [first, rest @ ..] = pieces.as_slice() else {
+        return false;
+    };
+    let Some((last, middle)) = rest.split_last() else {
+        return tag == first;
+    };
+    let Some(mut inner) = tag
+        .strip_prefix(first.as_str())
+        .and_then(|t| t.strip_suffix(last.as_str()))
+    else {
+        return false;
+    };
+    for piece in middle {
+        match inner.find(piece.as_str()) {
+            Some(i) => inner = &inner[i + piece.len()..],
+            None => return false,
+        }
+    }
+    true
+}
+
+/// Whether two `$args[...]` / `$flow_expr[...]` placeholders read the same value, or one reads a
+/// value inside the other's.
+fn placeholders_tied(a: &str, b: &str) -> bool {
+    let (Some((kind_a, path_a)), Some((kind_b, path_b))) = (a.split_once('['), b.split_once('['))
+    else {
+        return false;
+    };
+    let (path_a, path_b) = (path_a.trim_end_matches(']'), path_b.trim_end_matches(']'));
+    let inside = |outer: &str, inner: &str| {
+        inner
+            .strip_prefix(outer)
+            .is_some_and(|rest| rest.starts_with('.'))
+    };
+    kind_a == kind_b && (path_a == path_b || inside(path_a, path_b) || inside(path_b, path_a))
+}
+
 /// Marker suffixed to a workspace id inside a custom tag's scope (`mytag(prod*)`) to extend the
 /// entry to that workspace's forks. `*` cannot appear in a workspace id (the `proper_id` check
 /// constraint restricts them to `^\w+(-\w+)*$`), so it can never collide with a real id.
@@ -475,6 +553,9 @@ lazy_static::lazy_static! {
     //
     // The optional `*` after each workspace id is the fork marker, see [`WorkspaceMatcher`].
     static ref CUSTOM_TAG_REGEX: Regex = Regex::new(r"^([\w-]+)\(((?:[\w-]+\*?\+)*[\w-]+\*?|(?:\^[\w-]+\*?)+)\)$").unwrap();
+
+    // The placeholders a job's tag is resolved from when it is pushed, see [`custom_tag_matches`].
+    static ref CUSTOM_TAG_PLACEHOLDER: Regex = Regex::new(r"\$workspace|\$(?:args|flow_expr)\[(?:\w+\.)*\w+\]").unwrap();
 
     pub static ref DISABLE_BUNDLING: bool = std::env::var("DISABLE_BUNDLING")
     .ok()
@@ -1080,6 +1161,83 @@ pub struct SqlAnnotations {
     // `wmill datatable serve` to map Postgres results onto the wire protocol
     // without re-stringifying every JSON value.
     pub raw_output: bool,
+}
+
+impl SqlAnnotations {
+    /// The data table role a query declares as `-- role <name>`, if any. Only meaningful against a
+    /// `datatable://` database that is under roles; absent means the data table's default role.
+    ///
+    /// Hand-written rather than derived because the value matters, not just the presence, and
+    /// because the executor needs it before it knows the connection is a data table at all. Like
+    /// every annotation it lives in the leading comment block.
+    ///
+    /// A leading comment whose first word is `role` is an annotation *attempt*, and a malformed
+    /// one is an error. The alternative — ignoring what does not parse — resolves the query to the
+    /// data table's default role instead, so a typo silently runs it under a login the author did
+    /// not choose, which is the opposite of what naming a role is for. Only callers that already
+    /// know the target is a `datatable://` reference ever run this, so ordinary SQL keeps its
+    /// comments.
+    pub fn datatable_role(code: &str) -> error::Result<Option<String>> {
+        for line in code.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            if !line.starts_with("--") {
+                break;
+            }
+            // The keyword may be followed by whitespace, `:` or `=` — `role x`, `role: x`,
+            // `role=x`, `Role = x` all open an attempt, while `rolexyz` does not. Each accepted
+            // separator is one spelling that would otherwise take the `continue` below and run the
+            // query as the data table's default role, which is the silence this exists to remove.
+            let body = line[2..].trim_start();
+            let Some(after) = body
+                .get(..4)
+                .filter(|kw| kw.eq_ignore_ascii_case("role"))
+                .map(|_| &body[4..])
+            else {
+                continue;
+            };
+            if !after.is_empty()
+                && !after.starts_with(char::is_whitespace)
+                && !after.starts_with([':', '='])
+            {
+                continue;
+            }
+
+            // Past this point the line is an attempt to name a role, so a malformed one is an
+            // error rather than a miss. Falling through would run the query as the data table's
+            // default role — quietly, and under a login the author did not choose.
+            let after = after.trim_start();
+            let after = after.strip_prefix([':', '=']).unwrap_or(after);
+            let mut tokens = after.split_whitespace();
+            let role = tokens
+                .next()
+                .map(|role| role.strip_suffix(';').unwrap_or(role));
+            let rest = tokens.next();
+            match (role, rest) {
+                (Some(role), None)
+                    if !role.is_empty()
+                        && role.len() <= 63
+                        && role
+                            .chars()
+                            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') =>
+                {
+                    return Ok(Some(role.to_string()));
+                }
+                _ => {
+                    return Err(error::Error::BadRequest(format!(
+                        "Malformed data table role annotation: `{line}`. Write it as \
+                         `-- role <name>` on a line of its own, where <name> is letters, digits, \
+                         '_' or '-'. A comment in the leading block that starts with the word \
+                         'role' is read as this annotation; move it below the first statement if \
+                         it is prose."
+                    )));
+                }
+            }
+        }
+        Ok(None)
+    }
 }
 
 #[annotations("#")]
@@ -2653,6 +2811,56 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
+    #[test]
+    fn datatable_role_is_read_from_the_leading_comment_block() {
+        let role = |code| SqlAnnotations::datatable_role(code);
+        assert_eq!(
+            role("-- role analytics\nSELECT 1").unwrap(),
+            Some("analytics".to_string())
+        );
+        // Blank lines and other annotations before it are fine.
+        assert_eq!(
+            role("\n-- prepare\n-- role read_only\nSELECT 1").unwrap(),
+            Some("read_only".to_string())
+        );
+        // Past the first statement it is an ordinary comment, not an annotation.
+        assert_eq!(role("SELECT 1;\n-- role analytics").unwrap(), None);
+        assert_eq!(role("SELECT 1").unwrap(), None);
+
+        // Unambiguous intent is honoured: the keyword matches case-insensitively, a trailing
+        // semicolon is a habit carried over from SQL rather than a different role, and the colon
+        // spelling is the one most likely to be typed.
+        for accepted in [
+            "-- Role operator\nSELECT 1",
+            "-- role operator;\nSELECT 1",
+            "-- role: operator\nSELECT 1",
+            "-- role:operator\nSELECT 1",
+            "-- role=operator\nSELECT 1",
+            "-- Role = operator\nSELECT 1",
+        ] {
+            assert_eq!(
+                role(accepted).unwrap(),
+                Some("operator".to_string()),
+                "not honoured: {accepted}"
+            );
+        }
+
+        // Anything else opening with the word is refused rather than resolved to the default role:
+        // the whole point of naming one is to not run as something else.
+        for near_miss in [
+            "-- role operator -- why\nSELECT 1",
+            "-- role an;alytics\nSELECT 1",
+            "-- role\nSELECT 1",
+            "-- role:\nSELECT 1",
+            "-- role based access is handled below\nSELECT 1",
+        ] {
+            assert!(role(near_miss).is_err(), "silently ignored: {near_miss}");
+        }
+
+        // A word that merely starts with the keyword is not an attempt.
+        assert_eq!(role("-- rolebased notes\nSELECT 1").unwrap(), None);
+    }
+
     fn matcher(id: &str) -> WorkspaceMatcher {
         WorkspaceMatcher { id: id.to_string(), include_forks: false }
     }
@@ -2941,6 +3149,40 @@ mod tests {
         let mut result = tags.to_string_vec(None);
         result.sort();
         assert_eq!(result, vec!["foo", "legacy(^ws1^ws2)", "urgent(ws1+ws2)"]);
+    }
+
+    #[test]
+    fn test_custom_tag_matches_resolved_tags() {
+        let matches = |entry, tag| custom_tag_matches(entry, tag, "ws1");
+
+        assert!(matches("gpu", "gpu"));
+        assert!(!matches("gpu", "gpu-large"));
+
+        // The text around a placeholder fences what its value can make of the tag.
+        assert!(matches("gpu-$args[size]", "gpu-large"));
+        assert!(matches("gpu-$flow_expr[results.a.size]", "gpu-"));
+        assert!(!matches("gpu-$args[size]", "prod"));
+        assert!(!matches("gpu-$args[size]", "xgpu-large"));
+        assert!(matches("$args[region]-gpu", "eu-gpu"));
+        assert!(!matches("$args[region]-gpu", "eu-gpu-x"));
+        assert!(matches("a-$args[x]-b-$args[y]-c", "a-1-b-2-c"));
+        assert!(!matches("a-$args[x]-b-$args[y]-c", "a-1-c"));
+        assert!(!matches("ab$args[x]ba", "aba"));
+
+        // A bare placeholder admits every tag.
+        assert!(matches("$flow_expr[results.a.tag]", "anything"));
+
+        // Tied placeholders are no pattern: their entry admits only its own text.
+        assert!(!matches("t-$args[id]-$args[id]", "t-a-a"));
+        assert!(!matches("t-$args[a]-$args[a.b]", "t-x-y"));
+        assert!(matches("t-$args[a.x]-$args[a.y]", "t-x-y"));
+        assert!(matches("t-$args[id]-$flow_expr[flow_input.id]", "t-x-y"));
+
+        // `$workspace` stands for the job's own workspace only.
+        assert!(matches("tag-$workspace", "tag-ws1"));
+        assert!(!matches("tag-$workspace", "tag-ws2"));
+        assert!(matches("$workspace-$args[size]", "ws1-large"));
+        assert!(!matches("$workspace-$args[size]", "ws2-large"));
     }
 
     #[test]

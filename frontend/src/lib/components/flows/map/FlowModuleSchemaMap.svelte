@@ -20,7 +20,6 @@
 	import { overlayPortalTarget } from '$lib/components/common/overlayHost.svelte'
 
 	import { locateModules, groupByParent } from '../multiSelectUtils'
-	import { workspaceStore } from '$lib/stores'
 	import FlowGraphV2 from '$lib/components/graph/FlowGraphV2.svelte'
 	import { replaceId } from '../flowStore.svelte'
 	import { setScheduledPollSchedule, type TriggerContext } from '$lib/components/triggers'
@@ -50,6 +49,9 @@
 		dfsStructure,
 		moduleToStructureNode
 	} from '$lib/components/graph/flowStructure'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		sidebarSize?: number | undefined
@@ -114,7 +116,7 @@
 	const { customUi, selectionManager, history, flowStateStore, flowStore, pathStore, opWorkspace } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
-	let opWs = $derived(opWorkspace?.() ?? $workspaceStore)
+	let opWs = $derived(opWorkspace?.() ?? $operatingWorkspace)
 
 	const moveManager = new MoveManager()
 	const { triggersCount, triggersState } = getContext<TriggerContext>('TriggerContext')
@@ -803,6 +805,19 @@
 						}
 						if (group.end_id === id) {
 							group.end_id = newId
+						}
+					}
+				}
+				// Group notes reference their members by module id. A stale id here is not
+				// merely cosmetic: cleanupGroupNotes drops ids it cannot resolve and deletes
+				// the note once none are left.
+				const notes = flowStore.val.value.notes
+				if (notes) {
+					for (const note of notes) {
+						if (note.contained_node_ids) {
+							note.contained_node_ids = note.contained_node_ids.map((nid) =>
+								nid === id ? newId : nid
+							)
 						}
 					}
 				}

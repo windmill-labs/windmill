@@ -1,11 +1,12 @@
 <script lang="ts">
+	import ResourceDescriptionField from '$lib/components/ResourceDescriptionField.svelte'
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Path from '$lib/components/Path.svelte'
-	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import Label from '$lib/components/Label.svelte'
+	import ResourcePathHint from '$lib/components/ResourcePathHint.svelte'
 	import { ResourceService, type InputTransform, type Resource } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { Bot, ChevronDown, ChevronUp, Save, Unlink, Pencil } from 'lucide-svelte'
 	import {
@@ -33,13 +34,20 @@
 	} from '../linkedAgentToolsStore.svelte'
 	import { logReusableAgentUsage } from '../agentTelemetry'
 	import { claimLinkedToolsFetch } from '../flowState'
-	import { AgentDraftUnavailable, fetchAgentWithDraft } from '../linkedAgentDrafts'
+	import {
+		AgentDraftUnavailable,
+		fetchAgentWithDraft,
+		isExpectedLinkFailure
+	} from '../linkedAgentDrafts'
 	import type { AgentResourceState } from '../agentDraft.svelte'
 	import { getLocalDraftHint } from '$lib/localDraftHints.svelte'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 	import type { AgentTool as AgentToolStrict } from '../agentToolUtils'
 	import { resource } from 'runed'
 	import { untrack } from 'svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	let {
 		agent = $bindable(),
@@ -49,7 +57,9 @@
 		moduleId,
 		opWorkspace = undefined,
 		flowPath = '',
-		fromAgentEditor = false
+		fromAgentEditor = false,
+		chatInputEnabled = false,
+		linkedMemory = $bindable()
 	}: {
 		agent: string | undefined
 		inputTransforms: Record<string, InputTransform>
@@ -57,7 +67,7 @@
 		toolInputs: Record<string, Record<string, InputTransform>>
 		moduleId: string
 		// The workspace the flow editor operates on (differs from the nav workspace in session/fork
-		// editors). All resource reads/writes must target it, not $workspaceStore.
+		// editors). All resource reads/writes must target it, not the navigation workspace.
 		opWorkspace?: string
 		// Scope for the linked-agent tools store (the flow path); must match what the graph reads.
 		flowPath?: string
@@ -67,9 +77,12 @@
 		// backend supports it, but only a flow can author it, and a second editor over a second draft
 		// is the wrong way in.
 		fromAgentEditor?: boolean
+		chatInputEnabled?: boolean
+		// The linked agent's memory once its config has loaded, for the step's history inputs.
+		linkedMemory?: { memory: unknown } | undefined
 	} = $props()
 
-	let ws = $derived(opWorkspace ?? $workspaceStore)
+	let ws = $derived(opWorkspace ?? $operatingWorkspace)
 
 	// How many times the linked agent has been written, from anywhere: this card's own save, or a
 	// deploy from the agent editor mounted alongside it. Both reads below key on it, so neither
@@ -103,6 +116,30 @@
 		fromDraft: boolean
 		providerPath?: string
 		providerOk: boolean
+		/** The link cannot be read. `missing` (404): nothing exists at the path, the agent having been
+		 *  renamed or deleted. `forbidden` (401/403): it exists and this user is refused it, a folder
+		 *  they cannot read included, which says nothing about whether a run of the flow can read it.
+		 *  Returned rather than thrown so it is guarded like any result. */
+		unavailable?: 'missing' | 'forbidden'
+	}
+
+	async function fetchLinkedAgent(
+		path: string,
+		ws: string
+	): Promise<{ response: Resource; draft: AgentResourceState | undefined }> {
+		try {
+			return await fetchAgentWithDraft(path, ws)
+		} catch (err) {
+			// Only the DRAFT was unreadable. This card is a display, so fall back to the deployed
+			// agent rather than rendering one with no brain and no tools, which reads as "the agent
+			// is empty" while the Draft badge still says it has unsaved changes. Same fallback the
+			// graph's tool nodes take; the paths that run or deploy the draft still refuse.
+			if (!(err instanceof AgentDraftUnavailable)) throw err
+			return {
+				response: await ResourceService.getResource({ workspace: ws, path }),
+				draft: undefined
+			}
+		}
 	}
 
 	// A linked agent is rigid and read-only: its brain and tools come from the resource. We
@@ -112,29 +149,27 @@
 	let linkedResource = resource(
 		() => ({ ws, path: agent, writes, draftSaves }),
 		async ({ ws, path, writes, draftSaves }): Promise<LinkedInfo> => {
+			const empty = {
+				ws,
+				path,
+				writes,
+				draftSaves,
+				config: {},
+				tools: [],
+				fromDraft: false,
+				providerOk: true
+			}
 			if (!ws || !path) {
-				return {
-					ws,
-					path,
-					writes,
-					draftSaves,
-					config: {},
-					tools: [],
-					fromDraft: false,
-					providerOk: true
-				}
+				return empty
 			}
 			let response: Resource
 			let draft: AgentResourceState | undefined
 			try {
-				;({ response, draft } = await fetchAgentWithDraft(path, ws))
+				;({ response, draft } = await fetchLinkedAgent(path, ws))
 			} catch (err) {
-				// Only the DRAFT was unreadable. This card is a display, so fall back to the deployed
-				// agent rather than rendering one with no brain and no tools, which reads as "the agent
-				// is empty" while the Draft badge still says it has unsaved changes. Same fallback the
-				// graph's tool nodes take; the paths that run or deploy the draft still refuse.
-				if (!(err instanceof AgentDraftUnavailable)) throw err
-				response = await ResourceService.getResource({ workspace: ws, path })
+				if (!isExpectedLinkFailure(err)) throw err
+				const status = (err as { status?: number }).status
+				return { ...empty, unavailable: status === 404 ? 'missing' : 'forbidden' }
 			}
 			const cfg = (draft?.args ?? response.value ?? {}) as AIAgentConfig & {
 				provider?: { resource?: string }
@@ -185,10 +220,14 @@
 	let linkedInfo = $derived(
 		loadedInfo?.ws === ws && loadedInfo?.path === agent ? loadedInfo : undefined
 	)
+	$effect(() => {
+		linkedMemory = linkedInfo ? { memory: linkedInfo.config?.memory } : undefined
+	})
 	let inheritedTools = $derived(linkedInfo?.tools ?? [])
 	let brainParams = $derived(summarizeAgentBrain(linkedInfo?.config))
 	let providerPath = $derived(linkedInfo?.providerPath)
 	let providerOk = $derived(linkedInfo?.providerOk ?? true)
+	let unavailable = $derived(linkedInfo?.unavailable ?? false)
 	// The hint flips on the first keystroke in the agent editor, so the badge does not wait for the
 	// debounced autosave and the refetch behind it; the fetched answer covers a draft written
 	// elsewhere, which no editor here has published an opinion about.
@@ -285,6 +324,20 @@
 	// saved without a complete one fails on every linked run. Block saving when the provider is
 	// computed/connected (only a static value can be captured into the resource) or when the static
 	// value is incomplete (a fresh step defaults to empty resource/model, which is still static).
+	// A saved agent never carries a memory id, so saving would drop the id this step's runs still fall
+	// back to and leave them without memory. The author picks what replaces it first. In chat mode the
+	// conversation id always won, so there the id was never read.
+	let legacyMemorySaveError = $derived.by(() => {
+		const memory = inputTransforms?.memory as
+			| { type?: string; value?: { kind?: string; context_length?: number; memory_id?: string } }
+			| undefined
+		const value = memory?.type === 'static' ? memory.value : undefined
+		if (chatInputEnabled || value?.kind !== 'auto' || !value.memory_id || !value.context_length) {
+			return undefined
+		}
+		return "This step still uses a fixed memory id from an earlier version. In Managed memory, choose Keep as memory id or Use the run's memory id, then save it as an agent."
+	})
+
 	let providerSaveError = $derived.by(() => {
 		const t = inputTransforms?.provider as
 			| { type?: string; value?: { resource?: string; model?: string } }
@@ -316,8 +369,8 @@
 	// the success toast that would otherwise bury the explanation.
 	async function persist(path: string, description?: string): Promise<boolean> {
 		const dropped = nonStaticBrainKeys(inputTransforms)
-		if (providerSaveError) {
-			throw new Error(providerSaveError)
+		if (providerSaveError ?? legacyMemorySaveError) {
+			throw new Error(providerSaveError ?? legacyMemorySaveError)
 		}
 		if (dropped.length > 0) {
 			sendUserToast(
@@ -328,6 +381,12 @@
 		// Tool inputs are saved verbatim: the agent carries its tools' default bindings (static, AI or
 		// flow expressions) as authored. Host flows override per-step via tool_inputs, never here.
 		const value = inputTransformsToAgentConfig(inputTransforms, tools)
+		// An id an older editor baked into this step names the flow's memory. The agent is shared by
+		// every step linking it, and each of those takes its memory id from its own run.
+		if (value.memory && typeof value.memory === 'object' && 'memory_id' in value.memory) {
+			const { memory_id: _, ...memory } = value.memory as Record<string, unknown>
+			value.memory = memory
+		}
 		// The editor stays live during the requests below, so remember what linking would discard:
 		// every brain transform and the tools. Comparing the saved config instead would miss a
 		// non-static brain edit, which the resource cannot hold yet linking still strips.
@@ -468,6 +527,15 @@
 		}
 	}
 
+	// A link naming nothing readable has nothing to fork. Dropping it leaves a standalone step with its
+	// flow-local inputs, to configure here or replace with a saved agent; the tool overrides were
+	// keyed by the missing agent's tools, so they go with it.
+	function removeLink() {
+		toolInputs = {}
+		agent = undefined
+		sendUserToast('Removed the link to the missing agent')
+	}
+
 	// Edit the saved agent itself. The step stays linked throughout: the edits live in the agent's
 	// own resource draft, not in this step, so they survive leaving the flow and are the same edits
 	// whichever flow — or the resources page — opened them.
@@ -534,7 +602,7 @@
 							{/if}
 						</span>
 					{/if}
-					{#if !fromAgentEditor}
+					{#if !fromAgentEditor && !unavailable}
 						<Button
 							unifiedSize="sm"
 							variant="default"
@@ -547,17 +615,19 @@
 							}}
 						/>
 					{/if}
-					<Button
-						unifiedSize="sm"
-						variant="default"
-						startIcon={{ icon: Unlink }}
-						iconOnly
-						title="Unlink (fork an editable copy into just this step)"
-						onclick={(e) => {
-							e.stopPropagation()
-							unlink()
-						}}
-					/>
+					{#if !unavailable}
+						<Button
+							unifiedSize="sm"
+							variant="default"
+							startIcon={{ icon: Unlink }}
+							iconOnly
+							title="Unlink (fork an editable copy into just this step)"
+							onclick={(e) => {
+								e.stopPropagation()
+								unlink()
+							}}
+						/>
+					{/if}
 				</div>
 			</div>
 			{#if showDetail && (brainParams.length > 0 || inheritedTools.length > 0)}
@@ -581,7 +651,32 @@
 				</dl>
 			{/if}
 		</div>
-		{#if !providerOk}
+		{#if unavailable === 'forbidden'}
+			<div class="mt-1">
+				<Alert type="warning" size="xs" title="Agent not accessible">
+					You don't have access to <span class="font-medium">{agent}</span>, so its configuration
+					can't be shown or edited here.
+				</Alert>
+			</div>
+		{:else if unavailable === 'missing'}
+			<div class="mt-1">
+				<Alert type="error" size="xs" title="Agent not found">
+					No saved agent exists at <span class="font-medium">{agent}</span>. It may have been
+					renamed or deleted. Remove the link to configure the step here, or add the agent again
+					from Saved agents.
+					<div class="flex pt-2">
+						<Button
+							unifiedSize="sm"
+							variant="default"
+							startIcon={{ icon: Unlink }}
+							onclick={removeLink}
+						>
+							Remove link
+						</Button>
+					</div>
+				</Alert>
+			</div>
+		{:else if !providerOk}
 			<div class="mt-1">
 				<Alert type="error" size="xs" title="Model provider not accessible">
 					This agent's model provider{#if providerPath}
@@ -609,28 +704,31 @@
 		<div class="flex flex-col gap-4">
 			<p class="text-xs text-secondary">
 				Save this AI agent's configuration and tools as a reusable resource. Other flows can then
-				link to it, updates propagate automatically, and it gains a dataset of eval cases of its
-				own.
+				link to it, and updates propagate automatically.
 			</p>
-			<Path
-				bind:path={newPath}
-				bind:error={pathError}
-				initialPath=""
-				namePlaceholder="my_agent"
-				kind="resource"
-				workspaceOverride={ws}
-			/>
-			<label class="flex flex-col gap-1 text-xs">
-				<span class="text-secondary">Description</span>
-				<TextInput
-					bind:value={description}
-					inputProps={{ placeholder: 'What this agent does' }}
-					size="sm"
+			<!-- The path and description are the resource form's, field for field: this
+			     drawer creates a resource too, and ResourcePathHint exists so the screens
+			     that do cannot drift apart. -->
+			<Label label="Path">
+				<ResourcePathHint />
+				<Path
+					bind:path={newPath}
+					bind:error={pathError}
+					initialPath=""
+					namePlaceholder="my_agent"
+					kind="resource"
+					workspaceOverride={ws}
 				/>
-			</label>
-			{#if providerSaveError}
-				<p class="text-xs text-red-600 dark:text-red-400">
-					{providerSaveError}
+			</Label>
+			<ResourceDescriptionField
+				bind:description
+				label="Description"
+				placeholder="Describe what this agent does"
+			/>
+			{#if providerSaveError ?? legacyMemorySaveError}
+				<!-- Validation is `text-2xs` per the guidelines; the red is the feedback colour. -->
+				<p class="text-2xs text-red-600 dark:text-red-400">
+					{providerSaveError ?? legacyMemorySaveError}
 				</p>
 			{/if}
 		</div>
@@ -638,7 +736,10 @@
 			<Button
 				variant="accent"
 				startIcon={{ icon: Save }}
-				disabled={!newPath || !!pathError || saving || !!providerSaveError}
+				disabled={!newPath ||
+					!!pathError ||
+					saving ||
+					!!(providerSaveError ?? legacyMemorySaveError)}
 				onclick={saveAsAgent}
 			>
 				Save agent

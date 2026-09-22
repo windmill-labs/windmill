@@ -1,4 +1,6 @@
 <script module lang="ts">
+	import { noteSessionEmail } from '$lib/onboardingProfile'
+	import LabeledDivider from './LabeledDivider.svelte'
 	import type { LastLoginMethod } from '$lib/lastLoginMethod'
 
 	/** Feeds the login card a fixed instance configuration instead of the live one.
@@ -16,15 +18,13 @@
 
 <script lang="ts">
 	import { goto } from '$lib/navigation'
-	import {
-		Auth0Icon,
-		GithubIcon,
-		GitlabIcon,
-		GoogleIcon,
-		MicrosoftIcon,
-		NextcloudIcon,
-		OktaIcon
-	} from '$lib/components/icons'
+	import Auth0Icon from '$lib/components/icons/Auth0Icon.svelte'
+	import GithubIcon from '$lib/components/icons/GithubIcon.svelte'
+	import GitlabIcon from '$lib/components/icons/GitlabIcon.svelte'
+	import GoogleIcon from '$lib/components/icons/GoogleIcon.svelte'
+	import MicrosoftIcon from '$lib/components/icons/MicrosoftIcon.svelte'
+	import NextcloudIcon from '$lib/components/icons/NextcloudIcon.svelte'
+	import OktaIcon from '$lib/components/icons/OktaIcon.svelte'
 	import PocketIdIcon from '$lib/components/icons/PocketIdIcon.svelte'
 
 	import { OauthService, UserService, WorkspaceService } from '$lib/gen'
@@ -62,6 +62,10 @@
 		popup?: boolean
 		firstTime?: boolean
 		autoRedirect?: boolean
+		/** Supplying this replaces the post-login redirect: the card hands back instead of
+		 * navigating, and the host is expected to re-check access in place. For a gate on a
+		 * page that stays mounted, `rd` is the URL already shown, so navigating there would
+		 * re-run nothing. */
 		onLoginSuccess?: () => void
 		/** A refusal the popup relayed back, in the server's words. */
 		onLoginError?: (message: string) => void
@@ -266,6 +270,9 @@
 
 		try {
 			await UserService.login({ requestBody })
+			// The session changed under a page that stays mounted: what was cached for the
+			// previous account must not be served to this one.
+			noteSessionEmail(email)
 		} catch (err) {
 			failLogin(loginErrorMessage(err), 'both', requestBody)
 			return
@@ -288,6 +295,11 @@
 
 		// Finally, we check whether the user is a superadmin
 		refreshSuperadmin()
+
+		if (onLoginSuccess) {
+			onLoginSuccess()
+			return
+		}
 		redirectUser()
 	}
 
@@ -385,7 +397,8 @@
 		if (loginsResult.status === 'fulfilled') {
 			logins = loginsResult.value.oauth.map((login) => ({
 				type: login.type,
-				displayName: login.display_name || login.type
+				displayName:
+					login.display_name || providers.find((p) => p.type === login.type)?.name || login.type
 			}))
 			saml = loginsResult.value.saml
 			autoLogin = loginsResult.value.auto_login
@@ -519,6 +532,9 @@
 	function finishOauthFlow(via: 'postMessage' | 'storage' | 'poll', win?: Window) {
 		if (oauthFlowDone) return
 		oauthFlowDone = true
+		// The popup replaced the session under this still-mounted page; whatever the
+		// previous account had cached must not be served to the new one.
+		noteSessionEmail(undefined)
 		confirmPendingLoginMethod()
 		console.log(`oauth: signaled via ${via}`)
 		if (win && !win.closed) win.close()
@@ -733,11 +749,9 @@
 {/snippet}
 
 {#snippet orDivider()}
-	<div class="flex items-center gap-3 my-6">
-		<div class="h-px flex-1 bg-border-light"></div>
+	<LabeledDivider class="gap-3 my-6">
 		<span class="text-2xs uppercase text-secondary">or</span>
-		<div class="h-px flex-1 bg-border-light"></div>
-	</div>
+	</LabeledDivider>
 {/snippet}
 
 <div class="bg-surface px-4 py-8 border sm:rounded-lg sm:px-10">

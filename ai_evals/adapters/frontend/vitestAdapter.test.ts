@@ -5,8 +5,8 @@ import { mkdir, writeFile } from 'fs/promises'
 import { dirname, resolve } from 'path'
 import { handleBenchmarkApiFetch, hasBenchmarkApiHandler } from './mockBackend'
 
-// The API catalog executor issues relative fetch('/api/...') calls, which have
-// no meaning in the vitest environment — serve the ones the benchmark handles.
+// Some tools reach the backend by relative fetch('/api/...'), which has no meaning
+// in the vitest environment — serve the ones the benchmark handles.
 // Every other relative fetch keeps its normal behavior (it fails the same way
 // it does without this stub) so unrelated tools see an unchanged environment.
 // The frontend builds API URLs from location.origin (fetchAvailableModels does), and node has no
@@ -62,6 +62,7 @@ vi.mock('$lib/gen', async () => {
 		getBenchmarkDatatableSchema,
 		getBenchmarkDraftForUser,
 		getBenchmarkFlowByPath,
+		getBenchmarkFlowAllResults,
 		getBenchmarkJobLogs,
 		getBenchmarkOwnDraft,
 		getBenchmarkScriptByHash,
@@ -75,7 +76,9 @@ vi.mock('$lib/gen', async () => {
 		listBenchmarkPlainResources,
 		listBenchmarkApps,
 		listBenchmarkDatatables,
+		listBenchmarkDataMetrics,
 		listBenchmarkDrafts,
+		listBenchmarkDucklakes,
 		listBenchmarkFlows,
 		listBenchmarkJobs,
 		listBenchmarkScripts,
@@ -86,10 +89,10 @@ vi.mock('$lib/gen', async () => {
 		previewBenchmarkSchedule,
 		runBenchmarkDatatableSql,
 		runBenchmarkFlowByPath,
+		runBenchmarkFlowPreview,
 		runBenchmarkScriptByPath,
 		runBenchmarkScriptPreview,
-		updateBenchmarkDraft,
-		listBenchmarkMcpTools
+		updateBenchmarkDraft
 	} = await import('./mockBackend')
 
 	function wrapService<T extends object>(target: T, overrides: Record<string, unknown>): T {
@@ -292,6 +295,14 @@ vi.mock('$lib/gen', async () => {
 							args: data.requestBody
 						})
 					: actual.JobService.runScriptByPath(data),
+			runFlowPreview: async (data: {
+				workspace: string
+				memoryId?: string
+				requestBody?: { path?: string; value?: { chat_input_enabled?: boolean }; args?: unknown }
+			}) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? runBenchmarkFlowPreview(data)
+					: actual.JobService.runFlowPreview(data as any),
 			runFlowByPath: async (data: {
 				workspace: string
 				path: string
@@ -325,7 +336,11 @@ vi.mock('$lib/gen', async () => {
 			getJobLogs: async (data: { workspace: string; id: string }) =>
 				hasBenchmarkWorkspace(data.workspace)
 					? getBenchmarkJobLogs(data.workspace, data.id)
-					: actual.JobService.getJobLogs(data)
+					: actual.JobService.getJobLogs(data),
+			getFlowAllResults: async (data: { workspace: string; id: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? getBenchmarkFlowAllResults(data.workspace, data.id)
+					: actual.JobService.getFlowAllResults(data)
 		}),
 		WorkspaceService: wrapService(actual.WorkspaceService, {
 			getCopilotInfo: async (data: { workspace: string }) =>
@@ -336,6 +351,10 @@ vi.mock('$lib/gen', async () => {
 				hasBenchmarkWorkspace(data.workspace)
 					? (listBenchmarkDatatables(data.workspace) ?? [])
 					: actual.WorkspaceService.listDataTableTables(data),
+			listDucklakes: async (data: { workspace: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? (listBenchmarkDucklakes(data.workspace) ?? [])
+					: actual.WorkspaceService.listDucklakes(data),
 			getDataTableTableSchema: async (data: {
 				workspace: string
 				datatableName: string
@@ -350,6 +369,12 @@ vi.mock('$lib/gen', async () => {
 							tableName: data.tableName
 						})
 					: actual.WorkspaceService.getDataTableTableSchema(data)
+		}),
+		DataMetricService: wrapService(actual.DataMetricService, {
+			listDataMetrics: async (data: { workspace: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? { metrics: listBenchmarkDataMetrics(data.workspace) ?? [] }
+					: actual.DataMetricService.listDataMetrics(data)
 		}),
 		ScheduleService: wrapService(actual.ScheduleService, {
 			existsSchedule: async (data: { workspace: string; path: string }) =>
@@ -407,12 +432,6 @@ vi.mock('$lib/gen', async () => {
 			},
 			queryResourceTypes: async (data: { workspace: string }) =>
 				hasBenchmarkWorkspace(data.workspace) ? [] : actual.ResourceService.queryResourceTypes(data)
-		}),
-		McpService: wrapService(actual.McpService, {
-			listMcpTools: async (data: { workspace: string }) =>
-				hasBenchmarkWorkspace(data.workspace)
-					? listBenchmarkMcpTools()
-					: actual.McpService.listMcpTools(data)
 		}),
 		VariableService: wrapService(actual.VariableService, {
 			existsVariable: async (data: { workspace: string; path: string }) =>

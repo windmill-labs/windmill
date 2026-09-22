@@ -34,6 +34,13 @@ export interface TaskRetry {
 export interface TaskOptions {
   timeout?: number;
   tag?: string;
+  /** Seconds during which a previous result of this task is served instead of
+  *  running it again. A task written inline in the workflow is keyed on its
+  *  step key (its name and call order) and the workflow's input, not on the
+  *  arguments it is called with, so cache one only when whether it runs, and
+  *  what it receives, follow from the workflow's input alone. A `taskScript`
+  *  target is keyed on the arguments it is called with. It has no effect on a
+  *  `taskFlow` target, which keeps its flow's own cache policy. */
   cache_ttl?: number;
   priority?: number;
   concurrency_limit?: number;
@@ -117,12 +124,16 @@ export async function sleep(seconds: number): Promise<void>
  * resume exactly this approval — route them through your own channel. Without a
  * key the steps are named `approval`, `approval_2`, ...
  *
+ * `skin: "minimal"` shows approvers only the request (form and approve/reject)
+ * instead of the detailed page with the workflow's details. `description` is
+ * shown above the form: a string, or a rich value such as `{ markdown: "..." }`.
+ *
  * @example
  * const urls = await step("urls", () => getApprovalUrls("manager"));
  * await step("notify", () => sendEmail(urls.resume, urls.cancel));
  * const { value, approver } = await waitForApproval({ key: "manager", timeout: 3600 });
  */
-export function waitForApproval(options?: { timeout?: number; form?: object; selfApproval?: boolean; key?: string; }): PromiseLike<{ value: any; approver: string; approved: boolean }>
+export function waitForApproval(options?: { timeout?: number; form?: object; selfApproval?: boolean; key?: string; skin?: "detailed" | "minimal"; description?: string | object; }): PromiseLike<{ value: any; approver: string; approved: boolean }>
 
 /**
  * Resume/cancel/approval-page URLs bound to one `waitForApproval` step.

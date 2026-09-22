@@ -46,12 +46,14 @@ use windmill_common::{
         CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
         DISABLE_PASSWORD_LOGIN_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
         EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
-        FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING, HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
+        FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING,
+        HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING, HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
         HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING,
         INSTANCE_EVENTS_WEBHOOK_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
         JOB_DEFAULT_TIMEOUT_SECS_SETTING, JOB_ISOLATION_SETTING, JWT_SECRET_SETTING,
         KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING, MAVEN_SETTINGS_XML_SETTING,
-        MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NO_DEFAULT_MAVEN_SETTING,
+        MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING,
+        NO_DEFAULT_MAVEN_SETTING,
         NPM_CONFIG_REGISTRY_SETTING, NSJAIL_TMPFS_SIZE_MB_SETTING, NSJAIL_TMP_BACKING_SETTING,
         NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING, OTEL_TRACES_RETENTION_SECS_SETTING,
         OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
@@ -125,7 +127,8 @@ use windmill_worker::{
 
 use crate::monitor::{
     initial_load, load_concurrency_key_max_queued, load_disable_password_login,
-    load_fork_workspace_tag_append_fork_suffix, load_keep_job_dir, load_metrics_debug_enabled,
+    load_fork_workspace_tag_append_fork_suffix, load_keep_job_dir,
+    load_mcp_disable_token_query_param, load_metrics_debug_enabled,
     load_preview_tags_override, load_require_preexisting_user, load_retention_period_overrides,
     load_tag_per_workspace_enabled, load_tag_per_workspace_workspaces,
     load_workspace_fairness_duration_secs, load_workspace_fairness_enabled,
@@ -135,7 +138,8 @@ use crate::monitor::{
     reload_bun_install_min_release_age_setting, reload_bunfig_install_scopes_setting,
     reload_critical_alert_mute_ui_setting, reload_critical_alert_mute_zombie_job_restart_setting,
     reload_critical_alerts_on_token_expiry_setting, reload_critical_error_channels_setting,
-    reload_extra_pip_index_url_setting, reload_http_route_workspaced_route_setting,
+    reload_extra_pip_index_url_setting, reload_http_route_default_allowed_origins_setting,
+    reload_http_route_workspaced_route_setting,
     reload_hub_api_secret_setting, reload_hub_base_url_setting,
     reload_instance_events_webhook_setting, reload_job_default_timeout_setting,
     reload_job_isolation_setting, reload_jwt_secret_setting, reload_license_key,
@@ -409,6 +413,13 @@ struct HubResourceTypeRaw {
     /// Absent from hubs predating the column, and from caches written before it.
     #[serde(default)]
     pub format_extension: Option<String>,
+    /// Doubly optional, so a hub predating the field (no key) is told apart from a type the
+    /// hub leaves unnamed (null).
+    #[serde(
+        default,
+        deserialize_with = "windmill_common::more_serde::double_option"
+    )]
+    pub display_name: Option<Option<String>>,
 }
 
 
@@ -432,6 +443,14 @@ pub struct HubResourceType {
         skip_serializing_if = "Option::is_none"
     )]
     pub format_extension: Option<Option<String>>,
+    /// Doubly optional like `format_extension`: a cache written before the field leaves the
+    /// stored name alone, while a null from the hub clears it.
+    #[serde(
+        default,
+        deserialize_with = "windmill_common::more_serde::double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub display_name: Option<Option<String>>,
 }
 
 const HUB_RT_CACHE_FILE: &str = "resource_types.json";
@@ -479,6 +498,7 @@ async fn cache_hub_resource_types() -> anyhow::Result<()> {
                 app: rt.app,
                 description: rt.description,
                 format_extension: Some(rt.format_extension),
+                display_name: rt.display_name,
             })
         })
         .collect();
@@ -529,8 +549,9 @@ pub async fn sync_cached_resource_types(db: &sqlx::Pool<sqlx::Postgres>) -> anyh
         Option<String>,
         Option<String>,
         bool,
+        Option<String>,
     )> = sqlx::query_as(
-        "SELECT name, schema, description, format_extension, is_fileset FROM resource_type WHERE workspace_id = 'admins'",
+        "SELECT name, schema, description, format_extension, is_fileset, display_name FROM resource_type WHERE workspace_id = 'admins'",
     )
     .fetch_all(db)
     .await
@@ -538,12 +559,23 @@ pub async fn sync_cached_resource_types(db: &sqlx::Pool<sqlx::Postgres>) -> anyh
 
     let existing_map: std::collections::HashMap<
         String,
-        (Option<serde_json::Value>, Option<String>, Option<String>, bool),
+        (
+            Option<serde_json::Value>,
+            Option<String>,
+            Option<String>,
+            bool,
+            Option<String>,
+        ),
     > = existing_types
         .into_iter()
-        .map(|(name, schema, desc, format_extension, is_fileset)| {
-            (name, (schema, desc, format_extension, is_fileset))
-        })
+        .map(
+            |(name, schema, desc, format_extension, is_fileset, display_name)| {
+                (
+                    name,
+                    (schema, desc, format_extension, is_fileset, display_name),
+                )
+            },
+        )
         .collect();
 
     let mut synced_count = 0;
@@ -551,8 +583,9 @@ pub async fn sync_cached_resource_types(db: &sqlx::Pool<sqlx::Postgres>) -> anyh
 
     for rt in cached_types {
         let existing = existing_map.get(&rt.name);
-        let is_fileset = existing.map(|(_, _, _, f)| *f).unwrap_or(false);
-        let stored_extension = existing.and_then(|(_, _, e, _)| e.clone());
+        let is_fileset = existing.map(|(_, _, _, f, _)| *f).unwrap_or(false);
+        let stored_extension = existing.and_then(|(_, _, e, _, _)| e.clone());
+        let stored_display_name = existing.and_then(|(_, _, _, _, n)| n.clone());
         // A fileset is a set of files, so it cannot also be one file. Create, update
         // and the manual sync all reject the pair; this writer would otherwise
         // persist it onto a same-named local fileset.
@@ -568,11 +601,25 @@ pub async fn sync_cached_resource_types(db: &sqlx::Pool<sqlx::Postgres>) -> anyh
                 None => stored_extension.clone(),
             }
         };
+        // No key in the cache leaves the stored name alone, as for the extension. So does a name
+        // too long for the column: one bad entry must not fail the upsert and end the sync.
+        let display_name = match &rt.display_name {
+            Some(Some(name)) if name.chars().count() > 100 => {
+                tracing::warn!(
+                    "Ignoring the display_name of resource type {}: longer than 100 characters",
+                    rt.name
+                );
+                stored_display_name.clone()
+            }
+            Some(from_cache) => from_cache.clone(),
+            None => stored_display_name.clone(),
+        };
 
-        if let Some((existing_schema, existing_desc, _, _)) = existing {
+        if let Some((existing_schema, existing_desc, _, _, _)) = existing {
             if existing_schema == &rt.schema
                 && existing_desc == &rt.description
                 && stored_extension == format_extension
+                && stored_display_name == display_name
             {
                 skipped_count += 1;
                 continue;
@@ -584,16 +631,18 @@ pub async fn sync_cached_resource_types(db: &sqlx::Pool<sqlx::Postgres>) -> anyh
             // `format_extension` is resolved above rather than coalesced here: a
             // COALESCE could never clear one, so a hub that dropped an extension
             // would leave the stale value behind forever.
-            "INSERT INTO resource_type (workspace_id, name, schema, description, format_extension, edited_at)
-             VALUES ('admins', $1, $2, $3, $4, now())
+            "INSERT INTO resource_type (workspace_id, name, schema, description, format_extension, display_name, edited_at)
+             VALUES ('admins', $1, $2, $3, $4, $5, now())
              ON CONFLICT (workspace_id, name) DO UPDATE
              SET schema = EXCLUDED.schema, description = EXCLUDED.description,
-                 format_extension = EXCLUDED.format_extension, edited_at = now()",
+                 format_extension = EXCLUDED.format_extension,
+                 display_name = EXCLUDED.display_name, edited_at = now()",
         )
         .bind(&rt.name)
         .bind(&rt.schema)
         .bind(&rt.description)
         .bind(&format_extension)
+        .bind(&display_name)
         .execute(db)
         .await
         .with_context(|| format!("Failed to upsert resource type {}", rt.name))?;
@@ -1913,6 +1962,17 @@ async fn process_notify_event(
             );
             windmill_api::auth::invalidate_token_from_cache(payload);
         }
+        "notify_user_email_change" => {
+            // `<workspace_id>:<username>`, or `*:<username>` from a `password` change, which
+            // knows the name but no workspace. Workspace ids can't contain ':'.
+            if let Some(username) = payload.strip_prefix("*:") {
+                tracing::info!("Superadmin identity change detected, invalidating: {username}");
+                windmill_common::users::invalidate_email_cache_for_username(username);
+            } else if let Some((workspace_id, username)) = payload.split_once(':') {
+                tracing::info!("User email change detected, invalidating cache: {payload}");
+                windmill_common::users::invalidate_email_cache(workspace_id, username);
+            }
+        }
         "notify_app_policy_change" => {
             // payload is `<workspace_id>:<path>`; workspace ids can't contain ':'.
             if server_mode {
@@ -2106,6 +2166,9 @@ async fn process_notify_event(
                 DISABLE_PASSWORD_LOGIN_SETTING => {
                     load_disable_password_login(db).await;
                 }
+                MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING => {
+                    load_mcp_disable_token_query_param(db).await;
+                }
                 EXPOSE_METRICS_SETTING => {
                     tracing::info!("Metrics setting changed, restarting");
                     spawn_graceful_killpill(tx, db, 30, "metrics setting change", server_mode)
@@ -2132,6 +2195,11 @@ async fn process_notify_event(
                 APP_WORKSPACED_ROUTE_SETTING => {
                     if let Err(e) = reload_app_workspaced_route_setting(db).await {
                         tracing::error!(error = %e, "Could not reload app workspaced route setting");
+                    }
+                }
+                HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING => {
+                    if let Err(e) = reload_http_route_default_allowed_origins_setting(db).await {
+                        tracing::error!(error = %e, "Could not reload http route default allowed origins setting");
                     }
                 }
                 HTTP_ROUTE_WORKSPACED_ROUTE_SETTING => {

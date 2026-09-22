@@ -15,37 +15,62 @@
 			openFieldsByStep.delete(oldest)
 		}
 	}
+
+	/**
+	 * The rows this step's form has open, for the run form, which has no add-field control of its
+	 * own and would otherwise not offer a field that was added here and left at its default: to a
+	 * reader of the stored transforms alone, that is indistinguishable from a field nobody touched.
+	 */
+	export function openAgentFields(key: string | undefined): string[] {
+		return (key ? openFieldsByStep.get(key) : undefined) ?? []
+	}
 </script>
 
 <script lang="ts">
 	import type { Schema } from '$lib/common'
+	import { deepEqual } from 'fast-equals'
 	import { type InputTransform } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { allTrue, type DynamicInput as DynamicInputTypes } from '$lib/utils'
-	import { getContext, untrack } from 'svelte'
+	import { getContext, untrack, type Snippet } from 'svelte'
 	import { SvelteSet } from 'svelte/reactivity'
 	import { Button } from '$lib/components/common'
 	import StepInputsGen from '$lib/components/copilot/StepInputsGen.svelte'
 	import InputTransformForm from '$lib/components/InputTransformForm.svelte'
 	import InputTransformPickers from '$lib/components/InputTransformPickers.svelte'
-	import { useS3StorageConfigured } from '$lib/components/inputTransformEnv.svelte'
+	import { useWorkspaceStorageConfigured } from '$lib/components/inputTransformEnv.svelte'
 	import type ItemPicker from '$lib/components/ItemPicker.svelte'
 	import type VariableEditor from '$lib/components/VariableEditor.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import ResizeTransitionWrapper from '$lib/components/common/ResizeTransitionWrapper.svelte'
-	import { Plus, X } from 'lucide-svelte'
+	import FieldHeader from '$lib/components/FieldHeader.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import { AlertTriangle, Plus, X } from 'lucide-svelte'
 	import type { PickableProperties } from '../previousResults'
 	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
-	import type { AgentTool } from '../agentToolUtils'
+	import { toolEnabledName, type AgentTool } from '../agentToolUtils'
 	import {
 		AGENT_FIELDS,
+		AGENT_FIELD_BY_KEY,
+		AGENT_HISTORY_KEYS,
+		AGENT_MEMORY_DOCS_URL,
+		AGENT_TOOLS_ROW,
 		AGENT_FIELD_GROUPS,
 		agentFieldAppliesTo,
+		agentMemoryMode,
+		historyInputApplies,
+		type AgentMemoryMode,
 		initialVisibleAgentFields,
 		type AgentFieldGroup,
-		type AgentFieldSpec
+		type AgentFieldSpec,
+		type AgentHistoryKey
 	} from '../agentFormFields'
 	import AgentToolRoster from './AgentToolRoster.svelte'
+	import AgentMemoryNotes from './AgentMemoryNotes.svelte'
+	import { memoryOptionLabel, memoryPropertyFor } from '../flowInfers'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		schema: Schema | { properties?: Record<string, any> }
@@ -89,6 +114,9 @@
 		onDeleteTool?: (toolId: string) => void
 		/** Where the tool picker's popover belongs, for a surface that is not the flow editor. */
 		toolPickerPortal?: string
+		/** A linked agent's memory, once its config has loaded: whether it keeps managed memory decides
+		 *  which history inputs the step offers. */
+		linkedMemory?: { memory: unknown } | undefined
 	}
 
 	let {
@@ -118,10 +146,11 @@
 		onSelectTool = undefined,
 		onAddTool = undefined,
 		onDeleteTool = undefined,
-		toolPickerPortal = undefined
+		toolPickerPortal = undefined,
+		linkedMemory = undefined
 	}: Props = $props()
 
-	let ws = $derived(workspace ?? $workspaceStore)
+	let ws = $derived(workspace ?? $operatingWorkspace)
 
 	let inputCheck: { [id: string]: boolean } = $state({})
 
@@ -143,7 +172,7 @@
 	let itemPicker: ItemPicker | undefined = $state(undefined)
 	let variableEditor: VariableEditor | undefined = $state(undefined)
 
-	const s3Storage = useS3StorageConfigured(() => ws)
+	const s3Storage = useWorkspaceStorageConfigured(() => ws)
 
 	// The per-field copilot only ever writes a JavaScript transform, so it belongs only where one can
 	// be stored. On a static-only field the write lands in a key the config drops on deploy, which
@@ -153,12 +182,106 @@
 
 	let schemaProperties = $derived((schema?.properties ?? {}) as Record<string, any>)
 
+	// Which memory shape the brain edited here, or the linked agent's, holds. Unknown for an
+	// expression or a linked agent that has not loaded, which keeps previous messages addable.
+	let memoryMode = $derived.by((): AgentMemoryMode | undefined => {
+		if ('memory' in schemaProperties) {
+			const transform = args?.memory
+			return transform == undefined || transform.type === 'static'
+				? agentMemoryMode(transform?.value)
+				: undefined
+		}
+		return linkedMemory ? agentMemoryMode(linkedMemory.memory) : undefined
+	})
+
+	// The one-of field rewrites a value that matches none of its options, so a legacy kind the step
+	// still holds is offered alongside the current ones.
+	let memoryFieldSchema = $derived.by(() => {
+		const property = schemaProperties.memory
+		const value = args?.memory?.type === 'static' ? args.memory.value : undefined
+		const withLegacy = memoryPropertyFor(property, value, chatInputEnabled)
+		if (withLegacy === property) return schema
+		return { ...schema, properties: { ...schemaProperties, memory: withLegacy } }
+	})
+
+	function isHistoryKey(key: string): key is AgentHistoryKey {
+		return (AGENT_HISTORY_KEYS as readonly string[]).includes(key)
+	}
+
+	// Offer the agent's own tools as the choices for `enabled_tools`, rather than asking for names
+	// to be typed. Written into the schema because that is where `InputTransformForm` reads a
+	// field's shape from; `flowInfers` hands every step its own copy, so this stays this step's.
+	// A linked step gets the resource's roster here, which is the one it narrows.
+	$effect(() => {
+		// By what each tool is named, not the summary alone: an MCP entry is added without one and is
+		// named by its resource path, so keying on `summary` would leave a whole server with no name
+		// to pick. `narrow_roster` matches that path for the same reason.
+		const names = tools
+			.map((tool) => toolEnabledName(tool))
+			.filter((name): name is string => !!name)
+		const properties = schemaProperties
+		untrack(() => {
+			const list = properties['enabled_tools']
+			if (list && !deepEqual(list.items?.enum, names)) {
+				list.items = { ...(list.items ?? { type: 'string' }), enum: names }
+			}
+		})
+	})
+
 	let scopedFields = $derived(
 		AGENT_FIELDS.filter(
 			(spec) =>
 				agentFieldAppliesTo(spec, schemaProperties) && (!filter || filter.includes(spec.key))
 		)
 	)
+
+	// Offered when managed memory is on or an expression the form cannot read, not while a linked
+	// agent's setting is unknown.
+	// Unset, the memory id the run was started with applies, so the step's own id sits behind a
+	// choice and the key exists only once Custom is picked.
+	let memoryIsExpression = $derived(
+		'memory' in schemaProperties &&
+			(args?.memory?.type === 'javascript' || args?.memory?.type === 'ai')
+	)
+	// Names the legacy value the way the memory field's own button does, reading it wherever the mode
+	// came from, so the row and the setting it points at cannot name it differently.
+	let legacyMemoryNote = $derived.by(() => {
+		const onThisForm = 'memory' in schemaProperties
+		const label = memoryOptionLabel(
+			onThisForm
+				? args?.memory?.type === 'static'
+					? args.memory.value
+					: undefined
+				: linkedMemory?.memory
+		)
+		return onThisForm
+			? `Ignored while memory is set to ${label}.`
+			: `Ignored while the agent's memory is set to ${label}.`
+	})
+
+	let memoryIdOffered = $derived(
+		(memoryMode === 'managed' || memoryIsExpression) &&
+			scopedFields.some((spec) => spec.key === 'memory_id')
+	)
+
+	// A history input's row follows its key: the remembered `visible` set can outlive a key that a
+	// save, an undo or the AI chat removed, and a row with no value renders no field.
+	function isShown(key: string): boolean {
+		if (isHistoryKey(key)) {
+			return args?.[key] != undefined || (key === 'memory_id' && memoryIdOffered)
+		}
+		return visible.has(key)
+	}
+
+	function setCustomMemoryId(on: boolean) {
+		if (!args || on === (args.memory_id != undefined)) return
+		if (on) {
+			args.memory_id = { type: 'static', value: '' }
+		} else {
+			delete args.memory_id
+			delete inputCheck.memory_id
+		}
+	}
 
 	let outputType = $derived.by(() => {
 		const transform = args?.['output_type']
@@ -199,29 +322,41 @@
 		})
 	})
 
+	// A history input's row follows its key rather than `visible`, so the run form is told about one
+	// only while the step holds the key: an inherited memory id has nothing a test run could inherit.
 	$effect(() => {
-		const keys = [...visible]
+		const keys = [
+			...[...visible].filter((key) => !isHistoryKey(key)),
+			...AGENT_HISTORY_KEYS.filter((key) => args?.[key] != undefined)
+		]
 		untrack(() => rememberOpenFields(visibilityKey, keys))
 	})
 
 	function rowsIn(group: AgentFieldGroup): AgentFieldSpec[] {
 		return scopedFields.filter(
-			(spec) => spec.group === group && visible.has(spec.key) && !(imageOutput && spec.textOnly)
+			(spec) => spec.group === group && isShown(spec.key) && !(imageOutput && spec.textOnly)
 		)
 	}
 
 	function addableIn(): AgentFieldSpec[] {
 		return scopedFields.filter(
 			(spec) =>
-				!spec.core && !spec.virtual && !visible.has(spec.key) && !(imageOutput && spec.textOnly)
+				!spec.core &&
+				!spec.virtual &&
+				!isShown(spec.key) &&
+				!(imageOutput && spec.textOnly) &&
+				// Memory id's row appears on its own when it is offered, so the menu never adds it.
+				spec.key !== 'memory_id' &&
+				!(isHistoryKey(spec.key) && !historyInputApplies(spec.key, memoryMode))
 		)
 	}
 
 	function addField(spec: AgentFieldSpec) {
 		// `flowInfers` re-seeds every key on load, so adding cannot mean creating the key: it means
-		// showing the row, seeded at what a run does today so the field opens on what it overrides.
+		// showing the row. Seeded at what a run does today, so the field opens on what it overrides,
+		// except where an empty value is a choice of its own rather than the absent one (`seed`).
 		if (args) {
-			args[spec.key] = { type: 'static', value: structuredClone(spec.implicit) }
+			args[spec.key] = { type: 'static', value: structuredClone(spec.seed ?? spec.implicit) }
 		}
 		visible.add(spec.key)
 	}
@@ -229,15 +364,30 @@
 	function removeField(spec: AgentFieldSpec) {
 		visible.delete(spec.key)
 		if (args) {
-			// Back to exactly what `flowInfers` seeds, so removing a field leaves no diff behind.
-			// Never `delete args[key]`: the key returns on the next load, and the CLI linter requires
-			// `user_message` to be present.
-			args[spec.key] = { type: 'static', value: undefined }
+			if (isHistoryKey(spec.key)) {
+				delete args[spec.key]
+			} else {
+				// Back to exactly what `flowInfers` seeds, so removing a field leaves no diff behind.
+				// Never `delete args[key]`: the key returns on the next load, and the CLI linter requires
+				// `user_message` to be present.
+				args[spec.key] = { type: 'static', value: undefined }
+			}
 		}
 		// InputTransformSchemaForm leaks these on unmount, which would pin `isValid` false forever
 		// once hiding a row is routine.
 		delete inputCheck[spec.key]
 	}
+
+	// Holding `enabled_tools` and naming nothing advertises no tools at all. That is a choice the
+	// field has to allow, and the one the row opens on, so it says so where it is made rather than
+	// leaving it to be discovered in a run. Only a static list can be read here: an expression's
+	// value exists only once the run it decides is under way.
+	let noToolsEnabled = $derived.by(() => {
+		const transform = args?.['enabled_tools']
+		return (
+			transform?.type === 'static' && Array.isArray(transform.value) && transform.value.length === 0
+		)
+	})
 
 	let emptyArgNames = $derived(
 		[...visible].filter((key) => {
@@ -251,6 +401,92 @@
 		})
 	)
 </script>
+
+{#snippet unsetButton(spec: AgentFieldSpec)}
+	{#if !spec.core && !readOnly}
+		<Button
+			variant="subtle"
+			unifiedSize="2xs"
+			iconOnly
+			startIcon={{ icon: X }}
+			wrapperClasses="ml-1"
+			title="Unset {spec.label}"
+			on:click={() => removeField(spec)}
+		/>
+	{/if}
+{/snippet}
+
+{#snippet memoryIdHeader()}
+	<div class="flex flex-col gap-1">
+		<FieldHeader
+			label={AGENT_FIELD_BY_KEY.memory_id.label}
+			simpleTooltip={AGENT_FIELD_BY_KEY.memory_id.tooltip}
+			displayType={false}
+		/>
+		<ToggleButtonGroup
+			selected={args?.memory_id == undefined ? 'inherited' : 'custom'}
+			onSelected={(next) => setCustomMemoryId(next === 'custom')}
+		>
+			{#snippet children({ item })}
+				<ToggleButton value="inherited" label="Inherited" {item} />
+				<ToggleButton value="custom" label="Custom" {item} />
+			{/snippet}
+		</ToggleButtonGroup>
+	</div>
+{/snippet}
+
+{#snippet transformField(
+	key: string,
+	label: string,
+	tooltip: string | undefined,
+	removable: AgentFieldSpec | undefined,
+	header: Snippet | undefined = undefined,
+	collapsed: boolean = false
+)}
+	<InputTransformForm
+		{previousModuleId}
+		bind:arg={args[key]}
+		bind:schema={
+			() => (key === 'memory' ? memoryFieldSchema : schema),
+			(value) => {
+				if (key !== 'memory') schema = value
+			}
+		}
+		argName={key}
+		{label}
+		headerTooltip={tooltip}
+		hideDescription
+		subtleControls
+		{header}
+		indentUnderHeader={false}
+		{collapsed}
+		animateAppear={header != undefined}
+		argExtra={schemaProperties[key] ?? {}}
+		bind:inputCheck={() => inputCheck[key] ?? false, (value) => (inputCheck[key] = value)}
+		bind:extraLib={() => extraLib ?? 'missing extraLib', (v) => (extraLib = v)}
+		{variableEditor}
+		{itemPicker}
+		bind:pickForField
+		{pickableProperties}
+		enableAi={fieldAiEnabled}
+		{helperScript}
+		{isAgentTool}
+		{allowedAiTransforms}
+		noDynamicToggle={staticOnly}
+		noConnect={staticOnly || noConnect}
+		noJavascript={staticOnly || noJavascript}
+		s3StorageConfigured={s3Storage.current}
+		{chatInputEnabled}
+		{workspace}
+		otherArgs={Object.fromEntries(Object.entries(args ?? {}).filter(([other]) => other !== key))}
+	>
+		{#snippet labelExtra()}
+			{#if removable}
+				{@render unsetButton(removable)}
+			{/if}
+		{/snippet}
+	</InputTransformForm>
+{/snippet}
 
 {#snippet addFieldMenu()}
 	{@const candidates = addableIn()}
@@ -317,7 +553,7 @@
 					<div class="flex flex-col gap-6">
 						{#each rows as spec (spec.key)}
 							<ResizeTransitionWrapper innerClass="w-full" vertical>
-								{#if spec.virtual}
+								{#if spec.key === AGENT_TOOLS_ROW}
 									<AgentToolRoster
 										{tools}
 										{onSelectTool}
@@ -330,53 +566,53 @@
 									     `args`, and a read-only viewer's edit is rejected by the server. Dimmed
 									     with it, so a field that ignores a click looks like it meant to. -->
 									<div class="w-full {readOnly ? 'opacity-60' : ''}" inert={readOnly}>
-										<InputTransformForm
-											{previousModuleId}
-											bind:arg={args[spec.key]}
-											bind:schema
-											argName={spec.key}
-											label={spec.label}
-											headerTooltip={spec.tooltip}
-											hideDescription
-											subtleControls
-											argExtra={schemaProperties[spec.key] ?? {}}
-											bind:inputCheck={
-												() => inputCheck[spec.key] ?? false,
-												(value) => (inputCheck[spec.key] = value)
-											}
-											bind:extraLib={() => extraLib ?? 'missing extraLib', (v) => (extraLib = v)}
-											{variableEditor}
-											{itemPicker}
-											bind:pickForField
-											{pickableProperties}
-											enableAi={fieldAiEnabled}
-											{helperScript}
-											{isAgentTool}
-											{allowedAiTransforms}
-											noDynamicToggle={staticOnly}
-											noConnect={staticOnly || noConnect}
-											noJavascript={staticOnly || noJavascript}
-											s3StorageConfigured={s3Storage.current}
-											{chatInputEnabled}
-											{workspace}
-											otherArgs={Object.fromEntries(
-												Object.entries(args ?? {}).filter(([key]) => key !== spec.key)
+										{#if spec.key === 'memory'}
+											{@render transformField(spec.key, spec.label, spec.tooltip, spec)}
+											<AgentMemoryNotes
+												bind:args
+												{chatInputEnabled}
+												historyOnStep={scopedFields.some((f) => f.key === 'previous_messages')}
+												s3StorageConfigured={s3Storage.current}
+											/>
+										{:else if spec.key === 'memory_id' && memoryIdOffered}
+											{@render transformField(
+												spec.key,
+												spec.label,
+												spec.tooltip,
+												undefined,
+												memoryIdHeader,
+												args?.memory_id == undefined
 											)}
-										>
-											{#snippet labelExtra()}
-												{#if !spec.core && !readOnly}
-													<Button
-														variant="subtle"
-														unifiedSize="2xs"
-														iconOnly
-														startIcon={{ icon: X }}
-														wrapperClasses="ml-1"
-														title="Unset {spec.label}"
-														on:click={() => removeField(spec)}
-													/>
-												{/if}
-											{/snippet}
-										</InputTransformForm>
+											{#if args?.memory_id == undefined}
+												<p class="mt-1 text-xs text-secondary">
+													Uses the <code>memory_id</code> the run was started with: the conversation
+													id in chat mode, or the <code>memory_id</code> query parameter otherwise.
+													<a
+														href={AGENT_MEMORY_DOCS_URL}
+														target="_blank"
+														rel="noopener noreferrer"
+														class="underline">Learn more</a
+													>
+												</p>
+											{/if}
+										{:else}
+											{@render transformField(spec.key, spec.label, spec.tooltip, spec)}
+											{#if isHistoryKey(spec.key) && !historyInputApplies(spec.key, memoryMode)}
+												<p class="mt-1 text-2xs text-hint">
+													{memoryMode === 'legacy'
+														? legacyMemoryNote
+														: `Ignored while managed memory is ${memoryMode === 'managed' ? 'on' : 'off'}.`}
+												</p>
+											{/if}
+											{#if spec.key === 'enabled_tools' && noToolsEnabled}
+												<div
+													class="mt-1 flex items-center gap-1 text-2xs text-yellow-600 dark:text-yellow-400"
+												>
+													<AlertTriangle size={12} />
+													Nothing selected: the agent runs with no tools.
+												</div>
+											{/if}
+										{/if}
 									</div>
 								{/if}
 							</ResizeTransitionWrapper>

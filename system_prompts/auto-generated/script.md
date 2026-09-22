@@ -1927,12 +1927,16 @@ workflow<T>(fn: (...args: any[]) => Promise<T>): void
  * resume exactly this approval — route them through your own channel. Without a
  * key the steps are named `approval`, `approval_2`, ...
  * 
+ * `skin: "minimal"` shows approvers only the request (form and approve/reject)
+ * instead of the detailed page with the workflow's details. `description` is
+ * shown above the form: a string, or a rich value such as `{ markdown: "..." }`.
+ * 
  * @example
  * const urls = await step("urls", () => getApprovalUrls("manager"));
  * await step("notify", () => sendEmail(urls.resume, urls.cancel));
  * const { value, approver } = await waitForApproval({ key: "manager", timeout: 3600 });
  */
-waitForApproval(options?: { timeout?: number; form?: object; selfApproval?: boolean; key?: string; }): PromiseLike<{ value: any; approver: string; approved: boolean }>
+waitForApproval(options?: { timeout?: number; form?: object; selfApproval?: boolean; key?: string; skin?: "detailed" | "minimal"; description?: string | object; }): PromiseLike<{ value: any; approver: string; approved: boolean }>
 
 /**
  * Resume/cancel/approval-page URLs bound to one `waitForApproval` step.
@@ -1996,6 +2000,8 @@ parseS3Object(s3Object: S3Object): S3ObjectRecord
 /**
  * Create a SQL template function for PostgreSQL/datatable queries
  * @param name - Database/datatable name (default: "main")
+ * @param opts.role - Connect as this data table role instead of the data table's default one.
+ *   Only meaningful on a data table under roles, and only for a role you are a tenant of.
  * @returns SQL template function for building parameterized queries
  * @example
  * let sql = wmill.datatable()
@@ -2005,8 +2011,11 @@ parseS3Object(s3Object: S3Object): S3ObjectRecord
  *   SELECT * FROM friends
  *     WHERE name = ${name} AND age = ${age}::int
  * `.fetch()
+ * @example
+ * // Read through a restricted role
+ * let sql = wmill.datatable("main", { role: "analytics" })
  */
-datatable(name: string = "main"): DatatableSqlTemplateFunction
+datatable(name: string = "main", opts?: DatatableOptions): DatatableSqlTemplateFunction
 
 /**
  * Create a SQL template function for DuckDB/ducklake queries
@@ -2521,10 +2530,13 @@ def send_teams_message(conversation_id: str, text: str, success: bool = True, ca
 # 
 # Args:
 #     name: Database name (default: "main")
+#     role: Connect as this data table role instead of the data table's default one.
+#         Only meaningful on a data table under roles, and only for a role you are a
+#         tenant of.
 # 
 # Returns:
 #     DataTableClient instance
-def datatable(name: str = 'main')
+def datatable(name: str = 'main', *, role: Optional[str] = None)
 
 # Get a DuckLake client for DuckDB queries.
 # 
@@ -2724,6 +2736,14 @@ def parse_sql_client_name(name: str) -> tuple[str, Optional[str]]
 # it grows with both the width of the fan-out and ``attempts``. Retries with
 # no ``delay`` all go out in a single round.
 # 
+# ``cache_ttl`` serves a previous result of the task for that many seconds
+# instead of running it again. A task is keyed on its step key (its name and
+# call order) and the workflow's input, not on the arguments it is called
+# with, so cache one only when whether it runs, and what it receives, follow
+# from the workflow's input alone. A ``task_script`` target is keyed on the
+# arguments it is called with. It has no effect on a ``task_flow`` target,
+# which keeps its flow's own cache policy.
+# 
 # Usage::
 # 
 #     @task
@@ -2734,7 +2754,7 @@ def parse_sql_client_name(name: str) -> tuple[str, Optional[str]]
 # 
 #     @task(retry={"attempts": 3, "delay": 30, "multiplier": 2})
 #     async def call_api(payload: dict): ...
-def task(_func = None, path: Optional[str] = None, tag: Optional[str] = None, timeout: Optional[int] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None, retry: Optional[dict] = None)
+def task(_func = None, *, path: Optional[str] = None, tag: Optional[str] = None, timeout: Optional[int] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None, retry: Optional[dict] = None)
 
 # Create a task that dispatches to a separate Windmill script.
 # 
@@ -2747,7 +2767,7 @@ def task(_func = None, path: Optional[str] = None, tag: Optional[str] = None, ti
 #     @workflow
 #     async def main():
 #         data = await extract(url="https://...")
-def task_script(path: str, timeout: Optional[int] = None, tag: Optional[str] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None, retry: Optional[dict] = None)
+def task_script(path: str, *, timeout: Optional[int] = None, tag: Optional[str] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None, retry: Optional[dict] = None)
 
 # Create a task that dispatches to a separate Windmill flow.
 # 
@@ -2760,7 +2780,7 @@ def task_script(path: str, timeout: Optional[int] = None, tag: Optional[str] = N
 #     @workflow
 #     async def main():
 #         result = await pipeline(input=data)
-def task_flow(path: str, timeout: Optional[int] = None, tag: Optional[str] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None, retry: Optional[dict] = None)
+def task_flow(path: str, *, timeout: Optional[int] = None, tag: Optional[str] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None, retry: Optional[dict] = None)
 
 # Decorator marking an async function as a workflow-as-code entry point.
 # 
@@ -2801,13 +2821,17 @@ async def sleep(seconds: int)
 #     form: Optional form schema for the approval page.
 #     self_approval: Whether the user who triggered the flow can approve it (default True).
 #     key: Optional checkpoint key naming this approval step.
+#     skin: ``"minimal"`` shows approvers only the request (form and approve/reject)
+#         instead of the detailed page with the workflow's details.
+#     description: Shown to approvers above the form: a string, or a rich value such as
+#         ``{"markdown": "..."}``.
 # 
 # Example::
 # 
 #     urls = await step("urls", lambda: get_approval_urls("manager"))
 #     await step("notify", lambda: send_email(urls["resume"], urls["cancel"]))
 #     result = await wait_for_approval(key="manager", timeout=3600)
-async def wait_for_approval(timeout: int = 1800, form: dict | None = None, self_approval: bool = True, key: str | None = None) -> dict
+async def wait_for_approval(timeout: int = 1800, form: dict | None = None, self_approval: bool = True, key: str | None = None, skin: Literal['detailed', 'minimal'] | None = None, description: str | dict | None = None) -> dict
 
 # Process items in parallel with optional concurrency control.
 # 
@@ -2821,7 +2845,7 @@ async def wait_for_approval(timeout: int = 1800, form: dict | None = None, self_
 #         ...
 # 
 #     results = await parallel(items, process, concurrency=5)
-async def parallel(items, fn, concurrency: Optional[int] = None)
+async def parallel(items, fn, *, concurrency: Optional[int] = None)
 
 # Commit Kafka offsets for a trigger with auto_commit disabled.
 # 

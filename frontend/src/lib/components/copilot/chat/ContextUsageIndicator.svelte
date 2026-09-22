@@ -1,36 +1,48 @@
 <script lang="ts">
 	import { copilotInfo, copilotSessionModel } from '$lib/aiStore'
-	import { getKnownModelContextWindow, getModelContextWindow } from '../modelConfig'
-	import { getAiChatManager } from './aiChatManagerContext'
+	import { getConfiguredModelContextWindow, getEffectiveModelContextWindow } from '../modelConfig'
+	import { getChatViewHost } from './chatViewHost'
 	import { AIMode } from './AIChatManager.svelte'
 	import UsageMeter from './UsageMeter.svelte'
 	import { formatTokenCount } from './tokenUsage'
 
-	const aiChatManager = getAiChatManager()
+	const chatHost = getChatViewHost()
 
 	// The `/compact` slash command is only wired up in session-chat GLOBAL mode,
 	// so only advertise it where it actually works.
-	let canCompact = $derived(aiChatManager.isSessionChat && aiChatManager.mode === AIMode.GLOBAL)
+	let canCompact = $derived(chatHost.isSessionChat && chatHost.mode === AIMode.GLOBAL)
 
 	let providerModel = $derived(
 		$copilotSessionModel ?? $copilotInfo.defaultModel ?? $copilotInfo.aiModels[0]
 	)
-	// The same number the compaction trigger uses: the known window when the
-	// model is listed, otherwise the conservative window the trigger assumes.
-	// The tooltip marks the assumed case so the guess never reads as a spec.
+	// The same number the compaction trigger uses: the workspace's override or
+	// the known window when there is one, otherwise the conservative window the
+	// trigger assumes. The tooltip marks the assumed case so the guess never
+	// reads as a spec.
 	let contextWindow = $derived(
-		providerModel ? getModelContextWindow(providerModel.model) : undefined
+		providerModel
+			? getEffectiveModelContextWindow(
+					providerModel.provider,
+					providerModel.model,
+					$copilotInfo.contextWindowPerModel
+				)
+			: undefined
 	)
 	let windowIsAssumed = $derived(
-		providerModel !== undefined && getKnownModelContextWindow(providerModel.model) === undefined
+		providerModel !== undefined &&
+			getConfiguredModelContextWindow(
+				providerModel.provider,
+				providerModel.model,
+				$copilotInfo.contextWindowPerModel
+			) === undefined
 	)
 	// The same number the compaction trigger uses: the provider's report when
 	// one describes the current history (one turn stale by nature), otherwise
 	// a live chars/4 estimate of the stored context.
-	let usedTokens = $derived(Math.round(aiChatManager.contextTokens))
+	let usedTokens = $derived(Math.round(chatHost.contextTokens))
 	// Always surface usage once a conversation has started, at any fill level, so
 	// the user can watch context grow toward the compaction threshold.
-	let visible = $derived(usedTokens > 0 && aiChatManager.messages.length > 0)
+	let visible = $derived(usedTokens > 0 && chatHost.messages.length > 0)
 
 	// Compaction triggers at 80% of the window (COMPACTION_TRIGGER_RATIO); the
 	// gauge fills toward that point and turns red once it is reached.

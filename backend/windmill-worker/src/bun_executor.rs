@@ -13,7 +13,7 @@ use itertools::Itertools;
 use serde_json::value::RawValue;
 
 use uuid::Uuid;
-use windmill_parser_ts::remove_pinned_imports;
+use windmill_parser_ts::{remove_pinned_import_specifiers, remove_pinned_imports};
 
 use windmill_queue::{append_logs, CanceledBy, MiniPulledJob, PrecomputedAgentInfo};
 
@@ -868,7 +868,7 @@ pub async fn install_bun_lockfile(
             if quiet { Some(&mut quiet_buf) } else { None },
             None,
         )
-        .warn_after_seconds(10)
+        .warn_after_seconds_for(10, "bun install")
         .await;
         if quiet && result.is_err() {
             // On failure, flush suppressed install output so the user can diagnose
@@ -1131,9 +1131,12 @@ pub async fn generate_bun_bundle(
             None,
             None,
         )
+        .warn_after_seconds_for(60, "bun build")
         .await?;
     } else {
-        let output = Box::into_pin(child_process.wait_with_output()).await?;
+        let output = Box::into_pin(child_process.wait_with_output())
+            .warn_after_seconds_for(60, "bun build")
+            .await?;
         if !output.status.success() {
             let stdout = String::from_utf8_lossy(&output.stdout);
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -1144,6 +1147,81 @@ pub async fn generate_bun_bundle(
         }
     }
     Ok(())
+}
+
+/// [`generate_bun_bundle`], built once more with the version pins dropped from the import
+/// specifiers of `main.ts` if it fails. The lockfile pins those versions, but bun fails on a
+/// pinned specifier except where it tolerates a failed import (in a `try`, under a `.catch`, in
+/// dead code). Such a script builds as written and must keep that bundle, so only failures retry.
+async fn generate_bun_bundle_unpinning_imports(
+    job_dir: &str,
+    w_id: &str,
+    job_id: &Uuid,
+    worker_name: &str,
+    db: Option<&Connection>,
+    timeout: Option<i32>,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    common_bun_proc_envs: &HashMap<String, String>,
+    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+) -> Result<()> {
+    let built = generate_bun_bundle(
+        job_dir,
+        w_id,
+        job_id,
+        worker_name,
+        db,
+        timeout,
+        mem_peak,
+        canceled_by,
+        common_bun_proc_envs,
+        occupancy_metrics,
+    )
+    .await;
+    // Without a job, a failed build comes back as an `ExecutionErr`; with one, that variant is a
+    // cancellation or timeout, which must not be retried.
+    let build_failed = match &built {
+        Err(error::Error::ExitStatus(..)) => true,
+        Err(_) => db.is_none(),
+        Ok(()) => false,
+    };
+    if !build_failed {
+        return built;
+    }
+    let Some(unpinned) = read_file_content(&format!("{job_dir}/main.ts"))
+        .await
+        .ok()
+        .and_then(|main| {
+            remove_pinned_import_specifiers(&main)
+                .ok()
+                .filter(|u| *u != main)
+        })
+    else {
+        return built;
+    };
+    write_file(job_dir, "main.ts", &unpinned)?;
+    if let Some(db) = db {
+        append_logs(
+            job_id,
+            w_id,
+            "\nbundling again with the imports' versions taken from the lockfile\n",
+            db,
+        )
+        .await;
+    }
+    generate_bun_bundle(
+        job_dir,
+        w_id,
+        job_id,
+        worker_name,
+        db,
+        timeout,
+        mem_peak,
+        canceled_by,
+        common_bun_proc_envs,
+        occupancy_metrics,
+    )
+    .await
 }
 
 struct PulledCodebase {
@@ -1203,7 +1281,12 @@ async fn pull_codebase(w_id: &str, id: &str, job_dir: &str) -> Result<PulledCode
                 let dirs_splitted = bun_cache_path.split("/").collect_vec();
                 std::fs::create_dir_all(dirs_splitted[..dirs_splitted.len() - 1].join("/"))?;
 
-                let bytes = attempt_fetch_bytes(os, &path).await?;
+                let bytes = crate::global_cache::bounded_cache_io(
+                    "downloading",
+                    &path,
+                    attempt_fetch_bytes(os, &path),
+                )
+                .await?;
                 tracing::info!("loading {bun_cache_path} from object store");
 
                 windmill_common::worker::atomic_write_file_bytes(
@@ -1305,7 +1388,7 @@ pub async fn prebundle_bun_script(
 
     let common_bun_proc_envs: HashMap<String, String> = get_common_bun_proc_envs(None).await;
 
-    generate_bun_bundle(
+    generate_bun_bundle_unpinning_imports(
         job_dir,
         w_id,
         job_id,
@@ -1321,7 +1404,9 @@ pub async fn prebundle_bun_script(
 
     ensure_bundle_output_exists(&origin)?;
 
-    save_cache(&local_path, &remote_path, &origin, false).await?;
+    save_cache(&local_path, &remote_path, &origin, false)
+        .warn_after_seconds_for(60, "bundle cache save")
+        .await?;
 
     Ok(())
 }
@@ -1592,7 +1677,9 @@ pub async fn handle_bun_job(
             }
         };
 
-        let (cache, logs) = crate::global_cache::load_cache(&local_path, &remote_path, false).await;
+        let (cache, logs) = crate::global_cache::load_cache(&local_path, &remote_path, false)
+            .warn_after_seconds_for(60, "bundle cache load")
+            .await;
         (cache, logs, local_path, remote_path)
     } else {
         (false, "".to_string(), "".to_string(), "".to_string())
@@ -1784,8 +1871,19 @@ pub async fn handle_bun_job(
         if modules.as_ref().is_some_and(|m| !m.is_empty()) {
             let bundle_path = std::path::Path::new(job_dir).join("out").join("main.js");
             if bundle_path.exists() {
+                // The lock-generation build kept every `pkg@version` specifier, and bun resolves
+                // a pinned specifier outside node_modules, loading a second copy of the package.
+                // The bundle holds the user's code too, so only the specifiers are rewritten, and
+                // a bundle the parser rejects still runs as built, pins and all.
                 let bundled = std::fs::read_to_string(&bundle_path)?;
-                write_file(job_dir, "main.ts", &bundled)?;
+                let unpinned = remove_pinned_import_specifiers(&bundled).unwrap_or_else(|e| {
+                    tracing::warn!(
+                        job_id = %job.id,
+                        "could not unpin the modules bundle, running it as built: {e:#}"
+                    );
+                    bundled
+                });
+                write_file(job_dir, "main.ts", &unpinned)?;
             }
         }
         "\n\n--- BUN CODE EXECUTION ---\n".to_string()
@@ -1975,7 +2073,7 @@ async function run() {{
                 return {{ type: "inline_checkpoint", key: dispatch.key, result: dispatch.result ?? null, started_at: dispatch.started_at, duration_ms: dispatch.duration_ms }};
             }}
             if (dispatch.mode === "approval") {{
-                return {{ type: "approval", key: dispatch.key, timeout: dispatch.timeout, form: dispatch.form, self_approval_disabled: dispatch.self_approval_disabled }};
+                return {{ type: "approval", key: dispatch.key, timeout: dispatch.timeout, form: dispatch.form, self_approval_disabled: dispatch.self_approval_disabled, skin: dispatch.skin, description: dispatch.description }};
             }}
             if (dispatch.mode === "sleep") {{
                 return {{ type: "sleep", key: dispatch.key, seconds: dispatch.seconds }};
@@ -2191,7 +2289,7 @@ try {{
 
     if !codebase.is_some() && !has_bundle_cache {
         if build_cache {
-            generate_bun_bundle(
+            generate_bun_bundle_unpinning_imports(
                 job_dir,
                 &job.workspace_id,
                 &job.id,
@@ -2207,7 +2305,10 @@ try {{
             let bundle_path = format!("{job_dir}/main.js");
             ensure_bundle_output_exists(&bundle_path)?;
             if !local_path.is_empty() {
-                match save_cache(&local_path, &remote_path, &bundle_path, false).await {
+                match save_cache(&local_path, &remote_path, &bundle_path, false)
+                    .warn_after_seconds_for(60, "bundle cache save")
+                    .await
+                {
                     Err(e) => {
                         let em = format!("could not save {local_path} to bundle cache: {e:?}");
                         tracing::error!(em)
@@ -2588,13 +2689,13 @@ try {{
 /// Resolve a module file from the parent script's modules map.
 /// For Script jobs, fetches from the `script` table by hash.
 /// For Preview jobs, fetches from `v2_job.raw_code` (modules stored inline).
-fn resolve_parent_module(
-    modules: &Option<std::collections::HashMap<String, windmill_common::scripts::ScriptModule>>,
+fn resolve_parent_module<'a>(
+    modules: &'a Option<std::collections::HashMap<String, windmill_common::scripts::ScriptModule>>,
     module_key: &str,
-) -> error::Result<windmill_common::scripts::ScriptModule> {
+) -> error::Result<&'a windmill_common::scripts::ScriptModule> {
     if let Some(modules) = modules {
         if let Some(module) = modules.get(module_key) {
-            return Ok(module.clone());
+            return Ok(module);
         }
     }
     Err(error::Error::ExecutionErr(format!(
@@ -2615,7 +2716,7 @@ pub async fn handle_wac_v2_output(
 ) -> error::Result<Box<RawValue>> {
     use crate::wac_executor::{
         load_checkpoint, parse_wac_output, update_checkpoint_for_dispatch,
-        wac_cancelled_mid_segment, WacOutput, WacPark,
+        wac_cancelled_mid_segment, WacOutput, WacPark, WacStepDispatch,
     };
     use serde_json::Value;
     use windmill_common::get_latest_flow_version_info_for_path;
@@ -2623,7 +2724,7 @@ pub async fn handle_wac_v2_output(
     use windmill_common::runnable_settings::{
         ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings,
     };
-    use windmill_queue::{push, PushArgs, PushIsolationLevel};
+    use windmill_queue::{check_tag_available_for_push, push, PushArgs, PushIsolationLevel};
 
     let output = parse_wac_output(&result)?;
 
@@ -2773,15 +2874,17 @@ pub async fn handle_wac_v2_output(
                 .collect();
 
             // Resolve job_payload once (same for all children since they re-run
-            // the parent script)
+            // the parent script). The step's cache setting is for the workflow's
+            // result; a task is cached only through its own `cache_ttl` option,
+            // under a key of its own (see `cached_result_path`).
             let job_payload_template = match job.kind {
                 JobKind::Script => {
                     if let Some(hash) = job.runnable_id {
                         Ok(JobPayload::ScriptHash {
                             hash,
                             path: job.runnable_path.clone().unwrap_or_default(),
-                            cache_ttl: job.cache_ttl,
-                            cache_ignore_s3_path: job.cache_ignore_s3_path,
+                            cache_ttl: None,
+                            cache_ignore_s3_path: None,
                             dedicated_worker: None,
                             language: job.script_lang.unwrap_or(ScriptLang::Bun),
                             priority: job.priority,
@@ -2793,6 +2896,27 @@ pub async fn handle_wac_v2_output(
                     } else {
                         Err(error::Error::internal_err(
                             "WAC v2 Script job missing runnable_id".to_string(),
+                        ))
+                    }
+                }
+                // A deployed flow runs an inline step as the `flow_node` its deploy
+                // rewrote it into; the child re-runs that node the way a `Script`
+                // child re-runs its hash, so `runnable_id` (the checkpoint's source
+                // hash) stays the same across parent and children.
+                JobKind::FlowScript => {
+                    if let Some(id) = job.runnable_id {
+                        Ok(JobPayload::FlowScript {
+                            id: windmill_common::flows::FlowNodeId(id.0),
+                            path: job.runnable_path.clone().unwrap_or_default(),
+                            language: job.script_lang.unwrap_or(ScriptLang::Bun),
+                            cache_ttl: None,
+                            cache_ignore_s3_path: None,
+                            dedicated_worker: None,
+                            concurrency_settings: ConcurrencySettings::default(),
+                        })
+                    } else {
+                        Err(error::Error::internal_err(
+                            "WAC v2 FlowScript job missing runnable_id".to_string(),
                         ))
                     }
                 }
@@ -2811,8 +2935,8 @@ pub async fn handle_wac_v2_output(
                         hash: None,
                         language: job.script_lang.unwrap_or(ScriptLang::Bun),
                         lock: lock,
-                        cache_ttl: job.cache_ttl,
-                        cache_ignore_s3_path: job.cache_ignore_s3_path,
+                        cache_ttl: None,
+                        cache_ignore_s3_path: None,
                         dedicated_worker: None,
                         concurrency_settings: ConcurrencySettingsWithCustom::default(),
                         debouncing_settings: DebouncingSettings::default(),
@@ -2826,11 +2950,154 @@ pub async fn handle_wac_v2_output(
                 ))),
             }?;
 
+            // Resolve what every task runs, and check any tag it picks, before the parent parks:
+            // a task that cannot be pushed then fails the dispatch with no sibling queued. The
+            // parent's code and input are built per child at push time, so a fan-out never holds
+            // a copy of them for each child at once.
+            enum ChildRunnable<'a> {
+                // Re-runs the parent with `_executing_key`.
+                Parent,
+                // A `./` module of the parent script.
+                Module(&'a windmill_common::scripts::ScriptModule),
+                // A deployed script or flow.
+                Deployed(JobPayload),
+            }
+            struct ResolvedChild<'a> {
+                runnable: ChildRunnable<'a>,
+                email: String,
+                permissioned_as: String,
+            }
+            // The input a task with a runnable of its own is pushed with; the parent re-run gets
+            // the parent's. Both the tag check and the push build it here, so the check resolves
+            // `$args[...]` against what the child actually receives.
+            let own_args = |step: &WacStepDispatch| -> HashMap<String, Box<RawValue>> {
+                step.args
+                    .iter()
+                    .map(|(k, v)| {
+                        let raw = serde_json::value::to_raw_value(v).unwrap();
+                        (k.clone(), raw)
+                    })
+                    .collect()
+            };
+            let mut children: Vec<ResolvedChild> = Vec::with_capacity(num_steps);
+            for step in &steps {
+                let (runnable, on_behalf_of) = match step.dispatch_type.as_str() {
+                    "script" if step.script.starts_with("./") => {
+                        // Module-relative path: resolve from parent script's modules
+                        let module_key = step.script.strip_prefix("./").unwrap();
+                        let module = resolve_parent_module(modules, module_key)?;
+                        // Inline module code, not a separate runnable: it has no
+                        // identity of its own and runs as the parent.
+                        (ChildRunnable::Module(module), None)
+                    }
+                    "script" => {
+                        // Resolve script path to job payload (handles hash, lang, etc.)
+                        let (payload, _, _, _, _, on_behalf_of) = script_path_to_payload(
+                            &step.script,
+                            None, // no authed db for background workers
+                            db.clone(),
+                            &job.workspace_id,
+                            Some(true), // skip preprocessor
+                        )
+                        .await?;
+                        (ChildRunnable::Deployed(payload), on_behalf_of)
+                    }
+                    "flow" => {
+                        let flow_info = get_latest_flow_version_info_for_path(
+                            None,
+                            db,
+                            &job.workspace_id,
+                            &step.script,
+                            true,
+                        )
+                        .await?;
+                        let payload = JobPayload::Flow {
+                            path: step.script.clone(),
+                            dedicated_worker: flow_info.dedicated_worker,
+                            apply_preprocessor: false,
+                            version: flow_info.version,
+                            labels: flow_info.labels.clone(),
+                        };
+                        let on_behalf_of = flow_info.on_behalf_of(&job.workspace_id, db).await?;
+                        (ChildRunnable::Deployed(payload), on_behalf_of)
+                    }
+                    // "inline" — re-run parent with _executing_key
+                    _ => (ChildRunnable::Parent, None),
+                };
+
+                // A target runnable that opts into on-behalf-of runs under its own
+                // identity, never the caller's, so a step that reaches it through a
+                // workflow cannot widen or narrow its permissions. `created_by` still
+                // credits the caller, matching how the run API pushes these jobs.
+                let (email, permissioned_as) = match on_behalf_of {
+                    Some(on_behalf_of) => (on_behalf_of.email, on_behalf_of.permissioned_as),
+                    None => (
+                        job.permissioned_as_email.clone(),
+                        job.permissioned_as.clone(),
+                    ),
+                };
+
+                // A task inheriting the parent's tag skips the check: that tag was
+                // checked when the parent was pushed, and a dedicated worker's tag is
+                // never in CUSTOM_TAGS.
+                if let Some(tag) = step
+                    .tag
+                    .as_deref()
+                    .filter(|t| !t.is_empty() && *t != job.tag.as_str())
+                {
+                    let is_super_admin =
+                        windmill_common::auth::is_super_admin_email(db, &email).await?;
+                    let step_args =
+                        (!matches!(runnable, ChildRunnable::Parent)).then(|| own_args(step));
+                    let args =
+                        PushArgs { args: step_args.as_ref().unwrap_or(&parent_args), extra: None };
+                    check_tag_available_for_push(
+                        db,
+                        &job.workspace_id,
+                        tag,
+                        &args,
+                        is_super_admin,
+                        None,
+                    )
+                    .warn_after_seconds_with_sql(1, "check_tag_available_for_push".to_string())
+                    .await
+                    .map_err(|e| match e {
+                        error::Error::BadRequest(msg) => error::Error::BadRequest(format!(
+                            "task '{}' cannot run on tag '{tag}': {msg}",
+                            step.name
+                        )),
+                        e => e,
+                    })?;
+                }
+
+                children.push(ResolvedChild { runnable, email, permissioned_as });
+            }
+
             // Step 1: Save checkpoint, suspend parent, and seed child checkpoints
             // in a single transaction — all BEFORE children become visible.
             let segment_ms;
             {
                 let mut tx = db.begin().await?;
+
+                // Park before writing the checkpoint. This locks the queue row ahead of the
+                // status row, the order `record_child_completion` takes, so a stale child
+                // finishing while the parent re-dispatches cannot deadlock this transaction.
+                // A cancel already on the row is also seen before anything is written, and
+                // every child pushed after the commit finds a parked parent to decrement.
+                match crate::wac_executor::suspend_wac_parent(
+                    &mut tx,
+                    &job.id,
+                    &job.workspace_id,
+                    num_steps as i32,
+                    14.0 * 24.0 * 3600.0,
+                )
+                .await?
+                {
+                    WacPark::Parked(ms) => segment_ms = ms,
+                    WacPark::Cancelled(cancel) => {
+                        return Err(wac_cancelled_mid_segment(cancel, canceled_by))
+                    }
+                }
 
                 // Update checkpoint with pending steps
                 update_checkpoint_for_dispatch(&mut checkpoint, &steps, &mode, &job_ids);
@@ -2881,25 +3148,6 @@ pub async fn handle_wac_v2_output(
                     })?;
                 }
 
-                // Suspend parent before children become visible, so a child that
-                // completes immediately finds a parked parent to decrement.
-                match crate::wac_executor::suspend_wac_parent(
-                    &mut tx,
-                    &job.id,
-                    &job.workspace_id,
-                    num_steps as i32,
-                    14.0 * 24.0 * 3600.0,
-                )
-                .await?
-                {
-                    WacPark::Parked(ms) => segment_ms = ms,
-                    // Returning here drops `tx`, unwriting the checkpoint and the timeline
-                    // entries, so no child is ever pushed against a parent that never parked.
-                    WacPark::Cancelled(cancel) => {
-                        return Err(wac_cancelled_mid_segment(cancel, canceled_by))
-                    }
-                }
-
                 tx.commit().await?;
             }
 
@@ -2909,106 +3157,44 @@ pub async fn handle_wac_v2_output(
             // partial failure (e.g. pushing child 3 of 5 fails).
             let mut pushed_ids: Vec<Uuid> = Vec::with_capacity(num_steps);
             let push_result: error::Result<()> = async {
-                for (step, (_, child_uuid)) in steps.iter().zip(job_ids.iter()) {
-                    // Resolve job payload based on dispatch_type
-                    let (job_payload, child_args, is_external, on_behalf_of) =
-                        match step.dispatch_type.as_str() {
-                            "script" if step.script.starts_with("./") => {
-                                // Module-relative path: resolve from parent script's modules
-                                let module_key = step.script.strip_prefix("./").unwrap();
-                                let module = resolve_parent_module(modules, module_key)?;
-                                let payload = JobPayload::Code(RawCode {
-                                    content: module.content,
-                                    path: job.runnable_path.clone(),
-                                    hash: None,
-                                    language: module.language,
-                                    lock: module.lock,
-                                    cache_ttl: job.cache_ttl,
-                                    cache_ignore_s3_path: job.cache_ignore_s3_path,
-                                    dedicated_worker: None,
-                                    concurrency_settings: ConcurrencySettingsWithCustom::default(),
-                                    debouncing_settings: DebouncingSettings::default(),
-                                    modules: None,
-                                    tag: None,
-                                });
-                                let step_args: HashMap<String, Box<RawValue>> = step
-                                    .args
-                                    .iter()
-                                    .map(|(k, v)| {
-                                        let raw = serde_json::value::to_raw_value(v).unwrap();
-                                        (k.clone(), raw)
-                                    })
-                                    .collect();
-                                // Inline module code, not a separate runnable: it has no
-                                // identity of its own and runs as the parent.
-                                (payload, step_args, true, None)
-                            }
-                            "script" => {
-                                // Resolve script path to job payload (handles hash, lang, etc.)
-                                let (payload, _, _, _, _, on_behalf_of) = script_path_to_payload(
-                                    &step.script,
-                                    None, // no authed db for background workers
-                                    db.clone(),
-                                    &job.workspace_id,
-                                    Some(true), // skip preprocessor
-                                )
-                                .await?;
-                                let step_args: HashMap<String, Box<RawValue>> = step
-                                    .args
-                                    .iter()
-                                    .map(|(k, v)| {
-                                        let raw = serde_json::value::to_raw_value(v).unwrap();
-                                        (k.clone(), raw)
-                                    })
-                                    .collect();
-                                (payload, step_args, true, on_behalf_of)
-                            }
-                            "flow" => {
-                                let flow_info = get_latest_flow_version_info_for_path(
-                                    None,
-                                    db,
-                                    &job.workspace_id,
-                                    &step.script,
-                                    true,
-                                )
-                                .await?;
-                                let payload = JobPayload::Flow {
-                                    path: step.script.clone(),
-                                    dedicated_worker: flow_info.dedicated_worker,
-                                    apply_preprocessor: false,
-                                    version: flow_info.version,
-                                    labels: flow_info.labels.clone(),
-                                };
-                                let on_behalf_of =
-                                    flow_info.on_behalf_of(&job.workspace_id, db).await?;
-                                let step_args: HashMap<String, Box<RawValue>> = step
-                                    .args
-                                    .iter()
-                                    .map(|(k, v)| {
-                                        let raw = serde_json::value::to_raw_value(v).unwrap();
-                                        (k.clone(), raw)
-                                    })
-                                    .collect();
-                                (payload, step_args, true, on_behalf_of)
-                            }
-                            _ => {
-                                // "inline" — re-run parent with _executing_key
-                                (
-                                    job_payload_template.clone(),
-                                    parent_args.clone(),
-                                    false,
-                                    None,
-                                )
-                            }
-                        };
+                for ((step, (_, child_uuid)), child) in
+                    steps.iter().zip(job_ids.iter()).zip(children)
+                {
+                    // A task with a runnable of its own (a deployed script or flow) queues
+                    // at that runnable's priority; any other task is the parent's code and
+                    // queues at the parent's.
+                    let own_runnable = matches!(step.dispatch_type.as_str(), "script" | "flow")
+                        && !step.script.starts_with("./");
 
-                    let push_args = PushArgs { args: &child_args, extra: None };
+                    let is_external = !matches!(child.runnable, ChildRunnable::Parent);
+                    let job_payload = match child.runnable {
+                        ChildRunnable::Parent => job_payload_template.clone(),
+                        ChildRunnable::Module(module) => JobPayload::Code(RawCode {
+                            content: module.content.clone(),
+                            path: job.runnable_path.clone(),
+                            hash: None,
+                            language: module.language,
+                            lock: module.lock.clone(),
+                            cache_ttl: None,
+                            cache_ignore_s3_path: None,
+                            dedicated_worker: None,
+                            concurrency_settings: ConcurrencySettingsWithCustom::default(),
+                            debouncing_settings: DebouncingSettings::default(),
+                            modules: None,
+                            tag: None,
+                        }),
+                        ChildRunnable::Deployed(payload) => payload,
+                    };
+                    let step_args = is_external.then(|| own_args(step));
+                    let push_args =
+                        PushArgs { args: step_args.as_ref().unwrap_or(&parent_args), extra: None };
 
                     // Apply step-level overrides to payload (cache, concurrency)
                     let mut job_payload = job_payload;
                     if let Some(cache_ttl) = step.cache_ttl {
                         match &mut job_payload {
-                            JobPayload::ScriptHash { cache_ttl: ref mut ct, .. } => {
+                            JobPayload::ScriptHash { cache_ttl: ref mut ct, .. }
+                            | JobPayload::FlowScript { cache_ttl: ref mut ct, .. } => {
                                 *ct = Some(cache_ttl)
                             }
                             JobPayload::Code(ref mut code) => code.cache_ttl = Some(cache_ttl),
@@ -3020,7 +3206,8 @@ pub async fn handle_wac_v2_output(
                         || step.concurrency_time_window_s.is_some()
                     {
                         match &mut job_payload {
-                            JobPayload::ScriptHash { concurrency_settings: ref mut cs, .. } => {
+                            JobPayload::ScriptHash { concurrency_settings: ref mut cs, .. }
+                            | JobPayload::FlowScript { concurrency_settings: ref mut cs, .. } => {
                                 if let Some(limit) = step.concurrent_limit {
                                     cs.concurrent_limit = Some(limit);
                                 }
@@ -3048,21 +3235,6 @@ pub async fn handle_wac_v2_output(
                         }
                     }
 
-                    // A target runnable that opts into on-behalf-of runs under its own
-                    // identity, never the caller's, so a step that reaches it through a
-                    // workflow cannot widen or narrow its permissions. `created_by` still
-                    // credits the caller, matching how the run API pushes these jobs.
-                    let (child_email, child_permissioned_as) = match on_behalf_of.as_ref() {
-                        Some(on_behalf_of) => (
-                            on_behalf_of.email.as_str(),
-                            on_behalf_of.permissioned_as.clone(),
-                        ),
-                        None => (
-                            job.permissioned_as_email.as_str(),
-                            job.permissioned_as.clone(),
-                        ),
-                    };
-
                     let (_, mut tx) = push(
                         db,
                         PushIsolationLevel::IsolatedRoot(db.clone()),
@@ -3070,8 +3242,8 @@ pub async fn handle_wac_v2_output(
                         job_payload,
                         push_args,
                         &job.created_by,
-                        child_email,
-                        child_permissioned_as,
+                        &child.email,
+                        child.permissioned_as,
                         None,
                         None,
                         None,
@@ -3086,13 +3258,14 @@ pub async fn handle_wac_v2_output(
                         job.visible_to_owner,
                         step.tag.clone().or_else(|| Some(job.tag.clone())),
                         step.timeout.or(job.timeout),
-                        None,          // flow_step_id
-                        step.priority, // priority_override
-                        None,          // authed
-                        false,         // running
-                        None,          // end_user_email
-                        None,          // trigger
-                        None,          // suspended_mode
+                        None, // flow_step_id
+                        step.priority
+                            .or(if own_runnable { None } else { job.priority }),
+                        None,  // authed
+                        false, // running
+                        None,  // end_user_email
+                        None,  // trigger
+                        None,  // suspended_mode
                     )
                     .await?;
 
@@ -3206,7 +3379,7 @@ pub async fn handle_wac_v2_output(
                 job.id, num_steps
             )))
         }
-        WacOutput::Approval { key, timeout, form, self_approval_disabled } => {
+        WacOutput::Approval { key, timeout, form, self_approval_disabled, skin, description } => {
             let db = match conn {
                 Connection::Sql(db) => db,
                 _ => {
@@ -3227,6 +3400,23 @@ pub async fn handle_wac_v2_output(
             });
 
             let mut tx = db.begin().await?;
+
+            // Park first: the queue row is locked before the status row, the order every
+            // child completion takes.
+            let segment_ms = match crate::wac_executor::suspend_wac_parent(
+                &mut tx,
+                &job.id,
+                &job.workspace_id,
+                1,
+                timeout_secs,
+            )
+            .await?
+            {
+                WacPark::Parked(ms) => ms,
+                WacPark::Cancelled(cancel) => {
+                    return Err(wac_cancelled_mid_segment(cancel, canceled_by))
+                }
+            };
 
             // Save checkpoint
             let status_json = serde_json::to_value(&checkpoint).map_err(|e| {
@@ -3322,15 +3512,19 @@ pub async fn handle_wac_v2_output(
             };
 
             // Store approval form metadata for the approval page endpoint
-            let approval_meta = serde_json::json!({
+            let mut approval_meta = serde_json::json!({
                 "key": key,
                 "form": form,
                 "timeout": timeout_secs as u32,
                 "self_approval_disabled": sad,
+                "skin": skin.unwrap_or_default(),
                 "resume": resume_url,
                 "cancel": cancel_url,
                 "approvalPage": approval_page_url,
             });
+            if let Some(description) = description.filter(|d| !d.is_null()) {
+                approval_meta["description"] = description;
+            }
             sqlx::query(
                 "UPDATE v2_job_status SET workflow_as_code_status = jsonb_set(
                     COALESCE(workflow_as_code_status, '{}'::jsonb),
@@ -3378,22 +3572,6 @@ pub async fn handle_wac_v2_output(
                 })?;
             }
 
-            // Suspend parent with suspend=1 (waiting for 1 approval event)
-            let segment_ms = match crate::wac_executor::suspend_wac_parent(
-                &mut tx,
-                &job.id,
-                &job.workspace_id,
-                1,
-                timeout_secs,
-            )
-            .await?
-            {
-                WacPark::Parked(ms) => ms,
-                WacPark::Cancelled(cancel) => {
-                    return Err(wac_cancelled_mid_segment(cancel, canceled_by))
-                }
-            };
-
             tx.commit().await?;
             crate::wac_executor::end_wac_segment(conn, job, segment_ms);
 
@@ -3430,6 +3608,24 @@ pub async fn handle_wac_v2_output(
             });
 
             let mut tx = db.begin().await?;
+
+            // Park first: the queue row is locked before the status row, the order every
+            // child completion takes. suspend=1 (not 0) so the suspended pull query only
+            // picks it up when `suspend_until <= now()`, not via `suspend <= 0`.
+            let segment_ms = match crate::wac_executor::suspend_wac_parent(
+                &mut tx,
+                &job.id,
+                &job.workspace_id,
+                1,
+                sleep_secs,
+            )
+            .await?
+            {
+                WacPark::Parked(ms) => ms,
+                WacPark::Cancelled(cancel) => {
+                    return Err(wac_cancelled_mid_segment(cancel, canceled_by))
+                }
+            };
 
             // Save checkpoint
             let status_json = serde_json::to_value(&checkpoint).map_err(|e| {
@@ -3479,23 +3675,6 @@ pub async fn handle_wac_v2_output(
                 })?;
             }
 
-            // Use suspend=1 (not 0) so the suspended pull query only picks it up
-            // when `suspend_until <= now()`, not via `suspend <= 0`.
-            let segment_ms = match crate::wac_executor::suspend_wac_parent(
-                &mut tx,
-                &job.id,
-                &job.workspace_id,
-                1,
-                sleep_secs,
-            )
-            .await?
-            {
-                WacPark::Parked(ms) => ms,
-                WacPark::Cancelled(cancel) => {
-                    return Err(wac_cancelled_mid_segment(cancel, canceled_by))
-                }
-            };
-
             tx.commit().await?;
             crate::wac_executor::end_wac_segment(conn, job, segment_ms);
 
@@ -3533,21 +3712,12 @@ pub async fn handle_wac_v2_output(
             let source_hash = job.runnable_id.map(|h| h.0.to_string());
             let mut tx = db.begin().await?;
 
-            crate::wac_executor::persist_inline_checkpoint_delta(
-                &mut tx,
-                &job.id,
-                source_hash.as_deref(),
-                &key,
-                value,
-                started_at.as_deref(),
-                duration_ms,
-            )
-            .await?;
-
             // Reset running=false so the job is immediately eligible for pickup.
             // Unlike dispatch (which sets suspend>0), inline checkpoints don't suspend —
             // the job should be re-run right away to continue past the cached step.
             // `prev` holds the pre-update row: RETURNING would see the cleared column.
+            // Runs before the checkpoint write so the queue row is locked ahead of the
+            // status row, the order every child completion takes.
             let segment_ms = sqlx::query_scalar!(
                 "WITH prev AS (SELECT started_at FROM v2_job_queue WHERE id = $1)
                  UPDATE v2_job_queue q SET running = false, started_at = null
@@ -3563,6 +3733,17 @@ pub async fn handle_wac_v2_output(
                 ))
             })?
             .flatten();
+
+            crate::wac_executor::persist_inline_checkpoint_delta(
+                &mut tx,
+                &job.id,
+                source_hash.as_deref(),
+                &key,
+                value,
+                started_at.as_deref(),
+                duration_ms,
+            )
+            .await?;
 
             tx.commit().await?;
             crate::wac_executor::end_wac_segment(conn, job, segment_ms);

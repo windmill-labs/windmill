@@ -25,6 +25,7 @@
 	import { buildResourceTypesFilterSchema } from '$lib/components/resources/resourceTypesFilter'
 	import {
 		resourceTypeSearchText,
+		setResourceTypeDisplayNames,
 		sortResourceTypesByMatch
 	} from '$lib/components/resourceTypeDisplay'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
@@ -83,7 +84,10 @@
 		openAgentEditor
 	} from '$lib/components/flows/agentEditorStore.svelte'
 	import { copilotInfo } from '$lib/aiStore'
-	import { setPageDrawerAnchor } from '$lib/components/sessions/pageDrawerSession'
+	import {
+		handOffPageDrawer,
+		setPageDrawerAnchor
+	} from '$lib/components/sessions/pageDrawerSession'
 	import { RESOURCES_PATH } from '$lib/components/sessions/previewPaths'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
 	import ExploreAssetButton, {
@@ -140,6 +144,7 @@
 	 *  render its configuration as raw JSON. Both write the same resource draft, so the choice is
 	 *  presentational and either can open a path the other left a draft at. */
 	function openResourceEditor(path: string, resourceType: string | undefined) {
+		if (handOffPageDrawer(RESOURCES_PATH, path)) return
 		if (resourceType === 'ai_agent') {
 			// The generic editor anchors itself from `initEdit`; this one has to, or the URL, a
 			// refresh, and the AI session's idea of where you are all miss the open agent. Claim the
@@ -328,14 +333,14 @@
 	}
 
 	async function loadResourceTypes(): Promise<void> {
-		resourceTypes = (await ResourceService.listResourceType({ workspace: $workspaceStore! })).map(
-			(x) => {
-				return {
-					canWrite: $workspaceStore! == x.workspace_id,
-					...x
-				}
+		const rows = await ResourceService.listResourceType({ workspace: $workspaceStore! })
+		setResourceTypeDisplayNames(rows)
+		resourceTypes = rows.map((x) => {
+			return {
+				canWrite: $workspaceStore! == x.workspace_id,
+				...x
 			}
-		)
+		})
 		loading.types = false
 	}
 
@@ -343,7 +348,9 @@
 		if (account) {
 			OauthService.disconnectAccount({ workspace: $workspaceStore!, id: account })
 		}
-		await ResourceService.deleteResource({ workspace: $workspaceStore!, path })
+		// The response names the linked variables that went with it, which nothing else on the
+		// page would show.
+		sendUserToast(await ResourceService.deleteResource({ workspace: $workspaceStore!, path }))
 		reload()
 	}
 
@@ -762,8 +769,8 @@
 		>
 		{#if deleteIsLinked}
 			<Alert type="warning" title="Linked variable">
-				This resource is linked with a variable of the same path. The linked variable will also be
-				deleted.
+				This resource is linked with a variable of the same path. That variable is deleted with it,
+				unless another resource still references it.
 			</Alert>
 		{/if}
 		<Alert type="info" title="Bypass confirmation">
@@ -1546,6 +1553,7 @@
 
 <ResourceEditorDrawer
 	bind:this={resourceEditor}
+	workspace={$workspaceStore}
 	on:refresh={loadResources}
 	onRestored={loadResources}
 />
@@ -1563,6 +1571,18 @@
      this route's JavaScript and none of what the resources table needs. -->
 {#if agentEditorTarget()}
 	{#await import('$lib/components/flows/content/AgentEditorModal.svelte') then { default: AgentEditorModal }}
-		<AgentEditorModal enableAi={$copilotInfo.enabled} owns={(t) => t.host === undefined} />
+		<AgentEditorModal
+			enableAi={$copilotInfo.enabled}
+			owns={(t) => t.host === undefined}
+			onRenamed={(from, to) => {
+				void loadResources()
+				// Only while the dialog still shows the agent: closed mid-request, it already cleared the
+				// anchor, and writing it back would reopen the editor on refresh.
+				if (agentEditorTarget()?.path !== from) return
+				// Claimed first, as a row click does, so the deep-link effect does not reopen it.
+				handledHash = `#/resource/${to}`
+				setPageDrawerAnchor(RESOURCES_PATH, to)
+			}}
+		/>
 	{/await}
 {/if}

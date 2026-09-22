@@ -84,6 +84,11 @@ pub const SANDBOX_REGISTRY_AUTH_SETTING: &str = "sandbox_registry_auth";
 // windmill-worker/src/ssh_executor_ee.rs.
 pub const SSH_EXECUTION_SETTING: &str = "ssh_execution_enabled";
 pub const OBJECT_STORE_CONFIG_SETTING: &str = "object_store_cache_config";
+/// Whether the instance object store stands in for a workspace without storage of its own
+/// as the place its members' AI sessions are backed up to. On unless the row says `false`;
+/// inert without an instance object store.
+pub const AI_SESSIONS_INSTANCE_STORAGE_FALLBACK_SETTING: &str =
+    "ai_sessions_instance_storage_fallback";
 /// Compile a newly deployed script's binary right after its dependency job and push it
 /// to the instance object store, so the first run does not pay the compile. Inert unless
 /// instance object storage is configured — without it the binary would only ever land in
@@ -97,6 +102,49 @@ pub const HUB_API_SECRET_SETTING: &str = "hub_api_secret";
 pub const AUTOMATE_USERNAME_CREATION_SETTING: &str = "automate_username_creation";
 pub const DISABLE_WORKSPACE_INVITE_EMAILS_SETTING: &str = "disable_workspace_invite_emails";
 pub const DISABLE_PASSWORD_LOGIN_SETTING: &str = "disable_password_login";
+/// Refuse `?token=` on the MCP endpoints, leaving the `Authorization` header as the only way
+/// in. A URL-borne credential ends up in browser history, proxy logs and referrers, so an
+/// instance that cares sends MCP clients through the OAuth flow instead.
+pub const MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING: &str = "mcp_disable_token_query_param";
+/// Ceiling, in days, on how far ahead a token minted through `POST /users/tokens/create` or
+/// `POST /users/tokens/impersonate` may expire; a request asking for more, or for no
+/// expiration at all, is shortened to it rather than refused. On those routes only: server-side
+/// mints (webhook tokens, app embed tokens, sessions) choose a lifetime the caller never picks
+/// and go straight to `create_token_internal`. Read and validated by
+/// [`parse_max_token_expiration_days`].
+pub const MAX_TOKEN_EXPIRATION_DAYS_SETTING: &str = "max_token_expiration_days";
+/// Largest `max_token_expiration_days` read as a ceiling, about 2,700 years. The token form
+/// applies the same bound (`frontend/src/lib/tokenExpiration.ts`) so that it and the server
+/// agree on whether a ceiling exists.
+pub const MAX_TOKEN_EXPIRATION_DAYS_BOUND: i64 = 1_000_000;
+
+/// Reads a stored `max_token_expiration_days`: `Ok(None)` when unset or cleared (null or an
+/// empty string), the ceiling for a whole number of days within
+/// `1..=MAX_TOKEN_EXPIRATION_DAYS_BOUND` stored as an integer, an integral float or a string of
+/// digits, and an error for anything else.
+///
+/// The settings API and config sync both reject the error at write time: the token routes can
+/// only read an unparseable value as no ceiling, so accepting a typo would silently turn the
+/// policy off. `parseMaxTokenExpirationDays` in the frontend must accept exactly the same values.
+pub fn parse_max_token_expiration_days(
+    value: Option<&serde_json::Value>,
+) -> Result<Option<i64>, String> {
+    let days = match value {
+        None | Some(serde_json::Value::Null) => return Ok(None),
+        Some(serde_json::Value::String(s)) if s.trim().is_empty() => return Ok(None),
+        Some(serde_json::Value::Number(n)) => n
+            .as_i64()
+            .or_else(|| n.as_f64().filter(|f| f.fract() == 0.0).map(|f| f as i64)),
+        Some(serde_json::Value::String(s)) => s.trim().parse::<i64>().ok(),
+        Some(_) => None,
+    };
+    match days {
+        Some(days) if (1..=MAX_TOKEN_EXPIRATION_DAYS_BOUND).contains(&days) => Ok(Some(days)),
+        _ => Err(format!(
+            "must be a whole number of days from 1 to {MAX_TOKEN_EXPIRATION_DAYS_BOUND}, or empty for no limit"
+        )),
+    }
+}
 pub const AUTO_LOGIN_PROVIDER_SETTING: &str = "auto_login_provider";
 /// Name of the SAML attribute or OIDC userinfo claim carrying the user's IdP groups. Unset or
 /// empty leaves instance-group membership entirely to SCIM.
@@ -118,6 +166,7 @@ pub const OTEL_TRACING_PROXY_SETTING: &str = "otel_tracing_proxy";
 pub const OTEL_TRACES_RETENTION_SECS_SETTING: &str = "otel_traces_retention_secs";
 pub const APP_WORKSPACED_ROUTE_SETTING: &str = "app_workspaced_route";
 pub const HTTP_ROUTE_WORKSPACED_ROUTE_SETTING: &str = "http_route_workspaced_route";
+pub const HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING: &str = "http_route_default_allowed_origins";
 pub const SECRET_BACKEND_SETTING: &str = "secret_backend";
 pub const MIN_KEEP_ALIVE_VERSION_SETTING: &str = "min_keep_alive_version";
 pub const GITHUB_ENTERPRISE_APP_SETTING: &str = "github_enterprise_app";
@@ -362,6 +411,126 @@ use std::sync::atomic::AtomicBool;
 lazy_static::lazy_static! {
     pub static ref HTTP_ROUTE_WORKSPACED_ROUTE: AtomicBool = AtomicBool::new(false);
     pub static ref DISABLE_PASSWORD_LOGIN: AtomicBool = AtomicBool::new(false);
+    pub static ref MCP_DISABLE_TOKEN_QUERY_PARAM: AtomicBool = AtomicBool::new(false);
+    /// Origins HTTP routes allow cross-origin when they configure none of their
+    /// own. Empty means unset, which keeps the historical `*`.
+    pub static ref HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS: arc_swap::ArcSwap<Vec<String>> =
+        arc_swap::ArcSwap::from_pointee(vec![]);
+}
+
+/// Whether an allowlist places no restriction at all.
+///
+/// `*` is the explicit "open on purpose" entry, and a route carrying it behaves
+/// exactly as an unconfigured one: it is how a route opts out of a stricter
+/// instance default, including back into the `wm_headers` escape hatch.
+pub fn allows_any_origin(allowed_origins: &[String]) -> bool {
+    allowed_origins.iter().any(|allowed| allowed == "*")
+}
+
+/// An allowlist is scanned on every request to a restricted route, including
+/// the unauthenticated preflight, so its size is a request cost anyone can
+/// trigger.
+pub const MAX_ALLOWED_ORIGINS: usize = 100;
+pub const MAX_ALLOWED_ORIGIN_LEN: usize = 256;
+
+/// Reject allowlist entries that cannot be compared, stored, or safely allowed.
+///
+/// The stored string is only ever an operand: `match_origin` echoes the
+/// request's own `Origin` back, never this value, so a malformed entry matches
+/// nothing and fails closed. Shapes that merely cannot match are the editor's
+/// business to warn about, not this function's to refuse. What is left are the
+/// three cases where permissiveness costs something: `null` is what every
+/// sandboxed iframe sends, so allowing it would admit any page that can open
+/// one; a comma cannot survive the editor's comma-separated field, which would
+/// silently split one entry into two and widen the list; and an unbounded list
+/// makes every preflight pay for it.
+pub fn validate_allowed_origins(allowed_origins: &[String]) -> crate::error::Result<()> {
+    if allowed_origins.len() > MAX_ALLOWED_ORIGINS {
+        return Err(crate::error::Error::BadRequest(format!(
+            "At most {} allowed origins, got {}.",
+            MAX_ALLOWED_ORIGINS,
+            allowed_origins.len()
+        )));
+    }
+
+    for origin in allowed_origins {
+        if origin == "*" {
+            continue;
+        }
+
+        let invalid = |reason: &str| {
+            crate::error::Error::BadRequest(format!(
+                "Invalid allowed origin '{}': {}.",
+                origin, reason
+            ))
+        };
+
+        if origin.is_empty() {
+            return Err(invalid("must not be empty"));
+        }
+        if origin.len() > MAX_ALLOWED_ORIGIN_LEN {
+            return Err(invalid("is longer than any origin a browser sends"));
+        }
+        // The editor edits the whole list as one comma-separated field, so an
+        // entry carrying a comma comes back as two and widens the list.
+        if origin.contains(',') {
+            return Err(invalid("must not contain a comma, which separates entries"));
+        }
+        if origin.eq_ignore_ascii_case("null") {
+            return Err(invalid(
+                "'null' is what a sandboxed iframe sends, so allowing it would allow any page that can open one",
+            ));
+        }
+        // An Origin header is always visible ASCII, so a value outside it can
+        // never be the string this is compared against.
+        if !origin.chars().all(|c| c.is_ascii_graphic()) {
+            return Err(invalid(
+                "must contain only visible ASCII, with no whitespace",
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+/// Read [`HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING`] from its stored value.
+///
+/// Accepts the comma-separated string the settings UI writes, or a JSON array
+/// for anything setting it through the API directly.
+pub fn parse_allowed_origins_setting(
+    value: Option<&serde_json::Value>,
+) -> crate::error::Result<Vec<String>> {
+    let origins = match value {
+        None | Some(serde_json::Value::Null) => vec![],
+        Some(serde_json::Value::String(raw)) => raw
+            .split(',')
+            .map(|origin| origin.trim().to_string())
+            .filter(|origin| !origin.is_empty())
+            .collect(),
+        Some(serde_json::Value::Array(entries)) => entries
+            .iter()
+            .map(|entry| match entry {
+                serde_json::Value::String(origin) => Ok(origin.trim().to_string()),
+                _ => Err(crate::error::Error::BadRequest(format!(
+                    "{} entries must be strings",
+                    HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING
+                ))),
+            })
+            // Not filtered for empties, unlike the string form: there a
+            // trailing separator naturally yields an empty token, whereas an
+            // empty array entry is something the caller wrote and validation
+            // should reject rather than silently drop.
+            .collect::<crate::error::Result<Vec<_>>>()?,
+        Some(_) => {
+            return Err(crate::error::Error::BadRequest(format!(
+                "{} expected to be a comma-separated string or an array of strings",
+                HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING
+            )))
+        }
+    };
+
+    validate_allowed_origins(&origins)?;
+    Ok(origins)
 }
 
 pub const ENV_SETTINGS: &[&str] = &[
@@ -433,6 +602,31 @@ pub const ENV_SETTINGS: &[&str] = &[
     "OTEL_METRICS",
     "OTEL_TRACING",
     "OTEL_LOGS",
+    // The OTEL_EXPORTER_OTLP_*HEADERS variables are left out: they carry exporter API keys, and
+    // this list is logged at startup and returned to superadmins by `get_local_settings`.
+    "OTEL_METRICS_ENABLED",
+    "OTEL_TRACING_ENABLED",
+    "OTEL_LOGS_ENABLED",
+    "OTEL_EXPORTER_OTLP_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_PROTOCOL",
+    "OTEL_EXPORTER_OTLP_COMPRESSION",
+    "OTEL_EXPORTER_OTLP_TIMEOUT",
+    "OTEL_EXPORTER_OTLP_TRACES_TIMEOUT",
+    "OTEL_EXPORTER_OTLP_METRICS_TIMEOUT",
+    "OTEL_EXPORTER_OTLP_LOGS_TIMEOUT",
+    "OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE",
+    "OTEL_METRIC_EXPORT_INTERVAL",
+    "OTEL_SERVICE_NAME",
+    "OTEL_SERVICE_VERSION",
+    "OTEL_HOST_NAME",
+    "OTEL_ENVIRONMENT",
+    "OTEL_RESOURCE_ATTRIBUTES",
+    "OTEL_JOB_LOGS",
+    "OTEL_TRACES_RETENTION_SECS",
+    "AI_SHARED_ARTIFACT_RETENTION_SECS",
     "DISABLE_S3_STORE",
     "PG_SCHEMA",
     "PG_LISTENER_REFRESH_PERIOD_SECS",
@@ -660,6 +854,55 @@ pub fn workspace_integration_auth_endpoint(client_name: &str, base_url: &str) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // `frontend/src/lib/tokenExpiration.test.ts` holds the same table for the token form's
+    // parser; the two must stay in step.
+    #[test]
+    fn max_token_expiration_days_accepts_only_whole_days_within_the_bound() {
+        use serde_json::json;
+        for (stored, days) in [
+            (json!(7), 7),
+            (json!(7.0), 7),
+            (json!("7"), 7),
+            (json!(" 30 "), 30),
+            (json!("+7"), 7),
+            (
+                json!(MAX_TOKEN_EXPIRATION_DAYS_BOUND),
+                MAX_TOKEN_EXPIRATION_DAYS_BOUND,
+            ),
+        ] {
+            assert_eq!(
+                parse_max_token_expiration_days(Some(&stored)),
+                Ok(Some(days)),
+                "{stored}"
+            );
+        }
+        for cleared in [json!(null), json!(""), json!("  ")] {
+            assert_eq!(
+                parse_max_token_expiration_days(Some(&cleared)),
+                Ok(None),
+                "{cleared}"
+            );
+        }
+        assert_eq!(parse_max_token_expiration_days(None), Ok(None));
+        for bad in [
+            json!(7.5),
+            json!(0),
+            json!(-3),
+            json!("7.0"),
+            json!("1e1"),
+            json!("0x7"),
+            json!(MAX_TOKEN_EXPIRATION_DAYS_BOUND + 1),
+            json!("99999999999999999999"),
+            json!(true),
+            json!([7]),
+        ] {
+            assert!(
+                parse_max_token_expiration_days(Some(&bad)).is_err(),
+                "{bad} must be rejected"
+            );
+        }
+    }
 
     #[test]
     fn webhook_base_url_errors_never_echo_credentials() {

@@ -1,14 +1,16 @@
 <script lang="ts">
 	import { run } from 'svelte/legacy'
 
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { userStore } from '$lib/stores'
 	import LabelsInput from './LabelsInput.svelte'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import {
+		addResourceTypeDisplayName,
 		isCustomResourceTypeName,
 		resourceTypeDisplayName,
 		resourceTypeMatchRank,
 		resourceTypeSearchText,
+		setResourceTypeDisplayNames,
 		sortResourceTypesByMatch
 	} from './resourceTypeDisplay'
 	import {
@@ -50,6 +52,10 @@
 	} from './pickerPopularity'
 	import Label from './Label.svelte'
 	import ResourcePathHint from './ResourcePathHint.svelte'
+	import SchemaForm from './SchemaForm.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		step?: number
@@ -81,7 +87,7 @@
 		fillPath = undefined
 	}: Props = $props()
 
-	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
+	let effectiveWorkspace = $derived(workspace ?? $operatingWorkspace!)
 
 	let isValid = $state(true)
 
@@ -229,6 +235,28 @@
 			| { label: string; placeholder: string; help_url?: string }
 			| undefined
 	)
+
+	/** Fields of the resource type the provider's registry entry asks for once the token is
+	 * in (`resource_fields`): what no token response carries, like Snowflake's database. A
+	 * list rather than "every other field" because most OAuth types also hold the fields of
+	 * another way in: ServiceNow's basic-auth password, Bitbucket's app password. */
+	let resourceFields = $derived((registryEntry()?.resource_fields as string[] | undefined) ?? [])
+
+	/** Their slice of the resource type's schema, so they render with the type's own
+	 * descriptions; plain text inputs while the type is not synced from the hub. */
+	let resourceFieldsSchema = $derived.by(() => {
+		const props: Record<string, SchemaProperty> =
+			(resourceTypeInfo?.schema as any)?.properties ?? {}
+		return {
+			$schema: 'https://json-schema.org/draft/2020-12/schema',
+			type: 'object',
+			order: resourceFields,
+			properties: Object.fromEntries(
+				resourceFields.map((f) => [f, props[f] ?? { type: 'string', description: '' }])
+			),
+			required: []
+		}
+	})
 
 	/** Instance entry declares client credentials but not authorization_code
 	 * (custom provider configured with only a token URL) */
@@ -474,6 +502,7 @@
 		// $derived, so search re-ranks when they land.
 		ResourceService.listResourceType({ workspace: effectiveWorkspace })
 			.then((types) => {
+				setResourceTypeDisplayNames(types)
 				resourceTypeDescriptions = Object.fromEntries(
 					types.filter((t) => t.description).map((t) => [t.name, t.description!])
 				)
@@ -629,6 +658,7 @@
 				workspace: effectiveWorkspace,
 				path: resourceType
 			})
+			addResourceTypeDisplayName(resourceTypeInfo)
 			const props: Record<string, SchemaProperty> = resourceTypeInfo?.schema?.['properties'] ?? {}
 			const newArgsKeys = Object.keys(props).filter((x) => props?.[x]?.type == 'string') ?? []
 
@@ -646,9 +676,11 @@
 	export async function next() {
 		if (step == 1) {
 			linkedSecrets = []
+			// Both branches: the OAuth one fills `resourceFields` into the same map, and fields
+			// typed into another type's form before Back would otherwise ride along.
+			args = {}
 			if (manual) {
 				getResourceTypeInfo()
-				args = {}
 			} else {
 				getResourceTypeInfo()
 				// Awaited: the popup is built from `scopes`, so advancing before this
@@ -887,10 +919,19 @@
 				)
 			}
 
-			const resourceValue = args
+			// A copy: the form is still mounted and bound to `args` across the awaits below, and
+			// puts back the default of any field removed from it.
+			const resourceValue = $state.snapshot(args)
 
 			let savedVariableCount = 0
 			if (!manual) {
+				// A field left blank is absent, not an empty string a consumer reads as a value:
+				// the Snowflake executor sends any `database` it finds, empty or not.
+				for (const f of resourceFields) {
+					if (resourceValue[f] === '' || resourceValue[f] == undefined) {
+						delete resourceValue[f]
+					}
+				}
 				// OAuth flow: single secret variable for the token
 				if (typeof value == 'string' && value != '' && !value.startsWith('$var:')) {
 					savedVariableCount++
@@ -1560,6 +1601,17 @@
 				tooltip="Prevents this resource from being deployed to prod/staging"
 			>
 				<Toggle bind:checked={wsSpecific} />
+			</Label>
+		{/if}
+		<!-- Not for express or `fillPath`, which save as soon as the token arrives: the fields
+		     are then filled by editing the resource. -->
+		{#if step == 4 && !manual && !express && !fillPath && resourceFields.length > 0}
+			<Label
+				label="Connection details"
+				tooltip="Saved on the resource with the token, and editable later"
+				class="mt-6"
+			>
+				<SchemaForm onlyMaskPassword noDelete schema={resourceFieldsSchema} bind:args />
 			</Label>
 		{/if}
 		{#if apiTokenApps[resourceType] || !manual}

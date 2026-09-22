@@ -43,11 +43,14 @@ use axum::{
     extract::{Extension, Path},
     http::Request,
     middleware::Next,
-    response::Response,
+    response::{IntoResponse, Response},
     routing::get,
     Json, Router,
 };
-use windmill_common::{auth::hash_token, db::GatewayWorkspaceId, error::JsonResult};
+use windmill_common::{
+    auth::hash_token, db::GatewayWorkspaceId, error::JsonResult,
+    global_settings::MCP_DISABLE_TOKEN_QUERY_PARAM,
+};
 
 // McpAuth impl for ApiAuthed is in windmill-api-auth (same crate as the type)
 
@@ -444,6 +447,29 @@ pub async fn add_www_authenticate_header(
     } else {
         response
     }
+}
+
+/// Middleware refusing a credential carried in the MCP URL once the instance sets
+/// `mcp_disable_token_query_param`. Sits outside everything that reads the token, so neither
+/// the gateway lookup nor `ApiAuthed` ever sees it, and inside the `WWW-Authenticate` layer,
+/// whose header is what sends the client into the OAuth flow instead. Refused rather than
+/// ignored: the URL leaked the token whether or not the request used it.
+pub async fn reject_token_query_param(request: Request<axum::body::Body>, next: Next) -> Response {
+    let carries_token = MCP_DISABLE_TOKEN_QUERY_PARAM.load(std::sync::atomic::Ordering::Relaxed)
+        && request
+            .uri()
+            .query()
+            .is_some_and(|q| url::form_urlencoded::parse(q.as_bytes()).any(|(k, _)| k == "token"));
+    if carries_token {
+        return (
+            axum::http::StatusCode::UNAUTHORIZED,
+            "This instance does not accept a token in the MCP URL. Remove the token query \
+             parameter and let your client sign in through OAuth, or send the token in an \
+             Authorization header.",
+        )
+            .into_response();
+    }
+    next.run(request).await
 }
 
 /// Extract the bearer token from either the `Authorization` header or the

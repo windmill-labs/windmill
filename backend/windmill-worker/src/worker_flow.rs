@@ -44,8 +44,7 @@ use windmill_common::flow_status::{
 };
 use windmill_common::flows::{add_virtual_items_if_necessary, Branch, FlowNodeId, StopAfterIf};
 use windmill_common::jobs::{
-    check_tag_available_for_workspace_internal, script_path_to_payload, JobKind, JobPayload,
-    OnBehalfOf, RawCode, ENTRYPOINT_OVERRIDE,
+    script_path_to_payload, JobKind, JobPayload, OnBehalfOf, RawCode, ENTRYPOINT_OVERRIDE,
 };
 use windmill_common::runnable_settings::{
     ConcurrencySettingsWithCustom, DebouncingSettings, RunnableSettingsTrait,
@@ -68,11 +67,12 @@ use windmill_common::{
 };
 use windmill_queue::schedule::get_schedule_opt;
 use windmill_queue::{
-    add_completed_job, add_completed_job_error, append_logs, get_mini_pulled_job,
-    insert_concurrency_key_capped, interpolate_args,
-    report_error_to_workspace_handler_or_critical_side_channel, tag_reads_args,
-    try_schedule_next_job, CanceledBy, FlowRunners, MiniCompletedJob, MiniPulledJob, PushArgs,
-    PushIsolationLevel, SameWorkerPayload, WrappedError,
+    add_completed_job, add_completed_job_error, append_logs,
+    check_tag_written_as_available_for_push, get_mini_pulled_job, insert_concurrency_key_capped,
+    render_tag_path, report_error_to_workspace_handler_or_critical_side_channel, resolve_push_tag,
+    tag_reads_args, tag_reads_flow_expr, try_schedule_next_job, CanceledBy, FlowRunners,
+    MiniCompletedJob, MiniPulledJob, PushArgs, PushIsolationLevel, SameWorkerPayload, WrappedError,
+    RE_FLOW_EXPR_TAG,
 };
 
 use windmill_audit::audit_oss::audit_log;
@@ -1520,15 +1520,6 @@ pub async fn update_flow_status_after_job_completion_internal(
                         .is_some_and(|ck| ck.contains("$args"))
             });
             let require_args = concurrency_requires_args || has_debouncing;
-            let mut tag = tag_and_concurrency_key.as_ref().and_then(|x| x.tag.clone());
-            // `$workspace` does not depend on the preprocessor's output, so it has to resolve even
-            // when nothing forced us to fetch args. Leaving it to the `$args` branch below writes a
-            // `$workspace`-only tag back verbatim, naming a queue no worker serves.
-            if let Some(t) = tag.as_ref().filter(|t| t.contains("$workspace")) {
-                let tag_ws =
-                    windmill_queue::tags::tag_workspace_id(&flow_job.workspace_id, db).await;
-                tag = Some(t.replace("$workspace", &tag_ws));
-            }
             let concurrency_key = tag_and_concurrency_key
                 .as_ref()
                 .and_then(|x| x.concurrency_key.clone());
@@ -1576,10 +1567,6 @@ pub async fn update_flow_status_after_job_completion_internal(
                     )
                     .await?;
                 }
-                if let Some(t) = tag {
-                    // `$workspace` is already resolved above; this fills in `$args`.
-                    tag = Some(interpolate_args(t, &args, &flow_job.workspace_id));
-                }
             } else if concurrent_limit.is_some() {
                 insert_concurrency_key_capped(
                     &flow_job.workspace_id,
@@ -1593,6 +1580,23 @@ pub async fn update_flow_status_after_job_completion_internal(
                 )
                 .await?;
             }
+
+            // Resolved as `push` resolves a tag, so a `$flow_expr[...]` or empty one comes out as
+            // `None` and the job keeps its current tag instead of queueing on the literal text.
+            let tag = match tag_and_concurrency_key
+                .as_ref()
+                .and_then(|x| x.tag.as_deref())
+            {
+                // `run_flow` checked this tag for whoever ran the flow, an `$args[...]` in it as
+                // written since only this point knows its values: an entry admitting it as
+                // written admits every value here.
+                Some(t) => {
+                    let no_args = HashMap::new();
+                    let args = PushArgs::from(fetched_args.as_ref().unwrap_or(&no_args));
+                    resolve_push_tag(t, &args, &flow_job.workspace_id, db).await
+                }
+                None => None,
+            };
 
             let scheduled_for: Option<chrono::DateTime<chrono::Utc>> = {
                 #[cfg(feature = "private")]
@@ -2005,7 +2009,8 @@ pub async fn update_flow_status_after_job_completion_internal(
 
             if flow_job.cache_ttl.is_some() && success {
                 let flow = RawData::Flow(flow_data.clone());
-                let cached_res_path = cached_result_path(db, client, &flow_job, Some(&flow)).await;
+                let cached_res_path =
+                    cached_result_path(db, client, &flow_job, Some(&flow)).await?;
 
                 save_in_cache(
                     db,
@@ -2034,8 +2039,8 @@ pub async fn update_flow_status_after_job_completion_internal(
                 chat_ai_info.conversation_id,
             )
             .await?;
-            let (duration, wac_job_ids) = if success {
-                let (_, duration, wac_job_ids) = add_completed_job(
+            let duration = if success {
+                let (_, duration) = add_completed_job(
                     db,
                     &cflow_job,
                     true,
@@ -2049,9 +2054,9 @@ pub async fn update_flow_status_after_job_completion_internal(
                     false,
                 )
                 .await?;
-                (duration, wac_job_ids)
+                duration
             } else {
-                let (_, duration, wac_job_ids) = add_completed_job(
+                let (_, duration) = add_completed_job(
                     db,
                     &cflow_job,
                     false,
@@ -2069,30 +2074,11 @@ pub async fn update_flow_status_after_job_completion_internal(
                     false,
                 )
                 .await?;
-                (duration, wac_job_ids)
+                duration
             };
             flow_job_duration = flow_job
                 .started_at
                 .map(|x| FlowJobDuration { started_at: x, duration_ms: duration });
-
-            // If this flow is a WAC child (not a flow step, has parent),
-            // notify the WAC parent of completion.
-            if !flow_job.is_flow_step() {
-                if let Some(parent_job) = flow_job.parent_job {
-                    if let Some(job_ids) = wac_job_ids {
-                        let _ = crate::result_processor::handle_wac_child_completion(
-                            db,
-                            &flow_job.id,
-                            parent_job,
-                            &flow_job.workspace_id,
-                            nresult.clone(),
-                            success,
-                            job_ids,
-                        )
-                        .await;
-                    }
-                }
-            }
         }
         true
     } else {
@@ -2254,6 +2240,7 @@ async fn add_tool_message_to_conversation(
                     MessageType::Assistant,
                     None,
                     success,
+                    None,
                 )
                 .await?;
                 tx.commit().await?;
@@ -3132,6 +3119,66 @@ fn resolve_flow_step_tag(
     }
 }
 
+/// Resolves each `$flow_expr[root.key.path]` of a step tag by reading `key.path` from `results`
+/// (where `key` is a step id), `flow_input` or `flow_env`, rendered as `$args[key.path]` would be.
+async fn interpolate_flow_expr_tag(
+    tag: &str,
+    db: &DB,
+    flow_job: &MiniPulledJob,
+    flow_input: &HashMap<String, Box<RawValue>>,
+    flow_env: Option<&HashMap<String, Box<RawValue>>>,
+) -> error::Result<String> {
+    if RE_FLOW_EXPR_TAG
+        .replace_all(tag, "")
+        .contains("$flow_expr[")
+    {
+        return Err(Error::ExecutionErr(format!(
+            "Could not resolve the step tag `{tag}`: each `$flow_expr[...]` must hold a dotted \
+             path such as `results.a.b.c`"
+        )));
+    }
+    let mut rendered: HashMap<&str, String> = HashMap::new();
+    for cap in RE_FLOW_EXPR_TAG.captures_iter(tag) {
+        let path = cap.get(1).unwrap().as_str();
+        if rendered.contains_key(path) {
+            continue;
+        }
+        let (root, key_path) = path.split_once('.').unwrap_or((path, ""));
+        let (key, rest) = key_path.split_once('.').unwrap_or((key_path, ""));
+        if key.is_empty() || !matches!(root, "results" | "flow_input" | "flow_env") {
+            return Err(Error::ExecutionErr(format!(
+                "Could not resolve the step tag `{tag}`: `{path}` must start with \
+                 `results.<step_id>`, `flow_input.<key>` or `flow_env.<key>`"
+            )));
+        }
+        let value = match root {
+            "flow_input" => render_tag_path(flow_input.get(key).map(|x| &**x), rest),
+            "flow_env" => render_tag_path(flow_env.and_then(|e| e.get(key)).map(|x| &**x), rest),
+            _ => match windmill_queue::get_result_by_id(
+                db.clone(),
+                flow_job.workspace_id.clone(),
+                flow_job.id,
+                key.to_string(),
+                None,
+            )
+            .await
+            {
+                Ok(result) => render_tag_path(Some(&*result), rest),
+                Err(Error::NotFound(_)) => String::new(),
+                Err(e) => {
+                    return Err(Error::ExecutionErr(format!(
+                        "Could not resolve the step tag `{tag}`: {e}"
+                    )))
+                }
+            },
+        };
+        rendered.insert(path, value);
+    }
+    Ok(RE_FLOW_EXPR_TAG
+        .replace_all(tag, |cap: &regex::Captures| rendered[&cap[1]].clone())
+        .into_owned())
+}
+
 #[cfg(test)]
 mod tag_resolution_tests {
     use super::resolve_flow_step_tag;
@@ -3891,7 +3938,18 @@ async fn push_next_flow_job(
 
     drop(resume_messages);
 
-    let is_skipped = if let Some(skip_if) = &module.skip_if {
+    // `skip_if` is a one-time entry gate, so only first-entry statuses evaluate it.
+    // Once the module is looping, the last completed job is an inner iteration, not
+    // `previous_id`'s, and re-evaluating would alias `results.<previous_id>` to it.
+    // A restart-at-iteration also enters as `InProgress`: it resumes without re-gating.
+    let is_skipped = if let Some(skip_if) = module.skip_if.as_ref().filter(|_| {
+        matches!(
+            status_module,
+            FlowStatusModule::WaitingForPriorSteps { .. }
+                | FlowStatusModule::WaitingForEvents { .. }
+                | FlowStatusModule::WaitingForExecutor { .. }
+        )
+    }) {
         let idcontext = get_transform_context(&flow_job, previous_id.as_str(), &status);
         let skip_if_res = compute_bool_from_expr(
             &skip_if.expr,
@@ -4199,6 +4257,10 @@ async fn push_next_flow_job(
             None
         };
 
+        // The `flow_input` the step's input transforms read, which a `$flow_expr[flow_input...]`
+        // tag must read too: the body of a simple for-loop also sees `iter` there.
+        let mut step_flow_input = arc_flow_job_args.clone();
+
         let marc;
         let me;
         let args = match &next_status {
@@ -4223,8 +4285,10 @@ async fn push_next_flow_job(
                 if let Some(input_transforms) = simple_input_transforms {
                     //previous id is none because we do not want to use previous id if we are in a for loop
                     let ctx = get_transform_context(&flow_job, "", &status);
+                    let args = Marc::new(args);
+                    step_flow_input = args.clone();
                     let ti = transform_input(
-                        Marc::new(args),
+                        args,
                         flow_env,
                         arc_last_job_result.clone(),
                         input_transforms,
@@ -4403,17 +4467,21 @@ async fn push_next_flow_job(
             payload_tag.tag.as_deref(),
         );
 
-        // `push_args` is empty once the input transforms failed, so a tag reading `$args[...]`
-        // interpolates to a queue nobody serves and the step sits there instead of reporting
-        // the error. Send it to the flow's tag, which a worker is provably serving right now.
+        // A step whose inputs failed to evaluate, or whose `$flow_expr[...]` tag failed to resolve,
+        // is pushed only to report the error, and a computed tag can then name a queue nobody
+        // serves (`push_args` is empty, so `$args[...]` reads nothing), leaving the step stuck
+        // instead. Send it to the flow's tag, which a worker is provably serving right now.
         //
         // A step handed over by id, or one whose tag `push` replaces, never reaches a worker
         // through its tag, so rewriting theirs would be noise.
         let step_is_pulled_by_tag = !continue_on_same_worker
             && !continue_with_runners
             && !payload_tag.payload.is_dedicated_worker();
-        let reroute_to_flow_tag =
-            err.is_some() && step_is_pulled_by_tag && tag.as_deref().is_some_and(tag_reads_args);
+        let reroute_to_flow_tag = err.is_some()
+            && step_is_pulled_by_tag
+            && tag
+                .as_deref()
+                .is_some_and(|t| tag_reads_args(t) || tag_reads_flow_expr(t));
         let tag = if reroute_to_flow_tag {
             Some(flow_job.tag.clone())
         } else {
@@ -4430,26 +4498,51 @@ async fn push_next_flow_job(
             )
         };
 
-        // Check tag availability for flow substeps to prevent abuse.
-        // Skip when the substep inherits the parent flow's tag: that tag was already
+        let written_tag = tag.clone();
+        let mut tag_err = None;
+        let tag = match tag {
+            Some(t) if err.is_none() && tag_reads_flow_expr(&t) => {
+                match interpolate_flow_expr_tag(&t, db, &flow_job, &step_flow_input, flow_env)
+                    .warn_after_seconds(3)
+                    .await
+                {
+                    Ok(resolved) => Some(resolved),
+                    Err(e) => {
+                        tag_err = Some(e);
+                        Some(if step_is_pulled_by_tag {
+                            flow_job.tag.clone()
+                        } else {
+                            t
+                        })
+                    }
+                }
+            }
+            t => t,
+        };
+        let err = err.or(tag_err.as_ref());
+
+        // Check tag availability for flow substeps to prevent abuse. It runs on the tag with its
+        // `$flow_expr[...]` filled in, as `push` fills in the rest, since that is what picks the
+        // queue. Skip when the substep inherits the parent flow's tag: that tag was already
         // validated at flow push time, and for dedicated flows it is the auto-generated
         // `{workspace_id}:flow/{path}` tag which is never in CUSTOM_TAGS.
         if let Some(tag_str) = tag
             .as_deref()
             .filter(|t| !t.is_empty() && *t != flow_job.tag.as_str())
         {
+            // A step with its own on-behalf-of carries a cached dispatch address, up to one
+            // notify poll stale; accepted, see `get_email_from_permissioned_as`.
             let is_super_admin = windmill_common::auth::is_super_admin_email(db, email).await?;
-            check_tag_available_for_workspace_internal(
+            check_tag_written_as_available_for_push(
                 db,
                 &flow_job.workspace_id,
+                written_tag.as_deref().unwrap_or(tag_str),
                 tag_str,
+                &push_args,
                 is_super_admin,
                 None, // no token for flow substeps so no scopes so no scope_tags
             )
-            .warn_after_seconds_with_sql(
-                1,
-                "check_tag_available_for_workspace_internal".to_string(),
-            )
+            .warn_after_seconds_with_sql(1, "check_tag_available_for_push".to_string())
             .await?;
         }
 

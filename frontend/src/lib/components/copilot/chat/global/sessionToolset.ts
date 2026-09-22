@@ -47,23 +47,18 @@ export const SESSION_TOOL_POLICIES: Record<string, SessionToolPolicy> = {
 
 	// ── Run history ─────────────────────────────────────────────────────────
 	list_runs: NONE,
-	get_flow_run_details: NONE,
-	get_job_logs: NONE,
+	get_run: NONE,
 	cancel_job: NONE,
+	list_workers: NONE,
 
 	// ── Data ────────────────────────────────────────────────────────────────
 	list_datatables: NONE,
 	get_datatable_table_schema: NONE,
 	list_ducklakes: NONE,
+	list_data_metrics: NONE,
 	exec_datatable_sql: RUN_PREVIEW,
 
-	// ── API catalog and MCP ─────────────────────────────────────────────────
-	// No capability needed: every endpoint these can reach is a read or a run-by-path.
-	// The authoring and delete endpoints are refused for everyone by COVERED_ENDPOINTS
-	// in apiCatalogTools, so there is no per-role cut left to make here.
-	search_api_endpoints: NONE,
-	call_api_get: NONE,
-	call_api_endpoint: NONE,
+	// ── MCP ─────────────────────────────────────────────────────────────────
 	search_mcp_tools: NONE,
 	call_mcp_read_tool: NONE,
 	call_mcp_write_tool: NONE,
@@ -135,9 +130,10 @@ export const SESSION_TOOL_POLICIES: Record<string, SessionToolPolicy> = {
 	deploy_workspace_item: AUTHORING_AID,
 	delete_workspace_item: NONE,
 
-	// Ungated, unlike the preview runs below: this executes the DEPLOYED script under
+	// Ungated, unlike the preview runs below: these execute the DEPLOYED item under
 	// the user's own permissions, which is the one run an operator's token allows.
 	run_script: NONE,
+	run_flow: NONE,
 
 	// ── Preview execution ───────────────────────────────────────────────────
 	test_run_script: RUN_PREVIEW,

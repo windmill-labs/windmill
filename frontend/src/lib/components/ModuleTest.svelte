@@ -7,7 +7,6 @@
 		type JavascriptTransform,
 		type Job
 	} from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { getScriptByPath } from '$lib/scripts'
 	import { getContext, untrack } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
@@ -21,7 +20,11 @@
 		type LinkedAgentDraft
 	} from './flows/linkedAgentDrafts'
 	import { AGENT_FLOW_LOCAL_KEYS } from './flows/agentResourceUtils'
+	import { AGENT_HISTORY_KEYS } from './flows/agentFormFields'
 	import { sendUserToast } from '$lib/toast'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		mod: FlowModule
@@ -55,7 +58,7 @@
 	let previewBase = $derived($pathStore ?? '')
 
 	// Acting workspace when the flow editor runs in an AI session; else the nav workspace.
-	let opWs = $derived(opWorkspace?.() ?? $workspaceStore)
+	let opWs = $derived(opWorkspace?.() ?? $operatingWorkspace)
 
 	let jobLoader: JobLoader | undefined = $state(undefined)
 	let jobProgressReset: () => void = () => {}
@@ -170,11 +173,21 @@
 			}
 			const agentVal = draft ? inlineAgentDraft(val, draft.args) : val
 
-			// `args` is built from the whole AI agent schema whatever the step is, so on a linked step
-			// it carries every brain key as undefined even though the form renders only the flow-local
-			// ones (`flowLocalAgentSchema`). Overlaying those would shadow the brain the draft just
-			// supplied with nothing, so an inlined step takes only the inputs its form actually offers.
-			const formKeys = draft ? (AGENT_FLOW_LOCAL_KEYS as readonly string[]) : Object.keys(args)
+			// `args` spans the whole AI agent schema, so on a linked step it carries every brain key as
+			// undefined; overlaying those would shadow the draft's brain, so an inlined step takes only
+			// the inputs its form offers. A blank history input is unset, as on the step: an expression
+			// evaluating to nothing reads as an empty memory id, and the step's transform is stale.
+			const isBlank = (v: unknown) => v == undefined || v === '' || (Array.isArray(v) && !v.length)
+			const formKeys = (
+				draft ? (AGENT_FLOW_LOCAL_KEYS as readonly string[]) : Object.keys(args)
+			).filter(
+				(key) => !(AGENT_HISTORY_KEYS as readonly string[]).includes(key) || !isBlank(args[key])
+			)
+			const stepTransforms = Object.fromEntries(
+				Object.entries((agentVal.input_transforms ?? {}) as Record<string, InputTransform>).filter(
+					([key]) => !(AGENT_HISTORY_KEYS as readonly string[]).includes(key) || !isBlank(args[key])
+				)
+			)
 
 			// The test form only covers the schema it was given, and for a standalone agent that may be
 			// the flow-local one (the agent editor shows the brain in its own form, not here). Take the
@@ -182,9 +195,7 @@
 			// in the form after the test panel mounted is what runs. A linked agent needs none of this:
 			// the server reads its brain from the resource.
 			const inputTransforms: { [key: string]: JavascriptTransform | InputTransform } = {
-				...(agentVal.agent
-					? {}
-					: ((agentVal.input_transforms ?? {}) as Record<string, InputTransform>)),
+				...(agentVal.agent ? {} : stepTransforms),
 				...Object.fromEntries(
 					formKeys.map((key) => [
 						key,

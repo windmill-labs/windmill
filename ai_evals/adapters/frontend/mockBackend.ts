@@ -11,9 +11,9 @@ import type {
 	Script
 } from '../../../frontend/src/lib/gen'
 import type {
+	DataMetric,
 	DataTableTables,
 	DataTableTableSchema,
-	EndpointTool,
 	GetDraftForUserResponse,
 	GetOwnDraftResponse,
 	ListDraftsResponse,
@@ -48,12 +48,16 @@ export interface BenchmarkWorkspaceFlow {
 export interface BenchmarkWorkspaceApp {
 	path: string
 	summary: string
+	/** Defaults to true. Set false for a drag-and-drop app, which the chat can list
+	 * and read but has no tool to edit — its value is a grid, not files. */
+	rawApp?: boolean
 	value: {
-		files: Record<string, string>
-		runnables: Record<string, unknown>
+		files?: Record<string, string>
+		runnables?: Record<string, unknown>
 		data?: unknown
 		policy?: unknown
 		custom_path?: unknown
+		[key: string]: unknown
 	}
 }
 
@@ -92,7 +96,7 @@ export interface BenchmarkWorkspaceResource {
 }
 
 export interface BenchmarkWorkspaceJob {
-	/** Stable id so a case prompt can reference a specific run (e.g. for get_job_logs). */
+	/** Stable id so a case prompt can reference a specific run (e.g. for get_run). */
 	id?: string
 	jobKind?: CompletedJob['job_kind']
 	scriptPath?: string
@@ -100,6 +104,8 @@ export interface BenchmarkWorkspaceJob {
 	label?: string
 	success?: boolean
 	logs?: string
+	args?: Record<string, unknown>
+	result?: unknown
 }
 
 export interface BenchmarkWorkspaceRunnables {
@@ -110,6 +116,9 @@ export interface BenchmarkWorkspaceRunnables {
 	aiProviders?: BenchmarkWorkspaceAiProvider[]
 	resources?: BenchmarkWorkspaceResource[]
 	datatables?: BenchmarkDatatableSeed[]
+	/** DuckLake catalog names, as `list_ducklakes` reports them. */
+	ducklakes?: string[]
+	dataMetrics?: DataMetric[]
 	jobs?: BenchmarkWorkspaceJob[]
 }
 
@@ -156,7 +165,7 @@ export function registerBenchmarkWorkspaceRunnables(
 		...runnables,
 		datatables: runnables.datatables ? structuredClone(runnables.datatables) : undefined
 	})
-	// Seed any fixture jobs so list_runs / get_job_logs have data to return.
+	// Seed any fixture jobs so list_runs / get_run have data to return.
 	for (const seed of runnables.jobs ?? []) {
 		createBenchmarkCompletedJob({
 			workspace,
@@ -166,7 +175,9 @@ export function registerBenchmarkWorkspaceRunnables(
 			scriptPath: seed.scriptPath,
 			createdBy: seed.createdBy,
 			label: seed.label,
-			logs: seed.logs
+			logs: seed.logs,
+			args: seed.args,
+			result: seed.result
 		})
 	}
 }
@@ -481,6 +492,33 @@ export function getBenchmarkJobLogs(workspace: string, jobId: string): string {
 	return job.logs ?? ''
 }
 
+/**
+ * Mirror `JobService.getFlowAllResults`, which get_run calls for the execution
+ * tree. Fixture jobs are single runs with no steps, so only the root entry.
+ */
+export function getBenchmarkFlowAllResults(workspace: string, jobId: string) {
+	const job = getBenchmarkCompletedJob(workspace, jobId)
+	if (!job) {
+		throw new Error(`Job "${jobId}" not found in benchmark workspace`)
+	}
+	return {
+		entries: [
+			{
+				job_id: jobId,
+				label: 'Flow',
+				kind: job.job_kind ?? 'script',
+				depth: 0,
+				sibling_index: 1,
+				sibling_count: 1,
+				status: job.success ? 'success' : 'failure',
+				success: job.success
+			}
+		],
+		truncated: false,
+		scope_filtered: false
+	}
+}
+
 // ============= Drafts (per-user, DB-backed in production) =============
 
 /**
@@ -640,6 +678,27 @@ export function listBenchmarkDatatables(workspace: string): DataTableTables[] | 
 			Object.entries(datatable.schemas).map(([schema, tables]) => [schema, Object.keys(tables)])
 		)
 	}))
+}
+
+// ============= DuckLake catalogs and declared metrics =============
+
+/** Seeded DuckLake names, or `null` for a non-benchmark workspace. */
+export function listBenchmarkDucklakes(workspace: string): string[] | null {
+	const runnables = benchmarkWorkspaceRunnables.get(workspace)
+	return runnables ? (runnables.ducklakes ?? []) : null
+}
+
+/**
+ * Seeded metric declarations, or `null` for a non-benchmark workspace.
+ *
+ * The `table` / `path_prefix` filters are ignored: which rows a filter selects is
+ * `canonical_table_path`'s business and is pinned by `ducklakeTools.test.ts`.
+ * Re-deriving it here would give the eval its own copy of that spec to drift from,
+ * and the case this serves measures whether the model reaches for the tool at all.
+ */
+export function listBenchmarkDataMetrics(workspace: string): DataMetric[] | null {
+	const runnables = benchmarkWorkspaceRunnables.get(workspace)
+	return runnables ? (runnables.dataMetrics ?? []) : null
 }
 
 export function getBenchmarkDatatableSchema(input: {
@@ -809,6 +868,29 @@ export function runBenchmarkFlowByPath(input: {
 	})
 }
 
+/**
+ * Mirror `JobService.runFlowPreview` for benchmark workspaces, including the server's
+ * refusal of a chat-enabled flow run that names no conversation (`memory_id`).
+ */
+export function runBenchmarkFlowPreview(input: {
+	workspace: string
+	memoryId?: string
+	requestBody?: { path?: string; value?: { chat_input_enabled?: boolean }; args?: unknown }
+}): string {
+	if (input.requestBody?.value?.chat_input_enabled && !input.memoryId) {
+		throw new Error('Bad request: memory_id is required for chat-enabled flows')
+	}
+	const args = (input.requestBody?.args ?? {}) as Record<string, unknown>
+	return createBenchmarkCompletedJob({
+		workspace: input.workspace,
+		jobKind: 'flowpreview',
+		success: true,
+		args,
+		result: { path: input.requestBody?.path, args, mocked: true },
+		logs: 'Mock benchmark flow preview completed successfully.'
+	})
+}
+
 export function previewBenchmarkSchedule(input: {
 	requestBody?: Record<string, unknown>
 }): Record<string, unknown> {
@@ -915,7 +997,7 @@ function buildBenchmarkListableApp(app: BenchmarkWorkspaceApp): ListableApp {
 		extra_perms: {},
 		edited_at: BENCHMARK_TIMESTAMP,
 		execution_mode: 'viewer',
-		raw_app: true
+		raw_app: app.rawApp ?? true
 	}
 }
 
@@ -933,121 +1015,8 @@ function buildBenchmarkApp(app: BenchmarkWorkspaceApp): AppWithLastVersion {
 		execution_mode: 'viewer',
 		extra_perms: {},
 		custom_path: app.value.custom_path as string | undefined,
-		raw_app: true
+		raw_app: app.rawApp ?? true
 	}
-}
-
-// ============= API endpoint catalog (McpService.listMcpTools + raw fetch) =============
-// The global chat's API catalog tools list endpoints via McpService and execute
-// them with a plain relative fetch('/api/...'), which has no meaning in the
-// vitest environment. A representative slice of the real catalog is served here,
-// and `handleBenchmarkApiFetch` answers the executed calls.
-
-const BENCHMARK_MCP_TOOLS: EndpointTool[] = [
-	{
-		name: 'listWorkers',
-		description: 'List workers',
-		instructions: 'List all workers with their last ping and job counts.',
-		path: '/workers/list',
-		method: 'GET',
-		query_params_schema: {
-			type: 'object',
-			properties: { page: { type: 'integer' }, per_page: { type: 'integer' } }
-		}
-	},
-	{
-		name: 'listQueue',
-		description: 'List queued jobs',
-		instructions: '',
-		path: '/w/{workspace}/jobs/queue/list',
-		method: 'GET',
-		path_params_schema: {
-			type: 'object',
-			properties: { workspace: { type: 'string' } },
-			required: ['workspace']
-		}
-	},
-	{
-		name: 'getJob',
-		description: 'get job',
-		instructions: '',
-		path: '/w/{workspace}/jobs_u/get/{id}',
-		method: 'GET',
-		path_params_schema: {
-			type: 'object',
-			properties: { workspace: { type: 'string' }, id: { type: 'string', format: 'uuid' } },
-			required: ['workspace', 'id']
-		},
-		query_params_schema: {
-			type: 'object',
-			properties: {
-				no_logs: { type: 'boolean' },
-				no_code: { type: 'boolean' },
-				approval_token: { type: 'string' }
-			},
-			required: []
-		}
-	},
-	{
-		name: 'runScriptByPath',
-		description: 'Run the deployed version of a script by path',
-		instructions: '',
-		path: '/w/{workspace}/jobs/run/p/{path}',
-		method: 'POST',
-		path_params_schema: {
-			type: 'object',
-			properties: { workspace: { type: 'string' }, path: { type: 'string' } },
-			required: ['workspace', 'path']
-		},
-		body_schema: { type: 'object', properties: {} }
-	},
-	{
-		name: 'runFlowByPath',
-		description: 'Run the deployed version of a flow by path',
-		instructions: '',
-		path: '/w/{workspace}/jobs/run/f/{path}',
-		method: 'POST',
-		path_params_schema: {
-			type: 'object',
-			properties: { workspace: { type: 'string' }, path: { type: 'string' } },
-			required: ['workspace', 'path']
-		},
-		body_schema: { type: 'object', properties: {} }
-	},
-	// Draft-covered endpoints, present so steering cases exercise the guard the
-	// way production does (hidden from search, refused at call time).
-	{
-		name: 'getScriptByPath',
-		description: 'Get a script by path',
-		instructions: '',
-		path: '/w/{workspace}/scripts/get/p/{path}',
-		method: 'GET'
-	},
-	{
-		name: 'createFlow',
-		description: 'Create a flow',
-		instructions: '',
-		path: '/w/{workspace}/flows/create',
-		method: 'POST'
-	},
-	{
-		name: 'deleteSchedule',
-		description: 'Delete a schedule',
-		instructions: '',
-		path: '/w/{workspace}/schedules/delete/{path}',
-		method: 'DELETE'
-	},
-	{
-		name: 'getVariable',
-		description: 'Get a variable',
-		instructions: '',
-		path: '/w/{workspace}/variables/get/{path}',
-		method: 'GET'
-	}
-]
-
-export function listBenchmarkMcpTools(): EndpointTool[] {
-	return BENCHMARK_MCP_TOOLS
 }
 
 /** A stand-in Windmill hub. `search_hub_scripts` and a `hub/` read go out over
@@ -1209,26 +1178,6 @@ const BENCHMARK_WORKERS = [
 	}
 ]
 
-const BENCHMARK_JOB_GET_PATH = /^\/api\/w\/([^/]+)\/jobs_u\/get\/([^/]+)$/
-const BENCHMARK_RUN_BY_PATH = /^\/api\/w\/([^/]+)\/jobs\/run\/(p|f)\/([^/]+)$/
-
-/** `executeEndpoint` sends a JSON string; anything else means no args were supplied. */
-function parseBenchmarkRequestBody(
-	body: BodyInit | null | undefined
-): Record<string, unknown> | undefined {
-	if (typeof body !== 'string') {
-		return undefined
-	}
-	try {
-		const parsed = JSON.parse(body)
-		return typeof parsed === 'object' && parsed !== null
-			? (parsed as Record<string, unknown>)
-			: undefined
-	} catch {
-		return undefined
-	}
-}
-
 /** True when `handleBenchmarkApiFetch` has an answer for this `/api/...` url.
  * Any other relative fetch must keep its normal (non-benchmark) behavior —
  * intercepting it with a synthetic 404 sends the model into retry loops. */
@@ -1240,17 +1189,13 @@ export function hasBenchmarkApiHandler(url: string): boolean {
 	const path = url.split('?')[0]
 	return (
 		path === '/api/workers/list' ||
-		BENCHMARK_JOB_GET_PATH.test(path) ||
-		BENCHMARK_RUN_BY_PATH.test(path) ||
-		/^\/api\/w\/[^/]+\/jobs\/queue\/list$/.test(path) ||
 		path === '/api/embeddings/query_hub_scripts' ||
 		path.startsWith('/api/scripts/hub/get_full/') ||
 		BENCHMARK_AI_MODELS_PATH.test(path)
 	)
 }
 
-/** Answer a relative `/api/...` fetch — from the API catalog executor, or from the
- * chat's hub tools. */
+/** Answer the relative `/api/...` fetches no mocked service covers. */
 export function handleBenchmarkApiFetch(url: string, init?: RequestInit): Response {
 	const path = url.split('?')[0]
 	if (path === '/api/workers/list') {
@@ -1266,39 +1211,6 @@ export function handleBenchmarkApiFetch(url: string, init?: RequestInit): Respon
 			.get(decodeURIComponent(aiModels[1]))
 			?.aiProviders?.find((entry) => entry.path === resourcePath)
 		return Response.json({ data: (seed?.models ?? []).map((id) => ({ id })) })
-	}
-	if (/^\/api\/w\/[^/]+\/jobs\/queue\/list$/.test(path)) {
-		return Response.json([])
-	}
-	const jobGet = BENCHMARK_JOB_GET_PATH.exec(path)
-	if (jobGet) {
-		const id = decodeURIComponent(jobGet[2])
-		const job = getBenchmarkCompletedJob(decodeURIComponent(jobGet[1]), id)
-		if (!job) {
-			return Response.json({ error: `Job not found for "${id}"` }, { status: 404 })
-		}
-		// The real endpoint lets a caller drop the bulky fields. Ignoring that here would
-		// size the model's context off a payload it explicitly asked to shrink.
-		const query = new URLSearchParams(url.split('?')[1] ?? '')
-		if (query.get('no_logs') === 'true') {
-			delete job.logs
-		}
-		if (query.get('no_code') === 'true') {
-			delete job.raw_code
-		}
-		return Response.json(job)
-	}
-	const runByPath = BENCHMARK_RUN_BY_PATH.exec(path)
-	if (runByPath) {
-		const workspace = decodeURIComponent(runByPath[1])
-		const runnablePath = decodeURIComponent(runByPath[3])
-		const args = parseBenchmarkRequestBody(init?.body)
-		// The real endpoint answers with the bare job id as text, not JSON.
-		return new Response(
-			runByPath[2] === 'f'
-				? runBenchmarkFlowByPath({ workspace, path: runnablePath, args })
-				: runBenchmarkScriptByPath({ workspace, path: runnablePath, args })
-		)
 	}
 	if (path === '/api/embeddings/query_hub_scripts') {
 		const text = new URLSearchParams(url.split('?')[1] ?? '').get('text') ?? ''

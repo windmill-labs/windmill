@@ -654,6 +654,16 @@ pub struct ResultMetadata {
     pub wm_failure: Option<String>,
 }
 
+/// Parses a marker struct out of a job result, which only an object can carry.
+/// A derived `Deserialize` also accepts an array, filling fields by position, so
+/// without the check a result like `[[], "boom"]` reads as `wm_failure: "boom"`.
+pub fn parse_result_object<T: serde::de::DeserializeOwned>(result: &str) -> Option<T> {
+    if !result.trim_start().starts_with('{') {
+        return None;
+    }
+    serde_json::from_str(result).ok()
+}
+
 /// Sentinel `error.name` we inject into a result when retagging a successful
 /// run as a failure due to `wm_failure`. Used downstream to detect that
 /// the result is already in the standard `{ error: { name, message }, ... }`
@@ -674,8 +684,7 @@ pub fn is_pre_shaped_wm_failure_result(result: &str) -> bool {
     struct NameOnly {
         name: String,
     }
-    serde_json::from_str::<Marker>(result)
-        .ok()
+    parse_result_object::<Marker>(result)
         .and_then(|m| m.error)
         .map(|e| e.name == MANUAL_FAILURE_ERROR_NAME)
         .unwrap_or(false)
@@ -721,7 +730,7 @@ impl ValidableJson for Box<RawValue> {
     }
 
     fn result_metadata(&self) -> ResultMetadata {
-        serde_json::from_str::<ResultMetadata>(self.get()).unwrap_or_default()
+        parse_result_object::<ResultMetadata>(self.get()).unwrap_or_default()
     }
 
     fn size(&self) -> usize {
@@ -774,6 +783,10 @@ impl ValidableJson for serde_json::Value {
     }
 
     fn result_metadata(&self) -> ResultMetadata {
+        // An array would decode positionally, see `parse_result_object`.
+        if !self.is_object() {
+            return ResultMetadata::default();
+        }
         serde_json::from_value::<ResultMetadata>(self.clone()).unwrap_or_default()
     }
 
@@ -983,7 +996,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     flow_is_done: bool,
     duration: Option<i64>,
     from_cache: bool,
-) -> Result<(Uuid, i64, Option<serde_json::Value>), Error> {
+) -> Result<(Uuid, i64), Error> {
     // tracing::error!("Start");
     // let start = tokio::time::Instant::now();
 
@@ -1017,7 +1030,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     };
 
     let result_columns = result_columns.as_ref();
-    let (opt_uuid, duration, _skip_downstream_error_handlers, wac_job_ids) = (|| {
+    let (opt_uuid, duration, _skip_downstream_error_handlers, wac_parent_ready) = (|| {
         commit_completed_job(
             db,
             completed_job,
@@ -1052,9 +1065,13 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     .sleep(tokio::time::sleep)
     .await?;
 
+    if wac_parent_ready {
+        windmill_common::wac::WAC_SUSPEND_READY.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
     // if scheduling next job failed, return the job_id early to ensure the job get retried after a timeout
     if let Some(job_id) = opt_uuid {
-        return Ok((job_id, duration, None));
+        return Ok((job_id, duration));
     }
 
     // Auto-resolve a retry chain that ultimately worked, from whichever of the two
@@ -1101,7 +1118,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
 
     // tracing::error!("4 {:?}", start.elapsed());
 
-    Ok((completed_job.id, duration, wac_job_ids))
+    Ok((completed_job.id, duration))
 }
 
 async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
@@ -1119,7 +1136,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     // True when a native script retry was enqueued for this failed attempt, i.e.
     // this is not the terminal attempt — schedule completion handlers must wait.
     retry_pending: bool,
-) -> windmill_common::error::Result<(Option<Uuid>, i64, bool, Option<serde_json::Value>)> {
+) -> windmill_common::error::Result<(Option<Uuid>, i64, bool, bool)> {
     // let start = std::time::Instant::now();
 
     let job_id = completed_job.id;
@@ -1249,74 +1266,23 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         .map_err(|e| Error::InternalErr(format!("Could not update job labels: {e:#}")))?;
     }
 
-    let mut wac_job_ids: Option<serde_json::Value> = None;
+    // Before `delete_job`: the parent's rows are locked ahead of the child's own
+    // queue row (see `record_child_completion` for the order this must keep).
+    let mut wac_parent_ready = false;
     if !completed_job.is_flow_step() {
         if let Some(parent_job) = completed_job.parent_job {
-            // Only update WAC parents (v1 or v2). The WHERE condition skips
-            // non-WAC parents entirely (error handlers, run_script children, etc.).
-            // Also returns pending_steps.job_ids so WAC v2 child completion
-            // doesn't need a separate read.
-            let row = sqlx::query_scalar!(
-                r#"UPDATE v2_job_status SET
-                        workflow_as_code_status = jsonb_set(
-                            jsonb_set(
-                                workflow_as_code_status,
-                                array[$1],
-                                COALESCE(workflow_as_code_status->$1, '{}'::jsonb)
-                            ),
-                            array[$1, 'duration_ms'],
-                            to_jsonb($2::bigint)
-                        )
-                    WHERE id = $3 AND workflow_as_code_status IS NOT NULL
-                    RETURNING workflow_as_code_status->'_checkpoint'->'pending_steps'->'job_ids' AS "job_ids: serde_json::Value""#,
-                &completed_job.id.to_string(),
+            wac_parent_ready = windmill_common::wac::record_child_completion(
+                &mut tx,
+                &parent_job,
+                &completed_job.id,
+                success,
                 duration,
-                parent_job
+                sanitized_result.as_ref(),
             )
-            .fetch_optional(&mut *tx)
             .warn_after_seconds(10)
-            .await
-            .inspect_err(|e| {
-                tracing::error!(
-                    "Could not update parent job `duration_ms` in workflow as code status: {}",
-                    e,
-                )
-            })
-            .ok()
-            .flatten();
-            wac_job_ids = row.flatten();
-
-            // If parent was already completed (e.g. cancelled), update v2_job_completed instead
-            if wac_job_ids.is_none() {
-                let _ = sqlx::query!(
-                    r#"UPDATE v2_job_completed SET
-                            workflow_as_code_status = jsonb_set(
-                                jsonb_set(
-                                    workflow_as_code_status,
-                                    array[$1],
-                                    COALESCE(workflow_as_code_status->$1, '{}'::jsonb)
-                                ),
-                                array[$1, 'duration_ms'],
-                                to_jsonb($2::bigint)
-                            )
-                        WHERE id = $3 AND workflow_as_code_status IS NOT NULL"#,
-                    &completed_job.id.to_string(),
-                    duration,
-                    parent_job
-                )
-                .execute(&mut *tx)
-                .warn_after_seconds(10)
-                .await
-                .inspect_err(|e| {
-                    tracing::error!(
-                        "Could not update completed parent job `duration_ms` in workflow as code status: {}",
-                        e,
-                    )
-                });
-            }
+            .await?;
         }
     }
-    // tracing::error!("Added completed job {:#?}", queued_job);
 
     let mut _skip_downstream_error_handlers = false;
     tx = delete_job(tx, &job_id).warn_after_seconds(10).await?;
@@ -1544,14 +1510,19 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         completed_job.id
     );
     // tracing::info!("completed job: {:?}", start.elapsed().as_micros());
-    Ok((None, duration, _skip_downstream_error_handlers, wac_job_ids))
+    Ok((
+        None,
+        duration,
+        _skip_downstream_error_handlers,
+        wac_parent_ready,
+    ))
 }
 
 async fn check_result_size<T: ValidableJson>(
     db: &Pool<Postgres>,
     queued_job: &MiniCompletedJob,
     result: Json<&T>,
-) -> Option<Result<(Option<Uuid>, i64, bool, Option<serde_json::Value>), Error>> {
+) -> Option<Result<(Option<Uuid>, i64, bool, bool), Error>> {
     let result_size = result.size() / 1024 / 1024;
     if result_size > 2 {
         if result_size > *MAX_RESULT_SIZE_MB {
@@ -4679,6 +4650,30 @@ pub fn tag_reads_args(tag: &str) -> bool {
     RE_ARG_TAG.is_match(tag)
 }
 
+/// Whether the tag reads the flow's state (`$flow_expr[results.a.foo]`), which only the flow
+/// runtime can resolve, right before pushing the step. A malformed placeholder counts too, so it
+/// is rejected or dropped instead of queueing the job on its literal text.
+pub fn tag_reads_flow_expr(tag: &str) -> bool {
+    tag.contains("$flow_expr[")
+}
+
+/// Renders the value at the dotted `path` below `root` as a dynamic tag component, shared by
+/// `$args[...]` and `$flow_expr[...]`: its JSON text with surrounding quotes trimmed, and empty
+/// once a segment is missing. Only object keys are followed, never array indexes.
+pub fn render_tag_path(root: Option<&RawValue>, path: &str) -> String {
+    let mut value = root.map(|x| x.get()).unwrap_or_default().to_string();
+    for part in path.split('.').filter(|p| !p.is_empty()) {
+        match serde_json::from_str::<serde_json::Value>(&value) {
+            Ok(obj) => value = obj.get(part).map(|v| v.to_string()).unwrap_or_default(),
+            Err(_) => {
+                value = String::new();
+                break;
+            }
+        }
+    }
+    value.trim_matches('"').to_string()
+}
+
 pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> String {
     // Save this value to avoid parsing twice
     let workspaced = x.as_str().replace("$workspace", workspace_id).to_string();
@@ -4686,40 +4681,12 @@ pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> Strin
         let mut interpolated = workspaced.clone();
         for cap in RE_ARG_TAG.captures_iter(&workspaced) {
             let arg_name = cap.get(1).unwrap().as_str();
-            let arg_value = if arg_name.contains('.') {
-                let parts: Vec<&str> = arg_name.split('.').collect();
-                let root = parts[0];
-                let mut value = args
-                    .args
-                    .get(root)
-                    .or(args.extra.as_ref().and_then(|x| x.get(root)))
-                    .map(|x| x.get())
-                    .unwrap_or_default()
-                    .to_string();
-
-                for part in parts.iter().skip(1) {
-                    if let Ok(obj) = serde_json::from_str::<serde_json::Value>(&value) {
-                        value = obj
-                            .get(part)
-                            .and_then(|v| Some(v.to_string()))
-                            .unwrap_or_default()
-                            .as_str()
-                            .to_string();
-                    } else {
-                        value = "".to_string(); // Invalid JSON or missing field
-                        break;
-                    }
-                }
-                value.trim_matches('"').to_string()
-            } else {
-                args.args
-                    .get(arg_name)
-                    .or(args.extra.as_ref().and_then(|x| x.get(arg_name)))
-                    .map(|x| x.get())
-                    .unwrap_or_default()
-                    .trim_matches('"')
-                    .to_string()
-            };
+            let (root, rest) = arg_name.split_once('.').unwrap_or((arg_name, ""));
+            let root_value = args
+                .args
+                .get(root)
+                .or(args.extra.as_ref().and_then(|x| x.get(root)));
+            let arg_value = render_tag_path(root_value.map(|x| &**x), rest);
             interpolated =
                 interpolated.replace(format!("$args[{}]", arg_name).as_str(), &arg_value);
         }
@@ -4727,6 +4694,72 @@ pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> Strin
     } else {
         workspaced
     }
+}
+
+/// The queue an explicit `tag` sends a job pushed with `args` to, or `None` when `push` drops the
+/// tag and the job runs on its default one.
+pub async fn resolve_push_tag(
+    tag: &str,
+    args: &PushArgs<'_>,
+    workspace_id: &str,
+    db: &DB,
+) -> Option<String> {
+    // The flow runtime resolves a step's `$flow_expr[...]` before pushing it, so one still here
+    // was pushed with no flow state to read (a step test, a dependency job) and would name a
+    // queue no worker serves: the job runs on its default tag instead.
+    if tag.is_empty() || tag_reads_flow_expr(tag) {
+        return None;
+    }
+    // `$workspace` must resolve the same way the default tags do, or an explicit tag and a default
+    // tag from the same workspace address two different worker pools. Resolving costs a lookup,
+    // so pay it only for tags that actually interpolate `$workspace`.
+    let tag_ws = if tag.contains("$workspace") {
+        crate::tags::tag_workspace_id(workspace_id, db).await
+    } else {
+        workspace_id.to_string()
+    };
+    Some(interpolate_args(tag.to_string(), args, &tag_ws))
+}
+
+/// Refuses a `tag` the caller chose that the instance's custom tags do not let `w_id` use,
+/// judging the queue it resolves to. `args` must be the ones the job is pushed with: resolving
+/// with any others checks a queue the job does not land on.
+pub async fn check_tag_available_for_push(
+    db: &DB,
+    w_id: &str,
+    tag: &str,
+    args: &PushArgs<'_>,
+    is_super_admin: bool,
+    scope_tags: Option<Vec<&str>>,
+) -> Result<(), Error> {
+    check_tag_written_as_available_for_push(db, w_id, tag, tag, args, is_super_admin, scope_tags)
+        .await
+}
+
+/// [`check_tag_available_for_push`] for a `tag` the flow runtime already partly resolved from
+/// `written_tag`, the step's tag as its author wrote it.
+pub async fn check_tag_written_as_available_for_push(
+    db: &DB,
+    w_id: &str,
+    written_tag: &str,
+    tag: &str,
+    args: &PushArgs<'_>,
+    is_super_admin: bool,
+    scope_tags: Option<Vec<&str>>,
+) -> Result<(), Error> {
+    let Some(resolved_tag) = resolve_push_tag(tag, args, w_id, db).await else {
+        return Ok(());
+    };
+    windmill_common::jobs::check_tag_available_for_workspace_internal(
+        db,
+        w_id,
+        written_tag,
+        Some(&resolved_tag),
+        crate::tags::tag_workspace_id(w_id, db),
+        is_super_admin,
+        scope_tags,
+    )
+    .await
 }
 
 pub fn fullpath_with_workspace(
@@ -5298,6 +5331,8 @@ pub fn empty_result() -> Box<RawValue> {
 
 lazy_static::lazy_static! {
     pub static ref RE_ARG_TAG: Regex = Regex::new(r#"\$args\[((?:\w+\.)*\w+)\]"#).unwrap();
+    pub static ref RE_FLOW_EXPR_TAG: Regex =
+        Regex::new(r#"\$flow_expr\[((?:\w+\.)*\w+)\]"#).unwrap();
 }
 
 #[cfg(feature = "cloud")]
@@ -5505,6 +5540,8 @@ async fn push_inner<'c, 'd>(
         ) {
             // Check current usage with SELECT (fast, no row locks)
             // Only check user usage for non-premium workspaces
+            // `email` here and in the per-user checks below can be a cached dispatch address, up
+            // to one notify poll stale; accepted, see `get_email_from_permissioned_as`.
             let (current_workspace_usage, current_user_usage) =
                 check_usage_limits(db, &billing_w_id, email, !team_plan_status.premium).await?;
 
@@ -6564,20 +6601,9 @@ async fn push_inner<'c, 'd>(
         );
         windmill_common::worker::dedicated_worker_tag(workspace_id, &full_path)
     } else {
-        if tag == Some("".to_string()) {
-            tag = None;
-        }
-
-        // `$workspace` must resolve the same way the default tags below do, or an explicit tag and
-        // a default tag from the same workspace address two different worker pools. Resolving costs
-        // a lookup, so pay it only for tags that actually interpolate `$workspace`.
         let interpolated_tag = match tag {
+            Some(x) => resolve_push_tag(&x, &args, workspace_id, db).await,
             None => None,
-            Some(x) if x.contains("$workspace") => {
-                let tag_ws = crate::tags::tag_workspace_id(&workspace_id, db).await;
-                Some(interpolate_args(x, &args, &tag_ws))
-            }
-            Some(x) => Some(interpolate_args(x, &args, workspace_id)),
         };
         let effective_ws = per_workspace_tag(&workspace_id, db).await;
 
@@ -6894,7 +6920,11 @@ async fn push_inner<'c, 'd>(
         language as Option<ScriptLang>,
         same_worker,
         pre_run_error.map(|e| e.to_string()),
-        email,
+        // `job_authed`'s, not the handed-in `email`: unless the caller's own authed already names
+        // this identity, it came through `fetch_authed_from_permissioned_as`, which re-resolves the
+        // address from the principal's live binding. The same statement writes it to
+        // `job_perms.email`, and the two columns naming different accounts is what this prevents.
+        job_authed.email,
         visible_to_owner,
         flow_innermost_root_job,
         guarded_concurrent_limit,
@@ -7011,7 +7041,8 @@ async fn push_inner<'c, 'd>(
             hm.insert("created_by", user);
         }
         let audit_author = AuditAuthor {
-            email: email.to_string(),
+            // `job_authed`'s address, matching `v2_job` and `job_perms` above.
+            email: job_authed.email.clone(),
             username: if runs_on_behalf {
                 windmill_common::auth::permissioned_as_to_username(&permissioned_as)
             } else {
@@ -7909,5 +7940,78 @@ mod git_sync_concurrency_key_tests {
         let b = git_sync_concurrency_key(ws, Some(format!("u/user/b{long}")), 0);
         assert_ne!(a, b);
         assert!(a.len() <= 255 && b.len() <= 255);
+    }
+}
+
+#[cfg(test)]
+mod result_metadata_tests {
+    use super::{ResultMetadata, ValidableJson};
+    use serde_json::value::RawValue;
+
+    fn from_raw(json: &str) -> ResultMetadata {
+        RawValue::from_string(json.to_string())
+            .unwrap()
+            .result_metadata()
+    }
+
+    fn from_value(json: &str) -> ResultMetadata {
+        serde_json::from_str::<serde_json::Value>(json)
+            .unwrap()
+            .result_metadata()
+    }
+
+    #[test]
+    fn array_result_carries_no_markers() {
+        for json in [r#"[["label"], "boom"]"#, r#"[null, "boom"]"#] {
+            for meta in [from_raw(json), from_value(json)] {
+                assert!(
+                    meta.wm_labels.is_none() && meta.wm_failure.is_none(),
+                    "{json}"
+                );
+            }
+        }
+        let meta = from_raw(r#"{"wm_labels": ["label"], "wm_failure": "boom"}"#);
+        assert_eq!(meta.wm_labels, Some(vec!["label".to_string()]));
+        assert_eq!(meta.wm_failure.as_deref(), Some("boom"));
+    }
+}
+
+#[cfg(test)]
+mod render_tag_path_tests {
+    use super::{interpolate_args, render_tag_path, PushArgs};
+    use serde_json::value::RawValue;
+    use std::collections::HashMap;
+
+    fn render(root: &str, path: &str) -> String {
+        render_tag_path(
+            Some(&RawValue::from_string(root.to_string()).unwrap()),
+            path,
+        )
+    }
+
+    // Existing `$args[...]` tags route on exactly these renderings.
+    #[test]
+    fn renders_like_args_tags() {
+        assert_eq!(render(r#""eu""#, ""), "eu");
+        assert_eq!(render(r#"{"a": {"b": "eu"}}"#, "a.b"), "eu");
+        assert_eq!(render(r#"{"n": 4}"#, "n"), "4");
+        assert_eq!(render("null", ""), "null");
+        assert_eq!(render(r#"{"a": 1}"#, "b.c"), "");
+        assert_eq!(render(r#"{"a": ["eu"]}"#, "a.0"), "");
+        assert_eq!(render_tag_path(None, "a"), "");
+
+        let args = HashMap::from([("cfg".to_string(), raw(r#"{"lang": "eu"}"#))]);
+        let push_args = PushArgs {
+            args: &args,
+            extra: Some(HashMap::from([("e".to_string(), raw(r#""x""#))])),
+        };
+        assert_eq!(
+            interpolate_args("w-$args[cfg.lang]-$args[e]".to_string(), &push_args, "ws"),
+            "w-eu-x"
+        );
+    }
+
+    fn raw(json: &str) -> Box<RawValue> {
+        RawValue::from_string(json.to_string()).unwrap()
     }
 }

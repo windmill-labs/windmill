@@ -13,6 +13,7 @@
 		type WindmillItemKind,
 		type WorkspaceItemTargetKind
 	} from './workspaceItems.svelte'
+	import { safeHref } from './safeHref'
 
 	type Props = {
 		href?: string
@@ -33,8 +34,8 @@
 		title
 	}: Props = $props()
 
-	// The drawers ride with the docked chat, so a surface can render this pill with nothing
-	// able to open one.
+	// The drawers ride with the docked chat and the session tabs with the sessions page, so a
+	// surface can render this pill with nothing able to open one.
 	const available = $derived.by(() => {
 		const action = workspaceItemAction(wmKind, wmPath, wmTargetKind, wmRawApp === 'true')
 		return action && hasToolDisplayActionHandler(action.type) ? action : undefined
@@ -44,6 +45,8 @@
 	// that click would redirect these pills far outside the sessions page.
 	const previewAction = $derived(available?.type === 'open_item_preview' ? available : undefined)
 	const drawerAction = $derived(available?.type === 'open_created_resource' ? available : undefined)
+
+	const allowedHref = $derived(safeHref(href, window.location.href))
 
 	const modifier = newTabModifier()
 
@@ -68,7 +71,7 @@
 	}
 </script>
 
-{#if href}
+{#if allowedHref}
 	{#if wmKind}
 		<!-- Only a preview pill can change icon, so only it is worth tracking the modifier for. -->
 		<span
@@ -76,7 +79,7 @@
 			{@attach previewAction ? modifier.attach : undefined}
 		>
 			<a
-				{href}
+				href={allowedHref}
 				target={previewAction ? undefined : '_blank'}
 				rel={previewAction ? undefined : 'noopener noreferrer'}
 				title={title || hint}
@@ -110,8 +113,8 @@
 					variant="subtle"
 					iconOnly
 					startIcon={{ icon: PanelRight }}
-					title="Open in drawer"
-					aria-label="Open {wmPath} in drawer"
+					title="Open in editor"
+					aria-label="Open {wmPath} in editor"
 					wrapperClasses="ml-0.5 inline-flex self-center shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
 					btnClasses="!w-auto !rounded !p-0.5 !text-tertiary"
 					onClick={openDrawer}
@@ -119,8 +122,11 @@
 			{/if}
 		</span>
 	{:else}
-		<a {href} target="_blank" rel="noopener noreferrer" {title}>
+		<a href={allowedHref} target="_blank" rel="noopener noreferrer" {title}>
 			{@render children?.()}
 		</a>
 	{/if}
+{:else}
+	<!-- An empty or unsafe href still has text; drop only the link. -->
+	{@render children?.()}
 {/if}

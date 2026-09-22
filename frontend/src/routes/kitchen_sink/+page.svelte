@@ -24,6 +24,8 @@
 
 ## Heading 2
 
+### Heading 3
+
 Body text with **bold**, *italic*, a [link](https://windmill.dev), and \`inline code\` that must stay readable in both themes.
 
 > A block quote should be legible too.
@@ -68,7 +70,13 @@ Raw sanitized HTML (via rehypeRaw) must keep its content, not render empty:
 	// AssistantMessage, and fenced code blocks go through CodeDisplay →
 	// HighlightCode. Exercise several languages + prose so the code-block styling
 	// can be tuned against the real render path, not an approximation.
-	const chatSampleContent = `Here's how you'd wire up the trigger. First, some prose with \`inline code\`, a [link](https://windmill.dev), and **bold** text so we can see how code sits next to surrounding content.
+	const chatSampleContent = `# Wiring up the trigger
+
+Here's how you'd wire up the trigger. First, some prose with \`inline code\`, a [link](https://windmill.dev), and **bold** text so we can see how code sits next to surrounding content.
+
+## The script
+
+### A subsection
 
 \`\`\`python
 def main(name: str = "world"):
@@ -188,7 +196,19 @@ That's the full round-trip.`
 			</div>
 		</TabContent>
 		<TabContent value="markdown" class="p-4">
-			<GfmMarkdown md={sampleMarkdown} />
+			<div class="text-xs text-tertiary mb-3">
+				The three <code>markdownProse</code> presets, same source. Each is sized for its own
+				surface: <code>xs</code> for group notes and chat reasoning, <code>sm</code> for chat
+				bubbles, sticky notes and markdown job results, <code>doc</code> for artifacts.
+			</div>
+			<div class="grid gap-4 md:grid-cols-3">
+				{#each ['xs', 'sm', 'doc'] as const as prose}
+					<div class="border border-border-light rounded-lg p-3 bg-surface min-w-0">
+						<div class="text-2xs text-tertiary font-mono mb-2">{prose}</div>
+						<GfmMarkdown md={sampleMarkdown} {prose} />
+					</div>
+				{/each}
+			</div>
 		</TabContent>
 		<TabContent value="chat" class="p-4">
 			<div class="text-xs text-tertiary mb-3">

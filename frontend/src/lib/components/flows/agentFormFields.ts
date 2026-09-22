@@ -1,5 +1,5 @@
 import { deepEqual } from 'fast-equals'
-import type { InputTransform } from '$lib/gen'
+import type { InputTransform, MemoryConfig } from '$lib/gen'
 
 /**
  * How the AI agent form presents `AI_AGENT_SCHEMA`: which group a field belongs to, what it is
@@ -25,6 +25,54 @@ export const AGENT_FIELD_GROUPS: { id: AgentFieldGroup; label: string }[] = [
  *  It lives in the registry so the groups keep a single ordering. */
 export const AGENT_TOOLS_ROW = 'tools'
 
+/** A step's own history inputs. Never seeded with a placeholder: a run reads a present key as the
+ *  step's choice, so only the author adds them. */
+export const AGENT_HISTORY_KEYS = ['memory_id', 'previous_messages'] as const
+export type AgentHistoryKey = (typeof AGENT_HISTORY_KEYS)[number]
+
+/** What turning managed memory on writes. */
+export const DEFAULT_AGENT_MEMORY: MemoryConfig = { kind: 'window', context_length: 10 }
+
+/** The docs section on how an agent's memory is named and kept. */
+export const AGENT_MEMORY_DOCS_URL =
+	'https://www.windmill.dev/docs/core_concepts/ai_agents#memory-auto--manual'
+
+/** Whether Windmill stores and replays the agent's conversation, mirroring the worker: `window`, or
+ *  its older spelling `auto`, with a message count above 0. A legacy `manual` list is not managed. */
+export function keepsManagedMemory(memory: any): boolean {
+	return (memory?.kind === 'window' || memory?.kind === 'auto') && Boolean(memory.context_length)
+}
+
+export type AgentMemoryMode = 'legacy' | 'managed' | 'off'
+
+/** Which shape a run reads this memory as: an older `auto`/`manual` setting, or the current one. */
+export function agentMemoryMode(memory: any): AgentMemoryMode {
+	if (memory?.kind === 'manual') return 'legacy'
+	// The worker reads an `auto` that keeps no messages as off, history inputs included, so the form
+	// offers what that run would read.
+	if (memory?.kind === 'auto') return memory.context_length ? 'legacy' : 'off'
+	return keepsManagedMemory(memory) ? 'managed' : 'off'
+}
+
+/** Whether a run reads this step input, mirroring the worker: managed memory reads only a memory
+ *  id, memory that is off only previous messages, and an older setting neither. A setting the form
+ *  cannot read yet leaves both open. */
+export function historyInputApplies(
+	key: AgentHistoryKey,
+	mode: AgentMemoryMode | undefined
+): boolean {
+	if (mode === undefined) return true
+	if (mode === 'legacy') return false
+	return (key === 'memory_id') === (mode === 'managed')
+}
+
+/** A memory setting in words, for a linked agent's summary. */
+export function describeMemoryPolicy(memory: any): string {
+	if (keepsManagedMemory(memory)) return `Last ${memory.context_length} messages`
+	if (memory?.kind === 'manual') return 'Off, sends previous messages saved with the agent'
+	return 'Off'
+}
+
 export interface AgentFieldSpec {
 	key: string
 	group: AgentFieldGroup
@@ -40,14 +88,16 @@ export interface AgentFieldSpec {
 	 *  before. Also what the add menu seeds the field with, so a new row opens showing what it
 	 *  overrides. */
 	implicit?: unknown
-	/** The same value written for a reader, shown under the field's name in the add menu. */
+	/** What the add menu opens the field on, where that is not `implicit`. Only a field whose empty
+	 *  value is a choice of its own needs one: an empty `enabled_tools` advertises no tools, so its
+	 *  row opens on an empty list to keep what is shown and what a run does the same thing, which
+	 *  leaves an absent field as the only way to say every tool. */
+	seed?: unknown
+	/** What leaving the field unset does, written for a reader, shown under the field's name in the
+	 *  add menu. */
 	defaultHint?: string
 	/** Ignored for image output, so the field hides while `output_type` is `'image'`. */
 	textOnly?: boolean
-	/** Filled in per run rather than configured on the step, so a form that is collecting a run's
-	 *  inputs shows it whether or not the step wrote anything for it. The step's own form still
-	 *  treats it as optional: there it is one of the fields the add menu offers. */
-	runInput?: boolean
 }
 
 export const AGENT_FIELDS: AgentFieldSpec[] = [
@@ -75,6 +125,14 @@ export const AGENT_FIELDS: AgentFieldSpec[] = [
 		defaultHint: 'Default: the provider decides'
 	},
 	{
+		key: 'user_message',
+		group: 'messages',
+		label: 'User message',
+		tooltip:
+			"The user turn, sent after the system message and any history. Turn on chat input on the flow's input interface to feed it from the chat.",
+		core: true
+	},
+	{
 		key: 'system_prompt',
 		group: 'messages',
 		label: 'System message',
@@ -84,20 +142,29 @@ export const AGENT_FIELDS: AgentFieldSpec[] = [
 	{
 		key: 'memory',
 		group: 'messages',
-		label: 'Memory',
-		tooltip:
-			'History sent between the system message and the user message. Windmill can keep it for you, or you can supply the messages yourself.',
+		label: 'Managed memory',
+		tooltip: 'Windmill stores the conversation and sends its last messages with each request.',
 		implicit: { kind: 'off' },
 		defaultHint: 'Default: off',
 		textOnly: true
 	},
 	{
-		key: 'user_message',
+		key: 'memory_id',
 		group: 'messages',
-		label: 'User message',
+		label: 'Memory id',
 		tooltip:
-			"The user turn, sent after the system message and any history. Turn on chat input on the flow's input interface to feed it from the chat.",
-		core: true
+			'Conversation history id: runs with the same id share their history. Inherited uses the memory_id the run was started with: the conversation id in chat mode, or the memory_id query parameter otherwise. Without either, each run starts fresh. Custom sets the id on the step: a fixed id shares one history across all runs, an expression keeps one history per value.',
+		implicit: '',
+		textOnly: true
+	},
+	{
+		key: 'previous_messages',
+		group: 'messages',
+		label: 'Previous messages',
+		tooltip: 'History the flow supplies, sent between the system message and the user message.',
+		implicit: [],
+		defaultHint: 'Default: none',
+		textOnly: true
 	},
 	{
 		key: 'user_attachments',
@@ -105,8 +172,7 @@ export const AGENT_FIELDS: AgentFieldSpec[] = [
 		label: 'Attachments',
 		tooltip: 'Images or PDFs sent along with the user message. Needs S3 storage on the workspace.',
 		implicit: [],
-		defaultHint: 'Default: none',
-		runInput: true
+		defaultHint: 'Default: none'
 	},
 	{
 		key: AGENT_TOOLS_ROW,
@@ -114,6 +180,15 @@ export const AGENT_FIELDS: AgentFieldSpec[] = [
 		label: 'Tools',
 		core: true,
 		virtual: true
+	},
+	{
+		key: 'enabled_tools',
+		group: 'tools',
+		label: 'Enabled tools',
+		tooltip:
+			'Which of the agent tools a run carries, so it costs no more than it needs. Selecting none leaves the agent with no tools, and unsetting the field gives it all of them. Set it to an expression to decide per run, naming each one the way this list does: a tool by its own name, an MCP server by its resource path, and web search by "__wm_web_search". An MCP server carries every tool it exposes, which its own include and exclude lists decide.',
+		seed: [],
+		defaultHint: 'Default: all of them'
 	},
 	{
 		key: 'max_iterations',
@@ -157,6 +232,16 @@ export const AGENT_FIELD_BY_KEY: Record<string, AgentFieldSpec> = Object.fromEnt
 )
 
 /**
+ * Fields the agent editor's test form has to offer whatever the agent holds, rather than only the
+ * ones a step wrote: a saved agent stores no flow-local input, so its own form cannot open a row
+ * for one and the test form is the only place left to supply it.
+ *
+ * `enabled_tools` stays out because narrowing a roster belongs to the step that reuses the agent,
+ * not to a run of the agent itself.
+ */
+export const AGENT_EDITOR_RUN_INPUTS: readonly string[] = ['user_attachments']
+
+/**
  * Whether a transform holds something a run would do differently from an absent key. Core fields
  * are always set: they are what an agent is.
  */
@@ -175,31 +260,6 @@ export function agentFieldIsSet(
 	if (value === undefined || value === null) return false
 	if (spec.implicit !== undefined && deepEqual(value, spec.implicit)) return false
 	return true
-}
-
-/**
- * Whether a run of this step would stream its answer, mirroring the worker's
- * `has_stream = user_wants_streaming && is_text_output`. Absence means on
- * (`args.streaming.unwrap_or(true)`), so an unwritten field streams.
- *
- * A caller that reads this wrong does not merely mislabel the run: a chat surface that opens a
- * stream for an answer the worker sends in one piece re-runs the flow when its connection times
- * out. So the rule is that anything this cannot settle from the step alone reads as off, the cost
- * of being wrong that way being a live answer arriving at the end instead of as it is written.
- * Unsettled means either of the two fields holding an expression, whose value exists only once the
- * run it decides is already under way, or a linked agent, whose brain lives in the resource where
- * this has no sight of it at all.
- */
-export function agentStreamingEnabled(value: Record<string, any> | undefined): boolean {
-	if (value?.agent) return false
-	const transforms = value?.input_transforms as Record<string, InputTransform | any> | undefined
-	const settled = (t: InputTransform | any | undefined) => t == undefined || t.type === 'static'
-	const outputType = transforms?.output_type
-	const streaming = transforms?.streaming
-	if (!settled(outputType) || !settled(streaming)) return false
-	// An image answer never streams, whatever `streaming` says.
-	if (outputType?.value === 'image') return false
-	return streaming?.value !== false
 }
 
 /**

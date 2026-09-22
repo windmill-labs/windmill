@@ -172,12 +172,16 @@ data:
   tables:
     - main/users            # Table in public schema
     - main/app_schema:items # Table in specific schema
+  roles:                    # Optional: the role the app uses each datatable through
+    main: analyst
 ```
 
 **Table reference formats:**
 - `<datatable>` — All tables in the datatable
 - `<datatable>/<table>` — Specific table in public schema
 - `<datatable>/<schema>:<table>` — Table in specific schema
+
+**Roles:** when a datatable is under roles, its queries run as a role, which only reaches what it was granted. `roles` records the role the app uses each datatable through; the app's code must pass the same role: `wmill.datatable('main', { role: 'analyst' })` in TypeScript, `wmill.datatable('main', role='analyst')` in Python. A datatable without an entry is used as its default role.
 
 ## SQL Migrations (sql_to_apply/)
 
@@ -330,6 +334,19 @@ An app can be demoed by recording a session: every interaction becomes a step ca
 
 Apply it to customer data, internal notes and anything else a viewer of the demo should not see. It costs nothing when the app is never recorded.
 
+### Chat UIs over a flow in chat mode
+
+A flow deployed with chat mode on is a chat backend (streaming answer, tool calls, memory, conversation history). Do not drive it through a runnable: add `windmill-chat` to `package.json` and use it directly, it detects the app's Windmill and credential.
+
+```tsx
+import { useWindmillChat } from 'windmill-chat/react'
+
+const chat = useWindmillChat({ flowPath: 'f/support/assistant' })
+// chat.messages ({ role, content, pending, success, tool? }), chat.status, chat.sendMessage(text), chat.stop()
+```
+
+`windmill-chat/ai-sdk` gives a `ChatTransport` for the Vercel AI SDK's `useChat`, `windmill-chat/assistant-ui` a runtime for assistant-ui. The flow must be deployed, not a draft. A sandboxed app needs `jobs:run` in its frontend SDK scopes, plus `flow_conversations:write` for the conversation sidebar; without them the chat keeps history in the browser.
+
 ## Backend runnables
 
 Each runnable has a unique key (used to call it from the frontend) and one of four types:
@@ -422,8 +439,8 @@ export async function main(user_id: string) {
   const users = await sql`SELECT * FROM users WHERE active = ${true}`.fetch();
 
   // Insert/Update
-  await sql`INSERT INTO users (name, email) VALUES (${name}, ${email})`;
-  await sql`UPDATE users SET name = ${newName} WHERE id = ${user_id}`;
+  await sql`INSERT INTO users (name, email) VALUES (${name}, ${email})`.execute();
+  await sql`UPDATE users SET name = ${newName} WHERE id = ${user_id}`.execute();
 
   return user;
 }
@@ -442,8 +459,8 @@ def main(user_id: str):
     users = db.query('SELECT * FROM users WHERE active = $1', True).fetch()
 
     # Insert/Update
-    db.query('INSERT INTO users (name, email) VALUES ($1, $2)', name, email)
-    db.query('UPDATE users SET name = $1 WHERE id = $2', new_name, user_id)
+    db.query('INSERT INTO users (name, email) VALUES ($1, $2)', name, email).execute()
+    db.query('UPDATE users SET name = $1 WHERE id = $2', new_name, user_id).execute()
 
     return user
 ```
@@ -452,9 +469,11 @@ def main(user_id: str):
 
 1. **Check existing tables** before creating new ones — reuse beats schema growth.
 2. **Use parameterized queries** — never concatenate user input into SQL.
-3. **Keep runnables focused** — one function per runnable; small surface area.
-4. **Use descriptive keys** — `get_user`, not `a`.
-5. **Always whitelist tables** — adding a runnable that queries a new table requires the table to be in `data.tables` first.
-6. **Mark sensitive UI with `data-wm-no-record`** — it is what keeps that data out of a recorded demo; passwords are handled for you.
-7. **Reach for `backendAsync` + `waitJob`** for long work — never a hand-written job-polling runnable.
-8. **Deploy what a path runnable points at** — a path runnable aimed at a draft fails at runtime; tell the user what needs deploying.
+3. **Terminate every datatable statement** — the tagged template and `db.query(...)` only build a statement. It runs when you call `fetch` / `fetchOne` / `fetchOneScalar` / `execute` (`fetch` / `fetch_one` / `fetch_one_scalar` / `execute` in Python). An INSERT or UPDATE without one writes nothing and raises nothing. Awaiting the statement itself is a no-op — it is not a promise.
+4. **Keep runnables focused** — one function per runnable; small surface area.
+5. **Use descriptive keys** — `get_user`, not `a`.
+6. **Always whitelist tables** — adding a runnable that queries a new table requires the table to be in `data.tables` first.
+7. **Mark sensitive UI with `data-wm-no-record`** — it is what keeps that data out of a recorded demo; passwords are handled for you.
+8. **Reach for `backendAsync` + `waitJob`** for long work — never a hand-written job-polling runnable.
+9. **Deploy what a path runnable points at** — a path runnable aimed at a draft fails at runtime; tell the user what needs deploying.
+10. **Use `windmill-chat` for a chat over a chat-mode flow** — never a runnable that runs the flow and polls its stream.

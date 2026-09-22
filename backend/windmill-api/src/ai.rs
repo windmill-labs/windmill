@@ -23,7 +23,7 @@ use windmill_ai::ai_cache::current_instance_ai_config_revision;
 use windmill_ai::ai_providers::{
     empty_string_as_none, AIPlatform, AIProvider, ProviderConfig, ProviderModel,
 };
-use windmill_ai::ai_types::MAX_MODEL_RATE;
+use windmill_ai::ai_types::{validate_token_limit, CONTEXT_WINDOWS, MAX_MODEL_RATE, OUTPUT_LIMITS};
 use windmill_ai::credentials::ProviderCredentials;
 #[cfg(feature = "bedrock")]
 use windmill_ai::providers::bedrock::{
@@ -445,12 +445,27 @@ pub struct AIConfig {
     /// Only models whose rates differ from the built-in table are stored.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_pricing: Option<HashMap<String, ModelPriceOverride>>,
+    /// Per-model context windows the chat budgets its history against, keyed
+    /// `provider:model` like `max_tokens_per_model`. Overrides the client's built-in
+    /// table, which a model served through a custom endpoint is usually missing from.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context_window_per_model: Option<HashMap<String, i32>>,
     /// Hides the Windmill AI assistant (chat, sessions, generation, completion, fixes) from
     /// the workspace UI. Only the workspace's own row is consulted: the flag holds even when
     /// the providers served come from the instance config or the free tier. AI agent steps
     /// and the AI sandbox are unaffected, so the providers stay in force.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub copilot_disabled: bool,
+    /// Stops browsers from backing their AI sessions up to the workspace's object storage
+    /// (`ai_sessions.rs`). Read from the workspace's own row like `copilot_disabled`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub sessions_storage_disabled: bool,
+    /// The server's sweep (`ai_sessions.rs`) deletes the backup of a session no push has
+    /// reached for this many days. The copies in members' browsers are untouched. Unset
+    /// keeps backups until the user deletes the session. Read from the workspace's own row
+    /// like `copilot_disabled`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sessions_retention_days: Option<u32>,
 }
 
 /// Negotiated rates in USD per million tokens. An unset cache rate is read as the
@@ -487,12 +502,38 @@ impl ModelPriceOverride {
     }
 }
 
+/// Ten years: past any plausible retention, and well within what a day count is turned into.
+pub const MAX_SESSIONS_RETENTION_DAYS: u32 = 3650;
+
 impl AIConfig {
     pub fn validate_model_pricing(&self) -> Result<()> {
         for (key, price) in self.model_pricing.iter().flatten() {
             price.validate(key)?;
         }
         Ok(())
+    }
+
+    pub fn validate_token_limits(&self) -> Result<()> {
+        for (entries, bounds) in [
+            (&self.context_window_per_model, &CONTEXT_WINDOWS),
+            (&self.max_tokens_per_model, &OUTPUT_LIMITS),
+        ] {
+            for (key, tokens) in entries.iter().flatten() {
+                validate_token_limit(bounds, key, i64::from(*tokens)).map_err(Error::BadRequest)?;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn validate_sessions_retention(&self) -> Result<()> {
+        match self.sessions_retention_days {
+            Some(days) if !(1..=MAX_SESSIONS_RETENTION_DAYS).contains(&days) => {
+                Err(Error::BadRequest(format!(
+                    "AI session retention must be between 1 and {MAX_SESSIONS_RETENTION_DAYS} days (got {days})"
+                )))
+            }
+            _ => Ok(()),
+        }
     }
 
     pub fn has_providers(&self) -> bool {
@@ -518,10 +559,17 @@ pub fn workspaced_service() -> Router {
                 // could make the server allocate and parse an arbitrarily large one.
                 // Sized well above a full batch of the shape below.
                 .layer(DefaultBodyLimit::max(AI_USAGE_BODY_LIMIT)),
+        )
+        .nest(
+            "/shared_artifacts",
+            crate::ai_shared_artifacts::workspaced_service(),
         );
 
     #[cfg(feature = "bedrock")]
     let router = router.route("/check_bedrock_credentials", get(check_bedrock_credentials));
+
+    #[cfg(feature = "parquet")]
+    let router = router.nest("/sessions", crate::ai_sessions::workspaced_service());
 
     router
 }

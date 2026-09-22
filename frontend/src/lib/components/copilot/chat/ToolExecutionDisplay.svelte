@@ -9,8 +9,10 @@
 		CircleMinus,
 		FileText,
 		PanelRight,
-		Lock
+		Lock,
+		ExternalLink
 	} from 'lucide-svelte'
+	import { base } from '$lib/base'
 	import {
 		EXIT_PLAN_MODE_TOOL,
 		isPlanCardTool,
@@ -21,9 +23,9 @@
 	} from './planMode'
 	import { Button } from '$lib/components/common'
 	import { markdownProse } from '$lib/components/markdownProse'
-	import { getAiChatManager } from './aiChatManagerContext'
+	import { getChatViewHost } from './chatViewHost'
 
-	const aiChatManager = getAiChatManager()
+	const chatHost = getChatViewHost()
 	import { isActiveUserQuestion, type ToolDisplayMessage } from './shared'
 	import ChatCollapsibleCard from './ChatCollapsibleCard.svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -40,12 +42,19 @@
 	import RunScriptCard from './RunScriptCard.svelte'
 	import WebSearchSourcesDisplay from './WebSearchSourcesDisplay.svelte'
 	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
+	import McpServerIcon from '$lib/components/mcp/McpServerIcon.svelte'
+	import { resolveMcpServerMark } from '$lib/components/mcp/serverMark'
 
 	interface Props {
 		message: ToolDisplayMessage
 	}
 
 	let { message }: Props = $props()
+
+	// Recorded by the call itself, from the connected-server list rather than from the
+	// model's arguments — which is what lets a reloaded transcript still resolve it, and
+	// what keeps a path the model made up from being read as a workspace resource.
+	const mcpServer = $derived(message.mcpServer)
 
 	const isPlanReview = $derived(message.toolName === EXIT_PLAN_MODE_TOOL)
 	const isPlanCard = $derived(isPlanCardTool(message.toolName))
@@ -62,7 +71,7 @@
 	const planLabel = $derived((planState && planCopy?.[planState]) ?? '')
 	const planDoc = $derived(
 		message.planArtifactId
-			? aiChatManager.artifacts.artifacts.find((a) => a.id === message.planArtifactId)
+			? chatHost.artifacts.artifacts.find((a) => a.id === message.planArtifactId)
 			: undefined
 	)
 	// The version this card wrote, not the document's current one, since later proposals move it on.
@@ -120,7 +129,9 @@
 
 	// The run card owns this call from the form to whatever settled it, cancelling included:
 	// the card is the call, and a run the user stopped is not a different kind of thing.
-	const isRunCard = $derived(Boolean(message.runForm))
+	// A call that inspected a run rather than starting one gets the same card, bound to
+	// the job it named — what happened in a run reads the same either way.
+	const isRunCard = $derived(Boolean(message.runForm || message.inspectedRun))
 
 	// The preview chip sits on the header row (to the right of the tool-call text);
 	// shown once the tool settled, never while loading/erroring/awaiting confirmation.
@@ -194,7 +205,7 @@
 					title="Open this plan in the side panel: {planDoc.name}"
 					startIcon={{ icon: FileText, classes: PLAN_MODE_TEXT_COLOR }}
 					endIcon={{ icon: PanelRight }}
-					on:click={() => aiChatManager.openArtifact?.(planDoc.id, planDoc.name, planCardVersion)}
+					on:click={() => chatHost.openArtifact?.(planDoc.id, planDoc.name, planCardVersion)}
 				>
 					<span class="font-main">Plan</span>
 				</Button>
@@ -242,6 +253,30 @@
 		{/if}
 	{/snippet}
 
+	{#snippet jobLink()}
+		<a
+			href="{base}/run/{message.jobId}?workspace={chatHost.operatingWorkspace}"
+			target="_blank"
+			rel="noopener noreferrer"
+			class="shrink-0 inline-flex items-center gap-1 font-main text-2xs text-tertiary hover:text-primary hover:underline"
+			title="Open this run"
+		>
+			<span>job <span class="font-mono">{message.jobId?.slice(0, 8)}</span></span>
+			<ExternalLink size={11} class="shrink-0" />
+		</a>
+	{/snippet}
+
+	<!-- Which system a call reaches is the first thing to know about it, so an MCP call
+	     is marked before its label. Awaited rather than drawn immediately: the MCP logo
+	     appearing first and being replaced would flicker on every row. -->
+	{#snippet serverMark()}
+		{#if mcpServer?.workspace && mcpServer.path}
+			{#await resolveMcpServerMark(mcpServer.workspace, mcpServer.path) then mark}
+				<McpServerIcon icon={mark.icon} size={14} />
+			{/await}
+		{/if}
+	{/snippet}
+
 	<!-- The shimmer is the only running indicator, so the states have to read off
 	     weight alone: queued calls (waiting their turn behind the executing tool)
 	     are faded, the running one sweeps, a settled one is plain. -->
@@ -257,7 +292,8 @@
 		headerClass={message.needsConfirmation ? 'opacity-80' : ''}
 		labelClass={showPreviewChip ? 'truncate' : ''}
 		contentClass="space-y-3"
-		headerRight={showPreviewChip ? previewChip : undefined}
+		headerRight={showPreviewChip ? previewChip : message.jobId ? jobLink : undefined}
+		headerLeft={mcpServer?.workspace ? serverMark : undefined}
 	>
 		<!-- Image a tool produced (e.g. take_screenshot) — shown inline, not gated on expand. -->
 		{#snippet belowHeader()}

@@ -73,6 +73,7 @@ use crate::{
     args::{self, RawWebhookArgs},
     auth::{OptTokened, Tokened},
     concurrency_groups::join_concurrency_key,
+    csrf::CrossSiteGetGuard,
     db::{ApiAuthed, DB},
     triggers::trigger_helpers::RunnableId,
     users::{
@@ -106,7 +107,10 @@ use windmill_common::{
     db::UserDB,
     error::{self, to_anyhow, Error},
     flow_status::{Approval, ApprovalConditions, FlowStatus, FlowStatusModule},
-    flows::{add_virtual_items_if_necessary, resolve_maybe_value, FlowValue},
+    flows::{
+        add_virtual_items_if_necessary, resolve_maybe_value, ApprovalSkin, FlowModule, FlowValue,
+        Suspend,
+    },
     jobs::{script_path_to_payload, CompletedJob, JobKind, JobPayload, QueuedJob, RawCode},
     oauth2::HmacSha256,
     query_builders,
@@ -4365,12 +4369,12 @@ async fn count_completed_jobs_detail(
     Query(query): Query<CountCompletedJobsQuery>,
 ) -> error::JsonResult<i64> {
     let mut sqlb = SqlBuilder::select_from("v2_job_completed");
-    //FOR RLS
-    sqlb.join("v2_job USING (id)");
     sqlb.field("COUNT(*) as count");
 
+    // Filtering on v2_job.workspace_id instead would keep the planner off
+    // ix_job_workspace_id_completed_at_all and scan the whole retention window.
     if !(w_id == "admins" && query.all_workspaces.unwrap_or(false)) {
-        sqlb.and_where_eq("v2_job.workspace_id", "?".bind(&w_id));
+        sqlb.and_where_eq("v2_job_completed.workspace_id", "?".bind(&w_id));
     }
 
     if let Some(after_s_ago) = query.completed_after_s_ago {
@@ -4389,6 +4393,7 @@ async fn count_completed_jobs_detail(
     }
 
     if let Some(tags) = query.tags {
+        sqlb.join("v2_job USING (id)");
         sqlb.and_where_in(
             "v2_job.tag",
             &tags.split(",").map(|t| quote(t)).collect::<Vec<_>>(),
@@ -4396,7 +4401,19 @@ async fn count_completed_jobs_detail(
     }
 
     let sql = sqlb.sql()?;
-    let stats = sqlx::query_scalar::<_, i64>(&sql).fetch_one(&db).await?;
+    let mut tx = db.begin().await?;
+    set_list_jobs_statement_timeout(&mut tx).await?;
+    let stats = sqlx::query_scalar::<_, i64>(&sql)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| {
+            list_jobs_timeout_error(
+                e,
+                "Counting completed jobs",
+                "Lower completed_after_s_ago or narrow the filters.",
+            )
+        })?;
+    tx.commit().await?;
 
     Ok(Json(stats))
 }
@@ -4414,6 +4431,42 @@ async fn count_completed_jobs(
             .fetch_one(&db)
             .await?,
         ))
+}
+
+lazy_static::lazy_static! {
+    /// 0 keeps the connection-wide statement_timeout.
+    static ref LIST_JOBS_STATEMENT_TIMEOUT_SECS: u64 =
+        std::env::var("LIST_JOBS_STATEMENT_TIMEOUT_SECS")
+            .ok()
+            .and_then(|x| x.parse().ok())
+            .unwrap_or(30);
+}
+
+/// A client that gives up does not cancel its query, so without this bound every retry of a
+/// slow filter stacks another scan running until the connection-wide 5min timeout.
+async fn set_list_jobs_statement_timeout(tx: &mut Transaction<'_, Postgres>) -> error::Result<()> {
+    let timeout_secs = *LIST_JOBS_STATEMENT_TIMEOUT_SECS;
+    if timeout_secs > 0 {
+        sqlx::query(&format!("SET LOCAL statement_timeout = '{timeout_secs}s'"))
+            .execute(&mut **tx)
+            .await?;
+    }
+    Ok(())
+}
+
+fn list_jobs_timeout_error(e: sqlx::Error, action: &str, hint: &str) -> Error {
+    let timeout_secs = *LIST_JOBS_STATEMENT_TIMEOUT_SECS;
+    match e {
+        sqlx::Error::Database(ref db_err)
+            if timeout_secs > 0 && db_err.code().as_deref() == Some("57014") =>
+        {
+            Error::Generic(
+                StatusCode::BAD_REQUEST,
+                format!("{action} took more than {timeout_secs}s and was stopped. {hint}"),
+            )
+        }
+        e => e.into(),
+    }
 }
 
 async fn list_jobs(
@@ -4532,11 +4585,15 @@ async fn list_jobs(
     };
     // tracing::info!("sql: {}", &sql);
     let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
+    set_list_jobs_statement_timeout(&mut tx).await?;
 
     let jobs: Vec<UnifiedJob> = sqlx::query_as(&sql)
         .fetch_all(&mut *tx)
         .warn_after_seconds_with_sql(5, format!("list_jobs: {}", sql))
-        .await?;
+        .await
+        .map_err(|e| {
+            list_jobs_timeout_error(e, "Listing jobs", "Set a start date or narrow the filters.")
+        })?;
     tx.commit().await?;
 
     Ok(Json(jobs.into_iter().map(From::from).collect()))
@@ -4826,6 +4883,11 @@ struct ApprovalInfo {
     user_auth_required: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     hide_cancel: Option<bool>,
+    skin: ApprovalSkin,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    step_summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    flow_summary: Option<String>,
     approvers: Vec<Approval>,
     /// Share-read-link token for the flow, minted only for callers allowed to view this
     /// approval. Lets an authenticated workspace-member approver open the run details of
@@ -4879,6 +4941,48 @@ fn can_approve_step(
     }
 }
 
+/// The latest approval step the run has passed: a step before the current `step` that ran
+/// rather than being skipped. Steps from `step` on don't count, because while an approval is
+/// pending the step after it already holds the `WaitingForEvents` status.
+fn last_reached_approval_step<'a>(
+    flow: &'a FlowValue,
+    status: &FlowStatus,
+) -> Option<&'a FlowModule> {
+    flow.modules
+        .iter()
+        .zip(status.modules.iter())
+        .take(usize::try_from(status.step).unwrap_or(0))
+        .rev()
+        .filter(|(_, m)| matches!(m, FlowStatusModule::Success { skipped: false, .. }))
+        .map(|(module, _)| module)
+        .find(|module| module.suspend.is_some())
+}
+
+/// The approval conditions a step's own settings give, as the worker records them when the step
+/// suspends. The worker drops them from the run once the step is approved, so a run that has
+/// moved on is gated by these. Groups computed by an expression can't be re-evaluated outside
+/// the run, so such a step falls back to any signed-in user.
+fn approval_conditions_from_settings(suspend: &Suspend) -> Option<ApprovalConditions> {
+    let user_auth_required = suspend.user_auth_required.unwrap_or(false);
+    let self_approval_disabled = suspend.self_approval_disabled.unwrap_or(false);
+    if !user_auth_required && !self_approval_disabled {
+        return None;
+    }
+    let user_groups_required = match &suspend.user_groups_required {
+        Some(InputTransform::Static { value }) if user_auth_required => {
+            serde_json::from_str(value.get()).unwrap_or_default()
+        }
+        _ => vec![],
+    };
+    Some(ApprovalConditions { user_auth_required, user_groups_required, self_approval_disabled })
+}
+
+/// How the approval step presents itself on the approval page.
+struct ApprovalStepView {
+    skin: ApprovalSkin,
+    summary: Option<String>,
+}
+
 async fn get_approval_info(
     OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
@@ -4907,13 +5011,33 @@ async fn get_approval_info(
         script_path: Option<String>,
         email: String,
         flow_status: Option<serde_json::Value>,
-        workflow_as_code_status: Option<serde_json::Value>,
+        // `v2_job_status` only holds a run that hasn't finished, so the fields below also read
+        // the completed run's status: a finished run's page keeps its skin and, for workflows as
+        // code, its description, still gated by the approval conditions the run had.
+        completed_flow_status: Option<serde_json::Value>,
+        is_wac: bool,
+        wac_approval: Option<serde_json::Value>,
+        approval_conditions: Option<serde_json::Value>,
+        flow_summary: Option<String>,
     }
     let row = sqlx::query_as::<_, ApprovalJobRow>(
         "SELECT j.id, j.runnable_path as script_path, j.permissioned_as_email as email,
-                s.flow_status, s.workflow_as_code_status
+                s.flow_status,
+                c.flow_status AS completed_flow_status,
+                COALESCE(s.workflow_as_code_status, c.workflow_as_code_status) IS NOT NULL
+                    AS is_wac,
+                COALESCE(s.workflow_as_code_status, c.workflow_as_code_status)->'_approval'
+                    AS wac_approval,
+                COALESCE(s.flow_status, c.flow_status)->'approval_conditions'
+                    AS approval_conditions,
+                NULLIF(COALESCE(f.summary, sc.summary), '') AS flow_summary
          FROM v2_job j
          LEFT JOIN v2_job_status s ON s.id = j.id
+         LEFT JOIN v2_job_completed c ON c.id = j.id
+         LEFT JOIN flow f
+             ON j.kind = 'flow' AND f.workspace_id = j.workspace_id AND f.path = j.runnable_path
+         LEFT JOIN script sc
+             ON j.kind = 'script' AND sc.workspace_id = j.workspace_id AND sc.hash = j.runnable_id
          WHERE j.id = $1 AND j.workspace_id = $2",
     )
     .bind(&job_id)
@@ -4922,31 +5046,31 @@ async fn get_approval_info(
     .await?
     .ok_or_else(|| Error::NotFound(format!("Job {job_id} not found")))?;
 
-    let is_wac = row.workflow_as_code_status.is_some();
+    let is_wac = row.is_wac;
+    let run_ac = row
+        .approval_conditions
+        .as_ref()
+        .and_then(|v| serde_json::from_value::<ApprovalConditions>(v.clone()).ok());
 
     // Extract approval info based on WAC vs classic flow
-    let (form_schema, description, default_args, enums, approval_conditions, hide_cancel) =
+    let (form_schema, description, default_args, enums, approval_conditions, hide_cancel, step) =
         if is_wac {
-            let approval_meta = row
-                .workflow_as_code_status
-                .as_ref()
-                .and_then(|v| v.get("_approval"));
+            let approval_meta = row.wac_approval.as_ref();
             let form = approval_meta.and_then(|m| m.get("form").cloned());
             let default_args = approval_meta.and_then(|m| m.get("default_args").cloned());
             let enums = approval_meta.and_then(|m| m.get("enums").cloned());
             let description = approval_meta.and_then(|m| m.get("description").cloned());
-            let ac = row
-                .flow_status
-                .as_ref()
-                .and_then(|v| v.get("approval_conditions"))
-                .and_then(|v| serde_json::from_value::<ApprovalConditions>(v.clone()).ok());
-            (form, description, default_args, enums, ac, None)
+            let skin = approval_meta
+                .and_then(|m| m.get("skin"))
+                .and_then(|v| serde_json::from_value::<ApprovalSkin>(v.clone()).ok())
+                .unwrap_or_default();
+            let step = Some(ApprovalStepView { skin, summary: None });
+            (form, description, default_args, enums, run_ac, None, step)
         } else {
             let fs = row
                 .flow_status
                 .as_ref()
                 .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok());
-            let ac = fs.as_ref().and_then(|s| s.approval_conditions.clone());
 
             // For classic flows, form/description come from the flow definition and step result
             let approval_step = fs.as_ref().map(|s| (s.step as usize).saturating_sub(1));
@@ -5006,6 +5130,28 @@ async fn get_approval_info(
                 .and_then(|s| s.resume_form.as_ref())
                 .map(|rf| serde_json::json!(rf));
             let hc = suspend_settings.map(|s| s.hide_cancel.unwrap_or(false));
+            let completed_fs = row
+                .completed_flow_status
+                .as_ref()
+                .filter(|_| fs.is_none())
+                .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok());
+            let approval_module = raw_flow
+                .as_ref()
+                .zip(fs.as_ref().or(completed_fs.as_ref()))
+                .and_then(|(flow, status)| last_reached_approval_step(flow, status));
+            let ac = run_ac.or_else(|| {
+                approval_module
+                    .and_then(|module| module.suspend.as_ref())
+                    .and_then(approval_conditions_from_settings)
+            });
+            let step = approval_module.map(|module| ApprovalStepView {
+                skin: module
+                    .suspend
+                    .as_ref()
+                    .and_then(|s| s.skin)
+                    .unwrap_or_default(),
+                summary: module.summary.clone().filter(|s| !s.trim().is_empty()),
+            });
 
             // Fetch description, default_args, and enums from the step's completed job result
             let step_job_id = fs
@@ -5029,8 +5175,11 @@ async fn get_approval_info(
                 (None, None, None)
             };
 
-            (form, desc, default_args, enums, ac, hc)
+            (form, desc, default_args, enums, ac, hc, step)
         };
+
+    let skin = step.as_ref().map(|s| s.skin).unwrap_or_default();
+    let step_summary = step.and_then(|s| s.summary);
 
     let user_auth_required = approval_conditions
         .as_ref()
@@ -5061,6 +5210,9 @@ async fn get_approval_info(
             can_approve: false,
             user_auth_required,
             hide_cancel: None,
+            skin,
+            step_summary: None,
+            flow_summary: None,
             approvers: vec![],
             view_token: None,
         }));
@@ -5096,6 +5248,9 @@ async fn get_approval_info(
         can_approve,
         user_auth_required,
         hide_cancel,
+        skin,
+        step_summary,
+        flow_summary: row.flow_summary,
         approvers,
         view_token,
     }))
@@ -7071,7 +7226,10 @@ pub async fn run_workflow_as_code(
 ) -> error::Result<(StatusCode, String)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
-    check_tag_available_for_workspace(&db, &w_id, &run_query.tag, &authed).await?;
+    let mut extra = HashMap::new();
+    extra.insert(ENTRYPOINT_OVERRIDE.to_string(), to_raw_value(&entrypoint));
+    let args = PushArgs { args: &task.args.unwrap_or_else(HashMap::new), extra: Some(extra) };
+    check_tag_available_for_workspace(&db, &w_id, &run_query.tag, &args, &authed).await?;
     check_scopes(&authed, || format!("jobs:run"))?;
 
     if !is_valid_entrypoint_name(&entrypoint) {
@@ -7165,10 +7323,6 @@ pub async fn run_workflow_as_code(
         i += 1;
     }
 
-    let mut extra = HashMap::new();
-    extra.insert(ENTRYPOINT_OVERRIDE.to_string(), to_raw_value(&entrypoint));
-
-    let args = PushArgs { args: &task.args.unwrap_or_else(HashMap::new), extra: Some(extra) };
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
     let tag = run_query.tag.clone().or(tag).or(Some(job.tag));
@@ -7205,7 +7359,7 @@ pub async fn run_workflow_as_code(
         tx,
         &w_id,
         job_payload,
-        PushArgs { args: &args.args, extra: args.extra },
+        args,
         authed.display_username(),
         email,
         permissioned_as,
@@ -7447,6 +7601,7 @@ async fn log_job_view(
 }
 
 pub async fn run_wait_result_job_by_path_get(
+    cross_site: CrossSiteGetGuard,
     method: hyper::http::Method,
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -7459,6 +7614,7 @@ pub async fn run_wait_result_job_by_path_get(
     check_license_key_valid().await?;
 
     let script_path = script_path.to_path();
+    let runnable_id = cross_site.script_runnable(script_path)?;
     check_scopes(&authed, || format!("jobs:run:scripts:{script_path}"))?;
 
     if method == http::Method::HEAD {
@@ -7471,12 +7627,7 @@ pub async fn run_wait_result_job_by_path_get(
     args.body = args::Body::HashMap(payload_as_args);
 
     let args = args
-        .to_args_from_runnable(
-            &db,
-            &w_id,
-            RunnableId::from_script_path(script_path),
-            run_query.skip_preprocessor,
-        )
+        .to_args_from_runnable(&db, &w_id, runnable_id, run_query.skip_preprocessor)
         .await?;
 
     check_queue_too_long(&db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
@@ -7494,7 +7645,8 @@ pub async fn run_wait_result_job_by_path_get(
         .await?;
 
     let tag = run_query.tag.clone().or(tag);
-    check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
+    let push_args = PushArgs { args: &args.args, extra: args.extra };
+    check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
 
     let (email, permissioned_as, push_authed, tx) =
         if let Some(on_behalf_of) = on_behalf_authed.as_ref() {
@@ -7518,7 +7670,7 @@ pub async fn run_wait_result_job_by_path_get(
         tx,
         &w_id,
         job_payload,
-        PushArgs { args: &args.args, extra: args.extra },
+        push_args,
         authed.display_username(),
         email,
         permissioned_as,
@@ -7639,7 +7791,8 @@ pub async fn run_wait_result_script_by_path_internal(
         .await?;
 
     let tag = run_query.tag.clone().or(tag);
-    check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
+    let push_args = PushArgs { args: &args.args, extra: args.extra };
+    check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
 
     let (email, permissioned_as, push_authed, tx) =
         if let Some(on_behalf_of) = on_behalf_of.as_ref() {
@@ -7663,7 +7816,7 @@ pub async fn run_wait_result_script_by_path_internal(
         tx,
         &w_id,
         job_payload,
-        PushArgs { args: &args.args, extra: args.extra },
+        push_args,
         authed.display_username(),
         email,
         permissioned_as,
@@ -7752,7 +7905,8 @@ pub async fn run_wait_result_script_by_hash(
     check_scopes(&authed, || format!("jobs:run:scripts:{path}"))?;
 
     let tag = run_query.tag.clone().or(tag);
-    check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
+    let push_args = PushArgs { args: &args.args, extra: args.extra };
+    check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
 
     let (email, permissioned_as, push_authed, tx) = if let Some(obo) = on_behalf_of.as_ref() {
         (
@@ -7788,7 +7942,7 @@ pub async fn run_wait_result_script_by_hash(
                 && has_preprocessor.unwrap_or(false),
             labels,
         },
-        PushArgs { args: &args.args, extra: args.extra },
+        push_args,
         authed.display_username(),
         email,
         permissioned_as,
@@ -7895,6 +8049,7 @@ pub async fn stream_flow_by_version(
 }
 
 pub async fn stream_script_by_path(
+    cross_site: CrossSiteGetGuard,
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
@@ -7903,12 +8058,13 @@ pub async fn stream_script_by_path(
     method: hyper::http::Method,
     args: RawWebhookArgs,
 ) -> error::Result<Response> {
+    let runnable_id = cross_site.script_runnable(script_path.to_path())?;
     stream_job(
         authed,
         db,
         user_db,
         w_id,
-        RunnableId::from_script_path(script_path.to_path()),
+        runnable_id,
         args,
         run_query,
         method == http::Method::GET,
@@ -8211,8 +8367,9 @@ pub async fn run_wait_result_flow_by_version(
 /// job lives, in particular DuckDB, which runs in-process in the worker.
 ///
 /// What it does permit is any statement against the workspace's data tables, writes and DDL
-/// included: the helper's body is an unrestricted SQL template and data tables carry no
-/// per-user ACL. Narrowing that is a separate decision from this exemption.
+/// included: the helper's body is an unrestricted SQL template. What that reaches is the
+/// operator's own data table role — the preview job is permissioned as them, so the executor
+/// resolves it under their tenancy like any other job.
 ///
 /// The database argument is only half the target: the executor honors a `-- database`
 /// directive in the SQL over it, and `-- s3` redirects the result set, so both are refused.
@@ -8310,7 +8467,6 @@ async fn run_preview_script(
     require_path_read_access_for_preview(&authed, &preview.path)?;
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tag = run_query.tag.clone().or(preview.tag.clone());
-    check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
 
     let preview_args = preview.args.unwrap_or_default();
@@ -8329,6 +8485,7 @@ async fn run_preview_script(
     }
     let extra = if extra.is_empty() { None } else { Some(extra) };
     let push_args = PushArgs { extra, args: &preview_args };
+    check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
 
     let (uuid, tx) = push(
         &db,
@@ -8444,7 +8601,7 @@ async fn run_inline_preview_script(
 #[cfg(not(feature = "run_inline"))]
 async fn run_inline_preview_script() -> error::Result<Response> {
     Err(error::Error::InternalErr(
-        "inline preview requires the worker feature".to_string(),
+        "inline preview requires the run_inline feature on the worker".to_string(),
     ))
 }
 
@@ -8568,7 +8725,12 @@ fn register_potential_assets_on_inline_execution(
             .as_ref()
             .and_then(|args| args.get("database"))
             .map(|v| v.get().trim_matches('"'))
-            .and_then(|dt| dt.strip_prefix("datatable://"));
+            .and_then(|dt| dt.strip_prefix("datatable://"))
+            // `?role=` picks the connection, not the data table. Anything else after a `?` may be
+            // part of a name stored before names were restricted, so it stays.
+            .map(|dt| {
+                windmill_common::workspaces::parse_datatable_ref(dt).map_or(dt, |(name, _)| name)
+            });
         if let Some(datatable) = datatable {
             let re = regex::Regex::new(r#"SET search_path TO "([^"]+)";"#).unwrap();
             let (schema, content) = if let Some(captures) = re.captures(&preview.content) {
@@ -8685,7 +8847,6 @@ async fn run_bundle_preview_script(
 
             let scheduled_for = run_query.get_scheduled_for(&db).await?;
             let tag = run_query.tag.clone().or(preview.tag.clone());
-            check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
             let ltx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
 
             let args = preview.args.unwrap_or_default();
@@ -8700,6 +8861,7 @@ async fn run_bundle_preview_script(
                 m
             });
             let push_args = PushArgs { extra, args: &args };
+            check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
 
             is_tar = match preview.kind {
                 Some(PreviewKind::Tarbundle) => true,
@@ -9351,7 +9513,6 @@ async fn run_preview_flow_job(
     require_path_read_access_for_preview(&authed, &raw_flow.path)?;
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tag = run_query.tag.clone().or(raw_flow.tag.clone());
-    check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
 
     let chat_input_enabled = raw_flow.value.chat_input_enabled.unwrap_or(false);
@@ -9369,6 +9530,8 @@ async fn run_preview_flow_job(
             to_raw_value(temp_script_refs),
         );
     }
+    check_tag_available_for_workspace(&db, &w_id, &tag, &PushArgs::from(&flow_args), &authed)
+        .await?;
 
     let (uuid, mut tx) = push(
         &db,
@@ -9408,7 +9571,7 @@ async fn run_preview_flow_job(
     .await?;
 
     // Set memory_id if provided (for agent memory)
-    if let Some(memory_id) = run_query.memory_id {
+    if let Some(memory_id) = run_query.memory_key(&w_id, &flow_path) {
         set_flow_memory_id(&mut tx, uuid, memory_id).await?;
     }
 
@@ -9421,6 +9584,10 @@ async fn run_preview_flow_job(
             &flow_path,
             &run_query,
             user_message.as_ref(),
+            uuid,
+            // Run from the editor's test panel: a trial, not a real conversation.
+            true,
+            &flow_args,
         )
         .await?;
     }
@@ -9610,17 +9777,17 @@ async fn run_dynamic_select(
         }
     }
 
-    // Same tag-permission gate a normal run gets (run_flow / push_script_job_by_path_into_queue):
-    // a caller allowed to read the flow must still be allowed to use its worker tag. No-op for
-    // inline (tag is None); the script branch checked this inside its helper and returned above.
-    check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
-
     // Invoke the dyn-select entrypoint instead of `main`.
     let mut args = request.args.unwrap_or_default();
     args.insert(
         ENTRYPOINT_OVERRIDE.to_string(),
         serde_json::value::to_raw_value(&request.entrypoint_function)?,
     );
+
+    // Same tag-permission gate a normal run gets (run_flow / push_script_job_by_path_into_queue):
+    // a caller allowed to read the flow must still be allowed to use its worker tag. No-op for
+    // inline (tag is None); the script branch checked this inside its helper and returned above.
+    check_tag_available_for_workspace(&db, &w_id, &tag, &PushArgs::from(&args), &authed).await?;
 
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
@@ -9756,8 +9923,9 @@ pub async fn run_job_by_hash_inner(
     }
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tag = run_query.tag.clone().or(tag);
+    let push_args = PushArgs { args: &args.args, extra: args.extra };
 
-    check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
+    check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
 
     let (email, permissioned_as, push_authed, tx) = if let Some(obo) = on_behalf_of.as_ref() {
         (
@@ -9793,7 +9961,7 @@ pub async fn run_job_by_hash_inner(
                 && has_preprocessor.unwrap_or(false),
             labels,
         },
-        PushArgs { args: &args.args, extra: args.extra },
+        push_args,
         authed.display_username(),
         email,
         permissioned_as,
@@ -11876,5 +12044,59 @@ mod approval_view_gate_tests {
             Some("f/team/flow"),
             "trigger@example.com"
         ));
+    }
+
+    #[test]
+    fn approval_step_is_the_last_one_passed() {
+        let flow: FlowValue = serde_json::from_value(serde_json::json!({ "modules": [
+            { "id": "a", "value": { "type": "identity" }, "suspend": {} },
+            { "id": "b", "value": { "type": "identity" }, "suspend": {} },
+            { "id": "c", "value": { "type": "identity" } }
+        ]}))
+        .unwrap();
+        let step_at = |step: i32, types: [(&str, bool); 3]| {
+            let mut status = FlowStatus::new(&flow);
+            status.step = step;
+            status.modules = ["a", "b", "c"]
+                .into_iter()
+                .zip(types)
+                .map(|(id, (kind, skipped))| {
+                    serde_json::from_value(serde_json::json!({
+                        "type": kind, "id": id, "job": Uuid::nil(), "count": 1,
+                        "failed_retries": [], "skipped": skipped
+                    }))
+                    .unwrap()
+                })
+                .collect();
+            last_reached_approval_step(&flow, &status).map(|module| module.id.clone())
+        };
+        let waiting = ("WaitingForEvents", false);
+        let pending = ("WaitingForPriorSteps", false);
+        let ran = ("Success", false);
+        let skipped = ("Success", true);
+        // Awaiting a's approval: b, itself an approval step, already holds `WaitingForEvents`.
+        assert_eq!(step_at(1, [ran, waiting, pending]).as_deref(), Some("a"));
+        assert_eq!(step_at(2, [ran, ran, waiting]).as_deref(), Some("b"));
+        assert_eq!(step_at(3, [ran, skipped, ran]).as_deref(), Some("a"));
+        assert_eq!(step_at(0, [pending, pending, pending]), None);
+    }
+
+    #[test]
+    fn approved_step_stays_gated_by_its_settings() {
+        let from_settings = |suspend: serde_json::Value| {
+            approval_conditions_from_settings(&serde_json::from_value(suspend).unwrap())
+        };
+        let login = from_settings(serde_json::json!({
+            "user_auth_required": true,
+            "user_groups_required": { "type": "static", "value": ["approvers"] }
+        }));
+        assert!(!can_view(
+            &None,
+            &login,
+            Some("f/team/flow"),
+            "trigger@example.com"
+        ));
+        assert_eq!(login.unwrap().user_groups_required, ["approvers"]);
+        assert!(from_settings(serde_json::json!({})).is_none());
     }
 }

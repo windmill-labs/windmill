@@ -21,7 +21,7 @@ import { appendPlanModeInstructions } from '../planMode'
 import { pipelineTools } from '../pipeline/core'
 import { createMcpTools } from './mcpTools'
 import { ENTER_PLAN_MODE_TOOL, EXIT_PLAN_MODE_TOOL } from '../planMode'
-import { assembleGlobalSystemMessage, assembleGlobalTools } from './sessionAssembly'
+import { assembleGlobalSystemMessage, assembleGlobalTools } from './globalAssembly'
 import { SESSION_TOOL_POLICIES, filterSessionTools, sessionToolAllowed } from './sessionToolset'
 import { fullSessionAccess, type SessionAccess, type SessionCapability } from './sessionAccess'
 
@@ -43,8 +43,8 @@ function assembledSessionToolNames(): string[] {
 /** The tools a session actually ships, through the same assembly production uses. */
 function shippedSessionTools(access: SessionAccess) {
 	const assembled = assembleGlobalTools({
-		sessionPreview: true,
-		pipeline: true,
+		previewTools: true,
+		pipelineContext: { folder: 'my_pipeline', mode: 'edit', nodes: [], assets: [] },
 		mcpServers: [{ path: 'f/test/server' } as any]
 	})
 	return filterSessionTools(assembled, access)

@@ -39,7 +39,6 @@
 	import type { ButtonProp } from '$lib/components/diffEditorTypes'
 	import { loadSchemaFromModule } from '../flowInfers'
 	import { type Job } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { checkIfParentLoop } from '../utils.svelte'
 	import { useWorkspaceScriptSettings } from '../useWorkspaceScriptSettings.svelte'
 	import ScriptSettingsBadges from '$lib/components/ScriptSettingsBadges.svelte'
@@ -72,6 +71,9 @@
 	} from '$lib/components/debug'
 	import { Bug, Terminal } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/utils'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	const {
 		selectionManager,
@@ -103,7 +105,7 @@
 		return empty
 	}
 
-	let opWs = $derived(opWorkspace?.() ?? $workspaceStore)
+	let opWs = $derived(opWorkspace?.() ?? $operatingWorkspace)
 
 	interface Props {
 		flowModule: FlowModule
@@ -162,6 +164,9 @@
 	let linkedToolsModuleId = $derived(
 		parentModule?.value?.type === 'aiagent' ? `${parentModule.id}/${flowModule.id}` : flowModule.id
 	)
+
+	// Which step's open agent fields to remember, and which the test form reads back.
+	let agentFieldsKey = $derived(`${$pathStore}:${linkedToolsModuleId}`)
 
 	let workspaceScriptTag: string | undefined = $state(undefined)
 	let workspaceScriptLang: ScriptLang | undefined = $state(undefined)
@@ -288,6 +293,8 @@
 	}
 	let inputTransformSchemaForm: { setArgs: (nargs: Record<string, any>) => void } | undefined =
 		$state(undefined)
+	// The linked agent's memory, which decides which history inputs the step offers.
+	let linkedAgentMemory: { memory: unknown } | undefined = $state(undefined)
 
 	let reloadError: string | undefined = $state(undefined)
 	async function reload(flowModule: FlowModule) {
@@ -1151,6 +1158,8 @@
 														opWorkspace={opWs}
 														flowPath={$pathStore}
 														fromAgentEditor={agentEditorHost?.() != undefined}
+														bind:linkedMemory={linkedAgentMemory}
+														chatInputEnabled={flowStore.val.value?.chat_input_enabled ?? false}
 														bind:agent={
 															() =>
 																flowModule.value.type === 'aiagent'
@@ -1231,8 +1240,14 @@
 														helperScript={retrieveDynCodeAndLang(flowModule.value)}
 														chatInputEnabled={flowStore.val.value?.chat_input_enabled ?? false}
 														workspace={opWs}
-														visibilityKey={`${$pathStore}:${linkedToolsModuleId}`}
-														tools={flowModule.value.tools ?? []}
+														visibilityKey={agentFieldsKey}
+														linkedMemory={agentLinked ? linkedAgentMemory : undefined}
+														tools={agentLinked
+															? getLinkedAgentTools(
+																	linkedToolsScope(opWs, $pathStore),
+																	linkedToolsModuleId
+																)
+															: (flowModule.value.tools ?? [])}
 														onSelectTool={noToolNavigation
 															? undefined
 															: (toolId) => selectionManager.selectId(toolId, { openPanel: true })}
@@ -1336,6 +1351,7 @@
 											focusArg={highlightArg}
 											{onJobDone}
 											hideRunButton={debugMode && isDebuggableScript}
+											openFieldsKey={agentFieldsKey}
 										/>
 									{:else if visibleSelected === 'chat' && canShowChatTab && flowModule.value.type === 'aiagent'}
 										<div class="flex-1 overflow-auto p-4">
@@ -1460,12 +1476,6 @@
 											{testJob}
 											{scriptProgress}
 											mod={flowModule}
-											linkedAgentTools={agentLinked
-												? getLinkedAgentTools(
-														linkedToolsScope(opWs, $pathStore),
-														linkedToolsModuleId
-													)
-												: undefined}
 											{testIsLoading}
 											disableMock={preprocessorModule || failureModule}
 											disableHistory={failureModule}

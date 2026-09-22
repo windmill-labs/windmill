@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS(SELECT 1 FROM usr WHERE email = $1 AND is_service_account IS true\n            AND ($2::varchar IS NULL OR workspace_id = $2))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Varchar"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "75e6b5cd52d63ac094c90abd1524bc7a919692a96b076b8aaf24d812723531c8"
+}
