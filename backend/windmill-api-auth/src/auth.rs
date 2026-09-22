@@ -1334,7 +1334,10 @@ mod tests {
             .expect("lazy pool");
 
         let token = "memo_guard_token";
-        let key = (String::new(), token.to_string());
+        // Workspace-scoped: a job token on a workspace-less route is refused by
+        // check_job_token_for_global_route before the memo is ever taken.
+        let key = ("memo_workspace".to_string(), token.to_string());
+        let job_id = uuid::Uuid::from_u128(0x6d656d6f);
         AUTH_CACHE.insert(
             key.clone(),
             ExpiringAuthCache {
@@ -1344,7 +1347,7 @@ mod tests {
                     ..Default::default()
                 },
                 expiry: chrono::Utc::now() + chrono::Duration::hours(1),
-                job_id: None,
+                job_id: Some(job_id),
             },
         );
 
@@ -1354,7 +1357,7 @@ mod tests {
         let cache = AuthCache::new(db, None);
 
         let mut parts = http::Request::builder()
-            .uri("/api/version")
+            .uri("/api/w/memo_workspace/jobs/list")
             .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
             .body(())
             .unwrap()
@@ -1374,5 +1377,8 @@ mod tests {
             .map_err(|(e, _)| e)
             .expect("second resolution must hit the memo, not re-resolve");
         assert_eq!(second.authed.username, "memo");
+        // The wrapper must survive whole: memoizing only the inner ApiAuthed and
+        // rebuilding around it drops the provenance forbid_elevated_job_token gates on.
+        assert_eq!(second.job_id, Some(job_id));
     }
 }
