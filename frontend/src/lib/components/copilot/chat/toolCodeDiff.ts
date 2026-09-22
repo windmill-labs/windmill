@@ -144,8 +144,8 @@ function monacoCharacterRanges(diff: ToolCodeDiff): {
 	removed: Map<number, CharacterRange[]>
 	added: Map<number, CharacterRange[]>
 } {
-	const before = lines(diff.before)
-	const after = lines(diff.after)
+	const before = monacoLines(diff.before)
+	const after = monacoLines(diff.after)
 	const result = {
 		removed: new Map<number, CharacterRange[]>(),
 		added: new Map<number, CharacterRange[]>()
@@ -165,6 +165,11 @@ function monacoCharacterRanges(diff: ToolCodeDiff): {
 	}
 
 	return result
+}
+
+function monacoLines(value: string): string[] {
+	const result = lines(value)
+	return result.length ? result : ['']
 }
 
 function addCharacterRanges(

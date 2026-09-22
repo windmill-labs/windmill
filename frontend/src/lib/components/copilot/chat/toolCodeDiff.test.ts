@@ -136,6 +136,32 @@ describe('toolCodeDiff', () => {
 		])
 	})
 
+	it('renders a newly created file', () => {
+		expect(
+			toolDiffLines({ before: '', after: 'print("hello")', lang: 'python' })
+		).toEqual([
+			{
+				kind: 'added',
+				content: 'print("hello")',
+				oldLine: undefined,
+				newLine: 1,
+				changedRanges: [{ start: 0, length: 14 }]
+			}
+		])
+	})
+
+	it('renders a deleted file', () => {
+		expect(toolDiffLines({ before: 'print("goodbye")', after: '', lang: 'python' })).toEqual([
+			{
+				kind: 'removed',
+				content: 'print("goodbye")',
+				oldLine: 1,
+				newLine: undefined,
+				changedRanges: [{ start: 0, length: 16 }]
+			}
+		])
+	})
+
 	it('has a highlighter for every supported editor language', () => {
 		expect(TOOL_CODE_DIFF_LANGUAGES).toEqual(
 			expect.arrayContaining([
