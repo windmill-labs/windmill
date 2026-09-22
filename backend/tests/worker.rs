@@ -5787,10 +5787,11 @@ async fn test_scoped_custom_tag_pattern_admission(db: Pool<Postgres>) -> anyhow:
             "exact entry from its workspace",
             allowed(&db, "other", "gpu-large", "").await,
         ),
-        // The fork's `$workspace` is its parent's, whose tags its lineage reaches.
+        // The fork's `$workspace` is its parent's, whose tags its lineage reaches. Written as the
+        // resolved tag, not as the entry, so only the pattern can admit it.
         (
             "fork-scoped `$workspace` pattern from a fork",
-            allowed(&db, fork, "$workspace-$args[size]", "large").await,
+            allowed(&db, fork, "test-workspace-large", "").await,
         ),
         (
             "fork-scoped `$workspace` pattern refused elsewhere",
