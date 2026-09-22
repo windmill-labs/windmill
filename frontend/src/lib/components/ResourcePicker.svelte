@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { ResourceService, WorkspaceService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { onMount, untrack } from 'svelte'
 	import AppConnect from './AppConnectDrawer.svelte'
 	import ResourceEditorDrawer from './ResourceEditorDrawer.svelte'
@@ -12,6 +11,9 @@
 	import ExploreAssetButton, { assetCanBeExplored } from './ExploreAssetButton.svelte'
 	import DropdownV2 from './DropdownV2.svelte'
 	import { appIconComponent } from './icons'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		initialValue?: string | undefined
@@ -62,7 +64,7 @@
 		onValueChange = undefined
 	}: Props = $props()
 
-	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
+	let effectiveWorkspace = $derived(workspace ?? $operatingWorkspace!)
 
 	if (initialValue && value == undefined) {
 		value = initialValue

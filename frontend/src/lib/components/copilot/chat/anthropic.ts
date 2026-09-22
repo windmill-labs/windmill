@@ -24,6 +24,7 @@ import {
 	type ToolCallbacks,
 	type WebSearchSource
 } from './shared'
+import { OutputTokenLimitError } from './outputTokenLimit'
 import { anthropicUsageToChatTokenUsage, type ChatTokenUsage } from './tokenUsage'
 import { parseImageDataUrl } from './imageUtils'
 
@@ -140,7 +141,8 @@ export async function getAnthropicCompletion(
 	const { provider, config } = getProviderAndCompletionConfig({
 		messages,
 		stream: true,
-		forceModelProvider: options?.forceModelProvider
+		forceModelProvider: options?.forceModelProvider,
+		reasoningEffort: options?.reasoningEffort
 	})
 	const { system, messages: anthropicMessages } = convertOpenAIToAnthropicMessages(messages)
 	let anthropicTools = convertOpenAIToolsToAnthropic(tools)
@@ -453,6 +455,9 @@ export async function parseAnthropicCompletion(
 		return { shouldContinue: true, tokenUsage }
 	}
 
+	if (finalMessage.stop_reason === 'max_tokens') {
+		throw new OutputTokenLimitError()
+	}
 	return { shouldContinue: false, tokenUsage }
 }
 

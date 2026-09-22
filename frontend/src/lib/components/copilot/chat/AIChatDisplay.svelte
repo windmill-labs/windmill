@@ -3,6 +3,7 @@
 	import AIChatMessage from './AIChatMessage.svelte'
 	import AppAvailableContextList from './AppAvailableContextList.svelte'
 	import ChatContextPicker from './ChatContextPicker.svelte'
+	import WorkspaceMentionPicker from './WorkspaceMentionPicker.svelte'
 	import { type Snippet } from 'svelte'
 	import {
 		AlertTriangle,
@@ -566,6 +567,11 @@
 		await imageWork
 	}
 
+	function mentionWorkspaceItem(element: ContextElement) {
+		void aiChatInput?.addContextToSelection(element)
+		aiChatInput?.insertMention(element.title)
+	}
+
 	function onFolderInputChange(e: Event) {
 		const input = e.currentTarget as HTMLInputElement
 		// webkitdirectory files carry webkitRelativePath (`folder/sub/file`); addFiles groups
@@ -1081,6 +1087,19 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 														action: () => {
 															plusMenuOpen = false
 															linkFolder()
+														}
+													}
+												]
+											: []),
+										...(inGlobal
+											? [
+													{
+														displayName: 'Mention file',
+														icon: AtSign,
+														customSubmenu: WorkspaceMentionPicker,
+														customSubmenuProps: {
+															onSelect: mentionWorkspaceItem,
+															onAfterClose: () => aiChatInput?.focusInput()
 														}
 													}
 												]

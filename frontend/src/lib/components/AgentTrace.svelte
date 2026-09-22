@@ -2,7 +2,6 @@
 	import { ExternalLink, Globe } from 'lucide-svelte'
 	import { JobService, type Job } from '$lib/gen'
 	import { base } from '$lib/base'
-	import { workspaceStore } from '$lib/stores'
 	import { msToReadableTimeShort } from '$lib/utils'
 	import ChatCollapsibleCard from './copilot/chat/ChatCollapsibleCard.svelte'
 	import ToolContentDisplay from './copilot/chat/ToolContentDisplay.svelte'
@@ -10,6 +9,9 @@
 	import GfmMarkdown from './GfmMarkdown.svelte'
 	import type { AgentTraceEntry } from './agentTrace'
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		entries: AgentTraceEntry[]
@@ -40,7 +42,7 @@
 		try {
 			jobs.set(
 				jobId,
-				await JobService.getJob({ id: jobId, workspace: workspaceId ?? $workspaceStore! })
+				await JobService.getJob({ id: jobId, workspace: workspaceId ?? $operatingWorkspace! })
 			)
 		} catch {
 			// A tool job can be gone (retention) or unreadable. The row still has its
@@ -121,7 +123,7 @@
 				{:else if entry.jobId}
 					<a
 						class="text-2xs text-accent inline-flex items-center gap-1 w-fit hover:underline"
-						href="{base}/run/{entry.jobId}?workspace={workspaceId ?? $workspaceStore}"
+						href="{base}/run/{entry.jobId}?workspace={workspaceId ?? $operatingWorkspace}"
 						target="_blank"
 						rel="noreferrer"
 					>

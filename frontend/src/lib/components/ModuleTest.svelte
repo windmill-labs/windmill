@@ -7,7 +7,6 @@
 		type JavascriptTransform,
 		type Job
 	} from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { getScriptByPath } from '$lib/scripts'
 	import { getContext, untrack } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
@@ -23,6 +22,9 @@
 	import { AGENT_FLOW_LOCAL_KEYS } from './flows/agentResourceUtils'
 	import { AGENT_HISTORY_KEYS } from './flows/agentFormFields'
 	import { sendUserToast } from '$lib/toast'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		mod: FlowModule
@@ -56,7 +58,7 @@
 	let previewBase = $derived($pathStore ?? '')
 
 	// Acting workspace when the flow editor runs in an AI session; else the nav workspace.
-	let opWs = $derived(opWorkspace?.() ?? $workspaceStore)
+	let opWs = $derived(opWorkspace?.() ?? $operatingWorkspace)
 
 	let jobLoader: JobLoader | undefined = $state(undefined)
 	let jobProgressReset: () => void = () => {}

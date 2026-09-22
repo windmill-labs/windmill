@@ -4,8 +4,11 @@
 	import { setContext, untrack } from 'svelte'
 	import type { DurationStatus, FlowStatusViewerContext, GraphModuleState } from './graph'
 	import { isOwner as loadIsOwner, type StateStore } from '$lib/utils'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { userStore } from '$lib/stores'
 	import type { CompletedJob, FlowModule, FlowNote, FlowValue, Job } from '$lib/gen'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		jobId: string
@@ -98,7 +101,7 @@
 	})
 
 	function loadOwner(path: string) {
-		isOwner = loadIsOwner(path, $userStore!, workspaceId ?? $workspaceStore!)
+		isOwner = loadIsOwner(path, $userStore!, workspaceId ?? $operatingWorkspace!)
 	}
 
 	async function updateJobId() {

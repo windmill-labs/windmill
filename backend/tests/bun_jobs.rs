@@ -1303,6 +1303,62 @@ async fn test_bun_wac_inline_task_cache_is_per_task(db: Pool<Postgres>) -> anyho
     Ok(())
 }
 
+/// A task that picks its own worker tag is held to CUSTOM_TAGS like a flow step: with none
+/// set, only a superadmin may send it to `gpu`, so the workflow fails instead of queueing it.
+#[sqlx::test(fixtures("base"))]
+async fn test_bun_wac_task_tag_outside_custom_tags(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let content = r#"
+import { workflow, task } from "windmill-client";
+
+const onGpu = task(async (n: number) => {
+  return n * 2;
+}, { tag: "gpu" });
+
+export const main = workflow(async (n: number) => {
+  return await onGpu(n);
+});
+"#
+    .to_owned();
+
+    let job = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        language: ScriptLang::Bun,
+        lock: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        modules: None,
+        tag: None,
+    }))
+    .arg("n", serde_json::json!(5))
+    .as_user("test-user-2", "test2@windmill.dev")
+    .run_until_complete(&db, false, port)
+    .await;
+
+    assert!(!job.success, "the workflow must fail");
+    let result = job.json_result().unwrap();
+    let message = result["error"]["message"].as_str().unwrap_or_default();
+    assert!(
+        message.contains("task 'onGpu' cannot run on tag 'gpu'"),
+        "unexpected error: {result}"
+    );
+    let children: i64 = sqlx::query_scalar("SELECT count(*) FROM v2_job WHERE parent_job = $1")
+        .bind(job.id)
+        .fetch_one(&db)
+        .await?;
+    assert_eq!(children, 0, "no child is queued on the refused tag");
+    Ok(())
+}
+
 // ============================================================================
 // Environment Variable Tests
 // ============================================================================

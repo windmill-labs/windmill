@@ -871,7 +871,7 @@
 				{:else if setting.fieldType == 'ws_connectivity'}
 					<WsConnectivityTest {values} />
 				{:else if setting.fieldType == 'instance_banner'}
-					<InstanceBannerSetting {values} disabled={loading} />
+					<InstanceBannerSetting {values} disabled={loading || !$enterpriseLicense} />
 				{/if}
 				{#if hasError}
 					<span class="text-red-600 dark:text-red-400 text-xs">
