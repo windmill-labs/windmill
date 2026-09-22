@@ -329,6 +329,8 @@ pub async fn validate_mcp_server_url(url: &str) -> Result<ValidatedTarget, SsrfV
     validate_url_for_ssrf(url).await
 }
 
+/// Save-time check only: the webhook is sent later from another task that resolves
+/// the host again, so the returned target cannot be pinned onto that connect.
 pub async fn validate_webhook_url(url: &str) -> Result<ValidatedTarget, SsrfValidationError> {
     let parsed =
         url::Url::parse(url).map_err(|e| SsrfValidationError::InvalidUrl(e.to_string()))?;
