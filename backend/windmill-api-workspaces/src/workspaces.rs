@@ -12,6 +12,7 @@ use windmill_api_auth::{
 };
 use windmill_api_users::users::WorkspaceInvite;
 use windmill_common::email_oss::send_email_if_possible;
+use windmill_common::ssrf::{validate_webhook_url, webhook_ssrf_error_message};
 use windmill_common::usernames::{get_instance_username_or_create_pending, VALID_USERNAME};
 use windmill_common::webhook::WebhookShared;
 use windmill_common::{BASE_URL, DB};
@@ -1921,6 +1922,16 @@ async fn edit_webhook(
         return Err(Error::BadRequest(
             "Workspace webhooks are not available on cloud-hosted instances".to_string(),
         ));
+    }
+
+    // An empty URL is stored as-is and means "no webhook" to the sender.
+    if let Some(webhook) = ew.webhook.as_deref().filter(|w| !w.is_empty()) {
+        validate_webhook_url(webhook).await.map_err(|e| {
+            Error::BadRequest(format!(
+                "Webhook URL is not allowed: {}",
+                webhook_ssrf_error_message(&e)
+            ))
+        })?;
     }
 
     let mut tx = db.begin().await?;
