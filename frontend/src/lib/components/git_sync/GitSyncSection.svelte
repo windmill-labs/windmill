@@ -1,5 +1,7 @@
 <script lang="ts">
-	import { ExternalLink, Plus, Settings, GitBranch } from 'lucide-svelte'
+	import { ExternalLink, Plus, Settings, GitBranch, Trash } from 'lucide-svelte'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import { Button, Alert, Badge, Drawer, DrawerContent } from '$lib/components/common'
 	import GitSyncSetupModal from './GitSyncSetupModal.svelte'
 	import EEOnly from '$lib/components/EEOnly.svelte'
@@ -11,6 +13,7 @@
 	import { base } from '$lib/base'
 	import { WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
+	import { apiErrorMessage } from '$lib/utils'
 	import { untrack } from 'svelte'
 
 	// Create context reactively based on workspaceStore
@@ -109,6 +112,30 @@
 	const usedResourcePaths = $derived(
 		repositories.map((r) => r.git_repo_resource_path).filter((p) => !!p?.trim())
 	)
+
+	/** The repository the delete confirmation is about, kept with its path so a list that
+	 *  shifted under it is caught rather than removing the wrong one. */
+	let deleting: { idx: number; path: string } | undefined = $state(undefined)
+	let deletingBusy = $state(false)
+
+	async function confirmDelete() {
+		if (!deleting || !gitSyncContext) return
+		const { idx, path } = deleting
+		if (gitSyncContext.repositories[idx]?.git_repo_resource_path !== path) {
+			deleting = undefined
+			return
+		}
+		deletingBusy = true
+		try {
+			await gitSyncContext.removeRepository(idx)
+			sendUserToast('Repository connection removed')
+			deleting = undefined
+		} catch (e) {
+			sendUserToast('Failed to remove the repository: ' + apiErrorMessage(e), true)
+		} finally {
+			deletingBusy = false
+		}
+	}
 
 	let setupMode = $state<'sync' | 'promotion'>('sync')
 	let setupOpen = $state(false)
@@ -265,14 +292,26 @@
 								</div>
 								<span class="text-2xs text-secondary">{rowLabel(idx)}</span>
 							</div>
-							<Button
-								unifiedSize="sm"
-								variant="default"
-								startIcon={{ icon: Settings }}
-								onClick={() => openSettings(repo.git_repo_resource_path)}
-							>
-								Settings
-							</Button>
+							<div class="flex items-center gap-1">
+								<Button
+									unifiedSize="md"
+									variant="default"
+									startIcon={{ icon: Settings }}
+									onClick={() => openSettings(repo.git_repo_resource_path)}
+								>
+									Settings
+								</Button>
+								<DropdownV2
+									items={[
+										{
+											displayName: 'Delete',
+											icon: Trash,
+											type: 'delete',
+											action: () => (deleting = { idx, path: repo.git_repo_resource_path })
+										}
+									]}
+								/>
+							</div>
 						</div>
 					{/each}
 				</div>
@@ -337,6 +376,21 @@
 				{/if}
 			{/if}
 		</div>
+
+		<ConfirmationModal
+			open={!!deleting}
+			title="Remove the repository connection"
+			confirmationText="Remove"
+			loading={deletingBusy}
+			onConfirmed={confirmDelete}
+			onCanceled={() => (deleting = undefined)}
+		>
+			<span class="text-sm">
+				Deploys of this workspace will stop being committed to
+				<span class="font-mono">{deleting?.path}</span>. The repository itself and its resource are
+				left untouched.
+			</span>
+		</ConfirmationModal>
 
 		<GitSyncSetupModal
 			bind:opened={setupOpen}

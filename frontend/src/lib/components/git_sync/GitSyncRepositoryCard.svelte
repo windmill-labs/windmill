@@ -1,7 +1,6 @@
 <script lang="ts">
 	import {
 		Save,
-		Trash,
 		XCircle,
 		CheckCircle2,
 		RotateCw,
@@ -18,7 +17,6 @@
 	import { applyNewConnectionDefaults } from './setup/connectionDefaults'
 	import { sendUserToast } from '$lib/toast'
 	import { apiErrorMessage } from '$lib/utils'
-	import { fade } from 'svelte/transition'
 	import { workspaceStore, userWorkspaces, enterpriseLicense } from '$lib/stores'
 	import type { GitSyncRepository } from './GitSyncContext.svelte'
 	import GitSyncModeDisplay from './GitSyncModeDisplay.svelte'
@@ -57,7 +55,6 @@
 	const repo = $derived(repository || (idx !== null ? gitSyncContext.getRepository(idx) : null))
 	const validation = $derived(idx !== null ? gitSyncContext.getValidation(idx) : null)
 	const gitSyncTestJob = $derived(idx !== null ? gitSyncContext.gitSyncTestJobs?.[idx] : null)
-	let confirmingDelete = $state(false)
 
 	function pullStatusDate(status: { at: number }): string {
 		return new Date(status.at * 1000).toISOString()
@@ -455,27 +452,6 @@
 		}
 	}
 
-	function initiateDelete() {
-		confirmingDelete = true
-	}
-
-	async function confirmDelete() {
-		if (idx === null) return
-		try {
-			await gitSyncContext.removeRepository(idx)
-			sendUserToast('Repository connection removed successfully')
-		} catch (error: any) {
-			console.error('Failed to remove repository:', error)
-			sendUserToast('Failed to remove repository: ' + apiErrorMessage(error), true)
-		} finally {
-			confirmingDelete = false
-		}
-	}
-
-	function cancelDelete() {
-		confirmingDelete = false
-	}
-
 	function runGitSyncTestJob() {
 		if (idx !== null && gitSyncContext.runTestJob) {
 			gitSyncContext.runTestJob(idx)
@@ -541,36 +517,6 @@
 				</svg>
 			{/if}
 		</button>
-	{/if}
-	{#if !confirmingDelete}
-		<div transition:fade|local={{ duration: 100 }}>
-			<Button
-				size="xs"
-				variant="default"
-				onclick={initiateDelete}
-				startIcon={{ icon: Trash }}
-				destructive
-			>
-				Delete
-			</Button>
-		</div>
-	{:else}
-		<div class="flex gap-1">
-			<button
-				transition:fade|local={{ duration: 100 }}
-				class="px-3 py-1 text-xs bg-red-500 text-white rounded duration-200 hover:bg-red-600"
-				onclick={confirmDelete}
-			>
-				Confirm delete
-			</button>
-			<button
-				transition:fade|local={{ duration: 100 }}
-				class="px-2 py-1 text-xs bg-surface-secondary rounded duration-200 hover:bg-surface-hover"
-				onclick={cancelDelete}
-			>
-				<XCircle size={12} />
-			</button>
-		</div>
 	{/if}
 {/snippet}
 
