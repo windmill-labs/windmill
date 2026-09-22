@@ -363,6 +363,7 @@ pub async fn check_tag_available_for_workspace_internal(
         && custom_tags_per_w
             .global
             .iter()
+            .chain(custom_tags_per_w.specific.keys())
             .any(|t| t.contains("$workspace"))
     {
         tag_workspace.await
@@ -371,20 +372,26 @@ pub async fn check_tag_available_for_workspace_internal(
     };
     // A job whose tag is written exactly as an entry resolves inside what that entry admits, which
     // is the only way in for an entry `custom_tag_matches` cannot turn into a pattern.
-    let mut is_tag_in_workspace_custom_tags = custom_tags_per_w.global.iter().any(|entry| {
+    let admits = |entry: &str| {
         entry == tag || resolved_tag.is_some_and(|r| custom_tag_matches(entry, r, &tag_workspace))
-    });
+    };
+    let mut is_tag_in_workspace_custom_tags =
+        custom_tags_per_w.global.iter().any(|entry| admits(entry));
     if !is_tag_in_workspace_custom_tags {
-        if let Some(specific_tag) = custom_tags_per_w.specific.get(resolved_tag.unwrap_or(tag)) {
-            // Only a fork-scoped tag can match through the lineage, so every other tag keeps the
-            // ancestor lookup off the push path entirely.
-            let chain = if specific_tag.is_fork_scoped() {
-                workspace_with_fork_ancestors(db, w_id).await?
-            } else {
-                vec![w_id.to_string()]
-            };
-            is_tag_in_workspace_custom_tags = specific_tag.applies_to_workspace(&chain);
-        }
+        let scoped = custom_tags_per_w
+            .specific
+            .iter()
+            .filter(|(name, _)| admits(name))
+            .map(|(_, specific_tag)| specific_tag)
+            .collect::<Vec<_>>();
+        // Only a fork-scoped tag can match through the lineage, so every other tag keeps the
+        // ancestor lookup off the push path entirely.
+        let chain = if scoped.iter().any(|t| t.is_fork_scoped()) {
+            workspace_with_fork_ancestors(db, w_id).await?
+        } else {
+            vec![w_id.to_string()]
+        };
+        is_tag_in_workspace_custom_tags = scoped.iter().any(|t| t.applies_to_workspace(&chain));
     }
 
     match is_tag_in_scope_tags {

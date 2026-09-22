@@ -38,47 +38,14 @@
 	const dispatch = createEventDispatcher()
 
 	// Mirrors CUSTOM_TAG_REGEX in backend/windmill-common/src/worker.rs — keep both in sync.
-	const customTagRegex = /^([\w-]+)\(((?:[\w-]+\*?\+)*[\w-]+\*?|(?:\^[\w-]+\*?)+)\)$/
+	const customTagRegex =
+		/^((?:[\w-]|\$workspace|\$(?:args|flow_expr)\[(?:\w+\.)*\w+\])+)\(((?:[\w-]+\*?\+)*[\w-]+\*?|(?:\^[\w-]+\*?)+)\)$/
 	// Mirrors RE_ARG_TAG and RE_FLOW_EXPR_TAG in backend/windmill-queue/src/jobs.rs.
 	const dynamicTagRegex = /\$(args|flow_expr)\[((?:\w+\.)*\w+)\]/
 
 	function formatWorkspace(w: { id: string; includeForks: boolean }) {
 		return w.includeForks ? `${w.id} (and its forks)` : w.id
 	}
-
-	let dynamicTag = $derived.by(() => {
-		let r = newTag.trim()
-		if (r == '') return undefined
-		let matched = r.match(dynamicTagRegex)
-		return matched ? { kind: matched[1], path: matched[2] } : undefined
-	})
-
-	// Mirrors custom_tag_matches in backend/windmill-common/src/worker.rs: a job's tag is judged on
-	// what it resolves to, and a placeholder in a custom tag stands for any text, unless two of them
-	// are tied (same kind, and the same path or one inside the other). A tied entry admits only a
-	// tag written exactly like it; an untied one with no text around its placeholders admits all.
-	let dynamicTagPlaceholders = $derived(
-		[...newTag.trim().matchAll(new RegExp(dynamicTagRegex.source, 'g'))].map((m) => ({
-			kind: m[1],
-			path: m[2]
-		}))
-	)
-	let dynamicTagTied = $derived(
-		dynamicTagPlaceholders.some((a, i) =>
-			dynamicTagPlaceholders
-				.slice(i + 1)
-				.some(
-					(b) =>
-						a.kind == b.kind &&
-						(a.path == b.path || a.path.startsWith(b.path + '.') || b.path.startsWith(a.path + '.'))
-				)
-		)
-	)
-	let dynamicTagAdmitsEveryTag = $derived(
-		dynamicTag != undefined &&
-			!dynamicTagTied &&
-			newTag.trim().replace(new RegExp(dynamicTagRegex.source, 'g'), '') == ''
-	)
 
 	let extractedCustomTag = $derived.by(() => {
 		let r = newTag.trim()
@@ -99,6 +66,43 @@
 		}
 		return { tag, workspaces, tag_type }
 	})
+
+	// What the entry matches job tags against: a workspace specific entry's name, which may be
+	// dynamic like any other entry.
+	let tagName = $derived(extractedCustomTag?.tag ?? newTag.trim())
+
+	let dynamicTag = $derived.by(() => {
+		if (tagName == '') return undefined
+		let matched = tagName.match(dynamicTagRegex)
+		return matched ? { kind: matched[1], path: matched[2] } : undefined
+	})
+
+	// Mirrors custom_tag_matches in backend/windmill-common/src/worker.rs: a job's tag is judged on
+	// what it resolves to, and a placeholder in a custom tag stands for any text, unless two of them
+	// are tied (same kind, and the same path or one inside the other). A tied entry admits only a
+	// tag written exactly like it; an untied one with no text around its placeholders admits all.
+	let dynamicTagPlaceholders = $derived(
+		[...tagName.matchAll(new RegExp(dynamicTagRegex.source, 'g'))].map((m) => ({
+			kind: m[1],
+			path: m[2]
+		}))
+	)
+	let dynamicTagTied = $derived(
+		dynamicTagPlaceholders.some((a, i) =>
+			dynamicTagPlaceholders
+				.slice(i + 1)
+				.some(
+					(b) =>
+						a.kind == b.kind &&
+						(a.path == b.path || a.path.startsWith(b.path + '.') || b.path.startsWith(a.path + '.'))
+				)
+		)
+	)
+	let dynamicTagAdmitsEveryTag = $derived(
+		dynamicTag != undefined &&
+			!dynamicTagTied &&
+			tagName.replace(new RegExp(dynamicTagRegex.source, 'g'), '') == ''
+	)
 
 	loadCustomTags()
 
@@ -153,6 +157,36 @@
 
 <svelte:window onkeydown={onKeyDown} />
 
+{#snippet dynamicTagInfo(scoped: boolean)}
+	{#if tagName.includes('$workspace') && !dynamicTag}
+		<div>Interpolated tag based on workspace id the job was created in </div>
+	{/if}
+	{#if dynamicTag?.kind == 'flow_expr'}
+		<div>
+			Interpolated tag based on the flow value at <b>{dynamicTag.path}</b>, resolved when the flow
+			step starts
+		</div>
+	{:else if dynamicTag}
+		<div>Interpolated tag based on args input of <b>{dynamicTag.path}</b></div>
+	{/if}
+	{#if dynamicTagTied}
+		<div class="mt-1">
+			Its placeholders read the same value, or one reads inside the other, so it allows only jobs
+			whose tag is written exactly like this
+		</div>
+	{:else if dynamicTagAdmitsEveryTag}
+		<div class="mt-1 text-yellow-600 dark:text-yellow-500">
+			Allows every tag{scoped ? ' in these workspaces' : ''}: nothing around the placeholder limits
+			what it resolves to. Add a fixed prefix or suffix, or list the tags themselves.
+		</div>
+	{:else if dynamicTag}
+		<div class="mt-1">
+			Allows any tag it resolves to{scoped ? ' in these workspaces' : ''}, with the text around the
+			placeholder as written
+		</div>
+	{/if}
+{/snippet}
+
 <div
 	class="flex flex-col gap-2"
 	class:w-72={variant === 'popover'}
@@ -195,8 +229,11 @@
 			</Button>
 		</div>
 		{#if extractedCustomTag}
+			{@const dynamic = tagName.includes('$workspace') || dynamicTag != undefined}
 			<div class="text-2xs text-primary p-2 bg-surface-secondary rounded">
-				<div class="font-medium mb-1">Workspace specific tag</div>
+				<div class="font-medium mb-1">
+					Workspace specific {#if dynamic}dynamic tag{:else}tag{/if}
+				</div>
 				<div>
 					<b>Tag:</b>
 					{extractedCustomTag.tag}
@@ -209,6 +246,7 @@
 						All workspaces except {extractedCustomTag.workspaces?.map(formatWorkspace).join(', ')}
 					{/if}
 				</div>
+				{@render dynamicTagInfo(true)}
 			</div>
 		{:else if newTag.trim()}
 			{#if newTag.includes('(') || newTag.includes(')') || newTag.includes('+') || newTag.includes('^') || newTag.includes('*') || ((newTag.includes('.') || newTag.includes('$args[') || newTag.includes('$flow_expr[')) && !dynamicTag)}
@@ -232,32 +270,7 @@
 						<b>Tag:</b>
 						{newTag.trim()}
 					</div>
-					{#if newTag.includes('$workspace') && !dynamicTag}
-						<div>Interpolated tag based on workspace id the job was created in </div>
-					{/if}
-					{#if dynamicTag?.kind == 'flow_expr'}
-						<div>
-							Interpolated tag based on the flow value at <b>{dynamicTag.path}</b>, resolved when
-							the flow step starts
-						</div>
-					{:else if dynamicTag}
-						<div>Interpolated tag based on args input of <b>{dynamicTag.path}</b></div>
-					{/if}
-					{#if dynamicTagTied}
-						<div class="mt-1">
-							Its placeholders read the same value, or one reads inside the other, so it allows only
-							jobs whose tag is written exactly like this
-						</div>
-					{:else if dynamicTagAdmitsEveryTag}
-						<div class="mt-1 text-yellow-600 dark:text-yellow-500">
-							Allows every tag: nothing around the placeholder limits what it resolves to. Add a
-							fixed prefix or suffix, or list the tags themselves.
-						</div>
-					{:else if dynamicTag}
-						<div class="mt-1">
-							Allows any tag it resolves to, with the text around the placeholder as written
-						</div>
-					{/if}
+					{@render dynamicTagInfo(false)}
 				</div>
 			{/if}
 		{/if}
@@ -315,7 +328,9 @@
 			A dynamic tag is checked on the tag it resolves to: it is allowed when that tag is listed here,
 			or fits a listed dynamic tag such as
 			<pre class="inline text-emphasis">gpu-$args[size]</pre>, which allows any tag starting with
-			<pre class="inline">gpu-</pre>.
+			<pre class="inline">gpu-</pre>. Scope it like any other tag, e.g.
+			<pre class="inline text-emphasis">gpu-$args[size](workspace1+workspace2)</pre>, to allow those
+			tags only in some workspaces.
 		</span>
 	{/if}
 </div>
