@@ -2,7 +2,7 @@
 	import type { ToolCodeDiff } from './shared'
 	import { toolDiffLines, type CharacterRange, type ToolDiffLine } from './toolCodeDiff'
 	import { toolCodeDiffLanguage } from './toolCodeDiffLanguage'
-	import hljs, { type HighlightResult } from 'highlight.js/lib/core'
+	import hljs from 'highlight.js/lib/core'
 	import HighlightTheme from '$lib/components/HighlightTheme.svelte'
 	import { Button } from '$lib/components/common'
 
@@ -12,8 +12,8 @@
 		diffLines?: ToolDiffLine[]
 	}
 
-	type VisibleRow = ToolDiffLine | { kind: 'collapsed'; key: string; count: number }
 	type HighlightedLine = ToolDiffLine & { highlighted: string }
+	type VisibleRow = HighlightedLine | { kind: 'collapsed'; key: string; count: number }
 
 	let { diff, streaming = false, diffLines }: Props = $props()
 
@@ -24,16 +24,44 @@
 	const lines = $derived.by(() => {
 		if (!hljs.getLanguage(language.name)) hljs.registerLanguage(language.name, language.register)
 
-		let originalContinuation: HighlightResult['_top']
-		let modifiedContinuation: HighlightResult['_top']
+		const original = highlightedSourceLines(diff.before, language.name)
+		const modified = highlightedSourceLines(diff.after, language.name)
 		return diffRows.map((row): HighlightedLine => {
-			const continuation = row.kind === 'removed' ? originalContinuation : modifiedContinuation
-			const result = hljs.highlight(language.name, row.content, true, continuation)
-			if (row.kind !== 'added') originalContinuation = result._top
-			if (row.kind !== 'removed') modifiedContinuation = result._top
-			return { ...row, highlighted: result.value }
+			const source = row.kind === 'removed' ? original : modified
+			const lineNumber = row.kind === 'removed' ? row.oldLine : row.newLine
+			return { ...row, highlighted: lineNumber === undefined ? '' : (source[lineNumber - 1] ?? '') }
 		})
 	})
+
+	function highlightedSourceLines(code: string, languageName: string): string[] {
+		if (code === '') return []
+		const highlighted = hljs.highlight(code, { language: languageName }).value
+		return splitHighlightedLines(highlighted, code.endsWith('\n'))
+	}
+
+	function splitHighlightedLines(highlighted: string, hasFinalNewline: boolean): string[] {
+		const result: string[] = []
+		const openTags: string[] = []
+		let line = ''
+
+		for (const token of highlighted.split(/(<[^>]+>|\n)/)) {
+			if (token === '\n') {
+				result.push(line + openTags.slice().reverse().map(closeTag).join(''))
+				line = openTags.join('')
+			} else {
+				line += token
+				if (token.startsWith('<span')) openTags.push(token)
+				else if (token === '</span>') openTags.pop()
+			}
+		}
+
+		if (!hasFinalNewline) result.push(line)
+		return result
+	}
+
+	function closeTag(openTag: string): string {
+		return openTag.startsWith('<span') ? '</span>' : ''
+	}
 	const visibleRows = $derived.by(() => {
 		const result: VisibleRow[] = []
 		for (let index = 0; index < lines.length; ) {
