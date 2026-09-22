@@ -2,6 +2,7 @@
 	import AppRow from '../common/table/AppRow.svelte'
 	import FlowRow from '../common/table/FlowRow.svelte'
 	import RawAppRow from '../common/table/RawAppRow.svelte'
+	import AgentRow from '../common/table/AgentRow.svelte'
 	import ScriptRow from '../common/table/ScriptRow.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { Alert } from '$lib/components/common'
@@ -44,9 +45,10 @@
 	// A raw app the listing returns is an `app` row carrying `raw_app`, and is
 	// selectable like any other app. The separate `raw_app` type is the legacy
 	// listing shape, which renders through RawAppRow — no selection control there,
-	// so it must not enter the selection either.
+	// so it must not enter the selection either. An agent is a resource underneath,
+	// which none of the bulk actions handle.
 	let bulkItem = $derived(
-		homeSelection?.available && item.type !== 'raw_app'
+		homeSelection?.available && item.type !== 'raw_app' && item.type !== 'agent'
 			? toBulkItem(item, $userStore, $workspaceStore)
 			: undefined
 	)
@@ -130,6 +132,20 @@
 		{deploymentDrawer}
 		{depth}
 		bind:menuOpen
+		{keyboardSelected}
+	/>
+{:else if item.type == 'agent'}
+	<AgentRow
+		bind:deleteConfirmedCallback
+		marked={item.marked}
+		on:change={() => dispatch('reload')}
+		agent={item}
+		{shareModal}
+		{moveDrawer}
+		{deploymentDrawer}
+		{depth}
+		bind:menuOpen
+		{showEditButton}
 		{keyboardSelected}
 	/>
 {/if}

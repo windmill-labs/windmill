@@ -39,6 +39,7 @@
 			| 'flow'
 			| 'app'
 			| 'raw_app'
+			| 'agent'
 			| 'resource'
 			| 'variable'
 			| 'resource_type'

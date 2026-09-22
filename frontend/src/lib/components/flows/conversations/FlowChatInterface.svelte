@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
 	import { Loader2, MessageSquare, SlidersHorizontal } from 'lucide-svelte'
+	import type { Snippet } from 'svelte'
 	import { FlowChatManager } from './FlowChatManager.svelte'
 	import { FlowChatViewHost } from './flowChatViewHost.svelte'
 	import AIChatDisplay from '$lib/components/copilot/chat/AIChatDisplay.svelte'
@@ -39,6 +40,10 @@
 		/** The flow's description, shown under the empty transcript's prompt. */
 		description?: string
 		wideLayout?: boolean
+		/** Rendered above the composer — see `FlowChatProps`. */
+		inputPreface?: Snippet
+		/** Replaces this component's own empty-transcript prompt — see `FlowChatProps`. */
+		emptyHintOverride?: Snippet
 	}
 
 	let {
@@ -49,7 +54,9 @@
 		path,
 		identity = undefined,
 		description = undefined,
-		wideLayout = false
+		wideLayout = false,
+		inputPreface = undefined,
+		emptyHintOverride = undefined
 	}: Props = $props()
 
 	// Derive helperScript for dynamic inputs from schema
@@ -285,7 +292,7 @@
 <div
 	class="flex flex-col h-full flex-1 min-w-0"
 	class:min-h-96={chatHost.displayMessages.length > 0}
-	class:min-h-64={chatHost.displayMessages.length === 0}
+	class:min-h-64={chatHost.displayMessages.length === 0 && !emptyHintOverride}
 >
 	<AIChatDisplay
 		messages={chatHost.displayMessages}
@@ -298,7 +305,8 @@
 		hideHeader
 		hideModeSelector
 		{wideLayout}
-		{emptyHint}
+		emptyHint={emptyHintOverride ?? emptyHint}
+		{inputPreface}
 		footerSettings={modalSchema || modelWiring ? footerSettings : undefined}
 		placeholder="Send a message to run the flow"
 		disabled={deploymentInProgress || !!modelGap || !!manager.wrongKindReason}

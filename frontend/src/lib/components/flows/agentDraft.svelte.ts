@@ -6,6 +6,8 @@ import { sendUserToast } from '$lib/toast'
 import { canWrite } from '$lib/utils'
 import { userStore } from '$lib/stores'
 import { getUserExt } from '$lib/user'
+import { getUsernameForNamespace } from '$lib/userNamespace'
+import { random_adj } from '$lib/components/random_positive_adjetive'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { useTriggerDraftSync, type TriggerDraftSync } from '../triggers/useTriggerDraftSync.svelte'
 import { logReusableAgentUsage } from './agentTelemetry'
@@ -83,6 +85,9 @@ export interface AgentResourceState {
 	resource_type?: string
 	labels?: string[]
 	wsSpecific: boolean
+	/** For an agent with nothing deployed, the path its first deploy creates. The draft itself
+	 *  stays at its storage path (`path`), as a new script's does, so renaming never moves it. */
+	draft_path?: string
 }
 
 /**
@@ -178,6 +183,9 @@ export interface AgentDraftOptions {
 	/** The `ai_agent` resource being edited. */
 	path: () => string | undefined
 	workspace: () => string | undefined
+	/** The path was minted for a new agent: a missing row is an empty agent to start from, not a
+	 *  load failure. Nothing is written until the first edit. */
+	isNew?: () => boolean
 }
 
 export interface AgentDraftHandle {
@@ -193,6 +201,8 @@ export interface AgentDraftHandle {
 	/** Why this path cannot be edited here, if it cannot. Render it instead of the form. */
 	readonly refusal: string | undefined
 	readonly sync: TriggerDraftSync
+	/** Where the last successful deploy wrote: `draft_path` for a first deploy, else the path. */
+	readonly lastDeployedPath: string | undefined
 	/** Write the current state to the resource and drop the draft. */
 	deploy: () => Promise<boolean>
 }
@@ -208,6 +218,7 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 	let loading = $state(true)
 	let noDeployed = $state(false)
 	let canWriteResource = $state(true)
+	let lastDeployedPath = $state<string | undefined>(undefined)
 	/** Guards the load against a path that changed under a slow response. */
 	let loadedFor = $state<string | undefined>(undefined)
 	/** Why the loaded path cannot be edited here, if it cannot. Gates the sync for as long as that
@@ -323,10 +334,29 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 						await sync.maybeRestore()
 					},
 					(err) => {
+						if (loadedFor !== key) return
+						// A minted path with no row yet is a new agent. Memory starts on `auto`: the
+						// editor's chat keys the history on the conversation and is off otherwise.
+						if (opts.isNew?.() && (err as { status?: number })?.status === 404) {
+							noDeployed = true
+							deployed = undefined
+							canWriteResource = true
+							state = {
+								path,
+								description: '',
+								args: { memory: { kind: 'auto', context_length: 10 } } as AIAgentConfig,
+								resource_type: 'ai_agent',
+								wsSpecific: false,
+								// The friendly temporary name a new script or flow starts with, under the
+								// author's own namespace; renamed from the editor's settings.
+								draft_path: `u/${getUsernameForNamespace()}/${random_adj()}_agent`
+							}
+							loading = false
+							return
+						}
 						// A failed load knows neither the resource's type nor its value, so it refuses:
 						// clearing `loading` alone would let the sync restore a persisted draft into a form
 						// that would then deploy over a resource nobody read.
-						if (loadedFor !== key) return
 						refuse(`Could not load agent ${path}: ${err}`)
 					}
 				)
@@ -342,12 +372,20 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 			sendUserToast(refused, true)
 			return false
 		}
+		// A first deploy creates the agent where its author named it, not at the draft's storage
+		// path, which is a generated `draft_<uuid>` nobody would link to.
+		const target = noDeployed ? s.draft_path?.trim() : s.path
+		if (!target) {
+			sendUserToast('Pick a path for this agent before deploying.', true)
+			return false
+		}
 		// The form stays editable while the request is in flight, so everything below works from a
 		// snapshot taken now. Adopting the live state as `deployed` afterwards would count an edit
 		// made during the request as saved, and the banner would clear on a value the server never
 		// received; against the snapshot it stays a draft, which is what it is.
 		const submitted = structuredClone($state.snapshot(s)) as AgentResourceState
-		const written = await writeAgentResource(ws, submitted, noDeployed)
+		const firstDeploy = noDeployed
+		const written = await writeAgentResource(ws, { ...submitted, path: target }, noDeployed)
 		if (!written.ok) {
 			// A path that is no longer an agent tears this editor down; anything else is a plain error
 			// the user can retry from the form as it stands.
@@ -361,6 +399,14 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 		// The counter the step card's write-back used to report, from the surface that now owns the
 		// write: a deploy here reaches every flow linking this agent.
 		logReusableAgentUsage(noDeployed ? 'saved' : 'updated')
+		lastDeployedPath = target
+		if (firstDeploy) {
+			// The agent now lives at `target`; the draft at the storage path has nothing left to
+			// describe, whatever was typed during the request.
+			sync.discard(opts.path()!, undefined)
+			sendUserToast(`Saved agent ${target}`)
+			return true
+		}
 		deployed = submitted
 		noDeployed = false
 		// Only when the form still holds exactly what was sent. `discard` resets the handle's cell to
@@ -399,6 +445,9 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 		},
 		get refusal() {
 			return refusal
+		},
+		get lastDeployedPath() {
+			return lastDeployedPath
 		},
 		sync,
 		deploy

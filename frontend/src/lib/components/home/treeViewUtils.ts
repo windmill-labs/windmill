@@ -1,5 +1,5 @@
-import type { ListableApp, Script, Flow, ListableRawApp } from '$lib/gen'
-type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app'> = T & {
+import type { ListableApp, Script, Flow, ListableRawApp, ListableResource } from '$lib/gen'
+type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app' | 'agent'> = T & {
 	canWrite: boolean
 	marked?: string
 	type?: U
@@ -14,8 +14,11 @@ type TableScript = TableItem<Script, 'script'>
 type TableFlow = TableItem<Flow, 'flow'>
 type TableApp = TableItem<ListableApp, 'app'>
 type TableRawApp = TableItem<ListableRawApp, 'raw_app'>
+/** A saved agent: an `ai_agent` resource the home page lists as a kind of its own. Its
+ *  description stands in as the summary every other kind carries. */
+type TableAgent = TableItem<ListableResource & { summary?: string }, 'agent'>
 
-export type ItemType = TableScript | TableFlow | TableApp | TableRawApp
+export type ItemType = TableScript | TableFlow | TableApp | TableRawApp | TableAgent
 
 export interface FolderItem {
 	folderName: string
@@ -182,6 +185,8 @@ function getModifiedAt(item: ItemType): number {
 		return new Date(item.edited_at).getTime() || 0
 	} else if (item.type === 'raw_app') {
 		return new Date(item.edited_at).getTime() || 0
+	} else if (item.type === 'agent') {
+		return new Date(item.edited_at ?? 0).getTime() || 0
 	}
 
 	return 0

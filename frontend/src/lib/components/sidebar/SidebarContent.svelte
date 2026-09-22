@@ -37,6 +37,7 @@
 		AlertCircle,
 		Database,
 		Pyramid,
+		MessagesSquare,
 		MailIcon,
 		ChevronDown,
 		ChevronRight
@@ -235,6 +236,13 @@
 				icon: Pyramid,
 				aiId: 'sidebar-menu-link-assets',
 				aiDescription: 'Button to navigate to assets'
+			},
+			{
+				label: 'Agent chats',
+				href: `${base}/agent_chats`,
+				icon: MessagesSquare,
+				aiId: 'sidebar-menu-link-agent-chats',
+				aiDescription: 'Button to navigate to the conversations with the saved agents'
 			},
 			{
 				label: 'Folders',

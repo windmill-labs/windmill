@@ -11,11 +11,10 @@
 		PanelLeftOpen,
 		Info
 	} from 'lucide-svelte'
-	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import SessionStatusDot from '$lib/components/sessions/SessionStatusDot.svelte'
+	import ConversationRow from './ConversationRow.svelte'
 	import type { SessionChatStatus } from '$lib/components/sessions/sessionRuntime.svelte'
 	import UnreadCountBadge from '$lib/components/common/badge/UnreadCountBadge.svelte'
-	import { PencilLine } from 'lucide-svelte'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
 	import { emptyString, type Item } from '$lib/utils'
@@ -312,53 +311,20 @@
 								/>
 							</div>
 						{:else}
-							<Button
-								unifiedSize="md"
-								variant="subtle"
-								onClick={() => manager.selectConversation(conversation.id, conversation.isDraft)}
+							<!-- The dot sits in the slot New chat's icon occupies above, so the column lines
+							     up. -->
+							<ConversationRow
+								title={getConversationTitle(conversation)}
+								status={dotStatus(conversation.id)}
+								isTest={conversation.is_test}
 								selected={manager.selectedConversationId === conversation.id}
-								disabled={!!rowLocked(conversation)}
-								title={rowLocked(conversation)}
-								btnClasses="transition-all duration-150 group gap-2"
-							>
-								<!-- In the slot New chat's icon occupies above, so the column lines up. Says
-								     what the chat is doing where there is something to say, and which kind of
-								     chat it is otherwise. -->
-								{@render statusDot(conversation)}
-								{@const unread = manager.unreadCount(conversation.id)}
-								<span
-									class={twMerge(
-										'flex-1 text-left truncate',
-										unread > 0 ? 'font-semibold text-primary' : ''
-									)}
-								>
-									{getConversationTitle(conversation)}
-								</span>
-								{#if manager.conversationStatus(conversation.id) === 'queued' || unread > 0}
-									<span class="shrink-0 inline-flex items-center gap-1">
-										{#if manager.conversationStatus(conversation.id) === 'queued'}
-											<PencilLine class="w-3 h-3 text-tertiary" aria-label="Message waiting to send" />
-										{/if}
-										<UnreadCountBadge count={unread} />
-									</span>
-								{/if}
-								<!-- Hidden while the row is disabled: it sits inside the row's button, and a
-								     disabled button swallows every click in its subtree, so a visible menu
-								     here would be an affordance that does nothing. -->
-								{#if !rowLocked(conversation)}
-									<!-- svelte-ignore a11y_click_events_have_key_events -->
-									<!-- svelte-ignore a11y_no_static_element_interactions -->
-									<div
-										class={twMerge(
-											'ml-2 transition-all duration-100 opacity-0 group-hover:opacity-100',
-											manager.deletingConversationId === conversation.id ? 'opacity-100' : ''
-										)}
-										onclick={(e) => e.stopPropagation()}
-									>
-										<DropdownV2 items={() => rowActions(conversation)} size="xs" />
-									</div>
-								{/if}
-							</Button>
+								lockedReason={rowLocked(conversation)}
+								unread={manager.unreadCount(conversation.id)}
+								queued={manager.conversationStatus(conversation.id) === 'queued'}
+								busy={manager.deletingConversationId === conversation.id}
+								onSelect={() => manager.selectConversation(conversation.id, conversation.isDraft)}
+								actions={() => rowActions(conversation)}
+							/>
 						{/if}
 					</div>
 				{/if}

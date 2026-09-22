@@ -10,8 +10,10 @@
 		type ListableApp,
 		type Script,
 		ScriptService,
+		ResourceService,
 		type Flow,
 		type ListableRawApp,
+		type ListableResource,
 		type RunnableItem
 	} from '$lib/gen'
 	import { resource } from 'runed'
@@ -20,6 +22,7 @@
 	import type uFuzzy from '@leeoniya/ufuzzy'
 	import {
 		ArrowDownUp,
+		Bot,
 		CheckSquare,
 		ChevronsDownUp,
 		ChevronsUpDown,
@@ -63,7 +66,7 @@
 	import BulkActionsBar from './BulkActionsBar.svelte'
 	import { HomeSelection, setHomeSelection, toBulkItem } from './homeSelection.svelte'
 	interface Props {
-		subtab?: 'flow' | 'script' | 'app'
+		subtab?: 'flow' | 'script' | 'app' | 'agent'
 		showEditButtons?: boolean
 	}
 
@@ -102,7 +105,8 @@
 			options: [
 				{ value: 'script', label: 'Script' },
 				...(HOME_SEARCH_SHOW_FLOW ? [{ value: 'flow', label: 'Flow' }] : []),
-				{ value: 'app', label: 'App' }
+				{ value: 'app', label: 'App' },
+				{ value: 'agent', label: 'Agent' }
 			]
 		},
 		archived: { type: 'boolean' as const, label: 'Only archived' },
@@ -167,7 +171,15 @@
 	// depends on these (search, kind, archived, library, user-folder scope), so changing a
 	// searchbar chip reloads the server stream exactly as toggling the old controls did.
 	let filter = $derived((filterValues.val._default_ ?? '') as string)
-	let itemKind = $derived((filterValues.val.kind ?? 'all') as 'script' | 'flow' | 'app' | 'all')
+	let itemKind = $derived(
+		(filterValues.val.kind ?? 'all') as 'script' | 'flow' | 'app' | 'agent' | 'all'
+	)
+	// Agents are `ai_agent` resources, listed through the resource endpoint: the runnables
+	// endpoint has no such kind, so it is asked for nothing on the agent view and for every
+	// kind on the combined one.
+	let showsRunnables = $derived(itemKind !== 'agent')
+	let showsAgents = $derived(itemKind === 'all' || itemKind === 'agent')
+	let runnableKinds = $derived(itemKind === 'all' || itemKind === 'agent' ? undefined : itemKind)
 	let archived = $derived(!!filterValues.val.archived)
 	let includeWithoutMain = $derived((filterValues.val.include_library ?? true) as boolean)
 	let filterUserFolders = $derived(!!filterValues.val.only_user_folders)
@@ -201,7 +213,7 @@
 		if (el) untrack(() => el.open())
 	})
 
-	type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app'> = T & {
+	type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app' | 'agent'> = T & {
 		canWrite: boolean
 		marked?: string
 		type?: U
@@ -219,6 +231,7 @@
 	type TableFlow = TableItem<Flow, 'flow'>
 	type TableApp = TableItem<ListableApp, 'app'>
 	type TableRawApp = TableItem<ListableRawApp, 'raw_app'>
+	type TableAgent = TableItem<ListableResource & { summary?: string }, 'agent'>
 
 	// Folders that are data pipelines, surfaced as their own "Pipeline" entry
 	// (the member scripts are folded into it, not listed individually). Two
@@ -304,10 +317,14 @@
 	let flows: TableFlow[] | undefined = $state()
 	let apps: TableApp[] | undefined = $state()
 	let raw_apps: TableRawApp[] | undefined = $state()
+	// Starts empty rather than undefined: the runnables page decides when the list renders,
+	// and agents join it when their own request lands.
+	let agents: TableAgent[] = $state([])
+	let agentsGen = 0
 	// Monotonic fetch-order counter stamped onto each row as it arrives (see TableItem.ord).
 	let fetchOrd = 0
 
-	let filteredItems: (TableScript | TableFlow | TableApp | TableRawApp)[] = $state([])
+	let filteredItems: (TableScript | TableFlow | TableApp | TableRawApp | TableAgent)[] = $state([])
 
 	let loading = $state(true)
 
@@ -348,6 +365,57 @@
 		return base as unknown as TableFlow | TableApp
 	}
 
+	/**
+	 * The workspace's saved agents, as the kind the home page shows them as. Read from the
+	 * resource listing, which pages nothing and orders nothing, so the order is applied here and
+	 * the rows are stamped after every runnable ordinal: a page of runnables keeps the server's
+	 * order and the agents follow it as one block.
+	 */
+	async function loadAgents(): Promise<void> {
+		const ws = $workspaceStore
+		const gen = ++agentsGen
+		if (!ws || !$userStore || !showsAgents || archived) {
+			agents = []
+			return
+		}
+		let rows: ListableResource[]
+		try {
+			rows = await ResourceService.listResource({
+				workspace: ws,
+				resourceType: 'ai_agent',
+				includeDraftOnly: true
+			})
+		} catch (e: any) {
+			if (gen !== agentsGen) return
+			sendUserToast(`Failed to load agents: ${e?.body ?? e?.message ?? e}`, true)
+			agents = []
+			return
+		}
+		if (gen !== agentsGen) return
+		const scoped = ownerFilter ? rows.filter((r) => r.path.startsWith(ownerFilter + '/')) : rows
+		const byTime = (r: ListableResource) => new Date(r.edited_at ?? 0).getTime()
+		const sorted = [...scoped].sort((a, b) => {
+			switch (sortOrder) {
+				case 'updated_asc':
+					return byTime(a) - byTime(b)
+				case 'name_asc':
+					return cmp(a.path, b.path)
+				case 'name_desc':
+					return cmp(b.path, a.path)
+				default:
+					return byTime(b) - byTime(a)
+			}
+		})
+		agents = sorted.map((r, i) => ({
+			...r,
+			summary: r.description || undefined,
+			canWrite: canWrite(r.path, (r.extra_perms ?? {}) as any, $userStore) && !$userStore?.operator,
+			ord: AGENT_ORD_BASE + i
+		}))
+	}
+	/** Above any ordinal a runnables page can reach, so agents sort after them as a block. */
+	const AGENT_ORD_BASE = 1_000_000
+
 	// The merged, server-ordered, keyset-paginated source. `reset` reloads from
 	// the first page (order/filter change or workspace switch); otherwise it
 	// appends the next page. All three kinds arrive interleaved and are split into
@@ -364,6 +432,20 @@
 		// arrays (mixing streams) or clobber the pending reset's generation.
 		if (!reset && serverCursor === undefined) return
 		if (scripts === undefined) loading = true
+		// One request per reset: the resource listing is not paged, so a load-more has
+		// nothing to append for agents.
+		if (reset) void loadAgents()
+		if (!showsRunnables) {
+			scripts = []
+			flows = []
+			apps = []
+			raw_apps = []
+			pipelineMemberFolders = new Set()
+			serverCursor = undefined
+			hasMoreServer = false
+			loading = false
+			return
+		}
 		if (reset) {
 			serverCursor = undefined
 			hasMoreServer = false
@@ -386,7 +468,7 @@
 				orderDesc,
 				showArchived: archived ? true : undefined,
 				includeWithoutMain: includeWithoutMain ? true : undefined,
-				kinds: itemKind !== 'all' ? itemKind : undefined,
+				kinds: runnableKinds,
 				// Selecting an owner/folder scopes the paged stream to it server-side,
 				// so a folder's full contents load on demand rather than relying on the
 				// folder happening to be within the loaded browse window.
@@ -599,7 +681,7 @@
 					orderDesc,
 					showArchived: archived ? true : undefined,
 					includeWithoutMain: includeWithoutMain ? true : undefined,
-					kinds: itemKind !== 'all' ? itemKind : undefined,
+					kinds: runnableKinds,
 					pathStart: prefix,
 					includeDraftOnly: true,
 					perPage: OWNER_PAGE_SIZE,
@@ -715,7 +797,7 @@
 	}
 
 	function filterItemsPathsBaseOnUserFilters(
-		item: TableScript | TableFlow | TableApp | TableRawApp,
+		item: TableScript | TableFlow | TableApp | TableRawApp | TableAgent,
 		filterUserFolders: boolean,
 		filterUserFoldersType: 'only f/*' | 'u/username and f/*' | undefined
 	) {
@@ -972,7 +1054,7 @@
 			try {
 				const res = await ScriptService.countRunnablesByOwner({
 					workspace: ws,
-					kinds: kind !== 'all' ? kind : undefined,
+					kinds: kind !== 'all' && kind !== 'agent' ? kind : undefined,
 					includeWithoutMain: withoutMain ? true : undefined,
 					// Same scope as the listing, so a badge counts the rows behind it.
 					includeDraftOnly: true
@@ -1160,7 +1242,8 @@
 		const kind = itemKind
 		// Any term/scope change restarts search paging.
 		searchCursor = undefined
-		if (term === '' || !ws || !$userStore) return
+		// Agents are all loaded, so the client-side search over them is already complete.
+		if (term === '' || !ws || !$userStore || kind === 'agent') return
 		const handle = setTimeout(async () => {
 			let res: { items: RunnableItem[]; next_cursor?: string }
 			try {
@@ -1216,7 +1299,7 @@
 				search: term,
 				showArchived: showArchived ? true : undefined,
 				includeWithoutMain: withoutMain ? true : undefined,
-				kinds: kind !== 'all' ? kind : undefined,
+				kinds: kind !== 'all' && kind !== 'agent' ? kind : undefined,
 				pathStart: owner ? owner + '/' : undefined,
 				includeDraftOnly: true,
 				perPage: 1000,
@@ -1267,6 +1350,11 @@
 						...x,
 						type: 'raw_app' as 'raw_app',
 						time: new Date(x.edited_at).getTime()
+					})),
+					...agents.map((x) => ({
+						...x,
+						type: 'agent' as 'agent',
+						time: new Date(x.edited_at ?? 0).getTime()
 					}))
 				].sort(compareItems)
 	)
@@ -1327,10 +1415,12 @@
 	// injected as a node and its rows come from the on-demand `treeOwnerItems` store,
 	// so the tree never depends on which owners happen to be in the loaded window.
 	// Otherwise (scoped/search/label) the tree just groups the global `items`.
+	// Agents ride along in lazy mode too: the owner store is fed by the runnables endpoint,
+	// which never returns one, while the resource listing already holds them all.
 	let treeSource = $derived(
 		treeLazyMode
-			? treeOwnerItems.filter((x) =>
-					filterItemsPathsBaseOnUserFilters(x, filterUserFolders, filterUserFoldersType)
+			? [...treeOwnerItems, ...agents.map((x) => ({ ...x, type: 'agent' as 'agent' }))].filter(
+					(x) => filterItemsPathsBaseOnUserFilters(x, filterUserFolders, filterUserFoldersType)
 				)
 			: items
 	)
@@ -1663,7 +1753,8 @@
 				homeSelection.active &&
 				selectedIndex >= 0 &&
 				selectedIndex < displayedItems.length &&
-				displayedItems[selectedIndex].type !== 'raw_app'
+				displayedItems[selectedIndex].type !== 'raw_app' &&
+				displayedItems[selectedIndex].type !== 'agent'
 			) {
 				e.preventDefault()
 				homeSelection.toggle(
@@ -1796,6 +1887,14 @@
 							label="Apps"
 							icon={LayoutDashboard}
 							selectedColor="#fb923c"
+							size="md"
+							{item}
+						/>
+						<ToggleButton
+							value="agent"
+							label="Agents"
+							icon={Bot}
+							selectedColor="#8b5cf6"
 							size="md"
 							{item}
 						/>

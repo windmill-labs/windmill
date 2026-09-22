@@ -31,8 +31,16 @@
 	} from '../agentResourceUtils'
 	import { agentArgsToTransforms } from '../linkedAgentDrafts'
 	import { AGENT_EDITOR_RUN_INPUTS, AGENT_TOOLS_ROW } from '../agentFormFields'
+	import {
+		AGENT_CHAT_BLOCKED_REASON,
+		agentChatFlow,
+		agentChatReady,
+		agentChatStreams
+	} from '../agentChatFlow'
 	import { toolDisplayName, type AgentTool } from '../agentToolUtils'
 	import { useAgentDraft } from '../agentDraft.svelte'
+	import { runFlowPreview } from '../utils.svelte'
+	import FlowChat from '../conversations/FlowChat.svelte'
 
 	interface Props {
 		/** The `ai_agent` resource being edited. */
@@ -44,6 +52,12 @@
 		onSelectTool?: (toolId: string | undefined) => void
 		/** Ran after a successful deploy, with the path actually written, which a rename can move. */
 		onSaved?: (path: string) => void | Promise<void>
+		/** Which way of trying the agent the right pane shows: a conversation, or the single-shot
+		 *  form for a run with explicit inputs. The chat needs `auto` memory
+		 *  (`agentArgsChatReady`); asked for without it, the pane says why instead. */
+		runPane?: 'chat' | 'form'
+		/** The path was minted for a new agent, so a missing row starts an empty one. */
+		isNew?: boolean
 	}
 
 	let {
@@ -52,7 +66,9 @@
 		enableAi = false,
 		toolId = undefined,
 		onSelectTool = undefined,
-		onSaved = undefined
+		onSaved = undefined,
+		runPane = 'chat',
+		isNew = false
 	}: Props = $props()
 
 	/** The one module the editor edits. Standalone (no `agent` key) so `initFlowState` loads a
@@ -61,7 +77,11 @@
 	 *  schema to the root's. */
 	const AGENT_ID = '__wm_agent_root'
 
-	const draft = useAgentDraft({ path: () => path, workspace: () => workspace })
+	const draft = useAgentDraft({
+		path: () => path,
+		workspace: () => workspace,
+		isNew: () => isNew
+	})
 
 	/** Read access only. Everything that could write is blocked, down to the draft itself: an
 	 *  autosave the server rejects would look like a save and lose the edit. Running the agent,
@@ -291,6 +311,34 @@
 	let testIsLoading = $state(false)
 	let scriptProgress = $state(undefined)
 
+	let chatReady = $derived(agentChatReady(agentValue))
+	let useStreaming = $derived(agentChatStreams(agentValue))
+
+	/** The draft as the one-step chat flow a turn previews. */
+	function chatFlow(): OpenFlow {
+		return agentChatFlow(agentValue)
+	}
+
+	// What the chat reads of the flow shape (which inputs to promote, the composer's model
+	// control), derived once per draft change rather than rebuilt on every render.
+	let chatFlowShape = $derived(chatFlow())
+
+	async function runChatTurn(
+		userMessage: string,
+		conversationId: string,
+		additionalInputs?: Record<string, any>
+	): Promise<string | undefined> {
+		return await runFlowPreview(
+			{ user_message: userMessage, ...(additionalInputs ?? {}) },
+			chatFlow(),
+			path,
+			undefined,
+			conversationId,
+			undefined,
+			workspace
+		)
+	}
+
 	// Adding a tool goes straight into it: the editor has no graph to show the new node on, so the
 	// tool it just created is the only place the click can land.
 	async function addTool(detail: { kind: string; script?: any; flow?: any; inlineScript?: any }) {
@@ -325,7 +373,7 @@
 			// The path this editor opened, not the draft's live one: `deploy` refuses a renaming draft,
 			// so the write always lands here, while the shared draft can be repointed by another tab
 			// mid-request and would send the reconciliation after a resource nobody wrote.
-			if (ok) await onSaved?.(path)
+			if (ok) await onSaved?.(draft.lastDeployedPath ?? path)
 			return ok
 		})
 	}
@@ -350,7 +398,7 @@
 		<!-- Resizable as the step panel's config and test are: a long system prompt and a long
 		     answer want opposite splits, and only the reader knows which they are on. -->
 		<Splitpanes class="h-full">
-			<Pane size={66} minSize={30}>
+			<Pane size={55} minSize={30}>
 				<div class="h-full min-h-0 overflow-auto">
 					<PropPickerWrapper
 						pickableProperties={stepPropPicker?.pickableProperties}
@@ -384,10 +432,33 @@
 			</Pane>
 			<!-- Laid out as the script editor's preview column is: what a run takes above what it
 			     produced, both alongside what is being edited. -->
-			<Pane size={34} minSize={20}>
-				<Splitpanes horizontal class="h-full">
-					<Pane size={40} minSize={15}>
-						<div class="h-full overflow-auto">
+			<Pane size={45} minSize={20}>
+				<!-- Which side shows is the page's choice, made in its header; the pane only fills
+				     with it, so switching moves nothing here. -->
+				<div class="h-full min-h-0 flex flex-col">
+					{#if runPane === 'chat' && chatReady}
+						<!-- Test chats, as the flow editor's drawer files its own: each turn previews the
+						     draft rather than the deployed agent. -->
+						<div class="flex-1 min-h-0 flex flex-col">
+							<FlowChat
+								{useStreaming}
+								onRunFlow={runChatTurn}
+								conversationKind="test"
+								frame="none"
+								{path}
+								identity={path}
+								inputSchema={chatFlowShape.schema}
+								flowModules={chatFlowShape.value.modules}
+							/>
+						</div>
+					{:else if runPane === 'chat'}
+						<div class="flex-1 flex items-center justify-center p-6 text-xs text-tertiary">
+							{AGENT_CHAT_BLOCKED_REASON}
+						</div>
+					{:else}
+						<!-- A column rather than a split: the inputs take the height they need, capped so
+						     the result always has room, and the result gets the rest. -->
+						<div class="shrink-0 max-h-[45%] overflow-auto border-b">
 							<ModulePreview
 								mod={agentModule as FlowModule}
 								schema={flowLocalAgentSchema(schema)}
@@ -398,21 +469,21 @@
 								bind:scriptProgress
 							/>
 						</div>
-					</Pane>
-					<Pane size={60} minSize={20}>
-						<ModulePreviewResultViewer
-							lang="deno"
-							editor={undefined}
-							diffEditor={undefined}
-							mod={agentModule as FlowModule}
-							{testJob}
-							{testIsLoading}
-							{scriptProgress}
-							disableMock
-							disableHistory
-						/>
-					</Pane>
-				</Splitpanes>
+						<div class="flex-1 min-h-0">
+							<ModulePreviewResultViewer
+								lang="deno"
+								editor={undefined}
+								diffEditor={undefined}
+								mod={agentModule as FlowModule}
+								{testJob}
+								{testIsLoading}
+								{scriptProgress}
+								disableMock
+								disableHistory
+							/>
+						</div>
+					{/if}
+				</div>
 			</Pane>
 		</Splitpanes>
 	</div>

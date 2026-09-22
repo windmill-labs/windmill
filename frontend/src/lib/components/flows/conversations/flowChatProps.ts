@@ -1,3 +1,4 @@
+import type { Snippet } from 'svelte'
 import type { FlowModule } from '$lib/gen'
 import type { ConversationKind } from './FlowChatManager.svelte'
 
@@ -41,6 +42,18 @@ export interface FlowChatProps {
 	/** Whether a turn may run while another chat's is still going. Off where one run
 	 * owns the surface — the editor's panel shows it on the graph. */
 	parallelTurns?: boolean
+	/** Open on this conversation rather than on the latest one, or on a fresh one for `null`.
+	 * Followed as it changes, so a list outside the panel can drive which chat it shows. */
+	conversationId?: string | null
+	/** Leave out the panel's own conversation list, for a surface that lists them itself and
+	 * drives the chat through `conversationId`. */
+	hideSidebar?: boolean
+	/** Rendered above the composer, as the session chat's own preface is: what a turn will run
+	 * against, before the first message fixes it. */
+	inputPreface?: Snippet
+	/** Replaces the empty transcript's prompt. An empty snippet leaves the composer at the top
+	 * of the panel, as a new session has it. */
+	emptyHint?: Snippet
 }
 
 /**
