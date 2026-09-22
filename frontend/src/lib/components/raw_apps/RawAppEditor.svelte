@@ -1033,7 +1033,6 @@
 					files = {}
 				}
 				delete files[path]
-				setFilesInIframe(files)
 			},
 			listBackendRunnables: () => {
 				return Object.entries(runnables).map(([key, runnable]) => ({
@@ -2216,14 +2215,6 @@
 			summary = entry.summary
 			replaceData(structuredClone($state.snapshot(entry.data)))
 
-			// If the open document survives into the new files, use the combined message
-			if (iframeDocument && isOpenableDocument(iframeDocument)) {
-				// Use combined setFilesAndSelect message to avoid race condition
-				setFilesAndSelectInIframe(entry.files, iframeDocument)
-			} else {
-				// Otherwise just set files normally
-				setFilesInIframe(entry.files)
-			}
 			populateRunnables()
 		} catch (error) {
 			console.error('Failed to apply entry:', error)
@@ -2421,13 +2412,7 @@
 					class="h-full overflow-y-auto relative"
 				>
 					<RawAppSidebar
-						bind:files={
-							() => files,
-							(newFiles) => {
-								files = newFiles
-								setFilesInIframe(newFiles ?? {})
-							}
-						}
+						bind:files
 						onSelectPath={handleSelectPath}
 						onSelectRunnable={(key) => select({ kind: 'runnable', key })}
 						onDeleteRunnable={deleteRunnable}
