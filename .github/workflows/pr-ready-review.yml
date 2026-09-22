@@ -37,14 +37,8 @@ jobs:
     # an author_association gate: the pull_request webhook payload reports private org
     # members as CONTRIBUTOR/NONE (only public members show as MEMBER), which silently
     # skips auto-review for every private member.
-    # Skip bot-authored PRs on the automatic path. A Dependabot PR is a lockfile
-    # bump with no reachability question in it, and today this job does not review
-    # them anyway: the Claude action rejects a bot actor outright, and the Codex and
-    # Pi jobs find no API key because GitHub gives Dependabot-triggered runs a
-    # separate secret scope. The result was two permanently red checks on every
-    # Dependabot PR, which buries a genuinely failing one. Skipping says so honestly.
-    # The workflow_call branch above is untouched, so a review can still be asked for
-    # on a specific bot PR when the diff deserves one.
+    # Dependabot-triggered runs get a separate secret scope, so this job has no API
+    # key and cannot review. workflow_call stays open for an explicit request.
     if: |
       github.event_name == 'workflow_call' ||
       (
