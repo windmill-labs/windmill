@@ -82,6 +82,7 @@
 	import { navDetached } from '$lib/components/sidebar/navDetached.svelte'
 	import { navHandleSlot } from '$lib/components/sidebar/navHandlePlacement.svelte'
 	import PageHeaderBar from '$lib/components/PageHeaderBar.svelte'
+	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import { sidebarPageAllowed } from '$lib/components/sidebar/operatorRoutes'
 	import GlobalSearchModal from '$lib/components/search/GlobalSearchModal.svelte'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
@@ -108,7 +109,6 @@
 	import { sessionState } from '$lib/components/sessions/sessionState.svelte'
 	import { restoreSessionBackups } from '$lib/components/sessions/sessionMirror.svelte'
 	import { currentWorkspaceRootId } from '$lib/components/sessions/sessionScope.svelte'
-	import WorkspaceScopeHeader from '$lib/components/sidebar/WorkspaceScopeHeader.svelte'
 	import { DEFAULT_HUB_BASE_URL } from '$lib/hub'
 	import DBManagerDrawer from '$lib/components/DBManagerDrawer.svelte'
 	import S3FilePicker from '$lib/components/S3FilePicker.svelte'
@@ -1011,13 +1011,9 @@
 {#snippet sidebarToggle()}
 	{@const hidden = navDetached.val}
 	<Tooltip class="flex" placement="bottom" small>
-		<!-- Hidden, hovering slides the card in for a look; the click is what puts the sidebar
-		     back for good. -->
 		<button
-			data-nav-handle
-			class="p-1.5 rounded hover:bg-surface-hover"
+			class="p-1.5 rounded hover:bg-surface-hover flex-shrink-0"
 			aria-label={hidden ? 'Show sidebar' : 'Hide sidebar'}
-			onmouseenter={() => hidden && navHandleSlot.open()}
 			onclick={() => setDetached(!hidden)}
 		>
 			{#if hidden}
@@ -1184,13 +1180,6 @@
 									</div>
 								{/if}
 
-								{#if !sessionMode}
-									<!-- Workspace scope (fork picker), under the switch. -->
-									<div class="pb-1 w-52 {sessionsSwitchShown ? '' : 'pt-2'}">
-										<WorkspaceScopeHeader isCollapsed={false} />
-									</div>
-								{/if}
-
 								{#if sessionMode}
 									<!-- Session mode: the session list owns the rail.
 										     w-52 cap (matches the desktop sidebar width): the drawer is
@@ -1262,8 +1251,15 @@
 									<SidebarUsage isCollapsed={false} />
 								</div>
 
+								<!-- Same footer slot the docked rail puts it in, so the control that hides the
+								     sidebar and the one that brings it back sit in the same place. -->
 								<div class="px-4 pt-3 pb-3.5 w-52 flex items-center justify-between">
 									{@render brandMark(false)}
+									{#if detachedFloating}
+										<div class="flex gap-3">
+											{@render sidebarToggle()}
+										</div>
+									{/if}
 								</div>
 							</div>
 						</div>
@@ -1274,7 +1270,8 @@
 					id="sidebar"
 					class={classNames(
 						dockToggled ? '' : 'wm-sidebar-in',
-						'flex flex-col fixed top-12 bottom-0 z-40 ',
+						// The rail owns the full height of the left edge; the band starts to its right.
+						'flex flex-col fixed inset-y-0 z-40 ',
 						sidebarTransitionClass,
 						devOnly ? '!hidden' : ''
 					)}
@@ -1304,18 +1301,13 @@
 						     header, which is why nothing names the workspace here. -->
 						{#if !embedded && sessionsSwitchShown}
 							<div
-								class="flex-shrink-0 px-2 h-12 flex items-center {isCollapsed
-									? 'justify-center'
-									: ''}"
+								class="flex-shrink-0 px-2 gap-1 flex {isCollapsed
+									? 'flex-col items-center py-2'
+									: 'h-12 items-center'}"
 							>
-								<SessionModeSwitch mode={sessionMode ? 'session' : 'nav'} {isCollapsed} />
-							</div>
-						{/if}
-
-						{#if !sessionMode}
-							<!-- Workspace scope (fork picker), under the switch. -->
-							<div class="pb-1 {sessionsSwitchShown ? '' : 'pt-2'}">
-								<WorkspaceScopeHeader {isCollapsed} />
+								<div class="min-w-0 flex-1">
+									<SessionModeSwitch mode={sessionMode ? 'session' : 'nav'} {isCollapsed} />
+								</div>
 							</div>
 						{/if}
 
@@ -1401,19 +1393,7 @@
 						>
 							{@render brandMark(isCollapsed)}
 							<div class="flex {isCollapsed ? 'flex-col gap-3' : 'gap-3'}">
-								{#if isCollapsed}
-									<!-- p-2/-m-2 widens the hit area to ~32px without moving the icon. -->
-									<Tooltip class="flex" placement="top" small>
-										<button
-											class="p-2 -m-2 rounded hover:bg-surface-hover"
-											aria-label="Detach sidebar"
-											onclick={() => setDetached(true)}
-										>
-											<PanelLeftDashed size={14} class="flex-shrink-0 h-3.5 w-3.5 text-hint" />
-										</button>
-										{#snippet text()}Detach sidebar{/snippet}
-									</Tooltip>
-								{/if}
+								{@render sidebarToggle()}
 								{#if !$userStore?.operator}
 									<button
 										class="p-2 -m-2 rounded hover:bg-surface-hover"
@@ -1532,10 +1512,30 @@
 				</div>
 			</div>
 		{/if}
-		<div class="flex flex-col h-full w-full">
-			{#if !menuHidden && !devOnly}
-				<!-- The band runs the full width, above the sidebar: the sidebar starts under it. -->
-				<PageHeaderBar toggle={sidebarToggle} />
+		<div class="flex flex-col h-full w-full relative">
+			{#if !menuHidden && !devOnly && pageHeader.content?.barPlacement !== 'inline'}
+				{@const rightInset = pageHeader.content?.barRightInset}
+				{@const leftInset = useDrawer ? 0 : railWidth}
+				{#if rightInset != null}
+					<!-- A page owning the right edge from the top (a session's side panel) gets the band
+					     as an overlay that stops where that column starts, so the column can reach the
+					     top. The page pads its own content to clear it. -->
+					<div
+						class={classNames('absolute top-0 z-30', sidebarTransitionClass)}
+						style:left="{leftInset}rem"
+						style:right="{rightInset}px"
+					>
+						<PageHeaderBar />
+					</div>
+				{:else}
+					<!-- The band spans the content, beside the rail rather than above it. -->
+					<div
+						class={classNames('shrink-0', sidebarTransitionClass)}
+						style:padding-left="{leftInset}rem"
+					>
+						<PageHeaderBar />
+					</div>
+				{/if}
 			{/if}
 			{#if $enterpriseLicense && !menuHidden}
 				<!-- Announcements are an EE feature, so the component never mounts on CE: no

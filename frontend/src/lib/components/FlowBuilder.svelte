@@ -37,6 +37,7 @@
 	import AIChangesWarningModal from '$lib/components/copilot/chat/flow/AIChangesWarningModal.svelte'
 
 	import { getContext, onDestroy, setContext, untrack } from 'svelte'
+	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import { writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
 	import { Button } from './common'
@@ -155,12 +156,16 @@
 		othersDraftsCount = 0,
 		onOpenOthersDrafts,
 		onTestJob,
-		condensedHeader = false
+		condensedHeader = false,
+		/** True for the route's own editor: its top bar becomes the page header. */
+		ownsPageHeader = false
 	}: FlowBuilderProps = $props()
 
 	// Top-bar button size + bar height. Condensed (session preview) uses the
 	// smallest well-supported unified size (`sm`) so the bar is thinner.
-	const headerBtnSize = $derived(condensedHeader ? 'sm' : 'md')
+	// In the page header the buttons ride a 40px band, the same size the condensed session-pane
+	// header uses.
+	const headerBtnSize = $derived(condensedHeader || ownsPageHeader ? 'sm' : 'md')
 
 	// The workspace this editor operates on: deploy, save-draft, trigger loading
 	// and the AutosaveIndicator all target it. Falls back to the global store, so
@@ -1266,6 +1271,16 @@
 
 	setContext('FlowCopilotContext', flowCopilotContext)
 
+	// The header's action buttons render under the page header, not under this component, so the
+	// contexts they look up have to travel with them. Read back here, after every setContext above.
+	const headerContexts = new Map<any, any>([
+		['FlowEditorContext', getContext('FlowEditorContext')],
+		['TriggerContext', getContext('TriggerContext')],
+		['FlowGraphAssetContext', getContext('FlowGraphAssetContext')],
+		['FlowCopilotContext', flowCopilotContext],
+		['customUi', customUi]
+	])
+
 	let renderCount = $state(0)
 
 	let jsonViewerDrawer: Drawer | undefined = $state(undefined)
@@ -1525,6 +1540,28 @@
 		<FlowEditorDrawer bind:this={$flowEditorDrawer} />
 
 		<div bind:this={flowBuilderRoot} class="flex flex-col h-full">
+			{#if ownsPageHeader}
+				<!-- The editor's own top bar is the page header on this route: its breadcrumb and
+				     summary are the header's, and its buttons are the header's actions. -->
+				<PageHeaderContent
+					item={{
+						kind: 'flow',
+						path: $pathStore,
+						savedPath: initialPath,
+						summary: flowStore.val.summary,
+						workspaceId: autosaveWorkspace,
+						onBehalfOfEmail: $savedOnBehalfOfEmail,
+						pathEditable: customUi?.topBar?.editablePath != false,
+						summaryEditable: customUi?.topBar?.editableSummary != false,
+						onPathChange: (v) => ($pathStore = v),
+						onSummaryChange: (v) => (flowStore.val.summary = v),
+						onNavigate: (item) => onNavigate?.(item)
+					}}
+					actions={flowHeaderActions}
+					contexts={headerContexts}
+					barBorder={false}
+				/>
+			{:else}
 			<!-- Nav between steps-->
 			<div
 				bind:clientWidth={topbarWidth}
@@ -1597,6 +1634,45 @@
 					/>
 				</div>
 			</div>
+			{/if}
+
+			{#snippet flowHeaderActions()}
+
+					{#if $enterpriseLicense && !newFlow && !inSessionPane}
+						<Awareness />
+					{/if}
+					<Dropdown items={getMoreItems} size={headerBtnSize} fixedHeight={!condensedHeader} />
+					{#if diffEnabled && !diffInMenu}
+						<!-- A disabled <button> fires no pointer events, so a title/tooltip on
+						     it never shows on hover. pointer-events-none on the button lets the
+						     hover reach this titled wrapper instead. -->
+						<div title={diffTitle} class={diffDisabled ? 'flex cursor-not-allowed' : 'flex'}>
+							<Button
+								variant="default"
+								unifiedSize={headerBtnSize}
+								on:click={() => openDiffDrawer()}
+								disabled={diffDisabled}
+								btnClasses={diffDisabled ? 'pointer-events-none' : undefined}
+								title={diffTitle}
+								startIcon={{ icon: DiffIcon }}
+							>
+								Diff
+							</Button>
+						</div>
+					{/if}
+					{#if !compactTopbar}
+						{@render previewButtons()}
+					{/if}
+
+					<DeployButton
+						on:save={async ({ detail }) => await handleSaveFlow(detail)}
+						{loading}
+						{loadingSave}
+						unifiedSize={headerBtnSize}
+						{dropdownItems}
+					/>
+			{/snippet}
+
 			<!-- Rendered either inline in the top bar (wide) or as a graph overlay
 			     (compactTopbar). Crossing the 720px threshold remounts
 			     FlowPreviewButtons; any open preview state will reset. -->

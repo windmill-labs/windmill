@@ -14,6 +14,7 @@
 		Loader2
 	} from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import { Button } from '$lib/components/common'
 	import DraggableTabs, { type TabItem } from '$lib/components/common/tabs/DraggableTabs.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
@@ -55,7 +56,6 @@
 	import { registerToolDisplayActionHandler } from '$lib/components/copilot/chat/createdResourceActions.svelte'
 	import { previewTargetForSessionTarget } from '$lib/components/sessions/sessionPreviewTabs.svelte'
 	import { base } from '$lib/base'
-	import { navDetached } from '$lib/components/sidebar/navDetached.svelte'
 	import {
 		artifactKey,
 		itemDisplayName,
@@ -406,6 +406,8 @@
 	let emptyStateNewTabOpen = $state(false)
 
 	let fullscreen = $state(false)
+	// Width of the preview panel, so the band can stop where it starts.
+	let previewWidth = $state(0)
 	// Fullscreen is page state, not per-session, so it outlives a session switch —
 	// tell the incoming session's model, whose own collapsed flag it overrides, or
 	// re-opening the item plainly on screen would be judged invisible and not flash.
@@ -840,6 +842,30 @@
 	}}
 />
 
+<!-- The session showing fills the band's breadcrumb. The band is the layout's, but it stops
+     where the preview panel starts so that panel can run from the top of the viewport. -->
+<PageHeaderContent
+	barRightInset={previewCollapsed || fullscreen ? undefined : previewWidth}
+	barBorder={false}
+	actions={sessionPageActions}
+/>
+
+{#snippet sessionPageActions()}
+	{#if previewCollapsed && !fullscreen}
+		<!-- Collapsed preview: the way back to the side panel, in the band with the session's own
+		     controls rather than floating over the chat. -->
+		<Button
+			variant="subtle"
+			unifiedSize="sm"
+			startIcon={{ icon: PanelRightOpen }}
+			title="Open side panel"
+			onclick={() => owner?.setCollapsed(false)}
+		>
+			Open side panel
+		</Button>
+	{/if}
+{/snippet}
+
 <div class="h-full flex flex-col min-h-0">
 	{#if embedded}
 		<!-- Rendered inside a preview iframe — opening the sessions UI here would
@@ -900,7 +926,14 @@
 					{#if !fullscreen}
 						<!-- Chat column. Warm sessions stay mounted (stacked, visibility-toggled)
 					     so switching between them preserves chat scroll/draft state. -->
-						<Pane bind:size={chatPaneSize} minSize={25} class="flex flex-col min-h-0">
+						<!-- The band floats over this column's top strip while a panel is beside it, so the
+						     column starts below it. The offset belongs on the pane, not on the stack's
+						     container: the session stacks are `absolute inset-0` and would ignore padding. -->
+						<Pane
+							bind:size={chatPaneSize}
+							minSize={25}
+							class="flex flex-col min-h-0 {previewCollapsed || fullscreen ? '' : 'pt-10'}"
+						>
 							<div class="relative flex-1 min-h-0">
 								{#each warmSessions as s (s.id)}
 									<div
@@ -909,7 +942,7 @@
 											: 'z-0 opacity-0 pointer-events-none'}"
 										aria-hidden={s.id !== activeSession?.id}
 									>
-										<SessionWrapper sessionId={s.id} headerInset={navDetached.val} />
+										<SessionWrapper sessionId={s.id} headerInPage={s.id === activeSession?.id} />
 									</div>
 								{/each}
 							</div>
@@ -925,7 +958,11 @@
 						maxSize={previewCollapsed ? 0 : 100}
 						class="flex flex-col min-h-0"
 					>
-						<div class="flex-1 min-h-0 flex flex-col {fullscreen ? 'p-0' : 'p-2 pl-0'}">
+
+						<div
+							bind:clientWidth={previewWidth}
+							class="flex-1 min-h-0 flex flex-col {fullscreen ? 'p-0' : 'p-2 pl-0'}"
+						>
 							<div
 								class="flex flex-col flex-1 min-h-0 overflow-hidden relative bg-surface {fullscreen
 									? ''
@@ -1154,21 +1191,6 @@
 						</div>
 					</Pane>
 				</Splitpanes>
-				{#if previewCollapsed && !fullscreen}
-					<!-- Collapsed preview: no rail — a floating launcher in the top-right to
-				     reopen the side panel. -->
-					<div class="absolute top-2 right-3 z-50">
-						<Button
-							variant="subtle"
-							unifiedSize="sm"
-							startIcon={{ icon: PanelRightOpen }}
-							title="Open side panel"
-							onclick={() => owner?.setCollapsed(false)}
-						>
-							Open side panel
-						</Button>
-					</div>
-				{/if}
 			</div>
 			{#if aiHiddenVerdict === undefined}
 				<div class="absolute inset-0 z-20 flex items-center justify-center bg-surface">

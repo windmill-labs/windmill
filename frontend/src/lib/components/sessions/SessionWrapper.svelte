@@ -4,7 +4,8 @@
 	import AIChat from '$lib/components/copilot/chat/AIChat.svelte'
 	import SessionsBetaBanner from './SessionsBetaBanner.svelte'
 	import EditableInput from '$lib/components/common/EditableInput.svelte'
-	import { Button, NameIdTooltip } from '$lib/components/common'
+	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import { Button } from '$lib/components/common'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { AIChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
@@ -18,17 +19,12 @@
 	import {
 		Archive,
 		ArchiveRestore,
-		ArrowUpRight,
 		EllipsisVertical,
-		ExternalLink,
 		MessageSquareDashed,
 		Pencil,
-		Settings,
 		Trash2,
 		X
 	} from 'lucide-svelte'
-	import { type Item } from '$lib/utils'
-	import WorkspaceScopeTrigger from '$lib/components/WorkspaceScopeTrigger.svelte'
 	import SessionWorkspaceBar from './SessionWorkspaceBar.svelte'
 	import SessionChangesBar from './SessionChangesBar.svelte'
 	import { clearSessionRecovered, isSessionRecovered } from './sessionRecoveryNotice.svelte'
@@ -53,17 +49,15 @@
 	} from './sessionState.svelte'
 	import { getOrCreateRuntime, removeSession } from './sessionRuntime.svelte'
 	import { goto } from '$lib/navigation'
-	import { base } from '$app/paths'
 	import { splitterPointerCapture } from '$lib/utils/splitterPointerCapture'
 
-	// headerInset: extra left padding on the chat header so it clears a floating
-	// control (the detached sidebar's handle) sitting at the screen's top-left.
 	let {
 		sessionId,
-		headerInset = false
+		headerInPage = false
 	}: {
 		sessionId: string
-		headerInset?: boolean
+		/** True for the session the page is showing: its header rides the page header bar. */
+		headerInPage?: boolean
 	} = $props()
 
 	// Parent keys by sessionId; this wrapper only mounts when the session exists.
@@ -112,34 +106,9 @@
 		})
 	})
 
-	// The workspace the session acts on, shown in the header "Acting on" strip via the shared
-	// WorkspaceScopeTrigger chip. `targetId` is also the workspace the chip's ellipsis menu targets.
-	const acting = $derived.by(() => {
-		const wsId = session ? getEffectiveWorkspaceId(session) : undefined
-		if (!wsId) return undefined
-		const name = $userWorkspaces.find((w) => w.id === wsId)?.name ?? wsId
-		return { targetId: wsId, name }
-	})
-
-	// Ellipsis menu on the "Acting on" chip. Both entries are real links (so
-	// modifier/middle clicks open a new tab); the `workspace` query param
-	// points the navigation at the acting workspace — the layout applies it on
-	// both full loads and client-side query changes. The trailing external-link
-	// glyphs make the leave-the-session navigation explicit.
-	const actingMenu = $derived<Item[]>([
-		{
-			displayName: 'Workspace settings',
-			icon: Settings,
-			href: `${base}/workspace_settings?workspace=${acting?.targetId ?? ''}`,
-			extra: externalLinkHint
-		},
-		{
-			displayName: 'Go to this workspace',
-			icon: ArrowUpRight,
-			href: `${base}/?workspace=${acting?.targetId ?? ''}`,
-			extra: externalLinkHint
-		}
-	])
+	// The workspace the session acts on. The page header's breadcrumb scopes itself to it, so a
+	// session running in a fork reads as that fork rather than as the navigation workspace.
+	const actingWorkspaceId = $derived(session ? getEffectiveWorkspaceId(session) : undefined)
 
 	// Load copilot config (models, providers) for the workspace the session acts
 	// on, not the navigation workspace — a session deliberately leaves
@@ -150,7 +119,7 @@
 	// otherwise race to clobber the active chat's model config.
 	$effect(() => {
 		if (sessionState.currentSessionId !== sessionId) return
-		const ws = acting?.targetId ?? $workspaceStore
+		const ws = actingWorkspaceId ?? $workspaceStore
 		if (ws) {
 			loadCopilot(ws)
 		}
@@ -334,10 +303,6 @@
 		'flex flex-row items-center justify-between gap-2 py-2 px-3 text-xs border rounded-md'
 </script>
 
-{#snippet externalLinkHint()}
-	<ExternalLink size={12} class="shrink-0 text-tertiary" />
-{/snippet}
-
 {#if !session || !runtime}
 	<div class="p-8 text-secondary text-sm">Session not found</div>
 {:else}
@@ -411,95 +376,79 @@
 	     sessions have their own empty-state affordances above. -->
 	{#snippet sessionEmptyHint()}{/snippet}
 
+	{#snippet sessionHeader()}
+		<EditableInput
+			bind:this={summaryInput}
+			value={session.summary ?? ''}
+			placeholder="Untitled session"
+			onSave={(v) => renameSession(session.id, v)}
+			class="text-xs font-normal"
+			inputClass="!text-xs !font-normal"
+		/>
+
+		<DropdownV2
+			fixedHeight={false}
+			placement="bottom-start"
+			enableFlyTransition
+			items={[
+				{
+					displayName: 'Rename',
+					icon: Pencil,
+					action: () => summaryInput?.edit()
+				},
+				...(session.archived
+					? // No Unarchive when the workspace is gone — it can't persist
+						// (putSession guard) and reconcile would re-archive it.
+						isUnavailable
+						? []
+						: [
+								{
+									displayName: 'Unarchive',
+									icon: ArchiveRestore,
+									action: () => setSessionArchived(session.id, false)
+								}
+							]
+					: [
+							{
+								displayName: 'Archive',
+								icon: Archive,
+								action: () => archiveAndReset()
+							}
+						]),
+				{
+					displayName: 'Delete',
+					icon: Trash2,
+					type: 'delete',
+					action: () => (deleteConfirmOpen = true)
+				}
+			]}
+		>
+			{#snippet buttonReplacement()}
+				<span
+					class="inline-flex items-center justify-center w-5 h-5 rounded text-tertiary hover:bg-surface-hover hover:text-primary"
+					title="More"
+				>
+					<EllipsisVertical size={14} />
+				</span>
+			{/snippet}
+		</DropdownV2>
+	{/snippet}
+
+	{#if headerInPage}
+		<!-- The chat's own header row is the page header on this route: the session's name is its
+	     breadcrumb, and the menu is its action. -->
+		<PageHeaderContent
+			section={{ label: session.summary || session.name, content: sessionHeader }}
+			{actingWorkspaceId}
+		/>
+	{/if}
+
 	<!-- The wrapper contributes only the chat column; edited items are shown in the
 	     page's preview tabs (PreviewTabHost) beside it, not a second pane here. The
 	     single Pane fills 100% (no explicit `size`, so Splitpanes auto-distributes). -->
 	<div class="flex-1 min-h-0 flex flex-col" use:splitterPointerCapture>
 		<Splitpanes horizontal={false} class="flex-1 min-h-0 splitter-hidden">
 			<Pane minSize={25} class="flex flex-col min-h-0 pb-2">
-				<header
-					class="flex flex-row items-center gap-1 {headerInset
-						? 'pl-11'
-						: 'pl-4'} pr-4 py-2 shrink-0"
-				>
-					<EditableInput
-						bind:this={summaryInput}
-						value={session.summary ?? ''}
-						placeholder="Untitled session"
-						onSave={(v) => renameSession(session.id, v)}
-						class="text-sm font-semibold"
-						inputClass="!text-sm !font-semibold"
-					/>
-					<DropdownV2
-						fixedHeight={false}
-						placement="bottom-start"
-						enableFlyTransition
-						items={[
-							{
-								displayName: 'Rename',
-								icon: Pencil,
-								action: () => summaryInput?.edit()
-							},
-							...(session.archived
-								? // No Unarchive when the workspace is gone — it can't persist
-									// (putSession guard) and reconcile would re-archive it.
-									isUnavailable
-									? []
-									: [
-											{
-												displayName: 'Unarchive',
-												icon: ArchiveRestore,
-												action: () => setSessionArchived(session.id, false)
-											}
-										]
-								: [
-										{
-											displayName: 'Archive',
-											icon: Archive,
-											action: () => archiveAndReset()
-										}
-									]),
-							{
-								displayName: 'Delete',
-								icon: Trash2,
-								type: 'delete',
-								action: () => (deleteConfirmOpen = true)
-							}
-						]}
-					>
-						{#snippet buttonReplacement()}
-							<span
-								class="inline-flex items-center justify-center w-5 h-5 rounded text-tertiary hover:bg-surface-hover hover:text-primary"
-								title="More"
-							>
-								<EllipsisVertical size={14} />
-							</span>
-						{/snippet}
-					</DropdownV2>
-					{#if acting && hasFirstUserMessage}
-						<!-- "Acting on" context: workspace root (avatar + name) and, when the
-					     session runs in a fork, the fork name (accent pill) — with a button
-					     to jump into that workspace. Compact; sits right after the title.
-					     Hidden until the session has started — a new (un-sent) session shows
-					     the "Run in" picker (SessionWorkspaceBar) instead. -->
-						<div class="flex items-center gap-1 min-w-0 text-2xs text-tertiary">
-							<span class="shrink-0">Acting on</span>
-							<!-- Hover reveals the workspace name + id + copy button (shared
-							     NameIdTooltip, same as the sidebar family picker), so the chip
-							     carries the copy affordance without an inline button. -->
-							<NameIdTooltip name={acting.name} id={acting.targetId}>
-								<WorkspaceScopeTrigger
-									workspaceId={acting.targetId}
-									showChevron={false}
-									interactive={false}
-									disableTitle
-									class="max-w-[16rem]"
-									menuItems={actingMenu}
-								/>
-							</NameIdTooltip>
-						</div>
-					{/if}
-				</header>
 				<div class="flex-1 min-h-0 w-full flex flex-col {hasFirstUserMessage ? '' : 'pt-8'}">
 					<AIChat
 						bind:this={aiChat}

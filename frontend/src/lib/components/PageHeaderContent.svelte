@@ -10,10 +10,28 @@ the header, so nesting is decided by the caller rather than guessed from context
 	import { onMount } from 'svelte'
 	import { pageHeader, type PageHeaderContent } from './pageHeaderRegistry.svelte'
 
-	let { item, section, actions, contexts }: PageHeaderContent = $props()
+	let {
+		item,
+		section,
+		actions,
+		contexts,
+		barPlacement,
+		actingWorkspaceId,
+		barRightInset,
+		barBorder
+	}: PageHeaderContent = $props()
 
 	onMount(() => {
-		const id = pageHeader.register(() => ({ item, section, actions, contexts }))
+		const id = pageHeader.register(() => ({
+			item,
+			section,
+			actions,
+			contexts,
+			barPlacement,
+			actingWorkspaceId,
+			barRightInset,
+			barBorder
+		}))
 		return () => pageHeader.release(id)
 	})
 </script>

@@ -144,7 +144,7 @@
 		{inheritedLabels}
 		{onSaved}
 		kind={errorHandlerKind}
-		hidePath
+		compact
 	/>
 {/snippet}
 
@@ -159,7 +159,7 @@
 			btnClasses="inline-flex"
 			startIcon={{ icon: Calendar }}
 			variant="default"
-			unifiedSize="xs"
+			unifiedSize="sm"
 			on:click={async () => {
 				dispatch('seeTriggers')
 				await tick()
@@ -172,17 +172,23 @@
 	{@render trigger_badges?.()}
 	{#if allMenuItems.length > 0}
 		{#key allMenuItems}
-			<DropdownV2 items={allMenuItems} placement="bottom-end" size="md" />
+			<DropdownV2 items={allMenuItems} placement="bottom-end" size="sm" />
 		{/key}
 	{/if}
 	{#if wide.current}
-		<ErrorHandlerToggleButton kind={errorHandlerKind} {scriptOrFlowPath} bind:errorHandlerMuted />
+		<ErrorHandlerToggleButton
+			kind={errorHandlerKind}
+			{scriptOrFlowPath}
+			bind:errorHandlerMuted
+			unifiedSize="sm"
+		/>
 	{/if}
 	{#each barButtons as btn (btn.label)}
 		{@const dropdownItems = dropdownItemsOf(btn)}
 		<Button
 			{...btn.buttonProps}
 			startIcon={{ icon: btn.buttonProps.startIcon }}
+			unifiedSize="sm"
 			{dropdownItems}
 			dropdownWidth={dropdownItems?.some((i) => i.description) ? 288 : undefined}
 			btnClasses="flex items-center gap-1 whitespace-nowrap"

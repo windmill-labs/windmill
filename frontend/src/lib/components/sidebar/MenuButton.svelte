@@ -97,7 +97,7 @@
 	<Popover
 		appearTimeout={0}
 		disappearTimeout={0}
-		class="w-full"
+		class={compact ? 'w-auto' : 'w-full'}
 		disablePopup={!isCollapsed}
 		placement="right"
 	>
@@ -122,7 +122,8 @@
 			{href}
 			data-light-mode={lightMode}
 			class={twMerge(
-				'group flex items-center px-2 py-2 font-light rounded-md gap-2 w-full',
+				'group flex items-center px-2 py-2 font-light rounded-md gap-2',
+				compact ? 'w-auto' : 'w-full',
 				sidebarClasses.hoverBg,
 				'transition-all relative',
 				sublabel ? 'h-10' : 'h-8',
@@ -173,7 +174,7 @@
 				{/if}
 			{/if}
 
-			<div class="flex flex-col text-left grow min-w-0">
+			<div class="flex flex-col text-left min-w-0 {compact ? '' : 'grow'}">
 				{#if !isCollapsed && label}
 					<div
 						class={twMerge(

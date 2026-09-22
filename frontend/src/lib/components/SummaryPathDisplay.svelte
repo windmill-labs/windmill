@@ -28,8 +28,8 @@
 		editable?: boolean
 		onSaved?: (newPath: string) => void
 		kind?: 'flow' | 'script'
-		/** Drop the path line from the trigger, for a host that shows the path itself. */
-		hidePath?: boolean
+		/** Header variant: no path line (the host shows it) and a lighter summary. */
+		compact?: boolean
 	}
 
 	let {
@@ -40,7 +40,7 @@
 		editable = false,
 		onSaved,
 		kind = 'flow',
-		hidePath = false
+		compact = false
 	}: Props = $props()
 
 	let editSummary = $state('')
@@ -111,9 +111,11 @@
 	>
 		{#snippet trigger()}
 			<div
-				class={'min-w-0 truncate flex flex-col items-start px-2 py-1 rounded-md transition-colors cursor-pointer hover:bg-surface-hover'}
+				class="min-w-0 truncate flex rounded-md transition-colors cursor-pointer hover:bg-surface-hover {compact
+					? 'items-center px-1 py-0.5'
+					: 'flex-col items-start px-2 py-1'}"
 			>
-				{#if !hidePath}
+				{#if !compact}
 					<span
 						class="text-2xs leading-tight text-tertiary font-mono font-normal truncate max-w-full"
 						>{path}</span
@@ -121,7 +123,9 @@
 				{/if}
 				<div class="flex items-center gap-3 max-w-full">
 					<span
-						class="text-sm font-semibold truncate {emptyString(summary)
+						class="{compact ? 'text-xs font-medium' : 'text-sm font-semibold'} truncate {emptyString(
+							summary
+						)
 							? 'text-tertiary italic font-normal'
 							: 'text-emphasis'}"
 					>
@@ -238,11 +242,13 @@
 		{/snippet}
 	</Popover>
 {:else}
-	<div class="min-w-0 truncate flex flex-col px-2">
-		{#if !emptyString(summary) && !hidePath}
+	<div class="min-w-0 truncate flex items-center {compact ? '' : 'flex-col px-2'}">
+		{#if !emptyString(summary) && !compact}
 			<span class="text-[10px] leading-tight text-tertiary font-mono truncate">{path}</span>
 		{/if}
-		<span class="text-sm font-semibold text-emphasis truncate">
+		<span
+			class="{compact ? 'text-xs font-medium' : 'text-sm font-semibold'} text-emphasis truncate"
+		>
 			{emptyString(summary) ? (path ?? '') : summary}
 		</span>
 	</div>

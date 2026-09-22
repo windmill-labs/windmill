@@ -7,72 +7,79 @@ section name — and the route's own buttons at the far end.
 The row's height matches the sidebar's own header row, so the two read as one band.
 -->
 <script lang="ts">
-	import { Menubar } from '$lib/components/meltComponents'
-	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
-	import BreadcrumbSegment from '$lib/components/BreadcrumbSegment.svelte'
-	import EditorHeader from '$lib/components/EditorHeader.svelte'
+	import { PanelLeft } from 'lucide-svelte'
+	import { Tooltip } from '$lib/components/meltComponents'
+	import { navDetached } from './sidebar/navDetached.svelte'
+	import { navHandleSlot } from './sidebar/navHandlePlacement.svelte'
+	import NavBreadcrumb from './NavBreadcrumb.svelte'
+	import WorkspaceItemKindIcon from './WorkspaceItemKindIcon.svelte'
 	import { pageHeader } from './pageHeaderRegistry.svelte'
 	import ContextBridge from './ContextBridge.svelte'
-	import { kindKey, KIND_LABEL_LOWER } from '$lib/components/workspacePicker'
 
-	interface Props {
-		/** The sidebar's show/hide control, placed at the very start of the band. */
-		toggle?: import('svelte').Snippet
-	}
-
-	let { toggle }: Props = $props()
+	let { border = true }: { border?: boolean } = $props()
 
 	const content = $derived(pageHeader.content)
+	const actions = $derived(pageHeader.actions)
+
+	// A route can drop the band's bottom edge when its own content draws one. The border stays in
+	// the box either way — only its colour goes — so the band's contents do not shift a pixel when
+	// a navigation swaps one kind of route for the other.
+	const showBorder = $derived(content?.barBorder ?? border)
+
 	const item = $derived(content?.item)
 	const section = $derived(content?.section)
 </script>
 
-<div class="flex items-center gap-1 h-12 px-2 border-b shrink-0 min-w-0">
-	{@render toggle?.()}
-
-	<Menubar>
-		{#snippet children({ createMenu })}
-			<WorkspaceMenu {createMenu} compact strictWorkspaceSelect={false} />
-		{/snippet}
-	</Menubar>
-
-	{#if item}
-		<EditorHeader
-			inline
-			hideSummary={!!item.summaryContent}
-			kind={item.kind}
-			raw_app={item.raw_app}
-			savedPath={item.savedPath}
-			workspaceId={item.workspaceId}
-			onBehalfOfEmail={item.onBehalfOfEmail}
-			pathEditable={item.pathEditable ?? true}
-			summaryEditable={item.summaryEditable ?? true}
-			onNavigate={item.onNavigate}
-			bind:path={() => item.path, (v) => item.onPathChange?.(v ?? '')}
-			bind:summary={() => item.summary, (v) => item.onSummaryChange?.(v ?? '')}
-		/>
-		{#if item.summaryContent}
-			<div class="min-w-0">{@render item.summaryContent()}</div>
-		{/if}
-	{:else if section}
-		<nav aria-label="Breadcrumb" class="contents">
-			<BreadcrumbSegment
-				label={section.kind ? KIND_LABEL_LOWER[section.kind] : section.label}
-				isCurrent
-				initialHighlight={section.kind ? kindKey(section.kind) : undefined}
-				initialScope={section.kind ? { kind: section.kind } : undefined}
-				onPick={() => {}}
-			/>
-		</nav>
+<div
+	data-page-header
+	class="flex items-center gap-1 h-10 px-2 shrink-0 min-w-0 bg-surface border-b {showBorder
+		? ''
+		: 'border-transparent'}"
+>
+	{#if navDetached.val}
+		<!-- The only way back to a hidden sidebar: hovering slides the card in for a look, a click
+		     puts it back for good. Docked, the sidebar speaks for itself and nothing leads the bar. -->
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div data-nav-handle onmouseenter={() => navHandleSlot.open()}>
+			<Tooltip class="flex" placement="bottom" small>
+				<button
+					class="flex items-center p-1.5 rounded hover:bg-surface-hover"
+					aria-label="Show sidebar"
+					onclick={() => (navDetached.val = false)}
+				>
+					<PanelLeft size={16} class="flex-shrink-0 text-hint" />
+				</button>
+				{#snippet text()}Show sidebar{/snippet}
+			</Tooltip>
+		</div>
 	{/if}
 
-	{#if content?.actions}
+	<NavBreadcrumb {item} {section} actingWorkspaceId={content?.actingWorkspaceId} />
+
+	{#if item && (item.summaryContent || item.summary)}
+		<!-- A dot rather than a slash: the summary names the same item the path just located, it is
+		     not another level of it. -->
+		<span class="shrink-0 text-hint/40 text-xs px-0.5" aria-hidden="true">·</span>
+		<!-- The item's kind belongs with the name a human reads, not with its path. -->
+		<div class="flex items-center gap-1 min-w-0">
+			<WorkspaceItemKindIcon kind={item.kind} />
+			{#if item.summaryContent}
+				{@render item.summaryContent()}
+			{:else}
+				<span class="min-w-0 truncate text-xs font-medium text-emphasis">{item.summary}</span>
+			{/if}
+		</div>
+	{/if}
+
+	{#if actions.length > 0}
 		<div class="ml-auto flex items-center gap-2 shrink-0">
-			{#key content.contexts}
-				<ContextBridge contexts={content.contexts}>
-					{@render content.actions()}
-				</ContextBridge>
-			{/key}
+			{#each actions as entry, i (i)}
+				{#key entry.contexts}
+					<ContextBridge contexts={entry.contexts}>
+						{@render entry.render()}
+					</ContextBridge>
+				{/key}
+			{/each}
 		</div>
 	{/if}
 </div>

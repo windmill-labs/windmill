@@ -12,31 +12,25 @@
 	} from '$lib/stores'
 	import { isForkOwner } from '$lib/utils/workspaceHierarchy'
 	import { SIDEBAR_SHOW_SCHEDULES } from '$lib/consts'
+	import { NAV_PAGES } from './navPages'
 	import {
 		BookOpen,
 		ServerCog,
-		Boxes,
 		Calendar,
-		DollarSign,
 		Eye,
 		Logs,
 		FolderCog,
-		FolderOpen,
 		Github,
 		HelpCircle,
-		Home,
 		LogOut,
 		Newspaper,
-		Play,
 		Route,
 		Settings,
 		UserCog,
-		Users,
 		Plus,
 		Unplug,
 		AlertCircle,
 		Database,
-		Pyramid,
 		MailIcon,
 		ChevronDown,
 		ChevronRight
@@ -197,21 +191,16 @@
 	const itemClass = twMerge(
 		'text-secondary font-normal w-full block px-4 py-2 text-2xs data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
 	)
-	let mainMenuLinks = $derived(
-		[
-			{
-				label: 'Home',
-				href: `${base}/`,
-				icon: Home,
+	// Labels, paths and icons come from the shared page table, so the nav and the page header's
+	// breadcrumb always call a page the same thing. Everything else here is nav-only.
+	const MAIN_MENU_EXTRAS: Record<string, { aiId: string; aiDescription: string; onclick?: () => void }> =
+		{
+			Home: {
 				aiId: 'sidebar-menu-link-home',
 				aiDescription:
 					"Button to navigate to home which contains all the user's scripts, flows and apps"
 			},
-			{
-				label: 'Runs',
-				href: `${base}/runs`,
-				icon: Play,
-				disabled: !allows('runs'),
+			Runs: {
 				aiId: 'sidebar-menu-link-runs',
 				aiDescription: 'Button to navigate to runs',
 				onclick: () => {
@@ -220,47 +209,28 @@
 					}, 100)
 				}
 			},
-			{
-				label: 'Variables',
-				href: `${base}/variables`,
-				icon: DollarSign,
-				disabled: !allows('variables'),
+			Variables: {
 				aiId: 'sidebar-menu-link-variables',
 				aiDescription: 'Button to navigate to variables'
 			},
-			{
-				label: 'Resources',
-				href: `${base}/resources`,
-				icon: Boxes,
-				disabled: !allows('resources'),
+			Resources: {
 				aiId: 'sidebar-menu-link-resources',
 				aiDescription: 'Button to navigate to resources'
 			},
-			{
-				label: 'Assets',
-				href: `${base}/assets`,
-				icon: Pyramid,
-				disabled: !allows('assets'),
-				aiId: 'sidebar-menu-link-assets',
-				aiDescription: 'Button to navigate to assets'
-			},
-			{
-				label: 'Folders',
-				href: `${base}/folders`,
-				icon: FolderOpen,
-				disabled: !allows('folders'),
-				aiId: 'sidebar-menu-link-folders',
-				aiDescription: 'Button to navigate to folders'
-			},
-			{
-				label: 'Groups',
-				href: `${base}/groups`,
-				icon: Users,
-				disabled: !allows('groups'),
-				aiId: 'sidebar-menu-link-groups',
-				aiDescription: 'Button to navigate to groups'
-			}
-		].filter((l) => !excludeMainLabels.includes(l.label))
+			Assets: { aiId: 'sidebar-menu-link-assets', aiDescription: 'Button to navigate to assets' },
+			Folders: { aiId: 'sidebar-menu-link-folders', aiDescription: 'Button to navigate to folders' },
+			Groups: { aiId: 'sidebar-menu-link-groups', aiDescription: 'Button to navigate to groups' }
+		}
+	let mainMenuLinks = $derived(
+		NAV_PAGES.filter((p) => p.label in MAIN_MENU_EXTRAS)
+			.map((p) => ({
+				label: p.label,
+				href: p.path === '/' ? `${base}/` : `${base}${p.path}`,
+				icon: p.icon,
+				disabled: p.operatorKey ? !allows(p.operatorKey) : false,
+				...MAIN_MENU_EXTRAS[p.label]
+			}))
+			.filter((l) => !excludeMainLabels.includes(l.label))
 	)
 	let defaultExtraTriggerLinks = $derived([
 		{

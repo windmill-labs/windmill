@@ -12,6 +12,7 @@
 	import { base } from '$lib/base'
 	import PublicApp from '$lib/components/apps/editor/PublicApp.svelte'
 	import PublicAppFrame from '$lib/components/apps/editor/PublicAppFrame.svelte'
+	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import { Button } from '$lib/components/common'
 	import { AppService, OpenAPI } from '$lib/gen'
 	import { userStore } from '$lib/stores'
@@ -147,7 +148,20 @@
 </PublicAppFrame>
 
 {#if canWriteApp && !hideEditBtn}
-	<div id="app-edit-btn" class="absolute bottom-4 z-50 right-4">
-		<Button size="sm" startIcon={{ icon: Pen }} variant="subtle" href={editHref}>Edit</Button>
-	</div>
+	<!-- The page header carries it, with the app's name: a floating button over the app's own
+	     canvas lands on whatever the app draws there. -->
+	<PageHeaderContent
+		item={{ kind: 'app', path, raw_app: true, summaryEditable: false, pathEditable: false }}
+		actions={editAction}
+	/>
 {/if}
+
+{#snippet editAction()}
+	<Button
+		unifiedSize="sm"
+		startIcon={{ icon: Pen }}
+		variant="subtle"
+		href={editHref}
+		id="app-edit-btn">Edit</Button
+	>
+{/snippet}

@@ -49,7 +49,7 @@
 			name={currentFamily?.name ?? $workspaceStore ?? ''}
 			id={currentFamily?.id ?? $workspaceStore ?? ''}
 			disablePopup={isCollapsed}
-			class="block w-full"
+			class={compact ? 'block' : 'block w-full'}
 		>
 			<MenuButton
 				icon={Building}

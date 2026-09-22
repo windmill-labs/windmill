@@ -20,15 +20,7 @@
 
 <script lang="ts">
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import {
-		ArrowUp,
-		ExternalLink,
-		Globe2,
-		KeyRound,
-		PlugZap,
-		Settings,
-		WandSparkles
-	} from 'lucide-svelte'
+	import { ArrowUp, Globe2, KeyRound, Pin, PinOff, PlugZap, Settings } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import { Badge } from '../common'
 	import CloseButton from '../common/CloseButton.svelte'
@@ -46,6 +38,8 @@
 	import HomeConnectDrawer from './HomeConnectDrawer.svelte'
 	import { USER_SETTINGS_HASH } from '../sidebar/settings'
 	import { prefersSessionHandoff } from '../copilot/chat/global/gate'
+	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { onboardingProfile } from '$lib/onboardingProfile'
 
 	const COLLAPSED_SETTING = 'home-ai-composer-collapsed'
@@ -293,49 +287,54 @@
 						</Button>
 					{/each}
 				</div>
-			{:else if showComposer}
-				<!-- All that is left of the composer once dismissed: sits with the CLI/MCP row so the
-				     collapsed home page is one quiet line. -->
-				<Button
-					variant="subtle"
-					unifiedSize="xs"
-					btnClasses="!text-2xs !text-hint"
-					startIcon={{ icon: WandSparkles }}
-					onClick={() => setCollapsed(false)}
-				>
-					Build with AI
-				</Button>
-			{:else}
-				<div></div>
 			{/if}
-
-			<!-- Not AI-related, so shown even when the composer is hidden. -->
-			<div class="flex flex-row items-center gap-1">
-				<Button
-					variant="subtle"
-					unifiedSize="xs"
-					btnClasses="!text-2xs !text-hint"
-					startIcon={{ icon: PlugZap }}
-					onClick={() => homeConnectDrawer?.openDrawer?.()}
-				>
-					CLI / MCP
-				</Button>
-				{#if !$userStore?.operator && HOME_SHOW_HUB}
-					<Button
-						variant="subtle"
-						unifiedSize="xs"
-						btnClasses="!text-2xs !text-hint"
-						startIcon={{ icon: Globe2 }}
-						endIcon={{ icon: ExternalLink }}
-						href={$hubBaseUrlStore}
-						target="_blank"
-					>
-						Hub
-					</Button>
-				{/if}
-			</div>
 		</div>
 	</div>
 </div>
 
 <HomeConnectDrawer bind:this={homeConnectDrawer} />
+
+<!-- Everything the hero offered beside the composer lives in the band's menu: the connect helper,
+     the hub, and the way back to the composer once it has been put away. -->
+<PageHeaderContent actions={homeMenu} />
+
+{#snippet homeMenu()}
+	<!-- The band's own menu: the connect helper, the hub, and whether the composer is pinned to
+	     this page — all of them preferences or side trips, none of them the page's work. -->
+	<DropdownV2
+		placement="bottom-end"
+		size="sm"
+		items={[
+			...(showComposer
+				? [
+						collapsed
+							? {
+									displayName: 'Pin session chat to the page',
+									icon: Pin,
+									action: () => setCollapsed(false)
+								}
+							: {
+									displayName: 'Unpin session chat',
+									icon: PinOff,
+									action: () => setCollapsed(true)
+								}
+					]
+				: []),
+			{
+				displayName: 'CLI / MCP',
+				icon: PlugZap,
+				action: () => homeConnectDrawer?.openDrawer?.()
+			},
+			...(!$userStore?.operator && HOME_SHOW_HUB
+				? [
+						{
+							displayName: 'Hub',
+							icon: Globe2,
+							href: $hubBaseUrlStore,
+							hrefTarget: '_blank' as const
+						}
+					]
+				: [])
+		]}
+	/>
+{/snippet}
