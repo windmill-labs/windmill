@@ -2026,6 +2026,7 @@
 		}
 	})
 	$effect(() => {
+		// populateFiles must track file entries so in-place AI edits trigger synchronization.
 		iframe && iframeLoaded && files && populateFiles()
 	})
 	$effect(() => {
