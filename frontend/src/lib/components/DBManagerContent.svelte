@@ -137,15 +137,24 @@
 			const run = ++colDefsRun
 			colDefsError = undefined
 			if (!input) return
+			const databaseKey = schemaCacheKey(ws, input)
 			try {
 				const metadata = await loadAllTablesMetaData(ws, input, workerTag)
-				return run === colDefsRun ? metadata : colDefs.current
+				return run === colDefsRun ? { databaseKey, metadata } : colDefs.current
 			} catch (e) {
 				if (run !== colDefsRun) return colDefs.current
 				colDefsError = 'Error loading tables metadata: ' + ((e as Error)?.message || e)
 				return
 			}
 		}
+	)
+	// A resource keeps its previous value while it refetches, and after a switch of
+	// database that value is the previous database's metadata. Handed down as this
+	// one's, it would draw that database's columns and key work to the wrong one.
+	let colDefsOfInput = $derived(
+		input && colDefs.current?.databaseKey === schemaCacheKey(ws, input)
+			? colDefs.current.metadata
+			: undefined
 	)
 
 	let dbSchemasPromise = resource(
@@ -317,7 +326,7 @@
 					!Object.values(shownSchema.schema).flatMap((s) => Object.values(s)).length}
 				dbSchema={shownSchema}
 				mainPane={loadError ? errorPane : undefined}
-				colDefs={loadError ? undefined : colDefs.current}
+				colDefs={loadError ? undefined : colDefsOfInput}
 				dbTableOpsFactory={({ colDefs, tableKey, whereClause }) =>
 					dbTableOpsWithPreviewScripts({
 						colDefs,
