@@ -810,6 +810,7 @@
 	}
 
 	let iframeLoaded = $state(false) // @hmr:keep
+	let iframeFiles: Record<string, string> | undefined
 	// Briefly drops the `setActiveDocument` echo VS Code fires while we're
 	// pushing the initial file set — the iframe auto-opens a default editor
 	// during boot which we don't want to treat as a user-driven activation.
@@ -857,6 +858,9 @@
 
 	function populateFiles() {
 		if (files) {
+			// Manual edits and session autosave echoes already match the iframe. Sending them
+			// back can reopen its document while the user is still typing.
+			if (deepEqual(files, iframeFiles)) return
 			suppressSetActiveDocument = true
 			if (suppressTimer !== undefined) clearTimeout(suppressTimer)
 			suppressTimer = setTimeout(() => {
@@ -875,6 +879,7 @@
 		}
 	}
 	function setFilesInIframe(newFiles: Record<string, string>) {
+		iframeFiles = { ...newFiles }
 		const files = Object.fromEntries(
 			Object.entries(newFiles).filter(([path, _]) => !path.endsWith('/'))
 		)
@@ -888,6 +893,7 @@
 	}
 
 	function setFilesAndSelectInIframe(newFiles: Record<string, string>, pathToSelect: string) {
+		iframeFiles = { ...newFiles }
 		iframeDocument = pathToSelect
 		const files = Object.fromEntries(
 			Object.entries(newFiles).filter(([path, _]) => !path.endsWith('/'))
@@ -1399,6 +1405,7 @@
 		if (e.data.type === 'setFiles') {
 			// Normalize Windows-style path separators to Linux-style
 			const normalizedFiles = normalizeFilePaths(e.data.files)
+			iframeFiles = { ...normalizedFiles }
 			// Only mark pending changes if files actually changed (ignore echo from setFilesInIframe)
 			if (!deepEqual(files, normalizedFiles)) {
 				files = normalizedFiles
@@ -2015,6 +2022,7 @@
 	}
 	$effect(() => {
 		iframe?.addEventListener('load', () => {
+			iframeFiles = undefined
 			iframeLoaded = true
 		})
 	})
