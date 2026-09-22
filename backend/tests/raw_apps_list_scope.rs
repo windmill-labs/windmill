@@ -1,14 +1,14 @@
 //! `GET /raw_apps/list` must honor a path-scoped token. The route layer only checks
 //! the scope domain and RLS knows nothing of token scopes, so the per-path filter
-//! lives in the handler.
+//! lives in the handler, ahead of the page's LIMIT.
 
 use sqlx::{Pool, Postgres};
 use windmill_test_utils::*;
 
-async fn list_paths(port: u16, token: &str) -> anyhow::Result<Vec<String>> {
+async fn list_paths(port: u16, token: &str, query: &str) -> anyhow::Result<Vec<String>> {
     let resp = reqwest::Client::new()
         .get(format!(
-            "http://localhost:{port}/api/w/test-workspace/raw_apps/list"
+            "http://localhost:{port}/api/w/test-workspace/raw_apps/list?{query}"
         ))
         .header("Authorization", format!("Bearer {token}"))
         .send()
@@ -27,11 +27,20 @@ async fn list_paths(port: u16, token: &str) -> anyhow::Result<Vec<String>> {
 async fn test_raw_apps_list_filters_by_token_scope(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
 
-    for path in ["u/test-user/a", "u/test-user/sub/b", "f/other/c"] {
+    // The list sorts by edited_at desc, so the out-of-scope apps fill the first page
+    // unless the scope is applied before the LIMIT.
+    for (path, age_minutes) in [
+        ("f/other/c", 0),
+        ("u/test-userx/d", 1),
+        ("u/test-user/a", 2),
+        ("u/test-user/sub/b", 3),
+    ] {
         sqlx::query(
-            "INSERT INTO raw_app (path, workspace_id, data) VALUES ($1, 'test-workspace', '')",
+            "INSERT INTO raw_app (path, workspace_id, data, edited_at)
+             VALUES ($1, 'test-workspace', '', now() - make_interval(mins => $2))",
         )
         .bind(path)
+        .bind(age_minutes)
         .execute(&db)
         .await?;
     }
@@ -48,11 +57,16 @@ async fn test_raw_apps_list_filters_by_token_scope(db: Pool<Postgres>) -> anyhow
 
     // The same user through an unscoped token sees every row.
     assert_eq!(
-        list_paths(port, "SECRET_TOKEN").await?,
-        ["f/other/c", "u/test-user/a", "u/test-user/sub/b"]
+        list_paths(port, "SECRET_TOKEN", "").await?,
+        [
+            "f/other/c",
+            "u/test-user/a",
+            "u/test-user/sub/b",
+            "u/test-userx/d"
+        ]
     );
     assert_eq!(
-        list_paths(port, "SCOPED_TOKEN").await?,
+        list_paths(port, "SCOPED_TOKEN", "per_page=2").await?,
         ["u/test-user/a", "u/test-user/sub/b"]
     );
     Ok(())
