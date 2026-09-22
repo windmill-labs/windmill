@@ -137,8 +137,10 @@ import {
 	type RunFormDisplay,
 	type Tool,
 	type ToolCallbacks,
+	type ToolCodeDiff,
 	type ToolDisplayAction
 } from '../shared'
+import { scriptLangToEditorLang } from '$lib/scripts'
 import { searchDocsTool, readDocsPageTool } from '../docs/core'
 import { createDbSchemaTool } from '../script/core'
 import type { ContextElement } from '../context'
@@ -5029,10 +5031,12 @@ function finishAppDraftWrite(
 function finishDraftWrite(
 	result: DraftPersistResult,
 	existed: boolean,
-	ctx: WriteDraftCtx
+	ctx: WriteDraftCtx,
+	codeDiff?: ToolCodeDiff
 ): string {
 	const failure = draftWriteFailure(result, ctx)
 	if (failure) return failure
+	if (codeDiff) ctx.toolCallbacks.setToolStatus(ctx.toolId, { codeDiff })
 	ctx.toolCallbacks.onItemModified?.(result.itemKind, result.storagePath)
 	maybeAttachPreviewCard(ctx, result.itemKind, result.item.path)
 	const stored = result.item
@@ -5078,7 +5082,7 @@ async function writeDraft<T, A>(
 	path: string,
 	args: A,
 	ctx: WriteDraftCtx,
-	opts: { triggerKind?: TriggerKind; override?: boolean } = {}
+	opts: { triggerKind?: TriggerKind; override?: boolean; codeDiff?: ToolCodeDiff } = {}
 ): Promise<string> {
 	const { workspace } = ctx
 	startDraftWrite(ctx, type, path)
@@ -5097,7 +5101,7 @@ async function writeDraft<T, A>(
 		triggerKind: opts.triggerKind,
 		force: opts.override
 	})
-	return finishDraftWrite(result, existed, ctx)
+	return finishDraftWrite(result, existed, ctx, opts.codeDiff)
 }
 
 type ScriptDraftArgs = {
@@ -5150,8 +5154,15 @@ const SCRIPT_SPEC: WriteSpec<NewScript, ScriptDraftArgs> = {
 	}
 }
 
-function writeScriptDraft(args: ScriptDraftArgs, ctx: WriteDraftCtx): Promise<string> {
-	return writeDraft(SCRIPT_SPEC, 'script', args.path, args, ctx, { override: args.override })
+function writeScriptDraft(
+	args: ScriptDraftArgs,
+	ctx: WriteDraftCtx,
+	codeDiff?: ToolCodeDiff
+): Promise<string> {
+	return writeDraft(SCRIPT_SPEC, 'script', args.path, args, ctx, {
+		override: args.override,
+		codeDiff
+	})
 }
 
 type FlowDraftArgs = {
@@ -5368,7 +5379,8 @@ async function editScript(
 			language: base.language,
 			content: updated
 		},
-		ctx
+		ctx,
+		{ before: base.content, after: updated, lang: scriptLangToEditorLang(base.language) }
 	)
 }
 

@@ -610,6 +610,13 @@ export type WebSearchSource = {
 	title?: string
 }
 
+export type ToolCodeDiff = {
+	before: string
+	after: string
+	/** Monaco language id. */
+	lang: string
+}
+
 export type ToolDisplayMessage = {
 	role: 'tool'
 	tool_call_id: string
@@ -654,6 +661,9 @@ export type ToolDisplayMessage = {
 	 * always-visible card that opens (or focuses) the item's preview in the
 	 * session side panel. Set only for session chats — the side panel is their surface. */
 	previewCard?: { kind: PreviewCardKind; path: string }
+	/** Whole text on both sides of an edit this call saved. Kept in full rather than as a
+	 * reference: drafts are overwritten in place, so the sides cannot be fetched back later. */
+	codeDiff?: ToolCodeDiff
 	planArtifactId?: string
 	/** The version this card's proposal wrote, so a card scrolled far up still opens the plan
 	 * it proposed rather than what the document became. */
