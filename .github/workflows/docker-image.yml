@@ -40,6 +40,11 @@ jobs:
     runs-on: ubicloud
     if: (github.event_name != 'workflow_dispatch') || (github.event.inputs &&
       !github.event.inputs.ee)
+    # Jobs that consume this image must reference it by this digest, never by
+    # :dev: concurrent main-branch runs push :dev too, so a tag run reading it
+    # can ship a main build under the release version.
+    outputs:
+      digest: ${{ steps.docker_build.outputs.digest }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -112,6 +117,8 @@ jobs:
   build_ee:
     runs-on: ubicloud
     if: (github.event_name != 'workflow_dispatch') || github.event.inputs.ee
+    outputs:
+      digest: ${{ steps.docker_build.outputs.digest }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -192,31 +199,31 @@ jobs:
       - uses: actions/checkout@v4
       - run: |
           # pulling docker image with desired arch so that actions-docker-extract doesn't do it
-          docker pull --platform "linux/$ARCH" ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEV_SHA }}
-          docker pull --platform "linux/$ARCH" ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }}
+          docker pull --platform "linux/$ARCH" ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build.outputs.digest }}
+          docker pull --platform "linux/$ARCH" ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee@${{ needs.build_ee.outputs.digest }}
 
       - run: |
           # Checks the image is in docker prior to running actions-docker-extract. It fails if not
           # Also useful to visually check that the arch is the right opencontainers
-          docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEV_SHA }}
-          docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }}
+          docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build.outputs.digest }}
+          docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee@${{ needs.build_ee.outputs.digest }}
 
       - uses: shrink/actions-docker-extract@v3
         id: extract
         with:
-          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEV_SHA }}
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build.outputs.digest }}
           path: "/usr/src/app/windmill"
 
       - uses: shrink/actions-docker-extract@v3
         id: extract-duckdb-ffi-internal
         with:
-          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEV_SHA }}
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build.outputs.digest }}
           path: "/usr/src/app/libwindmill_duckdb_ffi_internal.so"
 
       - uses: shrink/actions-docker-extract@v3
         id: extract-ee
         with:
-          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }}
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee@${{ needs.build_ee.outputs.digest }}
           path: "/usr/src/app/windmill"
 
       - name: Rename binary with corresponding architecture
@@ -373,8 +380,8 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Tag main and latest
         run: |
-          docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEV_SHA }} --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-          docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEV_SHA }} --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main
+          docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build.outputs.digest }} --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build.outputs.digest }} --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main
 
       - uses: sigstore/cosign-installer@v4.1.2
         if: startsWith(github.ref, 'refs/tags/v')
@@ -409,8 +416,8 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Tag main and latest for ee
         run: |
-          docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }} --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
-          docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }} --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:main
+          docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee@${{ needs.build_ee.outputs.digest }} --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
+          docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee@${{ needs.build_ee.outputs.digest }} --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:main
 
       - uses: sigstore/cosign-installer@v4.1.2
         if: startsWith(github.ref, 'refs/tags/v')
@@ -549,6 +556,8 @@ jobs:
           push: true
           sbom: ${{ startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push' }}
           file: "./docker/DockerfileCuda"
+          build-args: |
+            BASE_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee@${{ needs.build_ee.outputs.digest }}
           tags: |
             ${{ steps.meta-ee-public.outputs.tags }}
           labels: |
@@ -602,6 +611,8 @@ jobs:
           push: true
           sbom: ${{ startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push' }}
           file: "./docker/DockerfileSlim"
+          build-args: |
+            BASE_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build.outputs.digest }}
           tags: |
             ${{ steps.meta-ee-public.outputs.tags }}
           labels: |
@@ -656,6 +667,8 @@ jobs:
           push: true
           sbom: ${{ startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push' }}
           file: "./docker/DockerfileSlimEe"
+          build-args: |
+            BASE_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee@${{ needs.build_ee.outputs.digest }}
           tags: |
             ${{ steps.meta-ee-public.outputs.tags }}
           labels: |
@@ -709,6 +722,8 @@ jobs:
           push: true
           sbom: ${{ startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push' }}
           file: "./docker/DockerfileFull"
+          build-args: |
+            BASE_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build.outputs.digest }}
           tags: |
             ${{ steps.meta-public.outputs.tags }}
           labels: |
@@ -761,6 +776,8 @@ jobs:
           push: true
           sbom: ${{ startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push' }}
           file: "./docker/DockerfileFullEe"
+          build-args: |
+            BASE_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee@${{ needs.build_ee.outputs.digest }}
           tags: |
             ${{ steps.meta-ee-public.outputs.tags }}
           labels: |

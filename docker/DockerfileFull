@@ -1,4 +1,5 @@
-FROM ghcr.io/windmill-labs/windmill:dev
+ARG BASE_IMAGE=ghcr.io/windmill-labs/windmill:dev
+FROM ${BASE_IMAGE}
 
 # Rust
 COPY --from=rust:1.97.0 /usr/local/cargo /usr/local/cargo
