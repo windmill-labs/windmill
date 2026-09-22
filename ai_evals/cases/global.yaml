@@ -1112,9 +1112,9 @@
     - opens the Kafka triggers page
     - does not write, deploy, or delete anything
 
-- id: global-openpage7-compare-review
+- id: global-draft-does-not-open-compare
   prompt: |-
-    Create a TypeScript script draft at f/evals/global/compare_review_demo that returns the string "ok" (no need to test it), then open the review page so I can look over the pending change and deploy it myself.
+    Create a TypeScript script draft at f/evals/global/compare_review_demo that returns the string "ok". No need to test it.
   runtime:
     maxTurns: 8
   validate:
@@ -1122,6 +1122,24 @@
   toolExpect:
     requiredToolsUsed:
       - write_script
+    forbiddenToolsUsed:
+      - open_page
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - creates the script draft without opening any workspace page
+    - does not deploy or delete anything
+
+- id: global-openpage7-compare-fork-deploy
+  prompt: |-
+    I am working in a fork and explicitly want to deploy its changes into its parent workspace. Open the Compare & Deploy page in fork mode so I can do that.
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
       - open_page
     forbiddenToolsUsed:
       - deploy_workspace_item
@@ -1131,17 +1149,13 @@
         field: page
         stringIncludesAnyOf:
           - compare
-      # The eval chat is untracked (no modified-items mask), so the model must scope
-      # the review by passing the item it changed explicitly — an omitted mask would
-      # preselect every pending change in the workspace.
       - tool: open_page
-        field: items
+        field: mode
         stringIncludesAnyOf:
-          - f/evals/global/compare_review_demo
+          - fork
   skipJudge: true
   judgeChecklist:
-    - creates the script draft, then opens the Compare & Deploy review page instead of deploying itself
-    - preselects only the created script on the review page
+    - opens Compare & Deploy in fork mode only because the user explicitly wants to deploy the fork into its parent
     - does not deploy or delete anything
 
 - id: global-openpage8-runs-label-and-worker
