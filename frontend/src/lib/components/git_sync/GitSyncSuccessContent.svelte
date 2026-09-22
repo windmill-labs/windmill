@@ -43,7 +43,9 @@ setup dialog, and in the standalone modal for a connection saved outside it.
 		</Alert>
 	{/if}
 
-	<div class="flex-1 min-h-24 flex flex-col items-center justify-center gap-2 text-center">
+	<!-- `pb`: centered in what the notices leave, it would otherwise read as sitting low on the
+	     step rather than in the middle of it. -->
+	<div class="flex-1 min-h-24 pb-16 flex flex-col items-center justify-center gap-2 text-center">
 		<CheckCircle2 class="h-8 w-8 text-green-600" />
 		<div class="flex flex-col gap-1">
 			<h3 class="text-lg font-semibold text-primary">Git sync connection saved successfully!</h3>
