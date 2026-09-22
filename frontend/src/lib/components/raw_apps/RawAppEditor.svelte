@@ -742,6 +742,7 @@
 			summary = update.summary
 		}
 		if (update.files !== undefined) {
+			iframeFiles = undefined
 			files = update.files
 		}
 		if (update.runnables !== undefined) {
@@ -822,7 +823,9 @@
 	}
 
 	let iframeLoaded = $state(false) // @hmr:keep
-	// The files the iframe holds: last posted to it, or last reported by it.
+	// The files the iframe holds: last posted to it, or last reported by it. Explicit
+	// replacements (history, YAML) clear it so they are always sent: the iframe can
+	// hold edits it hasn't reported yet, which a skip would leave in place.
 	let iframeFiles: Record<string, string> | undefined
 	// The document the user picked that `openInIframe` left for `populateFiles` to
 	// open. It takes the keyboard only if it is still the document being opened.
@@ -2241,6 +2244,7 @@
 		data: RawAppData
 	}) {
 		try {
+			iframeFiles = undefined
 			files = structuredClone($state.snapshot(entry.files))
 			runnables = structuredClone($state.snapshot(entry.runnables))
 			summary = entry.summary
