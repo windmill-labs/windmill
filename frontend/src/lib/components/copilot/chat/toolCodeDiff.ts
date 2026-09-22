@@ -6,15 +6,41 @@ import type { ToolCodeDiff, ToolDisplayMessage } from './shared'
 // Builds a diff from a call's own arguments, for the moments the saved `codeDiff` does not
 // exist: while the arguments stream, when the call failed, and for transcripts saved before
 // calls recorded one. The replaced snippet alone has no language or surrounding lines.
-const ARGS_DIFF_BY_TOOL: Record<string, (params: any) => ToolCodeDiff | undefined> = {
-	edit_script: (params) =>
-		typeof params?.old_string === 'string' || typeof params?.new_string === 'string'
+const ARGS_DIFF_BY_TOOL: Record<string, (params: unknown) => ToolCodeDiff | undefined> = {
+	edit_script: (params) => {
+		const edit = streamingEditArguments(params)
+		return typeof edit?.old_string === 'string' || typeof edit?.new_string === 'string'
 			? {
-					before: typeof params.old_string === 'string' ? params.old_string : '',
-					after: typeof params.new_string === 'string' ? params.new_string : '',
+					before: typeof edit.old_string === 'string' ? edit.old_string : '',
+					after: typeof edit.new_string === 'string' ? edit.new_string : '',
 					lang: 'plaintext'
 				}
 			: undefined
+	}
+}
+
+function streamingEditArguments(
+	params: unknown
+): { old_string?: string; new_string?: string } | undefined {
+	if (params && typeof params === 'object')
+		return params as { old_string?: string; new_string?: string }
+	if (typeof params !== 'string') return undefined
+
+	return {
+		old_string: partialJsonString(params, 'old_string'),
+		new_string: partialJsonString(params, 'new_string')
+	}
+}
+
+function partialJsonString(partialJson: string, key: string): string | undefined {
+	const match = partialJson.match(new RegExp(`"${key}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)`))
+	if (!match?.[1]) return undefined
+
+	try {
+		return JSON.parse(`"${match[1]}"`)
+	} catch {
+		return undefined
+	}
 }
 
 export function hasToolCodeDiff(toolName: string | undefined): boolean {

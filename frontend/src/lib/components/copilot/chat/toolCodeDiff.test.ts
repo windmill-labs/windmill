@@ -43,6 +43,17 @@ describe('toolCodeDiff', () => {
 		).toEqual({ before: 'before', after: 'after', lang: 'plaintext' })
 	})
 
+	it('renders streamed edit arguments before their JSON object is complete', () => {
+		expect(
+			toolCodeDiff(
+				message({
+					toolName: 'edit_script',
+					parameters: '{"old_string":"before\\nline","new_string":"after'
+				})
+			)
+		).toEqual({ before: 'before\nline', after: 'after', lang: 'plaintext' })
+	})
+
 	it('only marks tools with a defined argument diff as diff-capable', () => {
 		expect(hasToolCodeDiff('edit_script')).toBe(true)
 		expect(hasToolCodeDiff('write_script')).toBe(false)
