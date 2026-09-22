@@ -158,9 +158,7 @@ wmill sync pull --workspace ${$workspaceStore} --repository ${gitRepoResourcePat
 
 <div class="flex flex-col gap-4 h-full">
 	{#if isPreviewLoading}
-		<div
-			class="flex-1 min-h-24 flex flex-col items-center justify-center gap-2 text-sm text-hint"
-		>
+		<div class="flex-1 min-h-24 flex flex-col items-center justify-center gap-2 text-sm text-hint">
 			<Loader2 size={36} class="animate-spin" />
 			Listing the changes to push...
 		</div>
@@ -197,19 +195,27 @@ wmill sync pull --workspace ${$workspaceStore} --repository ${gitRepoResourcePat
 	{/if}
 
 	<div class="mt-auto flex flex-col gap-2">
-		{#each [{ id: previewJobId, status: previewJobStatus, label: 'Changes job' }, { id: applyJobId, status: applyJobStatus, label: 'Push job' }] as job (job.label)}
-			<!-- Only while it still says something: what a finished job did is on screen already. -->
-			{#if job.id && job.status !== 'success'}
-				<div class="flex items-center gap-2 text-2xs text-secondary">
+		{#each [{ id: previewJobId, status: previewJobStatus, label: 'Changes job', running: isPreviewLoading }, { id: applyJobId, status: applyJobStatus, label: 'Push job', running: isApplying }] as job (job.label)}
+			<!-- The row is held from the moment the job is started, since its id only arrives once
+			     the server has taken it; it goes once the job succeeded, its outcome being on
+			     screen already. -->
+			{#if job.running || (job.id && job.status !== 'success')}
+				<div class="flex items-center gap-2 min-h-4 text-2xs text-secondary">
 					{#if job.status === 'running'}
 						<Loader2 class="animate-spin" size={12} />
 					{:else if job.status === 'failure'}
 						<XCircle size={12} class="text-red-700" />
 					{/if}
-					<span class="text-hint">{job.label}:</span>
-					<a target="_blank" class="underline" href={`/run/${job.id}?workspace=${$workspaceStore}`}>
-						{job.id}
-					</a>
+					{#if job.id}
+						<span class="text-hint">{job.label}:</span>
+						<a
+							target="_blank"
+							class="underline"
+							href={`/run/${job.id}?workspace=${$workspaceStore}`}
+						>
+							{job.id}
+						</a>
+					{/if}
 				</div>
 			{/if}
 		{/each}
@@ -233,7 +239,9 @@ wmill sync pull --workspace ${$workspaceStore} --repository ${gitRepoResourcePat
 				<div class="relative mt-2">
 					<CopyButton value={cliInstructions} class="absolute top-1 right-1" />
 					<pre
-						class="text-xs bg-surface-sunken rounded-lg p-3 pr-10 overflow-x-auto whitespace-pre-wrap break-all">{cliInstructions}</pre>
+						class="text-xs bg-surface-sunken rounded-lg p-3 pr-10 overflow-x-auto whitespace-pre-wrap break-all"
+						>{cliInstructions}</pre
+					>
 				</div>
 			{/if}
 		</div>
