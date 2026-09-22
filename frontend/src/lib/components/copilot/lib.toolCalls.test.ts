@@ -285,3 +285,33 @@ describe('parseOpenAICompletion tool call arguments', () => {
 		expect(toolResult.content).toBe('tool ok')
 	})
 })
+
+describe('output token limit', () => {
+	it("gives DeepSeek DeepSeek's own thinking-mode budget rather than the 8192 fallback", async () => {
+		const { getModelMaxTokens } = await import('./lib')
+		expect(getModelMaxTokens('deepseek', 'deepseek-flash')).toBe(131072)
+		expect(getModelMaxTokens('deepseek', 'deepseek-v4-pro')).toBe(131072)
+	})
+
+	it('fails a response cut off at the output token limit instead of ending the turn', async () => {
+		const { parseOpenAICompletion } = await import('./lib')
+		const { OutputTokenLimitError } = await import('./chat/outputTokenLimit')
+
+		// Thinking counts toward max_tokens, so the cap can land before any answer.
+		const parsed = parseOpenAICompletion(
+			streamOf([
+				{ choices: [{ delta: { reasoning_content: 'I need to plan the flow so each' } }] },
+				{ choices: [{ delta: {}, finish_reason: 'length' }] }
+			]),
+			createCallbacks(),
+			[],
+			[],
+			[],
+			{},
+			undefined,
+			{ workspace: 'test' }
+		)
+
+		await expect(parsed).rejects.toBeInstanceOf(OutputTokenLimitError)
+	})
+})

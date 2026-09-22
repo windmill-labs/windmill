@@ -263,6 +263,7 @@ describe('model context windows', () => {
 		expect(getKnownModelContextWindow('gemini-3-flash')).toBe(1000000)
 		expect(getKnownModelContextWindow('gemini-2.5-flash')).toBe(1000000)
 		expect(getKnownModelContextWindow('deepseek-v4-pro')).toBe(1000000)
+		expect(getKnownModelContextWindow('deepseek-flash')).toBe(1000000)
 		expect(getKnownModelContextWindow('deepseek-chat')).toBe(1000000)
 		expect(getKnownModelContextWindow('deepseek-reasoner')).toBe(1000000)
 	})

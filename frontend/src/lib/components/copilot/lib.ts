@@ -28,6 +28,7 @@ import {
 	type Tool,
 	type ToolCallbacks
 } from './chat/shared'
+import { OutputTokenLimitError } from './chat/outputTokenLimit'
 import { hasValidToolCallArguments } from './chat/toolCallArguments'
 import {
 	getNonStreamingOpenAIResponsesCompletion,
@@ -116,7 +117,7 @@ export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
 	},
 	deepseek: {
 		label: 'DeepSeek',
-		defaultModels: ['deepseek-v4-pro', 'deepseek-v4-flash']
+		defaultModels: ['deepseek-v4-pro', 'deepseek-flash']
 	},
 	groq: {
 		label: 'Groq',
@@ -310,7 +311,12 @@ export async function fetchAvailableModels(
 }
 
 export function getModelMaxTokens(provider: AIProvider, model: string) {
-	if (model.includes('gpt-5')) {
+	if (provider === 'deepseek') {
+		// DeepSeek thinks by default and counts the thinking toward max_tokens, so
+		// the 8192 fallback cuts long turns off mid-thought. 131072 is DeepSeek's
+		// own default at the highest effort (65536 at the default one).
+		return 131072
+	} else if (model.includes('gpt-5')) {
 		return 128000
 	} else if (
 		(provider === 'azure_openai' || provider === 'openai' || provider === 'azure_foundry') &&
@@ -1218,6 +1224,7 @@ export async function parseOpenAICompletion(
 	// to the next call, the previous one is demoted to queued.
 	let streamingToolCallId: string | undefined = undefined
 	let malformedFunctionCallError = false
+	let hitOutputTokenLimit = false
 	let tokenUsage = emptyChatTokenUsage()
 
 	let answer = ''
@@ -1243,6 +1250,9 @@ export async function parseOpenAICompletion(
 			finishReason.includes('MALFORMED_FUNCTION_CALL')
 		) {
 			malformedFunctionCallError = true
+		}
+		if (finishReason === 'length') {
+			hitOutputTokenLimit = true
 		}
 
 		// Mistral nests reasoning inside structured content parts; split them out
@@ -1460,6 +1470,8 @@ export async function parseOpenAICompletion(
 		}
 		messages.push(toolResponse)
 		addedMessages.push(toolResponse)
+	} else if (hitOutputTokenLimit) {
+		throw new OutputTokenLimitError()
 	} else {
 		return { shouldContinue: false, tokenUsage }
 	}
