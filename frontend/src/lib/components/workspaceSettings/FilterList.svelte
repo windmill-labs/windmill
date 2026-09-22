@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { Plus, X } from 'lucide-svelte'
+	import Button from '$lib/components/common/button/Button.svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
 
 	let {
 		title = '',
@@ -9,7 +11,7 @@
 	} = $props()
 
 	let newItem = $state('')
-	let inputRef: HTMLInputElement | null = $state(null)
+	let inputRef: TextInput | undefined = $state(undefined)
 
 	function addItem() {
 		const value = newItem.trim()
@@ -25,7 +27,7 @@
 	}
 </script>
 
-<div class="flex flex-col gap-1">
+<div class="flex flex-col gap-1 h-full flex-1">
 	<div class="flex items-center gap-2 mb-1">
 		<h4 class="font-semibold text-sm">{title}</h4>
 		{#if tooltip}
@@ -46,21 +48,32 @@
 				</button>
 			</span>
 		{/each}
+	</div>
 
-		<input
+	<!-- Its own row at the bottom, so adding or removing filters above does not move it. -->
+	<div class="flex items-center gap-1 mt-auto pt-1">
+		<TextInput
 			bind:this={inputRef}
-			class="border border-gray-300 rounded-full px-3 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-primary"
-			{placeholder}
-			value={newItem}
-			oninput={(e) => (newItem = e.currentTarget.value)}
-			onkeydown={(e) => e.key === 'Enter' && (addItem(), e.preventDefault())}
+			bind:value={newItem}
+			size="sm"
+			class="flex-1 min-w-0"
+			inputProps={{
+				placeholder,
+				onkeydown: (e: KeyboardEvent) => {
+					if (e.key === 'Enter') {
+						e.preventDefault()
+						addItem()
+					}
+				}
+			}}
 		/>
-		<button
-			class="ml-1 text-primary hover:bg-primary/10 rounded-full p-1"
-			onclick={addItem}
-			aria-label="Add filter"
-		>
-			<Plus size={14} />
-		</button>
+		<Button
+			variant="default"
+			unifiedSize="sm"
+			iconOnly
+			startIcon={{ icon: Plus }}
+			title="Add filter"
+			onClick={addItem}
+		/>
 	</div>
 </div>
