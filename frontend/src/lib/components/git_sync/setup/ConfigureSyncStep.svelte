@@ -173,7 +173,7 @@
 			{/if}
 		{/if}
 
-		{#if repo.detectionJobId}
+		{#if repo.detectionJobId && repo.detectionState !== 'no-wmill' && repo.detectionState !== 'has-wmill'}
 			<div class="mt-auto flex items-center gap-2 text-2xs text-secondary">
 				{#if repo.detectionJobStatus === 'success'}
 					<CheckCircle2 size={12} class="text-green-600" />
