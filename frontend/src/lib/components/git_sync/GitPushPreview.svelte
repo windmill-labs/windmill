@@ -7,7 +7,7 @@ buttons — the setup dialog puts them in its own footer, the standalone modal i
 <script lang="ts">
 	import { untrack } from 'svelte'
 	import { Alert } from '$lib/components/common'
-	import { Loader2, CheckCircle2, XCircle, Terminal, ChevronDown, ChevronUp } from 'lucide-svelte'
+	import { Loader2, XCircle, Terminal, ChevronDown, ChevronUp } from 'lucide-svelte'
 	import GitDiffPreview from '../GitDiffPreview.svelte'
 	import { JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
@@ -191,12 +191,11 @@ buttons — the setup dialog puts them in its own footer, the standalone modal i
 
 	<div class="mt-auto flex flex-col gap-2">
 		{#each [{ id: previewJobId, status: previewJobStatus, label: 'Changes job' }, { id: applyJobId, status: applyJobStatus, label: 'Push job' }] as job (job.label)}
-			{#if job.id}
+			<!-- Only while it still says something: what a finished job did is on screen already. -->
+			{#if job.id && job.status !== 'success'}
 				<div class="flex items-center gap-2 text-2xs text-secondary">
 					{#if job.status === 'running'}
 						<Loader2 class="animate-spin" size={12} />
-					{:else if job.status === 'success'}
-						<CheckCircle2 size={12} class="text-green-600" />
 					{:else if job.status === 'failure'}
 						<XCircle size={12} class="text-red-700" />
 					{/if}
