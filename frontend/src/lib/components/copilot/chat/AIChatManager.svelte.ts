@@ -110,6 +110,7 @@ import type { Selection } from 'monaco-editor'
 import type AIChatInput from './AIChatInput.svelte'
 import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
 import { closeInterruptedToolBatch, runChatLoop, truncateToToolPairedPrefix } from './chatLoop'
+import { OutputTokenLimitError } from './outputTokenLimit'
 import { sanitizeToolCallArguments } from './toolCallArguments'
 import { billedTokens, normalizeContextUsage, type ChatTokenUsage } from './tokenUsage'
 import { logAiUsage } from '$lib/utils/aiUsageReporter'
@@ -377,6 +378,10 @@ function isImageRejection(err: unknown, models: (string | undefined)[] = []): bo
 }
 
 function getSendRequestErrorMessage(err: unknown, webSearchUnavailable: boolean): string {
+	// The request went through; only its response was cut short.
+	if (err instanceof OutputTokenLimitError) {
+		return err.message
+	}
 	const errorMessage =
 		err instanceof Error ? err.message : typeof err === 'string' ? err : undefined
 	const message = errorMessage

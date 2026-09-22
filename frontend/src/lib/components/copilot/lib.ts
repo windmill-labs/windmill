@@ -117,7 +117,7 @@ export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
 	},
 	deepseek: {
 		label: 'DeepSeek',
-		defaultModels: ['deepseek-v4-pro', 'deepseek-v4-flash']
+		defaultModels: ['deepseek-v4-pro', 'deepseek-flash']
 	},
 	groq: {
 		label: 'Groq',
