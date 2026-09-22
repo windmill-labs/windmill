@@ -102,6 +102,11 @@
 		untrack(() => (isOpen ? disposable?.openDrawer() : disposable?.closeDrawer()))
 	})
 
+	/** Whether this dialog was the overlay on top when the press started. `clickOutside` awaits
+	 * its async `exclude` before reporting, and an overlay above closes itself in that gap — by
+	 * the time the report lands, the dialog looks topmost and would close along with it. */
+	let topmostAtPress = true
+
 	function handleKeyDown(event: KeyboardEvent) {
 		if (!isOpen || !closeOnEscape || preventDismiss) return
 		// Hidden hosts stay mounted and still receive window keys — see overlayHost.
@@ -122,7 +127,10 @@
 	const minZIndex = $derived(chatState.size > 0 ? zIndexes.aiChat + 1 : 0)
 </script>
 
-<svelte:window onkeydown={handleKeyDown} />
+<svelte:window
+	onkeydown={handleKeyDown}
+	onpointerdowncapture={() => (topmostAtPress = disposable?.isTopmost() ?? true)}
+/>
 
 <Disposable bind:open={isOpen} bind:this={disposable} preventEscape {minZIndex}>
 	{#snippet children({ zIndex })}
@@ -146,10 +154,7 @@
 							)}
 							use:clickOutside={{
 								onClickOutside: () =>
-									closeOnOutsideClick &&
-									!preventDismiss &&
-									(disposable?.isTopmost() ?? true) &&
-									close(),
+									closeOnOutsideClick && !preventDismiss && topmostAtPress && close(),
 								// A dropdown opened from inside the dialog portals its menu out of it, so a
 								// click on one of its items lands outside this node and would close the
 								// dialog under the menu.
