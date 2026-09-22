@@ -157,7 +157,7 @@
 		{#if isEditable}
 			<!-- Editable mode -->
 			<div class="px-4 py-2" transition:slide={{ duration: 150 }}>
-				<div class="grid grid-cols-1 md:grid-cols-2 md:gap-32">
+				<div class="grid grid-cols-1 md:grid-cols-2 md:gap-8">
 					<div class="flex flex-col gap-2">
 						<Tabs bind:selected={filtersTab}>
 							<Tab value="includes" label="Includes"></Tab>
