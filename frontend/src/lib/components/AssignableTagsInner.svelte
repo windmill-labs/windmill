@@ -285,6 +285,11 @@
 					{/if}
 				</div>
 				{@render dynamicTagInfo(true)}
+				{#if !dynamic}
+					<div class="mt-1">
+						Workspaces outside this scope cannot use it, even through a dynamic tag it fits
+					</div>
+				{/if}
 			</div>
 		{:else if newTag.trim()}
 			{#if newTag.includes('(') || newTag.includes(')') || newTag.includes('+') || newTag.includes('^') || newTag.includes('*') || ((newTag.includes('.') || newTag.includes('$args[') || newTag.includes('$flow_expr[')) && !dynamicTag)}
@@ -368,7 +373,9 @@
 			<pre class="inline text-emphasis">gpu-$args[size]</pre>, which allows any tag starting with
 			<pre class="inline">gpu-</pre>. Scope it like any other tag, e.g.
 			<pre class="inline text-emphasis">gpu-$args[size](workspace1+workspace2)</pre>, to allow those
-			tags only in some workspaces.
+			tags only in some workspaces. A tag listed by its own name for some workspaces, e.g.
+			<pre class="inline text-emphasis">gpu-secret(workspace1)</pre>, stays limited to them even
+			when a dynamic tag fits it.
 		</span>
 	{/if}
 </div>

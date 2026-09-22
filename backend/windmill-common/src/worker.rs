@@ -41,8 +41,8 @@ use crate::{
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct CustomTags {
     pub global: Vec<String>,
-    /// Keyed by the entry's name, which may hold placeholders like a global entry: look an entry
-    /// up through [`custom_tag_matches`], not by the resolved tag.
+    /// Keyed by the entry's name, which may hold placeholders like a global entry: only a name
+    /// without any can be looked up by the tag it admits, the others through [`custom_tag_matches`].
     pub specific: HashMap<String, SpecificTagData>,
 }
 
@@ -85,20 +85,7 @@ impl CustomTags {
         } else {
             self.specific
                 .iter()
-                .map(|(tag, tag_data)| {
-                    let separator = tag_data.tag_type.corresponding_separator();
-                    let mut workspaces = tag_data
-                        .workspaces
-                        .iter()
-                        .map(|w| w.to_string())
-                        .collect::<Vec<_>>()
-                        .join(&*separator.to_string());
-                    if tag_data.tag_type == SpecificTagType::AllExcluding {
-                        // the AllExcluding tag syntax has a leading separator
-                        workspaces.insert(0, separator);
-                    }
-                    format!("{}({})", tag, workspaces)
-                })
+                .map(|(tag, tag_data)| tag_data.authored(tag))
                 .collect::<Vec<String>>()
         };
         let all_tags = self.global.clone();
@@ -262,6 +249,22 @@ impl SpecificTagData {
     /// lineage lookup for the (overwhelmingly common) fork-agnostic tag.
     pub fn is_fork_scoped(&self) -> bool {
         self.workspaces.iter().any(|w| w.include_forks)
+    }
+
+    /// The entry named `name` with this scope, as written in the custom tags: `tag(ws1+ws2)`.
+    pub fn authored(&self, name: &str) -> String {
+        let separator = self.tag_type.corresponding_separator();
+        let mut workspaces = self
+            .workspaces
+            .iter()
+            .map(|w| w.to_string())
+            .collect::<Vec<_>>()
+            .join(&*separator.to_string());
+        if self.tag_type == SpecificTagType::AllExcluding {
+            // the AllExcluding tag syntax has a leading separator
+            workspaces.insert(0, separator);
+        }
+        format!("{}({})", name, workspaces)
     }
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

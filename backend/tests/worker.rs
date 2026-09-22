@@ -5720,8 +5720,8 @@ async fn test_fork_marker_tag_admission_through_lineage(db: Pool<Postgres>) -> a
 }
 
 /// A workspace-scoped pattern admits the tags in its range only from the workspaces its scope
-/// allows. Every entry whose name admits the tag counts, so an exact entry scoped elsewhere does
-/// not shadow a pattern; the fork lineage and `$workspace` are resolved for a matching pattern.
+/// allows, and a tag listed by its own name with a scope stays inside that scope whatever pattern
+/// it fits. The fork lineage and `$workspace` are resolved for a matching pattern.
 #[sqlx::test(fixtures("base"))]
 #[serial]
 async fn test_scoped_custom_tag_pattern_admission(db: Pool<Postgres>) -> anyhow::Result<()> {
@@ -5730,7 +5730,7 @@ async fn test_scoped_custom_tag_pattern_admission(db: Pool<Postgres>) -> anyhow:
     initialize_tracing().await;
 
     // For a non-superadmin caller (a superadmin would bypass the scope check entirely).
-    async fn allowed(db: &Pool<Postgres>, w_id: &str, tag: &str, size: &str) -> bool {
+    async fn check(db: &Pool<Postgres>, w_id: &str, tag: &str, size: &str) -> Result<(), String> {
         let args = std::collections::HashMap::from([(
             "size".to_string(),
             serde_json::value::to_raw_value(size).unwrap(),
@@ -5738,7 +5738,10 @@ async fn test_scoped_custom_tag_pattern_admission(db: Pool<Postgres>) -> anyhow:
         let args = windmill_queue::PushArgs::from(&args);
         windmill_queue::check_tag_available_for_push(db, w_id, tag, &args, false, None)
             .await
-            .is_ok()
+            .map_err(|e| e.to_string())
+    }
+    async fn allowed(db: &Pool<Postgres>, w_id: &str, tag: &str, size: &str) -> bool {
+        check(db, w_id, tag, size).await.is_ok()
     }
     async fn allowed_as_written(db: &Pool<Postgres>, w_id: &str, tag: &str) -> bool {
         windmill_common::jobs::check_tag_available_for_workspace_internal(
@@ -5765,27 +5768,30 @@ async fn test_scoped_custom_tag_pattern_admission(db: Pool<Postgres>) -> anyhow:
     .await?;
 
     CUSTOM_TAGS_PER_WORKSPACE.store(std::sync::Arc::new(CustomTags::from(vec![
-        "gpu-large(other)".to_string(),
-        "gpu-$args[size](test-workspace)".to_string(),
+        "gpu-$args[size]".to_string(),
+        "$args[size]-secret(test-workspace)".to_string(),
+        "gpu-secret(other)".to_string(),
         "$workspace-$args[size](test-workspace*)".to_string(),
     ])));
 
+    let confined = check(&db, "test-workspace", "gpu-$args[size]", "secret").await;
     let checks = [
         (
-            "pattern from its workspace",
-            allowed(&db, "test-workspace", "gpu-$args[size]", "large").await,
+            "scoped pattern from its workspace",
+            allowed(&db, "test-workspace", "cpu-secret", "").await,
         ),
         (
-            "pattern past an exact entry scoped elsewhere",
+            "scoped pattern refused elsewhere",
+            !allowed(&db, "other", "cpu-secret", "").await,
+        ),
+        ("confined tag refused past the patterns it fits", confined.is_err()),
+        (
+            "global pattern for the tags nothing confines",
             allowed(&db, "test-workspace", "gpu-large", "").await,
         ),
         (
-            "pattern refused elsewhere",
-            !allowed(&db, "other", "gpu-$args[size]", "small").await,
-        ),
-        (
-            "exact entry from its workspace",
-            allowed(&db, "other", "gpu-large", "").await,
+            "confined tag from its workspace",
+            allowed(&db, "other", "gpu-secret", "").await,
         ),
         // The fork's `$workspace` is its parent's, whose tags its lineage reaches. Written as the
         // resolved tag, not as the entry, so only the pattern can admit it.
@@ -5799,11 +5805,11 @@ async fn test_scoped_custom_tag_pattern_admission(db: Pool<Postgres>) -> anyhow:
         ),
         (
             "as written from its workspace",
-            allowed_as_written(&db, "test-workspace", "gpu-$args[size]").await,
+            allowed_as_written(&db, "test-workspace", "$args[size]-secret").await,
         ),
         (
             "as written refused elsewhere",
-            !allowed_as_written(&db, "other", "gpu-$args[size]").await,
+            !allowed_as_written(&db, "other", "$args[size]-secret").await,
         ),
     ];
     CUSTOM_TAGS_PER_WORKSPACE.store(std::sync::Arc::new(CustomTags::default()));
@@ -5811,6 +5817,13 @@ async fn test_scoped_custom_tag_pattern_admission(db: Pool<Postgres>) -> anyhow:
     for (what, ok) in checks {
         assert!(ok, "{what}");
     }
+    let confined = confined.unwrap_err();
+    assert!(
+        confined.contains("the custom tag gpu-secret(other) restricts it to other workspaces")
+            && confined.contains("gpu-$args[size]")
+            && confined.contains("$args[size]-secret(test-workspace)"),
+        "got {confined}"
+    );
 
     Ok(())
 }
