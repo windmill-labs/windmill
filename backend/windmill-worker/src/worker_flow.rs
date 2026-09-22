@@ -1083,6 +1083,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                              failed_retries: vec![],
                              agent_actions: None,
                              agent_actions_success: None,
+                             decision_job: None,
                          }
                      };
                     let r = sqlx::query_scalar!(
@@ -1370,6 +1371,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                             failed_retries: old_status.retry.failed_jobs.clone(),
                             agent_actions: module_status.agent_actions(),
                             agent_actions_success: module_status.agent_actions_success(),
+                            decision_job: module_status.decision_job(),
                         }),
                     )
                 }
@@ -3304,23 +3306,28 @@ async fn push_next_flow_job(
     if (flow.modules.is_empty() && !step.is_preprocessor_step())
         || matches!(status_module, FlowStatusModule::Success { .. })
     {
+        let result = if flow.modules.is_empty() {
+            to_raw_value(arc_flow_job_args.as_ref())
+        } else if let FlowStatusModule::Success { branch_chosen: Some(_), decision_job, .. } =
+            &status_module
+        {
+            match (&last_job_result, decision_job) {
+                (Some(result), _) => result.as_ref().clone(),
+                // Re-entered without the in-memory result (the worker restarted after an empty
+                // branch was chosen): an AI decision's empty branch returns its answers.
+                (None, Some(decision_job)) => {
+                    completed_job_result(db, &flow_job.workspace_id, decision_job).await?
+                }
+                (None, None) => to_raw_value(&json!("{}")),
+            }
+        } else {
+            // it has to be an empty for loop event
+            serde_json::from_str("[]").unwrap()
+        };
         return Ok(PushNextFlowJob::Done(Some(UpdateFlow {
             flow: flow_job.id,
             success: true,
-            result: if flow.modules.is_empty() {
-                to_raw_value(arc_flow_job_args.as_ref())
-            } else if matches!(
-                status_module,
-                FlowStatusModule::Success { branch_chosen: Some(_), .. }
-            ) {
-                last_job_result
-                    .as_ref()
-                    .map(|x| x.as_ref().clone())
-                    .unwrap_or_else(|| to_raw_value(&json!("{}")))
-            } else {
-                // it has to be an empty for loop event
-                serde_json::from_str("[]").unwrap()
-            },
+            result,
             stop_early_override: None,
             w_id: flow_job.workspace_id.clone(),
             worker_dir: worker_dir.to_string(),

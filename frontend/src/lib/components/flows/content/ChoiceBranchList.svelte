@@ -10,7 +10,7 @@
 		reorderBranches as reorderBranchesOp,
 		graphBranchIndex
 	} from '../branchOps'
-	import { choiceBranches, type BranchChoiceValue } from '../branchChoice'
+	import { choiceBranches, hasChoiceBranches, type BranchChoiceValue } from '../branchChoice'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { dragHandle, dragHandleZone } from '@windmill-labs/svelte-dnd-action'
@@ -139,7 +139,7 @@
 				</div>
 			{/each}
 		</section>
-		{#if value.type === 'branchone' || items.length > 0}
+		{#if hasChoiceBranches(value)}
 			<div class="flex items-center gap-2 rounded-md bg-surface-tertiary p-3 shadow-sm">
 				<Badge color="blue" class="text-xs">Default</Badge>
 				<p class="text-xs italic text-tertiary">Runs if none of the above match</p>

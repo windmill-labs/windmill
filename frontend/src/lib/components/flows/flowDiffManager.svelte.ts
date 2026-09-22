@@ -16,7 +16,12 @@ import {
 	DUPLICATE_MODULE_PREFIX,
 	NEW_MODULE_PREFIX
 } from './flowDiff'
-import { findModuleInFlow, findModuleParent, removeFlowModule, replaceFlowModule } from './flowTree'
+import {
+	findModuleInFlow,
+	findModuleParent,
+	removeFlowModule,
+	replaceFlowModule
+} from './flowTree'
 import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 import type { StateStore } from '$lib/utils'
 import type DiffDrawer from '../DiffDrawer.svelte'

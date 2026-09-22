@@ -67,13 +67,7 @@ describe('validateAiAgentProviders', () => {
 		expect(() =>
 			validateAiAgentProviders(anthropicProvider('claude-something-new'), {
 				...COMPLETE,
-				options: [
-					{
-						...ANTHROPIC,
-						modelsAreLive: false,
-						models: { ids: ['claude-sonnet-5'], complete: false }
-					}
-				]
+				options: [{ ...ANTHROPIC, modelsAreLive: false, models: { ids: ['claude-sonnet-5'], complete: false } }]
 			})
 		).not.toThrow()
 	})

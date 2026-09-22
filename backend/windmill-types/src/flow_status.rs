@@ -303,6 +303,8 @@ pub enum FlowStatusModule {
         agent_actions: Option<Vec<AgentAction>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         agent_actions_success: Option<Vec<bool>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        decision_job: Option<Uuid>,
     },
 }
 
@@ -391,6 +393,7 @@ impl<'de> Deserialize<'de> for FlowStatusModule {
                 failed_retries: untagged.failed_retries.unwrap_or_default(),
                 agent_actions: untagged.agent_actions,
                 agent_actions_success: untagged.agent_actions_success,
+                decision_job: untagged.decision_job,
             }),
             other => Err(serde::de::Error::unknown_variant(
                 other,
@@ -526,7 +529,8 @@ impl FlowStatusModule {
     pub fn decision_job(&self) -> Option<Uuid> {
         match self {
             FlowStatusModule::InProgress { decision_job, .. }
-            | FlowStatusModule::Success { decision_job, .. } => *decision_job,
+            | FlowStatusModule::Success { decision_job, .. }
+            | FlowStatusModule::Failure { decision_job, .. } => *decision_job,
             _ => None,
         }
     }

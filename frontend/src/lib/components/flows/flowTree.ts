@@ -65,7 +65,9 @@ export function getChildModuleBranches(module: FlowModule): FlowModule[][] {
 	}
 
 	if (module.value.type === 'aiagent' && module.value.tools) {
-		return [(module.value.tools as FlowModule[]).filter((tool) => isFlowModuleToolCandidate(tool))]
+		return [
+			(module.value.tools as FlowModule[]).filter((tool) => isFlowModuleToolCandidate(tool))
+		]
 	}
 
 	return []
@@ -270,24 +272,17 @@ export function collectFlowNodes(flow: FlowModuleTree): FlowNodeLocation[] {
 		})
 	}
 
-	visitFlowNodesInModules(
-		flow.modules ?? [],
-		(index) => ({ type: 'root', index }),
-		(match) => {
-			matches.push({
-				module: match.module,
-				location: match.location
-			})
-		}
-	)
+	visitFlowNodesInModules(flow.modules ?? [], (index) => ({ type: 'root', index }), (match) => {
+		matches.push({
+			module: match.module,
+			location: match.location
+		})
+	})
 
 	return matches
 }
 
-export function findModuleInModules(
-	modules: FlowModule[],
-	moduleId: string
-): FlowModule | undefined {
+export function findModuleInModules(modules: FlowModule[], moduleId: string): FlowModule | undefined {
 	return (
 		findFlowNodeInModules(modules, moduleId, (index) => ({ type: 'root', index }))?.module ??
 		undefined
@@ -320,10 +315,7 @@ export function findModuleInFlow(flow: FlowModuleTree, moduleId: string): FlowMo
 	return findFlowNode(flow, moduleId)?.module ?? null
 }
 
-export function findModuleParent(
-	flow: FlowModuleTree,
-	moduleId: string
-): ModuleParentLocation | null {
+export function findModuleParent(flow: FlowModuleTree, moduleId: string): ModuleParentLocation | null {
 	return findFlowNode(flow, moduleId)?.location ?? null
 }
 

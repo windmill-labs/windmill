@@ -1,5 +1,10 @@
 //! AI decision steps run end to end against a stand-in for TypeSafe's System One endpoint.
 
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
+
 use axum::{routing::post, Json, Router};
 use serde_json::{json, Value};
 use sqlx::{Pool, Postgres};
@@ -10,11 +15,15 @@ use windmill_common::{
 };
 use windmill_test_utils::*;
 
-/// Answers every question as a choice of `refund`, the way TypeSafe shapes an answer.
-async fn start_typesafe_stub() -> anyhow::Result<u16> {
+/// Answers every question as a choice of `refund`, the way TypeSafe shapes an answer, and counts
+/// the calls.
+async fn start_typesafe_stub() -> anyhow::Result<(u16, Arc<AtomicUsize>)> {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let counted = calls.clone();
     let app = Router::new().route(
         "/v1/systemone",
-        post(|Json(body): Json<Value>| async move {
+        post(move |Json(body): Json<Value>| async move {
+            counted.fetch_add(1, Ordering::SeqCst);
             let answers = body["questions"]
                 .as_object()
                 .into_iter()
@@ -35,7 +44,7 @@ async fn start_typesafe_stub() -> anyhow::Result<u16> {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let port = listener.local_addr()?.port();
     tokio::spawn(async move { axum::serve(listener, app).await });
-    Ok(port)
+    Ok((port, calls))
 }
 
 /// The decision chooses its branch from its answers, a branch step reads those answers as
@@ -48,7 +57,7 @@ async fn test_ai_decision_runs_the_branch_its_answer_picks(
     initialize_tracing().await;
     // The stub listens on loopback, which the SSRF check refuses without this.
     std::env::set_var("ALLOW_PRIVATE_AI_BASE_URLS", "true");
-    let stub_port = start_typesafe_stub().await?;
+    let (stub_port, calls) = start_typesafe_stub().await?;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
 
@@ -167,5 +176,34 @@ async fn test_ai_decision_runs_the_branch_its_answer_picks(
         "the branch reading the previous step was not chosen: {:?}",
         status.modules[1]
     );
+
+    // A retry after its branch fails asks the decision again from its own inputs, rather than
+    // from the failed branch's args.
+    let flow: FlowValue = serde_json::from_value(json!({
+        "modules": [{
+            "id": "d",
+            "retry": {"constant": {"attempts": 1, "seconds": 0}},
+            "value": {
+                "type": "aidecision",
+                "input_transforms": decision_inputs,
+                "branches": [{"expr": "true", "modules": [{"id": "boom", "value": {
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": "export function main(){ throw new Error('branch failed') }",
+                    "input_transforms": {}
+                }}]}]
+            }
+        }]
+    }))?;
+    let before = calls.load(Ordering::SeqCst);
+    let job = run_job_in_new_worker_until_complete(
+        &db,
+        false,
+        JobPayload::RawFlow { value: flow, path: None, restarted_from: None },
+        port,
+    )
+    .await;
+    assert!(!job.success, "the failing branch should fail the flow");
+    assert_eq!(calls.load(Ordering::SeqCst) - before, 2);
     Ok(())
 }
