@@ -79,6 +79,9 @@
 	let connectError: string | undefined = $state(undefined)
 	let githubApp: GithubAppSetup | undefined = $state(undefined)
 
+	/** Work in flight that a dismissal must not cut short. */
+	const busy = $derived(connecting || saving || push?.status().applying === true)
+
 	onDestroy(() => {
 		githubApp?.dispose()
 		discardDraft()
@@ -91,8 +94,15 @@
 			})
 	})
 
-	/** Drops the unsaved repository, keeping the resource, which stays pickable. */
+	/** Drops the unsaved repository, keeping the resource, which stays pickable.
+	 *
+	 * A push that is still running is left alone: it may yet initialize the repository, and
+	 * the row it leaves behind is how the user finishes saving the connection. */
 	function discardDraft() {
+		if (busy) {
+			draftPath = undefined
+			return
+		}
 		if (draftIdx !== -1 && ctx.repositories[draftIdx]?.isUnsavedConnection) {
 			void ctx.removeRepository(draftIdx)
 		}
@@ -246,6 +256,8 @@
 	bind:isOpen={opened}
 	target="#content"
 	formStyling
+	closeOnOutsideClick={!busy}
+	closeOnEscape={!busy}
 	{title}
 	contentClasses="flex flex-col"
 	fixedWidth="md"

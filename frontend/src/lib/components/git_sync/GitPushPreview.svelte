@@ -6,8 +6,8 @@ buttons — the setup dialog puts them in its own footer, the standalone modal i
 -->
 <script lang="ts">
 	import { untrack } from 'svelte'
-	import { Alert, CopyButton } from '$lib/components/common'
-	import { Loader2, XCircle, Terminal, ChevronDown, ChevronUp } from 'lucide-svelte'
+	import { Alert, Button, CopyButton } from '$lib/components/common'
+	import { Loader2, RotateCw, XCircle, Terminal, ChevronDown, ChevronUp } from 'lucide-svelte'
 	import GitDiffPreview from '../GitDiffPreview.svelte'
 	import { JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
@@ -170,7 +170,17 @@ wmill sync pull --workspace ${$workspaceStore} --repository ${gitRepoResourcePat
 
 	{#if previewError}
 		<Alert type="error" title="Could not list the changes">
-			{previewError}
+			<div class="flex flex-col items-start gap-2">
+				<span>{previewError}</span>
+				<Button
+					variant="default"
+					unifiedSize="xs"
+					startIcon={{ icon: RotateCw }}
+					onClick={() => void executeJob(true)}
+				>
+					Retry
+				</Button>
+			</div>
 		</Alert>
 	{/if}
 

@@ -314,8 +314,11 @@ export function createGitSyncContext(workspace: string) {
 		repo.detectionJobId = undefined
 		repo.detectionJobStatus = undefined
 
-		// Track the detection timestamp to avoid race conditions from old jobs
+		// Track the detection timestamp to avoid race conditions from old jobs. Stamped before
+		// the request, or a failure to even start the job reads as superseded and leaves the
+		// repository loading for good.
 		const detectionTimestamp = Date.now()
+		repo._detectionTimestamp = detectionTimestamp
 
 		try {
 			const jobId = await JobService.runScriptByPath({
@@ -335,7 +338,6 @@ export function createGitSyncContext(workspace: string) {
 
 			repo.detectionJobId = jobId
 			repo.detectionJobStatus = 'running'
-			repo._detectionTimestamp = detectionTimestamp
 
 			// Use JobManager for polling - result will be the actual job response
 			await jobManager.runWithProgress(() => Promise.resolve(jobId), {
