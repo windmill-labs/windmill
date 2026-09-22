@@ -972,18 +972,40 @@ async fn migrate_fork_reservations(
     old_id: &str,
     new_id: &str,
 ) -> Result<()> {
-    sqlx::query(
-        r#"UPDATE global_settings SET value = jsonb_set(value, '{databases}', (
+    const MIGRATE: &str = r#"UPDATE global_settings SET value = jsonb_set(value, '{databases}', (
                SELECT COALESCE(jsonb_object_agg(k, CASE WHEN v->>'workspace_id' = $1
                    THEN jsonb_set(v, '{workspace_id}', to_jsonb($2::text)) ELSE v END), '{}'::jsonb)
                FROM jsonb_each(COALESCE(value->'databases', '{}'::jsonb)) AS e(k, v)
            ))
-           WHERE name = 'custom_instance_pg_databases'"#,
+           WHERE name = $3"#;
+    sqlx::query(MIGRATE)
+        .bind(old_id)
+        .bind(new_id)
+        .bind("custom_instance_pg_databases")
+        .execute(&mut **tx)
+        .await?;
+    // External copies are registered in the cluster state, which its writers rewrite whole under
+    // the lifecycle lock. Only taken when there is something to move, as setup can hold it for as
+    // long as the cluster takes to answer.
+    let state = windmill_common::global_settings::EXTERNAL_INSTANCE_PG_STATE_SETTING;
+    let reserved = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (SELECT 1 FROM global_settings, jsonb_each(value->'databases') AS e(k, v)
+          WHERE name = $1 AND jsonb_typeof(value->'databases') = 'object'
+            AND v->>'workspace_id' = $2)",
     )
+    .bind(state)
     .bind(old_id)
-    .bind(new_id)
-    .execute(&mut **tx)
+    .fetch_one(&mut **tx)
     .await?;
+    if reserved {
+        windmill_common::external_instance_pg::lock_external_instance_pg_state(tx).await?;
+        sqlx::query(MIGRATE)
+            .bind(old_id)
+            .bind(new_id)
+            .bind(state)
+            .execute(&mut **tx)
+            .await?;
+    }
     Ok(())
 }
 
