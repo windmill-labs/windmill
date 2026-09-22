@@ -875,7 +875,6 @@
      where the preview panel starts so that panel can run from the top of the viewport. -->
 <PageHeaderContent
 	barRightInset={previewCollapsed || fullscreen ? undefined : previewWidth}
-	barBorder={false}
 	actions={sessionPageActions}
 />
 

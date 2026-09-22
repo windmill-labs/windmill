@@ -11,7 +11,7 @@
 		UserService,
 		WorkspaceService
 	} from '$lib/gen'
-	import { capitalize, classNames, getModifierKey, sendUserToast } from '$lib/utils'
+	import { capitalize, classNames, debounce, getModifierKey, sendUserToast } from '$lib/utils'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 	import { isSessionPreviewFrame } from '$lib/components/sessions/sessionMode.svelte'
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
@@ -507,8 +507,21 @@
 	let useDrawer = $derived(innerWidth < 768 || navDetached.val)
 	// Below 768px the burger row opens the drawer; wider, a detached sidebar has a floating handle.
 	let detachedFloating = $derived(navDetached.val && innerWidth >= 768)
+	// The peek card is a hover affordance, so it goes away when the pointer does — off the handle
+	// and off the card both. The delay is what lets the pointer cross the gap between them: they
+	// do not touch, and the leave of the one fires before the enter of the other.
+	const PEEK_CLOSE_DELAY_MS = 200
+	const { debounced: schedulePeekClose, clearDebounce: cancelPeekClose } = debounce(() => {
+		// Only the floating card peeks; the mobile drawer is opened deliberately and stays until
+		// it is dismissed.
+		if (detachedFloating) menuOpen = false
+	}, PEEK_CLOSE_DELAY_MS)
+
 	// The handle and the edge band both open the card this layout owns.
-	navHandleSlot.setOpener(() => (menuOpen = true))
+	navHandleSlot.setOpener(() => (menuOpen = true), {
+		schedule: schedulePeekClose,
+		cancel: cancelPeekClose
+	})
 
 	// Set once the user docks or detaches, so the rail that mounts from then on skips its
 	// app-entry animation (`wm-sidebar-in`) and only plays `railMorph`.
@@ -1086,7 +1099,10 @@
 						clearTimeout(edgeOpenTimer)
 						edgeOpenTimer = setTimeout(() => navHandleSlot.open(), EDGE_OPEN_DELAY_MS)
 					}}
-					onmouseleave={() => clearTimeout(edgeOpenTimer)}
+					onmouseleave={() => {
+						clearTimeout(edgeOpenTimer)
+						schedulePeekClose()
+					}}
 				></div>
 			{/if}
 			{#if useDrawer}
@@ -1126,8 +1142,11 @@
 							if (e.target === e.currentTarget) menuOpen = false
 						}}
 					>
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
 						<div
 							data-nav-card
+							onmouseenter={cancelPeekClose}
+							onmouseleave={schedulePeekClose}
 							class={classNames(
 								'relative flex-1 flex flex-col max-w-min w-full bg-surface transition ease-in-out duration-300 transform',
 								detachedFloating ? 'rounded-lg border shadow-lg overflow-hidden' : '',

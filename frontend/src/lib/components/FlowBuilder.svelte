@@ -1559,7 +1559,6 @@
 					}}
 					actions={flowHeaderActions}
 					contexts={headerContexts}
-					barBorder={false}
 				/>
 			{:else}
 			<!-- Nav between steps-->

@@ -43,8 +43,6 @@ export type PageHeaderContent = {
 	 *  running in a fork. The breadcrumb then names that workspace, and its fork part shows only
 	 *  when it really is a fork. */
 	actingWorkspaceId?: string
-	/** False drops the band's bottom edge, for a page that draws its own first line. */
-	barBorder?: boolean
 	/** Width in px, at the right of the viewport, that this page owns from the top down — a
 	 *  session's side panel. The band stops there instead of running over it, and the band floats
 	 *  above the page rather than pushing it down, so that column starts at the top. */
@@ -88,7 +86,6 @@ export const pageHeader = {
 			if (c.barPlacement !== undefined) merged.barPlacement = c.barPlacement
 			if (c.actingWorkspaceId !== undefined) merged.actingWorkspaceId = c.actingWorkspaceId
 			if (c.barRightInset !== undefined) merged.barRightInset = c.barRightInset
-			if (c.barBorder !== undefined) merged.barBorder = c.barBorder
 		}
 		return merged
 	},
