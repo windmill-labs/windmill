@@ -4,7 +4,7 @@
 	 * workspace and the admin bypass in its popover. Renders nothing for operators, who have no edit
 	 * affordance for it to explain.
 	 */
-	import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import { userWorkspaces } from '$lib/stores'
 	import {
 		canUserBypassRuleKind,
 		getActiveRulesetsForKind,
@@ -18,13 +18,20 @@
 	import Popover from './meltComponents/Popover.svelte'
 	import Toggle from './Toggle.svelte'
 	import { GitFork, Lock, ShieldOff } from 'lucide-svelte'
+	import {
+		useOperatingWorkspace,
+		useOperatingUser
+	} from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
 
 	let activeDeployRulesets = $derived(getActiveRulesetsForKind('DisableDirectDeployment'))
-	let canBypass = $derived(canUserBypassRuleKind('DisableDirectDeployment', $userStore))
-	let canonicalDev = $derived(findCanonicalDevWorkspace($workspaceStore, $userWorkspaces))
+	let canBypass = $derived(canUserBypassRuleKind('DisableDirectDeployment', operatingUser.current))
+	let canonicalDev = $derived(findCanonicalDevWorkspace($operatingWorkspace, $userWorkspaces))
 	// Forking may itself be blocked by DisableWorkspaceForking, so only suggest it
 	// when the user can actually fork this workspace.
-	let canFork = $derived(canCreateFork($userStore))
+	let canFork = $derived(canCreateFork(operatingUser.current))
 	let editAdvice = $derived(
 		canFork
 			? 'You will need to either fork the workspace, or make your changes locally and submit a PR to an authorized user.'
@@ -55,7 +62,7 @@
 	)
 </script>
 
-{#if !$userStore?.operator && activeDeployRulesets.length > 0}
+{#if !operatingUser.current?.operator && activeDeployRulesets.length > 0}
 	<div class="my-2">
 		<Popover
 			placement="bottom-start"

@@ -135,9 +135,8 @@
 		// urlFilter rather than straight to history keeps the search-param cells in step, so it
 		// does not matter whether a popstate follows.
 		function seed(values: Partial<FilterInstanceRec<T>>) {
-			const sp = new URLSearchParams(window.location.search)
 			for (const [key, value] of Object.entries(values) as [string, unknown][]) {
-				if (value === undefined || value === null || sp.has(key)) continue
+				if (value === undefined || value === null || untrack(() => urlFilter[key]) != null) continue
 				urlFilter[key] = value instanceof Date ? value.toISOString() : value
 			}
 		}
