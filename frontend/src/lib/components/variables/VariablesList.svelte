@@ -102,6 +102,16 @@
 		})
 	)
 	let filters = useUrlSyncedFilterInstance(untrack(() => variablesFilterSchema))
+	// A link can carry the user folders filter to someone it is not offered to, where it would sit
+	// set with no chip to clear it. Dropped once the acting user is known, never while loading.
+	$effect(() => {
+		if (!operatingUser.resolved($operatingWorkspace) || userFoldersFilterType !== undefined) return
+		if (!filters.val.user_folders_only) return
+		untrack(() => {
+			const { user_folders_only: _, ...rest } = filters.val
+			filters.val = rest
+		})
+	})
 	let itemFolders = $derived(
 		Array.from(
 			new Set(
