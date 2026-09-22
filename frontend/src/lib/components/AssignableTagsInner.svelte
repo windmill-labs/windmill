@@ -3,7 +3,7 @@
 
 	import { Button } from './common'
 	import { AlertTriangle, ExternalLink, Loader2, X } from 'lucide-svelte'
-	import Popover from './Popover.svelte'
+	import Popover from './meltComponents/Popover.svelte'
 	import { SettingService, WorkerService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { superadmin, devopsRole } from '$lib/stores'
@@ -183,10 +183,19 @@
 				<Badge color="blue">
 					{customTag}
 					{#if reachesAnyTag(customTag)}
-						<Popover notClickable placement="top">
-							<AlertTriangle size={14} class="text-yellow-500" />
-							{#snippet text()}
-								{@render reachesAnyTagWarning()}
+						<Popover
+							openOnHover
+							placement="top"
+							class="inline-flex items-center"
+							triggerAttrs={{ 'aria-label': 'Warning: this tag allows reaching almost any tag' }}
+						>
+							{#snippet trigger()}
+								<AlertTriangle size={14} class="text-yellow-500" />
+							{/snippet}
+							{#snippet content()}
+								<div class="max-w-72 p-3 text-xs text-primary">
+									{@render reachesAnyTagWarning()}
+								</div>
 							{/snippet}
 						</Popover>
 					{/if}
