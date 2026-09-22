@@ -42,6 +42,7 @@
 		reconcileAfterWorkspaceChange,
 		renameSession,
 		selectSession,
+		sessionPageHref,
 		sessionState,
 		setSessionArchived,
 		syncWorkspaceTo,
@@ -133,10 +134,10 @@
 	async function resetToNewSession() {
 		const fresh = createSession()
 		selectSession(fresh.id)
-		// The page derives the visible session from the `session_name` query, not
+		// The page derives the visible session from the `session` query, not
 		// currentSessionId: navigate so the URL leaves the deleted/archived session,
 		// which would otherwise fall through to recovery or stay on the archived one.
-		await goto(`/sessions?session_name=${encodeURIComponent(fresh.name)}`)
+		await goto(sessionPageHref(fresh.id))
 	}
 
 	// If the session targets a forked workspace that's still accessible,
@@ -438,7 +439,7 @@
 		<!-- The chat's own header row is the page header on this route: the session's name is its
 	     breadcrumb, and the menu is its action. -->
 		<PageHeaderContent
-			section={{ label: session.summary || session.name, content: sessionHeader }}
+			section={{ label: session.summary ?? 'Untitled session', content: sessionHeader }}
 			{actingWorkspaceId}
 		/>
 	{/if}
@@ -485,7 +486,7 @@
 		<div class="flex flex-col gap-3">
 			<p>
 				Delete session <span class="font-medium text-primary"
-					>{session?.summary ?? session?.name}</span
+					>{session?.summary ?? 'Untitled session'}</span
 				>? This cannot be undone.
 			</p>
 			{#if sessionForkId}
@@ -517,7 +518,7 @@
 		<div class="flex flex-col gap-3">
 			<p>
 				Archive session <span class="font-medium text-primary"
-					>{session?.summary ?? session?.name}</span
+					>{session?.summary ?? 'Untitled session'}</span
 				>? You can restore it later from the archived list.
 			</p>
 			{#if sessionForkId}

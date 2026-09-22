@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.815.0
+  version: 1.817.0
   title: Windmill API
 
   contact:
@@ -529,30 +529,6 @@ paths:
       responses:
         "302":
           description: redirected to the post-login destination, or to /user/login_link_expired when the link is used, expired or unknown
-    post:
-      security: []
-      summary: consume a single-use login link from its confirmation page, set the session cookie and answer where to go
-      operationId: confirmLoginLink
-      tags:
-        - user
-      parameters:
-        - name: token
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: the post-login destination, or /user/login_link_expired when the link is used, expired or unknown
-          content:
-            application/json:
-              schema:
-                type: object
-                required:
-                  - location
-                properties:
-                  location:
-                    type: string
 
   /auth/reset_password:
     post:
@@ -4211,6 +4187,100 @@ paths:
                   deploy_to:
                     type: string
 
+  /w/{workspace}/remote_deploy/target:
+    get:
+      summary: get the workspace's deploy target on another instance, and the caller's connection to it
+      description: |
+        Once connected, deploy calls aimed at the target go through
+        `/w/{workspace}/remote_deploy/proxy/{proxy_key}/{route}`, which forwards any method to
+        `{base_url}/api/w/{target workspace}/{route}` with the caller's stored token.
+      operationId: getRemoteDeployTarget
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: remote deploy target and the caller's connection to it
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RemoteDeployStatus"
+    post:
+      summary: set or clear the workspace's deploy target on another instance
+      description: Changing the target drops every token stored for the previous one.
+      operationId: setRemoteDeployTarget
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                target:
+                  $ref: "#/components/schemas/RemoteDeployTarget"
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/remote_deploy/connect:
+    post:
+      summary: store the caller's own token for the remote deploy target
+      description: |
+        The token is checked against the target's whoami before it is stored. `target` names the
+        target the token was obtained for, and the request is refused if the workspace now points
+        elsewhere, so a token is never sent to an instance it was not meant for.
+      operationId: connectRemoteDeploy
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+                target:
+                  $ref: "#/components/schemas/RemoteDeployTarget"
+              required:
+                - token
+                - target
+      responses:
+        "200":
+          description: the stored connection
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RemoteDeployConnection"
+
+  /w/{workspace}/remote_deploy/disconnect:
+    post:
+      summary: forget the caller's token for the remote deploy target
+      operationId: disconnectRemoteDeploy
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/workspaces/is_premium:
     get:
       summary: get if workspace is premium
@@ -5519,6 +5589,21 @@ paths:
         - workspace
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: query
+          description: list only this data table; each listed data table opens a connection to its database
+          schema:
+            type: string
+        - name: role_for
+          in: query
+          description: the data table `role` applies to; every other one is listed as its default role
+          schema:
+            type: string
+        - name: role
+          in: query
+          description: the role to list `role_for` as; refused, in that entry's `error`, if the caller may not use it
+          schema:
+            type: string
       responses:
         "200":
           description: table metadata of all datatables
@@ -5550,6 +5635,11 @@ paths:
         - name: table_name
           in: query
           required: true
+          schema:
+            type: string
+        - name: role
+          in: query
+          description: the data table role to read the table as; defaults to the data table's default role
           schema:
             type: string
       responses:
@@ -6908,7 +6998,7 @@ paths:
                   type: string
                 expires_in_s:
                   type: integer
-                  description: link lifetime in seconds, at most 7200 (default 600)
+                  description: link lifetime in seconds, at most 900 (default 600)
                 rd:
                   type: string
                   description: same-origin path the browser lands on after login (default /user/workspaces)
@@ -6918,12 +7008,6 @@ paths:
                     mint only while the account still has this login type (for example
                     pending_oauth), so a link stops working once the owner has set a password
                     or signed in with a provider
-                confirm:
-                  type: boolean
-                  description: >-
-                    return a /user/login_link page that signs in only when its button is
-                    clicked, instead of a link spent by opening it; set it for links sent by
-                    email, which mail scanners open on delivery (default false)
       responses:
         "201":
           description: login link minted
@@ -28976,6 +29060,15 @@ components:
           type: object
           additionalProperties:
             $ref: "#/components/schemas/ModelPriceOverride"
+        context_window_per_model:
+          type: object
+          description: >-
+            Context window in tokens per `provider:model`, overriding the built-in
+            table the AI chat uses to decide when to compact its history.
+          additionalProperties:
+            type: integer
+            minimum: 1024
+            maximum: 10000000
         copilot_disabled:
           type: boolean
           description: >-
@@ -33802,6 +33895,8 @@ components:
           $ref: "#/components/schemas/LoggedWizardStatus"
         replication_user_error:
           type: string
+        user_connect:
+          $ref: "#/components/schemas/LoggedWizardStatus"
 
     CustomInstanceDbTag:
       type: string
@@ -33852,6 +33947,15 @@ components:
             $ref: "#/components/schemas/DatatableRoleTenants"
         governing_workspace_id:
           type: string
+        clone_of:
+          type: object
+          description: for a clone, the data table whose roles it takes
+          required: [workspace_id, datatable]
+          properties:
+            workspace_id:
+              type: string
+            datatable:
+              type: string
         editable:
           type: boolean
         available_roles:
@@ -34090,7 +34194,7 @@ components:
 
     DatatableAclInfo:
       type: object
-      required: [owner, roles, editable, supports_maintain, dbname, grants, children]
+      required: [owner, roles, editable, clone, supports_maintain, dbname, grants, children]
       properties:
         owner:
           type: string
@@ -34102,6 +34206,9 @@ components:
         editable:
           type: boolean
           description: whether the caller may plan and apply changes
+        clone:
+          type: boolean
+          description: whether this is a clone, whose grants stay as they were copied
         supports_maintain:
           type: boolean
           description: whether the server is Postgres 17+, which added the MAINTAIN table privilege
@@ -35254,6 +35361,16 @@ components:
               new_dbname:
                 type: string
                 description: "New database name for the fork"
+              fork_behavior:
+                type: string
+                enum:
+                  - schema_only
+                  - schema_and_data
+                description: >-
+                  What the fork request copies into `new_dbname`, which it creates — with the
+                  owners and grants of a data table under roles. This server refuses an entry
+                  without it; servers predating it expect `new_dbname` created and filled
+                  beforehand.
         shared_ducklakes:
           type: array
           items:
@@ -36217,6 +36334,17 @@ components:
                     type: string
                   datatable:
                     type: string
+              governed_by:
+                description: >-
+                  On a clone, the data table it was copied from, whose roles it takes. Server-owned
+                  like `reference`.
+                type: object
+                required: [workspace_id, datatable]
+                properties:
+                  workspace_id:
+                    type: string
+                  datatable:
+                    type: string
               migrations_enabled:
                 type: boolean
                 description: Whether the SQL migrations feature is opted in for this data table
@@ -36285,7 +36413,17 @@ components:
 
     DataTableTables:
       type: object
-      required: [datatable_name, schemas]
+      required:
+        [
+          datatable_name,
+          schemas,
+          instance,
+          permissioned,
+          usable_roles,
+          default_role,
+          can_create_schema,
+          creatable_schemas,
+        ]
       properties:
         datatable_name:
           type: string
@@ -36298,6 +36436,26 @@ components:
               type: string
         error:
           type: string
+        instance:
+          type: boolean
+          description: on the instance database, the only kind that can be under roles or have its access edited
+        permissioned:
+          type: boolean
+        usable_roles:
+          type: array
+          description: the roles the caller may connect as, by name; empty when not under roles
+          items:
+            type: string
+        default_role:
+          type: string
+        can_create_schema:
+          type: boolean
+          description: whether the role the listing connected as may create schemas
+        creatable_schemas:
+          type: array
+          description: the schemas the role the listing connected as may create in
+          items:
+            type: string
 
     DataTableTableSchema:
       type: object
@@ -36467,6 +36625,44 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/GitSyncObjectType"
+
+    RemoteDeployTarget:
+      type: object
+      properties:
+        base_url:
+          type: string
+          description: root URL of the remote Windmill instance, without /api
+        workspace_id:
+          type: string
+          description: workspace on the remote instance that deploys land in
+      required:
+        - base_url
+        - workspace_id
+
+    RemoteDeployConnection:
+      type: object
+      properties:
+        remote_email:
+          type: string
+          description: identity the stored token has on the remote instance
+        proxy_key:
+          type: string
+          description: goes in every proxy URL, `/w/{workspace}/remote_deploy/proxy/{proxy_key}/{route}`
+        connected_at:
+          type: string
+          format: date-time
+      required:
+        - remote_email
+        - proxy_key
+        - connected_at
+
+    RemoteDeployStatus:
+      type: object
+      properties:
+        target:
+          $ref: "#/components/schemas/RemoteDeployTarget"
+        connection:
+          $ref: "#/components/schemas/RemoteDeployConnection"
 
     WorkspaceDefaultScripts:
       type: object
