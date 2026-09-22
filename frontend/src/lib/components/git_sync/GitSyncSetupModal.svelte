@@ -232,6 +232,7 @@
 			tabs={STEPS}
 			selectedIndex={step - 1}
 			maxReachedIndex={step - 1}
+			disabledIndices={provider === 'existing' ? [1] : []}
 			small
 			on:click={(e) => {
 				if (e.detail.index === 0 && step > 1) back()
