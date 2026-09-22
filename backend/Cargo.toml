@@ -471,7 +471,7 @@ serde = "^1"
 # 1.0.151 introduced RawValue::from_string_unchecked, which the SQL executors use
 # to avoid re-parsing every collected row.
 serde_json = { version = "^1.0.151", features = ["preserve_order", "raw_value"] }
-serde_yml = "0.0.12"
+serde_yml = "0.0.13"
 uuid = { version = "^1", features = ["serde", "v4", "js"] }
 thiserror = "^2"
 anyhow = "^1"
@@ -497,7 +497,7 @@ rand = "^0.9.3"
 rand_core = { version = "^0", features = ["std"] }
 arc-swap = "1"
 ed25519-dalek = { version = "2", features = ["rand_core"] }
-magic-crypt = "^3"
+magic-crypt = "^5"
 git-version = "^0"
 malachite = "=0.4.18"
 malachite-bigint = "=0.2.0"
@@ -639,7 +639,7 @@ gcp_auth = "0.9.0"
 rust_decimal = { version = "^1", features = ["db-postgres", "serde-float"]}
 # aws_lc_rs, not rust_crypto: the RustCrypto backend refuses RSA keys above 4096 bits, and
 # external/guest JWT issuers may sign with 8192-bit keys.
-jsonwebtoken = { version = "^10.3", features = ["aws_lc_rs"] }
+jsonwebtoken = { version = "^11.1", features = ["aws_lc_rs"] }
 pem = "3.0.1"
 nix = { version = "0.27.1", features = ["process", "signal"] }
 fs4 = "0.13"
@@ -702,7 +702,7 @@ async-stream = "^0"
 
 opentelemetry = "0.30.0"
 tracing-opentelemetry = "0.31.0"
-opentelemetry_sdk = { version = "0.30.0", features = ["rt-tokio", "testing"] }
+opentelemetry_sdk = { version = "0.32.1", features = ["rt-tokio", "testing"] }
 opentelemetry-otlp = { version = "0.30.0", features = ["grpc-tonic", "tls", "http-proto", "gzip-tonic", "zstd-tonic"] }
 opentelemetry-appender-tracing = "0.30.0"
 opentelemetry-semantic-conventions = { version = "0.30.0", features = ["semconv_experimental"] }
