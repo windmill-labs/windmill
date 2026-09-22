@@ -994,9 +994,9 @@
 					files = {}
 				}
 				files[path] = content
-				// Combined setFilesAndSelect avoids a race, so let it do the telling.
-				select({ kind: 'file', path }, { notifyIframe: false })
-				setFilesAndSelectInIframe(files, path)
+				// AI edits must not switch away from the file the user is editing.
+				ensureFileTab(path)
+				setFilesInIframe(files)
 				return lint()
 			},
 			deleteFrontendFile: (path) => {
