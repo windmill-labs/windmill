@@ -1875,6 +1875,8 @@ export async function buildTestRunArgs(
 // result's table or JSON into the reply, under a card that already renders it. Only for
 // a successful run in the generic card completedJobToolStatus fills: a failed run's card
 // lands on the error with the logs a tab away, and a formatCompletion card shows its own.
+// Never on a background completion: its card can be far up the chat by then, so the
+// reply may be the only place the user reads the result.
 const RESULT_SHOWN_NOTE =
 	"The user already sees this run's result in its card. Do not repeat the result or logs in your reply: say what it shows, quoting only the values your conclusion rests on."
 
@@ -1935,7 +1937,6 @@ export function backgroundJobCompletionNote(
 			: ''
 	return (
 		`Background job ${jobId} for "${label}" ${status}.\n` +
-		(job.success && formattedResult === undefined ? `${RESULT_SHOWN_NOTE}\n` : '') +
 		`Result: ${resultHead}\n` +
 		`(For the args, result and logs call get_run with id="${jobId}".${flowHint})`
 	)
