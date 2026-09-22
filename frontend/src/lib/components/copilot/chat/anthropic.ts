@@ -24,6 +24,7 @@ import {
 	type ToolCallbacks,
 	type WebSearchSource
 } from './shared'
+import { OutputTokenLimitError } from './outputTokenLimit'
 import { anthropicUsageToChatTokenUsage, type ChatTokenUsage } from './tokenUsage'
 import { parseImageDataUrl } from './imageUtils'
 
@@ -453,6 +454,9 @@ export async function parseAnthropicCompletion(
 		return { shouldContinue: true, tokenUsage }
 	}
 
+	if (finalMessage.stop_reason === 'max_tokens') {
+		throw new OutputTokenLimitError()
+	}
 	return { shouldContinue: false, tokenUsage }
 }
 

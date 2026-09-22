@@ -21,6 +21,7 @@ import {
 	type ToolCallbacks,
 	type WebSearchSource
 } from './shared'
+import { OutputTokenLimitError } from './outputTokenLimit'
 import type { ResponseStream } from 'openai/lib/responses/ResponseStream.mjs'
 import type { AIProviderModel } from '$lib/gen'
 import { openAIResponsesUsageToChatTokenUsage, type ChatTokenUsage } from './tokenUsage'
@@ -542,6 +543,13 @@ export async function parseOpenAIResponsesCompletion(
 		})
 	})
 
+	// The stream's final snapshot keeps the in-progress status, so an
+	// incomplete response is only visible through its own event.
+	let hitOutputTokenLimit = false
+	runner.on('response.incomplete', (event) => {
+		hitOutputTokenLimit = event.response.incomplete_details?.reason === 'max_output_tokens'
+	})
+
 	// Handle errors
 	runner.on('error', (err: OpenAIError | ResponseErrorEvent) => {
 		currentStreamingTool = undefined
@@ -600,6 +608,9 @@ export async function parseOpenAIResponsesCompletion(
 		return { shouldContinue: true, tokenUsage }
 	}
 
+	if (hitOutputTokenLimit) {
+		throw new OutputTokenLimitError()
+	}
 	return { shouldContinue: false, tokenUsage }
 }
 
