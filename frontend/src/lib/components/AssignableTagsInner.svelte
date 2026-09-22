@@ -2,7 +2,8 @@
 	import { preventDefault, stopPropagation } from 'svelte/legacy'
 
 	import { Button } from './common'
-	import { ExternalLink, Loader2, X } from 'lucide-svelte'
+	import { AlertTriangle, ExternalLink, Loader2, X } from 'lucide-svelte'
+	import Popover from './meltComponents/Popover.svelte'
 	import { SettingService, WorkerService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { superadmin, devopsRole } from '$lib/stores'
@@ -47,6 +48,56 @@
 		return w.includeForks ? `${w.id} (and its forks)` : w.id
 	}
 
+	// What an entry matches job tags against: a workspace specific entry's name, which may be
+	// dynamic like any other entry.
+	function nameOf(entry: string) {
+		return entry.match(customTagRegex)?.[1] ?? entry
+	}
+	let tagName = $derived(nameOf(newTag.trim()))
+
+	let dynamicTag = $derived.by(() => {
+		if (tagName == '') return undefined
+		let matched = tagName.match(dynamicTagRegex)
+		return matched ? { kind: matched[1], path: matched[2] } : undefined
+	})
+
+	// Mirrors custom_tag_matches in backend/windmill-common/src/worker.rs: a job's tag is judged on
+	// what it resolves to, and a placeholder in a custom tag stands for any text, unless two of them
+	// are tied (same kind, and the same path or one inside the other). A tied entry admits only a
+	// tag written exactly like it; an untied one is a pattern fenced only by its fixed text.
+	function placeholdersOf(entry: string) {
+		return [...entry.matchAll(new RegExp(dynamicTagRegex.source, 'g'))].map((m) => ({
+			kind: m[1],
+			path: m[2],
+			start: m.index,
+			end: m.index + m[0].length
+		}))
+	}
+	function isTied(entry: string) {
+		const placeholders = placeholdersOf(entry)
+		return placeholders.some((a, i) =>
+			placeholders
+				.slice(i + 1)
+				.some(
+					(b) =>
+						a.kind == b.kind &&
+						(a.path == b.path || a.path.startsWith(b.path + '.') || b.path.startsWith(a.path + '.'))
+				)
+		)
+	}
+	// With nothing fixed at its start or its end, a pattern reaches almost any tag.
+	function reachesAnyTag(entry: string) {
+		const placeholders = placeholdersOf(entry)
+		return (
+			placeholders.length > 0 &&
+			!isTied(entry) &&
+			placeholders[0].start == 0 &&
+			placeholders[placeholders.length - 1].end == entry.length
+		)
+	}
+	let dynamicTagTied = $derived(isTied(tagName))
+	let dynamicTagReachesAnyTag = $derived(reachesAnyTag(tagName))
+
 	let extractedCustomTag = $derived.by(() => {
 		let r = newTag.trim()
 		if (r == '') return undefined
@@ -66,43 +117,6 @@
 		}
 		return { tag, workspaces, tag_type }
 	})
-
-	// What the entry matches job tags against: a workspace specific entry's name, which may be
-	// dynamic like any other entry.
-	let tagName = $derived(extractedCustomTag?.tag ?? newTag.trim())
-
-	let dynamicTag = $derived.by(() => {
-		if (tagName == '') return undefined
-		let matched = tagName.match(dynamicTagRegex)
-		return matched ? { kind: matched[1], path: matched[2] } : undefined
-	})
-
-	// Mirrors custom_tag_matches in backend/windmill-common/src/worker.rs: a job's tag is judged on
-	// what it resolves to, and a placeholder in a custom tag stands for any text, unless two of them
-	// are tied (same kind, and the same path or one inside the other). A tied entry admits only a
-	// tag written exactly like it; an untied one with no text around its placeholders admits all.
-	let dynamicTagPlaceholders = $derived(
-		[...tagName.matchAll(new RegExp(dynamicTagRegex.source, 'g'))].map((m) => ({
-			kind: m[1],
-			path: m[2]
-		}))
-	)
-	let dynamicTagTied = $derived(
-		dynamicTagPlaceholders.some((a, i) =>
-			dynamicTagPlaceholders
-				.slice(i + 1)
-				.some(
-					(b) =>
-						a.kind == b.kind &&
-						(a.path == b.path || a.path.startsWith(b.path + '.') || b.path.startsWith(a.path + '.'))
-				)
-		)
-	)
-	let dynamicTagAdmitsEveryTag = $derived(
-		dynamicTag != undefined &&
-			!dynamicTagTied &&
-			tagName.replace(new RegExp(dynamicTagRegex.source, 'g'), '') == ''
-	)
 
 	loadCustomTags()
 
@@ -157,6 +171,13 @@
 
 <svelte:window onkeydown={onKeyDown} />
 
+{#snippet reachesAnyTagWarning(scoped: boolean)}
+	Nothing fixed at its start or its end, so it allows anyone{scoped ? ' in its workspaces' : ''} to reach
+	almost any tag. We highly recommend a prefix or a suffix, ideally both, to limit its reach: for instance
+	<code>gpu-$args[size]</code>
+	or <code>gpu-$args[size]-eu</code>.
+{/snippet}
+
 {#snippet dynamicTagInfo(scoped: boolean)}
 	{#if tagName.includes('$workspace') && !dynamicTag}
 		<div>Interpolated tag based on workspace id the job was created in </div>
@@ -174,10 +195,9 @@
 			Its placeholders read the same value, or one reads inside the other, so it allows only jobs
 			whose tag is written exactly like this
 		</div>
-	{:else if dynamicTagAdmitsEveryTag}
+	{:else if dynamicTagReachesAnyTag}
 		<div class="mt-1 text-yellow-600 dark:text-yellow-500">
-			Allows every tag{scoped ? ' in these workspaces' : ''}: nothing around the placeholder limits
-			what it resolves to. Add a fixed prefix or suffix, or list the tags themselves.
+			{@render reachesAnyTagWarning(scoped)}
 		</div>
 	{:else if dynamicTag}
 		<div class="mt-1">
@@ -197,8 +217,26 @@
 	{:else}
 		<div class="flex flex-row flex-wrap gap-y-1 gap-x-2">
 			{#each customTags as customTag}
+				{@const name = nameOf(customTag)}
 				<Badge color="blue">
 					{customTag}
+					{#if reachesAnyTag(name)}
+						<Popover
+							openOnHover
+							placement="top"
+							class="inline-flex items-center"
+							triggerAttrs={{ 'aria-label': 'Warning: this tag allows reaching almost any tag' }}
+						>
+							{#snippet trigger()}
+								<AlertTriangle size={14} class="text-yellow-500" />
+							{/snippet}
+							{#snippet content()}
+								<div class="max-w-72 p-3 text-xs text-primary">
+									{@render reachesAnyTagWarning(name != customTag)}
+								</div>
+							{/snippet}
+						</Popover>
+					{/if}
 
 					{#if tagEditor}
 						<button
