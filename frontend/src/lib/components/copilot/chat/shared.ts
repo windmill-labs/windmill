@@ -1871,6 +1871,15 @@ export async function buildTestRunArgs(
 	return parsedArgs
 }
 
+// Said with the result rather than in the system prompt: there, models still copied a
+// result's table or JSON into the reply, under a card that already renders it. Only for
+// a successful run in the generic card completedJobToolStatus fills: a failed run's card
+// lands on the error with the logs a tab away, and a formatCompletion card shows its own.
+// Never on a background completion: its card can be far up the chat by then, so the
+// reply may be the only place the user reads the result.
+const RESULT_SHOWN_NOTE =
+	"The user already sees this run's result in its card. Do not repeat the result or logs in your reply: say what it shows, quoting only the values your conclusion rests on."
+
 // The string handed back to the model when a job is backgrounded. It carries the
 // job id so the model can pull status/args/result/logs on demand (get_run / list_runs),
 // and tells it the completion will be reported later (notify-only wake).
@@ -2015,7 +2024,12 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 			...(job.success ? {} : { error: getErrorMessage(job.result) })
 		})
 
-		const summary = formatResultSummary(job.result, job.logs, job.success)
+		// detachEnabled marks the global/sessions chat; the in-editor chats read the summary
+		// alone. The card opening on the result is up to each tool: a run card does, a
+		// generic one only with `autoCollapseDetails: false` at its registration.
+		const summary =
+			(detachEnabled && job.success ? `${RESULT_SHOWN_NOTE}\n` : '') +
+			formatResultSummary(job.result, job.logs, job.success)
 		// get_run only exists in the global/sessions chat (the same hosts that wire
 		// the job hooks) — don't advertise it to in-editor chats.
 		if (detachEnabled && config.contextName === 'flow' && !job.success) {

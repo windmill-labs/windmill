@@ -20,6 +20,7 @@ import {
 	parseOpenAIResponsesCompletion
 } from './openai-responses'
 import type { Tool, ToolCallbacks } from './shared'
+import { OutputTokenLimitError } from './outputTokenLimit'
 import { sanitizeToolCallArguments } from './toolCallArguments'
 import { addChatTokenUsage, emptyChatTokenUsage, type ChatTokenUsage } from './tokenUsage'
 
@@ -501,6 +502,11 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 					try {
 						outcome = (await runOpenAIResponses(useWebSearch)) ? 'continue' : 'break'
 					} catch (err) {
+						// The response streamed and was then cut off: retrying it on the
+						// Completions API would generate the whole iteration a second time.
+						if (err instanceof OutputTokenLimitError) {
+							throw err
+						}
 						if (reasoningSummary && shouldRetryWithoutReasoningSummary(err)) {
 							markReasoningSummaryUnsupported(
 								reasoningSummaryCacheKey,

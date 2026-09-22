@@ -1,5 +1,27 @@
 import { describe, expect, it } from 'vitest'
-import { usesAnthropicMessagesApi } from './modelConfig'
+import {
+	getConfiguredModelContextWindow,
+	getEffectiveModelContextWindow,
+	usesAnthropicMessagesApi
+} from './modelConfig'
+
+describe('workspace context window overrides', () => {
+	const overrides = { 'customai:qwen-local': 32_768, 'anthropic:claude-sonnet-5': 200_000 }
+
+	it('wins over the built-in table and the assumed window for its exact provider:model', () => {
+		expect(getEffectiveModelContextWindow('customai', 'qwen-local', overrides)).toBe(32_768)
+		expect(getConfiguredModelContextWindow('customai', 'qwen-local', overrides)).toBe(32_768)
+		expect(getEffectiveModelContextWindow('anthropic', 'claude-sonnet-5', overrides)).toBe(200_000)
+	})
+
+	it('does not apply to the same model id served by another provider', () => {
+		expect(getEffectiveModelContextWindow('openrouter', 'claude-sonnet-5', overrides)).toBe(
+			1_000_000
+		)
+		expect(getConfiguredModelContextWindow('openai', 'qwen-local', overrides)).toBeUndefined()
+		expect(getEffectiveModelContextWindow('openai', 'qwen-local', overrides)).toBe(128_000)
+	})
+})
 
 describe('usesAnthropicMessagesApi', () => {
 	it('routes the native Anthropic provider through the Messages API', () => {

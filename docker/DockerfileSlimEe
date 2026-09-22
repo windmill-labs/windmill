@@ -1,4 +1,7 @@
 ARG DEBIAN_IMAGE=debian:trixie-slim
+ARG BASE_IMAGE=ghcr.io/windmill-labs/windmill-ee:dev
+
+FROM ${BASE_IMAGE} AS windmill_image
 
 FROM debian:trixie-slim AS nsjail
 
@@ -103,7 +106,7 @@ RUN arch="$(dpkg --print-architecture)"; \
 
 WORKDIR ${APP}
 
-COPY --from=ghcr.io/windmill-labs/windmill-ee:dev --chmod=755  ${APP}/windmill ${APP}/windmill
+COPY --from=windmill_image --chmod=755  ${APP}/windmill ${APP}/windmill
 
 RUN ln -s ${APP}/windmill /usr/local/bin/windmill
 

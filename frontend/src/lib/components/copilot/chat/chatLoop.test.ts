@@ -8,6 +8,7 @@ import {
 	type ChatLoopConfig
 } from './chatLoop'
 import type { ReasoningProviderModel } from '../reasoningRegistry'
+import { OutputTokenLimitError } from './outputTokenLimit'
 
 const mocks = vi.hoisted(() => ({
 	getCompletion: vi.fn(),
@@ -537,6 +538,23 @@ describe('runChatLoop lastIterationUsage', () => {
 		const result = await runChatLoop(createConfig({ workspace }))
 
 		expect(result.lastIterationUsage).toBeNull()
+	})
+})
+
+describe('runChatLoop output token limit', () => {
+	beforeEach(() => {
+		vi.resetAllMocks()
+		mocks.resolveRequestReasoning.mockReturnValue(undefined)
+	})
+
+	it('fails a truncated Responses iteration instead of replaying it on the Completions API', async () => {
+		mocks.getOpenAIResponsesCompletion.mockResolvedValue({})
+		mocks.parseOpenAIResponsesCompletion.mockRejectedValue(new OutputTokenLimitError())
+
+		await expect(
+			runChatLoop(createConfig({ workspace: `workspace-${randomUUID()}` }))
+		).rejects.toBeInstanceOf(OutputTokenLimitError)
+		expect(mocks.getCompletion).not.toHaveBeenCalled()
 	})
 })
 

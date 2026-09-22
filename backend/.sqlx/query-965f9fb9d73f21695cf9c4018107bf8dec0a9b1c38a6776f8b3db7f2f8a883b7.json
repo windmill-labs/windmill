@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE remote_deploy_token SET connected_at = clock_timestamp() + interval '1 hour'\n         WHERE workspace_id = 'test-workspace' AND email = 'test@windmill.dev'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "965f9fb9d73f21695cf9c4018107bf8dec0a9b1c38a6776f8b3db7f2f8a883b7"
+}

@@ -1510,6 +1510,50 @@ describe('pollJobCompletion detach', () => {
 	})
 })
 
+describe('executeTestRun result note', () => {
+	// A failed run's card lands on the error, with the logs a tab away: the model must stay
+	// free to quote them, so only a success says the user already sees the run.
+	it('tells the model not to repeat a successful result, and not a failed one', async () => {
+		vi.useFakeTimers()
+		try {
+			const { executeTestRun } = await import('./shared')
+			const { JobService } = await import('$lib/gen')
+			const getJobUpdates = vi.mocked(JobService.getJobUpdates)
+			getJobUpdates.mockReset()
+			getJobUpdates.mockResolvedValue({ completed: true, running: false } as any)
+			const run = async (success: boolean) => {
+				vi.mocked(JobService.getJob).mockReset()
+				vi.mocked(JobService.getJob).mockResolvedValue({
+					type: 'CompletedJob',
+					success,
+					result: [1, 2],
+					logs: 'ran'
+				} as any)
+				const promise = executeTestRun({
+					jobStarter: async () => 'job1',
+					workspace: 'w',
+					toolId: 'tool1',
+					startMessage: 'Starting...',
+					contextName: 'script',
+					// The job hooks are what mark the global/sessions chat.
+					toolCallbacks: {
+						setToolStatus: vi.fn(),
+						removeToolStatus: vi.fn(),
+						onJobStatus: vi.fn(),
+						onJobStarted: vi.fn()
+					} as any
+				})
+				await vi.advanceTimersByTimeAsync(1000)
+				return promise
+			}
+			expect(await run(true)).toContain('Do not repeat')
+			expect(await run(false)).not.toContain('Do not repeat')
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+})
+
 describe('deriveChatJobStatus', () => {
 	// CompletedJob is discriminated by the presence of a `success` key; the branch
 	// order deliberately mirrors JobStatusIcon so the badge and scalar never drift.
