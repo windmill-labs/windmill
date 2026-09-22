@@ -267,7 +267,7 @@
 										<div class="font-medium">Operators</div>
 										<p class="text-xs text-secondary">
 											Calculated on the MAXIMUM number of operators in a given billing period, see
-											the Customer Portal for more info.
+											the Customer Portal for more info. Service accounts count as operators.
 										</p>
 									</div>
 								</Cell>
