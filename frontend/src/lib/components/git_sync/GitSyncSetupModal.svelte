@@ -283,12 +283,6 @@
 							resourceType="git_repository"
 							excludedValues={usedResourcePaths}
 						/>
-					{:else}
-						<div>
-							<Button variant="subtle" unifiedSize="xs" onClick={() => selectProvider('existing')}>
-								Use an existing resource instead
-							</Button>
-						</div>
 					{/if}
 				{:else if step === 3}
 					{#if draftIdx !== -1}
@@ -370,6 +364,10 @@
 							onClick={back}
 						>
 							Back
+						</Button>
+					{:else if provider !== 'existing'}
+						<Button variant="subtle" unifiedSize="sm" onClick={() => selectProvider('existing')}>
+							Use an existing resource instead
 						</Button>
 					{/if}
 				</div>
