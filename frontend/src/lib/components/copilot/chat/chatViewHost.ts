@@ -150,7 +150,7 @@ export interface ChatViewHost {
 	/** What this chat's next request carries, the current posture's plan-mode transition
 	 * included. A consumer narrows it by tool metadata; assembling its own list from the
 	 * sources behind it is how the advertised set and the sent set drift apart. */
-	readonly tools: Tool<any>[]
+	readonly tools: readonly Tool<any>[]
 	autonomyMode: AIAutonomyMode
 	setAutonomyMode: (mode: AIAutonomyMode) => void
 	readonly autoAcceptEditsActive: boolean

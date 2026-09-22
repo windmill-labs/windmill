@@ -719,8 +719,7 @@ export class AIChatManager implements ChatViewHost {
 	})
 	/** The sources the current mode assembled, concatenated. Private, because neither view
 	 * over it is this list: a consumer reading it would advertise a tool set no request ever
-	 * carries. Narrowing belongs here, after the concatenation, so a source added later
-	 * cannot arrive unfiltered. */
+	 * carries. */
 	#assembledTools = $state<Tool<any>[]>([])
 	/** What the request carries: the assembled tools plus the plan-mode transition the current
 	 * posture offers. Read by the request path and by the YOLO disclosure. */
@@ -2952,7 +2951,7 @@ export class AIChatManager implements ChatViewHost {
 		try {
 			// Use JS getters so runChatLoop re-reads tools/helpers/systemMessage/modelProvider
 			// on each iteration. This is critical for changeModeTool (Navigator → Script/Flow)
-			// which reassigns this.tools, this.helpers, this.systemMessage mid-loop.
+			// which reassigns #assembledTools, this.helpers, this.systemMessage mid-loop.
 			const self = this
 			// Pinned for the whole turn, like the `workspace` the loop routes through:
 			// the global chat's operating workspace follows workspaceStore, so a switch

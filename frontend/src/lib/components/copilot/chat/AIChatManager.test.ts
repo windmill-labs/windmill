@@ -4567,8 +4567,8 @@ describe('AIChatManager tool views', () => {
 		mocks.tryGetCurrentModel.mockReturnValue({ provider: 'openai', model: 'gpt-4o' })
 	})
 
-	// Every mode assigns the private base separately, and a missed assignment would leave the
-	// chat advertising the previous mode's tools rather than failing.
+	// Every mode assigns the private base separately. A missed site leaves it empty on a fresh
+	// manager, which is what these catch — silently, since nothing throws on an empty tool set.
 	it.each([
 		AIMode.SCRIPT,
 		AIMode.FLOW,
