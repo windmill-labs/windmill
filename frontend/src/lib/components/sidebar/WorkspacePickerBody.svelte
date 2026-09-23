@@ -28,7 +28,6 @@
 	import { page } from '$app/state'
 	import MultiplayerMenu from './MultiplayerMenu.svelte'
 	import { isCloudHosted } from '$lib/cloud'
-	import { workspaceAIClients } from '../copilot/lib'
 	import { twMerge } from 'tailwind-merge'
 	import {
 		ambiguousWorkspaceNames,
@@ -63,7 +62,6 @@
 		// Read before switching: the switch swaps the stores these read out from under us.
 		const landOnHome = landsOnHome(id)
 		const href = workspaceHref(id)
-		workspaceAIClients.init(id)
 		// On the sessions page, the page's family reconcile swaps out a chat that
 		// doesn't belong to the new workspace's family.
 		await switchWorkspaceAndPage(id, { landOnHome, href })

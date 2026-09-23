@@ -8,7 +8,6 @@
 	} from '$lib/stores'
 	import { switchWorkspaceAndPage } from './workspaceSwitchUrl'
 	import { base } from '$lib/base'
-	import { workspaceAIClients } from '$lib/components/copilot/lib'
 	import WorkspaceFamilyPicker from '$lib/components/sessions/WorkspaceFamilyPicker.svelte'
 	import WorkspaceScopeTrigger from '$lib/components/WorkspaceScopeTrigger.svelte'
 	import {
@@ -51,7 +50,6 @@
 
 	function switchWorkspaceDirect(id: string) {
 		if ($workspaceStore === id) return
-		workspaceAIClients.init(id)
 		void switchWorkspaceAndPage(id)
 	}
 
