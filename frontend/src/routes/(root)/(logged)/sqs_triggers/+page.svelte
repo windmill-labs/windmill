@@ -344,6 +344,7 @@
 					icon: Plus,
 					onClick: () => sqsTriggerEditor?.openNew(false),
 					disabled: !!$triggerLock,
+					title: $triggerLock,
 					aiId: 'sqs-triggers-empty-add',
 					aiDescription: 'Add SQS trigger'
 				}}

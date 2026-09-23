@@ -282,6 +282,7 @@
 							icon: Plus,
 							onClick: () => editor?.openNew(),
 							disabled: !!$triggerLock,
+							title: $triggerLock,
 							aiId: 'native-triggers-empty-add',
 							aiDescription: 'Add native trigger'
 						}}

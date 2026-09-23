@@ -375,6 +375,7 @@
 						icon: Plus,
 						onClick: () => routeEditor?.openNew(false),
 						disabled: !!$triggerLock,
+						title: $triggerLock,
 						aiId: 'routes-empty-add',
 						aiDescription: 'Add route'
 					}}

@@ -345,6 +345,7 @@
 					icon: Plus,
 					onClick: () => websocketTriggerEditor?.openNew(false),
 					disabled: !!$triggerLock,
+					title: $triggerLock,
 					aiId: 'websocket-triggers-empty-add',
 					aiDescription: 'Add WebSocket trigger'
 				}}

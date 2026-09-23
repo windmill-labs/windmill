@@ -395,6 +395,7 @@
 					icon: Plus,
 					onClick: () => gcpTriggerEditor?.openNew(false),
 					disabled: !!$triggerLock,
+					title: $triggerLock,
 					aiId: 'gcp-triggers-empty-add',
 					aiDescription: 'Add GCP Pub/Sub trigger'
 				}}

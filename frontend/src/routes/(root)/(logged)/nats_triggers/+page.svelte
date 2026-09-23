@@ -359,6 +359,7 @@
 						icon: Plus,
 						onClick: () => natsTriggerEditor?.openNew(false),
 						disabled: !!$triggerLock,
+						title: $triggerLock,
 						aiId: 'nats-triggers-empty-add',
 						aiDescription: 'Add NATS trigger'
 					}}

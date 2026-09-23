@@ -350,6 +350,7 @@
 					icon: Plus,
 					onClick: () => mqttTriggerEditor?.openNew(false),
 					disabled: !!$triggerLock,
+					title: $triggerLock,
 					aiId: 'mqtt-triggers-empty-add',
 					aiDescription: 'Add MQTT trigger'
 				}}

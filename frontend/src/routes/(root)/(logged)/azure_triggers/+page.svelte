@@ -416,6 +416,7 @@
 					icon: Plus,
 					onClick: () => azureTriggerEditor?.openNew(false),
 					disabled: !!$triggerLock,
+					title: $triggerLock,
 					aiId: 'azure-triggers-empty-add',
 					aiDescription: 'Add Azure Event Grid trigger'
 				}}

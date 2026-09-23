@@ -426,6 +426,7 @@
 					icon: Plus,
 					onClick: () => postgresTriggerEditor?.openNew(false),
 					disabled: !!$triggerLock,
+					title: $triggerLock,
 					aiId: 'postgres-triggers-empty-add',
 					aiDescription: 'Add Postgres trigger'
 				}}

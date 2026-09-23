@@ -397,6 +397,7 @@
 							icon: Plus,
 							onClick: () => scheduleEditor?.openNew(false),
 							disabled: !!$scheduleLock,
+							title: $scheduleLock,
 							aiId: 'schedules-empty-add',
 							aiDescription: 'Add schedule'
 						}}

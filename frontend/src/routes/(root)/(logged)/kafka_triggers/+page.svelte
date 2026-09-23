@@ -360,6 +360,7 @@
 						icon: Plus,
 						onClick: () => kafkaTriggerEditor?.openNew(false),
 						disabled: !!$triggerLock,
+						title: $triggerLock,
 						aiId: 'kafka-triggers-empty-add',
 						aiDescription: 'Add Kafka trigger'
 					}}

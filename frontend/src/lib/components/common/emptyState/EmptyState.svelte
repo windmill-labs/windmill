@@ -20,6 +20,9 @@
 			 *  control: without this it stays clickable while a request that has already read the
 			 *  empty list is in flight, and whatever it adds is discarded when that request lands. */
 			disabled?: boolean
+			/** Hover text on the button, not the heading above. Pass the reason whenever `disabled`
+			 *  comes from a permission — on an empty surface this button is the only thing to read. */
+			title?: string
 			aiId?: string
 			aiDescription?: string
 		}
@@ -49,6 +52,7 @@
 			unifiedSize="md"
 			variant={action.variant ?? 'default'}
 			disabled={action.disabled}
+			title={action.title}
 			startIcon={action.icon ? { icon: action.icon } : undefined}
 			onClick={action.onClick}
 			aiId={action.aiId}

@@ -350,6 +350,7 @@
 					icon: Plus,
 					onClick: () => amqpTriggerEditor?.openNew(false),
 					disabled: !!$triggerLock,
+					title: $triggerLock,
 					aiId: 'amqp-triggers-empty-add',
 					aiDescription: 'Add AMQP trigger'
 				}}
