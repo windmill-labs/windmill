@@ -94,9 +94,9 @@ callers that already know which section they mean, such as the "+" menu's Manage
 		return aiChatManager.operatingWorkspace ?? active ?? ''
 	})
 
-	// Exactly what the chat loop sends — plan mode's transition tool is registered
-	// alongside `tools` there, so listing only `tools` would under-report.
-	let tools = $derived(summarizeTools([...aiChatManager.tools, ...aiChatManager.planMode.tools]))
+	// The session's capability surface, not this turn's: the heading answers what the
+	// assistant can call here, so it must not shift when the autonomy picker does.
+	let tools = $derived(summarizeTools(aiChatManager.availableTools))
 
 	// `SidebarNavigation`'s item shape, which is what the instance and workspace settings
 	// navs are built from too.

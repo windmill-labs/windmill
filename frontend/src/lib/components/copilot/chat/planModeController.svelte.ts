@@ -106,6 +106,12 @@ export class PlanModeController {
 		return this.#host.active ? [this.exitTool] : [this.enterTool]
 	}
 
+	/** Both transitions, whichever posture is selected: what plan mode contributes to this
+	 * chat's capabilities, rather than to the turn it is about to send. */
+	get availableTools(): Tool<any>[] {
+		return this.#host.available ? [this.enterTool, this.exitTool] : []
+	}
+
 	// This safety tag is what keeps plan mode escapable through its handoff tool.
 	exitTool: Tool<any> = {
 		def: createToolDef(exitPlanModeArgs, EXIT_PLAN_MODE_TOOL, EXIT_PLAN_MODE_TOOL_DESCRIPTION),
