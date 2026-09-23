@@ -307,7 +307,7 @@ pub async fn do_mssql(
         &sig,
         &mssql_args,
         &reserved_variables,
-        SqlStringEscaping::Standard,
+        SqlStringEscaping::Quote,
     )?;
 
     let mut prepared_query = Query::new(query.to_owned());

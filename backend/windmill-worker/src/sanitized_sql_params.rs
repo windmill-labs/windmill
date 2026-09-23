@@ -33,45 +33,51 @@ fn sanitize_identifier(arg: &Arg, input: &str) -> Result<(), error::Error> {
     }
 }
 
-/// How a dialect escapes characters inside a string literal. Contextual variables are
-/// substituted as raw text, and `WM_END_USER_EMAIL` carries an app end user's email into a
-/// query that runs with the author's credentials: an email may contain `'` (and `\` or `"`
-/// in a quoted local part), so every value is escaped for any string literal it lands in.
+/// How a dialect escapes a value substituted into a quote-delimited string literal.
+/// Contextual variables are substituted as raw text, and `WM_END_USER_EMAIL` carries an app
+/// end user's email into a query that runs with the author's credentials: an email may
+/// contain `'` (and `\` or `"` in a quoted local part).
+///
+/// The escaping must hold whatever literal form and session mode the query uses, so where a
+/// dialect can process backslash escapes in some literal (PostgreSQL/DuckDB `E'...'`, MySQL
+/// outside `NO_BACKSLASH_ESCAPES`), `\` is doubled too: otherwise `\'` in the value becomes
+/// `\''`, whose second quote closes the literal. The price is a doubled `\` (or, in MySQL, a
+/// doubled quote of the other style than the literal) in the rare value that contains one.
 #[derive(Clone, Copy)]
 pub enum SqlStringEscaping {
-    /// `'` → `''`; `\` is ordinary and `"` quotes identifiers (PostgreSQL, MSSQL, Oracle,
-    /// DuckDB).
-    Standard,
-    /// `\` → `\\`, `'` → `\'` and `"` → `\"`, exact in both `'...'` and `"..."` literals
-    /// (MySQL, Snowflake, BigQuery; BigQuery does not accept `''`).
+    /// `'` → `''`; `\` is never an escape (MSSQL, Oracle).
     #[cfg_attr(
-        not(any(feature = "mysql", feature = "snowflake", feature = "bigquery")),
+        not(any(all(feature = "enterprise", feature = "mssql"), feature = "oracledb")),
         allow(dead_code)
     )]
-    Backslash,
-    /// `'` → `''` and `"` → `""`, for MySQL under `NO_BACKSLASH_ESCAPES`, where `\` is
-    /// ordinary and `\'` would close the literal. A quote of the other style than the
-    /// surrounding literal comes out doubled.
+    Quote,
+    /// `\` → `\\`, `'` → `''`; `"` quotes identifiers (PostgreSQL, DuckDB, Snowflake).
+    QuoteAndBackslash,
+    /// `\` → `\\`, `'` → `''`, `"` → `""`: MySQL also accepts `"..."` literals, and only
+    /// doubling stays confined under `NO_BACKSLASH_ESCAPES`.
     #[cfg_attr(not(feature = "mysql"), allow(dead_code))]
-    DoubledQuotes,
+    MySql,
+    /// `\` → `\\`, `'` → `\'`, `"` → `\"`: backslash escapes are always on, both quote
+    /// styles delimit strings, and `''` is not accepted.
+    #[cfg_attr(not(feature = "bigquery"), allow(dead_code))]
+    BigQuery,
 }
 
 impl SqlStringEscaping {
     fn escape(self, value: &str) -> String {
         match self {
-            SqlStringEscaping::Standard => value.replace('\'', "''"),
-            SqlStringEscaping::Backslash => value
+            SqlStringEscaping::Quote => value.replace('\'', "''"),
+            SqlStringEscaping::QuoteAndBackslash => value.replace('\\', "\\\\").replace('\'', "''"),
+            SqlStringEscaping::MySql => value
+                .replace('\\', "\\\\")
+                .replace('\'', "''")
+                .replace('"', "\"\""),
+            SqlStringEscaping::BigQuery => value
                 .replace('\\', "\\\\")
                 .replace('\'', "\\'")
                 .replace('"', "\\\""),
-            SqlStringEscaping::DoubledQuotes => value.replace('\'', "''").replace('"', "\"\""),
         }
     }
-}
-
-#[cfg(feature = "mysql")]
-pub fn has_contextual_variables(code: &str) -> bool {
-    RE_SQL_CONTEXTUAL_VAR.is_match(code)
 }
 
 fn replace_contextual_variables(
@@ -190,21 +196,27 @@ mod tests {
         let backslash = r#""x\'/**/OR/**/1=1#"@e.com"#;
 
         assert_eq!(
-            interpolate(code, quote, SqlStringEscaping::Standard),
+            interpolate(code, quote, SqlStringEscaping::Quote),
             r"SELECT 1 WHERE email = 'x''/**/OR/**/''1''=''1''--@e.com'"
         );
+        // `\` doubled too, so `\'` cannot become `\''` in an `E'...'` literal
         assert_eq!(
-            interpolate(code, backslash, SqlStringEscaping::Backslash),
+            interpolate(code, backslash, SqlStringEscaping::QuoteAndBackslash),
+            r#"SELECT 1 WHERE email = '"x\\''/**/OR/**/1=1#"@e.com'"#
+        );
+        assert_eq!(
+            interpolate(code, backslash, SqlStringEscaping::MySql),
+            r#"SELECT 1 WHERE email = '""x\\''/**/OR/**/1=1#""@e.com'"#
+        );
+        assert_eq!(
+            interpolate(code, backslash, SqlStringEscaping::BigQuery),
             r#"SELECT 1 WHERE email = '\"x\\\'/**/OR/**/1=1#\"@e.com'"#
         );
-        assert_eq!(
-            interpolate(code, backslash, SqlStringEscaping::DoubledQuotes),
-            r#"SELECT 1 WHERE email = '""x\''/**/OR/**/1=1#""@e.com'"#
-        );
         for escaping in [
-            SqlStringEscaping::Standard,
-            SqlStringEscaping::Backslash,
-            SqlStringEscaping::DoubledQuotes,
+            SqlStringEscaping::Quote,
+            SqlStringEscaping::QuoteAndBackslash,
+            SqlStringEscaping::MySql,
+            SqlStringEscaping::BigQuery,
         ] {
             assert_eq!(
                 interpolate(code, "a.b+c@e.com", escaping),

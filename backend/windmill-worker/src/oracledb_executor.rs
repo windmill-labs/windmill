@@ -410,7 +410,7 @@ pub async fn do_oracledb(
         &sig,
         &job_args,
         &reserved_variables,
-        SqlStringEscaping::Standard,
+        SqlStringEscaping::Quote,
     )?;
 
     let (_, errors) = get_statement_values(sig.clone(), &job_args, &args_to_skip);

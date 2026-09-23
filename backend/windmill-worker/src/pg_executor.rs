@@ -903,7 +903,7 @@ pub async fn do_postgresql(
         &sig.args,
         &pg_args,
         &reserved_variables,
-        SqlStringEscaping::Standard,
+        SqlStringEscaping::QuoteAndBackslash,
     )?;
 
     let queries = parse_sql_blocks(query, true);

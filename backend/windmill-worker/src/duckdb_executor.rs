@@ -1396,7 +1396,7 @@ pub async fn do_duckdb(
             &sig,
             &job_args,
             &reserved_variables,
-            SqlStringEscaping::Standard,
+            SqlStringEscaping::QuoteAndBackslash,
         )?;
         let mut query = transform_s3_uris(query).await?;
 
@@ -1414,7 +1414,7 @@ pub async fn do_duckdb(
                     &sig,
                     &job_args,
                     &reserved_variables,
-                    SqlStringEscaping::Standard,
+                    SqlStringEscaping::QuoteAndBackslash,
                 )?;
                 Some(transform_s3_uris(&interp).await?)
             }
