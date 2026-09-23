@@ -182,7 +182,8 @@
 		configure credentials manually.
 		{#if $enterpriseLicense}
 			To attribute usage to the job or user that made the request instead, set
-			<span class="font-mono">oidcRoleArn</span> to an IAM role Windmill assumes through its OIDC provider.
+			<span class="font-mono">oidcRoleArn</span> to an IAM role Windmill assumes through its OIDC provider,
+			and set a region alongside it.
 		{/if}
 	</p>
 

@@ -131,6 +131,12 @@ lazy_static::lazy_static! {
 
 pub(crate) fn invalidate_ai_request_cache_for_workspace(workspace_id: &str) {
     AI_REQUEST_CACHE.retain(|(cached_workspace_id, _), _| cached_workspace_id != workspace_id);
+    // Dropped alongside the credentials that named the role, so that changing a
+    // workspace's AI settings does not leave a session assumed under the old ones
+    // in play until STS expires it.
+    #[cfg(feature = "bedrock")]
+    BEDROCK_ASSUMED_ROLE_CACHE
+        .retain(|(cached_workspace_id, _, _), _| cached_workspace_id != workspace_id);
 }
 
 /// Shared configuration for every outbound AI HTTP client (the pooled
@@ -1634,6 +1640,24 @@ mod tests {
             ("workspace-b".to_string(), AIProvider::OpenAI),
             ExpiringProviderCredentials::new(sample_provider_credentials(), None),
         );
+        #[cfg(feature = "bedrock")]
+        let assumed_role_key = {
+            let key = (
+                "workspace-a".to_string(),
+                "arn:aws:iam::123456789012:role/bedrock".to_string(),
+                "someone@windmill.dev".to_string(),
+            );
+            BEDROCK_ASSUMED_ROLE_CACHE.insert(
+                key.clone(),
+                windmill_ai::ai_bedrock::AssumedRoleCredentials {
+                    access_key_id: "AKIA".to_string(),
+                    secret_access_key: "secret".to_string(),
+                    session_token: "session".to_string(),
+                    expires_at: std::time::SystemTime::now() + std::time::Duration::from_secs(3600),
+                },
+            );
+            key
+        };
 
         invalidate_ai_request_cache_for_workspace("workspace-a");
 
@@ -1646,6 +1670,8 @@ mod tests {
         assert!(AI_REQUEST_CACHE
             .get(&("workspace-b".to_string(), AIProvider::OpenAI))
             .is_some());
+        #[cfg(feature = "bedrock")]
+        assert!(BEDROCK_ASSUMED_ROLE_CACHE.get(&assumed_role_key).is_none());
     }
 
     #[test]
