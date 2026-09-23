@@ -46,6 +46,8 @@
 		messageIndex: number
 		editingMessageIndex: number | null
 		isLast?: boolean
+		// No assistant or tool row follows before the next user message.
+		endsTurn?: boolean
 	}
 
 	let {
@@ -53,7 +55,8 @@
 		messageIndex,
 		availableContext,
 		editingMessageIndex = $bindable(null),
-		isLast = false
+		isLast = false,
+		endsTurn = false
 	}: Props = $props()
 
 	// The edit box edits a copy of THIS message's original context, not the live
@@ -82,8 +85,8 @@
 {:else}
 	<div
 		class={twMerge(
-			'mb-2 min-w-0',
-			message.role === 'tool' && 'mb-1',
+			'mb-1 min-w-0',
+			message.role === 'user' && 'mb-2',
 			message.role === 'user' && messageIndex > 0 && 'mt-4 mb-6',
 			isLast && '!mb-12',
 			message.role !== 'user' || !chatHost.supportsMessageEditing
@@ -138,10 +141,18 @@
 				/>
 			</div>
 		{:else}
-			<div class={twMerge('text-sm py-1 px-2', message.role === 'tool' && 'text-primary py-0')}>
+			<!-- Assistant and tool rows carry their own 4px above and below their text, so every
+			     pair of consecutive rows sits the same distance apart. -->
+			<div
+				class={twMerge(
+					'text-sm px-2',
+					message.role === 'user' && 'py-1',
+					message.role === 'tool' && 'text-primary'
+				)}
+			>
 				{#if message.role === 'assistant'}
 					<div class="px-[1px] group/answer"
-						><AssistantMessage {message} workspace={messageWorkspace} /></div
+						><AssistantMessage {message} workspace={messageWorkspace} showActions={endsTurn} /></div
 					>
 				{:else if message.role === 'tool'}
 					<div class="px-[1px]"

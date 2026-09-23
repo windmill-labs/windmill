@@ -831,6 +831,9 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 							{availableContext}
 							bind:editingMessageIndex
 							isLast={messageIndex === messages.length - 1}
+							endsTurn={messageIndex === messages.length - 1 ||
+								messages[messageIndex + 1].role === 'user' ||
+								messages[messageIndex + 1].role === 'summary'}
 						/>
 					{/each}
 					{#if freeTierExhausted}

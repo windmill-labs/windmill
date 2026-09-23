@@ -23,9 +23,12 @@
 		// Workspace the message's paths are resolved against: the one the chat
 		// operates on, which is not always the one being navigated.
 		workspace: string | undefined
+		// Only a turn's final answer gets the copy / timestamp / run row: it stays in the layout
+		// while invisible, so on an answer between tool calls it would double the gap below it.
+		showActions?: boolean
 	}
 
-	let { message, workspace }: Props = $props()
+	let { message, workspace, showActions = true }: Props = $props()
 
 	// The run this answer came out of. Only a flow chat has one — a copilot turn runs in
 	// the browser — so the job link is absent rather than empty elsewhere.
@@ -151,7 +154,7 @@
 		expanded={reasoningExpanded}
 		onToggle={() => (reasoningToggled = !reasoningExpanded)}
 		shimmer={reasoningStreaming}
-		class="mb-2"
+		class={s3Object || message.content ? 'mb-1' : ''}
 		labelClass="truncate"
 		contentClass="font-main text-secondary {markdownProse.xs}"
 	>
@@ -160,14 +163,16 @@
 {/if}
 
 {#if s3Object}
-	<DisplayResult result={s3Object} workspaceId={workspace} noControls={true} />
+	<div class="py-1">
+		<DisplayResult result={s3Object} workspaceId={workspace} noControls={true} />
+	</div>
 {:else if message.content}
-	<div class="w-full space-y-2 {markdownProse.sm}">
+	<div class="w-full space-y-2 py-1 {markdownProse.sm}">
 		<Markdown md={message.content} {plugins} />
 	</div>
 {/if}
 
-{#if message.content}
+{#if message.content && showActions}
 	<!-- Kept in flow while invisible, so revealing it on hover does not nudge the message
 	     below. A thinking-only row has no answer to copy, and the next row links its run. -->
 	<div
