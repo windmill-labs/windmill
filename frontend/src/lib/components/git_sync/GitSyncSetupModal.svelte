@@ -95,6 +95,10 @@
 	let applying = $state(false)
 	/** Work in flight that a dismissal must not cut short. */
 	const busy = $derived(connecting || saving || applying)
+	/** The push of step 4 landed. What is left is saving the connection, so a failure there
+	 * must not be offered as "save without initializing" — the repository already holds the
+	 * workspace's content. */
+	let initialized = $state(false)
 
 	onDestroy(() => {
 		githubApp?.dispose()
@@ -184,6 +188,7 @@
 		step = 1
 		done = undefined
 		applying = false
+		initialized = false
 		githubApp?.dispose()
 		githubApp = undefined
 		hasResource = false
@@ -391,7 +396,10 @@
 							gitRepoResourcePath={draft.git_repo_resource_path}
 							uiState={draft.settings}
 							onApplyStateChange={(v) => (applying = v)}
-							onSuccess={() => void saveDraft()}
+							onSuccess={() => {
+								initialized = true
+								void saveDraft()
+							}}
 						/>
 					{/if}
 					{#if saveError}
@@ -490,24 +498,36 @@
 					<Button unifiedSize="sm" variant="accent" onClick={() => (opened = false)}>Close</Button>
 				{:else if step === 4}
 					<div class="flex items-center gap-2">
-						<Button
-							unifiedSize="sm"
-							variant="default"
-							disabled={push?.status().applying || push?.status().previewing || saving}
-							loading={saving}
-							onClick={() => saveDraft(true)}
-						>
-							Save without initializing
-						</Button>
-						<Button
-							unifiedSize="sm"
-							variant="accent"
-							disabled={!push?.status().canApply || saving}
-							loading={push?.status().applying}
-							onClick={() => push?.apply()}
-						>
-							Initialize repository
-						</Button>
+						{#if initialized}
+							<Button
+								unifiedSize="sm"
+								variant="accent"
+								disabled={saving}
+								loading={saving}
+								onClick={() => saveDraft()}
+							>
+								Retry saving the connection
+							</Button>
+						{:else}
+							<Button
+								unifiedSize="sm"
+								variant="default"
+								disabled={push?.status().applying || push?.status().previewing || saving}
+								loading={saving}
+								onClick={() => saveDraft(true)}
+							>
+								Save without initializing
+							</Button>
+							<Button
+								unifiedSize="sm"
+								variant="accent"
+								disabled={!push?.status().canApply || saving}
+								loading={push?.status().applying}
+								onClick={() => push?.apply()}
+							>
+								Initialize repository
+							</Button>
+						{/if}
 					</div>
 				{:else if step === 3}
 					{#if draft?.detectionState === 'no-wmill'}
