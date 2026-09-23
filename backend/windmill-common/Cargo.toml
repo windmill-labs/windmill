@@ -130,9 +130,7 @@ opentelemetry_sdk = { workspace = true, optional = true }
 opentelemetry = { workspace = true, optional = true }
 tracing-opentelemetry = { workspace = true, optional = true }
 opentelemetry-appender-tracing = { workspace = true, optional = true }
-# Must be the tonic opentelemetry-otlp builds on (its TLS config types), which is newer than
-# the workspace tonic that google-cloud-pubsub pins.
-tonic = { version = "0.14", features = ["tls-native-roots"], optional = true }
+tonic = { workspace = true, optional = true }
 equivalent = "1.0.2"
 
 [dev-dependencies]

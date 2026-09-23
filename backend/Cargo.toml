@@ -711,7 +711,7 @@ prost = "0.14"
 
 bollard = "0.18.1"
 
-tonic = { version = "^0.13", features = ["tls-native-roots"] }
+tonic = { version = "^0.14", features = ["tls-native-roots"] }
 byteorder = "1.5.0"
 
 tikv-jemallocator = { version = "0.5" }
