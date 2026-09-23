@@ -111,5 +111,6 @@
 		bind:open={gitSyncContext.activeModals.success.open}
 		savedWithoutInit={gitSyncContext.activeModals.success.savedWithoutInit}
 		autoPullOn={gitSyncContext.activeModals.success.autoPullOn}
+		explainAutoPullOff={gitSyncContext.activeModals.success.ownsAutoPull ?? false}
 	/>
 {/if}

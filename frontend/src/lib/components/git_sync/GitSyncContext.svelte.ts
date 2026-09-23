@@ -1,5 +1,5 @@
 import { getContext, setContext } from 'svelte'
-import { enterpriseLicense, userStore } from '$lib/stores'
+import { enterpriseLicense, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 import { get } from 'svelte/store'
 import { sendUserToast } from '$lib/toast'
 import { apiErrorMessage } from '$lib/utils'
@@ -46,7 +46,13 @@ export type GitSyncSettings = {
 export type ModalState = {
 	push: { idx: number; repo: GitSyncRepository; open: boolean } | null
 	pull: { idx: number; repo: GitSyncRepository; open: boolean; settingsOnly?: boolean } | null
-	success: { open: boolean; savedWithoutInit?: boolean; autoPullOn?: boolean } | null
+	success: {
+		open: boolean
+		savedWithoutInit?: boolean
+		autoPullOn?: boolean
+		/** Whether this workspace is the one that would turn pulling on for this repository. */
+		ownsAutoPull?: boolean
+	} | null
 }
 
 export type ValidationState = {
@@ -295,8 +301,22 @@ export function createGitSyncContext(workspace: string) {
 		closeModal('pull')
 	}
 
-	function showSuccessModal(savedWithoutInit?: boolean, autoPullOn?: boolean) {
-		activeModals.success = { open: true, savedWithoutInit, autoPullOn }
+	/** Only a sync repository in a non-fork workspace has a pull toggle of its own: promotion
+	 * repositories have none, and a fork's pulling is its parent's to set. */
+	function ownsAutoPull(repo: GitSyncRepository): boolean {
+		const ws = get(workspaceStore)
+		const isFork =
+			(ws?.startsWith('wm-fork-') ?? false) ||
+			!!get(userWorkspaces)?.find((w) => w.id === ws)?.parent_workspace_id
+		return !repo.use_individual_branch && !isFork
+	}
+
+	function showSuccessModal(
+		savedWithoutInit?: boolean,
+		autoPullOn?: boolean,
+		ownsAutoPull?: boolean
+	) {
+		activeModals.success = { open: true, savedWithoutInit, autoPullOn, ownsAutoPull }
 	}
 
 	function closeSuccessModal() {
@@ -563,7 +583,11 @@ export function createGitSyncContext(workspace: string) {
 			repoToSave.extractedSettings = undefined
 			// Show success modal for new connections
 			if (announce) {
-				showSuccessModal(savedWithoutInit, repoToSave.auto_pull?.enabled === true)
+				showSuccessModal(
+					savedWithoutInit,
+					repoToSave.auto_pull?.enabled === true,
+					ownsAutoPull(repoToSave)
+				)
 			}
 		}
 	}
