@@ -16,6 +16,11 @@ vi.mock('@codingame/monaco-vscode-standalone-typescript-language-features', () =
 vi.mock('@codingame/monaco-vscode-languages-service-override', () => ({ default: () => ({}) }))
 vi.mock('$lib/components/vscode', () => ({}))
 
+// `globalToolsFor` withholds take_screenshot off Blink, and node reports a `Node.js/<v>`
+// user agent — so without this the description sweep below silently skips a tool that
+// ships in every real Chromium session. Claim the maximal toolset instead.
+vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 Chrome/120.0.0.0' })
+
 import { globalTools, prepareGlobalSystemMessage, type SessionPromptContext } from './core'
 import { appendPlanModeInstructions } from '../planMode'
 import { pipelineTools } from '../pipeline/core'

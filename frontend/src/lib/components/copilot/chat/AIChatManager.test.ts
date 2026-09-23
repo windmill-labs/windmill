@@ -4584,6 +4584,47 @@ describe('AIChatManager tool views', () => {
 		expect(manager.availableTools.length).toBeGreaterThan(0)
 	})
 
+	// The capability filter is unit-tested against a profile handed to it directly; what is
+	// untested there is that the manager ever hands it one. This drives a real send and reads
+	// the toolset off the request, so moving the resolve out of the pre-flight, or dropping
+	// the rebuild that follows it, fails here rather than shipping an operator write tools.
+	it('withholds write and preview tools from an operator for the whole request', async () => {
+		mocks.whoami.mockResolvedValue({
+			username: 'op',
+			email: 'admin@test',
+			is_admin: false,
+			is_super_admin: false,
+			operator: true,
+			groups: [],
+			folders: [],
+			folders_read: []
+		})
+		let sent: { tools: string[]; prompt: string } | undefined
+		mocks.runChatLoop.mockImplementation(async (config: any) => {
+			sent = {
+				tools: config.tools.map((t: any) => t.def.function.name),
+				prompt: config.systemMessage.content
+			}
+			return {
+				addedMessages: [],
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		await manager.sendRequest({ instructions: 'add a script', mode: AIMode.GLOBAL })
+
+		expect(sent?.tools).toEqual(expect.arrayContaining(['list_workspace_items', 'run_script']))
+		for (const withheld of ['write_script', 'test_run_script', 'deploy_workspace_item']) {
+			expect(sent?.tools).not.toContain(withheld)
+			// The prompt ships beside the tools, so the rebuild must have run after the
+			// profile landed — otherwise it still instructs the model to call these.
+			expect(sent?.prompt).not.toContain(withheld)
+		}
+	})
+
 	// Which transition each posture offers is planModeController.test.ts's; what this pins is
 	// that only `tools` follows the picker. `isSessionChat` is what offers plan mode at all.
 	it('holds availableTools steady across the autonomy picker', async () => {
