@@ -23,8 +23,9 @@
 		// Workspace the message's paths are resolved against: the one the chat
 		// operates on, which is not always the one being navigated.
 		workspace: string | undefined
-		// Only a turn's final answer gets the copy / timestamp / run row: it stays in the layout
-		// while invisible, so on an answer between tool calls it would double the gap below it.
+		// Only the last answer of a run (a copilot turn, or a flow step's run) gets the copy /
+		// timestamp / run row: it stays in the layout while invisible, so on an answer between
+		// tool calls it would double the gap below it.
 		showActions?: boolean
 	}
 
@@ -174,7 +175,7 @@
 
 {#if message.content && showActions}
 	<!-- Kept in flow while invisible, so revealing it on hover does not nudge the message
-	     below. A thinking-only row has no answer to copy, and the next row links its run. -->
+	     below. A thinking-only row has no answer to copy, and its run's last answer links the run. -->
 	<div
 		class="flex items-center gap-2 text-2xs text-tertiary opacity-0 transition-opacity duration-150 group-hover/answer:opacity-100 focus-within:opacity-100"
 	>
