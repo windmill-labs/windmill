@@ -6,6 +6,7 @@
 	 * here — links to an app point at this route whatever its kind; the sibling
 	 * /apps_raw/get route wraps the same component.
 	 */
+	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import InWorkspaceAppViewer from '$lib/components/apps/editor/InWorkspaceAppViewer.svelte'
 	import { Skeleton } from '$lib/components/common'
 	import { workspaceStore } from '$lib/stores'
@@ -18,6 +19,10 @@
 <!-- Wait for the active workspace before mounting the embedder: it's needed to
      mint the token and to build the viewer iframe URL, and the store is set
      asynchronously by the (logged) layout. -->
+<!-- Claimed here rather than in the viewer below: the viewer mounts once the workspace has
+     resolved, and until then the band would be an ordinary header on screen, only to leave again. -->
+<PageHeaderContent fullBleed />
+
 {#if workspace && path}
 	<!-- Key by target: SvelteKit reuses this page component on in-route
 	     navigation (e.g. a navbar item linking to another app), so the viewer

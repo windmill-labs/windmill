@@ -528,6 +528,18 @@
 	let bandHandleHot = $state(false)
 	let bandHandleEl: HTMLDivElement | undefined = $state(undefined)
 	const bandShown = $derived(!bandPeek || bandPeeked)
+	// A page registers on mount, so the band is an ordinary header for the frames before that and
+	// would slide away once the app claims the viewport. The slide belongs to the hover, not to
+	// arriving: it is armed a frame after the claim, so the first hide is a cut.
+	let bandPeekSettled = $state(false)
+	$effect(() => {
+		if (!bandPeek) {
+			bandPeekSettled = false
+			return
+		}
+		const id = requestAnimationFrame(() => (bandPeekSettled = true))
+		return () => cancelAnimationFrame(id)
+	})
 	const floatBand = $derived(pageHeader.content?.barRightInset != null || bandPeek)
 	// Same delay as the sidebar's peek, and for the same reason: the handle and the band do not
 	// touch, so the leave of one has to survive long enough for the enter of the other.
@@ -1589,7 +1601,7 @@
 					class={classNames(
 						floatBand ? 'absolute top-0 z-30' : 'shrink-0',
 						bandPeek
-							? 'transition-transform duration-150 ease-out ' +
+							? (bandPeekSettled ? 'transition-transform duration-150 ease-out ' : '') +
 									(bandShown ? 'translate-y-0' : '-translate-y-full pointer-events-none')
 							: sidebarTransitionClass
 					)}
