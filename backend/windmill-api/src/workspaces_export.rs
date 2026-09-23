@@ -285,10 +285,13 @@ enum ArchiveImpl {
 /// drive-prefixed path, or a parent segment, would make extraction write outside
 /// the target directory. Win32 strips trailing dots and spaces from a segment,
 /// so `.. ` resolves to `..` there: any segment made only of those is refused.
+/// A colon matters only in the first segment (a drive prefix); later segments,
+/// such as a data table name, may carry one.
 fn check_archive_entry_path(path: &str) -> Result<()> {
     let is_dot_segment = |seg: &str| !seg.is_empty() && seg.chars().all(|c| c == '.' || c == ' ');
+    let first = path.split(['/', '\\']).next().unwrap_or_default();
     if path.starts_with(['/', '\\'])
-        || path.contains(':')
+        || first.contains(':')
         || path.split(['/', '\\']).any(is_dot_segment)
     {
         return Err(Error::internal_err(format!(
