@@ -124,19 +124,19 @@
 			     knob = h - 6, checked translate = w - h. -->
 			<div
 				class={classNames(
-					"relative transition-all bg-surface-sunken rounded-full peer peer-checked:after:border-white after:content-[''] after:absolute  after:bg-surface after:border-white after:border after:rounded-full after:transition-all items-center",
+					"relative transition-all bg-surface-sunken rounded-full peer peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-white after:border after:rounded-full after:transition-all items-center",
 					color == 'red'
 						? 'peer-checked:bg-red-600'
 						: color == 'blue'
 							? 'peer-checked:bg-blue-400 '
 							: 'peer-checked:bg-nord-950 dark:peer-checked:bg-nord-900',
 					size === 'md'
-						? 'w-[44px] h-[24px] after:top-[2px] after:left-[2px] after:h-[18px] after:w-[18px] peer-checked:after:translate-x-[20px]'
+						? 'w-[44px] h-[24px] after:h-[18px] after:w-[18px] peer-checked:after:translate-x-[20px]'
 						: size === 'sm'
-							? 'w-[36px] h-[20px] after:top-[2px] after:left-[2px] after:h-[14px] after:w-[14px] peer-checked:after:translate-x-[16px]'
+							? 'w-[36px] h-[20px] after:h-[14px] after:w-[14px] peer-checked:after:translate-x-[16px]'
 							: size === '2xs'
-								? 'w-[20px] h-[12px] after:top-[2px] after:left-[2px] after:h-[6px] after:w-[6px] peer-checked:after:translate-x-[8px]'
-								: 'w-[28px] h-[16px] after:top-[2px] after:left-[2px] after:h-[10px] after:w-[10px] peer-checked:after:translate-x-[12px]',
+								? 'w-[20px] h-[12px] after:h-[6px] after:w-[6px] peer-checked:after:translate-x-[8px]'
+								: 'w-[28px] h-[16px] after:h-[10px] after:w-[10px] peer-checked:after:translate-x-[12px]',
 					inputBorderClass()
 				)}
 			></div>
