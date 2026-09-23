@@ -98,6 +98,16 @@ async fn test_operator_manage_rights(db: Pool<Postgres>) -> anyhow::Result<()> {
     let (status, body) = share().await?;
     assert_eq!(status, 403, "{body}");
 
+    // The gate refuses on `is_operator` alone, so one over-broad condition costs every admin their
+    // schedule and trigger writes. The admin call above proves nothing: its route is not gated.
+    let resp = reqwest::Client::new()
+        .post(format!("{api}/schedules/create"))
+        .header("Authorization", "Bearer SECRET_TOKEN")
+        .json(&new_schedule("u/admin/sched_admin"))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+
     // A payload omitting the key must not restore it. This is what an older git-sync settings file
     // looks like, and what a serde or SQL default of either polarity would get wrong.
     assert_eq!(set_settings(&api, json!({"runs": true})).await?, 200);

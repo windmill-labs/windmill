@@ -28,14 +28,18 @@ creates a replication slot and a publication on the target database — and it n
 rather than inheriting one. Before adding a feature that writes trigger or schedule state, ask
 which router it lands on.
 
-Two consequences to keep in mind when adding a route under one of these:
+Three consequences to keep in mind when adding a route under one of these:
 
-- A read served over POST gets refused. Two exist today, a trigger's connection test and the HTTP
-  route-path availability check; both are steps inside a create form a withdrawn operator cannot
-  open. Put new reads on GET.
+- A read served over POST gets refused, and an unprompted refusal reaches the operator as a bare
+  privilege toast. The connection test is button-fired, so it only refuses someone who asked. The
+  route-path check runs from an effect on editor open, so `RouteEditorConfigSection` skips it while
+  the lock is set. Put new reads on GET; if one must stay POST, check nothing fires it unprompted.
 - Anything mounted under a gated router inherits the gate. The native-trigger mount also carries
   the workspace's integration setup, which is a settings concern, so the layer goes on the trigger
   routes alone rather than the whole mount.
+- A route operating on *jobs* rather than configuration inherits it too. `resume_suspended_trigger_jobs`
+  and its cancel twin stay gated: an operator who can neither suspend nor un-suspend a trigger should
+  not override the consequence. Weigh the next one rather than taking the router's answer.
 
 `check_operator_can_manage` is still the function underneath, for a write that cannot be reached
 through one of these routers. `/acls/add` and `/acls/remove` are the case that needs it: sharing an
