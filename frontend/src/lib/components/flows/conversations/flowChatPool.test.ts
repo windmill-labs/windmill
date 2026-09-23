@@ -147,6 +147,24 @@ describe('FlowChatPool', () => {
 		p.destroy()
 	})
 
+	it('brings running rows back once the listing answers again', async () => {
+		let answers = false
+		const turn = { jobId: 'job-1', userSeq: 7 }
+		const { pool: p } = pool({
+			listRecent: async () => {
+				if (!answers) throw new Error('offline')
+				return [conversation('a', { runningTurn: turn })]
+			}
+		})
+		p.setListed([conversation('a', { runningTurn: turn })], p.listingStarted())
+		expect(p.getState().activity).toEqual({ a: 'running' })
+		// Three failed listings in a row: the row goes quiet rather than staying stuck.
+		await vi.waitFor(() => expect(p.getState().activity).toEqual({}))
+		answers = true
+		await vi.waitFor(() => expect(p.getState().activity).toEqual({ a: 'running' }), { timeout: 3000 })
+		p.destroy()
+	})
+
 	it('keeps what a later listing said over an earlier one that lands after it', () => {
 		const { pool: p } = pool()
 		const earlier = p.listingStarted()

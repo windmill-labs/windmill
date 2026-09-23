@@ -32,6 +32,7 @@
 			// including a size supplied by a caller.
 			'leading-none'
 		)}
+		role="img"
 		aria-label="{count} unread {noun}{count === 1 ? '' : 's'}"
 	>
 		{count > 9 ? '9+' : count}

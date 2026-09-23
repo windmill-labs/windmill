@@ -197,7 +197,9 @@ export class WindmillChatApi {
       signal: options.signal
     })
     if (!res.body) {
-      throw new WindmillApiError('The job update stream has no body', res.status)
+      // Status 0, whatever the status line said: a response with no stream in it comes from
+      // something in front of Windmill, so it is followed by a reconnect like any other.
+      throw new WindmillApiError('The job update stream has no body', 0)
     }
     for await (const data of readServerSentEvents(res.body)) {
       try {

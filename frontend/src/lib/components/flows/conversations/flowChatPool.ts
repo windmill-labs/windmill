@@ -5,6 +5,8 @@ import { ConversationTurns, isBusy, lastTurnFailed, type DraftSender } from './c
 const POLL_GIVE_UP = 3
 /** Pages of the listing one poll reads at most, looking for the rows it watches. */
 const POLL_PAGES = 5
+/** How much slower the listing is read once it has stopped answering. */
+const RECOVERY_SLOWDOWN = 10
 
 /** What a conversation's row says about it. */
 export type ConversationActivity = 'running' | 'error' | 'idle'
@@ -84,6 +86,9 @@ export class FlowChatPool<H extends DraftSender<A>, A> {
 	#poll: ReturnType<typeof setTimeout> | undefined
 	#polling = false
 	#pollFailures = 0
+	/** The listing stopped answering and its rows went quiet: it is read on, slowly, so they
+	 * come back when it answers again. */
+	#recovering = false
 	#clock = 0
 	#destroyed = false
 
@@ -139,7 +144,8 @@ export class FlowChatPool<H extends DraftSender<A>, A> {
 			entry.turns.resume(turn)
 		} else if (entry.loaded && !entry.busy) {
 			// Held while another conversation was shown: another tab may have written since.
-			void entry.chat.refreshMessages()
+			// A failed read leaves the rows it holds; the next return reads again.
+			void entry.chat.refreshMessages().catch(() => {})
 		}
 		// Not the conversation being left: its composer is still mounted, and hands what the
 		// reader wrote in it to its turns only as the panel goes.
@@ -317,13 +323,17 @@ export class FlowChatPool<H extends DraftSender<A>, A> {
 	}
 
 	#schedulePoll(): void {
-		if (this.#running.size === 0) {
+		const every = this.#options.pollMs ?? 3000
+		if (this.#running.size === 0 && !this.#recovering) {
 			clearTimeout(this.#poll)
 			this.#poll = undefined
 			return
 		}
 		if (this.#poll || this.#polling) return
-		this.#poll = setTimeout(() => void this.#relist(), this.#options.pollMs ?? 3000)
+		this.#poll = setTimeout(
+			() => void this.#relist(),
+			this.#running.size === 0 ? every * RECOVERY_SLOWDOWN : every
+		)
 	}
 
 	/** One listing for every running row this pool follows no chat for. */
@@ -347,18 +357,20 @@ export class FlowChatPool<H extends DraftSender<A>, A> {
 			this.#pollFailures = 0
 		} catch {
 			failed = true
-			// A listing that keeps failing would otherwise keep rows running and the poll going
-			// for the life of the page. After a few tries the rows go quiet; opening a
-			// conversation reads its own rows.
+			// A listing that keeps failing would otherwise keep rows running for the life of the
+			// page. After a few tries the rows go quiet, and the listing is read on at a slower
+			// cadence so they come back once it answers again.
 			if (++this.#pollFailures >= POLL_GIVE_UP) {
 				this.#running.clear()
 				this.#pollFailures = 0
+				this.#recovering = true
 			}
 		} finally {
 			this.#polling = false
 		}
 		if (this.#destroyed) return
 		if (!failed) {
+			this.#recovering = false
 			// A watched row on no page read is gone from the listing, or has been quiet while
 			// more conversations than those pages hold were active: either way it goes quiet
 			// here, and opening it reads its own rows. A later listing that reported it stands.
