@@ -471,7 +471,7 @@ serde = "^1"
 # 1.0.151 introduced RawValue::from_string_unchecked, which the SQL executors use
 # to avoid re-parsing every collected row.
 serde_json = { version = "^1.0.151", features = ["preserve_order", "raw_value"] }
-serde_yml = "0.0.13"
+serde_yml = "0.0.12"
 uuid = { version = "^1", features = ["serde", "v4", "js"] }
 thiserror = "^2"
 anyhow = "^1"
@@ -700,14 +700,14 @@ flate2 = "^1"
 http = "^1"
 async-stream = "^0"
 
-opentelemetry = "0.30.0"
-tracing-opentelemetry = "0.31.0"
+opentelemetry = "0.32.0"
+tracing-opentelemetry = "0.33.0"
 opentelemetry_sdk = { version = "0.32.1", features = ["rt-tokio", "testing"] }
-opentelemetry-otlp = { version = "0.30.0", features = ["grpc-tonic", "tls", "http-proto", "gzip-tonic", "zstd-tonic"] }
-opentelemetry-appender-tracing = "0.30.0"
-opentelemetry-semantic-conventions = { version = "0.30.0", features = ["semconv_experimental"] }
-opentelemetry-proto = { version = "0.30.0", features = ["with-serde", "gen-tonic"] }
-prost = "0.13"
+opentelemetry-otlp = { version = "0.32.0", features = ["grpc-tonic", "tls", "http-proto", "gzip-tonic", "zstd-tonic"] }
+opentelemetry-appender-tracing = "0.32.0"
+opentelemetry-semantic-conventions = { version = "0.32.1", features = ["semconv_experimental"] }
+opentelemetry-proto = { version = "0.32.0", features = ["with-serde", "gen-tonic"] }
+prost = "0.14"
 
 bollard = "0.18.1"
 
