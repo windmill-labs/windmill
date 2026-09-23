@@ -152,8 +152,14 @@
 		string,
 		{ modules: import('$lib/gen').FlowModule[]; groups?: any[] }
 	> = $state({})
+	// With no step clicked, the restart button targets the first failed top-level
+	// step so it is visible without hunting for that step in a large graph.
+	const failedTopLevelStep = $derived(
+		job?.flow_status?.modules?.find((m) => m.type === 'Failure')?.id
+	)
+	const restartStep = $derived(selectedJobStep ?? failedTopLevelStep)
 	const restart = useNestedRestartState({
-		selectedJobStep: () => selectedJobStep,
+		selectedJobStep: () => restartStep,
 		job: () => job,
 		graphModuleStates: () => graphModuleStates,
 		expandedSubflows: () => expandedSubflows
@@ -875,10 +881,10 @@
 					startIcon={{ icon: Calendar }}>Edit schedule</Button
 				>
 			{/if}
-			{#if job?.type === 'CompletedJob' && job?.job_kind === 'flow' && selectedJobStep !== undefined && (restart.topLevelRestartable || restart.nestedRestartSupported) && job.id}
+			{#if job?.type === 'CompletedJob' && job?.job_kind === 'flow' && restartStep !== undefined && (restart.topLevelRestartable || restart.nestedRestartSupported) && job.id}
 				<FlowRestartButton
 					jobId={job.id}
-					{selectedJobStep}
+					selectedJobStep={restartStep}
 					selectedJobStepType={restart.selectedJobStepType}
 					restartBranchNames={restart.restartBranchNames}
 					nestedPath={restart.nestedRestartSupported ? restart.nestedRestartPath : undefined}
