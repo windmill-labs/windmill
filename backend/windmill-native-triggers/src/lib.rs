@@ -56,7 +56,7 @@ use windmill_queue::PushArgsOwned;
 #[cfg(feature = "native_trigger")]
 use windmill_oauth::{ErrorField, ExecuteError, OClient, RefreshToken, Url, OAUTH_HTTP_CLIENT};
 
-use windmill_api_auth::ApiAuthed;
+use windmill_api_auth::{ApiAuthed, ScopePathFilter};
 pub mod handler;
 pub(crate) mod lock;
 pub mod sync;
@@ -1493,9 +1493,17 @@ pub async fn list_native_triggers<'c, E: sqlx::Executor<'c, Database = Postgres>
     per_page: Option<usize>,
     path: Option<&str>,
     is_flow: Option<bool>,
+    scope: ScopePathFilter,
 ) -> Result<Vec<NativeTrigger>> {
     let offset = (page.unwrap_or(0) * per_page.unwrap_or(100)) as i64;
     let limit = per_page.unwrap_or(100) as i64;
+    // In the WHERE, not a retain after the fetch: the result is paginated, and a
+    // post-fetch filter would let a page's size report how many rows the token
+    // may not read.
+    let (scope_all, scope_exact, scope_prefix) = match scope {
+        ScopePathFilter::AllowAll => (true, Vec::new(), Vec::new()),
+        ScopePathFilter::Restricted { exact, prefix } => (false, exact, prefix),
+    };
 
     let triggers = sqlx::query_as!(
         NativeTrigger,
@@ -1532,7 +1540,12 @@ pub async fn list_native_triggers<'c, E: sqlx::Executor<'c, Database = Postgres>
                     WHERE f.workspace_id = nt.workspace_id
                     AND f.path = nt.script_path
                 ))
-            )
+            ) AND
+            ( $7
+              OR nt.script_path = ANY($8)
+              OR EXISTS ( SELECT 1 FROM unnest($9::text[]) AS pfx
+                          WHERE nt.script_path = pfx
+                             OR left(nt.script_path, length(pfx) + 1) = pfx || '/' ) )
         LIMIT $3
         OFFSET $4
         "#,
@@ -1541,7 +1554,10 @@ pub async fn list_native_triggers<'c, E: sqlx::Executor<'c, Database = Postgres>
         limit,
         offset,
         path,
-        is_flow
+        is_flow,
+        scope_all,
+        &scope_exact[..],
+        &scope_prefix[..],
     )
     .fetch_all(db)
     .await?;

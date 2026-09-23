@@ -110,6 +110,7 @@ import type { Selection } from 'monaco-editor'
 import type AIChatInput from './AIChatInput.svelte'
 import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
 import { closeInterruptedToolBatch, runChatLoop, truncateToToolPairedPrefix } from './chatLoop'
+import { FREE_TIER_OUTPUT_TOKEN_LIMIT_MESSAGE, OutputTokenLimitError } from './outputTokenLimit'
 import { sanitizeToolCallArguments } from './toolCallArguments'
 import { billedTokens, normalizeContextUsage, type ChatTokenUsage } from './tokenUsage'
 import { logAiUsage } from '$lib/utils/aiUsageReporter'
@@ -377,6 +378,10 @@ function isImageRejection(err: unknown, models: (string | undefined)[] = []): bo
 }
 
 function getSendRequestErrorMessage(err: unknown, webSearchUnavailable: boolean): string {
+	// The request went through; only its response was cut short.
+	if (err instanceof OutputTokenLimitError) {
+		return get(copilotInfo).freeTier ? FREE_TIER_OUTPUT_TOKEN_LIMIT_MESSAGE : err.message
+	}
 	const errorMessage =
 		err instanceof Error ? err.message : typeof err === 'string' ? err : undefined
 	const message = errorMessage
@@ -695,8 +700,8 @@ export class AIChatManager implements ChatViewHost {
 	isSessionChat = $state(false)
 	// What the user may do in this session's operating workspace. Undefined until the
 	// first send resolves it — see `resolveSessionAccessForSend`.
-	// Reactive: `shippedTools` derives from it, so the UI's view of the toolset
-	// follows the resolution instead of a pre-resolution snapshot.
+	// Reactive: both tool views derive from it, so the UI follows the resolution
+	// instead of a pre-resolution snapshot.
 	private sessionAccess = $state<SessionAccess | undefined>(undefined)
 	private sessionAccessGeneration = 0
 	autoAcceptEditsAvailable = $derived(supportsAutoAcceptEdits(this.mode))
@@ -720,14 +725,22 @@ export class AIChatManager implements ChatViewHost {
 		role: 'system',
 		content: ''
 	})
-	tools = $state<Tool<any>[]>([])
-	/** Every tool source converged and capability-filtered — what the request carries,
-	 * so anything describing the toolset or counting its cost reads this, not `tools`.
-	 * One array both advertises the tools and dispatches the calls, which is what makes
-	 * a withheld tool unreachable rather than merely unlisted. */
-	shippedTools = $derived(
-		filterSessionTools([...this.tools, ...this.planMode.tools], this.sessionAccess)
-	)
+	/** The sources the current mode assembled, concatenated. Private, because neither view
+	 * over it is this list: a consumer reading it would advertise a tool set no request ever
+	 * carries. */
+	#assembledTools = $state<Tool<any>[]>([])
+	/** Both views narrow the same way — concatenate every source, then filter — so a tool
+	 * reaching either one can never arrive unfiltered. A session withholds what its user's
+	 * capabilities do not cover; elsewhere `sessionAccess` is unset and nothing is dropped. */
+	#shipped = (planTools: Tool<any>[]): Tool<any>[] =>
+		filterSessionTools([...this.#assembledTools, ...planTools], this.sessionAccess)
+	/** What the request carries: the assembled tools plus the plan-mode transition the current
+	 * posture offers. Read by the request path and by the YOLO disclosure. */
+	tools: Tool<any>[] = $derived(this.#shipped(this.planMode.tools))
+	/** What the assistant can call in this session, posture-independent: both plan-mode
+	 * transitions, whichever one is offered right now. A reference answer, so flipping the
+	 * autonomy picker must not change it. */
+	availableTools: Tool<any>[] = $derived(this.#shipped(this.planMode.availableTools))
 	helpers = $state<any | undefined>(undefined)
 
 	scriptEditorOptions = $state<ScriptOptions | undefined>(undefined)
@@ -1427,7 +1440,7 @@ export class AIChatManager implements ChatViewHost {
 			typeof this.systemMessage.content === 'string'
 				? this.systemMessage.content.length / tokenPerCharacter
 				: 0
-		const tools = this.shippedTools
+		const tools = this.tools
 		const toolTokens =
 			tools.length > 0 ? JSON.stringify(tools.map((t) => t.def)).length / tokenPerCharacter : 0
 		return systemTokens + toolTokens
@@ -1773,7 +1786,7 @@ export class AIChatManager implements ChatViewHost {
 		try {
 			this.apiTools = await loadApiTools()
 			if (this.mode === AIMode.API) {
-				this.tools = [searchDocsTool, readDocsPageTool, ...this.apiTools]
+				this.#assembledTools = [searchDocsTool, readDocsPageTool, ...this.apiTools]
 			}
 		} catch (err) {
 			console.error('Error loading api tools', err)
@@ -2332,9 +2345,9 @@ export class AIChatManager implements ChatViewHost {
 	) {
 		if (!isAIModeVisible(mode)) return
 		// A session chat is GLOBAL for its whole life, and two things read that mode: moving it
-		// lifts the plan gate on a session the user still has set to Plan, and leaves
-		// `shippedTools` filtering a toolset whose names have no policy entries, so it fails
-		// closed to nothing.
+		// lifts the plan gate on a session the user still has set to Plan, and leaves the
+		// capability filter narrowing a toolset whose names have no policy entries, so it
+		// fails closed to nothing.
 		if (this.isSessionChat && mode !== AIMode.GLOBAL) {
 			console.error(`Refusing to move a session chat to ${mode} mode: sessions are GLOBAL-only.`)
 			return
@@ -2357,7 +2370,7 @@ export class AIChatManager implements ChatViewHost {
 				customPrompt
 			)
 			this.systemMessage.content = this.systemMessage.content
-			this.tools = [...prepareScriptTools(currentModel, lang, context)]
+			this.#assembledTools = [...prepareScriptTools(currentModel, lang, context)]
 			this.helpers = {
 				getScriptOptions: () => {
 					return {
@@ -2389,7 +2402,7 @@ export class AIChatManager implements ChatViewHost {
 			this.systemMessage = prepareFlowSystemMessage(customPrompt)
 			this.systemMessage.content = this.systemMessage.content
 			this.appendFlowAiAgentProviders(this.systemMessage)
-			this.tools = [...flowTools]
+			this.#assembledTools = [...flowTools]
 			this.helpers = {
 				...(this.flowAiChatHelpers ?? {}),
 				getWorkspaceMutationTarget: this.getFlowWorkspaceMutationTarget
@@ -2397,17 +2410,17 @@ export class AIChatManager implements ChatViewHost {
 		} else if (mode === AIMode.NAVIGATOR) {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareNavigatorSystemMessage(customPrompt)
-			this.tools = [this.changeModeTool, ...navigatorTools]
+			this.#assembledTools = [this.changeModeTool, ...navigatorTools]
 			this.helpers = {}
 		} else if (mode === AIMode.ASK) {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareAskSystemMessage(customPrompt)
-			this.tools = [...askTools]
+			this.#assembledTools = [...askTools]
 			this.helpers = {}
 		} else if (mode === AIMode.API) {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareApiSystemMessage(customPrompt)
-			this.tools = [searchDocsTool, readDocsPageTool, ...this.apiTools]
+			this.#assembledTools = [searchDocsTool, readDocsPageTool, ...this.apiTools]
 			this.helpers = {}
 		} else if (mode === AIMode.GLOBAL) {
 			this.configureGlobalMode()
@@ -2417,7 +2430,7 @@ export class AIChatManager implements ChatViewHost {
 		} else if (mode === AIMode.APP) {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareAppSystemMessage(customPrompt)
-			this.tools = [...getAppTools()]
+			this.#assembledTools = [...getAppTools()]
 			this.helpers = this.appAiChatHelpers
 		}
 	}
@@ -2456,7 +2469,7 @@ export class AIChatManager implements ChatViewHost {
 				this.rebuildGlobalSystemMessage()
 			}
 		}
-		this.tools = assembleGlobalTools(opts)
+		this.#assembledTools = assembleGlobalTools(opts)
 		this.helpers = pipeline ? { ...baseHelpers, pipeline } : baseHelpers
 		this.systemMessage = assembleGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), opts)
 		this.syncArtifactsSession()
@@ -2969,7 +2982,7 @@ export class AIChatManager implements ChatViewHost {
 		try {
 			// Use JS getters so runChatLoop re-reads tools/helpers/systemMessage/modelProvider
 			// on each iteration. This is critical for changeModeTool (Navigator → Script/Flow)
-			// which reassigns this.tools, this.helpers, this.systemMessage mid-loop.
+			// which reassigns #assembledTools, this.helpers, this.systemMessage mid-loop.
 			const self = this
 			// Pinned for the whole turn, like the `workspace` the loop routes through:
 			// the global chat's operating workspace follows workspaceStore, so a switch
@@ -2994,7 +3007,7 @@ export class AIChatManager implements ChatViewHost {
 					return base
 				},
 				get tools() {
-					return self.shippedTools
+					return self.tools
 				},
 				get helpers() {
 					return self.helpers

@@ -363,6 +363,7 @@ pub async fn check_tag_available_for_workspace_internal(
         && custom_tags_per_w
             .global
             .iter()
+            .chain(custom_tags_per_w.specific.keys())
             .any(|t| t.contains("$workspace"))
     {
         tag_workspace.await
@@ -371,21 +372,35 @@ pub async fn check_tag_available_for_workspace_internal(
     };
     // A job whose tag is written exactly as an entry resolves inside what that entry admits, which
     // is the only way in for an entry `custom_tag_matches` cannot turn into a pattern.
-    let mut is_tag_in_workspace_custom_tags = custom_tags_per_w.global.iter().any(|entry| {
+    let admits = |entry: &str| {
         entry == tag || resolved_tag.is_some_and(|r| custom_tag_matches(entry, r, &tag_workspace))
-    });
-    if !is_tag_in_workspace_custom_tags {
-        if let Some(specific_tag) = custom_tags_per_w.specific.get(resolved_tag.unwrap_or(tag)) {
-            // Only a fork-scoped tag can match through the lineage, so every other tag keeps the
-            // ancestor lookup off the push path entirely.
-            let chain = if specific_tag.is_fork_scoped() {
-                workspace_with_fork_ancestors(db, w_id).await?
-            } else {
-                vec![w_id.to_string()]
-            };
-            is_tag_in_workspace_custom_tags = specific_tag.applies_to_workspace(&chain);
-        }
-    }
+    };
+    let scoped = custom_tags_per_w
+        .specific
+        .iter()
+        .filter(|(name, _)| admits(name))
+        .collect::<Vec<_>>();
+    // Only a fork-scoped tag can match through the lineage, so every other tag keeps the
+    // ancestor lookup off the push path entirely.
+    let chain = if scoped.iter().any(|(_, t)| t.is_fork_scoped()) {
+        workspace_with_fork_ancestors(db, w_id).await?
+    } else {
+        vec![w_id.to_string()]
+    };
+    // A tag listed by its own name with a scope stays inside that scope: a pattern it fits does
+    // not open it to other workspaces. Only listing it by name without a scope does.
+    let lands_on = resolved_tag.unwrap_or(tag);
+    let confined_by = custom_tags_per_w
+        .specific
+        .get_key_value(lands_on)
+        .filter(|(name, t)| {
+            !name.contains('$')
+                && !t.applies_to_workspace(&chain)
+                && !custom_tags_per_w.global.iter().any(|e| e == lands_on)
+        });
+    let is_tag_in_workspace_custom_tags = confined_by.is_none()
+        && (custom_tags_per_w.global.iter().any(|entry| admits(entry))
+            || scoped.iter().any(|(_, t)| t.applies_to_workspace(&chain)));
 
     match is_tag_in_scope_tags {
         Some(true) | None => {
@@ -411,6 +426,32 @@ pub async fn check_tag_available_for_workspace_internal(
 
         if *TAGS_ARE_SENSITIVE {
             return Err(Error::BadRequest(format!("{tag} is not available to you")));
+        } else if let Some((name, confining)) = confined_by {
+            let overridden = custom_tags_per_w
+                .global
+                .iter()
+                .filter(|entry| admits(entry))
+                .cloned()
+                .chain(
+                    scoped
+                        .iter()
+                        .filter(|(_, t)| t.applies_to_workspace(&chain))
+                        .map(|(n, t)| t.authored(n)),
+                )
+                .collect::<Vec<_>>();
+            let overridden = if overridden.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    ", which takes precedence over the custom tags it also fits: {}",
+                    overridden.join(", ")
+                )
+            };
+            return Err(Error::BadRequest(format!(
+                "Tag {tag} is not available in workspace {w_id}: the custom tag {} restricts it \
+                 to other workspaces{overridden}",
+                confining.authored(name)
+            )));
         } else {
             return Err(error::Error::BadRequest(format!(
             "Tag {tag} is not included in the allowed CUSTOM_TAGS, which only super admins can go beyond: {:?}",

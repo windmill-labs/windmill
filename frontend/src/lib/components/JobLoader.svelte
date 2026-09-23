@@ -444,6 +444,8 @@
 										streamedResult.length >= completedResult.length
 											? streamedResult
 											: completedResult
+									njob.raw_code ??= job?.raw_code
+									njob.raw_flow = job?.raw_flow ?? njob.raw_flow
 									job = njob
 									await onJobCompleted(testId, job, callbacks)
 								}
@@ -870,6 +872,11 @@
 									const njob = previewJobUpdates.job as Job & { result_stream?: string }
 									njob.logs = pickMoreCompleteLogs(job?.logs, njob.logs)
 									njob.result_stream = job?.result_stream ?? ''
+									// The server sends the completed job without its code to keep the
+									// update small (no raw_code, "..." for a deployed flow's inline
+									// steps), so keep the code fetched with the initial job.
+									njob.raw_code ??= job?.raw_code
+									njob.raw_flow = job?.raw_flow ?? njob.raw_flow
 									job = njob
 									onJobCompleted(id, job, callbacks)
 								}

@@ -518,7 +518,7 @@
 				webhook = ''
 			}
 		} catch (error) {
-			sendUserToast(`Failed to save webhook: ${error}`, true)
+			sendUserToast(`Failed to save webhook: ${error?.body ?? error}`, true)
 		}
 	}
 

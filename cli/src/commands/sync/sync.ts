@@ -1153,7 +1153,7 @@ export function ZipFSElement(
             ? "script"
             : p.endsWith(".resource.json")
               ? "resource"
-              : p.startsWith("dependencies/")
+              : isWorkspaceDependencies(p)
                 ? "dependencies"
                 : "other";
 
@@ -2752,7 +2752,7 @@ export async function compareDynFSElement(
       if (skipMetadata) {
         continue;
       }
-      if (k.startsWith("dependencies/")) {
+      if (isWorkspaceDependencies(k)) {
         if (!workspaceDependenciesPathToLanguageAndFilename(k)) {
           log.warn(`Skipping unrecognized workspace dependencies file: ${k}`);
           continue;
