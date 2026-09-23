@@ -31,7 +31,9 @@ use crate::{
         s3_stream_and_upload_with_logs, OccupancyMetrics, S3ModeWorkerData,
     },
     handle_child::run_future_with_polling_update_job_poller,
-    sanitized_sql_params::{sanitize_and_interpolate_unsafe_sql_args, SqlStringEscaping},
+    sanitized_sql_params::{
+        has_contextual_variables, sanitize_and_interpolate_unsafe_sql_args, SqlStringEscaping,
+    },
 };
 
 #[derive(Deserialize)]
@@ -161,6 +163,26 @@ fn do_mysql_inner<'a>(
     Ok(result_f.boxed())
 }
 
+/// Under `NO_BACKSLASH_ESCAPES` a backslash-escaped quote closes the literal, so quotes are
+/// doubled instead when the session has it or when the script may turn it on itself.
+async fn mysql_string_escaping(
+    conn: &mut mysql_async::Conn,
+    query: &str,
+) -> windmill_common::error::Result<SqlStringEscaping> {
+    let sql_mode: Option<String> = conn
+        .query_first("SELECT @@SESSION.sql_mode")
+        .await
+        .map_err(to_anyhow)?;
+    let no_backslash_escapes = |s: &str| s.to_ascii_uppercase().contains("NO_BACKSLASH_ESCAPES");
+    Ok(
+        if sql_mode.as_deref().is_some_and(no_backslash_escapes) || no_backslash_escapes(query) {
+            SqlStringEscaping::DoubledQuotes
+        } else {
+            SqlStringEscaping::Backslash
+        },
+    )
+}
+
 pub async fn do_mysql(
     job: &MiniPulledJob,
     client: &AuthedClient,
@@ -262,12 +284,21 @@ pub async fn do_mysql(
     let reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
 
+    let pool = mysql_async::Pool::new(opts);
+    let mut mysql_conn = pool.get_conn().await.map_err(to_anyhow)?;
+
+    let escaping = if has_contextual_variables(query) {
+        mysql_string_escaping(&mut mysql_conn, query).await?
+    } else {
+        SqlStringEscaping::Backslash
+    };
+
     let (query, args_to_skip) = &sanitize_and_interpolate_unsafe_sql_args(
         query,
         &sig,
         &job_args,
         &reserved_variables,
-        SqlStringEscaping::MySql,
+        escaping,
     )?;
 
     let using_named_params = RE_ARG_MYSQL_NAMED.captures_iter(query).count() > 0;
@@ -341,8 +372,6 @@ pub async fn do_mysql(
         }
     }
 
-    let pool = mysql_async::Pool::new(opts);
-    let mysql_conn = pool.get_conn().await.map_err(to_anyhow)?;
     let conn_a = Arc::new(Mutex::new(mysql_conn));
 
     let queries = parse_sql_blocks(query, false);

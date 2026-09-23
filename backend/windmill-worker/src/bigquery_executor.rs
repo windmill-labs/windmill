@@ -438,7 +438,7 @@ pub async fn do_bigquery(
         &sig,
         &bigquery_args,
         &reserved_variables,
-        SqlStringEscaping::BigQuery,
+        SqlStringEscaping::Backslash,
     )?;
 
     let queries = parse_sql_blocks(query, false);
