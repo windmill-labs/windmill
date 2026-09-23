@@ -332,8 +332,10 @@ vi.mock('$lib/gen', async () => {
 					const idx = key.indexOf(':')
 					const path = key.slice(idx + 1)
 					// Like the real endpoint: friendly path from the draft JSON, only
-					// when set and different from the storage path.
-					const draftPath = (value as any)?.draft_path
+					// when set and different from the storage path — a script's is its
+					// own `path`, the other kinds' is `draft_path` (drafts.rs).
+					const draftPath =
+						key.slice(0, idx) === 'script' ? (value as any)?.path : (value as any)?.draft_path
 					return {
 						kind: key.slice(0, idx),
 						path,
@@ -393,12 +395,13 @@ import {
 	deleteGlobalDraft,
 	listGlobalDrafts,
 	persistGlobalDraft,
-	readGlobalDraftValue,
+	readGlobalDraftValueAt,
 	saveGlobalAppDraft
 } from './userDraftAdapter'
 import { bundleRawAppDraft } from './rawAppBundlerBridge'
 import {
 	AppService,
+	DraftService,
 	EmailTriggerService,
 	FlowService,
 	FolderService,
@@ -2407,6 +2410,255 @@ describe('global AI tools', () => {
 		expect(body.force_viewer_sensitive_inputs).toEqual(['api_key'])
 	})
 
+	// A never-deployed app has nothing at its chosen name but the draft_path of a draft stored
+	// elsewhere, so falling back to the deployed app there 404s.
+	it('addresses a never-deployed app by the draft_path it is staged under', async () => {
+		seedBackendDraft(
+			'raw_app',
+			'u/admin/draft_0001',
+			{
+				summary: 'Staged app',
+				draft_path: 'u/admin/staged_app',
+				files: {},
+				runnables: {
+					greet: {
+						name: 'Greet',
+						type: 'inline',
+						inlineScript: { language: 'bun', content: 'export async function main() { return 1 }' }
+					}
+				},
+				data: { tables: [] }
+			},
+			{ workspace: WORKSPACE }
+		)
+
+		await callGlobalTool('test_run_app_runnable', { path: 'u/admin/staged_app', key: 'greet' })
+		const body = vi.mocked(AppService.executeComponent).mock.calls.at(-1)?.[0].requestBody as any
+		expect(body.raw_code).toMatchObject({ language: 'bun' })
+
+		await callGlobalTool('write_app_file', {
+			path: 'u/admin/staged_app',
+			file_path: '/index.tsx',
+			content: 'x'
+		})
+		// Saved back where it was read from: a write at the chosen name would fork the app
+		// into a second draft.
+		expect(getBackendDraft('raw_app', 'u/admin/draft_0001').files['/index.tsx']).toBe('x')
+		expect(getBackendDraft('raw_app', 'u/admin/staged_app')).toBeUndefined()
+	})
+
+	// The chosen name is what the user searches by and what the model should call the app,
+	// and it is the only place it survives once the draft is listed under its storage path.
+	it('finds and names a staged app by its chosen name', async () => {
+		seedBackendDraft(
+			'raw_app',
+			'u/admin/draft_named',
+			{
+				summary: 'Quote tool',
+				draft_path: 'f/sales/quote_app',
+				files: {},
+				runnables: {},
+				data: { tables: [] }
+			},
+			{ workspace: WORKSPACE }
+		)
+
+		const listed = JSON.parse(
+			await callGlobalTool('list_workspace_items', { types: ['app'], query: 'quote_app' })
+		)
+		expect(listed).toContainEqual(
+			expect.objectContaining({ path: 'u/admin/draft_named', draftPath: 'f/sales/quote_app' })
+		)
+		const read = JSON.parse(
+			await callGlobalTool('read_workspace_item', { type: 'app', path: 'f/sales/quote_app' })
+		)
+		expect(read).toMatchObject({ path: 'u/admin/draft_named', draftPath: 'f/sales/quote_app' })
+	})
+
+	it('opens a preview on the draft a chosen name belongs to', async () => {
+		seedBackendDraft(
+			'raw_app',
+			'u/admin/draft_previewed',
+			{ summary: 'Previewed', draft_path: 'f/sales/preview_app', files: {}, runnables: {} },
+			{ workspace: WORKSPACE }
+		)
+		const handler = vi.fn(async () => 'opened')
+		setOpenPreviewHandler(handler)
+		try {
+			await callGlobalTool('open_preview', { kind: 'raw_app', path: 'f/sales/preview_app' })
+			expect(handler).toHaveBeenCalledWith(
+				expect.objectContaining({ kind: 'raw_app', path: 'u/admin/draft_previewed' })
+			)
+		} finally {
+			setOpenPreviewHandler(undefined)
+		}
+	})
+
+	// Without names a chosen name reads as a path of its own, so a write under it would
+	// create a second draft beside the one it meant to edit. A read cannot fork anything,
+	// and keeps working against the deployed item as it did before names existed.
+	// A path with no draft at it may still be a chosen name; the listing is what says so.
+	// Writing to the path itself instead would create a second draft beside the named one.
+	it('refuses to write to an unresolvable path when the drafts cannot be listed', async () => {
+		const workspace = 'ws-unlistable-drafts'
+		const call = (name: string, args: Record<string, unknown>) =>
+			getGlobalTool(name).fn({ args, workspace, helpers: {}, toolCallbacks, toolId: 'no-names' })
+		const listing = vi.mocked(DraftService.listDrafts).getMockImplementation()
+		vi.mocked(DraftService.listDrafts).mockRejectedValue(new Error('server error'))
+
+		try {
+			await expect(
+				call('write_script', {
+					path: 'f/sales/unlistable',
+					language: 'bun',
+					content: 'export async function main() { return 1 }',
+					summary: 'x'
+				})
+			).rejects.toThrow(/Could not load this workspace's drafts/)
+			expect(getBackendDraft('script', 'f/sales/unlistable', { workspace })).toBeUndefined()
+
+			// A draft stored right at the path resolves without the listing, so it still saves.
+			seedBackendDraft(
+				'script',
+				'f/sales/stored',
+				{ path: 'f/sales/stored', summary: 'x', content: 'old', language: 'bun', kind: 'script' },
+				{ workspace }
+			)
+			await call('write_script', {
+				path: 'f/sales/stored',
+				language: 'bun',
+				content: 'export async function main() { return 2 }',
+				summary: 'x'
+			})
+			expect(getBackendDraft<any>('script', 'f/sales/stored', { workspace })?.content).toContain(
+				'return 2'
+			)
+		} finally {
+			vi.mocked(DraftService.listDrafts).mockImplementation(listing!)
+		}
+	})
+
+	// A draft can exist only as a local cell — a second session tab, or an editor with
+	// autosave off — with no backend row to fall back to.
+	it('reads a cell-only draft by its chosen name', async () => {
+		UserDraft.save(
+			'raw_app',
+			'u/admin/draft_cell_only',
+			{ summary: 'Cell only', draft_path: 'f/sales/cell_app', files: {}, runnables: {} },
+			{ workspace: WORKSPACE }
+		)
+
+		const read = JSON.parse(
+			await callGlobalTool('read_workspace_item', { type: 'app', path: 'f/sales/cell_app' })
+		)
+		expect(read).toMatchObject({ path: 'u/admin/draft_cell_only', summary: 'Cell only' })
+	})
+
+	// Deploying by the chosen name creates the app at that name, which would then win the
+	// name back and leave the draft the deploy came from listed forever.
+	it('removes the source draft of an app deployed by its chosen name', async () => {
+		const storageKey = 'u/admin/draft_deployed_by_name'
+		seedBackendDraft(
+			'raw_app',
+			storageKey,
+			{
+				summary: 'By name',
+				draft_path: 'f/sales/by_name',
+				files: { '/App.tsx': 'export default () => null' },
+				runnables: {},
+				data: { tables: [] }
+			},
+			{ workspace: WORKSPACE }
+		)
+		const deployed = new Set<string>()
+		vi.mocked(AppService.existsApp).mockImplementation(async ({ path }) => deployed.has(path))
+		vi.mocked(AppService.createAppRaw).mockImplementation(async ({ formData }: any) => {
+			deployed.add(formData.app.path)
+			return 1 as any
+		})
+		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({
+			draft: { draft_path: 'f/sales/by_name' }
+		} as any)
+
+		try {
+			await callGlobalTool('deploy_workspace_item', { type: 'app', path: 'f/sales/by_name' })
+			expect(deployed.has('f/sales/by_name')).toBe(true)
+			expect(getBackendDraft('raw_app', storageKey, { workspace: WORKSPACE })).toBeUndefined()
+		} finally {
+			vi.mocked(AppService.existsApp).mockImplementation(async () => false)
+			vi.mocked(AppService.createAppRaw).mockImplementation(async () => 1 as any)
+		}
+	})
+
+	// Deleting the deployed item removes the reason its path outranks a draft staged under
+	// that name, so a cleanup resolved afterwards would delete that unrelated draft.
+	it('leaves alone a draft staged under a deleted item\'s path', async () => {
+		seedBackendDraft(
+			'raw_app',
+			'u/admin/draft_namesake',
+			{ summary: 'Namesake', draft_path: 'f/sales/deleted_app', files: {}, runnables: {} },
+			{ workspace: WORKSPACE }
+		)
+		const deletedApps = new Set<string>()
+		vi.mocked(AppService.existsApp).mockImplementation(
+			async ({ path }) => path === 'f/sales/deleted_app' && !deletedApps.has(path)
+		)
+		const deleteApp = vi
+			.spyOn(AppService, 'deleteApp')
+			.mockImplementation(async ({ path }: any) => {
+				deletedApps.add(path)
+				return 'deleted' as any
+			})
+
+		try {
+			await callGlobalTool('delete_workspace_item', { type: 'app', path: 'f/sales/deleted_app' })
+			expect(
+				getBackendDraft('raw_app', 'u/admin/draft_namesake', { workspace: WORKSPACE })
+			).toBeDefined()
+		} finally {
+			vi.mocked(AppService.existsApp).mockImplementation(async () => false)
+			deleteApp.mockRestore()
+		}
+	})
+
+	it('refuses a draft_path that two drafts are staged under', async () => {
+		for (const storage of ['u/admin/draft_a', 'u/admin/draft_b']) {
+			seedBackendDraft(
+				'raw_app',
+				storage,
+				{ draft_path: 'u/admin/twin', files: {}, runnables: {}, data: { tables: [] } },
+				{ workspace: WORKSPACE }
+			)
+		}
+		await expect(
+			callGlobalTool('test_run_app_runnable', { path: 'u/admin/twin', key: 'greet' })
+		).rejects.toThrow(/u\/admin\/draft_a, u\/admin\/draft_b/)
+	})
+
+	// The chosen name resolves through the live editor only while it stays open; the storage
+	// path keeps resolving after the tab closes.
+	it("hands the model a live app editor's storage path", async () => {
+		seedBackendDraft(
+			'raw_app',
+			'u/admin/draft_live',
+			{ draft_path: 'u/admin/chosen', files: {}, runnables: {}, data: { tables: [] } },
+			{ workspace: WORKSPACE }
+		)
+		UserDraft.setLiveEditorDraft({
+			workspace: WORKSPACE,
+			itemKind: 'raw_app',
+			storagePath: 'u/admin/draft_live',
+			effectivePath: 'u/admin/chosen'
+		})
+
+		const listed = JSON.parse(await callGlobalTool('list_workspace_items', { types: ['app'] }))
+		expect(listed).toContainEqual(
+			expect.objectContaining({ path: 'u/admin/draft_live', draftPath: 'u/admin/chosen' })
+		)
+		const message = prepareGlobalUserMessage('hi', [], { workspace: WORKSPACE })
+		expect(message.content).toContain('path: u/admin/draft_live\ndraft_path: u/admin/chosen\n')
+	})
+
 	// The undeployed-flow 404 is the whole reason this tool exists, and the generated client
 	// leaves the server's message in `body` while `message` is the bare status text.
 	it("surfaces the server's message when a path runnable's target is not deployed", async () => {
@@ -2676,7 +2928,7 @@ describe('global AI tools', () => {
 	// directly: a non-force save whose recorded baseline is older than the
 	// server row is rejected with `status:'conflict'`, and `override` (force)
 	// pushes our version through. NB: this targets persistGlobalDraft, not the
-	// write_* tools — those re-read the backend first (readGlobalDraftValue ->
+	// write_* tools — those re-read the backend first (readGlobalDraftValueAt ->
 	// recordRemoteSync), which re-seeds the baseline and so can only surface a
 	// conflict when a live editor cell is mounted (not the case in unit tests).
 	it('persistGlobalDraft surfaces a conflict on a stale baseline and override forces it', async () => {
@@ -2741,7 +2993,7 @@ describe('global AI tools', () => {
 	it('a non-404 backend read failure propagates instead of returning undefined', async () => {
 		const path = 'f/scripts/readfail'
 		failingReads.add(`script:${path}`)
-		await expect(readGlobalDraftValue(WORKSPACE, 'script', path)).rejects.toThrow()
+		await expect(readGlobalDraftValueAt(WORKSPACE, 'script', path)).rejects.toThrow()
 	})
 
 	// Raw-app writes go through saveGlobalAppDraft, which must carry the conflict
@@ -3160,6 +3412,85 @@ describe('global AI tools', () => {
 				callGlobalTool('deploy_workspace_item', { type: 'script', path: 'f/scripts/stale' })
 			).rejects.toThrow(/older deployed version/)
 			expect(ScriptService.createScript).not.toHaveBeenCalled()
+		})
+
+		// A script's chosen name is its value's own `path`, and a rename stays stored at the
+		// deployed path — so the draft this addresses is based on the item at that old path.
+		it('guards a renamed script draft against the version it was started from', async () => {
+			seedBackendDraft('script', 'f/scripts/renamed_old', {
+				path: 'f/scripts/renamed_new',
+				summary: 's',
+				description: '',
+				content: 'draft content',
+				language: 'bun',
+				kind: 'script',
+				parent_hash: 'base-hash',
+				schema: {}
+			})
+			vi.mocked(ScriptService.existsScriptByPath).mockImplementation(
+				async ({ path }) => path === 'f/scripts/renamed_old'
+			)
+			vi.mocked(ScriptService.getScriptByPath).mockResolvedValue({
+				path: 'f/scripts/renamed_old',
+				hash: 'new-hash',
+				content: 'latest deployed',
+				language: 'bun',
+				summary: 's'
+			} as any)
+
+			await expect(
+				callGlobalTool('deploy_workspace_item', { type: 'script', path: 'f/scripts/renamed_new' })
+			).rejects.toThrow(/older deployed version/)
+			expect(ScriptService.createScript).not.toHaveBeenCalled()
+		})
+
+		// The shared deployer deploys a script at the path inside the draft, so the deployed
+		// path is the chosen name — what the preview follows and the mask entry moves to.
+		it('reports where a draft-only script landed, not the key it was stored at', async () => {
+			seedBackendDraft('script', 'u/admin/draft_s1', {
+				path: 'f/team/new_script',
+				summary: 's',
+				description: '',
+				content: 'export async function main() { return 1 }',
+				language: 'bun',
+				kind: 'script',
+				schema: {}
+			})
+			vi.mocked(ScriptService.existsScriptByPath).mockResolvedValue(false)
+			// What the shared deployer reads to deploy at the draft's own path.
+			vi.mocked(ScriptService.getScriptByPath).mockResolvedValue({
+				hash: 'h1',
+				draft: {
+					path: 'f/team/new_script',
+					summary: 's',
+					content: 'export async function main() { return 1 }',
+					language: 'bun',
+					kind: 'script',
+					schema: {}
+				}
+			} as any)
+			const onDeployed = vi.fn()
+			setDeployedInSessionHandler(onDeployed)
+			try {
+				await callGlobalTool('deploy_workspace_item', {
+					type: 'script',
+					path: 'u/admin/draft_s1'
+				})
+				expect(ScriptService.createScript).toHaveBeenCalledWith(
+					expect.objectContaining({
+						requestBody: expect.objectContaining({ path: 'f/team/new_script' })
+					})
+				)
+				expect(onDeployed).toHaveBeenCalledWith(
+					expect.objectContaining({
+						kind: 'script',
+						path: 'u/admin/draft_s1',
+						deployedPath: 'f/team/new_script'
+					})
+				)
+			} finally {
+				setDeployedInSessionHandler(undefined)
+			}
 		})
 
 		it('deploys a stale script draft when force is set', async () => {
@@ -4393,6 +4724,37 @@ describe('global AI tools', () => {
 		)
 	})
 
+	// Nothing checks a chosen name before deploy, so a draft can be staged under the path of
+	// an app that is already deployed.
+	it('keeps a deployed app at a name a draft is staged under', async () => {
+		const storageKey = 'u/admin/draft_clash'
+		const takenPath = 'f/team/taken_app'
+		seedBackendDraft(
+			'raw_app',
+			storageKey,
+			{ summary: 'Clash', files: {}, runnables: {}, data: { tables: [] }, draft_path: takenPath },
+			{ workspace: WORKSPACE }
+		)
+		vi.mocked(AppService.existsApp).mockImplementation(async ({ path }) => path === takenPath)
+		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({
+			draft: { draft_path: takenPath }
+		} as any)
+		try {
+			// The name addresses the deployed app, which has no draft, not the draft staged under it…
+			await expect(
+				callGlobalTool('deploy_workspace_item', { type: 'app', path: takenPath })
+			).rejects.toThrow(/No draft found/)
+			// …and deploying that draft refuses to overwrite the deployed app.
+			await expect(
+				callGlobalTool('deploy_workspace_item', { type: 'app', path: storageKey })
+			).rejects.toThrow(/another app is already deployed there/)
+			expect(AppService.updateAppRaw).not.toHaveBeenCalled()
+			expect(AppService.createAppRaw).not.toHaveBeenCalled()
+		} finally {
+			vi.mocked(AppService.existsApp).mockImplementation(async () => false)
+		}
+	})
+
 	it('aborts a raw app deploy when the draft_path lookup fails (non-404)', async () => {
 		// A real lookup failure (network/5xx) must abort, not silently fall back to the
 		// storage path and deploy there. Only a 404 justifies the storage-path fallback.
@@ -4601,7 +4963,8 @@ describe('global AI tools', () => {
 			expect(onDeployed).toHaveBeenCalledWith({
 				sessionId: 'sess-123',
 				kind: 'raw_app',
-				path: 'f/apps/report'
+				path: 'f/apps/report',
+				deployedPath: 'f/apps/report'
 			})
 		} finally {
 			setDeployedInSessionHandler(undefined)
@@ -6725,8 +7088,7 @@ describe('session pipeline surface (alpha)', () => {
 					return r
 				}
 			)
-			await Promise.resolve()
-			expect(handler).toHaveBeenCalled()
+			await vi.waitFor(() => expect(handler).toHaveBeenCalled())
 			expect(settled).toBe(false)
 			release('opened')
 			expect(await call).toBe('opened')

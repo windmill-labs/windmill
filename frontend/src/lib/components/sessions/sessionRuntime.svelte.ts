@@ -1273,7 +1273,7 @@ setClosePreviewTabsHandler(({ sessionId: callerSessionId, all, match }) => {
 
 // After a chat deploy, reload the calling session's preview — only if it's open
 // showing that exact item.
-setDeployedInSessionHandler(({ sessionId: callerSessionId, kind, path }) => {
+setDeployedInSessionHandler(({ sessionId: callerSessionId, kind, path, deployedPath }) => {
 	const sessionId = callerSessionId ?? sessionState.currentSessionId
 	if (!sessionId) return
 	const session = sessionState.sessions.find((s) => s.id === sessionId)
@@ -1281,8 +1281,18 @@ setDeployedInSessionHandler(({ sessionId: callerSessionId, kind, path }) => {
 	if (!session?.workspace_id || !runtime) return
 	// Peek without creating a cell: a deploy for an item with no open editor tab
 	// must not allocate an empty cell that lingers until the next prune.
-	if (runtime.loadedEditorPath(kind, path) !== path) return
-	runtime.syncPreviewWithDeployed(session.workspace_id, kind, path)
+	const mounted = runtime.loadedEditorPath(kind, path) === path
+	if (deployedPath !== path) {
+		// The draft the tab is open on is gone: forget it and follow the item to the path it
+		// now lives at, so the tab doesn't sit on a path nothing resolves to. A restored
+		// session mounts only its active tab, so this runs off tab presence, not the cell.
+		// `forgetLocal`, not stopSync/discard: the deploy already removed the row, and this
+		// leaves neither a suspension to restart nor a delete to land on a later draft.
+		UserDraft.forgetLocal(kind, path, { workspace: session.workspace_id })
+		runtime.previewTabs.retargetEditorItem({ kind, path }, { kind, path: deployedPath })
+	}
+	if (!mounted) return
+	runtime.syncPreviewWithDeployed(session.workspace_id, kind, deployedPath)
 })
 
 setGetRuntimeLogsHandler(async ({ sessionId: callerSessionId, limit }) => {

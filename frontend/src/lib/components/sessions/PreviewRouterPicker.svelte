@@ -34,7 +34,7 @@ section or the flat layout.
 		relativizeWorkspacePath
 	} from '$lib/components/workspaceTree'
 	import {
-		getGlobalDraftStoragePath,
+		liveGlobalDraftStoragePath,
 		listGlobalDrafts
 	} from '$lib/components/copilot/chat/global/userDraftAdapter'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
@@ -129,7 +129,7 @@ section or the flat layout.
 				// display-only, so picking a leaf keyed by it would route to a 404.
 				// Re-key to the storage path (identity, dedupe against the loaded
 				// row, navigation) and demote the friendly path to `draftPath`.
-				const storagePath = ws ? getGlobalDraftStoragePath(ws, targetType, d.path) : d.path
+				const storagePath = ws ? liveGlobalDraftStoragePath(ws, targetType, d.path) : d.path
 				return {
 					path: storagePath,
 					draftPath: storagePath !== d.path ? d.path : d.draftPath,
