@@ -46,8 +46,7 @@
 		messageIndex: number
 		editingMessageIndex: number | null
 		isLast?: boolean
-		// The last row of a turn, or of a flow step's run within one.
-		endsTurn?: boolean
+		showAnswerActions?: boolean
 	}
 
 	let {
@@ -56,7 +55,7 @@
 		availableContext,
 		editingMessageIndex = $bindable(null),
 		isLast = false,
-		endsTurn = false
+		showAnswerActions = true
 	}: Props = $props()
 
 	// The edit box edits a copy of THIS message's original context, not the live
@@ -152,7 +151,11 @@
 			>
 				{#if message.role === 'assistant'}
 					<div class="px-[1px] group/answer"
-						><AssistantMessage {message} workspace={messageWorkspace} showActions={endsTurn} /></div
+						><AssistantMessage
+							{message}
+							workspace={messageWorkspace}
+							showActions={showAnswerActions}
+						/></div
 					>
 				{:else if message.role === 'tool'}
 					<div class="px-[1px]"

@@ -272,14 +272,23 @@
 	// guard for the same reason.
 	const sticker = createBottomSticker()
 
-	// A flow step's answer ends its run even when another step's rows follow in the same
-	// turn, and its action row is the only link to that step's run.
-	function endsTurn(messageIndex: number): boolean {
-		const message = messages[messageIndex]
-		const next = messages[messageIndex + 1]
-		if (!next || next.role === 'user' || next.role === 'summary') return true
-		return message.role === 'assistant' && !!message.jobId && next.jobId !== message.jobId
-	}
+	// Per message: whether it is the last answer of its turn — per flow step, since each step's
+	// last answer carries the only link to that step's run. Keyed on answers, not on the next
+	// row: a flow's tool rows have their own job, and a stopped turn can end on a tool row.
+	const showsAnswerActions = $derived.by(() => {
+		const shows: boolean[] = new Array(messages.length).fill(false)
+		const answeredLater = new Set<string | undefined>()
+		for (let i = messages.length - 1; i >= 0; i--) {
+			const message = messages[i]
+			if (message.role === 'user' || message.role === 'summary') {
+				answeredLater.clear()
+			} else if (message.role === 'assistant' && message.content) {
+				shows[i] = !answeredLater.has(message.stepName)
+				answeredLater.add(message.stepName)
+			}
+		}
+		return shows
+	})
 
 	function scrollDown() {
 		sticker.scrollToEnd(scrollElement)
@@ -841,7 +850,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 							{availableContext}
 							bind:editingMessageIndex
 							isLast={messageIndex === messages.length - 1}
-							endsTurn={endsTurn(messageIndex)}
+							showAnswerActions={showsAnswerActions[messageIndex]}
 						/>
 					{/each}
 					{#if freeTierExhausted}
