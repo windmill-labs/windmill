@@ -43,6 +43,11 @@ import type {
 	Script,
 	ScriptLang
 } from '$lib/gen/types.gen'
+import { loadSchemaFromModule, memoryPropertyFor } from '$lib/components/flows/flowInfers'
+import { flowLocalAgentSchema } from '$lib/components/flows/agentResourceUtils'
+import { AGENT_FIELDS, initialVisibleAgentFields } from '$lib/components/flows/agentFormFields'
+import { withAgentDrafts } from '$lib/components/flows/linkedAgentDrafts'
+import { evalValue } from '$lib/components/flows/utils.svelte'
 import { updateRawAppPolicy } from '$lib/components/raw_apps/rawAppPolicy'
 import {
 	FRAMEWORK_TEMPLATES,
@@ -984,7 +989,7 @@ const testRunStepSchema = z.object({
 const testRunStepToolDef = createToolDef(
 	testRunStepSchema,
 	'test_run_step',
-	"Execute a test run of one step in a flow by path, preferring draft flow/script content when it exists. `args` are the step's OWN inputs, not the flow's: a step is normally fed by its input transforms, so send what that step's code takes, not what the flow takes. The user gets an argument form prefilled with `args` and may edit or dismiss it before it runs, so fill in every argument you can infer. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal is minted into a short-lived secret before the run, but stays in this call.",
+	"Execute a test run of one step in a flow by path, preferring draft flow/script content when it exists. `args` are the step's OWN inputs, not the flow's: a step is normally fed by its input transforms, so send what that step's code takes, not what the flow takes. An AI agent step takes the inputs a run supplies rather than code arguments, `user_message` above all; its form opens on the step's own configuration, so send only what this run should change. The user gets an argument form prefilled with `args` and may edit or dismiss it before it runs, so fill in every argument you can infer. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal is minted into a short-lived secret before the run, but stays in this call.",
 	{ strict: false }
 )
 
@@ -5631,6 +5636,58 @@ async function loadSubflowForFlowStep(
 	}
 }
 
+/**
+ * The run form for an agent step: the rows the flow editor's own step test shows, opened on the
+ * values it opens them with, built from that form's helpers so the two cannot drift.
+ */
+async function agentStepRunForm(
+	module: FlowModule,
+	workspace: string,
+	proposed: Record<string, any> | null | undefined
+): Promise<{ schema: Record<string, any>; args: Record<string, any> }> {
+	const transforms = (module.value as { input_transforms?: Record<string, any> }).input_transforms
+	// A linked step's brain belongs to the resource rather than to this flow, so only the inputs
+	// this flow supplies are its to edit.
+	const full = (await loadSchemaFromModule(module, workspace)).schema
+	const schema = (module.value as { agent?: string }).agent ? flowLocalAgentSchema(full) : full
+
+	const visible = initialVisibleAgentFields(transforms, schema.properties)
+	// What the model asked to set, shown even where the step configures nothing: this form has no
+	// control for opening a row, so a field left out of it is one the chat cannot reach at all.
+	for (const key of Object.keys(proposed ?? {})) visible.add(key)
+	const position = new Map(AGENT_FIELDS.map((field, index) => [field.key, index]))
+	const keys = Object.keys(schema.properties ?? {})
+		// A key the field registry does not know is kept, so a new one is never silently dropped.
+		.filter((key) => !position.has(key) || visible.has(key))
+		.sort((a, b) => (position.get(a) ?? Infinity) - (position.get(b) ?? Infinity))
+
+	const evaluated: Record<string, any> = {}
+	for (const key of keys) {
+		const value = evalValue(key, module, undefined, false)
+		if (value !== undefined) evaluated[key] = value
+	}
+	const args = { ...evaluated, ...(proposed ?? {}) }
+
+	return {
+		schema: {
+			...schema,
+			properties: Object.fromEntries(
+				keys.map((key) => [
+					key,
+					key === 'memory'
+						? memoryPropertyFor(schema.properties.memory, args.memory)
+						: schema.properties[key]
+				])
+			),
+			order: keys,
+			required: ((schema.required as string[] | undefined) ?? []).filter((key) =>
+				keys.includes(key)
+			)
+		},
+		args
+	}
+}
+
 // Leaf of a workspace path (last segment), for human-readable confirmation
 // prompts. Falls back to the full path, then a generic noun.
 function pathLeaf(path: unknown, fallback: string): string {
@@ -6088,7 +6145,9 @@ async function testRunFlowStepByPath(
 		toolCallbacks,
 		toolId,
 		loadScript: loadScriptForFlowStep,
-		loadSubflow: loadSubflowForFlowStep
+		loadSubflow: loadSubflowForFlowStep,
+		flowPath: args.path,
+		withAgentDrafts: (value) => withAgentDrafts(value, workspace)
 	})
 
 	// The module resolution landed on, not the id that was asked for: the job's entrypoint
@@ -6097,15 +6156,20 @@ async function testRunFlowStepByPath(
 	const isPreprocessor = resolved.module.id === SPECIAL_MODULE_IDS.PREPROCESSOR
 	// The step's own inputs, never the flow's: a step is fed by its input transforms, so the
 	// flow's schema names arguments this job would ignore and omits the ones it takes.
+	const agentForm =
+		resolved.module.value.type === 'aiagent'
+			? await agentStepRunForm(resolved.module, workspace, args.args)
+			: undefined
 	const schema =
-		resolved.code != undefined && resolved.lang
+		agentForm?.schema ??
+		(resolved.code != undefined && resolved.lang
 			? await schemaForTestRun({
 					content: resolved.code,
 					language: resolved.lang,
 					schema: resolved.schema,
 					entrypoint: isPreprocessor ? 'preprocessor' : undefined
 				})
-			: (resolved.schema ?? {})
+			: (resolved.schema ?? {}))
 
 	const stepSummary = resolved.module.summary
 	return runThroughForm(
@@ -6123,7 +6187,7 @@ async function testRunFlowStepByPath(
 			// itself be a draft.
 			schemaNoun: 'step',
 			toolName: 'test_run_step',
-			proposed: args.args,
+			proposed: agentForm?.args ?? args.args,
 			startMessage: resolved.startMessage,
 			contextName: resolved.runnableKind,
 			noun: 'step',
@@ -6132,7 +6196,9 @@ async function testRunFlowStepByPath(
 			autoAcceptable: true,
 			background: args.background,
 			detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
-			startJob: resolved.startJob
+			startJob: agentForm
+				? (submitted) => resolved.startJob(submitted, agentForm.schema.order)
+				: resolved.startJob
 		},
 		ctx
 	)
