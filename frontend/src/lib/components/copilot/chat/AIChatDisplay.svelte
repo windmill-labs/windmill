@@ -276,9 +276,10 @@
 	// run's last answer carries the only link to that run. Keyed on the answer's own job (a step
 	// label repeats when a step runs in a loop), and on answers rather than the next row: a
 	// flow's tool rows have their own job, and a stopped turn can end on a tool row.
-	// None in a turn still running: which answer ends it is unknown until it does, and an
-	// answer followed by a tool call would leave the row's blank gap above that call. A manual
-	// compaction loads without a turn of its own, so it leaves the last turn's row in place.
+	// None in a turn still running, paused on the user included (their reply lands as a tool
+	// result, so a row shown during the pause would vanish again): which answer ends the turn is
+	// unknown until it does, and one followed by a tool call would leave the row's blank gap above
+	// it. A manual compaction loads without a turn of its own, so the last turn keeps its row.
 	const showsAnswerActions = $derived.by(() => {
 		const shows: boolean[] = new Array(messages.length).fill(false)
 		const answeredLater = new Set<string | undefined>()
