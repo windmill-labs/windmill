@@ -465,8 +465,8 @@ export function createDbSchemaTool<T>(
 ): SessionTool<T> {
 	const { description, updateEditorCache = true } = opts
 	return {
-		// `getDbSchemas` below starts that job through /jobs/run/preview, which jobs.rs
-		// refuses operators — so this reads like a lookup but gates like a preview run.
+		// `getDbSchemas` below introspects by running a query job through /jobs/run/preview,
+		// which jobs.rs refuses operators — so this reads like a lookup but gates like a run.
 		requires: RUN_PREVIEW,
 		def: description
 			? {

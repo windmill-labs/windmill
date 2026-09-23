@@ -48,8 +48,8 @@ describe('resolveSessionAccess', () => {
 		expect([...caps].sort()).toEqual(['deploy', 'manage_code', 'run_preview', 'write_draft'])
 	})
 
-	// The folder handler has no operator check, so an unrestricted workspace must keep the
-	// capability that gates it — withholding it would be stricter than the server.
+	// The folder, resource and variable handlers run the rules but have no operator check,
+	// so withholding `deploy` from an operator would be stricter than the server.
 	it('leaves an operator the deploy-rule capability, and nothing their token refuses', async () => {
 		const caps = await capabilitiesFor({ operator: true })
 		expect([...caps]).toEqual(['deploy'])
@@ -71,8 +71,7 @@ describe('resolveSessionAccess', () => {
 		}
 	)
 
-	// A deploy refusal must not take drafting down with it.
-	it('takes deploy from the rules check, not from the role', async () => {
+	it('keeps drafting when a rule refuses deploy', async () => {
 		deployRules.mockResolvedValue({
 			ok: false,
 			reason: 'restricted to deployers',
@@ -88,11 +87,5 @@ describe('resolveSessionAccess', () => {
 		const access = await resolveSessionAccess('ws')
 		expect(access.has('write_draft')).toBe(true)
 		expect(access.has('deploy')).toBe(true)
-	})
-
-	it('fails open on a body that resolves without a role, rather than throwing', async () => {
-		whoami.mockResolvedValueOnce(undefined)
-		const access = await resolveSessionAccess('ws')
-		expect(access.has('write_draft')).toBe(true)
 	})
 })

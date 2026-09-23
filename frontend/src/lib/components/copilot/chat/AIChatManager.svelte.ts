@@ -699,10 +699,7 @@ export class AIChatManager implements ChatViewHost {
 	// needs the preview pane; the global side-panel chat leaves it false. Reactive because
 	// `planModeAvailable` derives from it.
 	isSessionChat = $state(false)
-	// What the user may do in this session's operating workspace. Undefined until the
-	// first send resolves it — see `resolveSessionAccessForSend`.
-	// Reactive: both tool views derive from it, so the UI follows the resolution
-	// instead of a pre-resolution snapshot.
+	// Undefined until the first send resolves it. Reactive: both tool views derive from it.
 	private sessionAccess = $state<SessionAccess | undefined>(undefined)
 	private sessionAccessGeneration = 0
 	autoAcceptEditsAvailable = $derived(supportsAutoAcceptEdits(this.mode))
@@ -2346,9 +2343,8 @@ export class AIChatManager implements ChatViewHost {
 	) {
 		if (!isAIModeVisible(mode)) return
 		// A session chat is GLOBAL for its whole life, and two things read that mode: moving it
-		// lifts the plan gate on a session the user still has set to Plan, and leaves the
-		// capability filter narrowing a toolset whose names have no policy entries, so it
-		// fails closed to nothing.
+		// lifts the plan gate on a session the user still has set to Plan, and hands the
+		// capability filter tools that declare no `requires`, so it fails closed to nothing.
 		if (this.isSessionChat && mode !== AIMode.GLOBAL) {
 			console.error(`Refusing to move a session chat to ${mode} mode: sessions are GLOBAL-only.`)
 			return
@@ -2559,8 +2555,7 @@ export class AIChatManager implements ChatViewHost {
 
 	// Re-resolved per send rather than once for the session's life: the operating workspace
 	// can change between sends, and a transient failure resolves fail-open, so the next
-	// message re-asks rather than keeping that answer. How fresh the role itself is is stated
-	// in `resolveSessionAccess`, not here. Only sessions are filtered.
+	// message re-asks rather than keeping that answer.
 	private resolveSessionAccessForSend = async (workspace: string) => {
 		if (!this.isSessionChat || !workspace) {
 			this.sessionAccess = undefined
@@ -3598,12 +3593,9 @@ export class AIChatManager implements ChatViewHost {
 				this.refreshMcpServers(this.operatingWorkspace ?? ''),
 				this.resolveSessionAccessForSend(this.operatingWorkspace ?? '')
 			])
-			// Each of the above rebuilds as it lands, in whichever order they do, so a
-			// prompt built before the access profile resolved would still advertise the
-			// withheld tools. Rebuild once more, from the settled set — but only if the
-			// mode still is GLOBAL, as each of them checks: the picker stays live across
-			// the awaits, and rebuilding regardless would hand an editor mode the global
-			// toolset while `mode` still reads SCRIPT.
+			// Each of the above rebuilds as it lands, in any order, so rebuild once more from
+			// the settled set. Only in GLOBAL: the picker stays live across the awaits, and an
+			// unconditional rebuild would hand an editor mode the global toolset.
 			if (this.mode === AIMode.GLOBAL) {
 				this.configureGlobalMode()
 			}

@@ -103,8 +103,6 @@ describe('session tool policies', () => {
 		expect(filterSessionTools(tools, fullSessionAccess())).toHaveLength(tools.length)
 	})
 
-	// The one verdict the filter still makes itself: every array feeding a session is typed
-	// to declare a policy, so a tool without one arrived some other way.
 	it('withholds a tool that arrives without a policy', () => {
 		expect(sessionToolAllowed({ def: globalTools[0].def }, fullSessionAccess())).toBe(false)
 	})
@@ -150,16 +148,9 @@ describe('session tool policies', () => {
 		expect((original.def.function.parameters as any).properties.type.enum).toContain('script')
 	})
 
-	// The prompt is documentation OF the toolset, so it must never name a tool the same
-	// profile withheld — an instruction to call a tool the model was not given is what
-	// produces invented calls and promises the chat cannot keep.
-	//
-	// Asserted over the ASSEMBLED message, not `prepareGlobalSystemMessage` alone: what
-	// actually ships is that plus the session-state section, the pipeline-editor section
-	// and plan mode's decoration, each appended by a different caller, and gating only the
-	// first looks correct while the others still name withheld tools. Both axes are swept —
-	// every reachable profile, and every tool that can reach a session — so neither a new
-	// tool nor a new capability combination slips past.
+	// Naming a tool the model was not given produces invented calls. Asserted over the
+	// ASSEMBLED message: the session-state, pipeline and plan-mode sections are each
+	// appended by a different caller, and each can name a withheld tool.
 	it.each(REACHABLE_PROFILES)(
 		'never names a withheld tool in the assembled prompt (%s)',
 		(_label, access) => {
@@ -187,10 +178,8 @@ describe('session tool policies', () => {
 		}
 	)
 
-	// The sweep above reads tool definitions and the prompt. A tool RESULT is the third
-	// place a withheld name reaches the model, and the only one neither can see —
-	// `get_instructions` ships to every profile and its guidance is written around the
-	// draft tools by name.
+	// A tool result is the one place the sweep above cannot see, and `get_instructions`
+	// ships to every profile with guidance written around the draft tools by name.
 	it('does not hand authoring guidance naming withheld tools to a session that cannot draft', async () => {
 		const tool = globalTools.find((t) => t.def.function.name === 'get_instructions')!
 		const call = (access: SessionAccess) =>

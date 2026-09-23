@@ -40,10 +40,8 @@ export const RUN_PREVIEW: SessionToolPolicy = ['run_preview']
 export const DEPLOY: SessionToolPolicy = ['deploy']
 
 /**
- * A tool that can reach an AI session's toolset. `requires` is declared on the tool, beside
- * the `fn` that makes the call, because that call is the only thing that shows the policy
- * is right — a policy kept elsewhere reads plausibly while naming an endpoint the tool does
- * not touch. Mandatory, so a tool cannot reach a session without one.
+ * A tool that can reach an AI session's toolset. `requires` is mandatory, and declared
+ * beside the `fn` whose call is what proves it right.
  */
 export type SessionTool<T> = Tool<T> & {
 	requires: SessionToolPolicy

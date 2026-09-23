@@ -1340,8 +1340,7 @@ const buildGlobalSystemPrompt = (
 	// rule cannot outlive the tool it describes. An unresolved profile keeps every block.
 	const canWriteDraft = !access || access.has('write_draft')
 	const canRunPreview = !access || access.has('run_preview')
-	// Only this block: the deploy tools take their kind as an argument, so their bullets
-	// ship with the drafts they act on, not with this capability.
+	// The deploy tools take their kind as an argument, so `deploy` gates only the folder text.
 	const canCreateFolder = !access || access.has('deploy')
 	// Each gated block carries its own leading newline, so dropping one leaves no blank
 	// line behind and a full-access prompt is byte-for-byte the ungated text.
@@ -1383,9 +1382,6 @@ ${
 		? 'Use tools to inspect workspace items and create per-user drafts (saved server-side, visible only to this user — not deployed) for scripts, flows, schedules, triggers, resources, variables, and raw apps.'
 		: "Use tools to inspect workspace items and the workspace's run history, and to run items that are already deployed. You cannot create or edit scripts, flows, apps, schedules, triggers, resources or variables here — this user's role does not allow it — so when they ask for such a change, say plainly that you cannot make it rather than describing steps as if you had."
 }${when(
-		// Every line here is about choosing a path for something NEW; with nothing to
-		// create, the whole block is context tax. The folder guidance rides its own
-		// capability below, since folder creation survives a role that cannot draft.
 		canWriteDraft,
 		`
 
@@ -1399,9 +1395,6 @@ Path conventions:
 			'; create one with `create_folder` only when the user explicitly asks for a new folder'
 		)}.${folderGuidanceBlock}`
 	)}${when(
-		// Folder creation outlives the ability to draft (folders.rs checks the deploy rules
-		// and no operator flag), so this profile still has the tool. The guidance above is
-		// about where to put new items, which it cannot make — it gets this line instead.
 		canCreateFolder && !canWriteDraft,
 		'\n- You can create a shared folder with `create_folder` when the user explicitly asks for one. You cannot create anything inside it here, so do not offer to.'
 	)}
@@ -1420,7 +1413,7 @@ Rules:${when(
 	)}${when(
 		!canWriteDraft,
 		`
-- Two changes are still open to you where the server allows them: discard_local_draft drops a draft this user left behind, and delete_workspace_item removes an item already deployed in the workspace. You cannot create or edit one.`
+- Three changes are still open to you where the server allows them: discard_local_draft drops a draft this user left behind, deploy_workspace_item deploys one when the user asks, and delete_workspace_item removes an item already deployed in the workspace. You cannot create or edit one.`
 	)}
 - Use diff to review changes — before deploying, or when the user asks what changed. It is read-only: without arguments it lists every draft in the workspace with its change status; with type+path it returns that item's unified diff (for multi-file apps, pass file to read one file's diff). In a fork, pass against="parent_workspace" to compare the deployed fork with its parent workspace instead. Pass search to grep changed lines across all diffs.${when(
 		canWriteDraft,
@@ -3400,10 +3393,8 @@ export const globalTools: SessionTool<{}>[] = [
 		fn: async (ctx) => {
 			const { args, toolId, toolCallbacks } = ctx
 			const parsed = getInstructionsSchema.parse(args)
-			// Every subject is authoring guidance, written around the draft tools by name.
-			// Handing it to a session that cannot draft points the model at tools it was
-			// not given — the same broken promise the prompt and descriptions are swept
-			// for, in the one place a sweep cannot see.
+			// Every subject is authoring guidance written around the draft tools by name, and a
+			// tool result is the one place the toolset filter cannot reach.
 			const access = (ctx.helpers as GlobalToolHelpers | undefined)?.access
 			if (access && !access.has('write_draft')) {
 				const message =
@@ -3682,7 +3673,7 @@ export const globalTools: SessionTool<{}>[] = [
 		}
 	},
 	{
-		// Folder is one of the gated kinds: folders.rs `create_folder` runs `check_deploy_rules`.
+		// folders.rs `create_folder` runs `check_deploy_rules` and has no operator check.
 		requires: DEPLOY,
 		def: createToolDef(
 			createFolderSchema,
@@ -4128,7 +4119,7 @@ export const globalTools: SessionTool<{}>[] = [
 		}
 	},
 	{
-		// Not exempt like discarding: rebasing writes a fresh draft.
+		// Rebasing writes a fresh draft, so drafts.rs `require_can_write_path` applies.
 		requires: WRITE_DRAFT,
 		def: createToolDef(
 			rebaseDraftSchema,
@@ -4169,11 +4160,12 @@ export const globalTools: SessionTool<{}>[] = [
 	},
 	{
 		// Ungated as a whole, like deploying. Each kind's handler, reached through
-		// `deleteWorkspaceItem`'s switch — not the deploy table, because scripts differ:
+		// `deleteWorkspaceItem`'s switch:
 		requires: NONE,
 		kindRequires: {
 			// scripts.rs `delete_script_by_path` calls `require_admin`; a non-admin archives.
 			script: ['admin'],
+			// flows.rs `delete_flow_by_path` and apps.rs `delete_app` refuse operators.
 			flow: ['deploy', 'manage_code'],
 			app: ['deploy', 'manage_code'],
 			resource: DEPLOY,
@@ -4692,9 +4684,8 @@ type WriteDraftCtx = {
 export type SessionToolHelpers = { sessionId?: string }
 
 export type GlobalToolHelpers = SessionToolHelpers & {
-	/** The session's capability profile, for the one thing the toolset filter cannot reach:
-	 * a tool RESULT that names a tool this profile does not have. Undefined outside a
-	 * session, or before the first send resolves it. */
+	/** The session's capability profile. Undefined outside a session, or before the first
+	 * send resolves it. */
 	access?: SessionAccess
 	/** Runs the flow editor mounted on `storagePath`, if one is. `memoryId` names the
 	 * chat-mode conversation the turn belongs to. */
@@ -8624,9 +8615,8 @@ export function prepareGlobalSystemMessage(
 		user?: GlobalPromptIdentity
 		skills?: AiSkillListItem[]
 		mcpServers?: McpServer[]
-		/** Capabilities of the chat's operating workspace. Undefined leaves every block
-		 * in place: the prompt is never what withholds a tool, only the documentation of
-		 * the toolset that was actually assembled — so the two must not drift apart. */
+		/** Capabilities of the chat's operating workspace; undefined keeps every block. Must
+		 * match the profile the toolset was filtered with, or the prompt names withheld tools. */
 		access?: SessionAccess
 	}
 ): ChatCompletionSystemMessageParam {

@@ -809,8 +809,8 @@ export function deployPermissionForKinds(
  * the same message wins here as on the server when both block; admins and superadmins bypass
  * both rules, while `wm_deployers` members bypass only the latter.
  *
- * Separate from `checkDeployPermission` because that one adds an operator refusal of its
- * own, which no handler running these rules performs.
+ * Separate from `checkDeployPermission`, which adds a blanket operator refusal: the server
+ * refuses operators per kind, in the item handlers, not in these rules.
  *
  * Fails open on any error — the server still enforces on the actual deploy.
  */
