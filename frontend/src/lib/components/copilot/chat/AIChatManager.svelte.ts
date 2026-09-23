@@ -125,7 +125,11 @@ import {
 	isWebSearchEnabledForProvider
 } from '$lib/aiStore'
 import type { WorkspaceMutationTarget } from './workspaceTools'
-import { listFolderInstructions, type FolderInstruction } from './folderInstructions'
+import {
+	listFolderInstructions,
+	type FolderInstruction,
+	type FolderInstructionsDelivery
+} from './folderInstructions'
 import {
 	loadWorkspaceSkills,
 	resolveGlobalPromptIdentity,
@@ -1342,7 +1346,7 @@ export class AIChatManager implements ChatViewHost {
 	// one's body the first time a call touches its folder, recording which call did.
 	private globalFolderInstructions: FolderInstruction[] = []
 	private globalFolderInstructionsRefreshId = 0
-	private folderInstructionsDeliveredBy = new Map<string, readonly string[]>()
+	private folderInstructionsDeliveredBy = new Map<string, FolderInstructionsDelivery>()
 
 	// External MCP servers the user connected (resources of type `mcp`). Loaded
 	// asynchronously alongside skills; the MCP tools are only registered when

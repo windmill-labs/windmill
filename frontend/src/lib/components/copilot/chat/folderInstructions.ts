@@ -48,18 +48,19 @@ export async function listFolderInstructions(workspace: string): Promise<FolderI
 	return rows
 }
 
-/** Workspace paths a tool call names: every top-level string argument called `path`
- * or `*_path` that is a `u/` or `f/` path. */
-export function workspacePathsInArgs(args: unknown): string[] {
-	if (!args || typeof args !== 'object' || Array.isArray(args)) return []
-	return Object.entries(args as Record<string, unknown>)
-		.filter(
-			([key, value]) =>
-				(key === 'path' || key.endsWith('_path')) &&
-				typeof value === 'string' &&
-				/^[uf]\/[^/]+/.test(value)
-		)
-		.map(([, value]) => value as string)
+/** Workspace paths a tool call names: every string argument called `path` or
+ * `*_path` that is a `u/` or `f/` path, nested ones included — a trigger's target
+ * sits in `config.path`, and missing it would let that write through unheld. */
+export function workspacePathsInArgs(args: unknown, depth = 0): string[] {
+	if (!args || typeof args !== 'object' || depth > 4) return []
+	if (Array.isArray(args)) return args.flatMap((v) => workspacePathsInArgs(v, depth + 1))
+	return Object.entries(args as Record<string, unknown>).flatMap(([key, value]) =>
+		typeof value === 'string'
+			? (key === 'path' || key.endsWith('_path')) && /^[uf]\/[^/]+/.test(value)
+				? [value]
+				: []
+			: workspacePathsInArgs(value, depth + 1)
+	)
 }
 
 /** The instructions covering any of `paths`, outermost scope first, so a nested
@@ -84,8 +85,12 @@ export function instructionsCovering(
  * restored chat gets the instructions again. */
 export type FolderInstructionsContext = {
 	list: () => readonly FolderInstruction[]
-	deliveredBy: Map<string, readonly string[]>
+	deliveredBy: Map<string, FolderInstructionsDelivery>
 }
+
+/** Keyed by workspace too: the chat keeps its conversation across a switch of
+ * operating workspace, and the same path there can hold different instructions. */
+export type FolderInstructionsDelivery = { workspace: string; paths: readonly string[] }
 
 /** Instructions delivered by the tool results in `messages`, split by whether the
  * model has read them. Results after the latest assistant message answer the batch
@@ -93,7 +98,8 @@ export type FolderInstructionsContext = {
  * must not let a change later in the same batch through. */
 function deliveredIn(
 	ctx: FolderInstructionsContext,
-	messages: readonly unknown[]
+	messages: readonly unknown[],
+	workspace: string
 ): { read: Set<string>; thisBatch: Set<string> } {
 	const read = new Set<string>()
 	const thisBatch = new Set<string>()
@@ -104,7 +110,9 @@ function deliveredIn(
 	messages.forEach((m, i) => {
 		const { tool_call_id: id, content } = (m ?? {}) as { tool_call_id?: unknown; content?: unknown }
 		if (typeof id !== 'string' || typeof content !== 'string') return
-		for (const p of ctx.deliveredBy.get(id) ?? []) {
+		const delivery = ctx.deliveredBy.get(id)
+		if (delivery?.workspace !== workspace) return
+		for (const p of delivery.paths) {
 			// The id alone is not enough: a call stopped mid-run is answered with a
 			// placeholder under the same id, which carries no instructions.
 			if (content.includes(openingTag(p))) (i < lastAssistant ? read : thisBatch).add(p)
@@ -127,7 +135,7 @@ export async function pendingFolderInstructions(
 	if (!ctx || !workspace) return undefined
 	const paths = workspacePathsInArgs(args)
 	if (paths.length === 0) return undefined
-	const { read, thisBatch } = deliveredIn(ctx, messages)
+	const { read, thisBatch } = deliveredIn(ctx, messages, workspace)
 	const pending = instructionsCovering(ctx.list(), paths).filter((i) => !read.has(i.path))
 	const inBatch = pending.filter((i) => thisBatch.has(i.path))
 	const blocks = (

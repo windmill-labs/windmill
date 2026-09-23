@@ -1006,7 +1006,10 @@ export async function processToolCall<T>({
 				)
 			: undefined
 		if (folderInstructions?.paths.length) {
-			toolCallbacks.folderInstructions?.deliveredBy.set(toolCall.id, folderInstructions.paths)
+			toolCallbacks.folderInstructions?.deliveredBy.set(toolCall.id, {
+				workspace: workspaceId,
+				paths: folderInstructions.paths
+			})
 		}
 		if (folderInstructions && tool?.planModeSafe !== true) {
 			logToolOutcome('rejected')

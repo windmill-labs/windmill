@@ -222,19 +222,27 @@ describe('processToolCall', () => {
 				{ path: 'f/billing/eu/AGENTS', scope: 'f/billing/eu/' },
 				{ path: 'f/other/AGENTS', scope: 'f/other/' }
 			],
-			deliveredBy: new Map<string, readonly string[]>()
+			deliveredBy: new Map<string, { workspace: string; paths: readonly string[] }>()
 		}
 		const messages: any[] = []
-		const call = async (id: string, name: string, path: string) => {
+		const call = async (
+			id: string,
+			name: string,
+			path: string | object,
+			workspace = 'test-workspace'
+		) => {
 			const message = await processToolCall({
 				tools,
 				toolCall: {
 					id,
 					type: 'function',
-					function: { name, arguments: JSON.stringify({ path }) }
+					function: {
+						name,
+						arguments: JSON.stringify(typeof path === 'string' ? { path } : path)
+					}
 				},
 				helpers: {},
-				workspace: 'test-workspace',
+				workspace,
 				messages,
 				toolCallbacks: { setToolStatus: vi.fn(), removeToolStatus: vi.fn(), folderInstructions }
 			})
@@ -269,14 +277,29 @@ describe('processToolCall', () => {
 		turn()
 		expect(await call('c5', 'write_item', 'f/other/x')).toBe('write ok')
 
+		// The same path in another workspace is another resource, delivered afresh.
+		expect(await call('w1', 'read_item', 'f/other/x', 'other-workspace')).toContain(
+			'body of f/other/AGENTS'
+		)
+
 		// A delivery lost from the conversation (compaction) is made again.
 		messages.splice(0)
 		turn()
 		expect(await call('c6', 'read_item', 'f/billing/y')).toContain('body of f/billing/AGENTS')
 
+		// A trigger names its target inside its config.
+		messages.splice(0)
+		turn()
+		const nested = await call('t1', 'write_item', { kind: 'http', config: { path: 'f/other/t' } })
+		expect(nested).toContain('body of f/other/AGENTS')
+		expect(write).toHaveBeenCalledTimes(2)
+
 		// A call stopped mid-run is answered with a placeholder under its id: no delivery.
 		messages.splice(0)
-		folderInstructions.deliveredBy.set('stopped', ['f/billing/AGENTS'])
+		folderInstructions.deliveredBy.set('stopped', {
+			workspace: 'test-workspace',
+			paths: ['f/billing/AGENTS']
+		})
 		messages.push({ role: 'tool', tool_call_id: 'stopped', content: 'Interrupted' })
 		turn()
 		expect(await call('c7', 'read_item', 'f/billing/y')).toContain('body of f/billing/AGENTS')
