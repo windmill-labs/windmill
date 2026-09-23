@@ -434,7 +434,7 @@ const readWorkspaceItemSchema = z.object({
 	path: z
 		.string()
 		.describe(
-			'Workspace path of the item to read, or a hub/<version>/<app>/<name> path from a hub search to read a hub script.'
+			'Workspace path of the item to read, or a hub/<version>/<app>/<name> path from search_hub_scripts to read a hub script.'
 		),
 	trigger_kind: triggerKindSchema
 		.optional()
@@ -4073,7 +4073,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			rebaseDraftSchema,
 			'rebase_draft',
-			'Discard a stale script, flow, or app draft and return your changes as a diff to re-apply on the latest deployed version. Use when a deploy reports the draft was started from an older deployed version.',
+			'Discard a stale script, flow, or app draft and return your changes as a diff to re-apply on the latest deployed version. Use when deploy_workspace_item reports the draft was started from an older deployed version.',
 			{ strict: false }
 		),
 		showDetails: true,
