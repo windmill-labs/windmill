@@ -152,7 +152,7 @@
 		<div
 			class="flex justify-between items-end font-medium transition-colors duration-300 ease-in-out {error !=
 				undefined || isCanceled
-				? 'text-red-700 dark:text-red-200'
+				? 'text-red-600 dark:text-red-400'
 				: 'text-blue-700 dark:text-blue-200'}"
 		>
 			<div class={twMerge(slim ? 'text-xs' : 'text-sm', 'flex items-center gap-1')}>
