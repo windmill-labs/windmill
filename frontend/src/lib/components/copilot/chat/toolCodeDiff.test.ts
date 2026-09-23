@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import hljs from 'highlight.js/lib/core'
 import {
+	argumentsCarryWholeFile,
 	diffLineCounts,
 	hasToolCodeDiff,
 	toolCodeDiff,
@@ -288,6 +289,16 @@ describe('toolCodeDiff', () => {
 			added: 1_000,
 			removed: 1_000
 		})
+	})
+
+	it('recognizes calls whose arguments are a whole file', () => {
+		const call = (toolName: string, parameters: unknown) =>
+			argumentsCarryWholeFile(message({ toolName, parameters }))
+
+		expect(call('write_script', { path: 'f/a', content: 'x' })).toBe(true)
+		expect(call('edit_code', '{"code":"x')).toBe(true)
+		expect(call('edit_script', { old_string: 'a', new_string: 'b' })).toBe(false)
+		expect(call('write_script', '{"path":"f/a"')).toBe(false)
 	})
 
 	it('shows each row of a small edit once', () => {

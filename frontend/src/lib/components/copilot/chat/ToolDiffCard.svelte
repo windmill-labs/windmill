@@ -3,7 +3,13 @@
 	import ChatCollapsibleCard from './ChatCollapsibleCard.svelte'
 	import ToolCodeDiffView from './ToolCodeDiffView.svelte'
 	import ToolPreviewCard from './ToolPreviewCard.svelte'
-	import { diffLineCounts, toolCodeDiff, toolDiffLineCounts, toolDiffLines } from './toolCodeDiff'
+	import {
+		argumentsCarryWholeFile,
+		diffLineCounts,
+		toolCodeDiff,
+		toolDiffLineCounts,
+		toolDiffLines
+	} from './toolCodeDiff'
 
 	interface Props {
 		message: ToolDisplayMessage
@@ -19,13 +25,14 @@
 
 	// Keyed by call id: a bare flag would carry the expansion onto the next message that
 	// reuses this instance. An active or failed call opens by itself, and remains open
-	// when it settles so the new diff does not disappear under the user. A written script
-	// is a whole file, so only its failure opens it.
+	// when it settles so the new diff does not disappear under the user. A call whose arguments
+	// are a whole file (`write_script`, full-code `edit_code`) opens only on failure.
 	let toggled = $state<{ id: string; open: boolean } | undefined>(undefined)
 	const opensByDefault = $derived(
 		Boolean(
 			message.error ||
-				(message.toolName !== 'write_script' &&
+				(hasDiff &&
+					!argumentsCarryWholeFile(message) &&
 					(message.isLoading || message.isQueued || message.isStreamingArguments))
 		)
 	)
