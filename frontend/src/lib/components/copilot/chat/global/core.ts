@@ -3816,7 +3816,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			getTriggerSchemaSchema,
 			'get_trigger_schema',
-			'Get the configuration schema for one trigger kind. Call before write_trigger.'
+			'Get the configuration schema for one trigger kind — its config fields differ per kind.'
 		),
 		planModeSafe: true,
 		fn: async (ctx) => {
@@ -3828,7 +3828,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			z.object({}),
 			'get_schedule_schema',
-			"Get the shape of write_schedule's `advanced` object: retry, pausing, tags, and error-handler tuning."
+			"Get the shape of a schedule's `advanced` object: retry, pausing, tags, and error-handler tuning."
 		),
 		planModeSafe: true,
 		fn: async () => JSON.stringify(advancedScheduleShape(), null, 2)

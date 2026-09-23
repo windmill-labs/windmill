@@ -106,23 +106,22 @@ describe('session tool policies', () => {
 		expect(sessionToolAllowed('cancel_job', readOnly)).toBe(true)
 	})
 
-	// Relevance is the second axis: these need no capability, so `requires` alone
-	// would keep advertising them to a session that can never author anything.
-	it('drops authoring aids when drafts cannot be written', () => {
-		const readOnly = accessWith(['deploy'])
-		expect(sessionToolAllowed('get_instructions', readOnly)).toBe(false)
-		expect(sessionToolAllowed('search_npm_packages', readOnly)).toBe(false)
-		expect(sessionToolAllowed('search_docs', readOnly)).toBe(true)
+	// The authoring aids are reads the server serves anyone, so a session that cannot
+	// author still gets them — withholding them would be stricter than the backend.
+	it('keeps the authoring aids when drafts cannot be written', () => {
+		const readOnly = accessWith([])
+		expect(sessionToolAllowed('get_instructions', readOnly)).toBe(true)
+		expect(sessionToolAllowed('search_npm_packages', readOnly)).toBe(true)
+		expect(sessionToolAllowed('get_db_schema', readOnly)).toBe(true)
 	})
 
-	// create_folder carries both axes: the backend runs it through check_deploy_rules,
-	// so drafting alone is not enough to make it usable.
+	// The backend runs create_folder through check_deploy_rules, so drafting alone is
+	// not enough to make it usable.
 	it('withholds create_folder from a session that cannot deploy', () => {
 		expect(sessionToolAllowed('create_folder', accessWith(['write_draft', 'run_preview']))).toBe(
 			false
 		)
 		expect(sessionToolAllowed('create_folder', accessWith(['write_draft', 'deploy']))).toBe(true)
-		expect(sessionToolAllowed('create_folder', accessWith(['deploy']))).toBe(false)
 	})
 
 	// Schedules and triggers reach no deploy rule, so a workspace that refuses this user's
@@ -218,6 +217,6 @@ describe('session tool policies', () => {
 
 		const deployOnly = accessWith(['deploy'])
 		expect(sessionToolAllowed('write_script', deployOnly)).toBe(false)
-		expect(sessionToolAllowed('create_folder', deployOnly)).toBe(false)
+		expect(sessionToolAllowed('create_folder', deployOnly)).toBe(true)
 	})
 })

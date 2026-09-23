@@ -1,23 +1,17 @@
 import { hasCapabilities, type SessionAccess, type SessionCapability } from './sessionAccess'
 
 /**
- * Why a tool may be withheld from an AI session. The two axes are deliberately
- * separate: `requires` is auditable authorization metadata (the backend would
- * refuse the call), `relevance` is context economy (the call would succeed but
- * the tool exists only to serve authoring). Collapsing them into one field makes
- * the permission vocabulary lie — `search_npm_packages` is permitted for every
- * user, it is just dead weight in a session that cannot write a draft.
+ * The capabilities without which a tool's call cannot succeed — usually because the
+ * backend refuses it, occasionally because only that capability produces the tool's
+ * input. Never a relevance judgement: a tool the server would accept ships, even when
+ * it is of little use to the session, because withholding it is a stricter answer than
+ * the one the user would get by trying.
  */
-export type SessionToolPolicy = {
-	requires: readonly SessionCapability[]
-	/** Dropped when the session cannot write drafts, regardless of `requires`. */
-	relevance?: 'authoring'
-}
+export type SessionToolPolicy = readonly SessionCapability[]
 
-const NONE: SessionToolPolicy = { requires: [] }
-const AUTHORING_AID: SessionToolPolicy = { requires: [], relevance: 'authoring' }
-const WRITE_DRAFT: SessionToolPolicy = { requires: ['write_draft'] }
-const RUN_PREVIEW: SessionToolPolicy = { requires: ['run_preview'] }
+const NONE: SessionToolPolicy = []
+const WRITE_DRAFT: SessionToolPolicy = ['write_draft']
+const RUN_PREVIEW: SessionToolPolicy = ['run_preview']
 
 /**
  * Policy for every tool that can reach an AI session's toolset — the STATIC global
@@ -78,17 +72,21 @@ export const SESSION_TOOL_POLICIES: Record<string, SessionToolPolicy> = {
 	read_artifact: NONE,
 	list_artifact_versions: NONE,
 
-	// ── Authoring aids: permitted for everyone, useless without write_draft ──
-	get_instructions: AUTHORING_AID,
-	search_hub_scripts: AUTHORING_AID,
-	search_npm_packages: AUTHORING_AID,
-	search_resource_types: AUTHORING_AID,
-	get_trigger_schema: AUTHORING_AID,
-	get_schedule_schema: AUTHORING_AID,
-	get_db_schema: AUTHORING_AID,
-	// `folder` is one of the gated kinds (folders.rs `create_folder` runs
-	// `check_deploy_rules`), and a folder is useless without something to put in it.
-	create_folder: { requires: ['deploy'], relevance: 'authoring' },
+	// ── Authoring aids ──────────────────────────────────────────────────────
+	// Ungated: every one of these is a read the server serves any user. They earn
+	// their place only alongside the draft tools, but the prompt bullets naming them
+	// are gated on `write_draft`, so a session that cannot author is never pointed
+	// at them.
+	get_instructions: NONE,
+	search_hub_scripts: NONE,
+	search_npm_packages: NONE,
+	search_resource_types: NONE,
+	get_trigger_schema: NONE,
+	get_schedule_schema: NONE,
+	get_db_schema: NONE,
+	// `folder` is one of the gated kinds: folders.rs `create_folder` runs
+	// `check_deploy_rules`.
+	create_folder: ['deploy'],
 	// Ungated on purpose, for two reasons. Plan mode's deliverable is a plan artifact,
 	// which is worth producing for someone else to execute even when this user can
 	// change nothing themselves. And it is a posture the USER selects, so withholding
@@ -125,9 +123,10 @@ export const SESSION_TOOL_POLICIES: Record<string, SessionToolPolicy> = {
 
 	// ── Deployed-object mutations ───────────────────────────────────────────
 	// Neither requires `deploy`: both take the kind as an argument, and schedules and
-	// triggers reach no deploy rule, so no workspace refuses these outright. Deploying
-	// still needs a draft to deploy, which deleting does not.
-	deploy_workspace_item: AUTHORING_AID,
+	// triggers reach no deploy rule, so no workspace refuses these outright. They part
+	// ways on their input — deploying persists a draft, and nothing but `write_draft`
+	// makes one, while deleting acts on what is already deployed.
+	deploy_workspace_item: WRITE_DRAFT,
 	delete_workspace_item: NONE,
 
 	// Ungated, unlike the preview runs below: these execute the DEPLOYED item under
@@ -153,14 +152,11 @@ export const SESSION_TOOL_POLICIES: Record<string, SessionToolPolicy> = {
 }
 
 export function sessionToolAllowed(name: string, access: SessionAccess): boolean {
-	const policy = SESSION_TOOL_POLICIES[name]
+	const requires = SESSION_TOOL_POLICIES[name]
 	// Fails closed, so a tool that ships without a policy disappears from restricted
 	// sessions rather than leaking into them.
-	if (!policy) return false
-	if (policy.relevance === 'authoring' && !access.capabilities.has('write_draft')) {
-		return false
-	}
-	return hasCapabilities(access, policy.requires)
+	if (!requires) return false
+	return hasCapabilities(access, requires)
 }
 
 /** Filter an assembled toolset. `access` undefined means "not resolved yet, or not
