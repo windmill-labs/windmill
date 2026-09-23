@@ -125,6 +125,42 @@ describe('toDisplayMessages', () => {
 		})
 	})
 
+	// The worker words the provider-side search like a tool named `websearch`, which an agent
+	// tool may also be called. The search stores no arguments, and an agent tool always does.
+	it('renders the provider-side search as a web search card, not an agent tool of that name', () => {
+		const citations = JSON.stringify([
+			{ start_index: 0, end_index: 4, url: 'https://postgresql.org/docs', title: 'Release notes' }
+		])
+		const [search, agentTool, notCitations] = toDisplayMessages([
+			message({
+				role: 'tool',
+				content: 'Used websearch tool',
+				tool: { name: 'websearch', status: 'success', result: citations }
+			}),
+			message({
+				role: 'tool',
+				content: 'Used websearch tool',
+				tool: { name: 'websearch', status: 'success', arguments: '{}', result: citations }
+			}),
+			// The safety valve of a name-based rule: a row that is not the provider's search
+			// keeps its result, whatever the tool is called.
+			message({
+				role: 'tool',
+				content: 'Used websearch tool',
+				tool: { name: 'websearch', status: 'success', result: '{"hits":3}' }
+			})
+		])
+		expect(search).toMatchObject({
+			content: 'Searched the web',
+			webSearchSources: [{ url: 'https://postgresql.org/docs', title: 'Release notes' }],
+			showDetails: true,
+			autoCollapseDetails: false
+		})
+		expect(agentTool).toMatchObject({ content: 'Used websearch tool', toolName: 'websearch' })
+		expect(agentTool).not.toHaveProperty('webSearchSources')
+		expect(notCitations).toMatchObject({ toolName: 'websearch', result: { hits: 3 } })
+	})
+
 	it('shows a call the turn finished without as an error, not as still running', () => {
 		const display = toDisplayMessages([
 			message({ role: 'user', content: 'hi' }),

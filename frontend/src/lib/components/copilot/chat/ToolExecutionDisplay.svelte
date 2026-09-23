@@ -26,7 +26,7 @@
 	import { getChatViewHost } from './chatViewHost'
 
 	const chatHost = getChatViewHost()
-	import { isActiveUserQuestion, type ToolDisplayMessage } from './shared'
+	import { isActiveUserQuestion, webSearchResultOf, type ToolDisplayMessage } from './shared'
 	import ChatCollapsibleCard from './ChatCollapsibleCard.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { slide } from 'svelte/transition'
@@ -139,6 +139,18 @@
 		Boolean(
 			message.previewCard && !message.isLoading && !message.error && !message.needsConfirmation
 		)
+	)
+
+	// A provider-side search sets `webSearchSources` and words its own header; any other tool
+	// gets the same card by returning the web search result shape.
+	const searchResult = $derived(
+		message.webSearchSources || message.error ? undefined : webSearchResultOf(message.result)
+	)
+	const sources = $derived(message.webSearchSources ?? searchResult?.sources)
+	const label = $derived(
+		searchResult?.query !== undefined
+			? `${message.content} · "${searchResult.query}"`
+			: message.content
 	)
 </script>
 
@@ -281,7 +293,7 @@
 	     weight alone: queued calls (waiting their turn behind the executing tool)
 	     are faded, the running one sweeps, a settled one is plain. -->
 	<ChatCollapsibleCard
-		label={message.content}
+		{label}
 		expanded={isExpanded}
 		onToggle={() => (isExpanded = !isExpanded)}
 		toggleable={detailsAvailable || message.isStreamingArguments === true}
@@ -343,8 +355,8 @@
 
 			{#if visibleActions.length > 0}
 				<ToolMessageActions actions={visibleActions} />
-			{:else if message.webSearchSources?.length && !message.error}
-				<WebSearchSourcesDisplay sources={message.webSearchSources} />
+			{:else if sources?.length && !message.error}
+				<WebSearchSourcesDisplay {sources} favicons={message.webSearchSources !== undefined} />
 			{:else}
 				<ToolContentDisplay
 					title="Result"
