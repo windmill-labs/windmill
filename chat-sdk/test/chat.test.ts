@@ -1308,6 +1308,24 @@ describe('createChat with server history', () => {
     expect(chat.getState().error).toBeUndefined()
   })
 
+  test('a re-read that finds no answer leaves the failure standing', async () => {
+    const { fetch } = fetchMock(
+      (c) =>
+        c.url.pathname === streamPath ? sse([{ type: 'error', error: 'stream broke' }]) : undefined,
+      (c) =>
+        c.url.pathname.endsWith('/messages')
+          ? json([messageRow(50, 'user', 'question', { job_id: 'job-1' })])
+          : undefined
+    )
+    const chat = createChat(options({}, fetch))
+    await chat.selectConversation('conv')
+    await chat.resumeTurn({ jobId: 'job-1', userSeq: 50 })
+    expect(chat.getState().status).toBe('error')
+    await chat.refreshMessages()
+    expect(chat.getState().status).toBe('error')
+    expect(chat.getState().messages.map((m) => m.content)).toEqual(['question', 'stream broke'])
+  })
+
   test('a conversation switch from onFinish does not resume the next turn elsewhere', async () => {
     const { fetch, calls } = fetchMock(
       run,

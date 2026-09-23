@@ -524,18 +524,28 @@ class ChatImpl implements Chat {
     ) {
       return
     }
+    const newestBefore = latestSeq(this.#state.messages)
     await this.#syncFromServer(conversationId)
-    // The turn this chat lost may have completed elsewhere: its answer is in the rows now, so
-    // the failure it was left with is no longer what the conversation says. The message that
-    // carried it goes with it — it was this chat's own, never a row, and the answer the read
-    // brought back sits under it.
-    if (this.#state.conversationId === conversationId && this.#state.status === 'error') {
-      this.#set({
-        messages: this.#state.messages.filter((m) => m.seq !== undefined || m.success !== false),
-        status: 'idle',
-        error: undefined
-      })
+    if (this.#state.conversationId !== conversationId || this.#state.status !== 'error') return
+    // The turn this chat lost may have been carried to its end elsewhere. It counts as
+    // answered only when this read brought a row newer than anything held, and that row is
+    // an answer: a read that brought nothing, or brought a failure, leaves the failure as
+    // the conversation's outcome.
+    const messages = this.#state.messages
+    const newest = [...messages].reverse().find((m) => m.seq !== undefined)
+    if (!newest || newest.seq! <= newestBefore || newest.role !== 'assistant' || !newest.success) {
+      return
     }
+    // Only the failure of the turn that was answered: an earlier turn's failure is its own
+    // outcome, and this read says nothing about it.
+    const lastQuestion = messages.findLastIndex((m) => m.role === 'user')
+    this.#set({
+      messages: messages.filter(
+        (m, i) => i < lastQuestion || m.seq !== undefined || m.success !== false
+      ),
+      status: 'idle',
+      error: undefined
+    })
   }
 
   destroy = (): void => {
@@ -1055,6 +1065,11 @@ class ChatImpl implements Chat {
       this.#persistTimer = setTimeout(() => this.#persistLocal(), PERSIST_DEBOUNCE_MS)
     }
   }
+}
+
+/** The newest row seq a list holds; 0 when it holds none. */
+function latestSeq(messages: readonly ChatMessage[]): number {
+  return messages.reduce((newest, m) => (m.seq !== undefined && m.seq > newest ? m.seq : newest), 0)
 }
 
 function fromRow(row: FlowConversationMessage): ChatMessage {

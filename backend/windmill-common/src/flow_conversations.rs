@@ -154,8 +154,8 @@ pub async fn running_turns<'e, E: sqlx::PgExecutor<'e>>(
     executor: E,
     conversation_ids: &[Uuid],
 ) -> Result<std::collections::HashMap<Uuid, RunningTurn>> {
-    let rows = sqlx::query_as::<_, (Uuid, Uuid, i64)>(
-        "SELECT c.id, u.job_id, u.created_seq
+    let rows = sqlx::query!(
+        r#"SELECT c.id AS "id!", u.job_id AS "job_id!", u.created_seq AS "user_seq!"
          FROM unnest($1::uuid[]) AS c(id)
          CROSS JOIN LATERAL (
              SELECT job_id, created_seq
@@ -165,16 +165,14 @@ pub async fn running_turns<'e, E: sqlx::PgExecutor<'e>>(
              LIMIT 1
          ) u
          WHERE u.job_id IS NOT NULL
-           AND EXISTS (SELECT 1 FROM v2_job_queue q WHERE q.id = u.job_id)",
+           AND EXISTS (SELECT 1 FROM v2_job_queue q WHERE q.id = u.job_id)"#,
+        conversation_ids
     )
-    .bind(conversation_ids)
     .fetch_all(executor)
     .await?;
     Ok(rows
         .into_iter()
-        .map(|(conversation_id, job_id, user_seq)| {
-            (conversation_id, RunningTurn { job_id, user_seq })
-        })
+        .map(|r| (r.id, RunningTurn { job_id: r.job_id, user_seq: r.user_seq }))
         .collect())
 }
 
