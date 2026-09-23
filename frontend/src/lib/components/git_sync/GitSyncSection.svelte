@@ -5,6 +5,7 @@
 	import { Button, Alert, Badge, Drawer, DrawerContent } from '$lib/components/common'
 	import GitSyncSetupModal from './GitSyncSetupModal.svelte'
 	import EEOnly from '$lib/components/EEOnly.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 	import SettingsPageHeader from '$lib/components/settings/SettingsPageHeader.svelte'
 	import { setGitSyncContext } from './GitSyncContext.svelte'
 	import GitSyncRepositoryCard from './GitSyncRepositoryCard.svelte'
@@ -337,7 +338,6 @@
 						{#if showAddSync}
 							<div class="flex items-center gap-1">
 								<Button
-									unifiedSize="sm"
 									variant="default"
 									startIcon={{ icon: Plus }}
 									disabled={!$enterpriseLicense}
@@ -351,7 +351,6 @@
 						{#if showAddPromotion}
 							<div class="flex items-center gap-1">
 								<Button
-									unifiedSize="sm"
 									variant="default"
 									startIcon={{ icon: Plus }}
 									disabled={!$enterpriseLicense}
@@ -359,6 +358,14 @@
 								>
 									Add promotion repository
 								</Button>
+								<Tooltip documentationLink="https://www.windmill.dev/docs/advanced/deploy_gh_gl">
+									Each deploy in this workspace pushes its changes to a dedicated
+									<span class="font-mono">wm_deploy/**</span>
+									branch of the repository instead of committing to its tracked branch directly. Merging
+									that branch promotes the change: the workspace that syncs the tracked branch deploys
+									it on merge, so set up Git Sync there. Windmill can open the pull request for each
+									deploy branch, or you can use the open-pr-on-commit workflow.
+								</Tooltip>
 								{#if !$enterpriseLicense}<EEOnly />{/if}
 							</div>
 						{/if}
