@@ -140,7 +140,7 @@
      the padding the message column already carries. -->
 {#if stepName}
 	<div
-		class="flex items-center gap-2 -ml-6 mb-1 text-2xs text-tertiary"
+		class="flex items-center gap-2 -ml-6 pt-1 text-2xs text-tertiary"
 		title="Answered by {stepName}"
 	>
 		<Bot size={16} class="shrink-0" />
@@ -154,7 +154,7 @@
 		expanded={reasoningExpanded}
 		onToggle={() => (reasoningToggled = !reasoningExpanded)}
 		shimmer={reasoningStreaming}
-		class={s3Object || message.content ? 'mb-1' : ''}
+		class={message.content ? 'mb-1' : ''}
 		labelClass="truncate"
 		contentClass="font-main text-secondary {markdownProse.xs}"
 	>

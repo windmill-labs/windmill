@@ -46,7 +46,7 @@
 		messageIndex: number
 		editingMessageIndex: number | null
 		isLast?: boolean
-		// No assistant or tool row follows before the next user message.
+		// The last row of a turn, or of a flow step's run within one.
 		endsTurn?: boolean
 	}
 

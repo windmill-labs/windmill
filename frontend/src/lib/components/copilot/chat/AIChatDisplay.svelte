@@ -271,6 +271,16 @@
 	// Shared with the agent run viewer, which needs the same programmatic-scroll
 	// guard for the same reason.
 	const sticker = createBottomSticker()
+
+	// A flow step's answer ends its run even when another step's rows follow in the same
+	// turn, and its action row is the only link to that step's run.
+	function endsTurn(messageIndex: number): boolean {
+		const message = messages[messageIndex]
+		const next = messages[messageIndex + 1]
+		if (!next || next.role === 'user' || next.role === 'summary') return true
+		return message.role === 'assistant' && !!message.jobId && next.jobId !== message.jobId
+	}
+
 	function scrollDown() {
 		sticker.scrollToEnd(scrollElement)
 	}
@@ -831,9 +841,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 							{availableContext}
 							bind:editingMessageIndex
 							isLast={messageIndex === messages.length - 1}
-							endsTurn={messageIndex === messages.length - 1 ||
-								messages[messageIndex + 1].role === 'user' ||
-								messages[messageIndex + 1].role === 'summary'}
+							endsTurn={endsTurn(messageIndex)}
 						/>
 					{/each}
 					{#if freeTierExhausted}
