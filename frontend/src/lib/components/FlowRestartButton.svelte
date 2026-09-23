@@ -92,6 +92,10 @@
 			: selectedJobStep
 	)
 
+	const restartTitle = $derived(
+		`Re-start this flow from step ${displayStepId} (included).${enterpriseOnly ? ' This is a feature only available in enterprise edition.' : ''}`
+	)
+
 	// Sentinel value meaning "use the same version as the original run" (backend receives undefined)
 	const RUN_VERSION_SENTINEL = -1
 
@@ -145,8 +149,13 @@
 		})
 		return out
 	})
+	// A link has no button of its own to restart on click: it always opens the
+	// popover, whose Restart button then acts as the confirmation.
 	const needsPopup = $derived(
-		!!flowPath || iterationFields.length > 0 || selectedJobStepType !== 'single'
+		triggerStyle === 'link' ||
+			!!flowPath ||
+			iterationFields.length > 0 ||
+			selectedJobStepType !== 'single'
 	)
 	let selectedFlowVersion: number = $state(RUN_VERSION_SENTINEL)
 	let flowVersions: Array<FlowVersion> = $state([])
@@ -248,23 +257,15 @@
 {/snippet}
 {#snippet restartTriggerButton(usePlayIcon: boolean)}
 	{#if triggerStyle === 'link'}
-		{@const linkClass = 'underline hover:no-underline'}
-		{@const linkTitle = `Re-start this flow from step ${displayStepId} (included).`}
-		{#if needsPopup}
-			<!-- The popover trigger is already a <button>; nesting another is invalid. -->
-			<span class={linkClass} title={linkTitle}>Restart from this step</span>
-		{:else}
-			<button class={linkClass} title={linkTitle} {disabled} onclick={handleRestart}>
-				Restart from this step
-			</button>
-		{/if}
+		<!-- The popover trigger is already a <button>; nesting another is invalid. -->
+		<span class="underline hover:no-underline" title={restartTitle}>Restart from this step</span>
 	{:else}
 		{@render restartButton(usePlayIcon)}
 	{/if}
 {/snippet}
 {#snippet restartButton(usePlayIcon: boolean)}
 	<Button
-		title={`Re-start this flow from step ${displayStepId} (included).${enterpriseOnly ? ' This is a feature only available in enterprise edition.' : ''}`}
+		title={restartTitle}
 		{variant}
 		{unifiedSize}
 		{disabled}
@@ -293,6 +294,12 @@
 	<Popover
 		floatingConfig={{ strategy: 'absolute', placement: 'bottom-start' }}
 		disablePopup={!needsPopup}
+		triggerAttrs={{
+			'aria-label':
+				triggerStyle === 'link'
+					? `Restart from step ${displayStepId}`
+					: `Re-start from ${displayStepId}`
+		}}
 		on:openChange={(e) => {
 			if (e.detail) {
 				loadFlowVersions()
