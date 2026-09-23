@@ -2024,6 +2024,24 @@ describe('global AI tools', () => {
 		})
 	})
 
+	it('records a creation diff for a new script draft', async () => {
+		const statuses: any[] = []
+
+		await callGlobalTool(
+			'write_script',
+			{
+				path: 'f/scripts/new-script',
+				language: 'python3',
+				content: 'print("hello")'
+			},
+			{ ...toolCallbacks, setToolStatus: (_toolId, status) => statuses.push(status) }
+		)
+
+		expect(statuses).toContainEqual({
+			codeDiff: { before: '', after: 'print("hello")', lang: 'python' }
+		})
+	})
+
 	it('tells a code app from a drag-and-drop app', async () => {
 		vi.mocked(AppService.listApps).mockResolvedValueOnce([
 			{ path: 'f/apps/code', summary: 'Code app', raw_app: true },
@@ -3080,12 +3098,17 @@ describe('global AI tools', () => {
 			kind: 'script'
 		} as any)
 
-		await callGlobalTool('write_script', {
-			path: 'f/scripts/existing',
-			summary: 'new summary',
-			language: 'bun',
-			content: 'new content'
-		})
+		const statuses: any[] = []
+		await callGlobalTool(
+			'write_script',
+			{
+				path: 'f/scripts/existing',
+				summary: 'new summary',
+				language: 'bun',
+				content: 'new content'
+			},
+			{ ...toolCallbacks, setToolStatus: (_toolId, status) => statuses.push(status) }
+		)
 
 		expect(
 			getBackendDraft<any>('script', 'f/scripts/existing', { workspace: WORKSPACE })
@@ -3096,6 +3119,9 @@ describe('global AI tools', () => {
 			description: 'deployed description',
 			content: 'new content',
 			language: 'bun'
+		})
+		expect(statuses).toContainEqual({
+			codeDiff: { before: 'old deployed content', after: 'new content', lang: 'typescript' }
 		})
 	})
 
@@ -7629,9 +7655,9 @@ describe('open_page workspace gating', () => {
 	// A workspace the user belongs to but whose `whoami` never answers.
 	const FLAKY = 'flaky_ws'
 	const openPage = () => getGlobalTool('open_page')
-	const pageSchema = () => (openPage().def.function.parameters as any)?.properties?.page ?? {}
+	let def = openPage().def
+	const pageSchema = () => (def.function.parameters as any)?.properties?.page ?? {}
 	const advertisedPages = () => (pageSchema().enum ?? []) as string[]
-	const pristineDef = openPage().def
 
 	beforeEach(() => {
 		// Admin of the workspace being browsed, plain member of the one a session operates on.
@@ -7654,16 +7680,26 @@ describe('open_page workspace gating', () => {
 		superadmin.set(undefined)
 		whoamiByWorkspace.clear()
 		clearWorkspaceRoleCache()
-		openPage().def = pristineDef
+	})
+
+	// Every chat shares this tool object, so a schema written back to it would reach the
+	// other chats' requests.
+	it("never writes a chat's schema back to the shared tool", async () => {
+		const shared = openPage().def
+		const snapshot = structuredClone(shared)
+		def = await openPage().schemaFor!({ operatingWorkspace: SESSION })
+		expect(def).not.toBe(shared)
+		expect(openPage().def).toBe(shared)
+		expect(shared).toEqual(snapshot)
 	})
 
 	// Reading the ambient `userStore` instead offers a session the pages of the workspace
 	// the user happens to be browsing.
 	it('gates on the operating workspace, not the one userStore describes', async () => {
-		await openPage().setSchema?.({ operatingWorkspace: NAV })
+		def = await openPage().schemaFor!({ operatingWorkspace: NAV })
 		expect(advertisedPages()).toContain('workspace_settings')
 
-		await openPage().setSchema?.({ operatingWorkspace: SESSION })
+		def = await openPage().schemaFor!({ operatingWorkspace: SESSION })
 		expect(advertisedPages()).toContain('runs')
 		expect(advertisedPages()).not.toContain('workspace_settings')
 		await expect(
@@ -7678,7 +7714,7 @@ describe('open_page workspace gating', () => {
 	// Neither layer may read as a denial: the role was never established, and the model
 	// sees the schema before it can ever reach the handler's message.
 	it('advertises nothing and blames no denial when the role lookup fails', async () => {
-		await openPage().setSchema?.({ operatingWorkspace: FLAKY })
+		def = await openPage().schemaFor!({ operatingWorkspace: FLAKY })
 		expect(advertisedPages()).toEqual([])
 		expect(pageSchema().description).toContain("couldn't be checked")
 		const refusal = await callGlobalTool('open_page', { page: 'runs' }, toolCallbacks, {
@@ -7691,7 +7727,7 @@ describe('open_page workspace gating', () => {
 	// A workspace absent from `userWorkspaces` is settled, not unknown: inviting a retry
 	// would be false, and asking `whoami` at all only earns a 401 on every iteration.
 	it('reports a plain denial for a workspace the user is not a member of', async () => {
-		await openPage().setSchema?.({ operatingWorkspace: 'unreachable_ws' })
+		def = await openPage().schemaFor!({ operatingWorkspace: 'unreachable_ws' })
 		expect(advertisedPages()).toEqual([])
 		expect(pageSchema().description).not.toContain("couldn't be checked")
 		const refusal = await callGlobalTool('open_page', { page: 'runs' }, toolCallbacks, {
@@ -7708,7 +7744,7 @@ describe('open_page workspace gating', () => {
 	it('asks whoami while the workspace list is still unresolved', async () => {
 		usersWorkspaceStore.set(undefined)
 
-		await openPage().setSchema?.({ operatingWorkspace: SESSION })
+		def = await openPage().schemaFor!({ operatingWorkspace: SESSION })
 
 		expect(UserService.whoami).toHaveBeenCalledWith(expect.objectContaining({ workspace: SESSION }))
 		expect(advertisedPages()).not.toEqual([])

@@ -13,6 +13,7 @@ use windmill_common::global_settings::{validate_allowed_origins, HTTP_ROUTE_WORK
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
+    utils::check_proper_path,
     worker::CLOUD_HOSTED,
     DB,
 };
@@ -269,6 +270,7 @@ pub async fn create_many_http_triggers(
         check_scopes(&authed, || {
             format!("http_triggers:write:{}", &new_http_trigger.base.path)
         })?;
+        check_proper_path(&new_http_trigger.base.path)?;
 
         // This route inserts directly, bypassing the shared create handler.
         // `error_wrapper` would turn the rejection into a 500.

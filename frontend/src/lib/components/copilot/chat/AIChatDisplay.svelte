@@ -271,6 +271,27 @@
 	// Shared with the agent run viewer, which needs the same programmatic-scroll
 	// guard for the same reason.
 	const sticker = createBottomSticker()
+
+	// Per message: whether it is the last answer of its turn — per flow step run, since each
+	// run's last answer carries the only link to that run. Keyed on the answer's own job (a step
+	// label repeats when a step runs in a loop), and on answers rather than the next row: a
+	// flow's tool rows have their own job, and a stopped turn can end on a tool row.
+	const showsAnswerActions = $derived.by(() => {
+		const shows: boolean[] = new Array(messages.length).fill(false)
+		const answeredLater = new Set<string | undefined>()
+		for (let i = messages.length - 1; i >= 0; i--) {
+			const message = messages[i]
+			if (message.role === 'user' || message.role === 'summary') {
+				answeredLater.clear()
+			} else if (message.role === 'assistant' && message.content) {
+				const run = message.jobId ?? message.stepName
+				shows[i] = !answeredLater.has(run)
+				answeredLater.add(run)
+			}
+		}
+		return shows
+	})
+
 	function scrollDown() {
 		sticker.scrollToEnd(scrollElement)
 	}
@@ -831,6 +852,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 							{availableContext}
 							bind:editingMessageIndex
 							isLast={messageIndex === messages.length - 1}
+							showAnswerActions={showsAnswerActions[messageIndex]}
 						/>
 					{/each}
 					{#if freeTierExhausted}
