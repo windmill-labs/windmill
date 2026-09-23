@@ -346,20 +346,20 @@
 							'github_app',
 							githubIcon,
 							'GitHub App (recommended)',
-							'Install the Windmill GitHub App on your repository. Enables webhooks, pull requests and commit checks.',
+							'Connect with the GitHub UI.',
 							!$enterpriseLicense
 						)}
 						{@render providerCard(
 							'github_pat',
 							githubIcon,
 							'GitHub personal access token',
-							'Connect a GitHub repository with a fine-grained personal access token.'
+							'Generate a token from GitHub to allow Windmill to access your account.'
 						)}
 						{@render providerCard(
 							'gitlab',
 							gitlabIcon,
 							'GitLab',
-							'Connect a GitLab repository with an access token.'
+							'Generate a token from GitLab to allow Windmill to access your account.'
 						)}
 						{#if hasResource || provider === 'existing'}
 							{@render providerCard(
