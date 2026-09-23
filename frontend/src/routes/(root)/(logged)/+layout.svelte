@@ -526,6 +526,7 @@
 	const bandPeek = $derived(fullBleed && !appHeaderPinned.val)
 	let bandPeeked = $state(false)
 	let bandHandleHot = $state(false)
+	let bandHandleEl: HTMLDivElement | undefined = $state(undefined)
 	const bandShown = $derived(!bandPeek || bandPeeked)
 	const floatBand = $derived(pageHeader.content?.barRightInset != null || bandPeek)
 	// Same delay as the sidebar's peek, and for the same reason: the handle and the band do not
@@ -533,6 +534,9 @@
 	const { debounced: scheduleBandHide, clearDebounce: cancelBandHide } = debounce(() => {
 		bandPeeked = false
 	}, PEEK_CLOSE_DELAY_MS)
+	// Where the band's pin button will be once pinned, so the click moves nothing: the band's own
+	// pl-2, plus a slot (28px button + the row's gap-1) when the sidebar's handle takes the first.
+	const bandHandleOffset = $derived(navDetached.val && !menuHidden ? '2.5rem' : '0.5rem')
 
 	// The handle and the edge band both open the card this layout owns.
 	navHandleSlot.setOpener(() => (menuOpen = true), {
@@ -1587,7 +1591,6 @@
 				>
 					<PageHeaderBar
 						navHidden={menuHidden}
-						onDock={() => setDetached(false)}
 						onUnpin={fullBleed && appHeaderPinned.val
 							? () => (appHeaderPinned.val = false)
 							: undefined}
@@ -1600,24 +1603,33 @@
 					     costs an app's own corner as little as an always-present control can. -->
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
-						class="absolute top-1 z-40 transition-opacity duration-300 {bandShown || bandHandleHot
+						class="absolute top-2 z-40 transition-opacity duration-300 {bandShown || bandHandleHot
 							? 'opacity-100'
 							: 'opacity-40'}"
-						style:left="calc({leftInset}rem + 0.25rem)"
+						style:left="calc({leftInset}rem + {bandHandleOffset})"
+						bind:this={bandHandleEl}
 						onmouseenter={() => {
 							bandHandleHot = true
 							cancelBandHide()
 							bandPeeked = true
+							// The one control for the chrome this page is hiding: the band always, and
+							// the sidebar too when it is detached — hung from this button, since the
+							// header's own handle is off-screen with the band.
+							if (navDetached.val) navHandleSlot.open(bandHandleEl)
 						}}
 						onmouseleave={() => {
 							bandHandleHot = false
 							scheduleBandHide()
+							navHandleSlot.scheduleClose()
 						}}
 					>
+						<!-- Standing where the band's own first button will be — same 28px box, same offsets
+						     as its pl-2 and 44px row — so pinning moves nothing. A border would make it
+						     30 and the icon would jump on the click. -->
 						<button
-							class="flex items-center p-1.5 rounded bg-surface/80 backdrop-blur-sm shadow-sm border hover:bg-surface"
-							aria-label="Pin header"
-							title="Pin header"
+							class="flex items-center p-1.5 rounded bg-surface/80 backdrop-blur-sm shadow-sm hover:bg-surface"
+							aria-label="Pin the header on deployed apps"
+							title="Pin the header on deployed apps"
 							onclick={() => {
 								appHeaderPinned.val = true
 								bandPeeked = false

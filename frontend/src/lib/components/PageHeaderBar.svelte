@@ -7,7 +7,7 @@ section name — and the route's own buttons at the far end.
 The row's height matches the sidebar's own header row, so the two read as one band.
 -->
 <script lang="ts">
-	import { PanelLeft, PanelTop } from 'lucide-svelte'
+	import { PanelLeft, PanelTopDashed } from 'lucide-svelte'
 	import { navDetached } from './sidebar/navDetached.svelte'
 	import { navHandleSlot } from './sidebar/navHandlePlacement.svelte'
 	import NavBreadcrumb from './NavBreadcrumb.svelte'
@@ -16,15 +16,11 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 
 	let {
 		navHidden = false,
-		onDock,
 		onUnpin
 	}: {
 		navHidden?: boolean
 		/** Sends the band back behind its handle, on a page that owns the viewport. */
 		onUnpin?: () => void
-		/** Docks the sidebar. The layout owns the two other things that must happen with it — the
-		 *  flag that suppresses the rail's entry animation, and closing the card. */
-		onDock?: () => void
 	} = $props()
 
 	const content = $derived(pageHeader.content)
@@ -35,22 +31,11 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 </script>
 
 <div data-page-header class="flex items-center gap-1 h-11 pl-2 pr-4 shrink-0 min-w-0 bg-surface">
-	{#if onUnpin}
-		<!-- First, before the sidebar's handle: this one is about the band the user is looking at,
-		     the other about the sidebar beside it. -->
-		<button
-			class="flex items-center p-1.5 rounded hover:bg-surface-hover"
-			aria-label="Unpin header"
-			title="Unpin header"
-			onclick={() => onUnpin?.()}
-		>
-			<PanelTop size={16} class="flex-shrink-0 text-hint" />
-		</button>
-	{/if}
-
 	{#if navDetached.val && !navHidden}
-		<!-- The only way back to a hidden sidebar: hovering slides the card in for a look, a click
-		     puts it back for good. Docked, the sidebar speaks for itself and nothing leads the bar. -->
+		<!-- Reveals the hidden sidebar, and only that: hovering slides the card in, clicking holds
+		     it there. Attaching it for good belongs to the toggle in the sidebar's own footer, where
+		     detaching it happened — a control that hides the thing it sits on cannot also be the
+		     way to bring it back. Docked, the sidebar speaks for itself and nothing leads the bar. -->
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
 			data-nav-handle
@@ -62,11 +47,25 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 			<button
 				class="flex items-center p-1.5 rounded hover:bg-surface-hover"
 				aria-label="Show sidebar"
-				onclick={() => onDock?.()}
+				onclick={() => navHandleSlot.open()}
 			>
 				<PanelLeft size={16} class="flex-shrink-0 text-hint" />
 			</button>
 		</div>
+	{/if}
+
+	{#if onUnpin}
+		<!-- After the sidebar's handle: the sidebar is the outer thing, the band sits inside it. -->
+		<button
+			class="flex items-center p-1.5 rounded hover:bg-surface-hover"
+			aria-label="Unpin the header from deployed apps"
+			title="Unpin the header from deployed apps"
+			onclick={() => onUnpin?.()}
+		>
+			<!-- Dashed while the band is shown, solid while it is away: the pair the sidebar's own
+			     toggle uses, so the two controls read as one idea. -->
+			<PanelTopDashed size={16} class="flex-shrink-0 text-hint" />
+		</button>
 	{/if}
 
 	<!-- The breadcrumb yields width grudgingly (shrink-[0.1]): when a page fills the bar with

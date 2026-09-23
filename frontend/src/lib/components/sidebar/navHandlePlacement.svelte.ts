@@ -25,12 +25,17 @@ export const navHandleSlot = {
 	scheduleClose() {
 		hoverClose?.schedule()
 	},
-	open() {
+	/**
+	 * Opens the card under `anchor`, or under the handle in the page header when none is given.
+	 * A page that hides the header reveals the sidebar from its own control, and the card has to
+	 * hang from the control the pointer is actually on — the header's handle is off-screen there.
+	 */
+	open(anchor?: Element | null) {
 		hoverClose?.cancel()
-		const handle = document.querySelector('[data-nav-handle]')
-		cardTop = handle
-			? Math.round(handle.getBoundingClientRect().bottom) + GAP_UNDER_HANDLE
-			: FALLBACK_CARD_TOP
+		const handle = anchor ?? document.querySelector('[data-nav-handle]')
+		const bottom = handle?.getBoundingClientRect().bottom
+		cardTop =
+			bottom != null && bottom > 0 ? Math.round(bottom) + GAP_UNDER_HANDLE : FALLBACK_CARD_TOP
 		opener?.()
 	}
 }
