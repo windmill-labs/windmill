@@ -525,10 +525,16 @@ class ChatImpl implements Chat {
       return
     }
     await this.#syncFromServer(conversationId)
-    // The turn this chat lost may have completed elsewhere: its answer is in the rows now,
-    // so the failure it was left with is no longer what the conversation says.
+    // The turn this chat lost may have completed elsewhere: its answer is in the rows now, so
+    // the failure it was left with is no longer what the conversation says. The message that
+    // carried it goes with it — it was this chat's own, never a row, and the answer the read
+    // brought back sits under it.
     if (this.#state.conversationId === conversationId && this.#state.status === 'error') {
-      this.#set({ status: 'idle', error: undefined })
+      this.#set({
+        messages: this.#state.messages.filter((m) => m.seq !== undefined || m.success !== false),
+        status: 'idle',
+        error: undefined
+      })
     }
   }
 

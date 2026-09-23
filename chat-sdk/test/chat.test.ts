@@ -1286,7 +1286,7 @@ describe('createChat with server history', () => {
     const { fetch } = fetchMock(
       (c) =>
         c.url.pathname === streamPath
-          ? sse([{ type: 'update', error: 'stream broke' }])
+          ? sse([{ type: 'error', error: 'stream broke' }])
           : undefined,
       (c) => {
         if (!c.url.pathname.endsWith('/messages')) return undefined
@@ -1302,7 +1302,8 @@ describe('createChat with server history', () => {
     // Another tab carried the turn to its end and its answer is in the rows now.
     answered = true
     await chat.refreshMessages()
-    expect(chat.getState().messages.map((m) => m.content)).toContain('the answer')
+    // The answer stands alone: the failure this chat showed was never a row.
+    expect(chat.getState().messages.map((m) => m.content)).toEqual(['question', 'the answer'])
     expect(chat.getState().status).toBe('idle')
     expect(chat.getState().error).toBeUndefined()
   })

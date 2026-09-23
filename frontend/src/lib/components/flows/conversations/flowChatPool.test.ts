@@ -157,13 +157,14 @@ describe('FlowChatPool', () => {
 		p.destroy()
 	})
 
-	it('brings running rows back once the listing answers again', async () => {
+	it('brings running rows back once the listing answers again, wherever they sit', async () => {
 		let answers = false
 		const turn = { jobId: 'job-1', userSeq: 7 }
 		const { pool: p } = pool({
-			listRecent: async () => {
+			listRecent: async (page) => {
 				if (!answers) throw new Error('offline')
-				return [conversation('a', { runningTurn: turn })]
+				// Watching nothing, the recovery read must go past the first page to find it.
+				return page === 1 ? [conversation('x')] : page === 2 ? [conversation('a', { runningTurn: turn })] : []
 			}
 		})
 		p.setListed([conversation('a', { runningTurn: turn })], p.listingStarted())

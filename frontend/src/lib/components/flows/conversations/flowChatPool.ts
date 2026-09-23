@@ -352,7 +352,10 @@ export class FlowChatPool<H extends DraftSender<A>, A> {
 				const batch = await this.#options.listRecent(page)
 				rows.push(...batch)
 				const seen = new Set(rows.map((row) => row.id))
-				if (batch.length === 0 || watched.every((id) => seen.has(id))) break
+				// Recovering, this pool watches no row yet: the listing is read to its end (or to
+				// the page budget), since a turn that is running can be on any of those pages.
+				if (batch.length === 0) break
+				if (watched.length > 0 && watched.every((id) => seen.has(id))) break
 			}
 			this.#pollFailures = 0
 		} catch {
