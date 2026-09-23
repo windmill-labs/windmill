@@ -48,5 +48,5 @@ export type SessionTool<T> = Tool<T> & {
 	/** For a tool taking the item kind as its `type` argument, where one verdict for the whole
 	 * tool is either too strict or too loose: what each kind's handler needs. A session is
 	 * offered only the kinds it can land, and the rest never appear in the schema it sees. */
-	kindRequires?: Readonly<Record<string, SessionToolPolicy>>
+	kindRequires?: Readonly<Partial<Record<string, SessionToolPolicy>>>
 }

@@ -7660,9 +7660,11 @@ describe('open_page workspace gating', () => {
 	// other chats' requests.
 	it("never writes a chat's schema back to the shared tool", async () => {
 		const shared = openPage().def
+		const snapshot = structuredClone(shared)
 		def = await openPage().schemaFor!({ operatingWorkspace: SESSION })
 		expect(def).not.toBe(shared)
 		expect(openPage().def).toBe(shared)
+		expect(shared).toEqual(snapshot)
 	})
 
 	// Reading the ambient `userStore` instead offers a session the pages of the workspace

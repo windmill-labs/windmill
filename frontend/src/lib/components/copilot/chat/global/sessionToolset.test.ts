@@ -100,7 +100,9 @@ describe('session tool policies', () => {
 	// baseline measured against it) changes behaviour.
 	it('withholds nothing from a session with every capability', () => {
 		const tools = sessionReachableTools()
-		expect(filterSessionTools(tools, fullSessionAccess())).toHaveLength(tools.length)
+		const filtered = filterSessionTools(tools, fullSessionAccess())
+		expect(filtered).toHaveLength(tools.length)
+		filtered.forEach((tool, i) => expect(tool).toBe(tools[i]))
 	})
 
 	it('withholds a tool that arrives without a policy', () => {
@@ -109,7 +111,7 @@ describe('session tool policies', () => {
 
 	it('passes the toolset through untouched when access is unresolved', () => {
 		const tools = globalTools.map((t) => ({ def: t.def }))
-		expect(filterSessionTools(tools, undefined)).toHaveLength(tools.length)
+		expect(filterSessionTools(tools, undefined)).toBe(tools)
 	})
 
 	// The kind is an argument, so its enum carries the permission, per the handler each kind

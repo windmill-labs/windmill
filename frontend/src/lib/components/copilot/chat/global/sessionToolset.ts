@@ -4,7 +4,7 @@ import type { SessionAccess, SessionToolPolicy } from '../sessionCapabilities'
 type FilterableTool = {
 	def: ChatCompletionFunctionTool
 	requires?: SessionToolPolicy
-	kindRequires?: Readonly<Record<string, SessionToolPolicy>>
+	kindRequires?: Readonly<Partial<Record<string, SessionToolPolicy>>>
 }
 
 const satisfies = (policy: SessionToolPolicy, access: SessionAccess) =>
