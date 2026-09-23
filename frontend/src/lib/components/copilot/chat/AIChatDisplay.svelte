@@ -272,9 +272,10 @@
 	// guard for the same reason.
 	const sticker = createBottomSticker()
 
-	// Per message: whether it is the last answer of its turn — per flow step, since each step's
-	// last answer carries the only link to that step's run. Keyed on answers, not on the next
-	// row: a flow's tool rows have their own job, and a stopped turn can end on a tool row.
+	// Per message: whether it is the last answer of its turn — per flow step run, since each
+	// run's last answer carries the only link to that run. Keyed on the answer's own job (a step
+	// label repeats when a step runs in a loop), and on answers rather than the next row: a
+	// flow's tool rows have their own job, and a stopped turn can end on a tool row.
 	const showsAnswerActions = $derived.by(() => {
 		const shows: boolean[] = new Array(messages.length).fill(false)
 		const answeredLater = new Set<string | undefined>()
@@ -283,8 +284,9 @@
 			if (message.role === 'user' || message.role === 'summary') {
 				answeredLater.clear()
 			} else if (message.role === 'assistant' && message.content) {
-				shows[i] = !answeredLater.has(message.stepName)
-				answeredLater.add(message.stepName)
+				const run = message.jobId ?? message.stepName
+				shows[i] = !answeredLater.has(run)
+				answeredLater.add(run)
 			}
 		}
 		return shows
