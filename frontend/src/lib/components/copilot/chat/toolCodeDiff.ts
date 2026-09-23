@@ -244,8 +244,9 @@ export type VisibleToolDiffRow =
 
 const CONTEXT_LINES = 3
 // Every visible row is a DOM row with no virtualization, and only context collapses: a whole-file
-// rewrite would otherwise render every line of both sides.
-const MAX_CHANGED_RUN_ROWS = 200
+// rewrite would otherwise render every line of both sides. Two capped runs fit under the overall
+// cap, so a rewrite still shows its added side. An omitted section renders once expanded.
+const MAX_CHANGED_RUN_ROWS = 400
 const MAX_VISIBLE_ROWS = 1_000
 
 export function visibleToolDiffRows(
@@ -260,14 +261,13 @@ export function visibleToolDiffRows(
 		const count = index - start
 
 		if (kind !== 'context') {
-			result.push(...lines.slice(start, Math.min(index, start + MAX_CHANGED_RUN_ROWS)))
-			if (count > MAX_CHANGED_RUN_ROWS) {
-				result.push({
-					kind: 'omitted',
-					key: `${kind}:${start}`,
-					count: count - MAX_CHANGED_RUN_ROWS
-				})
+			const key = `${kind}:${start}`
+			if (count <= MAX_CHANGED_RUN_ROWS || expandedSections.has(key)) {
+				result.push(...lines.slice(start, index))
+				continue
 			}
+			result.push(...lines.slice(start, start + MAX_CHANGED_RUN_ROWS))
+			result.push({ kind: 'omitted', key, count: count - MAX_CHANGED_RUN_ROWS })
 			continue
 		}
 
@@ -281,7 +281,7 @@ export function visibleToolDiffRows(
 		result.push(...lines.slice(index - CONTEXT_LINES, index))
 	}
 
-	if (result.length <= MAX_VISIBLE_ROWS) return result
+	if (result.length <= MAX_VISIBLE_ROWS || expandedSections.has('end')) return result
 	const hidden = result
 		.slice(MAX_VISIBLE_ROWS)
 		.reduce((total, row) => total + ('count' in row ? row.count : 1), 0)

@@ -29,9 +29,9 @@
 
 		let lastOldLine = 0
 		let lastNewLine = 0
-		for (const row of visibleRows) {
-			if ('oldLine' in row && row.oldLine) lastOldLine = Math.max(lastOldLine, row.oldLine)
-			if ('newLine' in row && row.newLine) lastNewLine = Math.max(lastNewLine, row.newLine)
+		for (const row of diffRows) {
+			if (row.oldLine) lastOldLine = Math.max(lastOldLine, row.oldLine)
+			if (row.newLine) lastNewLine = Math.max(lastNewLine, row.newLine)
 		}
 		return {
 			original: highlightedSourceLines(diff.before, language.name, lastOldLine),
@@ -49,6 +49,8 @@
 		expandedSections = new Set(expandedSections).add(key)
 	}
 
+	// Tab stops are measured from the line start, so a range's width is its end column minus its
+	// start column, never the width of the range text on its own.
 	function displayColumns(content: string): number {
 		let columns = 0
 		for (const character of content) {
@@ -61,7 +63,7 @@
 		const left = displayColumns(content.slice(0, range.start))
 		const width = range.extendsToEnd
 			? 'calc(100% - ' + left + 'ch)'
-			: displayColumns(content.slice(range.start, range.start + range.length)) + 'ch'
+			: displayColumns(content.slice(0, range.start + range.length)) - left + 'ch'
 		return 'left: ' + left + 'ch; width: ' + width
 	}
 </script>
@@ -72,15 +74,7 @@
 	class="tool-code-diff max-h-[400px] overflow-auto bg-surface-tertiary text-xs leading-[18px] text-primary"
 >
 	{#each visibleRows as row, index ('key' in row ? `${row.kind}:${row.key}` : `line:${row.oldLine}:${row.newLine}:${index}`)}
-		{#if row.kind === 'omitted'}
-			<div
-				class="grid min-h-7 grid-cols-[0.875rem_2.9375rem_minmax(0,1fr)] items-center bg-surface-secondary py-1 text-hint"
-			>
-				<span></span>
-				<span></span>
-				<span>{row.count} more lines not shown</span>
-			</div>
-		{:else if row.kind === 'collapsed'}
+		{#if row.kind === 'collapsed' || row.kind === 'omitted'}
 			<Button
 				unifiedSize="2xs"
 				variant="subtle"
@@ -91,7 +85,7 @@
 				<span class="grid grid-cols-[1.125rem_0.875rem_0.9375rem]">
 					<span></span><span class="text-right">...</span><span>...</span>
 				</span>
-				<span>{row.count} unchanged lines</span>
+				<span>{row.count} {row.kind === 'collapsed' ? 'unchanged lines' : 'more lines'}</span>
 			</Button>
 		{:else}
 			<div class="diff-line-{row.kind} grid grid-cols-[0.875rem_2.9375rem_minmax(0,1fr)]">

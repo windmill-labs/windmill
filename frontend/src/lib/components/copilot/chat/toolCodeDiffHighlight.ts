@@ -1,4 +1,9 @@
 import hljs from 'highlight.js/lib/core'
+import { escapeHtml } from '$lib/utils'
+
+// highlight.js runs on the UI thread at roughly 15 ms per 1,000 lines, and must see the whole
+// source for multi-line strings and comments to scope correctly. Larger sides render as plain text.
+const MAX_HIGHLIGHTED_LINES = 2_000
 
 // Highlights the whole source before splitting it, so a line inside a multi-line string or
 // comment keeps that scope. Only the first `lineLimit` lines are highlighted: a streamed source
@@ -11,6 +16,11 @@ export function highlightedSourceLines(
 	if (code === '' || lineLimit <= 0) return []
 	const sourceLines = code.split('\n')
 	const truncated = sourceLines.length > lineLimit
+	if (Math.min(sourceLines.length, lineLimit) > MAX_HIGHLIGHTED_LINES) {
+		const plain = sourceLines.slice(0, lineLimit).map(escapeHtml)
+		if (!truncated && code.endsWith('\n')) plain.pop()
+		return plain
+	}
 	const source = truncated ? sourceLines.slice(0, lineLimit).join('\n') : code
 	const highlighted = hljs.highlight(source, { language: languageName }).value
 	return splitHighlightedLines(highlighted, !truncated && code.endsWith('\n'))

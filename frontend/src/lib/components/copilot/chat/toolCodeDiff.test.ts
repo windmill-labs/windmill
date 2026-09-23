@@ -302,10 +302,17 @@ describe('toolCodeDiff', () => {
 		const after = Array.from({ length: 1_000 }, (_, index) => `after ${index}`).join('\n')
 		const rows = visibleToolDiffRows(toolDiffLines({ before, after, lang: 'plaintext' }), new Set())
 
-		expect(rows).toHaveLength(402)
-		expect(rows[200]).toEqual({ kind: 'omitted', key: 'removed:0', count: 800 })
-		expect(rows[201]).toMatchObject({ kind: 'added', newLine: 1 })
-		expect(rows[401]).toEqual({ kind: 'omitted', key: 'added:1000', count: 800 })
+		expect(rows).toHaveLength(802)
+		expect(rows[400]).toEqual({ kind: 'omitted', key: 'removed:0', count: 600 })
+		expect(rows[401]).toMatchObject({ kind: 'added', newLine: 1 })
+		expect(rows[801]).toEqual({ kind: 'omitted', key: 'added:1000', count: 600 })
+
+		const expanded = visibleToolDiffRows(
+			toolDiffLines({ before, after, lang: 'plaintext' }),
+			new Set(['removed:0'])
+		)
+		expect(expanded).toHaveLength(1_001)
+		expect(expanded[1_000]).toEqual({ kind: 'omitted', key: 'end', count: 1_000 })
 	})
 
 	it('highlights each line within the scope of the whole source', () => {
@@ -323,6 +330,11 @@ describe('toolCodeDiff', () => {
 		expect(highlightedSourceLines('a\nb', typescript.name)).toEqual(['a', 'b'])
 		expect(highlightedSourceLines('a\nb\n', typescript.name)).toEqual(['a', 'b'])
 		expect(highlightedSourceLines('', typescript.name)).toEqual([])
+
+		const large = Array.from({ length: 2_001 }, () => 'const a = 1 < 2').join('\n') + '\n'
+		const plain = highlightedSourceLines(large, typescript.name)
+		expect(plain).toHaveLength(2_001)
+		expect(plain[0]).toBe('const a = 1 &lt; 2')
 	})
 
 	it('has a highlighter for every supported editor language', () => {
