@@ -140,6 +140,7 @@ export const CONFIG_REFERENCE: ConfigOption[] = [
       type: "object",
       properties: {
         relative_path: { type: "string", description: "Path to the codebase directory" },
+        extra_digest_paths: { type: "array", items: { type: "string" }, description: "Files or directories outside relative_path that scripts import (e.g. monorepo packages); changes to them trigger a re-push" },
         includes: { type: "array", items: { type: "string" }, description: "Glob patterns for files to include in bundle" },
         excludes: { type: "array", items: { type: "string" }, description: "Glob patterns for files to exclude from bundle" },
         format: { type: "string", enum: ["cjs", "esm"], description: "Bundle output format" },
@@ -159,6 +160,7 @@ export const CONFIG_REFERENCE: ConfigOption[] = [
     example: [
       "# codebases:",
       '#   - relative_path: ./shared          # path to the codebase',
+      '#     # extra_digest_paths: ["../packages/utils"] # imported paths outside relative_path',
       '#     includes: ["**/*.ts"]            # files to include in bundle',
       '#     excludes: ["node_modules/**"]    # files to exclude',
       '#     format: esm                      # bundle format: "cjs" or "esm"',
