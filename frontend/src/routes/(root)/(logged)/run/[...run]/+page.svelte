@@ -1067,6 +1067,7 @@
 							{#if $enterpriseLicense && canRestart(failedRestart)}
 								<span>·</span>
 								{@render flowRestartButton(failedRestart, failedTopLevelStep, 'link')}
+								<span>on this flow version, or on a new one after you fix it</span>
 							{/if}
 						{/if}
 					{/snippet}
