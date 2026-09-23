@@ -1411,9 +1411,11 @@ describe('createChat with server history', () => {
     expect(chat.getState().status).toBe('error')
     releaseJobs(json({ flow_status: { modules: [{ job: 'job-a' }] } }))
     await refreshed
-    // B's failure is B's own outcome: the refresh was about A and settles nothing here.
+    // A's failure goes, since its answer is here; the error the chat shows is B's.
     expect(chat.getState().status).toBe('error')
-    expect(chat.getState().messages.filter((m) => m.success === false)).toHaveLength(2)
+    const failures = chat.getState().messages.filter((m) => m.success === false)
+    expect(failures).toHaveLength(1)
+    expect(chat.getState().messages.map((m) => m.content)).toContain("A's answer")
   })
 
   test('a re-read that finds no answer leaves the failure standing', async () => {

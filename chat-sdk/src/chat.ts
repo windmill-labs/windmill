@@ -538,9 +538,6 @@ class ChatImpl implements Chat {
     const jobs = failure.jobId ? await this.#turnJobIds(failure.jobId) : undefined
     if (this.#state.conversationId !== conversationId || this.#state.status !== 'error') return
     const held = this.#state.messages
-    // A turn that failed while those jobs were read owns the error now, and this read says
-    // nothing about that one.
-    if (lastFailureShown(held)?.id !== failure.id) return
     const answered = held.some(
       (m) =>
         m.seq !== undefined &&
@@ -550,10 +547,12 @@ class ChatImpl implements Chat {
         (jobs === undefined || m.jobId === undefined || jobs.has(m.jobId))
     )
     if (!answered) return
+    // A turn that failed while those jobs were read owns the error now: this one's failure
+    // still goes, since its answer is here, but the conversation keeps that turn's outcome.
+    const newerFailure = lastFailureShown(held)?.id !== failure.id
     this.#set({
       messages: held.filter((m) => m.id !== failure.id),
-      status: 'idle',
-      error: undefined
+      ...(newerFailure ? {} : { status: 'idle' as const, error: undefined })
     })
   }
 
