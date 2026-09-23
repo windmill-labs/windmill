@@ -69,7 +69,7 @@ use windmill_common::{
     user_drafts::{overlay_or_draft_only, DraftUserRef, UserDraftItemKind, WithDraftOverlay},
     users::username_to_permissioned_as,
     utils::{
-        http_get_from_hub, not_found_if_none, paginate, paginate_optional,
+        check_proper_path, http_get_from_hub, not_found_if_none, paginate, paginate_optional,
         query_elems_from_hub, require_admin, strip_json_nul, Pagination, RunnableKind, StripPath,
     },
     variables::{build_crypt, build_crypt_with_key_suffix, encrypt},
@@ -2506,6 +2506,7 @@ async fn create_app_internal<'a>(
     // inside process_app_multipart!, so checking after this call would leave a
     // denied app committed in the DB.
     check_scopes(&authed, || format!("apps:write:{}", &app.path))?;
+    check_proper_path(&app.path)?;
     validate_frontend_sdk_scopes(&app.policy)?;
     if raw_app {
         validate_raw_app_path_keys(&app.value.0)?;
@@ -3462,6 +3463,9 @@ async fn update_app_internal<'a>(
     // the token's write scope, not just the source path.
     if let Some(npath) = ns.path.as_deref() {
         check_scopes(&authed, || format!("apps:write:{}", npath))?;
+        if npath != path {
+            check_proper_path(npath)?;
+        }
     }
 
     if raw_app {

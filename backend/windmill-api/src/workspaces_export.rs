@@ -283,6 +283,13 @@ enum ArchiveImpl {
 
 impl ArchiveImpl {
     async fn write_to_archive(&mut self, content: &str, path: &str) -> Result<()> {
+        // Entry paths come from item paths stored in the workspace; a `..` segment
+        // would make extraction write outside the target directory.
+        if path.starts_with('/') || path.split(['/', '\\']).any(|seg| seg == "..") {
+            return Err(Error::internal_err(format!(
+                "refusing to write archive entry with path traversal: {path}"
+            )));
+        }
         match self {
             ArchiveImpl::Tar(t) => {
                 let bytes = content.as_bytes();
@@ -1647,7 +1654,9 @@ pub(crate) async fn tarball_workspace(
                 mute_critical_alerts: row.mute_critical_alerts,
                 color: row.color.clone(),
                 operator_settings: row.operator_settings.clone(),
-                datatable: windmill_common::workspaces::strip_datatable_permissions(row.datatable.clone()),
+                datatable: windmill_common::workspaces::strip_datatable_permissions(
+                    row.datatable.clone(),
+                ),
                 slack_team_id: row.slack_team_id.clone(),
                 slack_name: row.slack_name.clone(),
                 slack_command_script: row.slack_command_script.clone(),
