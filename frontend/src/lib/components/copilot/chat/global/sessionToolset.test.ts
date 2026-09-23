@@ -225,6 +225,29 @@ describe('session tool policies', () => {
 		}
 	)
 
+	// The sweep above reads tool definitions and the prompt. A tool RESULT is the third
+	// place a withheld name reaches the model, and the only one neither can see —
+	// `get_instructions` ships to every profile and its guidance is written around the
+	// draft tools by name.
+	it('does not hand authoring guidance naming withheld tools to a session that cannot draft', async () => {
+		const tool = globalTools.find((t) => t.def.function.name === 'get_instructions')!
+		const call = (access: SessionAccess) =>
+			tool.fn({
+				args: { subject: 'script', language: 'bun' },
+				workspace: 'ws',
+				helpers: { access },
+				toolId: 't1',
+				toolCallbacks: { setToolStatus: () => {} }
+			} as any) as Promise<string>
+
+		const readOnly = accessWith([])
+		const withheld = assembledSessionToolNames().filter((n) => !sessionToolAllowed(n, readOnly))
+		const restricted = await call(readOnly)
+		expect(withheld.filter((n) => restricted.includes(n))).toEqual([])
+		// The gate is the whole test, so pin that it is not simply refusing everyone.
+		expect(await call(fullSessionAccess())).toContain('write_script')
+	})
+
 	// A full-access profile must gate nothing at all: the text has to match the ungated
 	// build byte for byte, or every session's cached prefix and the ai_evals baseline
 	// move underneath us.

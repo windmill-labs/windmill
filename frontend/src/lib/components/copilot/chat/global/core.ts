@@ -1375,10 +1375,11 @@ The current user's workspace username is "${username}".${instanceLine}
 ${
 	canWriteDraft
 		? 'Use tools to inspect workspace items and create per-user drafts (saved server-side, visible only to this user — not deployed) for scripts, flows, schedules, triggers, resources, variables, and raw apps.'
-		: "Use tools to inspect workspace items and the workspace's run history, and to run items that are already deployed. You cannot create or edit anything here — this user's role does not allow it — so when they ask for a change, say plainly that you cannot make it rather than describing steps as if you had."
+		: "Use tools to inspect workspace items and the workspace's run history, and to run items that are already deployed. You cannot create or edit scripts, flows, apps, schedules, triggers, resources or variables here — this user's role does not allow it — so when they ask for such a change, say plainly that you cannot make it rather than describing steps as if you had."
 }${when(
-		// Every line here is about choosing a path for something NEW, down to the folder
-		// guidance; with nothing to create, the whole block is context tax.
+		// Every line here is about choosing a path for something NEW; with nothing to
+		// create, the whole block is context tax. The folder guidance rides its own
+		// capability below, since folder creation survives a role that cannot draft.
 		canWriteDraft,
 		`
 
@@ -1391,6 +1392,12 @@ Path conventions:
 			canCreateFolder,
 			'; create one with `create_folder` only when the user explicitly asks for a new folder'
 		)}.${folderGuidanceBlock}`
+	)}${when(
+		// Folder creation outlives the ability to draft (folders.rs checks the deploy rules
+		// and no operator flag), so this profile still has the tool. The guidance above is
+		// about where to put new items, which it cannot make — it gets this line instead.
+		canCreateFolder && !canWriteDraft,
+		'\n- You can create a shared folder with `create_folder` when the user explicitly asks for one. You cannot create anything inside it here, so do not offer to.'
 	)}
 
 Rules:${when(
@@ -2524,9 +2531,15 @@ export function getSessionContextPromptSection(
 	}
 	// Without this the model reads "deploys" among its targets with no way to know which
 	// kinds are refused, and keeps proposing script deploys that come back 403.
-	if (canWriteDraft && !canDeploy) {
+	if (!canDeploy) {
+		// The deploy rules gate deletes as well as deploys, so this is owed to every profile
+		// the rules refuse — including one that cannot draft and so keeps only the delete
+		// tool. Name the tools this profile actually has: the other would be a withheld name.
+		const [tools, verb] = canWriteDraft
+			? ['deploy_workspace_item and delete_workspace_item', 'deploy or delete']
+			: ['delete_workspace_item', 'delete']
 		lines.push(
-			"- This workspace refuses direct deployment for this user, except for schedules and triggers — those are the only kinds deploy_workspace_item and delete_workspace_item can still act on. Scripts, flows, apps, resources and variables must be promoted from the session's deploy panel (fork or pull request); do not offer to deploy or delete them directly."
+			`- This workspace refuses direct deployment for this user, except for schedules and triggers — those are the only kinds ${tools} can still act on. Scripts, flows, apps, resources and variables must be promoted from the session's deploy panel (fork or pull request); do not offer to ${verb} them directly.`
 		)
 	}
 	return lines.join('\n')
@@ -3392,6 +3405,17 @@ export const globalTools: Tool<{}>[] = [
 		fn: async (ctx) => {
 			const { args, toolId, toolCallbacks } = ctx
 			const parsed = getInstructionsSchema.parse(args)
+			// Every subject is authoring guidance, written around the draft tools by name.
+			// Handing it to a session that cannot draft points the model at tools it was
+			// not given — the same broken promise the prompt and descriptions are swept
+			// for, in the one place a sweep cannot see.
+			const access = (ctx.helpers as GlobalToolHelpers | undefined)?.access
+			if (access && !access.has('write_draft')) {
+				const message =
+					'This session cannot create or edit workspace items, so there is no authoring guidance to give. Tell the user plainly rather than describing how it would be done.'
+				toolCallbacks.setToolStatus(toolId, { content: 'No authoring guidance' })
+				return message
+			}
 			const label =
 				parsed.subject === 'script' && parsed.language
 					? `${parsed.subject} (${parsed.language})`
@@ -4590,6 +4614,10 @@ type WriteDraftCtx = {
 export type SessionToolHelpers = { sessionId?: string }
 
 export type GlobalToolHelpers = SessionToolHelpers & {
+	/** The session's capability profile, for the one thing the toolset filter cannot reach:
+	 * a tool RESULT that names a tool this profile does not have. Undefined outside a
+	 * session, or before the first send resolves it. */
+	access?: SessionAccess
 	/** Runs the flow editor mounted on `storagePath`, if one is. `memoryId` names the
 	 * chat-mode conversation the turn belongs to. */
 	testActiveFlow?: (

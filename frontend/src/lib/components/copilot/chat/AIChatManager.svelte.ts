@@ -2449,6 +2449,7 @@ export class AIChatManager implements ChatViewHost {
 						sessionId: this.sessionId,
 						operatingWorkspace: this.operatingWorkspace,
 						artifacts: this.artifacts,
+						access: this.sessionAccess,
 						getChatId: () => this.historyManager.getCurrentChatId(),
 						openArtifact: this.openArtifact
 					}
@@ -3598,8 +3599,13 @@ export class AIChatManager implements ChatViewHost {
 			])
 			// Each of the above rebuilds as it lands, in whichever order they do, so a
 			// prompt built before the access profile resolved would still advertise the
-			// withheld tools. Rebuild once more, from the settled set.
-			this.configureGlobalMode()
+			// withheld tools. Rebuild once more, from the settled set — but only if the
+			// mode still is GLOBAL, as each of them checks: the picker stays live across
+			// the awaits, and rebuilding regardless would hand an editor mode the global
+			// toolset while `mode` still reads SCRIPT.
+			if (this.mode === AIMode.GLOBAL) {
+				this.configureGlobalMode()
+			}
 		}
 		// Stop/Escape during the beforeSend pre-flight aborted this send before any
 		// request went out. Mirror the main "cancelled before usable output" recovery:
