@@ -16,14 +16,16 @@
 		/** The unsaved repository this step configures, in the git sync context. */
 		idx: number
 		mode: 'sync' | 'promotion'
-		/** Reports whether the resource and its credential have been read, naming the repository
-		 * they are about: what Windmill holds decides the defaults and which toggles exist, so
-		 * the run must not be saved before they land — and a load left over from a repository
-		 * the user has moved on from must not answer for the current one. */
-		onFactsChange?: (path: string, loaded: boolean) => void
+		/** Identifies the run this step belongs to, so a load outliving it cannot answer for a
+		 * later one — the same repository can be configured again after going Back. */
+		attempt: number
+		/** Reports whether the resource and its credential have been read. What Windmill holds
+		 * decides the defaults and which toggles exist, so the run must not be saved before
+		 * they land. */
+		onFactsChange?: (attempt: number, loaded: boolean) => void
 	}
 
-	let { idx, mode, onFactsChange }: Props = $props()
+	let { idx, mode, attempt, onFactsChange }: Props = $props()
 
 	const ctx = getGitSyncContext()
 	const repo = $derived(ctx.getRepository(idx))
@@ -39,7 +41,10 @@
 	async function loadResourceFacts(path: string) {
 		const workspace = $workspaceStore
 		if (!workspace) return
-		onFactsChange?.(path, false)
+		// Read now, not when the request lands: a destroyed step still evaluates its props
+		// against the dialog's current state, which would make this answer for a later run.
+		const run = attempt
+		onFactsChange?.(run, false)
 		const [resource, origin] = await Promise.all([
 			ResourceService.getResource({ workspace, path }).catch(() => undefined),
 			// EE-only route: absent means Windmill holds no credential.
@@ -59,7 +64,7 @@
 			})
 			targetBranch = await ctx.getTargetBranch(repo).catch(() => undefined)
 		}
-		onFactsChange?.(path, true)
+		onFactsChange?.(run, true)
 	}
 
 	async function detect() {

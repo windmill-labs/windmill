@@ -63,11 +63,12 @@
 	)
 	const draft = $derived(draftIdx === -1 ? undefined : ctx.repositories[draftIdx])
 	let push: GitPushPreview | undefined = $state()
-	/** The repository step 3 has finished reading the facts for. Keyed by path rather than a
-	 * flag: a step destroyed mid-load still reports when its request lands, and that answer is
-	 * about the repository it was opened for, not whichever one is on screen now. */
-	let factsLoadedFor: string | undefined = $state(undefined)
-	const factsLoaded = $derived(!!draftPath && factsLoadedFor === draftPath)
+	/** Each trip to step 3 is its own attempt, and readiness names the one it belongs to: a
+	 * step destroyed mid-load still reports when its request lands, and that answer is about
+	 * the attempt it was opened for — which may be for the same repository as the current one. */
+	let configureAttempt = $state(0)
+	let factsLoadedFor: number | undefined = $state(undefined)
+	const factsLoaded = $derived(factsLoadedFor === configureAttempt)
 	let saving = $state(false)
 	let saveError: string | undefined = $state(undefined)
 	let provider: Provider | undefined = $state(undefined)
@@ -122,14 +123,15 @@
 		draftPath = undefined
 	}
 
-	/** Ignores a report about any repository but the one being configured now. */
-	function noteFacts(path: string, loaded: boolean) {
-		if (path !== draftPath) return
-		factsLoadedFor = loaded ? path : undefined
+	/** Ignores a report from any attempt but the one on screen. */
+	function noteFacts(attempt: number, loaded: boolean) {
+		if (attempt !== configureAttempt) return
+		factsLoadedFor = loaded ? attempt : undefined
 	}
 
 	function enterConfigure(path: string) {
 		discardDraft()
+		configureAttempt += 1
 		factsLoadedFor = undefined
 		const before = ctx.repositories.length
 		if (mode === 'promotion') ctx.addPromotionRepository()
@@ -399,10 +401,13 @@
 					{/if}
 				{:else if step === 3}
 					{#if draftIdx !== -1}
-						{#key draftPath}
+						<!-- One step per attempt, so a repository configured again starts from scratch
+						     rather than reusing the instance that is still loading. -->
+						{#key configureAttempt}
 							<ConfigureSyncStep
 								idx={draftIdx}
 								{mode}
+								attempt={configureAttempt}
 								onFactsChange={noteFacts}
 							/>
 						{/key}
