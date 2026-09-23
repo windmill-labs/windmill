@@ -1561,115 +1561,129 @@
 					contexts={headerContexts}
 				/>
 			{:else}
-			<!-- Nav between steps-->
-			<div
-				bind:clientWidth={topbarWidth}
-				class="justify-between flex flex-row items-center pl-2 pr-4 space-x-4 scrollbar-hidden overflow-x-auto h-full relative {condensedHeader
-					? 'max-h-9'
-					: 'max-h-12'}"
-			>
-				<div class="flex flex-row items-center gap-2 min-w-0">
-					{#if customUi?.topBar?.path != false}
-						<div class="min-w-0 overflow-hidden">
-							<EditorHeader
-								bind:summary={flowStore.val.summary}
-								bind:path={$pathStore}
-								savedPath={initialPath}
-								onBehalfOfEmail={$savedOnBehalfOfEmail}
-								summaryEditable={customUi?.topBar?.editableSummary != false}
-								pathEditable={customUi?.topBar?.editablePath != false}
-								hidePath={condensedHeader}
-								workspaceId={autosaveWorkspace}
-								onNavigate={(item) => onNavigate?.(item)}
+				<!-- Nav between steps-->
+				<div
+					bind:clientWidth={topbarWidth}
+					class="justify-between flex flex-row items-center pl-2 pr-4 space-x-4 scrollbar-hidden overflow-x-auto h-full relative {condensedHeader
+						? 'max-h-9'
+						: 'max-h-12'}"
+				>
+					<div class="flex flex-row items-center gap-2 min-w-0">
+						{#if customUi?.topBar?.path != false}
+							<div class="min-w-0 overflow-hidden">
+								<EditorHeader
+									bind:summary={flowStore.val.summary}
+									bind:path={$pathStore}
+									savedPath={initialPath}
+									onBehalfOfEmail={$savedOnBehalfOfEmail}
+									summaryEditable={customUi?.topBar?.editableSummary != false}
+									pathEditable={customUi?.topBar?.editablePath != false}
+									hidePath={condensedHeader}
+									workspaceId={autosaveWorkspace}
+									onNavigate={(item) => onNavigate?.(item)}
+								/>
+							</div>
+						{/if}
+						{#if opWorkspace && indicatorPath !== undefined}
+							<AutosaveIndicator
+								workspace={opWorkspace}
+								itemKind="flow"
+								path={indicatorPath}
+								draftOnly={newFlow}
+								{onResetToDeployed}
+								{loadedFromDraft}
+								{othersDraftsCount}
+								{onOpenOthersDrafts}
 							/>
-						</div>
-					{/if}
-					{#if opWorkspace && indicatorPath !== undefined}
-						<AutosaveIndicator
-							workspace={opWorkspace}
-							itemKind="flow"
-							path={indicatorPath}
-							draftOnly={newFlow}
-							{onResetToDeployed}
-							{loadedFromDraft}
-							{othersDraftsCount}
-							{onOpenOthersDrafts}
-						/>
-					{/if}
-				</div>
-				<div class="flex flex-row gap-2 items-center shrink-0">
-					{#if $enterpriseLicense && !newFlow && !inSessionPane}
-						<Awareness />
-					{/if}
-					<Dropdown items={getMoreItems} size={headerBtnSize} fixedHeight={!condensedHeader} />
-					{#if diffEnabled && !diffInMenu}
-						<!-- A disabled <button> fires no pointer events, so a title/tooltip on
+						{/if}
+					</div>
+					<div class="flex flex-row gap-2 items-center shrink-0">
+						{#if $enterpriseLicense && !newFlow && !inSessionPane}
+							<Awareness />
+						{/if}
+						<Dropdown items={getMoreItems} size={headerBtnSize} fixedHeight={!condensedHeader} />
+						{#if diffEnabled && !diffInMenu}
+							<!-- A disabled <button> fires no pointer events, so a title/tooltip on
 						     it never shows on hover. pointer-events-none on the button lets the
 						     hover reach this titled wrapper instead. -->
-						<div title={diffTitle} class={diffDisabled ? 'flex cursor-not-allowed' : 'flex'}>
-							<Button
-								variant="default"
-								unifiedSize={headerBtnSize}
-								on:click={() => openDiffDrawer()}
-								disabled={diffDisabled}
-								btnClasses={diffDisabled ? 'pointer-events-none' : undefined}
-								title={diffTitle}
-								startIcon={{ icon: DiffIcon }}
-							>
-								Diff
-							</Button>
-						</div>
-					{/if}
-					{#if !compactTopbar}
-						{@render previewButtons()}
-					{/if}
+							<div title={diffTitle} class={diffDisabled ? 'flex cursor-not-allowed' : 'flex'}>
+								<Button
+									variant="default"
+									unifiedSize={headerBtnSize}
+									on:click={() => openDiffDrawer()}
+									disabled={diffDisabled}
+									btnClasses={diffDisabled ? 'pointer-events-none' : undefined}
+									title={diffTitle}
+									startIcon={{ icon: DiffIcon }}
+								>
+									Diff
+								</Button>
+							</div>
+						{/if}
+						{#if !compactTopbar}
+							{@render previewButtons()}
+						{/if}
 
-					<DeployButton
-						on:save={async ({ detail }) => await handleSaveFlow(detail)}
-						{loading}
-						{loadingSave}
-						unifiedSize={headerBtnSize}
-						{dropdownItems}
-					/>
+						<DeployButton
+							on:save={async ({ detail }) => await handleSaveFlow(detail)}
+							{loading}
+							{loadingSave}
+							unifiedSize={headerBtnSize}
+							{dropdownItems}
+						/>
+					</div>
 				</div>
-			</div>
 			{/if}
 
 			{#snippet flowHeaderActions()}
-
-					{#if $enterpriseLicense && !newFlow && !inSessionPane}
-						<Awareness />
-					{/if}
-					<Dropdown items={getMoreItems} size={headerBtnSize} fixedHeight={!condensedHeader} />
-					{#if diffEnabled && !diffInMenu}
-						<!-- A disabled <button> fires no pointer events, so a title/tooltip on
+				<!-- Saving state, the autosave toggle and other people's drafts: the editor's own
+					     bar carries them beside the path, so the header has to carry them when it owns
+					     the bar — without them a full-page editor saves with no word either way. -->
+				{#if opWorkspace && indicatorPath !== undefined}
+					<AutosaveIndicator
+						workspace={opWorkspace}
+						itemKind="flow"
+						path={indicatorPath}
+						draftOnly={newFlow}
+						{onResetToDeployed}
+						{loadedFromDraft}
+						{othersDraftsCount}
+						{onOpenOthersDrafts}
+					/>
+				{/if}
+				{#if $enterpriseLicense && !newFlow && !inSessionPane}
+					<Awareness />
+				{/if}
+				<Dropdown items={getMoreItems} size={headerBtnSize} fixedHeight={!condensedHeader} />
+				{#if diffEnabled && !diffInMenu}
+					<!-- A disabled <button> fires no pointer events, so a title/tooltip on
 						     it never shows on hover. pointer-events-none on the button lets the
 						     hover reach this titled wrapper instead. -->
-						<div title={diffTitle} class={diffDisabled ? 'flex cursor-not-allowed' : 'flex'}>
-							<Button
-								variant="default"
-								unifiedSize={headerBtnSize}
-								on:click={() => openDiffDrawer()}
-								disabled={diffDisabled}
-								btnClasses={diffDisabled ? 'pointer-events-none' : undefined}
-								title={diffTitle}
-								startIcon={{ icon: DiffIcon }}
-							>
-								Diff
-							</Button>
-						</div>
-					{/if}
-					{#if !compactTopbar}
-						{@render previewButtons()}
-					{/if}
+					<div title={diffTitle} class={diffDisabled ? 'flex cursor-not-allowed' : 'flex'}>
+						<Button
+							variant="default"
+							unifiedSize={headerBtnSize}
+							on:click={() => openDiffDrawer()}
+							disabled={diffDisabled}
+							btnClasses={diffDisabled ? 'pointer-events-none' : undefined}
+							title={diffTitle}
+							startIcon={{ icon: DiffIcon }}
+						>
+							Diff
+						</Button>
+					</div>
+				{/if}
+				{#if !compactTopbar}
+					{@render previewButtons()}
+				{/if}
 
-					<DeployButton
-						on:save={async ({ detail }) => await handleSaveFlow(detail)}
-						{loading}
-						{loadingSave}
-						unifiedSize={headerBtnSize}
-						{dropdownItems}
-					/>
+				<DeployButton
+					on:save={async ({ detail }) => await handleSaveFlow(detail)}
+					{loading}
+					{loadingSave}
+					unifiedSize={headerBtnSize}
+					{dropdownItems}
+				/>
 			{/snippet}
 
 			<!-- Rendered either inline in the top bar (wide) or as a graph overlay

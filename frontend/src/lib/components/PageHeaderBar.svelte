@@ -14,6 +14,8 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 	import { pageHeader } from './pageHeaderRegistry.svelte'
 	import ContextBridge from './ContextBridge.svelte'
 
+	let { navHidden = false }: { navHidden?: boolean } = $props()
+
 	const content = $derived(pageHeader.content)
 	const actions = $derived(pageHeader.actions)
 
@@ -22,7 +24,7 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 </script>
 
 <div data-page-header class="flex items-center gap-1 h-11 pl-2 pr-4 shrink-0 min-w-0 bg-surface">
-	{#if navDetached.val}
+	{#if navDetached.val && !navHidden}
 		<!-- The only way back to a hidden sidebar: hovering slides the card in for a look, a click
 		     puts it back for good. Docked, the sidebar speaks for itself and nothing leads the bar. -->
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -45,15 +47,19 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 
 	<!-- The breadcrumb yields width grudgingly (shrink-[0.1]): when a page fills the bar with
 	     controls, they are what should narrow, not the name of where the user is. It still gives
-	     way rather than pushing them off the bar once there is nothing left to take. -->
-	<div class="flex min-w-0 shrink-[0.1]">
-		<NavBreadcrumb
-			{item}
-			{section}
-			hint={content?.hint}
-			actingWorkspaceId={content?.actingWorkspaceId}
-		/>
-	</div>
+	     way rather than pushing them off the bar once there is nothing left to take.
+	     An embed (`navHidden`) gets the page's controls without the trail that would offer to
+	     navigate the host's workspace. -->
+	{#if !navHidden}
+		<div class="flex min-w-0 shrink-[0.1]">
+			<NavBreadcrumb
+				{item}
+				{section}
+				hint={content?.hint}
+				actingWorkspaceId={content?.actingWorkspaceId}
+			/>
+		</div>
+	{/if}
 
 	{#if item && (item.summaryContent || item.summary)}
 		<!-- A dot rather than a slash: the summary names the same item the path just located, it is
