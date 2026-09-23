@@ -2564,6 +2564,14 @@ pub async fn delete_workspace_user_internal(
     .await?;
 
     sqlx::query!(
+        "DELETE FROM remote_deploy_token WHERE email = $1 AND workspace_id = $2",
+        email_to_delete,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
         "DELETE FROM usr_to_group WHERE usr = $1 AND workspace_id = $2",
         username_to_delete,
         w_id
@@ -4015,6 +4023,7 @@ async fn update_token_label(
                  AND NOT starts_with(label, 'sdk_app:')
                  AND NOT starts_with(label, 'impersonation:')
                  AND NOT starts_with(label, 'cli-login:')
+                 AND NOT starts_with(label, 'remote-deploy:')
              ))
            RETURNING token_prefix",
         req.label.as_deref(),
@@ -4061,13 +4070,25 @@ async fn leave_workspace(
         &format!("u/{}", authed.username),
     )
     .await?;
-    sqlx::query!(
+    let left = sqlx::query!(
         "DELETE FROM usr WHERE workspace_id = $1 AND username = $2",
         &w_id,
         authed.username
     )
     .execute(&mut *tx)
-    .await?;
+    .await?
+    .rows_affected();
+    // A superadmin deploys from workspaces it is no member of; leaving none is no reason to drop
+    // its connection.
+    if left > 0 {
+        sqlx::query!(
+            "DELETE FROM remote_deploy_token WHERE email = $1 AND workspace_id = $2",
+            &authed.email,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
 
     audit_log(
         &mut *tx,

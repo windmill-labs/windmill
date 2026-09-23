@@ -1029,9 +1029,10 @@ const NESTED_SENSITIVE_FIELDS: &[(&str, &[&str])] = &[
     ),
     (
         "object_store_cache_config",
-        &["secret_key", "serviceAccountKey"],
+        &["secret_key", "serviceAccountKey", "accessKey"],
     ),
     ("custom_instance_pg_databases", &["user_pwd"]),
+    ("github_enterprise_app", &["private_key"]),
 ];
 
 fn redact_json_value(value: &serde_json::Value) -> serde_json::Value {
@@ -2645,6 +2646,26 @@ mod tests {
         assert!(!formatted.contains("my-super-secret-12345"));
         assert!(formatted.contains("client-id"));
         assert!(formatted.contains("****"));
+    }
+
+    #[test]
+    fn format_setting_value_redacts_nested_credentials() {
+        let val = serde_json::json!({
+            "type": "Azure",
+            "accountName": "acct",
+            "containerName": "c",
+            "accessKey": "azure-storage-account-key-12345"
+        });
+        let formatted = format_setting_value("object_store_cache_config", &val);
+        assert!(!formatted.contains("azure-storage-account-key-12345"));
+        assert!(formatted.contains("acct"));
+
+        let val = serde_json::json!({
+            "app_id": 1,
+            "private_key": "-----BEGIN RSA PRIVATE KEY-----\nMIIEsecretbody\n-----END RSA PRIVATE KEY-----"
+        });
+        let formatted = format_setting_value("github_enterprise_app", &val);
+        assert!(!formatted.contains("MIIEsecretbody"));
     }
 
     #[test]

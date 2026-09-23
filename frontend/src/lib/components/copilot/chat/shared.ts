@@ -610,6 +610,84 @@ export type WebSearchSource = {
 	title?: string
 }
 
+export type ToolCodeDiff = {
+	before: string
+	after: string
+	/** Monaco language id. */
+	lang: string
+}
+
+/** The result shape any tool returns to have it rendered as a web search card. */
+export type WebSearchResult = {
+	sources: WebSearchSource[]
+	query?: string
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/** A link the card can render: the source list drops everything else, so a result whose
+ * urls are relative or `javascript:` would show as an empty list in place of its own output. */
+export function isRenderableSourceUrl(url: string): boolean {
+	try {
+		return ['http:', 'https:'].includes(new URL(url).protocol)
+	} catch {
+		return false
+	}
+}
+
+/** An absent optional field reaches JSON as `null` from a Python tool and as nothing from a
+ * TypeScript one, so both read as absent. */
+function isOptionalString(value: unknown): boolean {
+	return value === null || typeof value === 'string'
+}
+
+function isWebSearchSource(value: unknown): value is { url: string; title?: unknown } {
+	return (
+		isRecord(value) &&
+		typeof value.url === 'string' &&
+		isRenderableSourceUrl(value.url) &&
+		Object.entries(value).every(
+			([key, v]) => key === 'url' || (key === 'title' && isOptionalString(v))
+		)
+	)
+}
+
+/**
+ * A tool result as a web search, or undefined when it is anything else. The keys must be
+ * exactly `sources` and an optional `query`: the card renders only urls and titles, so a
+ * result carrying more would lose it. Accepts the result as its JSON text too.
+ */
+export function webSearchResultOf(result: unknown): WebSearchResult | undefined {
+	if (typeof result === 'string') {
+		try {
+			result = JSON.parse(result)
+		} catch {
+			return undefined
+		}
+	}
+	if (!isRecord(result) || !Array.isArray(result.sources) || result.sources.length === 0) {
+		return undefined
+	}
+	const sources = result.sources
+	if (
+		!sources.every(isWebSearchSource) ||
+		!Object.entries(result).every(
+			([key, v]) => key === 'sources' || (key === 'query' && isOptionalString(v))
+		)
+	) {
+		return undefined
+	}
+	return {
+		sources: sources.map((source) => ({
+			url: source.url,
+			title: typeof source.title === 'string' ? source.title : undefined
+		})),
+		query: typeof result.query === 'string' ? result.query : undefined
+	}
+}
+
 export type ToolDisplayMessage = {
 	role: 'tool'
 	tool_call_id: string
@@ -654,6 +732,9 @@ export type ToolDisplayMessage = {
 	 * always-visible card that opens (or focuses) the item's preview in the
 	 * session side panel. Set only for session chats — the side panel is their surface. */
 	previewCard?: { kind: PreviewCardKind; path: string }
+	/** Whole text on both sides of an edit this call saved. Kept in full rather than as a
+	 * reference: drafts are overwritten in place, so the sides cannot be fetched back later. */
+	codeDiff?: ToolCodeDiff
 	planArtifactId?: string
 	/** The version this card's proposal wrote, so a card scrolled far up still opens the plan
 	 * it proposed rather than what the document became. */
@@ -1871,6 +1952,15 @@ export async function buildTestRunArgs(
 	return parsedArgs
 }
 
+// Said with the result rather than in the system prompt: there, models still copied a
+// result's table or JSON into the reply, under a card that already renders it. Only for
+// a successful run in the generic card completedJobToolStatus fills: a failed run's card
+// lands on the error with the logs a tab away, and a formatCompletion card shows its own.
+// Never on a background completion: its card can be far up the chat by then, so the
+// reply may be the only place the user reads the result.
+const RESULT_SHOWN_NOTE =
+	"The user already sees this run's result in its card. Do not repeat the result or logs in your reply: say what it shows, quoting only the values your conclusion rests on."
+
 // The string handed back to the model when a job is backgrounded. It carries the
 // job id so the model can pull status/args/result/logs on demand (get_run / list_runs),
 // and tells it the completion will be reported later (notify-only wake).
@@ -2015,7 +2105,12 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 			...(job.success ? {} : { error: getErrorMessage(job.result) })
 		})
 
-		const summary = formatResultSummary(job.result, job.logs, job.success)
+		// detachEnabled marks the global/sessions chat; the in-editor chats read the summary
+		// alone. The card opening on the result is up to each tool: a run card does, a
+		// generic one only with `autoCollapseDetails: false` at its registration.
+		const summary =
+			(detachEnabled && job.success ? `${RESULT_SHOWN_NOTE}\n` : '') +
+			formatResultSummary(job.result, job.logs, job.success)
 		// get_run only exists in the global/sessions chat (the same hosts that wire
 		// the job hooks) — don't advertise it to in-editor chats.
 		if (detachEnabled && config.contextName === 'flow' && !job.success) {

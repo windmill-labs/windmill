@@ -46,6 +46,52 @@ Symbols, not line numbers, are cited: they drift less.
   (`windmill-api-auth/src/lib.rs`) errors on `authed.job_id.is_some()`. A script that needs
   `users/create`, `tokens/impersonate`, `set_login_type`, … must use a dedicated superadmin user
   token stored as a secret, never `$WM_TOKEN`. Token scopes cannot narrow superadmin routes.
+- **A remote deploy token is a credential for another instance**, held per account and workspace
+  (`remote_deploy_token`, encrypted under the workspace key, re-keyed by `set_encryption_key`).
+  Its `email` references `password(email)` with `ON DELETE/UPDATE CASCADE`, so whatever deletes or
+  renames an account takes the token along and a recycled address cannot inherit it; removal from
+  a workspace deletes it explicitly (`delete_workspace_user_internal`, both `leave_workspace`). The
+  row records the target it was granted for, and
+  `remote_deploy::proxy` only sends it to a target still matching the workspace setting, so
+  re-pointing the setting cannot redirect anyone's token to a URL of the admin's choosing.
+  `require_own_credentials` refuses job, scoped and read-only tokens (on `set_target` too): the
+  stored token carries none of their restrictions. The proxy turns the local session into a remote
+  bearer credential, so every ambient-cookie vector becomes one on the remote: its URL carries the
+  row's random `proxy_key` (a link riding the `SameSite=Lax` cookie cannot know it; a header would
+  do, but the frontend's only per-call hook is the global `OpenAPI.HEADERS`, whose mere presence
+  switches every download to in-memory blobs). The key is served `no-store`, withheld from the
+  credentials `require_own_credentials` refuses, and masked in this instance's own request logs
+  (`RedactedUri`, used by the request span and the log context); a reverse proxy in front still
+  writes the full path to its access log. `connect` names the target the token was obtained for
+  and is refused, before the token is sent anywhere, if the workspace now points elsewhere; the
+  token only ever goes to that target. It takes no lock against what clears these rows (a removal
+  from the workspace, a target change, a key rotation): their writers take the account, membership,
+  key and settings rows in every order, so any lock held there could close a deadlock. A row can
+  therefore land after one of them ran, however long its remote call took, and every read
+  (`load_connection`) voids it instead, by identity rather than by comparing times: the connect
+  records, before its remote call, the target setting's version (`remote_deploy_target_changed_at`)
+  and the `created_at` of the owner's membership, and the row counts only while both are still
+  the same (or the owner is a superadmin) and it decrypts. So a target set A → B → A, or a
+  removal and re-add, voids it whatever the clocks say. A superadmin with no membership is bound
+  through the credential making the request instead: the insert requires its `token` row to
+  still exist, and `delete_user`, offboarding and SCIM removal delete an account's tokens, so an
+  address deleted that way and re-created during the call does not inherit the connection (a JWT,
+  having no row, cannot connect a workspace its owner is not a member of). `leave_instance`
+  deletes only the `password` row, leaving the tokens and the memberships, which is not covered.
+  Neither is a member's connect across an account re-creation: an address is not expected to pass
+  to another person. A disconnect empties and stamps the row
+  (inserting one if needed) rather than deleting it, `connected_at` is when a connect started,
+  and the connect's upsert leaves a row stamped after that alone, so an older connect cannot undo
+  a disconnect or a newer connect. Connecting by redirect: the remote's
+  `/user/remote_deploy_authorize` page
+  mints a token bound to the one remote workspace (`remote-deploy:<source host>`, a label
+  reserved in `is_user_token` so its expiry emails nobody) only on an
+  explicit Authorize, only for a callback whose path is `/remote_deploy/callback`, and refuses to
+  render inside a frame; the token travels in the fragment, and the callback checks a single-use
+  `state` the drawer stored, so no other page can plant a token as the user's. The proxy also refuses a path the URL parser would rewrite,
+  serves every response under `CSP: sandbox` + `nosniff`, forwards only the method, query, body,
+  content-type and accept — never this instance's cookie or token — and turns the target's 401
+  into a 502, because the browser logs the user out of *this* instance on an unhandled 401.
 - **`login_type`** (`password` table) is a free-form `VARCHAR(50)`. Password login and password
   reset require `login_type = 'password'`; `set_password` also accepts `pending_oauth` and turns
   the account into a `password` one in the same statement (an account created ahead of its owner

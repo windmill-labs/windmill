@@ -69,7 +69,7 @@ use windmill_common::{
     user_drafts::{overlay_or_draft_only, DraftUserRef, UserDraftItemKind, WithDraftOverlay},
     users::username_to_permissioned_as,
     utils::{
-        http_get_from_hub, not_found_if_none, paginate, paginate_optional,
+        check_proper_path, http_get_from_hub, not_found_if_none, paginate, paginate_optional,
         query_elems_from_hub, require_admin, strip_json_nul, Pagination, RunnableKind, StripPath,
     },
     variables::{build_crypt, build_crypt_with_key_suffix, encrypt},
@@ -2506,6 +2506,7 @@ async fn create_app_internal<'a>(
     // inside process_app_multipart!, so checking after this call would leave a
     // denied app committed in the DB.
     check_scopes(&authed, || format!("apps:write:{}", &app.path))?;
+    check_proper_path(&app.path)?;
     validate_frontend_sdk_scopes(&app.policy)?;
     if raw_app {
         validate_raw_app_path_keys(&app.value.0)?;
@@ -3252,6 +3253,7 @@ async fn create_app_raw_source(
     // Before the compile, which costs a job on a worker: it must not run for a
     // path already taken, nor for one the caller can't write. `create_app_internal`
     // rejects both, but only after the sources have been built.
+    check_proper_path(&path)?;
     if app_exists(&db, &w_id, &path).await? {
         return Err(Error::BadRequest(format!("App {path} already exists")));
     }
@@ -3462,6 +3464,9 @@ async fn update_app_internal<'a>(
     // the token's write scope, not just the source path.
     if let Some(npath) = ns.path.as_deref() {
         check_scopes(&authed, || format!("apps:write:{}", npath))?;
+        if npath != path {
+            check_proper_path(npath)?;
+        }
     }
 
     if raw_app {
@@ -4450,9 +4455,11 @@ async fn execute_component(
     // — like `/jobs/run/preview` — confine it to worker tags the caller may use
     // (a `if_jobs:filter_tags`-restricted token must not escape its filter).
     // `is_preview` implies an authed caller (the guard above returns otherwise).
+    let push_args = PushArgs { args: &args.args, extra: args.extra };
     if is_preview {
         if let Some(authed) = opt_authed.as_ref() {
-            crate::jobs::check_tag_available_for_workspace(&db, &w_id, &tag, authed).await?;
+            crate::jobs::check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, authed)
+                .await?;
         }
     }
     // Identity is already resolved to the requesting user in preview mode (the
@@ -4483,7 +4490,7 @@ async fn execute_component(
         tx,
         &w_id,
         job_payload,
-        PushArgs { args: &args.args, extra: args.extra },
+        push_args,
         &username,
         email,
         permissioned_as,

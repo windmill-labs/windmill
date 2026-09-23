@@ -2060,6 +2060,24 @@ describe('global AI tools', () => {
 		})
 	})
 
+	it('records a creation diff for a new script draft', async () => {
+		const statuses: any[] = []
+
+		await callGlobalTool(
+			'write_script',
+			{
+				path: 'f/scripts/new-script',
+				language: 'python3',
+				content: 'print("hello")'
+			},
+			{ ...toolCallbacks, setToolStatus: (_toolId, status) => statuses.push(status) }
+		)
+
+		expect(statuses).toContainEqual({
+			codeDiff: { before: '', after: 'print("hello")', lang: 'python' }
+		})
+	})
+
 	it('tells a code app from a drag-and-drop app', async () => {
 		vi.mocked(AppService.listApps).mockResolvedValueOnce([
 			{ path: 'f/apps/code', summary: 'Code app', raw_app: true },
@@ -3116,12 +3134,17 @@ describe('global AI tools', () => {
 			kind: 'script'
 		} as any)
 
-		await callGlobalTool('write_script', {
-			path: 'f/scripts/existing',
-			summary: 'new summary',
-			language: 'bun',
-			content: 'new content'
-		})
+		const statuses: any[] = []
+		await callGlobalTool(
+			'write_script',
+			{
+				path: 'f/scripts/existing',
+				summary: 'new summary',
+				language: 'bun',
+				content: 'new content'
+			},
+			{ ...toolCallbacks, setToolStatus: (_toolId, status) => statuses.push(status) }
+		)
 
 		expect(
 			getBackendDraft<any>('script', 'f/scripts/existing', { workspace: WORKSPACE })
@@ -3132,6 +3155,9 @@ describe('global AI tools', () => {
 			description: 'deployed description',
 			content: 'new content',
 			language: 'bun'
+		})
+		expect(statuses).toContainEqual({
+			codeDiff: { before: 'old deployed content', after: 'new content', lang: 'typescript' }
 		})
 	})
 

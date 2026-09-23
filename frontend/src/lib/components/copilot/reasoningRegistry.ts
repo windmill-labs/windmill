@@ -374,7 +374,8 @@ const ANTHROPIC_ALWAYS_THINKING = /fable|mythos/
 /**
  * Disable token to forward when the user explicitly turns reasoning off on a
  * model that reasons *by default* — omitting the field would silently keep
- * the default-on behavior. Undefined means omission is the correct off.
+ * the default-on behavior. Undefined means omission is the correct off. Every
+ * token is `'none'`: `requestsReasoning` reads that value as off.
  */
 export function explicitOffToken(provider: AIProvider, model: string): ReasoningEffort | undefined {
 	switch (reasoningProviderFamily(provider, model)) {
@@ -432,6 +433,20 @@ export function resolveRequestReasoning(
 		return explicitOffToken(modelProvider.provider, stripLegacyThinkingSuffix(modelProvider.model))
 	}
 	return undefined
+}
+
+/**
+ * Whether a request carrying `effort`, as `resolveRequestReasoning` resolves it,
+ * has the model reason. An effort sent to a model the registry does not mark as
+ * reasoning-capable answers no: an explicit choice is always sent, but that does
+ * not make the model think.
+ */
+export function requestsReasoning(
+	provider: AIProvider,
+	model: string,
+	effort: ReasoningEffort | undefined
+): boolean {
+	return !!effort && effort !== 'none' && supportsReasoning(provider, model)
 }
 
 export type ReasoningApiKind = 'anthropic' | 'responses' | 'completions' | 'deepseek' | 'mistral'
