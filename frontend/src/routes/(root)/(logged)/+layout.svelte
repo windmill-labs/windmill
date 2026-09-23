@@ -1151,15 +1151,16 @@
 					{/if}
 
 					<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-					<!-- Detached, the drawer is a floating card rather than a full-height panel, and it
-					     starts right below the handle that opened it, wherever that handle sits. -->
+					<!-- Detached, the drawer starts at the header's bottom edge and runs to the left and
+					     bottom edges of the window — a panel the header sits on top of, not a card
+					     floating over the page. -->
 					<!-- Detached, this outside-click catcher starts where the card does rather than at
 					     the top of the viewport: it would otherwise cover the header's toggle, whose
 					     hover opened the card, and swallow the click meant to put the sidebar back. -->
 					<div
 						class={classNames(
 							'fixed left-0 right-0 bottom-0 flex z-40',
-							detachedFloating ? 'pl-1 pb-2' : 'top-0'
+							detachedFloating ? '' : 'top-0'
 						)}
 						style:top={detachedFloating ? `${navHandleSlot.cardTop}px` : undefined}
 						onclick={(e) => {
@@ -1181,12 +1182,8 @@
 							}}
 							class={classNames(
 								'relative flex-1 flex flex-col max-w-min w-full bg-surface transition ease-in-out duration-300 transform',
-								detachedFloating ? 'rounded-lg border shadow-lg overflow-hidden' : '',
-								menuOpen
-									? 'translate-x-0'
-									: detachedFloating
-										? '-translate-x-[calc(100%+0.5rem)]'
-										: '-translate-x-full'
+								detachedFloating ? 'border-r shadow-lg overflow-hidden' : '',
+								menuOpen ? 'translate-x-0' : '-translate-x-full'
 							)}
 						>
 							<div
