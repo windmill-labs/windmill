@@ -7,6 +7,7 @@ import type { UserDraftItemKind } from '$lib/gen'
 // The gate's two refusals, from a module that holds prose and one size limit: under the
 // shallow-import rule below, the rest of plan mode is not reachable from here.
 import { PLAN_MODE_MESSAGES } from './planModeMessages'
+import { NONE } from './sessionCapabilities'
 // Import-free leaf, so it satisfies the shallow-import rule below.
 import {
 	openItemPreviewAction,
@@ -1249,7 +1250,10 @@ export interface Tool<T> {
 		workspace: string
 		helpers: T
 	}) => MaybePromise<ToolRejection | undefined>
-	setSchema?: (helpers: any) => Promise<void>
+	/** This chat's definition of the tool, for a schema that depends on the chat (its workspace,
+	 * its open flow). Returns a new def: tools are module singletons shared by every chat, so
+	 * one written back leaks into the others. */
+	schemaFor?: (helpers: any) => Promise<ChatCompletionFunctionTool>
 	/** Safe to run while plan mode is active. Absence fails closed. */
 	planModeSafe?: boolean
 	/** The arguments a plan-mode-safe tool still refuses while the posture holds — for a tool
@@ -1549,6 +1553,7 @@ export function isHubPath(path: string): boolean {
 }
 
 export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
+	requires: NONE,
 	def: searchHubScriptsToolDef,
 	planModeSafe: true,
 	fn: async ({ args, toolId, toolCallbacks }) => {
