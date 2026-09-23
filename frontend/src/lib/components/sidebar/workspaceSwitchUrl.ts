@@ -14,35 +14,61 @@ import { workspaceStore } from '$lib/stores'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { workspaceAIClients } from '$lib/components/copilot/lib'
 
-type ItemExists = (workspace: string, param: string) => Promise<boolean>
+// `search` is the page's query string: a `hash` or `version` in it pins one version of the
+// item, which must exist in the target workspace, not just its path.
+type ItemExists = (workspace: string, param: string, search: URLSearchParams) => Promise<boolean>
 
-const appExists: ItemExists = (workspace, path) => AppService.existsApp({ workspace, path })
-const flowExists: ItemExists = (workspace, path) =>
-	FlowService.existsFlowByPath({ workspace, path })
-const scriptExists: ItemExists = (workspace, path) =>
-	ScriptService.existsScriptByPath({ workspace, path })
+// A failed lookup (404 included) counts as missing.
+async function succeeds(lookup: () => Promise<unknown>): Promise<boolean> {
+	try {
+		await lookup()
+		return true
+	} catch {
+		return false
+	}
+}
+
+const scriptHashExists = (workspace: string, hash: string) =>
+	succeeds(() => ScriptService.getScriptByHash({ workspace, hash }))
+
+// The two app editors can't open each other's kind, so the target's app must match it.
+const appExists =
+	(raw: boolean): ItemExists =>
+	async (workspace, path) => {
+		try {
+			return (await AppService.getAppLiteByPath({ workspace, path })).raw_app === raw
+		} catch {
+			return false
+		}
+	}
+
+const flowExists: ItemExists = async (workspace, path, search) => {
+	const version = Number(search.get('version') ?? NaN)
+	if (!Number.isFinite(version)) return FlowService.existsFlowByPath({ workspace, path })
+	try {
+		return (await FlowService.getFlowVersion({ workspace, version })).path === path
+	} catch {
+		return false
+	}
+}
+
+const scriptExists: ItemExists = (workspace, path, search) => {
+	const hash = search.get('hash')
+	return hash
+		? scriptHashExists(workspace, hash)
+		: ScriptService.existsScriptByPath({ workspace, path })
+}
 
 // The script page's param is a hash, a path, or a hub path.
 const scriptHashOrPathExists: ItemExists = async (workspace, hashOrPath) => {
 	if (hashOrPath.startsWith('hub/')) return true
-	if (await scriptExists(workspace, hashOrPath)) return true
-	try {
-		await ScriptService.getScriptByHash({ workspace, hash: hashOrPath })
-		return true
-	} catch {
-		return false
-	}
+	if (await ScriptService.existsScriptByPath({ workspace, path: hashOrPath })) return true
+	return scriptHashExists(workspace, hashOrPath)
 }
 
 // A one-row lookup, where getJob would download the job's args and result.
-const jobExists: ItemExists = async (workspace, id) => {
-	try {
-		await JobService.getRootJobId({ workspace, id })
-		return true
-	} catch {
-		return false
-	}
-}
+const jobExists: ItemExists = (workspace, id) =>
+	succeeds(() => JobService.getRootJobId({ workspace, id }))
 
 type ItemPage = {
 	param: string
@@ -62,14 +88,18 @@ const ITEM_PAGES: Record<string, ItemPage> = {
 	'/(root)/(logged)/scripts/get/[...hash]': { param: 'hash', exists: scriptHashOrPathExists },
 	'/(root)/(logged)/flows/edit/[...path]': { param: 'path', exists: flowExists, draftKind: 'flow' },
 	'/(root)/(logged)/flows/get/[...path]': { param: 'path', exists: flowExists },
-	'/(root)/(logged)/apps/edit/[...path]': { param: 'path', exists: appExists, draftKind: 'app' },
-	'/(root)/(logged)/apps/get/[...path]': { param: 'path', exists: appExists },
+	'/(root)/(logged)/apps/edit/[...path]': {
+		param: 'path',
+		exists: appExists(false),
+		draftKind: 'app'
+	},
+	'/(root)/(logged)/apps/get/[...path]': { param: 'path', exists: appExists(false) },
 	'/(root)/(logged)/apps_raw/edit/[...path]': {
 		param: 'path',
-		exists: appExists,
+		exists: appExists(true),
 		draftKind: 'raw_app'
 	},
-	'/(root)/(logged)/apps_raw/get/[...path]': { param: 'path', exists: appExists },
+	'/(root)/(logged)/apps_raw/get/[...path]': { param: 'path', exists: appExists(true) },
 	'/(root)/(logged)/run/[...run]': { param: 'run', exists: jobExists }
 }
 
@@ -83,7 +113,7 @@ async function itemPageMissingIn(workspace: string): Promise<boolean> {
 	const current = currentItemPage()
 	if (!current) return false
 	try {
-		return !(await current.itemPage.exists(workspace, current.param))
+		return !(await current.itemPage.exists(workspace, current.param, page.url.searchParams))
 	} catch {
 		return true
 	}
@@ -121,8 +151,10 @@ export async function switchWorkspaceAndPage(
 		href?: string
 	}
 ): Promise<void> {
+	const missing = !opts?.landOnHome && (await itemPageMissingIn(id))
+	// Read after the lookup: the user can edit while it is in flight.
 	const unsavedEdits = editorHasUnsavedEdits()
-	if (opts?.landOnHome || unsavedEdits || (await itemPageMissingIn(id))) {
+	if (opts?.landOnHome || unsavedEdits || missing) {
 		// Leave before switching: an item page still mounted when the store changes
 		// refetches its item in `id` and toasts the 404.
 		// The param carries the switch through the editor's unsaved-changes prompt: that
