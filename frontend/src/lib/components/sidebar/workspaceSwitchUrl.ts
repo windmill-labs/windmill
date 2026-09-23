@@ -153,7 +153,7 @@ export async function switchWorkspaceAndPage(
 ): Promise<void> {
 	const request = ++latestSwitch
 	const missing = !opts?.landOnHome && (await itemPageMissingIn(id))
-	// A switch picked while this lookup was in flight wins.
+	// A switch picked while this lookup (or the navigation home below) was in flight wins.
 	if (request !== latestSwitch) return
 	// Read after the lookup: the user can edit while it is in flight.
 	const unsavedEdits = editorHasUnsavedEdits()
@@ -165,6 +165,7 @@ export async function switchWorkspaceAndPage(
 		// applies. On cancel nothing is switched.
 		const from = page.route.id
 		await goto(`/?workspace=${encodeURIComponent(id)}`)
+		if (request !== latestSwitch) return
 		if (unsavedEdits && page.route.id === from) return
 		switchTo(id)
 		return
