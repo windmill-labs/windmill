@@ -1825,6 +1825,7 @@ mod archive_entry_path_tests {
             "u/admin/app.app.json",
             "f/x/a..b.script.json",
             "settings.yaml",
+            "migrations/datatable/foo:bar/20260617120000_name.up.sql",
         ] {
             assert!(
                 check_archive_entry_path(ok).is_ok(),
