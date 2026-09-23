@@ -57,11 +57,12 @@
 	}
 
 	// Tab stops are measured from the line start, so a range's width is its end column minus its
-	// start column, never the width of the range text on its own.
+	// start column, never the width of the range text on its own. Counts UTF-16 units, the unit
+	// of Monaco's ranges and of `slice`, so an emoji ahead of a change does not shift it.
 	function displayColumns(content: string): number {
 		let columns = 0
-		for (const character of content) {
-			columns += character === '\t' ? 4 - (columns % 4) : 1
+		for (let index = 0; index < content.length; index++) {
+			columns += content[index] === '\t' ? 4 - (columns % 4) : 1
 		}
 		return columns
 	}

@@ -102,6 +102,7 @@
 				unifiedSize="xs"
 				variant="subtle"
 				selected={activeCaseId === item.id}
+				aria-pressed={activeCaseId === item.id}
 				onclick={() => (activeCaseId = item.id)}>{item.label}</Button
 			>
 		{/each}
@@ -129,7 +130,9 @@
 		<section class="min-w-0">
 			<h2 class="mb-2 text-sm font-semibold">Native</h2>
 			<div class="h-[400px] overflow-auto border border-slate-200 bg-white">
-				<ToolCodeDiffView diff={activeCase.diff} />
+				{#key activeCase.id}
+					<ToolCodeDiffView diff={activeCase.diff} />
+				{/key}
 			</div>
 		</section>
 	</div>

@@ -26,7 +26,9 @@
 	// Keyed by call id: a bare flag would carry the expansion onto the next message that
 	// reuses this instance. An active or failed call opens by itself, and remains open
 	// when it settles so the new diff does not disappear under the user. A call whose arguments
-	// are a whole file (`write_script`, full-code `edit_code`) opens only on failure.
+	// are a whole file (`write_script`, full-code `edit_code`) opens only on failure. The key
+	// also changes on failure, so a collapse made while running cannot hide the error.
+	const toggleKey = $derived(`${message.tool_call_id}:${message.error ? 'error' : ''}`)
 	let toggled = $state<{ id: string; open: boolean } | undefined>(undefined)
 	const opensByDefault = $derived(
 		Boolean(
@@ -37,12 +39,12 @@
 		)
 	)
 	$effect(() => {
-		if (opensByDefault && toggled?.id !== message.tool_call_id) {
-			toggled = { id: message.tool_call_id, open: true }
+		if (opensByDefault && toggled?.id !== toggleKey) {
+			toggled = { id: toggleKey, open: true }
 		}
 	})
 	const expanded = $derived(
-		hasBody && (toggled?.id === message.tool_call_id ? toggled.open : opensByDefault)
+		hasBody && (toggled?.id === toggleKey ? toggled.open : opensByDefault)
 	)
 	const lines = $derived(diff && expanded ? toolDiffLines(diff, isStreaming) : undefined)
 	const counts = $derived(
@@ -76,7 +78,7 @@
 <ChatCollapsibleCard
 	label={message.content}
 	{expanded}
-	onToggle={() => (toggled = { id: message.tool_call_id, open: !expanded })}
+	onToggle={() => (toggled = { id: toggleKey, open: !expanded })}
 	toggleable={hasBody}
 	shimmer={isRunning}
 	class={message.isQueued && !message.error

@@ -291,6 +291,17 @@ describe('toolCodeDiff', () => {
 		})
 	})
 
+	it('keeps an empty streamed replacement paired with its own edit', () => {
+		const parameters =
+			'{"diffs":[{"old_string":"a","new_string":""},{"old_string":"b","new_string":"c"}]}'
+
+		expect(toolCodeDiff(message({ toolName: 'edit_code', parameters }))).toEqual({
+			before: 'a\nb',
+			after: '\nc',
+			lang: 'plaintext'
+		})
+	})
+
 	it('recognizes calls whose arguments are a whole file', () => {
 		const call = (
 			toolName: string,

@@ -92,9 +92,9 @@ function partialJsonString(partialJson: string, key: string): string | undefined
 function partialJsonStrings(partialJson: string, key: string): string[] {
 	const matches = partialJson.matchAll(new RegExp(`"${key}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)`, 'g'))
 	const result: string[] = []
+	// An empty string is a real value (a deletion): skipping it would pair the next edit's
+	// `new_string` with this edit's `old_string`.
 	for (const match of matches) {
-		if (!match[1]) continue
-
 		try {
 			result.push(JSON.parse(`"${match[1]}"`))
 		} catch {
