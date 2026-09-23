@@ -391,7 +391,11 @@
 				{:else if step === 3}
 					{#if draftIdx !== -1}
 						{#key draftPath}
-							<ConfigureSyncStep idx={draftIdx} {mode} bind:factsLoaded />
+							<ConfigureSyncStep
+								idx={draftIdx}
+								{mode}
+								onFactsChange={(loaded) => (factsLoaded = loaded)}
+							/>
 						{/key}
 					{/if}
 					{#if saveError}

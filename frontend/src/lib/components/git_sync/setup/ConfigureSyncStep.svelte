@@ -16,13 +16,13 @@
 		/** The unsaved repository this step configures, in the git sync context. */
 		idx: number
 		mode: 'sync' | 'promotion'
-		/** Whether the resource and its credential have been read. What Windmill holds for the
-		 * repository decides both the defaults and which toggles exist, so the run must not be
-		 * saved before it lands. */
-		factsLoaded?: boolean
+		/** Reports whether the resource and its credential have been read. What Windmill holds
+		 * for the repository decides both the defaults and which toggles exist, so the run must
+		 * not be saved before it lands. */
+		onFactsChange?: (loaded: boolean) => void
 	}
 
-	let { idx, mode, factsLoaded = $bindable(false) }: Props = $props()
+	let { idx, mode, onFactsChange }: Props = $props()
 
 	const ctx = getGitSyncContext()
 	const repo = $derived(ctx.getRepository(idx))
@@ -35,15 +35,21 @@
 	let managedCredential = $state(false)
 	let targetBranch: string | undefined = $state(undefined)
 
+	/** The load the step is waiting on. A load for a repository that has since been replaced
+	 * must not report itself as the answer, or saving is re-enabled with the wrong facts. */
+	let factsToken = 0
+
 	async function loadResourceFacts(path: string) {
 		const workspace = $workspaceStore
 		if (!workspace) return
-		factsLoaded = false
+		const token = ++factsToken
+		onFactsChange?.(false)
 		const [resource, origin] = await Promise.all([
 			ResourceService.getResource({ workspace, path }).catch(() => undefined),
 			// EE-only route: absent means Windmill holds no credential.
 			GitSyncService.getCredentialOrigin({ workspace, path }).catch(() => undefined)
 		])
+		if (token !== factsToken) return
 		const isGithubApp = (resource?.value as any)?.is_github_app === true
 		managedCredential = isGithubApp || origin?.origin !== undefined
 		if (repo) {
@@ -55,8 +61,9 @@
 				ee: !!$enterpriseLicense
 			})
 			targetBranch = await ctx.getTargetBranch(repo).catch(() => undefined)
+			if (token !== factsToken) return
 		}
-		factsLoaded = true
+		onFactsChange?.(true)
 	}
 
 	async function detect() {
