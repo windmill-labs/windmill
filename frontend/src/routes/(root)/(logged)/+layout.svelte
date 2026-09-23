@@ -1056,23 +1056,28 @@
 
 <!-- Windmill brand mark anchoring the sidebar bottom (the header slot is taken
      by the workspace picker). -->
-<!-- The page header's first control: one toggle for the sidebar, shown or hidden. -->
+<!-- Detaching is the operator's control: they have no icon-only rail to collapse to, so hiding the
+     sidebar is how they give the page its width back. A developer collapses instead, and never
+     detaches — but one who detached before this was so keeps the way back, or they would be stuck
+     with a sidebar they cannot return. -->
 {#snippet sidebarToggle()}
 	{@const hidden = navDetached.val}
-	<Tooltip class="flex" placement="bottom" small>
-		<button
-			class={SIDEBAR_ICON_BUTTON}
-			aria-label={hidden ? 'Show sidebar' : 'Hide sidebar'}
-			onclick={() => setDetached(!hidden)}
-		>
-			{#if hidden}
-				<PanelLeft size={16} class="flex-shrink-0 text-hint" />
-			{:else}
-				<PanelLeftDashed size={16} class="flex-shrink-0 text-hint" />
-			{/if}
-		</button>
-		{#snippet text()}{hidden ? 'Show sidebar' : 'Hide sidebar'}{/snippet}
-	</Tooltip>
+	{#if hidden || $userStore?.operator}
+		<Tooltip class="flex" placement="bottom" small>
+			<button
+				class={SIDEBAR_ICON_BUTTON}
+				aria-label={hidden ? 'Show sidebar' : 'Hide sidebar'}
+				onclick={() => setDetached(!hidden)}
+			>
+				{#if hidden}
+					<PanelLeft size={16} class="flex-shrink-0 text-hint" />
+				{:else}
+					<PanelLeftDashed size={16} class="flex-shrink-0 text-hint" />
+				{/if}
+			</button>
+			{#snippet text()}{hidden ? 'Show sidebar' : 'Hide sidebar'}{/snippet}
+		</Tooltip>
+	{/if}
 {/snippet}
 
 {#snippet brandMark(collapsed: boolean)}
