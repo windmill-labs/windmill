@@ -395,7 +395,7 @@ import {
 	deleteGlobalDraft,
 	listGlobalDrafts,
 	persistGlobalDraft,
-	readGlobalDraftValue,
+	readGlobalDraftValueAt,
 	saveGlobalAppDraft
 } from './userDraftAdapter'
 import { bundleRawAppDraft } from './rawAppBundlerBridge'
@@ -2590,6 +2590,37 @@ describe('global AI tools', () => {
 		}
 	})
 
+	// Deleting the deployed item removes the reason its path outranks a draft staged under
+	// that name, so a cleanup resolved afterwards would delete that unrelated draft.
+	it('leaves alone a draft staged under a deleted item\'s path', async () => {
+		seedBackendDraft(
+			'raw_app',
+			'u/admin/draft_namesake',
+			{ summary: 'Namesake', draft_path: 'f/sales/deleted_app', files: {}, runnables: {} },
+			{ workspace: WORKSPACE }
+		)
+		const deletedApps = new Set<string>()
+		vi.mocked(AppService.existsApp).mockImplementation(
+			async ({ path }) => path === 'f/sales/deleted_app' && !deletedApps.has(path)
+		)
+		const deleteApp = vi
+			.spyOn(AppService, 'deleteApp')
+			.mockImplementation(async ({ path }: any) => {
+				deletedApps.add(path)
+				return 'deleted' as any
+			})
+
+		try {
+			await callGlobalTool('delete_workspace_item', { type: 'app', path: 'f/sales/deleted_app' })
+			expect(
+				getBackendDraft('raw_app', 'u/admin/draft_namesake', { workspace: WORKSPACE })
+			).toBeDefined()
+		} finally {
+			vi.mocked(AppService.existsApp).mockImplementation(async () => false)
+			deleteApp.mockRestore()
+		}
+	})
+
 	it('refuses a draft_path that two drafts are staged under', async () => {
 		for (const storage of ['u/admin/draft_a', 'u/admin/draft_b']) {
 			seedBackendDraft(
@@ -2897,7 +2928,7 @@ describe('global AI tools', () => {
 	// directly: a non-force save whose recorded baseline is older than the
 	// server row is rejected with `status:'conflict'`, and `override` (force)
 	// pushes our version through. NB: this targets persistGlobalDraft, not the
-	// write_* tools — those re-read the backend first (readGlobalDraftValue ->
+	// write_* tools — those re-read the backend first (readGlobalDraftValueAt ->
 	// recordRemoteSync), which re-seeds the baseline and so can only surface a
 	// conflict when a live editor cell is mounted (not the case in unit tests).
 	it('persistGlobalDraft surfaces a conflict on a stale baseline and override forces it', async () => {
@@ -2962,7 +2993,7 @@ describe('global AI tools', () => {
 	it('a non-404 backend read failure propagates instead of returning undefined', async () => {
 		const path = 'f/scripts/readfail'
 		failingReads.add(`script:${path}`)
-		await expect(readGlobalDraftValue(WORKSPACE, 'script', path)).rejects.toThrow()
+		await expect(readGlobalDraftValueAt(WORKSPACE, 'script', path)).rejects.toThrow()
 	})
 
 	// Raw-app writes go through saveGlobalAppDraft, which must carry the conflict
