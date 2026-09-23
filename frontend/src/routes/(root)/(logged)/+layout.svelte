@@ -534,9 +534,6 @@
 	const { debounced: scheduleBandHide, clearDebounce: cancelBandHide } = debounce(() => {
 		bandPeeked = false
 	}, PEEK_CLOSE_DELAY_MS)
-	// Where the band's pin button will be once pinned, so the click moves nothing: the band's own
-	// pl-2, plus a slot (28px button + the row's gap-1) when the sidebar's handle takes the first.
-	const bandHandleOffset = $derived(navDetached.val && !menuHidden ? '2.5rem' : '0.5rem')
 
 	// The handle and the edge band both open the card this layout owns.
 	navHandleSlot.setOpener(() => (menuOpen = true), {
@@ -1585,8 +1582,21 @@
 					style:left={floatBand ? `${leftInset}rem` : undefined}
 					style:right={floatBand ? `${rightInset ?? 0}px` : undefined}
 					style:padding-left={floatBand ? undefined : `${leftInset}rem`}
-					onmouseenter={bandPeek ? cancelBandHide : undefined}
-					onmouseleave={bandPeek ? scheduleBandHide : undefined}
+					onmouseenter={bandPeek
+						? () => {
+								cancelBandHide()
+								// The band comes to rest over the access point, so the pointer leaves it the
+								// moment the band arrives. Hold both open while the pointer is anywhere on
+								// the band, or the card would retract under a header that stayed.
+								if (navDetached.val) navHandleSlot.open(bandHandleEl)
+							}
+						: undefined}
+					onmouseleave={bandPeek
+						? () => {
+								scheduleBandHide()
+								if (navDetached.val) navHandleSlot.scheduleClose()
+							}
+						: undefined}
 					role={bandPeek ? 'presentation' : undefined}
 				>
 					<PageHeaderBar
@@ -1598,15 +1608,17 @@
 				</div>
 
 				{#if bandPeek}
-					<!-- The way back to the chrome from an app that owns the viewport: hovering calls the
-					     band down for a look, a click pins it. Faded once the page has settled, so it
-					     costs an app's own corner as little as an always-present control can. -->
+					<!-- The way back to the chrome from an app that owns the viewport: an access point in
+					     the page's top-left corner. Hovering calls the band down, which comes to rest
+					     over this button — below the band's z-index, so the regular view simply covers
+					     it — and a click pins that view. Faded once the page has settled, so it costs
+					     an app's own corner as little as an always-present control can. -->
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
-						class="absolute top-2 z-40 transition-opacity duration-300 {bandShown || bandHandleHot
+						class="absolute top-2 z-20 transition-opacity duration-300 {bandShown || bandHandleHot
 							? 'opacity-100'
 							: 'opacity-40'}"
-						style:left="calc({leftInset}rem + {bandHandleOffset})"
+						style:left="calc({leftInset}rem + 0.5rem)"
 						bind:this={bandHandleEl}
 						onmouseenter={() => {
 							bandHandleHot = true
