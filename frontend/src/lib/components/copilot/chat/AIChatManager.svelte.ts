@@ -699,7 +699,8 @@ export class AIChatManager implements ChatViewHost {
 	// needs the preview pane; the global side-panel chat leaves it false. Reactive because
 	// `planModeAvailable` derives from it.
 	isSessionChat = $state(false)
-	// Undefined until the first send resolves it. Reactive: both tool views derive from it.
+	// Undefined until a send or the assistant settings modal resolves it. Reactive: both
+	// tool views derive from it.
 	private sessionAccess = $state<SessionAccess | undefined>(undefined)
 	private sessionAccessGeneration = 0
 	autoAcceptEditsAvailable = $derived(supportsAutoAcceptEdits(this.mode))
@@ -2554,20 +2555,21 @@ export class AIChatManager implements ChatViewHost {
 		this.systemMessage = { ...target, content: `${target.content}\n\n${section}` }
 	}
 
-	// Re-resolved per send rather than once for the session's life: the operating workspace
-	// can change between sends, and a transient failure resolves fail-open, so the next
-	// message re-asks rather than keeping that answer.
-	private resolveSessionAccessForSend = async (workspace: string) => {
+	// Same shape as refreshGlobalSkills. Re-resolved per send rather than once for the
+	// session's life: the operating workspace can change between sends, and a transient
+	// failure resolves fail-open, so the next message re-asks rather than keeping that answer.
+	refreshSessionAccess = async (workspace = this.operatingWorkspace ?? '') => {
 		if (!this.isSessionChat || !workspace) {
 			this.sessionAccess = undefined
 			return
 		}
 		const generation = ++this.sessionAccessGeneration
 		const access = await resolveSessionAccess(workspace)
-		// A session can be re-pointed between sends: a slower answer for the workspace
-		// we have since left must not install itself over a newer one.
 		if (generation !== this.sessionAccessGeneration) return
 		this.sessionAccess = workspace === (this.operatingWorkspace ?? '') ? access : undefined
+		if (this.mode === AIMode.GLOBAL) {
+			this.configureGlobalMode()
+		}
 	}
 
 	// Rebuild the GLOBAL system message in place so an updated user instruction (persisted by
@@ -3583,23 +3585,17 @@ export class AIChatManager implements ChatViewHost {
 				return false
 			}
 		}
-		// Session chats commit their workspace in beforeSend; the identity, skills and
-		// MCP servers must all match the committed workspace before the system prompt is
-		// sent. Settling them here rather than mid-turn also keeps the prompt — the
+		// Session chats commit their workspace in beforeSend; the identity, skills, MCP
+		// servers and capabilities must all match the committed workspace before the system
+		// prompt is sent. Settling them here rather than mid-turn also keeps the prompt — the
 		// cached prefix of every iteration — stable for the whole request.
 		if (this.mode === AIMode.GLOBAL) {
 			await Promise.all([
 				this.refreshGlobalIdentity(this.operatingWorkspace ?? ''),
 				this.refreshGlobalSkills(this.operatingWorkspace ?? ''),
 				this.refreshMcpServers(this.operatingWorkspace ?? ''),
-				this.resolveSessionAccessForSend(this.operatingWorkspace ?? '')
+				this.refreshSessionAccess(this.operatingWorkspace ?? '')
 			])
-			// Each of the above rebuilds as it lands, in any order, so rebuild once more from
-			// the settled set. Only in GLOBAL: the picker stays live across the awaits, and an
-			// unconditional rebuild would hand an editor mode the global toolset.
-			if (this.mode === AIMode.GLOBAL) {
-				this.configureGlobalMode()
-			}
 		}
 		// Stop/Escape during the beforeSend pre-flight aborted this send before any
 		// request went out. Mirror the main "cancelled before usable output" recovery:

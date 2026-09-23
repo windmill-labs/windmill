@@ -4585,22 +4585,24 @@ describe('AIChatManager tool views', () => {
 		expect(manager.availableTools.length).toBeGreaterThan(0)
 	})
 
+	const OPERATOR_WHOAMI = {
+		username: 'op',
+		email: 'admin@test',
+		is_admin: false,
+		is_super_admin: false,
+		operator: true,
+		groups: [],
+		folders: [],
+		folders_read: []
+	}
+
 	// The capability filter is unit-tested against a profile handed to it directly; what is
 	// untested there is that the manager ever hands it one. This drives a real send and reads
 	// the toolset off the request, so moving the resolve out of the pre-flight, or dropping
-	// the rebuild that follows it, fails here rather than shipping an operator write tools.
+	// the rebuild when it lands, fails here rather than shipping an operator write tools.
 	it('withholds write and preview tools from an operator for the whole request', async () => {
 		onTestFinished(() => mocks.whoami.mockReset())
-		mocks.whoami.mockResolvedValue({
-			username: 'op',
-			email: 'admin@test',
-			is_admin: false,
-			is_super_admin: false,
-			operator: true,
-			groups: [],
-			folders: [],
-			folders_read: []
-		})
+		mocks.whoami.mockResolvedValue(OPERATOR_WHOAMI)
 		let sent: { tools: string[]; prompt: string; deployKinds: string[] } | undefined
 		mocks.runChatLoop.mockImplementation(async (config: any) => {
 			const deploy = config.tools.find((t: any) => t.def.function.name === 'deploy_workspace_item')
@@ -4631,6 +4633,23 @@ describe('AIChatManager tool views', () => {
 			// profile landed — otherwise it still instructs the model to call these.
 			expect(sent?.prompt).not.toContain(withheld)
 		}
+	})
+
+	// The assistant settings modal resolves the profile on open, before any send, so the
+	// list it shows is the one the first request will carry, prompt included.
+	it('narrows the toolset and prompt when the profile resolves outside a send', async () => {
+		onTestFinished(() => mocks.whoami.mockReset())
+		mocks.whoami.mockResolvedValue(OPERATOR_WHOAMI)
+		const manager = new AIChatManager()
+		manager.mode = AIMode.GLOBAL
+		manager.isSessionChat = true
+		manager.configureGlobalMode()
+		expect(manager.availableTools.map((t) => t.def.function.name)).toContain('write_script')
+
+		await manager.refreshSessionAccess()
+
+		expect(manager.availableTools.map((t) => t.def.function.name)).not.toContain('write_script')
+		expect(manager.systemMessage.content).not.toContain('write_script')
 	})
 
 	// Which transition each posture offers is planModeController.test.ts's; what this pins is
