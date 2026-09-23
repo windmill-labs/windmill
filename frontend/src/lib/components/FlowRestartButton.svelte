@@ -297,7 +297,7 @@
 		triggerAttrs={{
 			'aria-label':
 				triggerStyle === 'link'
-					? `Restart from step ${displayStepId}`
+					? `Restart from this step (${displayStepId})`
 					: `Re-start from ${displayStepId}`
 		}}
 		on:openChange={(e) => {

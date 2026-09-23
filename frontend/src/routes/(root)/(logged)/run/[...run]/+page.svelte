@@ -164,7 +164,7 @@
 	// A continue-on-error step keeps its `Failure` status on a run that succeeds,
 	// so only a failed run counts, and its last `Failure` is the one that ended it.
 	const failedTopLevelStep = $derived.by(() => {
-		if (job?.type !== 'CompletedJob' || job.success !== false) return undefined
+		if (job?.type !== 'CompletedJob' || job.success !== false || job.canceled) return undefined
 		const failures = job.flow_status?.modules?.filter((m) => m.type === 'Failure') ?? []
 		return failures[failures.length - 1]?.id
 	})
