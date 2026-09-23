@@ -79,8 +79,9 @@ class ChatImpl implements Chat {
   #persistTimer: ReturnType<typeof setTimeout> | undefined
   /** Settles once the selected conversation's first page has been read. */
   #selecting: Promise<void> = Promise.resolve()
-  /** Turns taken by this chat, so a read can tell one ran while it was in flight. */
-  #turnsTaken = 0
+  /** Bumped whenever a turn is taken or the conversation is left: a read that started before
+   * it describes a conversation this chat has moved past. */
+  #epoch = 0
 
   constructor(options: ChatOptions) {
     this.#config = resolveConfig(options)
@@ -149,7 +150,7 @@ class ChatImpl implements Chat {
       streamedText: false
     }
     this.#turn = turn
-    this.#turnsTaken++
+    this.#epoch++
 
     const timestamp = now()
     const conversation: Conversation = this.#state.conversations.find(
@@ -235,7 +236,7 @@ class ChatImpl implements Chat {
       streamedText: false
     }
     this.#turn = turn
-    this.#turnsTaken++
+    this.#epoch++
     this.#set({ status: 'submitted', error: undefined })
     try {
       // The conversation's first page may still be on its way; it would land over the turn.
@@ -530,12 +531,13 @@ class ChatImpl implements Chat {
     }
     const newestBefore = latestSeq(this.#state.messages)
     const failure = lastFailureShown(this.#state.messages)
-    // A turn that starts and ends while these rows are read leaves the chat holding messages
-    // this read knows nothing about, and the rows would land under them rather than in their
-    // own place. They are left to the next read, which sees the conversation as it is now.
-    const takenBefore = this.#turnsTaken
-    await this.#syncFromServer(conversationId, () => this.#turnsTaken === takenBefore)
-    if (this.#turnsTaken !== takenBefore) return
+    // A turn that starts and ends while these rows are read, or the conversation being left
+    // and opened again, leaves the chat holding messages this read knows nothing about, and
+    // the rows would land under them rather than in their own place. They are left to the
+    // next read, which sees the conversation as it is now.
+    const epoch = this.#epoch
+    await this.#syncFromServer(conversationId, () => this.#epoch === epoch)
+    if (this.#epoch !== epoch) return
     if (!failure || this.#state.conversationId !== conversationId) return
     if (!this.#state.messages.some((m) => m.id === failure.id)) return
     // The turn this chat lost may have been carried to its end elsewhere, which only a row
@@ -1070,6 +1072,7 @@ class ChatImpl implements Chat {
    * written out now rather than on the debounce that may never fire.
    */
   #leaveConversation(): void {
+    this.#epoch++
     if (this.#turn) {
       this.#detachTurn()
       this.#set({ messages: finalized(this.#state.messages), status: 'idle' })

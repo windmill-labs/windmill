@@ -1374,6 +1374,29 @@ describe('createChat with server history', () => {
     ])
   })
 
+  test('a conversation left and opened again while its rows are read drops that read', async () => {
+    let releaseRows!: (r: Response) => void
+    const rowsGate = new Promise<Response>((resolve) => (releaseRows = resolve))
+    let reads = 0
+    const { fetch } = fetchMock((c) => {
+      if (!c.url.pathname.endsWith('/messages')) return undefined
+      if (c.url.pathname.includes('/flow_conversations/other/')) return json([])
+      reads++
+      // The read the refresh made, answered only after the reader has come back.
+      if (reads === 2) return rowsGate
+      return json([messageRow(150, 'user', 'newest page', { job_id: 'job-x' })])
+    })
+    const chat = createChat(options({}, fetch))
+    await chat.selectConversation('conv')
+    const refreshed = chat.refreshMessages()
+    await chat.selectConversation('other')
+    await chat.selectConversation('conv')
+    // Rows from before the reader left: older than the page the chat holds now.
+    releaseRows(json([messageRow(51, 'user', 'older page', { job_id: 'job-y' })]))
+    await refreshed
+    expect(chat.getState().messages.map((m) => m.content)).toEqual(['newest page'])
+  })
+
   test('a turn that runs while the rows are read leaves them to the next read', async () => {
     let releaseRows!: (r: Response) => void
     const rowsGate = new Promise<Response>((resolve) => (releaseRows = resolve))
