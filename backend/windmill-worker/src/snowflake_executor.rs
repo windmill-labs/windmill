@@ -208,7 +208,7 @@ fn do_snowflake_inner<'a>(
         &sig,
         &job_args,
         reserved_variables,
-        SqlStringEscaping::BackslashAndStandard,
+        SqlStringEscaping::Snowflake,
     )?;
 
     body.insert("statement".to_string(), json!(query));

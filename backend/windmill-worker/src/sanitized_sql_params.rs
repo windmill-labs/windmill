@@ -33,31 +33,42 @@ fn sanitize_identifier(arg: &Arg, input: &str) -> Result<(), error::Error> {
     }
 }
 
-/// How a dialect escapes characters inside a single-quoted string literal. Contextual
-/// variables are substituted as raw text, and `WM_END_USER_EMAIL` carries an app end user's
-/// email into a query that runs with the author's credentials: an email may contain `'`
-/// (and `\` in a quoted local part), so every value is escaped for the literal it lands in.
+/// How a dialect escapes characters inside a string literal. Contextual variables are
+/// substituted as raw text, and `WM_END_USER_EMAIL` carries an app end user's email into a
+/// query that runs with the author's credentials: an email may contain `'` (and `\` or `"`
+/// in a quoted local part), so every value is escaped for any string literal it lands in.
 #[derive(Clone, Copy)]
 pub enum SqlStringEscaping {
-    /// `'` → `''`; `\` is an ordinary character (PostgreSQL, MSSQL, Oracle, DuckDB).
+    /// `'` → `''`; `\` is ordinary and `"` quotes identifiers (PostgreSQL, MSSQL, Oracle,
+    /// DuckDB).
     Standard,
-    /// `\` → `\\` and `'` → `''`. `''` rather than `\'` because MySQL under
-    /// `NO_BACKSLASH_ESCAPES` would close the literal on `\'` (MySQL, Snowflake).
-    #[cfg_attr(not(any(feature = "mysql", feature = "snowflake")), allow(dead_code))]
-    BackslashAndStandard,
-    /// `\` → `\\` and `'` → `\'`; the dialect does not accept `''` (BigQuery).
+    /// `\` → `\\` and `'` → `''`; `"` quotes identifiers.
+    #[cfg_attr(not(feature = "snowflake"), allow(dead_code))]
+    Snowflake,
+    /// `\` → `\\`, `'` → `''` and `"` → `""`. Doubling rather than `\'`/`\"` because under
+    /// `NO_BACKSLASH_ESCAPES` a backslash escape would close the literal; the price is that
+    /// a `"` in a `'...'` literal (or `'` in `"..."`) comes out doubled.
+    #[cfg_attr(not(feature = "mysql"), allow(dead_code))]
+    MySql,
+    /// `\` → `\\`, `'` → `\'` and `"` → `\"`, valid in both quote styles; the dialect does
+    /// not accept `''`.
     #[cfg_attr(not(feature = "bigquery"), allow(dead_code))]
-    Backslash,
+    BigQuery,
 }
 
 impl SqlStringEscaping {
     fn escape(self, value: &str) -> String {
         match self {
             SqlStringEscaping::Standard => value.replace('\'', "''"),
-            SqlStringEscaping::BackslashAndStandard => {
-                value.replace('\\', "\\\\").replace('\'', "''")
-            }
-            SqlStringEscaping::Backslash => value.replace('\\', "\\\\").replace('\'', "\\'"),
+            SqlStringEscaping::Snowflake => value.replace('\\', "\\\\").replace('\'', "''"),
+            SqlStringEscaping::MySql => value
+                .replace('\\', "\\\\")
+                .replace('\'', "''")
+                .replace('"', "\"\""),
+            SqlStringEscaping::BigQuery => value
+                .replace('\\', "\\\\")
+                .replace('\'', "\\'")
+                .replace('"', "\\\""),
         }
     }
 }
@@ -182,17 +193,22 @@ mod tests {
             r"SELECT 1 WHERE email = 'x''/**/OR/**/''1''=''1''--@e.com'"
         );
         assert_eq!(
-            interpolate(code, backslash, SqlStringEscaping::BackslashAndStandard),
+            interpolate(code, backslash, SqlStringEscaping::Snowflake),
             r#"SELECT 1 WHERE email = '"x\\''/**/OR/**/1=1#"@e.com'"#
         );
         assert_eq!(
-            interpolate(code, backslash, SqlStringEscaping::Backslash),
-            r#"SELECT 1 WHERE email = '"x\\\'/**/OR/**/1=1#"@e.com'"#
+            interpolate(code, backslash, SqlStringEscaping::MySql),
+            r#"SELECT 1 WHERE email = '""x\\''/**/OR/**/1=1#""@e.com'"#
+        );
+        assert_eq!(
+            interpolate(code, backslash, SqlStringEscaping::BigQuery),
+            r#"SELECT 1 WHERE email = '\"x\\\'/**/OR/**/1=1#\"@e.com'"#
         );
         for escaping in [
             SqlStringEscaping::Standard,
-            SqlStringEscaping::BackslashAndStandard,
-            SqlStringEscaping::Backslash,
+            SqlStringEscaping::Snowflake,
+            SqlStringEscaping::MySql,
+            SqlStringEscaping::BigQuery,
         ] {
             assert_eq!(
                 interpolate(code, "a.b+c@e.com", escaping),

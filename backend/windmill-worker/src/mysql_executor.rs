@@ -267,7 +267,7 @@ pub async fn do_mysql(
         &sig,
         &job_args,
         &reserved_variables,
-        SqlStringEscaping::BackslashAndStandard,
+        SqlStringEscaping::MySql,
     )?;
 
     let using_named_params = RE_ARG_MYSQL_NAMED.captures_iter(query).count() > 0;
