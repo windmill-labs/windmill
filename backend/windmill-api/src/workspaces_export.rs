@@ -281,15 +281,20 @@ enum ArchiveImpl {
     Tar(tokio_tar::Builder<File>),
 }
 
+/// Entry paths come from item paths stored in the workspace; an absolute path
+/// or a `..` segment would make extraction write outside the target directory.
+fn check_archive_entry_path(path: &str) -> Result<()> {
+    if path.starts_with('/') || path.split(['/', '\\']).any(|seg| seg == "..") {
+        return Err(Error::internal_err(format!(
+            "refusing to write archive entry with path traversal: {path}"
+        )));
+    }
+    Ok(())
+}
+
 impl ArchiveImpl {
     async fn write_to_archive(&mut self, content: &str, path: &str) -> Result<()> {
-        // Entry paths come from item paths stored in the workspace; a `..` segment
-        // would make extraction write outside the target directory.
-        if path.starts_with('/') || path.split(['/', '\\']).any(|seg| seg == "..") {
-            return Err(Error::internal_err(format!(
-                "refusing to write archive entry with path traversal: {path}"
-            )));
-        }
+        check_archive_entry_path(path)?;
         match self {
             ArchiveImpl::Tar(t) => {
                 let bytes = content.as_bytes();
@@ -1799,6 +1804,21 @@ pub(crate) async fn tarball_workspace(
         ),
     ];
     Ok((headers, body))
+}
+
+#[cfg(test)]
+mod archive_entry_path_tests {
+    use super::check_archive_entry_path;
+
+    #[test]
+    fn rejects_traversal_and_absolute_paths() {
+        for ok in ["u/admin/app.app.json", "f/x/a..b.script.json", "settings.yaml"] {
+            assert!(check_archive_entry_path(ok).is_ok(), "{ok} should be accepted");
+        }
+        for bad in ["f/x/../../evil.app.json", "../evil", "/etc/evil", "f\\..\\evil"] {
+            assert!(check_archive_entry_path(bad).is_err(), "{bad} should be rejected");
+        }
+    }
 }
 
 #[cfg(test)]
