@@ -35,15 +35,13 @@ const scriptHashExists = (workspace: string, hash: string) =>
 const appExists =
 	(raw: boolean): ItemExists =>
 	async (workspace, path) => {
-		try {
-			return (await AppService.getAppLiteByPath({ workspace, path })).raw_app === raw
-		} catch {
-			return false
-		}
+		// The listing carries `raw_app` without the app value, and omits it when false.
+		const [app] = await AppService.listApps({ workspace, pathExact: path, perPage: 1 })
+		return !!app && !!app.raw_app === raw
 	}
 
 const flowExists: ItemExists = async (workspace, path, search) => {
-	const version = Number(search.get('version') ?? NaN)
+	const version = Number(search.get('version') || NaN)
 	if (!Number.isFinite(version)) return FlowService.existsFlowByPath({ workspace, path })
 	try {
 		return (await FlowService.getFlowVersion({ workspace, version })).path === path
