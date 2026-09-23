@@ -293,26 +293,35 @@ describe('toolCodeDiff', () => {
 	it('shows each row of a small edit once', () => {
 		const lines = toolDiffLines({ before: 'a\nb\nc\n', after: 'a\nB\nc\n', lang: 'plaintext' })
 
-		expect(visibleToolDiffRows(lines, new Set())).toEqual(lines)
+		expect(visibleToolDiffRows(lines, new Map())).toEqual(lines)
 		expect(lines.map((line) => line.kind)).toEqual(['context', 'removed', 'added', 'context'])
 	})
 
 	it('bounds the rows of a large rewrite', () => {
 		const before = Array.from({ length: 1_000 }, (_, index) => `before ${index}`).join('\n')
 		const after = Array.from({ length: 1_000 }, (_, index) => `after ${index}`).join('\n')
-		const rows = visibleToolDiffRows(toolDiffLines({ before, after, lang: 'plaintext' }), new Set())
+		const lines = toolDiffLines({ before, after, lang: 'plaintext' })
+		const rows = visibleToolDiffRows(lines, new Map())
 
 		expect(rows).toHaveLength(802)
 		expect(rows[400]).toEqual({ kind: 'omitted', key: 'removed:0', count: 600 })
 		expect(rows[401]).toMatchObject({ kind: 'added', newLine: 1 })
 		expect(rows[801]).toEqual({ kind: 'omitted', key: 'added:1000', count: 600 })
 
-		const expanded = visibleToolDiffRows(
-			toolDiffLines({ before, after, lang: 'plaintext' }),
-			new Set(['removed:0'])
-		)
+		// One click on a run reveals 400 more rows; the overall cap still holds until `end` is clicked.
+		const expanded = visibleToolDiffRows(lines, new Map([['removed:0', 1]]))
 		expect(expanded).toHaveLength(1_001)
-		expect(expanded[1_000]).toEqual({ kind: 'omitted', key: 'end', count: 1_000 })
+		expect(expanded[800]).toEqual({ kind: 'omitted', key: 'removed:0', count: 200 })
+		expect(expanded[1_000]).toEqual({ kind: 'omitted', key: 'end', count: 801 })
+		expect(
+			visibleToolDiffRows(
+				lines,
+				new Map([
+					['removed:0', 1],
+					['end', 1]
+				])
+			)
+		).toHaveLength(1_202)
 	})
 
 	it('highlights each line within the scope of the whole source', () => {
@@ -335,6 +344,9 @@ describe('toolCodeDiff', () => {
 		const plain = highlightedSourceLines(large, typescript.name)
 		expect(plain).toHaveLength(2_001)
 		expect(plain[0]).toBe('const a = 1 &lt; 2')
+
+		const minified = highlightedSourceLines('x'.repeat(100_001), typescript.name)
+		expect(minified).toEqual(['x'.repeat(10_000) + '…'])
 	})
 
 	it('has a highlighter for every supported editor language', () => {

@@ -20,9 +20,9 @@
 
 	let { diff, streaming = false, diffLines }: Props = $props()
 
-	let expandedSections = $state<Set<string>>(new Set())
+	let expansions = $state<Map<string, number>>(new Map())
 	const diffRows = $derived(diffLines ?? toolDiffLines(diff, streaming))
-	const visibleRows = $derived(visibleToolDiffRows(diffRows, expandedSections))
+	const visibleRows = $derived(visibleToolDiffRows(diffRows, expansions))
 	const language = $derived(toolCodeDiffLanguage(diff.lang))
 	const highlighted = $derived.by(() => {
 		if (!hljs.getLanguage(language.name)) hljs.registerLanguage(language.name, language.register)
@@ -46,7 +46,7 @@
 	}
 
 	function expand(key: string): void {
-		expandedSections = new Set(expandedSections).add(key)
+		expansions = new Map(expansions).set(key, (expansions.get(key) ?? 0) + 1)
 	}
 
 	// Tab stops are measured from the line start, so a range's width is its end column minus its

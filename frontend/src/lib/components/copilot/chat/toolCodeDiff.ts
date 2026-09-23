@@ -245,13 +245,15 @@ export type VisibleToolDiffRow =
 const CONTEXT_LINES = 3
 // Every visible row is a DOM row with no virtualization, and only context collapses: a whole-file
 // rewrite would otherwise render every line of both sides. Two capped runs fit under the overall
-// cap, so a rewrite still shows its added side. An omitted section renders once expanded.
+// cap, so a rewrite still shows its added side. Each expansion of an omitted row reveals one more
+// cap's worth, so no single click renders an unbounded number of rows.
 const MAX_CHANGED_RUN_ROWS = 400
 const MAX_VISIBLE_ROWS = 1_000
 
+// `expansions` counts the clicks on each collapsed or omitted row, by its key.
 export function visibleToolDiffRows(
 	lines: ToolDiffLine[],
-	expandedSections: ReadonlySet<string>
+	expansions: ReadonlyMap<string, number>
 ): VisibleToolDiffRow[] {
 	const result: VisibleToolDiffRow[] = []
 	for (let index = 0; index < lines.length; ) {
@@ -262,17 +264,14 @@ export function visibleToolDiffRows(
 
 		if (kind !== 'context') {
 			const key = `${kind}:${start}`
-			if (count <= MAX_CHANGED_RUN_ROWS || expandedSections.has(key)) {
-				result.push(...lines.slice(start, index))
-				continue
-			}
-			result.push(...lines.slice(start, start + MAX_CHANGED_RUN_ROWS))
-			result.push({ kind: 'omitted', key, count: count - MAX_CHANGED_RUN_ROWS })
+			const shown = MAX_CHANGED_RUN_ROWS * (1 + (expansions.get(key) ?? 0))
+			result.push(...lines.slice(start, Math.min(index, start + shown)))
+			if (count > shown) result.push({ kind: 'omitted', key, count: count - shown })
 			continue
 		}
 
 		const key = `${lines[start].oldLine}:${lines[start].newLine}:${count}`
-		if (count <= CONTEXT_LINES * 2 + 1 || expandedSections.has(key)) {
+		if (count <= CONTEXT_LINES * 2 + 1 || expansions.has(key)) {
 			result.push(...lines.slice(start, index))
 			continue
 		}
@@ -281,11 +280,12 @@ export function visibleToolDiffRows(
 		result.push(...lines.slice(index - CONTEXT_LINES, index))
 	}
 
-	if (result.length <= MAX_VISIBLE_ROWS || expandedSections.has('end')) return result
+	const maxRows = MAX_VISIBLE_ROWS * (1 + (expansions.get('end') ?? 0))
+	if (result.length <= maxRows) return result
 	const hidden = result
-		.slice(MAX_VISIBLE_ROWS)
+		.slice(maxRows)
 		.reduce((total, row) => total + ('count' in row ? row.count : 1), 0)
-	return [...result.slice(0, MAX_VISIBLE_ROWS), { kind: 'omitted', key: 'end', count: hidden }]
+	return [...result.slice(0, maxRows), { kind: 'omitted', key: 'end', count: hidden }]
 }
 
 function streamingDiffLines(before: string[], after: string[]): ToolDiffLine[] {
