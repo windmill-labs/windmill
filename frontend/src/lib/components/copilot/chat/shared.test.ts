@@ -54,7 +54,10 @@ vi.mock('$lib/gen', () => ({
 	AzureTriggerService: { createAzureTrigger: vi.fn() },
 	AmqpTriggerService: { createAmqpTrigger: vi.fn() },
 	EmailTriggerService: { createEmailTrigger: vi.fn() },
-	SettingService: { getGlobal: vi.fn() }
+	SettingService: { getGlobal: vi.fn() },
+	ResourceService: {
+		getResourceValue: vi.fn(async ({ path }: { path: string }) => ({ content: `body of ${path}` }))
+	}
 }))
 
 vi.mock('$lib/utils', () => ({
@@ -205,6 +208,62 @@ describe('buildContextString', () => {
 })
 
 describe('processToolCall', () => {
+	it('delivers folder instructions once, holding back a change until they are read', async () => {
+		const { createToolDef, processToolCall } = await import('./shared')
+		const read = vi.fn(async () => 'read ok')
+		const write = vi.fn(async () => 'write ok')
+		const tools = [
+			{ def: createToolDef(z.object({}), 'read_item', 'Read'), planModeSafe: true, fn: read },
+			{ def: createToolDef(z.object({}), 'write_item', 'Write'), fn: write }
+		]
+		const folderInstructions = {
+			list: () => [
+				{ path: 'f/billing/AGENTS', scope: 'f/billing/' },
+				{ path: 'f/billing/eu/AGENTS', scope: 'f/billing/eu/' },
+				{ path: 'f/other/AGENTS', scope: 'f/other/' }
+			],
+			deliveredBy: new Map<string, readonly string[]>()
+		}
+		const messages: any[] = []
+		const call = async (id: string, name: string, path: string) => {
+			const message = await processToolCall({
+				tools,
+				toolCall: {
+					id,
+					type: 'function',
+					function: { name, arguments: JSON.stringify({ path }) }
+				},
+				helpers: {},
+				workspace: 'test-workspace',
+				messages,
+				toolCallbacks: { setToolStatus: vi.fn(), removeToolStatus: vi.fn(), folderInstructions }
+			})
+			messages.push(message)
+			return message.content as string
+		}
+
+		const readResult = await call('c1', 'read_item', 'f/billing/eu/invoice')
+		expect(read).toHaveBeenCalledTimes(1)
+		expect(readResult.startsWith('read ok')).toBe(true)
+		// Outermost first, so the nested folder's instructions read as the specific ones.
+		expect(readResult.indexOf('body of f/billing/AGENTS')).toBeLessThan(
+			readResult.indexOf('body of f/billing/eu/AGENTS')
+		)
+
+		expect(await call('c2', 'write_item', 'f/billing/eu/invoice')).toBe('write ok')
+
+		const held = await call('c3', 'write_item', 'f/other/x')
+		expect(write).toHaveBeenCalledTimes(1)
+		expect(held).toContain('body of f/other/AGENTS')
+		expect(held).not.toContain('body of f/billing/AGENTS')
+
+		expect(await call('c4', 'write_item', 'f/other/x')).toBe('write ok')
+
+		// A delivery lost from the conversation (compaction) is made again.
+		messages.splice(0)
+		expect(await call('c5', 'read_item', 'f/billing/y')).toContain('body of f/billing/AGENTS')
+	})
+
 	it('returns pre-confirmation validation errors without asking for confirmation', async () => {
 		const { createToolDef, processToolCall } = await import('./shared')
 		const error = 'the script needs to be deployed before doing this action'
