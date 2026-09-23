@@ -241,7 +241,9 @@ describe('processToolCall', () => {
 			messages.push(message)
 			return message.content as string
 		}
+		const turn = () => messages.push({ role: 'assistant', content: '' })
 
+		turn()
 		const readResult = await call('c1', 'read_item', 'f/billing/eu/invoice')
 		expect(read).toHaveBeenCalledTimes(1)
 		expect(readResult.startsWith('read ok')).toBe(true)
@@ -249,19 +251,35 @@ describe('processToolCall', () => {
 		expect(readResult.indexOf('body of f/billing/AGENTS')).toBeLessThan(
 			readResult.indexOf('body of f/billing/eu/AGENTS')
 		)
+		// Same batch: the model has not read c1's result yet, so the write still waits,
+		// pointed at that result rather than handed the bodies twice.
+		const sameBatch = await call('c2', 'write_item', 'f/billing/eu/invoice')
+		expect(write).not.toHaveBeenCalled()
+		expect(sameBatch).not.toContain('body of f/billing/AGENTS')
+		expect(sameBatch).toContain('earlier result of this same batch')
 
-		expect(await call('c2', 'write_item', 'f/billing/eu/invoice')).toBe('write ok')
+		turn()
+		expect(await call('c3', 'write_item', 'f/billing/eu/invoice')).toBe('write ok')
 
-		const held = await call('c3', 'write_item', 'f/other/x')
+		const held = await call('c4', 'write_item', 'f/other/x')
 		expect(write).toHaveBeenCalledTimes(1)
 		expect(held).toContain('body of f/other/AGENTS')
 		expect(held).not.toContain('body of f/billing/AGENTS')
 
-		expect(await call('c4', 'write_item', 'f/other/x')).toBe('write ok')
+		turn()
+		expect(await call('c5', 'write_item', 'f/other/x')).toBe('write ok')
 
 		// A delivery lost from the conversation (compaction) is made again.
 		messages.splice(0)
-		expect(await call('c5', 'read_item', 'f/billing/y')).toContain('body of f/billing/AGENTS')
+		turn()
+		expect(await call('c6', 'read_item', 'f/billing/y')).toContain('body of f/billing/AGENTS')
+
+		// A call stopped mid-run is answered with a placeholder under its id: no delivery.
+		messages.splice(0)
+		folderInstructions.deliveredBy.set('stopped', ['f/billing/AGENTS'])
+		messages.push({ role: 'tool', tool_call_id: 'stopped', content: 'Interrupted' })
+		turn()
+		expect(await call('c7', 'read_item', 'f/billing/y')).toContain('body of f/billing/AGENTS')
 	})
 
 	it('returns pre-confirmation validation errors without asking for confirmation', async () => {

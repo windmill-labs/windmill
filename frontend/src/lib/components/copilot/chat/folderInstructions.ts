@@ -77,30 +77,47 @@ export function instructionsCovering(
 /** What a chat hands the tool loop: the instructions in play, and which tool call
  * delivered which of them.
  *
- * Deliveries are keyed by tool call id rather than marked in the result text, where
- * a script quoting the marker would pass for a delivery that never happened, or on
- * the message object, which the completions path sends to the provider verbatim. A
- * delivery counts only while its tool message is still in the conversation, so
- * compaction or a restored chat gets the instructions again. */
+ * A delivery counts only while its tool message is still in the conversation and
+ * carries the text: the id is recorded because a script quoting the tag in a result
+ * must not pass for a delivery, and nothing is marked on the message object because
+ * the completions path sends that to the provider verbatim. So compaction or a
+ * restored chat gets the instructions again. */
 export type FolderInstructionsContext = {
 	list: () => readonly FolderInstruction[]
 	deliveredBy: Map<string, readonly string[]>
 }
 
-function deliveredIn(ctx: FolderInstructionsContext, messages: readonly unknown[]): Set<string> {
-	const delivered = new Set<string>()
-	for (const m of messages) {
-		const id = (m as { role?: unknown; tool_call_id?: unknown } | undefined)?.tool_call_id
-		if (typeof id !== 'string') continue
-		for (const p of ctx.deliveredBy.get(id) ?? []) delivered.add(p)
-	}
-	return delivered
+/** Instructions delivered by the tool results in `messages`, split by whether the
+ * model has read them. Results after the latest assistant message answer the batch
+ * still being processed: the model has not seen those yet, so a delivery there
+ * must not let a change later in the same batch through. */
+function deliveredIn(
+	ctx: FolderInstructionsContext,
+	messages: readonly unknown[]
+): { read: Set<string>; thisBatch: Set<string> } {
+	const read = new Set<string>()
+	const thisBatch = new Set<string>()
+	let lastAssistant = -1
+	messages.forEach((m, i) => {
+		if ((m as { role?: unknown } | undefined)?.role === 'assistant') lastAssistant = i
+	})
+	messages.forEach((m, i) => {
+		const { tool_call_id: id, content } = (m ?? {}) as { tool_call_id?: unknown; content?: unknown }
+		if (typeof id !== 'string' || typeof content !== 'string') return
+		for (const p of ctx.deliveredBy.get(id) ?? []) {
+			// The id alone is not enough: a call stopped mid-run is answered with a
+			// placeholder under the same id, which carries no instructions.
+			if (content.includes(openingTag(p))) (i < lastAssistant ? read : thisBatch).add(p)
+		}
+	})
+	return { read, thisBatch }
 }
 
-/** The not-yet-delivered instructions covering the paths a tool call names, as the
- * text to hand the model, or undefined when there is nothing new. A body that no
- * longer reads (deleted or moved since the listing) is left out rather than failing
- * the call it rides on. */
+/** The instructions covering the paths a tool call names that the model has not
+ * read yet, as the text to hand it, or undefined when there are none. `paths` are
+ * the bodies the text carries; one already carried earlier in the same batch is
+ * pointed to rather than repeated. A body that no longer reads (deleted or moved
+ * since the listing) is left out rather than failing the call it rides on. */
 export async function pendingFolderInstructions(
 	ctx: FolderInstructionsContext | undefined,
 	messages: readonly unknown[],
@@ -110,25 +127,34 @@ export async function pendingFolderInstructions(
 	if (!ctx || !workspace) return undefined
 	const paths = workspacePathsInArgs(args)
 	if (paths.length === 0) return undefined
-	const delivered = deliveredIn(ctx, messages)
-	const pending = instructionsCovering(ctx.list(), paths).filter((i) => !delivered.has(i.path))
-	if (pending.length === 0) return undefined
+	const { read, thisBatch } = deliveredIn(ctx, messages)
+	const pending = instructionsCovering(ctx.list(), paths).filter((i) => !read.has(i.path))
+	const inBatch = pending.filter((i) => thisBatch.has(i.path))
 	const blocks = (
 		await Promise.all(
-			pending.map(async (instruction) => {
-				try {
-					return { instruction, body: await readFolderInstructionBody(workspace, instruction.path) }
-				} catch (e) {
-					console.error(`Failed to read folder instructions ${instruction.path}`, e)
-					return undefined
-				}
-			})
+			pending
+				.filter((i) => !thisBatch.has(i.path))
+				.map(async (instruction) => {
+					try {
+						return {
+							instruction,
+							body: await readFolderInstructionBody(workspace, instruction.path)
+						}
+					} catch (e) {
+						console.error(`Failed to read folder instructions ${instruction.path}`, e)
+						return undefined
+					}
+				})
 		)
 	).filter((b) => b !== undefined)
-	if (blocks.length === 0) return undefined
+	if (blocks.length === 0 && inBatch.length === 0) return undefined
+	const pointers = inBatch.map(
+		(i) =>
+			`The instructions for \`${i.scope}\` (${i.path}) are in an earlier result of this same batch of tool calls.`
+	)
 	return {
 		paths: blocks.map((b) => b.instruction.path),
-		text: formatFolderInstructions(blocks)
+		text: [formatFolderInstructions(blocks), ...pointers].filter(Boolean).join('\n\n')
 	}
 }
 
@@ -142,13 +168,17 @@ export async function readFolderInstructionBody(workspace: string, path: string)
 	return value.content
 }
 
+function openingTag(path: string): string {
+	return `<folder_instructions path="${path}"`
+}
+
 export function formatFolderInstructions(
 	blocks: readonly { instruction: FolderInstruction; body: string }[]
 ): string {
 	return blocks
 		.map(
 			({ instruction, body }) =>
-				`<folder_instructions path="${instruction.path}" scope="${instruction.scope}">\n${truncateForPrompt(body, MAX_FOLDER_INSTRUCTIONS_LENGTH)}\n</folder_instructions>`
+				`${openingTag(instruction.path)} scope="${instruction.scope}">\n${truncateForPrompt(body, MAX_FOLDER_INSTRUCTIONS_LENGTH)}\n</folder_instructions>`
 		)
 		.join('\n\n')
 }

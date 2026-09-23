@@ -1005,7 +1005,7 @@ export async function processToolCall<T>({
 					workspaceId
 				)
 			: undefined
-		if (folderInstructions) {
+		if (folderInstructions?.paths.length) {
 			toolCallbacks.folderInstructions?.deliveredBy.set(toolCall.id, folderInstructions.paths)
 		}
 		if (folderInstructions && tool?.planModeSafe !== true) {
