@@ -1,31 +1,25 @@
 <script lang="ts">
 	import { Globe } from 'lucide-svelte'
 	import { SvelteSet } from 'svelte/reactivity'
-	import type { WebSearchSource } from './shared'
+	import { isRenderableSourceUrl, type WebSearchSource } from './shared'
 	import { isOfflineReplay } from '$lib/components/recording/offlineReplay.svelte'
 
 	interface Props {
 		sources: WebSearchSource[]
+		/** Whether a hostname may be sent to the favicon service. False for the sources a
+		 * workspace's own tool returned: those can name internal services, and disclosing
+		 * them to a third party is the tool author's call to make, not this card's. */
+		favicons?: boolean
 	}
 
-	let { sources }: Props = $props()
+	let { sources, favicons = true }: Props = $props()
 
-	// The URLs come from the provider's response: only render absolute http(s)
-	// ones — anything else (javascript:, data:, relative) must not become an
-	// href. Also dedupes; providers can surface the same page several times.
+	// The URLs come from the provider's response or from a tool's own result: only render
+	// absolute http(s) ones — anything else (javascript:, data:, relative) must not become
+	// an href. Also dedupes; providers can surface the same page several times.
 	const uniqueSources = $derived(
 		Array.from(
-			new Map(
-				sources
-					.filter((s) => {
-						try {
-							return ['http:', 'https:'].includes(new URL(s.url).protocol)
-						} catch {
-							return false
-						}
-					})
-					.map((s) => [s.url, s])
-			).values()
+			new Map(sources.filter((s) => isRenderableSourceUrl(s.url)).map((s) => [s.url, s])).values()
 		)
 	)
 
@@ -43,7 +37,7 @@
 	// to issue none — a recording comes from an arbitrary origin, so its cited
 	// hostnames must not leak from a viewer's browser either. Degrades to the same
 	// Globe the blocked/failed case already uses.
-	const noFavicons = $derived(isOfflineReplay())
+	const noFavicons = $derived(!favicons || isOfflineReplay())
 
 	// Favicons come from Google's public favicon service, which discloses each
 	// consulted hostname to a third party from the user's browser — an accepted

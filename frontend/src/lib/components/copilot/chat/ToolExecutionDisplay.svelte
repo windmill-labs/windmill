@@ -356,7 +356,7 @@
 			{#if visibleActions.length > 0}
 				<ToolMessageActions actions={visibleActions} />
 			{:else if sources?.length && !message.error}
-				<WebSearchSourcesDisplay {sources} />
+				<WebSearchSourcesDisplay {sources} favicons={message.webSearchSources !== undefined} />
 			{:else}
 				<ToolContentDisplay
 					title="Result"

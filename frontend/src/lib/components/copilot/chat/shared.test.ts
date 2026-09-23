@@ -1835,10 +1835,25 @@ describe('webSearchResultOf', () => {
 		expect(webSearchResultOf(JSON.stringify(result))).toEqual(result)
 	})
 
+	// A Python tool serializes an absent optional as null, and the card has nothing to tell
+	// its author why an almost-right result fell back to JSON.
+	it('reads null on an optional field as absent', () => {
+		expect(
+			webSearchResultOf({ sources: [{ url: 'https://a.dev', title: null }], query: null })
+		).toEqual({
+			sources: [{ url: 'https://a.dev', title: undefined }],
+			query: undefined
+		})
+	})
+
 	it.each([
 		['an extra key', { sources: [{ url: 'https://a.dev' }], summary: 'x' }],
 		['an extra source field', { sources: [{ url: 'https://a.dev', snippet: 'x' }] }],
 		['a source without url', { sources: [{ title: 'A' }] }],
+		// The card renders no relative or javascript: link, so a result whose urls it would
+		// drop keeps its own JSON rather than showing an empty source list.
+		['a relative url', { sources: [{ url: '/docs/pg17', title: 'PG 17' }] }],
+		['a javascript: url', { sources: [{ url: 'javascript:alert(1)' }] }],
 		['no sources', { sources: [] }],
 		['a bare list of links', [{ url: 'https://a.dev' }]]
 	])('rejects %s', (_, result) => {

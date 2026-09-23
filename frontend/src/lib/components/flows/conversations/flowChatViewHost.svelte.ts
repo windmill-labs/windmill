@@ -198,6 +198,9 @@ export function toDisplayMessages(
 				const search = builtInWebSearch(message)
 				if (search) {
 					const found = search.sources.length > 0
+					// `autoCollapseDetails: false` opens it on its sources, as the session chat
+					// shows a search. A tool that returns the same shape stays collapsed like
+					// every other tool row, however many times the agent called it.
 					return [
 						{
 							role: 'tool',

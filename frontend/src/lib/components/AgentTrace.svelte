@@ -93,6 +93,9 @@
 				<GfmMarkdown md={entry.content} noPadding />
 			</div>
 		{:else if entry.kind === 'search'}
+			<!-- Open on its sources, as the session chat shows a search. A tool that returns the
+			     same shape stays closed like every other tool row: the agent may call it twenty
+			     times, and the reader came for the run, not for its bibliography. -->
 			<ChatCollapsibleCard
 				label="Searched the web"
 				expanded={Boolean(entry.sources) && !collapsedSearches.has(index)}
@@ -122,7 +125,7 @@
 					<ToolContentDisplay title="Logs" content={job.logs} />
 				{/if}
 				{#if search && !failed}
-					<WebSearchSourcesDisplay sources={search.sources} />
+					<WebSearchSourcesDisplay sources={search.sources} favicons={false} />
 				{:else}
 					<ToolContentDisplay
 						title="Result"
