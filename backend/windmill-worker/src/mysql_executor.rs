@@ -31,7 +31,7 @@ use crate::{
         s3_stream_and_upload_with_logs, OccupancyMetrics, S3ModeWorkerData,
     },
     handle_child::run_future_with_polling_update_job_poller,
-    sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args,
+    sanitized_sql_params::{sanitize_and_interpolate_unsafe_sql_args, SqlStringEscaping},
 };
 
 #[derive(Deserialize)]
@@ -262,8 +262,13 @@ pub async fn do_mysql(
     let reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
 
-    let (query, args_to_skip) =
-        &sanitize_and_interpolate_unsafe_sql_args(query, &sig, &job_args, &reserved_variables)?;
+    let (query, args_to_skip) = &sanitize_and_interpolate_unsafe_sql_args(
+        query,
+        &sig,
+        &job_args,
+        &reserved_variables,
+        SqlStringEscaping::BackslashAndStandard,
+    )?;
 
     let using_named_params = RE_ARG_MYSQL_NAMED.captures_iter(query).count() > 0;
 

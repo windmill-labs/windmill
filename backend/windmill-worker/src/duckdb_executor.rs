@@ -27,7 +27,7 @@ use crate::common::{build_args_values, get_reserved_variables, OccupancyMetrics}
 use crate::handle_child::run_future_with_polling_update_job_poller;
 #[cfg(feature = "mysql")]
 use crate::mysql_executor::MysqlDatabase;
-use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
+use crate::sanitized_sql_params::{sanitize_and_interpolate_unsafe_sql_args, SqlStringEscaping};
 use crate::sql_utils::remove_comments;
 use crate::MAX_SQL_RESULT_SIZE;
 use windmill_common::client::AuthedClient;
@@ -1391,8 +1391,13 @@ pub async fn do_duckdb(
         let reserved_variables =
             get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
 
-        let (query, _) =
-            &sanitize_and_interpolate_unsafe_sql_args(query, &sig, &job_args, &reserved_variables)?;
+        let (query, _) = &sanitize_and_interpolate_unsafe_sql_args(
+            query,
+            &sig,
+            &job_args,
+            &reserved_variables,
+            SqlStringEscaping::Standard,
+        )?;
         let mut query = transform_s3_uris(query).await?;
 
         // `on_schema_change=sync`: interpolate the pre-pass probe with the same
@@ -1409,6 +1414,7 @@ pub async fn do_duckdb(
                     &sig,
                     &job_args,
                     &reserved_variables,
+                    SqlStringEscaping::Standard,
                 )?;
                 Some(transform_s3_uris(&interp).await?)
             }

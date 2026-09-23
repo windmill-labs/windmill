@@ -28,7 +28,7 @@ use crate::{
         S3ModeWorkerData,
     },
     handle_child::run_future_with_polling_update_job_poller,
-    sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args,
+    sanitized_sql_params::{sanitize_and_interpolate_unsafe_sql_args, SqlStringEscaping},
 };
 use windmill_common::client::AuthedClient;
 
@@ -405,8 +405,13 @@ pub async fn do_oracledb(
     let reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
 
-    let (query, args_to_skip) =
-        sanitize_and_interpolate_unsafe_sql_args(query, &sig, &job_args, &reserved_variables)?;
+    let (query, args_to_skip) = sanitize_and_interpolate_unsafe_sql_args(
+        query,
+        &sig,
+        &job_args,
+        &reserved_variables,
+        SqlStringEscaping::Standard,
+    )?;
 
     let (_, errors) = get_statement_values(sig.clone(), &job_args, &args_to_skip);
 

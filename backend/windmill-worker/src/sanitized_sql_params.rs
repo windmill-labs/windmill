@@ -33,9 +33,39 @@ fn sanitize_identifier(arg: &Arg, input: &str) -> Result<(), error::Error> {
     }
 }
 
+/// How a dialect escapes characters inside a single-quoted string literal. Contextual
+/// variables are substituted as raw text, and `WM_END_USER_EMAIL` carries an app end user's
+/// email into a query that runs with the author's credentials: an email may contain `'`
+/// (and `\` in a quoted local part), so every value is escaped for the literal it lands in.
+#[derive(Clone, Copy)]
+pub enum SqlStringEscaping {
+    /// `'` → `''`; `\` is an ordinary character (PostgreSQL, MSSQL, Oracle, DuckDB).
+    Standard,
+    /// `\` → `\\` and `'` → `''`. `''` rather than `\'` because MySQL under
+    /// `NO_BACKSLASH_ESCAPES` would close the literal on `\'` (MySQL, Snowflake).
+    #[cfg_attr(not(any(feature = "mysql", feature = "snowflake")), allow(dead_code))]
+    BackslashAndStandard,
+    /// `\` → `\\` and `'` → `\'`; the dialect does not accept `''` (BigQuery).
+    #[cfg_attr(not(feature = "bigquery"), allow(dead_code))]
+    Backslash,
+}
+
+impl SqlStringEscaping {
+    fn escape(self, value: &str) -> String {
+        match self {
+            SqlStringEscaping::Standard => value.replace('\'', "''"),
+            SqlStringEscaping::BackslashAndStandard => {
+                value.replace('\\', "\\\\").replace('\'', "''")
+            }
+            SqlStringEscaping::Backslash => value.replace('\\', "\\\\").replace('\'', "\\'"),
+        }
+    }
+}
+
 fn replace_contextual_variables(
     code: &mut String,
     contextual_variables: &HashMap<String, String>,
+    escaping: SqlStringEscaping,
 ) -> () {
     let vars = RE_SQL_CONTEXTUAL_VAR
         .find_iter(&code)
@@ -50,7 +80,7 @@ fn replace_contextual_variables(
             .unwrap();
         let var_value = contextual_variables.get(var_name);
         if let Some(var_value) = var_value {
-            *code = code.replace(&var_pattern, var_value);
+            *code = code.replace(&var_pattern, &escaping.escape(var_value));
         }
     }
 }
@@ -60,11 +90,12 @@ pub fn sanitize_and_interpolate_unsafe_sql_args(
     args: &Vec<Arg>,
     args_map: &HashMap<String, Value>,
     contextual_variables: &HashMap<String, String>,
+    escaping: SqlStringEscaping,
 ) -> Result<(String, Vec<String>), error::Error> {
     let mut ret = code.to_string();
     let mut args_to_skip = vec![];
 
-    replace_contextual_variables(&mut ret, contextual_variables);
+    replace_contextual_variables(&mut ret, contextual_variables, escaping);
 
     for arg in args {
         if let Some(typ) = &arg.otyp {
@@ -127,4 +158,46 @@ pub fn sanitize_and_interpolate_unsafe_sql_args(
     }
 
     Ok((ret, args_to_skip))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn interpolate(code: &str, email: &str, escaping: SqlStringEscaping) -> String {
+        let vars = HashMap::from([("WM_END_USER_EMAIL".to_string(), email.to_string())]);
+        sanitize_and_interpolate_unsafe_sql_args(code, &vec![], &HashMap::new(), &vars, escaping)
+            .unwrap()
+            .0
+    }
+
+    #[test]
+    fn contextual_variables_stay_inside_their_string_literal() {
+        let code = "SELECT 1 WHERE email = '%%WM_END_USER_EMAIL%%'";
+        let quote = r"x'/**/OR/**/'1'='1'--@e.com";
+        let backslash = r#""x\'/**/OR/**/1=1#"@e.com"#;
+
+        assert_eq!(
+            interpolate(code, quote, SqlStringEscaping::Standard),
+            r"SELECT 1 WHERE email = 'x''/**/OR/**/''1''=''1''--@e.com'"
+        );
+        assert_eq!(
+            interpolate(code, backslash, SqlStringEscaping::BackslashAndStandard),
+            r#"SELECT 1 WHERE email = '"x\\''/**/OR/**/1=1#"@e.com'"#
+        );
+        assert_eq!(
+            interpolate(code, backslash, SqlStringEscaping::Backslash),
+            r#"SELECT 1 WHERE email = '"x\\\'/**/OR/**/1=1#"@e.com'"#
+        );
+        for escaping in [
+            SqlStringEscaping::Standard,
+            SqlStringEscaping::BackslashAndStandard,
+            SqlStringEscaping::Backslash,
+        ] {
+            assert_eq!(
+                interpolate(code, "a.b+c@e.com", escaping),
+                "SELECT 1 WHERE email = 'a.b+c@e.com'"
+            );
+        }
+    }
 }

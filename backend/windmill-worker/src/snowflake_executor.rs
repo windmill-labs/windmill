@@ -26,7 +26,7 @@ use crate::common::{
     s3_stream_and_upload_with_logs, OccupancyMetrics, S3ModeWorkerData,
 };
 use crate::handle_child::run_future_with_polling_update_job_poller;
-use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
+use crate::sanitized_sql_params::{sanitize_and_interpolate_unsafe_sql_args, SqlStringEscaping};
 use windmill_common::client::AuthedClient;
 
 #[derive(Serialize)]
@@ -203,8 +203,13 @@ fn do_snowflake_inner<'a>(
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
         .args;
 
-    let (query, args_to_skip) =
-        &sanitize_and_interpolate_unsafe_sql_args(query, &sig, &job_args, reserved_variables)?;
+    let (query, args_to_skip) = &sanitize_and_interpolate_unsafe_sql_args(
+        query,
+        &sig,
+        &job_args,
+        reserved_variables,
+        SqlStringEscaping::BackslashAndStandard,
+    )?;
 
     body.insert("statement".to_string(), json!(query));
 
