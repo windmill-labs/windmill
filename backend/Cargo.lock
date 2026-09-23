@@ -15697,7 +15697,7 @@ dependencies = [
  "url",
  "urlencoding",
  "uuid",
- "webpki-roots 0.26.11",
+ "webpki-roots 1.0.9",
  "windmill-macros",
  "windmill-parser",
  "windmill-parser-py",

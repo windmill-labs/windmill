@@ -757,6 +757,5 @@ hyper-http-proxy = { version = "1", default-features = false, features = ["rustl
 hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "http2", "ring", "tls12"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 rustls-native-certs = "0.8"
-# The version mail-send 0.4 builds its own connector from, so SMTP trusts the same public roots.
-webpki-roots = "0.26"
+webpki-roots = "1"
 rcgen = "0.13"
