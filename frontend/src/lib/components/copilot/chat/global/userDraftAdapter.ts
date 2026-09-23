@@ -134,10 +134,10 @@ function scriptDraftToWorkspaceItem(path: string, draft: NewScript): WorkspaceIt
 	return {
 		type: 'script',
 		path,
-		// The session editor parks a rename in the draft's `draft_path` (see
-		// sessionDraftCodecs.ts); surface it so lists/pickers show the friendly
-		// name instead of the `draft_<uuid>` storage key.
-		draftPath: (draft as NewScript & { draft_path?: string }).draft_path,
+		// A script's chosen name is the value's own `path` — the editor binds the Path
+		// widget to it — so a rename or a `draft_<uuid>` storage key shows up there, and
+		// the session editor may also park one in `draft_path`.
+		draftPath: chosenDraftName('script', draft) ?? (draft as { draft_path?: string }).draft_path,
 		summary: draft.summary,
 		language: draft.language,
 		value: draft.content,
@@ -318,7 +318,7 @@ const draftNamesByWorkspace = new Map<string, DraftNames>()
 
 // Scripts keep their chosen path in the value's own `path`; the other kinds in `draft_path`
 // (the same split listDrafts applies server-side).
-function chosenDraftName(itemKind: UserDraftItemKind, value: unknown): string | undefined {
+export function chosenDraftName(itemKind: UserDraftItemKind, value: unknown): string | undefined {
 	const v = value as { path?: string; draft_path?: string } | null | undefined
 	return (itemKind === 'script' ? v?.path : v?.draft_path) || undefined
 }

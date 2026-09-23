@@ -226,6 +226,7 @@ import {
 	getGlobalDraft,
 	getGlobalDraftStoragePath,
 	itemKindFor,
+	chosenDraftName,
 	listGlobalDrafts,
 	loadDraftNames,
 	persistGlobalDraft,
@@ -8022,6 +8023,11 @@ async function deployDraft(
 			type === 'flow'
 				? !(await FlowService.existsFlowByPath({ workspace, path: storagePath }))
 				: false
+		// The shared deployer deploys at the path inside the draft and doesn't report it
+		// back, so read it here — post-flush, since a rename may have been parked. This is
+		// where a draft-only or renamed item lands, and what the callbacks below must name.
+		deployedPath =
+			chosenDraftName(type, await readGlobalDraftValue(workspace, type, storagePath)) ?? storagePath
 		const result = await deployDraftToWorkspace(type, storagePath, workspace, {
 			draftOnly,
 			deploymentMessage
@@ -8218,13 +8224,15 @@ async function deployDraft(
 				const targetExists = await AppService.existsApp({ workspace, path: targetPath })
 				// A draft of a deployed app is stored at that app's path, so a target elsewhere that
 				// already exists is another app: nothing checks a chosen name before deploy.
-				// `force` is the way through for the one case this cannot tell apart: a deploy
-				// that created the app and then failed to clean up its draft, retried.
-				if (targetExists && targetPath !== storagePath && !force) {
+				// `force` means "deploy over a newer version of this item" and cannot answer
+				// this: the app at the target is a different item, so there is nothing to
+				// overwrite on purpose. Discarding is the way out of the one ambiguous case,
+				// a deploy that created the app and then failed to remove its draft.
+				if (targetExists && targetPath !== storagePath) {
 					throw new Error(
 						`Cannot deploy app "${path}" to "${targetPath}": another app is already deployed there. ` +
-							`Ask the user for a different path for this draft, or pass force: true if this draft ` +
-							`is what is deployed there.`
+							`Ask the user for a different path for this draft. If instead this draft is what is ` +
+							`already deployed there, discard_local_draft removes the leftover draft.`
 					)
 				}
 				if (targetExists) {

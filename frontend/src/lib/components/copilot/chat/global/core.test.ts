@@ -3316,6 +3316,55 @@ describe('global AI tools', () => {
 			expect(ScriptService.createScript).not.toHaveBeenCalled()
 		})
 
+		// The shared deployer deploys a script at the path inside the draft, so the deployed
+		// path is the chosen name — what the preview follows and the mask entry moves to.
+		it('reports where a draft-only script landed, not the key it was stored at', async () => {
+			seedBackendDraft('script', 'u/admin/draft_s1', {
+				path: 'f/team/new_script',
+				summary: 's',
+				description: '',
+				content: 'export async function main() { return 1 }',
+				language: 'bun',
+				kind: 'script',
+				schema: {}
+			})
+			vi.mocked(ScriptService.existsScriptByPath).mockResolvedValue(false)
+			// What the shared deployer reads to deploy at the draft's own path.
+			vi.mocked(ScriptService.getScriptByPath).mockResolvedValue({
+				hash: 'h1',
+				draft: {
+					path: 'f/team/new_script',
+					summary: 's',
+					content: 'export async function main() { return 1 }',
+					language: 'bun',
+					kind: 'script',
+					schema: {}
+				}
+			} as any)
+			const onDeployed = vi.fn()
+			setDeployedInSessionHandler(onDeployed)
+			try {
+				await callGlobalTool('deploy_workspace_item', {
+					type: 'script',
+					path: 'u/admin/draft_s1'
+				})
+				expect(ScriptService.createScript).toHaveBeenCalledWith(
+					expect.objectContaining({
+						requestBody: expect.objectContaining({ path: 'f/team/new_script' })
+					})
+				)
+				expect(onDeployed).toHaveBeenCalledWith(
+					expect.objectContaining({
+						kind: 'script',
+						path: 'u/admin/draft_s1',
+						deployedPath: 'f/team/new_script'
+					})
+				)
+			} finally {
+				setDeployedInSessionHandler(undefined)
+			}
+		})
+
 		it('deploys a stale script draft when force is set', async () => {
 			seedStaleScriptDraft('f/scripts/stale', 'base-hash')
 			mockDeployedScript('f/scripts/stale', 'new-hash')
