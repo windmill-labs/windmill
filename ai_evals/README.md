@@ -175,6 +175,10 @@ the decrypted value, exactly as against a real backend. The chat's read path pas
 Seed a recognizable secret (the existing fixture uses `sk_live_do_not_leak_me`) and
 assert it via `valueExcludes` to catch a leak.
 
+`toolExpect.toolCallArgs` entries support `sharedByAtLeast: <n>`: at least `n` recorded
+calls to that tool must carry the same non-blank string in the field. Use it for calls that
+have to share an identifier, like two test runs of one chat conversation.
+
 `toolExpect.toolCallArgs` entries additionally support `fieldMustBeAbsent: true`: no
 recorded call to that tool may pass the field at all (an explicit `null` counts as
 passing it). Use it for partial-update tools, where supplying a field the model could

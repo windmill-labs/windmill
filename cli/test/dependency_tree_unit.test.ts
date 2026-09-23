@@ -2,7 +2,10 @@ import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import * as path from "node:path";
-import { DoubleLinkedDependencyTree } from "../src/utils/dependency_tree.ts";
+import {
+  DoubleLinkedDependencyTree,
+  resolvePlaceholdersFromLocal,
+} from "../src/utils/dependency_tree.ts";
 
 // addNode consults wmill-lock.yaml from cwd for workspace deps; run inside a
 // temp dir so the test never reads/writes the repo's own lock file.
@@ -101,6 +104,65 @@ test("getAllTempScriptRefs is a superset of getTempScriptRefs for any node", asy
     // And the per-node view of main only sees its own transitive import
     expect(tree.getTempScriptRefs("f/test/main")).toEqual({
       "f/test/lib": "hash_lib",
+    });
+  });
+});
+
+// Two barrels deep so the fixpoint matters: resolving the first one is what
+// puts the second in the tree, and only a further round reaches the leaf.
+test("resolvePlaceholdersFromLocal walks the graph through unresolved barrels", async () => {
+  await withTempDir(async () => {
+    const tree = new DoubleLinkedDependencyTree();
+    await tree.addNode(
+      "f/app/consumer",
+      `import { subtract } from "../barrel/index.ts"`,
+      "bun",
+      "",
+      ["f/barrel/index"],
+      "script",
+      "f/app/consumer",
+      "f/app/consumer.ts",
+      true,
+    );
+    await tree.addNode(
+      "f/barrel/helper",
+      "export function subtract(a: number, b: number) { return a - b }",
+      "bun",
+      "",
+      [],
+      "script",
+      "f/barrel/helper",
+      "f/barrel/helper.ts",
+      true,
+    );
+    // Neither barrel is in the change set, so both are bare import targets.
+    expect(tree.getTempScriptRefs("f/app/consumer")).toEqual({});
+
+    await resolvePlaceholdersFromLocal(
+      tree,
+      new Map([
+        [
+          "f/barrel/index",
+          {
+            localPath: "f/barrel/index.ts",
+            content: `export * from "./mid.ts"`,
+          },
+        ],
+        [
+          "f/barrel/mid",
+          {
+            localPath: "f/barrel/mid.ts",
+            content: `export * from "./helper.ts"`,
+          },
+        ],
+      ]),
+      "bun",
+    );
+
+    // Only the leaf diverged from deployed, so only it was uploaded.
+    tree.setContentHash("f/barrel/helper", "hash_helper");
+    expect(tree.getTempScriptRefs("f/app/consumer")).toEqual({
+      "f/barrel/helper": "hash_helper",
     });
   });
 });

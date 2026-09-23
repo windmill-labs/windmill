@@ -113,7 +113,9 @@ async fn test_schedule_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
         "expected at least 2 schedules, got {}",
         list.len()
     );
-    assert!(list.iter().any(|s| s["path"] == "u/test-user/test_schedule"));
+    assert!(list
+        .iter()
+        .any(|s| s["path"] == "u/test-user/test_schedule"));
 
     // --- list_with_jobs ---
     let resp = authed(client().get(format!("{base}/list_with_jobs")))
@@ -125,18 +127,14 @@ async fn test_schedule_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert!(!list.is_empty());
 
     // --- update ---
-    let resp = authed(client().post(schedule_url(
-        port,
-        "update",
-        "u/test-user/test_schedule",
-    )))
-    .json(&json!({
-        "schedule": "0 0 */12 * * *",
-        "timezone": "Europe/Paris"
-    }))
-    .send()
-    .await
-    .unwrap();
+    let resp = authed(client().post(schedule_url(port, "update", "u/test-user/test_schedule")))
+        .json(&json!({
+            "schedule": "0 0 */12 * * *",
+            "timezone": "Europe/Paris"
+        }))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200, "update: {}", resp.text().await?);
 
     // verify update
@@ -204,14 +202,11 @@ async fn test_schedule_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert_eq!(resp.status(), 200);
 
     // --- delete ---
-    let resp = authed(client().delete(schedule_url(
-        port,
-        "delete",
-        "u/test-user/another_schedule",
-    )))
-    .send()
-    .await
-    .unwrap();
+    let resp =
+        authed(client().delete(schedule_url(port, "delete", "u/test-user/another_schedule")))
+            .send()
+            .await
+            .unwrap();
     assert_eq!(resp.status(), 200);
 
     let resp = authed_get(port, "exists", "u/test-user/another_schedule").await;
@@ -220,17 +215,108 @@ async fn test_schedule_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     // ===== Global endpoints =====
 
     // --- preview ---
+    let resp = authed(client().post(format!("http://localhost:{port}/api/schedules/preview")))
+        .json(&json!({
+            "schedule": "0 0 */6 * * *",
+            "timezone": "UTC"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "preview: {}", resp.text().await?);
+
+    Ok(())
+}
+
+/// A schedule with no `schedule` row is listed from the `draft` table, so its
+/// DELETE drops that draft, then 404s once nothing is left at the path. A legacy
+/// (`email IS NULL`) draft is owned by nobody and stays put.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_delete_draft_only_schedule(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let path = "u/test-user/draft_only_schedule";
+
     let resp = authed(client().post(format!(
-        "http://localhost:{port}/api/schedules/preview"
+        "http://localhost:{port}/api/w/test-workspace/drafts/update/trigger_schedule/{path}"
     )))
-    .json(&json!({
+    .json(&json!({ "value": {
+        "path": path,
         "schedule": "0 0 */6 * * *",
-        "timezone": "UTC"
-    }))
+        "timezone": "UTC",
+        "script_path": "u/test-user/never_deployed",
+        "is_flow": false,
+    }}))
     .send()
     .await
     .unwrap();
-    assert_eq!(resp.status(), 200, "preview: {}", resp.text().await?);
+    assert_eq!(resp.status(), 200, "save draft: {}", resp.text().await?);
+
+    let resp = authed(client().get(format!(
+        "http://localhost:{port}/api/w/test-workspace/schedules/list?include_draft_only=true"
+    )))
+    .send()
+    .await
+    .unwrap();
+    let listed: Vec<serde_json::Value> = resp.json().await?;
+    assert!(
+        listed
+            .iter()
+            .any(|s| s["path"] == path && s["draft_only"] == json!(true)),
+        "draft-only schedule should be listed: {listed:?}"
+    );
+
+    let resp = authed(client().delete(schedule_url(port, "delete", path)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "delete: {}", resp.text().await?);
+
+    let remaining: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM draft WHERE workspace_id = 'test-workspace' AND path = $1 \
+         AND typ = 'trigger_schedule'::DRAFT_KIND",
+    )
+    .bind(path)
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(remaining, 0, "the draft should be gone");
+
+    let resp = authed(client().delete(schedule_url(port, "delete", path)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 404, "nothing left at the path");
+
+    // A legacy (email IS NULL) draft is owned by nobody and keeps the write gate
+    // on the drafts routes, so this one must not become a second door to it.
+    let legacy_path = "u/test-user/legacy_draft_only_schedule";
+    sqlx::query(
+        "INSERT INTO draft (workspace_id, email, path, typ, value) \
+         VALUES ('test-workspace', NULL, $1, 'trigger_schedule'::DRAFT_KIND, '{}'::json)",
+    )
+    .bind(legacy_path)
+    .execute(&db)
+    .await?;
+
+    let resp = authed(client().delete(schedule_url(port, "delete", legacy_path)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        404,
+        "legacy draft is not this route's to delete"
+    );
+
+    let legacy_remaining: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM draft WHERE workspace_id = 'test-workspace' AND path = $1 \
+         AND typ = 'trigger_schedule'::DRAFT_KIND",
+    )
+    .bind(legacy_path)
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(legacy_remaining, 1, "the legacy draft should survive");
 
     Ok(())
 }

@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COALESCE(jc.status::text, 'running') as \"status!\"\n           FROM unnest($1::uuid[]) AS run(id)\n           LEFT JOIN v2_job_completed jc ON jc.id = run.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "status!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "ea397add5eb6555457883e5b6bdc67efbe6b0559adb891dba65d8b8e1430f357"
+}

@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT u.username, u.is_admin, u.operator, u.disabled, EXISTS (SELECT 1 FROM password p WHERE p.email = u.email AND p.disabled) AS \"instance_disabled!\" FROM usr u WHERE u.workspace_id = $1 AND u.email = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "username",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "is_admin",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 2,
+        "name": "operator",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "disabled",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "instance_disabled!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "8bdfc02e7be54c2b610fed11cce75f8d2f1665d329b8adea424b3a6f1e5c7013"
+}

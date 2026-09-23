@@ -22,12 +22,40 @@ Pure local tests — no backend, no database. Uses `bunfig.unit.toml` (no preloa
 
 Examples: `git_unit`, `lint_command_unit`, `tar_creation_unit`, `workspace_conflicts_unit`
 
+`mock.module()` mocks the module for the whole `bun test` process, not for the file
+that installs it, and `mock.restore()` does not undo it. A file that mocks a module
+must hand back its real exports in `afterAll` (see
+`schedule_push_permissioned_as_unit`), or it silently rewires whichever file runs
+next — and the run order is the directory's, so it differs between Linux and Windows.
+
 ### Integration tests
 
 Require a running backend and PostgreSQL. The `setup.ts` preload builds the backend
 binary and starts a shared backend instance.
 
 Examples: `sync_pull_push`, `dev_server`, `standalone_commands`
+
+## Module mocks
+
+`mock.module` replaces a module for the **whole process**, and it does reach modules that
+were already imported — a stub one file installs lands on a consumer an earlier file
+loaded.
+
+Handing the module back in `afterAll` is not a reliable undo. Files do run one at a time
+(a root-level `afterAll` completes before the next file's body evaluates), so it looks
+like it should be — but stubbing `bundle.ts` and restoring it that way still left
+`raw_app_svelte_plugin_unit.test.ts` asserting against an empty bundle, green on Linux
+and red on Windows, where the `readdir` file order differs. Treat a stub as permanent for
+the run.
+
+So the rule is about what you stub, not how you clean up: **stub only a module no other
+in-process suite imports.** Check with `grep -rl "<exported fn>" test/` before reaching
+for one. A suite that drives the CLI through a spawned process is out of reach of a
+module mock and doesn't count.
+
+`raw_app_push_policy_unit.test.ts` is the worked example: it stubs `gen/services.gen.ts`,
+which passes the rule because nothing else in `test/` imports the three API functions it
+replaces, and deliberately does not stub `bundle.ts`, which failed it.
 
 ## AI Benchmark Caveats
 

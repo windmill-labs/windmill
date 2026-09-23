@@ -2,14 +2,20 @@
 	import { createEventDispatcher } from 'svelte'
 
 	import { ResourceService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import { Button, ClearableInput } from './common'
 	import Label from './Label.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import Badge from './common/badge/Badge.svelte'
 	import { untrack } from 'svelte'
-	import { resourceTypeSearchText, sortResourceTypesByMatch } from './resourceTypeDisplay'
+	import {
+		resourceTypeSearchText,
+		setResourceTypeDisplayNames,
+		sortResourceTypesByMatch
+	} from './resourceTypeDisplay'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 	interface Props {
 		value: string | undefined
 		notPickable?: boolean
@@ -21,7 +27,8 @@
 	let resources: { name: string; description?: string; searchText: string }[] = $state([])
 
 	async function loadResources() {
-		const types = await ResourceService.listResourceType({ workspace: $workspaceStore! })
+		const types = await ResourceService.listResourceType({ workspace: $operatingWorkspace! })
+		setResourceTypeDisplayNames(types)
 		resources = types.map((t) => ({
 			name: t.name,
 			description: t.description,
@@ -37,7 +44,7 @@
 	}
 
 	$effect(() => {
-		if ($workspaceStore) {
+		if ($operatingWorkspace) {
 			untrack(() => {
 				loadResources()
 			})

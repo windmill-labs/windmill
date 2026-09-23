@@ -84,6 +84,8 @@
 		initialPath?: string
 	}
 
+	let { initialPath }: Props = $props()
+
 	let paths: string[] = $state([])
 	let usernames: string[] = $state([])
 	let folders: string[] = $state([])
@@ -100,24 +102,29 @@
 	let perPage = useLocalStorageValue('runs_per_page', 1000, 'number')
 	let showSchedulesStorage = useLocalStorageValue('runs_show_schedules', true, 'boolean')
 	let showFutureJobsStorage = useLocalStorageValue('runs_show_future_jobs', true, 'boolean')
-	let filters = useUrlSyncedFilterInstance(untrack(() => runsFilterSearchbarSchema))
+	function filterSeeds() {
+		return {
+			path: initialPath || undefined,
+			job_trigger_kind: showSchedulesStorage.val === false ? ('!schedule' as const) : undefined,
+			show_future_jobs: showFutureJobsStorage.val === false ? false : undefined
+		}
+	}
 
-	let { initialPath }: Props = $props()
+	let filters = useUrlSyncedFilterInstance(
+		untrack(() => runsFilterSearchbarSchema),
+		untrack(filterSeeds)
+	)
+
+	// `runs/[...path]` is a single route, so a navigation between its URLs — the sidebar's own
+	// "Runs" entry, `/runs/<path>` → `/runs`, Back — rewrites the query without remounting, and
+	// what was seeded at mount is gone. Re-apply it. Editing a filter writes with `replaceState`,
+	// which never reaches `page.url`, so a filter the user clears stays cleared.
+	$effect(() => {
+		page.url.href
+		untrack(() => filters.seed(filterSeeds()))
+	})
 
 	let batchRerunOptionsIsOpen = $state(false)
-
-	// Initialize path filter from route param if provided and not already set via query params
-	if (untrack(() => initialPath) && !filters.val.path) {
-		filters.val.path = untrack(() => initialPath)
-	}
-
-	// Apply persistent toggle values from local storage if URL doesn't specify them
-	if (!page.url.searchParams.has('job_trigger_kind') && showSchedulesStorage.val === false) {
-		filters.val.job_trigger_kind = '!schedule'
-	}
-	if (!page.url.searchParams.has('show_future_jobs') && showFutureJobsStorage.val === false) {
-		filters.val.show_future_jobs = false
-	}
 
 	// Sync toggle state back to local storage when filters change
 	$effect(() => {

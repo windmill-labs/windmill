@@ -6,6 +6,14 @@ pub const ALLOW_PRIVATE_MCP_SERVER_URLS_ENV: &str = "ALLOW_PRIVATE_MCP_SERVER_UR
 
 pub const ALLOW_PRIVATE_SAML_METADATA_URLS_ENV: &str = "ALLOW_PRIVATE_SAML_METADATA_URLS";
 
+pub const ALLOW_PRIVATE_GUEST_JWKS_URLS_ENV: &str = "ALLOW_PRIVATE_GUEST_JWKS_URLS";
+
+pub const ALLOW_PRIVATE_WEBHOOK_URLS_ENV: &str = "ALLOW_PRIVATE_WEBHOOK_URLS";
+
+/// Lets every git call reach hosts on a private network, whoever it is made for.
+/// Without it, [`private_git_host_allowed`] decides.
+pub const ALLOW_LOCAL_GIT_REMOTES_ENV: &str = "ALLOW_LOCAL_GIT_REMOTES";
+
 /// Why a URL failed SSRF validation.
 ///
 /// The distinction matters for callers that gate private endpoints behind a
@@ -18,6 +26,9 @@ pub enum SsrfValidationError {
     InvalidUrl(String),
     /// Scheme is not `http`/`https`.
     DisallowedScheme(String),
+    /// The URL uses `http` where `https` is required (guest JWKS). The private-host opt-in
+    /// also permits `http`, so, unlike the other scheme errors, this one the flag can fix.
+    HttpsRequired,
     /// No host in the URL.
     MissingHost,
     /// DNS resolution failed for the host.
@@ -37,6 +48,9 @@ impl std::fmt::Display for SsrfValidationError {
                 f,
                 "URL scheme '{s}' is not allowed, only http and https are permitted"
             ),
+            SsrfValidationError::HttpsRequired => {
+                write!(f, "URL must use https")
+            }
             SsrfValidationError::MissingHost => write!(f, "URL must have a host"),
             SsrfValidationError::ResolutionFailed { host, source } => {
                 write!(f, "Failed to resolve host '{host}': {source}")
@@ -195,6 +209,60 @@ pub fn allow_private_saml_metadata_urls() -> bool {
         .is_some_and(|v| v == "true" || v == "1")
 }
 
+fn allow_private_webhook_urls() -> bool {
+    std::env::var(ALLOW_PRIVATE_WEBHOOK_URLS_ENV)
+        .ok()
+        .is_some_and(|v| v == "true" || v == "1")
+}
+
+fn allow_local_git_remotes() -> bool {
+    std::env::var(ALLOW_LOCAL_GIT_REMOTES_ENV)
+        .ok()
+        .is_some_and(|v| v == "true" || v == "1")
+}
+
+/// Who a git call is made for, which decides whether it may reach a host on a
+/// private network.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GitRemoteCaller {
+    /// A workspace admin's request, or Windmill's own work (polling, webhook and
+    /// token upkeep, the merge request after a deploy), whose errors only admins read.
+    AdminOrSystem,
+    /// A request from anyone who is not a workspace admin.
+    NonAdmin,
+}
+
+/// Whether a git call made for `caller` may reach a host on a private network.
+///
+/// The refusal is for non-admins, who may not be able to run code (operators)
+/// and would read git's error output back as a probe of the server's network.
+/// An admin can run code, which reaches those hosts from a worker already. On a
+/// cloud instance, where a workspace admin is anyone who signed up, every caller
+/// is refused.
+pub fn private_git_host_allowed(caller: GitRemoteCaller) -> bool {
+    git_host_policy_allows(
+        caller,
+        allow_local_git_remotes(),
+        *crate::worker::CLOUD_HOSTED,
+    )
+}
+
+fn git_host_policy_allows(caller: GitRemoteCaller, opted_in: bool, cloud_hosted: bool) -> bool {
+    opted_in || (caller == GitRemoteCaller::AdminOrSystem && !cloud_hosted)
+}
+
+/// Appended to a refusal of a private git host, naming what would let `caller`
+/// through. `None` where nothing an instance administrator sets would help.
+pub fn private_git_host_hint(caller: GitRemoteCaller) -> Option<String> {
+    (caller == GitRemoteCaller::NonAdmin && !*crate::worker::CLOUD_HOSTED).then(|| {
+        format!(
+            "Only workspace admins can reach a git server on a private network. To allow \
+             every user, set the {ALLOW_LOCAL_GIT_REMOTES_ENV}=true environment variable on \
+             the Windmill servers"
+        )
+    })
+}
+
 pub async fn validate_saml_metadata_url(url: &str) -> Result<ValidatedTarget, SsrfValidationError> {
     let parsed =
         url::Url::parse(url).map_err(|e| SsrfValidationError::InvalidUrl(e.to_string()))?;
@@ -213,6 +281,36 @@ pub async fn validate_saml_metadata_url(url: &str) -> Result<ValidatedTarget, Ss
     validate_url_for_ssrf(url).await
 }
 
+/// Validate a workspace admin's guest-JWKS URL and return the [`ValidatedTarget`] so
+/// the fetch can pin the connect. `https` is required (the JWKS authenticates guest JWTs);
+/// `ALLOW_PRIVATE_GUEST_JWKS_URLS` opts a private range AND plaintext `http` in, for dev.
+pub async fn validate_guest_jwks_url(url: &str) -> Result<ValidatedTarget, SsrfValidationError> {
+    let parsed =
+        url::Url::parse(url).map_err(|e| SsrfValidationError::InvalidUrl(e.to_string()))?;
+
+    let allow_private = std::env::var(ALLOW_PRIVATE_GUEST_JWKS_URLS_ENV)
+        .ok()
+        .is_some_and(|v| v == "true" || v == "1");
+
+    match parsed.scheme() {
+        "https" => {}
+        // Plaintext HTTP only under the explicit operator opt-in that also allows private
+        // hosts (dev/loopback): the JWKS supplies the keys that authenticate guest JWTs, so an
+        // on-path attacker who could replace an http response could forge accepted tokens.
+        "http" if allow_private => {}
+        "http" => return Err(SsrfValidationError::HttpsRequired),
+        scheme => return Err(SsrfValidationError::DisallowedScheme(scheme.to_string())),
+    }
+
+    let host = parsed.host_str().ok_or(SsrfValidationError::MissingHost)?;
+
+    if allow_private {
+        return Ok(ValidatedTarget::unpinned(host));
+    }
+
+    validate_url_for_ssrf(url).await
+}
+
 pub async fn validate_mcp_server_url(url: &str) -> Result<ValidatedTarget, SsrfValidationError> {
     let parsed =
         url::Url::parse(url).map_err(|e| SsrfValidationError::InvalidUrl(e.to_string()))?;
@@ -225,6 +323,26 @@ pub async fn validate_mcp_server_url(url: &str) -> Result<ValidatedTarget, SsrfV
     let host = parsed.host_str().ok_or(SsrfValidationError::MissingHost)?;
 
     if allow_private_mcp_server_urls() {
+        return Ok(ValidatedTarget::unpinned(host));
+    }
+
+    validate_url_for_ssrf(url).await
+}
+
+/// Save-time check only: the webhook is sent later from another task that resolves
+/// the host again, so the returned target cannot be pinned onto that connect.
+pub async fn validate_webhook_url(url: &str) -> Result<ValidatedTarget, SsrfValidationError> {
+    let parsed =
+        url::Url::parse(url).map_err(|e| SsrfValidationError::InvalidUrl(e.to_string()))?;
+
+    match parsed.scheme() {
+        "http" | "https" => {}
+        scheme => return Err(SsrfValidationError::DisallowedScheme(scheme.to_string())),
+    }
+
+    let host = parsed.host_str().ok_or(SsrfValidationError::MissingHost)?;
+
+    if allow_private_webhook_urls() {
         return Ok(ValidatedTarget::unpinned(host));
     }
 
@@ -263,6 +381,16 @@ pub fn saml_ssrf_error_message(e: &SsrfValidationError) -> String {
         SsrfValidationError::Private { .. } => format!(
             "{e}. If you need to use private/internal SAML metadata URLs, \
              set the {ALLOW_PRIVATE_SAML_METADATA_URLS_ENV}=true environment variable"
+        ),
+        _ => e.to_string(),
+    }
+}
+
+pub fn webhook_ssrf_error_message(e: &SsrfValidationError) -> String {
+    match e {
+        SsrfValidationError::Private { .. } => format!(
+            "{e}. If you need to use private/internal webhook URLs, \
+             set the {ALLOW_PRIVATE_WEBHOOK_URLS_ENV}=true environment variable"
         ),
         _ => e.to_string(),
     }
@@ -592,6 +720,80 @@ mod tests {
             validate_saml_metadata_url("not-a-url").await,
             Err(SsrfValidationError::InvalidUrl(_))
         ));
+    }
+
+    struct PrivateWebhookUrlsEnvGuard {
+        previous: Option<String>,
+    }
+
+    impl PrivateWebhookUrlsEnvGuard {
+        fn set(value: Option<&str>) -> Self {
+            let previous = std::env::var(ALLOW_PRIVATE_WEBHOOK_URLS_ENV).ok();
+            match value {
+                Some(value) => std::env::set_var(ALLOW_PRIVATE_WEBHOOK_URLS_ENV, value),
+                None => std::env::remove_var(ALLOW_PRIVATE_WEBHOOK_URLS_ENV),
+            }
+            Self { previous }
+        }
+    }
+
+    impl Drop for PrivateWebhookUrlsEnvGuard {
+        fn drop(&mut self) {
+            match &self.previous {
+                Some(value) => std::env::set_var(ALLOW_PRIVATE_WEBHOOK_URLS_ENV, value),
+                None => std::env::remove_var(ALLOW_PRIVATE_WEBHOOK_URLS_ENV),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn validate_webhook_url_blocks_private_by_default_with_env_hint() {
+        let _lock = TEST_ENV_LOCK.lock().await;
+        let _guard = PrivateWebhookUrlsEnvGuard::set(None);
+
+        let private_error = validate_webhook_url("http://127.0.0.1/hook")
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            private_error,
+            SsrfValidationError::Private { resolved: false }
+        ));
+        assert!(
+            webhook_ssrf_error_message(&private_error).contains("ALLOW_PRIVATE_WEBHOOK_URLS=true")
+        );
+
+        let invalid_error = validate_webhook_url("ftp://example.com/hook")
+            .await
+            .unwrap_err();
+        assert!(
+            !webhook_ssrf_error_message(&invalid_error).contains(ALLOW_PRIVATE_WEBHOOK_URLS_ENV)
+        );
+    }
+
+    #[tokio::test]
+    async fn validate_webhook_url_allows_private_when_env_is_set_but_keeps_syntax_guards() {
+        let _lock = TEST_ENV_LOCK.lock().await;
+        let _guard = PrivateWebhookUrlsEnvGuard::set(Some("true"));
+
+        assert!(validate_webhook_url("http://127.0.0.1/hook").await.is_ok());
+        assert!(validate_webhook_url("http://10.0.0.1/hook").await.is_ok());
+        assert!(matches!(
+            validate_webhook_url("file:///etc/passwd").await,
+            Err(SsrfValidationError::DisallowedScheme(_))
+        ));
+        assert!(matches!(
+            validate_webhook_url("not-a-url").await,
+            Err(SsrfValidationError::InvalidUrl(_))
+        ));
+    }
+
+    #[test]
+    fn private_git_hosts_are_refused_to_non_admins_and_on_cloud() {
+        use GitRemoteCaller::{AdminOrSystem, NonAdmin};
+        assert!(git_host_policy_allows(AdminOrSystem, false, false));
+        assert!(!git_host_policy_allows(NonAdmin, false, false));
+        assert!(!git_host_policy_allows(AdminOrSystem, false, true));
+        assert!(git_host_policy_allows(NonAdmin, true, true));
     }
 
     #[tokio::test]

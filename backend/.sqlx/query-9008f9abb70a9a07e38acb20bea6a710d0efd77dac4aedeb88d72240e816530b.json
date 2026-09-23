@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            j.args as \"args: Json<HashMap<String, Box<RawValue>>>\",\n            js.flow_status as \"flow_status: Json<windmill_common::flow_status::FlowStatus>\",\n            j.runnable_path\n        FROM v2_job_status js\n        INNER JOIN v2_job j ON j.id = js.id\n        WHERE js.id = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "args: Json<HashMap<String, Box<RawValue>>>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 1,
+        "name": "flow_status: Json<windmill_common::flow_status::FlowStatus>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 2,
+        "name": "runnable_path",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "9008f9abb70a9a07e38acb20bea6a710d0efd77dac4aedeb88d72240e816530b"
+}

@@ -19,8 +19,14 @@ const EDIT_PAGES = [
 	'/apps_raw/get/'
 ]
 
-export async function fixupUrlAfterWorkspaceSwitch(id: string): Promise<void> {
-	if (EDIT_PAGES.some((p) => page.route.id?.includes(p) ?? false)) {
+export async function fixupUrlAfterWorkspaceSwitch(
+	id: string,
+	// Decided by the caller so the rule stays with the picker that has the context
+	// for it — a picker rendered outside the sidebar drives its own page and must
+	// not be navigated away from.
+	opts?: { landOnHome?: boolean }
+): Promise<void> {
+	if (EDIT_PAGES.some((p) => page.route.id?.includes(p) ?? false) || opts?.landOnHome) {
 		await goto('/')
 	} else if (page.url.searchParams.get('workspace')) {
 		const url = new URL(window.location.href)

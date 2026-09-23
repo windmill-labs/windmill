@@ -15,6 +15,24 @@
 	let tableHeight: number = $state(0)
 	const dispatch = createEventDispatcher()
 	let tableContainer: HTMLDivElement | undefined = $state()
+	let tableEl: HTMLTableElement | undefined = $state()
+
+	// A pinned actions column only earns a seam once something can actually pass under it,
+	// so the overflow is measured rather than assumed: on a table that fits, the column
+	// should be indistinguishable from an ordinary one.
+	let xOverflowing = $state(false)
+	$effect(() => {
+		const container = tableContainer
+		const table = tableEl
+		if (!container || !table) return
+		// Sub-pixel widths make an exactly-fitting table read as 0.5px over.
+		const measure = () => (xOverflowing = container.scrollWidth > container.clientWidth + 1)
+		measure()
+		const observer = new ResizeObserver(measure)
+		observer.observe(container)
+		observer.observe(table)
+		return () => observer.disconnect()
+	})
 	interface Props {
 		paginated?: boolean
 		currentPage?: number
@@ -130,11 +148,15 @@
 >
 	<List justify="between" gap="none" hFull={true}>
 		<div
-			class={twMerge('w-full overflow-auto h-fit', preventXOverflow ? 'overflow-x-hidden' : '')}
+			class={twMerge(
+				'w-full overflow-auto h-fit',
+				preventXOverflow ? 'overflow-x-hidden' : '',
+				xOverflowing ? 'wm-table-x-overflow' : ''
+			)}
 			bind:this={tableContainer}
 			onscroll={handleScroll}
 		>
-			<table class={tableFixed ? 'table-fixed w-full' : 'min-w-full'}>
+			<table bind:this={tableEl} class={tableFixed ? 'table-fixed w-full' : 'min-w-full'}>
 				{@render children?.()}
 			</table>
 			{@render emptyMessage?.()}

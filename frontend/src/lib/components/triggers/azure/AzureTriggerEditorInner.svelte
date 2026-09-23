@@ -2,13 +2,14 @@
 	import { Alert, Button } from '$lib/components/common'
 	import {
 		clearPageDrawerAnchor,
+		handOffPageDrawer,
 		setPageDrawerAnchor
 	} from '$lib/components/sessions/pageDrawerSession'
 	import { TRIGGER_PAGES } from '$lib/components/sessions/previewPaths'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Path from '$lib/components/Path.svelte'
-	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
+	import { usedTriggerKinds } from '$lib/stores'
 	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import { Loader2 } from 'lucide-svelte'
@@ -39,6 +40,11 @@
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
 	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace,
+		useOperatingWorkspaceHref
+	} from '$lib/components/operatingWorkspace.svelte'
 
 	let drawer: Drawer | undefined = $state(undefined)
 	let initialPath = $state('')
@@ -51,7 +57,15 @@
 	let pathError = $state('')
 	let mode = $state<TriggerMode>('enabled')
 	let dirtyPath = $state(false)
-	let can_write = $state(true)
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
+	let permsPath = $state<string | undefined>(undefined)
+	let permsForWrite = $state<Record<string, boolean> | undefined>(undefined)
+	// The acting user in the operating workspace arrives asynchronously, and an unknown user
+	// refuses — so the editor stays read-only until the lookup lands, which is the safe answer.
+	const can_write = $derived(
+		permsPath === undefined ? true : canWrite(permsPath, permsForWrite ?? {}, actingUser)
+	)
 	let drawerLoading = $state(true)
 
 	let azure_resource_path: string = $state('')
@@ -79,6 +93,8 @@
 
 	let {
 		useDrawer = true,
+		inline = false,
+		onClose = undefined,
 		description = undefined,
 		hideTarget = false,
 		hideTooltips = false,
@@ -95,6 +111,10 @@
 		cloudDisabled = false
 	}: {
 		useDrawer?: boolean
+		/** With `useDrawer`, render the drawer's content in place, filling the parent, with no drawer or close button. */
+		inline?: boolean
+		/** With `inline`, closes whatever hosts the editor; the header has a close button only when set. */
+		onClose?: () => void
 		description?: Snippet | undefined
 		hideTarget?: boolean
 		hideTooltips?: boolean
@@ -110,6 +130,9 @@
 		onReset?: () => void
 		cloudDisabled?: boolean
 	} = $props()
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingHref = useOperatingWorkspaceHref()
+	const wsId = $derived($operatingWorkspace)
 
 	let hasChanged = $derived(!deepEqual(getAzureConfig(), originalConfig ?? {}))
 	const azureConfig = $derived.by(getAzureConfig)
@@ -117,7 +140,7 @@
 	const draftSync = useTriggerDraftSync({
 		itemKind: 'trigger_azure',
 		path: () => initialPath,
-		workspace: () => $workspaceStore,
+		workspace: () => wsId,
 		drawerLoading: () => drawerLoading,
 		getCfg: () => azureConfig,
 		applyCfg: loadTriggerConfig,
@@ -133,6 +156,9 @@
 		isFlow: boolean,
 		defaultValues?: Record<string, any>
 	) {
+		if (handOffPageDrawer(TRIGGER_PAGES.azure.path, ePath)) return
+		// A `whoami` that failed earlier would otherwise pin this workspace to "unknown user".
+		operatingUser.forgetFailures()
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
@@ -205,7 +231,7 @@
 		}
 		try {
 			const s = await AzureTriggerService.getAzureTrigger({
-				workspace: $workspaceStore!,
+				workspace: wsId!,
 				path: initialPath,
 				getDraft: true
 			})
@@ -224,6 +250,8 @@
 	}
 
 	async function loadTriggerConfig(cfg?: Record<string, any>): Promise<void> {
+		// The loaded trigger says what it runs; an opener's `isFlow` is only its guess.
+		if (cfg?.is_flow !== undefined) itemKind = cfg.is_flow ? 'flow' : 'script'
 		script_path = cfg?.script_path
 		initialScriptPath = cfg?.script_path
 		azure_resource_path = cfg?.azure_resource_path
@@ -234,7 +262,8 @@
 		event_type_filters = cfg?.event_type_filters
 		path = cfg?.path
 		mode = cfg?.mode ?? 'enabled'
-		can_write = canWrite(cfg?.path, cfg?.extra_perms, $userStore)
+		permsPath = cfg?.path
+		permsForWrite = cfg?.extra_perms
 		error_handler_path = cfg?.error_handler_path
 		error_handler_args = cfg?.error_handler_args ?? {}
 		retry = cfg?.retry
@@ -249,13 +278,7 @@
 		const previousPath = initialPath
 		const cfg = azureConfig
 		if (!cfg) return
-		const isSaved = await saveAzureTriggerFromCfg(
-			initialPath,
-			cfg,
-			edit,
-			$workspaceStore!,
-			usedTriggerKinds
-		)
+		const isSaved = await saveAzureTriggerFromCfg(initialPath, cfg, edit, wsId!, usedTriggerKinds)
 		if (isSaved) {
 			draftSync.discard(previousPath, getAzureConfig())
 			onUpdate?.(cfg.path)
@@ -309,7 +332,7 @@
 				(force) =>
 					AzureTriggerService.setAzureTriggerMode({
 						path: initialPath,
-						workspace: $workspaceStore ?? '',
+						workspace: wsId ?? '',
 						requestBody: { mode: newMode, force }
 					}),
 				'Azure trigger'
@@ -353,36 +376,44 @@
 	/>
 {/if}
 
-{#if useDrawer}
+{#snippet drawerBody()}
+	<DrawerContent
+		hideClose={inline && !onClose}
+		fullScreen={!inline}
+		bannerReserved={draftSync.hasBaseline}
+		title={edit
+			? can_write
+				? `Edit Azure trigger ${initialPath}`
+				: `Azure trigger ${initialPath}`
+			: 'New Azure trigger'}
+		on:close={() => (inline ? onClose?.() : drawer?.closeDrawer())}
+	>
+		{#snippet actions()}
+			{@render actionsButtons()}
+		{/snippet}
+		{#snippet banner()}
+			<LocalDraftBanner
+				show={draftSync.hasDraft}
+				getDeployed={() => draftSync.deployed}
+				reserveSpace={draftSync.hasBaseline}
+				getCurrent={() => draftSync.current}
+				onDiscard={() => draftSync.resetToDeployed(initialPath)}
+				disabled={!can_write}
+			/>
+		{/snippet}
+		{@render config()}
+	</DrawerContent>
+{/snippet}
+
+{#if useDrawer && inline}
+	{@render drawerBody()}
+{:else if useDrawer}
 	<Drawer
 		size="800px"
 		bind:this={drawer}
 		on:close={() => clearPageDrawerAnchor(TRIGGER_PAGES.azure.path)}
 	>
-		<DrawerContent
-			bannerReserved={draftSync.hasBaseline}
-			title={edit
-				? can_write
-					? `Edit Azure trigger ${initialPath}`
-					: `Azure trigger ${initialPath}`
-				: 'New Azure trigger'}
-			on:close={drawer?.closeDrawer}
-		>
-			{#snippet actions()}
-				{@render actionsButtons()}
-			{/snippet}
-			{#snippet banner()}
-				<LocalDraftBanner
-					show={draftSync.hasDraft}
-					getDeployed={() => draftSync.deployed}
-					reserveSpace={draftSync.hasBaseline}
-					getCurrent={() => draftSync.current}
-					onDiscard={() => draftSync.resetToDeployed(initialPath)}
-					disabled={!can_write}
-				/>
-			{/snippet}
-			{@render config()}
-		</DrawerContent>
+		{@render drawerBody()}
 	</Drawer>
 {:else}
 	<Section
@@ -487,7 +518,7 @@
 							bind:itemKind
 							bind:scriptPath={script_path}
 							allowRefresh={can_write}
-							allowEdit={!$userStore?.operator}
+							allowEdit={!actingUser?.operator}
 							clearable
 						/>
 						{#if emptyString(script_path)}
@@ -496,7 +527,9 @@
 								variant="default"
 								unifiedSize="md"
 								disabled={!can_write}
-								href={itemKind === 'flow' ? '/flows/add?hub=81' : '/scripts/add?hub=hub%2F28214'}
+								href={operatingHref(
+									itemKind === 'flow' ? '/flows/add?hub=81' : '/scripts/add?hub=hub%2F28214'
+								)}
 								target="_blank">Create from template</Button
 							>
 						{/if}

@@ -1,0 +1,59 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT m.new_path FROM draft_move m\n           WHERE m.workspace_id = $1 AND m.typ = $2 AND m.old_path = $3\n             AND (m.email IS NULL OR m.email = $4)\n             AND NOT EXISTS (\n                 SELECT 1 FROM draft d\n                 WHERE d.workspace_id = $1 AND d.typ = $2 AND d.path = $3\n                   AND d.email IS NOT DISTINCT FROM $4\n             )\n           ORDER BY m.email IS NULL\n           LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "new_path",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        {
+          "Custom": {
+            "name": "draft_kind",
+            "kind": {
+              "Enum": [
+                "script",
+                "flow",
+                "app",
+                "raw_app",
+                "resource",
+                "variable",
+                "trigger_schedule",
+                "trigger_webhook",
+                "trigger_default_email",
+                "trigger_email",
+                "trigger_http",
+                "trigger_websocket",
+                "trigger_postgres",
+                "trigger_kafka",
+                "trigger_nats",
+                "trigger_mqtt",
+                "trigger_sqs",
+                "trigger_gcp",
+                "trigger_azure",
+                "trigger_poll",
+                "trigger_cli",
+                "trigger_nextcloud",
+                "trigger_google",
+                "trigger_github",
+                "data_pipeline",
+                "trigger_amqp"
+              ]
+            }
+          }
+        },
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "e63da92247045f2aaaa62b9d6ee17510fd05d0b7c5311b61e7257ccd07b16da2"
+}

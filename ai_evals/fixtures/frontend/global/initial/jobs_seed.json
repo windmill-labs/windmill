@@ -15,6 +15,8 @@
         "jobKind": "script",
         "createdBy": "bob",
         "success": true,
+        "args": { "region": "emea", "dry_run": false, "recipients": 12 },
+        "result": { "sent": 12, "skipped": 3, "digest_url": "https://reports.example.com/d/2026-06-09" },
         "logs": "Generating daily digest...\nDigest emailed to 12 recipients\nDone in 1.2s"
       },
       {

@@ -19,12 +19,15 @@
 		XCircle
 	} from 'lucide-svelte'
 	import type { ScriptLang } from '$lib/gen'
-	import { enterpriseLicense, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense } from '$lib/stores'
 	import { sendUserToast } from '$lib/utils'
 	import { PIPELINE_LANGUAGES } from './pipelineLanguages'
 	import type { PipelineOutputKind } from './pipelineTemplates'
 	import type { DbtAssetProvenance } from './types'
 	import DbtIcon from '$lib/components/icons/DbtIcon.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	// Shape used for both the data prop and the run callback. Drafts carry
 	// `content` / `language` so the page-level run handler can dispatch to
@@ -118,7 +121,7 @@
 
 	async function runProducers(e: MouseEvent) {
 		e.stopPropagation()
-		if (!$workspaceStore || running || !data.onRunProducer) return
+		if (!$operatingWorkspace || running || !data.onRunProducer) return
 		if (scriptProducers.length === 0) return
 		running = true
 		const handler = data.onRunProducer
@@ -170,14 +173,14 @@
 		}
 		const cols = Object.entries(d.columns ?? {})
 		if (cols.length) {
-			lines.push(
-				`columns: ${cols.map(([c, desc]) => (desc ? `${c} (${desc})` : c)).join(', ')}`
-			)
+			lines.push(`columns: ${cols.map(([c, desc]) => (desc ? `${c} (${desc})` : c)).join(', ')}`)
 		}
 		if (d.freshness) {
 			const f = d.freshness as Record<string, { count?: number; period?: string }>
 			const window = (k: string) =>
-				f[k]?.count != null ? `${k.replace('_after', '')} after ${f[k].count}${f[k].period?.[0] ?? ''}` : ''
+				f[k]?.count != null
+					? `${k.replace('_after', '')} after ${f[k].count}${f[k].period?.[0] ?? ''}`
+					: ''
 			const windows = ['warn_after', 'error_after'].map(window).filter(Boolean)
 			if (windows.length) lines.push(`freshness: ${windows.join(', ')}`)
 		}

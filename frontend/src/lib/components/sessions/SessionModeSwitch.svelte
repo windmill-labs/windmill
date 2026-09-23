@@ -2,8 +2,9 @@
 	import { Building, MessagesSquare } from 'lucide-svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import { enterSessionMode, exitSessionMode } from './sessionSwitch.svelte'
+	import { enterSessionModeFromNav, exitSessionMode } from './sessionSwitch.svelte'
 	import { goto } from '$lib/navigation'
+	import { sendUserToast } from '$lib/toast'
 	import { page } from '$app/state'
 	import { base } from '$lib/base'
 
@@ -17,11 +18,25 @@
 		onToggle
 	}: { mode: 'nav' | 'session'; isCollapsed?: boolean; onToggle?: () => void } = $props()
 
+	// The group's highlighted side. Melt moves it on click, before the navigation
+	// that would change `mode`, so it is derived from the route (which wins once
+	// a switch navigates) and pushed back when one does not, or the rail would
+	// read "AI Sessions" on an editor page with the clicked side inert until
+	// "Workspace" was pressed first.
+	let selected: string | string[] | null | undefined = $derived(mode)
+
 	function onSelected(next: 'nav' | 'session') {
 		if (next === mode) return
 		onToggle?.()
-		if (next === 'session') void enterSessionMode()
-		else void exitSessionMode()
+		if (next === 'session') {
+			// An editor whose draft could not be persisted keeps the user on the
+			// page, as its own "Open in AI session" button does, rather than open a
+			// session on an older draft than the one on screen.
+			void enterSessionModeFromNav().catch((e) => {
+				selected = mode
+				sendUserToast(e instanceof Error ? e.message : String(e), true)
+			})
+		} else void exitSessionMode()
 	}
 
 	// Pressing the already-active "Workspace" side goes home, so the toggle doubles
@@ -41,7 +56,7 @@
      child of the group's track — so the buttons fill the rail width only if those
      wrappers grow. `[&>*]:flex-1` makes every direct child split the track evenly. -->
 <ToggleButtonGroup
-	selected={mode}
+	bind:selected
 	{onSelected}
 	tabListClass={isCollapsed ? 'flex-col w-full [&>*]:w-full' : 'w-full [&>*]:flex-1'}
 >

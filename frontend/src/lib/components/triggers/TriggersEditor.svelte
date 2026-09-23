@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { userStore } from '$lib/stores'
 	import FlowCard from '../flows/common/FlowCard.svelte'
 	import { getContext, onDestroy, createEventDispatcher } from 'svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
@@ -38,6 +38,9 @@
 	import { sendUserToast } from '$lib/toast'
 	import Alert from '../common/alert/Alert.svelte'
 	import type { FlowEditorContext } from '../flows/types'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		noEditor: boolean
@@ -137,13 +140,13 @@
 		try {
 			if (nativeServiceName) {
 				await NativeTriggerService.deleteNativeTrigger({
-					workspace: $workspaceStore ?? '',
+					workspace: $operatingWorkspace ?? '',
 					serviceName: nativeServiceName,
 					externalId: triggerPath ?? ''
 				})
 			} else if (deleteHandler) {
 				await deleteHandler()({
-					workspace: $workspaceStore ?? '',
+					workspace: $operatingWorkspace ?? '',
 					path: triggerPath ?? ''
 				})
 			} else {
@@ -187,7 +190,7 @@
 		if (triggerType === 'schedule') {
 			await triggersState.fetchSchedules(
 				triggersCount,
-				$workspaceStore,
+				$operatingWorkspace,
 				currentPath,
 				isFlow,
 				undefined,
@@ -196,7 +199,7 @@
 		} else if (triggerType === 'websocket') {
 			await triggersState.fetchWebsocketTriggers(
 				triggersCount,
-				$workspaceStore,
+				$operatingWorkspace,
 				currentPath,
 				isFlow,
 				$userStore
@@ -204,7 +207,7 @@
 		} else if (triggerType === 'postgres') {
 			await triggersState.fetchPostgresTriggers(
 				triggersCount,
-				$workspaceStore,
+				$operatingWorkspace,
 				currentPath,
 				isFlow,
 				$userStore
@@ -212,7 +215,7 @@
 		} else if (triggerType === 'kafka') {
 			await triggersState.fetchKafkaTriggers(
 				triggersCount,
-				$workspaceStore,
+				$operatingWorkspace,
 				currentPath,
 				isFlow,
 				$userStore
@@ -220,7 +223,7 @@
 		} else if (triggerType === 'nats') {
 			await triggersState.fetchNatsTriggers(
 				triggersCount,
-				$workspaceStore,
+				$operatingWorkspace,
 				currentPath,
 				isFlow,
 				$userStore
@@ -228,7 +231,7 @@
 		} else if (triggerType === 'gcp') {
 			await triggersState.fetchGcpTriggers(
 				triggersCount,
-				$workspaceStore,
+				$operatingWorkspace,
 				currentPath,
 				isFlow,
 				$userStore
@@ -236,7 +239,7 @@
 		} else if (triggerType === 'azure') {
 			await triggersState.fetchAzureTriggers(
 				triggersCount,
-				$workspaceStore,
+				$operatingWorkspace,
 				currentPath,
 				isFlow,
 				$userStore
@@ -244,7 +247,7 @@
 		} else if (triggerType === 'sqs') {
 			await triggersState.fetchSqsTriggers(
 				triggersCount,
-				$workspaceStore,
+				$operatingWorkspace,
 				currentPath,
 				isFlow,
 				$userStore
@@ -252,7 +255,7 @@
 		} else if (triggerType === 'mqtt') {
 			await triggersState.fetchMqttTriggers(
 				triggersCount,
-				$workspaceStore,
+				$operatingWorkspace,
 				currentPath,
 				isFlow,
 				$userStore
@@ -260,7 +263,7 @@
 		} else if (triggerType === 'amqp') {
 			await triggersState.fetchAmqpTriggers(
 				triggersCount,
-				$workspaceStore,
+				$operatingWorkspace,
 				currentPath,
 				isFlow,
 				$userStore
@@ -268,7 +271,7 @@
 		} else if (triggerType === 'http') {
 			await triggersState.fetchHttpTriggers(
 				triggersCount,
-				$workspaceStore,
+				$operatingWorkspace,
 				currentPath,
 				isFlow,
 				$userStore
@@ -276,7 +279,7 @@
 		} else if (triggerType === 'email') {
 			await triggersState.fetchEmailTriggers(
 				triggersCount,
-				$workspaceStore,
+				$operatingWorkspace,
 				currentPath,
 				isFlow,
 				$userStore
@@ -285,7 +288,7 @@
 			await triggersState.fetchNativeTriggers(
 				triggersCount,
 				'nextcloud',
-				$workspaceStore,
+				$operatingWorkspace,
 				currentPath,
 				isFlow,
 				$userStore
@@ -294,7 +297,7 @@
 			await triggersState.fetchNativeTriggers(
 				triggersCount,
 				'google',
-				$workspaceStore,
+				$operatingWorkspace,
 				currentPath,
 				isFlow,
 				$userStore
@@ -303,7 +306,7 @@
 			await triggersState.fetchNativeTriggers(
 				triggersCount,
 				'github',
-				$workspaceStore,
+				$operatingWorkspace,
 				currentPath,
 				isFlow,
 				$userStore

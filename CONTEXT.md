@@ -36,3 +36,41 @@ _Avoid_: argument field, param
 **Expression input**:
 Any other place a property can be picked into: the loop iterator, skip and early-stop predicates, the retry condition, a branch predicate, timeout. Its prop picker opens in a popover from the connect button rather than taking a pane.
 _Avoid_: JS field, code input
+
+### Flow chat
+
+**Conversation**:
+One thread of messages against one chat-enabled flow, with its own agent memory. A flow has
+many; the chat shows one at a time.
+_Avoid_: thread, session (that names an AI session, a different thing), chat (that names the surface)
+
+**Turn**:
+One question and the answer to it: the run the question started, the handle that stops it,
+and the rows it is writing. At most one per conversation, and the chat is held for its whole
+length — from the moment the question takes the chat, before it has a job, until it is ended.
+_Avoid_: request, exchange, message round
+
+**Transcript**:
+The rows a conversation's chat holds. Not the conversation: it is the newest page plus
+whatever older pages the reader has scrolled back through, so a question it cannot answer
+from what it holds is one to ask the server rather than to guess at.
+_Avoid_: history, messages (too easily read as "all of them")
+
+### Permissions
+
+**Member**:
+A user or group granted a role on a folder, a group, or an item's extra ACL. The list of them is
+"Members (n)" everywhere it is shown, and one is added with "Add member".
+_Avoid_: participant, collaborator, owner, ACL entry, permission (that names the concept, not the people)
+
+**Role**:
+The access level a member holds: viewer, writer or admin on a folder; member or admin on a group.
+Viewers read, writers also edit, admins also manage the members. A group role of **manager** —
+manages the group without belonging to it — is a legacy state the UI shows and can leave, but
+offers no way to enter.
+_Avoid_: permission level, access level, rank
+
+**Owner**:
+Reserved for the path prefix that says where an item lives — `u/alice` or `f/team`. A folder's
+`owners` column in the database is its admin members; call those admins, never owners, in the UI.
+_Avoid_: using "owner" for a folder admin

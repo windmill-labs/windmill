@@ -5,13 +5,16 @@
 	import SchemaViewer from './SchemaViewer.svelte'
 	import FlowGraphViewer from './FlowGraphViewer.svelte'
 	import { Loader2 } from 'lucide-svelte'
-	import { orderedYamlStringify, cleanValueProperties, replaceFalseWithUndefined } from '$lib/utils'
-	import { workspaceStore } from '$lib/stores'
+	import { cleanValueProperties, replaceFalseWithUndefined } from '$lib/utils'
+	import { orderedYamlStringify } from '$lib/utils/orderedYaml'
 	import { watch } from 'runed'
 
 	import HighlightTheme from './HighlightTheme.svelte'
 	import FlowViewerInner from './FlowViewerInner.svelte'
 	import FlowInputViewer from './FlowInputViewer.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface PreviousFlow {
 		summary: string
@@ -85,7 +88,7 @@
 				return
 			}
 			previousFlow = await FlowService.getFlowVersion({
-				workspace: $workspaceStore!,
+				workspace: $operatingWorkspace!,
 				version
 			})
 			previousFlowCache[version] = previousFlow

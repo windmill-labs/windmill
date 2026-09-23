@@ -28,7 +28,9 @@
 
 <tr
 	class={twMerge(
-		hoverable ? 'hover:bg-surface-hover cursor-pointer' : '',
+		// `wm-row-hoverable` lets a pinned cell re-create this tint on top of its own opaque
+		// background — it cannot simply adopt it, since the hover token carries alpha.
+		hoverable ? 'wm-row-hoverable hover:bg-surface-hover cursor-pointer' : '',
 		selected ? 'bg-blue-50 dark:bg-blue-900/50' : '',
 		'transition-all',
 		dividable ? 'divide-x' : '',

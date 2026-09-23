@@ -603,7 +603,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
       build.onLoad(
         { filter: /.*/, namespace: "wmill-virtual" },
         (args: any) => {
-          const contents = wmillTs(port);
+          const contents = wmillTs();
           log.info(
             colors.yellow(
               `[wmill-virtual] Loading virtual module: ${args.path}`,

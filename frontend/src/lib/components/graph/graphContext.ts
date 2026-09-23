@@ -12,6 +12,8 @@ export type GraphContext = {
 	showAssets: Writable<boolean | undefined>
 	noteManager?: NoteManager
 	moveManager?: MoveManager
+	/** Clears xyflow's selection by replacing every node object, so only for callers that rebuild
+	 *  the graph anyway. A selection change must use `selectionManager` instead. */
 	clearFlowSelection?: () => void
 	yOffset?: number
 	diffManager: FlowDiffManager

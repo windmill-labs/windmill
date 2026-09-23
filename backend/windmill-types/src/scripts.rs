@@ -16,7 +16,7 @@ use crate::{
     runnable_settings::{ConcurrencySettings, DebouncingSettings},
 };
 
-#[derive(Serialize, Deserialize, Debug, Clone, Hash)]
+#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
 pub struct ScriptModule {
     pub content: String,
     pub language: ScriptLang,
@@ -507,6 +507,10 @@ pub struct ScriptHistory {
     pub deployment_msg: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// Who deployed this version — the version picker names it, so a reader can
+    /// tell their own deploys from a teammate's.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_by: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -612,6 +616,7 @@ impl Hash for NewScript {
         self.priority.hash(state);
         self.timeout.hash(state);
         self.delete_after_use.hash(state);
+        self.delete_after_secs.hash(state);
         self.restart_unless_cancelled.hash(state);
         self.deployment_message.hash(state);
         self.visible_to_runner_only.hash(state);

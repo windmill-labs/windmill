@@ -15,6 +15,7 @@
 		Loader2,
 		Workflow,
 		Import,
+		Store,
 		PanelLeftClose
 	} from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
@@ -26,6 +27,25 @@
 	import { conditionalMelt, getLocalSetting, storeLocalSetting } from '$lib/utils'
 	import { createDropdownMenu, melt } from '@melt-ui/svelte'
 	import YAML from 'yaml'
+	import type { Snippet } from 'svelte'
+	import { logFeatureUsage } from '$lib/utils/featureUsage'
+
+	interface Props {
+		/** Replaces the default `New` button, e.g. with an inline text link. */
+		trigger?: Snippet
+		/** The node `trigger` renders: what the menu anchors to and what opens it. */
+		triggerElement?: HTMLElement
+		/** Which entry point this menu hangs off, for telemetry. */
+		source?: 'toolbar' | 'empty_state'
+		/**
+		 * Opens the hub project picker. The menu only offers the entry; the picker and the
+		 * import dialog belong to the host, which is the one place a single import modal can
+		 * serve both this menu and the empty state's own link.
+		 */
+		onImportHubProject?: () => void
+	}
+
+	let { trigger, triggerElement, source = 'toolbar', onImportHubProject }: Props = $props()
 
 	type Variant = {
 		label: string
@@ -227,9 +247,17 @@
 		}
 	}
 
-	let activeKey = $state(allOptions[0]?.key)
-	// every option's import action, surfaced together under the bottom "Import" submenu
-	const importActions: Extra[] = allOptions.flatMap((o) => o.extras ?? [])
+	// the doc panel only shows while an option is hovered or focused, so the menu opens compact
+	let activeKey: string | undefined = $state(undefined)
+	// every option's import action, surfaced together under the bottom "Import" submenu.
+	// The hub project leads and is separated below: the others each paste one artifact the
+	// user already holds, while this one brings a whole project in from somewhere else.
+	const importActions: Extra[] = $derived([
+		...(onImportHubProject
+			? [{ label: 'Import a hub project', onSelect: onImportHubProject }]
+			: []),
+		...allOptions.flatMap((o) => o.extras ?? [])
+	])
 
 	// melt dropdown menu: arrow-key nav, typeahead, focus management and outside/escape
 	// close all come for free; we only drive the doc panel off the highlighted item.
@@ -306,12 +334,25 @@
 	// styling — melt element stores are callable on a node, exactly like `use:melt`.
 	let triggerEl: HTMLButtonElement | HTMLAnchorElement | undefined = $state(undefined)
 	$effect(() => {
-		const el = triggerEl
+		const el = triggerElement ?? triggerEl
 		if (!el) return
 		const applied = conditionalMelt(el, menuTrigger as any) as {
 			destroy?: () => void
 		}
 		return applied?.destroy
+	})
+
+	// Which entry point people actually create from: the toolbar button, or the inline
+	// link in the empty state. Only the open edge counts — melt writes the store on
+	// close and on every re-render of the menu.
+	let wasOpen = false
+	$effect(() => {
+		const isOpen = $open
+		if (isOpen && !wasOpen) {
+			logFeatureUsage('home', 'new_menu_open', { key: source })
+		}
+		if (!isOpen) activeKey = undefined
+		wasOpen = isOpen
 	})
 
 	const SHOW_DOC_SETTING = 'home_create_show_doc'
@@ -321,8 +362,18 @@
 		// only persist the non-default (hidden) state, so a cleared key means "shown"
 		storeLocalSetting(SHOW_DOC_SETTING, value ? undefined : 'false')
 	}
-	let active = $derived(allOptions.find((o) => o.key === activeKey) ?? allOptions[0])
-	let activeAc = $derived(accentClasses[active.accent])
+	// The pointer crosses the gutter outside the menu on its way into the Workflow-as-Code
+	// submenu, so leaving the menu keeps the panel while that submenu is open; it clears
+	// once the submenu closes with neither pointer nor focus left on the menu.
+	let menuEl: HTMLDivElement | undefined = $state(undefined)
+	$effect(() => {
+		if ($wacSubOpen || !menuEl) return
+		if (!menuEl.matches(':hover') && !menuEl.contains(document.activeElement)) {
+			activeKey = undefined
+		}
+	})
+	let active = $derived(allOptions.find((o) => o.key === activeKey))
+	let activeAc = $derived(active ? accentClasses[active.accent] : undefined)
 
 	// shared YAML/JSON import drawer, reused by every "Import …" extra
 	let importDrawer: Drawer | undefined = $state(undefined)
@@ -366,29 +417,49 @@
 	}
 </script>
 
-<div>
-	<Button
-		{...$menuTrigger}
-		id="create-new-button"
-		aiId="home-create-new"
-		aiDescription="Create a new script, flow or app"
-		unifiedSize="md"
-		variant="accent"
-		startIcon={{ icon: Plus }}
-		endIcon={{ icon: ChevronDown }}
-		bind:element={triggerEl}
-	>
-		New
-	</Button>
-
-	{#if $open && active}
-		<div
-			use:melt={$menu}
-			data-arrow-loop
-			class="z-[6000] flex flex-row rounded-lg border border-gray-200 dark:border-gray-700 bg-surface shadow-xl focus:outline-none"
-			style={showDoc ? 'width: 780px;' : ''}
+<!-- `contents` so a custom inline trigger (the empty state's text link) keeps flowing
+     with the sentence around it instead of becoming a block of its own. -->
+<div class={trigger ? 'contents' : ''}>
+	{#if trigger}
+		{@render trigger()}
+	{:else}
+		<Button
+			{...$menuTrigger}
+			id="create-new-button"
+			aiId="home-create-new"
+			aiDescription="Create a new script, flow or app"
+			unifiedSize="md"
+			variant="accent"
+			startIcon={{ icon: Plus }}
+			endIcon={{ icon: ChevronDown }}
+			bind:element={triggerEl}
 		>
-			{#if showDoc}
+			New
+		</Button>
+	{/if}
+</div>
+
+{#if $open}
+	<!-- The positioned element keeps its width while the doc panel toggles: floating-ui
+	     anchors it by its left edge, so a resize would paint one frame at the old left before
+	     the reposition. The visible card grows leftward inside it; the rest ignores the pointer. -->
+	<div
+		use:melt={$menu}
+		data-arrow-loop
+		class="z-[6000] flex flex-row justify-end pointer-events-none focus:outline-none"
+		style={showDoc ? 'width: 780px;' : ''}
+		bind:this={menuEl}
+		onpointerleave={() => {
+			if (!$wacSubOpen) activeKey = undefined
+		}}
+	>
+		<div
+			class="pointer-events-auto flex flex-row rounded-lg border border-gray-200 dark:border-gray-700 bg-surface shadow-xl {showDoc &&
+			active
+				? 'w-full'
+				: ''}"
+		>
+			{#if showDoc && active && activeAc}
 				<!-- explanation of the highlighted editor -->
 				<div class="flex flex-col gap-3 p-5 flex-1 min-w-0">
 					<div class="flex flex-row items-center gap-3">
@@ -472,7 +543,7 @@
 							<div
 								use:melt={$wacSubMenu}
 								use:hugViewportRight
-								class="z-[6001] flex flex-col gap-0.5 p-1 w-52 rounded-lg border border-gray-200 dark:border-gray-700 bg-surface shadow-xl focus:outline-none"
+								class="pointer-events-auto z-[6001] flex flex-col gap-0.5 p-1 w-52 rounded-lg border border-gray-200 dark:border-gray-700 bg-surface shadow-xl focus:outline-none"
 							>
 								{#each option.variants ?? [] as variant (variant.label)}
 									{@const VariantIcon = variant.icon}
@@ -505,6 +576,8 @@
 				<button
 					use:melt={$importSubTrigger}
 					class="w-full flex flex-row items-center gap-2.5 rounded-md px-2 py-1.5 text-left cursor-pointer transition-colors focus:outline-none data-[highlighted]:bg-surface-hover hover:bg-surface-hover"
+					onfocusin={() => (activeKey = undefined)}
+					onpointerenter={() => (activeKey = undefined)}
 				>
 					<div
 						class="w-6 h-6 rounded-md flex items-center justify-center shrink-0 bg-gray-100 dark:bg-gray-700"
@@ -520,19 +593,26 @@
 					<div
 						use:melt={$importSubMenu}
 						use:hugViewportRight
-						class="z-[6001] flex flex-col gap-0.5 p-1 w-52 rounded-lg border border-gray-200 dark:border-gray-700 bg-surface shadow-xl focus:outline-none"
+						class="pointer-events-auto z-[6001] flex flex-col gap-0.5 p-1 w-52 rounded-lg border border-gray-200 dark:border-gray-700 bg-surface shadow-xl focus:outline-none"
 					>
-						{#each importActions as action (action.label)}
+						{#each importActions as action, i (action.label)}
 							<button
 								use:melt={$item}
 								class="flex flex-row items-center gap-2.5 rounded-md px-2 py-1.5 text-left cursor-pointer transition-colors focus:outline-none data-[highlighted]:bg-surface-hover hover:bg-surface-hover"
 								onclick={() => action.onSelect()}
 							>
-								<Import size={14} class="shrink-0 text-tertiary" />
+								{#if onImportHubProject && i === 0}
+									<Store size={14} class="shrink-0 text-tertiary" />
+								{:else}
+									<Import size={14} class="shrink-0 text-tertiary" />
+								{/if}
 								<span class="text-xs font-medium text-primary whitespace-nowrap">
 									{action.label}
 								</span>
 							</button>
+							{#if onImportHubProject && i === 0}
+								<div class="mx-1 my-0.5 border-t border-gray-200 dark:border-gray-700"></div>
+							{/if}
 						{/each}
 					</div>
 				{/if}
@@ -549,8 +629,8 @@
 				{/if}
 			</div>
 		</div>
-	{/if}
-</div>
+	</div>
+{/if}
 
 <!-- shared import drawer (YAML / JSON) for the bottom "Import" submenu actions -->
 <Drawer bind:this={importDrawer} size="800px">

@@ -3,6 +3,7 @@
 		SUBTLE_PANEL_TITLE
 	} from '../apps/editor/settingsPanel/common/PanelSection.svelte'
 	import type { Runnable } from '../apps/inputType'
+	import { WMILL_TS_PATH } from './utils'
 	import RawAppInlineScriptPanelList from './RawAppInlineScriptPanelList.svelte'
 	import FileExplorer from '../FileExplorer.svelte'
 	import { Plus, File, Folder, Camera } from 'lucide-svelte'
@@ -18,10 +19,14 @@
 
 	interface Props {
 		runnables: Record<string, Runnable>
+		/** Read-only; the editor switches selection through `onSelectRunnable`. */
 		selectedRunnable: string | undefined
 		files: Record<string, string>
 		modules?: Modules
-		onSelectFile?: (path: string) => void
+		onSelectRunnable?: (key: string) => void
+		onDeleteRunnable: (key: string) => void
+		onSelectPath?: (path: string) => void
+		/** Read-only; the editor switches selection through `onSelectPath`. */
 		selectedDocument: string | undefined
 		historyManager?: RawAppHistoryManager
 		historySelectedId?: number | undefined
@@ -35,15 +40,24 @@
 		/** Default schema for new tables */
 		defaultSchema?: string | undefined
 		onDefaultChange?: (datatable: string | undefined, schema: string | undefined) => void
+		/** The role the app uses each data table through, by data table name */
+		datatableRoles?: Record<string, string>
+		/** `roleChanged` names the data tables now used through another role than before. */
+		onDatatableRolesChange?: (
+			roles: Record<string, string> | undefined,
+			roleChanged: Set<string>
+		) => void
 	}
 
 	let {
 		runnables,
-		selectedRunnable = $bindable(),
+		selectedRunnable,
 		files = $bindable({}),
 		modules,
-		onSelectFile,
-		selectedDocument = $bindable(),
+		onSelectRunnable,
+		onDeleteRunnable,
+		onSelectPath,
+		selectedDocument,
 		historyManager,
 		historySelectedId,
 		onHistorySelect,
@@ -53,15 +67,27 @@
 		onDataTableRefsChange,
 		defaultDatatable = undefined,
 		defaultSchema = undefined,
-		onDefaultChange
+		onDefaultChange,
+		datatableRoles = undefined,
+		onDatatableRolesChange
 	}: Props = $props()
 
 	let dataTableDrawer: RawAppDataTableDrawer | undefined = $state()
 	let selectedDataTableIndex: number | undefined = $state(undefined)
 	let sharedUiDrawer: RawAppSharedUiDrawer | undefined = $state()
 
-	function handleAddDataTable(ref: DataTableRef) {
-		onDataTableRefsChange?.([...dataTableRefs, ref])
+	function handleAddDataTables(
+		refs: DataTableRef[],
+		browsedRoles: Record<string, string>,
+		roleChanged: Set<string>
+	) {
+		onDataTableRefsChange?.([
+			...dataTableRefs.filter((r) => !roleChanged.has(r.datatable)),
+			...refs
+		])
+		if (Object.keys(browsedRoles).length > 0) {
+			onDatatableRolesChange?.({ ...datatableRoles, ...browsedRoles }, roleChanged)
+		}
 	}
 
 	function handleRemoveDataTable(index: number) {
@@ -79,13 +105,6 @@
 	}
 
 	let fileExplorer: FileExplorer | undefined = $state()
-
-	function handleSelectPath(path: string) {
-		selectedDocument = path
-		if (!path.endsWith('/')) {
-			onSelectFile?.(path)
-		}
-	}
 </script>
 
 <PanelSection
@@ -98,8 +117,8 @@
 	{#snippet action()}
 		<div class="flex gap-1">
 			<Button
-				onClick={() => fileExplorer?.handleAddRootFile()}
-				title="Add file to root"
+				onClick={() => fileExplorer?.handleAddFileBesideSelection()}
+				title="New file beside the selected one"
 				unifiedSize="xs"
 				variant="subtle"
 				btnClasses="px-1 gap-0.5"
@@ -108,8 +127,8 @@
 				<File size={12} />
 			</Button>
 			<Button
-				onClick={() => fileExplorer?.handleAddRootFolder()}
-				title="Add folder to root"
+				onClick={() => fileExplorer?.handleAddFolderBesideSelection()}
+				title="New folder beside the selected file"
 				unifiedSize="xs"
 				variant="subtle"
 				btnClasses="px-1 gap-0.5"
@@ -132,8 +151,8 @@
 		bind:this={fileExplorer}
 		bind:files
 		selectedPath={selectedDocument}
-		onSelectPath={handleSelectPath}
-		extraNodes={[{ name: 'wmill.ts', path: '/wmill.ts', isFolder: false }]}
+		{onSelectPath}
+		extraNodes={[{ name: 'wmill.ts', path: WMILL_TS_PATH, isFolder: false }]}
 		hideHeader
 	/>
 </PanelSection>
@@ -142,11 +161,10 @@
 
 <div class="py-4"></div>
 <RawAppInlineScriptPanelList
-	bind:selectedRunnable
+	{selectedRunnable}
 	{runnables}
-	onSelect={() => {
-		selectedDocument = undefined
-	}}
+	onSelect={onSelectRunnable}
+	onDelete={onDeleteRunnable}
 />
 
 <div class="py-4"></div>
@@ -154,6 +172,7 @@
 	{dataTableRefs}
 	{defaultDatatable}
 	{defaultSchema}
+	roles={datatableRoles}
 	onAdd={() => dataTableDrawer?.openDrawer()}
 	onRemove={handleRemoveDataTable}
 	onSelect={handleSelectDataTable}
@@ -162,8 +181,9 @@
 />
 <RawAppDataTableDrawer
 	bind:this={dataTableDrawer}
-	onAdd={handleAddDataTable}
+	onAdd={handleAddDataTables}
 	existingRefs={dataTableRefs}
+	roles={datatableRoles}
 />
 <RawAppSharedUiDrawer bind:this={sharedUiDrawer} />
 

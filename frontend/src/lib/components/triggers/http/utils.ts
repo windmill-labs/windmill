@@ -9,6 +9,146 @@ import { type OpenAPI } from 'openapi-types'
 import type { Writable } from 'svelte/store'
 import { get } from 'svelte/store'
 
+export const HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING = 'http_route_default_allowed_origins'
+
+/** Split the comma-separated form the origins field and the setting both use. */
+export function parseAllowedOrigins(raw: string): string[] {
+	return raw
+		.split(',')
+		.map((origin) => origin.trim())
+		.filter((origin) => origin !== '')
+}
+
+/**
+ * Entries the API refuses, mirroring `validate_allowed_origins`.
+ *
+ * Deliberately short: a stored origin is only ever compared against the
+ * request's `Origin`, so a shape that cannot match is dead config rather than a
+ * risk. `null` is the exception, since it is what every sandboxed iframe sends.
+ */
+export function allowedOriginRejection(origin: string): string | undefined {
+	// Same order as `validate_allowed_origins`, so the same entry draws the same
+	// message on both sides rather than only the same verdict.
+	if (origin === '*') return undefined
+	if (origin === '') return 'An origin must not be empty'
+	if (origin.length > MAX_ALLOWED_ORIGIN_LEN)
+		return `'${origin.slice(0, 40)}…' is longer than any origin a browser sends`
+	if (origin.includes(','))
+		return `'${origin}' must not contain a comma, which separates entries`
+	if (origin.toLowerCase() === 'null')
+		return `'null' is what a sandboxed iframe sends, so it would allow any page that can open one`
+	if (!/^[\x21-\x7e]+$/.test(origin))
+		return `'${origin}' must contain only visible ASCII, with no whitespace`
+	return undefined
+}
+
+/** Kept in step with `MAX_ALLOWED_ORIGIN{,S}` in windmill-common. */
+export const MAX_ALLOWED_ORIGINS = 100
+export const MAX_ALLOWED_ORIGIN_LEN = 256
+
+/**
+ * The first entry the API would refuse, if any. Derived from the stored list
+ * rather than the field, so it stays correct while the editor is on another tab
+ * and the field is not mounted. An empty list is not an error: it resolves as an
+ * unset one, so there is nothing in it to refuse.
+ *
+ * A comma-bearing entry does reach this, through the settings path where a list
+ * can be given as an array. It cannot arrive from the origins field, which
+ * splits on commas before this ever sees it.
+ */
+export function allowedOriginsError(allowed_origins: string[] | undefined): string | undefined {
+	if (allowed_origins !== undefined && allowed_origins.length > MAX_ALLOWED_ORIGINS)
+		return `At most ${MAX_ALLOWED_ORIGINS} origins, got ${allowed_origins.length}`
+	return allowed_origins?.map(allowedOriginRejection).find((message) => message !== undefined)
+}
+
+/**
+ * Shapes that save fine but can never equal an `Origin` header, so the route
+ * would read as configured while allowing nothing.
+ *
+ * Advisory only. What a browser sends is the caller's to know, so this points
+ * at the usual slips rather than deciding which origins are legitimate.
+ */
+export function allowedOriginWarning(origin: string): string | undefined {
+	if (origin === '*' || allowedOriginRejection(origin) !== undefined) return undefined
+	const separator = origin.indexOf('://')
+	if (separator <= 0) return `'${origin}' has no scheme, such as https://`
+	const rest = origin.slice(separator + 3)
+	if (rest === '') return `'${origin}' has no host`
+	if (/[/?#]/.test(rest))
+		return `'${origin}' should be scheme://host[:port], with no path, query or fragment`
+	if (rest.includes('@')) return `'${origin}' should not contain userinfo`
+	// Only the port is checked past this point. The host is left alone on
+	// purpose: browsers send origins this cannot anticipate, `chrome-extension`
+	// and IPv6 literals among them, and a warning that cries wolf on a working
+	// origin is worse than one that stays quiet.
+	if (rest.startsWith(':')) return `'${origin}' has no host`
+	// An unclosed bracket would otherwise leave `portStart` at zero, which reads
+	// as "no port" and lets the entry through unremarked.
+	if (rest.startsWith('[') && !rest.includes(']'))
+		return `'${origin}' has an unclosed IPv6 host`
+	const portStart = rest.startsWith('[') ? rest.indexOf(']') + 1 : rest.indexOf(':')
+	// A trailing colon is a port, an empty one — distinct from having none.
+	const port = portStart > 0 && rest[portStart] === ':' ? rest.slice(portStart + 1) : undefined
+	if (port !== undefined && !(/^[0-9]{1,5}$/.test(port) && Number(port) <= 65535))
+		return `'${origin}' has a port no browser can send`
+	return undefined
+}
+
+/**
+ * What the settings API would refuse, mirroring `parse_allowed_origins_setting`
+ * in windmill-common.
+ *
+ * Distinct from reading the setting for display: that drops entries it cannot
+ * use, while this has to report them, or a shape only the YAML editor can
+ * produce would pass here and come back as a 400 on save.
+ */
+export function allowedOriginsSettingError(setting: unknown): string | undefined {
+	let origins: string[]
+	if (setting == null || typeof setting === 'string') {
+		origins = parseAllowedOrigins(typeof setting === 'string' ? setting : '')
+	} else if (Array.isArray(setting)) {
+		if (setting.some((entry) => typeof entry !== 'string')) return 'Entries must be strings'
+		// Not filtered for empties, unlike the comma-separated form, where a
+		// trailing separator is a typing artifact rather than an entry.
+		origins = setting.map((entry) => (entry as string).trim())
+	} else {
+		return 'Expected a comma-separated string or a list of strings'
+	}
+	return allowedOriginsError(origins)
+}
+
+/**
+ * Read the instance-default setting, mirroring `parse_allowed_origins_setting`
+ * in windmill-common: the settings UI writes a comma-separated string, but the
+ * API accepts an array too.
+ */
+export function parseAllowedOriginsSetting(setting: unknown): string[] {
+	if (typeof setting === 'string') return parseAllowedOrigins(setting)
+	if (Array.isArray(setting))
+		return setting
+			.filter((origin): origin is string => typeof origin === 'string')
+			.map((origin) => origin.trim())
+			.filter((origin) => origin !== '')
+	return []
+}
+
+/**
+ * Whether a route is restricted to specific origins, mirroring
+ * `effective_allowed_origins` in windmill-trigger-http: a route with a non-empty
+ * list of its own restricts, `*` in it is the opt-out, and anything else — an
+ * empty list included, since that is not a configuration — falls back to the
+ * instance default.
+ */
+export function isOriginRestricted(
+	allowed_origins: string[] | undefined,
+	instanceDefaultOrigins: string[]
+): boolean {
+	if (allowed_origins !== undefined && allowed_origins.length > 0)
+		return !allowed_origins.includes('*')
+	return instanceDefaultOrigins.length > 0 && !instanceDefaultOrigins.includes('*')
+}
+
 export const SECRET_KEY_PATH = 'secret_key_path'
 export const HUB_SCRIPT_ID = 19670
 export const SIGNATURE_TEMPLATE_SCRIPT_HUB_PATH: string = `hub/${HUB_SCRIPT_ID}`
@@ -56,6 +196,7 @@ export async function saveHttpRouteFromCfg(
 		authentication_resource_path: routeCfg.authentication_resource_path,
 		wrap_body: routeCfg.wrap_body,
 		raw_string: routeCfg.raw_string,
+		allowed_origins: routeCfg.allowed_origins,
 		description: routeCfg.description,
 		summary: routeCfg.summary,
 		error_handler_path: routeCfg.error_handler_path,

@@ -2,14 +2,17 @@
 	import { Alert } from '$lib/components/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userStore } from '$lib/stores'
 	import { Loader2 } from 'lucide-svelte'
 
 	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
 	import { untrack } from 'svelte'
-	import { AppService, SettingService } from '$lib/gen'
+	import { AppService, SettingService, WorkspaceService } from '$lib/gen'
+	import type { GuestUsage } from '$lib/gen'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import { computeSecretUrl } from './appDeploy.svelte'
 	import { base } from '$lib/base'
@@ -22,6 +25,15 @@
 	} from '$lib/components/OnBehalfOfSelector.svelte'
 	import { canUserBypassRuleKind, protectionRulesState } from '$lib/workspaceProtectionRules.svelte'
 	import { FRONTEND_SDK_SCOPES } from '$lib/components/raw_apps/sdkScopes'
+	import { logFeatureUsage } from '$lib/utils/featureUsage'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspaceStore = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	const WM_DEPLOYERS_GROUP = 'wm_deployers'
 
@@ -31,6 +43,7 @@
 		appPath,
 		customPath = $bindable(),
 		onLatest,
+		headUnknown = false,
 		savedApp,
 		summary = $bindable(),
 		deploymentMsg = $bindable(),
@@ -50,6 +63,9 @@
 		appPath: string
 		customPath: string | undefined
 		onLatest: boolean
+		/** The comparison behind `onLatest` could not read the deployed head, so the warning
+		 *  is caution rather than an observed newer version. */
+		headUnknown?: boolean
 		savedApp: any
 		summary: string
 		deploymentMsg: string | undefined
@@ -70,27 +86,74 @@
 		 *  (`/secret_of/...` 404s with no `app` row) and renders a placeholder
 		 *  instead of the eternally-spinning link. */
 		newApp?: boolean
-		/** Workspace the app is deployed to — the session's acting workspace when
-		 *  embedded in a session preview, else the navigation `$workspaceStore`.
-		 *  The secret-URL / custom-path / folder / on-behalf-of lookups must target
-		 *  it, not `$workspaceStore` (which stays on the nav workspace in a session). */
+		/** Workspace the app is deployed to. The secret-URL / custom-path / folder /
+		 *  on-behalf-of lookups target it; defaults to the operating workspace. */
 		operatingWorkspace?: string
 	} = $props()
 
-	const opWs = $derived(operatingWorkspace ?? $workspaceStore)
+	const opWs = $derived(operatingWorkspace ?? $operatingWorkspaceStore)
 
-	let isDeployer = $derived($userStore?.groups?.includes(WM_DEPLOYERS_GROUP) ?? false)
+	let isDeployer = $derived(actingUser?.groups?.includes(WM_DEPLOYERS_GROUP) ?? false)
 	// Admins always pass the backend check. For everyone else, fail closed
 	// while the workspace protection rules are still loading so the toggle
 	// is never briefly enabled for a user the rules will end up restricting.
 	let rulesetsLoaded = $derived(protectionRulesState.rulesets !== undefined)
 	let canSetAnonymous = $derived(
-		!!$userStore?.is_admin ||
-			!!$userStore?.is_super_admin ||
+		!!actingUser?.is_admin ||
+			!!actingUser?.is_super_admin ||
 			(rulesetsLoaded &&
 				canUserBypassRuleKind('RestrictAnonymousAppDeployment', $userStore ?? undefined))
 	)
-	let canPreserve = $derived(!!$userStore?.is_admin || !!$userStore?.is_super_admin || isDeployer)
+	let canSetGuest = $derived(
+		!!actingUser?.is_admin ||
+			!!actingUser?.is_super_admin ||
+			(rulesetsLoaded &&
+				canUserBypassRuleKind('RestrictGuestAppDeployment', $userStore ?? undefined))
+	)
+	// The three rungs of the access control, widest last. `viewer` is a fourth
+	// execution mode that this control never sets (it runs components as the viewer,
+	// which a guest cannot be), so an app in it shows as members-only here.
+	let accessMode = $derived(
+		policy.execution_mode == 'anonymous'
+			? 'anonymous'
+			: policy.execution_mode == 'guest'
+				? 'guest'
+				: 'publisher'
+	)
+	// Undefined until loaded. An app can be set to `guest` while the workspace has
+	// guests off, in which case the mode is stored but inert -- say so rather than
+	// letting the publisher believe the app is open.
+	let guestAccessEnabled: boolean | undefined = $state(undefined)
+	let guestUsage: GuestUsage | undefined = $state(undefined)
+	// Whether the deployment can have guests at all; off, the mode is not on offer. The
+	// backend decides; the hostname stands in until it has answered, the shared cloud
+	// being the only deployment where guests are unavailable.
+	let guestsAvailable = $derived.by(() => guestUsage?.available ?? !isCloudHosted())
+
+	$effect(() => {
+		const ws = opWs
+		if (ws === undefined) return
+		untrack(() => {
+			WorkspaceService.getPublicSettings({ workspace: ws })
+				.then((s) => (guestAccessEnabled = s.guest_access_enabled))
+				.catch(() => (guestAccessEnabled = undefined))
+			WorkspaceService.getGuestUsage({ workspace: ws })
+				.then((u) => (guestUsage = u))
+				.catch(() => (guestUsage = undefined))
+		})
+	})
+
+	function onAccessModeChange(mode: string | undefined) {
+		if (mode === undefined || mode === accessMode) return
+		policy.execution_mode = mode
+		// Same as sandbox: a not-yet-deployed app has no row to PATCH, so
+		// `setPublishState` would 404. The mode is carried by the first deploy's
+		// policy; persist incrementally only once the app exists.
+		if (savedApp && !newApp) {
+			setPublishState()
+		}
+	}
+	let canPreserve = $derived(!!actingUser?.is_admin || !!actingUser?.is_super_admin || isDeployer)
 	let savedOnBehalfOfEmail = $derived(savedApp?.policy?.on_behalf_of_email)
 	let savedOnBehalfOf = $derived(savedApp?.policy?.on_behalf_of)
 	let onBehalfOfChoice: OnBehalfOfChoice = $state(undefined)
@@ -127,6 +190,10 @@
 			isCloudHosted() || globalWorkspacedRoute ? opWs + '/' : ''
 		}${customPath}`
 	)
+
+	// The app URL a guest JWT rides on: append `guest.<jwt>` and the viewer authenticates the
+	// token as a seatless guest. Uses the custom URL when set, else the public secret URL.
+	let guestJwtBase = $derived(customPath !== undefined ? fullCustomUrl : secretUrlHref)
 
 	// When embedding a raw app in an iframe inside another Windmill app (or any
 	// cross-origin-isolated page), the embedded document must set COEP. The
@@ -182,8 +249,15 @@
 </script>
 
 {#if !onLatest}
-	<Alert title="You're not on the latest app version. " type="warning">
-		By deploying, you may overwrite changes made by other users. Press 'Deploy' to see diff.
+	<Alert
+		title={headUnknown
+			? 'Could not check the deployed version. '
+			: "You're not on the latest app version. "}
+		type="warning"
+	>
+		{headUnknown
+			? "Deploying may overwrite changes made by other users. Press 'Deploy' to see diff."
+			: "By deploying, you may overwrite changes made by other users. Press 'Deploy' to see diff."}
 	</Alert>
 	<div class="py-2"></div>
 {/if}
@@ -300,6 +374,12 @@
 		checked={policy.sandbox == true}
 		on:change={(e) => {
 			policy.sandbox = e.detail || undefined
+			// Counted where the toggle is flipped rather than where the policy is
+			// persisted: a not-yet-deployed app only mutates it locally, and skipping
+			// those would read as unused in the case where it is picked up front.
+			logFeatureUsage('app_sandbox', 'toggled', {
+				key: `${rawApp ? 'raw' : 'low_code'}:${e.detail ? 'on' : 'off'}`
+			})
 			// Frontend API access exists only for a sandboxed app, so turning
 			// isolation off drops the declared scopes with it rather than leaving
 			// them set but inert.
@@ -389,34 +469,83 @@
 {/if}
 
 {#if !hideSecretUrl}
-	<h2>Public URL</h2>
+	<h2>Access</h2>
 
 	<div class="my-6">
-		{#if rulesetsLoaded && !canSetAnonymous}
+		{#if rulesetsLoaded && !canSetAnonymous && policy.execution_mode != 'anonymous'}
 			<Alert type="warning" title="Restricted by a workspace protection rule" size="xs">
-				Making this app publicly accessible without login is restricted to workspace admins and
-				bypass users by a workspace protection rule
+				Opening this app to anyone with the link is restricted to workspace admins and bypass users
+				by a workspace protection rule
+			</Alert>
+			<div class="mb-2"></div>
+		{/if}
+		{#if rulesetsLoaded && !canSetGuest && policy.execution_mode != 'guest' && guestsAvailable}
+			<Alert type="warning" title="Restricted by a workspace protection rule" size="xs">
+				Opening this app to guests is restricted to workspace admins and bypass users by a workspace
+				protection rule
 			</Alert>
 			<div class="mb-2"></div>
 		{/if}
 		<div class="flex gap-2 items-center mb-2">
-			<Toggle
-				options={{
-					left: `Require login and read-access`,
-					right: `No login required`
-				}}
-				checked={policy.execution_mode == 'anonymous'}
-				on:change={(e) => {
-					policy.execution_mode = e.detail ? 'anonymous' : 'publisher'
-					// Same as sandbox: a not-yet-deployed app has no row to PATCH, so
-					// `setPublishState` would 404. The mode is carried by the first
-					// deploy's policy; persist incrementally only once the app exists.
-					if (savedApp && !newApp) {
-						setPublishState()
-					}
-				}}
-				disabled={!savedApp || (!canSetAnonymous && policy.execution_mode != 'anonymous')}
-			/>
+			<ToggleButtonGroup
+				selected={accessMode}
+				on:selected={(e) => onAccessModeChange(e.detail)}
+				disabled={!savedApp}
+			>
+				{#snippet children({ item })}
+					<ToggleButton
+						label="Members"
+						value="publisher"
+						tooltip="Workspace members with read access on this app."
+						{item}
+					/>
+					<ToggleButton
+						label="Guests"
+						value="guest"
+						disabled={policy.execution_mode != 'guest' && (!guestsAvailable || !canSetGuest)}
+						tooltip={!guestsAvailable
+							? 'Not available on Windmill Cloud. Guests require a self-hosted instance or a dedicated Windmill Cloud deployment.'
+							: "Anyone your identity provider authenticates who has no Windmill account, plus workspace members. No membership, no seat up to the instance's allowance."}
+						{item}
+					/>
+					<ToggleButton
+						label="Public"
+						value="anonymous"
+						disabled={!canSetAnonymous && policy.execution_mode != 'anonymous'}
+						tooltip="Anyone with the secret URL. No login."
+						{item}
+					/>
+				{/snippet}
+			</ToggleButtonGroup>
+		</div>
+		<div class="text-xs text-secondary mb-3">
+			{#if policy.execution_mode == 'anonymous'}
+				Anyone holding the secret URL below can open this app without signing in.
+			{:else if policy.execution_mode == 'guest'}
+				{#if !guestsAvailable}
+					Guests are not available on Windmill Cloud, so this app still admits members only. They
+					require a self-hosted instance or a dedicated Windmill Cloud deployment.
+				{:else if guestUsage && !guestUsage.instance_enabled}
+					A superadmin has turned guests off for this instance, so this app still admits members
+					only.
+				{:else if guestAccessEnabled === undefined}
+					Checking whether this workspace allows guests…
+				{:else if guestAccessEnabled === false}
+					Guests are turned off for this workspace, so this app still admits members only. A
+					workspace admin can turn them on in the workspace settings.
+				{:else}
+					Anyone your identity provider authenticates can open this app without a Windmill account.
+					They join no workspace. Members of this workspace can open it too.
+					{#if guestUsage}
+						{guestUsage.guest_count} of {guestUsage.free_allowance} free guests used across this instance
+						in the last {guestUsage.window_days} days; beyond that, {guestUsage.metered
+							? 'every four guests count as one seat'
+							: 'new guests are refused until the count drops'}.
+					{/if}
+				{/if}
+			{:else}
+				Only workspace members with read access on this app can open it.
+			{/if}
 		</div>
 		{#if !savedApp || newApp}
 			<ClipboardPanel content={`Deploy this app once to get the public secret URL`} size="md" />
@@ -451,8 +580,40 @@
 			{/if}
 		</div>
 
+		{#if embedMode && policy.execution_mode == 'guest' && guestAccessEnabled && guestJwtBase && guestsAvailable}
+			<div class="mt-4 border-t pt-3 flex flex-col gap-2">
+				<div class="text-xs font-semibold text-emphasis">
+					Embed for your own authenticated users (guest JWT)
+				</div>
+				<div class="text-xs text-secondary">
+					To open this app for a user your own product already authenticates, mint a short-lived JWT
+					in your backend and append it to the app URL as <code>guest.&lt;jwt&gt;</code>. Each token
+					is its own seatless guest, confined to this app — no shared secret and no Windmill
+					account, unlike the plain secret URL above.
+				</div>
+				<div class="text-xs text-secondary">
+					Windmill verifies the token against the workspace's guest JWT key (Workspace settings →
+					Guests) — a PEM public key or a JWKS URL{#if !isCloudHosted()}, or the instance's
+						configured issuer (<code>JWT_EXT_JWKS_URL</code>) when no workspace key is set{/if}. Set
+					the <b>public</b> half there; in your backend, sign each token with the matching
+					<b>private</b> key using RS256/384/512, PS256/384/512 or ES256/384 (symmetric HS* is
+					refused), carrying <code>email</code>, <code>workspace_id</code> = <code>{opWs}</code>,
+					<code>app_path</code> = <code>{appPath}</code> and <code>exp</code> (at most 24h ahead).
+				</div>
+				<ClipboardPanel
+					content={toEmbedSnippet(`${guestJwtBase}/guest.YOUR_GUEST_JWT`)}
+					size="md"
+				/>
+				<div class="text-2xs text-secondary">
+					Replace <code>YOUR_GUEST_JWT</code> with the token your backend signs per user. Past the instance's
+					free guest allowance a new guest email is refused (see the count above); guests already seen
+					in the window keep working.
+				</div>
+			</div>
+		{/if}
+
 		<div class="mt-4">
-			{#if !($userStore?.is_admin || $userStore?.is_super_admin)}
+			{#if !(actingUser?.is_admin || actingUser?.is_super_admin)}
 				<Alert type="warning" title="Admin only" size="xs">
 					Custom path can only be set by workspace admins
 				</Alert>
@@ -473,7 +634,7 @@
 				options={{
 					right: 'Use a custom URL'
 				}}
-				disabled={!$enterpriseLicense || !($userStore?.is_admin || $userStore?.is_super_admin)}
+				disabled={!$enterpriseLicense || !(actingUser?.is_admin || actingUser?.is_super_admin)}
 			/>
 
 			{#if customPath !== undefined}
@@ -481,7 +642,7 @@
 					<div>Custom path</div>
 				</div>
 				<input
-					disabled={!($userStore?.is_admin || $userStore?.is_super_admin)}
+					disabled={!(actingUser?.is_admin || actingUser?.is_super_admin)}
 					type="text"
 					autocomplete="off"
 					bind:value={customPath}

@@ -2,6 +2,7 @@
 	import { Alert, Button } from '$lib/components/common'
 	import {
 		clearPageDrawerAnchor,
+		handOffPageDrawer,
 		setPageDrawerAnchor
 	} from '$lib/components/sessions/pageDrawerSession'
 	import { TRIGGER_PAGES } from '$lib/components/sessions/previewPaths'
@@ -11,8 +12,7 @@
 	import Path from '$lib/components/Path.svelte'
 	import TriggerRunnablePicker from '$lib/components/triggers/TriggerRunnablePicker.svelte'
 	import { KafkaTriggerService, type ErrorHandler, type Retry, type TriggerMode } from '$lib/gen'
-	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
-	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
+	import { usedTriggerKinds } from '$lib/stores'
 	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import Section from '$lib/components/Section.svelte'
@@ -37,9 +37,18 @@
 	import type { FilterNode } from '../filters'
 	import Select from '$lib/components/select/Select.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace,
+		useOperatingWorkspaceHref
+	} from '$lib/components/operatingWorkspace.svelte'
 
 	interface Props {
 		useDrawer?: boolean
+		/** With `useDrawer`, render the drawer's content in place, filling the parent, with no drawer or close button. */
+		inline?: boolean
+		/** With `inline`, closes whatever hosts the editor; the header has a close button only when set. */
+		onClose?: () => void
 		description?: Snippet | undefined
 		hideTarget?: boolean
 		hideTooltips?: boolean
@@ -58,6 +67,8 @@
 
 	let {
 		useDrawer = true,
+		inline = false,
+		onClose = undefined,
 		description = undefined,
 		hideTarget = false,
 		hideTooltips = false,
@@ -73,8 +84,11 @@
 		onDelete = undefined,
 		onReset = undefined
 	}: Props = $props()
-	const triggerWs = getTriggerWorkspace()
-	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
+	const operatingHref = useOperatingWorkspaceHref()
+	const wsId = $derived($operatingWorkspace)
 
 	let drawer: Drawer | undefined = $state()
 	let is_flow: boolean = $state(false)
@@ -88,7 +102,13 @@
 	let pathError = $state('')
 	let mode = $state<TriggerMode>('enabled')
 	let dirtyPath = $state(false)
-	let can_write = $state(true)
+	let permsPath = $state<string | undefined>(undefined)
+	let permsForWrite = $state<Record<string, boolean> | undefined>(undefined)
+	// The acting user in the operating workspace arrives asynchronously, and an unknown user
+	// refuses — so the editor stays read-only until the lookup lands, which is the safe answer.
+	const can_write = $derived(
+		permsPath === undefined ? true : canWrite(permsPath, permsForWrite ?? {}, actingUser)
+	)
 	let drawerLoading = $state(true)
 	let showLoading = $state(false)
 	let initialConfig: Record<string, any> | undefined = undefined
@@ -158,6 +178,9 @@
 		defaultConfig?: Record<string, any>,
 		fixedScriptPath_?: string
 	) {
+		if (handOffPageDrawer(TRIGGER_PAGES.kafka.path, ePath)) return
+		// A `whoami` that failed earlier would otherwise pin this workspace to "unknown user".
+		operatingUser.forgetFailures()
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
@@ -236,6 +259,8 @@
 	}
 
 	function loadTriggerConfig(cfg?: Record<string, any>): void {
+		// The loaded trigger says what it runs; an opener's `isFlow` is only its guess.
+		if (cfg?.is_flow !== undefined) itemKind = cfg.is_flow ? 'flow' : 'script'
 		script_path = cfg?.script_path
 		initialScriptPath = cfg?.script_path
 		is_flow = cfg?.is_flow
@@ -249,7 +274,8 @@
 		autoCommit = cfg?.auto_commit ?? true
 		mode = cfg?.mode ?? 'enabled'
 		extra_perms = cfg?.extra_perms
-		can_write = canWrite(path, cfg?.extra_perms, $userStore)
+		permsPath = path
+		permsForWrite = cfg?.extra_perms
 		error_handler_path = cfg?.error_handler_path
 		error_handler_args = cfg?.error_handler_args ?? {}
 		retry = cfg?.retry
@@ -417,36 +443,44 @@
 	/>
 {/if}
 
-{#if useDrawer}
+{#snippet drawerBody()}
+	<DrawerContent
+		hideClose={inline && !onClose}
+		fullScreen={!inline}
+		bannerReserved={draftSync.hasBaseline}
+		title={edit
+			? can_write
+				? `Edit Kafka trigger ${initialPath}`
+				: `Kafka trigger ${initialPath}`
+			: 'New Kafka trigger'}
+		on:close={() => (inline ? onClose?.() : drawer?.closeDrawer())}
+	>
+		{#snippet actions()}
+			{@render actionsButtons('sm')}
+		{/snippet}
+		{#snippet banner()}
+			<LocalDraftBanner
+				show={draftSync.hasDraft}
+				getDeployed={() => draftSync.deployed}
+				reserveSpace={draftSync.hasBaseline}
+				getCurrent={() => draftSync.current}
+				onDiscard={() => draftSync.resetToDeployed(initialPath)}
+				disabled={!can_write}
+			/>
+		{/snippet}
+		{@render config()}
+	</DrawerContent>
+{/snippet}
+
+{#if useDrawer && inline}
+	{@render drawerBody()}
+{:else if useDrawer}
 	<Drawer
 		size="800px"
 		bind:this={drawer}
 		on:close={() => clearPageDrawerAnchor(TRIGGER_PAGES.kafka.path)}
 	>
-		<DrawerContent
-			bannerReserved={draftSync.hasBaseline}
-			title={edit
-				? can_write
-					? `Edit Kafka trigger ${initialPath}`
-					: `Kafka trigger ${initialPath}`
-				: 'New Kafka trigger'}
-			on:close={drawer.closeDrawer}
-		>
-			{#snippet actions()}
-				{@render actionsButtons('sm')}
-			{/snippet}
-			{#snippet banner()}
-				<LocalDraftBanner
-					show={draftSync.hasDraft}
-					getDeployed={() => draftSync.deployed}
-					reserveSpace={draftSync.hasBaseline}
-					getCurrent={() => draftSync.current}
-					onDiscard={() => draftSync.resetToDeployed(initialPath)}
-					disabled={!can_write}
-				/>
-			{/snippet}
-			{@render config()}
-		</DrawerContent>
+		{@render drawerBody()}
 	</Drawer>
 {:else}
 	<Section label={!customLabel ? 'Kafka trigger' : ''} headerClass="grow min-w-0 h-[30px]">
@@ -543,7 +577,7 @@
 						bind:scriptPath={script_path}
 						{initialScriptPath}
 						canWrite={can_write}
-						isOperator={!!$userStore?.operator}
+						isOperator={!!actingUser?.operator}
 					>
 						{#snippet createButton()}
 							{#if emptyString(script_path)}
@@ -552,7 +586,9 @@
 									variant="accent"
 									size="xs"
 									disabled={!can_write}
-									href={itemKind === 'flow' ? '/flows/add?hub=65' : '/scripts/add?hub=hub%2F19659'}
+									href={operatingHref(
+										itemKind === 'flow' ? '/flows/add?hub=65' : '/scripts/add?hub=hub%2F19659'
+									)}
 									target="_blank">Create from template</Button
 								>
 							{/if}

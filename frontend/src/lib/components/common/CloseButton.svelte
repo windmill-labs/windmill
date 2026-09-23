@@ -10,10 +10,12 @@
 		Icon?: any | undefined
 		class?: string
 		id?: string | undefined
+		/** Names the button: it has no text, so without this it reads as "button" to a screen reader. */
+		title?: string | undefined
 		onClick?: () => void | undefined | any
 	}
 
-	let { noBg = false, small = false, Icon, class: className, id, onClick }: Props = $props()
+	let { noBg = false, small = false, Icon, class: className, id, title, onClick }: Props = $props()
 
 	const dispatch = createEventDispatcher()
 </script>
@@ -22,6 +24,7 @@
 	on:click={() => (dispatch('close'), onClick?.())}
 	on:pointerdown={(e) => e.stopPropagation()}
 	{id}
+	{title}
 	startIcon={{ icon: Icon ?? X }}
 	iconOnly
 	unifiedSize="sm"

@@ -16,6 +16,7 @@
 
 	type MenuItem = {
 		label: string
+		description?: string
 		onClick?: (e?: Event) => void
 		href?: string
 		icon?: any
@@ -146,6 +147,7 @@
 		const items = typeof menuItems === 'function' ? menuItems() : menuItems
 		return items.map((item) => ({
 			displayName: item.label,
+			description: item.description,
 			action: item.onClick ? (e) => item.onClick?.(e) : undefined,
 			icon: item.icon,
 			disabled: item.disabled ?? false,

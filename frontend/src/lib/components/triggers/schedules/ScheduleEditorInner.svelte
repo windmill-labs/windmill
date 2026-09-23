@@ -2,6 +2,7 @@
 	import { Alert, Badge, Button, ButtonType, Tab, Tabs } from '$lib/components/common'
 	import {
 		clearPageDrawerAnchor,
+		handOffPageDrawer,
 		setPageDrawerAnchor
 	} from '$lib/components/sessions/pageDrawerSession'
 	import { SCHEDULES_PATH } from '$lib/components/sessions/previewPaths'
@@ -21,7 +22,6 @@
 	import {
 		FlowService,
 		ScheduleService,
-		type ScheduleOccurrence,
 		type Script,
 		ScriptService,
 		type Flow,
@@ -30,11 +30,10 @@
 		type Schedule,
 		type ErrorHandler
 	} from '$lib/gen'
-	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense } from '$lib/stores'
 	import { canWrite, emptyString, formatCron, sendUserToast, cronV1toV2 } from '$lib/utils'
 	import { base } from '$lib/base'
 	import Section from '$lib/components/Section.svelte'
-	import { displayDate } from '$lib/utils'
 	import { List, Loader2, Save, AlertTriangle } from 'lucide-svelte'
 	import autosize from '$lib/autosize'
 	import TriggerEditorToolbar from '$lib/components/triggers/TriggerEditorToolbar.svelte'
@@ -51,10 +50,13 @@
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import PermissionedAsLine from '../PermissionedAsLine.svelte'
-	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
+	import { useActingUser } from '$lib/actingUser.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	let {
 		useDrawer = true,
+		inline = false,
+		onClose = undefined,
 		hideTarget = false,
 		docDescription = undefined,
 		allowDraft = false,
@@ -116,12 +118,14 @@
 	let showLoading = $state(false)
 	let initialConfig: Record<string, any> | undefined = undefined
 	let extraPerms: Record<string, boolean> = $state({})
-	let can_write = $state(true)
+	// Path the permissions above were loaded for — the verdict is about the schedule as
+	// stored, not about a rename being typed into the form. `undefined` until a config has
+	// been loaded, when there is no deployed schedule to deny access to.
+	let permsPath: string | undefined = $state(undefined)
 	let initNewPath = $state(false)
 	let path: string = $state('')
 	let enabled: boolean = $state(false)
 	let pathError = $state('')
-	let occurrences: ScheduleOccurrence[] = $state([])
 	let summary = $state('')
 	let labels: string[] | undefined = $state(undefined)
 	let description = $state('')
@@ -135,6 +139,18 @@
 	let selectedPermissionedAs = $state<string | undefined>(undefined)
 	let preservePermissionedAs = $state(false)
 
+	const operatingWorkspace = useOperatingWorkspace()
+	const wsId = $derived($operatingWorkspace)
+	// `undefined` while the lookup is in flight or after it failed; the checks below then
+	// refuse rather than fall back to rights that belong to another workspace.
+	const acting = useActingUser(() => wsId)
+	const actingUser = $derived(acting.current)
+	const can_write = $derived(
+		permsPath === undefined ? true : canWrite(permsPath, extraPerms, actingUser)
+	)
+	// Editing the runnable is closed to operators, and an unresolved acting user is no
+	// evidence that this one isn't.
+	const canEditRunnable = $derived(actingUser !== undefined && !actingUser.operator)
 	const saveDisabled = $derived(
 		!allowSchedule ||
 			pathError != '' ||
@@ -144,11 +160,9 @@
 				emptyString(errorHandlerExtraArgs['channel'])) ||
 			!can_write
 	)
-	const triggerWs = getTriggerWorkspace()
-	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
-	// Carry the acting workspace onto "create from template" routes when a
-	// session override is set, so the script is created in the session workspace.
-	const wsParam = $derived(triggerWs?.() ? `&workspace=${encodeURIComponent(wsId!)}` : '')
+	// Carry the acting workspace onto "create from template" routes, so the script is created
+	// in the workspace this schedule lives in.
+	const wsParam = $derived(wsId ? `&workspace=${encodeURIComponent(wsId)}` : '')
 	const scheduleCfg = $derived.by(getScheduleCfg)
 
 	const draftSync = useTriggerDraftSync({
@@ -161,36 +175,18 @@
 		deployed: () => initialConfig
 	})
 
-	// Diagnostics rather than form state, so a failure here must not block the editor.
-	async function loadOccurrences(schedulePath: string) {
-		occurrences = []
-		try {
-			occurrences = await ScheduleService.listScheduleOccurrences({
-				workspace: wsId!,
-				path: schedulePath
-			})
-		} catch (err) {
-			console.error('could not load the occurrences of schedule', schedulePath, err)
-		}
-	}
-
-	function formatMs(ms: number | undefined): string {
-		if (ms == undefined) {
-			return '-'
-		}
-		return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`
-	}
-
 	export async function openEdit(
 		ePath: string,
 		isFlow: boolean,
 		defaultCfg?: Record<string, any>,
 		fixedScriptPath_?: string
 	) {
+		if (handOffPageDrawer(SCHEDULES_PATH, ePath)) return
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
 		drawerLoading = true
+		acting.forgetFailures()
 		try {
 			drawer?.openDrawer()
 			setPageDrawerAnchor(SCHEDULES_PATH, ePath)
@@ -201,9 +197,6 @@
 			const { overlay: draftOverlay, noDeployed } = await loadSchedule(defaultCfg)
 			// Draft-only schedules have no deployed row, so saving must CREATE (update 404s).
 			edit = !noDeployed
-			if (edit) {
-				loadOccurrences(ePath)
-			}
 			if (!defaultCfg) {
 				// Form holds DEPLOYED here; capture it as `initialConfig` so the
 				// dirty check / banner fires whenever a saved draft exists.
@@ -339,6 +332,7 @@
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
 		drawerLoading = true
+		acting.forgetFailures()
 		try {
 			let s: Schedule | undefined
 			if (schedule_path) {
@@ -360,7 +354,6 @@
 			drawer?.openDrawer()
 			runnable = undefined
 			edit = false
-			occurrences = []
 			// No deployed baseline for a brand-new schedule. The editor instance
 			// is reused across open() calls, so clear any baseline left by a prior
 			// openEdit — otherwise the "unsaved changes" banner / dirty check would
@@ -617,7 +610,7 @@
 		dynamicSkipPath = cfg.dynamic_skip
 		args = cfg.args ?? {}
 		extraPerms = cfg.extra_perms ?? {}
-		can_write = canWrite(cfg.path, cfg.extra_perms, $userStore)
+		permsPath = cfg.path
 		tag = cfg.tag
 		permissionedAs = cfg.permissioned_as
 		selectedPermissionedAs = cfg.permissioned_as
@@ -864,6 +857,7 @@
 								namePlaceholder="schedule"
 								kind="schedule"
 								disableEditing={!can_write}
+								actingUser={actingUser ?? null}
 							/>
 						{:else}
 							<div class="flex justify-start w-full">
@@ -963,45 +957,6 @@
 				</div>
 			</Section>
 
-			{#if edit && occurrences.length > 0}
-				<Section label="Recent occurrences">
-					{#snippet header()}
-						<Tooltip>
-							An occurrence is skipped when the run before it finishes after that occurrence was
-							already due. A long wait means not enough workers; a long run means the job outgrew
-							its interval.
-						</Tooltip>
-					{/snippet}
-					<div class="flex flex-col gap-1 text-xs">
-						<div class="flex gap-4 text-secondary font-semibold">
-							<div class="w-40">Due</div>
-							<div class="w-16 text-right">Waited</div>
-							<div class="w-16 text-right">Ran for</div>
-							<div class="grow"></div>
-						</div>
-						{#each occurrences as occurrence (occurrence.job_id)}
-							<div class="flex gap-4 items-baseline">
-								<div class="w-40 text-secondary">
-									{displayDate(occurrence.scheduled_for, true)}
-								</div>
-								<div class="w-16 text-right">{formatMs(occurrence.wait_ms)}</div>
-								<div class="w-16 text-right">{formatMs(occurrence.duration_ms)}</div>
-								<div class="grow">
-									{#if occurrence.status == undefined}
-										<span class="text-secondary">still running</span>
-									{:else if occurrence.skipped_after}
-										<span class="text-yellow-600">
-											skipped {occurrence.skipped_after}{occurrence.skipped_after_capped ? '+' : ''}
-											occurrences
-										</span>
-									{/if}
-								</div>
-							</div>
-						{/each}
-					</div>
-				</Section>
-			{/if}
-
 			<Section label="Runnable">
 				{#if !hideTarget}
 					{#if fixedScriptPath != ''}
@@ -1038,7 +993,7 @@
 							allowFlow={true}
 							{itemKind}
 							allowView={script_path != '' && !!runnable}
-							allowEdit={script_path != '' && !!runnable && !$userStore?.operator}
+							allowEdit={script_path != '' && !!runnable && canEditRunnable}
 						/>
 					{/if}
 					{#if itemKind == 'flow'}
@@ -1469,34 +1424,42 @@
 	</div>
 {/snippet}
 
-{#if useDrawer}
+{#snippet drawerBody()}
+	<DrawerContent
+		hideClose={inline && !onClose}
+		fullScreen={!inline}
+		bannerReserved={draftSync.hasBaseline}
+		title={edit
+			? can_write
+				? `Edit schedule ${initialPath}`
+				: `View schedule ${initialPath}`
+			: 'New schedule'}
+		on:close={() => (inline ? onClose?.() : drawer?.closeDrawer())}
+	>
+		{#snippet actions()}
+			<div class="flex flex-row gap-4 items-center">
+				{@render saveButton()}
+			</div>
+		{/snippet}
+		{#snippet banner()}
+			<LocalDraftBanner
+				show={draftSync.hasDraft}
+				getDeployed={() => draftSync.deployed}
+				reserveSpace={draftSync.hasBaseline}
+				getCurrent={() => draftSync.current}
+				onDiscard={() => draftSync.resetToDeployed(initialPath)}
+				disabled={!can_write}
+			/>
+		{/snippet}
+		{@render content()}
+	</DrawerContent>
+{/snippet}
+
+{#if useDrawer && inline}
+	{@render drawerBody()}
+{:else if useDrawer}
 	<Drawer size="900px" bind:this={drawer} on:close={() => clearPageDrawerAnchor(SCHEDULES_PATH)}>
-		<DrawerContent
-			bannerReserved={draftSync.hasBaseline}
-			title={edit
-				? can_write
-					? `Edit schedule ${initialPath}`
-					: `View schedule ${initialPath}`
-				: 'New schedule'}
-			on:close={drawer.closeDrawer}
-		>
-			{#snippet actions()}
-				<div class="flex flex-row gap-4 items-center">
-					{@render saveButton()}
-				</div>
-			{/snippet}
-			{#snippet banner()}
-				<LocalDraftBanner
-					show={draftSync.hasDraft}
-					getDeployed={() => draftSync.deployed}
-					reserveSpace={draftSync.hasBaseline}
-					getCurrent={() => draftSync.current}
-					onDiscard={() => draftSync.resetToDeployed(initialPath)}
-					disabled={!can_write}
-				/>
-			{/snippet}
-			{@render content()}
-		</DrawerContent>
+		{@render drawerBody()}
 	</Drawer>
 {:else}
 	<Section label={!customLabel ? 'Schedule' : ''} headerClass="grow min-w-0 h-[30px]">

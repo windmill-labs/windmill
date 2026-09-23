@@ -161,6 +161,13 @@ export interface ToolCallArgumentRule {
   stringStartsWithAnyOf?: string[];
   stringMustNotStartWithAnyOf?: string[];
   /**
+   * Universal over calls: every recorded call to `tool` must carry `field` as
+   * exactly one of these strings. Use when a near-miss would still satisfy a
+   * prefix — a resource reference like `$res:f/a/b` shares its prefix with the
+   * wrong `$res:f/a/b_backup`, and the mock never resolves it to catch that.
+   */
+  stringEqualsAnyOf?: string[];
+  /**
    * Case-insensitive "contains", existential over calls: at least one recorded
    * call to `tool` must have `field` containing one of these substrings. Other
    * calls to the same tool may do anything. Use instead of `stringStartsWithAnyOf`
@@ -175,6 +182,13 @@ export interface ToolCallArgumentRule {
    * the point is that the model filled it in at all rather than what it said.
    */
   nonEmpty?: boolean;
+  /**
+   * Existential over calls: at least this many recorded calls to `tool` carry the
+   * same non-blank string in `field`. Use when calls have to share an identifier —
+   * e.g. test runs that continue one conversation — while a retry with a rejected
+   * value in between is still acceptable.
+   */
+  sharedByAtLeast?: number;
   /**
    * Universal over calls: no recorded call to `tool` may pass `field` at all.
    * For partial-update tools, where supplying a field the model could not have

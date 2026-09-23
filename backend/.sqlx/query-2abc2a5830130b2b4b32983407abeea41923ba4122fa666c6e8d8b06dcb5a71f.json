@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO v2_job_completed\n            (workspace_id, id, started_at, duration_ms, result, memory_peak, status, worker)\n        SELECT q.workspace_id, q.id, q.started_at,\n            COALESCE((EXTRACT('epoch' FROM now()) - EXTRACT('epoch' FROM COALESCE(q.started_at, now()))) * 1000, 0)::bigint,\n            $2::jsonb, r.memory_peak, 'failure'::job_status, q.worker\n        FROM v2_job_queue q\n        LEFT JOIN v2_job_runtime r ON r.id = q.id\n        WHERE q.id = $1\n        ON CONFLICT (id) DO UPDATE SET status = 'failure', result = $2::jsonb\n        RETURNING duration_ms AS \"duration_ms!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "duration_ms!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "2abc2a5830130b2b4b32983407abeea41923ba4122fa666c6e8d8b06dcb5a71f"
+}

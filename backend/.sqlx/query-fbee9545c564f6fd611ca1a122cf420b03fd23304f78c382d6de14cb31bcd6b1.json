@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_settings SET guest_jwt_public_key = $1, guest_jwt_jwks_url = $2 WHERE workspace_id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fbee9545c564f6fd611ca1a122cf420b03fd23304f78c382d6de14cb31bcd6b1"
+}

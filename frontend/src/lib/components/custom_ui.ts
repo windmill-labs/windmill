@@ -9,7 +9,6 @@ export type FlowBuilderWhitelabelCustomUi = {
 		export?: boolean
 		history?: boolean
 		aiBuilder?: boolean
-		tutorials?: boolean
 		diff?: boolean
 		extraDeployOptions?: boolean
 		editableSummary?: boolean

@@ -331,6 +331,13 @@ export function contextElementKey(c: ContextElement): string {
 	return c.type === 'app_dom_selector' ? `dom:${c.appPath}:${c.selector}` : `${c.type}:${c.title}`
 }
 
+/** An `@`-mentioned workspace item, attached to one message the way a DOM pick
+ * is. Membership only: this does not gate on mode, so every caller must. Outside
+ * GLOBAL these stay selected as chips the user removes by hand. */
+export function isMentionContext(c: ContextElement): boolean {
+	return c.type === 'workspace_script' || c.type === 'workspace_flow' || c.type === 'workspace_app'
+}
+
 export function isSameContextElement(a: ContextElement, b: ContextElement): boolean {
 	if (a.type !== b.type) return false
 	if (a.type === 'app_dom_selector' && b.type === 'app_dom_selector') {

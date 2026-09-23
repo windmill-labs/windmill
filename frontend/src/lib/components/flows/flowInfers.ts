@@ -4,6 +4,25 @@ import type { Schema } from '$lib/common'
 import { emptySchema } from '$lib/utils'
 import type { FlowModule, InputTransform } from '$lib/gen'
 import { AGENT_FLOW_LOCAL_KEYS } from './agentResourceUtils'
+import { AGENT_HISTORY_KEYS } from './agentFormFields'
+
+/** Display names for the memory field's options, so anything else naming the setting an author
+ *  picked cannot drift from the button they see. */
+export const MEMORY_OPTION_LABELS: Record<string, string> = {
+	off: 'Off',
+	window: 'On',
+	auto: 'On (legacy)',
+	manual: 'Previous messages (legacy)'
+}
+
+export function memoryOptionLabel(memory: any): string | undefined {
+	// Managed memory that keeps no messages runs as off, and a note about what that state reads
+	// must say so.
+	if ((memory?.kind === 'window' || memory?.kind === 'auto') && !memory.context_length) {
+		return MEMORY_OPTION_LABELS.off
+	}
+	return memory?.kind ? MEMORY_OPTION_LABELS[memory.kind] : undefined
+}
 
 export const AI_AGENT_SCHEMA: Schema = {
 	$schema: 'https://json-schema.org/draft/2020-12/schema',
@@ -15,159 +34,157 @@ export const AI_AGENT_SCHEMA: Schema = {
 		output_type: {
 			type: 'string',
 			description:
-				'The type of output the AI agent will generate (text or image). Image output requires a configured workspace S3 storage, will ignore tools, and only works with OpenAI, Google AI and OpenRouter gemini-image-preview model.',
+				'Whether the answer is text or an image. An image needs S3 storage on the workspace, and ignores tools.',
 			enum: ['text', 'image'],
 			default: 'text'
 		},
 		user_message: {
 			type: 'string',
-			description:
-				'The message to give as input to the AI agent. Optional when messages array is provided. You can turn on chat input mode on the input interface to link this field to the message sent by the user.'
+			description: 'The message sent to the agent as the user turn.'
 		},
 		system_prompt: {
 			type: 'string',
-			description: 'The system prompt to give as input to the AI agent.'
+			description: 'Sets how the agent behaves. Sent ahead of everything else.',
+			// The one field people write paragraphs into, so it opens as a text area.
+			minRows: 5,
+			placeholder:
+				"You are a support agent.\nLook up an answer with your tools before replying.\nCite what you used, and say you don't know rather than guessing."
 		},
 		streaming: {
 			type: 'boolean',
-			description: 'Whether to stream the output of the AI agent.',
+			description: 'Stream the answer as it is produced.',
 			default: true,
-			showExpr: "fields.output_type === 'text'"
+			showExpr: "fields.output_type !== 'image'"
 		},
 		memory: {
 			type: 'object',
 			description:
-				'Configure how conversation memory is managed. Choose "auto" to let Windmill automatically store and load messages (up to N last messages), or "manual" to provide an explicit array of conversation messages. The system_prompt and user_message are added to the messages if provided.',
+				'Windmill stores the conversation and sends its last messages with each request.',
+			enumLabels: MEMORY_OPTION_LABELS,
+			// Chat mode keys memory on the conversation, so a chat whose agent has memory off
+			// forgets every turn. Enabling chat mode turns it on; this keeps it there. A step
+			// sitting at `off` stays switchable, or a flow that reached that state before —
+			// an agent added to an already-chat-enabled flow — would have no way out of it.
+			lockOneOfWhenChatEnabled:
+				"Chat mode keys this agent's history on the conversation, so memory stays on while it is enabled.",
 			oneOf: [
 				{
 					type: 'object',
 					title: 'off',
 					properties: {
-						kind: {
-							type: 'string',
-							enum: ['off'],
-							description: 'Disable conversation memory'
-						}
+						kind: { type: 'string', enum: ['off'] }
 					}
 				},
 				{
 					type: 'object',
-					title: 'auto',
+					title: 'window',
 					properties: {
-						kind: {
-							type: 'string',
-							enum: ['auto'],
-							default: 'auto',
-							description: 'Automatically manage conversation history'
-						},
+						kind: { type: 'string', enum: ['window'] },
 						context_length: {
 							type: 'number',
-							description:
-								'Number of most recent messages to store and load. Set to 0 to disable memory.',
-							default: 5
-						},
-						memory_id: {
-							type: 'string',
-							format: 'uuid',
-							'x-auto-generate': true,
-							description:
-								'Custom memory identifier. Each unique ID maintains separate conversation history.',
-							hideWhenChatEnabled: true
+							title: 'Messages to keep',
+							description: 'Number of most recent messages to load and store. 0 turns memory off.',
+							default: 10
 						}
 					},
-					required: ['kind'],
-					'x-no-s3-storage-workspace-warning':
-						'When no S3 storage is configured in your workspace settings, memory will be stored in database, which implies a limit of 100KB per memory entry. If you need to store more messages, you should use S3 storage in your workspace settings.'
-				},
-				{
-					type: 'object',
-					title: 'manual',
-					properties: {
-						kind: {
-							type: 'string',
-							enum: ['manual'],
-							description:
-								'Manually provide conversation messages, bypassing automatic memory management'
-						},
-						messages: {
-							type: 'array',
-							description: 'Array of conversation messages to use as history',
-							items: {
-								type: 'object',
-								properties: {
-									role: {
-										type: 'string',
-										enum: ['user', 'assistant', 'system']
-									},
-									content: {
-										type: 'string'
-									},
-									tool_calls: {
-										type: 'array',
-										nullable: true,
-										items: {
-											type: 'object',
-											properties: {
-												id: { type: 'string' },
-												type: { type: 'string' },
-												function: {
-													type: 'object',
-													properties: {
-														name: { type: 'string' },
-														arguments: { type: 'string' }
-													}
-												}
-											}
-										}
-									},
-									tool_call_id: {
-										type: 'string',
-										nullable: true,
-										description: 'The ID of the tool call this message is responding to'
+					required: ['kind', 'context_length']
+				}
+			],
+			showExpr: "fields.output_type !== 'image'"
+		},
+		memory_id: {
+			type: 'string',
+			description:
+				'Names the memory this step reads and writes, overriding the memory id the run was started with. Read only while managed memory is on, and not at all by an older auto or manual memory.',
+			showExpr: "fields.output_type !== 'image'"
+		},
+		previous_messages: {
+			type: 'array',
+			description:
+				'History the flow supplies, sent before the user message. Read only while managed memory is off, and not at all by an older auto or manual memory.',
+			items: {
+				type: 'object',
+				properties: {
+					role: {
+						type: 'string',
+						enum: ['user', 'assistant', 'system']
+					},
+					content: {
+						type: 'string'
+					},
+					tool_calls: {
+						type: 'array',
+						nullable: true,
+						items: {
+							type: 'object',
+							properties: {
+								id: { type: 'string' },
+								type: { type: 'string' },
+								function: {
+									type: 'object',
+									properties: {
+										name: { type: 'string' },
+										arguments: { type: 'string' }
 									}
-								},
-								required: ['role']
+								}
 							}
 						}
 					},
-					required: ['kind', 'messages']
-				}
-			],
-			showExpr: "fields.output_type === 'text'"
+					tool_call_id: {
+						type: 'string',
+						nullable: true,
+						description: 'The ID of the tool call this message is responding to'
+					}
+				},
+				required: ['role']
+			},
+			showExpr: "fields.output_type !== 'image'"
 		},
 		output_schema: {
 			type: 'object',
-			description: 'JSON schema that the AI agent will follow for its response format.',
+			description: 'A JSON schema the answer has to follow.',
 			format: 'json-schema',
-			showExpr: "fields.output_type === 'text'"
+			showExpr: "fields.output_type !== 'image'"
 		},
 		user_attachments: {
 			type: 'array',
-			description:
-				'Array of files (images or PDFs) to give as input to the AI agent. Requires a configured workspace S3 storage.',
+			description: 'Images or PDFs sent with the message. Needs S3 storage on the workspace.',
 			items: {
 				type: 'object',
 				resourceType: 's3object'
 			}
 		},
+		// The step's own roster fills `items.enum` in, so the static editor offers the tools this
+		// agent actually has (`AiAgentStepInputs`). Absence, not an empty list, is what carries every
+		// tool: a step that holds the field and names nothing has chosen to advertise none.
+		// Shown for image output as the roster it narrows is, even though neither is used there.
+		enabled_tools: {
+			type: 'array',
+			// Deliberately short. It is the only place the field's text is always on screen rather than
+			// behind the row's tooltip, and the surface it shows on is the run form, which offers the
+			// names in a picker and has no unset state to explain.
+			description: 'Which of the agent tools a run may call.',
+			items: {
+				type: 'string'
+			}
+		},
 		max_completion_tokens: {
 			type: 'number',
-			description: 'The maximum number of output tokens.'
+			description: 'The most tokens the answer may use.'
 		},
 		temperature: {
 			type: 'number',
-			description:
-				'Controls randomness in text generation. Range: 0.0 (deterministic) to 2.0 (random).',
-			showExpr: "fields.output_type === 'text'"
+			description: 'How random the generation is, from 0 for deterministic up to 2.'
 		},
 		max_iterations: {
 			type: 'number',
-			description:
-				'Limits how many times the agent can loop through reasoning and tool use. Range: 1-1000.',
+			description: 'How many times the agent may loop over calling the model and running tools.',
 			default: 10
 		}
 	},
-	required: ['provider', 'output_type'],
+	// `output_type` defaults to text on the backend, so leaving it unset is valid: the form drops
+	// the row rather than showing a field whose value a run would ignore.
+	required: ['provider'],
 	type: 'object',
 	order: [
 		'provider',
@@ -176,12 +193,57 @@ export const AI_AGENT_SCHEMA: Schema = {
 		'system_prompt',
 		'streaming',
 		'memory',
+		'memory_id',
+		'previous_messages',
 		'output_schema',
 		'user_attachments',
+		'enabled_tools',
 		'max_completion_tokens',
 		'temperature',
 		'max_iterations'
 	]
+}
+
+/** Memory shapes older editors wrote. The step form offers one only to a step that still holds it,
+ *  since the one-of field rewrites a value that matches none of its options. No field carries a
+ *  default: the form writes one into a missing field on open, and a missing count runs as off. */
+export const LEGACY_MEMORY_VARIANTS: Record<string, any> = {
+	auto: {
+		type: 'object',
+		title: 'auto',
+		properties: {
+			kind: { type: 'string', enum: ['auto'] },
+			context_length: { type: 'number', title: 'Messages to keep' },
+			memory_id: { type: 'string', title: 'Fixed memory id' }
+		},
+		required: ['kind']
+	},
+	manual: {
+		type: 'object',
+		title: 'manual',
+		properties: {
+			kind: { type: 'string', enum: ['manual'] },
+			messages: { type: 'array', items: AI_AGENT_SCHEMA.properties?.previous_messages?.items }
+		},
+		required: ['kind', 'messages']
+	}
+}
+
+/** The memory property to render for a value: a legacy kind is added as an option only while the
+ *  value holds it. Otherwise the property itself is returned, which callers compare by identity to
+ *  avoid rebuilding the step schema. */
+export function memoryPropertyFor(property: any, value: any, chatInputEnabled = false): any {
+	let legacy = value?.kind ? LEGACY_MEMORY_VARIANTS[value.kind] : undefined
+	if (!legacy || !property?.oneOf) return property
+	// The baked id field is offered only to a value saved with the key (by presence, not content,
+	// or clearing it to retype would remove the field mid-edit), and never in a chat flow, which
+	// runs on the conversation id and drops it on save; there the nested form removes the key on
+	// open, as the hidden field did before.
+	if (value.kind === 'auto' && (chatInputEnabled || !('memory_id' in value))) {
+		const { memory_id: _, ...properties } = legacy.properties
+		legacy = { ...legacy, properties }
+	}
+	return { ...property, oneOf: [...property.oneOf, legacy] }
 }
 
 function migrateAiAgentInputTransforms(
@@ -285,13 +347,19 @@ export async function loadSchemaFromModule(
 			: Object.keys(AI_AGENT_SCHEMA.properties ?? {})
 		return {
 			input_transforms: keys.reduce((accu, key) => {
-				accu[key] = input_transforms[key] ?? {
-					type: 'static',
-					value: undefined
-				}
+				const transform =
+					input_transforms[key] ??
+					// A present history input is the step's choice at runtime, so it gets no placeholder.
+					((AGENT_HISTORY_KEYS as readonly string[]).includes(key)
+						? undefined
+						: { type: 'static', value: undefined })
+				if (transform) accu[key] = transform
 				return accu
 			}, {}),
-			schema: AI_AGENT_SCHEMA
+			// A copy per step, never the shared constant: the form writes back into the property it
+			// renders (`InputTransformForm` binds `schema.properties[argName]`), and the tool names
+			// one step offers would otherwise become every step's.
+			schema: structuredClone(AI_AGENT_SCHEMA)
 		}
 	}
 

@@ -9,8 +9,10 @@ use crate::common::transform::{
     extract_hub_version_id_from_hashed, extract_path_prefix_from_hashed, parse_tool_prefix,
     reverse_transform, reverse_transform_key,
 };
-use crate::common::types::{McpToken, MultiWorkspaceMcp, ResourceInfo, ToolableItem, WorkspaceId};
-use crate::server::backend::{McpAuth, McpBackend, PathFilter};
+use crate::common::types::{
+    McpToken, MultiWorkspaceMcp, ResourceInfo, SchemaType, ToolableItem, WorkspaceId,
+};
+use crate::server::backend::{McpAuth, McpBackend, McpRequest, PathFilter};
 use crate::server::endpoints::{
     endpoint_tool_to_mcp_tool, endpoint_tool_to_mcp_tool_multi, list_workspaces_tool, EndpointTool,
 };
@@ -101,16 +103,24 @@ enum McpMode {
     Multi(String),
 }
 
+/// Everything a request carries besides its MCP payload.
+struct McpContext<A> {
+    auth: A,
+    mode: McpMode,
+    headers: http::HeaderMap,
+}
+
 impl<B: McpBackend> Runner<B> {
     /// Create a new Runner with the given backend
     pub fn new(backend: B) -> Self {
         Self { backend: Arc::new(backend) }
     }
 
-    /// Extract authentication and the workspace mode from request context
+    /// Extract authentication, the workspace mode and the HTTP request itself
+    /// from the request context
     fn extract_context(
         context: &RequestContext<RoleServer>,
-    ) -> Result<(B::Auth, McpMode), ErrorData> {
+    ) -> Result<McpContext<B::Auth>, ErrorData> {
         let http_parts = context.extensions.get::<HttpParts>().ok_or_else(|| {
             tracing::error!("http::request::Parts not found");
             ErrorData::internal_error("http::request::Parts not found", None)
@@ -148,7 +158,7 @@ impl<B: McpBackend> Runner<B> {
             McpMode::Single(workspace_id)
         };
 
-        Ok((auth.clone(), mode))
+        Ok(McpContext { auth: auth.clone(), mode, headers: http_parts.headers.clone() })
     }
 }
 
@@ -391,6 +401,18 @@ fn authorize_endpoint_call(
     Ok(())
 }
 
+/// Map the model's argument keys back to the runnable's original parameter names.
+fn transform_call_args(args: Value, item_schema: &Option<SchemaType>) -> Value {
+    let Value::Object(map) = args else {
+        return args;
+    };
+    let mut args_hash = HashMap::new();
+    for (k, v) in map {
+        args_hash.insert(reverse_transform_key(&k, item_schema), v);
+    }
+    Value::Object(args_hash.into_iter().collect())
+}
+
 fn find_matching_path<T: ToolableItem>(candidates: Vec<T>, request_name: &str) -> Option<String> {
     candidates
         .into_iter()
@@ -427,7 +449,7 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         _request: Option<PaginatedRequestParams>,
         context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
-        let (auth, mode) = Self::extract_context(&context)?;
+        let McpContext { auth, mode, .. } = Self::extract_context(&context)?;
 
         // Parse MCP scopes to determine what to expose
         let scopes = auth.scopes().unwrap_or(&[]);
@@ -455,7 +477,7 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
-        let (auth, mode) = Self::extract_context(&context)?;
+        let McpContext { auth, mode, headers } = Self::extract_context(&context)?;
 
         // Parse MCP scopes for authorization
         let scopes = auth.scopes().unwrap_or(&[]);
@@ -464,6 +486,7 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         let read_only = auth.read_only();
 
         let args = request.arguments.map(Value::Object).unwrap_or(Value::Null);
+        let mcp_request = McpRequest { headers: &headers, tool_name: request.name.as_ref() };
 
         // Every tool here runs to completion in one round trip: none of them ask the
         // client for input, so the MRTR variants of `CallToolResponse` are never built.
@@ -474,14 +497,22 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
                     &workspace_id,
                     &scope_config,
                     read_only,
-                    request.name,
+                    request.name.clone(),
                     args,
+                    &mcp_request,
                 )
                 .await
             }
             McpMode::Multi(token) => {
-                self.call_tool_multi(&auth, &token, &scope_config, read_only, request.name, args)
-                    .await
+                self.call_tool_multi(
+                    &auth,
+                    &token,
+                    &scope_config,
+                    read_only,
+                    request.name.clone(),
+                    args,
+                )
+                .await
             }
         }?;
         Ok(result.into())
@@ -665,6 +696,7 @@ impl<B: McpBackend> Runner<B> {
         read_only: bool,
         name: std::borrow::Cow<'static, str>,
         args: Value,
+        request: &McpRequest<'_>,
     ) -> Result<CallToolResult, ErrorData> {
         // Check if this is an endpoint tool
         let endpoint_tools = self.backend.all_endpoint_tools();
@@ -777,17 +809,7 @@ impl<B: McpBackend> Runner<B> {
                 .map_err(|e| ErrorData::internal_error(e.message, None))?
         };
 
-        // Transform arguments back to original key names
-        let transformed_args = if let Value::Object(map) = args {
-            let mut args_hash = HashMap::new();
-            for (k, v) in map {
-                let original_key = reverse_transform_key(&k, &item_schema);
-                args_hash.insert(original_key, v);
-            }
-            Value::Object(args_hash.into_iter().collect())
-        } else {
-            args
-        };
+        let transformed_args = transform_call_args(args, &item_schema);
 
         let script_or_flow_path = if is_hub {
             format!("hub/{}", path)
@@ -798,11 +820,23 @@ impl<B: McpBackend> Runner<B> {
         // Execute script or flow
         let result = if tool_type == "script" {
             self.backend
-                .run_script(auth, workspace_id, &script_or_flow_path, transformed_args)
+                .run_script(
+                    auth,
+                    workspace_id,
+                    &script_or_flow_path,
+                    transformed_args,
+                    request,
+                )
                 .await
         } else {
             self.backend
-                .run_flow(auth, workspace_id, &script_or_flow_path, transformed_args)
+                .run_flow(
+                    auth,
+                    workspace_id,
+                    &script_or_flow_path,
+                    transformed_args,
+                    request,
+                )
                 .await
         };
 

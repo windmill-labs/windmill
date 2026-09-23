@@ -22,7 +22,14 @@
 	} from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
-	import { enterpriseLicense, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import {
+		disableHubStore,
+		enterpriseLicense,
+		hubBaseUrlStore,
+		userStore,
+		userWorkspaces,
+		workspaceStore
+	} from '$lib/stores'
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
 	import AIFormAssistant from '$lib/components/copilot/AIFormAssistant.svelte'
 
@@ -59,6 +66,7 @@
 		Eye,
 		FolderOpen,
 		GitFork,
+		Globe2,
 		History,
 		Loader2,
 		Pen,
@@ -71,6 +79,7 @@
 		ChevronDown,
 		ChevronRight
 	} from 'lucide-svelte'
+	import { scriptToHubUrl } from '$lib/hub'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import ScriptVersionHistory from '$lib/components/ScriptVersionHistory.svelte'
@@ -94,6 +103,7 @@
 	import {
 		buildForkEditUrl,
 		editInForkAllowed,
+		editInForkDescription,
 		editInForkLabel,
 		onEditInForkClick
 	} from '$lib/utils/editInFork'
@@ -450,6 +460,8 @@
 		if (!topHash && script && !$userStore?.operator && !script.codebase) {
 			buttons.push({
 				label: 'Fork',
+				description: `Start a new script from a copy of this one`,
+				narrow: { dropdownOf: 'Edit' },
 				buttonProps: {
 					href: `${base}/scripts/add?template=${script.path}`,
 					unifiedSize: 'md',
@@ -468,6 +480,8 @@
 		) {
 			buttons.push({
 				label: editInForkLabel($workspaceStore, $userWorkspaces),
+				description: editInForkDescription('script', $workspaceStore, $userWorkspaces),
+				narrow: { dropdownOf: 'Edit' },
 				buttonProps: {
 					href: buildForkEditUrl('script', script.path),
 					onClick: (e: Event | undefined) =>
@@ -500,6 +514,7 @@
 		if (Array.isArray(script.parent_hashes) && script.parent_hashes.length > 0) {
 			buttons.push({
 				label: `History`,
+				narrow: 'menu',
 				buttonProps: {
 					onClick: () => {
 						versionsDrawerOpen = !versionsDrawerOpen
@@ -515,6 +530,7 @@
 		if (!$userStore?.operator) {
 			buttons.push({
 				label: 'Build app',
+				narrow: 'menu',
 				buttonProps: {
 					onClick: async () => {
 						const app = createRawAppFromScript(script.path, script.summary, script.schema)
@@ -615,6 +631,17 @@
 				Icon: ChevronUpSquare,
 				onclick: () => {
 					deploymentDrawer?.openDrawer(script?.path ?? '', 'script')
+				}
+			})
+		}
+
+		if (!$disableHubStore) {
+			menuItems.push({
+				label: 'Publish to Hub',
+				Icon: Globe2,
+				onclick: () => {
+					if (!script) return
+					window.open(scriptToHubUrl(script, $hubBaseUrlStore).toString(), '_blank', 'noopener')
 				}
 			})
 		}

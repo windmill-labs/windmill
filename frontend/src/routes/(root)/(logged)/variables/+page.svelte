@@ -264,7 +264,9 @@
 	let handledHash = ''
 	$effect(() => {
 		const hash = $page.url.hash
-		if (hash.length <= 1) {
+		// Only item paths are drawer targets: the same hash also carries global
+		// drawers like #superadmin-settings, which must not be looked up as a variable.
+		if (!/^#[ufg]\//.test(hash)) {
 			// Navigating away from a drawer target must clear the tracker, or
 			// re-targeting the same item later would be skipped as already handled.
 			handledHash = ''
@@ -316,7 +318,11 @@
 		</PageHeader>
 		<NoDirectDeployAlert onUpdateCanEditStatus={(v) => (showCreateButtons = v)} />
 
-		<VariableEditor bind:this={variableEditor} on:create={loadVariables} />
+		<VariableEditor
+			bind:this={variableEditor}
+			workspace={$workspaceStore}
+			on:create={loadVariables}
+		/>
 		<ContextualVariableEditor
 			bind:this={contextualVariableEditor}
 			on:update={loadContextualVariables}
@@ -391,8 +397,8 @@
 									<Cell head>Path</Cell>
 									<Cell head>Value</Cell>
 									<Cell head>Description</Cell>
-									<Cell head />
-									<Cell head last stickyEnd />
+									<Cell head>Status</Cell>
+									<Cell head last actions>Actions</Cell>
 								</tr>
 							</Head>
 							<tbody class="divide-y">
@@ -494,7 +500,7 @@
 														{#if refresh_error}
 															<Popover notClickable>
 																<!-- isolate: confine the ping indicator's z-50 to a local stacking context
-											     so it can't paint over a sticky-pinned actions column scrolling past it -->
+											     so it can't paint over anything that scrolls past it -->
 																<div
 																	class="relative inline-flex justify-center items-center w-4 h-4 isolate"
 																>
@@ -546,7 +552,7 @@
 												{/if}
 											</div>
 										</Cell>
-										<Cell last stickyEnd shouldStopPropagation>
+										<Cell last actions shouldStopPropagation>
 											<Dropdown
 												items={() => {
 													let owner = isOwner(path, $userStore, $workspaceStore)

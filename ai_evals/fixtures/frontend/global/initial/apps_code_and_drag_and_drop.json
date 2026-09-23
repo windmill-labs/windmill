@@ -1,0 +1,30 @@
+{
+  "user": {
+    "username": "admin",
+    "is_admin": true,
+    "folders": ["evals"],
+    "folders_read": ["evals"]
+  },
+  "workspace": {
+    "apps": [
+      {
+        "path": "f/evals/global/sales_board",
+        "summary": "Sales board",
+        "rawApp": false,
+        "value": {
+          "grid": []
+        }
+      },
+      {
+        "path": "f/evals/global/ops_console",
+        "summary": "Ops console",
+        "value": {
+          "files": {
+            "/App.tsx": "export default function App() {\n\treturn <div>Ops console</div>\n}\n"
+          },
+          "runnables": {}
+        }
+      }
+    ]
+  }
+}

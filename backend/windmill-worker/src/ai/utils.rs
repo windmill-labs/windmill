@@ -13,7 +13,7 @@ use windmill_common::flows::FlowModuleValue;
 use windmill_common::{
     db::DB,
     error::Error,
-    flow_conversations::{add_message_to_conversation_tx, MessageType},
+    flow_conversations::{add_message_to_conversation_tx, MessageExtras, MessageType},
     flow_status::AgentAction,
     flows::{InputTransform, Step},
     jobs::JobKind,
@@ -26,11 +26,11 @@ use windmill_queue::{flow_status::get_step_of_flow_status, MiniPulledJob};
 
 use crate::parse_sig_of_lang;
 
-pub fn parse_raw_script_schema(
+pub async fn parse_raw_script_schema(
     content: &str,
     language: &ScriptLang,
 ) -> Result<Box<RawValue>, Error> {
-    let main_arg_signature = parse_sig_of_lang(content, Some(&language), None)?
+    let main_arg_signature = parse_sig_of_lang(content, Some(&language), None).await?
         .ok_or_else(|| Error::BadConfig(format!(
             "Cannot parse signature for language {:?}. The language parser may not be enabled in this build.",
             language
@@ -154,6 +154,8 @@ pub async fn get_flow_job_runnable_and_raw_flow(
 pub struct FlowContext {
     pub flow_inputs: Option<HashMap<String, Box<RawValue>>>,
     pub flow_status: Option<windmill_common::flow_status::FlowStatus>,
+    /// Path of the flow the run started from, which scopes a string memory id.
+    pub flow_path: Option<String>,
 }
 
 /// Get flow context (chat settings + args + flow_status) from root flow's job data
@@ -171,7 +173,8 @@ pub async fn get_flow_context(db: &DB, job: &MiniPulledJob) -> FlowContext {
         r#"
         SELECT
             j.args as "args: Json<HashMap<String, Box<RawValue>>>",
-            js.flow_status as "flow_status: Json<windmill_common::flow_status::FlowStatus>"
+            js.flow_status as "flow_status: Json<windmill_common::flow_status::FlowStatus>",
+            j.runnable_path
         FROM v2_job_status js
         INNER JOIN v2_job j ON j.id = js.id
         WHERE js.id = $1
@@ -184,6 +187,7 @@ pub async fn get_flow_context(db: &DB, job: &MiniPulledJob) -> FlowContext {
         Ok(Some(row)) => FlowContext {
             flow_inputs: row.args.map(|j| j.0),
             flow_status: row.flow_status.map(|j| j.0),
+            flow_path: row.runnable_path,
         },
         Ok(None) => {
             tracing::warn!(
@@ -209,6 +213,7 @@ pub async fn add_message_to_conversation(
     message_type: MessageType,
     step_name: &Option<String>,
     success: bool,
+    extras: Option<&MessageExtras>,
 ) -> Result<(), Error> {
     let mut tx = db.begin().await?;
     add_message_to_conversation_tx(
@@ -219,6 +224,7 @@ pub async fn add_message_to_conversation(
         message_type,
         step_name.as_deref(),
         success,
+        extras,
     )
     .await?;
     tx.commit().await?;

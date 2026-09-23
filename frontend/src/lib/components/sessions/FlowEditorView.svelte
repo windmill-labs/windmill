@@ -104,6 +104,9 @@
 		     cell.store), reactive state owned by the SessionRuntime class (via
 		     flowCell), not by a component ancestor — so Svelte's ownership check
 		     flags a false positive here. -->
+		<!-- draftBaseVersion / version: the base the session's draft carries and the head at
+		     load time, so the deploy guard compares the same pair the full-page editor does;
+		     without them every deploy from a session tab reads as up to date. -->
 		<!-- svelte-ignore ownership_invalid_binding -->
 		<FlowBuilder
 			flowStore={cell.store}
@@ -115,6 +118,10 @@
 			{selectedId}
 			loading={false}
 			bind:savedFlow={cell.saved.val}
+			draftBaseVersion={cell.store.val?.version_id != null
+				? String(cell.store.val.version_id)
+				: undefined}
+			version={cell.saved.val?.version_id}
 			{diffDrawer}
 			{onNavigate}
 			condensedHeader={true}

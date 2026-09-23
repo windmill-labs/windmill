@@ -37,8 +37,9 @@ use windmill_common::{
     scripts::ScriptLang,
     utils::calculate_hash,
     worker::{
-        copy_dir_recursively, is_allowed_file_location, pad_string, split_python_requirements,
-        write_file, Connection, PyVAlias, PythonAnnotations, WORKER_CONFIG,
+        copy_dir_recursively, is_allowed_file_location, lockfile_line_has_continuation, pad_string,
+        requirement_from_lockfile_line, split_python_requirements, write_file, Connection,
+        PyVAlias, PythonAnnotations, WORKER_CONFIG,
     },
 };
 
@@ -91,10 +92,10 @@ struct PiptarUploadTask {
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
 async fn handle_piptar_uploads(mut rx: tokio::sync::mpsc::UnboundedReceiver<PiptarUploadTask>) {
     use crate::global_cache::build_tar_and_push;
-    use windmill_object_store::get_object_store;
+    use windmill_object_store::get_cache_object_store;
 
     while let Some(task) = rx.recv().await {
-        if let Some(os) = get_object_store().await {
+        if let Some(os) = get_cache_object_store().await {
             match build_tar_and_push(os, task.venv_path.clone(), task.cache_dir, None, false).await
             {
                 Ok(()) => {
@@ -117,6 +118,12 @@ const NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT: &str = include_str!("../nsjail/download
 const NSJAIL_CONFIG_RUN_PYTHON3_CONTENT: &str = include_str!("../nsjail/run.python3.config.proto");
 pub const RELATIVE_PYTHON_LOADER: &str = include_str!("../loader.py");
 
+/// Every file exchanged with a job is UTF-8 by construction, so the interpreter
+/// must agree. A job env carries no locale: Linux then picks UTF-8 on its own
+/// (PEP 540), Windows picks the ANSI code page. Applied after the whitelisted
+/// envs so the protocol is not the user's to opt out of.
+pub const PYTHON_UTF8_ENVS: [(&str, &str); 1] = [("PYTHONUTF8", "1")];
+
 /// Render loader.py with the TEMP_SCRIPT_REFS placeholder substituted by a
 /// Python dict literal. Preview jobs pass a path -> temp-hash map so relative
 /// imports resolve from not-yet-deployed local content; deployed runs pass
@@ -138,7 +145,7 @@ pub fn has_relative_imports(content: &str) -> bool {
 use crate::global_cache::pull_from_tar;
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
-use windmill_object_store::OBJECT_STORE_SETTINGS;
+use windmill_object_store::get_cache_object_store;
 
 use crate::{
     common::{
@@ -221,9 +228,9 @@ fn filter_pip_local_dependencies(lines: Vec<String>) -> (Vec<String>, Vec<String
 /// `(kept, ignored)`. A line is ignored when it is not a `#` comment and matches any of
 /// `compiled_deps`. Kept separate from config/regex loading so it can be unit-tested.
 fn filter_lines_by_deps(lines: Vec<String>, compiled_deps: &[Regex]) -> (Vec<String>, Vec<String>) {
-    let (ignored, kept): (Vec<String>, Vec<String>) = lines
-        .into_iter()
-        .partition(|s| !s.starts_with('#') && compiled_deps.iter().any(|dep| dep.is_match(s)));
+    let (ignored, kept): (Vec<String>, Vec<String>) = lines.into_iter().partition(|s| {
+        !s.trim_start().starts_with('#') && compiled_deps.iter().any(|dep| dep.is_match(s))
+    });
 
     (kept, ignored)
 }
@@ -317,6 +324,11 @@ pub async fn uv_pip_compile(
             "compile",
             "-q",
             "--no-header",
+            // The `#`-line filter applied to the output below only catches whole-line
+            // annotations, and uv's annotation style is configurable: `[pip]
+            // annotation-style = "line"` in the worker HOME's uv.toml emits them inline
+            // ("anyio==4.15.1  # via httpx"), which that filter keeps.
+            "--no-annotate",
             file,
             "--strip-extras",
             "-o",
@@ -818,7 +830,7 @@ pub async fn handle_python_job(
                 del pre_args[k]
         kwargs = inner_script.preprocessor(**pre_args)
         kwrags_json = res_to_json(kwargs, type(kwargs))
-        with open("args.json", 'w') as f:
+        with open("args.json", 'w', encoding="utf-8") as f:
             f.write(kwrags_json)"#
         )
     } else {
@@ -853,7 +865,7 @@ pub async fn handle_python_job(
         _pre_result = asyncio.run(_pre_result)
     kwargs = _pre_result if _pre_result is not None else {{}}
     _pre_json = json.dumps(kwargs, separators=(',', ':'), default=str)
-    with open("args.json", 'w') as f:
+    with open("args.json", 'w', encoding="utf-8") as f:
         f.write(_pre_json)
     sys.stdout.write("wm_res[preprocessed_args]:" + _pre_json + "\n")
     sys.stdout.flush()"#
@@ -874,11 +886,11 @@ import sys
 from {module_dir_dot} import {last} as inner_script
 from wmill.client import _run_workflow
 
-with open("args.json") as f:
+with open("args.json", encoding="utf-8") as f:
     kwargs = json.load(f, strict=False)
 {transforms}
 
-with open("checkpoint.json") as f:
+with open("checkpoint.json", encoding="utf-8") as f:
     checkpoint = json.load(f, strict=False)
 
 result_json = os.path.join(os.path.abspath(os.path.dirname(__file__)), "result.json")
@@ -904,12 +916,12 @@ try:
         print("")
         print("--- WAC: complete ---")
     output_json = json.dumps(output, separators=(',', ':'), default=str)
-    with open(result_json, 'w') as f:
+    with open(result_json, 'w', encoding="utf-8") as f:
         f.write(output_json)
 except BaseException as e:
     exc_type, exc_value, exc_traceback = sys.exc_info()
     tb = traceback.format_tb(exc_traceback)
-    with open(result_json, 'w') as f:
+    with open(result_json, 'w', encoding="utf-8") as f:
         err = {{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:]) }}
         extra = e.__dict__
         if extra and len(extra) > 0:
@@ -936,7 +948,7 @@ import sys
 from {module_dir_dot} import {last} as inner_script
 import re
 
-with open("args.json") as f:
+with open("args.json", encoding="utf-8") as f:
     kwargs = json.load(f, strict=False)
 args = {{}}
 {transforms}
@@ -972,12 +984,12 @@ try:
             print("WM_STREAM: " + chunk.replace('\n', '\\n'))
         res = None
     res_json = res_to_json(res, typ)
-    with open(result_json, 'w') as f:
+    with open(result_json, 'w', encoding="utf-8") as f:
         f.write(res_json)
 except BaseException as e:
     exc_type, exc_value, exc_traceback = sys.exc_info()
     tb = traceback.format_tb(exc_traceback)
-    with open(result_json, 'w') as f:
+    with open(result_json, 'w', encoding="utf-8") as f:
         err = {{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:]) }}
         extra = e.__dict__
         if extra and len(extra) > 0:
@@ -1117,6 +1129,7 @@ mount {{
                 )
                 .await?,
             )
+            .envs(PYTHON_UTF8_ENVS)
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
@@ -1152,6 +1165,7 @@ mount {{
                 )
                 .await?,
             )
+            .envs(PYTHON_UTF8_ENVS)
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
@@ -1223,6 +1237,7 @@ mount {{
             result,
             job,
             conn,
+            canceled_by,
             modules,
             new_args.as_ref(),
         ))
@@ -2323,6 +2338,33 @@ async fn spawn_uv_install(
     }
 }
 
+/// First field (the path) of a wheel RECORD line. RECORD is CSV (PEP 376 /
+/// RFC 4180): a path containing a comma or a double quote is written quoted,
+/// with inner quotes doubled, so splitting on the first comma turns such an
+/// entry into a name that never exists on disk.
+fn record_first_field(line: &str) -> Option<String> {
+    let Some(quoted) = line.strip_prefix('"') else {
+        return line
+            .split(',')
+            .next()
+            .filter(|p| !p.is_empty())
+            .map(str::to_owned);
+    };
+    let mut field = String::new();
+    let mut chars = quoted.chars();
+    while let Some(c) = chars.next() {
+        if c != '"' {
+            field.push(c);
+        } else if chars.as_str().starts_with('"') {
+            chars.next();
+            field.push('"');
+        } else {
+            return Some(field).filter(|f| !f.is_empty());
+        }
+    }
+    None
+}
+
 /// Verify that every file listed in the wheel's RECORD exists on disk under
 /// `venv_p`. Used as a structural integrity check after both a successful
 /// `pull_from_tar` (object-store cache hit) and a successful local
@@ -2371,9 +2413,9 @@ async fn verify_wheel_record(venv_p: &str) -> Result<(), String> {
         if trimmed.is_empty() {
             continue;
         }
-        let rel_path = match trimmed.split(',').next() {
-            Some(p) if !p.is_empty() => p,
-            _ => continue,
+        let rel_path = match record_first_field(trimmed) {
+            Some(p) => p,
+            None => continue,
         };
         // Defensive: skip absolute paths or escaping entries — we only
         // validate package-relative files.
@@ -2382,7 +2424,7 @@ async fn verify_wheel_record(venv_p: &str) -> Result<(), String> {
         }
         let full = format!("{venv_p}/{rel_path}");
         if tokio::fs::metadata(&full).await.is_err() {
-            missing.push(rel_path.to_string());
+            missing.push(rel_path);
             // Bound error size in pathological cases (e.g. wholly empty dir).
             if missing.len() >= 10 {
                 missing.push("...".to_string());
@@ -2440,7 +2482,7 @@ pub async fn handle_python_reqs(
         }
 
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
-        if OBJECT_STORE_SETTINGS.read().await.is_none() {
+        if get_cache_object_store().await.is_none() {
             (s3_pull, s3_push) = (false, false);
         }
 
@@ -2511,11 +2553,23 @@ pub async fn handle_python_reqs(
     // Find out if there is already cached dependencies
     // If so, skip them
     let mut in_cache = vec![];
+    if requirements
+        .iter()
+        .any(|r| lockfile_line_has_continuation(r))
+    {
+        tracing::warn!(workspace_id = %w_id, job_id = %job_id, "lockfile continues entries across lines; the continued lines are dropped");
+        append_logs(
+            job_id,
+            w_id,
+            "\n[!] lockfile continues entries across lines and the continued lines are dropped: `--hash=` pins, extras and markers written that way do not apply\n".to_string(),
+            conn,
+        )
+        .await;
+    }
     for req in &requirements {
-        // Ignore python version annotation backed into lockfile
-        if req.starts_with('#') || req.starts_with('-') || req.trim().is_empty() {
+        let Some(req) = requirement_from_lockfile_line(req) else {
             continue;
-        }
+        };
         let py_prefix = &py_version.to_cache_dir(false);
 
         let venv_p = format!(
@@ -2898,7 +2952,7 @@ pub async fn handle_python_reqs(
 
             #[cfg(all(feature = "enterprise", feature = "parquet"))]
             if is_not_pro {
-                if let Some(os) = windmill_object_store::get_object_store().await {
+                if let Some(os) = windmill_object_store::get_cache_object_store().await {
                     tokio::select! {
                         // Cancel was called on the job
                         _ = kill_rx.recv() => return Err(Error::from(anyhow::anyhow!("S3 pull was canceled"))),
@@ -3430,7 +3484,10 @@ pub async fn start_worker(
     )
     .await;
 
-    let mut proc_envs = HashMap::new();
+    let mut proc_envs: HashMap<String, String> = PYTHON_UTF8_ENVS
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
     let additional_python_paths_folders = additional_python_paths.iter().join(":");
     proc_envs.insert("PYTHONPATH".to_string(), additional_python_paths_folders);
     proc_envs.insert("PATH".to_string(), PATH_ENV.to_string());
@@ -3720,6 +3777,44 @@ mod tests {
         assert!(verify_wheel_record(dir.path().to_str().unwrap())
             .await
             .is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_verify_wheel_record_accepts_csv_quoted_path() {
+        let dir = tempfile::tempdir().unwrap();
+        // A path containing a comma is CSV-quoted in RECORD (wcwidth 0.8.3
+        // ships `wcwidth/textwrap.py,cover`). Splitting on the first comma
+        // looked for `"pkg/textwrap.py` and rejected a complete install.
+        write_fake_wheel(
+            dir.path(),
+            &["pkg/textwrap.py", "pkg/textwrap.py,cover"],
+            &[
+                "pkg/textwrap.py,sha256=aaa,1",
+                "\"pkg/textwrap.py,cover\",sha256=bbb,1",
+                "pkg-1.0.0.dist-info/RECORD,,",
+            ],
+        );
+        assert!(verify_wheel_record(dir.path().to_str().unwrap())
+            .await
+            .is_ok());
+    }
+
+    #[test]
+    fn test_record_first_field_unquotes_rfc4180() {
+        assert_eq!(
+            record_first_field("pkg/a.py,sha256=x,1").as_deref(),
+            Some("pkg/a.py")
+        );
+        assert_eq!(
+            record_first_field("\"pkg/a.py,cover\",sha256=x,1").as_deref(),
+            Some("pkg/a.py,cover")
+        );
+        assert_eq!(
+            record_first_field("\"pkg/say \"\"hi\"\".py\",sha256=x,1").as_deref(),
+            Some("pkg/say \"hi\".py")
+        );
+        assert_eq!(record_first_field(",,"), None);
+        assert_eq!(record_first_field("\"unterminated,sha256=x,1"), None);
     }
 
     // Regression tests for the concurrent-install guard. Two jobs installing the

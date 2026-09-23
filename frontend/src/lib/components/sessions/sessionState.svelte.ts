@@ -24,8 +24,16 @@ import { workspaceRootId } from './sessionScope.svelte'
 import { clearSessionRecovered } from './sessionRecoveryNotice.svelte'
 import { type DBSchema, type IDBPDatabase } from 'idb'
 import { userScopedDb } from '$lib/userScopedDb'
+import { emailOfScopedKey, scopedKeyFor } from '$lib/userScopedStorage'
 import { deleteItemsForSession } from '../copilot/chat/files/attachedFilesDB'
 import { deleteArtifactsForSession } from '../copilot/chat/artifacts/artifactsDB'
+import { deleteSessionChats } from '../copilot/chat/HistoryManager.svelte'
+import {
+	markSessionDirty,
+	markSessionRemoved,
+	sessionSwept,
+	sessionsLockName
+} from './sessionMirrorSignal'
 
 // Switch the global workspace iff the target differs from the active one
 // and is non-empty. Centralises the "session needs its workspace in focus"
@@ -38,7 +46,6 @@ export function syncWorkspaceTo(workspaceId: string | undefined): void {
 }
 import { WorkspaceService } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
-import type HistoryManager from '$lib/components/copilot/chat/HistoryManager.svelte'
 import { onUserChange } from '$lib/userScopedStorage'
 
 // A destination the session preview can open as an editor: a workspace item
@@ -75,7 +82,9 @@ export type SessionSummarySource = 'placeholder' | 'generated' | 'manual'
 
 export type Session = {
 	id: string
-	name: string
+	// Per-browser `session-N` label that older sessions-page URLs carried; only read
+	// to resolve those links.
+	name?: string
 	// Committed strictly at first user-message send. Undefined for drafts
 	// that have never been sent — those scope by `pending_workspace_id`
 	// instead and don't show the fork bar.
@@ -103,6 +112,10 @@ export type Session = {
 	// archived (not by the user). Lets reconciliation auto-unarchive the session
 	// when the workspace is unarchived, while leaving user-archived sessions be.
 	archivedByWorkspace?: boolean
+	// How many times the session moved to another workspace. The backup keeps it
+	// with the session's marker, so a restore that finds a copy in two workspaces
+	// (moved, the old copy not yet removed) takes the later one without a clock.
+	moves?: number
 	// In-memory-only flag: the session exists but hasn't been written to
 	// IndexedDB yet. Set at creation, cleared on the first genuine user touch
 	// (typed prompt, workspace/fork pick, preview tab, rename) which persists
@@ -119,6 +132,11 @@ export type Session = {
 	// Absent on records last written before the field existed; readers fall back
 	// to createdAt via sessionLastActivityAt.
 	lastActivityAt?: number
+	// When this browser restored the session from its backup, by this browser's clock.
+	// The restore sets `lastActivityAt` to the backup's time, the storage's clock; the
+	// retention counts from whichever is later, so a browser clock ahead of the storage's
+	// never deletes a session it just brought back. Not backed up.
+	restoredAt?: number
 	// Per-session unread watermark: the displayMessages count the last time
 	// the user was on this session's page. Compared against the runtime's
 	// current message count to derive the unread badge (see sessionUnread).
@@ -405,8 +423,9 @@ export function takeSessionAutoSend(sessionId: string): boolean {
 
 // Persist a session on a genuine user edit, promoting an in-memory-only
 // (transient) pending session to a durable IndexedDB record on first touch.
-// Non-touch writers (runtime chatId seeding, unread watermark) call putSession
-// directly, so an untouched draft stays in memory and vanishes on reload.
+// Non-touch writers (runtime chatId writes via patchStoredSessionChatId, the
+// unread watermark via putSession) persist directly, so an untouched draft
+// stays in memory and vanishes on reload.
 function persistTouched(s: Session): void {
 	if (s.transient) delete s.transient
 	s.lastActivityAt = Date.now()
@@ -432,18 +451,26 @@ export function __resetDeletedSessionIdsForTesting(): void {
 // The one way to remove a session's record. Tombstones BEFORE awaiting the delete so a
 // putSession racing this transaction cannot commit its write behind it — a direct
 // db.delete elsewhere would silently reopen that window.
-async function deleteSessionRow(db: IDBPDatabase<SessionSchema>, id: string): Promise<void> {
-	deletedSessionIds.add(id)
+async function deleteSessionRow(
+	db: IDBPDatabase<SessionSchema>,
+	id: string,
+	// The retention sweep passes false. It holds the in-use lock exclusively, so no write can
+	// race its delete, and the backup may still hold the session: a tombstone would refuse the
+	// restore that is meant to bring it back.
+	tombstone = true
+): Promise<void> {
+	if (tombstone) deletedSessionIds.add(id)
 	await db.delete('sessions', id)
 }
 
-// The one way to write a session's record, and the other half of the invariant above:
-// every caller reaches its write across an await — putSession on the DB handle, the
-// reconcile and hydrate passes on a getAll() snapshot that an interleaved delete
-// invalidates — so the tombstone has to be consulted here, not only at the entry points.
+// The way a session record is written (patchStoredSessionChatId is the one
+// exception: it re-checks the tombstone inline to stay inside its own
+// transaction). Every caller reaches its write across an await, so the
+// tombstone has to be consulted here, not only at the entry points.
 async function putSessionRow(db: IDBPDatabase<SessionSchema>, s: Session): Promise<void> {
 	if (deletedSessionIds.has(s.id)) return
 	await db.put('sessions', s)
+	markSessionDirty(s.id, undefined, emailOfScopedKey(SESSIONS_DB, db.name))
 }
 
 // Write-behind a single session record. Transient sessions are in-memory only
@@ -456,8 +483,8 @@ export async function putSession(s: Session): Promise<void> {
 	if (s.transient) return
 	// A record removed because its workspace is gone had its files and artifacts GC'd with
 	// it, so writing it back resurrects an empty husk. Callers reach here holding a
-	// reference captured before the delete — the chat-id seeder awaits mid-loop,
-	// find-then-write callers race the re-hydrate.
+	// reference captured before the delete: find-then-write callers race the
+	// re-hydrate, and any writer that awaits between the find and the write.
 	if (deletedSessionIds.has(s.id)) return
 	// Separately, keep a UI action (e.g. unarchive) from persisting into a workspace that
 	// has gone unavailable but not yet reconciled. `userWorkspaces` answers that only for
@@ -627,6 +654,242 @@ export async function reconcileSessionsLifecycle(): Promise<void> {
 	}
 }
 
+// --- Retention ---
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
+// Past the retention by this browser's clock, counted from the later of the session's last
+// activity and its restore here: a restored session carries the backup's time, the storage's
+// clock, so without `restoredAt` a browser running ahead would delete what it just brought
+// back. Archived sessions count like any other.
+function isSessionExpired(
+	session: Session,
+	retentionDays: number | undefined,
+	now: number
+): boolean {
+	if (retentionDays === undefined || !(retentionDays >= 1)) return false
+	const since = Math.max(sessionLastActivityAt(session), session.restoredAt ?? 0)
+	return since < now - retentionDays * DAY_MS
+}
+
+// What the server last told this browser, and when. It decides whether the sweep asks again,
+// and nothing else: a retention raised or cleared since must not delete a session, and a
+// persisted unsent draft has no backup to come back from.
+const RETENTION_DAYS = 'windmill_sessions_retention_days'
+
+// Nothing remembered for longer than this is trusted even to say there is nothing to ask
+// about, so a retention lowered while this browser saw nothing expiring still takes effect.
+const RETENTION_STALE_MS = 24 * 60 * 60 * 1000
+
+interface RememberedRetention {
+	at: number
+	days: Record<string, number>
+}
+
+function rememberRetention(email: string, days: Record<string, number>): void {
+	try {
+		const remembered: RememberedRetention = { at: Date.now(), days }
+		localStorage.setItem(scopedKeyFor(RETENTION_DAYS, email), JSON.stringify(remembered))
+	} catch {}
+}
+
+function rememberedRetention(email: string): RememberedRetention | undefined {
+	try {
+		const stored = localStorage.getItem(scopedKeyFor(RETENTION_DAYS, email))
+		const remembered = stored ? JSON.parse(stored) : undefined
+		if (remembered?.days && typeof remembered.days === 'object') {
+			return remembered as RememberedRetention
+		}
+	} catch {}
+	return undefined
+}
+
+// How long the sweep waits for the retention of the workspaces it is about to sweep in. The
+// tab reads its sessions after the sweep, so a request nothing answers costs the list this
+// much and no more, and only in a tab that had something to delete.
+const RETENTION_ASK_MS = 5000
+
+// The retention the server gives now, or undefined when this browser could not be told: a
+// session is deleted only on an answer of the moment.
+async function askRetention(workspaceIds: string[]): Promise<Record<string, number> | undefined> {
+	try {
+		return await Promise.race([
+			WorkspaceService.getSessionWorkspaceRetention({
+				requestBody: { workspace_ids: workspaceIds }
+			}),
+			new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), RETENTION_ASK_MS))
+		])
+	} catch (e) {
+		console.error('Failed to read the AI session retention of the workspaces', e)
+		return undefined
+	}
+}
+
+// One key per session this browser swept whose pieces are not all deleted yet.
+const RETENTION_PENDING = 'windmill_sessions_retention_pending'
+
+function retentionPendingPrefix(email: string): string {
+	return `${scopedKeyFor(RETENTION_PENDING, email)}::`
+}
+
+function forgetRetentionPending(email: string, id: string): void {
+	try {
+		localStorage.removeItem(retentionPendingPrefix(email) + id)
+	} catch {}
+}
+
+function retentionPending(email: string): string[] {
+	const prefix = retentionPendingPrefix(email)
+	const ids: string[] = []
+	try {
+		for (let i = 0; i < localStorage.length; i++) {
+			const key = localStorage.key(i)
+			if (key?.startsWith(prefix)) ids.push(key.slice(prefix.length))
+		}
+	} catch {}
+	return ids
+}
+
+function webLocks(): LockManager | undefined {
+	return typeof navigator === 'undefined' ? undefined : (navigator as { locks?: LockManager }).locks
+}
+
+// Held, shared, by every tab from before it reads the user's sessions until it stops using
+// them: the stores are shared, and each tab keeps copies of the sessions in memory, so the
+// sweep deletes only while holding this exclusively.
+function sessionsInUseLockName(email: string): string {
+	return `${sessionsLockName(email)}::in-use`
+}
+
+interface InUseHold {
+	email: string
+	released: boolean
+	release?: () => void
+	done?: Promise<unknown>
+}
+
+let inUse: InUseHold | undefined
+
+// Resolves once the hold is granted, which waits for the sweep another tab is running. A
+// request the browser refuses (a document that is not fully active) resolves it too, without
+// a hold: the tab reads its sessions unguarded, as it does where Web Locks do not exist, and
+// never sits waiting for a grant that is not coming.
+async function holdSessionsInUse(email: string): Promise<void> {
+	const locks = webLocks()
+	if (!locks || inUse?.email === email) return
+	await releaseSessionsInUse()
+	const hold: InUseHold = { email, released: false }
+	inUse = hold
+	await new Promise<void>((granted) => {
+		hold.done = locks
+			.request(sessionsInUseLockName(email), { mode: 'shared' }, () => {
+				granted()
+				return hold.released ? undefined : new Promise<void>((resolve) => (hold.release = resolve))
+			})
+			.catch((e) => {
+				console.error('Could not hold the AI sessions this tab is reading', e)
+				if (inUse === hold) inUse = undefined
+				granted()
+			})
+	})
+}
+
+// Resolves once the hold is let go of, so an exclusive request made next can be granted.
+async function releaseSessionsInUse(): Promise<void> {
+	const hold = inUse
+	if (!hold) return
+	inUse = undefined
+	hold.released = true
+	hold.release?.()
+	await hold.done?.catch(() => {})
+}
+
+// Deletes one expired session: its record first, so nothing plans a push for it afterwards,
+// then its pieces. The pending key, written before the record and removed once every piece
+// is gone, is what a later sweep finishes a failed deletion from.
+async function sweepSession(
+	db: IDBPDatabase<SessionSchema>,
+	id: string,
+	email: string
+): Promise<void> {
+	try {
+		localStorage.setItem(retentionPendingPrefix(email) + id, '1')
+	} catch {
+		return
+	}
+	await deleteSessionRow(db, id, false)
+	await sessionSwept(id, email)
+	if (await deleteSessionPieces(id, email)) forgetRetentionPending(email, id)
+}
+
+// Chats with their images, artifacts and attached files. False when any of them could not
+// be deleted.
+async function deleteSessionPieces(id: string, email: string): Promise<boolean> {
+	const chats = await deleteSessionChats(id, email)
+	const artifacts = await deleteArtifactsForSession(id, email)
+	const files = await deleteItemsForSession(id)
+	return chats && artifacts && files
+}
+
+// The workspace a session's retention comes from: persisted unsent drafts count by the one
+// they are waiting on.
+function retentionWorkspaceOf(session: Session): string | undefined {
+	return session.workspace_id ?? session.pending_workspace_id
+}
+
+// Deletes this browser's copies of the sessions past their workspace's retention, and the
+// pieces of the ones an earlier sweep could not finish (docs/ai-session-backups.md). Deleting
+// one record at a time, without re-reading it, is safe only under the in-use lock held
+// exclusively, granted exactly when no tab has the sessions loaded — hence the call site.
+async function sweepExpiredSessions(email: string): Promise<void> {
+	const locks = webLocks()
+	if (!locks || inUse) return
+	try {
+		await locks.request(sessionsInUseLockName(email), { ifAvailable: true }, async (idle) => {
+			if (!idle) return
+			// The flush and the restore run under this one: neither must see a session half
+			// deleted, or plan a push from it.
+			await locks.request(sessionsLockName(email), { ifAvailable: true }, async (mirror) => {
+				if (!mirror) return
+				const db = await sessionsDb.whenReady()
+				if (!db || db.name !== scopedKeyFor(SESSIONS_DB, email)) return
+				for (const id of retentionPending(email)) {
+					// A restore brought the session back: its pieces are that copy's now.
+					const back = (await db.getKey('sessions', id)) !== undefined
+					if (back || (await deleteSessionPieces(id, email))) forgetRetentionPending(email, id)
+				}
+				const stored = await db.getAll('sessions')
+				const remembered = rememberedRetention(email)
+				const now = Date.now()
+				const workspaces = new Set<string>()
+				let expired = false
+				for (const s of stored) {
+					const ws = retentionWorkspaceOf(s)
+					if (ws === undefined) continue
+					workspaces.add(ws)
+					expired ||= isSessionExpired(s, remembered?.days[ws], now)
+				}
+				// Nothing to sweep in, or nothing old enough by an answer recent enough to be
+				// believed about that: this load costs no request.
+				const fresh = remembered !== undefined && now - remembered.at < RETENTION_STALE_MS
+				if (workspaces.size === 0 || (!expired && fresh)) return
+				const retention = await askRetention([...workspaces])
+				// Asked and not told: the sessions wait for the next load rather than go on an
+				// answer this browser does not have.
+				if (!retention) return
+				rememberRetention(email, retention)
+				for (const s of stored) {
+					const ws = retentionWorkspaceOf(s)
+					if (ws === undefined || !isSessionExpired(s, retention[ws], Date.now())) continue
+					await sweepSession(db, s.id, email)
+				}
+			})
+		})
+	} catch (e) {
+		console.error('Failed to sweep the sessions past their retention', e)
+	}
+}
+
 // The single seam for "a workspace just changed — bring sessions back in sync."
 // Refresh the workspace list FIRST — both reconcile and the putSession guard
 // read it, so it must reflect the change before reconcile runs — then reconcile.
@@ -708,6 +971,15 @@ export async function deleteSessionsForWorkspace(workspaceId: string): Promise<v
 // user's sessions never bleed into another.
 onUserChange(async (email, prevEmail) => {
 	if (!BROWSER) return
+	// The retention sweep runs here and nowhere else: this tab holds none of the new user's
+	// sessions yet, and letting go of the hold it had leaves it holding none of anyone's. The
+	// new hold is taken before the sessions are read, so another tab's sweep never deletes
+	// what this tab is about to load, and one already running is waited for.
+	await releaseSessionsInUse()
+	if (email) {
+		await sweepExpiredSessions(email)
+		await holdSessionsInUse(email)
+	}
 	await hydrateSessions({ dropTransients: prevEmail !== email })
 	// onUserChange also fires at registration time, before the email resolves —
 	// that hydration is an empty no-op and must not clear the loading state.
@@ -735,8 +1007,8 @@ if (BROWSER) {
 	})
 }
 
-export function findSessionByName(name: string): Session | undefined {
-	return sessionState.sessions.find((s) => s.name === name)
+export function sessionPageHref(id: string): string {
+	return `/sessions?session=${encodeURIComponent(id)}`
 }
 
 // Bumped to ask the active session's composer to re-focus even when
@@ -758,9 +1030,9 @@ function isDiscardableDraft(s: Session): boolean {
 }
 
 // Somewhere empty to put the user, for a URL naming a session this browser
-// doesn't hold. Only `transient` makes "empty" trustworthy: chat seeding and
-// attached-file persistence both key off `!transient` and leave every field
-// below untouched, so a persisted session can hold a conversation regardless.
+// doesn't hold. Only `transient` makes "empty" trustworthy: a persisted session
+// can hold a conversation while every field below stays untouched — its chat and
+// attached files key off `!transient`, not off these.
 export function findEmptyLandingSession(): Session | undefined {
 	return sessionState.sessions.find(
 		(s) =>
@@ -795,10 +1067,6 @@ export function createSession(): Session {
 		return reusable
 	}
 	sessionState.sessions = sessionState.sessions.filter((s) => !isDiscardableDraft(s))
-	const existingNumbers = sessionState.sessions
-		.map((s) => /^session-(\d+)$/.exec(s.name)?.[1])
-		.map((n) => (n ? parseInt(n, 10) : 0))
-	const next = (existingNumbers.length ? Math.max(...existingNumbers) : 0) + 1
 	// Start in the workspace you're in. The one exception: a root you can't
 	// deploy to (locked, no bypass) steers to its dev, since a session there
 	// couldn't edit anything. The picker lets you switch.
@@ -824,7 +1092,6 @@ export function createSession(): Session {
 	const summary = `${adj.charAt(0).toUpperCase() + adj.slice(1)} session`
 	const session: Session = {
 		id: createLongHash(),
-		name: `session-${next}`,
 		summary,
 		summarySource: 'placeholder',
 		pending_workspace_id: pending && pending.length > 0 ? pending : undefined,
@@ -1069,6 +1336,7 @@ export async function moveSessionToWorkspace(id: string, newWorkspaceId: string)
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s) return
 	if (s.workspace_id === newWorkspaceId) return
+	if (s.workspace_id !== undefined) s.moves = (s.moves ?? 0) + 1
 	s.workspace_id = newWorkspaceId
 	delete s.pending_workspace_id
 	delete s.pending_fork
@@ -1144,51 +1412,97 @@ export function deleteSession(id: string) {
 	// GC any linked files and artifacts persisted for this session.
 	void deleteItemsForSession(id)
 	void deleteArtifactsForSession(id)
+	// Only a delete the user asked for takes the backup with it: the workspace-lifecycle
+	// removals above keep theirs, so a session dropped by a wrong reconcile can be restored.
+	markSessionRemoved(id, s.workspace_id)
 	logFeatureUsage('ai_session', 'deleted', { entityId: id, workspace: s.workspace_id })
+}
+
+// --- Session backup support (sessionMirror) ---
+
+export function isSessionTombstoned(id: string): boolean {
+	return deletedSessionIds.has(id)
+}
+
+// Every stored record of the named user, or undefined when the store is unavailable or
+// already serves someone else: the backup captures its user up front and must not follow
+// an in-place account switch.
+export async function readStoredSessions(email: string): Promise<Session[] | undefined> {
+	if (!BROWSER) return undefined
+	const db = await sessionsDb.whenReady()
+	if (!db || db.name !== scopedKeyFor(SESSIONS_DB, email)) return undefined
+	try {
+		return await db.getAll('sessions')
+	} catch (e) {
+		console.error('Failed to read sessions from IndexedDB', e)
+		return undefined
+	}
+}
+
+// Add restored records for sessions this browser does not have, and re-hydrate the list.
+// A record that exists, or was deleted here, is left alone: the local copy is the newer
+// one. Returns the ids written.
+export async function importSessions(records: Session[], email: string): Promise<string[]> {
+	if (!BROWSER) return []
+	const db = await sessionsDb.whenReady()
+	if (!db || db.name !== scopedKeyFor(SESSIONS_DB, email)) return []
+	const imported: string[] = []
+	try {
+		const tx = db.transaction('sessions', 'readwrite')
+		const existing = new Set((await tx.store.getAllKeys()).map(String))
+		const restoredAt = Date.now()
+		for (const r of records) {
+			if (existing.has(r.id) || deletedSessionIds.has(r.id)) continue
+			const record: Session = { ...r, restoredAt }
+			delete record.transient
+			delete record.workspace_root_id
+			ensureSessionRootId(record)
+			await tx.store.put(record)
+			imported.push(record.id)
+		}
+		await tx.done
+	} catch (e) {
+		console.error('Failed to import sessions', e)
+		return []
+	}
+	if (imported.length > 0) await hydrateSessions()
+	return imported
 }
 
 export function setSessionChatId(sessionId: string, chatId: string) {
 	const s = sessionState.sessions.find((x) => x.id === sessionId)
 	if (s && s.chatId !== chatId) {
 		s.chatId = chatId
-		void putSession(s)
+		void patchStoredSessionChatId(s, chatId)
 	}
 }
 
-let seedPromise: Promise<void> | undefined
-
-// One-shot pairing of the user's two most-recently-modified saved chats with
-// the two seeded sessions. Idempotent across all callers / SessionWrappers.
-export function ensureChatIdsSeeded(historyManager: HistoryManager): Promise<void> {
-	if (!seedPromise) {
-		seedPromise = (async () => {
-			try {
-				await historyManager.init()
-				// Read directly from storage so we see chats regardless of this manager's
-				// own session-scope filter (getPastChats would hide already-tagged ones).
-				const pastChats = historyManager.getAllSavedChats()
-				const untagged = pastChats
-					.filter((c) => !c.sessionId)
-					.sort((a, b) => b.lastModified - a.lastModified)
-				// Only seed pre-existing (persisted) sessions. Transient
-				// sessions are freshly created via the "+" button and must
-				// start with an empty chat — if the seed catches one (e.g. the
-				// user clicks "New session" before this one-shot runs), it
-				// would graft a previous discussion onto the new session.
-				const seedable = sessionState.sessions.filter((s) => !s.transient)
-				for (let i = 0; i < Math.min(seedable.length, untagged.length); i++) {
-					if (!seedable[i].chatId) {
-						const chatId = untagged[i].id
-						const sessionId = seedable[i].id
-						seedable[i].chatId = chatId
-						await historyManager.tagChatWithSession(chatId, sessionId)
-						void putSession(seedable[i])
-					}
-				}
-			} catch (e) {
-				console.error('Failed to seed chat ids from history', e)
-			}
-		})()
+// Persists the pointer through the STORED row, not this tab's copy: another
+// tab may have written newer fields (summary, tabs, archive state) since this
+// tab last read the record, and a whole-object put would roll them back — a
+// watcher adopting the driver's rotation reaches here with exactly that copy.
+async function patchStoredSessionChatId(s: Session, chatId: string): Promise<void> {
+	if (!BROWSER || s.transient || deletedSessionIds.has(s.id)) return
+	const db = await sessionsDb.whenReady()
+	if (!db) return
+	try {
+		const tx = db.transaction('sessions', 'readwrite')
+		const stored = await tx.store.get(s.id)
+		// Inline tombstone re-check in place of putSessionRow's: routing through
+		// it would put outside this transaction and lose the read's atomicity.
+		if (stored && !deletedSessionIds.has(s.id)) {
+			stored.chatId = chatId
+			await tx.store.put(stored)
+			await tx.done
+			markSessionDirty(s.id, undefined, emailOfScopedKey(SESSIONS_DB, db.name))
+			return
+		}
+		await tx.done
+		// No stored row: either the record is not yet persisted — its own
+		// materialization writes it later with the chatId already set in memory —
+		// or another tab deleted it, and an upsert here would resurrect it. No
+		// write either way.
+	} catch (e) {
+		console.error('Failed to persist session chat id', e)
 	}
-	return seedPromise
 }

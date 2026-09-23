@@ -11,12 +11,25 @@ import * as os from "node:os";
 import * as path from "node:path";
 
 let remoteFiles: Record<string, string> = {};
+let remoteUnreadable = false;
+let pushedFiles: Record<string, string> | undefined;
 
 mock.module("../gen/services.gen.ts", () => ({
-  getSharedUi: async (_args: { workspace: string }) => ({ files: remoteFiles }),
+  getSharedUi: async (_args: { workspace: string }) => {
+    if (remoteUnreadable) throw new Error("shared UI store unreadable");
+    return { files: remoteFiles };
+  },
+  updateSharedUi: async (args: {
+    workspace: string;
+    requestBody: { files: Record<string, string> };
+  }) => {
+    pushedFiles = args.requestBody.files;
+  },
 }));
 
-const { diffSharedUi } = await import("../src/commands/shared_ui.ts");
+const { diffSharedUi, pushSharedUi } = await import(
+  "../src/commands/shared_ui.ts"
+);
 
 describe("diffSharedUi", () => {
   const ws = "test-workspace";
@@ -25,6 +38,8 @@ describe("diffSharedUi", () => {
 
   beforeEach(() => {
     remoteFiles = {};
+    remoteUnreadable = false;
+    pushedFiles = undefined;
     prevCwd = process.cwd();
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "wm-shared-ui-"));
     process.chdir(tmpDir);
@@ -88,5 +103,47 @@ describe("diffSharedUi", () => {
     remoteFiles = { "theme.json": "{}" };
     const changes = await diffSharedUi(ws);
     expect(changes).toEqual([]);
+  });
+
+  test("emits nothing under keepDeleted when the remote store is unreadable", async () => {
+    // pushSharedUi skips the push rather than clearing a store it can't read,
+    // so the preview must show that same nothing.
+    remoteUnreadable = true;
+    writeUi("theme.json", "{}");
+    expect(await diffSharedUi(ws, true)).toEqual([]);
+  });
+});
+
+describe("pushSharedUi with keepDeleted", () => {
+  const ws = "test-workspace";
+  let tmpDir: string;
+  let prevCwd: string;
+
+  beforeEach(() => {
+    remoteFiles = {};
+    remoteUnreadable = false;
+    pushedFiles = undefined;
+    prevCwd = process.cwd();
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "wm-shared-ui-push-"));
+    process.chdir(tmpDir);
+  });
+
+  afterEach(() => {
+    process.chdir(prevCwd);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test("carries remote-only files, including ui/__proto__, into the pushed map", async () => {
+    // JSON.parse, not a literal: `{__proto__: …}` sets the prototype instead of
+    // creating the own property the API response really has.
+    remoteFiles = JSON.parse('{"__proto__":"keep me","extra.json":"1"}');
+    fs.mkdirSync(path.join(tmpDir, "ui"), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, "ui", "theme.json"), "{}", "utf-8");
+
+    expect(await pushSharedUi(ws, true)).toBe(true);
+    // The store is written whole, so anything missing here is deleted.
+    expect(pushedFiles!["extra.json"]).toEqual("1");
+    expect(Object.getOwnPropertyDescriptor(pushedFiles!, "__proto__")?.value)
+      .toEqual("keep me");
   });
 });

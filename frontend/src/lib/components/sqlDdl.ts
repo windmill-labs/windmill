@@ -258,3 +258,40 @@ export function isDdlStatement(statement: string): boolean {
 	const firstWord = pruneComments(statement).trim().split(/\s+/)[0]?.toUpperCase()
 	return !!firstWord && DDL_KEYWORDS.includes(firstWord)
 }
+
+export type SqlRun = { isDdl: boolean; statements: string[] }
+
+/**
+ * Join statements into one runnable block, `;`-terminating each. `splitSqlStatements`
+ * drops the `;` it splits on and keeps a statement's trailing comment, so a statement
+ * ending in a `--` comment would swallow a terminator appended on the same line and
+ * run into the next statement; that one gets its terminator on its own line.
+ */
+export function joinSqlStatements(statements: string[], backslashEscapes = true): string {
+	return statements
+		.map((s) => (endsWithUnterminatedStatement(`${s};`, backslashEscapes) ? `${s}\n;` : `${s};`))
+		.join('\n')
+}
+
+/**
+ * Split a script into alternating runs of DDL and non-DDL statements. Adjacent
+ * DDL statements share a run so they can become one migration instead of one
+ * prompt each; a non-DDL statement ends the run, since anything after it may
+ * depend on it and the surviving statements must keep their relative order.
+ *
+ * A run is deliberately not proven safe to run in one transaction — Postgres refuses
+ * to use an enum value in the same transaction that `ALTER TYPE` added it, and there
+ * are other such pairs. Grouping them anyway is the accepted trade: the body is shown
+ * in the migration editor before it runs, and a failed run is reverted with the
+ * database's own error, so splitting it by hand is a visible one-step fix.
+ */
+export function splitSqlRuns(code: string, backslashEscapes = true): SqlRun[] {
+	const runs: SqlRun[] = []
+	for (const statement of splitSqlStatements(code, backslashEscapes)) {
+		const isDdl = isDdlStatement(statement)
+		const last = runs[runs.length - 1]
+		if (last && last.isDdl === isDdl) last.statements.push(statement)
+		else runs.push({ isDdl, statements: [statement] })
+	}
+	return runs
+}

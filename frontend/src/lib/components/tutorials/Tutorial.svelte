@@ -1,155 +1,101 @@
 <script lang="ts">
 	import { driver, type Driver, type DriveStep } from 'driver.js'
-	import { createEventDispatcher, mount } from 'svelte'
-	import { updateProgress } from '$lib/tutorialUtils'
-	import { ignoredTutorials } from './ignoredTutorials'
-	import SkipTutorials from './SkipTutorials.svelte'
+	import { mount, onDestroy } from 'svelte'
 	import TutorialControls from './TutorialControls.svelte'
 	import TutorialInner from './TutorialInner.svelte'
-	import { isCurrentlyInTutorial } from '$lib/stores'
-
-
-	type Options = {
-		indexToInsertAt?: number
-		skipStepsCount?: number
-	}
 
 	interface Props {
-		index?: number;
-		name?: string;
-		tainted?: boolean;
-		onDestroyed?: (() => void) | undefined;
-		getSteps?: (driver: Driver, options?: Options | undefined) => DriveStep[];
+		/** Called once the tour ends, however it ended: last step, close button, or Escape. */
+		onDestroyed?: () => void
+		getSteps: (driver: Driver) => DriveStep[]
 	}
 
-	let {
-		index = 0,
-		name = 'action',
-		tainted = false,
-		onDestroyed = undefined,
-		getSteps = () => []
-	}: Props = $props();
+	let { onDestroyed = undefined, getSteps }: Props = $props()
 
 	let totalSteps = 0
 	let tutorial: Driver | undefined = $state(undefined)
-	const dispatch = createEventDispatcher()
 
-	// Render controls needs to be exposed so steps that have a custom render can call it
-	export function renderControls({ config, state }) {
+	// driver.js renders its popover as plain DOM, so the controls are mounted into it rather
+	// than declared in markup — which is also why they are re-mounted on every step.
+	function renderControls(activeIndex: number) {
 		const popoverContent = document.querySelector('#driver-popover-content')
 		popoverContent?.addEventListener('pointerdown', (event) => {
 			event.stopPropagation()
 		})
 
 		const popoverDescription = document.querySelector('#driver-popover-description')
-
-		if (!tutorial) {
+		if (!tutorial || !popoverDescription) {
 			return
 		}
 
-		if (state.activeIndex == 0) {
-			const div = document.createElement('div')
-
-			mount(SkipTutorials, {
-				target: div,
-				events: {
-					skipAll: () => {
-						dispatch('skipAll')
-						tutorial?.destroy()
-					},
-					skipThis: () => {
-						updateProgress(index)
-						tutorial?.destroy()
-					}
-				}
-			})
-
-			if (popoverDescription) {
-				popoverDescription.appendChild(div)
-			}
-		}
-
 		const controls = document.createElement('div')
-
 		mount(TutorialControls, {
 			target: controls,
 			props: {
-				activeIndex: state.activeIndex,
-				totalSteps
-			},
-			events: {
-				next: () => {
+				activeIndex,
+				totalSteps,
+				// A step that defines `onNextClick` owns its own advance — that is how a step
+				// that has to open something first waits for it before moving on.
+				onNext: () => {
 					const step = tutorial?.getActiveStep()
-
-					if (step) {
-						if (tutorial?.getActiveStep()?.popover?.onNextClick) {
-							const activeElement = tutorial?.getActiveElement()
-							tutorial?.getActiveStep()?.popover?.onNextClick?.(activeElement, step, {
-								config,
-								state,
-								driver: tutorial
-							})
-						} else {
-							tutorial?.moveNext()
-						}
+					if (!step) return
+					const onNextClick = step.popover?.onNextClick
+					if (onNextClick) {
+						onNextClick(tutorial?.getActiveElement(), step, {
+							config: tutorial!.getConfig(),
+							state: tutorial!.getState(),
+							driver: tutorial!,
+							index: activeIndex
+						})
+					} else {
+						tutorial?.moveNext()
 					}
 				},
-				previous: () => {
+				onPrevious: () => {
 					const step = tutorial?.getActiveStep()
-
-					if (step) {
-						if (tutorial?.getActiveStep()?.popover?.onPrevClick) {
-							const activeElement = tutorial?.getActiveElement()
-							tutorial?.getActiveStep()?.popover?.onPrevClick?.(activeElement, step, {
-								config,
-								state,
-								driver: tutorial
-							})
-						} else {
-							tutorial?.movePrevious()
-						}
+					if (!step) return
+					const onPrevClick = step.popover?.onPrevClick
+					if (onPrevClick) {
+						onPrevClick(tutorial?.getActiveElement(), step, {
+							config: tutorial!.getConfig(),
+							state: tutorial!.getState(),
+							driver: tutorial!,
+							index: activeIndex
+						})
+					} else {
+						tutorial?.movePrevious()
 					}
 				}
 			}
 		})
-
-		if (popoverDescription) {
-			popoverDescription.appendChild(controls)
-		}
+		popoverDescription.appendChild(controls)
 	}
 
-	export const runTutorial = (options?: Options | undefined) => {
-		if (tainted) {
-			dispatch('error', { detail: name })
-			return
-		}
-		isCurrentlyInTutorial.val = true
-
+	export function runTutorial() {
 		tutorial = driver({
 			allowClose: true,
 			disableActiveInteraction: true,
 			showButtons: ['close'],
 			showProgress: false,
 			overlayColor: 'rgba(0, 0, 0, 0.8)',
-			onPopoverRender: (popover, { config, state }) => {
-				renderControls({ config, state })
+			onPopoverRender: (_popover, { state }) => {
+				renderControls(state.activeIndex ?? 0)
 			},
 			onDestroyed: () => {
 				onDestroyed?.()
-				if (!tutorial?.hasNextStep()) {
-					$ignoredTutorials = Array.from(new Set([...$ignoredTutorials, index]))
-				}
-				isCurrentlyInTutorial.val = false
 			}
 		})
 
-		const steps = getSteps(tutorial, options)
-
+		const steps = getSteps(tutorial)
 		totalSteps = steps.length
-
 		tutorial.setSteps(steps)
 		tutorial.drive()
 	}
+
+	// driver.js appends its overlay to the body, so leaving the page mid-tour would strand it
+	// over whatever renders next. Destroying also runs `onDestroyed`, which is where the tour
+	// is recorded as seen — so navigating away counts as having been shown it.
+	onDestroy(() => tutorial?.destroy())
 </script>
 
 {#if tutorial}

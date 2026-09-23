@@ -922,6 +922,47 @@ mod schedule_push {
     }
 
     // -----------------------------------------------------------------------
+    // try_schedule_next_job: a cron with no run left disables the schedule
+    // -----------------------------------------------------------------------
+
+    #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
+    async fn test_cron_with_no_run_left_disables_schedule(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap, permissioned_as, cron_version)
+             VALUES ('test-workspace', 'f/system/test_schedule', 'test-user', now(), '0 0 9 1 1 * 2020', 'UTC', true, 'f/system/test_script', false, 'test@windmill.dev', '{}', false, false, 'u/test-user', 'v1')"
+        )
+        .execute(&db)
+        .await?;
+
+        let schedule = make_schedule(|s| {
+            s.schedule = "0 0 9 1 1 * 2020".to_string();
+            s.cron_version = Some("v1".to_string());
+        });
+        let job = make_completed_job(&schedule);
+
+        let tx = db.begin().await?;
+        let (tx, err) =
+            try_schedule_next_job(&db, tx, &job, &schedule, &schedule.script_path).await;
+        assert!(err.is_none(), "completion must go through, got: {err:?}");
+        tx.commit().await?;
+
+        assert_eq!(count_queued_jobs(&db).await, 0);
+        let (enabled, error): (bool, Option<String>) = sqlx::query_as(
+            "SELECT enabled, error FROM schedule WHERE workspace_id = 'test-workspace' AND path = 'f/system/test_schedule'",
+        )
+        .fetch_one(&db)
+        .await?;
+        assert!(!enabled, "schedule with no run left must be disabled");
+        assert!(
+            error.as_deref().is_some_and(|e| e.contains("no run left")),
+            "error should say why, got: {error:?}"
+        );
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
     // try_schedule_next_job: disabled schedule leaves no side effects
     // -----------------------------------------------------------------------
 

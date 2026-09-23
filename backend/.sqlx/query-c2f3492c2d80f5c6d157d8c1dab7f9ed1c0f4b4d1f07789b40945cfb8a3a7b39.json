@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_settings SET ai_sessions_backup_generation = ai_sessions_backup_generation + 1 WHERE workspace_id = $1 AND large_file_storage IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c2f3492c2d80f5c6d157d8c1dab7f9ed1c0f4b4d1f07789b40945cfb8a3a7b39"
+}

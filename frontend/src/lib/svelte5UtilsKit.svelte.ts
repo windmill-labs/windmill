@@ -2,19 +2,12 @@
 // This file should only be imported in SvelteKit apps as it depends on $app/environment
 
 import { z } from 'zod'
+import { serializeParam } from '$lib/utils/serializeParam'
 
 export type SearchParamsResult<S extends z.ZodType> =
 	S extends z.ZodObject<infer Shape>
 		? { -readonly [K in keyof Shape]: z.infer<Shape[K]> } & Record<string, unknown>
 		: z.infer<S> & Record<string, unknown>
-
-/** Serialize a value to a URL search param string. Primitives are written as-is; anything else is JSON. */
-export function serializeParam(value: unknown): string {
-	if (typeof value === 'string') return value
-	if (typeof value === 'number') return String(value)
-	if (typeof value === 'boolean') return String(value)
-	return JSON.stringify(value)
-}
 
 /** Parse a raw string from the URL back to a typed value guided by the zod field schema. */
 function deserializeParam(raw: string, fieldSchema: z.ZodType): unknown {

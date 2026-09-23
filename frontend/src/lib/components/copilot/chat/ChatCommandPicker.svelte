@@ -2,6 +2,7 @@
 	import DrillPicker from '$lib/components/DrillPicker.svelte'
 	import type { DrillLeaf, DrillNode } from '$lib/components/drillPicker'
 	import type { ChatCommandItem } from './global/core'
+	import { ambiguousSkillNames } from './skills/skillResources'
 
 	interface Props {
 		skills: ChatCommandItem[]
@@ -24,15 +25,22 @@
 		skill: 'Skills'
 	}
 
-	// No `secondary`: rows show just the command; the full description lives in
-	// the hover tooltip (rowTooltip below). It stays in `searchableText` so
-	// filtering by description keeps working.
+	// Two folders can each hold a skill of the same name, and `/name` cannot then
+	// say which one is meant. Those rows show their path so the two are at least
+	// distinguishable; unambiguous rows stay bare, with the description in the
+	// hover tooltip (rowTooltip below) and in `searchableText` so filtering by it
+	// keeps working.
+	const ambiguous = $derived(ambiguousSkillNames(skills.filter((s) => s.path !== undefined)))
+
 	const tree = $derived<DrillNode<ChatCommandItem>[]>(
 		skills.map((skill) => ({
 			type: 'leaf' as const,
-			key: `skill:${skill.name}`,
+			// Keyed by path where there is one: names are not unique across folders,
+			// and a duplicate key breaks the keyed list and its ambiguous-resolve nav.
+			key: `skill:${skill.path ?? skill.name}`,
 			label: `/${skill.name}`,
-			searchableText: `${skill.name} ${skill.description}`,
+			secondary: ambiguous.has(skill.name) ? skill.path : undefined,
+			searchableText: `${skill.name} ${skill.path ?? ''} ${skill.description}`,
 			section: skill.kind ? SECTION_LABELS[skill.kind] : undefined,
 			data: skill
 		}))

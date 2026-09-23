@@ -939,6 +939,127 @@ export function main() { return midValue(); }"#,
     Ok(())
 }
 
+/// A run with local modules and no lock executes the bundle its lock generation built, which
+/// kept the imported script's pin; the run must still load the one copy in node_modules, and
+/// leave the script's own data alone even where it matches the pinned specifier.
+#[sqlx::test(fixtures("base"))]
+async fn test_bun_modules_run_loads_imported_pin_from_node_modules(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    insert_deployed_bun_script(
+        &db,
+        "f/pinned_import_modules/module",
+        41240002,
+        r#"import * as isNumber from "is-number@6.0.0";
+export const ns = isNumber;
+export const label = "is-number@6.0.0";"#,
+    )
+    .await;
+
+    let job = JobPayload::Code(RawCode {
+        content: r#"import * as isNumber from "is-number";
+import { ns, label } from "/f/pinned_import_modules/module";
+import { local } from "./helper";
+export function main() { return [ns === isNumber, label, local()]; }"#
+            .into(),
+        path: Some("f/pinned_import_modules/main".into()),
+        language: ScriptLang::Bun,
+        modules: Some(std::collections::HashMap::from([(
+            "helper.ts".to_string(),
+            windmill_common::scripts::ScriptModule {
+                content: "export const local = () => 'local';".into(),
+                language: ScriptLang::Bun,
+                lock: None,
+            },
+        )])),
+        ..RawCode::default()
+    });
+
+    let result = run_job_in_new_worker_until_complete(&db, false, job, port)
+        .await
+        .json_result()
+        .unwrap();
+    assert_eq!(
+        result,
+        serde_json::json!([true, "is-number@6.0.0", "local"])
+    );
+    Ok(())
+}
+
+async fn bun_dependency_lock(db: &Pool<Postgres>, port: u16, path: &str, content: &str) -> String {
+    let deps = RunJob::from(JobPayload::RawScriptDependencies {
+        script_path: path.into(),
+        content: content.into(),
+        language: ScriptLang::Bun,
+    })
+    .run_until_complete(db, false, port)
+    .await
+    .json_result()
+    .unwrap();
+    let Some(lock) = deps["lock"].as_str() else {
+        panic!("the dependency job returned no lock: {deps}");
+    };
+    lock.to_string()
+}
+
+/// Bundling a locked script resolves a pinned dynamic `import()` as written. Where that fails, both
+/// the dependency job and a run that finds no cached bundle must still build it, from the version
+/// the lock pins; where bun tolerates the failure, the bundle must stay as written.
+#[sqlx::test(fixtures("base"))]
+async fn test_bun_bundles_pinned_dynamic_import(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    // The dependency job saves the script's bundle here; the server binary creates it at startup.
+    std::fs::create_dir_all(&*windmill_worker::BUN_BUNDLE_CACHE_DIR)?;
+
+    const PATH: &str = "f/pinned_dynamic_import/main";
+    // Every `script` call draws its own nonce, so each job below misses every bundle cached before
+    // it, this test's included, and has to build one: a cached bundle skips the build under test.
+    // 4.17.20 is not npm's `latest`, so a bundle that lost the pin cannot match by accident.
+    let script = |body: &str| {
+        format!(
+            "export async function main() {{\n  {body}\n}}\n// {}",
+            Uuid::new_v4()
+        )
+    };
+    let import = r#"const m = await import("lodash@4.17.20"); return (m.default ?? m).VERSION;"#;
+
+    let lock = bun_dependency_lock(&db, port, PATH, &script(import)).await;
+    let result = RunJob::from(JobPayload::Code(RawCode {
+        content: script(import),
+        path: Some(PATH.into()),
+        language: ScriptLang::Bun,
+        lock: Some(lock),
+        ..RawCode::default()
+    }))
+    .run_until_complete(&db, false, port)
+    .await
+    .json_result()
+    .unwrap();
+    assert_eq!(result, serde_json::json!("4.17.20"));
+
+    let tolerated = script(&format!("try {{ {import} }} catch {{ return null; }}"));
+    let lock = bun_dependency_lock(&db, port, PATH, &tolerated).await;
+    let (bundle, _) = windmill_worker::compute_bundle_local_and_remote_path(
+        &tolerated,
+        &lock,
+        PATH,
+        Some(&db),
+        "test-workspace",
+        &None,
+        None,
+    )
+    .await;
+    assert!(std::fs::read_to_string(bundle)?.contains("lodash@4.17.20"));
+    Ok(())
+}
+
 #[sqlx::test(fixtures("base", "bun_edge_cases"))]
 async fn test_bun_shared_imports_both_styles(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -1085,6 +1206,156 @@ export function main() {
     assert_eq!(result["workspace"], serde_json::json!("test-workspace"));
     assert_eq!(result["hasToken"], serde_json::json!(true));
     assert_eq!(result["baseUrl"], serde_json::json!(true));
+    Ok(())
+}
+
+/// A deployed flow runs an inline step as the `flow_node` its deploy rewrote it into,
+/// a `FlowScript` job rather than the preview job the editor runs. A workflow-as-code
+/// step's `task()` children must dispatch from that kind too, as re-runs of the same
+/// node, or the step passes its editor test and fails once deployed.
+///
+/// The step is cached: a child that shared the parent's result-cache key would hand
+/// its own result (`10`) back to the parent on resume, in place of the workflow's.
+#[sqlx::test(fixtures("base", "wac_flow_script"))]
+async fn test_bun_wac_task_dispatch_from_flow_script(db: Pool<Postgres>) -> anyhow::Result<()> {
+    use windmill_common::flows::FlowNodeId;
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let node = FlowNodeId(3000000000000011);
+    let job = RunJob::from(JobPayload::FlowScript {
+        id: node,
+        path: "f/system/wac_flow_script/a".to_string(),
+        language: ScriptLang::Bun,
+        cache_ttl: Some(60),
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(),
+    })
+    .arg("n", serde_json::json!(5))
+    .run_until_complete(&db, false, port)
+    .await;
+
+    assert_eq!(
+        job.json_result().unwrap(),
+        serde_json::json!({"doubled": 10})
+    );
+
+    let children: Vec<(String, Option<i64>, Option<i32>)> = sqlx::query_as(
+        "SELECT kind::text, runnable_id, cache_ttl FROM v2_job WHERE parent_job = $1",
+    )
+    .bind(job.id)
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(
+        children,
+        vec![("flowscript".to_string(), Some(node.0), None)],
+        "the task child re-runs the parent's flow node, outside the result cache"
+    );
+    Ok(())
+}
+
+/// `task(fn, { cache_ttl })` on an inline task of a deployed flow's step: the child runs
+/// the parent's code with the parent's arguments, so its result-cache key carries its
+/// step key, or the parent and every sibling would read its result back as their own.
+#[sqlx::test(fixtures("base", "wac_flow_script"))]
+async fn test_bun_wac_inline_task_cache_is_per_task(db: Pool<Postgres>) -> anyhow::Result<()> {
+    use windmill_common::flows::FlowNodeId;
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let payload = || JobPayload::FlowScript {
+        id: FlowNodeId(3000000000000012),
+        path: "f/system/wac_flow_script/a".to_string(),
+        language: ScriptLang::Bun,
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(),
+    };
+
+    let mut children_from_cache = Vec::new();
+    for _ in 0..2 {
+        let job = RunJob::from(payload())
+            .arg("n", serde_json::json!(5))
+            .run_until_complete(&db, false, port)
+            .await;
+        assert_eq!(
+            job.json_result().unwrap(),
+            serde_json::json!({"doubled": 10, "tripled": 15})
+        );
+        let from_cache: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM job_logs l JOIN v2_job j ON j.id = l.job_id \
+             WHERE j.parent_job = $1 AND l.logs LIKE '%found in cache%'",
+        )
+        .bind(job.id)
+        .fetch_one(&db)
+        .await?;
+        children_from_cache.push(from_cache);
+    }
+    assert_eq!(
+        children_from_cache,
+        vec![0, 2],
+        "the second run serves each task from its own cache entry"
+    );
+    Ok(())
+}
+
+/// A task that picks its own worker tag is held to CUSTOM_TAGS like a flow step: with none
+/// set, only a superadmin may send it to `gpu`, so the workflow fails instead of queueing it.
+#[sqlx::test(fixtures("base"))]
+async fn test_bun_wac_task_tag_outside_custom_tags(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let content = r#"
+import { workflow, task } from "windmill-client";
+
+const onGpu = task(async (n: number) => {
+  return n * 2;
+}, { tag: "gpu" });
+
+export const main = workflow(async (n: number) => {
+  return await onGpu(n);
+});
+"#
+    .to_owned();
+
+    let job = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        language: ScriptLang::Bun,
+        lock: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        modules: None,
+        tag: None,
+    }))
+    .arg("n", serde_json::json!(5))
+    .as_user("test-user-2", "test2@windmill.dev")
+    .run_until_complete(&db, false, port)
+    .await;
+
+    assert!(!job.success, "the workflow must fail");
+    let result = job.json_result().unwrap();
+    let message = result["error"]["message"].as_str().unwrap_or_default();
+    assert!(
+        message.contains("task 'onGpu' cannot run on tag 'gpu'"),
+        "unexpected error: {result}"
+    );
+    let children: i64 = sqlx::query_scalar("SELECT count(*) FROM v2_job WHERE parent_job = $1")
+        .bind(job.id)
+        .fetch_one(&db)
+        .await?;
+    assert_eq!(children, 0, "no child is queued on the refused tag");
     Ok(())
 }
 

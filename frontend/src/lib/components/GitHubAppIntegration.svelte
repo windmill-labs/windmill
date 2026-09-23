@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { workspaceStore, enterpriseLicense, userStore } from '$lib/stores'
+	import { enterpriseLicense } from '$lib/stores'
 	import Popover from './meltComponents/Popover.svelte'
 	import Button from './common/button/Button.svelte'
 	import { Loader2, Github, RotateCw, Plus, Minus, Download, AlertTriangle } from 'lucide-svelte'
@@ -18,6 +18,14 @@
 		type GitHubAppState
 	} from '$lib/githubApp'
 	import RepositorySelector from './RepositorySelector.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	interface Props {
 		resourceType: string
@@ -70,14 +78,14 @@
 
 	let showGitHubApp = $derived(
 		resourceType === 'git_repository' &&
-			$workspaceStore &&
-			($userStore?.is_admin || $userStore?.is_super_admin)
+			$operatingWorkspace &&
+			(actingUser?.is_admin || actingUser?.is_super_admin)
 	)
 
 	// Load GitHub installations when conditions are met
 	$effect(() => {
-		if (showGitHubApp && $enterpriseLicense && $workspaceStore) {
-			loadGithubInstallations(githubState, $workspaceStore).catch((error) => {
+		if (showGitHubApp && $enterpriseLicense && $operatingWorkspace) {
+			loadGithubInstallations(githubState, $operatingWorkspace).catch((error) => {
 				console.error('Failed to load GitHub installations:', error)
 			})
 		}
@@ -113,11 +121,11 @@
 	}
 
 	async function handleDeleteInstallation(installationId: number) {
-		if (!$workspaceStore) return
+		if (!$operatingWorkspace) return
 
 		try {
-			await deleteInstallation($workspaceStore, installationId, () =>
-				loadGithubInstallations(githubState, $workspaceStore!)
+			await deleteInstallation($operatingWorkspace, installationId, () =>
+				loadGithubInstallations(githubState, $operatingWorkspace!)
 			)
 		} catch (error) {
 			console.error('Failed to delete installation:', error)
@@ -125,11 +133,11 @@
 	}
 
 	async function handleAddInstallation(installationId: number, workspaceId: string) {
-		if (!$workspaceStore) return
+		if (!$operatingWorkspace) return
 
 		try {
-			await addInstallationToWorkspace($workspaceStore, installationId, workspaceId, () =>
-				loadGithubInstallations(githubState, $workspaceStore!)
+			await addInstallationToWorkspace($operatingWorkspace, installationId, workspaceId, () =>
+				loadGithubInstallations(githubState, $operatingWorkspace!)
 			)
 		} catch (error) {
 			console.error('Failed to add installation:', error)
@@ -137,22 +145,22 @@
 	}
 
 	async function handleExportInstallation(installationId: number) {
-		if (!$workspaceStore) return
+		if (!$operatingWorkspace) return
 
 		try {
-			await exportInstallation($workspaceStore, installationId)
+			await exportInstallation($operatingWorkspace, installationId)
 		} catch (error) {
 			console.error('Failed to export installation:', error)
 		}
 	}
 
 	async function handleImportInstallation() {
-		if (!$workspaceStore) return
+		if (!$operatingWorkspace) return
 
 		try {
-			await importInstallation($workspaceStore, githubState.importJwt, () => {
+			await importInstallation($operatingWorkspace, githubState.importJwt, () => {
 				githubState.importJwt = ''
-				loadGithubInstallations(githubState, $workspaceStore!)
+				loadGithubInstallations(githubState, $operatingWorkspace!)
 			})
 		} catch (error) {
 			console.error('Failed to import installation:', error)
@@ -160,17 +168,17 @@
 	}
 
 	function handleRefreshInstallations() {
-		if (!$workspaceStore) return
+		if (!$operatingWorkspace) return
 
-		loadGithubInstallations(githubState, $workspaceStore).catch((error) => {
+		loadGithubInstallations(githubState, $operatingWorkspace).catch((error) => {
 			console.error('Failed to refresh installations:', error)
 		})
 	}
 
 	function handleInstallClickWithPopover() {
-		if (!$workspaceStore) return
+		if (!$operatingWorkspace) return
 
-		handleInstallClick(githubState, $workspaceStore, () => {
+		handleInstallClick(githubState, $operatingWorkspace, () => {
 			githubAppPopover?.open()
 		})
 	}
@@ -180,7 +188,7 @@
 	{#if !githubState.loadingGithubInstallations}
 		<Button
 			variant="default"
-			size="xs"
+			unifiedSize="sm"
 			on:click={handleRefreshInstallations}
 			disabled={!$enterpriseLicense}
 			startIcon={{ icon: RotateCw }}
@@ -198,7 +206,7 @@
 			{#snippet trigger()}
 				<Button
 					variant="default"
-					size="xs"
+					unifiedSize="sm"
 					disabled={!$enterpriseLicense || githubState.loadingGithubInstallations}
 					startIcon={{
 						icon: githubState.loadingGithubInstallations ? Loader2 : Github,
@@ -297,9 +305,9 @@
 										target="_blank"
 										disabled={githubState.isCheckingInstallation}
 										on:click={() => {
-											if ($workspaceStore) {
-												startInstallationCheck(githubState, $workspaceStore, () =>
-													loadGithubInstallations(githubState, $workspaceStore!)
+											if ($operatingWorkspace) {
+												startInstallationCheck(githubState, $operatingWorkspace, () =>
+													loadGithubInstallations(githubState, $operatingWorkspace!)
 												)
 											}
 										}}

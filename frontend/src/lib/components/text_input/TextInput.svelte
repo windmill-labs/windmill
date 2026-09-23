@@ -46,17 +46,17 @@
 	// Base leading == (unified height − vertical padding) so a single-line
 	// contenteditable div centers its text the way a native <input> does.
 	//
-	// In "large mode" (viewport ≥ 1760px, where app.css bumps :root to 18px →
+	// In "large mode" (screen ≥ 1760px, where app.css bumps :root to 18px →
 	// font 13.5px) headless-Chromium ink measurement showed the text sitting
 	// ~1px low with the base leading. The residual is a fixed ~2px of line box,
 	// so the exact centered value there is (content-box height − 2px). Scoped to
-	// the same 1760px breakpoint as the font-size bump; small mode is unchanged.
+	// the same query as the font-size bump; small mode is unchanged.
 	export const inputLeadingClasses: Record<ButtonType.UnifiedSize, string> = {
-		'2xs': 'leading-4 min-[1760px]:leading-[calc(1rem_-_2px)]', // h-5 − py-0.5 → 1rem
-		xs: 'leading-4 min-[1760px]:leading-[calc(1rem_-_2px)]', // h-5 − py-0.5 → 1rem
-		sm: 'leading-6 min-[1760px]:leading-[calc(1.5rem_-_2px)]', // h-7 − py-0.5 → 1.5rem
-		md: 'leading-8 min-[1760px]:leading-[calc(2rem_-_2px)]', // h-8, no py → 2rem
-		lg: 'leading-10 min-[1760px]:leading-[calc(2.5rem_-_2px)]' // h-10, no py → 2.5rem
+		'2xs': 'leading-4 [@media(min-device-width:1760px)]:leading-[calc(1rem_-_2px)]', // h-5 − py-0.5 → 1rem
+		xs: 'leading-4 [@media(min-device-width:1760px)]:leading-[calc(1rem_-_2px)]', // h-5 − py-0.5 → 1rem
+		sm: 'leading-6 [@media(min-device-width:1760px)]:leading-[calc(1.5rem_-_2px)]', // h-7 − py-0.5 → 1.5rem
+		md: 'leading-8 [@media(min-device-width:1760px)]:leading-[calc(2rem_-_2px)]', // h-8, no py → 2rem
+		lg: 'leading-10 [@media(min-device-width:1760px)]:leading-[calc(2.5rem_-_2px)]' // h-10, no py → 2.5rem
 	}
 </script>
 
@@ -81,6 +81,11 @@
 		size?: ButtonType.UnifiedSize
 		unifiedHeight?: boolean
 		underlyingInputEl?: UnderlyingInputElT
+		/**
+		 * Passed to the `autosize` action on the `textarea` variant. Chiefly `minHeight: 0`, for a
+		 * field that hugs one line instead of reserving the action's 30px floor.
+		 */
+		autosizeParams?: import('$lib/autosize').AutosizeParams
 	}
 
 	export function focus() {
@@ -108,7 +113,8 @@
 		error,
 		size = 'md',
 		unifiedHeight = true,
-		underlyingInputEl: _underlyingInputEl
+		underlyingInputEl: _underlyingInputEl,
+		autosizeParams
 	}: Props<UnderlyingInputElT> = $props()
 
 	let underlyingInputEl = $derived(_underlyingInputEl ?? ('input' as const))
@@ -152,7 +158,7 @@
 		onpointerdown={(e) => e.stopImmediatePropagation()}
 		bind:this={inputEl}
 		bind:value
-		use:autosize
+		use:autosize={autosizeParams}
 	></textarea>
 {:else if underlyingInputEl === 'input'}
 	<input

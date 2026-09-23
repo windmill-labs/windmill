@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT guest_jwt_public_key, guest_jwt_jwks_url FROM workspace_settings WHERE workspace_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "guest_jwt_public_key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "guest_jwt_jwks_url",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      true
+    ]
+  },
+  "hash": "f6fe63ef3518d2d1f321c2941bc59da15843f466c72159bf76712b124d7554b6"
+}

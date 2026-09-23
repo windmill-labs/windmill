@@ -1,10 +1,12 @@
 <script lang="ts">
 	import Label from '$lib/components/Label.svelte'
-	import { workspaceStore } from '$lib/stores'
 	import { base32 } from 'rfc4648'
 	import ClipboardPanel from '../../details/ClipboardPanel.svelte'
 	import CaptureSection, { type CaptureInfo } from '../CaptureSection.svelte'
 	import { fade } from 'svelte/transition'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		isFlow?: boolean
@@ -26,7 +28,7 @@
 
 	function getCaptureEmail() {
 		const cleanedPath = path.replaceAll('/', '.')
-		const plainPrefix = `capture+${$workspaceStore}+${(isFlow ? 'flow.' : '') + cleanedPath}`
+		const plainPrefix = `capture+${$operatingWorkspace}+${(isFlow ? 'flow.' : '') + cleanedPath}`
 		const encodedPrefix = base32
 			.stringify(new TextEncoder().encode(plainPrefix), {
 				pad: false

@@ -19,7 +19,6 @@ use windmill_common::ee_oss::LICENSE_KEY_VALID;
 use windmill_common::flows::Retry;
 use windmill_common::get_flow_version_info_from_version;
 use windmill_common::get_latest_flow_version_id_for_path;
-use windmill_common::jobs::check_tag_available_for_workspace_internal;
 use windmill_common::jobs::JobPayload;
 use windmill_common::jobs::JobTriggerKind;
 use windmill_common::jobs::OnBehalfOf;
@@ -166,13 +165,10 @@ pub async fn push_scheduled_job<'c>(
         }
     };
 
-    let next = sched.find_next(&starting_from);
-    // println!("next event ({:?}): {}", tz, next);
-    // println!("next event(UTC): {}", next.with_timezone(&chrono::Utc));
+    let next = sched.find_next(&starting_from)?;
 
     // Scheduled events must be stored in the database in UTC
     let next = next.with_timezone(&chrono::Utc);
-    // panic!("next: {}", next);
     let already_exists: bool = sqlx::query_scalar!(
         // Query plan:
         // - use of the `ix_v2_job_root_by_path` index; hence the `parent_job IS NULL` clause.
@@ -514,14 +510,15 @@ pub async fn push_scheduled_job<'c>(
 
     if let Some(tag) = tag.as_deref().filter(|t| !t.is_empty()) {
         let is_super_admin = windmill_common::auth::is_super_admin_email(db, &email).await?;
-        check_tag_available_for_workspace_internal(
+        crate::check_tag_available_for_push(
             db,
             &schedule.workspace_id,
             &tag,
+            &crate::PushArgs::from(&args),
             is_super_admin,
             None, // no token for schedules so no scopes so no scope_tags
         )
-        .warn_after_seconds_with_sql(1, "check_tag_available_for_workspace_internal".to_string())
+        .warn_after_seconds_with_sql(1, "check_tag_available_for_push".to_string())
         .await?;
     }
 
@@ -677,18 +674,6 @@ pub async fn rearm_schedule(db: &DB, w_id: &str, path: &str) -> Result<RearmOutc
     if already_armed {
         return Ok(RearmOutcome::NoOp);
     }
-    // A re-arm means the schedule sat unarmed for an unknown stretch. That gap is
-    // the reconciler's doing, not the schedule losing runs, so move the baseline
-    // past it before the push. See `reconstruct_occurrences`.
-    sqlx::query!(
-        "UPDATE schedule SET occurrence_baseline_at = GREATEST(now(), paused_until)
-         WHERE workspace_id = $1 AND path = $2",
-        w_id,
-        path
-    )
-    .execute(&mut *tx)
-    .await?;
-
     match push_scheduled_job(db, tx, &schedule, None, None).await {
         Ok(tx) => {
             tx.commit().await?;
