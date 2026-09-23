@@ -525,39 +525,33 @@ class ChatImpl implements Chat {
       return
     }
     const newestBefore = latestSeq(this.#state.messages)
+    const failure = lastFailureShown(this.#state.messages)
     await this.#syncFromServer(conversationId)
+    if (!failure || this.#state.conversationId !== conversationId) return
+    if (this.#state.status !== 'error') return
+    // The turn this chat lost may have been carried to its end elsewhere, which only a row
+    // this read brought can say, and only one of that turn's own: an agent writes its answer
+    // from a task the run does not wait for, so an earlier turn's answer can commit after
+    // this turn's question and would otherwise settle it with someone else's answer. The
+    // failed turn's job is on the message it left; unknown jobs accept the row, as everywhere
+    // else the turn's jobs are read.
+    const jobs = failure.jobId ? await this.#turnJobIds(failure.jobId) : undefined
     if (this.#state.conversationId !== conversationId || this.#state.status !== 'error') return
-    // The turn this chat lost may have been carried to its end elsewhere. It counts as
-    // answered only when this read brought a row newer than anything held, and that row is
-    // an answer: a read that brought nothing, or brought a failure, leaves the failure as
-    // the conversation's outcome.
-    const messages = this.#state.messages
-    const newest = [...messages].reverse().find((m) => m.seq !== undefined)
-    if (!newest || newest.seq! <= newestBefore || newest.role !== 'assistant' || !newest.success) {
-      return
-    }
-    // The row has to be that turn's own. An agent writes its answer from a task the run does
-    // not wait for, so the previous turn's answer can commit after this turn's question: taken
-    // as this one's, it would settle the failure with someone else's answer, for good. The
-    // failed turn's job is on the message it left, and unknown jobs accept the row, as
-    // everywhere else the turn's jobs are read.
-    const failure = [...messages].reverse().find((m) => m.seq === undefined && m.success === false)
-    if (failure?.jobId) {
-      const jobs = await this.#turnJobIds(failure.jobId)
-      if (this.#state.conversationId !== conversationId || this.#state.status !== 'error') return
-      if (jobs && newest.jobId !== undefined && !jobs.has(newest.jobId)) return
-    }
-    // Only the failure of the turn that was answered: an earlier turn's failure is its own
-    // outcome, and this read says nothing about it.
     const held = this.#state.messages
-    let lastQuestion = -1
-    for (let i = held.length - 1; i >= 0 && lastQuestion < 0; i--) {
-      if (held[i].role === 'user') lastQuestion = i
-    }
+    // A turn that failed while those jobs were read owns the error now, and this read says
+    // nothing about that one.
+    if (lastFailureShown(held)?.id !== failure.id) return
+    const answered = held.some(
+      (m) =>
+        m.seq !== undefined &&
+        m.seq > newestBefore &&
+        m.role === 'assistant' &&
+        m.success &&
+        (jobs === undefined || m.jobId === undefined || jobs.has(m.jobId))
+    )
+    if (!answered) return
     this.#set({
-      messages: held.filter(
-        (m, i) => i < lastQuestion || m.seq !== undefined || m.success !== false
-      ),
+      messages: held.filter((m) => m.id !== failure.id),
       status: 'idle',
       error: undefined
     })
@@ -1080,6 +1074,15 @@ class ChatImpl implements Chat {
       this.#persistTimer = setTimeout(() => this.#persistLocal(), PERSIST_DEBOUNCE_MS)
     }
   }
+}
+
+/** The failure this chat is showing: the message `#failTurn` left, which is never a row. */
+function lastFailureShown(messages: readonly ChatMessage[]): ChatMessage | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i]
+    if (m.seq === undefined && m.success === false) return m
+  }
+  return undefined
 }
 
 /** The newest row seq a list holds; 0 when it holds none. */
