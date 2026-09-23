@@ -131,7 +131,7 @@ function editorHasUnsavedEdits(): boolean {
 	})
 }
 
-let latestSwitch = 0
+const HOME_ROUTE = '/(root)/(logged)'
 
 function switchTo(id: string) {
 	workspaceAIClients.init(id)
@@ -151,22 +151,23 @@ export async function switchWorkspaceAndPage(
 		href?: string
 	}
 ): Promise<void> {
-	const request = ++latestSwitch
+	const startedOn = page.url.href
+	const startedIn = get(workspaceStore)
 	const missing = !opts?.landOnHome && (await itemPageMissingIn(id))
-	// A switch picked while this lookup (or the navigation home below) was in flight wins.
-	if (request !== latestSwitch) return
+	// Anything that moved the page or the workspace during the lookup (another switch
+	// included) supersedes this switch.
+	if (page.url.href !== startedOn || get(workspaceStore) !== startedIn) return
 	// Read after the lookup: the user can edit while it is in flight.
 	const unsavedEdits = editorHasUnsavedEdits()
 	if (opts?.landOnHome || unsavedEdits || missing) {
 		// Leave before switching: an item page still mounted when the store changes
 		// refetches its item in `id` and toasts the 404.
-		// The param carries the switch through the editor's unsaved-changes prompt: that
-		// cancels this navigation and, on discard, replays this URL, which the logged layout
-		// applies. On cancel nothing is switched.
-		const from = page.route.id
-		await goto(`/?workspace=${encodeURIComponent(id)}`)
-		if (request !== latestSwitch) return
-		if (unsavedEdits && page.route.id === from) return
+		const target = `/?workspace=${encodeURIComponent(id)}`
+		await goto(target)
+		// Switch only if this navigation is the one that landed: the editor's unsaved-changes
+		// prompt, another switch or any other navigation can cancel or overtake it. On
+		// discard, the prompt replays `target`, whose param the logged layout applies.
+		if (page.route.id !== HOME_ROUTE || page.url.searchParams.get('workspace') !== id) return
 		switchTo(id)
 		return
 	}
