@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Badge, Button } from './common'
 	import Popover from './meltComponents/Popover.svelte'
-	import { Play, RefreshCw } from 'lucide-svelte'
+	import { ChevronDown, Play, RefreshCw } from 'lucide-svelte'
 	import { FlowService, JobService, type FlowVersion } from '$lib/gen'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
@@ -269,6 +269,7 @@
 		{unifiedSize}
 		{disabled}
 		startIcon={{ icon: usePlayIcon ? Play : RefreshCw }}
+		endIcon={needsPopup ? { icon: ChevronDown } : undefined}
 		nonCaptureEvent={!usePlayIcon || !!flowPath}
 		onClick={() => {
 			if (usePlayIcon && !flowPath) {
