@@ -17,7 +17,8 @@ export async function runScheduleNow(
 			path,
 			requestBody: args ?? {},
 			workspace: workspace_id,
-			tag: tag || undefined
+			// scheduled flows run on the flow's own tag, like the cron path
+			tag: (!isFlow && tag) || undefined
 		})
 
 		sendUserToast(`Schedule ${path} will run now`, false, [
