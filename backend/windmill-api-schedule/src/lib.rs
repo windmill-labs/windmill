@@ -409,7 +409,8 @@ async fn create_schedule(
             paused_until,
             cron_version,
             dynamic_skip,
-            labels
+            labels,
+            skipped_occurrences
         "#,
         w_id,
         ns.path,
@@ -655,7 +656,8 @@ async fn edit_schedule(
             paused_until,
             cron_version,
             dynamic_skip,
-            labels
+            labels,
+            skipped_occurrences
         "#,
         es.schedule,
         es.timezone,
@@ -1003,6 +1005,8 @@ async fn list_schedule(
 pub struct ScheduleWJobs {
     pub path: String,
     pub jobs: Option<Vec<serde_json::Value>>,
+    pub skipped_occurrences: Option<i32>,
+    pub skipped_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 async fn list_schedule_with_jobs(
@@ -1019,7 +1023,7 @@ async fn list_schedule_with_jobs(
         // - use of the `ix_v2_job_root_by_path` index; hence the `parent_job IS NULL` clause.
         // - both `workspace_id = $1` checks are required to hit both indexes.
         "SELECT
-            schedule.path, t.jobs FROM schedule,
+            schedule.path, t.jobs, schedule.skipped_occurrences, schedule.skipped_at FROM schedule,
             LATERAL(SELECT ARRAY(
                 SELECT json_build_object('id', id, 'success', status = 'success', 'duration_ms', duration_ms)
                 FROM v2_job_completed c JOIN v2_job j USING (id)
@@ -1191,7 +1195,8 @@ pub async fn set_enabled(
             paused_until,
             cron_version,
             dynamic_skip,
-            labels
+            labels,
+            skipped_occurrences
         "#,
         payload.enabled,
         authed.email,

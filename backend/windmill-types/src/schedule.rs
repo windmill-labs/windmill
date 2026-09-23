@@ -57,6 +57,10 @@ pub struct Schedule {
     pub dynamic_skip: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    // Runtime state, not configuration: kept out of exports and git sync.
+    #[sqlx(default)]
+    #[serde(skip)]
+    pub skipped_occurrences: Option<i32>,
 }
 
 impl Schedule {

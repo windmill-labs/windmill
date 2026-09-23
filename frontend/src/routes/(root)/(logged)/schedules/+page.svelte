@@ -33,7 +33,8 @@
 		Plus,
 		SearchX,
 		Shield,
-		Trash
+		Trash,
+		TriangleAlert
 	} from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
@@ -149,6 +150,8 @@
 		for (let schedule of schedules) {
 			if (schedulesWithJobsByPath[schedule.path]) {
 				schedule.jobs = schedulesWithJobsByPath[schedule.path].jobs
+				schedule.skipped_occurrences = schedulesWithJobsByPath[schedule.path].skipped_occurrences
+				schedule.skipped_at = schedulesWithJobsByPath[schedule.path].skipped_at
 			}
 		}
 		loadingSchedulesWithJobStats = false
@@ -400,7 +403,7 @@
 				{/if}
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
-					{#each items.slice(0, nbDisplayed) as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, jobs, paused_until, labels, inherited_labels, draft_only, is_draft } (path)}
+					{#each items.slice(0, nbDisplayed) as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, jobs, skipped_occurrences, skipped_at, paused_until, labels, inherited_labels, draft_only, is_draft } (path)}
 						{@const hasDraft =
 							getLocalDraftHint($workspaceStore, 'trigger_schedule', path) ?? is_draft}
 						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
@@ -486,6 +489,19 @@
 												<div>
 													The schedule disabled itself because there was an error scheduling the
 													next job: {error}
+												</div>
+											{/snippet}
+										</Popover>
+									{:else if skipped_occurrences}
+										<Popover notClickable>
+											<TriangleAlert size={16} class="text-yellow-600" />
+											{#snippet text()}
+												<div>
+													Skipped {skipped_occurrences}
+													{skipped_occurrences === 1 ? 'occurrence' : 'occurrences'}
+													{skipped_at ? `on ${displayDate(skipped_at)}` : ''} because the previous run
+													finished or started after the next one was due. Shorten the run or add workers
+													to run every occurrence.
 												</div>
 											{/snippet}
 										</Popover>

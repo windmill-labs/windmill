@@ -31973,6 +31973,12 @@ components:
                   - id
                   - success
                   - duration_ms
+            skipped_occurrences:
+              type: integer
+              description: occurrences skipped before the latest one because the previous run finished or started after they were due, absent when the latest one was on time
+            skipped_at:
+              type: string
+              format: date-time
 
     ErrorHandler:
       type: string

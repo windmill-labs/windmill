@@ -49,6 +49,7 @@ mod schedule_push {
             cron_version: None,
             dynamic_skip: None,
             labels: None,
+            skipped_occurrences: None,
         };
         overrides(&mut s);
         s

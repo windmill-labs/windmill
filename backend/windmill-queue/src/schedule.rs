@@ -34,7 +34,10 @@ use windmill_common::DB;
 use windmill_common::{
     error::{self, Result},
     schedule::Schedule,
-    utils::{now_from_db, ScheduleType, StripPath},
+    utils::{
+        now_from_db, report_critical_error, report_recovered_critical_error, ScheduleType,
+        StripPath,
+    },
 };
 
 /// Helper to fetch metadata for a schedule's script or flow
@@ -197,6 +200,21 @@ pub async fn push_scheduled_job<'c>(
             next
         );
         return Ok(tx);
+    }
+
+    // Only a chained push (`now_cutoff` is the previous occurrence) can skip one: create,
+    // edit, enable and re-arm start fresh, and a pause, even one already over, is deliberate.
+    if let Some(prev) = now_cutoff.filter(|_| schedule.paused_until.is_none()) {
+        let skipped = count_skipped_occurrences(&sched, &tz, prev, next);
+        if skipped > 0 || schedule.skipped_occurrences.is_some() {
+            tokio::spawn(record_skipped_occurrences(
+                db.clone(),
+                schedule.workspace_id.clone(),
+                schedule.path.clone(),
+                skipped,
+                schedule.skipped_occurrences.is_none(),
+            ));
+        }
     }
 
     let mut args: HashMap<String, Box<serde_json::value::RawValue>> = HashMap::new();
@@ -576,6 +594,75 @@ pub async fn push_scheduled_job<'c>(
     Ok(tx) // TODO: Bubble up pushed UUID from here
 }
 
+const MAX_COUNTED_SKIPS: u32 = 1000;
+
+/// Due slots of the cron strictly between the previous occurrence and the next one.
+/// A clean chain costs one `find_next`: its first slot is `next` itself.
+fn count_skipped_occurrences(
+    sched: &ScheduleType,
+    tz: &chrono_tz::Tz,
+    prev: DateTime<Utc>,
+    next: DateTime<Utc>,
+) -> u32 {
+    let mut count = 0;
+    let mut slot = prev.with_timezone(tz);
+    while count < MAX_COUNTED_SKIPS {
+        match sched.find_next(&slot) {
+            Ok(s) if s.with_timezone(&Utc) < next => {
+                count += 1;
+                slot = s;
+            }
+            _ => break,
+        }
+    }
+    count
+}
+
+/// Best effort, off the push transaction: losing a write only delays the badge or alert.
+/// Alerts fire on the transition only, so a schedule that keeps overrunning alerts once.
+async fn record_skipped_occurrences(
+    db: DB,
+    w_id: String,
+    path: String,
+    skipped: u32,
+    was_clean: bool,
+) {
+    let res = sqlx::query!(
+        "UPDATE schedule SET skipped_occurrences = $3, skipped_at = CASE WHEN $3::int IS NULL THEN NULL ELSE now() END
+        WHERE workspace_id = $1 AND path = $2",
+        &w_id,
+        &path,
+        (skipped > 0).then_some(skipped as i32),
+    )
+    .execute(&db)
+    .await;
+    if let Err(e) = res {
+        tracing::warn!("failed to record skipped occurrences for schedule {w_id}/{path}: {e}");
+        return;
+    }
+
+    let resource = format!("{w_id}/schedule/{path}");
+    if skipped > 0 && was_clean {
+        report_critical_error(
+            format!(
+                "Schedule {path} skipped {skipped} occurrence(s): the previous run finished or started after the next one was due"
+            ),
+            db,
+            Some(&w_id),
+            Some(&resource),
+        )
+        .await;
+    } else if skipped == 0 {
+        report_recovered_critical_error(
+            format!("Schedule {path} runs every occurrence again"),
+            db,
+            Some(&w_id),
+            Some(&resource),
+        )
+        .await;
+    }
+}
+
 /// Enabled schedules with no occurrence in the queue, as `(workspace_id, path)`.
 ///
 /// Every path that completes a scheduled job pushes the next occurrence in the
@@ -697,7 +784,7 @@ pub async fn get_schedule_opt<'c>(
     path: &str,
 ) -> Result<Option<Schedule>> {
     let schedule_opt = sqlx::query_as::<_, Schedule>(
-        "SELECT workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, args, extra_perms, email, permissioned_as, error, on_failure, on_failure_times, on_failure_exact, on_failure_extra_args, on_recovery, on_recovery_times, on_recovery_extra_args, on_success, on_success_extra_args, ws_error_handler_muted, retry, no_flow_overlap, summary, description, tag, paused_until, cron_version, dynamic_skip, labels FROM schedule WHERE path = $1 AND workspace_id = $2",
+        "SELECT workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, args, extra_perms, email, permissioned_as, error, on_failure, on_failure_times, on_failure_exact, on_failure_extra_args, on_recovery, on_recovery_times, on_recovery_extra_args, on_success, on_success_extra_args, ws_error_handler_muted, retry, no_flow_overlap, summary, description, tag, paused_until, cron_version, dynamic_skip, labels, skipped_occurrences FROM schedule WHERE path = $1 AND workspace_id = $2",
     )
     .bind(path)
     .bind(w_id)
@@ -755,4 +842,25 @@ pub async fn clear_schedule<'c>(
 
     windmill_common::jobs::delete_jobs(&mut **tx, &deleted_ids).await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn counts_the_slots_between_two_occurrences() {
+        let every_30s = ScheduleType::from_str("*/30 * * * * *", None, false).unwrap();
+        let at = |s: &str| DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc);
+        let tz = chrono_tz::UTC;
+        let prev = at("2026-09-02T08:20:00Z");
+        assert_eq!(
+            count_skipped_occurrences(&every_30s, &tz, prev, at("2026-09-02T08:20:30Z")),
+            0
+        );
+        assert_eq!(
+            count_skipped_occurrences(&every_30s, &tz, prev, at("2026-09-02T08:21:30Z")),
+            2
+        );
+    }
 }
