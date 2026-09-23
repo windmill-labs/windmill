@@ -131,6 +131,8 @@ function editorHasUnsavedEdits(): boolean {
 	})
 }
 
+let latestSwitch = 0
+
 function switchTo(id: string) {
 	workspaceAIClients.init(id)
 	switchWorkspace(id)
@@ -149,7 +151,10 @@ export async function switchWorkspaceAndPage(
 		href?: string
 	}
 ): Promise<void> {
+	const request = ++latestSwitch
 	const missing = !opts?.landOnHome && (await itemPageMissingIn(id))
+	// A switch picked while this lookup was in flight wins.
+	if (request !== latestSwitch) return
 	// Read after the lookup: the user can edit while it is in flight.
 	const unsavedEdits = editorHasUnsavedEdits()
 	if (opts?.landOnHome || unsavedEdits || missing) {
