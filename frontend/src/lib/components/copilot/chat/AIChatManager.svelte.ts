@@ -1441,6 +1441,9 @@ export class AIChatManager implements ChatViewHost {
 				? this.systemMessage.content.length / tokenPerCharacter
 				: 0
 		const tools = this.tools
+		// Counts each tool's shared `def`, not the per-chat one `schemaFor` builds at send time,
+		// so a flow's input schema is missed. Accepted: the estimate only stands in until the
+		// provider reports usage, and the compaction trigger's headroom absorbs the gap.
 		const toolTokens =
 			tools.length > 0 ? JSON.stringify(tools.map((t) => t.def)).length / tokenPerCharacter : 0
 		return systemTokens + toolTokens
