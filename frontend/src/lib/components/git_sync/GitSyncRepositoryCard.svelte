@@ -597,7 +597,7 @@
 				</div>
 			{/if}
 			{#if gitSyncTestJob && gitSyncTestJob.status !== undefined}
-				<div class="flex text-sm gap-1 items-center">
+				<div class="flex text-xs gap-1 items-center">
 					{#if gitSyncTestJob.status === 'running'}
 						<RotateCw size={14} class="animate-spin" />
 					{:else if gitSyncTestJob.status === 'success'}
