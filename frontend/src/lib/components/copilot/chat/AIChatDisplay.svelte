@@ -277,11 +277,12 @@
 	// label repeats when a step runs in a loop), and on answers rather than the next row: a
 	// flow's tool rows have their own job, and a stopped turn can end on a tool row.
 	// None in a turn still running: which answer ends it is unknown until it does, and an
-	// answer followed by a tool call would sit above it with the row's blank gap.
+	// answer followed by a tool call would leave the row's blank gap above that call. A manual
+	// compaction loads without a turn of its own, so it leaves the last turn's row in place.
 	const showsAnswerActions = $derived.by(() => {
 		const shows: boolean[] = new Array(messages.length).fill(false)
 		const answeredLater = new Set<string | undefined>()
-		let inRunningTurn = chatHost.loading
+		let inRunningTurn = chatHost.loading && !chatHost.compacting
 		for (let i = messages.length - 1; i >= 0; i--) {
 			const message = messages[i]
 			if (message.role === 'user' || message.role === 'summary') {
