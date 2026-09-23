@@ -13,20 +13,30 @@
 
 	const diff = $derived(toolCodeDiff(message))
 	const isStreaming = $derived(Boolean(message.isStreamingArguments))
+	const hasDiff = $derived(Boolean(diff && (diff.before !== '' || diff.after !== '')))
+	// The card body is a bordered box: opened with nothing in it, it draws an empty line.
+	const hasBody = $derived(hasDiff || Boolean(message.error))
 
 	// Keyed by call id: a bare flag would carry the expansion onto the next message that
 	// reuses this instance. An active or failed call opens by itself, and remains open
-	// when it settles so the new diff does not disappear under the user.
+	// when it settles so the new diff does not disappear under the user. A written script
+	// is a whole file, so only its failure opens it.
 	let toggled = $state<{ id: string; open: boolean } | undefined>(undefined)
 	const opensByDefault = $derived(
-		Boolean(message.isLoading || message.isQueued || message.isStreamingArguments || message.error)
+		Boolean(
+			message.error ||
+				(message.toolName !== 'write_script' &&
+					(message.isLoading || message.isQueued || message.isStreamingArguments))
+		)
 	)
 	$effect(() => {
 		if (opensByDefault && toggled?.id !== message.tool_call_id) {
 			toggled = { id: message.tool_call_id, open: true }
 		}
 	})
-	const expanded = $derived(toggled?.id === message.tool_call_id ? toggled.open : opensByDefault)
+	const expanded = $derived(
+		hasBody && (toggled?.id === message.tool_call_id ? toggled.open : opensByDefault)
+	)
 	const lines = $derived(diff && expanded ? toolDiffLines(diff, isStreaming) : undefined)
 	const counts = $derived(
 		diff && expanded
@@ -60,7 +70,7 @@
 	label={message.content}
 	{expanded}
 	onToggle={() => (toggled = { id: message.tool_call_id, open: !expanded })}
-	toggleable={diff !== undefined || message.error !== undefined}
+	toggleable={hasBody}
 	shimmer={isRunning}
 	class={message.isQueued && !message.error
 		? 'opacity-60 hover:opacity-100 transition-opacity'
@@ -69,12 +79,12 @@
 	contentClass="p-0 overflow-hidden space-y-0"
 	{headerRight}
 >
-	{#if diff && expanded}
+	{#if diff && hasDiff && expanded}
 		<ToolCodeDiffView {diff} diffLines={lines} streaming={isStreaming} />
 	{/if}
 	{#if message.error}
 		<div
-			class="px-3 py-2 text-2xs text-red-600 dark:text-red-400 whitespace-pre-wrap break-words {diff
+			class="px-3 py-2 text-2xs text-red-600 dark:text-red-400 whitespace-pre-wrap break-words {hasDiff
 				? 'border-t border-border-light'
 				: ''}"
 		>
