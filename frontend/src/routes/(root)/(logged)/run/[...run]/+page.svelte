@@ -693,6 +693,7 @@
 			disabled={!$enterpriseLicense}
 			enterpriseOnly={!$enterpriseLicense}
 			{triggerStyle}
+			unifiedSize="sm"
 		/>
 	{/if}
 {/snippet}
@@ -792,13 +793,13 @@
 						<Button
 							nonCaptureEvent
 							variant="default"
-							unifiedSize="md"
+							unifiedSize="sm"
 							startIcon={{ icon: Trash }}
 						/>
 					{/snippet}
 				</Dropdown>
 				{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
-					<Button href={runsHref} variant="default" unifiedSize="md" startIcon={{ icon: List }}>
+					<Button href={runsHref} variant="default" unifiedSize="sm" startIcon={{ icon: List }}>
 						View runs
 					</Button>
 				{/if}
@@ -826,7 +827,7 @@
 					]}
 				>
 					{#snippet buttonReplacement()}
-						<Button nonCaptureEvent variant="default" unifiedSize="md" startIcon={{ icon: Share2 }}>
+						<Button nonCaptureEvent variant="default" unifiedSize="sm" startIcon={{ icon: Share2 }}>
 							Share
 						</Button>
 					{/snippet}
@@ -848,7 +849,7 @@
 						class="h-auto"
 					>
 						{#snippet buttonReplacement()}
-							<Button nonCaptureEvent unifiedSize="md" variant="subtle">
+							<Button nonCaptureEvent unifiedSize="sm" variant="subtle">
 								<div class="flex flex-row items-center">
 									<EllipsisVertical size={14} />
 								</div>
@@ -859,7 +860,7 @@
 			{/if}
 			{#if isFlowPreview(job?.job_kind) || isScriptPreview(job?.job_kind)}
 				<Button
-					unifiedSize="md"
+					unifiedSize="sm"
 					variant="default"
 					startIcon={{ icon: GitBranch }}
 					on:click={forkPreview}
@@ -871,7 +872,7 @@
 			{/if}
 			{#if persistentScriptDefinition !== undefined}
 				<Button
-					unifiedSize="md"
+					unifiedSize="sm"
 					variant="default"
 					startIcon={{ icon: Activity }}
 					on:click={() => {
@@ -884,7 +885,7 @@
 			{#if job && job?.type != 'CompletedJob' && (!job?.schedule_path || job?.['running'] == true)}
 				{#if !forceCancel}
 					<Button
-						unifiedSize="md"
+						unifiedSize="sm"
 						variant="accent"
 						destructive
 						startIcon={{ icon: TimerOff }}
@@ -902,7 +903,7 @@
 					</Button>
 				{:else}
 					<Button
-						unifiedSize="md"
+						unifiedSize="sm"
 						variant="accent"
 						destructive
 						startIcon={{ icon: TimerOff }}
@@ -918,7 +919,7 @@
 			{/if}
 			{#if job?.schedule_path}
 				<Button
-					unifiedSize="md"
+					unifiedSize="sm"
 					variant="default"
 					on:click={() => {
 						if (!job || !job.schedule_path) {
@@ -945,7 +946,7 @@
 								`#${computeSharableHash(job?.args, await getRerunTagOverride(job?.args))}`
 						)
 					}}
-					unifiedSize="md"
+					unifiedSize="sm"
 					variant="default"
 					startIcon={{ icon: RefreshCw }}
 					loading={runImmediatelyLoading}
@@ -972,10 +973,9 @@
 							on:click={() => {
 								$initialArgsStore = job?.args
 							}}
-							unifiedSize="md"
+							unifiedSize="sm"
 							variant="default"
 							disabled={!showEditButton}
-							size="sm"
 							startIcon={{ icon: Pen }}>Edit</Button
 						>
 						{#if showEditButton}
@@ -987,7 +987,7 @@
 									target: { kind: isScript ? 'script' : 'flow', path: job?.script_path ?? '' },
 									workspaceId: $workspaceStore ?? undefined
 								}}
-								btnProps={{ unifiedSize: 'md' }}
+								btnProps={{ unifiedSize: 'sm' }}
 							/>
 						{/if}
 					{/if}
@@ -998,9 +998,8 @@
 								onEditInForkClick(e, isScript ? 'script' : 'flow', job?.script_path ?? '', {
 									hasHref: true
 								})}
-							unifiedSize="md"
+							unifiedSize="sm"
 							variant="default"
-							size="sm"
 							startIcon={{ icon: Pen }}>{editInForkLabel($workspaceStore, $userWorkspaces)}</Button
 						>
 					{/if}
@@ -1009,7 +1008,7 @@
 			{#if job?.job_kind === 'script' || job?.job_kind === 'script_hub' || job?.job_kind === 'flow'}
 				<Button
 					href={viewHref}
-					unifiedSize="md"
+					unifiedSize="sm"
 					variant="accent"
 					startIcon={{
 						icon:
