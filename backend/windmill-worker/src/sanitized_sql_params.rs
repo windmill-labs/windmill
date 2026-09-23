@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 use regex::Regex;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use serde_json::Value;
 use windmill_common::error;
@@ -38,27 +38,27 @@ fn sanitize_identifier(arg: &Arg, input: &str) -> Result<(), error::Error> {
 /// end user's email into a query that runs with the author's credentials: an email may
 /// contain `'` (and `\` or `"` in a quoted local part).
 ///
-/// The escaping must hold whatever literal form and session mode the query uses, so where a
-/// dialect can process backslash escapes in some literal (PostgreSQL/DuckDB `E'...'`, MySQL
-/// outside `NO_BACKSLASH_ESCAPES`), `\` is doubled too: otherwise `\'` in the value becomes
-/// `\''`, whose second quote closes the literal. The price is a doubled `\` (or, in MySQL, a
-/// doubled quote of the other style than the literal) in the rare value that contains one.
+/// Each mode must hold in every quote-delimited literal form and session mode the dialect
+/// has, since a script can switch modes itself. Where some literal processes backslash
+/// escapes, `\` is doubled too, or a value's `\'` would become `\''` and close the literal.
+/// The price is a doubled `\` or quote in the rare value containing one, in a literal that
+/// did not need it. Dollar-quoted, Oracle `q'[...]'` and raw literals cannot be escaped into.
 #[derive(Clone, Copy)]
 pub enum SqlStringEscaping {
-    /// `'` → `''`; `\` is never an escape (MSSQL, Oracle).
-    #[cfg_attr(
-        not(any(all(feature = "enterprise", feature = "mssql"), feature = "oracledb")),
-        allow(dead_code)
-    )]
+    /// `'` → `''` (Oracle).
+    #[cfg_attr(not(feature = "oracledb"), allow(dead_code))]
     Quote,
-    /// `\` → `\\`, `'` → `''`; `"` quotes identifiers (PostgreSQL, DuckDB, Snowflake).
+    /// `'` → `''`, `"` → `""`: `"..."` is a string under `QUOTED_IDENTIFIER OFF` (MSSQL).
+    #[cfg_attr(not(all(feature = "enterprise", feature = "mssql")), allow(dead_code))]
+    BothQuotes,
+    /// `\` → `\\`, `'` → `''` (PostgreSQL and DuckDB `E'...'`, Snowflake).
     QuoteAndBackslash,
-    /// `\` → `\\`, `'` → `''`, `"` → `""`: MySQL also accepts `"..."` literals, and only
-    /// doubling stays confined under `NO_BACKSLASH_ESCAPES`.
+    /// `\` → `\\`, `'` → `''`, `"` → `""`: `"..."` is a string, and only doubling stays
+    /// confined under `NO_BACKSLASH_ESCAPES` (MySQL).
     #[cfg_attr(not(feature = "mysql"), allow(dead_code))]
     MySql,
-    /// `\` → `\\`, `'` → `\'`, `"` → `\"`: backslash escapes are always on, both quote
-    /// styles delimit strings, and `''` is not accepted.
+    /// `\` → `\\`, quotes as `\x27`/`\x22`: `''` is not accepted, and a value with no quote
+    /// characters left cannot desync `parse_sql_blocks` or close a raw string (BigQuery).
     #[cfg_attr(not(feature = "bigquery"), allow(dead_code))]
     BigQuery,
 }
@@ -67,6 +67,7 @@ impl SqlStringEscaping {
     fn escape(self, value: &str) -> String {
         match self {
             SqlStringEscaping::Quote => value.replace('\'', "''"),
+            SqlStringEscaping::BothQuotes => value.replace('\'', "''").replace('"', "\"\""),
             SqlStringEscaping::QuoteAndBackslash => value.replace('\\', "\\\\").replace('\'', "''"),
             SqlStringEscaping::MySql => value
                 .replace('\\', "\\\\")
@@ -74,33 +75,27 @@ impl SqlStringEscaping {
                 .replace('"', "\"\""),
             SqlStringEscaping::BigQuery => value
                 .replace('\\', "\\\\")
-                .replace('\'', "\\'")
-                .replace('"', "\\\""),
+                .replace('\'', "\\x27")
+                .replace('"', "\\x22"),
         }
     }
 }
 
+/// A single pass, so a value containing `%%WM_*%%` is never itself expanded.
 fn replace_contextual_variables(
     code: &mut String,
     contextual_variables: &HashMap<String, String>,
     escaping: SqlStringEscaping,
 ) -> () {
-    let vars = RE_SQL_CONTEXTUAL_VAR
-        .find_iter(&code)
-        .map(|m| m.as_str().to_string())
-        .collect::<HashSet<_>>();
-
-    for var_pattern in vars {
-        let var_name = var_pattern
-            .strip_prefix("%%")
-            .unwrap()
-            .strip_suffix("%%")
-            .unwrap();
-        let var_value = contextual_variables.get(var_name);
-        if let Some(var_value) = var_value {
-            *code = code.replace(&var_pattern, &escaping.escape(var_value));
-        }
-    }
+    *code = RE_SQL_CONTEXTUAL_VAR
+        .replace_all(code, |caps: &regex::Captures| {
+            let pattern = &caps[0];
+            match contextual_variables.get(&pattern[2..pattern.len() - 2]) {
+                Some(value) => escaping.escape(value),
+                None => pattern.to_string(),
+            }
+        })
+        .into_owned();
 }
 
 pub fn sanitize_and_interpolate_unsafe_sql_args(
@@ -209,11 +204,30 @@ mod tests {
             r#"SELECT 1 WHERE email = '""x\\''/**/OR/**/1=1#""@e.com'"#
         );
         assert_eq!(
-            interpolate(code, backslash, SqlStringEscaping::BigQuery),
-            r#"SELECT 1 WHERE email = '\"x\\\'/**/OR/**/1=1#\"@e.com'"#
+            interpolate(code, backslash, SqlStringEscaping::BothQuotes),
+            r#"SELECT 1 WHERE email = '""x\''/**/OR/**/1=1#""@e.com'"#
         );
+        assert_eq!(
+            interpolate(code, backslash, SqlStringEscaping::BigQuery),
+            r#"SELECT 1 WHERE email = '\x22x\\\x27/**/OR/**/1=1#\x22@e.com'"#
+        );
+        // a value is never expanded itself: `%` is valid in an email's local part
+        let vars = HashMap::from([
+            ("WM_EMAIL".to_string(), "%%WM_TOKEN%%@e.com".to_string()),
+            ("WM_TOKEN".to_string(), "secret".to_string()),
+        ]);
+        let (out, _) = sanitize_and_interpolate_unsafe_sql_args(
+            "SELECT '%%WM_EMAIL%%', '%%WM_TOKEN%%'",
+            &vec![],
+            &HashMap::new(),
+            &vars,
+            SqlStringEscaping::Quote,
+        )
+        .unwrap();
+        assert_eq!(out, "SELECT '%%WM_TOKEN%%@e.com', 'secret'");
         for escaping in [
             SqlStringEscaping::Quote,
+            SqlStringEscaping::BothQuotes,
             SqlStringEscaping::QuoteAndBackslash,
             SqlStringEscaping::MySql,
             SqlStringEscaping::BigQuery,
