@@ -1,4 +1,4 @@
-import { hasCapabilities, type SessionAccess, type SessionCapability } from './sessionAccess'
+import type { SessionAccess, SessionCapability } from './sessionAccess'
 
 /**
  * The capabilities without which a tool's call cannot succeed — usually because the
@@ -156,7 +156,7 @@ export function sessionToolAllowed(name: string, access: SessionAccess): boolean
 	// Fails closed, so a tool that ships without a policy disappears from restricted
 	// sessions rather than leaking into them.
 	if (!requires) return false
-	return hasCapabilities(access, requires)
+	return requires.every((c) => access.has(c))
 }
 
 /** Filter an assembled toolset. `access` undefined means "not resolved yet, or not

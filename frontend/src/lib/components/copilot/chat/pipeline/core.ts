@@ -339,7 +339,7 @@ export const pipelineTools: Tool<PipelineToolHelpers>[] = [
  * as it is what lets the model read and explain an existing pipeline.
  */
 export function getPipelinePromptSection(ctx: PipelineContext, access?: SessionAccess): string {
-	const canWriteDraft = !access || access.capabilities.has('write_draft')
+	const canWriteDraft = !access || access.has('write_draft')
 	return `
 
 Data Pipeline editor (ACTIVE):

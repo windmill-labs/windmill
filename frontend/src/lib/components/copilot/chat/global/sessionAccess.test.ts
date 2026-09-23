@@ -31,8 +31,7 @@ function user(overrides: WhoamiOverrides) {
 
 async function capabilitiesFor(overrides: WhoamiOverrides, workspace = 'ws') {
 	whoami.mockResolvedValueOnce(user(overrides))
-	const access = await resolveSessionAccess(workspace)
-	return access.capabilities
+	return await resolveSessionAccess(workspace)
 }
 
 describe('resolveSessionAccess', () => {
@@ -79,13 +78,13 @@ describe('resolveSessionAccess', () => {
 	it('grants everything when the role cannot be resolved', async () => {
 		whoami.mockRejectedValueOnce(new Error('network'))
 		const access = await resolveSessionAccess('ws')
-		expect(access.capabilities.has('write_draft')).toBe(true)
-		expect(access.capabilities.has('deploy')).toBe(true)
+		expect(access.has('write_draft')).toBe(true)
+		expect(access.has('deploy')).toBe(true)
 	})
 
 	it('fails open on a body that resolves without a role, rather than throwing', async () => {
 		whoami.mockResolvedValueOnce(undefined)
 		const access = await resolveSessionAccess('ws')
-		expect(access.capabilities.has('write_draft')).toBe(true)
+		expect(access.has('write_draft')).toBe(true)
 	})
 })

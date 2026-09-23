@@ -1273,8 +1273,8 @@ type FolderPromptContext = { folders?: string[]; foldersRead?: string[]; isAdmin
 // Capped so a folder-heavy workspace can't dominate the prompt.
 function buildFolderGuidance(
 	username: string,
-	ctx?: FolderPromptContext,
-	canCreateFolder: boolean = true
+	ctx: FolderPromptContext | undefined,
+	canCreateFolder: boolean
 ): string {
 	if (!ctx) return ''
 	const MAX = 40
@@ -1332,12 +1332,12 @@ const buildGlobalSystemPrompt = (
 	// Each `can*` mirrors the capability that gates the matching tools in
 	// SESSION_TOOL_POLICIES, so a rule cannot outlive the tool it describes. An
 	// unresolved profile keeps every block.
-	const canWriteDraft = !access || access.capabilities.has('write_draft')
-	const canRunPreview = !access || access.capabilities.has('run_preview')
+	const canWriteDraft = !access || access.has('write_draft')
+	const canRunPreview = !access || access.has('run_preview')
 	// `deploy` covers only the kinds `check_deploy_rules` gates, and `create_folder` is
 	// the one tool here that names such a kind — the deploy tools take theirs as an
 	// argument, so they ship with the drafts they act on.
-	const canCreateFolder = !access || access.capabilities.has('deploy')
+	const canCreateFolder = !access || access.has('deploy')
 	// Each gated block carries its own leading newline, so dropping one leaves no blank
 	// line behind and a full-access prompt is byte-for-byte the ungated text.
 	const when = (cond: boolean, block: string) => (cond ? block : '')
@@ -1403,10 +1403,7 @@ Rules:${when(
 - If the user message includes an ACTIVE EDITOR section, treat it as the currently open item and use it for references like "this", "current", or "open editor".${activePreviewRule}${when(
 		canWriteDraft,
 		`
-- Use deploy_workspace_item only after the user explicitly asks to deploy. It persists a draft to the workspace.`
-	)}${when(
-		canWriteDraft,
-		`
+- Use deploy_workspace_item only after the user explicitly asks to deploy. It persists a draft to the workspace.
 - To undo something you created or changed in this chat, use discard_local_draft: everything you write is a draft until it is explicitly deployed, so "delete it" / "never mind" / "remove that" about your own work means discarding the draft (it also clears the matching open editor draft). Use delete_workspace_item only to remove an item that is already deployed in the workspace; it mutates the workspace and fails if nothing is deployed at that path.`
 	)}${when(
 		!canWriteDraft,
@@ -1494,13 +1491,9 @@ Raw apps:
 		canWriteDraft,
 		`
 - A draft app is reachable by nobody; deploying is what exposes its backend runnables. deploy_workspace_item says so when the deploy widens who may open the app: anonymous means anyone with the URL, without logging in; guest means anyone the instance's identity provider authenticates, member of this workspace or not. Relay that in plain words and carry on. This is disclosure, not a gate: do not stop and ask for permission, and do not refuse the deploy. You cannot change who may open an app from chat; it is set on the app's deploy settings.
-
 - Use write_app_file, patch_app_file, and delete_app_file for frontend files.
 - Use write_app_runnable and delete_app_runnable for backend runnables.
-- Use init_app only after confirming framework, path, and summary with the user.`
-	)}${when(
-		canWriteDraft,
-		`
+- Use init_app only after confirming framework, path, and summary with the user.
 - Use deploy_workspace_item after explicit user deploy intent; raw app deploy bundles JS/CSS before saving.`
 	)}
 
@@ -2487,9 +2480,9 @@ export function getSessionContextPromptSection(
 	// Concatenated onto an already capability-gated prompt, so it has to honour the same
 	// profile rather than assume the gating happened upstream. Each branch keeps its
 	// "where work lands" fact either way.
-	const canDeploy = !access || access.capabilities.has('deploy')
-	const canWriteDraft = !access || access.capabilities.has('write_draft')
-	const canRunPreview = !access || access.capabilities.has('run_preview')
+	const canDeploy = !access || access.has('deploy')
+	const canWriteDraft = !access || access.has('write_draft')
+	const canRunPreview = !access || access.has('run_preview')
 	const targets = [
 		'reads',
 		canWriteDraft && 'drafts',

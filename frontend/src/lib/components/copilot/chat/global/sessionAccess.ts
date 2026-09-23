@@ -16,9 +16,7 @@ export type SessionCapability =
 	 * user may deploy those and a capability for them would always be present. */
 	| 'deploy'
 
-export type SessionAccess = {
-	capabilities: ReadonlySet<SessionCapability>
-}
+export type SessionAccess = ReadonlySet<SessionCapability>
 
 const ALL_CAPABILITIES: SessionCapability[] = ['write_draft', 'run_preview', 'deploy']
 
@@ -27,14 +25,7 @@ const ALL_CAPABILITIES: SessionCapability[] = ['write_draft', 'run_preview', 'de
  * which is worse and far less legible than the 403 they get by trying. Matches
  * `checkDeployPermission`, which fails open for the same reason. */
 export function fullSessionAccess(): SessionAccess {
-	return { capabilities: new Set(ALL_CAPABILITIES) }
-}
-
-export function hasCapabilities(
-	access: SessionAccess,
-	requires: readonly SessionCapability[]
-): boolean {
-	return requires.every((c) => access.capabilities.has(c))
+	return new Set(ALL_CAPABILITIES)
 }
 
 export async function resolveSessionAccess(workspace: string): Promise<SessionAccess> {
@@ -68,5 +59,5 @@ export async function resolveSessionAccess(workspace: string): Promise<SessionAc
 		capabilities.add('deploy')
 	}
 
-	return { capabilities }
+	return capabilities
 }

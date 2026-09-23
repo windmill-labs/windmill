@@ -56,7 +56,7 @@ function shippedSessionTools(access: SessionAccess) {
 }
 
 function accessWith(capabilities: SessionCapability[]): SessionAccess {
-	return { capabilities: new Set(capabilities) }
+	return new Set(capabilities)
 }
 
 /** One per branch of getSessionContextPromptSection — each words the deploy target
