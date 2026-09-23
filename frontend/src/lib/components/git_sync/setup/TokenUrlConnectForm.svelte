@@ -1,5 +1,6 @@
 <script lang="ts">
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import { ExternalLink } from 'lucide-svelte'
 	import {
 		parseRepoUrl,
 		withToken,
@@ -27,6 +28,20 @@
 			parsed && token.trim()
 				? { url: parsed.toString(), tokenUrl: withToken(parsed, token, provider) }
 				: undefined
+	})
+
+	/** Where this token is created. Built from the repository URL once there is one, so a
+	 * self-hosted instance points at its own settings rather than github.com / gitlab.com. */
+	const tokenHelpUrl = $derived.by(() => {
+		const origin = parsed?.origin
+		if (provider === 'github') {
+			return `${origin ?? 'https://github.com'}/settings/personal-access-tokens/new`
+		}
+		// GitLab issues a project access token from the project itself.
+		const project = parsed?.pathname.replace(/\.git\/?$/, '').replace(/\/+$/, '')
+		return origin && project
+			? `${origin}${project}/-/settings/access_tokens`
+			: 'https://gitlab.com/-/user_settings/personal_access_tokens'
 	})
 </script>
 
@@ -60,6 +75,19 @@
 			{/if}
 		</span>
 		<TextInput bind:value={token} inputProps={{ type: 'password', autocomplete: 'off' }} />
+		<a
+			href={tokenHelpUrl}
+			target="_blank"
+			rel="noreferrer"
+			class="flex w-fit items-center gap-1 text-2xs text-blue-500 hover:underline"
+		>
+			<ExternalLink size={12} />
+			{#if provider === 'github'}
+				Create one on GitHub{parsed ? ' — pick this repository, then Contents: read and write' : ''}
+			{:else}
+				Create one in the project's settings{parsed ? '' : ' — enter the repository URL first'}
+			{/if}
+		</a>
 		<span class="text-2xs text-hint">
 			Stored in a secret variable next to the resource. Renew it there before it expires.
 		</span>
