@@ -116,12 +116,15 @@ export function toolCodeDiff(message: ToolDisplayMessage): ToolCodeDiff | undefi
 		: undefined
 }
 
-// Reads the arguments, not the saved `codeDiff`: an overwrite's saved diff has a before side,
-// but its arguments were still a whole file.
+// Decided by tool and argument shape, never by the saved `codeDiff`: an overwrite's saved diff
+// has a before side, and clearing a script leaves both argument sides empty, yet both calls sent
+// a whole file.
 export function argumentsCarryWholeFile(message: ToolDisplayMessage): boolean {
-	if (!message.toolName || !Object.hasOwn(ARGS_DIFF_BY_TOOL, message.toolName)) return false
-	const diff = ARGS_DIFF_BY_TOOL[message.toolName](message.parameters)
-	return diff !== undefined && diff.before === '' && diff.after !== ''
+	if (message.toolName === 'write_script') return true
+	if (message.toolName !== 'edit_code') return false
+	const params = message.parameters
+	if (typeof params === 'string') return /"code"\s*:/.test(params)
+	return Boolean(params && typeof params === 'object' && 'code' in params)
 }
 
 export function diffLineCounts(

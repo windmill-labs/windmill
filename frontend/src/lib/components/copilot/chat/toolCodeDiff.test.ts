@@ -292,13 +292,19 @@ describe('toolCodeDiff', () => {
 	})
 
 	it('recognizes calls whose arguments are a whole file', () => {
-		const call = (toolName: string, parameters: unknown) =>
-			argumentsCarryWholeFile(message({ toolName, parameters }))
+		const call = (
+			toolName: string,
+			parameters: unknown,
+			codeDiff?: ToolDisplayMessage['codeDiff']
+		) => argumentsCarryWholeFile(message({ toolName, parameters, codeDiff }))
 
-		expect(call('write_script', { path: 'f/a', content: 'x' })).toBe(true)
+		expect(call('write_script', { path: 'f/a', content: '' })).toBe(true)
 		expect(call('edit_code', '{"code":"x')).toBe(true)
+		expect(
+			call('edit_code', { code: 'x' }, { before: 'old', after: 'x', lang: 'typescript' })
+		).toBe(true)
+		expect(call('edit_code', { diffs: [{ old_string: 'a', new_string: 'b' }] })).toBe(false)
 		expect(call('edit_script', { old_string: 'a', new_string: 'b' })).toBe(false)
-		expect(call('write_script', '{"path":"f/a"')).toBe(false)
 	})
 
 	it('shows each row of a small edit once', () => {
