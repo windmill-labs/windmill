@@ -51,7 +51,7 @@ function shippedSessionTools(access: SessionAccess) {
 }
 
 function accessWith(capabilities: SessionCapability[]): SessionAccess {
-	return { workspace: 'test', capabilities: new Set(capabilities) }
+	return { capabilities: new Set(capabilities) }
 }
 
 /** One per branch of getSessionContextPromptSection — each words the deploy target
@@ -84,7 +84,7 @@ describe('session tool policies', () => {
 	// baseline measured against it) changes behaviour.
 	it('withholds nothing from a session with every capability', () => {
 		const names = assembledSessionToolNames()
-		const allowed = names.filter((n) => sessionToolAllowed(n, fullSessionAccess('test')))
+		const allowed = names.filter((n) => sessionToolAllowed(n, fullSessionAccess()))
 		expect(allowed).toEqual(names)
 	})
 
@@ -203,7 +203,7 @@ describe('session tool policies', () => {
 			const full = prepareGlobalSystemMessage(undefined, {
 				previewTools,
 				user,
-				access: fullSessionAccess('test')
+				access: fullSessionAccess()
 			}).content
 			expect(full).toBe(ungated)
 		}

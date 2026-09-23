@@ -17,9 +17,6 @@ export type SessionCapability =
 	| 'deploy'
 
 export type SessionAccess = {
-	/** The workspace these capabilities were resolved against — a session targets its
-	 * own (possibly forked) workspace, which is not necessarily the navigated one. */
-	workspace: string
 	capabilities: ReadonlySet<SessionCapability>
 }
 
@@ -29,8 +26,8 @@ const ALL_CAPABILITIES: SessionCapability[] = ['write_draft', 'run_preview', 'de
  * transient error tells a developer mid-session that they cannot author anything,
  * which is worse and far less legible than the 403 they get by trying. Matches
  * `checkDeployPermission`, which fails open for the same reason. */
-export function fullSessionAccess(workspace: string): SessionAccess {
-	return { workspace, capabilities: new Set(ALL_CAPABILITIES) }
+export function fullSessionAccess(): SessionAccess {
+	return { capabilities: new Set(ALL_CAPABILITIES) }
 }
 
 export function hasCapabilities(
@@ -49,7 +46,7 @@ export async function resolveSessionAccess(workspace: string): Promise<SessionAc
 	// throwing, and reading a capability off it would surface as a TypeError thrown
 	// out of the send rather than as the fail-open this whole path promises.
 	if (!me) {
-		return fullSessionAccess(workspace)
+		return fullSessionAccess()
 	}
 
 	const capabilities = new Set<SessionCapability>()
@@ -71,5 +68,5 @@ export async function resolveSessionAccess(workspace: string): Promise<SessionAc
 		capabilities.add('deploy')
 	}
 
-	return { workspace, capabilities }
+	return { capabilities }
 }
