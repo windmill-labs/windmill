@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import type { DisplayMessage, ToolDisplayMessage } from './shared'
-import { openItemPreviewAction } from './shared'
+import { openItemPreviewAction, webSearchResultOf } from './shared'
 
 vi.mock('monaco-editor', () => ({
 	editor: {}
@@ -1823,5 +1823,25 @@ describe('processToolCall confirmation hooks', () => {
 
 		expect(tool.onConfirmationRequested).not.toHaveBeenCalled()
 		expect(tool.fn).toHaveBeenCalled()
+	})
+})
+
+// Any tool gets the web search card by returning this shape. The card renders urls and
+// titles only, so a result carrying anything more must keep its JSON pane.
+describe('webSearchResultOf', () => {
+	it('reads the shape, from the value or its JSON text', () => {
+		const result = { sources: [{ url: 'https://a.dev', title: 'A' }], query: 'a' }
+		expect(webSearchResultOf(result)).toEqual(result)
+		expect(webSearchResultOf(JSON.stringify(result))).toEqual(result)
+	})
+
+	it.each([
+		['an extra key', { sources: [{ url: 'https://a.dev' }], summary: 'x' }],
+		['an extra source field', { sources: [{ url: 'https://a.dev', snippet: 'x' }] }],
+		['a source without url', { sources: [{ title: 'A' }] }],
+		['no sources', { sources: [] }],
+		['a bare list of links', [{ url: 'https://a.dev' }]]
+	])('rejects %s', (_, result) => {
+		expect(webSearchResultOf(result)).toBeUndefined()
 	})
 })

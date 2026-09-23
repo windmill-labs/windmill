@@ -610,6 +610,53 @@ export type WebSearchSource = {
 	title?: string
 }
 
+/** The result shape any tool returns to have it rendered as a web search card. */
+export type WebSearchResult = {
+	sources: WebSearchSource[]
+	query?: string
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isWebSearchSource(value: unknown): value is WebSearchSource {
+	return (
+		isRecord(value) &&
+		typeof value.url === 'string' &&
+		Object.entries(value).every(
+			([key, v]) => key === 'url' || (key === 'title' && typeof v === 'string')
+		)
+	)
+}
+
+/**
+ * A tool result as a web search, or undefined when it is anything else. The keys must be
+ * exactly `sources` and an optional `query`: the card renders only urls and titles, so a
+ * result carrying more would lose it. Accepts the result as its JSON text too.
+ */
+export function webSearchResultOf(result: unknown): WebSearchResult | undefined {
+	if (typeof result === 'string') {
+		try {
+			result = JSON.parse(result)
+		} catch {
+			return undefined
+		}
+	}
+	if (
+		!isRecord(result) ||
+		!Array.isArray(result.sources) ||
+		result.sources.length === 0 ||
+		!result.sources.every(isWebSearchSource) ||
+		!Object.entries(result).every(
+			([key, v]) => key === 'sources' || (key === 'query' && typeof v === 'string')
+		)
+	) {
+		return undefined
+	}
+	return result as WebSearchResult
+}
+
 export type ToolDisplayMessage = {
 	role: 'tool'
 	tool_call_id: string
