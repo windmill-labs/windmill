@@ -201,38 +201,52 @@ pub async fn push_scheduled_job<'c>(
 
     // Only a chained push (`now_cutoff` is the previous occurrence) can skip one: create,
     // edit, enable and re-arm start fresh, and a pause, even one already over, is deliberate.
-    if let Some(prev) = now_cutoff.filter(|_| schedule.paused_until.is_none()) {
-        let skipped = count_skipped_occurrences(&sched, &tz, prev, next);
+    let skipped = now_cutoff
+        .filter(|_| schedule.paused_until.is_none())
+        .and_then(|prev| {
+            // A failed count leaves the streak as it was rather than reading as a run on time.
+            count_skipped_occurrences(&sched, &tz, prev, next)
+                .inspect_err(|e| {
+                    tracing::warn!(
+                        "failed to count the occurrences schedule {} missed: {e}",
+                        &schedule.path
+                    )
+                })
+                .ok()
+        });
+    if let Some(skipped) = skipped {
         if skipped > 0 {
             let streak = sqlx::query!(
-                "UPDATE schedule SET skipped_runs = skipped_runs + 1,
-                    skipped_occurrences = skipped_occurrences + $3, skipped_at = now()
+                "UPDATE schedule SET late_run_streak = late_run_streak + 1,
+                    missed_occurrences = CASE WHEN late_run_streak = 0 THEN $3
+                        ELSE missed_occurrences + $3 END,
+                    last_missed_at = now()
                 WHERE workspace_id = $1 AND path = $2
-                RETURNING skipped_runs, skipped_occurrences",
+                RETURNING late_run_streak, missed_occurrences",
                 &schedule.workspace_id,
                 &schedule.path,
                 skipped as i32,
             )
-            .fetch_one(&mut *tx)
-            .warn_after_seconds_with_sql(1, "update_schedule_skipped_runs".to_string())
+            .fetch_optional(&mut *tx)
+            .warn_after_seconds_with_sql(1, "update_schedule_late_run_streak".to_string())
             .await?;
-            if streak.skipped_runs == SKIPPED_RUNS_BEFORE_ALERT {
-                tokio::spawn(alert_skipped_occurrences(
+            if let Some(streak) = streak.filter(|s| s.late_run_streak == LATE_RUNS_BEFORE_ALERT) {
+                tokio::spawn(alert_late_run_streak(
                     db.clone(),
                     schedule.workspace_id.clone(),
                     schedule.path.clone(),
-                    streak.skipped_occurrences,
+                    streak.missed_occurrences,
                 ));
             }
-        } else if schedule.skipped_runs > 0 {
+        } else if schedule.late_run_streak > 0 {
             sqlx::query!(
-                "UPDATE schedule SET skipped_runs = 0, skipped_occurrences = 0
+                "UPDATE schedule SET late_run_streak = 0
                 WHERE workspace_id = $1 AND path = $2",
                 &schedule.workspace_id,
                 &schedule.path,
             )
             .execute(&mut *tx)
-            .warn_after_seconds_with_sql(1, "reset_schedule_skipped_runs".to_string())
+            .warn_after_seconds_with_sql(1, "reset_schedule_late_run_streak".to_string())
             .await?;
         }
     }
@@ -623,7 +637,7 @@ fn count_skipped_occurrences(
     tz: &chrono_tz::Tz,
     prev: DateTime<Utc>,
     next: DateTime<Utc>,
-) -> u32 {
+) -> Result<u32> {
     let mut count = 0;
     let mut slot = prev.with_timezone(tz);
     while count < MAX_COUNTED_SKIPS {
@@ -632,21 +646,39 @@ fn count_skipped_occurrences(
                 count += 1;
                 slot = s;
             }
-            _ => break,
+            Ok(_) => break,
+            Err(e) => return Err(e),
         }
     }
-    count
+    Ok(count)
 }
 
-/// A single skip is a blip (a slow run, a worker restart, an edit mid-run); only a streak
-/// alerts, once, when it reaches this length. The schedules list shows every skip.
-const SKIPPED_RUNS_BEFORE_ALERT: i32 = 3;
+/// A single late run is a blip (a slow run, a worker restart, an edit mid-run); only a
+/// streak alerts, once, when it reaches this length. The schedules list shows every one.
+const LATE_RUNS_BEFORE_ALERT: i32 = 3;
 
 /// Spawned: it reaches the instance alert channels, which must not hold up the push.
-async fn alert_skipped_occurrences(db: DB, w_id: String, path: String, occurrences: i32) {
+async fn alert_late_run_streak(db: DB, w_id: String, path: String, missed: i32) {
+    // The push transaction holds this row until it ends, so FOR SHARE waits for it: a push
+    // that rolled back leaves the streak short of the threshold, and its retry alerts instead.
+    let committed = sqlx::query_scalar!(
+        "SELECT late_run_streak FROM schedule WHERE workspace_id = $1 AND path = $2 FOR SHARE",
+        &w_id,
+        &path,
+    )
+    .fetch_optional(&db)
+    .await;
+    match committed {
+        Ok(Some(streak)) if streak >= LATE_RUNS_BEFORE_ALERT => {}
+        Ok(_) => return,
+        Err(e) => {
+            tracing::warn!("failed to confirm the late run streak of schedule {w_id}/{path}: {e}");
+            return;
+        }
+    }
     report_critical_error(
         format!(
-            "Schedule {path} skipped {occurrences} occurrences over its last {SKIPPED_RUNS_BEFORE_ALERT} runs: each run finished or started after the next one was due"
+            "Schedule {path} missed {missed} occurrences: its last {LATE_RUNS_BEFORE_ALERT} runs in a row started or finished too late"
         ),
         db,
         Some(&w_id),
@@ -776,7 +808,7 @@ pub async fn get_schedule_opt<'c>(
     path: &str,
 ) -> Result<Option<Schedule>> {
     let schedule_opt = sqlx::query_as::<_, Schedule>(
-        "SELECT workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, args, extra_perms, email, permissioned_as, error, on_failure, on_failure_times, on_failure_exact, on_failure_extra_args, on_recovery, on_recovery_times, on_recovery_extra_args, on_success, on_success_extra_args, ws_error_handler_muted, retry, no_flow_overlap, summary, description, tag, paused_until, cron_version, dynamic_skip, labels, skipped_runs FROM schedule WHERE path = $1 AND workspace_id = $2",
+        "SELECT workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, args, extra_perms, email, permissioned_as, error, on_failure, on_failure_times, on_failure_exact, on_failure_extra_args, on_recovery, on_recovery_times, on_recovery_extra_args, on_success, on_success_extra_args, ws_error_handler_muted, retry, no_flow_overlap, summary, description, tag, paused_until, cron_version, dynamic_skip, labels, late_run_streak FROM schedule WHERE path = $1 AND workspace_id = $2",
     )
     .bind(path)
     .bind(w_id)
@@ -847,11 +879,11 @@ mod tests {
         let tz = chrono_tz::UTC;
         let prev = at("2026-09-02T08:20:00Z");
         assert_eq!(
-            count_skipped_occurrences(&every_30s, &tz, prev, at("2026-09-02T08:20:30Z")),
+            count_skipped_occurrences(&every_30s, &tz, prev, at("2026-09-02T08:20:30Z")).unwrap(),
             0
         );
         assert_eq!(
-            count_skipped_occurrences(&every_30s, &tz, prev, at("2026-09-02T08:21:30Z")),
+            count_skipped_occurrences(&every_30s, &tz, prev, at("2026-09-02T08:21:30Z")).unwrap(),
             2
         );
     }

@@ -31973,16 +31973,16 @@ components:
                   - id
                   - success
                   - duration_ms
-            skipped_runs:
+            late_run_streak:
               type: integer
-              description: consecutive runs, up to the latest, that each finished or started after the next occurrence was due, so that occurrence was skipped
-            skipped_occurrences:
+              description: runs in a row, up to the latest, that started or finished after the next occurrence was due, so that occurrence was missed
+            missed_occurrences:
               type: integer
-              description: occurrences skipped over those runs
-            skipped_at:
+              description: occurrences missed by the latest streak of late runs, kept after it ends
+            last_missed_at:
               type: string
               format: date-time
-              description: latest skip, kept after the schedule runs cleanly again
+              description: latest missed occurrence, kept after the schedule runs on time again
 
     ErrorHandler:
       type: string
