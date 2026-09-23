@@ -12,6 +12,8 @@ import sql from 'svelte-highlight/languages/sql'
 import typescript from 'svelte-highlight/languages/typescript'
 import yaml from 'svelte-highlight/languages/yaml'
 
+// Keyed by the editor language `scriptLangToEditorLang` returns, not the script language.
+// for related places search: ADD_NEW_LANG
 const LANGUAGE_BY_MONACO: Record<string, LanguageType<string>> = {
 	typescript,
 	javascript,
@@ -31,25 +33,7 @@ const LANGUAGE_BY_MONACO: Record<string, LanguageType<string>> = {
 	go,
 	ruby,
 	text: plaintext,
-	plaintext,
-	bun: typescript,
-	bunnative: typescript,
-	deno: typescript,
-	frontend: typescript,
-	nativets: typescript,
-	tsx: typescript,
-	jsx: javascript,
-	python3: python,
-	bash: shell,
-	ansible: yaml,
-	dbt: yaml,
-	postgresql: sql,
-	mysql: sql,
-	bigquery: sql,
-	oracledb: sql,
-	snowflake: sql,
-	mssql: sql,
-	duckdb: sql
+	plaintext
 }
 
 export const TOOL_CODE_DIFF_LANGUAGES = Object.keys(LANGUAGE_BY_MONACO)

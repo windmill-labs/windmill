@@ -1,7 +1,13 @@
 <script lang="ts">
 	import type { ToolCodeDiff } from './shared'
-	import { toolDiffLines, type CharacterRange, type ToolDiffLine } from './toolCodeDiff'
+	import {
+		toolDiffLines,
+		visibleToolDiffRows,
+		type CharacterRange,
+		type ToolDiffLine
+	} from './toolCodeDiff'
 	import { toolCodeDiffLanguage } from './toolCodeDiffLanguage'
+	import { highlightedSourceLines } from './toolCodeDiffHighlight'
 	import hljs from 'highlight.js/lib/core'
 	import HighlightTheme from '$lib/components/HighlightTheme.svelte'
 	import { Button } from '$lib/components/common'
@@ -12,81 +18,32 @@
 		diffLines?: ToolDiffLine[]
 	}
 
-	type HighlightedLine = ToolDiffLine & { highlighted: string }
-	type VisibleRow = HighlightedLine | { kind: 'collapsed'; key: string; count: number }
-
 	let { diff, streaming = false, diffLines }: Props = $props()
 
-	const CONTEXT_LINES = 3
 	let expandedSections = $state<Set<string>>(new Set())
 	const diffRows = $derived(diffLines ?? toolDiffLines(diff, streaming))
+	const visibleRows = $derived(visibleToolDiffRows(diffRows, expandedSections))
 	const language = $derived(toolCodeDiffLanguage(diff.lang))
-	const lines = $derived.by(() => {
+	const highlighted = $derived.by(() => {
 		if (!hljs.getLanguage(language.name)) hljs.registerLanguage(language.name, language.register)
 
-		const original = highlightedSourceLines(diff.before, language.name)
-		const modified = highlightedSourceLines(diff.after, language.name)
-		return diffRows.map((row): HighlightedLine => {
-			const source = row.kind === 'removed' ? original : modified
-			const lineNumber = row.kind === 'removed' ? row.oldLine : row.newLine
-			return { ...row, highlighted: lineNumber === undefined ? '' : (source[lineNumber - 1] ?? '') }
-		})
+		let lastOldLine = 0
+		let lastNewLine = 0
+		for (const row of visibleRows) {
+			if ('oldLine' in row && row.oldLine) lastOldLine = Math.max(lastOldLine, row.oldLine)
+			if ('newLine' in row && row.newLine) lastNewLine = Math.max(lastNewLine, row.newLine)
+		}
+		return {
+			original: highlightedSourceLines(diff.before, language.name, lastOldLine),
+			modified: highlightedSourceLines(diff.after, language.name, lastNewLine)
+		}
 	})
 
-	function highlightedSourceLines(code: string, languageName: string): string[] {
-		if (code === '') return []
-		const highlighted = hljs.highlight(code, { language: languageName }).value
-		return splitHighlightedLines(highlighted, code.endsWith('\n'))
+	function highlightedLine(row: ToolDiffLine): string {
+		const source = row.kind === 'removed' ? highlighted.original : highlighted.modified
+		const lineNumber = row.kind === 'removed' ? row.oldLine : row.newLine
+		return lineNumber === undefined ? '' : (source[lineNumber - 1] ?? '')
 	}
-
-	function splitHighlightedLines(highlighted: string, hasFinalNewline: boolean): string[] {
-		const result: string[] = []
-		const openTags: string[] = []
-		let line = ''
-
-		for (const token of highlighted.split(/(<[^>]+>|\n)/)) {
-			if (token === '\n') {
-				result.push(line + openTags.slice().reverse().map(closeTag).join(''))
-				line = openTags.join('')
-			} else {
-				line += token
-				if (token.startsWith('<span')) openTags.push(token)
-				else if (token === '</span>') openTags.pop()
-			}
-		}
-
-		if (!hasFinalNewline) result.push(line)
-		return result
-	}
-
-	function closeTag(openTag: string): string {
-		return openTag.startsWith('<span') ? '</span>' : ''
-	}
-	const visibleRows = $derived.by(() => {
-		const result: VisibleRow[] = []
-		for (let index = 0; index < lines.length; ) {
-			const line = lines[index]
-			if (line.kind !== 'context') {
-				result.push(line)
-				index++
-				continue
-			}
-
-			const start = index
-			while (index < lines.length && lines[index].kind === 'context') index++
-			const count = index - start
-			const key = `${lines[start].oldLine}:${lines[start].newLine}:${count}`
-			if (count <= CONTEXT_LINES * 2 + 1 || expandedSections.has(key)) {
-				result.push(...lines.slice(start, index))
-				continue
-			}
-
-			result.push(...lines.slice(start, start + CONTEXT_LINES))
-			result.push({ kind: 'collapsed', key, count: count - CONTEXT_LINES * 2 })
-			result.push(...lines.slice(index - CONTEXT_LINES, index))
-		}
-		return result
-	})
 
 	function expand(key: string): void {
 		expandedSections = new Set(expandedSections).add(key)
@@ -114,10 +71,16 @@
 <div
 	class="tool-code-diff max-h-[400px] overflow-auto bg-surface-tertiary text-xs leading-[18px] text-primary"
 >
-	{#each visibleRows as row, index (row.kind === 'collapsed'
-		? `collapsed:${row.key}`
-		: `line:${row.oldLine}:${row.newLine}:${index}`)}
-		{#if row.kind === 'collapsed'}
+	{#each visibleRows as row, index ('key' in row ? `${row.kind}:${row.key}` : `line:${row.oldLine}:${row.newLine}:${index}`)}
+		{#if row.kind === 'omitted'}
+			<div
+				class="grid min-h-7 grid-cols-[0.875rem_2.9375rem_minmax(0,1fr)] items-center bg-surface-secondary py-1 text-hint"
+			>
+				<span></span>
+				<span></span>
+				<span>{row.count} more lines not shown</span>
+			</div>
+		{:else if row.kind === 'collapsed'}
 			<Button
 				unifiedSize="2xs"
 				variant="subtle"
@@ -153,7 +116,7 @@
 							style={rangeStyle(row.content, range)}
 						></span>
 					{/each}
-					<span class="relative z-[1]">{@html row.highlighted || '&nbsp;'}</span>
+					<span class="relative z-[1]">{@html highlightedLine(row) || '&nbsp;'}</span>
 				</span>
 			</div>
 		{/if}
@@ -163,6 +126,8 @@
 <style>
 	.tool-code-diff {
 		font-family: Menlo, Monaco, 'Courier New', monospace;
+		/* Must match the tab stops `displayColumns` uses to place intraline highlights. */
+		tab-size: 4;
 	}
 
 	.diff-line-added > span:nth-child(-n + 2),

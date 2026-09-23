@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import hljs from 'highlight.js/lib/core'
-import { diffLineCounts, hasToolCodeDiff, toolCodeDiff, toolDiffLines } from './toolCodeDiff'
+import {
+	diffLineCounts,
+	hasToolCodeDiff,
+	toolCodeDiff,
+	toolDiffLines,
+	visibleToolDiffRows
+} from './toolCodeDiff'
+import { highlightedSourceLines } from './toolCodeDiffHighlight'
 import { TOOL_CODE_DIFF_LANGUAGES, toolCodeDiffLanguage } from './toolCodeDiffLanguage'
 import type { ToolDisplayMessage } from './shared'
 
@@ -281,6 +288,41 @@ describe('toolCodeDiff', () => {
 			added: 1_000,
 			removed: 1_000
 		})
+	})
+
+	it('shows each row of a small edit once', () => {
+		const lines = toolDiffLines({ before: 'a\nb\nc\n', after: 'a\nB\nc\n', lang: 'plaintext' })
+
+		expect(visibleToolDiffRows(lines, new Set())).toEqual(lines)
+		expect(lines.map((line) => line.kind)).toEqual(['context', 'removed', 'added', 'context'])
+	})
+
+	it('bounds the rows of a large rewrite', () => {
+		const before = Array.from({ length: 1_000 }, (_, index) => `before ${index}`).join('\n')
+		const after = Array.from({ length: 1_000 }, (_, index) => `after ${index}`).join('\n')
+		const rows = visibleToolDiffRows(toolDiffLines({ before, after, lang: 'plaintext' }), new Set())
+
+		expect(rows).toHaveLength(402)
+		expect(rows[200]).toEqual({ kind: 'omitted', key: 'removed:0', count: 800 })
+		expect(rows[201]).toMatchObject({ kind: 'added', newLine: 1 })
+		expect(rows[401]).toEqual({ kind: 'omitted', key: 'added:1000', count: 800 })
+	})
+
+	it('highlights each line within the scope of the whole source', () => {
+		const typescript = toolCodeDiffLanguage('typescript')
+		hljs.registerLanguage(typescript.name, typescript.register)
+		const code = 'const s = `a\nb`\nconst n = 1\n'
+
+		const lines = highlightedSourceLines(code, typescript.name)
+		expect(lines).toHaveLength(3)
+		expect(lines[0]).toBe(
+			'<span class="hljs-keyword">const</span> s = <span class="hljs-string">`a</span>'
+		)
+		expect(lines[1]).toMatch(/^<span class="hljs-string">b`<\/span>/)
+		expect(highlightedSourceLines(code, typescript.name, 2)).toEqual(lines.slice(0, 2))
+		expect(highlightedSourceLines('a\nb', typescript.name)).toEqual(['a', 'b'])
+		expect(highlightedSourceLines('a\nb\n', typescript.name)).toEqual(['a', 'b'])
+		expect(highlightedSourceLines('', typescript.name)).toEqual([])
 	})
 
 	it('has a highlighter for every supported editor language', () => {
