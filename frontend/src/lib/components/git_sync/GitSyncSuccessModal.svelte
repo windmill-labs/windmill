@@ -12,5 +12,5 @@
 </script>
 
 <Modal bind:open title="Git Sync Connection Saved" class="sm:max-w-4xl" cancelText="Close">
-	<GitSyncSuccessContent {savedWithoutInit} {autoPullOn} />
+	<GitSyncSuccessContent {savedWithoutInit} {autoPullOn} explainAutoPullOff />
 </Modal>

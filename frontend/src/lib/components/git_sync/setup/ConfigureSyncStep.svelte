@@ -5,7 +5,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import EEOnly from '$lib/components/EEOnly.svelte'
 	import GitSyncFilterSettings from '$lib/components/workspaceSettings/GitSyncFilterSettings.svelte'
-	import { GitSyncService, ResourceService } from '$lib/gen'
+	import { ApiError, GitSyncService, ResourceService } from '$lib/gen'
 	import { enterpriseLicense, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { apiErrorMessage } from '$lib/utils'
 	import { getGitSyncContext } from '../GitSyncContext.svelte'
@@ -37,6 +37,7 @@
 
 	let managedCredential = $state(false)
 	let targetBranch: string | undefined = $state(undefined)
+	let factsError: string | undefined = $state(undefined)
 
 	async function loadResourceFacts(path: string) {
 		const workspace = $workspaceStore
@@ -45,11 +46,25 @@
 		// against the dialog's current state, which would make this answer for a later run.
 		const run = attempt
 		onFactsChange?.(run, false)
-		const [resource, origin] = await Promise.all([
-			ResourceService.getResource({ workspace, path }).catch(() => undefined),
-			// EE-only route: absent means Windmill holds no credential.
-			GitSyncService.getCredentialOrigin({ workspace, path }).catch(() => undefined)
-		])
+		factsError = undefined
+		let resource: Awaited<ReturnType<typeof ResourceService.getResource>> | undefined
+		let origin: Awaited<ReturnType<typeof GitSyncService.getCredentialOrigin>> | undefined
+		try {
+			;[resource, origin] = await Promise.all([
+				ResourceService.getResource({ workspace, path }),
+				GitSyncService.getCredentialOrigin({ workspace, path }).catch((e) => {
+					// The route only exists on EE, where its absence is the answer: Windmill holds
+					// no credential. Any other failure leaves that unknown, and answering "none"
+					// would quietly save the repository without the defaults a managed one gets.
+					if (e instanceof ApiError && e.status === 404) return undefined
+					throw e
+				})
+			])
+		} catch (e) {
+			if (repo?.git_repo_resource_path !== path) return
+			factsError = apiErrorMessage(e)
+			return
+		}
 		// The step may have been rebuilt for another repository while this was in flight.
 		if (repo?.git_repo_resource_path !== path) return
 		const isGithubApp = (resource?.value as any)?.is_github_app === true
@@ -116,6 +131,24 @@
 
 {#if repo}
 	<div class="flex flex-col gap-4 h-full">
+		{#if factsError}
+			<Alert type="error" size="xs" title="Could not read the connection">
+				<div class="flex flex-col items-start gap-2">
+					<span>{factsError}</span>
+					<Button
+						variant="default"
+						unifiedSize="xs"
+						startIcon={{ icon: RotateCw }}
+						onClick={() => {
+							const path = repo?.git_repo_resource_path
+							if (path) void loadResourceFacts(path)
+						}}
+					>
+						Retry
+					</Button>
+				</div>
+			</Alert>
+		{/if}
 		{#if !repo.detectionState || repo.detectionState === 'idle' || repo.detectionState === 'loading'}
 			<div class="flex-1 flex flex-col items-center justify-center gap-2 text-sm text-hint">
 				<Loader2 size={36} class="animate-spin" />
@@ -186,8 +219,8 @@
 					/>
 				{:else}
 					<span class="text-2xs text-secondary">
-						To open a pull request for each deploy branch, connect the repository through the
-						GitHub App or give a GitLab repository a project access token — otherwise set up the
+						To open a pull request for each deploy branch, connect the repository through the GitHub
+						App or give a GitLab repository a project access token — otherwise set up the
 						<span class="font-mono">open-pr-on-commit</span> workflow in the repository.
 					</span>
 				{/if}

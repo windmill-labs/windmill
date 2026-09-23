@@ -10,9 +10,13 @@ setup dialog, and in the standalone modal for a connection saved outside it.
 	interface Props {
 		savedWithoutInit?: boolean
 		autoPullOn?: boolean
+		/** Whether to say what pulling off means. The setup dialog says it where it offers the
+		 * toggle, so only the standalone modal — whose save came from a card that says it
+		 * nowhere — needs it here. */
+		explainAutoPullOff?: boolean
 	}
 
-	let { savedWithoutInit = false, autoPullOn = false }: Props = $props()
+	let { savedWithoutInit = false, autoPullOn = false, explainAutoPullOff = false }: Props = $props()
 </script>
 
 <!-- The notices belong at the top, where the steps before them put their own; what the dialog
@@ -25,12 +29,21 @@ setup dialog, and in the standalone modal for a connection saved outside it.
 		</Alert>
 	{/if}
 
-	<!-- Nothing here about turning pull on: the step that offers the toggle says what it does,
-	     and by now the choice has been made. -->
 	{#if autoPullOn}
 		<Alert type="success" title="Pull from Git is on">
 			New commits to the tracked branch deploy into this workspace automatically. You can adjust
 			this anytime on the repository's settings.
+		</Alert>
+	{:else if explainAutoPullOff}
+		<Alert
+			type="warning"
+			title="Deploy changes from Git back to Windmill"
+			documentationLink="https://www.windmill.dev/docs/advanced/deploy_gh_gl#github-actions-setup"
+		>
+			Turn on "Automatically deploy changes from Git" on the repository to have Windmill pull new
+			commits into this workspace for you. Prefer to control deployment from your own pipeline
+			(tests, custom gating, deploy on PR merge)? Set up GitHub Actions or a similar CI/CD workflow
+			instead.
 		</Alert>
 	{/if}
 
