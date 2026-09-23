@@ -16,9 +16,13 @@
 		/** The unsaved repository this step configures, in the git sync context. */
 		idx: number
 		mode: 'sync' | 'promotion'
+		/** Whether the resource and its credential have been read. What Windmill holds for the
+		 * repository decides both the defaults and which toggles exist, so the run must not be
+		 * saved before it lands. */
+		factsLoaded?: boolean
 	}
 
-	let { idx, mode }: Props = $props()
+	let { idx, mode, factsLoaded = $bindable(false) }: Props = $props()
 
 	const ctx = getGitSyncContext()
 	const repo = $derived(ctx.getRepository(idx))
@@ -34,6 +38,7 @@
 	async function loadResourceFacts(path: string) {
 		const workspace = $workspaceStore
 		if (!workspace) return
+		factsLoaded = false
 		const [resource, origin] = await Promise.all([
 			ResourceService.getResource({ workspace, path }).catch(() => undefined),
 			// EE-only route: absent means Windmill holds no credential.
@@ -51,6 +56,7 @@
 			})
 			targetBranch = await ctx.getTargetBranch(repo).catch(() => undefined)
 		}
+		factsLoaded = true
 	}
 
 	async function detect() {

@@ -63,6 +63,8 @@
 	)
 	const draft = $derived(draftIdx === -1 ? undefined : ctx.repositories[draftIdx])
 	let push: GitPushPreview | undefined = $state()
+	/** Step 3 has read what Windmill holds for the repository. */
+	let factsLoaded = $state(false)
 	let saving = $state(false)
 	let saveError: string | undefined = $state(undefined)
 	let provider: Provider | undefined = $state(undefined)
@@ -119,6 +121,7 @@
 
 	function enterConfigure(path: string) {
 		discardDraft()
+		factsLoaded = false
 		const before = ctx.repositories.length
 		if (mode === 'promotion') ctx.addPromotionRepository()
 		else ctx.addSyncRepository()
@@ -232,7 +235,9 @@
 				: provider !== undefined
 			: step === 2
 				? !!connection && !!newPath && !newPathError && !connecting
-				: (draft?.detectionState === 'no-wmill' || draft?.detectionState === 'has-wmill') && !saving
+				: (draft?.detectionState === 'no-wmill' || draft?.detectionState === 'has-wmill') &&
+					factsLoaded &&
+					!saving
 	)
 
 	// Steps this run skips: connecting, when an existing resource is used, and initializing,
@@ -386,7 +391,7 @@
 				{:else if step === 3}
 					{#if draftIdx !== -1}
 						{#key draftPath}
-							<ConfigureSyncStep idx={draftIdx} {mode} />
+							<ConfigureSyncStep idx={draftIdx} {mode} bind:factsLoaded />
 						{/key}
 					{/if}
 					{#if saveError}
@@ -456,14 +461,7 @@
 			<div class="flex justify-between items-center pt-3">
 				<div>
 					{#if step > 1 && step < 5}
-						<Button
-							unifiedSize="sm"
-							variant="default"
-							disabled={busy}
-							onClick={back}
-						>
-							Back
-						</Button>
+						<Button unifiedSize="sm" variant="default" disabled={busy} onClick={back}>Back</Button>
 					{:else if step === 1 && !hasResource && provider !== 'existing'}
 						<Button variant="subtle" unifiedSize="sm" onClick={() => selectProvider('existing')}>
 							Use an existing resource instead

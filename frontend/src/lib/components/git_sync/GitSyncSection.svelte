@@ -301,6 +301,7 @@
 						{#if showAddSync}
 							<div class="flex items-center gap-1">
 								<Button
+									unifiedSize="md"
 									variant="default"
 									startIcon={{ icon: Plus }}
 									disabled={!$enterpriseLicense}
@@ -314,6 +315,7 @@
 						{#if showAddPromotion}
 							<div class="flex items-center gap-1">
 								<Button
+									unifiedSize="md"
 									variant="default"
 									startIcon={{ icon: Plus }}
 									disabled={!$enterpriseLicense}
