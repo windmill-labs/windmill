@@ -725,8 +725,9 @@ export class AIChatManager implements ChatViewHost {
 	})
 	/** The sources the current mode assembled, concatenated. Private, because neither view
 	 * over it is this list: a consumer reading it would advertise a tool set no request ever
-	 * carries. */
-	#assembledTools = $state<Tool<any>[]>([])
+	 * carries. Raw: every write replaces the list, and a deep proxy would reach the tool
+	 * defs, which the session filter copies with `structuredClone` — that throws on a proxy. */
+	#assembledTools = $state.raw<Tool<any>[]>([])
 	/** Both views narrow the same way — concatenate every source, then filter — so a tool
 	 * reaching either one can never arrive unfiltered. A session withholds what its user's
 	 * capabilities do not cover; elsewhere `sessionAccess` is unset and nothing is dropped. */

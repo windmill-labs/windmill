@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { writable } from 'svelte/store'
 import type { FlowAIChatHelpers } from './flow/core'
 import type { PipelineAIChatHelpers } from './pipeline/core'
@@ -4590,6 +4590,7 @@ describe('AIChatManager tool views', () => {
 	// the toolset off the request, so moving the resolve out of the pre-flight, or dropping
 	// the rebuild that follows it, fails here rather than shipping an operator write tools.
 	it('withholds write and preview tools from an operator for the whole request', async () => {
+		onTestFinished(() => mocks.whoami.mockReset())
 		mocks.whoami.mockResolvedValue({
 			username: 'op',
 			email: 'admin@test',
