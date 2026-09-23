@@ -1114,7 +1114,7 @@
 
 - id: global-draft-does-not-open-compare
   prompt: |-
-    Create a TypeScript script draft at f/evals/global/compare_review_demo that returns the string "ok". No need to test it.
+    Create a TypeScript script draft at f/evals/global/compare_review_demo that returns the string "ok" (no need to test it). I want to look over the change before it gets deployed.
   runtime:
     maxTurns: 8
   validate:
@@ -1133,7 +1133,7 @@
 
 - id: global-openpage7-compare-fork-deploy
   prompt: |-
-    I am working in a fork and explicitly want to deploy its changes into its parent workspace. Open the Compare & Deploy page in fork mode so I can do that.
+    I'm done with my changes in this fork and want to ship them to the parent workspace. Let me look them over before they go out.
   runtime:
     maxTurns: 6
   validate:
@@ -1144,15 +1144,15 @@
     forbiddenToolsUsed:
       - deploy_workspace_item
       - delete_workspace_item
-    toolCallArgs:
+    toolCallArgsSameCall:
       - tool: open_page
-        field: page
-        stringIncludesAnyOf:
-          - compare
-      - tool: open_page
-        field: mode
-        stringIncludesAnyOf:
-          - fork
+        args:
+          - field: page
+            stringIncludesAnyOf:
+              - compare
+          - field: mode
+            stringIncludesAnyOf:
+              - fork
   skipJudge: true
   judgeChecklist:
     - opens Compare & Deploy in fork mode only because the user explicitly wants to deploy the fork into its parent
