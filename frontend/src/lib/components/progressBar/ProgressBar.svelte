@@ -4,6 +4,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { Loader2 } from 'lucide-svelte'
 	import { fade } from 'svelte/transition'
+	import type { Snippet } from 'svelte'
 
 	// Remove padding/margin, border radius and titles
 
@@ -36,6 +37,8 @@
 		isScheduled?: boolean
 		// Whether the job was skipped (early-stop labelled as skipped)
 		isSkipped?: boolean
+		/** Rendered after "Error occurred" when the bar is in its error state. */
+		errorAction?: Snippet
 	}
 
 	let {
@@ -56,7 +59,8 @@
 		isWaitingForEvents = false,
 		isCanceled = false,
 		isScheduled = false,
-		isSkipped = false
+		isSkipped = false,
+		errorAction
 	}: Props = $props()
 	let duration = 200
 
@@ -184,6 +188,9 @@
 						{/if}
 					</span>
 				{/key}
+				{#if status == 'error' && errorAction}
+					{@render errorAction()}
+				{/if}
 			</div>
 			<span
 				class={twMerge(slim ? 'text-xs' : 'text-sm', 'transition-all duration-200 ease-in-out')}

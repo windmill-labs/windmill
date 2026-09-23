@@ -20,6 +20,8 @@
 		enterpriseOnly?: boolean
 		variant?: 'default' | 'accent'
 		unifiedSize?: 'xs' | 'sm' | 'md' | 'lg'
+		/** `link` renders the trigger as inline text, for use inside a sentence. */
+		triggerStyle?: 'button' | 'link'
 		/**
 		 * For nested-step restarts: path of ancestor containers from the top-level
 		 * step down to the leaf. When provided, the LAST entry's step_id is the
@@ -71,6 +73,7 @@
 		enterpriseOnly = false,
 		variant = 'default',
 		unifiedSize = 'md',
+		triggerStyle = 'button',
 		nestedPath = undefined,
 		nestedTopStepId = undefined,
 		nestedTopBranchOrIterationN = undefined,
@@ -244,6 +247,22 @@
 	</label>
 {/snippet}
 {#snippet restartTriggerButton(usePlayIcon: boolean)}
+	{#if triggerStyle === 'link'}
+		{@const linkClass = 'underline hover:no-underline'}
+		{@const linkTitle = `Re-start this flow from step ${displayStepId} (included).`}
+		{#if needsPopup}
+			<!-- The popover trigger is already a <button>; nesting another is invalid. -->
+			<span class={linkClass} title={linkTitle}>Restart from this step</span>
+		{:else}
+			<button class={linkClass} title={linkTitle} {disabled} onclick={handleRestart}>
+				Restart from this step
+			</button>
+		{/if}
+	{:else}
+		{@render restartButton(usePlayIcon)}
+	{/if}
+{/snippet}
+{#snippet restartButton(usePlayIcon: boolean)}
 	<Button
 		title={`Re-start this flow from step ${displayStepId} (included).${enterpriseOnly ? ' This is a feature only available in enterprise edition.' : ''}`}
 		{variant}

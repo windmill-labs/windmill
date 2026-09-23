@@ -176,6 +176,13 @@
 	)
 	const restartStep = $derived(selectionRestartable ? selectedJobStep : failedTopLevelStep)
 	const restart = $derived(selectionRestartable ? selectedRestart : failedRestart)
+	function canRestart(state: ReturnType<typeof useNestedRestartState>) {
+		return (
+			job?.type === 'CompletedJob' &&
+			job.job_kind === 'flow' &&
+			(state.topLevelRestartable || state.nestedRestartSupported)
+		)
+	}
 
 	let testIsLoading = $state(false)
 	let jobLoader: JobLoader | undefined = $state(undefined)
@@ -661,6 +668,35 @@
 	/>
 {/if}
 
+{#snippet flowRestartButton(
+	state: ReturnType<typeof useNestedRestartState>,
+	step: string,
+	triggerStyle: 'button' | 'link'
+)}
+	{#if job}
+		<FlowRestartButton
+			jobId={job.id}
+			selectedJobStep={step}
+			selectedJobStepType={state.selectedJobStepType}
+			restartBranchNames={state.restartBranchNames}
+			nestedPath={state.nestedRestartSupported ? state.nestedRestartPath : undefined}
+			nestedTopStepId={state.nestedRestartTopStepId}
+			nestedTopBranchOrIterationN={state.nestedRestartTopBranchOrIterationN}
+			presetIterationN={state.topLevelLoopIteration}
+			iterationCounts={state.iterationCounts}
+			nestedPathIterationCounts={state.nestedPathIterationCounts}
+			onRestartComplete={(newJobId) => {
+				goto('/run/' + newJobId + '?workspace=' + $workspaceStore)
+			}}
+			flowPath={job.script_path}
+			flowVersionId={job.script_hash ? parseInt(job.script_hash, 16) : undefined}
+			disabled={!$enterpriseLicense}
+			enterpriseOnly={!$enterpriseLicense}
+			{triggerStyle}
+		/>
+	{/if}
+{/snippet}
+
 <Portal name="persistent-run">
 	<PersistentScriptDrawer bind:this={persistentScriptDrawer} />
 </Portal>
@@ -893,26 +929,8 @@
 					startIcon={{ icon: Calendar }}>Edit schedule</Button
 				>
 			{/if}
-			{#if job?.type === 'CompletedJob' && job?.job_kind === 'flow' && restartStep !== undefined && (restart.topLevelRestartable || restart.nestedRestartSupported) && job.id}
-				<FlowRestartButton
-					jobId={job.id}
-					selectedJobStep={restartStep}
-					selectedJobStepType={restart.selectedJobStepType}
-					restartBranchNames={restart.restartBranchNames}
-					nestedPath={restart.nestedRestartSupported ? restart.nestedRestartPath : undefined}
-					nestedTopStepId={restart.nestedRestartTopStepId}
-					nestedTopBranchOrIterationN={restart.nestedRestartTopBranchOrIterationN}
-					presetIterationN={restart.topLevelLoopIteration}
-					iterationCounts={restart.iterationCounts}
-					nestedPathIterationCounts={restart.nestedPathIterationCounts}
-					onRestartComplete={(newJobId) => {
-						goto('/run/' + newJobId + '?workspace=' + $workspaceStore)
-					}}
-					flowPath={job.script_path}
-					flowVersionId={job.script_hash ? parseInt(job.script_hash, 16) : undefined}
-					disabled={!$enterpriseLicense}
-					enterpriseOnly={!$enterpriseLicense}
-				/>
+			{#if restartStep !== undefined && canRestart(restart)}
+				{@render flowRestartButton(restart, restartStep, 'button')}
 			{/if}
 			{#if job?.job_kind === 'script' || job?.job_kind === 'script_hub' || job?.job_kind === 'flow'}
 				<Button
@@ -1042,7 +1060,17 @@
 					textPosition="bottom"
 					slim
 					showStepId
-				/>
+				>
+					{#snippet errorAction()}
+						{#if failedTopLevelStep}
+							<span>at step {failedTopLevelStep}</span>
+							{#if $enterpriseLicense && canRestart(failedRestart)}
+								<span>·</span>
+								{@render flowRestartButton(failedRestart, failedTopLevelStep, 'link')}
+							{/if}
+						{/if}
+					{/snippet}
+				</FlowProgressBar>
 				{#if suspendStatus}
 					<FlowExecutionStatus
 						{job}
