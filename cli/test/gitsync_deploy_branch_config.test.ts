@@ -63,7 +63,10 @@ test("git-sync fork deploy follows the fork branch's wmill.yaml", async () => {
       git(seed, "commit", "-m", "dedupe");
       git(seed, "push", "origin", forkBranch);
 
-      git(work, "clone", `file://${bare}`, ".");
+      // Git for Windows defaults to autocrlf=true, which checks the pulled LF
+      // files out as CRLF; the deploy's pull would rewrite every one of them
+      // and the clean-tree assertion below would read that as a change.
+      git(work, "clone", "-c", "core.autocrlf=false", `file://${bare}`, ".");
       const deployed = await backend.runCLICommand(
         [
           "sync",

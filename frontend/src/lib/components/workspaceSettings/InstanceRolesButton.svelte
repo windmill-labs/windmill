@@ -3,17 +3,34 @@
 	import { Users } from 'lucide-svelte'
 	import DataTableRolesSection from './DataTableRolesSection.svelte'
 
+	let {
+		hideTrigger = false,
+		onChanged
+	}: {
+		/** Mount the drawer without its button, for a caller that opens it with `open()`. */
+		hideTrigger?: boolean
+		/** Called after every change to the instance roles. */
+		onChanged?: () => void
+	} = $props()
+
 	let drawer: Drawer | undefined = $state(undefined)
+	let prefill = $state('')
+	// Remounts the section on each open, so the prefilled name is the one just asked for.
+	let openCount = $state(0)
+
+	/** Opens the drawer, with `name` prefilled as the role to add. */
+	export function open(name = '') {
+		prefill = name
+		openCount++
+		drawer?.openDrawer()
+	}
 </script>
 
-<Button
-	unifiedSize="sm"
-	variant="default"
-	startIcon={{ icon: Users }}
-	on:click={() => drawer?.openDrawer()}
->
-	Instance roles
-</Button>
+{#if !hideTrigger}
+	<Button unifiedSize="sm" variant="default" startIcon={{ icon: Users }} on:click={() => open()}>
+		Instance roles
+	</Button>
+{/if}
 
 <Drawer bind:this={drawer} size="700px">
 	<DrawerContent
@@ -24,6 +41,8 @@
 		{#snippet titleExtra()}
 			<Badge color="blue" small>Beta</Badge>
 		{/snippet}
-		<DataTableRolesSection />
+		{#key openCount}
+			<DataTableRolesSection initialName={prefill} {onChanged} />
+		{/key}
 	</DrawerContent>
 </Drawer>

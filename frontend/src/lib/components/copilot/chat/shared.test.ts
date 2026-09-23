@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import type { DisplayMessage, ToolDisplayMessage } from './shared'
-import { openItemPreviewAction } from './shared'
+import { openItemPreviewAction, webSearchResultOf } from './shared'
 
 vi.mock('monaco-editor', () => ({
 	editor: {}
@@ -1510,6 +1510,50 @@ describe('pollJobCompletion detach', () => {
 	})
 })
 
+describe('executeTestRun result note', () => {
+	// A failed run's card lands on the error, with the logs a tab away: the model must stay
+	// free to quote them, so only a success says the user already sees the run.
+	it('tells the model not to repeat a successful result, and not a failed one', async () => {
+		vi.useFakeTimers()
+		try {
+			const { executeTestRun } = await import('./shared')
+			const { JobService } = await import('$lib/gen')
+			const getJobUpdates = vi.mocked(JobService.getJobUpdates)
+			getJobUpdates.mockReset()
+			getJobUpdates.mockResolvedValue({ completed: true, running: false } as any)
+			const run = async (success: boolean) => {
+				vi.mocked(JobService.getJob).mockReset()
+				vi.mocked(JobService.getJob).mockResolvedValue({
+					type: 'CompletedJob',
+					success,
+					result: [1, 2],
+					logs: 'ran'
+				} as any)
+				const promise = executeTestRun({
+					jobStarter: async () => 'job1',
+					workspace: 'w',
+					toolId: 'tool1',
+					startMessage: 'Starting...',
+					contextName: 'script',
+					// The job hooks are what mark the global/sessions chat.
+					toolCallbacks: {
+						setToolStatus: vi.fn(),
+						removeToolStatus: vi.fn(),
+						onJobStatus: vi.fn(),
+						onJobStarted: vi.fn()
+					} as any
+				})
+				await vi.advanceTimersByTimeAsync(1000)
+				return promise
+			}
+			expect(await run(true)).toContain('Do not repeat')
+			expect(await run(false)).not.toContain('Do not repeat')
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+})
+
 describe('deriveChatJobStatus', () => {
 	// CompletedJob is discriminated by the presence of a `success` key; the branch
 	// order deliberately mirrors JobStatusIcon so the badge and scalar never drift.
@@ -1823,5 +1867,40 @@ describe('processToolCall confirmation hooks', () => {
 
 		expect(tool.onConfirmationRequested).not.toHaveBeenCalled()
 		expect(tool.fn).toHaveBeenCalled()
+	})
+})
+
+// Any tool gets the web search card by returning this shape. The card renders urls and
+// titles only, so a result carrying anything more must keep its JSON pane.
+describe('webSearchResultOf', () => {
+	it('reads the shape, from the value or its JSON text', () => {
+		const result = { sources: [{ url: 'https://a.dev', title: 'A' }], query: 'a' }
+		expect(webSearchResultOf(result)).toEqual(result)
+		expect(webSearchResultOf(JSON.stringify(result))).toEqual(result)
+	})
+
+	// A Python tool serializes an absent optional as null, and the card has nothing to tell
+	// its author why an almost-right result fell back to JSON.
+	it('reads null on an optional field as absent', () => {
+		expect(
+			webSearchResultOf({ sources: [{ url: 'https://a.dev', title: null }], query: null })
+		).toEqual({
+			sources: [{ url: 'https://a.dev', title: undefined }],
+			query: undefined
+		})
+	})
+
+	it.each([
+		['an extra key', { sources: [{ url: 'https://a.dev' }], summary: 'x' }],
+		['an extra source field', { sources: [{ url: 'https://a.dev', snippet: 'x' }] }],
+		['a source without url', { sources: [{ title: 'A' }] }],
+		// The card renders no relative or javascript: link, so a result whose urls it would
+		// drop keeps its own JSON rather than showing an empty source list.
+		['a relative url', { sources: [{ url: '/docs/pg17', title: 'PG 17' }] }],
+		['a javascript: url', { sources: [{ url: 'javascript:alert(1)' }] }],
+		['no sources', { sources: [] }],
+		['a bare list of links', [{ url: 'https://a.dev' }]]
+	])('rejects %s', (_, result) => {
+		expect(webSearchResultOf(result)).toBeUndefined()
 	})
 })

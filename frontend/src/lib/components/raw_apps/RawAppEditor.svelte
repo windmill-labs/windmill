@@ -69,8 +69,10 @@
 		formatDataTableRef,
 		isDatatableTableAllowed,
 		type RawAppData,
-		DEFAULT_DATA
+		DEFAULT_DATA,
+		appDatatableRole
 	} from './dataTableRefUtils'
+	import { datatableReference } from '../dbTypes'
 	import { randomUUID } from '$lib/utils/uuid'
 	import { editorFontSize } from '$lib/editorFontSize.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
@@ -564,7 +566,10 @@
 	// The only writer of `activeTabId`, `selectedRunnable` and `selectedDocument`.
 	// Everything switches through here, so the three can't disagree: one left
 	// stale marks two sidebar rows selected, or leaves a tab over an empty pane.
-	function select(next: EditorSelection, opts?: { force?: boolean; notifyIframe?: boolean }): void {
+	function select(
+		next: EditorSelection,
+		opts?: { force?: boolean; notifyIframe?: boolean; focus?: boolean }
+	): void {
 		if (next.kind === 'preview') {
 			// In split mode Preview is always shown on the right, so selecting it is
 			// a no-op (would collapse the left pane). `force` lets closeTab fall back
@@ -573,21 +578,23 @@
 			activeTabId = PREVIEW_TAB_ID
 			selectedRunnable = undefined
 			selectedDocument = undefined
+			iframeFocusPending = undefined
 			return
 		}
 		if (next.kind === 'file') {
 			activeTabId = ensureFileTab(next.path)
 			selectedRunnable = undefined
 			selectedDocument = next.path
-			if (opts?.notifyIframe !== false) openInIframe(next.path)
+			if (opts?.notifyIframe !== false) openInIframe(next.path, opts?.focus)
 			return
 		}
 		activeTabId = ensureRunnableTab(next.key)
 		selectedDocument = undefined
 		selectedRunnable = next.key
+		iframeFocusPending = undefined
 	}
 
-	function activateTab(id: string, opts?: { force?: boolean }) {
+	function activateTab(id: string, opts?: { force?: boolean; focus?: boolean }) {
 		if (!tabs.some((t) => t.id === id)) return
 		select(selectionOfTab(id), opts)
 	}
@@ -600,13 +607,20 @@
 		closeTab(runnableTabId(key))
 	}
 
-	// Ask the UI Builder iframe to open a document. `populateFiles` replays
-	// `iframeDocument` on iframe load, so record it even when the iframe isn't
-	// ready yet (the postMessage is then skipped).
-	function openInIframe(path: string) {
+	// Ask the UI Builder iframe to open a document, taking the keyboard only when
+	// the user picked it. For a file whose current content the iframe doesn't hold
+	// yet, `populateFiles` opens `iframeDocument` in the same message as that
+	// content: opening first errors on a new file and races the write on a changed
+	// one (the iframe applies the edit twice). It also opens it on iframe load.
+	// Documents outside `files` (wmill.ts, ui/, node_modules/) never go through it.
+	function openInIframe(path: string, focus = false) {
 		iframeDocument = path
-		if (iframeLoaded) {
-			iframe?.contentWindow?.postMessage({ type: 'selectFile', path }, '*')
+		const content = files?.[path]
+		if (iframeLoaded && (content === undefined || iframeFiles?.[path] === content)) {
+			iframeFocusPending = undefined
+			iframe?.contentWindow?.postMessage({ type: 'selectFile', path, focus }, '*')
+		} else {
+			iframeFocusPending = focus ? path : undefined
 		}
 	}
 
@@ -728,15 +742,30 @@
 			summary = update.summary
 		}
 		if (update.files !== undefined) {
+			iframeFiles = undefined
 			files = update.files
 		}
 		if (update.runnables !== undefined) {
 			runnables = update.runnables
 		}
 		if (update.data !== undefined) {
-			data = update.data
+			replaceData(update.data)
 		}
 		historyManager.manualSnapshot(files ?? {}, runnables, summary, data, true)
+	}
+
+	/** Replaces `data` from outside the editor (history, YAML). The policy sync writes the policy
+	 * into `data`, so the policy takes the new values first or it puts the old ones straight back. */
+	function replaceData(next: RawAppData) {
+		data = next
+		aiChatManager.datatableCreationPolicy = {
+			...aiChatManager.datatableCreationPolicy,
+			// As on load: data that names no data table leaves nothing to create tables in.
+			enabled: next.datatable !== undefined,
+			datatable: next.datatable,
+			schema: next.schema,
+			roles: next.roles
+		}
 	}
 
 	let jobs: string[] = $state([])
@@ -794,6 +823,17 @@
 	}
 
 	let iframeLoaded = $state(false) // @hmr:keep
+	// The files the iframe holds: last posted to it, or last reported by it. Explicit
+	// replacements (history, YAML) clear it so they are always sent: the iframe can
+	// hold edits it hasn't reported yet, which a skip would leave in place.
+	let iframeFiles: Record<string, string> | undefined
+	// The document the user picked that `openInIframe` left for `populateFiles` to
+	// open. It takes the keyboard only if it is still the document being opened.
+	let iframeFocusPending: string | undefined
+	// Last keystroke or click in the editor, or edit reported by the iframe. AI
+	// edits only move the editor to their file once the user has paused this long.
+	let lastUserInputAt = 0
+	const USER_IDLE_MS = 3000
 	// Briefly drops the `setActiveDocument` echo VS Code fires while we're
 	// pushing the initial file set — the iframe auto-opens a default editor
 	// during boot which we don't want to treat as a user-driven activation.
@@ -841,6 +881,10 @@
 
 	function populateFiles() {
 		if (files) {
+			// `files` is reassigned with unchanged content (the session draft sync, history
+			// restores, the iframe's own reports). Re-sending it makes the iframe reopen its
+			// document and rewrite the files under the user's cursor.
+			if (deepEqual(files, iframeFiles)) return
 			suppressSetActiveDocument = true
 			if (suppressTimer !== undefined) clearTimeout(suppressTimer)
 			suppressTimer = setTimeout(() => {
@@ -859,10 +903,14 @@
 		}
 	}
 	function setFilesInIframe(newFiles: Record<string, string>) {
+		const target = iframe?.contentWindow
+		if (!target) return
+		iframeFiles = { ...newFiles }
+		iframeFocusPending = undefined
 		const files = Object.fromEntries(
 			Object.entries(newFiles).filter(([path, _]) => !path.endsWith('/'))
 		)
-		iframe?.contentWindow?.postMessage(
+		target.postMessage(
 			{
 				type: 'setFiles',
 				files: files
@@ -873,14 +921,20 @@
 
 	function setFilesAndSelectInIframe(newFiles: Record<string, string>, pathToSelect: string) {
 		iframeDocument = pathToSelect
+		const target = iframe?.contentWindow
+		if (!target) return
+		iframeFiles = { ...newFiles }
+		const focus = iframeFocusPending === pathToSelect
+		iframeFocusPending = undefined
 		const files = Object.fromEntries(
 			Object.entries(newFiles).filter(([path, _]) => !path.endsWith('/'))
 		)
-		iframe?.contentWindow?.postMessage(
+		target.postMessage(
 			{
 				type: 'setFilesAndSelect',
 				files: files,
-				pathToSelect: pathToSelect
+				pathToSelect: pathToSelect,
+				focus
 			},
 			'*'
 		)
@@ -906,7 +960,8 @@
 		aiChatManager.datatableCreationPolicy = {
 			enabled: data.datatable !== undefined,
 			datatable: data.datatable,
-			schema: data.schema
+			schema: data.schema,
+			roles: data.roles
 		}
 
 		// Start auto-snapshot
@@ -928,9 +983,15 @@
 		// Read the current policy from aiChatManager
 		const policy = aiChatManager.datatableCreationPolicy
 		// Only update if different to avoid infinite loops
-		if (data.datatable !== policy.datatable || data.schema !== policy.schema) {
+		if (
+			data.datatable !== policy.datatable ||
+			data.schema !== policy.schema ||
+			// By value: the policy holds its own proxy of the same map.
+			JSON.stringify(data.roles) !== JSON.stringify(policy.roles)
+		) {
 			data.datatable = policy.datatable
 			data.schema = policy.schema
+			data.roles = policy.roles
 		}
 	})
 
@@ -989,14 +1050,15 @@
 				return frontendFiles
 			},
 			setFrontendFile: (path, content): LintResult => {
-				console.log('setting frontend file', path, content)
+				console.log('setting frontend file', path, `${content.length} chars`)
 				if (!files) {
 					files = {}
 				}
 				files[path] = content
-				// Combined setFilesAndSelect avoids a race, so let it do the telling.
-				select({ kind: 'file', path }, { notifyIframe: false })
-				setFilesAndSelectInIframe(files, path)
+				// Follow the AI to the file it edits, but never pull a user who is editing
+				// off their file. The files effect sends the content.
+				if (Date.now() - lastUserInputAt < USER_IDLE_MS) ensureFileTab(path)
+				else select({ kind: 'file', path })
 				return lint()
 			},
 			deleteFrontendFile: (path) => {
@@ -1004,7 +1066,6 @@
 					files = {}
 				}
 				delete files[path]
-				setFilesInIframe(files)
 			},
 			listBackendRunnables: () => {
 				return Object.entries(runnables).map(([key, runnable]) => ({
@@ -1107,10 +1168,32 @@
 					return []
 				}
 
-				const tables = await WorkspaceService.listDataTableTables({
-					workspace: opWorkspace
+				// A data table the app uses through a role is listed as that role, so the AI sees
+				// what the app's own queries reach.
+				const workspace = opWorkspace
+				const tables = await WorkspaceService.listDataTableTables({ workspace })
+				// Only data tables that still exist: `data.roles` can outlive a removed or renamed one,
+				// and the server answers a `role_for` naming nothing with a 404.
+				const roled = Object.entries(data.roles ?? {}).filter(([dt]) =>
+					tables.some((t) => t.datatable_name === dt)
+				)
+				const roledTables = await Promise.all(
+					roled.map(([roleFor, role]) =>
+						WorkspaceService.listDataTableTables({
+							workspace,
+							datatableName: roleFor,
+							roleFor,
+							role
+						})
+					)
+				)
+				const merged = tables.map((entry) => {
+					const i = roled.findIndex(([dt]) => dt === entry.datatable_name)
+					return i === -1
+						? entry
+						: (roledTables[i].find((t) => t.datatable_name === entry.datatable_name) ?? entry)
 				})
-				return filterDatatableTables(tables)
+				return filterDatatableTables(merged)
 			},
 			getDatatableTableSchema: async (
 				datatableName: string,
@@ -1134,7 +1217,8 @@
 					workspace: opWorkspace,
 					datatableName,
 					schemaName,
-					tableName
+					tableName,
+					role: appDatatableRole(data.roles, datatableName)
 				})
 				return schema.columns
 			},
@@ -1152,13 +1236,15 @@
 				}
 
 				try {
+					// The same role the app's runnables use, so a table the AI creates belongs to it.
+					const role = appDatatableRole(data.roles, datatableName)
 					const result = await runScriptAndPollResult(
 						{
 							workspace: opWorkspace,
 							requestBody: {
 								language: 'postgresql',
 								content: sql,
-								args: { database: `datatable://${datatableName}` }
+								args: { database: datatableReference(datatableName, role) }
 							}
 						},
 						writingJobOptions
@@ -1178,6 +1264,12 @@
 							const resourcePath = `datatable://${datatableName}`
 							delete $dbSchemas[resourcePath]
 							delete $dbSchemas[`${opWorkspace}:${resourcePath}`]
+							// The DB manager keys its cache by the role it connected as too.
+							for (const key of Object.keys($dbSchemas)) {
+								if (key.startsWith(`${opWorkspace}:${resourcePath}?role=`)) {
+									delete $dbSchemas[key]
+								}
+							}
 						}
 					}
 
@@ -1345,9 +1437,11 @@
 		if (e.data.type === 'setFiles') {
 			// Normalize Windows-style path separators to Linux-style
 			const normalizedFiles = normalizeFilePaths(e.data.files)
+			iframeFiles = { ...normalizedFiles }
 			// Only mark pending changes if files actually changed (ignore echo from setFilesInIframe)
 			if (!deepEqual(files, normalizedFiles)) {
 				files = normalizedFiles
+				lastUserInputAt = Date.now()
 				historyManager.markPendingChanges()
 			}
 		} else if (e.data.type === 'getBundle') {
@@ -1961,6 +2055,7 @@
 	}
 	$effect(() => {
 		iframe?.addEventListener('load', () => {
+			iframeFiles = undefined
 			iframeLoaded = true
 		})
 	})
@@ -2026,6 +2121,7 @@
 		}
 	})
 	$effect(() => {
+		// populateFiles must track file entries so in-place AI edits trigger synchronization.
 		iframe && iframeLoaded && files && populateFiles()
 	})
 	$effect(() => {
@@ -2054,7 +2150,7 @@
 	// future `FileExplorer` caller feeds folder paths back in.
 	function handleSelectPath(path: string) {
 		if (!path || path.endsWith('/')) return
-		select({ kind: 'file', path })
+		select({ kind: 'file', path }, { focus: true })
 	}
 
 	// Track previous values for change detection
@@ -2148,19 +2244,12 @@
 		data: RawAppData
 	}) {
 		try {
+			iframeFiles = undefined
 			files = structuredClone($state.snapshot(entry.files))
 			runnables = structuredClone($state.snapshot(entry.runnables))
 			summary = entry.summary
-			data = structuredClone($state.snapshot(entry.data))
+			replaceData(structuredClone($state.snapshot(entry.data)))
 
-			// If the open document survives into the new files, use the combined message
-			if (iframeDocument && isOpenableDocument(iframeDocument)) {
-				// Use combined setFilesAndSelect message to avoid race condition
-				setFilesAndSelectInIframe(entry.files, iframeDocument)
-			} else {
-				// Otherwise just set files normally
-				setFilesInIframe(entry.files)
-			}
 			populateRunnables()
 		} catch (error) {
 			console.error('Failed to apply entry:', error)
@@ -2297,7 +2386,12 @@
 	gateJobIds={false}
 	extraSourceWindow={() => externalPreviewWindow}
 />
-<div bind:clientWidth={rootWidth} class="max-h-full overflow-hidden h-full min-h-0 flex flex-col">
+<div
+	bind:clientWidth={rootWidth}
+	onkeydowncapture={() => (lastUserInputAt = Date.now())}
+	onpointerdowncapture={() => (lastUserInputAt = Date.now())}
+	class="max-h-full overflow-hidden h-full min-h-0 flex flex-col"
+>
 	<RawAppEditorHeader
 		bind:this={header}
 		bind:jobs
@@ -2358,13 +2452,7 @@
 					class="h-full overflow-y-auto relative"
 				>
 					<RawAppSidebar
-						bind:files={
-							() => files,
-							(newFiles) => {
-								files = newFiles
-								setFilesInIframe(newFiles ?? {})
-							}
-						}
+						bind:files
 						onSelectPath={handleSelectPath}
 						onSelectRunnable={(key) => select({ kind: 'runnable', key })}
 						onDeleteRunnable={deleteRunnable}
@@ -2384,6 +2472,20 @@
 								...aiChatManager.datatableCreationPolicy,
 								datatable,
 								schema
+							}
+						}}
+						datatableRoles={data.roles}
+						onDatatableRolesChange={(roles, roleChanged) => {
+							// The default schema was picked among what the previous role reaches: after the
+							// user moves the app's default data table to another role, it is picked again.
+							const dt = data.datatable
+							const schemaStale = dt !== undefined && roleChanged.has(dt)
+							data.roles = roles
+							if (schemaStale) data.schema = undefined
+							aiChatManager.datatableCreationPolicy = {
+								...aiChatManager.datatableCreationPolicy,
+								roles,
+								...(schemaStale && { schema: undefined })
 							}
 						}}
 						{runnables}
@@ -2427,7 +2529,7 @@
 								<DraggableTabs
 									tabs={leftPaneTabs}
 									activeId={activeTabId}
-									onSelect={(id) => activateTab(id)}
+									onSelect={(id) => activateTab(id, { focus: true })}
 									onClose={(id) => closeTab(id)}
 									onReorder={(next) => reorderTabs(next)}
 								>
@@ -2512,7 +2614,7 @@
 								<DraggableTabs
 									tabs={rightPaneTabs}
 									activeId={rightPaneActiveId}
-									onSelect={(id) => activateTab(id)}
+									onSelect={(id) => activateTab(id, { focus: true })}
 									onClose={(id) => closeTab(id)}
 									onReorder={(next) => reorderTabs(next)}
 								>

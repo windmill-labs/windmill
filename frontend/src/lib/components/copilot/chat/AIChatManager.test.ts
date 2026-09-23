@@ -514,6 +514,25 @@ describe('AIChatManager.sendOrQueue', () => {
 		releaseUpkeep?.()
 		await sending
 	})
+
+	// A session's chat is restored after its manager is handed out, so the first
+	// send waits on that restore — before `sendInFlight`, which the restore reads
+	// to decide whether to bail.
+	it('queues while a send waits on the chat restore gate', async () => {
+		const manager = new AIChatManager()
+		let openGate: (() => void) | undefined
+		manager.setReadyGate(new Promise<void>((resolve) => (openGate = resolve)))
+		manager.instructions = 'first turn'
+		const sending = manager.sendRequest()
+		await vi.waitFor(() => expect(manager.sendPending).toBe(true))
+		expect(manager.sendInFlight).toBe(false)
+
+		manager.sendOrQueue('fix the failing run')
+		expect(manager.queuedMessage).toBe('fix the failing run')
+
+		openGate?.()
+		await sending
+	})
 })
 
 describe('AIChatManager request errors', () => {
@@ -4538,5 +4557,47 @@ describe('AIChatManager cross-tab run seams', () => {
 
 		await manager.loadPastChat('c1')
 		expect(manager.queuedMessage).toBe('')
+	})
+})
+
+describe('AIChatManager tool views', () => {
+	beforeEach(() => {
+		vi.clearAllMocks()
+		mocks.getCurrentModel.mockReturnValue({ provider: 'openai', model: 'gpt-4o' })
+		mocks.tryGetCurrentModel.mockReturnValue({ provider: 'openai', model: 'gpt-4o' })
+	})
+
+	// Every mode assigns the private base separately. A missed site leaves it empty on a fresh
+	// manager, which is what these catch — silently, since nothing throws on an empty tool set.
+	it.each([
+		AIMode.SCRIPT,
+		AIMode.FLOW,
+		AIMode.NAVIGATOR,
+		AIMode.ASK,
+		AIMode.API,
+		AIMode.GLOBAL,
+		AIMode.APP
+	])('assembles tools for %s', async (mode) => {
+		const manager = new AIChatManager()
+		await manager.changeMode(mode)
+		expect(manager.tools.length).toBeGreaterThan(0)
+		expect(manager.availableTools.length).toBeGreaterThan(0)
+	})
+
+	// Which transition each posture offers is planModeController.test.ts's; what this pins is
+	// that only `tools` follows the picker. `isSessionChat` is what offers plan mode at all.
+	it('holds availableTools steady across the autonomy picker', async () => {
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		await manager.changeMode(AIMode.GLOBAL)
+
+		const names = (tools: { def: { function: { name: string } } }[]) =>
+			tools.map((t) => t.def.function.name)
+		const before = names(manager.availableTools)
+		expect(before).toEqual(expect.arrayContaining(['enter_plan_mode', 'exit_plan_mode']))
+
+		manager.setAutonomyMode(AIAutonomyMode.YOLO)
+		expect(names(manager.tools)).not.toContain('enter_plan_mode')
+		expect(names(manager.availableTools)).toEqual(before)
 	})
 })

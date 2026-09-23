@@ -20,7 +20,8 @@ use crate::{
 
 /// Whether `label` denotes a user-created token rather than a system token
 /// (`session`, `guest_session`, `ephemeral*`, `debugger-token`, `mcp-oauth-*`,
-/// `embed_app:*`, `sdk_app:*`, `impersonation:*`, `cli-login:*`). System-token labels are load-bearing —
+/// `embed_app:*`, `sdk_app:*`, `impersonation:*`, `cli-login:*`, `remote-deploy:*`).
+/// System-token labels are load-bearing —
 /// session cleanup, super_admin propagation, expiry notifications and username overrides
 /// all key off them — so they must not be user-editable. `None` (no label) is treated as
 /// a user token.
@@ -48,6 +49,7 @@ pub fn is_user_token(label: Option<&str>) -> bool {
                 && !l.starts_with(RAW_APP_SDK_TOKEN_LABEL_PREFIX)
                 && !l.starts_with("impersonation:")
                 && !l.starts_with(CLI_LOGIN_TOKEN_LABEL_PREFIX)
+                && !l.starts_with(REMOTE_DEPLOY_TOKEN_LABEL_PREFIX)
         }
     }
 }
@@ -72,6 +74,14 @@ pub const RAW_APP_SDK_TOKEN_LABEL_PREFIX: &str = "sdk_app:";
 /// the user to do nothing. Not in [`is_server_minted_label`], since the page mints it through
 /// `/users/tokens/create`.
 pub const CLI_LOGIN_TOKEN_LABEL_PREFIX: &str = "cli-login:";
+
+/// Label prefix, followed by the host of the instance deploying with it, of the token the
+/// `/user/remote_deploy_authorize` page mints for another Windmill instance. Reserved in
+/// [`is_user_token`], whose SQL and frontend mirrors spell it out: it is renewed by connecting
+/// again from the deploying instance, which reports this one rejecting it, so an expiry email or
+/// alert here points at the wrong place. Not in [`is_server_minted_label`], since the page mints it
+/// through `/users/tokens/create`.
+pub const REMOTE_DEPLOY_TOKEN_LABEL_PREFIX: &str = "remote-deploy:";
 
 /// Whether `label` belongs to a namespace only the server mints, and which therefore must be
 /// rejected by `create_token`. Narrower than [`is_user_token`], which also drives label
@@ -997,6 +1007,7 @@ mod tests {
         assert!(!is_user_token(Some("sdk_app:u/admin/raw app")));
         assert!(!is_user_token(Some("impersonation:admin@windmill.dev")));
         assert!(!is_user_token(Some("cli-login:admin")));
+        assert!(!is_user_token(Some("remote-deploy:windmill.example.com")));
     }
 
     #[test]

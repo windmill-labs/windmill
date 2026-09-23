@@ -171,10 +171,7 @@ pub fn make_unauthed_service() -> Router {
         .route("/logout", post(logout).get(logout))
         .route("/is_first_time_setup", get(is_first_time_setup))
         .route("/request_password_reset", post(request_password_reset))
-        .route(
-            "/login_link/{token}",
-            get(consume_login_link).post(confirm_login_link),
-        )
+        .route("/login_link/{token}", get(consume_login_link))
         .route("/is_smtp_configured", get(is_smtp_configured))
         .route(
             "/is_password_login_disabled",
@@ -530,7 +527,7 @@ async fn list_users_as_super_admin(
     let rows = if active_only.is_some_and(|x| x) {
         sqlx::query_as!(
             GlobalUserInfo,
-            r#"WITH active_users AS (SELECT distinct username as email FROM (SELECT username, timestamp, operation FROM audit_partitioned UNION ALL SELECT username, timestamp, operation FROM audit) AS a WHERE timestamp > NOW() - INTERVAL '1 month' AND (operation = 'users.login' OR operation = 'oauth.login' OR operation = 'users.token.refresh')),
+            r#"WITH active_users AS (SELECT distinct username as email FROM audit_partitioned WHERE timestamp > NOW() - INTERVAL '1 month' AND (operation = 'users.login' OR operation = 'oauth.login' OR operation = 'users.token.refresh')),
             authors as (SELECT distinct email FROM usr WHERE usr.operator IS false)
             SELECT email as "email!", (email NOT IN (SELECT email FROM authors)) as operator_only, NULL::bool as is_workspace_admin, login_type::text, verified as "verified!", super_admin as "super_admin!", devops as "devops!", name, company, username, first_time_user as "first_time_user!", role_source as "role_source!", disabled as "disabled!", NULL::text as workspace_id
             FROM password
@@ -2567,6 +2564,14 @@ pub async fn delete_workspace_user_internal(
     .await?;
 
     sqlx::query!(
+        "DELETE FROM remote_deploy_token WHERE email = $1 AND workspace_id = $2",
+        email_to_delete,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
         "DELETE FROM usr_to_group WHERE usr = $1 AND workspace_id = $2",
         username_to_delete,
         w_id
@@ -3287,12 +3292,9 @@ async fn impersonate(
 }
 
 const LOGIN_LINK_DEFAULT_TTL_S: u32 = 600;
-// Long enough for a link sent by email to still work when it is read. `require_login_type` is
-// only checked at mint, so a much longer cap would need re-checking it when the link is opened.
-const LOGIN_LINK_MAX_TTL_S: u32 = 7200;
+const LOGIN_LINK_MAX_TTL_S: u32 = 900;
 const LOGIN_LINK_DEFAULT_RD: &str = "/user/workspaces";
 const LOGIN_LINK_EXPIRED_PAGE: &str = "/user/login_link_expired";
-const LOGIN_LINK_CONFIRM_PAGE: &str = "/user/login_link";
 
 #[derive(Deserialize)]
 pub struct NewLoginLink {
@@ -3303,9 +3305,6 @@ pub struct NewLoginLink {
     /// account it created can require `pending_oauth`, so the link stops working once the
     /// owner has set a password or signed in with a provider.
     pub require_login_type: Option<String>,
-    /// Hand out a page that signs in only when its button is clicked. Mail scanners open links
-    /// on delivery, and opening the plain link spends it, so a link sent by email sets this.
-    pub confirm: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -3456,12 +3455,11 @@ async fn create_login_link(
     .await?;
     tx.commit().await?;
 
-    let base_url = (**BASE_URL.load()).clone();
-    let url = if nl.confirm.unwrap_or(false) {
-        format!("{base_url}{LOGIN_LINK_CONFIRM_PAGE}?token={token}")
-    } else {
-        format!("{base_url}/api/auth/login_link/{token}")
-    };
+    let url = format!(
+        "{}/api/auth/login_link/{}",
+        (**BASE_URL.load()).clone(),
+        token
+    );
     Ok((StatusCode::CREATED, Json(LoginLink { url, expires_at })))
 }
 
@@ -3707,45 +3705,19 @@ async fn consume_login_link(
     Path(token): Path<String>,
     Query(query): Query<LoginLinkQuery>,
 ) -> Result<Response> {
-    let location = redeem_login_link(&headers, cookies, &db, &token, query.rd).await?;
-    Ok(login_link_redirect(location))
-}
-
-#[derive(Serialize)]
-struct LoginLinkLocation {
-    location: String,
-}
-
-/// The confirmation page's click. It answers with where to go rather than redirecting, and the
-/// page navigates there itself.
-async fn confirm_login_link(
-    headers: axum::http::HeaderMap,
-    cookies: Cookies,
-    Extension(db): Extension<DB>,
-    Path(token): Path<String>,
-) -> JsonResult<LoginLinkLocation> {
-    let location = redeem_login_link(&headers, cookies, &db, &token, None).await?;
-    Ok(Json(LoginLinkLocation { location }))
-}
-
-/// Spends the link and sets the session cookie, returning the post-login destination; or
-/// returns the explanation page, with no session, when the link cannot be used.
-async fn redeem_login_link(
-    headers: &axum::http::HeaderMap,
-    cookies: Cookies,
-    db: &DB,
-    token: &str,
-    requested_rd: Option<String>,
-) -> Result<String> {
-    let bounce = |reason: &str| Ok(format!("{LOGIN_LINK_EXPIRED_PAGE}?reason={reason}"));
+    let bounce = |reason: &str| {
+        Ok(login_link_redirect(format!(
+            "{LOGIN_LINK_EXPIRED_PAGE}?reason={reason}"
+        )))
+    };
     if token.len() != 32 {
         return bounce("invalid");
     }
-    let t_hash = hash_token(token);
+    let t_hash = hash_token(&token);
     // The account is unknown until the row is read, so only the global and per-IP tiers
     // apply here; a 32-char random token leaves nothing for the per-account tier to guard.
     windmill_common::login_rate_limit::check_and_increment_login_attempt(
-        headers,
+        &headers,
         &t_hash[..TOKEN_PREFIX_LEN],
     )?;
 
@@ -3812,10 +3784,11 @@ async fn redeem_login_link(
     .await?;
     tx.commit().await?;
 
-    Ok(link
+    let rd = link
         .rd
-        .or_else(|| same_origin_rd(requested_rd))
-        .unwrap_or_else(|| LOGIN_LINK_DEFAULT_RD.to_string()))
+        .or_else(|| same_origin_rd(query.rd))
+        .unwrap_or_else(|| LOGIN_LINK_DEFAULT_RD.to_string());
+    Ok(login_link_redirect(rd))
 }
 
 #[derive(Deserialize)]
@@ -4050,6 +4023,7 @@ async fn update_token_label(
                  AND NOT starts_with(label, 'sdk_app:')
                  AND NOT starts_with(label, 'impersonation:')
                  AND NOT starts_with(label, 'cli-login:')
+                 AND NOT starts_with(label, 'remote-deploy:')
              ))
            RETURNING token_prefix",
         req.label.as_deref(),
@@ -4096,13 +4070,25 @@ async fn leave_workspace(
         &format!("u/{}", authed.username),
     )
     .await?;
-    sqlx::query!(
+    let left = sqlx::query!(
         "DELETE FROM usr WHERE workspace_id = $1 AND username = $2",
         &w_id,
         authed.username
     )
     .execute(&mut *tx)
-    .await?;
+    .await?
+    .rows_affected();
+    // A superadmin deploys from workspaces it is no member of; leaving none is no reason to drop
+    // its connection.
+    if left > 0 {
+        sqlx::query!(
+            "DELETE FROM remote_deploy_token WHERE email = $1 AND workspace_id = $2",
+            &authed.email,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
 
     audit_log(
         &mut *tx,

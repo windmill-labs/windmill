@@ -9,9 +9,10 @@
 		kind: FavoriteKind
 		summary?: string
 		workspaceId?: string
+		size?: number
 	}
 
-	let { path, kind, workspaceId, summary }: Props = $props()
+	let { path, kind, workspaceId, summary, size = 16 }: Props = $props()
 
 	let buttonHover = $state(false)
 	let starred = $derived(favoriteManager.isStarred(path, kind))
@@ -31,14 +32,14 @@
 >
 	{#if starred}
 		{#if buttonHover}
-			<StarOff size={16} fill="currentcolor" />
+			<StarOff {size} fill="currentcolor" />
 		{:else}
-			<Star size={16} fill="currentcolor" />
+			<Star {size} fill="currentcolor" />
 		{/if}
 	{:else}
 		<Star
 			class={!buttonHover ? 'opacity-60' : ''}
-			size={16}
+			{size}
 			fill={buttonHover ? 'currentcolor' : 'none'}
 		/>
 	{/if}

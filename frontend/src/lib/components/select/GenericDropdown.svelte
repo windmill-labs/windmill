@@ -53,6 +53,9 @@
 		const spaceAbove = inputR.y
 		const isBelow = fitsBelow || spaceBelow >= spaceAbove
 		let [x, y] = disablePortal ? [0, 0] : [inputR.x, inputR.y]
+		// The list grows to its widest item, so one wider than the room right of its input
+		// would run off screen: slide it left instead.
+		if (!disablePortal) x = Math.max(0, Math.min(x, window.innerWidth - listR.width))
 		if (isBelow)
 			return { width: inputR.width, height: listR.height, x: x, y: y + inputR.height, isBelow }
 		else {

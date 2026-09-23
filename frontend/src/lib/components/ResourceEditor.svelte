@@ -19,6 +19,8 @@
 	import { useActingUser } from '$lib/actingUser.svelte'
 	import { UserDraft, draftValuesEqual, type UserDraftHandle } from '$lib/userDraft.svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+	import { useDraftConflictSession } from '$lib/draftConflictSession.svelte'
+	import DraftConflictAlert from './DraftConflictAlert.svelte'
 	import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
 	import { onUserInput } from '$lib/userDraftEditGate'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
@@ -48,6 +50,9 @@
 		 * so it can hide the banner's Discard button in read-only mode (matches
 		 * the trigger editors' `disabled={!can_write}` wiring). */
 		onCanWriteChange?: (canWrite: boolean) => void
+		/** The drawer renders the conflict alert: inside this scrollable form it can land above the
+		 *  viewport on a long resource, leaving the fixed banner claiming the edits are saved. */
+		onDraftConflictChange?: (state: { conflicted: boolean; busy: boolean }) => void
 	}
 
 	let {
@@ -61,7 +66,8 @@
 		selected: selectedProp = $bindable(),
 		viewJsonSchema = $bindable(),
 		onDraftStateChange,
-		onCanWriteChange
+		onCanWriteChange,
+		onDraftConflictChange
 	}: Props = $props()
 
 	type ResourceState = {
@@ -263,6 +269,132 @@
 	)
 	const anyDirty = $derived(dirtyWorkspaces.length > 0)
 
+	/** Scoped by `selected` so switching workspace-specific versions is a new session. Ending is
+	 *  exported on top of that because the drawer, not this component, knows when its own session
+	 *  is over: this component outlives it. */
+	const conflictSession = useDraftConflictSession(() => selected)
+	export function endEditingSession(): void {
+		conflictSession.end()
+	}
+	onDestroy(endEditingSession)
+	const resolvingConflict = $derived(conflictSession.busy)
+	/** The server refused this tab's autosave because the row moved under it: another tab, or the
+	 *  AI chat, which writes these drafts too. Nothing typed here reaches the server until the user
+	 *  picks a version, and the unsaved-changes banner says the opposite — that the edits are held
+	 *  as a draft — so without this they are told their work is safe while it is being dropped. */
+	const draftConflict = $derived(
+		selected && initialPath
+			? UserDraftDbSyncer.getConflict({
+					workspace: selected,
+					itemKind: 'resource',
+					path: initialPath
+				}).conflict
+			: undefined
+	)
+
+	async function resolveDraftConflict(keepMine: boolean): Promise<void> {
+		const ws = selected
+		const p = initialPath
+		if (!ws || !p || resolvingConflict) return
+		const query = { workspace: ws, itemKind: 'resource' as const, path: p }
+		const token = conflictSession.start()
+		const stillOurs = () => conflictSession.holds(token) && selected === ws
+		try {
+			if (keepMine) {
+				// Settle the key first: an ordinary autosave still queued would displace the forced
+				// write below, and being conditional it would be refused — so "Keep mine" would
+				// finish without keeping anything and leave the alert standing.
+				await UserDraftDbSyncer.quiesce(query)
+				// A resolution belongs to the session that started it. One that outlives its editor
+				// stops here rather than writing on: whatever replaced it — another session on the
+				// same draft, or its own resolution — owns the key now, and the edit this one was
+				// keeping is still parked for a later flush either way.
+				if (!stillOurs()) return
+				// A parked `null` is this tab's "no draft any more" — a discard, or an edit that
+				// landed back on the deployed value. Keeping that means removing the row, not
+				// writing the baseline back as a draft with no dirty banner to discard it through.
+				const parked = UserDraftDbSyncer.peekPending(query)
+				const mine = parked?.value === null ? null : $state.snapshot(states[ws]?.draft)
+				// Forced, so it goes over the row that refused us, and its response reseeds
+				// `last_sync` so the next ordinary save is conditional again.
+				if (mine !== undefined) await UserDraftDbSyncer.overwrite({ ...query, value: mine })
+				// Say so rather than leave the alert up with no explanation: a write displaced by
+				// something typed meanwhile can still lose the race.
+				if (UserDraftDbSyncer.getConflict(query).conflict) {
+					sendUserToast('Could not keep your version — try again', true)
+				}
+				return
+			}
+			// Settle the key BEFORE reading, so what comes back is the version the server is left
+			// holding: a write this tab started can still be in flight — a forced one it walked
+			// away from included — and a response fetched past it describes a version about to be
+			// replaced, which would then be seeded along with its already-stale `last_sync`.
+			// Nothing is given up by waiting; `quiesce` only stops the pipeline.
+			await UserDraftDbSyncer.quiesce(query)
+			if (!stillOurs()) return
+			// Read BEFORE giving anything up: until the server has answered, the refused payload is
+			// still the only copy of this tab's edit, and the conflict is still true.
+			const r = await ResourceService.getResource({ workspace: ws, path: p, getDraft: true })
+			const deployedState: ResourceState = {
+				path: r.path,
+				args: (r.value ?? {}) as Record<string, any>,
+				description: r.description ?? '',
+				labels: r.labels ?? undefined,
+				wsSpecific: r.ws_specific ?? false
+			}
+			// Everything below writes shared editor state, so first make sure it is still this
+			// resource's: the drawer stays closable while the read is out, and another resource
+			// opened meanwhile would otherwise get this one's baseline — and with it this one's
+			// path as its save target.
+			if (!stillOurs()) return
+			// Again, because the form stayed editable while the read was out: `quiesce` settles what
+			// is running when it is called, not the key for the rest of the resolution, so a
+			// keystroke since can have started a save of its own. Left running, its rejection lands
+			// after the baseline below and raises the conflict this just resolved.
+			await UserDraftDbSyncer.quiesce(query)
+			if (!stillOurs()) return
+			// Now, and not in `quiesce`: the refused payload belongs to the version being replaced,
+			// but until this point it was still the only copy of the edit, and a resolution that
+			// gave up before here has to leave it behind.
+			UserDraftDbSyncer.dropPending(query)
+			UserDraftDbSyncer.clearConflict(query)
+			initialStates[ws] = structuredClone(deployedState)
+			// Everything else the load path takes from this same response. The item can have been
+			// deleted, recreated under another type, or had its permissions changed while the
+			// conflict stood, and the fields below decide create-vs-update, the schema and write
+			// access — so refreshing only what is displayed would leave those deciding on the
+			// version the user just replaced.
+			fetchedResources[ws] = r
+			existedInitially[ws] = !(r as any).no_deployed
+			if (ws === effectiveWorkspace) resource_type = r.resource_type
+			UserDraftDbSyncer.recordRemoteSync(query, (r as any).draft_saved_at)
+			const loadedDraft = (r as any).draft as ResourceState | undefined
+			// Loading a draft makes this workspace one that opened with a draft, whatever it opened
+			// with before — a refused deletion opens gated, and gated the settling absorber would
+			// fold the version just loaded into the deployed baseline, leaving it silently clean
+			// with Save disabled. Ungate here rather than leaving it to the effect, so no write
+			// between the two is absorbed.
+			openedOnDraft[ws] = !!loadedDraft
+			if (loadedDraft) {
+				setGated(ws, false)
+			} else {
+				// Accepting "there is no draft" has to shut the gate, the way discarding one does.
+				// The edit that raised the conflict set `userEdited`, and left open, the form's
+				// settling writes — schema defaults materializing over the loaded value — read as
+				// the user's and recreate the draft just accepted away.
+				userEdited[ws] = false
+				setGated(ws, true)
+			}
+			UserDraft.seed('resource', p, loadedDraft ?? deployedState, { workspace: ws })
+		} catch (e) {
+			// Nothing was given up above, so the conflict stands and the edit is still here to
+			// resolve again — which is the whole point of reading first.
+			sendUserToast(`Could not load the other version: ${e}`, true)
+		} finally {
+			conflictSession.finish(token)
+		}
+	}
+
 	// The syncer owns the list-page `*` hint; the editor only CLEARS it when a
 	// workspace is at the deployed baseline (so a draft discarded elsewhere
 	// vanishes on reopen). Never SET here. See VariableEditor for the full note.
@@ -338,15 +470,33 @@
 						labels: r.labels ?? undefined,
 						wsSpecific: r.ws_specific ?? false
 					}
-					// Open with the saved draft if present, else the deployed.
-					const s: ResourceState = savedDraftState ?? deployedState
-					openedOnDraft[ws] = !!savedDraftState
+					// A refused save leaves this tab's own version parked. `.draft` is the
+					// version that refused it, so opening on that would quietly drop the edit
+					// the alert is about and leave "Keep mine" offering to keep the other one.
+					const conflictQuery = {
+						workspace: ws,
+						itemKind: 'resource' as const,
+						path: initialPath
+					}
+					const refused = UserDraftDbSyncer.getConflict(conflictQuery).conflict
+						? UserDraftDbSyncer.peekPending(conflictQuery)
+						: undefined
+					// A parked `null` is this tab's "no draft any more", which on screen is the
+					// deployed value — so only a payload with content counts as a local draft.
+					const refusedDraft = (refused?.value ?? undefined) as ResourceState | undefined
+					const hasLocalDraft = refused ? refused.value !== null : !!savedDraftState
+					// Open with this tab's refused version if there is one, else the saved
+					// draft, else the deployed.
+					const s: ResourceState = refused
+						? (refusedDraft ?? deployedState)
+						: (savedDraftState ?? deployedState)
+					openedOnDraft[ws] = hasLocalDraft
 					// Gate BEFORE the handle is acquired: `stopSync` queues on a
 					// not-yet-live entry, and the form can settle before the effect
 					// above gets a chance to run. Only worth doing when no draft exists
 					// yet — where one does, there is no phantom to prevent and
 					// suspending could only drop a write.
-					if (!savedDraftState) setGated(ws, true)
+					if (!hasLocalDraft) setGated(ws, true)
 					ensureHandle(ws, s)
 					initialStates[ws] = structuredClone(deployedState)
 					// Draft-only paths (`no_deployed`) have no row — saving must
@@ -426,6 +576,13 @@
 	$effect(() => {
 		onCanWriteChange?.(can_write === true)
 	})
+	$effect(() => {
+		onDraftConflictChange?.({ conflicted: !!draftConflict, busy: resolvingConflict })
+	})
+
+	export function resolveDraftConflictFromBanner(keepMine: boolean): void {
+		void resolveDraftConflict(keepMine)
+	}
 
 	export function localDraftDeployed(): ResourceState | undefined {
 		return selected ? initialStates[selected] : undefined
@@ -539,6 +696,18 @@
 
 <div>
 	<div class="flex flex-col gap-6 pb-2">
+		<!-- Only when nobody above is showing it. A host that takes `onDraftConflictChange` puts it
+		     in its own fixed banner, where a long form cannot scroll it out of view; one that embeds
+		     this editor directly — the AI chat's MCP section, and the SDK surface — would otherwise
+		     get no warning at all, which is the very thing this alert exists to prevent. -->
+		{#if draftConflict && !onDraftConflictChange}
+			<DraftConflictAlert
+				busy={resolvingConflict}
+				onReload={() => void resolveDraftConflict(false)}
+				onOverwrite={() => void resolveDraftConflict(true)}
+			/>
+		{/if}
+
 		{#if otherDirty.length > 0}
 			<Alert type="warning" title="Editing multiple workspaces">
 				You are going to edit the value in: {otherDirty.join(', ')}

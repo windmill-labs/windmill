@@ -1425,9 +1425,17 @@ pub(crate) async fn tarball_workspace(
             use strum::IntoEnumIterator;
 
             for service_name in ServiceName::iter() {
-                let native_triggers =
-                    list_native_triggers(&mut *tx, &w_id, service_name, None, None, None, None)
-                        .await?;
+                let native_triggers = list_native_triggers(
+                    &mut *tx,
+                    &w_id,
+                    service_name,
+                    None,
+                    None,
+                    None,
+                    None,
+                    windmill_api_auth::ScopePathFilter::AllowAll,
+                )
+                .await?;
 
                 // Native triggers (Nextcloud, Google Drive, GitHub) are never
                 // cloned into a fork — a fork only has one if its owner created
