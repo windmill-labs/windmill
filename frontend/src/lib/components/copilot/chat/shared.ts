@@ -7,6 +7,7 @@ import type { UserDraftItemKind } from '$lib/gen'
 // The gate's two refusals, from a module that holds prose and one size limit: under the
 // shallow-import rule below, the rest of plan mode is not reachable from here.
 import { PLAN_MODE_MESSAGES } from './planModeMessages'
+import { NONE } from './sessionCapabilities'
 // Import-free leaf, so it satisfies the shallow-import rule below.
 import {
 	openItemPreviewAction,
@@ -1468,6 +1469,7 @@ export function isHubPath(path: string): boolean {
 }
 
 export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
+	requires: NONE,
 	def: searchHubScriptsToolDef,
 	planModeSafe: true,
 	fn: async ({ args, toolId, toolCallbacks }) => {

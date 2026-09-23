@@ -23,16 +23,12 @@ vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 Chrome/120.0.0.0' })
 
 import { globalTools, prepareGlobalSystemMessage, type SessionPromptContext } from './core'
 import { appendPlanModeInstructions } from '../planMode'
+import { PlanModeController } from '../planModeController.svelte'
 import { pipelineTools } from '../pipeline/core'
-import { ENTER_PLAN_MODE_TOOL, EXIT_PLAN_MODE_TOOL } from '../planMode'
 import { assembleGlobalSystemMessage, assembleGlobalTools } from './globalAssembly'
-import { SESSION_TOOL_POLICIES, filterSessionTools, sessionToolAllowed } from './sessionToolset'
-import {
-	capabilitiesForRole,
-	fullSessionAccess,
-	type SessionAccess,
-	type SessionCapability
-} from './sessionAccess'
+import { filterSessionTools, sessionToolAllowed } from './sessionToolset'
+import { capabilitiesForRole, fullSessionAccess } from './sessionAccess'
+import type { SessionAccess, SessionCapability, SessionTool } from '../sessionCapabilities'
 
 const ASSEMBLY_OPTS = {
 	previewTools: true,
@@ -40,19 +36,27 @@ const ASSEMBLY_OPTS = {
 	mcpServers: [{ path: 'f/test/server' } as any]
 }
 
-/** Every tool name that can reach a session toolset: what assembly builds, so a source
- * added there needs no edit here, unioned with the static sources so the set cannot
- * shrink if assembly stops reaching one, plus the plan tools the manager appends. */
-function assembledSessionToolNames(): string[] {
-	return [
-		...new Set([
-			...assembleGlobalTools(ASSEMBLY_OPTS).map((t) => t.def.function.name),
-			...globalTools.map((t) => t.def.function.name),
-			...pipelineTools.map((t) => t.def.function.name),
-			ENTER_PLAN_MODE_TOOL,
-			EXIT_PLAN_MODE_TOOL
-		])
-	]
+/** Every tool that can reach a session toolset: what assembly builds, so a source added
+ * there needs no edit here, unioned with the static sources so the set cannot shrink if
+ * assembly stops reaching one, plus the plan tools the manager appends. */
+function sessionReachableTools(): SessionTool<any>[] {
+	const plan = new PlanModeController({ available: true } as any).availableTools
+	const byName = new Map<string, SessionTool<any>>()
+	for (const t of [
+		...assembleGlobalTools(ASSEMBLY_OPTS),
+		...globalTools,
+		...pipelineTools,
+		...plan
+	]) {
+		byName.set(t.def.function.name, t)
+	}
+	return [...byName.values()]
+}
+
+function withheldNames(access: SessionAccess): string[] {
+	return sessionReachableTools()
+		.filter((t) => !sessionToolAllowed(t, access))
+		.map((t) => t.def.function.name)
 }
 
 /** The tools a session actually ships, through the same assembly production uses. */
@@ -64,20 +68,21 @@ function accessWith(capabilities: SessionCapability[]): SessionAccess {
 	return new Set(capabilities)
 }
 
-const profileKey = (access: SessionAccess) => [...access].sort().join(',')
-
-/** The profiles a real session can hold, over every combination of the role facts
- * `capabilitiesForRole` reads. */
-const REACHABLE_PROFILES = new Set(
-	[false, true].flatMap((isAdmin) =>
-		[false, true].flatMap((operator) =>
-			// `checkDeployRules` bypasses on admin, so an admin has only the one outcome.
-			(isAdmin ? [true] : [false, true]).map((deployRulesPass) =>
-				profileKey(capabilitiesForRole({ isAdmin, operator, deployRulesPass }))
+/** The profiles a real session can hold, keyed for the test name, over every combination
+ * of the role facts `capabilitiesForRole` reads. */
+const REACHABLE_PROFILES = [
+	...new Map(
+		[false, true].flatMap((isAdmin) =>
+			[false, true].flatMap((operator) =>
+				// `checkDeployRules` bypasses on admin, so an admin has only the one outcome.
+				(isAdmin ? [true] : [false, true]).map((deployRulesPass) => {
+					const access = capabilitiesForRole({ isAdmin, operator, deployRulesPass })
+					return [[...access].sort().join(',') || 'none', access] as const
+				})
 			)
 		)
-	)
-)
+	).entries()
+]
 
 /** One per branch of getSessionContextPromptSection — each words the deploy target
  * differently, so a gate fixed in one branch can still leak in another. */
@@ -91,26 +96,17 @@ const SESSION_CONTEXTS: SessionPromptContext[] = [
 ]
 
 describe('session tool policies', () => {
-	// The fail-closed guarantee: `sessionToolAllowed` withholds an unregistered tool,
-	// so a tool shipped without a policy would silently vanish from restricted
-	// sessions. This test is what turns that into a build failure instead.
-	it('covers every tool that can reach a session toolset', () => {
-		const missing = assembledSessionToolNames().filter((n) => !SESSION_TOOL_POLICIES[n])
-		expect(missing).toEqual([])
-	})
-
-	it('does not carry policies for tools that no longer exist', () => {
-		const assembled = new Set(assembledSessionToolNames())
-		const stale = Object.keys(SESSION_TOOL_POLICIES).filter((n) => !assembled.has(n))
-		expect(stale).toEqual([])
-	})
-
 	// Full access must be a no-op, or every existing session (and the ai_evals
 	// baseline measured against it) changes behaviour.
 	it('withholds nothing from a session with every capability', () => {
-		const names = assembledSessionToolNames()
-		const allowed = names.filter((n) => sessionToolAllowed(n, fullSessionAccess()))
-		expect(allowed).toEqual(names)
+		const tools = sessionReachableTools()
+		expect(filterSessionTools(tools, fullSessionAccess())).toHaveLength(tools.length)
+	})
+
+	// The one verdict the filter still makes itself: every array feeding a session is typed
+	// to declare a policy, so a tool without one arrived some other way.
+	it('withholds a tool that arrives without a policy', () => {
+		expect(sessionToolAllowed({ def: globalTools[0].def }, fullSessionAccess())).toBe(false)
 	})
 
 	it('passes the toolset through untouched when access is unresolved', () => {
@@ -118,59 +114,40 @@ describe('session tool policies', () => {
 		expect(filterSessionTools(tools, undefined)).toHaveLength(tools.length)
 	})
 
-	it('withholds draft writes, deploys and previews without the capability', () => {
-		const readOnly = accessWith([])
-		expect(sessionToolAllowed('write_script', readOnly)).toBe(false)
-		expect(sessionToolAllowed('write_variable', readOnly)).toBe(false)
-		expect(sessionToolAllowed('deploy_workspace_item', readOnly)).toBe(false)
-		expect(sessionToolAllowed('delete_workspace_item', readOnly)).toBe(true)
-		expect(sessionToolAllowed('test_run_script', readOnly)).toBe(false)
-		expect(sessionToolAllowed('exec_datatable_sql', readOnly)).toBe(false)
-		expect(sessionToolAllowed('list_workspace_items', readOnly)).toBe(true)
-		expect(sessionToolAllowed('list_runs', readOnly)).toBe(true)
-		expect(sessionToolAllowed('cancel_job', readOnly)).toBe(true)
-	})
+	// The kind is an argument, so its enum carries the permission, per the handler each kind
+	// reaches. Asserted on the shipped schema, since that is all the model sees.
+	it('offers the kind-taking tools only the kinds their handlers accept', () => {
+		const shipped = (name: string, access: SessionAccess) =>
+			shippedSessionTools(access).find((t) => t.def.function.name === name)!
+		const kindsOf = (name: string, access: SessionAccess) =>
+			(shipped(name, access).def.function.parameters as any).properties.type.enum
 
-	// The authoring aids are reads the server serves anyone, so a session that cannot
-	// author still gets them — withholding them would be stricter than the backend.
-	it('keeps the authoring aids when drafts cannot be written', () => {
-		const readOnly = accessWith([])
-		expect(sessionToolAllowed('get_instructions', readOnly)).toBe(true)
-		expect(sessionToolAllowed('search_npm_packages', readOnly)).toBe(true)
-		expect(sessionToolAllowed('search_resource_types', readOnly)).toBe(true)
-	})
+		// A developer a protection rule refuses keeps the two kinds no rule reaches.
+		const refused = accessWith(['write_draft', 'run_preview', 'manage_code'])
+		expect(kindsOf('deploy_workspace_item', refused)).toEqual(['schedule', 'trigger'])
+		expect(kindsOf('delete_workspace_item', refused)).toEqual(['schedule', 'trigger'])
 
-	// Pinned because the name is what misleads: it sits among the authoring aids and reads
-	// like one, but starts a job.
-	it('gates get_db_schema on run_preview, like the other job-starting tools', () => {
-		expect(sessionToolAllowed('get_db_schema', accessWith(['write_draft']))).toBe(false)
-		expect(sessionToolAllowed('get_db_schema', accessWith(['run_preview']))).toBe(true)
-	})
+		// An operator where no rule applies: only the code handlers refuse them.
+		const operator = accessWith(['deploy'])
+		expect(kindsOf('deploy_workspace_item', operator)).toEqual([
+			'schedule',
+			'trigger',
+			'resource',
+			'variable'
+		])
 
-	// The backend runs create_folder through check_deploy_rules, so drafting alone is
-	// not enough to make it usable.
-	it('withholds create_folder from a session that cannot deploy', () => {
-		expect(sessionToolAllowed('create_folder', accessWith(['write_draft', 'run_preview']))).toBe(
-			false
-		)
-		expect(sessionToolAllowed('create_folder', accessWith(['write_draft', 'deploy']))).toBe(true)
-	})
+		// Deleting a script is admin-only, where deploying one is not.
+		const developer = accessWith(['write_draft', 'run_preview', 'manage_code', 'deploy'])
+		expect(kindsOf('deploy_workspace_item', developer)).toContain('script')
+		expect(kindsOf('delete_workspace_item', developer)).not.toContain('script')
 
-	// Schedules and triggers reach no deploy rule, so a workspace that refuses this user's
-	// deploys still accepts those two kinds. Gating the kind-taking tools on `deploy` would
-	// withhold operations the server performs.
-	it('keeps the deploy tools when only the gated kinds are refused', () => {
-		const noDeploy = accessWith(['write_draft', 'run_preview'])
-		expect(sessionToolAllowed('deploy_workspace_item', noDeploy)).toBe(true)
-		expect(sessionToolAllowed('delete_workspace_item', noDeploy)).toBe(true)
-		expect(sessionToolAllowed('create_folder', noDeploy)).toBe(false)
-	})
-
-	// Drafts must stay cleanable after a role change.
-	it('keeps discard_local_draft without write_draft, but not rebase_draft', () => {
-		const readOnly = accessWith([])
-		expect(sessionToolAllowed('discard_local_draft', readOnly)).toBe(true)
-		expect(sessionToolAllowed('rebase_draft', readOnly)).toBe(false)
+		// Full access narrows nothing and ships the shared object itself, so the tool defs —
+		// part of every iteration's cached prefix — are byte for byte what they were.
+		const original = globalTools.find((t) => t.def.function.name === 'deploy_workspace_item')!
+		expect(shipped('deploy_workspace_item', fullSessionAccess())).toBe(original)
+		// And narrowing never writes through to it: the def is shared by every session, so a
+		// mutation here would strip one user's kinds from everyone else's schema.
+		expect((original.def.function.parameters as any).properties.type.enum).toContain('script')
 	})
 
 	// The prompt is documentation OF the toolset, so it must never name a tool the same
@@ -181,31 +158,16 @@ describe('session tool policies', () => {
 	// actually ships is that plus the session-state section, the pipeline-editor section
 	// and plan mode's decoration, each appended by a different caller, and gating only the
 	// first looks correct while the others still name withheld tools. Both axes are swept —
-	// every reachable profile, and every tool from the policy table — so neither a new tool
-	// nor a new capability combination slips past.
-	it.each([
-		// The prompt is swept for every profile, reachable or not, since gating it costs
-		// nothing. The tool DEFINITIONS are swept only for the reachable ones, because the
-		// only way to satisfy the rest is to strip a sibling tool's name out of a
-		// description that earns its place for real sessions.
-		['read-only', []],
-		['drafts, no deploy', ['write_draft', 'run_preview']],
-		['drafts only', ['write_draft']],
-		['drafts, no preview', ['write_draft', 'deploy']],
-		['deploy, no drafts', ['deploy']]
-	] as [string, SessionCapability[]][])(
+	// every reachable profile, and every tool that can reach a session — so neither a new
+	// tool nor a new capability combination slips past.
+	it.each(REACHABLE_PROFILES)(
 		'never names a withheld tool in the assembled prompt (%s)',
-		(_label, capabilities) => {
-			const access = accessWith(capabilities)
-			const reachable = REACHABLE_PROFILES.has(profileKey(access))
-			const withheld = assembledSessionToolNames().filter((n) => !sessionToolAllowed(n, access))
-			expect(withheld.length).toBeGreaterThan(0)
+		(_label, access) => {
+			const withheld = withheldNames(access)
 			// The tool DEFINITIONS ship alongside the prompt, so a withheld name in a
 			// description is the same broken promise as one in the prompt.
-			if (reachable) {
-				const defs = JSON.stringify(shippedSessionTools(access).map((t) => t.def))
-				expect(withheld.filter((n) => defs.includes(n))).toEqual([])
-			}
+			const defs = JSON.stringify(shippedSessionTools(access).map((t) => t.def))
+			expect(withheld.filter((n) => defs.includes(n))).toEqual([])
 			for (const previewTools of [false, true]) {
 				for (const ctx of SESSION_CONTEXTS) {
 					const msg = assembleGlobalSystemMessage(undefined, {
@@ -241,7 +203,7 @@ describe('session tool policies', () => {
 			} as any) as Promise<string>
 
 		const readOnly = accessWith([])
-		const withheld = assembledSessionToolNames().filter((n) => !sessionToolAllowed(n, readOnly))
+		const withheld = withheldNames(readOnly)
 		const restricted = await call(readOnly)
 		expect(withheld.filter((n) => restricted.includes(n))).toEqual([])
 		// The gate is the whole test, so pin that it is not simply refusing everyone.
@@ -262,17 +224,5 @@ describe('session tool policies', () => {
 			}).content
 			expect(full).toBe(ungated)
 		}
-	})
-
-	// Draft writes survive without `deploy`, and vice versa: the two are separate
-	// backend gates (drafts.rs vs. the deploy protection rules), not one ladder.
-	it('treats write_draft and deploy as independent', () => {
-		const draftsOnly = accessWith(['write_draft'])
-		expect(sessionToolAllowed('write_script', draftsOnly)).toBe(true)
-		expect(sessionToolAllowed('create_folder', draftsOnly)).toBe(false)
-
-		const deployOnly = accessWith(['deploy'])
-		expect(sessionToolAllowed('write_script', deployOnly)).toBe(false)
-		expect(sessionToolAllowed('create_folder', deployOnly)).toBe(true)
 	})
 })

@@ -1,22 +1,14 @@
 import { getWorkspaceRole } from '$lib/user'
 import { checkDeployRules } from '$lib/utils_workspace_deploy'
+import type { SessionAccess, SessionCapability } from '../sessionCapabilities'
 
-/**
- * What a user may do in ONE workspace, as the AI session toolset needs to know it.
- * Best-effort, not a boundary — the token is the enforcement point, so this narrows
- * what the model is offered and guarantees nothing.
- */
-export type SessionCapability =
-	| 'write_draft'
-	| 'run_preview'
-	/** May deploy the kinds `check_deploy_rules` gates. There is no capability for the
-	 * rest — schedules and triggers reach no rule (`kindGatedByDeployRules`), so every
-	 * user may deploy those and a capability for them would always be present. */
-	| 'deploy'
-
-export type SessionAccess = ReadonlySet<SessionCapability>
-
-const ALL_CAPABILITIES: SessionCapability[] = ['write_draft', 'run_preview', 'deploy']
+const ALL_CAPABILITIES: SessionCapability[] = [
+	'write_draft',
+	'run_preview',
+	'deploy',
+	'manage_code',
+	'admin'
+]
 
 /** Fail open, here and at every resolution failure below: blanking a toolset on a
  * transient error tells a developer mid-session that they cannot author anything,
@@ -37,18 +29,22 @@ export function capabilitiesForRole(role: {
 	const capabilities = new Set<SessionCapability>()
 	// Per-capability precedence, NOT a role ladder: drafts.rs `require_can_write_path`
 	// returns Ok on `authed.is_admin` BEFORE its operator branch, while jobs.rs
-	// `run_preview_*` refuses operators first with no admin escape.
+	// `run_preview_*` and the script/flow/app handlers refuse `authed.is_operator` with no
+	// admin escape — and on the session path that flag is never cleared for an admin.
 	if (role.isAdmin || !role.operator) {
 		capabilities.add('write_draft')
 	}
 	if (!role.operator) {
 		capabilities.add('run_preview')
+		capabilities.add('manage_code')
 	}
-	// No operator term: folders.rs `create_folder`, the one kind this gates, has no
-	// operator check, and its RLS insert passes because the handler makes the creator an
-	// owner. The rules alone also cover admins, who bypass them inside that check.
+	// No operator term: the rules are their own gate, and the handlers that also refuse
+	// operators say so through `manage_code`. Admins bypass the rules inside the check.
 	if (role.deployRulesPass) {
 		capabilities.add('deploy')
+	}
+	if (role.isAdmin) {
+		capabilities.add('admin')
 	}
 	return capabilities
 }

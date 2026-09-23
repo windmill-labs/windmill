@@ -9,6 +9,7 @@ import type {
 } from 'openai/resources/index.mjs'
 import { type DBSchema, dbSchemas } from '$lib/stores'
 import type { ContextElement } from '../context'
+import { NONE, RUN_PREVIEW, type SessionTool } from '../sessionCapabilities'
 import {
 	createSearchHubScriptsTool,
 	type Tool,
@@ -461,9 +462,12 @@ export const resourceTypeTool: Tool<ScriptChatHelpers> = {
 // Generic DB schema tool factory shared by the script, flow and global modes
 export function createDbSchemaTool<T>(
 	opts: { description?: string; updateEditorCache?: boolean } = {}
-): Tool<T> {
+): SessionTool<T> {
 	const { description, updateEditorCache = true } = opts
 	return {
+		// `getDbSchemas` below starts that job through /jobs/run/preview, which jobs.rs
+		// refuses operators — so this reads like a lookup but gates like a preview run.
+		requires: RUN_PREVIEW,
 		def: description
 			? {
 					...DB_SCHEMA_FUNCTION_DEF,
@@ -609,7 +613,8 @@ const SEARCH_NPM_PACKAGES_TOOL: ChatCompletionFunctionTool = {
 }
 
 // Helpers-agnostic so both script mode and global mode can offer it.
-export const searchNpmPackagesTool: Tool<{}> = {
+export const searchNpmPackagesTool: SessionTool<{}> = {
+	requires: NONE,
 	def: SEARCH_NPM_PACKAGES_TOOL,
 	planModeSafe: true,
 	fn: async ({ args, toolId, toolCallbacks }) => {

@@ -1,8 +1,14 @@
 import { z } from 'zod'
 import { $ScriptLang } from '$lib/gen/schemas.gen'
 import type { ScriptLang } from '$lib/gen'
-import { createToolDef, executeTestRun, findAndReplace, type Tool } from '../shared'
-import type { SessionAccess } from '../global/sessionAccess'
+import { createToolDef, executeTestRun, findAndReplace } from '../shared'
+import {
+	NONE,
+	RUN_PREVIEW,
+	WRITE_DRAFT,
+	type SessionAccess,
+	type SessionTool
+} from '../sessionCapabilities'
 import type { PipelineOutputKind } from '$lib/components/assets/AssetGraph/pipelineTemplates'
 
 // ============================================================================
@@ -206,8 +212,9 @@ function inferredLineageNote(reads: string[], writes: string[]): string {
 	return ` Inferred lineage: ${parts.join('; ')}.`
 }
 
-export const pipelineTools: Tool<PipelineToolHelpers>[] = [
+export const pipelineTools: SessionTool<PipelineToolHelpers>[] = [
 	{
+		requires: NONE,
 		def: getPipelineGraphToolDef,
 		planModeSafe: true,
 		fn: async ({ helpers, toolId, toolCallbacks }) => {
@@ -222,6 +229,7 @@ export const pipelineTools: Tool<PipelineToolHelpers>[] = [
 		}
 	},
 	{
+		requires: NONE,
 		def: readPipelineNodeToolDef,
 		planModeSafe: true,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
@@ -237,6 +245,7 @@ export const pipelineTools: Tool<PipelineToolHelpers>[] = [
 		}
 	},
 	{
+		requires: WRITE_DRAFT,
 		def: buildPipelineNodeToolDef,
 		streamArguments: true,
 		showDetails: true,
@@ -259,6 +268,7 @@ export const pipelineTools: Tool<PipelineToolHelpers>[] = [
 		}
 	},
 	{
+		requires: WRITE_DRAFT,
 		def: editPipelineNodeToolDef,
 		streamArguments: true,
 		showDetails: true,
@@ -287,6 +297,7 @@ export const pipelineTools: Tool<PipelineToolHelpers>[] = [
 		}
 	},
 	{
+		requires: WRITE_DRAFT,
 		def: removePipelineNodeToolDef,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const pipeline = requirePipeline(helpers)
@@ -301,6 +312,7 @@ export const pipelineTools: Tool<PipelineToolHelpers>[] = [
 		}
 	},
 	{
+		requires: RUN_PREVIEW,
 		def: testPipelineNodeToolDef,
 		requiresConfirmation: true,
 		confirmationMessage: 'Run pipeline node',

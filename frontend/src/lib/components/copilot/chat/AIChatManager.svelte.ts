@@ -125,7 +125,8 @@ import {
 	isWebSearchEnabledForProvider
 } from '$lib/aiStore'
 import type { WorkspaceMutationTarget } from './workspaceTools'
-import { resolveSessionAccess, type SessionAccess } from './global/sessionAccess'
+import { resolveSessionAccess } from './global/sessionAccess'
+import type { SessionAccess } from './sessionCapabilities'
 import { filterSessionTools } from './global/sessionToolset'
 import {
 	loadWorkspaceSkills,

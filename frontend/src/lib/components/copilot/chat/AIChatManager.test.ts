@@ -4600,11 +4600,13 @@ describe('AIChatManager tool views', () => {
 			folders: [],
 			folders_read: []
 		})
-		let sent: { tools: string[]; prompt: string } | undefined
+		let sent: { tools: string[]; prompt: string; deployKinds: string[] } | undefined
 		mocks.runChatLoop.mockImplementation(async (config: any) => {
+			const deploy = config.tools.find((t: any) => t.def.function.name === 'deploy_workspace_item')
 			sent = {
 				tools: config.tools.map((t: any) => t.def.function.name),
-				prompt: config.systemMessage.content
+				prompt: config.systemMessage.content,
+				deployKinds: deploy?.def.function.parameters.properties.type.enum ?? []
 			}
 			return {
 				addedMessages: [],
@@ -4618,7 +4620,11 @@ describe('AIChatManager tool views', () => {
 		await manager.sendRequest({ instructions: 'add a script', mode: AIMode.GLOBAL })
 
 		expect(sent?.tools).toEqual(expect.arrayContaining(['list_workspace_items', 'run_script']))
-		for (const withheld of ['write_script', 'test_run_script', 'deploy_workspace_item']) {
+		// Deploying ships — a draft can predate the role change — but only for the kinds an
+		// operator's token can land.
+		expect(sent?.deployKinds).toContain('schedule')
+		expect(sent?.deployKinds).not.toContain('script')
+		for (const withheld of ['write_script', 'test_run_script']) {
 			expect(sent?.tools).not.toContain(withheld)
 			// The prompt ships beside the tools, so the rebuild must have run after the
 			// profile landed — otherwise it still instructs the model to call these.

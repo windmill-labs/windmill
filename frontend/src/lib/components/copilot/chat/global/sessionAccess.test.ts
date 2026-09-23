@@ -43,9 +43,9 @@ describe('resolveSessionAccess', () => {
 		clearWorkspaceRoleCache()
 	})
 
-	it('gives a developer every capability', async () => {
+	it('gives a developer every capability but admin', async () => {
 		const caps = await capabilitiesFor({})
-		expect([...caps].sort()).toEqual(['deploy', 'run_preview', 'write_draft'])
+		expect([...caps].sort()).toEqual(['deploy', 'manage_code', 'run_preview', 'write_draft'])
 	})
 
 	// The folder handler has no operator check, so an unrestricted workspace must keep the
@@ -61,15 +61,13 @@ describe('resolveSessionAccess', () => {
 		expect([...caps]).toEqual([])
 	})
 
-	// Both spellings of `authed.is_admin`, which the draft path honours and the preview path
-	// does not.
+	// Both spellings of `authed.is_admin`, which the draft path honours and the handlers
+	// refusing `authed.is_operator` do not — the session path never clears that flag.
 	it.each([{ is_admin: true }, { is_super_admin: true }])(
-		'lets an admin who is also an operator write drafts and deploy, but not run previews (%o)',
+		'lets an admin who is also an operator draft and deploy, but not preview or manage code (%o)',
 		async (role) => {
 			const caps = await capabilitiesFor({ ...role, operator: true })
-			expect(caps.has('write_draft')).toBe(true)
-			expect(caps.has('deploy')).toBe(true)
-			expect(caps.has('run_preview')).toBe(false)
+			expect([...caps].sort()).toEqual(['admin', 'deploy', 'write_draft'])
 		}
 	)
 

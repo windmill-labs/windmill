@@ -135,7 +135,6 @@ import {
 	type CreatedResourceTriggerKind,
 	type PreviewCardKind,
 	type RunFormDisplay,
-	type Tool,
 	type ToolCallbacks,
 	type ToolDisplayAction
 } from '../shared'
@@ -195,7 +194,15 @@ import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { invalidateWorkspaceComparison } from '$lib/workspaceComparison'
 import type { UserDraftItemKind } from '$lib/gen'
 import { bundleRawAppDraft } from './rawAppBundlerBridge'
-import type { SessionAccess } from './sessionAccess'
+import {
+	DEPLOY,
+	NONE,
+	RUN_PREVIEW,
+	WRITE_DRAFT,
+	type SessionAccess,
+	type SessionTool,
+	type SessionToolPolicy
+} from '../sessionCapabilities'
 import {
 	buildRunsUrl,
 	buildSchedulesUrl,
@@ -769,7 +776,7 @@ const deployWorkspaceItemSchema = z.object({
 		.boolean()
 		.optional()
 		.describe(
-			'Deploy even if the draft was started from an older deployed version, overwriting the version deployed since. Defaults to false; prefer calling rebase_draft first to keep the newer changes.'
+			'Deploy even if the draft was started from an older deployed version, overwriting the version deployed since. Defaults to false.'
 		)
 })
 
@@ -1329,9 +1336,8 @@ const buildGlobalSystemPrompt = (
 	mcpServers: McpServer[] = [],
 	access?: SessionAccess
 ) => {
-	// Each `can*` mirrors the capability that gates the matching tools in
-	// SESSION_TOOL_POLICIES, so a rule cannot outlive the tool it describes. An
-	// unresolved profile keeps every block.
+	// Each `can*` mirrors the capability the matching tools declare in `requires`, so a
+	// rule cannot outlive the tool it describes. An unresolved profile keeps every block.
 	const canWriteDraft = !access || access.has('write_draft')
 	const canRunPreview = !access || access.has('run_preview')
 	// Only this block: the deploy tools take their kind as an argument, so their bullets
@@ -2483,19 +2489,11 @@ export function getSessionContextPromptSection(
 	access?: SessionAccess
 ): string {
 	// Concatenated onto an already capability-gated prompt, so it has to honour the same
-	// profile rather than assume the gating happened upstream. Each branch keeps its
-	// "where work lands" fact either way.
+	// profile rather than assume the gating happened upstream.
 	const canDeploy = !access || access.has('deploy')
 	const canWriteDraft = !access || access.has('write_draft')
 	const canRunPreview = !access || access.has('run_preview')
-	const targets = [
-		'reads',
-		canWriteDraft && 'drafts',
-		canRunPreview && 'test runs',
-		// `deploy_workspace_item` ships with the draft tools: it deploys a draft, so a
-		// session that cannot write one has nothing to deploy.
-		canWriteDraft && 'deploys'
-	]
+	const targets = ['reads', canWriteDraft && 'drafts', canRunPreview && 'test runs', 'deploys']
 		.filter(Boolean)
 		.join(', ')
 	const lines = [
@@ -2510,36 +2508,30 @@ export function getSessionContextPromptSection(
 		)
 	} else if (ctx.parentWorkspaceId && ctx.isDevWorkspace) {
 		lines.push(
-			`- Operating workspace: "${ctx.workspaceId}" — the user's persistent DEV WORKSPACE, forked from workspace "${ctx.parentWorkspaceId}". ${canWriteDraft ? 'deploy_workspace_item publishes' : 'Changes land'} into the dev workspace only; the user reviews & promotes changes into "${ctx.parentWorkspaceId}" from the session's deploy panel. Never present a change as live in "${ctx.parentWorkspaceId}".`
+			`- Operating workspace: "${ctx.workspaceId}" — the user's persistent DEV WORKSPACE, forked from workspace "${ctx.parentWorkspaceId}". deploy_workspace_item publishes into the dev workspace only; the user reviews & promotes changes into "${ctx.parentWorkspaceId}" from the session's deploy panel. Never present a change as live in "${ctx.parentWorkspaceId}".`
 		)
 	} else if (ctx.parentWorkspaceId) {
 		lines.push(
-			`- Operating workspace: "${ctx.workspaceId}" — an ephemeral STAGED FORK of workspace "${ctx.parentWorkspaceId}", created for session work. ${canWriteDraft ? 'deploy_workspace_item publishes' : 'Changes land'} into the fork only, and the user reviews & promotes fork changes into "${ctx.parentWorkspaceId}" from the session's deploy panel. Never present a change as live in "${ctx.parentWorkspaceId}".`
+			`- Operating workspace: "${ctx.workspaceId}" — an ephemeral STAGED FORK of workspace "${ctx.parentWorkspaceId}", created for session work. deploy_workspace_item publishes into the fork only, and the user reviews & promotes fork changes into "${ctx.parentWorkspaceId}" from the session's deploy panel. Never present a change as live in "${ctx.parentWorkspaceId}".`
 		)
 	} else if (ctx.forkParentUnknown) {
 		lines.push(
-			`- Operating workspace: "${ctx.workspaceId}" — a fork whose parent workspace is not currently visible to this user. ${canWriteDraft ? 'deploy_workspace_item publishes' : 'Changes land'} into the fork only; the user promotes changes from the session's deploy panel. Never present a change as live in any other workspace.`
+			`- Operating workspace: "${ctx.workspaceId}" — a fork whose parent workspace is not currently visible to this user. deploy_workspace_item publishes into the fork only; the user promotes changes from the session's deploy panel. Never present a change as live in any other workspace.`
 		)
 	} else if (ctx.workspaceId) {
 		lines.push(
-			`- Operating workspace: "${ctx.workspaceId}" — the live workspace itself, not a fork.${canWriteDraft ? ' deploy_workspace_item publishes directly to everyone in it.' : ''}`
+			`- Operating workspace: "${ctx.workspaceId}" — the live workspace itself, not a fork. deploy_workspace_item publishes directly to everyone in it.`
 		)
 	} else {
 		lines.push(
 			'- No operating workspace is set yet; the user picks one (or a new staged fork) before the first message is sent.'
 		)
 	}
-	// Without this the model reads "deploys" among its targets with no way to know which
-	// kinds are refused, and keeps proposing script deploys that come back 403.
+	// The kind enum already withholds what the rules refuse; this says why, and where the user
+	// promotes the rest instead. The rules gate deletes too, so it is owed to every such profile.
 	if (!canDeploy) {
-		// The deploy rules gate deletes as well as deploys, so this is owed to every profile
-		// the rules refuse — including one that cannot draft and so keeps only the delete
-		// tool. Name the tools this profile actually has: the other would be a withheld name.
-		const [tools, verb] = canWriteDraft
-			? ['deploy_workspace_item and delete_workspace_item', 'deploy or delete']
-			: ['delete_workspace_item', 'delete']
 		lines.push(
-			`- This workspace refuses direct deployment for this user, except for schedules and triggers — those are the only kinds ${tools} can still act on. Scripts, flows, apps, resources and variables must be promoted from the session's deploy panel (fork or pull request); do not offer to ${verb} them directly.`
+			"- This workspace refuses direct deployment for this user, except for schedules and triggers — those are the only kinds deploy_workspace_item and delete_workspace_item can still act on. Scripts, flows, apps, resources and variables must be promoted from the session's deploy panel (fork or pull request); do not offer to deploy or delete them directly."
 		)
 	}
 	return lines.join('\n')
@@ -2588,7 +2580,8 @@ const readSkillSchema = z.object({
 		.describe('The exact skill resource path as listed in the Skills section of the system prompt.')
 })
 
-export const readSkillTool: Tool<{}> = {
+export const readSkillTool: SessionTool<{}> = {
+	requires: NONE,
 	def: createToolDef(
 		readSkillSchema,
 		'read_skill',
@@ -3287,7 +3280,8 @@ function summarizeOpenPage(url: string, page: OpenPageName): string {
 	return parts.length ? parts.join(', ') : `all ${OPEN_PAGE_LABELS[page].toLowerCase()}`
 }
 
-export const openPageTool: Tool<{}> = {
+export const openPageTool: SessionTool<{}> = {
+	requires: NONE,
 	// The initial def assumes an untracked chat and no resolved role; setSchema below
 	// rebuilds it with the caller's real surface before each iteration.
 	def: createToolDef(
@@ -3392,10 +3386,11 @@ export const openPageTool: Tool<{}> = {
 	}
 }
 
-export const globalTools: Tool<{}>[] = [
+export const globalTools: SessionTool<{}>[] = [
 	readSkillTool,
 	openPageTool,
 	{
+		requires: NONE,
 		def: createToolDef(
 			getInstructionsSchema,
 			'get_instructions',
@@ -3429,6 +3424,7 @@ export const globalTools: Tool<{}>[] = [
 	searchDocsTool,
 	readDocsPageTool,
 	{
+		requires: NONE,
 		def: createToolDef(
 			askUserQuestionSchema,
 			'askUserQuestion',
@@ -3497,6 +3493,7 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	{
+		requires: NONE,
 		def: createToolDef(
 			updateUserInstructionsSchema,
 			'update_user_instructions',
@@ -3570,6 +3567,7 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	{
+		requires: NONE,
 		def: createToolDef(
 			listWorkspaceItemsSchema,
 			'list_workspace_items',
@@ -3634,6 +3632,7 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	{
+		requires: NONE,
 		def: createToolDef(
 			readWorkspaceItemSchema,
 			'read_workspace_item',
@@ -3683,6 +3682,8 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	{
+		// Folder is one of the gated kinds: folders.rs `create_folder` runs `check_deploy_rules`.
+		requires: DEPLOY,
 		def: createToolDef(
 			createFolderSchema,
 			'create_folder',
@@ -3725,6 +3726,7 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	{
+		requires: WRITE_DRAFT,
 		def: createToolDef(writeScriptSchema, 'write_script', 'Create or overwrite a draft script.'),
 		showDetails: true,
 		streamArguments: true,
@@ -3735,6 +3737,7 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	{
+		requires: WRITE_DRAFT,
 		def: createToolDef(writeFlowSchema, 'write_flow', 'Create or overwrite a draft flow.'),
 		showDetails: true,
 		streamArguments: true,
@@ -3776,6 +3779,7 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	{
+		requires: WRITE_DRAFT,
 		def: createToolDef(
 			writeScheduleToolSchema,
 			'write_schedule',
@@ -3801,6 +3805,7 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	{
+		requires: WRITE_DRAFT,
 		def: createToolDef(
 			writeTriggerSchema,
 			'write_trigger',
@@ -3828,6 +3833,7 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	{
+		requires: NONE,
 		def: createToolDef(
 			getTriggerSchemaSchema,
 			'get_trigger_schema',
@@ -3840,6 +3846,7 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	{
+		requires: NONE,
 		def: createToolDef(
 			z.object({}),
 			'get_schedule_schema',
@@ -3849,6 +3856,7 @@ export const globalTools: Tool<{}>[] = [
 		fn: async () => JSON.stringify(advancedScheduleShape(), null, 2)
 	},
 	{
+		requires: WRITE_DRAFT,
 		def: createToolDef(
 			editScriptSchema,
 			'edit_script',
@@ -3863,6 +3871,7 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	{
+		requires: WRITE_DRAFT,
 		def: createToolDef(
 			patchFlowJsonSchema,
 			'patch_flow_json',
@@ -3877,6 +3886,7 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	{
+		requires: RUN_PREVIEW,
 		def: testRunScriptToolDef,
 		fn: async (ctx) => {
 			const parsed = testRunScriptSchema.parse(ctx.args)
@@ -3894,6 +3904,9 @@ export const globalTools: Tool<{}>[] = [
 		autoCollapseDetails: false
 	},
 	{
+		// Ungated, unlike the test runs: this executes the DEPLOYED item under the user's own
+		// permissions, the one run an operator's token allows. `run_flow` likewise.
+		requires: NONE,
 		def: runScriptToolDef,
 		fn: async (ctx) => {
 			const parsed = runScriptSchema.parse(ctx.args)
@@ -3908,6 +3921,7 @@ export const globalTools: Tool<{}>[] = [
 		autoCollapseDetails: false
 	},
 	{
+		requires: RUN_PREVIEW,
 		def: testRunFlowToolDef,
 		fn: async (ctx) => {
 			const parsed = testRunFlowSchema.parse(ctx.args)
@@ -3922,6 +3936,7 @@ export const globalTools: Tool<{}>[] = [
 		autoCollapseDetails: false
 	},
 	{
+		requires: NONE,
 		def: runFlowToolDef,
 		fn: async (ctx) => {
 			const parsed = runFlowSchema.parse(ctx.args)
@@ -3935,6 +3950,7 @@ export const globalTools: Tool<{}>[] = [
 		autoCollapseDetails: false
 	},
 	{
+		requires: RUN_PREVIEW,
 		def: testRunStepToolDef,
 		fn: async (ctx) => {
 			const parsed = testRunStepSchema.parse(ctx.args)
@@ -3949,6 +3965,7 @@ export const globalTools: Tool<{}>[] = [
 		autoCollapseDetails: false
 	},
 	{
+		requires: NONE,
 		def: createToolDef(
 			listRunsSchema,
 			'list_runs',
@@ -3978,6 +3995,7 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	{
+		requires: NONE,
 		def: createToolDef(
 			z.object({}),
 			'list_workers',
@@ -4021,6 +4039,7 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	{
+		requires: NONE,
 		def: createToolDef(
 			getRunSchema,
 			'get_run',
@@ -4050,6 +4069,7 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	{
+		requires: NONE,
 		def: createToolDef(
 			cancelJobSchema,
 			'cancel_job',
@@ -4077,6 +4097,21 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	{
+		// Ungated as a whole: the draft may predate a role change, and what the server accepts
+		// turns on the kind. Each kind's handler, reached through `deployDraft`'s switch:
+		requires: NONE,
+		kindRequires: {
+			// scripts.rs `create_script_internal`, flows.rs `create_flow`/`update_flow` and
+			// apps.rs `create_app_raw`/`update_app_raw` refuse operators; all run the rules.
+			script: ['deploy', 'manage_code'],
+			flow: ['deploy', 'manage_code'],
+			app: ['deploy', 'manage_code'],
+			resource: DEPLOY,
+			variable: DEPLOY,
+			// The schedule and trigger handlers check neither.
+			schedule: NONE,
+			trigger: NONE
+		} satisfies Record<(typeof ITEM_TYPES)[number], SessionToolPolicy>,
 		def: createToolDef(
 			deployWorkspaceItemSchema,
 			'deploy_workspace_item',
@@ -4093,6 +4128,8 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	{
+		// Not exempt like discarding: rebasing writes a fresh draft.
+		requires: WRITE_DRAFT,
 		def: createToolDef(
 			rebaseDraftSchema,
 			'rebase_draft',
@@ -4107,6 +4144,7 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	{
+		requires: NONE,
 		def: createToolDef(
 			diffSchema,
 			'diff',
@@ -4130,6 +4168,19 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	{
+		// Ungated as a whole, like deploying. Each kind's handler, reached through
+		// `deleteWorkspaceItem`'s switch — not the deploy table, because scripts differ:
+		requires: NONE,
+		kindRequires: {
+			// scripts.rs `delete_script_by_path` calls `require_admin`; a non-admin archives.
+			script: ['admin'],
+			flow: ['deploy', 'manage_code'],
+			app: ['deploy', 'manage_code'],
+			resource: DEPLOY,
+			variable: DEPLOY,
+			schedule: NONE,
+			trigger: NONE
+		} satisfies Record<(typeof ITEM_TYPES)[number], SessionToolPolicy>,
 		def: createToolDef(
 			deleteWorkspaceItemSchema,
 			'delete_workspace_item',
@@ -4146,6 +4197,9 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	{
+		// Ungated: discarding your OWN draft skips drafts.rs `require_can_write_path`, so a
+		// user who has LOST write access can still clean up.
+		requires: NONE,
 		def: createToolDef(
 			discardLocalDraftSchema,
 			'discard_local_draft',
@@ -4161,6 +4215,7 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	{
+		requires: WRITE_DRAFT,
 		def: createToolDef(
 			writeResourceSchema,
 			'write_resource',
@@ -4176,6 +4231,7 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	{
+		requires: WRITE_DRAFT,
 		def: createToolDef(
 			writeVariableSchema,
 			'write_variable',
@@ -4191,6 +4247,7 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	{
+		requires: NONE,
 		def: createToolDef(
 			searchResourceTypesSchema,
 			'search_resource_types',
@@ -4226,6 +4283,7 @@ export const globalTools: Tool<{}>[] = [
 		updateEditorCache: false
 	}),
 	{
+		requires: NONE,
 		def: createToolDef(
 			readFlowModuleCodeSchema,
 			'read_flow_module_code',
@@ -4238,6 +4296,7 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	{
+		requires: WRITE_DRAFT,
 		def: createToolDef(
 			setFlowModuleCodeSchema,
 			'set_flow_module_code',
@@ -4252,6 +4311,7 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	{
+		requires: WRITE_DRAFT,
 		def: createToolDef(
 			initAppSchema,
 			'init_app',
@@ -4266,6 +4326,7 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	{
+		requires: NONE,
 		def: createToolDef(
 			readAppFileSchema,
 			'read_app_file',
@@ -4278,6 +4339,7 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	{
+		requires: NONE,
 		def: createToolDef(
 			searchAppSchema,
 			'search_app',
@@ -4290,6 +4352,7 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	{
+		requires: WRITE_DRAFT,
 		def: createToolDef(
 			writeAppFileSchema,
 			'write_app_file',
@@ -4304,6 +4367,7 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	{
+		requires: WRITE_DRAFT,
 		def: createToolDef(
 			deleteAppFileSchema,
 			'delete_app_file',
@@ -4315,6 +4379,7 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	{
+		requires: WRITE_DRAFT,
 		def: createToolDef(
 			patchAppFileSchema,
 			'patch_app_file',
@@ -4329,6 +4394,7 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	{
+		requires: WRITE_DRAFT,
 		def: createToolDef(
 			writeAppRunnableSchema,
 			'write_app_runnable',
@@ -4344,6 +4410,7 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	{
+		requires: WRITE_DRAFT,
 		def: createToolDef(
 			deleteAppRunnableSchema,
 			'delete_app_runnable',
@@ -4355,6 +4422,9 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	{
+		// Reaches apps.rs `execute_component` rather than jobs.rs, but that handler refuses
+		// operators too once `force_viewer_static_fields` marks the call a preview.
+		requires: RUN_PREVIEW,
 		def: testRunAppRunnableToolDef,
 		fn: async (ctx) => {
 			const parsed = testRunAppRunnableSchema.parse(ctx.args)
@@ -4369,6 +4439,7 @@ export const globalTools: Tool<{}>[] = [
 	},
 	...artifactTools,
 	{
+		requires: NONE,
 		def: createToolDef(
 			openPreviewSchema,
 			'open_preview',
@@ -4380,6 +4451,7 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	{
+		requires: NONE,
 		def: createToolDef(
 			getPreviewStatusSchema,
 			'get_preview_status',
@@ -4389,6 +4461,7 @@ export const globalTools: Tool<{}>[] = [
 		fn: async (ctx) => getSessionPreviewStatus(sessionIdFromCtx(ctx))
 	},
 	{
+		requires: NONE,
 		def: createToolDef(
 			closePageSchema,
 			'close_page',
@@ -4400,6 +4473,7 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	{
+		requires: NONE,
 		def: createToolDef(
 			getRuntimeLogsSchema,
 			'get_app_runtime_logs',
@@ -4420,6 +4494,7 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	{
+		requires: NONE,
 		def: createToolDef(
 			listAppRunsSchema,
 			'list_app_runs',
@@ -4439,6 +4514,7 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	{
+		requires: NONE,
 		def: createToolDef(
 			searchDomSchema,
 			'search_dom',
@@ -4467,6 +4543,7 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	{
+		requires: NONE,
 		def: createToolDef(
 			readDomSchema,
 			'read_dom',
@@ -4495,6 +4572,7 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	{
+		requires: NONE,
 		def: createToolDef(
 			takeScreenshotSchema,
 			'take_screenshot',
@@ -4575,7 +4653,7 @@ export const SESSION_PREVIEW_TOOL_NAMES = new Set([
  * chat, or `globalTools` minus the preview tools for the regular global
  * side-panel chat.
  */
-export function globalToolsFor({ sessionPreview }: { sessionPreview: boolean }): Tool<{}>[] {
+export function globalToolsFor({ sessionPreview }: { sessionPreview: boolean }): SessionTool<{}>[] {
 	const tools = sessionPreview
 		? globalTools
 		: globalTools.filter((t) => !SESSION_PREVIEW_TOOL_NAMES.has(t.def.function.name))
