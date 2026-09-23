@@ -56,6 +56,9 @@
 	<div class="flex flex-col max-h-40 overflow-y-auto">
 		{#each uniqueSources as source (source.url)}
 			{@const hostname = hostnameOf(source.url)}
+			<!-- A blank title is a title the row cannot show, so it names the host instead of
+			     rendering a link with no text. -->
+			{@const title = source.title?.trim() || undefined}
 			<a
 				href={source.url}
 				target="_blank"
@@ -74,8 +77,8 @@
 						onerror={() => failedFavicons.add(hostname)}
 					/>
 				{/if}
-				<span class="text-2xs text-primary truncate">{source.title ?? hostname}</span>
-				{#if source.title}
+				<span class="text-2xs text-primary truncate">{title ?? hostname}</span>
+				{#if title}
 					<span class="text-2xs text-tertiary truncate shrink-0 max-w-32">{hostname}</span>
 				{/if}
 			</a>
