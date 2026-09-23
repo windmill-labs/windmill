@@ -6,8 +6,7 @@
 		userStore,
 		superadmin
 	} from '$lib/stores'
-	import { switchWorkspace } from '$lib/storeUtils'
-	import { fixupUrlAfterWorkspaceSwitch } from './workspaceSwitchUrl'
+	import { switchWorkspaceAndPage } from './workspaceSwitchUrl'
 	import { base } from '$lib/base'
 	import { workspaceAIClients } from '$lib/components/copilot/lib'
 	import WorkspaceFamilyPicker from '$lib/components/sessions/WorkspaceFamilyPicker.svelte'
@@ -53,8 +52,7 @@
 	function switchWorkspaceDirect(id: string) {
 		if ($workspaceStore === id) return
 		workspaceAIClients.init(id)
-		switchWorkspace(id)
-		void fixupUrlAfterWorkspaceSwitch(id)
+		void switchWorkspaceAndPage(id)
 	}
 
 	function openForkModal() {
