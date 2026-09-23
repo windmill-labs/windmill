@@ -3122,10 +3122,11 @@ export function buildOpenPageUrl(page: OpenPageName, a: OpenPageArgs, ctx: OpenP
 		case 'workspace_settings':
 			return buildWorkspaceSettingsUrl({ tab: a.tab })
 		case 'compare':
-			// No chat-modified fallback for `items`: a session's edits are usually
+			// Always fork: an omitted mode lets the page auto-pick the draft view. No
+			// chat-modified fallback for `items` either: a session's edits are usually
 			// undeployed drafts, which the fork comparison leaves out, so masking by them
 			// would open "deploy to parent" with nothing selected.
-			return buildCompareUrl({ workspace_id: ctx.workspaceId, mode: a.mode, items: a.items })
+			return buildCompareUrl({ workspace_id: ctx.workspaceId, mode: 'fork', items: a.items })
 	}
 }
 
