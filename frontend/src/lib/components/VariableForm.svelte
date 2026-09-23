@@ -10,10 +10,13 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { Loader2, RotateCcw } from 'lucide-svelte'
 	import autosize from '$lib/autosize'
-	import { workspaceStore, type UserExt } from '$lib/stores'
+	import { type UserExt } from '$lib/stores'
 	import { isOwner } from '$lib/utils'
 	import { isEncryptedDraftValue } from '$lib/encryptedDraft'
 	import EncryptedDraftField from './EncryptedDraftField.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Variable {
 		value: string
@@ -56,7 +59,7 @@
 		actingUser
 	}: Props = $props()
 
-	let ws = $derived(workspace ?? $workspaceStore)
+	let ws = $derived(workspace ?? $operatingWorkspace)
 
 	// Loading the deployed secret overwrites the draft row this form shares with the AI
 	// chat, so every path that would trigger it has to be blocked while that row stages a

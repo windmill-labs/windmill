@@ -13,6 +13,10 @@
 	import type { UserDraftItemKind } from '$lib/gen'
 	import DraftSyncConflictModal from './DraftSyncConflictModal.svelte'
 	import OtherUsersDraftsModal, { type OtherDraftUser } from './OtherUsersDraftsModal.svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+	import { sendUserToast } from '$lib/toast'
+	import { base } from '$app/paths'
+	import { goto } from '$app/navigation'
 	import StaleDraftModal from './StaleDraftModal.svelte'
 	import ConfirmationModal from './ConfirmationModal.svelte'
 	import { OtherUserDraftLoad } from '$lib/components/otherUserDraftLoad.svelte'
@@ -38,15 +42,27 @@
 		draftSavedAt?: string | undefined
 		/** ISO timestamp of the latest deploy at this path. */
 		deployedAt?: string | undefined
-		/** Precise staleness inputs (flows/apps): the deployed version the draft was
-		 *  forked from, and the current deployed head. When both are set they drive
-		 *  `isStale` and the dedup key instead of the timestamps — exact, and stable
-		 *  across autosaves (the timestamp drifts past `deployedAt` as you keep
-		 *  editing). Absent (pre-feature drafts, scripts) ⇒ timestamp fallback. */
-		draftBaseVersion?: number | undefined
-		deployedHeadVersion?: number | undefined
+		/** Precise staleness inputs: the deployed version the draft forked from
+		 *  (`draft_base` on the get-by-path response) and the current deployed head,
+		 *  both as text whatever the kind. When both are set they drive `isStale` and
+		 *  the dedup key instead of the timestamps, which drift past `deployedAt` as
+		 *  you keep editing. Absent (a draft never forked from a deploy) ⇒ timestamp
+		 *  fallback. */
+		draftBaseVersion?: string | undefined
+		deployedHeadVersion?: string | undefined
+		/** Who deployed the head, named in the stale prompt. */
+		deployedBy?: string | undefined
 		/** Discard the draft and reload deployed (same as "Reset to deployed"). */
 		onLoadLatestDeploy?: () => void | Promise<void>
+		/** Opens the editor's Deployed↔Current diff from the stale prompt, so the
+		 *  choice between keeping and discarding is informed. Omit where the editor
+		 *  has no diff drawer; the action is then not rendered. */
+		onViewDiff?: () => void | Promise<void>
+		/** Runs before this editor follows its draft to the item's new path: the
+		 *  editor's own draft save, which materializes text the code editor still
+		 *  holds. Without it, keystrokes typed since the relocating save are lost
+		 *  to the navigation. */
+		onBeforeRelocate?: () => void | Promise<void>
 		/** Defaults to true; set to false to suppress all modals. */
 		enabled?: boolean
 	}
@@ -65,7 +81,10 @@
 		deployedAt = undefined,
 		draftBaseVersion = undefined,
 		deployedHeadVersion = undefined,
+		deployedBy = undefined,
 		onLoadLatestDeploy,
+		onViewDiff,
+		onBeforeRelocate,
 		enabled = true
 	}: Props = $props()
 
@@ -74,9 +93,9 @@
 	let staleAlertKey = $state<string | undefined>(undefined)
 	let staleModalOpen = $state(false)
 
-	// Prefer the exact version comparison (flows/apps) over the timestamp: the
-	// draft's pinned fork base never drifts, whereas `draftSavedAt` advances past
-	// `deployedAt` once you keep editing a stale draft, hiding the staleness.
+	// Prefer the version comparison over the timestamp for every kind that supplies
+	// one: `draftSavedAt` advances past `deployedAt` as you keep editing, hiding the
+	// staleness outright.
 	const useVersion = $derived(draftBaseVersion != null && deployedHeadVersion != null)
 	const isStale = $derived(
 		!!onLoadLatestDeploy &&
@@ -105,6 +124,48 @@
 			}
 		})
 	})
+
+	const EDITOR_SEGMENT: Partial<Record<UserDraftItemKind, string>> = {
+		script: 'scripts/edit',
+		flow: 'flows/edit',
+		app: 'apps/edit',
+		raw_app: 'apps_raw/edit'
+	}
+
+	// The item was moved while this editor was open: the draft row followed it
+	// and the save just landed there. Follow it too — the route reloads the item
+	// at its new path, and the stale prompt above then says what changed. Edits
+	// typed since that save are flushed first, so leaving this path drops none.
+	$effect(() => {
+		if (!enabled || !workspace || !path) return
+		const seg = EDITOR_SEGMENT[itemKind]
+		if (!seg) return
+		const query = { workspace, itemKind, path }
+		// The flush below saves again and can land here a second time, and a second move
+		// can land while it runs: the last destination reported is the one to follow.
+		let relocating = false
+		let destination: string | undefined = undefined
+		return UserDraftDbSyncer.onRelocated(query, async (newPath) => {
+			destination = newPath
+			if (relocating) return
+			relocating = true
+			await onBeforeRelocate?.()
+			await UserDraftDbSyncer.flush(query)
+			// `flush` resolves on a failed or rejected save as well, and leaving the
+			// route drops what it was carrying: stay, so the editor keeps the edits
+			// and its own failure indicator.
+			if (
+				UserDraftDbSyncer.getState(query).failureMessage ||
+				UserDraftDbSyncer.getConflict(query).conflict
+			) {
+				relocating = false
+				return
+			}
+			const target = destination ?? newPath
+			sendUserToast(`This item was moved to ${target}. You are now editing it there.`)
+			await goto(`${base}/${seg}/${target}`)
+		})
+	})
 </script>
 
 {#if enabled && workspace && path}
@@ -130,9 +191,14 @@
 	{#if onLoadLatestDeploy}
 		<StaleDraftModal
 			bind:isOpen={staleModalOpen}
+			{itemKind}
 			{draftSavedAt}
 			{deployedAt}
+			{draftBaseVersion}
+			{deployedHeadVersion}
+			{deployedBy}
 			{onLoadLatestDeploy}
+			{onViewDiff}
 		/>
 	{/if}
 	<ConfirmationModal

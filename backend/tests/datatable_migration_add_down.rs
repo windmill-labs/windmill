@@ -142,3 +142,35 @@ async fn test_add_down_to_an_applied_migration(db: Pool<Postgres>) -> anyhow::Re
 
     Ok(())
 }
+
+/// A definition saved before `-- role` annotations were parsed can open with a comment that now
+/// reads as a malformed one. It never gets through a role check again, so an admin must still be
+/// able to finish it rather than be refused on its annotation.
+#[sqlx::test(fixtures("datatable_migrations_grants"))]
+async fn test_add_down_to_a_migration_whose_comment_predates_role_annotations(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    setup_applied_migration_without_down(&db).await?;
+    let code_up = format!("-- Role table for widgets\n{CODE_UP}");
+    sqlx::query("UPDATE datatable_migrations SET code_up = $1 WHERE workspace_id = 'dtmig-ws'")
+        .bind(&code_up)
+        .execute(&db)
+        .await?;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let resp = authed(reqwest::Client::new().post(format!(
+        "http://localhost:{}/api/w/dtmig-ws/workspaces/upsert_datatable_migration/main",
+        server.addr.port()
+    )))
+    .json(&json!({
+        "timestamp": VERSION,
+        "name": "create_widgets",
+        "code_up": code_up,
+        "code_down": CODE_DOWN,
+    }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    Ok(())
+}

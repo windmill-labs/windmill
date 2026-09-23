@@ -329,9 +329,11 @@ pub fn try_expand_internal_db_query(
         "ALTER_TABLE" => expand_alter_table(json_str, db_type).map(ExpandedQuery::sql),
         "CREATE_SCHEMA" => expand_create_schema(json_str, db_type).map(ExpandedQuery::sql),
         "DROP_SCHEMA" => expand_drop_schema(json_str, db_type).map(ExpandedQuery::sql),
+        "RENAME_SCHEMA" => expand_rename_schema(json_str, db_type).map(ExpandedQuery::sql),
         // Metadata queries
         "LOAD_TABLE_METADATA" => expand_load_table_metadata(json_str, db_type),
         "FOREIGN_KEYS" => expand_foreign_keys(json_str, db_type).map(ExpandedQuery::sql),
+        "ALL_FOREIGN_KEYS" => expand_all_foreign_keys(db_type).map(ExpandedQuery::sql),
         "PRIMARY_KEY_CONSTRAINT" => {
             expand_primary_key_constraint(json_str, db_type).map(ExpandedQuery::sql)
         }
@@ -1716,6 +1718,13 @@ struct DropSchemaPayload {
     ducklake: Option<String>,
 }
 
+#[derive(Deserialize)]
+struct RenameSchemaPayload {
+    schema: String,
+    new_schema: String,
+    ducklake: Option<String>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 struct TableEditorColumn {
     name: String,
@@ -2002,6 +2011,23 @@ fn expand_drop_schema(json_str: &str, db_type: DbType) -> Result<String, String>
         .map_err(|e| format!("Invalid DROP_SCHEMA payload: {}", e))?;
     let query = format!("DROP SCHEMA {} CASCADE;", qi(&p.schema, db_type));
     Ok(maybe_wrap_ducklake(query, p.ducklake.as_deref()))
+}
+
+fn expand_rename_schema(json_str: &str, db_type: DbType) -> Result<String, String> {
+    let p: RenameSchemaPayload = serde_json::from_str(json_str)
+        .map_err(|e| format!("Invalid RENAME_SCHEMA payload: {}", e))?;
+    if !matches!(db_type, DbType::Postgresql | DbType::Snowflake) || p.ducklake.is_some() {
+        return Err(format!(
+            "Renaming a schema is not supported on {:?}",
+            db_type
+        ));
+    }
+    let query = format!(
+        "ALTER SCHEMA {} RENAME TO {};",
+        qi(&p.schema, db_type),
+        qi(&p.new_schema, db_type)
+    );
+    Ok(query)
 }
 
 fn expand_create_table(json_str: &str, db_type: DbType) -> Result<String, String> {
@@ -2598,7 +2624,9 @@ WHERE table_catalog = current_database()",
                 )
             } else {
                 (
-                    "\nWHERE c.relkind = 'r' AND a.attnum > 0 AND NOT a.attisdropped\n    AND ns.nspname != 'pg_catalog' AND ns.nspname != 'information_schema'".to_string(),
+                    // pg_catalog is readable by everyone: without the privilege check this lists
+                    // tables of schemas the connection's role cannot even enter.
+                    "\nWHERE c.relkind = 'r' AND a.attnum > 0 AND NOT a.attisdropped\n    AND ns.nspname != 'pg_catalog' AND ns.nspname != 'information_schema'\n    AND has_schema_privilege(ns.oid, 'USAGE')".to_string(),
                     ",\n    ns.nspname AS schema_name,\n    c.relname AS table_name".to_string(),
                     "\nJOIN pg_catalog.pg_class c ON a.attrelid = c.oid\nJOIN pg_catalog.pg_namespace ns ON c.relnamespace = ns.oid".to_string(),
                     "ns.nspname, c.relname, a.attnum".to_string(),
@@ -2708,6 +2736,47 @@ fn expand_foreign_keys(json_str: &str, db_type: DbType) -> Result<String, String
         .map_err(|e| format!("Invalid FOREIGN_KEYS payload: {}", e))?;
     let query = make_foreign_keys_query(db_type, &p.table, p.schema.as_deref())?;
     Ok(maybe_wrap_ducklake(query, p.ducklake.as_deref()))
+}
+
+fn expand_all_foreign_keys(db_type: DbType) -> Result<String, String> {
+    make_all_foreign_keys_query(db_type)
+}
+
+/// Every foreign key of the database, one row per referencing column.
+///
+/// Read from `pg_constraint` rather than `information_schema`: the latter's
+/// `constraint_column_usage` loses the pairing of a composite key's columns,
+/// which the diagram needs to line a source column up with the column it points
+/// at. `unnest(conkey, confkey)` keeps them zipped in declaration order.
+fn make_all_foreign_keys_query(db_type: DbType) -> Result<String, String> {
+    if db_type != DbType::Postgresql {
+        return Err(format!(
+            "The schema diagram is only supported for PostgreSQL, not {:?}",
+            db_type
+        ));
+    }
+    Ok(String::from(
+        "SELECT
+    con.conname as fk_constraint_name,
+    src_ns.nspname as source_schema,
+    src.relname as source_table,
+    src_att.attname as source_column,
+    tgt_ns.nspname as target_schema,
+    tgt.relname as target_table,
+    tgt_att.attname as target_column,
+    k.ord as ordinal
+FROM pg_catalog.pg_constraint con
+    JOIN pg_catalog.pg_class src ON src.oid = con.conrelid
+    JOIN pg_catalog.pg_namespace src_ns ON src_ns.oid = src.relnamespace
+    JOIN pg_catalog.pg_class tgt ON tgt.oid = con.confrelid
+    JOIN pg_catalog.pg_namespace tgt_ns ON tgt_ns.oid = tgt.relnamespace
+    JOIN LATERAL unnest(con.conkey, con.confkey) WITH ORDINALITY AS k(src_attnum, tgt_attnum, ord) ON true
+    JOIN pg_catalog.pg_attribute src_att ON src_att.attrelid = src.oid AND src_att.attnum = k.src_attnum
+    JOIN pg_catalog.pg_attribute tgt_att ON tgt_att.attrelid = tgt.oid AND tgt_att.attnum = k.tgt_attnum
+WHERE con.contype = 'f'
+    AND src_ns.nspname NOT IN ('pg_catalog', 'information_schema')
+ORDER BY src_ns.nspname, src.relname, con.conname, k.ord;",
+    ))
 }
 
 fn expand_primary_key_constraint(json_str: &str, db_type: DbType) -> Result<String, String> {
@@ -4102,6 +4171,13 @@ mod tests {
     }
 
     #[test]
+    fn test_expand_rename_schema() {
+        let marker = r#"-- WM_INTERNAL_DB_RENAME_SCHEMA {"schema":"old","new_schema":"new"}"#;
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
+        assert_eq!(sql, "ALTER SCHEMA \"old\" RENAME TO \"new\";");
+    }
+
+    #[test]
     fn test_expand_create_schema_with_ducklake() {
         let marker = r#"-- WM_INTERNAL_DB_CREATE_SCHEMA {"schema":"s","ducklake":"lake"}"#;
         let sql = expand_code(marker, &ScriptLang::DuckDb);
@@ -4468,6 +4544,7 @@ mod tests {
         assert!(sql.contains("schema_name"));
         assert!(sql.contains("table_name"));
         assert!(sql.contains("c.relkind = 'r'"));
+        assert!(sql.contains("has_schema_privilege(ns.oid, 'USAGE')"));
     }
 
     #[test]
@@ -4684,6 +4761,26 @@ mod tests {
         let marker = r#"-- WM_INTERNAL_DB_FOREIGN_KEYS {"table":"orders","ducklake":"lake"}"#;
         let sql = expand_code(marker, &ScriptLang::DuckDb);
         assert!(sql.starts_with("ATTACH 'ducklake://lake' AS dl;USE dl;\n"));
+    }
+
+    // -----------------------------------------------------------------------
+    // ALL_FOREIGN_KEYS
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_expand_all_foreign_keys_postgresql() {
+        let marker = r#"-- WM_INTERNAL_DB_ALL_FOREIGN_KEYS {}"#;
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
+        assert!(sql.contains("con.contype = 'f'"));
+        // Columns of a composite key must stay zipped with the ones they point at.
+        assert!(sql.contains("unnest(con.conkey, con.confkey) WITH ORDINALITY"));
+    }
+
+    #[test]
+    fn test_expand_all_foreign_keys_rejects_non_postgres() {
+        let marker = r#"-- WM_INTERNAL_DB_ALL_FOREIGN_KEYS {}"#;
+        let result = try_expand_internal_db_query(marker, &ScriptLang::Mysql);
+        assert!(result.unwrap().is_err());
     }
 
     // -----------------------------------------------------------------------

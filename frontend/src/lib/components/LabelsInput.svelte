@@ -2,7 +2,9 @@
 	import Badge from './common/badge/Badge.svelte'
 	import Button from './common/button/Button.svelte'
 	import { Plus, Tag, X } from 'lucide-svelte'
-	import { workspaceStore } from '$lib/stores'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		labels: string[] | undefined
@@ -53,7 +55,7 @@
 
 	async function loadExistingLabels() {
 		try {
-			const resp = await fetch(`/api/w/${workspace ?? $workspaceStore}/labels/list`)
+			const resp = await fetch(`/api/w/${workspace ?? $operatingWorkspace}/labels/list`)
 			if (resp.ok) existingLabels = await resp.json()
 		} catch {}
 	}

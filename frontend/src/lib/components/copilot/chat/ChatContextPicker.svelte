@@ -19,7 +19,6 @@ On a workspace-leaf pick, emits a reference-only `WorkspaceScriptElement` /
 Content is materialized at message-prep time by `AIChatManager` — see PR #9216.
 -->
 <script lang="ts">
-	import { workspaceStore } from '$lib/stores'
 	import { Database, Diff, FileText, Folder, Layers } from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import FlowModuleIcon from '$lib/components/flows/FlowModuleIcon.svelte'
@@ -45,6 +44,9 @@ Content is materialized at message-prep time by `AIChatManager` — see PR #9216
 		type WorkspaceFlowElement,
 		type WorkspaceScriptElement
 	} from './context'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		availableContext: ContextElement[]
@@ -105,7 +107,7 @@ Content is materialized at message-prep time by `AIChatManager` — see PR #9216
 		aiChatManager.mode === AIMode.GLOBAL ? ['flow', 'script', 'app'] : ['flow', 'script']
 	)
 	const loader = useWorkspaceItemsLoader(
-		() => $workspaceStore,
+		() => $operatingWorkspace,
 		() => WORKSPACE_KINDS
 	)
 

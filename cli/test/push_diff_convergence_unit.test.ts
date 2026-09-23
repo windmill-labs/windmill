@@ -320,3 +320,29 @@ test("push: settings.yaml differing only by name or an unset color is not a chan
   });
   expect(await diff(otherColor, remote, skips)).toEqual(["edited settings.yaml"]);
 });
+
+// A push applies auto_invite.instance_groups only when the local file declares
+// them (see pushWorkspaceSettings).
+test("push: settings.yaml without instance_groups is not a change", async () => {
+  const remote = local({
+    "settings.yaml":
+      "name: prod\nauto_invite:\n  enabled: false\n  instance_groups:\n    - eng\n  instance_groups_roles:\n    eng: developer\n",
+  });
+  const undeclared = local({
+    "settings.yaml": "name: prod\nauto_invite:\n  enabled: false\n",
+  });
+  const skips = { includeSettings: true };
+  expect(await diff(undeclared, remote, skips)).toEqual([]);
+
+  const groupsOnlyRemote = local({
+    "settings.yaml": "name: prod\nauto_invite:\n  instance_groups:\n    - eng\n",
+  });
+  const noAutoInvite = local({ "settings.yaml": "name: prod\n" });
+  expect(await diff(noAutoInvite, groupsOnlyRemote, skips)).toEqual([]);
+
+  const otherGroups = local({
+    "settings.yaml":
+      "name: prod\nauto_invite:\n  enabled: false\n  instance_groups: []\n",
+  });
+  expect(await diff(otherGroups, remote, skips)).toEqual(["edited settings.yaml"]);
+});

@@ -1249,6 +1249,10 @@ pub async fn register_token_expiry_notification(
     if !windmill_common::auth::is_user_token(label) {
         return;
     }
+    let warning_days = windmill_common::auth::TOKEN_EXPIRY_WARNING_DAYS;
+    if expiration <= chrono::Utc::now() + chrono::Duration::days(warning_days.into()) {
+        return;
+    }
     if let Err(e) = sqlx::query!(
         "INSERT INTO token_expiry_notification (token_hash, expiration) VALUES ($1, $2) ON CONFLICT DO NOTHING",
         token_hash,

@@ -1425,9 +1425,17 @@ pub(crate) async fn tarball_workspace(
             use strum::IntoEnumIterator;
 
             for service_name in ServiceName::iter() {
-                let native_triggers =
-                    list_native_triggers(&mut *tx, &w_id, service_name, None, None, None, None)
-                        .await?;
+                let native_triggers = list_native_triggers(
+                    &mut *tx,
+                    &w_id,
+                    service_name,
+                    None,
+                    None,
+                    None,
+                    None,
+                    windmill_api_auth::ScopePathFilter::AllowAll,
+                )
+                .await?;
 
                 // Native triggers (Nextcloud, Google Drive, GitHub) are never
                 // cloned into a fork — a fork only has one if its owner created
@@ -1639,7 +1647,7 @@ pub(crate) async fn tarball_workspace(
                 mute_critical_alerts: row.mute_critical_alerts,
                 color: row.color.clone(),
                 operator_settings: row.operator_settings.clone(),
-                datatable: row.datatable.clone(),
+                datatable: windmill_common::workspaces::strip_datatable_permissions(row.datatable.clone()),
                 slack_team_id: row.slack_team_id.clone(),
                 slack_name: row.slack_name.clone(),
                 slack_command_script: row.slack_command_script.clone(),
@@ -1703,7 +1711,7 @@ pub(crate) async fn tarball_workspace(
                 mute_critical_alerts: row.mute_critical_alerts,
                 color: row.color,
                 operator_settings: row.operator_settings,
-                datatable: row.datatable,
+                datatable: windmill_common::workspaces::strip_datatable_permissions(row.datatable),
                 slack_team_id: row.slack_team_id,
                 slack_name: row.slack_name,
                 slack_command_script: row.slack_command_script,

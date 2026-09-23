@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { enterpriseLicense, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import {
 		createChat,
@@ -17,6 +17,9 @@
 	import { FlowChatPool, type FlowChatPoolState } from './flowChatPool'
 	import { FlowChatViewHost, type ComposerAttachment } from './flowChatViewHost.svelte'
 	import { FRAME_CLASS, type ChatFrame } from './flowChatProps'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		/**
@@ -55,6 +58,9 @@
 		 * users have no test chats to look at.
 		 */
 		conversationKind?: 'test' | 'deployed'
+		/** What a message runs, as the chat names it. An agent has no deployed chats, so its
+		 *  sidebar offers no filter between those and the test ones. */
+		subject?: 'flow' | 'agent'
 	}
 
 	let {
@@ -68,12 +74,13 @@
 		description = undefined,
 		wideLayout = false,
 		frame = 'top',
-		conversationKind = 'deployed'
+		conversationKind = 'deployed',
+		subject = 'flow'
 	}: Props = $props()
 
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
 	// The editor may act on a workspace other than the nav store's (AI-session live editor).
-	const workspace = $derived(flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
+	const workspace = $derived(flowEditorContext?.opWorkspace?.() ?? $operatingWorkspace)
 
 	// The sidebar lists, renames and deletes through `listChat`; each conversation runs its
 	// turns on its own chat in the pool, so several can answer at once.
@@ -108,13 +115,13 @@
 					}
 					throw e
 				}
-				if (!jobId) throw new Error('the flow did not start')
+				if (!jobId) throw new Error(`the ${subject} did not start`)
 				// The server creates the conversation with the run, so the sidebar can list
 				// it now, whatever becomes of the turn.
 				sidebar?.conversationStarted(conversationId)
 				return jobId
 			},
-			onError: (error) => sendUserToast('Failed to run flow: ' + error.message, true)
+			onError: (error) => sendUserToast(`Failed to run ${subject}: ${error.message}`, true)
 		}
 		const api = new WindmillChatApi({ baseUrl, workspace: ws })
 		const createdList = createChat(options)
@@ -176,7 +183,7 @@
 				{pool}
 				{poolState}
 				defaultKind={conversationKind}
-				canFilterKind={conversationKind !== 'deployed'}
+				canFilterKind={conversationKind !== 'deployed' && subject === 'flow'}
 			/>
 		{/if}
 		<!-- pb-3 on the chat alone, not on the row: the transcript and composer stop short of
@@ -199,6 +206,7 @@
 					{description}
 					{wideLayout}
 					{conversationKind}
+					{subject}
 				/>
 			{/key}
 		</div>

@@ -1,9 +1,11 @@
 <script lang="ts">
-	import { workspaceStore } from '$lib/stores'
 	import { untrack } from 'svelte'
 	import TableCustom from './TableCustom.svelte'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import Label from './Label.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface PermissionChange {
 		id?: number
@@ -31,10 +33,10 @@
 	let perPage = $state(50)
 
 	async function loadHistory() {
-		if (!$workspaceStore) return
+		if (!$operatingWorkspace) return
 		loading = true
 		try {
-			history = await fetchHistory($workspaceStore, name, page, perPage)
+			history = await fetchHistory($operatingWorkspace, name, page, perPage)
 		} catch (e) {
 			console.error('Failed to load permission history:', e)
 			history = []
@@ -56,7 +58,7 @@
 	}
 
 	$effect.pre(() => {
-		if ($workspaceStore && name) {
+		if ($operatingWorkspace && name) {
 			untrack(() => {
 				loadHistory()
 			})
@@ -80,13 +82,13 @@
 	{:else}
 		<TableCustom>
 			{#snippet headerRow()}
-								<tr >
+				<tr>
 					<th>Changed By</th>
 					<th>Change Type</th>
 					<th>Affected</th>
 					<th>Date</th>
 				</tr>
-							{/snippet}
+			{/snippet}
 			{#snippet body()}
 				<tbody>
 					{#each history as change}

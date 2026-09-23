@@ -84,7 +84,10 @@
 		openAgentEditor
 	} from '$lib/components/flows/agentEditorStore.svelte'
 	import { copilotInfo } from '$lib/aiStore'
-	import { setPageDrawerAnchor } from '$lib/components/sessions/pageDrawerSession'
+	import {
+		handOffPageDrawer,
+		setPageDrawerAnchor
+	} from '$lib/components/sessions/pageDrawerSession'
 	import { RESOURCES_PATH } from '$lib/components/sessions/previewPaths'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
 	import ExploreAssetButton, {
@@ -141,6 +144,7 @@
 	 *  render its configuration as raw JSON. Both write the same resource draft, so the choice is
 	 *  presentational and either can open a path the other left a draft at. */
 	function openResourceEditor(path: string, resourceType: string | undefined) {
+		if (handOffPageDrawer(RESOURCES_PATH, path)) return
 		if (resourceType === 'ai_agent') {
 			// The generic editor anchors itself from `initEdit`; this one has to, or the URL, a
 			// refresh, and the AI session's idea of where you are all miss the open agent. Claim the

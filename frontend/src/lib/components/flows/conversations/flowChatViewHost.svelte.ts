@@ -408,6 +408,8 @@ export class FlowChatViewHost implements ChatViewHost, DraftSender<ComposerAttac
 	get loading(): boolean {
 		return isBusy(this.#state.status)
 	}
+	// No transcript restore to wait for: a flow chat renders from its rows.
+	sendPending = false
 	runHeldElsewhere = false
 	loadingLabel = undefined
 	compacting = false
@@ -561,6 +563,7 @@ export class FlowChatViewHost implements ChatViewHost, DraftSender<ComposerAttac
 		this.#turns.dequeue()
 	}
 	setComposerStaged = () => {}
+	setComposerHasDraft = () => {}
 	clearComposerStaged = () => {}
 	attachmentBytesExcluding = () => 0
 

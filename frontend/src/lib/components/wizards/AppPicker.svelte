@@ -1,18 +1,25 @@
 <script lang="ts">
 	import { getContext, onMount } from 'svelte'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
 	import { AppService, type ListableApp } from '$lib/gen'
 	import { canWrite } from '$lib/utils'
 	import type { AppViewerContext } from '../apps/types'
 	import Alert from '../common/alert/Alert.svelte'
 	import Select from '../select/Select.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	interface Props {
-		value?: string;
+		value?: string
 	}
 
-	let { value = $bindable('') }: Props = $props();
+	let { value = $bindable('') }: Props = $props()
 	let darkMode = $state(false)
 
 	const { appPath } = getContext<AppViewerContext>('AppViewerContext')
@@ -20,17 +27,17 @@
 	let apps: ListableApp[] = $state([])
 
 	async function loadApps(): Promise<void> {
-		apps = (await AppService.listApps({ workspace: $workspaceStore!, includeDraftOnly: true })).map(
-			(app: ListableApp) => {
-				return {
-					canWrite:
-						canWrite(app.path!, app.extra_perms!, $userStore) &&
-						app.workspace_id == $workspaceStore &&
-						!$userStore?.operator,
-					...app
-				}
+		apps = (
+			await AppService.listApps({ workspace: $operatingWorkspace!, includeDraftOnly: true })
+		).map((app: ListableApp) => {
+			return {
+				canWrite:
+					canWrite(app.path!, app.extra_perms!, actingUser) &&
+					app.workspace_id == $operatingWorkspace &&
+					!actingUser?.operator,
+				...app
 			}
-		)
+		})
 	}
 
 	onMount(() => {

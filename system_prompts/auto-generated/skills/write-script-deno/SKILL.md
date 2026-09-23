@@ -738,6 +738,8 @@ parseS3Object(s3Object: S3Object): S3ObjectRecord
 /**
  * Create a SQL template function for PostgreSQL/datatable queries
  * @param name - Database/datatable name (default: "main")
+ * @param opts.role - Connect as this data table role instead of the data table's default one.
+ *   Only meaningful on a data table under roles, and only for a role you are a tenant of.
  * @returns SQL template function for building parameterized queries
  * @example
  * let sql = wmill.datatable()
@@ -747,8 +749,11 @@ parseS3Object(s3Object: S3Object): S3ObjectRecord
  *   SELECT * FROM friends
  *     WHERE name = ${name} AND age = ${age}::int
  * `.fetch()
+ * @example
+ * // Read through a restricted role
+ * let sql = wmill.datatable("main", { role: "analytics" })
  */
-datatable(name: string = "main"): DatatableSqlTemplateFunction
+datatable(name: string = "main", opts?: DatatableOptions): DatatableSqlTemplateFunction
 
 /**
  * Create a SQL template function for DuckDB/ducklake queries

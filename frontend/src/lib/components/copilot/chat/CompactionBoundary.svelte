@@ -2,6 +2,7 @@
 	import { Button } from '$lib/components/common'
 	import { ChevronDown, ChevronRight, History } from 'lucide-svelte'
 	import type { AttachedTextFile } from './textFileUtils'
+	import LabeledDivider from '$lib/components/LabeledDivider.svelte'
 
 	let { content, files }: { content: string; files?: AttachedTextFile[] } = $props()
 
@@ -9,8 +10,7 @@
 </script>
 
 <div class="my-4 px-2">
-	<div class="flex items-center gap-2">
-		<div class="h-px flex-1 bg-surface-selected"></div>
+	<LabeledDivider>
 		<Button
 			variant="subtle"
 			size="xs2"
@@ -22,8 +22,7 @@
 				Summarized earlier conversation
 			</span>
 		</Button>
-		<div class="h-px flex-1 bg-surface-selected"></div>
-	</div>
+	</LabeledDivider>
 	{#if expanded}
 		<div
 			class="mt-2 max-h-80 overflow-y-auto whitespace-pre-wrap rounded-md bg-surface-secondary p-3 text-xs text-secondary"

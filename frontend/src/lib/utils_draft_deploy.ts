@@ -262,7 +262,7 @@ export async function getDraftDiffValues(
 	// draft-table row (e.g. a flow created via createFlow(draft_only: true), like
 	// `u/admin/new`). There `draft` is null, so the draft side must fall back to
 	// the row's own value — otherwise the diff "after" is empty and nothing shows.
-	// Strip overlay metadata (is_draft / draft_saved_at / no_deployed /
+	// Strip overlay metadata (is_draft / draft_saved_at / draft_base / no_deployed /
 	// other_drafts_users) from the deployed side so the diff doesn't show the
 	// per-user markers as noise.
 	if (kind === 'script') {
@@ -271,6 +271,7 @@ export async function getDraftDiffValues(
 			draft,
 			is_draft: _i,
 			draft_saved_at: _c,
+			draft_base: _b,
 			no_deployed,
 			other_drafts_users: _o,
 			hash: _h,
@@ -289,6 +290,7 @@ export async function getDraftDiffValues(
 			draft,
 			is_draft: _i,
 			draft_saved_at: _c,
+			draft_base: _b,
 			no_deployed,
 			other_drafts_users: _o,
 			version_id: _v,
@@ -369,24 +371,24 @@ export async function getDraftDiffValues(
 
 /**
  * Whether a draft's base is stale: the deployed version the draft forked from
- * no longer matches the current deployed head — a newer version was deployed
- * after the draft began, so deploying the draft would silently revert it.
- * Scripts compare the draft's `parent_hash` vs the deployed `hash`; flows the
- * pinned `version_id` vs the deployed head `version_id`; apps (incl. raw) the
- * pinned `parent_version` vs the head of `versions`. `r` is the item fetched
- * with `get_draft=true`; only script/flow/app kinds carry a base pointer.
+ * (`draft_base`, text whatever the kind) no longer matches the current deployed
+ * head — a newer version was deployed after the draft began, so deploying the
+ * draft would silently revert it. The head is the deployed `hash` for scripts,
+ * `version_id` for flows, the last of `versions` for apps (incl. raw). `r` is
+ * the item fetched with `get_draft=true`.
  */
 export function draftBaseIsStale(draftKind: UserDraftItemKind, r: any): boolean {
-	const draft = r?.draft
-	if (!draft) return false
-	if (draftKind === 'script') {
-		return !!r.hash && !!draft.parent_hash && draft.parent_hash !== r.hash
-	}
-	if (draftKind === 'flow') {
-		return r.version_id != null && draft.version_id != null && draft.version_id !== r.version_id
-	}
-	const head = Array.isArray(r.versions) ? r.versions[r.versions.length - 1] : undefined
-	return head != null && draft.parent_version != null && draft.parent_version !== head
+	const base = r?.draft_base
+	if (base == null) return false
+	const head =
+		draftKind === 'script'
+			? r.hash
+			: draftKind === 'flow'
+				? r.version_id
+				: Array.isArray(r.versions)
+					? r.versions[r.versions.length - 1]
+					: undefined
+	return head != null && String(head) !== base
 }
 
 /** Fetch-and-test wrapper over `draftBaseIsStale` for one draft item. Returns

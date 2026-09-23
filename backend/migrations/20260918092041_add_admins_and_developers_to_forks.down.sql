@@ -1,0 +1,1 @@
+ALTER TABLE workspace_settings DROP COLUMN add_admins_and_developers_to_forks;

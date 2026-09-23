@@ -730,7 +730,12 @@ pub fn parse_asset_syntax(
     s: &str,
     enable_default_syntax: bool,
 ) -> Option<(AssetKind, Cow<'_, str>)> {
-    if enable_default_syntax && s == "datatable" {
+    // `datatable` and `datatable?role=analyst` both name the default data table: the role picks
+    // which Postgres login the connection is made as, not which data table is read.
+    if enable_default_syntax
+        && s.strip_prefix("datatable")
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with('?'))
+    {
         return Some((AssetKind::DataTable, Cow::Borrowed("main")));
     } else if enable_default_syntax && s == "ducklake" {
         return Some((AssetKind::Ducklake, Cow::Borrowed("main")));
@@ -740,6 +745,14 @@ pub fn parse_asset_syntax(
             let suffix = &s[prefix.len()..];
             if *kind == AssetKind::Dbt {
                 return Some((*kind, Cow::Owned(canonicalize_table_asset_path(suffix))));
+            }
+            // Same reasoning as above, for the explicit form. Specific to data tables: a
+            // `Resource`'s `?table=` is part of what it names, and stripping it would merge two
+            // different assets.
+            if *kind == AssetKind::DataTable {
+                if let Some((path, _role)) = suffix.split_once('?') {
+                    return Some((*kind, Cow::Borrowed(path)));
+                }
             }
             // The suffix is kept verbatim. For S3 the path encodes the storage:
             // `s3://<storage>/<key>`, with an EMPTY storage segment for the
@@ -1691,6 +1704,25 @@ fn parse_trigger_spec(s: &str) -> Option<TriggerSpec> {
 #[cfg(test)]
 mod pipeline_annotation_tests {
     use super::*;
+
+    #[test]
+    fn a_datatable_role_is_not_part_of_the_asset_it_names() {
+        // The role picks which Postgres login the connection is made as, so two references that
+        // differ only by role are the same asset and must land on one graph node.
+        assert_eq!(
+            parse_asset_syntax("datatable://sales?role=analytics", false),
+            Some((AssetKind::DataTable, Cow::Borrowed("sales")))
+        );
+        assert_eq!(
+            parse_asset_syntax("datatable?role=analytics", true),
+            Some((AssetKind::DataTable, Cow::Borrowed("main")))
+        );
+        // A resource's `?table=` is part of what it names, so it is kept.
+        assert_eq!(
+            parse_asset_syntax("$res:f/db/pg?table=users", false),
+            Some((AssetKind::Resource, Cow::Borrowed("f/db/pg?table=users")))
+        );
+    }
 
     #[test]
     fn s3_path_keeps_storage_distinction() {

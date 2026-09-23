@@ -2,6 +2,7 @@
 	import { Button } from '$lib/components/common'
 	import {
 		clearPageDrawerAnchor,
+		handOffPageDrawer,
 		setPageDrawerAnchor
 	} from '$lib/components/sessions/pageDrawerSession'
 	import { TRIGGER_PAGES } from '$lib/components/sessions/previewPaths'
@@ -17,8 +18,7 @@
 		type Retry,
 		type TriggerMode
 	} from '$lib/gen'
-	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
-	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
+	import { usedTriggerKinds } from '$lib/stores'
 	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2 } from 'lucide-svelte'
@@ -38,9 +38,16 @@
 	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace,
+		useOperatingWorkspaceHref
+	} from '$lib/components/operatingWorkspace.svelte'
 
 	let {
 		useDrawer = true,
+		inline = false,
+		onClose = undefined,
 		hideTarget = false,
 		description = undefined,
 		isEditor = false,
@@ -55,8 +62,11 @@
 		trigger = undefined,
 		customSaveBehavior = undefined
 	} = $props()
-	const triggerWs = getTriggerWorkspace()
-	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
+	const operatingHref = useOperatingWorkspaceHref()
+	const wsId = $derived($operatingWorkspace)
 
 	// Form data state
 	let initialPath = $state('')
@@ -75,7 +85,13 @@
 	let workspaced_local_part = $state(false)
 	let drawerLoading = $state(true)
 	let showLoader = $state(false)
-	let can_write = $state(true)
+	let permsPath = $state<string | undefined>(undefined)
+	let permsForWrite = $state<Record<string, boolean> | undefined>(undefined)
+	// The acting user in the operating workspace arrives asynchronously, and an unknown user
+	// refuses — so the editor stays read-only until the lookup lands, which is the safe answer.
+	const can_write = $derived(
+		permsPath === undefined ? true : canWrite(permsPath, permsForWrite ?? {}, actingUser)
+	)
 	let extraPerms = $state<Record<string, boolean> | undefined>(undefined)
 	let error_handler_path: string | undefined = $state()
 	let error_handler_args: Record<string, any> = $state({})
@@ -95,7 +111,7 @@
 	let originalConfig = $state<NewEmailTrigger | undefined>(undefined)
 
 	let hasChanged = $derived(!deepEqual(getEmailTriggerConfig(), originalConfig ?? {}))
-	const isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
+	const isAdmin = $derived(actingUser?.is_admin || actingUser?.is_super_admin)
 	const emailConfig = $derived.by(getEmailTriggerConfig)
 
 	const draftSync = useTriggerDraftSync({
@@ -127,6 +143,9 @@
 		defaultConfig?: Partial<NewEmailTrigger>,
 		fixedScriptPath_?: string
 	) {
+		if (handOffPageDrawer(TRIGGER_PAGES.email.path, ePath)) return
+		// A `whoami` that failed earlier would otherwise pin this workspace to "unknown user".
+		operatingUser.forgetFailures()
 		drawerLoading = true
 		let loader = setTimeout(() => {
 			showLoader = true
@@ -206,6 +225,8 @@
 	}
 
 	function loadTriggerConfig(cfg?: Partial<EmailTrigger>): void {
+		// The loaded trigger says what it runs; an opener's `isFlow` is only its guess.
+		if (cfg?.is_flow !== undefined) itemKind = cfg.is_flow ? 'flow' : 'script'
 		script_path = cfg?.script_path ?? ''
 		initialScriptPath = cfg?.script_path ?? ''
 		is_flow = cfg?.is_flow ?? false
@@ -213,7 +234,8 @@
 		local_part = cfg?.local_part ?? ''
 		workspaced_local_part = cfg?.workspaced_local_part ?? false
 		extraPerms = cfg?.extra_perms ?? undefined
-		can_write = canWrite(path, cfg?.extra_perms ?? {}, $userStore)
+		permsPath = path
+		permsForWrite = cfg?.extra_perms ?? {}
 		error_handler_path = cfg?.error_handler_path
 		error_handler_args = cfg?.error_handler_args ?? {}
 		retry = cfg?.retry
@@ -265,7 +287,7 @@
 				saveCfg,
 				edit,
 				wsId!,
-				!!$userStore?.is_admin || !!$userStore?.is_super_admin,
+				!!actingUser?.is_admin || !!actingUser?.is_super_admin,
 				usedTriggerKinds
 			)
 			if (isSaved) {
@@ -405,7 +427,7 @@
 						bind:scriptPath={script_path}
 						{initialScriptPath}
 						canWrite={can_write}
-						isOperator={!!$userStore?.operator}
+						isOperator={!!actingUser?.operator}
 						promptClass="text-xs mt-3 mb-1 text-primary"
 					>
 						{#snippet createButton()}
@@ -414,7 +436,9 @@
 									btnClasses="ml-4"
 									variant="accent"
 									size="xs"
-									href={itemKind === 'flow' ? '/flows/add?hub=72' : '/scripts/add?hub=hub%2F19813'}
+									href={operatingHref(
+										itemKind === 'flow' ? '/flows/add?hub=72' : '/scripts/add?hub=hub%2F19813'
+									)}
 									target="_blank">Create from template</Button
 								>
 							{/if}
@@ -486,36 +510,44 @@
 	{/if}
 {/snippet}
 
-{#if useDrawer}
+{#snippet drawerBody()}
+	<DrawerContent
+		hideClose={inline && !onClose}
+		fullScreen={!inline}
+		bannerReserved={draftSync.hasBaseline}
+		title={edit
+			? can_write
+				? `Edit email trigger ${initialPath}`
+				: `Email trigger ${initialPath}`
+			: 'New email trigger'}
+		on:close={() => (inline ? onClose?.() : drawer?.closeDrawer())}
+	>
+		{#snippet actions()}
+			{@render saveButton()}
+		{/snippet}
+		{#snippet banner()}
+			<LocalDraftBanner
+				show={draftSync.hasDraft}
+				getDeployed={() => draftSync.deployed}
+				reserveSpace={draftSync.hasBaseline}
+				getCurrent={() => draftSync.current}
+				onDiscard={() => draftSync.resetToDeployed(initialPath)}
+				disabled={!can_write}
+			/>
+		{/snippet}
+		{@render config()}
+	</DrawerContent>
+{/snippet}
+
+{#if useDrawer && inline}
+	{@render drawerBody()}
+{:else if useDrawer}
 	<Drawer
 		size="700px"
 		bind:this={drawer}
 		on:close={() => clearPageDrawerAnchor(TRIGGER_PAGES.email.path)}
 	>
-		<DrawerContent
-			bannerReserved={draftSync.hasBaseline}
-			title={edit
-				? can_write
-					? `Edit email trigger ${initialPath}`
-					: `Email trigger ${initialPath}`
-				: 'New email trigger'}
-			on:close={() => drawer?.closeDrawer()}
-		>
-			{#snippet actions()}
-				{@render saveButton()}
-			{/snippet}
-			{#snippet banner()}
-				<LocalDraftBanner
-					show={draftSync.hasDraft}
-					getDeployed={() => draftSync.deployed}
-					reserveSpace={draftSync.hasBaseline}
-					getCurrent={() => draftSync.current}
-					onDiscard={() => draftSync.resetToDeployed(initialPath)}
-					disabled={!can_write}
-				/>
-			{/snippet}
-			{@render config()}
-		</DrawerContent>
+		{@render drawerBody()}
 	</Drawer>
 {:else}
 	<Section label={!customLabel ? 'Email trigger' : ''} headerClass="grow min-w-0 h-[30px]">

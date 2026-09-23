@@ -2,10 +2,7 @@
 	import { Loader2 } from 'lucide-svelte'
 	import DisplayResult from './DisplayResult.svelte'
 	import LogViewer from './LogViewer.svelte'
-	import type { CompletedJob, Job } from '$lib/gen'
-	import AiAgentLogViewer from './AIAgentLogViewer.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import type { AgentTool } from './flows/agentToolUtils'
 
 	interface Props {
 		waitingForExecutor?: boolean
@@ -16,17 +13,13 @@
 		loading: boolean
 		filename?: string | undefined
 		jobId?: string | undefined
+		/** Identifies the run, which `jobId` cannot on the replay page. */
+		runKey?: string | undefined
 		tag?: string | undefined
 		workspaceId?: string | undefined
 		refreshLog?: boolean
 		downloadLogs?: boolean
 		tagLabel?: string | undefined
-		aiAgentStatus?: {
-			tools: AgentTool[]
-			agentJob: Partial<CompletedJob> & Pick<CompletedJob, 'id'> & { type: 'CompletedJob' }
-			storedToolCallJobs?: Record<number, Job>
-			onToolJobLoaded?: (job: Job, idx: number) => void
-		}
 	}
 
 	let {
@@ -38,11 +31,11 @@
 		loading,
 		filename = undefined,
 		jobId = undefined,
+		runKey = undefined,
 		tag = undefined,
 		workspaceId = undefined,
 		downloadLogs = true,
-		tagLabel = undefined,
-		aiAgentStatus = undefined
+		tagLabel = undefined
 	}: Props = $props()
 </script>
 
@@ -60,7 +53,15 @@
 				: 'max-h-80'} overflow-auto rounded-md grow min-h-0 border bg-surface-tertiary p-2"
 		>
 			{#if result !== undefined || result_stream !== undefined}
-				<DisplayResult {workspaceId} {jobId} {filename} {result} {result_stream} growVertical />
+				<DisplayResult
+					{workspaceId}
+					{jobId}
+					{runKey}
+					{filename}
+					{result}
+					{result_stream}
+					growVertical
+				/>
 			{:else if loading}
 				<Loader2 class="animate-spin" />
 			{:else}
@@ -70,19 +71,15 @@
 	</div>
 	<div class="relative flex flex-col gap-1">
 		<span class="text-emphasis text-xs font-semibold">Logs</span>
-		{#if aiAgentStatus}
-			<AiAgentLogViewer {...aiAgentStatus} {workspaceId} noPadding />
-		{:else}
-			<div class="rounded-md grow min-h-0 border bg-surface-tertiary overflow-hidden">
-				<LogViewer
-					{tagLabel}
-					download={downloadLogs}
-					content={logs ?? ''}
-					{jobId}
-					isLoading={waitingForExecutor}
-					{tag}
-				/>
-			</div>
-		{/if}
+		<div class="rounded-md grow min-h-0 border bg-surface-tertiary overflow-hidden">
+			<LogViewer
+				{tagLabel}
+				download={downloadLogs}
+				content={logs ?? ''}
+				{jobId}
+				isLoading={waitingForExecutor}
+				{tag}
+			/>
+		</div>
 	</div>
 </div>

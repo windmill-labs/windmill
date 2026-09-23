@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { FolderService, UserService, type User } from '$lib/gen'
 	import { workspaceStore, userStore } from '$lib/stores'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import { isDemoWorkspaceRestricted } from '$lib/cloud'
 	import { ChevronDown, Pen, PlusIcon } from 'lucide-svelte'
 	import { Button } from './common'
@@ -39,14 +40,15 @@
 		workspace
 	}: Props = $props()
 
-	const targetWorkspace = $derived(workspace ?? $workspaceStore ?? '')
+	const operatingWorkspace = useOperatingWorkspace()
+	const targetWorkspace = $derived(workspace ?? $operatingWorkspace ?? '')
 
 	// `$userStore` describes the workspace the app is *in*. When this picker is aimed
 	// somewhere else, those memberships answer the wrong question — and since a folder
 	// without write access renders disabled, a stale answer makes the real folders
 	// unpickable. Resolve the membership for the workspace actually being listed.
 	let targetUser: User | undefined = $state(undefined)
-	const aimedElsewhere = $derived(!!workspace && workspace !== $workspaceStore)
+	const aimedElsewhere = $derived(!!targetWorkspace && targetWorkspace !== $workspaceStore)
 	const membership = $derived(aimedElsewhere ? targetUser : ($userStore ?? undefined))
 
 	const restricted = $derived(
@@ -129,9 +131,9 @@
 	}
 
 	async function loadTargetUser(): Promise<void> {
-		if (!workspace || workspace === $workspaceStore) return
+		if (!aimedElsewhere) return
 		try {
-			targetUser = await UserService.whoami({ workspace })
+			targetUser = await UserService.whoami({ workspace: targetWorkspace })
 		} catch {
 			// Not a member, or the call failed: every folder stays read-only, which is
 			// the safe reading — the import would be refused anyway.

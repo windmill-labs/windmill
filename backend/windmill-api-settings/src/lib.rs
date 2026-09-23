@@ -17,6 +17,9 @@ mod audit_logs_s3;
 mod audit_logs_s3_backfill;
 #[cfg(feature = "parquet")]
 mod background_task;
+#[cfg(all(feature = "private", feature = "enterprise"))]
+mod datatable_roles_ee;
+mod datatable_roles_oss;
 #[cfg(feature = "private")]
 mod ee;
 pub mod ee_oss;
@@ -61,6 +64,7 @@ use windmill_common::{
         GITHUB_APP_WEBHOOK_BASE_URL_SETTING, HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING,
         HTTP_ROUTE_WORKSPACED_ROUTE_SETTING, HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING,
         INSTANCE_BANNER_SETTING, MAX_RETENTION_OVERRIDE_WORKSPACES,
+        MAX_TOKEN_EXPIRATION_DAYS_SETTING, MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING,
         RETENTION_PERIOD_SECS_OVERRIDES_SETTING, RUFF_CONFIG_SETTING, UNIQUE_ID_SETTING,
         WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
         WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
@@ -150,6 +154,16 @@ pub fn global_service() -> Router {
         .route(
             "/list_custom_instance_pg_databases",
             post(list_custom_instance_pg_databases),
+        )
+        .route(
+            "/datatable_roles",
+            get(datatable_roles_oss::list_datatable_roles)
+                .post(datatable_roles_oss::create_datatable_role),
+        )
+        .route(
+            "/datatable_roles/{id}",
+            post(datatable_roles_oss::update_datatable_role)
+                .delete(datatable_roles_oss::delete_datatable_role),
         )
         .route(
             "/refresh_custom_instance_user_pwd",
@@ -931,6 +945,8 @@ async fn run_setting_pre_write_hook(
         AI_CONFIG_SETTING => {
             windmill_ai::ai_types::validate_model_pricing_json(value)
                 .map_err(error::Error::BadRequest)?;
+            windmill_ai::ai_types::validate_token_maps_json(value)
+                .map_err(error::Error::BadRequest)?;
         }
         AUTOMATE_USERNAME_CREATION_SETTING => {
             if value.as_bool().unwrap_or(false) {
@@ -1182,6 +1198,12 @@ async fn run_setting_pre_write_hook(
                 }
             }
         }
+        MAX_TOKEN_EXPIRATION_DAYS_SETTING => {
+            windmill_common::global_settings::parse_max_token_expiration_days(Some(value))
+                .map_err(|e| {
+                    error::Error::BadRequest(format!("{MAX_TOKEN_EXPIRATION_DAYS_SETTING}: {e}"))
+                })?;
+        }
         INSTANCE_BANNER_SETTING => {
             match value {
                 // Clearing (delete row) is handled by the caller; allow it through.
@@ -1343,6 +1365,12 @@ pub async fn get_global_setting(
         && key != HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING
         && key != WS_BASE_URL_SETTING
         && key != INSTANCE_BANNER_SETTING
+        // The token form reads it to stop offering expirations the server would shorten.
+        && key != MAX_TOKEN_EXPIRATION_DAYS_SETTING
+        // Whoever is wiring up an MCP client reads it to know whether a URL-borne token
+        // would be refused, and they are usually not a superadmin. Not a secret: pointing
+        // any MCP client at the instance discovers the same answer.
+        && key != MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING
     {
         require_super_admin(&db, &authed).await?;
     }
@@ -1654,6 +1682,8 @@ struct CustomInstanceDbLogs {
     replication_user: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     replication_user_error: Option<String>,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    user_connect: String,
 }
 
 async fn list_custom_instance_pg_databases(
@@ -1871,7 +1901,55 @@ async fn setup_custom_instance_pg_database_inner(
         }
     }
 
+    // Everything above logged in as the DATABASE_URL user, but whatever uses the database logs
+    // in as custom_instance_user. A proxy that routes on the login name can accept one and
+    // refuse the other, which would otherwise surface only once a data table first connects.
+    let user_creds = PgDatabase {
+        user: Some(windmill_common::datatable_roles::CUSTOM_INSTANCE_USER.to_string()),
+        password: Some(windmill_common::utils::get_custom_pg_instance_password(db).await?),
+        ..pg_creds
+    };
+    let (client, connection) = user_creds
+        .connect(Some(db))
+        .await
+        .map_err(|e| custom_instance_user_connect_error(&user_creds.host, dbname, e))?;
+    let join_handle = tokio::spawn(async move { connection.await });
+    logs.user_connect = "OK".to_string();
+    drop(client); // /!\ Drop before joining to avoid deadlock
+    windmill_common::shutdown_pg_connection(join_handle).await?;
+
     Ok(())
+}
+
+fn custom_instance_user_connect_error(host: &str, dbname: &str, e: error::Error) -> error::Error {
+    let cause = match &e {
+        error::Error::Anyhow { error, .. } => format!("{error:#}"),
+        e => e.to_string(),
+    };
+    // Supavisor, Supabase's pooler, reads the tenant to route to from the login
+    // (`<user>.<project_ref>`), and only knows the logins configured for that tenant.
+    let lower = cause.to_lowercase();
+    let routing_refused = [
+        "enoidentifier",
+        "tenant identifier",
+        "tenant or user",
+        "tenant/user",
+    ]
+    .iter()
+    .any(|signature| lower.contains(signature));
+    if routing_refused {
+        error::Error::BadConfig(format!(
+            "DATABASE_URL reaches Postgres through a connection pooler ({host}) that picks the \
+             server to route to from the login name, and it refused custom_instance_user, the \
+             role Windmill uses for instance databases ({cause}). Instance databases cannot be \
+             used through this pooler: use your own Postgres database instead, or point \
+             DATABASE_URL at the Postgres server directly rather than at the pooler."
+        ))
+    } else {
+        error::Error::ExecutionErr(format!(
+            "Could not connect to {dbname} as custom_instance_user: {cause}"
+        ))
+    }
 }
 
 async fn drop_custom_instance_pg_database(
@@ -2275,6 +2353,34 @@ async fn sync_cached_resource_types(
 mod tests {
     use std::collections::BTreeMap;
     use windmill_common::instance_config::{GlobalSettings, InstanceConfig, WorkerGroupConfig};
+
+    #[test]
+    fn supavisor_refusing_custom_instance_user_is_named() {
+        use windmill_common::error::{to_anyhow, Error};
+        let connect_error = |message: &str| {
+            let e = Error::from(to_anyhow(std::io::Error::other(message.to_string())));
+            super::custom_instance_user_connect_error(
+                "aws-0-eu-west-1.pooler.supabase.com",
+                "dt",
+                e,
+            )
+        };
+        for supavisor in [
+            "db error: FATAL: (ENOIDENTIFIER) no tenant identifier provided",
+            "db error: FATAL: Tenant or user not found",
+        ] {
+            assert!(
+                matches!(connect_error(supavisor), Error::BadConfig(m) if m.contains("connection pooler")),
+                "{supavisor}"
+            );
+        }
+        assert!(matches!(
+            connect_error(
+                "db error: FATAL: password authentication failed for user \"custom_instance_user\""
+            ),
+            Error::ExecutionErr(_)
+        ));
+    }
 
     #[test]
     fn instance_config_yaml_round_trip() {

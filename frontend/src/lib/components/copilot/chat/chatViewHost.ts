@@ -52,6 +52,8 @@ export interface ChatViewHost {
 	 * pins away from the navigated one. */
 	readonly operatingWorkspace: string | undefined
 	loading: boolean
+	/** A send waiting for the chat's transcript to be restored; queue behind it. */
+	sendPending: boolean
 	/** A turn this tab can neither follow nor stop, held by another tab on the same chat. */
 	readonly runHeldElsewhere: boolean
 	loadingLabel: string | undefined
@@ -85,6 +87,8 @@ export interface ChatViewHost {
 	) => void
 	dequeueMessage: () => void
 	setComposerStaged: (key: string, editingIndex: number | null, bytes: number) => void
+	/** Whether this composer holds anything unsent (text, pastes, attachments, reads in flight). */
+	setComposerHasDraft: (key: string, hasDraft: boolean) => void
 	clearComposerStaged: (key: string) => void
 	attachmentBytesExcluding: (selfKey: string) => number
 
@@ -143,7 +147,10 @@ export interface ChatViewHost {
 	 * True where the bytes are forwarded somewhere — object storage — rather than read
 	 * in the browser. */
 	attachmentsAsBlobs: boolean
-	tools: Tool<any>[]
+	/** What this chat's next request carries, the current posture's plan-mode transition
+	 * included. A consumer narrows it by tool metadata; assembling its own list from the
+	 * sources behind it is how the advertised set and the sent set drift apart. */
+	readonly tools: readonly Tool<any>[]
 	autonomyMode: AIAutonomyMode
 	setAutonomyMode: (mode: AIAutonomyMode) => void
 	readonly autoAcceptEditsActive: boolean

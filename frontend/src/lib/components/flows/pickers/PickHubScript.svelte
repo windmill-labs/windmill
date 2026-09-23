@@ -9,13 +9,16 @@
 	import { ScriptService, type HubScriptKind } from '$lib/gen'
 	import { Loader2 } from 'lucide-svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import { disableHubStore, workspaceStore } from '$lib/stores'
+	import { disableHubStore } from '$lib/stores'
 	import { logHubScriptPick } from '$lib/utils/featureUsage'
 	import {
 		alphabetical,
 		byPopularity,
 		localCountsByIntegration
 	} from '$lib/components/pickerPopularity'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		kind?: HubScriptKind & string
@@ -66,7 +69,7 @@
 			// Independent reads, so they share one round trip before first paint.
 			const [integrations, local] = await Promise.all([
 				listHubIntegrationsShared(filterKind),
-				$workspaceStore ? localCountsByIntegration($workspaceStore) : {}
+				$operatingWorkspace ? localCountsByIntegration($operatingWorkspace) : {}
 			])
 			const hubPicks = Object.fromEntries(integrations.map((x) => [x.name, x.picks ?? 0]))
 			popularity = byPopularity(hubPicks, local)

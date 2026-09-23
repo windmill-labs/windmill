@@ -24,6 +24,10 @@ writes whichever of the two changed, including the tab that is not on screen.
 	import { Building2, ExternalLink, User } from 'lucide-svelte'
 	import { untrack } from 'svelte'
 	import { getAiChatManager } from './aiChatManagerContext'
+	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	let {
 		ws,
@@ -55,7 +59,7 @@ writes whichever of the two changed, including the tab that is not on screen.
 			? `Applies to everyone in ${ws}.`
 			: 'Stored in this browser and sent in every workspace, so they follow you rather than the workspace.'
 	)
-	// `$userStore.is_admin` is the role in the nav workspace, not necessarily in `ws`, so
+	// `actingUser?.is_admin` is the role in the nav workspace, not necessarily in `ws`, so
 	// the resolved role is keyed to the workspace it was read for, and an unresolved one
 	// reads as no admin: offering the field and taking it away on resolve would discard
 	// whatever was typed in between. Superadmin holds everywhere.
@@ -69,8 +73,8 @@ writes whichever of the two changed, including the tab that is not on screen.
 	let roleUnknown = $derived(roleRead !== undefined && !roleRead.user && !navIsTarget)
 	let isAdmin = $derived(
 		Boolean(
-			$userStore?.is_super_admin ||
-				(roleForTarget ? roleForTarget.is_admin : navIsTarget && $userStore?.is_admin)
+			actingUser?.is_super_admin ||
+				(roleForTarget ? roleForTarget.is_admin : navIsTarget && actingUser?.is_admin)
 		)
 	)
 

@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE draft AS d\n           SET path = $3::text,\n               value = (\n                   SELECT CASE\n                       WHEN s.clean -> 'path' = to_jsonb($2::text)\n                         OR s.clean -> 'draft_path' = to_jsonb($2::text)\n                           THEN to_json(\n                               s.clean\n                               || CASE WHEN s.clean -> 'path' = to_jsonb($2::text)\n                                       THEN jsonb_build_object('path', $3::text)\n                                       ELSE '{}'::jsonb END\n                               || CASE WHEN s.clean -> 'draft_path' = to_jsonb($2::text)\n                                       THEN jsonb_build_object('draft_path', $3::text)\n                                       ELSE '{}'::jsonb END\n                           )\n                       ELSE d.value\n                   END\n                   FROM (SELECT replace(replace(replace(d.value::text, chr(92) || chr(92), chr(1)),\n                                                chr(92) || 'u0000', ''), chr(1), chr(92) || chr(92))::jsonb AS clean) s\n               )\n           WHERE d.workspace_id = $1\n             AND d.path = $2::text\n             AND d.typ::text = ANY($4::text[])",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "09e3f8fa8a9e64048971983584bfa00ab137c70b73f381452cadfae6e1cda934"
+}

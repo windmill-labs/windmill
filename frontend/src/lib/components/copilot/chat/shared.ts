@@ -640,6 +640,13 @@ export type ToolDisplayMessage = {
 	actions?: ToolDisplayAction[]
 	userQuestion?: UserQuestionDisplay
 	runForm?: RunFormDisplay
+	/** A run this call inspected rather than started, rendered by the same card. The card
+	 * reads its panes from this job, so the user sees its own args and result in full, and its
+	 * logs as a 4000-char tail, while the model keeps the capped envelope the tool returned.
+	 * `runId` and `step` are the address the call was made with, kept so the card can name what
+	 * was inspected the way the tool's own row did: a step job names neither the step nor the
+	 * run it belongs to. */
+	inspectedRun?: { jobId: string; workspace: string; runId: string; step?: string }
 	webSearchSources?: WebSearchSource[]
 	/** Data URL of an image the tool produced (e.g. take_screenshot), shown on the card. */
 	imageUrl?: string
@@ -777,11 +784,11 @@ export function pendingUserActionDetail(
 // the sessions page) react to mutating tools — refreshing previews — without
 // the tool layer knowing about the UI. Single slot; the consumer filters by name
 // and reads the tool args (e.g. the mutated item's `path`) to scope its refresh.
-let toolCompletionListener: ((toolName: string, args: any) => void) | undefined
+// `workspace` is the one the tool acted on: a path names an item only within it.
+export type ToolCompletionListener = (toolName: string, args: any, workspace: string) => void
+let toolCompletionListener: ToolCompletionListener | undefined
 
-export function setToolCompletionListener(
-	fn: ((toolName: string, args: any) => void) | undefined
-): void {
+export function setToolCompletionListener(fn: ToolCompletionListener | undefined): void {
 	toolCompletionListener = fn
 }
 
@@ -809,7 +816,7 @@ async function callTool<T>({
 		)
 	}
 	const result = await tool.fn({ args, workspace, helpers, toolCallbacks, toolId })
-	toolCompletionListener?.(functionName, args)
+	toolCompletionListener?.(functionName, args, workspace)
 	return result
 }
 
@@ -1864,6 +1871,15 @@ export async function buildTestRunArgs(
 	return parsedArgs
 }
 
+// Said with the result rather than in the system prompt: there, models still copied a
+// result's table or JSON into the reply, under a card that already renders it. Only for
+// a successful run in the generic card completedJobToolStatus fills: a failed run's card
+// lands on the error with the logs a tab away, and a formatCompletion card shows its own.
+// Never on a background completion: its card can be far up the chat by then, so the
+// reply may be the only place the user reads the result.
+const RESULT_SHOWN_NOTE =
+	"The user already sees this run's result in its card. Do not repeat the result or logs in your reply: say what it shows, quoting only the values your conclusion rests on."
+
 // The string handed back to the model when a job is backgrounded. It carries the
 // job id so the model can pull status/args/result/logs on demand (get_run / list_runs),
 // and tells it the completion will be reported later (notify-only wake).
@@ -2008,7 +2024,12 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 			...(job.success ? {} : { error: getErrorMessage(job.result) })
 		})
 
-		const summary = formatResultSummary(job.result, job.logs, job.success)
+		// detachEnabled marks the global/sessions chat; the in-editor chats read the summary
+		// alone. The card opening on the result is up to each tool: a run card does, a
+		// generic one only with `autoCollapseDetails: false` at its registration.
+		const summary =
+			(detachEnabled && job.success ? `${RESULT_SHOWN_NOTE}\n` : '') +
+			formatResultSummary(job.result, job.logs, job.success)
 		// get_run only exists in the global/sessions chat (the same hosts that wire
 		// the job hooks) — don't advertise it to in-editor chats.
 		if (detachEnabled && config.contextName === 'flow' && !job.success) {
