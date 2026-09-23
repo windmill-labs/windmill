@@ -8310,19 +8310,21 @@ async function deployDraft(
 		deployedInSessionHandler?.({ sessionId, kind, path: draftStoragePath, deployedPath })
 	}
 
+	// Named by where the item landed, not by the path the call addressed it at: a draft is
+	// often addressed by its storage key, which nothing resolves to once the draft is gone.
 	toolCallbacks.setToolStatus(toolId, {
-		content: `Deployed ${type} "${path}"`,
+		content: `Deployed ${type} "${deployedPath}"`,
 		result: 'Deployed',
 		actions
 	})
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Deployed draft ${type} "${path}" to the workspace. Draft removed.${
+			message: `Deployed draft ${type} "${deployedPath}" to the workspace. Draft removed.${
 				deployNote ? ` ${deployNote}` : ''
 			}`,
 			type,
-			path,
+			path: deployedPath,
 			triggerKind
 		},
 		null,

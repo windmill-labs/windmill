@@ -401,6 +401,7 @@ import {
 import { bundleRawAppDraft } from './rawAppBundlerBridge'
 import {
 	AppService,
+	DraftService,
 	EmailTriggerService,
 	FlowService,
 	FolderService,
@@ -2491,6 +2492,30 @@ describe('global AI tools', () => {
 		} finally {
 			setOpenPreviewHandler(undefined)
 		}
+	})
+
+	// Without names a chosen name reads as a path of its own, and a write under it would
+	// create a second draft beside the one it meant to edit.
+	it('refuses to write by a chosen name it could not load the drafts for', async () => {
+		const workspace = 'ws-no-draft-names'
+		seedBackendDraft(
+			'raw_app',
+			'u/admin/draft_unloadable',
+			{ summary: 'Unloadable', draft_path: 'f/sales/unloadable', files: {}, runnables: {} },
+			{ workspace }
+		)
+		vi.mocked(DraftService.listDrafts).mockRejectedValueOnce(new Error('server error'))
+
+		await expect(
+			getGlobalTool('write_app_file').fn({
+				args: { path: 'f/sales/unloadable', file_path: '/index.tsx', content: 'x' },
+				workspace,
+				helpers: {},
+				toolCallbacks,
+				toolId: 'no-names'
+			})
+		).rejects.toThrow(/Could not load this workspace's drafts/)
+		expect(getBackendDraft('raw_app', 'f/sales/unloadable', { workspace })).toBeUndefined()
 	})
 
 	it('refuses a draft_path that two drafts are staged under', async () => {

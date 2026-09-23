@@ -372,9 +372,16 @@ async function readDraftNames(workspace: string, path?: string): Promise<void> {
 	try {
 		rows = await DraftService.listDrafts({ workspace })
 	} catch (e) {
-		// The names loaded earlier are kept: stale routing still sends a name to the draft
-		// it named a moment ago, while no table at all sends a write to the name itself,
-		// forking the draft in two.
+		// Without names, a chosen name reads as a path of its own: a write under it creates
+		// a second draft beside the one it meant to edit. Names loaded earlier are good
+		// enough — a draft does not leave the name it had a moment ago — but with none at
+		// all the caller is stopped instead.
+		if (!draftNamesByWorkspace.has(workspace)) {
+			throw new Error(
+				`Could not load this workspace's drafts, so "${path}" cannot be matched to the draft ` +
+					`it may name. Try again.`
+			)
+		}
 		console.warn('Could not refresh draft names', e)
 		return
 	}
