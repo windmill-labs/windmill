@@ -81,6 +81,9 @@
 	function setForkOpenPrs(v: boolean) {
 		if (repo) repo.fork_open_prs = v
 	}
+	function setPromotionOpenPrs(v: boolean) {
+		if (repo) repo.promotion_open_prs = v
+	}
 
 	function setAutoPull(enabled: boolean) {
 		if (!repo) return
@@ -157,6 +160,23 @@
 							'Instead of creating a branch per item, Windmill creates a branch per folder containing the items being deployed.'
 					}}
 				/>
+				{#if managedCredential}
+					<Toggle
+						checked={repo.promotion_open_prs ?? false}
+						options={{
+							right: 'Open a pull request for each deploy branch',
+							rightTooltip:
+								'After a deploy pushes its wm_deploy/** branch, Windmill opens a pull request to the target branch. Runs from the deploy itself, so it works without inbound webhooks.'
+						}}
+						on:change={(e) => setPromotionOpenPrs(e.detail)}
+					/>
+				{:else}
+					<span class="text-2xs text-secondary">
+						To open a pull request for each deploy branch, connect the repository through the
+						GitHub App or give a GitLab repository a project access token — otherwise set up the
+						<span class="font-mono">open-pr-on-commit</span> workflow in the repository.
+					</span>
+				{/if}
 			{:else if !isFork}
 				<div class="flex flex-col gap-1">
 					<Toggle
