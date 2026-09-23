@@ -226,6 +226,7 @@ import {
 	getGlobalDraft,
 	itemKindFor,
 	chosenDraftName,
+	getGlobalDraftAt,
 	listGlobalDrafts,
 	liveGlobalDraftStoragePath,
 	readGlobalDraftValueAt,
@@ -1728,6 +1729,8 @@ type AppMetadata = {
 
 type LoadedAppDraftValue = {
 	value: AppDraftValue
+	/** The key this value came from, which the write that follows must save back to. */
+	storagePath: string
 }
 
 function summarizeAppValue(value: AppDraftValue): AppMetadata {
@@ -1865,13 +1868,18 @@ async function loadAppValueForRead(path: string, workspace: string): Promise<App
 }
 
 async function loadAppDraftValue(path: string, workspace: string): Promise<LoadedAppDraftValue> {
-	const draft = await getGlobalDraft(workspace, 'app', path)
+	// One resolution for the read and the write that follows it: resolving again at save
+	// time could answer differently and write the app's files onto another draft.
+	const { storagePath } = await resolveGlobalDraft(workspace, 'app', path, undefined, {
+		forWrite: true
+	})
+	const draft = await getGlobalDraftAt(workspace, 'app', storagePath)
 	if (draft && draft.value && typeof draft.value === 'object' && 'files' in draft.value) {
-		return { value: draft.value as AppDraftValue }
+		return { value: draft.value as AppDraftValue, storagePath }
 	}
 
 	const app = await getRawAppByPath(workspace, path)
-	return { value: appSourceToDraftValue(app, app) }
+	return { value: appSourceToDraftValue(app, app), storagePath }
 }
 
 /**
@@ -1890,9 +1898,10 @@ function addressedByStoragePath(workspace: string, item: WorkspaceItem): Workspa
 async function saveAppDraft(
 	workspace: string,
 	path: string,
-	value: AppDraftValue
+	value: AppDraftValue,
+	storagePath?: string
 ): Promise<DraftPersistResult> {
-	return saveGlobalAppDraft(workspace, path, value)
+	return saveGlobalAppDraft(workspace, path, value, { storagePath })
 }
 
 type TriggerLike = { path: string; summary?: string | null }
@@ -6509,9 +6518,9 @@ async function writeAppFile(
 		content: `Writing ${target.filePath} to app "${args.path}"...`
 	})
 
-	const { value } = await loadAppDraftValue(args.path, workspace)
+	const { value, storagePath } = await loadAppDraftValue(args.path, workspace)
 	value.files = { ...value.files, [target.filePath]: args.content }
-	const result = await saveAppDraft(workspace, args.path, value)
+	const result = await saveAppDraft(workspace, args.path, value, storagePath)
 	return finishAppDraftWrite(result, ctx, () => ({
 		content: `Updated ${target.filePath} in app "${args.path}"`,
 		message: `Updated draft app "${args.path}" with frontend file "${target.filePath}".`
@@ -6535,13 +6544,13 @@ async function deleteAppFile(
 		content: `Deleting ${target.filePath} from app "${args.path}"...`
 	})
 
-	const { value } = await loadAppDraftValue(args.path, workspace)
+	const { value, storagePath } = await loadAppDraftValue(args.path, workspace)
 	if (!(target.filePath in value.files)) {
 		throw new Error(`Frontend file "${target.filePath}" not found in app "${args.path}".`)
 	}
 	const { [target.filePath]: _removed, ...remaining } = value.files
 	value.files = remaining
-	const result = await saveAppDraft(workspace, args.path, value)
+	const result = await saveAppDraft(workspace, args.path, value, storagePath)
 	return finishAppDraftWrite(result, ctx, () => ({
 		content: `Removed ${target.filePath} from app "${args.path}"`,
 		message: `Removed "${target.filePath}" from draft app "${args.path}".`
@@ -6575,7 +6584,7 @@ async function patchAppFile(
 		content: `Patching ${target.filePath} in app "${path}"...`
 	})
 
-	const { value } = await loadAppDraftValue(path, workspace)
+	const { value, storagePath } = await loadAppDraftValue(path, workspace)
 	let currentContent: string
 	let runnable: PersistedRunnable | undefined
 
@@ -6615,7 +6624,7 @@ async function patchAppFile(
 		}
 	}
 
-	const result = await saveAppDraft(workspace, path, value)
+	const result = await saveAppDraft(workspace, path, value, storagePath)
 	return finishAppDraftWrite(result, ctx, () => ({
 		content: `Patched ${target.filePath} in app "${path}"`,
 		message: `Patched "${target.filePath}" in draft app "${path}".`
@@ -6643,13 +6652,13 @@ async function writeAppRunnable(
 		content: `Writing runnable "${key}" to app "${path}"...`
 	})
 
-	const { value } = await loadAppDraftValue(path, workspace)
+	const { value, storagePath } = await loadAppDraftValue(path, workspace)
 	const existing = value.runnables[key] as PersistedRunnable | undefined
 	const persisted = buildPersistedRunnable(input, existing)
 	value.runnables = { ...value.runnables, [key]: persisted }
 	await recomputeAppPolicy(value)
 	const undeployed = await undeployedRunnableTargets(workspace, { [key]: persisted })
-	const result = await saveAppDraft(workspace, path, value)
+	const result = await saveAppDraft(workspace, path, value, storagePath)
 	return finishAppDraftWrite(result, ctx, () => ({
 		content: `Updated runnable "${key}" in app "${path}"`,
 		message: `Updated draft app "${path}" with runnable "${key}".`,
@@ -6754,14 +6763,14 @@ async function deleteAppRunnable(
 		content: `Removing runnable "${key}" from app "${path}"...`
 	})
 
-	const { value } = await loadAppDraftValue(path, workspace)
+	const { value, storagePath } = await loadAppDraftValue(path, workspace)
 	if (!(key in value.runnables)) {
 		throw new Error(`Backend runnable "${key}" not found in app "${path}".`)
 	}
 	const { [key]: _removed, ...remaining } = value.runnables
 	value.runnables = remaining
 	await recomputeAppPolicy(value)
-	const result = await saveAppDraft(workspace, path, value)
+	const result = await saveAppDraft(workspace, path, value, storagePath)
 	return finishAppDraftWrite(result, ctx, () => ({
 		content: `Removed runnable "${key}" from app "${path}"`,
 		message: `Removed runnable "${key}" from draft app "${path}".`
@@ -6840,15 +6849,15 @@ async function discardLocalDraft(
 		throw new Error('trigger_kind is required when discarding a trigger draft.')
 	}
 
-	const draft = await getGlobalDraft(workspace, type, path, triggerKind)
+	// Resolved once: the mask records a draft under the path it is stored at, so clearing
+	// it by the name the call used would leave the entry behind.
+	const storagePath = await resolveGlobalDraftStoragePath(workspace, type, path, triggerKind)
+	const draft = await getGlobalDraftAt(workspace, type, storagePath, triggerKind)
 	if (!draft) {
 		throw new Error(`No draft found for ${type} "${path}".`)
 	}
 
-	// Resolved once: the mask records a draft under the path it is stored at, so clearing
-	// it by the name the call used would leave the entry behind.
-	const storagePath = await resolveGlobalDraftStoragePath(workspace, type, path, triggerKind)
-	await deleteGlobalDraft(workspace, type, storagePath, triggerKind)
+	await deleteGlobalDraft(workspace, type, path, triggerKind, { storagePath })
 
 	// The chat's touch on the item is undone — drop it from the mask so a
 	// pre-existing deployed item doesn't keep reading as this chat's edit.
@@ -6918,13 +6927,13 @@ async function rebaseDraft(
 async function rebaseScriptDraft(path: string, ctx: WriteDraftCtx): Promise<string> {
 	const { workspace, toolId, toolCallbacks } = ctx
 
-	const draft = await getGlobalDraft(workspace, 'script', path)
-	if (!draft || typeof draft.value !== 'string' || !draft.language) {
-		throw new Error(`No script draft found for "${path}".`)
-	}
 	// The deployed version a draft is based on sits at the path it is stored at: a rename
 	// is staged over the old path, and nothing is deployed yet at the new name.
 	const basePath = await resolveGlobalDraftStoragePath(workspace, 'script', path)
+	const draft = await getGlobalDraftAt(workspace, 'script', basePath)
+	if (!draft || typeof draft.value !== 'string' || !draft.language) {
+		throw new Error(`No script draft found for "${path}".`)
+	}
 	if (!(await ScriptService.existsScriptByPath({ workspace, path: basePath }))) {
 		throw new Error(`Script "${path}" is not deployed; there is no newer version to rebase onto.`)
 	}
@@ -6986,11 +6995,13 @@ async function rebaseScriptDraft(path: string, ctx: WriteDraftCtx): Promise<stri
 async function rebaseFlowDraft(path: string, ctx: WriteDraftCtx): Promise<string> {
 	const { workspace, toolId, toolCallbacks } = ctx
 
-	const draft = await getGlobalDraft(workspace, 'flow', path)
+	// The deployed version a draft is based on sits at the path it is stored at: a rename
+	// is staged over the old path, and nothing is deployed yet at the new name.
+	const basePath = await resolveGlobalDraftStoragePath(workspace, 'flow', path)
+	const draft = await getGlobalDraftAt(workspace, 'flow', basePath)
 	if (!draft || draft.value === undefined || typeof draft.value === 'string') {
 		throw new Error(`No flow draft found for "${path}".`)
 	}
-	const basePath = await resolveGlobalDraftStoragePath(workspace, 'flow', path)
 	if (!(await FlowService.existsFlowByPath({ workspace, path: basePath }))) {
 		throw new Error(`Flow "${path}" is not deployed; there is no newer version to rebase onto.`)
 	}
@@ -7060,11 +7071,13 @@ async function rebaseFlowDraft(path: string, ctx: WriteDraftCtx): Promise<string
 async function rebaseAppDraft(path: string, ctx: WriteDraftCtx): Promise<string> {
 	const { workspace, toolId, toolCallbacks } = ctx
 
-	const draft = await getGlobalDraft(workspace, 'app', path)
+	// The deployed version a draft is based on sits at the path it is stored at: a rename
+	// is staged over the old path, and nothing is deployed yet at the new name.
+	const basePath = await resolveGlobalDraftStoragePath(workspace, 'app', path)
+	const draft = await getGlobalDraftAt(workspace, 'app', basePath)
 	if (!draft || !draft.value || typeof draft.value === 'string' || !('files' in draft.value)) {
 		throw new Error(`No app draft found for "${path}".`)
 	}
-	const basePath = await resolveGlobalDraftStoragePath(workspace, 'app', path)
 	if (!(await AppService.existsApp({ workspace, path: basePath }))) {
 		throw new Error(`App "${path}" is not deployed; there is no newer version to rebase onto.`)
 	}
@@ -7958,7 +7971,10 @@ async function deployDraft(
 		throw new Error('trigger_kind is required when deploying a trigger.')
 	}
 
-	const draft = await getGlobalDraft(workspace, type, path, triggerKind)
+	// Resolved once for the whole deploy: the read, the flush, the deployed-path lookup and
+	// the cleanup all name the same draft, whatever the listing says in between.
+	const draftStoragePath = await resolveGlobalDraftStoragePath(workspace, type, path, triggerKind)
+	const draft = await getGlobalDraftAt(workspace, type, draftStoragePath, triggerKind)
 	if (!draft) {
 		throw new Error(`No draft found for ${type} "${path}".`)
 	}
@@ -7975,9 +7991,6 @@ async function deployDraft(
 	})
 
 	let actions: ToolDisplayAction[] | undefined
-	// Resolved before the deploy removes the draft, since both callbacks below name the
-	// path the draft was addressable at, not the one it was addressed by.
-	const draftStoragePath = await resolveGlobalDraftStoragePath(workspace, type, path, triggerKind)
 	// Where the deploy actually lands — the app branch can resolve a different
 	// target from the draft's own path fields; the mask rename below must track it.
 	let deployedPath = path

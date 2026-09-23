@@ -623,13 +623,40 @@ export async function getGlobalDraft(
 	const itemKind = itemKindFor(type, triggerKind)
 	if (!itemKind) return undefined
 	const resolved = await resolveDraft(workspace, itemKind, path)
-	const storagePath = resolved.storagePath
+	return draftItemAt(workspace, itemKind, resolved.storagePath, {
+		value: resolved.value,
+		// Resolution already asked for this key and found nothing; asking again returns
+		// the same nothing.
+		fetched: resolved.storagePath === path
+	})
+}
+
+/** The draft at a key the caller already resolved, so one operation reads, writes and
+ * cleans up at the same draft even if the listing changes under it. */
+export async function getGlobalDraftAt(
+	workspace: string,
+	type: WorkspaceItemType,
+	storagePath: string,
+	triggerKind?: TriggerKind
+): Promise<WorkspaceItem | undefined> {
+	const itemKind = itemKindFor(type, triggerKind)
+	if (!itemKind) return undefined
+	return draftItemAt(workspace, itemKind, storagePath, {})
+}
+
+async function draftItemAt(
+	workspace: string,
+	itemKind: UserDraftItemKind,
+	storagePath: string,
+	found: { value?: unknown; fetched?: boolean }
+): Promise<WorkspaceItem | undefined> {
 	// A draft can live only as a local cell — a second session tab, or an editor with
 	// autosave off — with no backend row behind it.
+	const cell = UserDraft.get(itemKind, storagePath, { workspace })
 	const value =
-		UserDraft.get(itemKind, storagePath, { workspace }) ??
-		resolved.value ??
-		(await fetchBackendDraftValue(workspace, itemKind, storagePath))
+		cell ??
+		found.value ??
+		(found.fetched ? undefined : await fetchBackendDraftValue(workspace, itemKind, storagePath))
 	if (value === undefined || value === null) return undefined
 	const { displayPath, isLiveDraft } = liveDisplayPath(workspace, itemKind, storagePath)
 	return userDraftEntryToWorkspaceItem(
@@ -718,11 +745,12 @@ export async function listGlobalDrafts(workspace: string): Promise<WorkspaceItem
 export async function saveGlobalAppDraft(
 	workspace: string,
 	path: string,
-	value: AppDraftValue
+	value: AppDraftValue,
+	opts: { storagePath?: string } = {}
 ): Promise<DraftPersistResult> {
 	// Return the full result (not just the item) so app write tools surface a
 	// conflict / save failure instead of reporting every stale write as saved.
-	return persistGlobalDraft(workspace, 'app', path, normalizeAppDraftValue(value), {})
+	return persistGlobalDraft(workspace, 'app', path, normalizeAppDraftValue(value), opts)
 }
 
 type DeleteGlobalDraftOptions = {
