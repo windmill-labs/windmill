@@ -459,7 +459,7 @@ export async function handleFile(
           Object.keys(out.metafile?.inputs ?? {})
         );
         if (uncovered.length > 0) {
-          log.warn(
+          log.warnAlways(
             `${path} bundles files outside codebase ${codebase.relative_path}; edits to them won't be detected as changes unless listed in extra_digest_paths: ${uncovered.join(", ")}`
           );
         }

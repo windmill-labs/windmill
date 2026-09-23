@@ -4,6 +4,11 @@ import { digestDir, generateHash, generateHashFromBuffer } from "./utils.ts";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 
+// A bare string is accepted, like `includes`/`excludes` in findCodebase.
+function extraDigestPaths(codebase: Codebase): string[] {
+  return ([] as string[]).concat(codebase.extra_digest_paths ?? []);
+}
+
 async function digestPath(p: string): Promise<string> {
   let s;
   try {
@@ -23,7 +28,7 @@ export function uncoveredBundleInputs(
   inputs: string[]
 ): string[] {
   const entryAbs = path.resolve(entry);
-  const roots = [codebase.relative_path, ...(codebase.extra_digest_paths ?? [])]
+  const roots = [codebase.relative_path, ...extraDigestPaths(codebase)]
     .map((r) => path.resolve(r));
   return inputs.filter((i) => {
     // non-file namespaces ("<define:x>", "(disabled):x", "ns:path") and installed packages
@@ -59,7 +64,7 @@ export function listSyncCodebases(options: SyncOptions): SyncCodebase[] {
           codebase.relative_path,
           JSON.stringify(codebase)
         );
-        const extra = codebase.extra_digest_paths ?? [];
+        const extra = extraDigestPaths(codebase);
         if (extra.length > 0) {
           const hashes = await Promise.all(extra.map(digestPath));
           digest = await generateHash(digest + hashes.join(""));
