@@ -110,7 +110,13 @@ describe('FlowChatPool', () => {
 
 	it('watches a turn another page started through the listing, and follows it when selected', async () => {
 		let listed: ListedConversation[] = []
-		const { pool: p, chatOf } = pool({ listRecent: async () => listed })
+		let reads = 0
+		const { pool: p, chatOf } = pool({
+			listRecent: async () => {
+				reads++
+				return listed
+			}
+		})
 		const turn = { jobId: 'job-1', userSeq: 7 }
 		p.setListed(
 			[conversation('a', { runningTurn: turn }), conversation('b', { runningTurn: turn })],
@@ -123,7 +129,7 @@ describe('FlowChatPool', () => {
 
 		// Turn 1 ended and another one started in b: the row keeps running on the newer turn.
 		listed = [conversation('b', { runningTurn: { jobId: 'job-2', userSeq: 9 } })]
-		await new Promise((resolve) => setTimeout(resolve, 30))
+		await vi.waitFor(() => expect(reads).toBeGreaterThan(0))
 		expect(p.getState().activity).toEqual({ b: 'running' })
 
 		listed = [conversation('b')]
@@ -134,13 +140,17 @@ describe('FlowChatPool', () => {
 	it('reads past the first page for a running row that has written nothing for a while', async () => {
 		let running = true
 		const quiet = () => conversation('z', running ? { runningTurn: { jobId: 'job-z', userSeq: 3 } } : {})
+		const pagesRead: number[] = []
 		const { pool: p } = pool({
 			// Others were active since: the running row is on page 2.
-			listRecent: async (page) =>
-				page === 1 ? [conversation('x'), conversation('y')] : page === 2 ? [quiet()] : []
+			listRecent: async (page) => {
+				pagesRead.push(page)
+				return page === 1 ? [conversation('x'), conversation('y')] : page === 2 ? [quiet()] : []
+			}
 		})
 		p.setListed([quiet()], p.listingStarted())
-		await new Promise((resolve) => setTimeout(resolve, 30))
+		// The poll must have read page 2 to still call it running: page 1 does not hold it.
+		await vi.waitFor(() => expect(pagesRead).toContain(2))
 		expect(p.getState().activity).toEqual({ z: 'running' })
 		running = false
 		await vi.waitFor(() => expect(p.getState().activity).toEqual({}))

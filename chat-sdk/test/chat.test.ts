@@ -12,6 +12,15 @@ const run: Route = (c) =>
 
 const streamPath = '/api/w/ws/jobs_u/getupdate_sse/job-1'
 
+/** Waits for a condition the code under test must reach, and fails saying which one. */
+async function until(done: () => boolean, what: string, timeoutMs = 2000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (!done()) {
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  }
+}
+
 function options(extra: Partial<ChatOptions>, fetch: ChatOptions['fetch']): ChatOptions {
   return { flowPath: FLOW, baseUrl: BASE, workspace: 'ws', fetch, storage: memoryStorage(), ...extra }
 }
@@ -1155,9 +1164,7 @@ describe('createChat with server history', () => {
     )
     const chat = createChat(options({}, fetch))
     const sent = chat.sendMessage('first')
-    while (!calls.some((c) => c.url.pathname === '/api/w/ws/flow_conversations/list')) {
-      await new Promise((resolve) => setTimeout(resolve, 0))
-    }
+    await until(() => calls.some((c) => c.url.pathname === '/api/w/ws/flow_conversations/list'), 'the list to be asked for')
     await chat.selectConversation('other')
     releaseList(json([]))
     await sent
@@ -1274,6 +1281,32 @@ describe('createChat with server history', () => {
     expect(chat.getState().messages.map((m) => m.content)).toEqual(['question', 'the answer'])
   })
 
+  test('a re-read that finds the lost turn answered clears the failure it was left with', async () => {
+    let answered = false
+    const { fetch } = fetchMock(
+      (c) =>
+        c.url.pathname === streamPath
+          ? sse([{ type: 'update', error: 'stream broke' }])
+          : undefined,
+      (c) => {
+        if (!c.url.pathname.endsWith('/messages')) return undefined
+        const rows = [messageRow(50, 'user', 'question', { job_id: 'job-1' })]
+        if (answered) rows.push(messageRow(51, 'assistant', 'the answer', { job_id: 'job-1' }))
+        return json(rows)
+      }
+    )
+    const chat = createChat(options({}, fetch))
+    await chat.selectConversation('conv')
+    await chat.resumeTurn({ jobId: 'job-1', userSeq: 50 })
+    expect(chat.getState().status).toBe('error')
+    // Another tab carried the turn to its end and its answer is in the rows now.
+    answered = true
+    await chat.refreshMessages()
+    expect(chat.getState().messages.map((m) => m.content)).toContain('the answer')
+    expect(chat.getState().status).toBe('idle')
+    expect(chat.getState().error).toBeUndefined()
+  })
+
   test('a conversation switch from onFinish does not resume the next turn elsewhere', async () => {
     const { fetch, calls } = fetchMock(
       run,
@@ -1330,9 +1363,7 @@ describe('createChat with server history', () => {
     )
     const chat = createChat(options({}, fetch))
     const sent = chat.sendMessage('first')
-    while (!calls.some((c) => c.url.pathname === '/api/w/ws/flow_conversations/list')) {
-      await new Promise((resolve) => setTimeout(resolve, 0))
-    }
+    await until(() => calls.some((c) => c.url.pathname === '/api/w/ws/flow_conversations/list'), 'the list to be asked for')
     const stopped = chat.stop()
     releaseList(json([]))
     await Promise.all([sent, stopped])

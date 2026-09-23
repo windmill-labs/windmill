@@ -525,6 +525,11 @@ class ChatImpl implements Chat {
       return
     }
     await this.#syncFromServer(conversationId)
+    // The turn this chat lost may have completed elsewhere: its answer is in the rows now,
+    // so the failure it was left with is no longer what the conversation says.
+    if (this.#state.conversationId === conversationId && this.#state.status === 'error') {
+      this.#set({ status: 'idle', error: undefined })
+    }
   }
 
   destroy = (): void => {

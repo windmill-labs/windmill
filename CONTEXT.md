@@ -59,7 +59,8 @@ _Avoid_: busy, active, in flight
 
 **Queued message**:
 A question typed into a conversation while its turn runs, sent when that turn ends answered.
-At most one per conversation; typing another adds to it.
+At most one per conversation; typing another adds to it. A turn that fails, or is stopped,
+hands it back to the composer instead of sending it.
 _Avoid_: pending message (a pending message is one already sent and not yet confirmed)
 
 **Unread**:

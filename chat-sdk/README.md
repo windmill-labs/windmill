@@ -273,8 +273,10 @@ conversation: its answer streams in from the start and the turn finishes as if i
 been sent here, after which the message can be sent again.
 
 ```ts
-await chat.selectConversation(id)
+// `runningTurn` comes from the listing, so read it before selecting.
+await chat.loadConversations()
 const running = chat.getState().conversations.find((c) => c.id === id)?.runningTurn
+await chat.selectConversation(id)
 if (running) await chat.resumeTurn(running)
 ```
 
