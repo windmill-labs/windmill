@@ -202,6 +202,10 @@ export function createGitSyncContext(workspace: string) {
 					'flow',
 					'app',
 					'folder',
+					'resource',
+					'variable',
+					'schedule',
+					'trigger',
 					'workspacedependencies',
 					'datatablemigration'
 				]
@@ -710,6 +714,10 @@ export function createGitSyncContext(workspace: string) {
 					'flow',
 					'app',
 					'folder',
+					'resource',
+					'variable',
+					'schedule',
+					'trigger',
 					'workspacedependencies',
 					'datatablemigration'
 				]
@@ -748,6 +756,10 @@ export function createGitSyncContext(workspace: string) {
 					'flow',
 					'app',
 					'folder',
+					'resource',
+					'variable',
+					'schedule',
+					'trigger',
 					'workspacedependencies',
 					'datatablemigration'
 				]
