@@ -1308,6 +1308,39 @@ describe('createChat with server history', () => {
     expect(chat.getState().error).toBeUndefined()
   })
 
+  test("a re-read does not settle a failed turn with the previous turn's late answer", async () => {
+    const { fetch } = fetchMock(
+      (c) =>
+        c.url.pathname === '/api/w/ws/jobs_u/getupdate_sse/job-b'
+          ? sse([{ type: 'error', error: 'stream broke' }])
+          : undefined,
+      (c) =>
+        c.url.pathname.endsWith('/jobs_u/get/job-b')
+          ? json({ flow_status: { modules: [{ job: 'step-b' }] } })
+          : undefined,
+      (c) => {
+        if (!c.url.pathname.endsWith('/messages')) return undefined
+        const rows = [
+          messageRow(50, 'user', 'qA', { job_id: 'job-a' }),
+          messageRow(51, 'user', 'qB', { job_id: 'job-b' })
+        ]
+        // Turn A's answer commits from its detached task, after B's question.
+        if (c.url.searchParams.get('after_seq') === '51') {
+          return json([messageRow(52, 'assistant', "A's answer", { job_id: 'step-a' })])
+        }
+        return json(rows)
+      }
+    )
+    const chat = createChat(options({}, fetch))
+    await chat.selectConversation('conv')
+    await chat.resumeTurn({ jobId: 'job-b', userSeq: 51 })
+    expect(chat.getState().status).toBe('error')
+    await chat.refreshMessages()
+    // A's answer is not B's: B's failure stands, and it is still shown.
+    expect(chat.getState().status).toBe('error')
+    expect(chat.getState().messages.some((m) => m.success === false && m.seq === undefined)).toBe(true)
+  })
+
   test('a re-read that finds no answer leaves the failure standing', async () => {
     const { fetch } = fetchMock(
       (c) =>

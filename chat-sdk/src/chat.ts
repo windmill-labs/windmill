@@ -536,11 +536,26 @@ class ChatImpl implements Chat {
     if (!newest || newest.seq! <= newestBefore || newest.role !== 'assistant' || !newest.success) {
       return
     }
+    // The row has to be that turn's own. An agent writes its answer from a task the run does
+    // not wait for, so the previous turn's answer can commit after this turn's question: taken
+    // as this one's, it would settle the failure with someone else's answer, for good. The
+    // failed turn's job is on the message it left, and unknown jobs accept the row, as
+    // everywhere else the turn's jobs are read.
+    const failure = [...messages].reverse().find((m) => m.seq === undefined && m.success === false)
+    if (failure?.jobId) {
+      const jobs = await this.#turnJobIds(failure.jobId)
+      if (this.#state.conversationId !== conversationId || this.#state.status !== 'error') return
+      if (jobs && newest.jobId !== undefined && !jobs.has(newest.jobId)) return
+    }
     // Only the failure of the turn that was answered: an earlier turn's failure is its own
     // outcome, and this read says nothing about it.
-    const lastQuestion = messages.findLastIndex((m) => m.role === 'user')
+    const held = this.#state.messages
+    let lastQuestion = -1
+    for (let i = held.length - 1; i >= 0 && lastQuestion < 0; i--) {
+      if (held[i].role === 'user') lastQuestion = i
+    }
     this.#set({
-      messages: messages.filter(
+      messages: held.filter(
         (m, i) => i < lastQuestion || m.seq !== undefined || m.success !== false
       ),
       status: 'idle',
@@ -684,7 +699,7 @@ class ChatImpl implements Chat {
   async #finishTurn(turn: Turn, result: unknown, isNew: boolean): Promise<RunningTurn | undefined> {
     if (!this.#turnActive(turn)) return
     if (this.#state.history === 'server') {
-      turn.jobIds = await this.#turnJobIds(turn)
+      turn.jobIds = await this.#turnJobIds(turn.jobId!, turn.controller.signal)
       if (!this.#turnActive(turn)) return
       const reconciled = await this.#reconcileTurn(turn)
       if (!this.#turnActive(turn)) return
@@ -801,11 +816,11 @@ class ChatImpl implements Chat {
    * question: refusing them would leave a token without job access with no turn ever
    * answered, each one finished a second time from its result.
    */
-  async #turnJobIds(turn: Turn): Promise<Set<string> | undefined> {
+  async #turnJobIds(jobId: string, signal?: AbortSignal): Promise<Set<string> | undefined> {
     for (let attempt = 1; ; attempt++) {
       try {
-        const job = await this.#api.getFlowJob(turn.jobId!, turn.controller.signal)
-        const ids = new Set([turn.jobId!])
+        const job = await this.#api.getFlowJob(jobId, signal)
+        const ids = new Set([jobId])
         const status = job.flow_status
         for (const m of [...(status?.modules ?? []), status?.failure_module, status?.preprocessor_module]) {
           if (m?.job) ids.add(m.job)
@@ -817,7 +832,7 @@ class ChatImpl implements Chat {
         if (isAbortError(e)) throw e
         const refused = e instanceof WindmillApiError && e.status >= 400 && e.status < 500
         if (refused || attempt === RECONCILE_ATTEMPTS) return undefined
-        await sleep(RECONCILE_DELAY_MS, turn.controller.signal)
+        await sleep(RECONCILE_DELAY_MS, signal)
       }
     }
   }
