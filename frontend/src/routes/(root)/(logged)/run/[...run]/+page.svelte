@@ -161,8 +161,12 @@
 	// When the selection can't be restarted from (nothing clicked, Input/Result,
 	// a step inside a parallel loop), the button targets the first failed
 	// top-level step so it is visible without hunting for it in a large graph.
+	// A continue-on-error step keeps its `Failure` status on a run that succeeds,
+	// so only a failed run counts, and its last `Failure` is the one that ended it.
 	const failedTopLevelStep = $derived(
-		job?.flow_status?.modules?.find((m) => m.type === 'Failure')?.id
+		job?.type === 'CompletedJob' && job.success === false
+			? job.flow_status?.modules?.findLast((m) => m.type === 'Failure')?.id
+			: undefined
 	)
 	const failedRestart = useNestedRestartState({
 		selectedJobStep: () => failedTopLevelStep,
