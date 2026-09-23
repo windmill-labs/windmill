@@ -31978,11 +31978,11 @@ components:
               description: runs in a row, up to the latest, that started or finished after the next occurrence was due, so that occurrence was missed
             missed_occurrences:
               type: integer
-              description: occurrences missed by the latest streak of late runs, kept after it ends
+              description: occurrences missed by the latest streak of late runs, kept after it ends; a lower bound once a single late run misses 1000
             last_missed_at:
               type: string
               format: date-time
-              description: latest missed occurrence, kept after the schedule runs on time again
+              description: latest missed occurrence, kept after the schedule runs on time again; past 1000 misses in one late run, when the miss was detected, at most one period later
 
     ErrorHandler:
       type: string

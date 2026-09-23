@@ -34,10 +34,7 @@ use windmill_common::DB;
 use windmill_common::{
     error::{self, Result},
     schedule::Schedule,
-    utils::{
-        now_from_db, report_critical_error, report_recovered_critical_error, ScheduleType,
-        StripPath,
-    },
+    utils::{now_from_db, report_critical_error, ScheduleType, StripPath},
 };
 
 /// Helper to fetch metadata for a schedule's script or flow
@@ -238,11 +235,11 @@ pub async fn push_scheduled_job<'c>(
             .warn_after_seconds_with_sql(1, "update_schedule_late_run_streak".to_string())
             .await?;
             if let Some(streak) = streak.filter(|s| s.late_run_streak == LATE_RUNS_BEFORE_ALERT) {
-                tokio::spawn(report_late_run_streak(
+                tokio::spawn(alert_late_run_streak(
                     db.clone(),
                     schedule.workspace_id.clone(),
                     schedule.path.clone(),
-                    Some(streak.missed_occurrences),
+                    streak.missed_occurrences,
                 ));
             }
         } else if schedule.late_run_streak > 0 {
@@ -255,14 +252,6 @@ pub async fn push_scheduled_job<'c>(
             .execute(&mut *tx)
             .warn_after_seconds_with_sql(1, "reset_schedule_late_run_streak".to_string())
             .await?;
-            if schedule.late_run_streak >= LATE_RUNS_BEFORE_ALERT {
-                tokio::spawn(report_late_run_streak(
-                    db.clone(),
-                    schedule.workspace_id.clone(),
-                    schedule.path.clone(),
-                    None,
-                ));
-            }
         }
     }
 
@@ -674,31 +663,11 @@ fn count_missed_occurrences(
 /// streak alerts, once, when it reaches this length. The schedules list shows every one.
 const LATE_RUNS_BEFORE_ALERT: i32 = 3;
 
-fn late_run_alert_resource(w_id: &str, path: &str) -> String {
-    // Recovery acknowledges by resource alone, across workspaces, so it must carry both.
-    format!("schedule:{w_id}/{path}")
-}
-
-/// An edit, a toggle or a delete clears the streak, and a disabled or deleted schedule never
-/// chains the run on time that would recover its alert, so it is acknowledged here instead.
-pub async fn acknowledge_late_run_alert(db: &DB, w_id: &str, path: &str) {
-    if let Err(e) = sqlx::query!(
-        "UPDATE alerts SET acknowledged = true, acknowledged_workspace = true
-        WHERE resource = $1 AND alert_type = 'critical_error' AND NOT acknowledged",
-        late_run_alert_resource(w_id, path),
-    )
-    .execute(db)
-    .await
-    {
-        tracing::warn!("failed to acknowledge the late run alert of schedule {w_id}/{path}: {e}");
-    }
-}
-
-/// Alerts with `Some(missed)`, recovers with `None`. Spawned: it reaches the instance alert
-/// channels, which must not hold up the push.
-async fn report_late_run_streak(db: DB, w_id: String, path: String, missed: Option<i32>) {
+/// Spawned: it reaches the instance alert channels, which must not hold up the push.
+async fn alert_late_run_streak(db: DB, w_id: String, path: String, missed: i32) {
     // The push transaction holds this row until it ends, so FOR SHARE waits for it: a push
-    // that rolled back leaves the streak as it was, and only its committed retry reports.
+    // that rolled back leaves the streak short of the threshold, and only its committed
+    // retry alerts.
     let committed = sqlx::query_scalar!(
         "SELECT late_run_streak FROM schedule WHERE workspace_id = $1 AND path = $2 FOR SHARE",
         &w_id,
@@ -706,38 +675,23 @@ async fn report_late_run_streak(db: DB, w_id: String, path: String, missed: Opti
     )
     .fetch_optional(&db)
     .await;
-    let streak = match committed {
-        Ok(Some(streak)) => streak,
-        Ok(None) => return,
+    match committed {
+        Ok(Some(streak)) if streak >= LATE_RUNS_BEFORE_ALERT => {}
+        Ok(_) => return,
         Err(e) => {
             tracing::warn!("failed to confirm the late run streak of schedule {w_id}/{path}: {e}");
             return;
         }
-    };
-    let resource = late_run_alert_resource(&w_id, &path);
-    match missed {
-        Some(missed) if streak >= LATE_RUNS_BEFORE_ALERT => {
-            report_critical_error(
-                format!(
-                    "Schedule {path} missed {missed} occurrences: its last {LATE_RUNS_BEFORE_ALERT} runs in a row started or finished too late"
-                ),
-                db,
-                Some(&w_id),
-                Some(&resource),
-            )
-            .await
-        }
-        None if streak == 0 => {
-            report_recovered_critical_error(
-                format!("Schedule {path} runs on time again"),
-                db,
-                Some(&w_id),
-                Some(&resource),
-            )
-            .await
-        }
-        _ => {}
     }
+    report_critical_error(
+        format!(
+            "Schedule {path} missed {missed} occurrences: its last {LATE_RUNS_BEFORE_ALERT} runs in a row started or finished too late"
+        ),
+        db,
+        Some(&w_id),
+        None,
+    )
+    .await;
 }
 
 /// Enabled schedules with no occurrence in the queue, as `(workspace_id, path)`.
