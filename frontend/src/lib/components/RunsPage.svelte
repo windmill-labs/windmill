@@ -869,7 +869,7 @@
 	<div class="w-full h-screen flex flex-col" bind:clientWidth={innerWidth}>
 		<!-- Everything that used to sit in a row above the graph — the page's name, its queue, the
 		     filters and the timeframe — is in the page header. -->
-		<PageHeaderContent hint={runsHint} actions={headerActions} />
+		<PageHeaderContent afterName={runsHint} actions={headerActions} />
 
 		<!-- Graph -->
 		<div id="runs-chart" class="p-2 px-4 bg-surface-tertiary mx-4 mt-2 border rounded-md">

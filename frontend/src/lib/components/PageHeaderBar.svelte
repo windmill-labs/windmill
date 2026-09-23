@@ -82,7 +82,7 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 			<NavBreadcrumb
 				{item}
 				{section}
-				hint={content?.hint}
+				afterName={content?.afterName}
 				actingWorkspaceId={content?.actingWorkspaceId}
 			/>
 		</div>

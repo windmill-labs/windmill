@@ -29,9 +29,10 @@ export type PageHeaderContent = {
 	/** Orders these buttons among the other registrations', ascending; registration order breaks a
 	 *  tie. For a menu that must stay at the far end however many pages register before it. */
 	actionsOrder?: number
-	/** Rendered right after the page's name in the breadcrumb, for what reads as part of that name
-	 *  rather than as an action — a page's documentation tooltip. */
-	hint?: Snippet
+	/** Rendered right after the page's name in the breadcrumb: a mark that belongs to the name,
+	 *  like a documentation tooltip, or a control that acts on the thing named — an app's Edit,
+	 *  which at the far end of the bar would be a journey away from what it edits. */
+	afterName?: Snippet
 	/** The workspace this page acts on, when it is not the one the app is pointed at — a session
 	 *  running in a fork. The breadcrumb then names that workspace, and its fork part shows only
 	 *  when it really is a fork. */
@@ -74,7 +75,7 @@ export const pageHeader = {
 			const c = e.get()
 			if (c.item !== undefined) merged.item = c.item
 			if (c.section !== undefined) merged.section = c.section
-			if (c.hint !== undefined) merged.hint = c.hint
+			if (c.afterName !== undefined) merged.afterName = c.afterName
 			if (c.contexts !== undefined) merged.contexts = c.contexts
 			if (c.actingWorkspaceId !== undefined) merged.actingWorkspaceId = c.actingWorkspaceId
 			if (c.barRightInset !== undefined) merged.barRightInset = c.barRightInset

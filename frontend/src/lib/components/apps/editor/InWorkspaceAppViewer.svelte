@@ -161,7 +161,9 @@
 {#if canWriteApp && !hideEditBtn}
 	<!-- The page header carries it, with the app's name: a floating button over the app's own
 	     canvas lands on whatever the app draws there. -->
-	<PageHeaderContent item={{ kind: 'app', path }} actions={editAction} fullBleed />
+	<!-- Edit sits with the app's name rather than at the far end of the bar: on a page whose header
+	     is only there while hovered, the far end is a journey across the window. -->
+	<PageHeaderContent item={{ kind: 'app', path }} afterName={editAction} fullBleed />
 {/if}
 
 {#snippet editAction()}

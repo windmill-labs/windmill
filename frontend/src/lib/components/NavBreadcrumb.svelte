@@ -32,13 +32,14 @@ same weight, size and icon size, so the line reads as one control rather than fo
 	let {
 		item,
 		section,
-		hint,
+		afterName,
 		actingWorkspaceId
 	}: {
 		item?: PageHeaderItem
 		section?: PageHeaderSection
-		/** A page's own mark next to its name, such as its documentation tooltip. */
-		hint?: Snippet
+		/** What sits beside the page's name: a mark like a documentation tooltip, or a control
+		 *  that acts on the thing named. */
+		afterName?: Snippet
 		/** The workspace the page acts on, when it differs from the one the app is pointed at. */
 		actingWorkspaceId?: string
 	} = $props()
@@ -262,7 +263,7 @@ same weight, size and icon size, so the line reads as one control rather than fo
 						<span class="truncate">{level}</span>
 					{/each}
 				</button>
-				{#if hint}{@render hint()}{/if}
+				{#if afterName}{@render afterName()}{/if}
 				{#if pathCopied}
 					<span
 						class="absolute left-0 top-full mt-1 z-[6000] rounded-md border bg-surface px-2 py-1 text-2xs text-secondary shadow-md whitespace-nowrap"
@@ -296,7 +297,7 @@ same weight, size and icon size, so the line reads as one control rather than fo
 		>
 			{#if section.content}{@render section.content()}{:else}{section.label}{/if}
 		</span>
-		{#if hint}{@render hint()}{/if}
+		{#if afterName}{@render afterName()}{/if}
 	{:else if routePage}
 		{@const RouteIcon = routePage.icon}
 		<!-- shrink-0: a page's own name is short and is the one part of the trail worth keeping
@@ -305,6 +306,6 @@ same weight, size and icon size, so the line reads as one control rather than fo
 			{#if RouteIcon}<RouteIcon size={ICON} class="flex-shrink-0 text-tertiary" />{/if}
 			<span class="truncate">{routePage.label}</span>
 		</span>
-		{#if hint}{@render hint()}{/if}
+		{#if afterName}{@render afterName()}{/if}
 	{/if}
 </nav>
