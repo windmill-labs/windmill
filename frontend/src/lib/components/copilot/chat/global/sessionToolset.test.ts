@@ -117,7 +117,14 @@ describe('session tool policies', () => {
 		const readOnly = accessWith([])
 		expect(sessionToolAllowed('get_instructions', readOnly)).toBe(true)
 		expect(sessionToolAllowed('search_npm_packages', readOnly)).toBe(true)
-		expect(sessionToolAllowed('get_db_schema', readOnly)).toBe(true)
+		expect(sessionToolAllowed('search_resource_types', readOnly)).toBe(true)
+	})
+
+	// Pinned because the name is what misleads: it sits among the authoring aids and reads
+	// like one, but starts a job.
+	it('gates get_db_schema on run_preview, like the other job-starting tools', () => {
+		expect(sessionToolAllowed('get_db_schema', accessWith(['write_draft']))).toBe(false)
+		expect(sessionToolAllowed('get_db_schema', accessWith(['run_preview']))).toBe(true)
 	})
 
 	// The backend runs create_folder through check_deploy_rules, so drafting alone is

@@ -73,17 +73,18 @@ export const SESSION_TOOL_POLICIES: Record<string, SessionToolPolicy> = {
 	list_artifact_versions: NONE,
 
 	// ── Authoring aids ──────────────────────────────────────────────────────
-	// Ungated: every one of these is a read the server serves any user. They earn
-	// their place only alongside the draft tools, but the prompt bullets naming them
-	// are gated on `write_draft`, so a session that cannot author is never pointed
-	// at them.
+	// Ungated where the call really is a read the server serves anyone: a hub, npm or
+	// resource-type query, or a schema built client-side. They earn their place only
+	// alongside the draft tools, but the prompt bullets naming them are gated on
+	// `write_draft`, so a session that cannot author is never pointed at them.
 	get_instructions: NONE,
 	search_hub_scripts: NONE,
 	search_npm_packages: NONE,
 	search_resource_types: NONE,
 	get_trigger_schema: NONE,
 	get_schedule_schema: NONE,
-	get_db_schema: NONE,
+	// Runs a query script (`getDbSchemas` → /jobs/run/preview), which jobs.rs refuses operators.
+	get_db_schema: RUN_PREVIEW,
 	// `folder` is one of the gated kinds: folders.rs `create_folder` runs
 	// `check_deploy_rules`.
 	create_folder: ['deploy'],
