@@ -17,7 +17,6 @@ the header, so nesting is decided by the caller rather than guessed from context
 		actions,
 		actionsOrder,
 		contexts,
-		barPlacement,
 		actingWorkspaceId,
 		barRightInset
 	}: PageHeaderContent = $props()
@@ -30,7 +29,6 @@ the header, so nesting is decided by the caller rather than guessed from context
 			actions,
 			actionsOrder,
 			contexts,
-			barPlacement,
 			actingWorkspaceId,
 			barRightInset
 		}))

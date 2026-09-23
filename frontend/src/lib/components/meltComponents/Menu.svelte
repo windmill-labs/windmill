@@ -16,10 +16,6 @@
 
 	interface Props {
 		placement?: Placement
-		/** Drops the fly-out, so the panel is out of the DOM the moment it closes. For a menu whose
-		 *  act tears its own trigger down — picking a workspace — where floating-ui spends the
-		 *  outro re-placing the panel against a reference on its way out, and it bounces. */
-		closeInstantly?: boolean
 		/** Inline style on the panel. A margin here shifts it after floating-ui has placed it,
 		 *  which is the only way to anchor it to a box wider than the trigger: melt's menubar
 		 *  menu ignores `positioning.offset`. */
@@ -54,7 +50,6 @@
 	let {
 		placement = 'right-start',
 		contentStyle = '',
-		closeInstantly = false,
 		justifyEnd = false,
 		lightMode = false,
 		maxHeight = 900,
@@ -230,7 +225,7 @@
 			data-menu
 			onmouseenter={cancelPendingClose}
 			onmouseleave={scheduleClose}
-			transition:placementFly={{ duration: closeInstantly ? 0 : 100, placement }}
+			transition:placementFly={{ duration: 100, placement }}
 			style={contentStyle}
 			class={twMerge(
 				'z-[6000] border w-56 origin-top-right rounded-md shadow-md focus:outline-none',

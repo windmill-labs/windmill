@@ -1541,7 +1541,7 @@
 			<!-- `menuHidden` hides the workspace navigation, not the page: an embedded Runs or detail
 			     page keeps its own controls, which now live in this band and nowhere else. The band
 			     renders without its breadcrumb there, so the embed gains no workspace nav. -->
-			{#if !devOnly && pageHeader.content?.barPlacement !== 'inline' && (!menuHidden || pageHeader.actions.length > 0)}
+			{#if !devOnly && (!menuHidden || pageHeader.actions.length > 0)}
 				{@const rightInset = pageHeader.content?.barRightInset}
 				{@const leftInset = useDrawer ? 0 : railWidth}
 				<!-- One element for both placements, styled rather than branched: a page registers its
@@ -1560,7 +1560,7 @@
 					style:right={rightInset != null ? `${rightInset}px` : undefined}
 					style:padding-left={rightInset != null ? undefined : `${leftInset}rem`}
 				>
-					<PageHeaderBar navHidden={menuHidden} />
+					<PageHeaderBar navHidden={menuHidden} onDock={() => setDetached(false)} />
 				</div>
 			{/if}
 			{#if $enterpriseLicense && !menuHidden}

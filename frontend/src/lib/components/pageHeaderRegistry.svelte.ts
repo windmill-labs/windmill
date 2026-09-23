@@ -1,25 +1,15 @@
 import type { Snippet } from 'svelte'
-import type { WorkspaceItem, WorkspaceItemKind } from './workspacePicker'
+import type { WorkspaceItemKind } from './workspacePicker'
 
 /** An item the page is working on: the breadcrumb walks its path and ends with its summary. */
 export type PageHeaderItem = {
 	kind: WorkspaceItemKind
+	/** Shown whole, and copied on click. */
 	path: string | undefined
-	/** The item's saved path, so a mid-rename breadcrumb and picker stay coherent. */
-	savedPath?: string
 	summary?: string
-	/** Rendered after the path instead of the editable summary — for a page whose summary is
-	 *  itself a control, such as a detail page's rename-and-labels popover. */
+	/** Rendered in place of the plain summary, for a page whose summary is itself a control —
+	 *  a detail page's rename-and-labels popover, an editor's editable title. */
 	summaryContent?: Snippet
-	raw_app?: boolean
-	/** Which workspace the breadcrumb's pickers read (a session editor acts on its fork). */
-	workspaceId?: string
-	pathEditable?: boolean
-	summaryEditable?: boolean
-	onBehalfOfEmail?: string
-	onSummaryChange?: (summary: string) => void
-	onPathChange?: (path: string) => void
-	onNavigate?: (item: WorkspaceItem) => void
 }
 
 /** A page with no item of its own, such as a list: the breadcrumb is the section alone. */
@@ -50,9 +40,6 @@ export type PageHeaderContent = {
 	 *  session's side panel. The band stops there instead of running over it, and the band floats
 	 *  above the page rather than pushing it down, so that column starts at the top. */
 	barRightInset?: number
-	/** 'inline' when the route renders the bar itself — for a layout whose side panel must run to
-	 *  the top of the viewport beside it, rather than starting under a full-width bar. */
-	barPlacement?: 'layout' | 'inline'
 	/** Contexts those buttons look up. They render under the header, not under the page that
 	 *  wrote them, so anything the page's tree provides has to travel with them. */
 	contexts?: Map<any, any>
@@ -86,7 +73,6 @@ export const pageHeader = {
 			if (c.section !== undefined) merged.section = c.section
 			if (c.hint !== undefined) merged.hint = c.hint
 			if (c.contexts !== undefined) merged.contexts = c.contexts
-			if (c.barPlacement !== undefined) merged.barPlacement = c.barPlacement
 			if (c.actingWorkspaceId !== undefined) merged.actingWorkspaceId = c.actingWorkspaceId
 			if (c.barRightInset !== undefined) merged.barRightInset = c.barRightInset
 		}

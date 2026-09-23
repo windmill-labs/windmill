@@ -56,14 +56,9 @@
 		 * dropped, leaving only the summary. Used by the condensed session-
 		 * preview top bar to save vertical room. */
 		hidePath?: boolean
-		/** Drop the summary, for a host that renders its own after the path. */
-		hideSummary?: boolean
 		/** Workspace whose items the breadcrumb picker lists; defaults to the operating
 		 * workspace (see `useOperatingWorkspace`). */
 		workspaceId?: string
-		/** Lay the summary out after the path on one line, for the page header bar, rather than
-		 * stacked under it. */
-		inline?: boolean
 	}
 
 	let {
@@ -78,9 +73,7 @@
 		summaryEditable = true,
 		pathEditable = true,
 		hidePath = false,
-		hideSummary = false,
-		workspaceId,
-		inline = false
+		workspaceId
 	}: Props = $props()
 
 	let pathPopoverOpen = $state(false)
@@ -133,11 +126,7 @@
 	}
 </script>
 
-<div
-	class="max-w-full group px-2 py-0.5 leading-tight {inline
-		? 'flex items-center gap-2 min-w-0'
-		: 'inline-block align-top'}"
->
+<div class="max-w-full group px-2 py-0.5 leading-tight inline-block align-top">
 	<!-- Path row -->
 	{#if !hidePath}
 		<div class="flex items-center max-w-full text-2xs text-secondary font-mono">
@@ -247,18 +236,16 @@
 	{/if}
 
 	<!-- Summary -->
-	{#if !hideSummary}
-		<div class="max-w-full {inline ? 'min-w-0' : '-mt-[2px]'}" title={summary}>
-			<EditableInput
-				value={summary ?? ''}
-				placeholder="Add a summary..."
-				editable={summaryEditable}
-				commitOnInput
-				size="sm"
-				onSave={handleSummarySave}
-				textClass="text-xs font-semibold text-emphasis leading-tight"
-				class="max-w-full"
-			/>
-		</div>
-	{/if}
+	<div class="max-w-full -mt-[2px]" title={summary}>
+		<EditableInput
+			value={summary ?? ''}
+			placeholder="Add a summary..."
+			editable={summaryEditable}
+			commitOnInput
+			size="sm"
+			onSave={handleSummarySave}
+			textClass="text-xs font-semibold text-emphasis leading-tight"
+			class="max-w-full"
+		/>
+	</div>
 </div>

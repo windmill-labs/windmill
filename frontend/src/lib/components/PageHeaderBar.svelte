@@ -14,7 +14,15 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 	import { pageHeader } from './pageHeaderRegistry.svelte'
 	import ContextBridge from './ContextBridge.svelte'
 
-	let { navHidden = false }: { navHidden?: boolean } = $props()
+	let {
+		navHidden = false,
+		onDock
+	}: {
+		navHidden?: boolean
+		/** Docks the sidebar. The layout owns the two other things that must happen with it — the
+		 *  flag that suppresses the rail's entry animation, and closing the card. */
+		onDock?: () => void
+	} = $props()
 
 	const content = $derived(pageHeader.content)
 	const actions = $derived(pageHeader.actions)
@@ -38,7 +46,7 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 			<button
 				class="flex items-center p-1.5 rounded hover:bg-surface-hover"
 				aria-label="Show sidebar"
-				onclick={() => (navDetached.val = false)}
+				onclick={() => onDock?.()}
 			>
 				<PanelLeft size={16} class="flex-shrink-0 text-hint" />
 			</button>
@@ -61,7 +69,7 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 		</div>
 	{/if}
 
-	{#if item && (item.summaryContent || item.summary)}
+	{#if item && !navHidden && (item.summaryContent || item.summary)}
 		<!-- A dot rather than a slash: the summary names the same item the path just located, it is
 		     not another level of it. -->
 		<span class="shrink-0 text-hint/40 text-xs px-0.5" aria-hidden="true">·</span>

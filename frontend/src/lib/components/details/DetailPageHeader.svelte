@@ -202,13 +202,7 @@
      breadcrumb, the summary keeps its rename-and-labels popover, and everything else rides along
      as the bar's actions. -->
 <PageHeaderContent
-	item={{
-		kind: errorHandlerKind,
-		path,
-		summaryContent,
-		pathEditable: false,
-		summaryEditable: false
-	}}
+	item={{ kind: errorHandlerKind, path, summaryContent }}
 	{actions}
 	contexts={headerContexts}
 />

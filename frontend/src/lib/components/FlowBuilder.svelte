@@ -69,6 +69,7 @@
 	import FlowHistory from './flows/FlowHistory.svelte'
 	import EditorHeader from './EditorHeader.svelte'
 	import AutosaveIndicator from './AutosaveIndicator.svelte'
+	import EditableInput from './common/EditableInput.svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from './custom_ui'
 	import FlowYamlEditor from './flows/header/FlowYamlEditor.svelte'
 	import { type TriggerContext, type ScheduleTrigger } from './triggers'
@@ -1544,19 +1545,7 @@
 				<!-- The editor's own top bar is the page header on this route: its breadcrumb and
 				     summary are the header's, and its buttons are the header's actions. -->
 				<PageHeaderContent
-					item={{
-						kind: 'flow',
-						path: $pathStore,
-						savedPath: initialPath,
-						summary: flowStore.val.summary,
-						workspaceId: autosaveWorkspace,
-						onBehalfOfEmail: $savedOnBehalfOfEmail,
-						pathEditable: customUi?.topBar?.editablePath != false,
-						summaryEditable: customUi?.topBar?.editableSummary != false,
-						onPathChange: (v) => ($pathStore = v),
-						onSummaryChange: (v) => (flowStore.val.summary = v),
-						onNavigate: (item) => onNavigate?.(item)
-					}}
+					item={{ kind: 'flow', path: $pathStore, summaryContent: flowSummary }}
 					actions={flowHeaderActions}
 					contexts={headerContexts}
 				/>
@@ -1634,6 +1623,21 @@
 					</div>
 				</div>
 			{/if}
+
+			{#snippet flowSummary()}
+				<!-- The summary stays editable where the editor's own bar had it: the breadcrumb
+				     beside it is the path, which this editor renames from its settings tab. -->
+				<EditableInput
+					value={flowStore.val.summary ?? ''}
+					placeholder="Add a summary..."
+					editable={customUi?.topBar?.editableSummary != false}
+					commitOnInput
+					size="sm"
+					onSave={(v) => (flowStore.val.summary = v)}
+					textClass="text-xs font-medium text-emphasis leading-tight"
+					class="max-w-full min-w-0"
+				/>
+			{/snippet}
 
 			{#snippet flowHeaderActions()}
 				<!-- Saving state, the autosave toggle and other people's drafts: the editor's own

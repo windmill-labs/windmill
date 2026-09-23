@@ -874,7 +874,7 @@
 <!-- The session showing fills the band's breadcrumb. The band is the layout's, but it stops
      where the preview panel starts so that panel can run from the top of the viewport. -->
 <PageHeaderContent
-	barRightInset={previewCollapsed || fullscreen ? undefined : previewWidth}
+	barRightInset={previewCollapsed || fullscreen || previewWidth === 0 ? undefined : previewWidth}
 	actions={sessionPageActions}
 />
 

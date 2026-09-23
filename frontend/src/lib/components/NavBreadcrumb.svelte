@@ -262,6 +262,7 @@ same weight, size and icon size, so the line reads as one control rather than fo
 						<span class="truncate">{level}</span>
 					{/each}
 				</button>
+				{#if hint}{@render hint()}{/if}
 				{#if pathCopied}
 					<span
 						class="absolute left-0 top-full mt-1 z-[6000] rounded-md border bg-surface px-2 py-1 text-2xs text-secondary shadow-md whitespace-nowrap"
