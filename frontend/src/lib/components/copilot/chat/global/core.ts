@@ -6834,16 +6834,16 @@ async function discardLocalDraft(
 		throw new Error(`No draft found for ${type} "${path}".`)
 	}
 
-	await deleteGlobalDraft(workspace, type, path, triggerKind)
+	// Resolved once: the mask records a draft under the path it is stored at, so clearing
+	// it by the name the call used would leave the entry behind.
+	const storagePath = await resolveGlobalDraftStoragePath(workspace, type, path, triggerKind)
+	await deleteGlobalDraft(workspace, type, storagePath, triggerKind)
 
 	// The chat's touch on the item is undone — drop it from the mask so a
 	// pre-existing deployed item doesn't keep reading as this chat's edit.
 	const discardedKind = itemKindFor(type, triggerKind)
 	if (discardedKind) {
-		toolCallbacks.onItemDiscarded?.(
-			discardedKind,
-			liveGlobalDraftStoragePath(workspace, type, path, triggerKind)
-		)
+		toolCallbacks.onItemDiscarded?.(discardedKind, storagePath)
 	}
 
 	toolCallbacks.setToolStatus(toolId, {
@@ -8274,7 +8274,11 @@ async function deployDraft(
 	// fork comparisons before the fallible draft cleanup below.
 	invalidateWorkspaceComparison(workspace)
 
-	await deleteGlobalDraft(workspace, type, path, triggerKind, { preserveLiveDraft: true })
+	// By the path resolved before the deploy: the app now deployed at the draft's chosen
+	// name would otherwise win the name back, and the draft would be left behind.
+	await deleteGlobalDraft(workspace, type, draftStoragePath, triggerKind, {
+		preserveLiveDraft: true
+	})
 
 	// Move the chat's mask entry to the deployed path: a draft-only item's
 	// synthetic storage key never exists deployed, so the entry would otherwise

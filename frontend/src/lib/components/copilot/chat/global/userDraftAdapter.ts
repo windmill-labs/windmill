@@ -336,7 +336,10 @@ type ResolvedDraft = { storagePath: string; value?: unknown }
 async function resolveDraft(
 	workspace: string,
 	itemKind: UserDraftItemKind,
-	path: string
+	path: string,
+	/** A write must know which draft a name belongs to; a read can fall back to the path
+	 * itself, which is what it addressed before names were resolved at all. */
+	opts: { forWrite?: boolean } = {}
 ): Promise<ResolvedDraft> {
 	const live = liveEditorStoragePath(workspace, itemKind, path)
 	if (live !== path) return { storagePath: live }
@@ -345,13 +348,14 @@ async function resolveDraft(
 	if (UserDraft.get(itemKind, path, { workspace }) !== undefined) return { storagePath: path }
 	const own = await fetchBackendDraftValue(workspace, itemKind, path)
 	if (own !== undefined) return { storagePath: path, value: own }
-	return { storagePath: await storagePathForChosenName(workspace, itemKind, path) }
+	return { storagePath: await storagePathForChosenName(workspace, itemKind, path, opts) }
 }
 
 async function storagePathForChosenName(
 	workspace: string,
 	itemKind: UserDraftItemKind,
-	path: string
+	path: string,
+	opts: { forWrite?: boolean }
 ): Promise<string> {
 	const staged: StagedDraft[] = []
 	const add = (storagePath: string, summary: string | undefined) => {
@@ -365,7 +369,9 @@ async function storagePathForChosenName(
 		rows = await DraftService.listDrafts({ workspace })
 	} catch (e) {
 		// Nothing is stored at this path, so it may be a name. Without the listing that
-		// cannot be told, and guessing the path itself would write a second draft.
+		// cannot be told, and a write that guessed the path itself would create a second
+		// draft; a read of whatever is deployed there is harmless.
+		if (!opts.forWrite) return path
 		throw new Error(
 			`Could not load this workspace's drafts, so "${path}" cannot be matched to the draft ` +
 				`it may name: ${e instanceof Error ? e.message : String(e)}. Try again.`
@@ -494,11 +500,11 @@ export async function readGlobalDraftValue<V>(
 ): Promise<V | undefined> {
 	const itemKind = itemKindFor(type, triggerKind)
 	if (!itemKind) return undefined
-	const cell = UserDraft.get<V>(itemKind, liveEditorStoragePath(workspace, itemKind, path), {
-		workspace
-	})
-	if (cell !== undefined) return cell
 	const resolved = await resolveDraft(workspace, itemKind, path)
+	// The cell at the RESOLVED path: it is the freshest state when a save is parked, failed
+	// or conflicted, and a draft that exists only as a cell has no backend row behind it.
+	const cell = UserDraft.get<V>(itemKind, resolved.storagePath, { workspace })
+	if (cell !== undefined) return cell
 	if (resolved.value !== undefined) return resolved.value as V
 	return (await fetchBackendDraftValue(workspace, itemKind, resolved.storagePath)) as V | undefined
 }
@@ -538,7 +544,8 @@ export async function persistGlobalDraft(
 	if (!itemKind) throw new Error(`Unsupported draft type "${type}".`)
 	// Resolved rather than taken as given: a write under a chosen name that did not resolve
 	// would create a second draft beside the one it meant to edit.
-	const storagePath = (await resolveDraft(workspace, itemKind, path)).storagePath
+	const storagePath = (await resolveDraft(workspace, itemKind, path, { forWrite: true }))
+		.storagePath
 	UserDraft.seed(itemKind, storagePath, value, { workspace })
 	await UserDraftDbSyncer.save({
 		workspace,
@@ -596,7 +603,12 @@ export async function getGlobalDraft(
 	if (!itemKind) return undefined
 	const resolved = await resolveDraft(workspace, itemKind, path)
 	const storagePath = resolved.storagePath
-	const value = resolved.value ?? (await fetchBackendDraftValue(workspace, itemKind, storagePath))
+	// A draft can live only as a local cell — a second session tab, or an editor with
+	// autosave off — with no backend row behind it.
+	const value =
+		UserDraft.get(itemKind, storagePath, { workspace }) ??
+		resolved.value ??
+		(await fetchBackendDraftValue(workspace, itemKind, storagePath))
 	if (value === undefined || value === null) return undefined
 	const { displayPath, isLiveDraft } = liveDisplayPath(workspace, itemKind, storagePath)
 	return userDraftEntryToWorkspaceItem(

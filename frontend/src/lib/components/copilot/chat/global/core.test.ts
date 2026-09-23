@@ -2538,6 +2538,58 @@ describe('global AI tools', () => {
 		}
 	})
 
+	// A draft can exist only as a local cell — a second session tab, or an editor with
+	// autosave off — with no backend row to fall back to.
+	it('reads a cell-only draft by its chosen name', async () => {
+		UserDraft.save(
+			'raw_app',
+			'u/admin/draft_cell_only',
+			{ summary: 'Cell only', draft_path: 'f/sales/cell_app', files: {}, runnables: {} },
+			{ workspace: WORKSPACE }
+		)
+
+		const read = JSON.parse(
+			await callGlobalTool('read_workspace_item', { type: 'app', path: 'f/sales/cell_app' })
+		)
+		expect(read).toMatchObject({ path: 'u/admin/draft_cell_only', summary: 'Cell only' })
+	})
+
+	// Deploying by the chosen name creates the app at that name, which would then win the
+	// name back and leave the draft the deploy came from listed forever.
+	it('removes the source draft of an app deployed by its chosen name', async () => {
+		const storageKey = 'u/admin/draft_deployed_by_name'
+		seedBackendDraft(
+			'raw_app',
+			storageKey,
+			{
+				summary: 'By name',
+				draft_path: 'f/sales/by_name',
+				files: { '/App.tsx': 'export default () => null' },
+				runnables: {},
+				data: { tables: [] }
+			},
+			{ workspace: WORKSPACE }
+		)
+		const deployed = new Set<string>()
+		vi.mocked(AppService.existsApp).mockImplementation(async ({ path }) => deployed.has(path))
+		vi.mocked(AppService.createAppRaw).mockImplementation(async ({ formData }: any) => {
+			deployed.add(formData.app.path)
+			return 1 as any
+		})
+		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({
+			draft: { draft_path: 'f/sales/by_name' }
+		} as any)
+
+		try {
+			await callGlobalTool('deploy_workspace_item', { type: 'app', path: 'f/sales/by_name' })
+			expect(deployed.has('f/sales/by_name')).toBe(true)
+			expect(getBackendDraft('raw_app', storageKey, { workspace: WORKSPACE })).toBeUndefined()
+		} finally {
+			vi.mocked(AppService.existsApp).mockImplementation(async () => false)
+			vi.mocked(AppService.createAppRaw).mockImplementation(async () => 1 as any)
+		}
+	})
+
 	it('refuses a draft_path that two drafts are staged under', async () => {
 		for (const storage of ['u/admin/draft_a', 'u/admin/draft_b']) {
 			seedBackendDraft(
