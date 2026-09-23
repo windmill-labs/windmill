@@ -34,10 +34,7 @@ use windmill_common::DB;
 use windmill_common::{
     error::{self, Result},
     schedule::Schedule,
-    utils::{
-        now_from_db, report_critical_error, report_recovered_critical_error, ScheduleType,
-        StripPath,
-    },
+    utils::{now_from_db, report_critical_error, ScheduleType, StripPath},
 };
 
 /// Helper to fetch metadata for a schedule's script or flow
@@ -206,14 +203,37 @@ pub async fn push_scheduled_job<'c>(
     // edit, enable and re-arm start fresh, and a pause, even one already over, is deliberate.
     if let Some(prev) = now_cutoff.filter(|_| schedule.paused_until.is_none()) {
         let skipped = count_skipped_occurrences(&sched, &tz, prev, next);
-        if skipped > 0 || schedule.skipped_occurrences.is_some() {
-            tokio::spawn(record_skipped_occurrences(
-                db.clone(),
-                schedule.workspace_id.clone(),
-                schedule.path.clone(),
-                skipped,
-                schedule.skipped_occurrences.is_none(),
-            ));
+        if skipped > 0 {
+            let streak = sqlx::query!(
+                "UPDATE schedule SET skipped_runs = skipped_runs + 1,
+                    skipped_occurrences = skipped_occurrences + $3, skipped_at = now()
+                WHERE workspace_id = $1 AND path = $2
+                RETURNING skipped_runs, skipped_occurrences",
+                &schedule.workspace_id,
+                &schedule.path,
+                skipped as i32,
+            )
+            .fetch_one(&mut *tx)
+            .warn_after_seconds_with_sql(1, "update_schedule_skipped_runs".to_string())
+            .await?;
+            if streak.skipped_runs == SKIPPED_RUNS_BEFORE_ALERT {
+                tokio::spawn(alert_skipped_occurrences(
+                    db.clone(),
+                    schedule.workspace_id.clone(),
+                    schedule.path.clone(),
+                    streak.skipped_occurrences,
+                ));
+            }
+        } else if schedule.skipped_runs > 0 {
+            sqlx::query!(
+                "UPDATE schedule SET skipped_runs = 0, skipped_occurrences = 0
+                WHERE workspace_id = $1 AND path = $2",
+                &schedule.workspace_id,
+                &schedule.path,
+            )
+            .execute(&mut *tx)
+            .warn_after_seconds_with_sql(1, "reset_schedule_skipped_runs".to_string())
+            .await?;
         }
     }
 
@@ -618,49 +638,21 @@ fn count_skipped_occurrences(
     count
 }
 
-/// Best effort, off the push transaction: losing a write only delays the badge or alert.
-/// Alerts fire on the transition only, so a schedule that keeps overrunning alerts once.
-async fn record_skipped_occurrences(
-    db: DB,
-    w_id: String,
-    path: String,
-    skipped: u32,
-    was_clean: bool,
-) {
-    let res = sqlx::query!(
-        "UPDATE schedule SET skipped_occurrences = $3, skipped_at = CASE WHEN $3::int IS NULL THEN NULL ELSE now() END
-        WHERE workspace_id = $1 AND path = $2",
-        &w_id,
-        &path,
-        (skipped > 0).then_some(skipped as i32),
-    )
-    .execute(&db)
-    .await;
-    if let Err(e) = res {
-        tracing::warn!("failed to record skipped occurrences for schedule {w_id}/{path}: {e}");
-        return;
-    }
+/// A single skip is a blip (a slow run, a worker restart, an edit mid-run); only a streak
+/// alerts, once, when it reaches this length. The schedules list shows every skip.
+const SKIPPED_RUNS_BEFORE_ALERT: i32 = 3;
 
-    let resource = format!("{w_id}/schedule/{path}");
-    if skipped > 0 && was_clean {
-        report_critical_error(
-            format!(
-                "Schedule {path} skipped {skipped} occurrence(s): the previous run finished or started after the next one was due"
-            ),
-            db,
-            Some(&w_id),
-            Some(&resource),
-        )
-        .await;
-    } else if skipped == 0 {
-        report_recovered_critical_error(
-            format!("Schedule {path} runs every occurrence again"),
-            db,
-            Some(&w_id),
-            Some(&resource),
-        )
-        .await;
-    }
+/// Spawned: it reaches the instance alert channels, which must not hold up the push.
+async fn alert_skipped_occurrences(db: DB, w_id: String, path: String, occurrences: i32) {
+    report_critical_error(
+        format!(
+            "Schedule {path} skipped {occurrences} occurrences over its last {SKIPPED_RUNS_BEFORE_ALERT} runs: each run finished or started after the next one was due"
+        ),
+        db,
+        Some(&w_id),
+        Some(&format!("{w_id}/schedule/{path}")),
+    )
+    .await;
 }
 
 /// Enabled schedules with no occurrence in the queue, as `(workspace_id, path)`.
@@ -784,7 +776,7 @@ pub async fn get_schedule_opt<'c>(
     path: &str,
 ) -> Result<Option<Schedule>> {
     let schedule_opt = sqlx::query_as::<_, Schedule>(
-        "SELECT workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, args, extra_perms, email, permissioned_as, error, on_failure, on_failure_times, on_failure_exact, on_failure_extra_args, on_recovery, on_recovery_times, on_recovery_extra_args, on_success, on_success_extra_args, ws_error_handler_muted, retry, no_flow_overlap, summary, description, tag, paused_until, cron_version, dynamic_skip, labels, skipped_occurrences FROM schedule WHERE path = $1 AND workspace_id = $2",
+        "SELECT workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, args, extra_perms, email, permissioned_as, error, on_failure, on_failure_times, on_failure_exact, on_failure_extra_args, on_recovery, on_recovery_times, on_recovery_extra_args, on_success, on_success_extra_args, ws_error_handler_muted, retry, no_flow_overlap, summary, description, tag, paused_until, cron_version, dynamic_skip, labels, skipped_runs FROM schedule WHERE path = $1 AND workspace_id = $2",
     )
     .bind(path)
     .bind(w_id)

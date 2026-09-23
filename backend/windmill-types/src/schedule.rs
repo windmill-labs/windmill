@@ -60,7 +60,7 @@ pub struct Schedule {
     // Runtime state, not configuration: kept out of exports and git sync.
     #[sqlx(default)]
     #[serde(skip)]
-    pub skipped_occurrences: Option<i32>,
+    pub skipped_runs: i32,
 }
 
 impl Schedule {

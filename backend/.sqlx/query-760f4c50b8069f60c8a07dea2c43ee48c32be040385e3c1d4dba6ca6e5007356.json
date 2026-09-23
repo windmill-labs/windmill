@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE schedule SET skipped_runs = 0, skipped_occurrences = 0\n                WHERE workspace_id = $1 AND path = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "760f4c50b8069f60c8a07dea2c43ee48c32be040385e3c1d4dba6ca6e5007356"
+}

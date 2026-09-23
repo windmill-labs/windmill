@@ -57,6 +57,8 @@
 
 	type ScheduleW = ScheduleWJobs & { canWrite: boolean }
 
+	const SKIP_VISIBLE_MS = 7 * 24 * 60 * 60 * 1000
+
 	let schedules: ScheduleW[] = $state([])
 	let shareModal: ShareModal | undefined = $state()
 	let loading = $state(true)
@@ -150,6 +152,7 @@
 		for (let schedule of schedules) {
 			if (schedulesWithJobsByPath[schedule.path]) {
 				schedule.jobs = schedulesWithJobsByPath[schedule.path].jobs
+				schedule.skipped_runs = schedulesWithJobsByPath[schedule.path].skipped_runs
 				schedule.skipped_occurrences = schedulesWithJobsByPath[schedule.path].skipped_occurrences
 				schedule.skipped_at = schedulesWithJobsByPath[schedule.path].skipped_at
 			}
@@ -403,7 +406,7 @@
 				{/if}
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
-					{#each items.slice(0, nbDisplayed) as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, jobs, skipped_occurrences, skipped_at, paused_until, labels, inherited_labels, draft_only, is_draft } (path)}
+					{#each items.slice(0, nbDisplayed) as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, jobs, skipped_runs, skipped_occurrences, skipped_at, paused_until, labels, inherited_labels, draft_only, is_draft } (path)}
 						{@const hasDraft =
 							getLocalDraftHint($workspaceStore, 'trigger_schedule', path) ?? is_draft}
 						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
@@ -492,16 +495,25 @@
 												</div>
 											{/snippet}
 										</Popover>
-									{:else if skipped_occurrences}
+									{:else if skipped_runs}
 										<Popover notClickable>
 											<TriangleAlert size={16} class="text-yellow-600" />
 											{#snippet text()}
 												<div>
-													Skipped {skipped_occurrences}
-													{skipped_occurrences === 1 ? 'occurrence' : 'occurrences'}
-													{skipped_at ? `on ${displayDate(skipped_at)}` : ''} because the previous run
-													finished or started after the next one was due. Shorten the run or add workers
-													to run every occurrence.
+													The last {skipped_runs === 1 ? 'run' : `${skipped_runs} runs`} skipped
+													{skipped_occurrences}
+													{skipped_occurrences === 1 ? 'occurrence' : 'occurrences'}: each finished or
+													started after the next one was due. Shorten the run or add workers to run
+													every occurrence.
+												</div>
+											{/snippet}
+										</Popover>
+									{:else if skipped_at && Date.now() - new Date(skipped_at).getTime() < SKIP_VISIBLE_MS}
+										<Popover notClickable>
+											<TriangleAlert size={16} class="text-secondary" />
+											{#snippet text()}
+												<div>
+													Skipped occurrences on {displayDate(skipped_at)}, running on schedule since.
 												</div>
 											{/snippet}
 										</Popover>

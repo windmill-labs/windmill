@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE schedule SET skipped_runs = skipped_runs + 1,\n                    skipped_occurrences = skipped_occurrences + $3, skipped_at = now()\n                WHERE workspace_id = $1 AND path = $2\n                RETURNING skipped_runs, skipped_occurrences",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "skipped_runs",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "skipped_occurrences",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "34850d621f84ac04d192ebc5dd78e7fde6515727bcf5e5cece27f175d9acc25f"
+}

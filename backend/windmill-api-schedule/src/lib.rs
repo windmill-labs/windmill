@@ -410,7 +410,7 @@ async fn create_schedule(
             cron_version,
             dynamic_skip,
             labels,
-            skipped_occurrences
+            skipped_runs
         "#,
         w_id,
         ns.path,
@@ -621,7 +621,10 @@ async fn edit_schedule(
             email                   = $24,
             edited_by               = $25,
             permissioned_as         = $26,
-            labels                  = COALESCE($27, labels)
+            labels                  = COALESCE($27, labels),
+            skipped_runs            = 0,
+            skipped_occurrences     = 0,
+            skipped_at              = NULL
         WHERE path = $19 AND workspace_id = $20
         RETURNING
             workspace_id,
@@ -657,7 +660,7 @@ async fn edit_schedule(
             cron_version,
             dynamic_skip,
             labels,
-            skipped_occurrences
+            skipped_runs
         "#,
         es.schedule,
         es.timezone,
@@ -1005,7 +1008,8 @@ async fn list_schedule(
 pub struct ScheduleWJobs {
     pub path: String,
     pub jobs: Option<Vec<serde_json::Value>>,
-    pub skipped_occurrences: Option<i32>,
+    pub skipped_runs: i32,
+    pub skipped_occurrences: i32,
     pub skipped_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
@@ -1023,7 +1027,7 @@ async fn list_schedule_with_jobs(
         // - use of the `ix_v2_job_root_by_path` index; hence the `parent_job IS NULL` clause.
         // - both `workspace_id = $1` checks are required to hit both indexes.
         "SELECT
-            schedule.path, t.jobs, schedule.skipped_occurrences, schedule.skipped_at FROM schedule,
+            schedule.path, t.jobs, schedule.skipped_runs, schedule.skipped_occurrences, schedule.skipped_at FROM schedule,
             LATERAL(SELECT ARRAY(
                 SELECT json_build_object('id', id, 'success', status = 'success', 'duration_ms', duration_ms)
                 FROM v2_job_completed c JOIN v2_job j USING (id)
@@ -1160,7 +1164,10 @@ pub async fn set_enabled(
         r#"
         UPDATE schedule SET
             enabled = $1,
-            email = $2
+            email = $2,
+            skipped_runs = 0,
+            skipped_occurrences = 0,
+            skipped_at = NULL
         WHERE path = $3 AND workspace_id = $4
         RETURNING
             workspace_id,
@@ -1196,7 +1203,7 @@ pub async fn set_enabled(
             cron_version,
             dynamic_skip,
             labels,
-            skipped_occurrences
+            skipped_runs
         "#,
         payload.enabled,
         authed.email,
