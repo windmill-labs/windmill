@@ -1679,7 +1679,7 @@ describe('AIChatManager queued messages', () => {
 		mocks.tryGetCurrentModel.mockReturnValue(a)
 		mocks.runChatLoop.mockImplementation(async (config: any) => {
 			// an iteration starts on B...
-			await config.onBeforeIteration?.([], config.helpers, b)
+			await config.onBeforeIteration?.(b)
 			// ...the user switches to C while B's request is in flight...
 			mocks.getCurrentModel.mockReturnValue(c)
 			mocks.tryGetCurrentModel.mockReturnValue(c)
@@ -1792,7 +1792,7 @@ describe('AIChatManager queued messages', () => {
 			// mid-loop switch to a model the deny-list doesn't know...
 			mocks.getCurrentModel.mockReturnValue(unlistedBlind)
 			mocks.tryGetCurrentModel.mockReturnValue(unlistedBlind)
-			await config.onBeforeIteration?.([], config.helpers, unlistedBlind)
+			await config.onBeforeIteration?.(unlistedBlind)
 			// ...its request carries the images and the provider rejects them
 			throw new Error('400 this model does not support image input')
 		})

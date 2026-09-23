@@ -3075,13 +3075,8 @@ export class AIChatManager implements ChatViewHost {
 						console.error('Failed to record AI usage', e)
 					}
 				},
-				onBeforeIteration: async (tools, _helpers, modelProvider) => {
+				onBeforeIteration: async (modelProvider) => {
 					this.lastIterationModel = modelProvider
-					for (const tool of tools) {
-						if (tool.setSchema) {
-							await tool.setSchema(this.helpers)
-						}
-					}
 				}
 			})
 			if (this.isSessionChat && this.sessionId && result.tokenUsage.total > 0) {

@@ -2826,7 +2826,7 @@ const RUNS_TIMEFRAME_LABELS = runsTimeframes.map((tf) => tf.label) as [string, .
 // input_schema requires; a top-level oneOf would be rejected. Each per-page URL builder
 // drops any key that isn't one of its page's real query params, so a field that doesn't
 // apply to the chosen page is harmless. This full schema is used to PARSE tool args; the
-// advertised schema (what the model sees) is narrowed per-user in `setSchema`.
+// advertised schema (what the model sees) is narrowed per-user in `schemaFor`.
 const openPageFullSchema = z.object({
 	page: z.enum(OPEN_PAGE_NAMES).describe('Which page to open'),
 	path: z
@@ -3275,7 +3275,7 @@ function summarizeOpenPage(url: string, page: OpenPageName): string {
 
 export const openPageTool: SessionTool<{}> = {
 	requires: NONE,
-	// The initial def assumes an untracked chat and no resolved role; setSchema below
+	// The initial def assumes an untracked chat and no resolved role; schemaFor below
 	// rebuilds it with the caller's real surface before each iteration.
 	def: createToolDef(
 		buildOpenPageDefSchema(
@@ -3294,9 +3294,9 @@ export const openPageTool: SessionTool<{}> = {
 	autoCollapseDetails: false,
 	// Re-narrow the advertised `page` enum to this user's permissions each iteration, so
 	// the model never sees (or suggests) a page the user can't reach.
-	setSchema: async function (helpers) {
+	schemaFor: async (helpers) => {
 		const access = await allowedOpenPages(operatingWorkspaceFromHelpers(helpers))
-		this.def = createToolDef(
+		return createToolDef(
 			buildOpenPageDefSchema(
 				access.pages,
 				allowedTriggerKinds(),
