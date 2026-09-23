@@ -28,6 +28,7 @@
 <script lang="ts">
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
+	import { copilotInfo } from '$lib/aiStore'
 	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import {
@@ -79,9 +80,11 @@
 	// focus off to the first tabbable in the next column.
 	let languageEl: HTMLElement | undefined
 	let outputEl: HTMLElement | undefined
-	// Refs into the bottom panel for the Output → Path → AI Prompt → Save chain.
+	// Refs into the bottom panel for the Output → Path → AI Prompt → Save chain. The AI
+	// prompt is absent where the workspace hid the assistant, so Path advances to Save.
 	let pathEl: HTMLElement | undefined
 	let aiPromptEl: HTMLElement | undefined
+	let saveEl: HTMLElement | undefined
 
 	let compatibleKinds = $derived.by<PipelineOutputKind[]>(() => {
 		if (!selected.language) return []
@@ -261,7 +264,7 @@
 {#snippet bottomSection(close: () => void)}
 	<Label label="Path">
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div bind:this={pathEl} class="flex" onkeydown={selectAndAdvanceTo(() => aiPromptEl)}>
+		<div bind:this={pathEl} class="flex" onkeydown={selectAndAdvanceTo(() => aiPromptEl ?? saveEl)}>
 			<div
 				class="border rounded-md rounded-r-none border-r-0 text-xs w-fit shrink-0 whitespace-nowrap flex items-center px-2 text-secondary bg-surface-input"
 			>
@@ -270,25 +273,27 @@
 			<TextInput bind:value={selected.scriptPath} class="rounded-l-none" />
 		</div>
 	</Label>
-	<Label label="AI Prompt (optional)">
-		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div
-			bind:this={aiPromptEl}
-			onkeydown={(e) =>
-				(e.metaKey || e.ctrlKey) && e.key === 'Enter' && (confirm(close), e.stopPropagation())}
-		>
-			<TextInput
-				class="resize-none h-12 !max-h-12"
-				underlyingInputEl="textarea"
-				inputProps={{
-					placeholder: 'Describe what the script should do — leave empty to use a template'
-				}}
-				bind:value={selected.aiPrompt}
-			/>
-		</div>
-	</Label>
+	{#if !$copilotInfo.workspaceDisabled}
+		<Label label="AI Prompt (optional)">
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<div
+				bind:this={aiPromptEl}
+				onkeydown={(e) =>
+					(e.metaKey || e.ctrlKey) && e.key === 'Enter' && (confirm(close), e.stopPropagation())}
+			>
+				<TextInput
+					class="resize-none h-12 !max-h-12"
+					underlyingInputEl="textarea"
+					inputProps={{
+						placeholder: 'Describe what the script should do — leave empty to use a template'
+					}}
+					bind:value={selected.aiPrompt}
+				/>
+			</div>
+		</Label>
+	{/if}
 	{@const hasAiPrompt = !!selected.aiPrompt?.trim()}
-	<div class="ml-auto">
+	<div class="ml-auto" bind:this={saveEl}>
 		<Button
 			variant="accent"
 			btnClasses="w-fit"

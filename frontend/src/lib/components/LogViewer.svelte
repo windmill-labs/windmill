@@ -18,7 +18,6 @@
 	import { withExternalDomain } from '$lib/externalDomain'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
 	import { appendViewToken } from '$lib/viewToken'
-	import { workspaceStore } from '$lib/stores'
 	import { AnsiUp } from 'ansi_up'
 	import NoWorkerWithTagWarning from './runs/NoWorkerWithTagWarning.svelte'
 	import { JobService } from '$lib/gen'
@@ -27,6 +26,9 @@
 	import Tooltip from './Tooltip.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import QueuePosition from './QueuePosition.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		content: string | undefined
@@ -111,7 +113,7 @@
 		const id = jobId
 		fetchedSkippedJobId = id
 		untrack(() => {
-			JobService.getJob({ workspace: $workspaceStore ?? '', id })
+			JobService.getJob({ workspace: $operatingWorkspace ?? '', id })
 				.then((j) => {
 					if (fetchedSkippedJobId === id) {
 						const logs = (j as { logs?: string })['logs'] ?? ''
@@ -219,7 +221,7 @@
 		if (downloadStartUrl) {
 			scroll = false
 			let res = (await JobService.getLogFileFromStore({
-				workspace: $workspaceStore ?? '',
+				workspace: $operatingWorkspace ?? '',
 				path: downloadStartUrl
 			})) as string
 			LOG_LIMIT += Math.min(LOG_INC, res.length)
@@ -250,7 +252,7 @@
 			fetchedSkippedJobId = undefined
 		}
 	})
-	let logsApiPath = $derived(appendViewToken(`/w/${$workspaceStore}/jobs_u/get_logs/${jobId}`))
+	let logsApiPath = $derived(appendViewToken(`/w/${$operatingWorkspace}/jobs_u/get_logs/${jobId}`))
 	let downloadHref = $derived(withExternalDomain(`${base}/api${logsApiPath}`))
 	let downloadName = $derived(`windmill_logs_${jobId}.txt`)
 	let truncatedContent = $derived(

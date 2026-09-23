@@ -29,6 +29,8 @@
 		WandSparkles
 	} from 'lucide-svelte'
 	import Portal from '$lib/components/Portal.svelte'
+	import { zIndexes } from '$lib/zIndexes'
+	import { overlayStack } from '$lib/components/common/overlayHost.svelte'
 
 	import { twMerge } from 'tailwind-merge'
 	import ContentSearchInner from '../ContentSearchInner.svelte'
@@ -49,6 +51,7 @@
 	import NatsIcon from '../icons/NatsIcon.svelte'
 	import RunsSearch from './RunsSearch.svelte'
 	import AskAiButton from '../copilot/AskAiButton.svelte'
+	import { copilotInfo } from '$lib/aiStore'
 
 	let open: boolean = $state(false)
 
@@ -366,6 +369,7 @@
 	async function handleKeydown(event: KeyboardEvent) {
 		if ((!isMac() ? event.ctrlKey : event.metaKey) && event.key === 'k') {
 			event.preventDefault()
+			if (!open) openedOn = undefined
 			await openModal()
 		}
 		if (open) {
@@ -426,7 +430,7 @@
 				path = `/apps/get/${e.path}`
 				break
 			case 'raw_app':
-				path = `/raw_apps/get/${e.path}`
+				path = `/apps_raw/get/${e.path}`
 				break
 			default:
 				path = '/'
@@ -448,6 +452,24 @@
 	function handleMouseMove() {
 		mouseMoved = true
 	}
+
+	// On the overlay stack while open: a modal or drawer it was opened from arbitrates Escape on that
+	// stack, and would otherwise close itself on the key meant for the search above it. The opener
+	// names its stack, because a pane hosting an editor (a sessions tab) keeps its own.
+	const globalStack = overlayStack()
+	let openedOn: import('$lib/components/common/overlayHost.svelte').OverlayStack | undefined =
+		$state(undefined)
+	const STACK_ID = 'global-search'
+	$effect(() => {
+		if (!open) return
+		const stack = openedOn ?? globalStack
+		untrack(() => stack.val.push(STACK_ID))
+		return () => {
+			untrack(() => {
+				stack.val = stack.val.filter((id) => id !== STACK_ID)
+			})
+		}
+	})
 
 	onMount(() => {
 		window.addEventListener('keydown', handleKeydown)
@@ -558,7 +580,11 @@
 		}
 	}
 
-	export async function openSearchWithPrefilledText(text?: string) {
+	export async function openSearchWithPrefilledText(
+		text?: string,
+		stack?: import('$lib/components/common/overlayHost.svelte').OverlayStack
+	) {
+		openedOn = stack
 		await openModal()
 		searchTerm = text ?? searchTerm
 		await handleSearch()
@@ -617,9 +643,9 @@
 		<div
 			class={twMerge(
 				`fixed top-0 bottom-0 left-0 right-0 transition-all duration-50 flex items-start justify-center`,
-				' bg-black bg-opacity-40',
-				'z-[1100]'
+				' bg-black bg-opacity-40'
 			)}
+			style="z-index: {zIndexes.globalSearch}"
 		>
 			<div
 				class="{maxModalWidth(tab)} w-full mt-36 bg-surface rounded-lg relative"
@@ -648,7 +674,7 @@
 							{placeholderFromPrefix(searchTerm)}
 						</label>
 					</div>
-					{#if (itemMap[tab] ?? []).length === 0 && searchTerm.length > 0}
+					{#if (itemMap[tab] ?? []).length === 0 && searchTerm.length > 0 && !$copilotInfo.workspaceDisabled}
 						<AskAiButton
 							bind:this={askAiButton}
 							label="Ask AI"
@@ -724,16 +750,18 @@
 
 						{#if (itemMap[tab] ?? []).length === 0}
 							<div class="p-2">
-								<QuickMenuItem
-									onselect={() => {
-										askAiButton?.onClick()
-									}}
-									id={'ai:no-results-ask-ai'}
-									hovered={true}
-									label={`Try asking \`${searchTerm}\` to AI`}
-									icon={WandSparkles}
-									bind:mouseMoved
-								/>
+								{#if !$copilotInfo.workspaceDisabled}
+									<QuickMenuItem
+										onselect={() => {
+											askAiButton?.onClick()
+										}}
+										id={'ai:no-results-ask-ai'}
+										hovered={true}
+										label={`Try asking \`${searchTerm}\` to AI`}
+										icon={WandSparkles}
+										bind:mouseMoved
+									/>
+								{/if}
 								<div class="flex w-full justify-center items-center">
 									<div class="text-primary text-center">
 										<div class="pt-1 text-sm">Tip: press `esc` to quickly clear the search bar</div>

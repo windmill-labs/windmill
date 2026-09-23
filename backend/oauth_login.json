@@ -15,13 +15,19 @@
     "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
     "token_url": "https://oauth2.googleapis.com/token",
     "userinfo_url": "https://www.googleapis.com/oauth2/v1/userinfo?alt=json",
-    "scopes": ["https://www.googleapis.com/auth/userinfo.email"]
+    "scopes": ["https://www.googleapis.com/auth/userinfo.email"],
+    "extra_params": {
+      "prompt": "select_account"
+    }
   },
   "microsoft": {
     "auth_url": "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
     "token_url": "https://login.microsoftonline.com/common/oauth2/v2.0/token",
     "userinfo_url": "https://graph.microsoft.com/oidc/userinfo",
-    "scopes": ["openid", "profile", "email"]
+    "scopes": ["openid", "profile", "email"],
+    "extra_params": {
+      "prompt": "select_account"
+    }
   },
   "jumpcloud": {
     "auth_url": "https://oauth.id.jumpcloud.com/oauth2/auth",

@@ -278,6 +278,20 @@ export function validateToolExpectations(input: {
       );
     }
 
+    if (rule.stringEqualsAnyOf && rule.stringEqualsAnyOf.length > 0) {
+      const invalidValues = values.filter(
+        (value) =>
+          typeof value !== "string" || !rule.stringEqualsAnyOf!.includes(value)
+      );
+      checks.push(
+        check(
+          `${rule.tool}.${rule.field} matches an accepted value`,
+          invalidValues.length === 0,
+          `accepted values: ${rule.stringEqualsAnyOf.join(", ")}; values: ${summarizeToolValues(values)}`
+        )
+      );
+    }
+
     if (rule.stringMustNotStartWithAnyOf && rule.stringMustNotStartWithAnyOf.length > 0) {
       const invalidValues = values.filter(
         (value) =>
@@ -302,6 +316,23 @@ export function validateToolExpectations(input: {
           `${rule.tool}.${rule.field} is filled in on every call`,
           blankValues.length === 0,
           `blank on ${blankValues.length} of ${values.length} call(s); values: ${summarizeToolValues(values)}`
+        )
+      );
+    }
+
+    if (rule.sharedByAtLeast !== undefined) {
+      const counts = new Map<string, number>();
+      for (const value of values) {
+        if (typeof value === "string" && value.trim().length > 0) {
+          counts.set(value, (counts.get(value) ?? 0) + 1);
+        }
+      }
+      const mostShared = Math.max(0, ...counts.values());
+      checks.push(
+        check(
+          `${rule.tool}.${rule.field} is shared by at least ${rule.sharedByAtLeast} calls`,
+          mostShared >= rule.sharedByAtLeast,
+          `most calls sharing one value: ${mostShared}; values: ${summarizeToolValues(values)}`
         )
       );
     }

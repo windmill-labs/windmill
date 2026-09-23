@@ -73,6 +73,8 @@ COPY /backend/oauth_connect.json /backend/oauth_connect.json
 COPY /openflow.openapi.yaml /openflow.openapi.yaml
 COPY /backend/windmill-api/build_openapi.sh /backend/windmill-api/build_openapi.sh
 COPY /system_prompts/auto-generated /system_prompts/auto-generated
+# The flow chat imports the chat SDK's source (svelte.config.js alias `windmill-chat`).
+COPY /chat-sdk/src /chat-sdk/src
 
 RUN cd /backend/windmill-api && . ./build_openapi.sh
 COPY /backend/parsers/windmill-parser-wasm/pkg/ /backend/parsers/windmill-parser-wasm/pkg/
@@ -141,9 +143,9 @@ FROM ${DEBIAN_IMAGE}
 ARG TARGETPLATFORM
 ARG POWERSHELL_VERSION=7.5.0
 ARG KUBECTL_VERSION=1.36.2
-ARG HELM_VERSION=3.21.2
+ARG HELM_VERSION=3.21.4
 # NOTE: If changing, also change go version in workspace dependencies template at WorkspaceDependenciesEditor.svelte
-ARG GO_VERSION=1.26.0
+ARG GO_VERSION=1.26.8
 ARG APP=/usr/src/app
 ARG WITH_POWERSHELL=true
 ARG WITH_KUBECTL=true
@@ -250,8 +252,8 @@ RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_r
 RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv python install $LATEST_STABLE_PY --compile-bytecode
 
 
-RUN curl -sL https://deb.nodesource.com/setup_20.x | bash -
-RUN apt-get -y update && apt-get install -y curl procps nodejs awscli && apt-get clean \
+RUN curl -sL https://deb.nodesource.com/setup_24.x | bash -
+RUN apt-get -y update && apt-get install -y --no-install-recommends curl procps nodejs awscli && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # go build is slower the first time it is ran, so we prewarm it in the build
@@ -299,7 +301,7 @@ RUN bun install -g windmill-cli \
 RUN curl -fsSL https://claude.ai/install.sh | bash \
     && cp /root/.local/share/claude/versions/* /usr/bin/claude
 
-COPY --from=php:8.3.30-cli-trixie /usr/local/bin/php /usr/bin/php
+COPY --from=php:8.3.33-cli-trixie /usr/local/bin/php /usr/bin/php
 COPY --from=composer:2.9.5 /usr/bin/composer /usr/bin/composer
 
 # add the docker client to call docker from a worker if enabled

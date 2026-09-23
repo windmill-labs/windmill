@@ -1,3 +1,5 @@
+import type { AttachedBlob } from './blobUtils'
+import type { ChatViewHost } from './chatViewHost'
 import type { ScriptLang } from '$lib/gen/types.gen'
 import { JobService, type CompletedJob } from '$lib/gen'
 import type { FlowOptions, ScriptOptions } from './ContextManager.svelte'
@@ -23,11 +25,14 @@ import {
 	type ToolCallbacks,
 	type ToolDisplayMessage,
 	type UserQuestionDisplay,
+	type RunFormDisplay,
+	type RunFormDraft,
 	type ChatJob,
 	type ChatJobInit,
 	type ChatJobStatus,
 	completedJobToolStatus,
 	backgroundJobCompletionNote,
+	createJobUpdateReader,
 	deriveChatJobStatus,
 	pendingToolImagesMessage,
 	trimJob
@@ -50,13 +55,14 @@ import { sendUserToast } from '$lib/toast'
 import { workspaceAIClients, getNonStreamingCompletion } from '../lib'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
 import { modelSupportsVision } from '../modelConfig'
-import { getModelContextWindow } from '../modelConfig'
+import { getEffectiveModelContextWindow } from '../modelConfig'
 import {
 	getCompactionSummaryPrompt,
 	formatCompactSummary,
 	buildSummaryMessageContent
 } from './compactionPrompt'
 import { dfs } from '$lib/components/flows/previousResults'
+import { redactFileArgs, redactSecretArgs } from '$lib/components/job_args'
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { createLongHash } from '$lib/editorLangUtils'
 import type { AIProvider, UserDraftItemKind } from '$lib/gen'
@@ -89,7 +95,7 @@ import { copilotInfo } from '$lib/aiStore'
 import { copilotWorkspaceRequested, loadCopilot } from '$lib/components/copilot/loadCopilot'
 import { askTools, prepareAskSystemMessage, prepareAskUserMessage } from './ask/core'
 import { readDocsPageTool, searchDocsTool } from './docs/core'
-import { TypewriterReveal } from './typewriterReveal'
+import { prefersInstantReveal, TypewriterReveal } from './typewriterReveal'
 import { chatState, DEFAULT_SIZE, triggerablesByAi } from './sharedChatState.svelte'
 import {
 	createAppBackendRunnableContextElement,
@@ -104,6 +110,7 @@ import type { Selection } from 'monaco-editor'
 import type AIChatInput from './AIChatInput.svelte'
 import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
 import { closeInterruptedToolBatch, runChatLoop, truncateToToolPairedPrefix } from './chatLoop'
+import { FREE_TIER_OUTPUT_TOKEN_LIMIT_MESSAGE, OutputTokenLimitError } from './outputTokenLimit'
 import { sanitizeToolCallArguments } from './toolCallArguments'
 import { billedTokens, normalizeContextUsage, type ChatTokenUsage } from './tokenUsage'
 import { logAiUsage } from '$lib/utils/aiUsageReporter'
@@ -119,27 +126,25 @@ import {
 } from '$lib/aiStore'
 import type { WorkspaceMutationTarget } from './workspaceTools'
 import {
-	globalToolsFor,
 	loadWorkspaceSkills,
-	prepareGlobalSystemMessage,
 	resolveGlobalPromptIdentity,
 	type GlobalPromptIdentity,
 	prepareGlobalUserMessage,
 	type AiSkillListItem,
 	type ChatCommandItem,
 	type SessionPromptContext,
-	getSessionContextPromptSection,
 	type GlobalToolHelpers,
 	type GlobalActivePreviewContext
 } from './global/core'
+import {
+	assembleGlobalSystemMessage,
+	assembleGlobalTools,
+	type GlobalAssemblyOpts
+} from './global/globalAssembly'
 import { formatChatJobCompletion } from './datatableTools'
 import { isGlobalAiEnabled } from './global/gate'
-import { createMcpTools, loadMcpServers, type McpServer } from './global/mcpTools'
-import {
-	pipelineTools,
-	getPipelinePromptSection,
-	type PipelineAIChatHelpers
-} from './pipeline/core'
+import { loadMcpServers, type McpServer } from './global/mcpTools'
+import type { PipelineAIChatHelpers } from './pipeline/core'
 import { scopedKey, onUserChange, migrateLegacyLocalStorage } from '$lib/userScopedStorage'
 import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 import { AttachedFilesStore } from './files/attachedFiles.svelte'
@@ -148,11 +153,6 @@ import type { ArtifactVersionTarget } from '$lib/components/sessions/previewRout
 import { appendAttachedFilesRoster } from './files/fileTools'
 import { ENTER_PLAN_MODE_TOOL, EXIT_PLAN_MODE_TOOL } from './planMode'
 import { PlanModeController, type PlanModeHost } from './planModeController.svelte'
-
-// SSR and users who prefer reduced motion get no typewriter pacing.
-function prefersInstantReveal(): boolean {
-	return !BROWSER || (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false)
-}
 
 // Compaction of the stored history: once the projected request size
 // (contextTokens — the provider's report when current, a fresh chars/4
@@ -189,6 +189,22 @@ const MAX_CONSECUTIVE_COMPACTION_FAILURES = 3
 // (panel teardown, save-and-clear) pass their own reason, so the queued-message
 // flush can tell "the user wants to move on" from "the turn was torn down".
 const USER_CANCEL_REASON = 'user_cancelled'
+// Applied wherever a run form stops rendering. Only the form reads the deployed schema,
+// so past that point it is a copy of the script's declarations — password and file
+// defaults with them — persisted for the life of the chat.
+const settledRunForm = (runForm: RunFormDisplay): RunFormDisplay =>
+	runForm.submitted || runForm.canceled
+		? { ...runForm, schema: undefined, code: undefined, lang: undefined }
+		: runForm
+
+/** A run form the chat is holding open, keyed by tool call id. */
+type PendingRunForm = {
+	/** Absent once the loop is no longer waiting: a card restored from history still mounts
+	 * its form and still holds edits, but nothing is left to receive them. */
+	resolve?: (args: Record<string, any> | undefined) => void
+	draft: RunFormDraft
+	submitting: boolean
+}
 // Built-in `/compact` session command — summarizes the conversation locally
 // instead of sending a turn to the model. Matched on the whole input so a
 // regular message that merely mentions "/compact" mid-sentence is unaffected.
@@ -360,6 +376,10 @@ function isImageRejection(err: unknown, models: (string | undefined)[] = []): bo
 }
 
 function getSendRequestErrorMessage(err: unknown, webSearchUnavailable: boolean): string {
+	// The request went through; only its response was cut short.
+	if (err instanceof OutputTokenLimitError) {
+		return get(copilotInfo).freeTier ? FREE_TIER_OUTPUT_TOKEN_LIMIT_MESSAGE : err.message
+	}
 	const errorMessage =
 		err instanceof Error ? err.message : typeof err === 'string' ? err : undefined
 	const message = errorMessage
@@ -425,9 +445,31 @@ function planModeHostFor(m: AIChatManager): PlanModeHost {
 	}
 }
 
-export class AIChatManager {
+export class AIChatManager implements ChatViewHost {
 	contextManager = new ContextManager()
 	historyManager = new HistoryManager()
+	// The copilot owns its model choice and its own transcript, so both chat
+	// affordances apply here. See ChatViewHost for hosts where they don't.
+	supportsModelSettings = true
+	supportsMessageEditing = true
+	// The copilot turn is the attachments themselves when there is no text.
+	requiresMessageText = false
+	// Attachments and linked folders are GLOBAL-mode affordances. Declared as
+	// getters because `mode` changes under a mounted composer.
+	get supportsMessageAttachments() {
+		return this.mode === AIMode.GLOBAL
+	}
+	get supportsLinkedFolders() {
+		return this.mode === AIMode.GLOBAL
+	}
+	// The copilot reads attachments in the browser, so non-image files decode to text.
+	attachmentsAsBlobs = false
+	// The copilot decodes its attachments, so nothing ever lands in the blob lane.
+	queuedBlobs: AttachedBlob[] = []
+	// Steers the OS file picker toward text + image formats (a soft hint; both attach to
+	// the message — text files after a content sniff).
+	attachmentAccept =
+		'image/*,text/*,.txt,.csv,.tsv,.json,.jsonl,.ndjson,.md,.markdown,.log,.yaml,.yml,.toml,.ini,.cfg,.conf,.env,.xml,.html,.htm,.css,.js,.mjs,.cjs,.ts,.tsx,.jsx,.py,.rb,.rs,.go,.java,.kt,.c,.h,.cpp,.cc,.cs,.php,.sh,.bash,.zsh,.sql,.svelte,.vue,.dockerfile'
 	/** Files the user attached to the current GLOBAL-mode conversation. */
 	attachedFiles = new AttachedFilesStore()
 	/** Markdown artifacts the copilot created for the current session. */
@@ -495,10 +537,32 @@ export class AIChatManager {
 	// Consecutive getJob failures per background job, so a vanished/404 job can be
 	// drained instead of polled forever. Ephemeral, keyed by jobId.
 	#jobPollFailures = new Map<string, number>()
+	// Incremental log/result-stream readers, keyed by jobId. A job that detaches out of
+	// the inline wait keeps streaming into its card through these; each holds its own
+	// offsets, so one created after a reload refetches from the start.
+	#jobUpdateReaders = new Map<string, ReturnType<typeof createJobUpdateReader>>()
 	/** Opens a run in the sessions preview pane. Set by the session runtime;
 	 * undefined in the global side-panel chat, where the tray falls back to opening
 	 * the run in a new browser tab. */
 	openRunInPreview?: (a: { jobId: string; workspace: string; label: string }) => void
+	/** Opens a pending run form in the sessions preview pane, on the same tool call the
+	 * chat card holds. Unset outside a session: a chat-bound form has nowhere else to go,
+	 * so the card hides the control rather than offering a tab that cannot run. */
+	openRunForm?: (a: { toolCallId: string; label: string }) => void
+	closeRunForm?: (toolCallId: string) => void
+	/** Hands that tab from the form to the run it just started, in place: the tab keeps its
+	 * position in the strip and stays active if it was. */
+	showRunInPlaceOfForm?: (a: {
+		toolCallId: string
+		jobId: string
+		workspace: string
+		label: string
+	}) => void
+	/** Whether the panel holds this call's pending form. Answered off the session's tab list,
+	 * so it stays true while the user is on another tab, and per call rather than "the open
+	 * one". Read from a `$derived` — the reader subscribes to the tab list through the call.
+	 * The card hides its form on it, which is what keeps exactly one mounted per call. */
+	isRunFormInPreview?: (toolCallId: string) => boolean
 	openArtifact?: (artifactId: string, name: string, version?: ArtifactVersionTarget) => void
 	closeArtifact?: (artifactId: string) => void
 	#loading = $state<boolean>(false)
@@ -653,7 +717,17 @@ export class AIChatManager {
 		role: 'system',
 		content: ''
 	})
-	tools = $state<Tool<any>[]>([])
+	/** The sources the current mode assembled, concatenated. Private, because neither view
+	 * over it is this list: a consumer reading it would advertise a tool set no request ever
+	 * carries. */
+	#assembledTools = $state<Tool<any>[]>([])
+	/** What the request carries: the assembled tools plus the plan-mode transition the current
+	 * posture offers. Read by the request path and by the YOLO disclosure. */
+	tools: Tool<any>[] = $derived([...this.#assembledTools, ...this.planMode.tools])
+	/** What the assistant can call in this session, posture-independent: both plan-mode
+	 * transitions, whichever one is offered right now. A reference answer, so flipping the
+	 * autonomy picker must not change it. */
+	availableTools: Tool<any>[] = $derived([...this.#assembledTools, ...this.planMode.availableTools])
 	helpers = $state<any | undefined>(undefined)
 
 	scriptEditorOptions = $state<ScriptOptions | undefined>(undefined)
@@ -663,14 +737,22 @@ export class AIChatManager {
 	>(undefined)
 	scriptEditorShowDiffMode = $state<(() => void) | undefined>(undefined)
 	scriptEditorGetLintErrors = $state<(() => ScriptLintResult) | undefined>(undefined)
+	/** The editor a FLOW-mode chat belongs to: the page owning the chat names itself here, and a
+	 * nested editor (a subflow drawer) takes it over while it is open. Unset in a session chat,
+	 * which keeps every open editor tab mounted and could only name an arbitrary one — a session
+	 * resolves an editor by its storage path through `flowEditorFor`. */
 	flowAiChatHelpers = $state<FlowAIChatHelpers | undefined>(undefined)
+	/** Every mounted flow editor. */
+	#flowEditors = new Set<FlowAIChatHelpers>()
 	appAiChatHelpers = $state<AppAIChatHelpers | undefined>(undefined)
-	/** Datatable creation policy: enabled flag, datatable name, and optional schema */
+	/** Datatable creation policy: enabled flag, datatable name, optional schema, and the role the
+	 * app uses each data table through */
 	datatableCreationPolicy = $state<{
 		enabled: boolean
 		datatable: string | undefined
 		schema: string | undefined
-	}>({ enabled: false, datatable: undefined, schema: undefined })
+		roles?: Record<string, string>
+	}>({ enabled: false, datatable: undefined, schema: undefined, roles: undefined })
 	pendingNewCode = $state<string | undefined>(undefined)
 	apiTools = $state<Tool<any>[]>([])
 	aiChatInput = $state<AIChatInput | null>(null)
@@ -682,6 +764,15 @@ export class AIChatManager {
 		{ resolve: (value: boolean) => void; toolName?: string }
 	>()
 	private userQuestionCallbacks = new Map<string, (choices: string[] | undefined) => void>()
+	/**
+	 * One run form's whole life while it waits, so ending it is one delete and cannot end half
+	 * of it. Held here rather than in the form, which unmounts and remounts as it moves between
+	 * the chat card and the preview pane: both are views of one entry.
+	 *
+	 * Entries are replaced rather than mutated, so a `$derived` reading `submitting` fires;
+	 * `draft` keeps its identity across a replacement, which is what the form is bound to.
+	 */
+	#runForms = new SvelteMap<string, PendingRunForm>()
 	private appDatatablesRefreshTimeout: ReturnType<typeof setTimeout> | undefined = undefined
 
 	disabledModes: Partial<Record<AIMode, boolean>> = $state({})
@@ -806,19 +897,23 @@ export class AIChatManager {
 	// turn-end save.
 	#maskPersistQueue: Promise<void> = Promise.resolve()
 	#persistModifiedItems(): Promise<void> {
-		this.#maskPersistQueue = this.#maskPersistQueue.then(() =>
-			this.historyManager
-				.saveChat(
-					this.displayMessages,
-					this.messages,
-					this.contextUsage,
-					this.modifiedItems ? [...this.modifiedItems] : undefined
-				)
-				// Swallow (and log) a failed write so it can't wedge the queue as a
-				// rejected link — the next persist snapshots the full current set, so
-				// a lost write self-heals on the next mutation or turn-end save.
-				.catch((e) => console.error('Failed to persist modified-items mask', e))
-		)
+		this.#maskPersistQueue = this.#maskPersistQueue.then(() => {
+			const { display, jobs } = this.#interruptedSnapshot()
+			return (
+				this.historyManager
+					.saveChat(
+						display,
+						this.messages,
+						this.contextUsage,
+						this.modifiedItems ? [...this.modifiedItems] : undefined,
+						jobs
+					)
+					// Swallow (and log) a failed write so it can't wedge the queue as a
+					// rejected link — the next persist snapshots the full current set, so
+					// a lost write self-heals on the next mutation or turn-end save.
+					.catch((e) => console.error('Failed to persist modified-items mask', e))
+			)
+		})
 		return this.#maskPersistQueue
 	}
 
@@ -849,6 +944,16 @@ export class AIChatManager {
 			...this.backgroundJobs,
 			{ ...init, createdAt: Date.now(), status: 'queued', detached: false, reported: false }
 		]
+		// The panel was holding this call's form and the call now has a job: the tab follows
+		// the call rather than being left on a form that has already run.
+		if (this.isRunFormInPreview?.(init.toolCallId)) {
+			this.showRunInPlaceOfForm?.({
+				toolCallId: init.toolCallId,
+				jobId: init.jobId,
+				workspace: init.workspace,
+				label: init.label
+			})
+		}
 	}
 
 	/** Merge a partial update into a tracked job by id. */
@@ -962,10 +1067,34 @@ export class AIChatManager {
 		let anyTerminal = false
 		for (const job of pending) {
 			try {
+				// Its own output first, so a run that detached out of the inline wait keeps
+				// filling its card. `getJob` alone would freeze a streamed result until the
+				// job landed — the partial is only on the updates endpoint.
+				let reader = this.#jobUpdateReaders.get(job.jobId)
+				if (!reader) {
+					reader = createJobUpdateReader(job.jobId, job.workspace)
+					this.#jobUpdateReaders.set(job.jobId, reader)
+				}
+				const update = await reader.poll()
+				if (gen !== this.#jobPollGeneration) return
+				// Only what this reader has collected: the patch is spread over the card, so
+				// naming a field it has nothing for erases output already on it.
+				if (update?.logs || update?.resultStream) {
+					this.applyToolStatus(job.toolCallId, {
+						...(update.logs ? { logs: update.logs } : {}),
+						...(update.resultStream ? { resultStream: update.resultStream } : {})
+					})
+				}
+
+				// Only when the reader has not already carried them, or when the run may be
+				// over — the tail written between the last poll and the end is on the job
+				// alone. Otherwise these are logs the tray strips and the card already has,
+				// fetched a second time every tick, for every detached job in the chat.
+				const wantLogs = !update || update.completed
 				const fetched = await JobService.getJob({
 					workspace: job.workspace,
 					id: job.jobId,
-					noLogs: false,
+					noLogs: !wantLogs,
 					noCode: true
 				})
 				// The user switched conversations while this getJob was in flight; its
@@ -975,7 +1104,19 @@ export class AIChatManager {
 				this.#jobPollFailures.delete(job.jobId)
 				if (fetched.type === 'CompletedJob') {
 					anyTerminal = true
-					this.#onBackgroundJobComplete(job, fetched as CompletedJob)
+					this.#jobUpdateReaders.delete(job.jobId)
+					// The updates can call a landed job unfinished, and the model reads these
+					// logs, so a completion seen without them is fetched again.
+					const completed = wantLogs
+						? (fetched as CompletedJob)
+						: ((await JobService.getJob({
+								workspace: job.workspace,
+								id: job.jobId,
+								noLogs: false,
+								noCode: true
+							})) as CompletedJob)
+					if (gen !== this.#jobPollGeneration) return
+					this.#onBackgroundJobComplete(job, completed)
 				} else {
 					// Store the derived status and the trimmed Job together so the tray
 					// badge (JobStatusIcon) and the scalar status can never drift.
@@ -996,6 +1137,7 @@ export class AIChatManager {
 				this.#jobPollFailures.set(job.jobId, failures)
 				if (httpStatus === 404 || failures >= 5) {
 					this.#jobPollFailures.delete(job.jobId)
+					this.#jobUpdateReaders.delete(job.jobId)
 					// Vanished (404) or unreachable after repeated polls. Mark it failed WITH
 					// a snapshot + tool-card patch (mirroring #onBackgroundJobComplete) so
 					// neither the tray badge nor the launching tool card stays frozen on
@@ -1013,7 +1155,8 @@ export class AIChatManager {
 					this.updateJob(job.jobId, { status: 'failure', reported: true, job: trimJob(gone) })
 					this.applyToolStatus(job.toolCallId, {
 						content: 'Background job could not be retrieved (it may have been removed)',
-						error: `Job ${job.jobId} was unreachable`
+						error: `Job ${job.jobId} was unreachable`,
+						isLoading: false
 					})
 					anyTerminal = true
 				} else {
@@ -1055,8 +1198,14 @@ export class AIChatManager {
 			status === 'canceled' || !job.resultFormat
 				? undefined
 				: formatChatJobCompletion(completed, job.resultFormat)
-		// Fill the tool card that launched it (we run outside a turn here).
-		this.applyToolStatus(job.toolCallId, formatted?.card ?? completedJobToolStatus(completed))
+		// Fill the tool card that launched it (we run outside a turn here). isLoading is
+		// normally already false — processToolCall clears it when the launching tool
+		// returns — but a card restored from a mid-turn checkpoint never saw that return,
+		// so only this patch can stop it spinning.
+		this.applyToolStatus(job.toolCallId, {
+			...(formatted?.card ?? completedJobToolStatus(completed)),
+			isLoading: false
+		})
 		// A user-canceled job needs no model note or auto-resume: the user stopped it
 		// deliberately, so announcing it (as "FAILED", since a canceled job isn't a
 		// success) or burning a turn on it would be noise.
@@ -1130,17 +1279,12 @@ export class AIChatManager {
 	// (saveChat keeps the prior mask when it is undefined).
 	#jobPersistQueue: Promise<void> = Promise.resolve()
 	#persistBackgroundJobs(): Promise<void> {
-		this.#jobPersistQueue = this.#jobPersistQueue.then(() =>
-			this.historyManager
-				.saveChat(
-					this.displayMessages,
-					this.messages,
-					this.contextUsage,
-					undefined,
-					$state.snapshot(this.backgroundJobs)
-				)
+		this.#jobPersistQueue = this.#jobPersistQueue.then(() => {
+			const { display, jobs } = this.#interruptedSnapshot()
+			return this.historyManager
+				.saveChat(display, this.messages, this.contextUsage, undefined, jobs)
 				.catch((e) => console.error('Failed to persist background jobs', e))
-		)
+		})
 		return this.#jobPersistQueue
 	}
 
@@ -1152,6 +1296,7 @@ export class AIChatManager {
 		this.#jobPollGeneration++
 		clearTimeout(this.#autoResumeRetry)
 		this.#autoResumeRetry = undefined
+		this.#jobUpdateReaders.clear()
 		this.backgroundJobs = []
 		this.pendingJobNotes = []
 	}
@@ -1629,7 +1774,7 @@ export class AIChatManager {
 		try {
 			this.apiTools = await loadApiTools()
 			if (this.mode === AIMode.API) {
-				this.tools = [searchDocsTool, readDocsPageTool, ...this.apiTools]
+				this.#assembledTools = [searchDocsTool, readDocsPageTool, ...this.apiTools]
 			}
 		} catch (err) {
 			console.error('Error loading api tools', err)
@@ -1787,6 +1932,166 @@ export class AIChatManager {
 		return true
 	}
 
+	requestRunArgs = (
+		toolId: string,
+		form: RunFormDisplay,
+		opts?: { autoAccepted?: boolean }
+	): Promise<Record<string, any> | undefined> => {
+		// The tool reads the schema before it asks, so a stop during that read drains the
+		// callbacks and settles the card before this runs. Installing one then would park
+		// the turn on a form the settled card no longer renders, leaving nothing able to
+		// resolve it. The controller is per-turn, so a later turn still opens.
+		if (this.abortController?.signal.aborted) {
+			// Settle the form the tool attached after the stop. Its card is about to stop
+			// loading without ever having rendered, and settledToolDisplay only reaches a
+			// loading one — so this is the last point the schema, with the script's own
+			// password and file defaults, can be dropped. No card copy: the stop path writes
+			// what the row says.
+			this.#settleRunForm(toolId, undefined)
+			return Promise.resolve(undefined)
+		}
+		// Ahead of the wait, not of the stop above: the caller settled this form before
+		// attaching it, so its card renders no fields and nothing here could ever resolve.
+		if (opts?.autoAccepted) {
+			return Promise.resolve(form.args)
+		}
+		// Seeded from the caller's copy, before the card renders: the file arguments on
+		// `displayMessages` are redacted, so a draft built from those would open the form on
+		// the marker rather than on the bytes the model proposed.
+		const entry = this.#runFormEntry(toolId, form)
+		return new Promise((resolve) => {
+			this.#runForms.set(toolId, { ...entry, resolve })
+		})
+	}
+
+	/**
+	 * The entry a run form edits through, created on first mount and shared by every later one.
+	 *
+	 * Deep snapshots, never the message's own values: those are `$state` proxies off
+	 * `displayMessages`, and SchemaForm edits args and schema in place (it reorders the
+	 * schema on mount), so anything shallower writes each keystroke — a nested password
+	 * included — into the persisted transcript.
+	 */
+	#runFormEntry = (toolId: string, runForm: RunFormDisplay): PendingRunForm => {
+		const existing = this.#runForms.get(toolId)
+		if (existing) return existing
+		const draft = $state({
+			args: ($state.snapshot(runForm.args) ?? {}) as Record<string, any>,
+			schema: ($state.snapshot(runForm.schema) ?? {}) as Record<string, any>
+		})
+		const entry: PendingRunForm = { draft, submitting: false }
+		this.#runForms.set(toolId, entry)
+		return entry
+	}
+
+	runFormDraft = (toolId: string, runForm: RunFormDisplay): RunFormDraft =>
+		this.#runFormEntry(toolId, runForm).draft
+
+	markRunFormStarted = (toolId: string) => this.#patchRunForm(toolId, { started: true })
+
+	// A form restored from history has an entry once it mounts, but no resolve: the loop
+	// that opened it is gone.
+	isRunFormPending = (toolId: string): boolean => !!this.#runForms.get(toolId)?.resolve
+
+	isRunFormSubmitting = (toolId: string): boolean => this.#runForms.get(toolId)?.submitting ?? false
+
+	/** False when a submit is already in flight for this call, so the caller can drop a
+	 * second one rather than mint a second set of ephemeral secret variables for it. */
+	beginRunFormSubmit = (toolId: string): boolean => {
+		const entry = this.#runForms.get(toolId)
+		if (!entry || entry.submitting) return false
+		this.#runForms.set(toolId, { ...entry, submitting: true })
+		return true
+	}
+
+	endRunFormSubmit = (toolId: string) => {
+		const entry = this.#runForms.get(toolId)
+		if (entry?.submitting) this.#runForms.set(toolId, { ...entry, submitting: false })
+	}
+
+	/** Whether any form of this chat is still waiting on the user. Asked instead of looking
+	 * the form up in the panel's DOM: when the preview holds it, the card is collapsed and
+	 * the only mounted copy is outside the panel — where a DOM query would miss it and let
+	 * Escape discard what has been typed. */
+	get hasPendingRunForm(): boolean {
+		for (const entry of this.#runForms.values()) if (entry.resolve) return true
+		return false
+	}
+
+	/** False when the form is no longer pending, so the caller can say so instead of
+	 * leaving its submit button spinning on a run that will never start. */
+	handleRunFormSubmit = (toolId: string, args: Record<string, any>): boolean => {
+		if (!this.isRunFormPending(toolId)) return false
+		this.#settleRunForm(toolId, args)
+		return true
+	}
+
+	handleRunFormCancel = (toolId: string) => {
+		// The card's own copy is settled here rather than only in the tool's fn, which a form
+		// restored from history no longer has: Cancel is that card's one way out, and while it
+		// stays active the whole session reads as needs-confirmation (getSessionChatStatus asks
+		// pendingUserAction before loading). Clearing isLoading is part of settling — canceled
+		// alone unmounts the form but leaves the card shimmering.
+		this.#settleRunForm(toolId, undefined, (runForm) => ({
+			isLoading: false,
+			error: 'Cancelled by user',
+			content: `Run of "${runForm.path}" cancelled by user`
+		}))
+	}
+
+	/**
+	 * The one way a run form stops waiting on the user: `submitted` is the arguments to run
+	 * with, `undefined` a cancellation.
+	 *
+	 * `card` is for a settler that also owns what the row reads — pressing Cancel does, a
+	 * stopped turn leaves it to settledToolDisplay.
+	 */
+	#settleRunForm = (
+		toolId: string,
+		submitted: Record<string, any> | undefined,
+		card?: (runForm: RunFormDisplay) => Partial<ToolDisplayMessage>
+	) => {
+		const entry = this.#runForms.get(toolId)
+		// Its draft holds whatever was typed into the form, a minted password included.
+		this.#runForms.delete(toolId)
+		// Cancelled, so no run follows it into that tab (a submitted one is handed over by
+		// registerJob instead) — take the tab with it rather than leaving a dead form open.
+		if (submitted === undefined) this.closeRunForm?.(toolId)
+		const cancelledArgs =
+			submitted === undefined && entry ? this.#settledFormArgs(entry) : undefined
+		this.#patchRunForm(
+			toolId,
+			submitted ? { submitted: true } : { canceled: true },
+			cancelledArgs ? (runForm) => ({ ...card?.(runForm), parameters: cancelledArgs }) : card
+		)
+		entry?.resolve?.(submitted)
+	}
+
+	/**
+	 * What a form that never ran leaves on its card. A run writes its own arguments there once
+	 * it has them and a cancellation never reaches that write, so without this the card keeps
+	 * the proposal it was published on — naming a secret the field had already replaced with a
+	 * reference. A reference stands, anything still literal does not.
+	 */
+	#settledFormArgs = (entry: PendingRunForm): Record<string, any> =>
+		redactFileArgs(redactSecretArgs(entry.draft.args, entry.draft.schema), entry.draft.schema)
+
+	#patchRunForm = (
+		toolId: string,
+		patch: Partial<RunFormDisplay>,
+		card?: (runForm: RunFormDisplay) => Partial<ToolDisplayMessage>
+	) => {
+		this.displayMessages = this.displayMessages.map((message) =>
+			message.role === 'tool' && message.tool_call_id === toolId && message.runForm
+				? {
+						...message,
+						...card?.(message.runForm),
+						runForm: settledRunForm({ ...message.runForm, ...patch })
+					}
+				: message
+		)
+	}
+
 	setAiChatInput(aiChatInput: AIChatInput | null) {
 		this.aiChatInput = aiChatInput
 	}
@@ -1932,7 +2237,7 @@ export class AIChatManager {
 	 * Gated on `sendInFlight` as well as `loading`: `loading` only rises after a
 	 * send's attachment upkeep, so between the two a click would slip past. */
 	sendOrQueue(text: string) {
-		if (this.loading || this.sendInFlight) {
+		if (this.loading || this.sendInFlight || this.sendPending) {
 			this.queueMessage(text)
 			return
 		}
@@ -2051,7 +2356,7 @@ export class AIChatManager {
 				customPrompt
 			)
 			this.systemMessage.content = this.systemMessage.content
-			this.tools = [...prepareScriptTools(currentModel, lang, context)]
+			this.#assembledTools = [...prepareScriptTools(currentModel, lang, context)]
 			this.helpers = {
 				getScriptOptions: () => {
 					return {
@@ -2083,7 +2388,7 @@ export class AIChatManager {
 			this.systemMessage = prepareFlowSystemMessage(customPrompt)
 			this.systemMessage.content = this.systemMessage.content
 			this.appendFlowAiAgentProviders(this.systemMessage)
-			this.tools = [...flowTools]
+			this.#assembledTools = [...flowTools]
 			this.helpers = {
 				...(this.flowAiChatHelpers ?? {}),
 				getWorkspaceMutationTarget: this.getFlowWorkspaceMutationTarget
@@ -2091,17 +2396,17 @@ export class AIChatManager {
 		} else if (mode === AIMode.NAVIGATOR) {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareNavigatorSystemMessage(customPrompt)
-			this.tools = [this.changeModeTool, ...navigatorTools]
+			this.#assembledTools = [this.changeModeTool, ...navigatorTools]
 			this.helpers = {}
 		} else if (mode === AIMode.ASK) {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareAskSystemMessage(customPrompt)
-			this.tools = [...askTools]
+			this.#assembledTools = [...askTools]
 			this.helpers = {}
 		} else if (mode === AIMode.API) {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareApiSystemMessage(customPrompt)
-			this.tools = [searchDocsTool, readDocsPageTool, ...this.apiTools]
+			this.#assembledTools = [searchDocsTool, readDocsPageTool, ...this.apiTools]
 			this.helpers = {}
 		} else if (mode === AIMode.GLOBAL) {
 			this.configureGlobalMode()
@@ -2111,29 +2416,16 @@ export class AIChatManager {
 		} else if (mode === AIMode.APP) {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareAppSystemMessage(customPrompt)
-			this.tools = [...getAppTools()]
+			this.#assembledTools = [...getAppTools()]
 			this.helpers = this.appAiChatHelpers
 		}
 	}
 
-	// Fetch the workspace's AI skills and, if GLOBAL mode is still active, rebuild
-	// the system message so the next chat-loop iteration advertises them. Ignore
-	// stale resolves so workspace changes cannot overwrite newer skills.
-	// Build the global-mode system message, tools, and helpers, layering on the
-	// pipeline surface when a /pipeline editor has registered helpers. Centralized
-	// so changeMode, refreshGlobalSkills, and setPipelineHelpers stay consistent —
-	// each rebuild would otherwise drop the pipeline augmentation the others added.
-	private configureGlobalMode = () => {
-		const systemMessage = prepareGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), {
-			previewTools: this.isSessionChat,
-			user: this.globalIdentity,
-			skills: this.globalSkills,
-			mcpServers: this.mcpServers
-		})
-		const sessionCtx = this.sessionContextResolver?.()
-		if (sessionCtx) {
-			systemMessage.content += getSessionContextPromptSection(sessionCtx)
-		}
+	// Public because it is purely local, unlike `changeMode(GLOBAL)`, which also
+	// fires the three network refreshes.
+	configureGlobalMode = () => {
+		const pipeline = this.pipelineAiChatHelpers
+		const opts = this.globalAssemblyOpts()
 		const baseHelpers: GlobalToolHelpers = {
 			// A session targets its own fixed (possibly forked) workspace, so capture it for
 			// permission gating. The global side-panel chat follows the live navigation
@@ -2147,7 +2439,8 @@ export class AIChatManager {
 						openArtifact: this.openArtifact
 					}
 				: {}),
-			testActiveFlow: async (args?: Record<string, any>) => this.flowAiChatHelpers?.testFlow(args),
+			testActiveFlow: async (storagePath: string, args?: Record<string, any>, memoryId?: string) =>
+				this.flowEditorFor(storagePath)?.testFlow(args, memoryId),
 			getModifiedItems: () => (this.modifiedItems ? [...this.modifiedItems] : undefined),
 			attachedFiles: this.attachedFiles,
 			getUserInstructions: () => getUserCustomPrompts()[AIMode.GLOBAL] ?? '',
@@ -2162,24 +2455,24 @@ export class AIChatManager {
 				this.rebuildGlobalSystemMessage()
 			}
 		}
-		const pipeline = this.pipelineAiChatHelpers
-		const mcpTools = createMcpTools(this.mcpServers)
-		if (pipeline) {
-			systemMessage.content += getPipelinePromptSection(pipeline.getPipelineContext())
-			this.tools = [
-				...globalToolsFor({ sessionPreview: this.isSessionChat }),
-				...pipelineTools,
-				...mcpTools
-			]
-			this.helpers = { ...baseHelpers, pipeline }
-		} else {
-			this.tools = [...globalToolsFor({ sessionPreview: this.isSessionChat }), ...mcpTools]
-			this.helpers = baseHelpers
-		}
-		this.systemMessage = systemMessage
+		this.#assembledTools = assembleGlobalTools(opts)
+		this.helpers = pipeline ? { ...baseHelpers, pipeline } : baseHelpers
+		this.systemMessage = assembleGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), opts)
 		this.syncArtifactsSession()
 	}
 
+	private globalAssemblyOpts = (): GlobalAssemblyOpts => ({
+		previewTools: this.isSessionChat,
+		user: this.globalIdentity,
+		skills: this.globalSkills,
+		mcpServers: this.mcpServers,
+		sessionContext: this.sessionContextResolver?.(),
+		pipelineContext: this.pipelineAiChatHelpers?.getPipelineContext()
+	})
+
+	// Fetch the workspace's AI skills and, if GLOBAL mode is still active, rebuild
+	// the system message so the next chat-loop iteration advertises them. Ignore
+	// stale resolves so workspace changes cannot overwrite newer skills.
 	refreshGlobalSkills = async (workspace = this.operatingWorkspace ?? '') => {
 		const refreshId = ++this.globalSkillsRefreshId
 		const skills = await loadWorkspaceSkills(workspace)
@@ -2254,24 +2547,10 @@ export class AIChatManager {
 		if (this.mode !== AIMode.GLOBAL) {
 			return
 		}
-		const systemMessage = prepareGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), {
-			previewTools: this.isSessionChat,
-			user: this.globalIdentity,
-			skills: this.globalSkills,
-			mcpServers: this.mcpServers
-		})
-		// Preserve the session-state and active pipeline-editor augmentations that
-		// configureGlobalMode adds — otherwise update_user_instructions (which calls
-		// this) would drop them mid-session.
-		const sessionCtx = this.sessionContextResolver?.()
-		if (sessionCtx) {
-			systemMessage.content += getSessionContextPromptSection(sessionCtx)
-		}
-		const pipeline = this.pipelineAiChatHelpers
-		if (pipeline) {
-			systemMessage.content += getPipelinePromptSection(pipeline.getPipelineContext())
-		}
-		this.systemMessage = systemMessage
+		this.systemMessage = assembleGlobalSystemMessage(
+			getCustomPromptParts(AIMode.GLOBAL),
+			this.globalAssemblyOpts()
+		)
 	}
 
 	private expandGlobalSkillCommand = (instructions: string): string => {
@@ -2350,6 +2629,10 @@ export class AIChatManager {
 	}
 
 	openChat = () => {
+		// Nothing may open the docked pane in a workspace that hid the assistant.
+		if (get(copilotInfo).workspaceDisabled) {
+			return
+		}
 		chatState.size = this.savedSize > 0 ? this.savedSize : DEFAULT_SIZE
 		localStorage.setItem('ai-chat-open', 'true')
 	}
@@ -2361,6 +2644,9 @@ export class AIChatManager {
 	}
 
 	toggleOpen = () => {
+		if (chatState.size === 0 && get(copilotInfo).workspaceDisabled) {
+			return
+		}
 		if (chatState.size > 0) {
 			this.savedSize = chatState.size
 		}
@@ -2516,6 +2802,23 @@ export class AIChatManager {
 
 	clearComposerStaged(key: string) {
 		this.#composerStaged.delete(key)
+		this.#composersWithDraft.delete(key)
+	}
+
+	// Composers whose draft is non-empty. The draft itself is component-local, so
+	// this is the only way to know an unmount would lose unsent input.
+	#composersWithDraft = new SvelteSet<string>()
+
+	setComposerHasDraft(key: string, hasDraft: boolean) {
+		if (hasDraft) this.#composersWithDraft.add(key)
+		else this.#composersWithDraft.delete(key)
+	}
+
+	/** Unsent input an unmount of this chat would lose: a composer draft, or a
+	 *  queued message (whose text may be empty when it carries only attachments
+	 *  or context). */
+	get hasUnsentInput(): boolean {
+		return this.#composersWithDraft.size > 0 || this.#hasQueuedMessage()
 	}
 
 	/** Release the outgoing-files reservation identified by `key` (a per-send token).
@@ -2648,7 +2951,7 @@ export class AIChatManager {
 		try {
 			// Use JS getters so runChatLoop re-reads tools/helpers/systemMessage/modelProvider
 			// on each iteration. This is critical for changeModeTool (Navigator → Script/Flow)
-			// which reassigns this.tools, this.helpers, this.systemMessage mid-loop.
+			// which reassigns #assembledTools, this.helpers, this.systemMessage mid-loop.
 			const self = this
 			// Pinned for the whole turn, like the `workspace` the loop routes through:
 			// the global chat's operating workspace follows workspaceStore, so a switch
@@ -2673,7 +2976,7 @@ export class AIChatManager {
 					return base
 				},
 				get tools() {
-					return [...self.tools, ...self.planMode.tools]
+					return self.tools
 				},
 				get helpers() {
 					return self.helpers
@@ -2871,13 +3174,51 @@ export class AIChatManager {
 		return this.#sendsInFlight > 0
 	}
 
+	// Resolves once this chat's stored transcript has been restored. A session
+	// runtime hands its manager out before that finishes, and `loadPastChat`
+	// refuses to swap a transcript under a send, so a turn started first lands in
+	// a chat of its own and is lost when the session's real one loads.
+	//
+	// Cleared once awaited, and only awaited when set: every later send — and
+	// every send of the chats that have no gate — reaches the `sendInFlight`
+	// counter below synchronously, which is what makes a second Enter queue
+	// behind the first instead of starting a turn of its own.
+	#ready: Promise<unknown> | undefined
+	setReadyGate(ready: Promise<unknown> | undefined) {
+		this.#ready = ready
+	}
+
+	#sendsAwaitingReady = $state(0)
+	/** A send parked on the gate above. It has not reached `sendInFlight` yet —
+	 * and must not, since `loadPastChat` reads that flag and would then skip the
+	 * restore this send is waiting for — so every guard that decides between
+	 * sending and queueing tests this as well. */
+	get sendPending(): boolean {
+		return this.#sendsAwaitingReady > 0
+	}
+
 	sendRequest = async (options: Parameters<typeof this.sendRequestImpl>[0] = {}) => {
+		if (this.#ready) {
+			this.#sendsAwaitingReady++
+			try {
+				await this.#ready
+			} finally {
+				this.#sendsAwaitingReady--
+				this.#ready = undefined
+			}
+		}
 		// A turn with nowhere to render still streams, spends tokens and applies
 		// tool calls — entirely off-screen. Refuse instead. `sendInlineRequest` is
 		// exempt: the ⌘K widget renders its own composer inside Monaco.
 		if (!this.isSessionChat && !chatState.dockedChatAvailable) {
 			console.error('sendRequest called with no chat UI mounted; dropping the turn')
 			sendUserToast('This action needs the AI chat. Start an AI session to continue.', true)
+			return
+		}
+		// The workspace hid the assistant: every entry point is gone from the UI, so a turn
+		// reaching here comes from a path that missed the gate and would stream unseen.
+		if (!this.isSessionChat && get(copilotInfo).workspaceDisabled) {
+			sendUserToast('Windmill AI is hidden in this workspace.', true)
 			return
 		}
 		// Refused before anything mutates, so there is nothing to unwind: the
@@ -3295,7 +3636,7 @@ export class AIChatManager {
 			)
 			if (messages.length === this.messages.length) return
 			checkpointedShape = shape
-			const display = this.settledToolDisplay(this.displayMessages, 'Interrupted')
+			const { display, jobs } = this.#interruptedSnapshot()
 			// onMessageEnd is what gives streamed text its bubble, and it clears
 			// currentReply doing so — text still there has none, and without one the
 			// reply returns as context the reader cannot see.
@@ -3315,7 +3656,8 @@ export class AIChatManager {
 					// partial turn — enough to skip the compaction its next send needs.
 					// Omitting drops the field, which is the "readers estimate" fallback.
 					undefined,
-					this.modifiedItems ? [...this.modifiedItems] : undefined
+					this.modifiedItems ? [...this.modifiedItems] : undefined,
+					jobs
 				)
 			} catch (e) {
 				console.error('Failed to checkpoint chat mid-turn', e)
@@ -3547,7 +3889,13 @@ export class AIChatManager {
 			// assumed window rather than no limit: without one the context grows
 			// unbounded until the provider (or a proxy in front of it) times out.
 			// Guessing low only compacts earlier, which is always recoverable.
-			const contextWindow = model ? getModelContextWindow(model.model) : undefined
+			const contextWindow = model
+				? getEffectiveModelContextWindow(
+						model.provider,
+						model.model,
+						get(copilotInfo).contextWindowPerModel
+					)
+				: undefined
 			if (
 				contextWindow !== undefined &&
 				projectedContextTokens >= contextWindow * COMPACTION_TRIGGER_RATIO
@@ -3646,6 +3994,9 @@ export class AIChatManager {
 								{
 									role: 'assistant',
 									content: this.currentReply,
+									// Stamped as it lands. A chat restored from history predates this and
+									// simply shows no time rather than a made-up one.
+									createdAt: new Date().toISOString(),
 									...(this.currentReasoning
 										? { reasoning: this.currentReasoning, reasoningDurationMs }
 										: {}),
@@ -3685,6 +4036,8 @@ export class AIChatManager {
 					isPlanModeActive: () => this.planModeActive,
 					onToolBlockedByPlanMode: this.planMode.noteBlockedTool,
 					requestUserQuestion: this.requestUserQuestion,
+					requestRunArgs: this.requestRunArgs,
+					markRunFormStarted: this.markRunFormStarted,
 					onItemModified: (kind, path) => this.recordModifiedItem(kind, path),
 					onItemDeployed: (kind, from, to) => void this.renameModifiedItem(kind, from, to),
 					onItemDiscarded: (kind, path) => void this.removeModifiedItem(kind, path),
@@ -3941,6 +4294,19 @@ export class AIChatManager {
 			resolveQuestion(undefined)
 		}
 		this.userQuestionCallbacks.clear()
+		for (const [toolId, entry] of this.#runForms) {
+			entry.resolve?.(undefined)
+			// Stopping the turn is the form's other way out, and the draft dies with this loop:
+			// settledToolDisplay settles the card below without ever seeing what was typed.
+			this.#patchRunForm(toolId, {}, () => ({ parameters: this.#settledFormArgs(entry) }))
+			// The form settles with the turn, so a preview tab holding it goes too rather
+			// than being left on a form that can no longer run.
+			this.closeRunForm?.(toolId)
+		}
+		// Not through #settleRunForm: settledToolDisplay settles every card of the stopped
+		// turn at once, and it alone can tell a run that reached the server from one that
+		// never did.
+		this.#runForms.clear()
 		const cancelReason = reason ?? USER_CANCEL_REASON
 		console.log('cancelling request:', {
 			reason: cancelReason,
@@ -4177,6 +4543,15 @@ export class AIChatManager {
 				if (this.isJobNonTerminal(j.status)) j.detached = true
 			}
 			if (this.backgroundJobs.length > 0) this.backgroundJobs = [...this.backgroundJobs]
+			// Reloading resolves no card on its own. Settle every one the poller above
+			// will not reach, whoever wrote it — a record from a build that stored cards
+			// without their jobs would otherwise restore one that spins forever.
+			const pollable = this.#pollableToolCalls()
+			this.displayMessages = this.settledToolDisplay(
+				this.displayMessages,
+				'Interrupted',
+				(message) => !pollable.has(message.tool_call_id)
+			)
 			this.#ensureJobPoller()
 			// Message-attached files live in the transcript, not in the store's
 			// persistence — rebuild their rows so the loaded chat's references are
@@ -4358,7 +4733,11 @@ export class AIChatManager {
 	}
 
 	setFlowHelpers = (flowHelpers: FlowAIChatHelpers) => {
-		this.flowAiChatHelpers = flowHelpers
+		this.#flowEditors.add(flowHelpers)
+		// Only a chat that can reach FLOW mode names an editor (see `flowAiChatHelpers`).
+		if (!this.isSessionChat) {
+			this.flowAiChatHelpers = flowHelpers
+		}
 		untrack(() => {
 			if (this.autoAcceptEditsActive) {
 				this.acceptPendingFlowEdits(flowHelpers)
@@ -4366,8 +4745,15 @@ export class AIChatManager {
 		})
 
 		return () => {
-			this.flowAiChatHelpers = undefined
+			this.#flowEditors.delete(flowHelpers)
+			if (!this.isSessionChat) {
+				this.flowAiChatHelpers = undefined
+			}
 		}
+	}
+
+	private flowEditorFor(storagePath: string): FlowAIChatHelpers | undefined {
+		return [...this.#flowEditors].find((helpers) => helpers.getStoragePath() === storagePath)
 	}
 
 	// Registered by the /pipeline editor while it is mounted. Rebuilds the global
@@ -4506,10 +4892,25 @@ export class AIChatManager {
 	// through here first.
 	private settledToolDisplay = (
 		messages: DisplayMessage[],
-		messageText: string
+		messageText: string,
+		shouldSettle: (message: ToolDisplayMessage) => boolean = () => true
 	): DisplayMessage[] =>
 		messages.map((message) => {
-			if (message.role === 'tool' && (message.isLoading || message.isQueued)) {
+			if (
+				message.role === 'tool' &&
+				(message.isLoading || message.isQueued) &&
+				shouldSettle(message)
+			) {
+				// Stopping the turn does not stop the job, and between Run and the job's id
+				// there is no way to know whether the server queued one: nothing threads the
+				// abort into that request, so it lands either way. That window says so
+				// rather than picking a side — "canceled" hides a script that ran, "started"
+				// invents one that did not.
+				const runState = message.runForm?.started
+					? 'started'
+					: message.runForm?.submitted
+						? 'starting'
+						: 'idle'
 				return {
 					...message,
 					isLoading: false,
@@ -4519,14 +4920,25 @@ export class AIChatManager {
 					// and a card that hides its result as still-streaming.
 					needsConfirmation: false,
 					isStreamingArguments: false,
-					// A question's card disappears once canceled, so keep the question
-					// itself readable in the collapsed header.
+					// An interactive card disappears once canceled, so keep what it was
+					// asking readable in the collapsed header.
 					content: message.userQuestion
 						? `Asked: ${message.userQuestion.question} — ${messageText}`
-						: messageText,
-					error: messageText,
+						: message.runForm
+							? runState === 'started'
+								? `Run ${message.runForm.path} — started, stopped tracking before it finished`
+								: runState === 'starting'
+									? `Run ${message.runForm.path} — ${messageText} while starting, check the runs page for a job`
+									: `Run ${message.runForm.path} — ${messageText}`
+							: messageText,
+					// A run that reached the server keeps whatever the job reported: it is not
+					// this turn's error, and the jobs tray is still following it.
+					...(runState === 'idle' ? { error: messageText } : {}),
 					userQuestion: message.userQuestion
 						? { ...message.userQuestion, canceled: true }
+						: undefined,
+					runForm: message.runForm
+						? settledRunForm({ ...message.runForm, canceled: runState === 'idle' })
 						: undefined
 				}
 			}
@@ -4536,6 +4948,36 @@ export class AIChatManager {
 	cancelLoadingTools = (messageText: 'Canceled' | 'Error' = 'Canceled') => {
 		this.displayMessages = this.settledToolDisplay(this.displayMessages, messageText)
 	}
+
+	/** What the transcript would be if the turn stopped here — for the writes that fire
+	 * mid-turn without ending it. Loading is a property of this page: reloading resolves no
+	 * card, so one stored still pending comes back asking for input nothing can deliver.
+	 * Settles the stored copy only; the live turn keeps its cards.
+	 *
+	 * Except a card the poller will resolve after a reload: settling that one stores an
+	 * "Interrupted" error the patch a completed job merges in carries nothing to clear.
+	 * Which cards those are is loadPastChat's question, asked the same way — and the poller
+	 * only knows the jobs stored in the same record, so both go into the same saveChat. */
+	#interruptedSnapshot = (): { display: DisplayMessage[]; jobs: ChatJob[] } => {
+		const polled = this.#pollableToolCalls()
+		return {
+			display: this.settledToolDisplay(
+				this.displayMessages,
+				'Interrupted',
+				(message) => !polled.has(message.tool_call_id)
+			),
+			jobs: $state.snapshot(this.backgroundJobs) as ChatJob[]
+		}
+	}
+
+	/** Tool calls a restored transcript can still resolve. loadPastChat re-attaches the
+	 * poller to every non-terminal job and nothing else runs after a reload, so this is
+	 * the whole set — asked identically when storing a card and when restoring one, or
+	 * the two drift and a card is kept by one and stranded by the other. */
+	#pollableToolCalls = (): Set<string> =>
+		new Set(
+			this.backgroundJobs.filter((j) => this.isJobNonTerminal(j.status)).map((j) => j.toolCallId)
+		)
 }
 
 export const aiChatManager = new AIChatManager()

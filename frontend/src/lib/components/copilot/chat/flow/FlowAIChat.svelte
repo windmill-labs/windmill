@@ -4,6 +4,7 @@
 	import type { ExtendedOpenFlow, FlowEditorContext } from '$lib/components/flows/types'
 	import type { InputTransform } from '$lib/gen'
 	import type { FlowAIChatHelpers } from './core'
+	import { chatMemoryId } from '../global/core'
 	import { createInlineScriptSession } from './inlineScriptsUtils'
 	import { loadSchemaFromModule } from '$lib/components/flows/flowInfers'
 	import { getAiChatManager } from '../aiChatManagerContext'
@@ -14,6 +15,9 @@
 	import type { ScriptLintResult } from '../shared'
 	import { applyFlowJsonUpdate, updateRawScriptModuleContent } from './helperUtils'
 	import { findModuleInFlow } from '$lib/components/flows/flowTree'
+	import { getEditorStoragePath } from '$lib/components/editorStoragePathContext'
+
+	const editorStoragePath = getEditorStoragePath()
 
 	let {
 		flowModuleSchemaMap,
@@ -162,13 +166,15 @@
 			selectionManager.selectId(id, { openPanel: true })
 		},
 
+		getStoragePath: () => editorStoragePath?.(),
+
 		testFlow: async (args, conversationId) => {
 			// Set preview args if provided
 			if (args) {
 				previewArgs.val = args
 			}
 			// Call the UI test function which opens preview panel
-			return await onTestFlow?.(conversationId)
+			return await onTestFlow?.(conversationId ?? chatMemoryId(flowStore.val.value))
 		},
 
 		getLintErrors: async (moduleId: string): Promise<ScriptLintResult> => {

@@ -585,6 +585,8 @@ pub fn list_completed_jobs_query(
     let mut sqlb = SqlBuilder::select_from("v2_job_completed")
         .fields(fields)
         .order_by(
+            // The runs page picks its pagination cursor column from this same rule
+            // (frontend/src/lib/components/runs/useJobsLoader.svelte.ts); change both together.
             if lq.completed_before.is_some()
                 || lq.completed_after.is_some()
                 || lq.success == Some(false)

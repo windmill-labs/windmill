@@ -3091,16 +3091,16 @@ async fn test_php_job(db: Pool<Postgres>) -> anyhow::Result<()> {
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
 
-    let content = r#"
+    let content = r#"// schema_validation
 <?php
 
-function main(string $name): string {
-    return "hello " . $name;
+function main(string $name, string $prefix = "hello "): string {
+    return $prefix . $name;
 }
 "#
     .to_owned();
 
-    let result = RunJob::from(JobPayload::Code(RawCode {
+    let code = RawCode {
         hash: None,
         content,
         path: None,
@@ -3114,14 +3114,28 @@ function main(string $name): string {
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         modules: None,
         tag: None,
-    }))
-    .arg("name", json!("world"))
-    .run_until_complete(&db, false, port)
-    .await
-    .json_result()
-    .unwrap();
+    };
+    let completed = RunJob::from(JobPayload::Code(code.clone()))
+        .arg("name", json!("world"))
+        .run_until_complete(&db, false, port)
+        .await;
 
-    assert_eq!(result, serde_json::json!("hello world"));
+    assert!(completed.success, "{:?}", completed.result);
+    assert_eq!(
+        completed.json_result().unwrap(),
+        serde_json::json!("hello world")
+    );
+
+    let invalid = RunJob::from(JobPayload::Code(code))
+        .arg("name", json!(42))
+        .run_until_complete(&db, false, port)
+        .await;
+    // PHP coerces numbers to strings; rejection proves inferred validation ran.
+    assert!(!invalid.success, "{:?}", invalid.result);
+    assert!(invalid.json_result().unwrap()["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("Argument `name` should be a string"));
     Ok(())
 }
 
@@ -5425,7 +5439,7 @@ async fn test_duckdb_ffi(db: Pool<Postgres>) -> anyhow::Result<()> {
 }
 
 /// Test that flow substeps with tags that are not available for the workspace fail.
-/// This validates that `check_tag_available_for_workspace_internal` is properly called
+/// This validates that `check_tag_available_for_push` is properly called
 /// when pushing jobs from worker_flow.
 #[sqlx::test(fixtures("base"))]
 #[serial]
@@ -5469,7 +5483,7 @@ async fn test_flow_substep_tag_availability_check(db: Pool<Postgres>) -> anyhow:
 
     let result =
         RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None, restarted_from: None })
-            .email("test2@windmill.dev")
+            .as_user("test-user-2", "test2@windmill.dev")
             .run_until_complete(&db, false, server.addr.port())
             .await;
 
@@ -5498,16 +5512,177 @@ async fn test_flow_substep_tag_availability_check(db: Pool<Postgres>) -> anyhow:
     Ok(())
 }
 
+/// A step's `$flow_expr[...]` tag is checked on the queue it resolves to, not on its text: the
+/// custom tags list `bun` alone, which admits the step resolving to it and refuses the one that
+/// lands elsewhere.
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+#[serial]
+async fn test_flow_substep_tag_checked_on_resolved_value(db: Pool<Postgres>) -> anyhow::Result<()> {
+    use windmill_common::worker::{CustomTags, CUSTOM_TAGS_PER_WORKSPACE};
+
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+
+    CUSTOM_TAGS_PER_WORKSPACE.store(std::sync::Arc::new(CustomTags::from(vec![
+        "bun".to_string()
+    ])));
+
+    let step = |id: &str, tag: Option<&str>| {
+        json!({
+            "id": id,
+            "value": {
+                "type": "rawscript",
+                "language": "deno",
+                "content": "export function main() { return { lang: 'bun' } }",
+                "tag": tag,
+            },
+        })
+    };
+    let flow: FlowValue = serde_json::from_value(json!({
+        "modules": [
+            step("a", None),
+            step("b", Some("$flow_expr[results.a.lang]")),
+            step("c", Some("$flow_expr[results.a.lang]-gpu")),
+        ],
+    }))?;
+
+    // A non-superadmin, so the custom tags apply.
+    let job = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+        .as_user("test-user-2", "test2@windmill.dev")
+        .run_until_complete(&db, false, server.addr.port())
+        .await;
+    CUSTOM_TAGS_PER_WORKSPACE.store(std::sync::Arc::new(CustomTags::default()));
+
+    let b_tag = sqlx::query_scalar::<_, String>(
+        "SELECT tag FROM v2_job WHERE parent_job = $1 AND flow_step_id = 'b'",
+    )
+    .bind(job.id)
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(b_tag, "bun");
+
+    assert!(!job.success);
+    let result = job.json_result().unwrap();
+    let message = result["error"]["message"].as_str().unwrap_or_default();
+    assert!(
+        message.contains("(resolved to bun-gpu) is not included in the allowed CUSTOM_TAGS"),
+        "got {result:?}"
+    );
+
+    Ok(())
+}
+
+/// A flow whose preprocessor runs lands on its tag filled in from the preprocessor's output, so
+/// running it judges the tag as written: even raw args that fill it in to a listed tag do not
+/// admit a template nobody listed.
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base", "hello"))]
+#[serial]
+async fn test_flow_tag_judged_as_written_before_preprocessor(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    use windmill_common::worker::{CustomTags, CUSTOM_TAGS_PER_WORKSPACE};
+
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let set_flow_tag = |tag: &'static str| {
+        let db = db.clone();
+        async move {
+            sqlx::query("UPDATE flow SET tag = $1 WHERE path = 'f/system/hello_with_preprocessor'")
+                .bind(tag)
+                .execute(&db)
+                .await?;
+            // Flow info is cached per version, which a real redeploy would bump.
+            windmill_common::FLOW_INFO_CACHE
+                .remove(&("test-workspace".to_string(), 1443253234253456));
+            anyhow::Ok(())
+        }
+    };
+    // As a non-superadmin, so the custom tags apply.
+    let run_as_user = |entries: &[&str], query: &str| {
+        CUSTOM_TAGS_PER_WORKSPACE.store(std::sync::Arc::new(CustomTags::from(
+            entries.iter().map(|e| e.to_string()).collect(),
+        )));
+        reqwest::Client::new()
+            .post(format!(
+                "http://localhost:{port}/api/w/test-workspace/jobs/run/f/f/system/hello_with_preprocessor{query}"
+            ))
+            .bearer_auth("SECRET_TOKEN_2")
+            .json(&json!({ "foo": "bar" }))
+            .send()
+    };
+
+    sqlx::query(
+        "UPDATE flow SET extra_perms = '{\"u/test-user-2\": false}'
+         WHERE path = 'f/system/hello_with_preprocessor'",
+    )
+    .execute(&db)
+    .await?;
+    set_flow_tag("pp-$args[foo]").await?;
+    let refused = run_as_user(&["pp-bar"], "").await?;
+    let refused_status = refused.status();
+    let refused_body = refused.text().await?;
+    // `push` drops a `?tag=` of such a flow, so it does not stand in for the flow's own tag.
+    let overridden = run_as_user(&["pp-bar"], "?tag=pp-bar").await?.status();
+    let admitted = run_as_user(&["pp-$args[foo]"], "").await?.status();
+    // A tag the preprocessor cannot change is known now, so patterns apply to it.
+    set_flow_tag("pp-large").await?;
+    let static_admitted = run_as_user(&["pp-$args[size]"], "").await?.status();
+
+    // Nothing a flow's tag can read resolves `$flow_expr[...]`, so the flow keeps its tag.
+    set_flow_tag("$flow_expr[flow_input.foo]").await?;
+    CUSTOM_TAGS_PER_WORKSPACE.store(std::sync::Arc::new(CustomTags::default()));
+    let unresolvable = RunJob::from(JobPayload::Flow {
+        path: "f/system/hello_with_preprocessor".to_string(),
+        dedicated_worker: None,
+        apply_preprocessor: true,
+        version: 1443253234253456,
+        labels: None,
+    })
+    .as_user("test-user-2", "test2@windmill.dev")
+    .run_until_complete(&db, false, port)
+    .await;
+
+    assert_eq!(refused_status, 400, "got {refused_body}");
+    assert!(
+        refused_body.contains("Tag pp-$args[foo] is not included"),
+        "got {refused_body}"
+    );
+    assert_eq!(overridden, 400);
+    assert!(admitted.is_success(), "got {admitted}");
+    assert!(static_admitted.is_success(), "got {static_admitted}");
+
+    assert!(unresolvable.success, "got {:?}", unresolvable.json_result());
+    let tag = sqlx::query_scalar::<_, String>("SELECT tag FROM v2_job WHERE id = $1")
+        .bind(unresolvable.id)
+        .fetch_one(&db)
+        .await?;
+    assert_eq!(tag, "flow");
+
+    Ok(())
+}
+
 /// The `*` fork marker only grants through a real `parent_workspace_id` lineage lookup, which the
 /// parse-level unit tests cannot reach: they hand `applies_to_workspace` a synthetic chain, so a
 /// regression in the lookup or in the `is_fork_scoped()` gate that skips it would pass them.
 #[sqlx::test(fixtures("base"))]
 #[serial]
 async fn test_fork_marker_tag_admission_through_lineage(db: Pool<Postgres>) -> anyhow::Result<()> {
-    use windmill_common::jobs::check_tag_available_for_workspace_internal;
     use windmill_common::worker::{CustomTags, CUSTOM_TAGS_PER_WORKSPACE};
 
     initialize_tracing().await;
+
+    // For a non-superadmin caller (a superadmin would bypass the scope check entirely).
+    async fn allowed(db: &Pool<Postgres>, w_id: &str, tag: &str) -> bool {
+        let no_args = std::collections::HashMap::new();
+        let args = windmill_queue::PushArgs::from(&no_args);
+        windmill_queue::check_tag_available_for_push(db, w_id, tag, &args, false, None)
+            .await
+            .is_ok()
+    }
 
     // The ancestor chain is cached process-wide by workspace id, so use one no other test takes.
     let fork = "wm-fork-tagmarker";
@@ -5524,31 +5699,138 @@ async fn test_fork_marker_tag_admission_through_lineage(db: Pool<Postgres>) -> a
         "bare(test-workspace)".to_string(),
     ])));
 
-    // A non-superadmin caller (a superadmin would bypass the scope check entirely).
-    let is_super_admin = false;
-
     for (w_id, tag) in [("test-workspace", "bare"), ("test-workspace", "forky")] {
         assert!(
-            check_tag_available_for_workspace_internal(&db, w_id, tag, is_super_admin, None)
-                .await
-                .is_ok(),
+            allowed(&db, w_id, tag).await,
             "{tag} should be available in the workspace it names"
         );
     }
     assert!(
-        check_tag_available_for_workspace_internal(&db, fork, "forky", is_super_admin, None)
-            .await
-            .is_ok(),
+        allowed(&db, fork, "forky").await,
         "a `*` tag must be granted to a fork through its parent lineage"
     );
     assert!(
-        check_tag_available_for_workspace_internal(&db, fork, "bare", is_super_admin, None)
-            .await
-            .is_err(),
+        !allowed(&db, fork, "bare").await,
         "an unmarked tag must not reach a fork of the workspace it names"
     );
 
     CUSTOM_TAGS_PER_WORKSPACE.store(std::sync::Arc::new(CustomTags::default()));
+
+    Ok(())
+}
+
+/// A workspace-scoped pattern admits the tags in its range only from the workspaces its scope
+/// allows, and a tag listed by its own name with a scope stays inside that scope whatever pattern
+/// it fits. The fork lineage and `$workspace` are resolved for a matching pattern.
+#[sqlx::test(fixtures("base"))]
+#[serial]
+async fn test_scoped_custom_tag_pattern_admission(db: Pool<Postgres>) -> anyhow::Result<()> {
+    use windmill_common::worker::{CustomTags, CUSTOM_TAGS_PER_WORKSPACE};
+
+    initialize_tracing().await;
+
+    // For a non-superadmin caller (a superadmin would bypass the scope check entirely).
+    async fn check(db: &Pool<Postgres>, w_id: &str, tag: &str, size: &str) -> Result<(), String> {
+        let args = std::collections::HashMap::from([(
+            "size".to_string(),
+            serde_json::value::to_raw_value(size).unwrap(),
+        )]);
+        let args = windmill_queue::PushArgs::from(&args);
+        windmill_queue::check_tag_available_for_push(db, w_id, tag, &args, false, None)
+            .await
+            .map_err(|e| e.to_string())
+    }
+    async fn allowed(db: &Pool<Postgres>, w_id: &str, tag: &str, size: &str) -> bool {
+        check(db, w_id, tag, size).await.is_ok()
+    }
+    async fn allowed_as_written(db: &Pool<Postgres>, w_id: &str, tag: &str) -> bool {
+        windmill_common::jobs::check_tag_available_for_workspace_internal(
+            db,
+            w_id,
+            tag,
+            None,
+            std::future::ready(w_id.to_string()),
+            false,
+            None,
+        )
+        .await
+        .is_ok()
+    }
+
+    // The ancestor chain is cached process-wide by workspace id, so use one no other test takes.
+    let fork = "wm-fork-tagpattern";
+    sqlx::query!(
+        "INSERT INTO workspace (id, name, owner, parent_workspace_id)
+         VALUES ($1, $1, 'test-user', 'test-workspace')",
+        fork
+    )
+    .execute(&db)
+    .await?;
+
+    CUSTOM_TAGS_PER_WORKSPACE.store(std::sync::Arc::new(CustomTags::from(vec![
+        "gpu-$args[size]".to_string(),
+        "$args[size]-secret(test-workspace)".to_string(),
+        "gpu-secret(other)".to_string(),
+        "$workspace-$args[size](test-workspace*)".to_string(),
+        "urgent".to_string(),
+        "urgent(other)".to_string(),
+    ])));
+
+    let confined = check(&db, "test-workspace", "gpu-$args[size]", "secret").await;
+    let checks = [
+        (
+            "scoped pattern from its workspace",
+            allowed(&db, "test-workspace", "cpu-secret", "").await,
+        ),
+        (
+            "scoped pattern refused elsewhere",
+            !allowed(&db, "other", "cpu-secret", "").await,
+        ),
+        ("confined tag refused past the patterns it fits", confined.is_err()),
+        (
+            "global pattern for the tags nothing confines",
+            allowed(&db, "test-workspace", "gpu-large", "").await,
+        ),
+        (
+            "confined tag from its workspace",
+            allowed(&db, "other", "gpu-secret", "").await,
+        ),
+        // Listing the tag by name without a scope as well keeps it open everywhere.
+        (
+            "tag listed both globally and scoped",
+            allowed(&db, "test-workspace", "urgent", "").await,
+        ),
+        // The fork's `$workspace` is its parent's, whose tags its lineage reaches. Written as the
+        // resolved tag, not as the entry, so only the pattern can admit it.
+        (
+            "fork-scoped `$workspace` pattern from a fork",
+            allowed(&db, fork, "test-workspace-large", "").await,
+        ),
+        (
+            "fork-scoped `$workspace` pattern refused elsewhere",
+            !allowed(&db, "other", "$workspace-$args[size]", "large").await,
+        ),
+        (
+            "as written from its workspace",
+            allowed_as_written(&db, "test-workspace", "$args[size]-secret").await,
+        ),
+        (
+            "as written refused elsewhere",
+            !allowed_as_written(&db, "other", "$args[size]-secret").await,
+        ),
+    ];
+    CUSTOM_TAGS_PER_WORKSPACE.store(std::sync::Arc::new(CustomTags::default()));
+
+    for (what, ok) in checks {
+        assert!(ok, "{what}");
+    }
+    let confined = confined.unwrap_err();
+    assert!(
+        confined.contains("the custom tag gpu-secret(other) restricts it to other workspaces")
+            && confined.contains("gpu-$args[size]")
+            && confined.contains("$args[size]-secret(test-workspace)"),
+        "got {confined}"
+    );
 
     Ok(())
 }
@@ -5631,6 +5913,83 @@ async fn test_whileloop_propagates_inner_iterator_eval_failure(
         !cjob.success,
         "flow should fail when inner forloop iterator throws inside a while-loop with skip_failures=false"
     );
+
+    Ok(())
+}
+
+#[cfg(all(feature = "quickjs", feature = "python"))]
+#[sqlx::test(fixtures("base"))]
+async fn test_whileloop_skip_if_evaluated_once_at_entry(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    // Regression test for #11007: `skip_if` on a while-loop module must be
+    // evaluated once, at loop entry, using the preceding step's result.
+    // Re-evaluating it on every iteration aliases `results.first` to the
+    // previous iteration's own result instead, which here lacks `.ok` and
+    // makes `skip_if` incorrectly turn true after the first iteration.
+    let port = 123;
+    let flow: FlowValue = serde_json::from_value(serde_json::json!({
+        "modules": [
+            {
+                "id": "first",
+                "value": {
+                    "type": "rawscript",
+                    "language": "python3",
+                    "content": "def main(): return {\"ok\": True}",
+                },
+            },
+            {
+                "id": "outer",
+                "value": {
+                    "type": "whileloopflow",
+                    "skip_failures": false,
+                    "modules": [
+                        {
+                            "id": "inner",
+                            "value": {
+                                "input_transforms": {
+                                    "i": {
+                                        "type": "javascript",
+                                        "expr": "flow_input.iter.index",
+                                    },
+                                },
+                                "type": "rawscript",
+                                "language": "python3",
+                                "content": "def main(i): return i",
+                            },
+                        },
+                    ],
+                },
+                "skip_if": { "expr": "!results.first.ok" },
+                "stop_after_if": {
+                    "expr": "result >= 2",
+                    "skip_if_stopped": false,
+                },
+            },
+        ],
+    }))
+    .unwrap();
+    let job = JobPayload::RawFlow { value: flow, path: None, restarted_from: None };
+
+    let cjob = RunJob::from(job).run_until_complete(&db, false, port).await;
+
+    assert!(cjob.success, "flow should succeed");
+
+    let outer_module = get_module(&cjob, "outer").expect("outer module status");
+    match outer_module {
+        windmill_common::flow_status::FlowStatusModule::Success { skipped, flow_jobs, .. } => {
+            assert!(
+                !skipped,
+                "while-loop must not be skipped: skip_if should only run once, at entry"
+            );
+            assert_eq!(
+                flow_jobs.map(|v| v.len()),
+                Some(3),
+                "while-loop should run 3 iterations before stop_after_if halts it"
+            );
+        }
+        other => panic!("expected outer module to be Success, got {other:?}"),
+    }
 
     Ok(())
 }

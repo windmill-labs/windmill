@@ -41,6 +41,8 @@ use crate::{
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct CustomTags {
     pub global: Vec<String>,
+    /// Keyed by the entry's name, which may hold placeholders like a global entry: only a name
+    /// without any can be looked up by the tag it admits, the others through [`custom_tag_matches`].
     pub specific: HashMap<String, SpecificTagData>,
 }
 
@@ -83,25 +85,90 @@ impl CustomTags {
         } else {
             self.specific
                 .iter()
-                .map(|(tag, tag_data)| {
-                    let separator = tag_data.tag_type.corresponding_separator();
-                    let mut workspaces = tag_data
-                        .workspaces
-                        .iter()
-                        .map(|w| w.to_string())
-                        .collect::<Vec<_>>()
-                        .join(&*separator.to_string());
-                    if tag_data.tag_type == SpecificTagType::AllExcluding {
-                        // the AllExcluding tag syntax has a leading separator
-                        workspaces.insert(0, separator);
-                    }
-                    format!("{}({})", tag, workspaces)
-                })
+                .map(|(tag, tag_data)| tag_data.authored(tag))
                 .collect::<Vec<String>>()
         };
         let all_tags = self.global.clone();
         all_tags.into_iter().chain(specific.into_iter()).collect()
     }
+}
+
+/// Whether a job whose tag resolved to `tag` falls under the custom tag `entry`. An entry holding
+/// placeholders is a pattern over resolved tags: `$args[...]` and `$flow_expr[...]` match any
+/// text, since whoever pushes the job picks their values, and `$workspace` matches
+/// `tag_workspace`, what the job's own `$workspace` resolves to. The text around them must match
+/// as written: it is what confines `gpu-$args[size]` to the `gpu-` tags.
+///
+/// Placeholders whose values are tied, a repeat or one reading inside another, make an entry no
+/// wildcard pattern describes (`t-$args[id]-$args[id]` never resolves to `t-a-b`). Such an entry
+/// matches nothing here: it admits only a job whose tag is written exactly as the entry is.
+pub fn custom_tag_matches(entry: &str, tag: &str, tag_workspace: &str) -> bool {
+    if !entry.contains('$') {
+        return entry == tag;
+    }
+    let dynamic: Vec<&str> = CUSTOM_TAG_PLACEHOLDER
+        .find_iter(entry)
+        .map(|m| m.as_str())
+        .filter(|p| *p != "$workspace")
+        .collect();
+    let tied = dynamic
+        .iter()
+        .enumerate()
+        .any(|(i, a)| dynamic[i + 1..].iter().any(|b| placeholders_tied(a, b)));
+    if tied {
+        return false;
+    }
+    // The literal runs between wildcards, with `$workspace` substituted.
+    let mut pieces = vec![];
+    let mut current = String::new();
+    let mut last_end = 0;
+    for m in CUSTOM_TAG_PLACEHOLDER.find_iter(entry) {
+        current.push_str(&entry[last_end..m.start()]);
+        if m.as_str() == "$workspace" {
+            current.push_str(tag_workspace);
+        } else {
+            pieces.push(std::mem::take(&mut current));
+        }
+        last_end = m.end();
+    }
+    current.push_str(&entry[last_end..]);
+    pieces.push(current);
+
+    let [first, rest @ ..] = pieces.as_slice() else {
+        return false;
+    };
+    let Some((last, middle)) = rest.split_last() else {
+        return tag == first;
+    };
+    let Some(mut inner) = tag
+        .strip_prefix(first.as_str())
+        .and_then(|t| t.strip_suffix(last.as_str()))
+    else {
+        return false;
+    };
+    for piece in middle {
+        match inner.find(piece.as_str()) {
+            Some(i) => inner = &inner[i + piece.len()..],
+            None => return false,
+        }
+    }
+    true
+}
+
+/// Whether two `$args[...]` / `$flow_expr[...]` placeholders read the same value, or one reads a
+/// value inside the other's.
+fn placeholders_tied(a: &str, b: &str) -> bool {
+    let (Some((kind_a, path_a)), Some((kind_b, path_b))) = (a.split_once('['), b.split_once('['))
+    else {
+        return false;
+    };
+    let (path_a, path_b) = (path_a.trim_end_matches(']'), path_b.trim_end_matches(']'));
+    let inside = |outer: &str, inner: &str| {
+        inner
+            .strip_prefix(outer)
+            .is_some_and(|rest| rest.starts_with('.'))
+    };
+    kind_a == kind_b && (path_a == path_b || inside(path_a, path_b) || inside(path_b, path_a))
 }
 
 /// Marker suffixed to a workspace id inside a custom tag's scope (`mytag(prod*)`) to extend the
@@ -182,6 +249,22 @@ impl SpecificTagData {
     /// lineage lookup for the (overwhelmingly common) fork-agnostic tag.
     pub fn is_fork_scoped(&self) -> bool {
         self.workspaces.iter().any(|w| w.include_forks)
+    }
+
+    /// The entry named `name` with this scope, as written in the custom tags: `tag(ws1+ws2)`.
+    pub fn authored(&self, name: &str) -> String {
+        let separator = self.tag_type.corresponding_separator();
+        let mut workspaces = self
+            .workspaces
+            .iter()
+            .map(|w| w.to_string())
+            .collect::<Vec<_>>()
+            .join(&*separator.to_string());
+        if self.tag_type == SpecificTagType::AllExcluding {
+            // the AllExcluding tag syntax has a leading separator
+            workspaces.insert(0, separator);
+        }
+        format!("{}({})", name, workspaces)
     }
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -392,6 +475,7 @@ lazy_static::lazy_static! {
         pip_local_dependencies: Default::default(),
         env_vars: Default::default(),
         native_mode: false,
+        object_store_cache_config: Default::default(),
     });
 
     pub static ref WORKER_PULL_QUERIES: arc_swap::ArcSwap<Vec<String>> = arc_swap::ArcSwap::from_pointee(vec![]);
@@ -463,7 +547,9 @@ lazy_static::lazy_static! {
 
 
 
-    //    ^([\w-]+)         # Group 1: tag name
+    //    ^(                # Group 1: tag name, a pattern when it holds placeholders
+    //      (?:[\w-]|\$workspace|\$(?:args|flow_expr)\[(?:\w+\.)*\w+\])+
+    //    )
     //    \(                # Literal '('
     //    (                 # Group 2: the full workspace list
     //      (?:[\w-]+\*?\+)*[\w-]+\*?   # NoneExcept pattern: ws1+ws2*
@@ -472,8 +558,12 @@ lazy_static::lazy_static! {
     //    )
     //    \)$               # Closing ')'
     //
-    // The optional `*` after each workspace id is the fork marker, see [`WorkspaceMatcher`].
-    static ref CUSTOM_TAG_REGEX: Regex = Regex::new(r"^([\w-]+)\(((?:[\w-]+\*?\+)*[\w-]+\*?|(?:\^[\w-]+\*?)+)\)$").unwrap();
+    // The placeholders are CUSTOM_TAG_PLACEHOLDER's. The optional `*` after each workspace id is
+    // the fork marker, see [`WorkspaceMatcher`].
+    static ref CUSTOM_TAG_REGEX: Regex = Regex::new(r"^((?:[\w-]|\$workspace|\$(?:args|flow_expr)\[(?:\w+\.)*\w+\])+)\(((?:[\w-]+\*?\+)*[\w-]+\*?|(?:\^[\w-]+\*?)+)\)$").unwrap();
+
+    // The placeholders a job's tag is resolved from when it is pushed, see [`custom_tag_matches`].
+    static ref CUSTOM_TAG_PLACEHOLDER: Regex = Regex::new(r"\$workspace|\$(?:args|flow_expr)\[(?:\w+\.)*\w+\]").unwrap();
 
     pub static ref DISABLE_BUNDLING: bool = std::env::var("DISABLE_BUNDLING")
     .ok()
@@ -1079,6 +1169,83 @@ pub struct SqlAnnotations {
     // `wmill datatable serve` to map Postgres results onto the wire protocol
     // without re-stringifying every JSON value.
     pub raw_output: bool,
+}
+
+impl SqlAnnotations {
+    /// The data table role a query declares as `-- role <name>`, if any. Only meaningful against a
+    /// `datatable://` database that is under roles; absent means the data table's default role.
+    ///
+    /// Hand-written rather than derived because the value matters, not just the presence, and
+    /// because the executor needs it before it knows the connection is a data table at all. Like
+    /// every annotation it lives in the leading comment block.
+    ///
+    /// A leading comment whose first word is `role` is an annotation *attempt*, and a malformed
+    /// one is an error. The alternative — ignoring what does not parse — resolves the query to the
+    /// data table's default role instead, so a typo silently runs it under a login the author did
+    /// not choose, which is the opposite of what naming a role is for. Only callers that already
+    /// know the target is a `datatable://` reference ever run this, so ordinary SQL keeps its
+    /// comments.
+    pub fn datatable_role(code: &str) -> error::Result<Option<String>> {
+        for line in code.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            if !line.starts_with("--") {
+                break;
+            }
+            // The keyword may be followed by whitespace, `:` or `=` — `role x`, `role: x`,
+            // `role=x`, `Role = x` all open an attempt, while `rolexyz` does not. Each accepted
+            // separator is one spelling that would otherwise take the `continue` below and run the
+            // query as the data table's default role, which is the silence this exists to remove.
+            let body = line[2..].trim_start();
+            let Some(after) = body
+                .get(..4)
+                .filter(|kw| kw.eq_ignore_ascii_case("role"))
+                .map(|_| &body[4..])
+            else {
+                continue;
+            };
+            if !after.is_empty()
+                && !after.starts_with(char::is_whitespace)
+                && !after.starts_with([':', '='])
+            {
+                continue;
+            }
+
+            // Past this point the line is an attempt to name a role, so a malformed one is an
+            // error rather than a miss. Falling through would run the query as the data table's
+            // default role — quietly, and under a login the author did not choose.
+            let after = after.trim_start();
+            let after = after.strip_prefix([':', '=']).unwrap_or(after);
+            let mut tokens = after.split_whitespace();
+            let role = tokens
+                .next()
+                .map(|role| role.strip_suffix(';').unwrap_or(role));
+            let rest = tokens.next();
+            match (role, rest) {
+                (Some(role), None)
+                    if !role.is_empty()
+                        && role.len() <= 63
+                        && role
+                            .chars()
+                            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') =>
+                {
+                    return Ok(Some(role.to_string()));
+                }
+                _ => {
+                    return Err(error::Error::BadRequest(format!(
+                        "Malformed data table role annotation: `{line}`. Write it as \
+                         `-- role <name>` on a line of its own, where <name> is letters, digits, \
+                         '_' or '-'. A comment in the leading block that starts with the word \
+                         'role' is read as this annotation; move it below the first statement if \
+                         it is prose."
+                    )));
+                }
+            }
+        }
+        Ok(None)
+    }
 }
 
 #[annotations("#")]
@@ -2343,6 +2510,7 @@ pub async fn load_worker_config(
             .or_else(|| load_additional_python_paths_from_env()),
         env_vars: resolved_env_vars,
         native_mode,
+        object_store_cache_config: config.object_store_cache_config,
     })
 }
 
@@ -2432,6 +2600,7 @@ pub struct WorkerConfigOpt {
     pub env_vars_static: Option<HashMap<String, String>>,
     pub env_vars_allowlist: Option<Vec<String>>,
     pub native_mode: Option<bool>,
+    pub object_store_cache_config: Option<serde_json::Value>,
 }
 
 impl Default for WorkerConfigOpt {
@@ -2450,6 +2619,7 @@ impl Default for WorkerConfigOpt {
             env_vars_static: Default::default(),
             env_vars_allowlist: Default::default(),
             native_mode: Default::default(),
+            object_store_cache_config: Default::default(),
         }
     }
 }
@@ -2468,12 +2638,18 @@ pub struct WorkerConfig {
     pub pip_local_dependencies: Option<Vec<String>>,
     pub env_vars: HashMap<String, String>,
     pub native_mode: bool,
+    /// Object store this group's dependency cache uses instead of the instance one, as stored
+    /// in the group config. Raw JSON: `windmill-common` cannot depend on the object store crate
+    /// that parses it, and comparing the raw value is what tells a reload the store changed.
+    pub object_store_cache_config: Option<serde_json::Value>,
 }
 
 impl std::fmt::Debug for WorkerConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "WorkerConfig {{ worker_tags: {:?}, priority_tags_sorted: {:?}, dedicated_worker: {:?}, dedicated_workers: {:?}, init_bash: {:?}, periodic_script_bash: {:?}, periodic_script_interval_seconds: {:?}, cache_clear: {:?}, additional_python_paths: {:?}, pip_local_dependencies: {:?}, env_vars: {:?}, native_mode: {:?} }}",
-        self.worker_tags, self.priority_tags_sorted, self.dedicated_worker, self.dedicated_workers, self.init_bash, self.periodic_script_bash, self.periodic_script_interval_seconds, self.cache_clear, self.additional_python_paths, self.pip_local_dependencies, self.env_vars.iter().map(|(k, v)| format!("{}: {}{} ({} chars)", k, &v[..3.min(v.len())], "***", v.len())).collect::<Vec<String>>().join(", "), self.native_mode)
+        write!(f, "WorkerConfig {{ worker_tags: {:?}, priority_tags_sorted: {:?}, dedicated_worker: {:?}, dedicated_workers: {:?}, init_bash: {:?}, periodic_script_bash: {:?}, periodic_script_interval_seconds: {:?}, cache_clear: {:?}, additional_python_paths: {:?}, pip_local_dependencies: {:?}, env_vars: {:?}, native_mode: {:?}, object_store_cache_config: {} }}",
+        self.worker_tags, self.priority_tags_sorted, self.dedicated_worker, self.dedicated_workers, self.init_bash, self.periodic_script_bash, self.periodic_script_interval_seconds, self.cache_clear, self.additional_python_paths, self.pip_local_dependencies, self.env_vars.iter().map(|(k, v)| format!("{}: {}{} ({} chars)", k, &v[..3.min(v.len())], "***", v.len())).collect::<Vec<String>>().join(", "), self.native_mode,
+        // holds bucket credentials
+        self.object_store_cache_config.as_ref().map(|_| "***").unwrap_or("None"))
     }
 }
 
@@ -2500,6 +2676,42 @@ pub fn split_python_requirements<T: AsRef<str>>(requirements: T) -> Vec<String> 
         .filter(|x| !x.trim_start().starts_with("--") && !x.trim().is_empty())
         .map(String::from)
         .collect()
+}
+
+/// Byte offset of the comment marker, per pip's rule: a `#` at line start or preceded by
+/// whitespace. A `#` elsewhere belongs to the requirement (`pkg @ https://h/p.whl#sha256=…`).
+fn requirement_comment_start(line: &str) -> Option<usize> {
+    line.char_indices()
+        .find(|(i, c)| *c == '#' && (*i == 0 || line[..*i].ends_with(char::is_whitespace)))
+        .map(|(i, _)| i)
+}
+
+/// The installable requirement carried by one lockfile line, or `None` for a comment, a
+/// `-r`/`-e`/`--flag` directive, or a blank.
+///
+/// Windmill installs a lockfile one entry at a time as a `uv pip install` argument, so
+/// requirements-file syntax a file-level parser would absorb is an unparseable package name
+/// here and has to be stripped first.
+pub fn requirement_from_lockfile_line(line: &str) -> Option<&str> {
+    let requirement = match requirement_comment_start(line) {
+        Some(i) => &line[..i],
+        None => line,
+    }
+    .trim()
+    // Continuations are stripped, not joined: right for `--generate-hashes` locks, whose
+    // continued lines are `--hash=` flags this function drops, but a lock continuing onto a
+    // marker or extra would lose it.
+    .trim_end_matches('\\')
+    .trim_end();
+
+    (!requirement.is_empty() && !requirement.starts_with('-')).then_some(requirement)
+}
+
+/// Whether a lockfile line continues onto the next one. The continued lines reach the
+/// installer as entries of their own rather than being joined, so a caller that cares what
+/// they carried — `--hash=` pins, for a `--generate-hashes` lock — has to say so itself.
+pub fn lockfile_line_has_continuation(line: &str) -> bool {
+    line.trim_end().ends_with('\\')
 }
 
 #[derive(Eq, PartialEq, Clone, Copy, Default, Debug)]
@@ -2607,6 +2819,56 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
+    #[test]
+    fn datatable_role_is_read_from_the_leading_comment_block() {
+        let role = |code| SqlAnnotations::datatable_role(code);
+        assert_eq!(
+            role("-- role analytics\nSELECT 1").unwrap(),
+            Some("analytics".to_string())
+        );
+        // Blank lines and other annotations before it are fine.
+        assert_eq!(
+            role("\n-- prepare\n-- role read_only\nSELECT 1").unwrap(),
+            Some("read_only".to_string())
+        );
+        // Past the first statement it is an ordinary comment, not an annotation.
+        assert_eq!(role("SELECT 1;\n-- role analytics").unwrap(), None);
+        assert_eq!(role("SELECT 1").unwrap(), None);
+
+        // Unambiguous intent is honoured: the keyword matches case-insensitively, a trailing
+        // semicolon is a habit carried over from SQL rather than a different role, and the colon
+        // spelling is the one most likely to be typed.
+        for accepted in [
+            "-- Role operator\nSELECT 1",
+            "-- role operator;\nSELECT 1",
+            "-- role: operator\nSELECT 1",
+            "-- role:operator\nSELECT 1",
+            "-- role=operator\nSELECT 1",
+            "-- Role = operator\nSELECT 1",
+        ] {
+            assert_eq!(
+                role(accepted).unwrap(),
+                Some("operator".to_string()),
+                "not honoured: {accepted}"
+            );
+        }
+
+        // Anything else opening with the word is refused rather than resolved to the default role:
+        // the whole point of naming one is to not run as something else.
+        for near_miss in [
+            "-- role operator -- why\nSELECT 1",
+            "-- role an;alytics\nSELECT 1",
+            "-- role\nSELECT 1",
+            "-- role:\nSELECT 1",
+            "-- role based access is handled below\nSELECT 1",
+        ] {
+            assert!(role(near_miss).is_err(), "silently ignored: {near_miss}");
+        }
+
+        // A word that merely starts with the keyword is not an attempt.
+        assert_eq!(role("-- rolebased notes\nSELECT 1").unwrap(), None);
+    }
+
     fn matcher(id: &str) -> WorkspaceMatcher {
         WorkspaceMatcher { id: id.to_string(), include_forks: false }
     }
@@ -2618,6 +2880,52 @@ mod tests {
     /// A workspace id chain: the workspace itself, then its fork ancestors nearest-first.
     fn chain(ids: &[&str]) -> Vec<String> {
         ids.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// Fixtures are verbatim `uv pip compile` output (uv 0.11.28): split and inline
+    /// annotation styles, and `--generate-hashes`.
+    #[test]
+    fn test_requirement_from_lockfile_line() {
+        assert_eq!(requirement_from_lockfile_line("    # via httpx"), None);
+        assert_eq!(requirement_from_lockfile_line("    # via"), None);
+        assert_eq!(requirement_from_lockfile_line("    #   anyio"), None);
+        assert_eq!(
+            requirement_from_lockfile_line("    # via -r .tmp/requirements.in"),
+            None
+        );
+        assert_eq!(
+            requirement_from_lockfile_line("anyio==4.15.1 \\"),
+            Some("anyio==4.15.1")
+        );
+        assert_eq!(
+            requirement_from_lockfile_line(
+                "    --hash=sha256:6152fdbbf9a77fdec97731721bebf7c4c44f7c29b424b0065826173efc7 \\"
+            ),
+            None
+        );
+        assert_eq!(requirement_from_lockfile_line("# py: 3.11"), None);
+        assert_eq!(requirement_from_lockfile_line("-r other.txt"), None);
+        assert_eq!(
+            requirement_from_lockfile_line("--index-url https://x"),
+            None
+        );
+        assert_eq!(requirement_from_lockfile_line("   "), None);
+        assert_eq!(
+            requirement_from_lockfile_line("httpx==0.27.0"),
+            Some("httpx==0.27.0")
+        );
+        assert_eq!(
+            requirement_from_lockfile_line("httpx==0.27.0  # via -r requirements.in"),
+            Some("httpx==0.27.0")
+        );
+        // A `#` not preceded by whitespace is part of the requirement, not a comment.
+        assert_eq!(
+            requirement_from_lockfile_line("wmill @ https://h/wmill.whl#sha256=abc"),
+            Some("wmill @ https://h/wmill.whl#sha256=abc")
+        );
+
+        assert!(lockfile_line_has_continuation("anyio==4.15.1 \\"));
+        assert!(!lockfile_line_has_continuation("anyio==4.15.1"));
     }
 
     #[test]
@@ -2849,6 +3157,92 @@ mod tests {
         let mut result = tags.to_string_vec(None);
         result.sort();
         assert_eq!(result, vec!["foo", "legacy(^ws1^ws2)", "urgent(ws1+ws2)"]);
+    }
+
+    #[test]
+    fn test_custom_tag_matches_resolved_tags() {
+        let matches = |entry, tag| custom_tag_matches(entry, tag, "ws1");
+
+        assert!(matches("gpu", "gpu"));
+        assert!(!matches("gpu", "gpu-large"));
+
+        // The text around a placeholder fences what its value can make of the tag.
+        assert!(matches("gpu-$args[size]", "gpu-large"));
+        assert!(matches("gpu-$flow_expr[results.a.size]", "gpu-"));
+        assert!(!matches("gpu-$args[size]", "prod"));
+        assert!(!matches("gpu-$args[size]", "xgpu-large"));
+        assert!(matches("$args[region]-gpu", "eu-gpu"));
+        assert!(!matches("$args[region]-gpu", "eu-gpu-x"));
+        assert!(matches("a-$args[x]-b-$args[y]-c", "a-1-b-2-c"));
+        assert!(!matches("a-$args[x]-b-$args[y]-c", "a-1-c"));
+        assert!(!matches("ab$args[x]ba", "aba"));
+
+        // A bare placeholder admits every tag.
+        assert!(matches("$flow_expr[results.a.tag]", "anything"));
+
+        // Tied placeholders are no pattern: their entry admits only its own text.
+        assert!(!matches("t-$args[id]-$args[id]", "t-a-a"));
+        assert!(!matches("t-$args[a]-$args[a.b]", "t-x-y"));
+        assert!(matches("t-$args[a.x]-$args[a.y]", "t-x-y"));
+        assert!(matches("t-$args[id]-$flow_expr[flow_input.id]", "t-x-y"));
+
+        // `$workspace` stands for the job's own workspace only.
+        assert!(matches("tag-$workspace", "tag-ws1"));
+        assert!(!matches("tag-$workspace", "tag-ws2"));
+        assert!(matches("$workspace-$args[size]", "ws1-large"));
+        assert!(!matches("$workspace-$args[size]", "ws2-large"));
+    }
+
+    #[test]
+    fn test_scoped_custom_tag_patterns_parse_and_round_trip() {
+        let input = vec![
+            "gpu-$args[size](ws1+ws2)".to_string(),
+            "cpu-$flow_expr[results.a.size](^ws1)".to_string(),
+            "$workspace-$args[x](prod*)".to_string(),
+            "t-$args[id]-$args[id](ws1)".to_string(),
+        ];
+        let tags = CustomTags::from(input.clone());
+
+        assert!(tags.global.is_empty());
+        assert_eq!(
+            tags.specific["gpu-$args[size]"],
+            SpecificTagData {
+                tag_type: SpecificTagType::NoneExcept,
+                workspaces: vec![matcher("ws1"), matcher("ws2")],
+            }
+        );
+        assert_eq!(
+            tags.specific["cpu-$flow_expr[results.a.size]"],
+            SpecificTagData {
+                tag_type: SpecificTagType::AllExcluding,
+                workspaces: vec![matcher("ws1")],
+            }
+        );
+        assert!(tags.specific["$workspace-$args[x]"].is_fork_scoped());
+        assert!(tags.specific.contains_key("t-$args[id]-$args[id]"));
+
+        let mut result = tags.to_string_vec(None);
+        result.sort();
+        let mut expected = input;
+        expected.sort();
+        assert_eq!(result, expected);
+
+        let mut for_ws1 = tags.to_string_vec(Some(&chain(&["ws1"])));
+        for_ws1.sort();
+        assert_eq!(for_ws1, vec!["gpu-$args[size]", "t-$args[id]-$args[id]"]);
+
+        // Only the placeholders a tag resolves from make a name a pattern: anything else is no
+        // scoped entry at all.
+        for literal in [
+            "gpu-$foo(ws1)",
+            "gpu-$args[](ws1)",
+            "gpu-$args[a.](ws1)",
+            "gpu.x(ws1)",
+        ] {
+            let tags = CustomTags::from(vec![literal.to_string()]);
+            assert_eq!(tags.global, vec![literal]);
+            assert!(tags.specific.is_empty());
+        }
     }
 
     #[test]

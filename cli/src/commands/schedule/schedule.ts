@@ -6,13 +6,19 @@ import { Command } from "@cliffy/command";
 import { Table } from "@cliffy/table";
 import { colors } from "@cliffy/ansi/colors";
 import * as log from "../../core/log.ts";
-import { sep as SEP } from "node:path";
+import { sep as SEP, resolve as pathResolve } from "node:path";
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace, validatePath } from "../../core/context.ts";
-import { mergeConfigWithConfigFile } from "../../core/conf.ts";
+import {
+  mergeConfigWithConfigFile,
+  readEffectiveSyncBehavior,
+} from "../../core/conf.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
-import { lookupUsernameByEmail } from "../../core/permissioned_as.ts";
+import {
+  buildPermissionedAsContext,
+  lookupUsernameByEmail,
+} from "../../core/permissioned_as.ts";
 
 import {
   GlobalOptions,
@@ -106,7 +112,8 @@ export async function pushSchedule(
   path: string,
   schedule: Schedule | ScheduleFile | undefined,
   localSchedule: ScheduleFile,
-  permissionedAsContext?: PermissionedAsContext
+  permissionedAsContext?: PermissionedAsContext,
+  enabledOwnedByParent?: boolean
 ): Promise<void> {
   path = removeType(path, "schedule").replaceAll(SEP, "/");
   log.debug(`Processing local schedule ${path}`);
@@ -122,6 +129,21 @@ export async function pushSchedule(
 
   // Strip CLI-only boolean marker before sending to API
   delete (localSchedule as any).has_permissioned_as;
+
+  // In a fork, the file's `enabled` is the parent's for a path the parent
+  // also has (see sync push's `parentOwnedScheduleEnabled`): the fork's own
+  // flag stays as it is.
+  if (enabledOwnedByParent && schedule) {
+    if (
+      localSchedule.enabled !== undefined &&
+      localSchedule.enabled !== schedule.enabled
+    ) {
+      log.warnAlways(
+        `Schedule ${path} stays ${schedule.enabled ? "enabled" : "disabled"}: the file says ${localSchedule.enabled ? "enabled" : "disabled"}, but in a fork that flag is the parent workspace's`
+      );
+    }
+    delete localSchedule.enabled;
+  }
 
   const preserveFields: { permissioned_as?: string; preserve_permissioned_as?: boolean } = {};
   if (permissionedAsContext?.userIsAdminOrDeployer) {
@@ -153,13 +175,9 @@ export async function pushSchedule(
           ...preserveFields,
         },
       });
-      // Tarball export from a fork strips `enabled` from schedule YAMLs so
-      // the fork→parent git-sync round-trip can't flip the parent's state.
-      // Skip the secondary setScheduleEnabled call when the local YAML
-      // doesn't carry `enabled` — sending `{ enabled: undefined }` would
-      // serialize to `{}` and the backend (`SetEnabled.enabled` is required)
-      // would reject the request. Preserving the target's existing flag is
-      // exactly the round-trip-safe behavior.
+      // No `enabled` in the file (absent from the YAML, or set aside above)
+      // leaves the remote flag alone: `SetEnabled.enabled` is required, so
+      // `{ enabled: undefined }` would be rejected rather than ignored.
       if (
         localSchedule.enabled !== undefined &&
         localSchedule.enabled !== schedule.enabled
@@ -167,13 +185,12 @@ export async function pushSchedule(
         log.info(colors.bold.yellow(
           `Schedule ${path} is ${localSchedule.enabled ? "enabled" : "disabled"} locally but not on remote, updating remote`
         ));
-        await wmill.setScheduleEnabled({
-          workspace: workspace,
+        await setEnabledUnlessParentOwned(
+          workspace,
           path,
-          requestBody: {
-            enabled: localSchedule.enabled,
-          },
-        });
+          localSchedule.enabled,
+          schedule.enabled
+        );
       }
     } catch (e) {
       console.error((e as any).body);
@@ -194,6 +211,44 @@ export async function pushSchedule(
       console.error((e as any).body);
       throw e;
     }
+    // A create in a fork lands disabled whatever the request says. A fork-only
+    // path the file wants enabled is enabled here, so one push converges; a
+    // parent-owned one stays disabled.
+    if (enabledOwnedByParent !== undefined && localSchedule.enabled === true) {
+      if (enabledOwnedByParent) {
+        log.warnAlways(
+          `Schedule ${path} created disabled: the file says enabled, but in a fork that flag is the parent workspace's`
+        );
+      } else {
+        await setEnabledUnlessParentOwned(workspace, path, true, false);
+      }
+    }
+  }
+}
+
+// The parent listing behind `enabledOwnedByParent` sees only what the pusher
+// may read; the backend's `fork-conflict` refusal is the last word, so a path
+// it says the parent has keeps the fork's flag rather than failing the push.
+async function setEnabledUnlessParentOwned(
+  workspace: string,
+  path: string,
+  enabled: boolean,
+  remoteEnabled: boolean
+): Promise<void> {
+  try {
+    await wmill.setScheduleEnabled({
+      workspace,
+      path,
+      requestBody: { enabled },
+    });
+  } catch (e) {
+    const conflict = parseForkConflict(e);
+    if (!conflict) {
+      throw e;
+    }
+    log.warnAlways(
+      `Schedule ${path} left ${remoteEnabled ? "enabled" : "disabled"}: the parent workspace '${conflict.parentWorkspaceId}' has the same schedule, so its flag is the parent's to set`
+    );
   }
 }
 
@@ -250,8 +305,12 @@ async function disable(opts: GlobalOptions, path: string) {
 }
 
 async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
+  // Reading the config moves the cwd to the wmill.yaml root when it sits in a
+  // parent directory, so pin the file against the invocation cwd first.
+  filePath = pathResolve(filePath);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
+  const syncBehavior = await readEffectiveSyncBehavior(opts, workspace);
 
   if (!validatePath(remotePath)) {
     return;
@@ -268,7 +327,8 @@ async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
     workspace.workspaceId,
     remotePath,
     undefined,
-    parseFromFile(filePath)
+    parseFromFile(filePath),
+    await buildPermissionedAsContext(workspace.workspaceId, syncBehavior)
   );
   console.log(colors.bold.underline.green("Schedule pushed"));
 }

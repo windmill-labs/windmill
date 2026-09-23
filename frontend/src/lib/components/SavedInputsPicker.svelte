@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
 	import { InputService, type Input, type RunnableType } from '$lib/gen/index.js'
-	import { userStore, workspaceStore } from '$lib/stores.js'
+	import { userStore } from '$lib/stores.js'
 	import { sendUserToast } from '$lib/utils.js'
 	import { createEventDispatcher, onDestroy, untrack } from 'svelte'
 	import { Trash2, Save, Pencil } from 'lucide-svelte'
@@ -12,6 +12,14 @@
 	import InfiniteList from './InfiniteList.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import SavedInputsPickerViewer from './SavedInputsPickerViewer.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	interface Props {
 		previewArgs?: any
@@ -36,7 +44,7 @@
 		workspace = undefined
 	}: Props = $props()
 
-	let ws = $derived(workspace ?? $workspaceStore)
+	let ws = $derived(workspace ?? $operatingWorkspace)
 
 	interface EditableInput extends Input {
 		isEditing?: boolean
@@ -254,8 +262,8 @@
 				{#snippet children({ item, hover })}
 					{@const editOptions =
 						item.created_by == $userStore?.username ||
-						$userStore?.is_admin ||
-						$userStore?.is_super_admin}
+						actingUser?.is_admin ||
+						actingUser?.is_super_admin}
 					<Cell>
 						<div class="center-center">
 							<Save size={12} />

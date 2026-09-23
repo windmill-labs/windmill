@@ -14,7 +14,9 @@
 
 	async function authorizeToken(): Promise<void> {
 		const username = $userStore?.username
-		const label = username ? `cli-${username}` : 'cli'
+		// `cli-login:` is reserved in `is_user_token` (windmill-common): the CLI signs in again on
+		// its own once this token expires, so it must not email the user about it.
+		const label = `cli-login:${username ?? ''}`
 		const newToken = await UserService.createToken({
 			requestBody: {
 				label,

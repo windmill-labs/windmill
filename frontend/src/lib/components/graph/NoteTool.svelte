@@ -86,7 +86,7 @@
 		// Create the actual note using NoteEditor context
 		if (noteEditorContext?.noteEditor) {
 			noteEditorContext.noteEditor.addNote({
-				text: '### Free note\nDouble click to edit me',
+				text: '## Note\nDouble click to edit me',
 				position,
 				size,
 				color: DEFAULT_NOTE_COLOR,
@@ -107,7 +107,7 @@
 		if (!noteEditorContext?.noteEditor || !contextMenuPosition) return
 
 		noteEditorContext.noteEditor.addNote({
-			text: '### Free note\nDouble click to edit me',
+			text: '## Note\nDouble click to edit me',
 			position: contextMenuPosition,
 			size: { width: 300, height: 200 },
 			color: DEFAULT_NOTE_COLOR,

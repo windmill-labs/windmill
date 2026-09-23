@@ -1,6 +1,6 @@
 /**
- * A message draft: the four lanes that ship together with one send — text,
- * pastes, images, text files. Every place a draft accumulates or moves
+ * A message draft: the five lanes that ship together with one send — text,
+ * pastes, images, text files, blobs. Every place a draft accumulates or moves
  * (composer attach, queue append, dequeue restore, failure restore) goes
  * through this type, so the draft rules — file dedupe by source identity,
  * courtesy rename, attachment slot caps, all-lanes-move-together — live here
@@ -10,6 +10,7 @@
  * manager-wide state — enforced at the composer until it moves into the
  * store) and @context/DOM picks (ContextManager owns their lifecycle).
  */
+import { MAX_ATTACHED_BLOBS, type AttachedBlob } from './blobUtils'
 import { MAX_ATTACHED_IMAGES, type AttachedImage } from './imageUtils'
 import type { PasteAttachment } from './pasteTokens'
 import {
@@ -19,12 +20,13 @@ import {
 	type AttachedTextFile
 } from './textFileUtils'
 
-/** A draft's four lanes as plain data — what moves between owners. */
+/** A draft's five lanes as plain data — what moves between owners. */
 export interface DraftSnapshot {
 	text: string
 	pastes: PasteAttachment[]
 	images: AttachedImage[]
 	files: AttachedTextFile[]
+	blobs: AttachedBlob[]
 }
 
 export class MessageDraft {
@@ -32,12 +34,14 @@ export class MessageDraft {
 	pastes = $state<PasteAttachment[]>([])
 	images = $state<AttachedImage[]>([])
 	files = $state<AttachedTextFile[]>([])
+	blobs = $state<AttachedBlob[]>([])
 
 	constructor(seed?: Partial<DraftSnapshot>) {
 		if (seed?.text) this.text = seed.text
 		if (seed?.pastes) this.pastes = [...seed.pastes]
 		if (seed?.images) this.images = [...seed.images]
 		if (seed?.files) this.files = [...seed.files]
+		if (seed?.blobs) this.blobs = [...seed.blobs]
 	}
 
 	get isEmpty(): boolean {
@@ -45,12 +49,13 @@ export class MessageDraft {
 			this.text.trim() === '' &&
 			this.pastes.length === 0 &&
 			this.images.length === 0 &&
-			this.files.length === 0
+			this.files.length === 0 &&
+			this.blobs.length === 0
 		)
 	}
 
 	get hasAttachments(): boolean {
-		return this.images.length > 0 || this.files.length > 0
+		return this.images.length > 0 || this.files.length > 0 || this.blobs.length > 0
 	}
 
 	/** Files joining a draft always fold (dedupe by source identity, courtesy
@@ -83,6 +88,14 @@ export class MessageDraft {
 		return dropped
 	}
 
+	/** Blobs join up to the slot cap. Returns the dropped count (caller toasts). */
+	addBlobs(blobs: AttachedBlob[]): number {
+		const merged = [...this.blobs, ...blobs]
+		const dropped = Math.max(0, merged.length - MAX_ATTACHED_BLOBS)
+		this.blobs = merged.slice(0, MAX_ATTACHED_BLOBS)
+		return dropped
+	}
+
 	/**
 	 * Merge a restored draft on top of this one (queued-message delete, restore
 	 * after a cancelled/errored turn): the restored draft was written FIRST, so
@@ -91,10 +104,16 @@ export class MessageDraft {
 	 * Returns whether text merged onto a non-empty draft (the caller must then
 	 * keep both drafts' context), plus dropped counts for toasts.
 	 */
-	prepend(restored: { text: string; images?: AttachedImage[]; files?: AttachedTextFile[] }): {
+	prepend(restored: {
+		text: string
+		images?: AttachedImage[]
+		files?: AttachedTextFile[]
+		blobs?: AttachedBlob[]
+	}): {
 		mergedIntoDraft: boolean
 		droppedImages: number
 		droppedFiles: number
+		droppedBlobs: number
 	} {
 		const mergedIntoDraft = !!restored.text && !!this.text.trim()
 		// An attachment-only restore has empty text; prepending would only add blank lines.
@@ -115,7 +134,13 @@ export class MessageDraft {
 			droppedFiles = Math.max(0, merged.length - MAX_ATTACHED_FILES)
 			this.files = merged.slice(0, MAX_ATTACHED_FILES)
 		}
-		return { mergedIntoDraft, droppedImages, droppedFiles }
+		let droppedBlobs = 0
+		if (restored.blobs?.length) {
+			const merged = [...restored.blobs, ...this.blobs]
+			droppedBlobs = Math.max(0, merged.length - MAX_ATTACHED_BLOBS)
+			this.blobs = merged.slice(0, MAX_ATTACHED_BLOBS)
+		}
+		return { mergedIntoDraft, droppedImages, droppedFiles, droppedBlobs }
 	}
 
 	/** Replace the draft with a snapshot, but only when it is empty — an occupied
@@ -132,16 +157,18 @@ export class MessageDraft {
 		this.pastes = [...(snapshot.pastes ?? [])]
 		this.images = [...(snapshot.images ?? [])]
 		this.files = [...(snapshot.files ?? [])]
+		this.blobs = [...(snapshot.blobs ?? [])]
 	}
 
-	/** Snapshot and clear atomically — the four lanes always move together, so no
+	/** Snapshot and clear atomically — the five lanes always move together, so no
 	 * call site can take one and forget another. */
 	take(): DraftSnapshot {
 		const snapshot: DraftSnapshot = {
 			text: this.text,
 			pastes: this.pastes,
 			images: this.images,
-			files: this.files
+			files: this.files,
+			blobs: this.blobs
 		}
 		this.clear()
 		return snapshot
@@ -152,5 +179,6 @@ export class MessageDraft {
 		this.pastes = []
 		this.images = []
 		this.files = []
+		this.blobs = []
 	}
 }

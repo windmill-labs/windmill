@@ -165,11 +165,11 @@ flow related commands
 - `flow push <file_path:string> <remote_path:string>` - push a local flow spec. This overrides any remote versions.
   - `--message <message:string>` - Deployment message
 - `flow run <path:string>` - run a flow by path.
-  - `-d --data <data:string>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
+  - `-d --data <data:string>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-. A resource argument is the bare string $res:<path> as its whole value, and a variable argument is the bare string $var:<path> — not an object wrapper keyed on $res/$var, and not a plain path.
   - `-s --silent` - Do not ouput anything other then the final output. Useful for scripting.
   - `--tag <tag:string>` - Override the worker tag the run is dispatched to (e.g. to route it to dev workers instead of the flow's default tag).
 - `flow preview <flow_path:string>` - preview a local flow without deploying it. Runs the flow definition from local files and uses local PathScripts by default. Pass --step <id> to run only one module in isolation (resolves nested steps inside branchone/branchall/forloopflow/whileloopflow plus the special preprocessor/failure modules; supported step types: rawscript, script, flow).
-  - `-d --data <data:string>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
+  - `-d --data <data:string>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-. A resource argument is the bare string $res:<path> as its whole value, and a variable argument is the bare string $var:<path> — not an object wrapper keyed on $res/$var, and not a plain path.
   - `-s --silent` - Do not output anything other then the final output. Useful for scripting.
   - `--remote` - Use deployed workspace scripts for PathScript steps instead of local files.
   - `--step <step_id:string>` - Run only the named step instead of the whole flow. Honors --data as the step's args and --remote / local-PathScript resolution the same way the full-flow preview does.
@@ -380,7 +380,7 @@ Manage jobs (import/export)
 
 ### lint
 
-Validate Windmill flow, schedule, and trigger YAML files in a directory
+Validate Windmill flow, schedule, and trigger YAML files in a directory, and report script metadata that has no deployable content file
 
 **Arguments:** `[directory:string]`
 
@@ -565,11 +565,11 @@ script related commands
   - `--json` - Output as JSON (for piping to jq)
 - `script show <path:file>` - show a script's content (alias for get)
 - `script run <path:file>` - run a script by path
-  - `-d --data <data:file>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
+  - `-d --data <data:file>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-. A resource argument is the bare string $res:<path> as its whole value, and a variable argument is the bare string $var:<path> — not an object wrapper keyed on $res/$var, and not a plain path.
   - `-s --silent` - Do not output anything other then the final output. Useful for scripting.
   - `--tag <tag:string>` - Override the worker tag the run is dispatched to (e.g. to route it to dev workers instead of the script's default tag).
 - `script preview <path:file>` - preview a local script without deploying it. Supports both regular and codebase scripts.
-  - `-d --data <data:file>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
+  - `-d --data <data:file>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-. A resource argument is the bare string $res:<path> as its whole value, and a variable argument is the bare string $var:<path> — not an object wrapper keyed on $res/$var, and not a plain path.
   - `-s --silent` - Do not output anything other than the final output. Useful for scripting.
   - `--tag <tag:string>` - Override the worker tag the preview is dispatched to (e.g. to route it to dev workers instead of the script's default tag).
 - `script new <path:file> <language:string>` - create a new script
@@ -672,6 +672,27 @@ Manage API tokens
   - `--label <label:string>` - Token label
   - `--expiration <expiration:string>` - Token expiration (ISO 8601 timestamp)
 - `token delete <token_prefix:string>` - Delete a token by its prefix
+
+### trash
+
+List, inspect and restore items deleted in the last three days (requires admin)
+
+**Options:**
+- `--json` - Output as JSON (for piping to jq)
+- `--kind <kind:string>` - Only items of this kind: script, flow, app, schedule, variable, resource or a trigger kind such as http_trigger
+- `--limit <limit:integer>` - Number of items to return (default 100, max 1000)
+- `--page <page:integer>` - Page to return, starting at 1
+
+**Subcommands:**
+
+- `trash list` - List trashed items, most recently deleted first
+  - `--json` - Output as JSON (for piping to jq)
+  - `--kind <kind:string>` - Only items of this kind: script, flow, app, schedule, variable, resource or a trigger kind such as http_trigger
+  - `--limit <limit:integer>` - Number of items to return (default 100, max 1000)
+  - `--page <page:integer>` - Page to return, starting at 1
+- `trash get <id:integer>` - Show a trashed item and the data it was deleted with
+  - `--json` - Output as JSON (for piping to jq)
+- `trash restore <ids...:integer>` - Put trashed items back at their paths
 
 ### trigger
 

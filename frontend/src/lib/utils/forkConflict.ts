@@ -2,14 +2,15 @@ import { forkConflictModal } from '$lib/stores'
 
 /**
  * The backend rejects "enable" requests on triggers/schedules in a fork when
- * the parent workspace has the same path enabled. The error body is shaped as
- *   `fork-conflict:<kind>:<parent_workspace_id>`
+ * an upstream workspace (the parent, or an ancestor further up) has the same
+ * path. The error body is shaped as
+ *   `fork-conflict:<kind>:<upstream_workspace_id>`
  * so the UI can show a tailored confirm-to-proceed dialog and re-issue the
  * call with `force: true` if the user agrees.
  */
 export interface ForkConflict {
 	kind: string
-	parentWorkspaceId: string
+	upstreamWorkspaceId: string
 }
 
 export function detectForkConflict(e: unknown): ForkConflict | null {
@@ -20,7 +21,7 @@ export function detectForkConflict(e: unknown): ForkConflict | null {
 			: ((body as any)?.error?.message ?? (body as any)?.message ?? (e as any)?.message ?? '')
 	const m = String(raw).match(/fork-conflict:([^:]+):(.+)/)
 	if (!m) return null
-	return { kind: m[1], parentWorkspaceId: m[2].trim() }
+	return { kind: m[1], upstreamWorkspaceId: m[2].trim() }
 }
 
 /**
@@ -30,11 +31,11 @@ export function detectForkConflict(e: unknown): ForkConflict | null {
  * on two rows in quick succession), resolve the older promise to false so
  * the prior caller doesn't hang.
  */
-function askForkConflictConfirm(kind: string, kindLabel: string, parentWorkspaceId: string) {
+function askForkConflictConfirm(kind: string, kindLabel: string, upstreamWorkspaceId: string) {
 	return new Promise<boolean>((resolve) => {
 		const previous = forkConflictModal.val
 		previous?.resolve(false)
-		forkConflictModal.val = { kind, kindLabel, parentWorkspaceId, resolve }
+		forkConflictModal.val = { kind, kindLabel, upstreamWorkspaceId, resolve }
 	})
 }
 
@@ -64,7 +65,7 @@ export async function withForkConflictRetry(
 		const proceed = await askForkConflictConfirm(
 			conflict.kind,
 			kindLabel,
-			conflict.parentWorkspaceId
+			conflict.upstreamWorkspaceId
 		)
 		// User explicitly dismissed the modal — treat as a silent no-op so the
 		// caller's catch block doesn't pop a redundant error toast.

@@ -128,6 +128,17 @@ struct WorkspaceReassignment {
 
 // ---- Preview helpers ----
 
+/// The principal a departing member's runnables run as, or `None` when none of them are theirs
+/// to hand over. `usr.username` is constrained to `[\w-]+`, so a member is `u/{username}`, except
+/// a legacy `group-*` username, which canonicalizes to the group it names: what runs under that
+/// principal runs as the group, which outlives the member. `None` binds NULL, which the
+/// `on_behalf_of = $n` queries then match nowhere.
+fn departing_principal(username: &str) -> Option<String> {
+    use windmill_common::users::{username_to_permissioned_as, PERMISSIONED_AS_GROUP_PREFIX};
+    let principal = username_to_permissioned_as(username);
+    (!principal.starts_with(PERMISSIONED_AS_GROUP_PREFIX)).then_some(principal)
+}
+
 async fn get_offboard_preview(
     db: impl sqlx::PgExecutor<'_> + Copy,
     w_id: &str,
@@ -136,10 +147,8 @@ async fn get_offboard_preview(
 ) -> Result<OffboardPreview> {
     let user_prefix = format!("u/{}/%", username);
     let user_owner = format!("u/{}", username);
-    // Same form the mutation reassigns, so preview and execution cannot disagree. `usr.username`
-    // is constrained to `[\w-]+`, so a member is always named `u/{username}` — the address form a
-    // principal can also take names an account with no `usr` row, which is nobody offboardable.
-    let departing = windmill_common::users::username_to_permissioned_as(username);
+    // Same form the mutation reassigns, so preview and execution cannot disagree.
+    let departing = departing_principal(username);
 
     // ---- Owned objects (under u/{username}/) ----
     let scripts = sqlx::query_scalar!(
@@ -244,17 +253,17 @@ async fn get_offboard_preview(
     // ---- Operator references (not under user's path) ----
     let obo_scripts = sqlx::query_scalar!(
         "SELECT path FROM script WHERE on_behalf_of = $1 AND NOT path LIKE $2 AND workspace_id = $3 AND NOT archived AND NOT deleted",
-        &departing, &user_prefix, w_id
+        departing.as_deref(), &user_prefix, w_id
     ).fetch_all(db).await?;
 
     let obo_flows = sqlx::query_scalar!(
         "SELECT path FROM flow WHERE on_behalf_of = $1 AND NOT path LIKE $2 AND workspace_id = $3 AND NOT archived",
-        &departing, &user_prefix, w_id
+        departing.as_deref(), &user_prefix, w_id
     ).fetch_all(db).await?;
 
     let obo_apps = sqlx::query_scalar!(
         "SELECT path FROM app WHERE policy->>'on_behalf_of' = $1 AND NOT path LIKE $2 AND workspace_id = $3",
-        &user_owner, &user_prefix, w_id
+        departing.as_deref(), &user_prefix, w_id
     ).fetch_all(db).await?;
 
     let obo_schedules = sqlx::query_scalar!(
@@ -831,7 +840,7 @@ async fn offboard_user_from_workspace<'c>(
     new_permissioned_as: &str,
 ) -> Result<OffboardSummary> {
     let new_prefix = reassign_to.to_string();
-    let departing = windmill_common::users::username_to_permissioned_as(username);
+    let departing = departing_principal(username);
 
     // The app policy stores an address beside its principal, and script/flow keep one for the
     // workers that still read it, so the replacement's is resolved here.
@@ -871,7 +880,7 @@ async fn offboard_user_from_workspace<'c>(
     sqlx::query!(
         "UPDATE script SET on_behalf_of = $1, on_behalf_of_email = $4 WHERE on_behalf_of = $2 AND workspace_id = $3",
         new_permissioned_as,
-        &departing,
+        departing.as_deref(),
         w_id,
         new_on_behalf_of_user_email
     )
@@ -912,7 +921,7 @@ async fn offboard_user_from_workspace<'c>(
     sqlx::query!(
         "UPDATE flow SET on_behalf_of = $1, on_behalf_of_email = $4 WHERE on_behalf_of = $2 AND workspace_id = $3",
         new_permissioned_as,
-        &departing,
+        departing.as_deref(),
         w_id,
         new_on_behalf_of_user_email
     )
@@ -925,7 +934,7 @@ async fn offboard_user_from_workspace<'c>(
     sqlx::query!(
         r#"UPDATE draft SET value = to_json(jsonb_set(jsonb_set(to_jsonb(value), ARRAY['on_behalf_of'], to_jsonb($1::text)), ARRAY['on_behalf_of_email'], to_jsonb($4::text))) WHERE typ IN ('script', 'flow') AND value->>'on_behalf_of' = $2 AND workspace_id = $3"#,
         new_permissioned_as,
-        &departing,
+        departing.as_deref(),
         w_id,
         new_on_behalf_of_user_email
     )
@@ -951,9 +960,21 @@ async fn offboard_user_from_workspace<'c>(
         "UPDATE app SET policy = jsonb_set(
             jsonb_set(policy, ARRAY['on_behalf_of'], to_jsonb($1::text)),
             ARRAY['on_behalf_of_email'], to_jsonb($4::text)
-        ) WHERE policy->>'on_behalf_of' = ('u/' || $2) AND workspace_id = $3",
+        ) WHERE policy->>'on_behalf_of' = $2 AND workspace_id = $3",
         &new_permissioned_as,
-        username,
+        departing.as_deref(),
+        w_id,
+        new_on_behalf_of_user_email
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    // An app draft carries a copy of the deployed policy and is deployed from it, so it needs
+    // the same pair rewritten — the draft sweep above only covers scripts and flows.
+    sqlx::query!(
+        r#"UPDATE draft SET value = to_json(jsonb_set(jsonb_set(to_jsonb(value), ARRAY['policy', 'on_behalf_of'], to_jsonb($1::text)), ARRAY['policy', 'on_behalf_of_email'], to_jsonb($4::text))) WHERE typ IN ('app', 'raw_app') AND value->'policy'->>'on_behalf_of' = $2 AND workspace_id = $3"#,
+        new_permissioned_as,
+        departing.as_deref(),
         w_id,
         new_on_behalf_of_user_email
     )

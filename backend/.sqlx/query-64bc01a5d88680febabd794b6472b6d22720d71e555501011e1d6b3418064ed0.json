@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO cloud_onboarding_profile (email, profile, created_by) VALUES ($1, $2, $3)\n         ON CONFLICT (email) DO UPDATE SET profile = EXCLUDED.profile",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Jsonb",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "64bc01a5d88680febabd794b6472b6d22720d71e555501011e1d6b3418064ed0"
+}

@@ -150,6 +150,30 @@ describe('abandoning mid-import', () => {
 		expect(run.itemResults.length).toBe(3)
 	})
 
+	// What a caller acting on the run's leftovers depends on: `abandon()` only stops the next
+	// phase, so a reload issued when it is called reads the workspace while the request already
+	// sent is still landing. `whenIdle()` is the difference between reloading then and after.
+	it('whenIdle resolves only once the abandoned run has stopped writing', async () => {
+		const run = new ImportExecution(PLAN, deps)
+		let idleResolved = false
+		hooks.afterFirstItem = () => {
+			run.abandon()
+			void run.whenIdle().then(() => (idleResolved = true))
+			// Still inside the run: the promise must not have resolved yet.
+			expect(run.running).toBe(true)
+			expect(idleResolved).toBe(false)
+		}
+		await run.run()
+		await run.whenIdle()
+		expect(run.running).toBe(false)
+		expect(idleResolved).toBe(true)
+	})
+
+	it('whenIdle resolves immediately when no run is in flight', async () => {
+		const run = new ImportExecution(PLAN, deps)
+		await expect(run.whenIdle()).resolves.toBeUndefined()
+	})
+
 	it('stops the migrate row spinning when it is abandoned mid-migration', async () => {
 		const run = new ImportExecution(PLAN, depsWithMigration)
 		// After `onMigrationsStart`, which is where the row is actually set to running —

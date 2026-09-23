@@ -26,13 +26,18 @@
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import RunButton from '$lib/components/RunButton.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { userStore } from '$lib/stores'
 	import { isHubFlowPath } from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
-	import { getRawAppOperatingWorkspace } from './rawAppWorkspace'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
 
-	const getOpWs = getRawAppOperatingWorkspace()
-	let opWs = $derived(getOpWs?.() ?? $workspaceStore)
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
+	let opWs = $derived($operatingWorkspace)
 
 	type RunnableWithInlineScript = RunnableWithFields & {
 		inlineScript?: InlineScript & { language: ScriptLang }
@@ -133,7 +138,7 @@
 			case 'email':
 				return $userStore?.email ?? ''
 			case 'groups':
-				return $userStore?.groups ?? []
+				return actingUser?.groups ?? []
 			case 'workspace':
 				return opWs ?? ''
 			case 'author':

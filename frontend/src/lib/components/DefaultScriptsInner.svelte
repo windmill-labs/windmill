@@ -1,10 +1,13 @@
 <script lang="ts">
 	import { WorkspaceService, type Script, type WorkspaceDefaultScripts } from '$lib/gen'
-	import { defaultScripts, workspaceStore } from '$lib/stores'
+	import { defaultScripts } from '$lib/stores'
 	import { flip } from 'svelte/animate'
 	import Toggle from './Toggle.svelte'
 	import { defaultScriptLanguages } from '$lib/scripts'
 	import Alert from './common/alert/Alert.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		small?: boolean
@@ -29,7 +32,7 @@
 		}
 		defaultScripts.update((s) => ({ ...s, order: norder }))
 		await WorkspaceService.editDefaultScripts({
-			workspace: $workspaceStore!,
+			workspace: $operatingWorkspace!,
 			requestBody: $defaultScripts
 		})
 	}

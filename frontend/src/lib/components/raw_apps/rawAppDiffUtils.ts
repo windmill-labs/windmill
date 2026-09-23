@@ -1,5 +1,6 @@
 import { extToLang } from '$lib/editorLangUtils'
-import { cleanValueProperties, orderedYamlStringify, replaceFalseWithUndefined } from '$lib/utils'
+import { cleanValueProperties, replaceFalseWithUndefined } from '$lib/utils'
+import { orderedYamlStringify } from '$lib/utils/orderedYaml'
 
 // A raw app rendered as a *folder of files* for diffing. Each entry is one
 // virtual file: real `files` keep their natural path, runnables become

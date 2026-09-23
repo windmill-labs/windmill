@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n             COALESCE(dt.value->'database'->>'resource_type', 'unknown') AS \"kind!\",\n             COUNT(*)::BIGINT AS \"count!\"\n           FROM workspace_settings ws,\n                LATERAL jsonb_each(ws.datatable->'datatables') dt\n           WHERE jsonb_typeof(ws.datatable->'datatables') = 'object'\n           GROUP BY 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "kind!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "0411a67eb9d88244fa654eda51123e16b5931c08c1073b09ab01dad205f161ed"
+}

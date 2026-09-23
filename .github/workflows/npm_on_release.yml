@@ -10,18 +10,29 @@ jobs:
     runs-on: ubicloud-standard-8
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v7
         with:
           node-version: "20.x"
           registry-url: "https://registry.npmjs.org"
       - run: cd typescript-client && ./publish.sh --access public && cd ..
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+  publish_chat_sdk:
+    runs-on: ubicloud-standard-8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "20.x"
+          registry-url: "https://registry.npmjs.org"
+      - run: cd chat-sdk && npm ci && npm run build && npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
   publish_cli:
     runs-on: ubicloud-standard-8
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v7
         with:
           node-version: "20.x"
           registry-url: "https://registry.npmjs.org"

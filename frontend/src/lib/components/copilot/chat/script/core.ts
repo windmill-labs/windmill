@@ -22,10 +22,12 @@ import {
 } from '../shared'
 import { createWorkspaceMutationTools } from '../workspaceTools'
 import { setupTypeAcquisition, type DepsToGet } from '$lib/ata'
-import { getModelContextWindow } from '../../modelConfig'
+import { getEffectiveModelContextWindow } from '../../modelConfig'
 import type { ReviewChangesOpts } from '../monaco-adapter'
-import { getCurrentModel } from '$lib/aiStore'
+import { copilotInfo, getCurrentModel } from '$lib/aiStore'
+import { get } from 'svelte/store'
 import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/metadata'
+import { scriptLangToEditorLang } from '$lib/scripts'
 import { getScriptPrompt, getWorkflowAsCodePrompt } from '$system_prompts'
 
 // Score threshold for npm packages search filtering
@@ -548,7 +550,11 @@ export async function searchExternalIntegrationResources(args: { query: string }
 		)
 
 		const model = getCurrentModel()
-		const modelContextWindow = getModelContextWindow(model.model)
+		const modelContextWindow = getEffectiveModelContextWindow(
+			model.provider,
+			model.model,
+			get(copilotInfo).contextWindowPerModel
+		)
 		const results: PackageSearchResult[] = await Promise.all(
 			filtered.map(async (r: PackageSearchQuery) => {
 				let documentation = ''
@@ -821,7 +827,12 @@ export const editCodeToolWithDiff: Tool<ScriptChatHelpers> = {
 
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Code changes applied`,
-				result: 'Success'
+				result: 'Success',
+				codeDiff: {
+					before: oldCode,
+					after: updatedCode,
+					lang: scriptLangToEditorLang(scriptOptions.lang)
+				}
 			})
 			return `Applied changes to the script editor.`
 		} catch (error) {
@@ -873,7 +884,12 @@ export const editCodeTool: Tool<ScriptChatHelpers> = {
 
 			toolCallbacks.setToolStatus(toolId, {
 				content: 'Code changes applied',
-				result: 'Success'
+				result: 'Success',
+				codeDiff: {
+					before: oldCode,
+					after: args.code,
+					lang: scriptLangToEditorLang(scriptOptions.lang)
+				}
 			})
 			return 'Code has been applied to the script editor.'
 		} catch (error) {

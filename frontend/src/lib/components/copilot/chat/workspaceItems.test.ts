@@ -153,10 +153,27 @@ describe('workspaceItemAction', () => {
 		})
 	})
 
-	it('skips non-drawerable items and trigger items without target kind', () => {
-		expect(workspaceItemAction('script', 'f/a/b')).toBeUndefined()
-		expect(workspaceItemAction('flow', 'f/a/b')).toBeUndefined()
+	it('creates preview actions for scripts, flows and raw apps', () => {
+		expect(workspaceItemAction('script', 'f/a/b')).toMatchObject({
+			type: 'open_item_preview',
+			previewKind: 'script',
+			path: 'f/a/b'
+		})
+		expect(workspaceItemAction('flow', 'f/a/b')).toMatchObject({
+			type: 'open_item_preview',
+			previewKind: 'flow'
+		})
+		expect(workspaceItemAction('app', 'f/a/b', undefined, true)).toMatchObject({
+			previewKind: 'raw_app'
+		})
+	})
+
+	it('leaves legacy apps as plain links', () => {
+		expect(workspaceItemAction('app', 'f/a/b', undefined, false)).toBeUndefined()
 		expect(workspaceItemAction('app', 'f/a/b')).toBeUndefined()
+	})
+
+	it('skips trigger items without target kind', () => {
 		expect(workspaceItemAction('schedule', 'f/a/b')).toBeUndefined()
 		expect(workspaceItemAction('http_trigger', 'f/a/b')).toBeUndefined()
 	})
@@ -172,6 +189,7 @@ const SAMPLE_ENTRIES: Record<string, WorkspaceItemEntry> = {
 		path: 'u/admin/cleanup_old_jobs'
 	},
 	'f/ops/dashboard': { kind: 'app', path: 'f/ops/dashboard' },
+	'f/ops/live_board': { kind: 'app', path: 'f/ops/live_board', rawApp: true },
 	'f/etl/daily': {
 		kind: 'schedule',
 		path: 'f/etl/daily',
@@ -247,6 +265,23 @@ describe('remarkWindmillPaths (mdast)', () => {
 		expect(props['data-wm-kind']).toBe('schedule')
 		expect(props['data-wm-path']).toBe('f/etl/daily')
 		expect(props['data-wm-target-kind']).toBe('flow')
+	})
+
+	// Both app kinds reach the renderer as the same `app` kind and route, so this flag is
+	// the only thing that keeps a legacy app off the preview panel.
+	it('marks raw apps so the renderer can tell them from legacy apps', () => {
+		const processor = buildProcessor('admins')
+		const tree = processor.runSync(
+			processor.parse('Open f/ops/live_board and f/ops/dashboard.')
+		) as MdastRoot
+		const byPath = Object.fromEntries(
+			findLinks(tree).map((l) => [
+				(l.data?.hProperties as Record<string, string>)['data-wm-path'],
+				l.data?.hProperties as Record<string, string>
+			])
+		)
+		expect(byPath['f/ops/live_board']['data-wm-raw-app']).toBe('true')
+		expect(byPath['f/ops/dashboard']['data-wm-raw-app']).toBeUndefined()
 	})
 
 	it('leaves unknown paths as plain text', () => {

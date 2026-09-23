@@ -136,13 +136,17 @@ function dirToBranch(
 	}
 }
 
-/** Merge AI-created in-memory drafts (or any caller-provided extras) into a
- * kind's loaded list. The chat tools / session previews scaffold items via
- * `UserDraft` before the user deploys; those should be navigable from the
- * picker. An extra matching a loaded item (by storage or friendly path — else
- * one draft renders as two leaves) is folded into it: the loaded row wins on
- * backend metadata (summary etc.), but the extra's `draftPath` is overlaid
- * when set — a live editor cell knows a rename before the backend list does. */
+/** Merge the session's drafts (or any caller-provided extras) into a kind's
+ * loaded list, so drafts the backend listing does not show yet (unsaved
+ * cells, a rename typed in a live editor) stay navigable. An extra matching
+ * a loaded item is folded into it: the loaded row wins on backend metadata
+ * (summary etc.), but the extra's `draftPath` is overlaid when set — a live
+ * editor cell knows a rename before the backend list does.
+ *
+ * Match on the storage path first. The friendly path is only a fallback for
+ * an extra still keyed by it, and each extra is claimed once: several drafts
+ * can share one friendly path, and an extra folded into the wrong row would
+ * leave its own row's extra over, rendering a second leaf with that row's key. */
 function withExtras(
 	items: WorkspaceItem[],
 	k: WorkspaceItemKind,
@@ -150,16 +154,30 @@ function withExtras(
 ): WorkspaceItem[] {
 	const extras = extraItemsByKind?.[k]
 	if (!extras || extras.length === 0) return items
-	const leftover = new Set(extras)
-	const merged = items.map((it) => {
-		const ex = extras.find((d) => itemMatchesPath(it, d.path) || itemMatchesPath(it, d.draftPath))
+	const byPath = new Map<string, WorkspaceItem>()
+	for (const d of extras) if (!byPath.has(d.path)) byPath.set(d.path, d)
+	const claimed = new Set<WorkspaceItem>()
+	const exact = items.map((it) => {
+		const ex = byPath.get(it.path)
+		if (ex) claimed.add(ex)
+		return ex
+	})
+	const merged = items.map((it, i) => {
+		let ex = exact[i]
+		if (!ex && it.draftPath !== undefined) {
+			const byFriendly = byPath.get(it.draftPath)
+			if (byFriendly && !claimed.has(byFriendly)) {
+				ex = byFriendly
+				claimed.add(ex)
+			}
+		}
 		if (!ex) return it
-		leftover.delete(ex)
 		return ex.draftPath !== undefined && ex.draftPath !== it.draftPath
 			? { ...it, draftPath: ex.draftPath }
 			: it
 	})
-	return leftover.size > 0 ? merged.concat([...leftover]) : merged
+	const leftover = [...byPath.values()].filter((d) => !claimed.has(d))
+	return leftover.length > 0 ? merged.concat(leftover) : merged
 }
 
 /** Build the workspace drill tree.
@@ -187,8 +205,8 @@ export function buildWorkspaceTree(opts: {
 	 * loading state (e.g. chat picker, which preloads eagerly) can omit it. */
 	loadingKind?: Partial<Record<WorkspaceItemKind, boolean>>
 	/** Per-kind extras to merge into the loaded list before tree-building
-	 * (e.g. AI-created localStorage drafts surfaced by the workspace adapter).
-	 * Extras whose path matches an already-loaded item are dropped. */
+	 * (e.g. the session's drafts from `listGlobalDrafts`, keyed by storage
+	 * path). An extra matching an already-loaded item is folded into it. */
 	extraItemsByKind?: Partial<Record<WorkspaceItemKind, WorkspaceItem[]>>
 	layout?: 'by-kind' | 'flat'
 }): DrillNode<WorkspaceItem>[] {

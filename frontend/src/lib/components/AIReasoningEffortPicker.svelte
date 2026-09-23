@@ -27,7 +27,7 @@
 	let capability = $derived(
 		provider && model
 			? getReasoningCapability(provider, model)
-			: { supported: false, levels: [], canDisable: false }
+			: { supported: false, levels: [], canDisable: false, known: false }
 	)
 
 	// The token that turns reasoning off on a model that reasons by default

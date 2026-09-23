@@ -28,6 +28,7 @@ export interface ResourceTypeFile {
   // Extension for a type whose value is one file rather than a set of fields; it
   // is what makes the resource editor a file editor for that language.
   format_extension?: string | null;
+  display_name?: string | null;
 }
 
 export async function pushResourceType(

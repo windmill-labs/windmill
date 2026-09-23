@@ -124,6 +124,72 @@ async fn test_protection_rules(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert!(!resp.status().is_success(), "Non-admin should be blocked from flows: {}", resp.status());
 
     // ========================================
+    // 4b. ...but a draft-only resource stays deletable: nothing is deployed at
+    // its path, so its DELETE is a draft discard rather than a deployment.
+    // ========================================
+
+    let draft_only_path = "u/test-user-2/draft_only_resource";
+    let resp = authed(
+        client().post(format!("{base}/drafts/update/resource/{draft_only_path}")),
+        "SECRET_TOKEN_2",
+    )
+    .json(&json!({ "value": {
+        "path": draft_only_path,
+        "value": { "a": 1 },
+        "resource_type": "c_test",
+        "description": ""
+    }}))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "Non-admin should save a draft: {}",
+        resp.text().await?
+    );
+
+    let resp = authed(
+        client().delete(format!("{base}/resources/delete/{draft_only_path}")),
+        "SECRET_TOKEN_2",
+    )
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "Draft-only delete should not be gated by the deploy rules: {}",
+        resp.text().await?
+    );
+
+    let remaining: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM draft WHERE workspace_id = 'test-workspace' AND path = $1 \
+         AND typ = 'resource'::DRAFT_KIND",
+    )
+    .bind(draft_only_path)
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(remaining, 0, "the draft should be gone");
+
+    // The gate itself is still there for a DEPLOYED resource at the same path.
+    let resp = authed(
+        client().post(format!("{base}/resources/create")),
+        "SECRET_TOKEN_2",
+    )
+    .json(&json!({
+        "path": draft_only_path,
+        "value": { "a": 1 },
+        "resource_type": "c_test",
+        "description": ""
+    }))
+    .send()
+    .await?;
+    assert!(
+        !resp.status().is_success(),
+        "Non-admin should still be blocked from creating a resource: {}",
+        resp.status()
+    );
+
+    // ========================================
     // 5. Admin bypasses protection rule
     // ========================================
 

@@ -226,7 +226,7 @@ input_name2: expression2
 				Fill inputs
 			{/if}
 		</Button>
-	{:else}
+	{:else if !$copilotInfo.workspaceDisabled}
 		<Popover
 			floatingConfig={{
 				placement: 'top-end'

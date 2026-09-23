@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT ws.datatable->'datatables' FROM workspace_settings ws\n             WHERE ws.workspace_id = $1 FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "?column?",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "b42af37fb474bea4c5419b0a46d9eadfe384013ab970ccf9c5effd1c78321b7c"
+}

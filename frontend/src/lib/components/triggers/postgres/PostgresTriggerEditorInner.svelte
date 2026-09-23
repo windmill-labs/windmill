@@ -2,6 +2,7 @@
 	import { Alert, Button, TabContent } from '$lib/components/common'
 	import {
 		clearPageDrawerAnchor,
+		handOffPageDrawer,
 		setPageDrawerAnchor
 	} from '$lib/components/sessions/pageDrawerSession'
 	import { TRIGGER_PAGES } from '$lib/components/sessions/previewPaths'
@@ -18,8 +19,7 @@
 		type Retry,
 		type TriggerMode
 	} from '$lib/gen'
-	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
-	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
+	import { usedTriggerKinds } from '$lib/stores'
 	import { canWrite, emptyString, emptyStringTrimmed, sendUserToast } from '$lib/utils'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import Section from '$lib/components/Section.svelte'
@@ -54,9 +54,18 @@
 	import { useTriggerDraftSync } from '../useTriggerDraftSync.svelte'
 	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
 	import { capitalize } from '$lib/utils'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace,
+		useOperatingWorkspaceHref
+	} from '$lib/components/operatingWorkspace.svelte'
 
 	interface Props {
 		useDrawer?: boolean
+		/** With `useDrawer`, render the drawer's content in place, filling the parent, with no drawer or close button. */
+		inline?: boolean
+		/** With `inline`, closes whatever hosts the editor; the header has a close button only when set. */
+		onClose?: () => void
 		description?: Snippet | undefined
 		hideTarget?: boolean
 		isEditor?: boolean
@@ -75,6 +84,8 @@
 
 	let {
 		useDrawer = true,
+		inline = false,
+		onClose = undefined,
 		description = undefined,
 		hideTarget = false,
 		isEditor = false,
@@ -90,8 +101,11 @@
 		onDelete = undefined,
 		onReset = undefined
 	}: Props = $props()
-	const triggerWs = getTriggerWorkspace()
-	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
+	const operatingHref = useOperatingWorkspaceHref()
+	const wsId = $derived($operatingWorkspace)
 
 	let drawer: Drawer | undefined = $state(undefined)
 	let is_flow: boolean = $state(false)
@@ -104,7 +118,13 @@
 	let path: string = $state('')
 	let pathError = $state('')
 	let dirtyPath: boolean = $state(false)
-	let can_write: boolean = $state(true)
+	let permsPath = $state<string | undefined>(undefined)
+	let permsForWrite = $state<Record<string, boolean> | undefined>(undefined)
+	// The acting user in the operating workspace arrives asynchronously, and an unknown user
+	// refuses — so the editor stays read-only until the lookup lands, which is the safe answer.
+	const can_write = $derived(
+		permsPath === undefined ? true : canWrite(permsPath, permsForWrite ?? {}, actingUser)
+	)
 	let drawerLoading: boolean = $state(true)
 	let showLoading: boolean = $state(false)
 	let postgres_resource_path: string = $state('')
@@ -242,6 +262,9 @@
 		defaultConfig?: Record<string, any>,
 		fixedScriptPath_?: string
 	) {
+		if (handOffPageDrawer(TRIGGER_PAGES.postgres.path, ePath)) return
+		// A `whoami` that failed earlier would otherwise pin this workspace to "unknown user".
+		operatingUser.forgetFailures()
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
@@ -361,6 +384,8 @@
 	}
 
 	async function loadTriggerConfig(cfg?: Record<string, any>): Promise<void> {
+		// The loaded trigger says what it runs; an opener's `isFlow` is only its guess.
+		if (cfg?.is_flow !== undefined) itemKind = cfg.is_flow ? 'flow' : 'script'
 		script_path = cfg?.script_path
 		initialScriptPath = cfg?.script_path
 		is_flow = cfg?.is_flow
@@ -368,7 +393,8 @@
 		postgres_resource_path = cfg?.postgres_resource_path
 		publication_name = cfg?.publication_name
 		replication_slot_name = cfg?.replication_slot_name
-		can_write = canWrite(path, cfg?.extra_perms, $userStore)
+		permsPath = path
+		permsForWrite = cfg?.extra_perms
 		transaction_to_track = [...cfg?.publication?.transaction_to_track]
 		relations = cfg?.publication?.table_to_track ?? []
 		error_handler_path = cfg?.error_handler_path
@@ -491,7 +517,7 @@
 					postgres_resource_path
 				}
 			})
-			window.open(`${base}/scripts/add?id=${templateId}`)
+			window.open(operatingHref(`${base}/scripts/add?id=${templateId}`))
 			loading = false
 		} catch (error) {
 			loading = false
@@ -572,34 +598,42 @@
 	/>
 {/if}
 
-{#if useDrawer}
+{#snippet drawerBody()}
+	<DrawerContent
+		hideClose={inline && !onClose}
+		fullScreen={!inline}
+		bannerReserved={draftSync.hasBaseline}
+		title={edit
+			? can_write
+				? `Edit Postgres trigger ${initialPath}`
+				: `Postgres trigger ${initialPath}`
+			: 'New Postgres trigger'}
+		on:close={() => (inline ? onClose?.() : drawer?.closeDrawer())}
+	>
+		{#snippet actions()}{@render actionsSnippet()}{/snippet}
+		{#snippet banner()}
+			<LocalDraftBanner
+				show={draftSync.hasDraft}
+				getDeployed={() => draftSync.deployed}
+				reserveSpace={draftSync.hasBaseline}
+				getCurrent={() => draftSync.current}
+				onDiscard={() => draftSync.resetToDeployed(initialPath)}
+				disabled={!can_write}
+			/>
+		{/snippet}
+		{@render content()}
+	</DrawerContent>
+{/snippet}
+
+{#if useDrawer && inline}
+	{@render drawerBody()}
+{:else if useDrawer}
 	<Drawer
 		size="800px"
 		bind:this={drawer}
 		on:close={() => clearPageDrawerAnchor(TRIGGER_PAGES.postgres.path)}
 	>
-		<DrawerContent
-			bannerReserved={draftSync.hasBaseline}
-			title={edit
-				? can_write
-					? `Edit Postgres trigger ${initialPath}`
-					: `Postgres trigger ${initialPath}`
-				: 'New Postgres trigger'}
-			on:close={drawer.closeDrawer}
-		>
-			{#snippet actions()}{@render actionsSnippet()}{/snippet}
-			{#snippet banner()}
-				<LocalDraftBanner
-					show={draftSync.hasDraft}
-					getDeployed={() => draftSync.deployed}
-					reserveSpace={draftSync.hasBaseline}
-					getCurrent={() => draftSync.current}
-					onDiscard={() => draftSync.resetToDeployed(initialPath)}
-					disabled={!can_write}
-				/>
-			{/snippet}
-			{@render content()}
-		</DrawerContent>
+		{@render drawerBody()}
 	</Drawer>
 {:else}
 	<Section label={!customLabel ? 'Postgres trigger' : ''} headerClass="grow min-w-0 h-[30px]">
@@ -696,7 +730,7 @@
 						bind:scriptPath={script_path}
 						{initialScriptPath}
 						canWrite={can_write}
-						isOperator={!!$userStore?.operator}
+						isOperator={!!actingUser?.operator}
 						promptText="Pick a script or flow to be triggered "
 						promptClass="text-xs text-primary"
 					>

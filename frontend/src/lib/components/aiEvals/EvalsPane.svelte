@@ -22,7 +22,6 @@
 		type Scorer,
 		type ScorerMean
 	} from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { onDestroy, onMount, untrack } from 'svelte'
 	import {
@@ -52,6 +51,9 @@
 		subjectLabel,
 		type EvalsLocation
 	} from './evalUtils'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	/** A dataset is capped at this many cases, so one page holds the whole set. */
 	const CASE_PAGE_SIZE = 1000
@@ -64,7 +66,8 @@
 		agentPath,
 		opWorkspace = undefined,
 		editedConfig = undefined,
-		location = $bindable()
+		location = $bindable(),
+		active = true
 	}: {
 		/** The agent under test. A dataset and its runs belong to an agent. */
 		agentPath: string
@@ -77,9 +80,13 @@
 		/** The level the pane is on and the way out of it, reported up so the surface holding it
 		 * can put both in its header. Undefined at the root, which that surface already names. */
 		location?: EvalsLocation
+		/** False while the pane is parked off screen by a surface that keeps it mounted. Its own
+		 * pages answer the arrow keys at `window`, which a parked instance would take from
+		 * whatever is actually on screen. */
+		active?: boolean
 	} = $props()
 
-	let ws = $derived(opWorkspace ?? $workspaceStore)
+	let ws = $derived(opWorkspace ?? $operatingWorkspace)
 	let datasets = $state<EvalDataset[]>([])
 	let dataset = $state<EvalDataset | undefined>(undefined)
 	let selectedDataset = $state<string | undefined>(undefined)
@@ -666,19 +673,21 @@
 			warm
 			class="grow min-h-0"
 			current={!viewingRun || !loaded ? 'list' : 'run'}
-			onNavigate={(key) => {
-				// Right opens the run under the highlight, falling back to whichever was open before;
-				// left is the way back, the same as the breadcrumb.
-				if (key === 'run') {
-					// Both branches go through `openRun`: it is what brings the run's own dataset back,
-					// and the fallback run may be of a dataset the list has since moved off.
-					const id = highlightedRunId ?? experimentId
-					if (id) openRun(id)
-				} else if (key === 'list') {
-					viewingRun = false
-					selectedCaseId = undefined
-				}
-			}}
+			onNavigate={!active
+				? undefined
+				: (key) => {
+						// Right opens the run under the highlight, falling back to whichever was open before;
+						// left is the way back, the same as the breadcrumb.
+						if (key === 'run') {
+							// Both branches go through `openRun`: it is what brings the run's own dataset back,
+							// and the fallback run may be of a dataset the list has since moved off.
+							const id = highlightedRunId ?? experimentId
+							if (id) openRun(id)
+						} else if (key === 'list') {
+							viewingRun = false
+							selectedCaseId = undefined
+						}
+					}}
 			pages={[
 				{ key: 'list', content: listPage },
 				{ key: 'run', content: runPage }
@@ -727,7 +736,7 @@
 			{datasets}
 			{caseProgress}
 			{loaded}
-			active={!viewingRun}
+			active={active && !viewingRun}
 			{deployedHash}
 			{currentVersion}
 			onOpen={(e) => openRun(e.id)}

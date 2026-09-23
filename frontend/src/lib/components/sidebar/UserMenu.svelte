@@ -11,7 +11,8 @@
 	import { USER_SETTINGS_HASH } from './settings'
 	import { isCloudHosted } from '$lib/cloud'
 	import { twMerge } from 'tailwind-merge'
-	import { Crown, ServerCog, LogOut, Moon, Settings, Sun, User } from 'lucide-svelte'
+	import { Crown, KeyRound, ServerCog, LogOut, Moon, Settings, Sun, User } from 'lucide-svelte'
+	import { accountSetup } from './accountSetup.svelte'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import MenuButton from './MenuButton.svelte'
 	import { Menu, MenuItem, Tooltip } from '$lib/components/meltComponents'
@@ -27,6 +28,9 @@
 	}
 
 	let { isCollapsed = false, lightMode = false, createMenu }: Props = $props()
+
+	// An account entered through an invite link that still has no credentials of its own.
+	let pendingSetup = $derived(accountSetup.pending)
 
 	const itemClass = twMerge(
 		'text-secondary text-left font-normal text-xs ',
@@ -72,6 +76,16 @@
 			{/if}
 		</div>
 		<div class="py-1">
+			{#if pendingSetup}
+				<MenuItem
+					onClick={() => setTimeout(() => (accountSetup.open = true), 50)}
+					class={itemClass}
+					{item}
+				>
+					<KeyRound size={16} />
+					Finish account setup
+				</MenuItem>
+			{/if}
 			<MenuItem href={USER_SETTINGS_HASH} class={itemClass} {item}>
 				<Settings size={16} />
 				Account settings

@@ -41,12 +41,18 @@ export const copilotSessionModel = writable<ReasoningProviderModel | undefined>(
 
 export const copilotInfo = writable<{
 	enabled: boolean
+	// The workspace hid the assistant (`ai_config.copilot_disabled`). `enabled` is then false
+	// whatever the providers say, and the AI entry points that nudge "configure AI" when
+	// `enabled` is off render nothing at all instead.
+	workspaceDisabled: boolean
 	codeCompletionModel?: AIProviderModel
 	defaultModel?: AIProviderModel
 	metadataModel?: AIProviderModel
 	aiModels: AIProviderModel[]
 	customPrompts?: Record<string, string>
 	maxTokensPerModel?: Record<string, number>
+	/** Context windows per `provider:model`, overriding the built-in window table. */
+	contextWindowPerModel?: Record<string, number>
 	/** Negotiated rates per `provider:model`, overriding the built-in price table. */
 	modelPricing?: Record<string, ModelPriceOverride>
 	webSearchEnabledProviders?: Partial<Record<AIProvider, boolean>>
@@ -56,12 +62,14 @@ export const copilotInfo = writable<{
 	freeTier?: FreeTierInfo
 }>({
 	enabled: false,
+	workspaceDisabled: false,
 	codeCompletionModel: undefined,
 	defaultModel: undefined,
 	metadataModel: undefined,
 	aiModels: [],
 	customPrompts: {},
 	maxTokensPerModel: {},
+	contextWindowPerModel: {},
 	modelPricing: {},
 	webSearchEnabledProviders: {}
 })
@@ -71,7 +79,7 @@ export const copilotInfo = writable<{
 aiUserDisabled.subscribe((disabled) => {
 	copilotInfo.update((info) => ({
 		...info,
-		enabled: info.aiModels.length > 0 && !disabled
+		enabled: info.aiModels.length > 0 && !disabled && !info.workspaceDisabled
 	}))
 })
 
@@ -126,9 +134,11 @@ export function setCopilotInfo(aiConfig: AIConfig) {
 			return model
 		})
 
+		const workspaceDisabled = aiConfig.copilot_disabled === true
 		copilotInfo.set({
-			// Providers are configured; the per-user opt-out is the only thing that can gate it off.
-			enabled: !get(aiUserDisabled),
+			// Providers are configured; only the workspace or per-user opt-outs can gate it off.
+			enabled: !workspaceDisabled && !get(aiUserDisabled),
+			workspaceDisabled,
 			// Strip the deprecated /thinking suffix from the configured model slots too,
 			// otherwise a workspace whose default still carries it sends an invalid model id.
 			codeCompletionModel: stripModelSuffix(aiConfig.code_completion_model),
@@ -137,6 +147,7 @@ export function setCopilotInfo(aiConfig: AIConfig) {
 			aiModels: aiModels,
 			customPrompts: aiConfig.custom_prompts ?? {},
 			maxTokensPerModel: aiConfig.max_tokens_per_model ?? {},
+			contextWindowPerModel: aiConfig.context_window_per_model ?? {},
 			webSearchEnabledProviders,
 			modelPricing: aiConfig.model_pricing ?? {},
 			freeTier: aiConfig.free_tier
@@ -146,12 +157,14 @@ export function setCopilotInfo(aiConfig: AIConfig) {
 
 		copilotInfo.set({
 			enabled: false,
+			workspaceDisabled: aiConfig.copilot_disabled === true,
 			codeCompletionModel: undefined,
 			defaultModel: undefined,
 			metadataModel: undefined,
 			aiModels: [],
 			customPrompts: {},
 			maxTokensPerModel: {},
+			contextWindowPerModel: {},
 			webSearchEnabledProviders: {},
 			modelPricing: {},
 			// An exhausted free grant lands here — no providers, but the reason AI is off

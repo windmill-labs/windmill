@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT path FROM script WHERE workspace_id = $1 AND deleted = false AND archived = false",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "d644b9cd3407e58f235cc2e97558257c07785c8b3123f13d59ee361b4ee0bc0a"
+}

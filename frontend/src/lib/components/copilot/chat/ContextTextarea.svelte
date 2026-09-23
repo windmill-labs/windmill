@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { composerBoxClass, COMPOSER_FIELD_RESET } from './composerBox'
 	import autosize from '$lib/autosize'
 	import { tick, type Snippet } from 'svelte'
 	import type { ContextElement } from './context'
@@ -9,7 +10,13 @@
 	import { zIndexes } from '$lib/zIndexes'
 	import { twMerge } from 'tailwind-merge'
 	import { CHAT_INPUT_PADDING, getAiChatManager } from './aiChatManagerContext'
-	import { MENTION_RE, mentionTitle, formatMention } from './mention'
+	import {
+		MENTION_RE,
+		mentionTitle,
+		formatMention,
+		hasMentionLeadingBoundary,
+		mentionTitlesInText
+	} from './mention'
 	import { createFloatingActions, createVirtualElement } from 'svelte-floating-ui'
 	import { flip, offset, shift } from 'svelte-floating-ui/dom'
 	import {
@@ -64,17 +71,11 @@
 
 	const aiChatManager = getAiChatManager()
 
-	function extractMentions(text: string): Set<string> {
-		const out = new Set<string>()
-		for (const m of text.matchAll(MENTION_RE)) out.add(mentionTitle(m[0]))
-		return out
-	}
-
 	// Titles currently appearing as `@title` mentions in the textarea. Compared
 	// against the previous snapshot in a $effect (NOT inside handleInput —
 	// the picker mutates `value` programmatically via `updateInstructionsWithContext`,
 	// which doesn't fire `oninput`, so a handleInput-only diff goes stale).
-	const mentionedTitles = $derived(extractMentions(value))
+	const mentionedTitles = $derived(mentionTitlesInText(value))
 	let prevMentionedTitles = $state<Set<string>>(new Set())
 
 	let showContextTooltip = $state(false)
@@ -267,7 +268,11 @@
 			if (!att) return match
 			return `<span data-paste-id="${att.id}" class="rounded bg-surface-secondary text-secondary cursor-pointer pointer-events-auto">${match}</span>`
 		})
-		html = html.replace(MENTION_RE, (match) => {
+		html = html.replace(MENTION_RE, (match, ...args) => {
+			const offset = args[args.length - 2]
+			if (typeof offset !== 'number' || !hasMentionLeadingBoundary(html, offset)) {
+				return match
+			}
 			const title = unescapeHtml(mentionTitle(match))
 			const inContext =
 				availableContext.find((c) => c.title === title) ||
@@ -565,6 +570,23 @@
 		showContextTooltip = false
 	}
 
+	export async function insertMention(title: string) {
+		const token = formatMention(title)
+		const selectionStart = textarea?.selectionStart ?? value.length
+		const selectionEnd = textarea?.selectionEnd ?? selectionStart
+		const { from, to, ids } = tokensOverlapping(selectionStart, selectionEnd)
+		const before = value.slice(0, from)
+		const after = value.slice(to)
+		const prefix = before.length === 0 || /\s$/.test(before) ? '' : ' '
+		const suffix = after.length === 0 ? ' ' : /^\s/.test(after) ? '' : ' '
+		const inserted = `${prefix}${token}${suffix}`
+		replacePasteRange(from, to, ids, inserted)
+		await tick()
+		const pos = from + inserted.length
+		textarea?.setSelectionRange(pos, pos)
+		textarea?.focus()
+	}
+
 	function refreshCommandSkills() {
 		if (commandSkillsRefreshInFlight) return
 		commandSkillsRefreshInFlight = true
@@ -767,21 +789,7 @@
 	}
 </script>
 
-<!-- The composer box: border + rounded live HERE (on the wrapper), not on the
-     textarea, so context chips can sit INSIDE the box, above the text. The
-     textarea's own @tailwindcss/forms border/ring is neutralized below. -->
-<!-- The disabled treatment lives on the wrapper for the same reason the box
-     does: `disabled` on the textarea alone leaves the field looking exactly
-     like a usable one, so the only cue that typing is refused is placeholder
-     text the eye reads as an invitation. -->
-<div
-	class={twMerge(
-		'w-full scroll-pb-2 rounded-md border border-border-light transition-colors',
-		disabled
-			? 'bg-surface-disabled cursor-not-allowed'
-			: 'bg-surface-input focus-within:border-border-selected'
-	)}
->
+<div class={composerBoxClass(disabled)}>
 	<!-- Context chips live inside the input box, above the textarea. The snippet
 	     self-guards (renders nothing when empty) so no blank row appears. -->
 	{@render leading?.()}
@@ -830,11 +838,7 @@
 			{placeholder}
 			class={twMerge(
 				'textarea-input resize-none caret-black dark:caret-white overflow-clip',
-				// The box (border/ring) lives on the wrapper; kill the textarea's own
-				// @tailwindcss/forms border, focus ring, and background so only the
-				// wrapper reads as the field.
-				'!border-transparent !bg-transparent !shadow-none focus:!border-transparent focus:!ring-0',
-				'disabled:cursor-not-allowed disabled:placeholder:text-disabled',
+				COMPOSER_FIELD_RESET,
 				CHAT_INPUT_PADDING,
 				className
 			)}

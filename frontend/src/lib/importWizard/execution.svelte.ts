@@ -8,9 +8,10 @@ import {
 	installProject,
 	type InstallResult
 } from '$lib/components/workspaceSettings/projectInstall'
-import type {
-	ProjectExport,
-	ProjectMigration
+import {
+	projectReferencesResource,
+	type ProjectExport,
+	type ProjectMigration
 } from '$lib/components/workspaceSettings/projectBundle'
 import { planWorkspaceId, type ImportPlan } from './plan'
 import { probeImportedPaths, probeWorkspace } from './probe'
@@ -110,12 +111,16 @@ export class ImportExecution {
 	}
 
 	/**
-	 * How many resources the project shipped. Every one arrives as an empty stub —
-	 * the hub never publishes resource values — so a non-zero count means the setup
-	 * step has something to offer.
+	 * How many of the project's resources the setup step will ask about. Every resource
+	 * arrives as an empty stub — the hub never publishes resource values — but only the ones
+	 * something in the project points at have to hold a credential for it to work, and those
+	 * are the ones the step lists. Counting all of them here would offer a fourth step that
+	 * then has nothing on it.
 	 */
 	get resourceCount(): number {
-		return this.#export?.resources?.length ?? 0
+		const e = this.#export
+		if (!e) return 0
+		return (e.resources ?? []).filter((r) => projectReferencesResource(e, String(r.path))).length
 	}
 
 	get extraCounts(): { triggers: number; migrations: number } | undefined {
@@ -224,6 +229,29 @@ export class ImportExecution {
 	 */
 	async run(): Promise<void> {
 		if (this.running) return
+		const settled = this.#runInternal()
+		// Handled here so an abandoned or failed run does not surface as an unhandled
+		// rejection through `whenIdle()`, but still reported: `#runInternal` has no `catch` of
+		// its own, and a throw outside its inner ones leaves a stalled run with nothing on
+		// screen — the console is the only place that says why.
+		this.#idle = settled.catch((error) => console.error('import run failed:', error))
+		return settled
+	}
+
+	/**
+	 * Resolves when the run in flight at the moment of the call is no longer writing —
+	 * immediately when there is none. Callers that act on what a run left behind need this
+	 * rather than a poll on `running`: `abandon()` stops the run at the next phase boundary,
+	 * so the request already sent lands after it, and reading the workspace before then reads
+	 * it mid-write. A caller that holds the promise across the start of a *second* run is
+	 * resolved by the first, so re-read it if the surface stays open.
+	 */
+	whenIdle(): Promise<void> {
+		return this.#idle
+	}
+	#idle: Promise<void> = Promise.resolve()
+
+	async #runInternal(): Promise<void> {
 		this.#abandoned = false
 		this.running = true
 		runState.active = true
@@ -453,9 +481,7 @@ export class ImportExecution {
 		const problems: string[] = []
 		if (failed > 0) problems.push(`${failed} item${failed === 1 ? '' : 's'} failed to import`)
 		if (badMigrations > 0) {
-			problems.push(
-				`${badMigrations} data table migration${badMigrations === 1 ? '' : 's'} failed`
-			)
+			problems.push(`${badMigrations} data table migration${badMigrations === 1 ? '' : 's'} failed`)
 		}
 		if (problems.length) this.error = `${problems.join(', ')}.`
 	}

@@ -10,12 +10,14 @@
 <script lang="ts">
 	import InfiniteList from '$lib/components/InfiniteList.svelte'
 	import { JobService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { getContext, createEventDispatcher, untrack } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import { Pin } from 'lucide-svelte'
 	import { Cell } from '$lib/components/table'
 	import JobPickerLight from './JobPickerLight.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		selected?: string | undefined
@@ -41,7 +43,7 @@
 
 	const { pathStore, flowStateStore, opWorkspace } =
 		getContext<FlowEditorContext>('FlowEditorContext') ?? {}
-	let opWs = $derived(opWorkspace?.() ?? $workspaceStore)
+	let opWs = $derived(opWorkspace?.() ?? $operatingWorkspace)
 	const dispatch = createEventDispatcher()
 
 	let infiniteList: InfiniteList | undefined = $state(undefined)

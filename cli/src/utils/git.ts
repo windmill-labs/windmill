@@ -1,6 +1,7 @@
 import * as log from "../core/log.ts";
 import { execSync, spawnSync } from "node:child_process";
 import { WM_FORK_PREFIX } from "../core/constants.ts";
+import { SHARED_LOCK_DIR } from "./script_common.ts";
 
 // Fork *workspace id* prefix ("wm-fork-"). WM_FORK_PREFIX is the *branch*
 // prefix ("wm-fork") used inside the wm-fork/<branch>/<id> branch name.
@@ -584,6 +585,11 @@ export function gitSyncDeployPush(params: {
       git(["add", "wmill-lock.yaml", `${parent_path}**`], { allowFail: true });
     }
   }
+  // A shared lockfile (`dedupeLockfiles`) lives under `locks/`, outside every
+  // item's path glob, and the pull rewrites it when a deployed script's lock
+  // changed. `-A` also stages the deletion of a swept one; the add fails only
+  // when nothing under `locks/` exists or is tracked.
+  git(["add", "-A", "--", SHARED_LOCK_DIR], { allowFail: true });
 
   // `git diff --cached --quiet` exits 1 iff there is something staged.
   const staged = git(["diff", "--cached", "--quiet"], { allowFail: true });

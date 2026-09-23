@@ -110,11 +110,12 @@ WORKDIR /multiplayer
 
 # Copy multiplayer server files
 COPY multiplayer/package.json .
+COPY multiplayer/package-lock.json .
 COPY multiplayer/server.mjs .
 COPY multiplayer/gateway.mjs .
 
 # Install dependencies
-RUN npm install
+RUN npm ci --omit=dev
 
 # ============================================================================
 # Entrypoint Setup

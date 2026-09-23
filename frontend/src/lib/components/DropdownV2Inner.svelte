@@ -13,9 +13,10 @@
 		items?: Item[] | (() => Item[]) | (() => Promise<Item[]>)
 		meltItem: MenubarMenuElements['item']
 		builders?: ReturnType<typeof createDropdownMenu>['builders']
+		close?: (afterClose?: () => void) => void
 	}
 
-	let { aiId, items = [], meltItem, builders }: Props = $props()
+	let { aiId, items = [], meltItem, builders, close }: Props = $props()
 
 	let computedItems: Item[] | undefined = $state(undefined)
 	async function computeItems() {
@@ -53,12 +54,17 @@
 		{#if item.icon}
 			<item.icon size={14} color={item.iconColor} class="shrink-0" {...item.iconProps ?? {}} />
 		{/if}
-		<p
-			title={item.disabled && item.tooltip ? undefined : item.displayName}
-			class="truncate grow min-w-0 whitespace-nowrap text-left"
-		>
-			{item.displayName}
-		</p>
+		<div class="grow min-w-0 text-left">
+			<p
+				title={item.disabled && item.tooltip ? undefined : item.displayName}
+				class="truncate whitespace-nowrap"
+			>
+				{item.displayName}
+			</p>
+			{#if item.description}
+				<p class="text-2xs text-secondary">{item.description}</p>
+			{/if}
+		</div>
 		{@render item.extra?.()}
 		{#if item.shortcut || item.selected || item.toggle !== undefined}
 			<!-- Single trailing group so `shortcut` and `selected` can coexist:
@@ -97,8 +103,8 @@
 			{#if item.separatorTop}
 				<div class="my-1 border-t border-border-light"></div>
 			{/if}
-			{#if item.submenuItems && builders}
-				<DropdownSubmenuItem {item} {builders} {meltItem} />
+			{#if (item.submenuItems || item.customSubmenu) && builders}
+				<DropdownSubmenuItem {item} {builders} {meltItem} close={close ?? (() => {})} />
 			{:else if item.disabled && item.tooltip}
 				<!-- Wrapper carries the native `title`; the disabled button's `pointer-events-none`
 				     lets the hover reach it so the user learns why the item is disabled. -->

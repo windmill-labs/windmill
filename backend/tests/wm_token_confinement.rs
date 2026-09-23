@@ -318,19 +318,35 @@ async fn test_wm_token_is_confined_to_its_workspace(db: Pool<Postgres>) -> anyho
             resp.text().await?
         );
     }
-    // ...and the one `settings/global` key on the allowlist, which the CLI reads before
-    // creating a user on a git-sync push. `ws_base_url` is the control: the handler leaves
-    // it as ungated as `automate_username_creation`, so only the allowlist stops it.
+    // ...and the `settings/global` keys on the allowlist, which the CLI reads from a job: on a
+    // git-sync push, and in `u/admin/hub_sync`. `ws_base_url` is the control: the handler
+    // leaves it as ungated as these, so only the allowlist stops it.
+    for key in ["automate_username_creation", "uid", "hub_base_url"] {
+        let resp = authed(
+            client().get(format!("{api}/settings/global/{key}")),
+            &user_wm,
+        )
+        .send()
+        .await?;
+        assert_eq!(
+            resp.status(),
+            200,
+            "WM_TOKEN must still read {key}: {}",
+            resp.text().await?
+        );
+    }
+    // The same hub pull reads `hub_api_secret` for a private Hub, but a secret stays out of
+    // a job's reach even when the token borrows a superadmin.
     let resp = authed(
-        client().get(format!("{api}/settings/global/automate_username_creation")),
-        &user_wm,
+        client().get(format!("{api}/settings/global/hub_api_secret")),
+        &sa_wm,
     )
     .send()
     .await?;
-    assert_eq!(
-        resp.status(),
-        200,
-        "WM_TOKEN must still read automate_username_creation: {}",
+    let status = resp.status().as_u16();
+    assert!(
+        status == 401 || status == 403,
+        "superadmin WM_TOKEN must not read hub_api_secret ({status}): {}",
         resp.text().await?
     );
     let resp = authed(
@@ -1094,6 +1110,7 @@ async fn test_privilege_gates_reject_a_job_token_directly(
             token_prefix: None,
             read_only: false,
             job_id,
+            credential_expiry: None,
         }
     }
 

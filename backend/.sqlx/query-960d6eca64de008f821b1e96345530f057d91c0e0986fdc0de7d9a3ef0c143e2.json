@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE remote_deploy_token SET workspace_id = $1 WHERE workspace_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "960d6eca64de008f821b1e96345530f057d91c0e0986fdc0de7d9a3ef0c143e2"
+}

@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest'
 import type { AssetGraphResponse } from './types'
 import {
 	buildColumnGraph,
+	buildDbtColumnGraph,
 	colNodeId,
+	mergeColumnGraphs,
+	type ColumnLineageGraph,
 	traceColumn,
 	connectedComponent,
 	assetColumnNodes,
@@ -117,6 +120,79 @@ describe('buildColumnGraph', () => {
 		expect(g.up.has(STAGING_AMT)).toBe(false)
 		// ...but s2 still anchors daily.total ← staging.amt (staging.amt as a source).
 		expect(g.up.get(DAILY_TOTAL)).toEqual(new Set([STAGING_AMT]))
+	})
+})
+
+describe('buildDbtColumnGraph', () => {
+	it('takes the direct kinds and drops any other', () => {
+		// `scan` means the column was read to produce the ROW — a join key, a
+		// predicate, a `group by` — so it reaches every output column of its model
+		// and is not what a column trace means. The server filters it out; this
+		// filters again, because the kind set is the engine's and an unknown one
+		// must not become an edge the trace calls data flow.
+		const g = buildDbtColumnGraph([
+			{
+				from_asset_path: 'main/s/stg',
+				from_column: 'raw_name',
+				to_asset_path: 'main/s/mart',
+				to_column: 'clean_name',
+				kind: 'mod'
+			},
+			{
+				from_asset_path: 'main/s/stg',
+				from_column: 'id',
+				to_asset_path: 'main/s/mart',
+				to_column: 'id',
+				kind: 'copy'
+			},
+			{
+				from_asset_path: 'main/s/stg',
+				from_column: 'id',
+				to_asset_path: 'main/s/mart',
+				to_column: 'clean_name',
+				kind: 'scan'
+			}
+		])
+		expect(g.up.get(colNodeId('dbt', 'main/s/mart', 'clean_name'))).toEqual(
+			new Set([colNodeId('dbt', 'main/s/stg', 'raw_name')])
+		)
+		expect(g.up.get(colNodeId('dbt', 'main/s/mart', 'id'))).toEqual(
+			new Set([colNodeId('dbt', 'main/s/stg', 'id')])
+		)
+	})
+})
+
+describe('mergeColumnGraphs', () => {
+	it('chains a dbt column into what a producer derives from it', () => {
+		// The two halves arrive separately — the producer's from the asset graph,
+		// dbt's from its own request — and meet at the dbt node a `// column`
+		// annotation names. A trace has to cross that, or a dbt selection stops
+		// before the script consuming it.
+		const dbt = buildDbtColumnGraph([
+			{
+				from_asset_path: 'main/s/stg',
+				from_column: 'raw',
+				to_asset_path: 'main/s/mart',
+				to_column: 'clean',
+				kind: 'copy'
+			}
+		])
+		const producer: ColumnLineageGraph = {
+			nodes: new Map(),
+			up: new Map(),
+			down: new Map()
+		}
+		const src = colNodeId('dbt', 'main/s/mart', 'clean')
+		const out = colNodeId('ducklake', 'wh/report', 'total')
+		producer.nodes.set(src, { kind: 'dbt', path: 'main/s/mart', column: 'clean' })
+		producer.nodes.set(out, { kind: 'ducklake', path: 'wh/report', column: 'total' })
+		producer.up.set(out, new Set([src]))
+		producer.down.set(src, new Set([out]))
+
+		const merged = mergeColumnGraphs(dbt, producer)
+		expect(traceColumn(colNodeId('dbt', 'main/s/stg', 'raw'), merged)).toEqual(
+			new Set([colNodeId('dbt', 'main/s/stg', 'raw'), src, out])
+		)
 	})
 })
 

@@ -5,20 +5,47 @@ import { MessageDraft } from './messageDraft.svelte'
 // the draft-level guarantees: lanes move together, restores respect occupancy,
 // aggregation always applies the rules.
 
+function blob(name: string) {
+	return {
+		name,
+		mediaType: 'application/pdf',
+		dataUrl: 'data:application/pdf;base64,JVBERg==',
+		size: 4
+	}
+}
+
 describe('MessageDraft', () => {
-	it('take() snapshots and clears all four lanes atomically', () => {
+	it('take() snapshots and clears all five lanes atomically', () => {
 		const d = new MessageDraft({
 			text: 'hello',
 			pastes: [{ id: 'p1', content: 'x' } as any],
 			images: [{ dataUrl: 'i1' } as any],
-			files: [{ name: 'a.md', content: 'a' }]
+			files: [{ name: 'a.md', content: 'a' }],
+			blobs: [blob('a.pdf')]
 		})
 		const snap = d.take()
 		expect(snap.text).toBe('hello')
 		expect(snap.pastes).toHaveLength(1)
 		expect(snap.images).toHaveLength(1)
 		expect(snap.files).toHaveLength(1)
+		expect(snap.blobs).toHaveLength(1)
 		expect(d.isEmpty).toBe(true)
+	})
+
+	it('treats a blob-only draft as occupied and caps blobs, keeping restored ones first', () => {
+		const d = new MessageDraft({ blobs: [blob('only.pdf')] })
+		expect(d.isEmpty).toBe(false)
+		expect(d.hasAttachments).toBe(true)
+		expect(d.replaceIfEmpty({ text: 'restored' })).toBe(false)
+
+		const dropped = d.addBlobs(Array.from({ length: 8 }, (_, i) => blob(`new${i}.pdf`)))
+		expect(dropped).toBe(1)
+		expect(d.blobs).toHaveLength(8)
+
+		const res = d.prepend({ text: '', blobs: [blob('old.pdf')] })
+		expect(res.droppedBlobs).toBe(1)
+		expect(d.blobs[0].name).toBe('old.pdf')
+		expect(d.blobs).toHaveLength(8)
 	})
 
 	it('replaceIfEmpty declines when any lane is occupied', () => {

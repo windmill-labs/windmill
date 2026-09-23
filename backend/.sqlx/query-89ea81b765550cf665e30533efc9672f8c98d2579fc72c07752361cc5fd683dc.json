@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM ai_agent_memory a\n               USING flow_conversation c\n              WHERE c.id = ANY($1)\n                AND c.workspace_id = $2\n                AND a.conversation_id = c.id\n                AND a.workspace_id = c.workspace_id\n                AND NOT EXISTS (\n                    SELECT 1 FROM flow_conversation_message m WHERE m.conversation_id = c.id\n                )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "89ea81b765550cf665e30533efc9672f8c98d2579fc72c07752361cc5fd683dc"
+}

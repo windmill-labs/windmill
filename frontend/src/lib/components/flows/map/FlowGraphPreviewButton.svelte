@@ -46,7 +46,7 @@
 		btnClasses={twMerge(
 			'relative p-1.5 transition-all duration-200 drop-shadow-base',
 			wide ? 'w-[120px]' : 'w-[44.5px]',
-			'max-[1760px]:mt-[1.5px]' // Magic number comes from app.css (when :root fontSize becomes bigger)
+			'mt-[1.5px] [@media(min-device-width:1760px)]:mt-0' // Magic number comes from app.css (when :root fontSize becomes bigger)
 		)}
 		style="height: {NODE.height}px;"
 		on:click={() => {

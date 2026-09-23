@@ -47,13 +47,25 @@ pub struct RunJobQuery {
     pub cache_ignore_s3_path: Option<bool>,
     pub skip_preprocessor: Option<bool>,
     pub poll_delay_ms: Option<u64>,
-    pub memory_id: Option<Uuid>,
+    /// Any string; see [`RunJobQuery::memory_key`].
+    pub memory_id: Option<String>,
     pub trigger_external_id: Option<String>,
     pub service_name: Option<String>,
     pub suspended_mode: Option<bool>,
 }
 
 impl RunJobQuery {
+    /// The memory id as stored in `flow_status.memory_id`: a uuid is kept, any other string hashed
+    /// within the workspace and the flow being run.
+    pub fn memory_key(&self, workspace_id: &str, flow_path: &str) -> Option<Uuid> {
+        self.memory_id
+            .as_deref()
+            .filter(|memory_id| !memory_id.trim().is_empty())
+            .map(|memory_id| {
+                windmill_common::flow_conversations::memory_key(workspace_id, flow_path, memory_id)
+            })
+    }
+
     pub async fn get_scheduled_for(
         &self,
         db: &DB,

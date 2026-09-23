@@ -913,3 +913,140 @@ async fn test_preserve_orphaned_members_migration(db: Pool<Postgres>) -> anyhow:
 
     Ok(())
 }
+
+/// A membership row whose value is not an email (an IdP object id a SCIM sync stored before
+/// member values were validated) must not break the workspace's instance-group save: the
+/// reconciler skips it and still provisions the valid members. The admin endpoint refuses to
+/// add such a value in the first place.
+#[cfg(feature = "private")]
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_instance_group_member_that_is_not_an_email_is_skipped(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let global_base = format!("http://localhost:{port}/api/groups");
+    let ws_base = format!("http://localhost:{port}/api/w/test-workspace/workspaces");
+    const ENTRA_OBJECT_ID: &str = "ef40ea04-1a9e-4a84-9e65-cb1baa81dfed";
+
+    let resp = authed(client().post(format!("{global_base}/create")))
+        .json(&json!({ "name": "entra_grp" }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "create");
+    let resp = authed(client().post(format!("{global_base}/adduser/entra_grp")))
+        .json(&json!({ "email": "kept@example.com" }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "adduser");
+
+    let resp = authed(client().post(format!("{global_base}/adduser/entra_grp")))
+        .json(&json!({ "email": ENTRA_OBJECT_ID }))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        400,
+        "adduser must refuse a value that is not an email"
+    );
+    let too_wide = format!("{}@example.com", "a".repeat(244));
+    let resp = authed(client().post(format!("{global_base}/adduser/entra_grp")))
+        .json(&json!({ "email": too_wide }))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        400,
+        "adduser must refuse a value wider than the email columns"
+    );
+    // A valid address whose local part is wider than the username columns: the derived
+    // username is cut to fit rather than failing the promotion.
+    let long_local_part = format!("{}@example.com", "a".repeat(60));
+    let resp = authed(client().post(format!("{global_base}/adduser/entra_grp")))
+        .json(&json!({ "email": long_local_part }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "adduser long local part");
+
+    sqlx::query("INSERT INTO email_to_igroup (email, igroup) VALUES ($1, 'entra_grp')")
+        .bind(ENTRA_OBJECT_ID)
+        .execute(&db)
+        .await?;
+
+    // A member whose address only the wider `proper_email` of `usr` accepts, already
+    // provisioned through the group: reconciliation must keep and re-role them, since
+    // removal destroys their drafts, inputs and permissions.
+    sqlx::raw_sql(
+        r#"
+        INSERT INTO email_to_igroup (email, igroup) VALUES ('"quoted"@example.com', 'entra_grp');
+        INSERT INTO usr (workspace_id, username, email, is_admin, operator, added_via)
+        VALUES ('test-workspace', 'quoted', '"quoted"@example.com', false, true,
+                '{"source": "instance_group", "group": "entra_grp"}'::jsonb);
+        "#,
+    )
+    .execute(&db)
+    .await?;
+
+    let resp = authed(client().post(format!("{ws_base}/edit_instance_groups")))
+        .json(&json!({
+            "groups": ["entra_grp"],
+            "roles": { "entra_grp": "developer" }
+        }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "edit: {}", resp.text().await?);
+
+    let mut members: Vec<(String, bool)> = sqlx::query_as(
+        "SELECT email, operator FROM usr WHERE workspace_id = 'test-workspace'
+         AND added_via->>'source' = 'instance_group'",
+    )
+    .fetch_all(&db)
+    .await?;
+    members.sort();
+    assert_eq!(
+        members,
+        vec![
+            ("\"quoted\"@example.com".to_string(), false),
+            (long_local_part.clone(), false),
+            ("kept@example.com".to_string(), false),
+        ],
+        "valid members provisioned and existing member kept, all as developers; non-email one skipped"
+    );
+
+    // A full import carrying the same rows: the object id is dropped, the address only
+    // `proper_email` accepts is kept, and neither member loses their workspace row.
+    let resp = authed(client().post(format!("{global_base}/overwrite")))
+        .json(&json!([{
+            "name": "entra_grp",
+            "emails": ["kept@example.com", "\"quoted\"@example.com", long_local_part, ENTRA_OBJECT_ID]
+        }]))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "overwrite: {}", resp.text().await?);
+
+    let mut stored: Vec<String> =
+        sqlx::query_scalar("SELECT email FROM email_to_igroup WHERE igroup = 'entra_grp'")
+            .fetch_all(&db)
+            .await?;
+    stored.sort();
+    assert_eq!(
+        stored,
+        vec![
+            "\"quoted\"@example.com".to_string(),
+            long_local_part.clone(),
+            "kept@example.com".to_string(),
+        ],
+        "import drops the object id and keeps the rest"
+    );
+    let mut after_import: Vec<(String, bool)> = sqlx::query_as(
+        "SELECT email, operator FROM usr WHERE workspace_id = 'test-workspace'
+         AND added_via->>'source' = 'instance_group'",
+    )
+    .fetch_all(&db)
+    .await?;
+    after_import.sort();
+    assert_eq!(after_import, members, "import must not evict either member");
+
+    Ok(())
+}

@@ -161,6 +161,19 @@
 			(!workspaceIsFork(baseWorkspaceId, forkableWorkspaces) ||
 				!!baseWorkspaceEntry.is_dev_workspace)
 	)
+	const baseForkMembersResource = resource(
+		() => (isFork ? baseWorkspaceId : undefined),
+		async (ws, _prev, { signal }) => {
+			if (!ws) return undefined
+			const settings = await WorkspaceService.getPublicSettings({ workspace: ws })
+			if (signal.aborted) throw new DOMException('superseded', 'AbortError')
+			return { ws, adds: settings.add_admins_and_developers_to_forks }
+		}
+	)
+	let baseAddsAdminsAndDevelopers = $derived(
+		baseForkMembersResource.current?.ws === baseWorkspaceId &&
+			!!baseForkMembersResource.current?.adds
+	)
 	// Ask the server whether a dev already exists: the caller may not be a member of this prod's dev,
 	// so the client workspace list can't see it and would offer an invalid "create dev" action.
 	const devWorkspaceResource = resource(
@@ -367,7 +380,7 @@
 			failedSyncJobs = []
 			forkCreationError = ''
 
-			// Clone datatables BEFORE creating the workspace fork
+			// Each data table copy is confirmed first; the fork request makes the copies
 			if (forkDatatableSection) {
 				const queue = forkDatatableSection.buildCloneQueue(prefixed_id)
 				if (queue.length > 0) {
@@ -383,6 +396,15 @@
 	}
 
 	async function completeFork(prefixed_id: string): Promise<void> {
+		// The fork request makes these copies, and drops them if the fork is not created
+		const forkedDatatables = forkDatatableSection
+			? forkDatatableSection.getConfirmedCloneJobs().map((job) => ({
+					name: job.name,
+					new_dbname: job._newDbName,
+					fork_behavior: job.behavior
+				}))
+			: []
+
 		let gitSyncJobIds: string[]
 		try {
 			gitSyncJobIds = await WorkspaceService.createWorkspaceForkGitBranch({
@@ -391,6 +413,9 @@
 					id: prefixed_id,
 					name,
 					color: colorEnabled && workspaceColor ? workspaceColor : undefined,
+					// Sent in this first phase too, so a clone the fork would refuse is refused before
+					// any branch is created.
+					forked_datatables: forkedDatatables,
 					is_dev_workspace: createAsDevWorkspace,
 					dev_workspace_label: createAsDevWorkspace ? devWorkspaceLabel : undefined,
 					// Send the lock intent in this first phase too so the backend can reject a non-admin's
@@ -443,14 +468,6 @@
 			)
 			return
 		}
-
-		// Build forked_datatables info from completed clone jobs
-		const forkedDatatables = forkDatatableSection
-			? forkDatatableSection.getCompletedCloneJobs().map((job) => ({
-					name: job.name,
-					new_dbname: job._newDbName
-				}))
-			: []
 
 		try {
 			await WorkspaceService.createWorkspaceFork({
@@ -929,6 +946,12 @@
 						disabled={createAsDevWorkspace}
 					/>
 				</label>
+				{#if baseAddsAdminsAndDevelopers && !(createAsDevWorkspace && copyMembers)}
+					<Alert type="info" size="xs" title="Admins and developers join this fork">
+						{baseWorkspaceId} adds its admins and developers to every new fork, with the role they have
+						there.
+					</Alert>
+				{/if}
 			{/if}
 			{#if isFork}
 				<ForkDatatableSection

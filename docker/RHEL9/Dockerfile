@@ -33,6 +33,8 @@ COPY /backend/oauth_connect.json /backend/oauth_connect.json
 COPY /openflow.openapi.yaml /openflow.openapi.yaml
 COPY /backend/windmill-api/build_openapi.sh /backend/windmill-api/build_openapi.sh
 COPY /system_prompts/auto-generated /system_prompts/auto-generated
+# The flow chat imports the chat SDK's source (svelte.config.js alias `windmill-chat`).
+COPY /chat-sdk/src /chat-sdk/src
 
 RUN cd /backend/windmill-api && . ./build_openapi.sh
 COPY /backend/parsers/windmill-parser-wasm/pkg/ /backend/parsers/windmill-parser-wasm/pkg/

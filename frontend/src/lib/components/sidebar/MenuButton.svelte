@@ -36,7 +36,11 @@
 		color?: string | null
 		trigger?: MenubarMenuElements['trigger'] | undefined
 		href?: string | undefined
+		/** Applied to the button AND to the label, so text sizing reaches the label text. */
 		class?: string | undefined
+		/** Applied to the button alone — for anything that would be wrong behind the label,
+		 *  a background above all. */
+		buttonClass?: string | undefined
 		// Show a trailing chevron to signal the button opens a dropdown.
 		showChevron?: boolean
 		// Render the label with stronger weight/size (e.g. the workspace name).
@@ -44,6 +48,12 @@
 		// Drop the native `title` attributes — for callers that wrap the button
 		// in their own hover tooltip.
 		disableTitle?: boolean
+		// Accessible name when the visible label is absent or only shown some of
+		// the time, so the button stays announceable in every state.
+		ariaLabel?: string | undefined
+		// Classes for the label line only — `class` reaches the button, the label and the
+		// sublabel alike, which is the wrong tool for colouring one line of the two.
+		labelClass?: string | undefined
 	}
 
 	let {
@@ -64,9 +74,12 @@
 		trigger = undefined,
 		href = undefined,
 		class: classNames = undefined,
+		buttonClass = undefined,
 		showChevron = false,
 		emphasizeLabel = false,
-		disableTitle = false
+		disableTitle = false,
+		ariaLabel = undefined,
+		labelClass = undefined
 	}: Props = $props()
 
 	let buttonRef: HTMLButtonElement | HTMLAnchorElement | undefined = $state(undefined)
@@ -110,10 +123,11 @@
 				sidebarClasses.hoverBg,
 				'transition-all relative',
 				sublabel ? 'h-10' : 'h-8',
-				classNames
+				classNames,
+				buttonClass
 			)}
 			use:conditionalMelt={trigger}
-			aria-label={label}
+			aria-label={ariaLabel ?? label}
 			title={isCollapsed || disableTitle ? undefined : label}
 			{...$trigger}
 		>
@@ -151,7 +165,8 @@
 							'whitespace-pre truncate w-full',
 							emphasizeLabel ? 'text-primary text-sm font-semibold' : sidebarClasses.text,
 							'transition-all',
-							classNames
+							classNames,
+							labelClass
 						)}
 						title={disableTitle ? undefined : label}
 					>

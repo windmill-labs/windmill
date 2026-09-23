@@ -77,9 +77,9 @@ describe('supportsReasoning (static registry)', () => {
 		}
 		// Bedrock translates the same sentinel on its Converse path, but only for
 		// Opus 5 — AWS documents Bedrock's Sonnet 5 as always thinking.
-		expect(
-			getReasoningCapability('aws_bedrock', 'global.anthropic.claude-opus-5').canDisable
-		).toBe(true)
+		expect(getReasoningCapability('aws_bedrock', 'global.anthropic.claude-opus-5').canDisable).toBe(
+			true
+		)
 		expect(
 			resolveRequestReasoning({
 				provider: 'aws_bedrock',
@@ -189,12 +189,28 @@ describe('supportsReasoning (static registry)', () => {
 		expect(supportsReasoning('mistral', 'mistral-medium-3.5')).toBe(true)
 		expect(getReasoningCapability('mistral', 'mistral-medium-3-5').canDisable).toBe(true)
 	})
-	it('returns no levels for providers without a registry entry', () => {
+	it('returns no levels for a model its provider family has no entry for', () => {
+		// The family is known, so the `false` is an answer: codestral does not reason.
 		expect(getReasoningCapability('mistral', 'codestral-latest')).toEqual({
 			supported: false,
 			levels: [],
-			canDisable: false
+			canDisable: false,
+			known: true
 		})
+	})
+
+	// `customai` fronts any OpenAI-compatible endpoint, so `supported: false` there is an
+	// absence of rules rather than a fact about the model. A caller that shows the reader
+	// "this model cannot think" has to tell the two apart.
+	it('admits when it has no rules for the provider at all', () => {
+		expect(getReasoningCapability('customai', 'deepseek-r1')).toEqual({
+			supported: false,
+			levels: [],
+			canDisable: false,
+			known: false
+		})
+		expect(getReasoningCapability('openai', 'gpt-4o').known).toBe(true)
+		expect(getReasoningCapability('anthropic', 'claude-sonnet-5').known).toBe(true)
 	})
 	it('only offers off where the model can truly disable thinking', () => {
 		// Gemini Pro enforces a thinking floor — no off option.

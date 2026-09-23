@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO guest_activity (email, workspace_id, day)\n         VALUES ($1, $2, CURRENT_DATE)\n         ON CONFLICT (email, workspace_id, day)\n         DO UPDATE SET last_seen_at = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "21e9629bdf5824b676bf88709f4fe0d9644b8d6a08d0c73daac73c48b5933afe"
+}

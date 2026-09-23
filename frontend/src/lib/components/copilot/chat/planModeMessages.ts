@@ -12,6 +12,9 @@ export const PLAN_MODE_MESSAGES = {
 	/** Sits beside the autonomy picker while plan mode holds. The picker's tooltip carries
 	 * the rest, so this states only the constraint. */
 	modeNote: 'Read-only',
+	/** Refuses a pending run form. Its own string because nothing is settled: the form stays
+	 * live, so this names the way out rather than telling the user their run was blocked. */
+	runFormRefused: 'Plan mode is read-only — switch it off to run this script.',
 	// One pair for both artifact tools: the fact and the way forward are the same whether the
 	// model tried to mint the plan or to rewrite it, and the generic refusal above ("put this
 	// change in your plan") reads as nonsense for a call that writes a document.

@@ -127,6 +127,8 @@
 					{/if}
 				{:else if `scheduled_for` in job && job.scheduled_for && forLater(job.scheduled_for)}
 					Waiting executor (<TimeAgo agoOnlyIfRecent date={job.scheduled_for || ''} />)
+				{:else if 'running' in job && job.running && job.suspend}
+					Suspended (created <TimeAgo agoOnlyIfRecent date={job.created_at || ''} />)
 				{:else}
 					Waiting executor (<TimeAgo agoOnlyIfRecent date={job.created_at || ''} />)
 				{/if}

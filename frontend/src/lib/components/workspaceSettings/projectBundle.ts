@@ -239,6 +239,89 @@ export function extractTriggerConfigResourceRefs(config: any): string[] {
 }
 
 /**
+ * Whether a value reaches a resource, in either spelling a rewrite has to handle: a
+ * `$res:`/`res://` token embedded in content, or the bare path standing alone as a string
+ * the way trigger configs hold it (`kafka_resource_path: "f/slug/db"`).
+ *
+ * Matching the parsed structure rather than its serialization is what keeps
+ * `f/slug/db` out of `$res:f/slug/db_prod`.
+ */
+export function referencesResourcePath(value: unknown, path: string): boolean {
+	const walk = (v: any): boolean => {
+		if (typeof v === 'string') {
+			if (v === path) return true
+			RES_TOKEN_RE.lastIndex = 0
+			let m: RegExpExecArray | null
+			while ((m = RES_TOKEN_RE.exec(v)) !== null) if (m[1] === path) return true
+			return false
+		}
+		if (Array.isArray(v)) return v.some(walk)
+		if (v && typeof v === 'object') return Object.values(v).some(walk)
+		return false
+	}
+	return walk(value)
+}
+
+/**
+ * Whether a `$res:`/`res://` token for this path survives anywhere in the value — the one
+ * spelling the rewriters relocate, and so the only one whose survival means a rewrite did
+ * not take. A bare path is deliberately not matched: nothing here moves one, so its presence
+ * says nothing about whether the rewrite worked.
+ */
+export function holdsResourceToken(value: unknown, path: string): boolean {
+	const walk = (v: any): boolean => {
+		if (typeof v === 'string') {
+			RES_TOKEN_RE.lastIndex = 0
+			let m: RegExpExecArray | null
+			while ((m = RES_TOKEN_RE.exec(v)) !== null) if (m[1] === path) return true
+			return false
+		}
+		if (Array.isArray(v)) return v.some(walk)
+		if (v && typeof v === 'object') return Object.values(v).some(walk)
+		return false
+	}
+	return walk(value)
+}
+
+/**
+ * Whether the text names the resource somewhere no rewriter reaches — a path written on its
+ * own rather than inside a `$res:` token, the way `getResource("f/proj/db")` does. The
+ * tokens are stripped first so the ones a rewrite would move do not count, and the match is
+ * bounded so `f/proj/db` is not found inside `f/proj/db_prod`.
+ */
+export function textHoldsBarePath(text: string, path: string): boolean {
+	const withoutTokens = text.replace(RES_TOKEN_RE, '')
+	const boundary = /[\w\-./]/
+	for (let i = withoutTokens.indexOf(path); i !== -1; i = withoutTokens.indexOf(path, i + 1)) {
+		const before = withoutTokens[i - 1] ?? ''
+		const after = withoutTokens[i + path.length] ?? ''
+		if (!boundary.test(before) && !boundary.test(after)) return true
+	}
+	return false
+}
+
+/**
+ * Whether anything the project ships points at one of its own resources.
+ *
+ * A project declares two kinds of resource. One is referenced — an app pins `$res:` for a
+ * script argument, a trigger names it — and the project does not work until it holds a
+ * credential. The other is minted from a `resource-<type>` input schema: it names a type
+ * a script accepts, nothing points at it, and a standalone run picks a resource in the
+ * argument picker instead. Only the first kind is worth asking anyone to fill in.
+ *
+ * The `resources` list is excluded from the walk because a stub's own declaration carries
+ * its path, which would make every stub look referenced.
+ */
+export function projectReferencesResource(bundle: ProjectExport, path: string): boolean {
+	const { resources: _resources, ...rest } = bundle as any
+	if (referencesResourcePath(rest, path)) return true
+	// A script that reads the resource by name rather than through a `$res:` token still needs
+	// it filled in. Asked about is the safe side of this answer: the cost of a wrong yes is a
+	// row nobody had to act on, and of a wrong no a credential nobody was told to set up.
+	return textHoldsBarePath(JSON.stringify(rest ?? {}), path)
+}
+
+/**
  * Trigger configs reference resources as plain path strings (e.g.
  * `kafka_resource_path: "f/slug/db"`), not `$res:` tokens, so token rewriting
  * misses them. Deep-walk the config and remap any string that exact-matches a

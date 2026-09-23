@@ -77,22 +77,14 @@ function persistedNativeKinds(base: AssetGraphResponse, path: string): Set<strin
 // `// pipeline`. Mirror of the backend `is_auto_trigger_kind`
 // (windmill-common assets.rs): ducklake tables and s3 objects.
 //
-// `table` is excluded there and must stay excluded here: dbt is the only
-// producer of a warehouse relation and a dbt run does not dispatch, so an edge
-// derived from one draws a cascade arrow the deploy will never fire.
+// `dbt` is excluded there and must stay excluded here: a warehouse relation is
+// usually built by the dbt project that reads it, and a dbt run does not
+// dispatch, so deriving an edge from every `dbt://` read would draw cascade
+// arrows that mostly never fire. An EXPLICIT `// on dbt://…` is drawn — the
+// relations a native `// materialize manual dbt://…` script writes do wake
+// subscribers, and the deploy is what refuses the case that cannot (a relation
+// dbt alone builds; `sole_dbt_producer` in windmill-common assets.rs).
 const AUTO_TRIGGER_KINDS: ReadonlySet<AssetKind> = new Set(['ducklake', 's3object'])
-
-/** Whether a subscription on this kind can ever fire once deployed.
- *
- * A `dbt://` one cannot: dbt is the only producer of a warehouse relation and
- * a dbt run does not dispatch, so the deploy refuses `// on dbt://…` outright
- * (`scripts.rs`). The editor must not draw an arrow the deploy will reject —
- * applied to the EXPLICIT overlays; auto-derivation is already scoped by
- * `AUTO_TRIGGER_KINDS`. Parsing is left alone so the Rust-parity test still
- * compares like for like. */
-function canTrigger(kind: AssetKind): boolean {
-	return kind !== 'dbt'
-}
 
 /** `kind:path` refs of a script's `// materialize` write target(s) (base +
  *  the scd2 `<dim>_current` companion), which the body `SELECT` doesn't express. */
@@ -381,7 +373,7 @@ function makeContext(input: ResolveGraphInput): ResolveContext {
 	const liveRefKeys = new Set<string>()
 	if (openIsSavedEdit) {
 		if (liveAnnotations.scriptPath === openPath) {
-			for (const a of liveAnnotations.annotations.triggerAssets.filter((a) => canTrigger(a.kind)))
+			for (const a of liveAnnotations.annotations.triggerAssets)
 				liveRefKeys.add(`${a.kind}:${a.path}`)
 			// The `// materialize <asset>` target is a declared *output*, but it
 			// lives in an annotation (not the SQL body), so neither triggerAssets
@@ -625,7 +617,7 @@ function seedDraftOverlays(acc: Accumulator, input: ResolveGraphInput) {
 		// stable when the user clicks off this draft. Live annotations
 		// (below) take over for the currently-open draft so keystroke
 		// edits still update in real time.
-		for (const a of parsed.triggerAssets.filter((a) => canTrigger(a.kind))) {
+		for (const a of parsed.triggerAssets) {
 			extraTriggers.push({
 				trigger_kind: 'asset',
 				asset_kind: a.kind,
@@ -704,7 +696,7 @@ function applyLiveBufferOverlay(acc: Accumulator, input: ResolveGraphInput, ctx:
 	for (let i = extraTriggers.length - 1; i >= 0; i--) {
 		if (extraTriggers[i].runnable_path === livePath) extraTriggers.splice(i, 1)
 	}
-	for (const a of liveAnnotations.annotations.triggerAssets.filter((a) => canTrigger(a.kind))) {
+	for (const a of liveAnnotations.annotations.triggerAssets) {
 		const key = `${a.kind}:${a.path}`
 		if (assetKeys.has(key)) continue
 		extraTriggers.push({

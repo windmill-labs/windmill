@@ -55,12 +55,13 @@ export function overlayStack(): OverlayStack {
  * Reads context, so call it during component initialisation; call the returned getter
  * where the target is used, to stay reactive as the host element mounts.
  */
-export function overlayPortalTarget(fallback: string): () => HTMLElement | string {
+export function overlayPortalTarget(fallback: string | (() => string)): () => HTMLElement | string {
 	const host = getOverlayHost()
 	return () => {
+		const selector = typeof fallback === 'function' ? fallback() : fallback
 		const el = host?.el()
-		if (!el) return fallback
-		return el.querySelector<HTMLElement>(fallback) ?? el
+		if (!el) return selector
+		return el.querySelector<HTMLElement>(selector) ?? el
 	}
 }
 

@@ -12,13 +12,17 @@
 	import SchemaViewer from './SchemaViewer.svelte'
 	import { scriptPathToHref } from '$lib/scripts'
 	import { cleanExpr, copyToClipboard } from '$lib/utils'
-	import { hubBaseUrlStore, workspaceStore } from '$lib/stores'
+	import { hubBaseUrlStore } from '$lib/stores'
 
 	import { twMerge } from 'tailwind-merge'
 	import FlowModuleScript from './flows/content/FlowModuleScript.svelte'
 	import { Copy, Expand } from 'lucide-svelte'
 	import HighlightTheme from './HighlightTheme.svelte'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
+	import FlowGraphViewerStepHeader from './FlowGraphViewerStepHeader.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		schema?: any | undefined
@@ -28,6 +32,8 @@
 		// The workspace the viewed flow belongs to (differs from the nav workspace in fork/session
 		// editors); used to qualify resource links.
 		workspace?: string
+		/** Given, the step header starts with a back control that calls it. */
+		onBack?: () => void
 	}
 
 	let {
@@ -35,9 +41,10 @@
 		stepDetail = undefined,
 		jobScriptHash = undefined,
 		hideDefaultInputs = false,
-		workspace = undefined
+		workspace = undefined,
+		onBack = undefined
 	}: Props = $props()
-	let ws = $derived(workspace ?? $workspaceStore)
+	let ws = $derived(workspace ?? $operatingWorkspace)
 	let codeViewer: Drawer | undefined = $state()
 </script>
 
@@ -104,57 +111,20 @@
 			{/if}
 		</div>
 	{:else if stepDetail == 'Input'}
+		<FlowGraphViewerStepHeader {stepDetail} {onBack} />
 		{#if schema}
 			<SchemaViewer {schema} />
 		{:else}
 			<p class="font-medium text-secondary text-center pt-4 pb-8"> No input schema </p>
 		{/if}
 	{:else if stepDetail == 'Result'}
+		<FlowGraphViewerStepHeader {stepDetail} {onBack} />
 		<p class="font-medium text-secondary text-center pt-4 pb-8"> End of the flow </p>
 	{:else if typeof stepDetail != 'string' && stepDetail.value}
+		<!-- A direct child of the scrolling root: a sticky row can only hold within its parent's
+		     box, so wrapped with the path link below it would scroll away with that wrapper. -->
+		<FlowGraphViewerStepHeader {stepDetail} {onBack} />
 		<div class="">
-			<div class="sticky top-0 bg-surface w-full flex items-center py-2">
-				{#if stepDetail.id && stepDetail.id != 'failure' && stepDetail.id != 'preprocessor'}
-					<Badge color="indigo">
-						{stepDetail.id}
-					</Badge>
-				{/if}
-				<span
-					class={twMerge(
-						'font-semibold text-emphasis text-sm',
-						stepDetail.id !== 'failure' && stepDetail.id !== 'preprocessor' ? 'ml-2' : ''
-					)}
-				>
-					{#if stepDetail.summary}
-						{stepDetail.summary}
-					{:else if stepDetail.value.type == 'identity'}
-						Identity
-					{:else if stepDetail.value.type == 'forloopflow'}
-						For loop {#if stepDetail.value.parallel}(parallel){/if}
-						{#if stepDetail.value.skip_failures}(skip failures){/if}
-						{#if stepDetail.value.squash}(squash){/if}
-					{:else if stepDetail.value.type == 'branchall'}
-						Run all branches {#if stepDetail.value.parallel}(parallel){/if}
-					{:else if stepDetail.value.type == 'branchone'}
-						Run one branch
-					{:else if stepDetail.value.type == 'flow'}
-						Inner flow
-					{:else if stepDetail.value.type == 'whileloopflow'}
-						While loop {#if stepDetail.value.skip_failures}(skip failures){/if}
-						{#if stepDetail.value.squash}(squash){/if}
-					{:else if stepDetail.id === 'failure'}
-						Error handler
-					{:else if stepDetail.id === 'preprocessor'}
-						Preprocessor
-					{:else if stepDetail.value.type == 'rawscript'}
-						Inline {stepDetail.value.language} script
-					{:else if stepDetail.value.type == 'script'}
-						Workspace script
-					{:else if stepDetail.value.type == 'aiagent'}
-						AI Agent
-					{/if}
-				</span>
-			</div>
 			{#if stepDetail.value.type == 'script'}
 				<div class="pb-2">
 					<a

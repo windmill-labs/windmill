@@ -55,6 +55,7 @@ pub fn global_service() -> Router {
         .route("/rename/{user}", post(rename_user))
         .route("/onboarding", post(submit_onboarding_data))
         .route("/ext_jwt_tokens", get(list_ext_jwt_tokens))
+        .route("/guests", get(list_guests))
         .route(
             "/offboard_preview/{user}",
             get(crate::offboarding::global_offboard_preview),
@@ -141,6 +142,58 @@ async fn list_ext_jwt_tokens(
     Ok(Json(rows))
 }
 
+#[derive(serde::Serialize, sqlx::FromRow)]
+pub struct GuestActivity {
+    pub email: String,
+    pub workspaces: Vec<String>,
+    pub first_seen: chrono::NaiveDate,
+    pub last_seen: chrono::NaiveDate,
+}
+
+#[derive(serde::Serialize)]
+pub struct GuestList {
+    pub usage: windmill_common::workspaces::GuestUsage,
+    pub guests: Vec<GuestActivity>,
+}
+
+#[derive(serde::Deserialize)]
+struct ListGuestsQuery {
+    page: Option<usize>,
+    per_page: Option<usize>,
+}
+
+/// The distinct guests of the trailing window, the set the allowance is counted on,
+/// most recently seen first.
+async fn list_guests(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Query(query): Query<ListGuestsQuery>,
+) -> Result<Json<GuestList>> {
+    require_super_admin(&db, &authed).await?;
+
+    let (per_page, offset) = windmill_common::utils::paginate(windmill_common::utils::Pagination {
+        page: query.page,
+        per_page: query.per_page,
+    });
+    let usage = windmill_common::workspaces::guest_usage(&db).await?;
+    let guests = sqlx::query_as::<_, GuestActivity>(
+        "SELECT email, array_agg(DISTINCT workspace_id) AS workspaces,
+                MIN(day) AS first_seen, MAX(day) AS last_seen
+         FROM guest_activity
+         WHERE day > CURRENT_DATE - $3
+         GROUP BY email
+         ORDER BY MAX(day) DESC, email
+         LIMIT $1 OFFSET $2",
+    )
+    .bind(per_page as i64)
+    .bind(offset as i64)
+    .bind(windmill_common::workspaces::GUEST_WINDOW_DAYS)
+    .fetch_all(&db)
+    .await?;
+
+    Ok(Json(GuestList { usage, guests }))
+}
+
 async fn set_password(
     Extension(db): Extension<DB>,
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
@@ -208,6 +261,12 @@ async fn rename_user(
         )));
     }
 
+    let old_instance_username =
+        sqlx::query_scalar!("SELECT username FROM password WHERE email = $1", user_email)
+            .fetch_optional(&mut *tx)
+            .await?
+            .flatten();
+
     sqlx::query!(
         "UPDATE password SET username = $1 WHERE email = $2",
         ru.new_username,
@@ -215,6 +274,36 @@ async fn rename_user(
     )
     .execute(&mut *tx)
     .await?;
+
+    // The per-workspace sweep below only reaches accounts with a `usr` row. A superadmin acting
+    // outside their workspaces has none, yet an app can name them: their principal is
+    // `u/{password.username}`, which this rename just moved. Matching on the address as well
+    // keeps a like-named member of some other workspace out of it.
+    if let Some(old_username) = old_instance_username.filter(|u| *u != ru.new_username) {
+        let old_principal = windmill_common::users::username_to_permissioned_as(&old_username);
+        let new_principal =
+            windmill_common::users::username_to_permissioned_as(&ru.new_username);
+        sqlx::query!(
+            "UPDATE app SET policy = jsonb_set(policy, ARRAY['on_behalf_of'], to_jsonb($1::text))
+             WHERE policy->>'on_behalf_of' = $2 AND policy->>'on_behalf_of_email' = $3",
+            &new_principal,
+            &old_principal,
+            user_email
+        )
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query!(
+            r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['policy', 'on_behalf_of'], to_jsonb($1::text)))
+               WHERE typ IN ('app', 'raw_app')
+                 AND value->'policy'->>'on_behalf_of' = $2
+                 AND value->'policy'->>'on_behalf_of_email' = $3"#,
+            &new_principal,
+            &old_principal,
+            user_email
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
 
     let workspace_usernames = sqlx::query!(
         "SELECT workspace_id, username FROM usr WHERE email = $1",
@@ -263,6 +352,17 @@ async fn update_username_in_workpsace<'c>(
     new_username: &str,
     w_id: &str,
 ) -> error::Result<()> {
+    // ---- data table tenants ----
+    // Tenants name the user, so the rename has to follow here too; a list left naming the old
+    // username silently drops the access instead of moving it.
+    windmill_common::workspaces::rename_datatable_tenant_in_workspace(
+        tx,
+        w_id,
+        &format!("u/{old_username}"),
+        &format!("u/{new_username}"),
+    )
+    .await?;
+
     // ---- instance and workspace users ----
     sqlx::query!(
         "UPDATE usr SET username = $1 WHERE email = $2",
@@ -694,6 +794,17 @@ async fn update_username_in_workpsace<'c>(
 
     sqlx::query!(
         "UPDATE app SET policy = jsonb_set(policy, ARRAY['on_behalf_of'], to_jsonb('u/' || $1)) WHERE policy->>'on_behalf_of' = ('u/' || $2) AND workspace_id = $3",
+        new_username,
+        old_username,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    // An app draft carries a copy of the deployed policy, so the rename must reach it
+    // there too — same reason as the script/flow draft sweep above.
+    sqlx::query!(
+        r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['policy', 'on_behalf_of'], to_jsonb('u/' || $1))) WHERE typ IN ('app', 'raw_app') AND value->'policy'->>'on_behalf_of' = ('u/' || $2) AND workspace_id = $3"#,
         new_username,
         old_username,
         w_id

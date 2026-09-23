@@ -67,6 +67,9 @@
 		badges?: import('svelte').Snippet
 		actions?: import('svelte').Snippet
 		customSummary?: import('svelte').Snippet
+		/** Rendered inline right after the title, unlike `badges`, which sit in
+		 * their own column and are hidden below `lg`. */
+		titleBadge?: import('svelte').Snippet
 		/** Overrides the secondary path line (e.g. to strike a renamed path).
 		 * Falls back to the plain `path` string when not provided. */
 		pathDisplay?: import('svelte').Snippet
@@ -101,6 +104,7 @@
 		badges,
 		actions,
 		customSummary,
+		titleBadge,
 		pathDisplay,
 		onSelect = () => {}
 	}: Props = $props()
@@ -275,7 +279,12 @@
 		</div>
 	{/if}
 	<div class="grow min-w-0">
-		<div class="text-emphasis flex-wrap text-left text-xs font-semibold">
+		<div
+			class={twMerge(
+				'text-emphasis flex-wrap text-left text-xs font-semibold',
+				titleBadge ? 'inline-flex items-center gap-2' : ''
+			)}
+		>
 			{#if customSummary}
 				{@render customSummary?.()}
 			{:else if marked}
@@ -283,6 +292,7 @@
 			{:else}
 				{!summary || summary.length == 0 ? displayPath : summary}
 			{/if}
+			{@render titleBadge?.()}
 		</div>
 		<div class="text-hint text-3xs truncate text-left font-normal" title={path}>
 			{#if pathDisplay}

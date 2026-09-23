@@ -800,6 +800,14 @@ async fn delete_folder(
 
     not_found_if_none(get_folderopt(&mut tx, &w_id, &name).await?, "Folder", &name)?;
 
+    // See the same call in `delete_group`: a freed name must not stay in a tenant list.
+    windmill_common::workspaces::remove_datatable_tenant_in_workspace(
+        &mut tx,
+        &w_id,
+        &format!("f/{name}"),
+    )
+    .await?;
+
     let del = sqlx::query_scalar!(
         "DELETE FROM folder WHERE name = $1 AND workspace_id = $2 RETURNING 1",
         name,

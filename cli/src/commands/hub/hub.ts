@@ -20,6 +20,9 @@ interface HubResourceType {
   // Absent from hubs predating the column, so a missing value is "ordinary type",
   // not "unset it".
   format_extension?: string | null;
+  // Null where nobody named the type, and absent from hubs predating the field, which
+  // leaves a stored name alone rather than clearing it.
+  display_name?: string | null;
 }
 
 export async function pull(opts: GlobalOptions) {
@@ -120,7 +123,9 @@ export async function pull(opts: GlobalOptions) {
           deepEqual(y.schema, x.schema) &&
           y.description === x.description &&
           (y.is_fileset ?? false) === (x.is_fileset ?? false) &&
-          (y.format_extension ?? null) === (x.format_extension ?? null)
+          (y.format_extension ?? null) === (x.format_extension ?? null) &&
+          (x.display_name === undefined ||
+            (y.display_name ?? null) === x.display_name)
       )
     ) {
       log.info("skipping " + x.name + " (same as current)");

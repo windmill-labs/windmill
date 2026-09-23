@@ -443,6 +443,30 @@ async fn test_resource_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     let body = resp.json::<serde_json::Value>().await?;
     assert_eq!(body["description"], "Updated type desc");
 
+    // display_name: an update that omits it, as a push from a CLI predating the field does,
+    // keeps it; an explicit null clears it.
+    for (update, expected) in [
+        (
+            json!({"display_name": "New Test Type"}),
+            json!("New Test Type"),
+        ),
+        (
+            json!({"description": "Updated type desc"}),
+            json!("New Test Type"),
+        ),
+        (json!({"display_name": null}), serde_json::Value::Null),
+    ] {
+        let resp = authed(client().post(resource_url(port, "type/update", "new_test_type")))
+            .json(&update)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+        let resp = authed_get(port, "type/get", "new_test_type").await;
+        let body = resp.json::<serde_json::Value>().await?;
+        assert_eq!(body["display_name"], expected);
+    }
+
     // type/delete
     let resp = authed(client().delete(resource_url(port, "type/delete", "new_test_type")))
         .send()
