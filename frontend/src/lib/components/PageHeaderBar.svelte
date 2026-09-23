@@ -16,9 +16,13 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 
 	let {
 		navHidden = false,
+		hideNavHandle = false,
 		onUnpin
 	}: {
 		navHidden?: boolean
+		/** Drops the sidebar's handle, for a page whose own floating control reveals the sidebar
+		 *  along with this band — two handles for one gesture would be one too many. */
+		hideNavHandle?: boolean
 		/** Sends the band back behind its handle, on a page that owns the viewport. */
 		onUnpin?: () => void
 	} = $props()
@@ -31,7 +35,7 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 </script>
 
 <div data-page-header class="flex items-center gap-1 h-11 pl-2 pr-4 shrink-0 min-w-0 bg-surface">
-	{#if navDetached.val && !navHidden}
+	{#if navDetached.val && !navHidden && !hideNavHandle}
 		<!-- Reveals the hidden sidebar, and only that: hovering slides the card in, clicking holds
 		     it there. Attaching it for good belongs to the toggle in the sidebar's own footer, where
 		     detaching it happened — a control that hides the thing it sits on cannot also be the

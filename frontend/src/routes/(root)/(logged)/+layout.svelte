@@ -1169,8 +1169,16 @@
 						<!-- svelte-ignore a11y_no_static_element_interactions -->
 						<div
 							data-nav-card
-							onmouseenter={cancelPeekClose}
-							onmouseleave={schedulePeekClose}
+							onmouseenter={() => {
+								cancelPeekClose()
+								// Revealed together by the floating control, so they leave together: the
+								// pointer resting on either one holds both.
+								if (bandPeek) cancelBandHide()
+							}}
+							onmouseleave={() => {
+								schedulePeekClose()
+								if (bandPeek) scheduleBandHide()
+							}}
 							class={classNames(
 								'relative flex-1 flex flex-col max-w-min w-full bg-surface transition ease-in-out duration-300 transform',
 								detachedFloating ? 'rounded-lg border shadow-lg overflow-hidden' : '',
@@ -1601,6 +1609,7 @@
 				>
 					<PageHeaderBar
 						navHidden={menuHidden}
+						hideNavHandle={bandPeek}
 						onUnpin={fullBleed && appHeaderPinned.val
 							? () => (appHeaderPinned.val = false)
 							: undefined}

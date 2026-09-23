@@ -5,8 +5,11 @@ let opener: (() => void) | undefined
 // the card is its markup.
 let hoverClose: { schedule: () => void; cancel: () => void } | undefined
 
-// Where the card's top edge goes: right under the handle, measured when it opens rather than fixed,
-// so the card follows the handle's own height. The fallback matches the handle's resting bottom.
+// Where the card's top edge goes: the header's bottom edge, so the two meet in a line rather than
+// the card starting at whatever height the control that opened it happens to have. Measured at open
+// time rather than fixed, so the card follows the header's own height. On a page that hides the
+// header, the header is still what the card will sit under — it comes down with it — so its height
+// is read even while it is off-screen. The fallback matches the header's resting height.
 const FALLBACK_CARD_TOP = 44
 const GAP_UNDER_HANDLE = 6
 let cardTop = $state(FALLBACK_CARD_TOP)
@@ -26,16 +29,20 @@ export const navHandleSlot = {
 		hoverClose?.schedule()
 	},
 	/**
-	 * Opens the card under `anchor`, or under the handle in the page header when none is given.
-	 * A page that hides the header reveals the sidebar from its own control, and the card has to
-	 * hang from the control the pointer is actually on — the header's handle is off-screen there.
+	 * Opens the card under the page header, or under `anchor` when there is no header to sit
+	 * beneath — an embed, where whatever reached for the nav is all the card has to hang from.
 	 */
 	open(anchor?: Element | null) {
 		hoverClose?.cancel()
-		const handle = anchor ?? document.querySelector('[data-nav-handle]')
-		const bottom = handle?.getBoundingClientRect().bottom
-		cardTop =
-			bottom != null && bottom > 0 ? Math.round(bottom) + GAP_UNDER_HANDLE : FALLBACK_CARD_TOP
+		const band = document.querySelector('[data-page-header]')
+		const bandHeight = band?.getBoundingClientRect().height
+		if (bandHeight) {
+			cardTop = Math.round(bandHeight)
+		} else {
+			const bottom = anchor?.getBoundingClientRect().bottom
+			cardTop =
+				bottom != null && bottom > 0 ? Math.round(bottom) + GAP_UNDER_HANDLE : FALLBACK_CARD_TOP
+		}
 		opener?.()
 	}
 }
