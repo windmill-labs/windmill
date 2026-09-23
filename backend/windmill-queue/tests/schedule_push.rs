@@ -560,8 +560,7 @@ mod schedule_push {
         // The daily run due 3 days ago finished just now: the 3 midnights since were missed.
         push(schedule.clone(), midnight - chrono::Duration::days(3)).await?;
         let (runs, missed, at) = streak().await?;
-        assert_eq!((runs, missed), (1, 3));
-        assert!(at.is_some());
+        assert_eq!((runs, missed, at), (1, 3, Some(midnight)));
 
         // Today's run on time ends the streak but keeps what it missed, for the badge.
         schedule.late_run_streak = runs;
