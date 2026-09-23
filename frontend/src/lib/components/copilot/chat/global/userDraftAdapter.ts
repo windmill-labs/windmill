@@ -305,17 +305,6 @@ function liveDisplayPath(
 
 type StagedDraft = { storagePath: string; summary?: string }
 
-type DraftNames = {
-	/** `${itemKind}:${storagePath}` of every draft the current user has. */
-	stored: Set<string>
-	/** `${itemKind}:${chosen name}` → the drafts staged under that name. */
-	byName: Map<string, StagedDraft[]>
-	/** `${itemKind}:${name}` keys where a deployed item already sits at the name. */
-	deployedAt: Set<string>
-}
-
-const draftNamesByWorkspace = new Map<string, DraftNames>()
-
 // Scripts keep their chosen path in the value's own `path`; the other kinds in `draft_path`
 // (the same split listDrafts applies server-side).
 export function chosenDraftName(itemKind: UserDraftItemKind, value: unknown): string | undefined {
@@ -331,96 +320,71 @@ const deployedExists: Partial<
 	raw_app: (workspace, path) => AppService.existsApp({ workspace, path })
 }
 
+/** What a path resolved to: where the draft is stored, and its value when reaching it
+ * already fetched one, so a read does not ask for the same draft twice. */
+type ResolvedDraft = { storagePath: string; value?: unknown }
+
 /**
- * Loads the chosen names of the user's drafts so the synchronous resolver below can route
- * a name to its draft. A new item is stored at a generated `draft_<uuid>` path until it is
- * deployed, and a rename is staged over the old path, so the name the user and the model
- * use is often not where the draft lives. Called before every chat tool call; `path` is
- * the path that call addresses, checked against deployed items only when it is a name.
+ * Where the draft a path names is stored. A new item is stored at a generated
+ * `draft_<uuid>` path until it is deployed, and a rename is staged over the old path, so
+ * the name the user and the model use is often not where the draft lives.
+ *
+ * Resolved per call against the workspace's drafts as they are now. Nothing is cached: a
+ * name that led to one draft a moment ago can name another, and a write that follows a
+ * stale name creates a second draft beside the one it meant to edit.
  */
-export function loadDraftNames(workspace: string, path?: string): Promise<void> {
-	// A tool and its own pre-confirmation check ask for the same names back to back, and
-	// tools in one turn can overlap; they share the request rather than repeating it.
-	const key = `${workspace}:${path ?? ''}`
-	const started = loadingDraftNames.get(key)
-	if (started) return started
-	const loading = readDraftNames(workspace, path).finally(() => loadingDraftNames.delete(key))
-	loadingDraftNames.set(key, loading)
-	return loading
+async function resolveDraft(
+	workspace: string,
+	itemKind: UserDraftItemKind,
+	path: string
+): Promise<ResolvedDraft> {
+	const live = liveEditorStoragePath(workspace, itemKind, path)
+	if (live !== path) return { storagePath: live }
+	// A draft stored right at this path needs no name lookup — the common case, since the
+	// chat is handed storage paths.
+	if (UserDraft.get(itemKind, path, { workspace }) !== undefined) return { storagePath: path }
+	const own = await fetchBackendDraftValue(workspace, itemKind, path)
+	if (own !== undefined) return { storagePath: path, value: own }
+	return { storagePath: await storagePathForChosenName(workspace, itemKind, path) }
 }
 
-const loadingDraftNames = new Map<string, Promise<void>>()
-
-async function readDraftNames(workspace: string, path?: string): Promise<void> {
-	const names: DraftNames = { stored: new Set(), byName: new Map(), deployedAt: new Set() }
-	const add = (
-		itemKind: UserDraftItemKind,
-		storagePath: string,
-		name: string | undefined,
-		summary: string | undefined
-	) => {
+async function storagePathForChosenName(
+	workspace: string,
+	itemKind: UserDraftItemKind,
+	path: string
+): Promise<string> {
+	const staged: StagedDraft[] = []
+	const add = (storagePath: string, summary: string | undefined) => {
 		// A new script or flow editor stores under '', which no tool call can address.
-		if (!storagePath) return
-		names.stored.add(`${itemKind}:${storagePath}`)
-		if (!name || name === storagePath) return
-		const staged = names.byName.get(`${itemKind}:${name}`) ?? []
+		if (!storagePath || storagePath === path) return
 		if (staged.some((s) => s.storagePath === storagePath)) return
 		staged.push({ storagePath, summary })
-		names.byName.set(`${itemKind}:${name}`, staged)
 	}
 	let rows: Awaited<ReturnType<typeof DraftService.listDrafts>>
 	try {
 		rows = await DraftService.listDrafts({ workspace })
 	} catch (e) {
-		// Names loaded earlier are good enough to route with — a draft does not leave the
-		// name it had a moment ago. With none at all, reads still resolve as they did
-		// before names existed, and only writes are refused (persistGlobalDraft).
-		console.warn('Could not refresh draft names', e)
-		return
-	}
-	for (const row of rows) {
-		add(row.kind, row.path, row.draft_path, row.summary)
-	}
-	for (const entry of UserDraft.list({ workspace, itemKinds: [...GLOBAL_DRAFT_KINDS] })) {
-		add(
-			entry.itemKind,
-			entry.path,
-			chosenDraftName(entry.itemKind, entry.value),
-			getItemSummary(entry.value)
+		// Nothing is stored at this path, so it may be a name. Without the listing that
+		// cannot be told, and guessing the path itself would write a second draft.
+		throw new Error(
+			`Could not load this workspace's drafts, so "${path}" cannot be matched to the draft ` +
+				`it may name: ${e instanceof Error ? e.message : String(e)}. Try again.`
 		)
 	}
-	// Each load only probes the name its own call addresses, so keep what earlier calls
-	// established: a concurrent call that addressed nothing must not drop a known
-	// deployed name and let this one route it to a draft.
-	names.deployedAt = new Set(draftNamesByWorkspace.get(workspace)?.deployedAt)
-	if (path) {
-		const probes = Object.entries(deployedExists).map(async ([itemKind, exists]) => {
-			const key = `${itemKind}:${path}`
-			if (!names.byName.has(key) || names.stored.has(key)) return
-			if (await exists(workspace, path)) names.deployedAt.add(key)
-			else names.deployedAt.delete(key)
-		})
-		await Promise.all(probes)
+	for (const row of rows) {
+		if (row.kind === itemKind && row.draft_path === path) add(row.path, row.summary)
 	}
-	draftNamesByWorkspace.set(workspace, names)
-}
-
-function resolveDraftStoragePath(
-	workspace: string,
-	itemKind: UserDraftItemKind,
-	path: string
-): string {
-	const liveDraft = UserDraft.getLiveEditorDraft(itemKind, { workspace })
-	if (liveDraft && (path === liveDraft.storagePath || path === liveDraft.effectivePath))
-		return liveDraft.storagePath
-
-	const names = draftNamesByWorkspace.get(workspace)
-	const key = `${itemKind}:${path}`
-	if (!names || names.stored.has(key)) return path
-	const staged = names.byName.get(key)
-	// A deployed item keeps its own path: drafts staged under that name of another item's
-	// are reached by their storage path.
-	if (!staged || names.deployedAt.has(key)) return path
+	// Local cells too: a name typed a moment ago may not have reached the backend yet.
+	for (const entry of UserDraft.list({ workspace, itemKinds: [itemKind] })) {
+		if (chosenDraftName(itemKind, entry.value) === path) {
+			add(entry.path, getItemSummary(entry.value))
+		}
+	}
+	if (staged.length === 0) return path
+	// A deployed item keeps its own path: drafts staged under that name belong to other
+	// items and are reached by their storage path.
+	const exists = deployedExists[itemKind]
+	if (exists && (await exists(workspace, path))) return path
 	if (staged.length > 1) {
 		// Refused rather than guessed: nothing checks a name for uniqueness before deploy.
 		const listed = staged
@@ -433,14 +397,41 @@ function resolveDraftStoragePath(
 	return staged[0].storagePath
 }
 
-export function getGlobalDraftStoragePath(
+/** The open editor's staged rename alone, for callers that already hold a storage path.
+ * Synchronous, so a `$derived` can call it. */
+function liveEditorStoragePath(
+	workspace: string,
+	itemKind: UserDraftItemKind,
+	path: string
+): string {
+	const liveDraft = UserDraft.getLiveEditorDraft(itemKind, { workspace })
+	if (liveDraft && (path === liveDraft.storagePath || path === liveDraft.effectivePath))
+		return liveDraft.storagePath
+	return path
+}
+
+/** Follows the open editor's staged rename only, for callers that already hold a storage
+ * path. A path that may be a draft's chosen name needs `resolveGlobalDraftStoragePath`. */
+export function liveGlobalDraftStoragePath(
 	workspace: string,
 	type: WorkspaceItemType,
 	path: string,
 	triggerKind?: TriggerKind
 ): string {
 	const itemKind = itemKindFor(type, triggerKind)
-	return itemKind ? resolveDraftStoragePath(workspace, itemKind, path) : path
+	return itemKind ? liveEditorStoragePath(workspace, itemKind, path) : path
+}
+
+/** Where the draft a model-supplied path names is stored. */
+export async function resolveGlobalDraftStoragePath(
+	workspace: string,
+	type: WorkspaceItemType,
+	path: string,
+	triggerKind?: TriggerKind
+): Promise<string> {
+	const itemKind = itemKindFor(type, triggerKind)
+	if (!itemKind) return path
+	return (await resolveDraft(workspace, itemKind, path)).storagePath
 }
 
 function getGlobalDraftSlot(
@@ -451,7 +442,7 @@ function getGlobalDraftSlot(
 ) {
 	const itemKind = itemKindFor(type, triggerKind)
 	if (!itemKind) return undefined
-	const storagePath = resolveDraftStoragePath(workspace, itemKind, path)
+	const storagePath = liveEditorStoragePath(workspace, itemKind, path)
 	const draft = UserDraft.get(itemKind, storagePath, { workspace })
 	if (draft === undefined) return undefined
 
@@ -503,10 +494,13 @@ export async function readGlobalDraftValue<V>(
 ): Promise<V | undefined> {
 	const itemKind = itemKindFor(type, triggerKind)
 	if (!itemKind) return undefined
-	const storagePath = resolveDraftStoragePath(workspace, itemKind, path)
-	const cell = UserDraft.get<V>(itemKind, storagePath, { workspace })
+	const cell = UserDraft.get<V>(itemKind, liveEditorStoragePath(workspace, itemKind, path), {
+		workspace
+	})
 	if (cell !== undefined) return cell
-	return (await fetchBackendDraftValue(workspace, itemKind, storagePath)) as V | undefined
+	const resolved = await resolveDraft(workspace, itemKind, path)
+	if (resolved.value !== undefined) return resolved.value as V
+	return (await fetchBackendDraftValue(workspace, itemKind, resolved.storagePath)) as V | undefined
 }
 
 // `itemKind` + `storagePath` are the canonical identity of the persisted draft
@@ -542,15 +536,9 @@ export async function persistGlobalDraft(
 ): Promise<DraftPersistResult> {
 	const itemKind = itemKindFor(type, opts.triggerKind)
 	if (!itemKind) throw new Error(`Unsupported draft type "${type}".`)
-	// Without names a chosen name reads as a path of its own, and this write would create a
-	// second draft beside the one it meant to edit. A read has no such failure mode.
-	if (!draftNamesByWorkspace.has(workspace)) {
-		throw new Error(
-			`Could not load this workspace's drafts, so "${path}" cannot be matched to the draft ` +
-				`it may name. Try again.`
-		)
-	}
-	const storagePath = resolveDraftStoragePath(workspace, itemKind, path)
+	// Resolved rather than taken as given: a write under a chosen name that did not resolve
+	// would create a second draft beside the one it meant to edit.
+	const storagePath = (await resolveDraft(workspace, itemKind, path)).storagePath
 	UserDraft.seed(itemKind, storagePath, value, { workspace })
 	await UserDraftDbSyncer.save({
 		workspace,
@@ -606,8 +594,9 @@ export async function getGlobalDraft(
 	if (slot) return slot.item
 	const itemKind = itemKindFor(type, triggerKind)
 	if (!itemKind) return undefined
-	const storagePath = resolveDraftStoragePath(workspace, itemKind, path)
-	const value = await fetchBackendDraftValue(workspace, itemKind, storagePath)
+	const resolved = await resolveDraft(workspace, itemKind, path)
+	const storagePath = resolved.storagePath
+	const value = resolved.value ?? (await fetchBackendDraftValue(workspace, itemKind, storagePath))
 	if (value === undefined || value === null) return undefined
 	const { displayPath, isLiveDraft } = liveDisplayPath(workspace, itemKind, storagePath)
 	return userDraftEntryToWorkspaceItem(
@@ -716,7 +705,7 @@ export async function deleteGlobalDraft(
 ): Promise<void> {
 	const itemKind = itemKindFor(type, triggerKind)
 	if (!itemKind) return
-	const storagePath = resolveDraftStoragePath(workspace, itemKind, path)
+	const storagePath = (await resolveDraft(workspace, itemKind, path)).storagePath
 	const liveDraft = UserDraft.getLiveEditorDraft(itemKind, { workspace })
 	if (options.preserveLiveDraft && liveDraft?.storagePath === storagePath) {
 		UserDraft.remove(itemKind, storagePath, { workspace })
@@ -754,7 +743,7 @@ export function resolveGlobalDraftStoragePathByKind(
 	itemKind: UserDraftItemKind,
 	path: string
 ): string {
-	return resolveDraftStoragePath(workspace, itemKind, path)
+	return liveEditorStoragePath(workspace, itemKind, path)
 }
 
 /** Local in-memory draft cell, kind-addressed: the chat `app` type spans two
@@ -767,7 +756,7 @@ export function readLocalDraftCellByKind(
 	itemKind: UserDraftItemKind,
 	path: string
 ): unknown | undefined {
-	const storagePath = resolveDraftStoragePath(workspace, itemKind, path)
+	const storagePath = liveEditorStoragePath(workspace, itemKind, path)
 	return UserDraft.get(itemKind, storagePath, { workspace })
 }
 

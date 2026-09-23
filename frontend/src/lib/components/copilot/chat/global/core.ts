@@ -224,11 +224,11 @@ import {
 	deleteGlobalDraft,
 	flushGlobalDraftSaves,
 	getGlobalDraft,
-	getGlobalDraftStoragePath,
 	itemKindFor,
 	chosenDraftName,
 	listGlobalDrafts,
-	loadDraftNames,
+	liveGlobalDraftStoragePath,
+	resolveGlobalDraftStoragePath,
 	persistGlobalDraft,
 	readGlobalDraftValue,
 	readLocalDraftCellByKind,
@@ -1880,7 +1880,7 @@ async function loadAppDraftValue(path: string, workspace: string): Promise<Loade
  */
 function addressedByStoragePath(workspace: string, item: WorkspaceItem): WorkspaceItem {
 	if (!item.isLiveDraft) return item
-	const storagePath = getGlobalDraftStoragePath(workspace, item.type, item.path, item.triggerKind)
+	const storagePath = liveGlobalDraftStoragePath(workspace, item.type, item.path, item.triggerKind)
 	// A new script or flow editor stores under '', which no tool call can address.
 	if (!storagePath || storagePath === item.path) return item
 	return { ...item, path: storagePath, draftPath: item.path }
@@ -4457,28 +4457,7 @@ const unroutedGlobalTools: Tool<{}>[] = [
 	...fileTools
 ]
 
-// Every tool reaches drafts through the adapter's resolver, which can route a draft's
-// chosen name to where it is stored only with the user's current drafts loaded.
-export const globalTools: Tool<{}>[] = unroutedGlobalTools.map((tool) => {
-	// `path` is the only argument a tool addresses a draft by, so a call without one — a
-	// doc search, a screenshot — needs no names and pays no request for them.
-	const load = (p: { workspace: string; args: any }) =>
-		typeof p.args?.path === 'string' ? loadDraftNames(p.workspace, p.args.path) : Promise.resolve()
-	return {
-		...tool,
-		// Also on the pre-confirmation check: it reads drafts too, and runs before `fn`.
-		validateBeforeConfirmation: tool.validateBeforeConfirmation
-			? async (p) => {
-					await load(p)
-					return tool.validateBeforeConfirmation!(p)
-				}
-			: undefined,
-		fn: async (p) => {
-			await load(p)
-			return tool.fn(p)
-		}
-	}
-})
+export const globalTools: Tool<{}>[] = unroutedGlobalTools
 
 // Tools that only make sense inside an AI session (they drive the session's
 // side-panel preview). The regular global side-panel chat shouldn't even be
@@ -4627,7 +4606,11 @@ async function openSessionPreview(
 	const path =
 		args.kind === 'pipeline'
 			? args.path
-			: getGlobalDraftStoragePath(workspace, args.kind === 'raw_app' ? 'app' : args.kind, args.path)
+			: await resolveGlobalDraftStoragePath(
+					workspace,
+					args.kind === 'raw_app' ? 'app' : args.kind,
+					args.path
+				)
 	return await openPreviewHandler({ ...args, path, sessionId })
 }
 
@@ -6859,7 +6842,7 @@ async function discardLocalDraft(
 	if (discardedKind) {
 		toolCallbacks.onItemDiscarded?.(
 			discardedKind,
-			getGlobalDraftStoragePath(workspace, type, path, triggerKind)
+			liveGlobalDraftStoragePath(workspace, type, path, triggerKind)
 		)
 	}
 
@@ -7968,8 +7951,9 @@ async function deployDraft(
 	}
 
 	// The name the user knows the draft by, for every line the card shows: `path` may be
-	// the storage key the model addressed it with.
-	const displayPath = draft.draftPath ?? path
+	// the storage key the model addressed it with. An open editor's draft already carries
+	// its effective name as `path`, with `draftPath` collapsed away.
+	const displayPath = draft.draftPath ?? draft.path
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Deploying ${type} "${displayPath}"...`
 	})
@@ -7977,7 +7961,7 @@ async function deployDraft(
 	let actions: ToolDisplayAction[] | undefined
 	// Resolved before the deploy removes the draft, since both callbacks below name the
 	// path the draft was addressable at, not the one it was addressed by.
-	const draftStoragePath = getGlobalDraftStoragePath(workspace, type, path, triggerKind)
+	const draftStoragePath = await resolveGlobalDraftStoragePath(workspace, type, path, triggerKind)
 	// Where the deploy actually lands — the app branch can resolve a different
 	// target from the draft's own path fields; the mask rename below must track it.
 	let deployedPath = path
@@ -8000,7 +7984,7 @@ async function deployDraft(
 		// getScriptByPath/getFlowByPath at the path we pass (then deploys at the
 		// draft's own `path`), so passing the display/chosen path would 404. For a
 		// draft on a deployed item the storage path is just the item path.
-		const storagePath = getGlobalDraftStoragePath(workspace, type, path, triggerKind)
+		const storagePath = draftStoragePath
 		// The shared deployer re-reads the persisted DB draft, but an open editor's
 		// edit may still be parked in a debounced/disabled autosave. Flush it first so
 		// we deploy the latest value (not a stale persisted one) — and so the
@@ -8106,7 +8090,7 @@ async function deployDraft(
 				// a fork base to compare against (pre-feature drafts have none).
 				if (draft.parentVersionId != null) {
 					// The draft's base is the app it is stored at, not the name it was addressed by.
-					const basePath = getGlobalDraftStoragePath(workspace, 'app', path)
+					const basePath = draftStoragePath
 					const deployedApp = (await AppService.existsApp({ workspace, path: basePath }))
 						? await AppService.getAppByPath({ workspace, path: basePath })
 						: undefined
@@ -8196,7 +8180,7 @@ async function deployDraft(
 				// doesn't carry it, so read it from the backend draft. For a chat-created app
 				// (real path, no draft_path) or a draft on a deployed app, the storage path
 				// is the deploy path. Same storage-path resolution as script/flow.
-				const storagePath = getGlobalDraftStoragePath(workspace, 'app', path)
+				const storagePath = draftStoragePath
 				// `draft_path` is read from the persisted backend draft below, but an
 				// editor rename may still be parked in a debounced/disabled autosave.
 				// Flush first (like script/flow) so we read the latest chosen path.
@@ -8480,7 +8464,7 @@ async function deleteWorkspaceItem(
 	if (deletedKind) {
 		toolCallbacks.onItemModified?.(
 			deletedKind,
-			getGlobalDraftStoragePath(workspace, type, path, triggerKind)
+			liveGlobalDraftStoragePath(workspace, type, path, triggerKind)
 		)
 	}
 

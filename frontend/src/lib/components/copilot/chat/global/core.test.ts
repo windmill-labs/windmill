@@ -2497,8 +2497,10 @@ describe('global AI tools', () => {
 	// Without names a chosen name reads as a path of its own, so a write under it would
 	// create a second draft beside the one it meant to edit. A read cannot fork anything,
 	// and keeps working against the deployed item as it did before names existed.
-	it('refuses the write, not the read, when a workspace has no loaded draft names', async () => {
-		const workspace = 'ws-no-draft-names'
+	// A path with no draft at it may still be a chosen name; the listing is what says so.
+	// Writing to the path itself instead would create a second draft beside the named one.
+	it('refuses to write to an unresolvable path when the drafts cannot be listed', async () => {
+		const workspace = 'ws-unlistable-drafts'
 		const call = (name: string, args: Record<string, unknown>) =>
 			getGlobalTool(name).fn({ args, workspace, helpers: {}, toolCallbacks, toolId: 'no-names' })
 		const listing = vi.mocked(DraftService.listDrafts).getMockImplementation()
@@ -2507,24 +2509,30 @@ describe('global AI tools', () => {
 		try {
 			await expect(
 				call('write_script', {
-					path: 'f/sales/unloadable',
+					path: 'f/sales/unlistable',
 					language: 'bun',
 					content: 'export async function main() { return 1 }',
 					summary: 'x'
 				})
 			).rejects.toThrow(/Could not load this workspace's drafts/)
-			expect(getBackendDraft('script', 'f/sales/unloadable', { workspace })).toBeUndefined()
+			expect(getBackendDraft('script', 'f/sales/unlistable', { workspace })).toBeUndefined()
 
-			vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
-				path: 'f/deployed/script',
-				summary: 'deployed',
-				content: 'export async function main() {}',
-				language: 'bun'
-			} as any)
-			const read = JSON.parse(
-				await call('read_workspace_item', { type: 'script', path: 'f/deployed/script' })
+			// A draft stored right at the path resolves without the listing, so it still saves.
+			seedBackendDraft(
+				'script',
+				'f/sales/stored',
+				{ path: 'f/sales/stored', summary: 'x', content: 'old', language: 'bun', kind: 'script' },
+				{ workspace }
 			)
-			expect(read).toMatchObject({ path: 'f/deployed/script' })
+			await call('write_script', {
+				path: 'f/sales/stored',
+				language: 'bun',
+				content: 'export async function main() { return 2 }',
+				summary: 'x'
+			})
+			expect(getBackendDraft<any>('script', 'f/sales/stored', { workspace })?.content).toContain(
+				'return 2'
+			)
 		} finally {
 			vi.mocked(DraftService.listDrafts).mockImplementation(listing!)
 		}

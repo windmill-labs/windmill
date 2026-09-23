@@ -1283,11 +1283,12 @@ setDeployedInSessionHandler(({ sessionId: callerSessionId, kind, path, deployedP
 	// must not allocate an empty cell that lingers until the next prune.
 	const mounted = runtime.loadedEditorPath(kind, path) === path
 	if (deployedPath !== path) {
-		// The draft the tab is open on is gone: drop it and follow the item to the path it
+		// The draft the tab is open on is gone: forget it and follow the item to the path it
 		// now lives at, so the tab doesn't sit on a path nothing resolves to. A restored
 		// session mounts only its active tab, so this runs off tab presence, not the cell.
-		UserDraft.stopSync(kind, path, { workspace: session.workspace_id })
-		UserDraft.discard(kind, path, undefined, { workspace: session.workspace_id })
+		// `forgetLocal`, not stopSync/discard: the deploy already removed the row, and this
+		// leaves neither a suspension to restart nor a delete to land on a later draft.
+		UserDraft.forgetLocal(kind, path, { workspace: session.workspace_id })
 		runtime.previewTabs.retargetEditorItem({ kind, path }, { kind, path: deployedPath })
 	}
 	if (!mounted) return
