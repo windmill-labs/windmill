@@ -8,11 +8,9 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 -->
 <script lang="ts">
 	import { PanelLeft } from 'lucide-svelte'
-	import { Tooltip } from '$lib/components/meltComponents'
 	import { navDetached } from './sidebar/navDetached.svelte'
 	import { navHandleSlot } from './sidebar/navHandlePlacement.svelte'
 	import NavBreadcrumb from './NavBreadcrumb.svelte'
-	import WorkspaceItemKindIcon from './WorkspaceItemKindIcon.svelte'
 	import { pageHeader } from './pageHeaderRegistry.svelte'
 	import ContextBridge from './ContextBridge.svelte'
 
@@ -23,7 +21,7 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 	const section = $derived(content?.section)
 </script>
 
-<div data-page-header class="flex items-center gap-1 h-11 px-2 shrink-0 min-w-0 bg-surface">
+<div data-page-header class="flex items-center gap-1 h-11 pl-2 pr-4 shrink-0 min-w-0 bg-surface">
 	{#if navDetached.val}
 		<!-- The only way back to a hidden sidebar: hovering slides the card in for a look, a click
 		     puts it back for good. Docked, the sidebar speaks for itself and nothing leads the bar. -->
@@ -33,16 +31,15 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 			onmouseenter={() => navHandleSlot.open()}
 			onmouseleave={() => navHandleSlot.scheduleClose()}
 		>
-			<Tooltip class="flex" placement="bottom" small>
-				<button
-					class="flex items-center p-1.5 rounded hover:bg-surface-hover"
-					aria-label="Show sidebar"
-					onclick={() => (navDetached.val = false)}
-				>
-					<PanelLeft size={16} class="flex-shrink-0 text-hint" />
-				</button>
-				{#snippet text()}Show sidebar{/snippet}
-			</Tooltip>
+			<!-- No tooltip: hovering here already slides the sidebar in, which says what the button
+			     does better than a label popping up over it. -->
+			<button
+				class="flex items-center p-1.5 rounded hover:bg-surface-hover"
+				aria-label="Show sidebar"
+				onclick={() => (navDetached.val = false)}
+			>
+				<PanelLeft size={16} class="flex-shrink-0 text-hint" />
+			</button>
 		</div>
 	{/if}
 
@@ -62,9 +59,9 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 		<!-- A dot rather than a slash: the summary names the same item the path just located, it is
 		     not another level of it. -->
 		<span class="shrink-0 text-hint/40 text-xs px-0.5" aria-hidden="true">·</span>
-		<!-- The item's kind belongs with the name a human reads, not with its path. -->
+		<!-- No kind icon: the page below is the item, and saying "this is a flow" above a flow
+		     editor tells the reader what they can already see. -->
 		<div class="flex items-center gap-1 min-w-0">
-			<WorkspaceItemKindIcon kind={item.kind} />
 			{#if item.summaryContent}
 				{@render item.summaryContent()}
 			{:else}

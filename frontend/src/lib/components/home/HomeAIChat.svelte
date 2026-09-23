@@ -296,7 +296,9 @@
 
 <!-- Everything the hero offered beside the composer lives in the band's menu: the connect helper,
      the hub, and the way back to the composer once it has been put away. -->
-<PageHeaderContent actions={homeMenu} />
+<!-- Last in the bar whatever else the page registers: a menu of side trips belongs after the
+     buttons that act on what is on screen. -->
+<PageHeaderContent actions={homeMenu} actionsOrder={100} />
 
 {#snippet homeMenu()}
 	<!-- The band's own menu: the connect helper, the hub, and whether the composer is pinned to

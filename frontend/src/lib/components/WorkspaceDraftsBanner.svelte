@@ -31,10 +31,12 @@
 {#if !isFork && draftCount > 0}
 	<!-- In the band rather than a banner over the page: it is a standing fact about the workspace,
 	     not an interruption, and one button says it and acts on it. -->
-	<PageHeaderContent actions={draftsAction} />
+	<PageHeaderContent actions={draftsAction} actionsOrder={-100} />
 {/if}
 
 {#snippet draftsAction()}
+	<!-- A count on its own leaves the reader to work out what it counts; the sentence says it. -->
+	<span class="shrink-0 text-2xs text-tertiary">This workspace has</span>
 	<Badge color="blue" small>
 		{draftCount} draft{draftCount !== 1 ? 's' : ''}
 	</Badge>

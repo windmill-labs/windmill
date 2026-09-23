@@ -36,6 +36,9 @@ export type PageHeaderContent = {
 	section?: PageHeaderSection
 	/** Rendered at the right end of the bar — the page's own buttons. */
 	actions?: Snippet
+	/** Orders these buttons among the other registrations', ascending; registration order breaks a
+	 *  tie. For a menu that must stay at the far end however many pages register before it. */
+	actionsOrder?: number
 	/** Rendered right after the page's name in the breadcrumb, for what reads as part of that name
 	 *  rather than as an action — a page's documentation tooltip. */
 	hint?: Snippet
@@ -94,10 +97,14 @@ export const pageHeader = {
 	 * put buttons in the band, and each renders with the contexts its own registration named.
 	 */
 	get actions(): { render: Snippet; contexts?: Map<any, any> }[] {
-		return entries.flatMap((e) => {
-			const c = e.get()
-			return c.actions ? [{ render: c.actions, contexts: c.contexts }] : []
-		})
+		return entries
+			.flatMap((e, i) => {
+				const c = e.get()
+				return c.actions
+					? [{ render: c.actions, contexts: c.contexts, order: c.actionsOrder ?? 0, i }]
+					: []
+			})
+			.sort((a, b) => a.order - b.order || a.i - b.i)
 	},
 	/** Registers on mount and returns the id to release on destroy. */
 	register(get: () => PageHeaderContent): number {

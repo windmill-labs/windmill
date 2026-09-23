@@ -534,6 +534,12 @@
 	// Docking and detaching move and resize the rail itself between its docked box and the
 	// detached card's (top 44px, bottom and left insets, rounded corners); detaching also slides
 	// it off the left edge, where the closed card lives. No opacity: the rail never fades.
+	// The footer's icon buttons wear the rail's own row box — 32px square, 16px glyph — so the
+	// pair that hides and collapses the sidebar lines up with the links above them, collapsed or
+	// not. Padding alone drifted: two different paddings, two icon sizes and a negative margin.
+	const SIDEBAR_ICON_BUTTON =
+		'h-8 w-8 flex items-center justify-center rounded hover:bg-surface-hover flex-shrink-0'
+
 	const RAIL_MORPH_MS = 200
 	function railMorph(_node: HTMLElement, { offscreen }: { offscreen: boolean }) {
 		const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -1025,7 +1031,7 @@
 	{@const hidden = navDetached.val}
 	<Tooltip class="flex" placement="bottom" small>
 		<button
-			class="p-1.5 rounded hover:bg-surface-hover flex-shrink-0"
+			class={SIDEBAR_ICON_BUTTON}
 			aria-label={hidden ? 'Show sidebar' : 'Hide sidebar'}
 			onclick={() => setDetached(!hidden)}
 		>
@@ -1415,7 +1421,7 @@
 								{@render sidebarToggle()}
 								{#if !$userStore?.operator}
 									<button
-										class="p-2 -m-2 rounded hover:bg-surface-hover"
+										class={SIDEBAR_ICON_BUTTON}
 										title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
 										onclick={() => {
 											collapsedState = !collapsedState
@@ -1424,9 +1430,9 @@
 										}}
 									>
 										{#if isCollapsed}
-											<PanelLeftOpen size={14} class="flex-shrink-0 h-3.5 w-3.5 text-hint" />
+											<PanelLeftOpen size={16} class="flex-shrink-0 text-hint" />
 										{:else}
-											<PanelLeftClose size={14} class="flex-shrink-0 h-3.5 w-3.5 text-hint" />
+											<PanelLeftClose size={16} class="flex-shrink-0 text-hint" />
 										{/if}
 									</button>
 								{/if}
@@ -1535,26 +1541,24 @@
 			{#if !menuHidden && !devOnly && pageHeader.content?.barPlacement !== 'inline'}
 				{@const rightInset = pageHeader.content?.barRightInset}
 				{@const leftInset = useDrawer ? 0 : railWidth}
-				{#if rightInset != null}
-					<!-- A page owning the right edge from the top (a session's side panel) gets the band
-					     as an overlay that stops where that column starts, so the column can reach the
-					     top. The page pads its own content to clear it. -->
-					<div
-						class={classNames('absolute top-0 z-30', sidebarTransitionClass)}
-						style:left="{leftInset}rem"
-						style:right="{rightInset}px"
-					>
-						<PageHeaderBar />
-					</div>
-				{:else}
-					<!-- The band spans the content, beside the rail rather than above it. -->
-					<div
-						class={classNames('shrink-0', sidebarTransitionClass)}
-						style:padding-left="{leftInset}rem"
-					>
-						<PageHeaderBar />
-					</div>
-				{/if}
+				<!-- One element for both placements, styled rather than branched: a page registers its
+				     inset on mount, and swapping between two `{#if}` arms would destroy the band and
+				     build another one a frame later — a blink of no header, with the content sliding
+				     up into the gap and the workspace menu losing the trigger it hangs from.
+				     In flow, the band spans the content beside the rail. With an inset, a page owns
+				     the right edge from the top (a session's side panel): the band floats, stopping
+				     where that column starts, and the page pads its own content to clear it. -->
+				<div
+					class={classNames(
+						rightInset != null ? 'absolute top-0 z-30' : 'shrink-0',
+						sidebarTransitionClass
+					)}
+					style:left={rightInset != null ? `${leftInset}rem` : undefined}
+					style:right={rightInset != null ? `${rightInset}px` : undefined}
+					style:padding-left={rightInset != null ? undefined : `${leftInset}rem`}
+				>
+					<PageHeaderBar />
+				</div>
 			{/if}
 			{#if $enterpriseLicense && !menuHidden}
 				<!-- Announcements are an EE feature, so the component never mounts on CE: no

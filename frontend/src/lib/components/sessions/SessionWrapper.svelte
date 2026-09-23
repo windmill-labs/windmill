@@ -5,6 +5,7 @@
 	import SessionsBetaBanner from './SessionsBetaBanner.svelte'
 	import EditableInput from '$lib/components/common/EditableInput.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import WorkspaceScopeTrigger from '$lib/components/WorkspaceScopeTrigger.svelte'
 	import { Button } from '$lib/components/common'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
@@ -110,6 +111,9 @@
 	// The workspace the session acts on. The page header's breadcrumb scopes itself to it, so a
 	// session running in a fork reads as that fork rather than as the navigation workspace.
 	const actingWorkspaceId = $derived(session ? getEffectiveWorkspaceId(session) : undefined)
+	const actingIsFork = $derived(
+		!!actingWorkspaceId && workspaceIsFork(actingWorkspaceId, $userWorkspaces)
+	)
 
 	// Load copilot config (models, providers) for the workspace the session acts
 	// on, not the navigation workspace — a session deliberately leaves
@@ -433,6 +437,20 @@
 				</span>
 			{/snippet}
 		</DropdownV2>
+
+		{#if actingIsFork}
+			<!-- Only a fork earns this: on the root the breadcrumb already names the workspace the
+			     chat writes to, and repeating it says nothing. The fork is the case worth calling
+			     out, and it belongs with the session's name rather than in the breadcrumb, where it
+			     would read as if the user had switched workspace. -->
+			<span class="shrink-0 text-2xs text-tertiary pl-1">Acting on</span>
+			<WorkspaceScopeTrigger
+				workspaceId={actingWorkspaceId}
+				showChevron={false}
+				interactive={false}
+				class="min-w-0"
+			/>
+		{/if}
 	{/snippet}
 
 	{#if headerInPage}

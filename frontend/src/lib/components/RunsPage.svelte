@@ -872,7 +872,7 @@
 		<PageHeaderContent hint={runsHint} actions={headerActions} />
 
 		<!-- Graph -->
-		<div id="runs-chart" class="p-2 px-4 bg-surface-tertiary mx-4 mt-4 border rounded-md">
+		<div id="runs-chart" class="p-2 px-4 bg-surface-tertiary mx-4 mt-2 border rounded-md">
 			<div class="relative z-10 mb-2 flex gap-2">
 				<Tabs bind:selected={graph}>
 					<Tab value="RunChart" label="Duration" id="runs-chart-duration-tab" />

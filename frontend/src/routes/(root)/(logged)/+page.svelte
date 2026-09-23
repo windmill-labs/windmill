@@ -19,11 +19,13 @@
 	import { writable } from 'svelte/store'
 	import type { EditorBreakpoint } from '$lib/components/apps/types'
 	import { setQuery } from '$lib/navigation'
+	import { useReducedMotion } from '$lib/svelte5Utils.svelte'
 	import { page } from '$app/state'
 	import { goto, replaceState } from '$app/navigation'
 	import ForkWorkspaceBanner from '$lib/components/ForkWorkspaceBanner.svelte'
 	import WorkspaceDraftsBanner from '$lib/components/WorkspaceDraftsBanner.svelte'
 	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
+	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import { useSearchParams } from '$lib/svelte5UtilsKit.svelte'
 	import { z } from 'zod'
 	import HomeAIChat from '$lib/components/home/HomeAIChat.svelte'
@@ -91,6 +93,22 @@
 	}
 
 	let showCreateButtons = $state(false)
+
+	// A workspace switch keeps this page mounted and swaps its contents under the reader, which
+	// the mount animation below never covers. Replay it by hand instead of keying the page on the
+	// workspace: a remount would drop the list's own state and refetch what it is already loading.
+	let pageEl: HTMLDivElement | undefined = $state(undefined)
+	const reducedMotion = useReducedMotion()
+	let animatedWorkspace = $workspaceStore
+	$effect(() => {
+		const ws = $workspaceStore
+		if (ws === animatedWorkspace) return
+		animatedWorkspace = ws
+		untrack(() => {
+			if (!pageEl || reducedMotion.val) return
+			pageEl.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 500, easing: 'ease-out' })
+		})
+	})
 
 	let operatorTour: OperatorTour | undefined = $state(undefined)
 
@@ -262,10 +280,19 @@
 	</DrawerContent>
 </Drawer>
 
+{#snippet editRuleBadge()}
+	<NoDirectDeployAlert onUpdateCanEditStatus={(v) => (showCreateButtons = v)} />
+{/snippet}
+
 <div
+	bind:this={pageEl}
 	class="wm-page-in flex flex-col w-full h-full overflow-y-auto items-center"
 	style="scrollbar-gutter: stable both-edges;"
 >
+	<!-- Where edits to this workspace are made is a fact about the workspace, so it sits in the
+	     header with the workspace's own name rather than above the list. -->
+	<PageHeaderContent actions={editRuleBadge} />
+
 	<ForkWorkspaceBanner />
 	<WorkspaceDraftsBanner />
 	<div class="max-w-7xl px-4 sm:px-8 md:px-8 h-fit w-full mb-6">
@@ -284,8 +311,6 @@
 			</Alert>
 			<div class="my-4"></div>
 		{/if}
-
-		<NoDirectDeployAlert onUpdateCanEditStatus={(v) => (showCreateButtons = v)} />
 
 		{#if tab == 'hub'}
 			<div class="flex flex-col gap-y-16">

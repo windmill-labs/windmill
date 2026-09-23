@@ -26,6 +26,8 @@
 		compact = false
 	}: Props = $props()
 
+	let menu: Menu | undefined = $state(undefined)
+
 	// The active workspace's family root — shown in the trigger so a forked active workspace still
 	// surfaces its family name here (the fork itself is shown in the breadcrumb). Resolved exactly
 	// like the scope picker right below, so the two never name different heads for one workspace:
@@ -37,7 +39,7 @@
 	const ambiguousNames = $derived(ambiguousWorkspaceNames($userWorkspaces))
 </script>
 
-<Menu {createMenu} usePointerDownOutside placement="bottom-start">
+<Menu bind:this={menu} {createMenu} usePointerDownOutside placement="bottom-start">
 	{#snippet triggr({ trigger })}
 		<!-- Family header reflects the family (root) color, not the active
 		     workspace's — switching into a fork must not recolor it. -->
@@ -73,6 +75,11 @@
 	{#snippet children({ item })}
 		<!-- The only strict caller is a standalone page (svix webhook creation) that owns its
 		     own navigation, so there a switch must leave the page where it is. -->
-		<WorkspacePickerBody {item} {strictWorkspaceSelect} keepPageOnSwitch={strictWorkspaceSelect} />
+		<WorkspacePickerBody
+			{item}
+			{strictWorkspaceSelect}
+			keepPageOnSwitch={strictWorkspaceSelect}
+			closeMenu={() => menu?.close()}
+		/>
 	{/snippet}
 </Menu>

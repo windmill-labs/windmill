@@ -125,27 +125,33 @@
 	})
 </script>
 
-<PublicAppFrame
-	{fetchEmbedToken}
-	{viewerUrl}
-	onViewerReady={(_token, requestTokenRefresh) => {
-		refresh = requestTokenRefresh
-		loadApp()
-	}}
->
-	{#snippet viewer()}
-		<PublicApp
-			{app}
-			{workspace}
-			{notExists}
-			{noPermission}
-			jwtError={false}
-			inWorkspace
-			{hideRefreshBar}
-			onLoginSuccess={() => loadApp()}
-		></PublicApp>
-	{/snippet}
-</PublicAppFrame>
+<!-- The band draws no edge of its own, so the separation from it is this page's first line. It
+     goes on the app's wrapper rather than on the frame, which the header-less public page shares —
+     and as an inset shadow rather than a border, which would take a pixel off an app sized to fill
+     the page exactly and leave it scrolling. -->
+<div class="h-full shadow-[inset_0_1px_0_0_rgb(var(--color-border-light))]">
+	<PublicAppFrame
+		{fetchEmbedToken}
+		{viewerUrl}
+		onViewerReady={(_token, requestTokenRefresh) => {
+			refresh = requestTokenRefresh
+			loadApp()
+		}}
+	>
+		{#snippet viewer()}
+			<PublicApp
+				{app}
+				{workspace}
+				{notExists}
+				{noPermission}
+				jwtError={false}
+				inWorkspace
+				{hideRefreshBar}
+				onLoginSuccess={() => loadApp()}
+			></PublicApp>
+		{/snippet}
+	</PublicAppFrame>
+</div>
 
 {#if canWriteApp && !hideEditBtn}
 	<!-- The page header carries it, with the app's name: a floating button over the app's own
