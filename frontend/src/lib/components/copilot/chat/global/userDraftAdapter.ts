@@ -338,7 +338,20 @@ const deployedExists: Partial<
  * use is often not where the draft lives. Called before every chat tool call; `path` is
  * the path that call addresses, checked against deployed items only when it is a name.
  */
-export async function loadDraftNames(workspace: string, path?: string): Promise<void> {
+export function loadDraftNames(workspace: string, path?: string): Promise<void> {
+	// A tool and its own pre-confirmation check ask for the same names back to back, and
+	// tools in one turn can overlap; they share the request rather than repeating it.
+	const key = `${workspace}:${path ?? ''}`
+	const started = loadingDraftNames.get(key)
+	if (started) return started
+	const loading = readDraftNames(workspace, path).finally(() => loadingDraftNames.delete(key))
+	loadingDraftNames.set(key, loading)
+	return loading
+}
+
+const loadingDraftNames = new Map<string, Promise<void>>()
+
+async function readDraftNames(workspace: string, path?: string): Promise<void> {
 	const names: DraftNames = { stored: new Set(), byName: new Map(), deployedAt: new Set() }
 	const add = (
 		itemKind: UserDraftItemKind,

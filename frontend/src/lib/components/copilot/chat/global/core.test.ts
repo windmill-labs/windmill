@@ -2446,6 +2446,53 @@ describe('global AI tools', () => {
 		expect(getBackendDraft('raw_app', 'u/admin/staged_app')).toBeUndefined()
 	})
 
+	// The chosen name is what the user searches by and what the model should call the app,
+	// and it is the only place it survives once the draft is listed under its storage path.
+	it('finds and names a staged app by its chosen name', async () => {
+		seedBackendDraft(
+			'raw_app',
+			'u/admin/draft_named',
+			{
+				summary: 'Quote tool',
+				draft_path: 'f/sales/quote_app',
+				files: {},
+				runnables: {},
+				data: { tables: [] }
+			},
+			{ workspace: WORKSPACE }
+		)
+
+		const listed = JSON.parse(
+			await callGlobalTool('list_workspace_items', { types: ['app'], query: 'quote_app' })
+		)
+		expect(listed).toContainEqual(
+			expect.objectContaining({ path: 'u/admin/draft_named', draftPath: 'f/sales/quote_app' })
+		)
+		const read = JSON.parse(
+			await callGlobalTool('read_workspace_item', { type: 'app', path: 'f/sales/quote_app' })
+		)
+		expect(read).toMatchObject({ path: 'u/admin/draft_named', draftPath: 'f/sales/quote_app' })
+	})
+
+	it('opens a preview on the draft a chosen name belongs to', async () => {
+		seedBackendDraft(
+			'raw_app',
+			'u/admin/draft_previewed',
+			{ summary: 'Previewed', draft_path: 'f/sales/preview_app', files: {}, runnables: {} },
+			{ workspace: WORKSPACE }
+		)
+		const handler = vi.fn(async () => 'opened')
+		setOpenPreviewHandler(handler)
+		try {
+			await callGlobalTool('open_preview', { kind: 'raw_app', path: 'f/sales/preview_app' })
+			expect(handler).toHaveBeenCalledWith(
+				expect.objectContaining({ kind: 'raw_app', path: 'u/admin/draft_previewed' })
+			)
+		} finally {
+			setOpenPreviewHandler(undefined)
+		}
+	})
+
 	it('refuses a draft_path that two drafts are staged under', async () => {
 		for (const storage of ['u/admin/draft_a', 'u/admin/draft_b']) {
 			seedBackendDraft(
@@ -4739,7 +4786,8 @@ describe('global AI tools', () => {
 			expect(onDeployed).toHaveBeenCalledWith({
 				sessionId: 'sess-123',
 				kind: 'raw_app',
-				path: 'f/apps/report'
+				path: 'f/apps/report',
+				deployedPath: 'f/apps/report'
 			})
 		} finally {
 			setDeployedInSessionHandler(undefined)

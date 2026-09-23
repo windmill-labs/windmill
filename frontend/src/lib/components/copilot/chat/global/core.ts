@@ -1468,13 +1468,16 @@ function getRequestedTypes(types: WorkspaceItemType[] | undefined): WorkspaceIte
 }
 
 function itemMatches(
-	item: Pick<WorkspaceItem, 'path' | 'summary'>,
+	item: Pick<WorkspaceItem, 'path' | 'summary' | 'draftPath'>,
 	query: string | undefined
 ): boolean {
 	const normalized = query?.trim().toLowerCase()
 	if (!normalized) return true
 	return (
 		item.path.toLowerCase().includes(normalized) ||
+		// A draft is listed under its storage path, so its chosen name — the one the user
+		// searches by — is only in `draftPath`.
+		(item.draftPath?.toLowerCase().includes(normalized) ?? false) ||
 		(item.summary?.toLowerCase().includes(normalized) ?? false)
 	)
 }
@@ -1532,6 +1535,7 @@ function serializeWorkspaceItemForRead(item: WorkspaceItem): unknown {
 		return {
 			type: 'app',
 			path: item.path,
+			draftPath: item.draftPath,
 			summary: item.summary,
 			value: summarizeAppValue(item.value as AppDraftValue),
 			rawApp: item.rawApp,
@@ -1547,6 +1551,7 @@ function serializeWorkspaceItemForRead(item: WorkspaceItem): unknown {
 	return {
 		type: 'flow',
 		path: item.path,
+		draftPath: item.draftPath,
 		summary: item.summary,
 		value: editable,
 		isDraft: item.isDraft
@@ -4454,8 +4459,10 @@ const unroutedGlobalTools: Tool<{}>[] = [
 // Every tool reaches drafts through the adapter's resolver, which can route a draft's
 // chosen name to where it is stored only with the user's current drafts loaded.
 export const globalTools: Tool<{}>[] = unroutedGlobalTools.map((tool) => {
+	// `path` is the only argument a tool addresses a draft by, so a call without one — a
+	// doc search, a screenshot — needs no names and pays no request for them.
 	const load = (p: { workspace: string; args: any }) =>
-		loadDraftNames(p.workspace, typeof p.args?.path === 'string' ? p.args.path : undefined)
+		typeof p.args?.path === 'string' ? loadDraftNames(p.workspace, p.args.path) : Promise.resolve()
 	return {
 		...tool,
 		// Also on the pre-confirmation check: it reads drafts too, and runs before `fn`.
@@ -4804,7 +4811,10 @@ function getSessionScreenshot(sessionId: string | undefined): Promise<SessionScr
 export type DeployedInSessionHandler = (req: {
 	sessionId: string | undefined
 	kind: 'script' | 'flow' | 'raw_app'
+	/** Where the draft the preview is open on was stored — the deploy removes it. */
 	path: string
+	/** Where the item now lives, which is a different path for a draft-only or renamed item. */
+	deployedPath: string
 }) => void
 
 let deployedInSessionHandler: DeployedInSessionHandler | undefined
@@ -7961,6 +7971,9 @@ async function deployDraft(
 	})
 
 	let actions: ToolDisplayAction[] | undefined
+	// Resolved before the deploy removes the draft, since both callbacks below name the
+	// path the draft was addressable at, not the one it was addressed by.
+	const draftStoragePath = getGlobalDraftStoragePath(workspace, type, path, triggerKind)
 	// Where the deploy actually lands — the app branch can resolve a different
 	// target from the draft's own path fields; the mask rename below must track it.
 	let deployedPath = path
@@ -8205,10 +8218,13 @@ async function deployDraft(
 				const targetExists = await AppService.existsApp({ workspace, path: targetPath })
 				// A draft of a deployed app is stored at that app's path, so a target elsewhere that
 				// already exists is another app: nothing checks a chosen name before deploy.
-				if (targetExists && targetPath !== storagePath) {
+				// `force` is the way through for the one case this cannot tell apart: a deploy
+				// that created the app and then failed to clean up its draft, retried.
+				if (targetExists && targetPath !== storagePath && !force) {
 					throw new Error(
 						`Cannot deploy app "${path}" to "${targetPath}": another app is already deployed there. ` +
-							`Ask the user for a different path for this draft.`
+							`Ask the user for a different path for this draft, or pass force: true if this draft ` +
+							`is what is deployed there.`
 					)
 				}
 				if (targetExists) {
@@ -8270,11 +8286,7 @@ async function deployDraft(
 	// stop matching anything after the draft is gone.
 	const deployedKind = itemKindFor(type, triggerKind)
 	if (deployedKind) {
-		toolCallbacks.onItemDeployed?.(
-			deployedKind,
-			getGlobalDraftStoragePath(workspace, type, path, triggerKind),
-			deployedPath
-		)
+		toolCallbacks.onItemDeployed?.(deployedKind, draftStoragePath, deployedPath)
 	}
 
 	// Reload the session preview if it's open on the deployed item. Map the
@@ -8286,7 +8298,9 @@ async function deployDraft(
 		app: 'raw_app'
 	}
 	const kind = previewKindByType[type]
-	if (kind) deployedInSessionHandler?.({ sessionId, kind, path })
+	if (kind) {
+		deployedInSessionHandler?.({ sessionId, kind, path: draftStoragePath, deployedPath })
+	}
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Deployed ${type} "${path}"`,
