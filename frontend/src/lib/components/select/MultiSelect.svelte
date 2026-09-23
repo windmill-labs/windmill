@@ -100,10 +100,12 @@
 
 	function onAddValue(item: ProcessedItem<Value>) {
 		if (item.__is_create && onCreateItem) {
+			const before = currentValue.length
 			onCreateItem(item.value)
-			// What was typed is now an entry of its own; leaving it in the field would filter
-			// the list down to the one thing just added.
-			filterText = ''
+			// Cleared only once the entry exists: it is then in the list, and leaving it in the
+			// field would filter the list down to it. A consumer that refused the value (a
+			// duplicate, a name it rejects) keeps what was typed, to be corrected.
+			if ((value?.length ?? 0) !== before) filterText = ''
 		} else {
 			value = [...currentValue, item.value]
 		}

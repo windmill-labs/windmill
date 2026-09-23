@@ -63,8 +63,11 @@
 	)
 	const draft = $derived(draftIdx === -1 ? undefined : ctx.repositories[draftIdx])
 	let push: GitPushPreview | undefined = $state()
-	/** Step 3 has read what Windmill holds for the repository. */
-	let factsLoaded = $state(false)
+	/** The repository step 3 has finished reading the facts for. Keyed by path rather than a
+	 * flag: a step destroyed mid-load still reports when its request lands, and that answer is
+	 * about the repository it was opened for, not whichever one is on screen now. */
+	let factsLoadedFor: string | undefined = $state(undefined)
+	const factsLoaded = $derived(!!draftPath && factsLoadedFor === draftPath)
 	let saving = $state(false)
 	let saveError: string | undefined = $state(undefined)
 	let provider: Provider | undefined = $state(undefined)
@@ -119,9 +122,15 @@
 		draftPath = undefined
 	}
 
+	/** Ignores a report about any repository but the one being configured now. */
+	function noteFacts(path: string, loaded: boolean) {
+		if (path !== draftPath) return
+		factsLoadedFor = loaded ? path : undefined
+	}
+
 	function enterConfigure(path: string) {
 		discardDraft()
-		factsLoaded = false
+		factsLoadedFor = undefined
 		const before = ctx.repositories.length
 		if (mode === 'promotion') ctx.addPromotionRepository()
 		else ctx.addSyncRepository()
@@ -394,7 +403,7 @@
 							<ConfigureSyncStep
 								idx={draftIdx}
 								{mode}
-								onFactsChange={(loaded) => (factsLoaded = loaded)}
+								onFactsChange={noteFacts}
 							/>
 						{/key}
 					{/if}

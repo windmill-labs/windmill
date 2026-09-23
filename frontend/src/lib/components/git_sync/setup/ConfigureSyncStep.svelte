@@ -16,10 +16,11 @@
 		/** The unsaved repository this step configures, in the git sync context. */
 		idx: number
 		mode: 'sync' | 'promotion'
-		/** Reports whether the resource and its credential have been read. What Windmill holds
-		 * for the repository decides both the defaults and which toggles exist, so the run must
-		 * not be saved before it lands. */
-		onFactsChange?: (loaded: boolean) => void
+		/** Reports whether the resource and its credential have been read, naming the repository
+		 * they are about: what Windmill holds decides the defaults and which toggles exist, so
+		 * the run must not be saved before they land — and a load left over from a repository
+		 * the user has moved on from must not answer for the current one. */
+		onFactsChange?: (path: string, loaded: boolean) => void
 	}
 
 	let { idx, mode, onFactsChange }: Props = $props()
@@ -35,21 +36,17 @@
 	let managedCredential = $state(false)
 	let targetBranch: string | undefined = $state(undefined)
 
-	/** The load the step is waiting on. A load for a repository that has since been replaced
-	 * must not report itself as the answer, or saving is re-enabled with the wrong facts. */
-	let factsToken = 0
-
 	async function loadResourceFacts(path: string) {
 		const workspace = $workspaceStore
 		if (!workspace) return
-		const token = ++factsToken
-		onFactsChange?.(false)
+		onFactsChange?.(path, false)
 		const [resource, origin] = await Promise.all([
 			ResourceService.getResource({ workspace, path }).catch(() => undefined),
 			// EE-only route: absent means Windmill holds no credential.
 			GitSyncService.getCredentialOrigin({ workspace, path }).catch(() => undefined)
 		])
-		if (token !== factsToken) return
+		// The step may have been rebuilt for another repository while this was in flight.
+		if (repo?.git_repo_resource_path !== path) return
 		const isGithubApp = (resource?.value as any)?.is_github_app === true
 		managedCredential = isGithubApp || origin?.origin !== undefined
 		if (repo) {
@@ -61,9 +58,8 @@
 				ee: !!$enterpriseLicense
 			})
 			targetBranch = await ctx.getTargetBranch(repo).catch(() => undefined)
-			if (token !== factsToken) return
 		}
-		onFactsChange?.(true)
+		onFactsChange?.(path, true)
 	}
 
 	async function detect() {
