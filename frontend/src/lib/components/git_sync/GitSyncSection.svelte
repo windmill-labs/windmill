@@ -9,6 +9,7 @@
 	import SettingsPageHeader from '$lib/components/settings/SettingsPageHeader.svelte'
 	import { setGitSyncContext } from './GitSyncContext.svelte'
 	import GitSyncRepositoryCard from './GitSyncRepositoryCard.svelte'
+	import type { GitSyncRepository } from './GitSyncContext.svelte'
 	import GitSyncModalManager from './GitSyncModalManager.svelte'
 	import { enterpriseLicense, workspaceStore, userWorkspaces } from '$lib/stores'
 	import { base } from '$lib/base'
@@ -109,6 +110,9 @@
 	})
 
 	const repositories = $derived(gitSyncContext?.repositories ?? [])
+	const rows = $derived(repositories.map((repo, idx) => ({ repo, idx })))
+	const syncRows = $derived(rows.filter((r) => !r.repo.use_individual_branch))
+	const promotionRows = $derived(rows.filter((r) => r.repo.use_individual_branch))
 	const hasUnsavedConnection = $derived(repositories.some((r) => r.isUnsavedConnection))
 	const usedResourcePaths = $derived(
 		repositories.map((r) => r.git_repo_resource_path).filter((p) => !!p?.trim())
@@ -279,47 +283,17 @@
 				</div>
 			{:else}
 				<div class="flex flex-col border rounded-md divide-y bg-surface-tertiary">
-					{#each repositories as repo, idx (idx)}
-						{@const validation = gitSyncContext.getValidation(idx)}
-						<div class="flex items-center justify-between gap-4 px-4 py-3">
-							<div class="flex flex-col gap-0.5 min-w-0">
-								<div class="flex items-center gap-2 min-w-0">
-									<span class="text-xs font-medium text-emphasis truncate">
-										{repo.git_repo_resource_path || 'No resource selected'}
-									</span>
-									{#if repo.isUnsavedConnection}
-										<Badge small color="yellow">Not saved</Badge>
-									{:else if validation?.hasChanges}
-										<Badge small color="yellow">Unsaved changes</Badge>
-									{/if}
-									{#if repo.legacyImported}
-										<Badge small color="orange">Legacy configuration</Badge>
-									{/if}
-								</div>
-								<span class="text-2xs text-secondary">{rowLabel(idx)}</span>
-							</div>
-							<div class="flex items-center gap-1">
-								<Button
-									unifiedSize="md"
-									variant="default"
-									startIcon={{ icon: Settings }}
-									onClick={() => openSettings(repo.git_repo_resource_path)}
-								>
-									Settings
-								</Button>
-								<DropdownV2
-									items={[
-										{
-											displayName: 'Delete',
-											icon: Trash,
-											type: 'delete',
-											action: () => (deleting = { idx, path: repo.git_repo_resource_path })
-										}
-									]}
-								/>
-							</div>
-						</div>
+					{#each syncRows as { repo, idx } (idx)}
+						{@render repoRow(repo, idx)}
 					{/each}
+					{#if promotionRows.length > 0}
+						<!-- The two kinds deploy differently, so the list says which is which rather than
+						     leaving it to each row's own line. -->
+						<div class="px-4 pt-3 pb-1 text-2xs font-semibold text-hint">Promotion repositories</div>
+						{#each promotionRows as { repo, idx } (idx)}
+							{@render repoRow(repo, idx)}
+						{/each}
+					{/if}
 				</div>
 
 				{#if showAddSync || showAddPromotion}
@@ -436,3 +410,45 @@
 		<GitSyncModalManager />
 	{/if}
 {/if}
+
+{#snippet repoRow(repo: GitSyncRepository, idx: number)}
+	{@const validation = gitSyncContext?.getValidation(idx)}
+	<div class="flex items-center justify-between gap-4 px-4 py-3">
+		<div class="flex flex-col gap-0.5 min-w-0">
+			<div class="flex items-center gap-2 min-w-0">
+				<span class="text-xs font-medium text-emphasis truncate">
+					{repo.git_repo_resource_path || 'No resource selected'}
+				</span>
+				{#if repo.isUnsavedConnection}
+					<Badge small color="yellow">Not saved</Badge>
+				{:else if validation?.hasChanges}
+					<Badge small color="yellow">Unsaved changes</Badge>
+				{/if}
+				{#if repo.legacyImported}
+					<Badge small color="orange">Legacy configuration</Badge>
+				{/if}
+			</div>
+			<span class="text-2xs text-secondary">{rowLabel(idx)}</span>
+		</div>
+		<div class="flex items-center gap-1">
+			<Button
+				unifiedSize="md"
+				variant="default"
+				startIcon={{ icon: Settings }}
+				onClick={() => openSettings(repo.git_repo_resource_path)}
+			>
+				Settings
+			</Button>
+			<DropdownV2
+				items={[
+					{
+						displayName: 'Delete',
+						icon: Trash,
+						type: 'delete',
+						action: () => (deleting = { idx, path: repo.git_repo_resource_path })
+					}
+				]}
+			/>
+		</div>
+	</div>
+{/snippet}
