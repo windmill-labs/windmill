@@ -818,8 +818,9 @@ export function deployPermissionForKinds(
  */
 export async function checkDeployPermission(
 	workspace: string,
-	/** Pre-fetched `whoami` for `workspace`, to save a round trip when the caller already has one. */
-	whoami?: User
+	/** Pre-fetched identity for `workspace`, to save a round trip. Narrowed to the fields
+	 * read so a caller holding a `UserExt` can pass it without a cast. */
+	whoami?: Pick<User, 'operator' | 'is_admin' | 'is_super_admin' | 'username' | 'groups'>
 ): Promise<DeployPermission> {
 	try {
 		const me = whoami ?? (await UserService.whoami({ workspace }))

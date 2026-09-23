@@ -1,4 +1,4 @@
-import { UserService, type User } from '$lib/gen'
+import { getWorkspaceRole } from '$lib/user'
 import { checkDeployPermission } from '$lib/utils_workspace_deploy'
 
 /**
@@ -29,16 +29,15 @@ export function fullSessionAccess(): SessionAccess {
 }
 
 export async function resolveSessionAccess(workspace: string): Promise<SessionAccess> {
-	let me: User | undefined
-	try {
-		me = await UserService.whoami({ workspace })
-	} catch {}
-	// Checked rather than trusted: a body that arrives malformed resolves without
-	// throwing, and reading a capability off it would surface as a TypeError thrown
-	// out of the send rather than as the fail-open this whole path promises.
-	if (!me) {
+	// Shares the 5-minute memo with the identity the same pre-flight resolves beside this
+	// one, so a send costs one `whoami` rather than two, at the cost of a role changed
+	// elsewhere landing within that window rather than on the very next message.
+	// `lookup_failed` covers a rejected request AND a body too malformed to map.
+	const lookup = await getWorkspaceRole(workspace)
+	if (lookup.kind !== 'resolved') {
 		return fullSessionAccess()
 	}
+	const me = lookup.user
 
 	const capabilities = new Set<SessionCapability>()
 

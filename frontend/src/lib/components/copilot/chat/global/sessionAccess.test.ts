@@ -9,6 +9,7 @@ vi.mock('$lib/gen', () => ({ UserService: { whoami } }))
 vi.mock('$lib/utils_workspace_deploy', () => ({ checkDeployPermission: deployPermission }))
 
 import { resolveSessionAccess } from './sessionAccess'
+import { clearWorkspaceRoleCache } from '$lib/user'
 
 type WhoamiOverrides = { is_admin?: boolean; is_super_admin?: boolean; operator?: boolean }
 
@@ -38,6 +39,8 @@ describe('resolveSessionAccess', () => {
 	beforeEach(() => {
 		vi.clearAllMocks()
 		deployPermission.mockResolvedValue({ ok: true })
+		// The role memo is app-wide, so without this each case answers from the previous one.
+		clearWorkspaceRoleCache()
 	})
 
 	it('gives a developer every capability', async () => {

@@ -195,6 +195,7 @@ import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { invalidateWorkspaceComparison } from '$lib/workspaceComparison'
 import type { UserDraftItemKind } from '$lib/gen'
 import { bundleRawAppDraft } from './rawAppBundlerBridge'
+import type { SessionAccess } from './sessionAccess'
 import {
 	buildRunsUrl,
 	buildSchedulesUrl,
@@ -254,7 +255,6 @@ const VARIABLE_MASKED_NOTE =
 	'Note: variable values are never shown in chat — the diff marks whether the value changed without revealing it.\n\n'
 const SECRET_UNCOMPARABLE_NOTE =
 	'Note: this is a SECRET variable — its value is never shown and cannot be compared, so it may ALSO have changed beyond what this diff shows.\n\n'
-import type { SessionAccess } from './sessionAccess'
 
 const ITEM_TYPES = [
 	'script',

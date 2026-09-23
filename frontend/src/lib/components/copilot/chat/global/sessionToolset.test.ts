@@ -24,35 +24,35 @@ vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 Chrome/120.0.0.0' })
 import { globalTools, prepareGlobalSystemMessage, type SessionPromptContext } from './core'
 import { appendPlanModeInstructions } from '../planMode'
 import { pipelineTools } from '../pipeline/core'
-import { createMcpTools } from './mcpTools'
 import { ENTER_PLAN_MODE_TOOL, EXIT_PLAN_MODE_TOOL } from '../planMode'
 import { assembleGlobalSystemMessage, assembleGlobalTools } from './globalAssembly'
 import { SESSION_TOOL_POLICIES, filterSessionTools, sessionToolAllowed } from './sessionToolset'
 import { fullSessionAccess, type SessionAccess, type SessionCapability } from './sessionAccess'
 
-/** Every tool name that can reach a session's toolset. Uses `globalTools` rather than
- * `assembleGlobalTools`'s `globalToolsFor` so the coverage below holds for the tools
- * that a non-session or non-Chromium host would filter out too — a superset, which is
- * the safe direction for an exhaustiveness check. */
+const ASSEMBLY_OPTS = {
+	previewTools: true,
+	pipelineContext: { folder: 'my_pipeline', mode: 'edit', nodes: [], assets: [] },
+	mcpServers: [{ path: 'f/test/server' } as any]
+}
+
+/** Every tool name that can reach a session toolset: what assembly builds, so a source
+ * added there needs no edit here, unioned with the static sources so the set cannot
+ * shrink if assembly stops reaching one, plus the plan tools the manager appends. */
 function assembledSessionToolNames(): string[] {
-	const mcp = createMcpTools([{ path: 'f/test/server' } as any])
 	return [
-		...globalTools.map((t) => t.def.function.name),
-		...pipelineTools.map((t) => t.def.function.name),
-		...mcp.map((t) => t.def.function.name),
-		ENTER_PLAN_MODE_TOOL,
-		EXIT_PLAN_MODE_TOOL
+		...new Set([
+			...assembleGlobalTools(ASSEMBLY_OPTS).map((t) => t.def.function.name),
+			...globalTools.map((t) => t.def.function.name),
+			...pipelineTools.map((t) => t.def.function.name),
+			ENTER_PLAN_MODE_TOOL,
+			EXIT_PLAN_MODE_TOOL
+		])
 	]
 }
 
 /** The tools a session actually ships, through the same assembly production uses. */
 function shippedSessionTools(access: SessionAccess) {
-	const assembled = assembleGlobalTools({
-		previewTools: true,
-		pipelineContext: { folder: 'my_pipeline', mode: 'edit', nodes: [], assets: [] },
-		mcpServers: [{ path: 'f/test/server' } as any]
-	})
-	return filterSessionTools(assembled, access)
+	return filterSessionTools(assembleGlobalTools(ASSEMBLY_OPTS), access)
 }
 
 function accessWith(capabilities: SessionCapability[]): SessionAccess {

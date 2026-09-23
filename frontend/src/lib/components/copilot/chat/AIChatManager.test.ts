@@ -4565,6 +4565,7 @@ describe('AIChatManager tool views', () => {
 		vi.clearAllMocks()
 		mocks.getCurrentModel.mockReturnValue({ provider: 'openai', model: 'gpt-4o' })
 		mocks.tryGetCurrentModel.mockReturnValue({ provider: 'openai', model: 'gpt-4o' })
+		clearWorkspaceRoleCache()
 	})
 
 	// Every mode assigns the private base separately. A missed site leaves it empty on a fresh
