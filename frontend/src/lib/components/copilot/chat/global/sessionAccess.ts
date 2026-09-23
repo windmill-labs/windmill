@@ -40,21 +40,26 @@ export async function resolveSessionAccess(workspace: string): Promise<SessionAc
 	const me = lookup.user
 
 	const capabilities = new Set<SessionCapability>()
+	// The server's `authed.is_admin` is `usr.is_admin || super_admin` (auth.rs), which
+	// `whoami` reports as two fields. Two of the three rules below turn on it.
+	const isAdmin = me.is_admin || me.is_super_admin
 
 	// Per-capability precedence, NOT a role ladder: drafts.rs `require_can_write_path`
 	// returns Ok on `authed.is_admin` BEFORE its operator branch, while jobs.rs
-	// `run_preview_*` refuses operators first with no admin escape. `authed.is_admin` is
-	// `usr.is_admin || super_admin` (auth.rs), which `whoami` reports as two fields.
-	if (me.is_admin || me.is_super_admin || !me.operator) {
+	// `run_preview_*` refuses operators first with no admin escape.
+	if (isAdmin || !me.operator) {
 		capabilities.add('write_draft')
 	}
 	if (!me.operator) {
 		capabilities.add('run_preview')
 	}
 
-	// Delegated whole to the shared preflight rather than re-derived here, so the
-	// session answers deploy exactly as the deploy panel does.
-	if ((await checkDeployPermission(workspace, me)).ok) {
+	// Protection rules come from the shared preflight, but its operator refusal is not
+	// mirrored: it is stricter than the server, and the one kind this gates — folders.rs
+	// `create_folder` — has no operator check and bypasses its rules on `authed.is_admin`,
+	// like the draft path above. Without the admin term this withholds a folder the server
+	// creates, and the prompt tells a superadmin they cannot create one.
+	if (isAdmin || (await checkDeployPermission(workspace, me)).ok) {
 		capabilities.add('deploy')
 	}
 

@@ -2555,9 +2555,10 @@ export class AIChatManager implements ChatViewHost {
 		this.systemMessage = { ...target, content: `${target.content}\n\n${section}` }
 	}
 
-	// Re-resolved per send rather than cached for the session's life, so a role change —
-	// or a transient `whoami` failure, which resolves fail-open — takes effect on the next
-	// message rather than only on a workspace switch. Only sessions are filtered.
+	// Re-resolved per send rather than once for the session's life: the operating workspace
+	// can change between sends, and a transient failure resolves fail-open, so the next
+	// message re-asks rather than keeping that answer. How fresh the role itself is is stated
+	// in `resolveSessionAccess`, not here. Only sessions are filtered.
 	private resolveSessionAccessForSend = async (workspace: string) => {
 		if (!this.isSessionChat || !workspace) {
 			this.sessionAccess = undefined

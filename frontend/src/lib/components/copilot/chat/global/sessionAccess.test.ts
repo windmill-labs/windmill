@@ -54,14 +54,15 @@ describe('resolveSessionAccess', () => {
 		expect([...caps]).toEqual([])
 	})
 
-	// Pins the per-capability precedence documented in resolveSessionAccess, for both
-	// spellings of `authed.is_admin`.
+	// Both spellings of `authed.is_admin`. Deploy follows drafting, not previews: the shared
+	// check refuses every operator, which is stricter than the folder handler it gates.
 	it.each([{ is_admin: true }, { is_super_admin: true }])(
-		'lets an admin who is also an operator write drafts but not run previews (%o)',
+		'lets an admin who is also an operator write drafts and deploy, but not run previews (%o)',
 		async (role) => {
 			deployPermission.mockResolvedValue({ ok: false, reason: 'operators cannot deploy' })
 			const caps = await capabilitiesFor({ ...role, operator: true })
 			expect(caps.has('write_draft')).toBe(true)
+			expect(caps.has('deploy')).toBe(true)
 			expect(caps.has('run_preview')).toBe(false)
 		}
 	)
