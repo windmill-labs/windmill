@@ -637,11 +637,14 @@ export async function getGlobalDraftAt(
 	workspace: string,
 	type: WorkspaceItemType,
 	storagePath: string,
-	triggerKind?: TriggerKind
+	triggerKind?: TriggerKind,
+	/** What the caller's own resolution already found at this key, so it is not fetched
+	 * a second time. */
+	found: { value?: unknown; fetched?: boolean } = {}
 ): Promise<WorkspaceItem | undefined> {
 	const itemKind = itemKindFor(type, triggerKind)
 	if (!itemKind) return undefined
-	return draftItemAt(workspace, itemKind, storagePath, {})
+	return draftItemAt(workspace, itemKind, storagePath, found)
 }
 
 async function draftItemAt(

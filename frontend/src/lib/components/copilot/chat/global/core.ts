@@ -1867,13 +1867,18 @@ async function loadAppValueForRead(path: string, workspace: string): Promise<App
 	return appSourceToDraftValue(app, app)
 }
 
-async function loadAppDraftValue(path: string, workspace: string): Promise<LoadedAppDraftValue> {
+async function loadAppDraftValue(
+	path: string,
+	workspace: string,
+	/** A write must know which draft a name belongs to; a test run reads whatever the path
+	 * reaches, as it did before names were resolved at all. */
+	opts: { forWrite?: boolean } = {}
+): Promise<LoadedAppDraftValue> {
 	// One resolution for the read and the write that follows it: resolving again at save
 	// time could answer differently and write the app's files onto another draft.
-	const { storagePath } = await resolveGlobalDraft(workspace, 'app', path, undefined, {
-		forWrite: true
-	})
-	const draft = await getGlobalDraftAt(workspace, 'app', storagePath)
+	const resolved = await resolveGlobalDraft(workspace, 'app', path, undefined, opts)
+	const storagePath = resolved.storagePath
+	const draft = await getGlobalDraftAt(workspace, 'app', storagePath, undefined, resolved)
 	if (draft && draft.value && typeof draft.value === 'object' && 'files' in draft.value) {
 		return { value: draft.value as AppDraftValue, storagePath }
 	}
@@ -6518,7 +6523,7 @@ async function writeAppFile(
 		content: `Writing ${target.filePath} to app "${args.path}"...`
 	})
 
-	const { value, storagePath } = await loadAppDraftValue(args.path, workspace)
+	const { value, storagePath } = await loadAppDraftValue(args.path, workspace, { forWrite: true })
 	value.files = { ...value.files, [target.filePath]: args.content }
 	const result = await saveAppDraft(workspace, args.path, value, storagePath)
 	return finishAppDraftWrite(result, ctx, () => ({
@@ -6544,7 +6549,7 @@ async function deleteAppFile(
 		content: `Deleting ${target.filePath} from app "${args.path}"...`
 	})
 
-	const { value, storagePath } = await loadAppDraftValue(args.path, workspace)
+	const { value, storagePath } = await loadAppDraftValue(args.path, workspace, { forWrite: true })
 	if (!(target.filePath in value.files)) {
 		throw new Error(`Frontend file "${target.filePath}" not found in app "${args.path}".`)
 	}
@@ -6584,7 +6589,7 @@ async function patchAppFile(
 		content: `Patching ${target.filePath} in app "${path}"...`
 	})
 
-	const { value, storagePath } = await loadAppDraftValue(path, workspace)
+	const { value, storagePath } = await loadAppDraftValue(path, workspace, { forWrite: true })
 	let currentContent: string
 	let runnable: PersistedRunnable | undefined
 
@@ -6652,7 +6657,7 @@ async function writeAppRunnable(
 		content: `Writing runnable "${key}" to app "${path}"...`
 	})
 
-	const { value, storagePath } = await loadAppDraftValue(path, workspace)
+	const { value, storagePath } = await loadAppDraftValue(path, workspace, { forWrite: true })
 	const existing = value.runnables[key] as PersistedRunnable | undefined
 	const persisted = buildPersistedRunnable(input, existing)
 	value.runnables = { ...value.runnables, [key]: persisted }
@@ -6763,7 +6768,7 @@ async function deleteAppRunnable(
 		content: `Removing runnable "${key}" from app "${path}"...`
 	})
 
-	const { value, storagePath } = await loadAppDraftValue(path, workspace)
+	const { value, storagePath } = await loadAppDraftValue(path, workspace, { forWrite: true })
 	if (!(key in value.runnables)) {
 		throw new Error(`Backend runnable "${key}" not found in app "${path}".`)
 	}
@@ -6971,7 +6976,7 @@ async function rebaseScriptDraft(path: string, ctx: WriteDraftCtx): Promise<stri
 	// Discard the stale draft rather than resetting it to latest: the next write
 	// re-bases on the current head, and a premature deploy fails cleanly ("no
 	// draft") instead of silently shipping the latest unchanged and losing the work.
-	await deleteGlobalDraft(workspace, 'script', path)
+	await deleteGlobalDraft(workspace, 'script', path, undefined, { storagePath: basePath })
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Discarded stale draft "${path}"`,
@@ -7047,7 +7052,7 @@ async function rebaseFlowDraft(path: string, ctx: WriteDraftCtx): Promise<string
 	// Discard the stale draft (see rebaseScriptDraft): the next write re-bases on
 	// the current head, and a premature deploy fails cleanly instead of shipping
 	// the latest unchanged.
-	await deleteGlobalDraft(workspace, 'flow', path)
+	await deleteGlobalDraft(workspace, 'flow', path, undefined, { storagePath: basePath })
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Discarded stale draft "${path}"`,
@@ -7134,7 +7139,7 @@ async function rebaseAppDraft(path: string, ctx: WriteDraftCtx): Promise<string>
 	// Discard the stale draft (see rebaseScriptDraft): the next write re-projects
 	// the deployed app into a fresh draft (re-pinning parent_version to the head),
 	// and a premature deploy fails cleanly instead of shipping the latest unchanged.
-	await deleteGlobalDraft(workspace, 'app', path)
+	await deleteGlobalDraft(workspace, 'app', path, undefined, { storagePath: basePath })
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Discarded stale draft "${path}"`,
