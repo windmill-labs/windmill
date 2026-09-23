@@ -751,6 +751,7 @@ async fn edit_schedule(
         tx = push_scheduled_job(&db, tx, &schedule, None, None).await?;
     }
     tx.commit().await?;
+    windmill_queue::schedule::acknowledge_late_run_alert(&db, &w_id, path).await;
 
     handle_deployment_metadata(
         &authed.email,
@@ -1246,6 +1247,7 @@ pub async fn set_enabled(
         tx = push_scheduled_job(&db, tx, &schedule, None, None).await?;
     }
     tx.commit().await?;
+    windmill_queue::schedule::acknowledge_late_run_alert(&db, &w_id, path).await;
 
     handle_deployment_metadata(
         &authed.email,
@@ -1417,6 +1419,7 @@ async fn delete_schedule(
     .await?;
 
     tx.commit().await?;
+    windmill_queue::schedule::acknowledge_late_run_alert(&db, &w_id, path).await;
 
     // Schedule gone for everyone: wipe ALL users' drafts at this path; see scripts.rs.
     delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::TriggerSchedule, path).await?;

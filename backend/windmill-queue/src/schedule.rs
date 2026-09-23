@@ -218,6 +218,9 @@ pub async fn push_scheduled_job<'c>(
                 .ok()
         });
     if let Some((missed, last_missed)) = missed {
+        // Past the cap the walk stops short of the last miss; the time it was detected is at
+        // most one period after it.
+        let last_missed = last_missed.map(|l| if missed == MAX_COUNTED_MISSES { now } else { l });
         if let Some(last_missed) = last_missed {
             let streak = sqlx::query!(
                 "UPDATE schedule SET late_run_streak = late_run_streak + 1,
@@ -671,6 +674,26 @@ fn count_missed_occurrences(
 /// streak alerts, once, when it reaches this length. The schedules list shows every one.
 const LATE_RUNS_BEFORE_ALERT: i32 = 3;
 
+fn late_run_alert_resource(w_id: &str, path: &str) -> String {
+    // Recovery acknowledges by resource alone, across workspaces, so it must carry both.
+    format!("schedule:{w_id}/{path}")
+}
+
+/// An edit, a toggle or a delete clears the streak, and a disabled or deleted schedule never
+/// chains the run on time that would recover its alert, so it is acknowledged here instead.
+pub async fn acknowledge_late_run_alert(db: &DB, w_id: &str, path: &str) {
+    if let Err(e) = sqlx::query!(
+        "UPDATE alerts SET acknowledged = true, acknowledged_workspace = true
+        WHERE resource = $1 AND alert_type = 'critical_error' AND NOT acknowledged",
+        late_run_alert_resource(w_id, path),
+    )
+    .execute(db)
+    .await
+    {
+        tracing::warn!("failed to acknowledge the late run alert of schedule {w_id}/{path}: {e}");
+    }
+}
+
 /// Alerts with `Some(missed)`, recovers with `None`. Spawned: it reaches the instance alert
 /// channels, which must not hold up the push.
 async fn report_late_run_streak(db: DB, w_id: String, path: String, missed: Option<i32>) {
@@ -691,7 +714,7 @@ async fn report_late_run_streak(db: DB, w_id: String, path: String, missed: Opti
             return;
         }
     };
-    let resource = format!("schedule:{path}");
+    let resource = late_run_alert_resource(&w_id, &path);
     match missed {
         Some(missed) if streak >= LATE_RUNS_BEFORE_ALERT => {
             report_critical_error(
