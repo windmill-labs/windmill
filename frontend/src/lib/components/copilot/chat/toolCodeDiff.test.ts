@@ -259,11 +259,28 @@ describe('toolCodeDiff', () => {
 		})
 	})
 
-	it('avoids expensive alignment for large completed diffs', () => {
+	it('diffs a small edit in a large file', () => {
+		const beforeLines = Array.from({ length: 600 }, (_, index) => `line ${index}`)
+		const afterLines = beforeLines.map((line, index) => (index === 400 ? 'changed' : line))
+		const diff = { before: beforeLines.join('\n'), after: afterLines.join('\n'), lang: 'plaintext' }
+		const lines = toolDiffLines(diff)
+
+		expect(lines.filter((line) => line.kind !== 'context')).toMatchObject([
+			{ kind: 'removed', content: 'line 400', oldLine: 401 },
+			{ kind: 'added', content: 'changed', newLine: 401 }
+		])
+		expect(lines[399]).toEqual({ kind: 'context', content: 'line 399', oldLine: 400, newLine: 400 })
+		expect(diffLineCounts(diff)).toEqual({ added: 1, removed: 1 })
+	})
+
+	it('reports a large rewrite as a whole-file change', () => {
 		const before = Array.from({ length: 1_000 }, (_, index) => `before ${index}`).join('\n')
 		const after = Array.from({ length: 1_000 }, (_, index) => `after ${index}`).join('\n')
 
-		expect(toolDiffLines({ before, after, lang: 'plaintext' })).toHaveLength(400)
+		expect(diffLineCounts({ before, after, lang: 'plaintext' })).toEqual({
+			added: 1_000,
+			removed: 1_000
+		})
 	})
 
 	it('has a highlighter for every supported editor language', () => {
