@@ -73,6 +73,15 @@
 		})
 	})
 
+	// Applied to every fork of this workspace, so they are the parent's to set — a fork has
+	// neither toggle, matching the repository card.
+	function setSyncForks(v: boolean) {
+		if (repo?.auto_pull) repo.auto_pull = { ...repo.auto_pull, sync_forks: v }
+	}
+	function setForkOpenPrs(v: boolean) {
+		if (repo) repo.fork_open_prs = v
+	}
+
 	function setAutoPull(enabled: boolean) {
 		if (!repo) return
 		repo.auto_pull = enabled
@@ -170,6 +179,33 @@
 								? 'New commits are delivered instantly by webhook, with polling as a fallback.'
 								: 'The branch is checked for new commits about every minute.'}
 						</span>
+					{/if}
+					<Toggle
+						disabled={!repo.auto_pull?.enabled}
+						checked={!!(repo.auto_pull?.enabled && repo.auto_pull?.sync_forks)}
+						options={{
+							right: 'Automatically sync forks with git branches',
+							rightTooltip: repo.auto_pull?.enabled
+								? "When a fork's wm-fork/** branch changes in the repository (for example after merging the tracked branch into it), Windmill deploys those commits into the fork workspace. Configured once here, applied to every fork of this workspace."
+								: 'Requires automatic deploy from Git to be enabled above.'
+						}}
+						on:change={(e) => setSyncForks(e.detail)}
+					/>
+					{#if managedCredential}
+						<Toggle
+							checked={repo.fork_open_prs ?? false}
+							disabled={!$enterpriseLicense}
+							options={{
+								right: 'Open a pull request when an item is deployed in a fork',
+								rightTooltip:
+									"After an item deployed in a fork is pushed to the fork's branch (wm-fork/**, or the dev branch for a dev workspace), Windmill opens a pull request to the tracked branch of the shared repository. Runs from the deploy itself, so it works without inbound webhooks."
+							}}
+							on:change={(e) => setForkOpenPrs(e.detail)}
+						>
+							{#snippet right()}
+								{#if !$enterpriseLicense}<EEOnly />{/if}
+							{/snippet}
+						</Toggle>
 					{/if}
 				</div>
 			{/if}
