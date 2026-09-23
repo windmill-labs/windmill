@@ -7967,8 +7967,11 @@ async function deployDraft(
 		throw new Error(`Draft ${type} "${path}" has no value to deploy.`)
 	}
 
+	// The name the user knows the draft by, for every line the card shows: `path` may be
+	// the storage key the model addressed it with.
+	const displayPath = draft.draftPath ?? path
 	toolCallbacks.setToolStatus(toolId, {
-		content: `Deploying ${type} "${path}"...`
+		content: `Deploying ${type} "${displayPath}"...`
 	})
 
 	let actions: ToolDisplayAction[] | undefined
@@ -8159,7 +8162,7 @@ async function deployDraft(
 				}
 
 				toolCallbacks.setToolStatus(toolId, {
-					content: `Bundling app "${path}"...`
+					content: `Bundling app "${displayPath}"...`
 				})
 				const bundle = await bundleRawAppDraft({
 					workspace,
@@ -8172,14 +8175,14 @@ async function deployDraft(
 						const latest = lines[lines.length - 1]
 						if (latest) {
 							toolCallbacks.setToolStatus(toolId, {
-								content: `Bundling app "${path}"... ${latest}`
+								content: `Bundling app "${displayPath}"... ${latest}`
 							})
 						}
 					}
 				})
 
 				toolCallbacks.setToolStatus(toolId, {
-					content: `Deploying app "${path}"...`
+					content: `Deploying app "${displayPath}"...`
 				})
 				const rawAppValue = {
 					files: appValue.files,

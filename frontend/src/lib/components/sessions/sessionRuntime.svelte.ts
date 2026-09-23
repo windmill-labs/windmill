@@ -1281,14 +1281,16 @@ setDeployedInSessionHandler(({ sessionId: callerSessionId, kind, path, deployedP
 	if (!session?.workspace_id || !runtime) return
 	// Peek without creating a cell: a deploy for an item with no open editor tab
 	// must not allocate an empty cell that lingers until the next prune.
-	if (runtime.loadedEditorPath(kind, path) !== path) return
+	const mounted = runtime.loadedEditorPath(kind, path) === path
 	if (deployedPath !== path) {
-		// The draft the tab is open on is gone: drop it and follow the item to the path
-		// it now lives at, so the tab doesn't sit on a path nothing resolves to.
+		// The draft the tab is open on is gone: drop it and follow the item to the path it
+		// now lives at, so the tab doesn't sit on a path nothing resolves to. A restored
+		// session mounts only its active tab, so this runs off tab presence, not the cell.
 		UserDraft.stopSync(kind, path, { workspace: session.workspace_id })
 		UserDraft.discard(kind, path, undefined, { workspace: session.workspace_id })
 		runtime.previewTabs.retargetEditorItem({ kind, path }, { kind, path: deployedPath })
 	}
+	if (!mounted) return
 	runtime.syncPreviewWithDeployed(session.workspace_id, kind, deployedPath)
 })
 

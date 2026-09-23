@@ -372,16 +372,9 @@ async function readDraftNames(workspace: string, path?: string): Promise<void> {
 	try {
 		rows = await DraftService.listDrafts({ workspace })
 	} catch (e) {
-		// Without names, a chosen name reads as a path of its own: a write under it creates
-		// a second draft beside the one it meant to edit. Names loaded earlier are good
-		// enough — a draft does not leave the name it had a moment ago — but with none at
-		// all the caller is stopped instead.
-		if (!draftNamesByWorkspace.has(workspace)) {
-			throw new Error(
-				`Could not load this workspace's drafts, so "${path}" cannot be matched to the draft ` +
-					`it may name. Try again.`
-			)
-		}
+		// Names loaded earlier are good enough to route with — a draft does not leave the
+		// name it had a moment ago. With none at all, reads still resolve as they did
+		// before names existed, and only writes are refused (persistGlobalDraft).
 		console.warn('Could not refresh draft names', e)
 		return
 	}
@@ -549,6 +542,14 @@ export async function persistGlobalDraft(
 ): Promise<DraftPersistResult> {
 	const itemKind = itemKindFor(type, opts.triggerKind)
 	if (!itemKind) throw new Error(`Unsupported draft type "${type}".`)
+	// Without names a chosen name reads as a path of its own, and this write would create a
+	// second draft beside the one it meant to edit. A read has no such failure mode.
+	if (!draftNamesByWorkspace.has(workspace)) {
+		throw new Error(
+			`Could not load this workspace's drafts, so "${path}" cannot be matched to the draft ` +
+				`it may name. Try again.`
+		)
+	}
 	const storagePath = resolveDraftStoragePath(workspace, itemKind, path)
 	UserDraft.seed(itemKind, storagePath, value, { workspace })
 	await UserDraftDbSyncer.save({

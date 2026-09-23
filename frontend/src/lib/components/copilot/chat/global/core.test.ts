@@ -2494,28 +2494,40 @@ describe('global AI tools', () => {
 		}
 	})
 
-	// Without names a chosen name reads as a path of its own, and a write under it would
-	// create a second draft beside the one it meant to edit.
-	it('refuses to write by a chosen name it could not load the drafts for', async () => {
+	// Without names a chosen name reads as a path of its own, so a write under it would
+	// create a second draft beside the one it meant to edit. A read cannot fork anything,
+	// and keeps working against the deployed item as it did before names existed.
+	it('refuses the write, not the read, when a workspace has no loaded draft names', async () => {
 		const workspace = 'ws-no-draft-names'
-		seedBackendDraft(
-			'raw_app',
-			'u/admin/draft_unloadable',
-			{ summary: 'Unloadable', draft_path: 'f/sales/unloadable', files: {}, runnables: {} },
-			{ workspace }
-		)
-		vi.mocked(DraftService.listDrafts).mockRejectedValueOnce(new Error('server error'))
+		const call = (name: string, args: Record<string, unknown>) =>
+			getGlobalTool(name).fn({ args, workspace, helpers: {}, toolCallbacks, toolId: 'no-names' })
+		const listing = vi.mocked(DraftService.listDrafts).getMockImplementation()
+		vi.mocked(DraftService.listDrafts).mockRejectedValue(new Error('server error'))
 
-		await expect(
-			getGlobalTool('write_app_file').fn({
-				args: { path: 'f/sales/unloadable', file_path: '/index.tsx', content: 'x' },
-				workspace,
-				helpers: {},
-				toolCallbacks,
-				toolId: 'no-names'
-			})
-		).rejects.toThrow(/Could not load this workspace's drafts/)
-		expect(getBackendDraft('raw_app', 'f/sales/unloadable', { workspace })).toBeUndefined()
+		try {
+			await expect(
+				call('write_script', {
+					path: 'f/sales/unloadable',
+					language: 'bun',
+					content: 'export async function main() { return 1 }',
+					summary: 'x'
+				})
+			).rejects.toThrow(/Could not load this workspace's drafts/)
+			expect(getBackendDraft('script', 'f/sales/unloadable', { workspace })).toBeUndefined()
+
+			vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+				path: 'f/deployed/script',
+				summary: 'deployed',
+				content: 'export async function main() {}',
+				language: 'bun'
+			} as any)
+			const read = JSON.parse(
+				await call('read_workspace_item', { type: 'script', path: 'f/deployed/script' })
+			)
+			expect(read).toMatchObject({ path: 'f/deployed/script' })
+		} finally {
+			vi.mocked(DraftService.listDrafts).mockImplementation(listing!)
+		}
 	})
 
 	it('refuses a draft_path that two drafts are staged under', async () => {
