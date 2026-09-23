@@ -50,6 +50,8 @@ export type ModalState = {
 		open: boolean
 		savedWithoutInit?: boolean
 		autoPullOn?: boolean
+		/** Why pulling fell back to polling, when it did. */
+		webhookError?: string
 		/** Whether this workspace is the one that would turn pulling on for this repository. */
 		ownsAutoPull?: boolean
 	} | null
@@ -314,9 +316,10 @@ export function createGitSyncContext(workspace: string) {
 	function showSuccessModal(
 		savedWithoutInit?: boolean,
 		autoPullOn?: boolean,
-		ownsAutoPull?: boolean
+		ownsAutoPull?: boolean,
+		webhookError?: string
 	) {
-		activeModals.success = { open: true, savedWithoutInit, autoPullOn, ownsAutoPull }
+		activeModals.success = { open: true, savedWithoutInit, autoPullOn, ownsAutoPull, webhookError }
 	}
 
 	function closeSuccessModal() {
@@ -568,7 +571,8 @@ export function createGitSyncContext(workspace: string) {
 		if (repoToSave.auto_pull) {
 			repoToSave.auto_pull = {
 				...repoToSave.auto_pull,
-				enabled_by: repoToSave.auto_pull.enabled ? get(userStore)?.email : undefined
+				enabled_by: repoToSave.auto_pull.enabled ? get(userStore)?.email : undefined,
+				webhook_error: await readWebhookError(repoToSave)
 			}
 		}
 
@@ -586,9 +590,27 @@ export function createGitSyncContext(workspace: string) {
 				showSuccessModal(
 					savedWithoutInit,
 					repoToSave.auto_pull?.enabled === true,
-					ownsAutoPull(repoToSave)
+					ownsAutoPull(repoToSave),
+					repoToSave.auto_pull?.webhook_error
 				)
 			}
+		}
+	}
+
+	/** The webhook is registered after the settings commit, best-effort, and a failure is
+	 * reported only through the stored settings — so it stays invisible until they are read
+	 * back. Without this, pulling reads as working when it has silently fallen back to
+	 * polling (an app missing the webhook permission, an instance GitHub cannot reach). */
+	async function readWebhookError(repo: GitSyncRepository): Promise<string | undefined> {
+		if (!repo.auto_pull?.enabled) return undefined
+		try {
+			const settings = await WorkspaceService.getSettings({ workspace })
+			return settings.git_sync?.repositories?.find(
+				(r) => r.git_repo_resource_path.replace('$res:', '') === repo.git_repo_resource_path
+			)?.auto_pull?.webhook_error
+		} catch {
+			// Only costs the warning; the card shows it on the next load.
+			return undefined
 		}
 	}
 

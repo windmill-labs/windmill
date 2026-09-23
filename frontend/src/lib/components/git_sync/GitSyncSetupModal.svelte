@@ -51,7 +51,9 @@
 
 	let step: 1 | 2 | 3 | 4 | 5 = $state(1)
 	/** What the last step reports, set by the save that got there. */
-	let done: { savedWithoutInit: boolean; autoPullOn: boolean } | undefined = $state(undefined)
+	let done:
+		| { savedWithoutInit: boolean; autoPullOn: boolean; webhookError?: string }
+		| undefined = $state(undefined)
 
 	/** Resource path of the unsaved repository step 3 configures. By path rather than
 	 * index, as the context's list can shift under it. */
@@ -174,7 +176,10 @@
 			await ctx.saveRepository(draftIdx, withoutInit, false)
 			done = {
 				savedWithoutInit: withoutInit,
-				autoPullOn: draft?.auto_pull?.enabled === true
+				autoPullOn: draft?.auto_pull?.enabled === true,
+				// Read back by the save: the webhook is registered after the settings commit and
+				// a failure only leaves polling on.
+				webhookError: draft?.auto_pull?.webhook_error
 			}
 			step = 5
 		} catch (e) {
@@ -387,6 +392,7 @@
 						<GitSyncSuccessContent
 							savedWithoutInit={done.savedWithoutInit}
 							autoPullOn={done.autoPullOn}
+							webhookError={done.webhookError}
 						/>
 					{/if}
 				{:else if step === 4}

@@ -14,9 +14,16 @@ setup dialog, and in the standalone modal for a connection saved outside it.
 		 * toggle, so only the standalone modal — whose save came from a card that says it
 		 * nowhere — needs it here. */
 		explainAutoPullOff?: boolean
+		/** Set when pulling is on but its webhook could not be registered. */
+		webhookError?: string
 	}
 
-	let { savedWithoutInit = false, autoPullOn = false, explainAutoPullOff = false }: Props = $props()
+	let {
+		savedWithoutInit = false,
+		autoPullOn = false,
+		explainAutoPullOff = false,
+		webhookError = undefined
+	}: Props = $props()
 </script>
 
 <!-- The notices belong at the top, where the steps before them put their own; what the dialog
@@ -29,7 +36,11 @@ setup dialog, and in the standalone modal for a connection saved outside it.
 		</Alert>
 	{/if}
 
-	{#if autoPullOn}
+	{#if autoPullOn && webhookError}
+		<Alert type="warning" title="Pull from Git is on, but falling back to polling">
+			{webhookError}
+		</Alert>
+	{:else if autoPullOn}
 		<Alert type="success" title="Pull from Git is on">
 			New commits to the tracked branch deploy into this workspace automatically. You can adjust
 			this anytime on the repository's settings.

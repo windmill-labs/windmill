@@ -112,5 +112,6 @@
 		savedWithoutInit={gitSyncContext.activeModals.success.savedWithoutInit}
 		autoPullOn={gitSyncContext.activeModals.success.autoPullOn}
 		explainAutoPullOff={gitSyncContext.activeModals.success.ownsAutoPull ?? false}
+		webhookError={gitSyncContext.activeModals.success.webhookError}
 	/>
 {/if}
