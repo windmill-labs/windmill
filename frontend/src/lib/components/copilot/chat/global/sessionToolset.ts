@@ -74,9 +74,8 @@ export const SESSION_TOOL_POLICIES: Record<string, SessionToolPolicy> = {
 
 	// ── Authoring aids ──────────────────────────────────────────────────────
 	// Ungated where the call really is a read the server serves anyone: a hub, npm or
-	// resource-type query, or a schema built client-side. They earn their place only
-	// alongside the draft tools, but the prompt bullets naming them are gated on
-	// `write_draft`, so a session that cannot author is never pointed at them.
+	// resource-type query, or a schema built client-side. The prompt bullets naming them
+	// are gated on `write_draft`, so a session that cannot author is never pointed at them.
 	get_instructions: NONE,
 	search_hub_scripts: NONE,
 	search_npm_packages: NONE,
@@ -123,10 +122,9 @@ export const SESSION_TOOL_POLICIES: Record<string, SessionToolPolicy> = {
 	rebase_draft: WRITE_DRAFT,
 
 	// ── Deployed-object mutations ───────────────────────────────────────────
-	// Neither requires `deploy`: both take the kind as an argument, and schedules and
-	// triggers reach no deploy rule, so no workspace refuses these outright. They part
-	// ways on their input — deploying persists a draft, and nothing but `write_draft`
-	// makes one, while deleting acts on what is already deployed.
+	// Neither requires `deploy`: both take the kind as an argument, so no workspace
+	// refuses them outright. They part ways on their input — deploying persists a draft,
+	// and nothing but `write_draft` makes one, while deleting acts on what is deployed.
 	deploy_workspace_item: WRITE_DRAFT,
 	delete_workspace_item: NONE,
 

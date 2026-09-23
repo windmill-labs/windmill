@@ -1334,9 +1334,8 @@ const buildGlobalSystemPrompt = (
 	// unresolved profile keeps every block.
 	const canWriteDraft = !access || access.has('write_draft')
 	const canRunPreview = !access || access.has('run_preview')
-	// `deploy` covers only the kinds `check_deploy_rules` gates, and `create_folder` is
-	// the one tool here that names such a kind — the deploy tools take theirs as an
-	// argument, so they ship with the drafts they act on.
+	// Only this block: the deploy tools take their kind as an argument, so their bullets
+	// ship with the drafts they act on, not with this capability.
 	const canCreateFolder = !access || access.has('deploy')
 	// Each gated block carries its own leading newline, so dropping one leaves no blank
 	// line behind and a full-access prompt is byte-for-byte the ungated text.
@@ -2409,7 +2408,7 @@ function getDatatableInstructions(language?: ScriptLang): string {
 	const lang = language ?? 'bun'
 	return `# Datatable SQL SDK reference
 
-Datatables are workspace-scoped managed PostgreSQL databases. In chat, explore and shape them with the \`list_datatables\`, \`get_datatable_table_schema\`, and \`exec_datatable_sql\` tools. The reference below is for code you author inside runnables (inline app runnables, scripts, or flow rawscript modules) that reads or writes datatable data at runtime.
+Datatables are workspace-scoped managed PostgreSQL databases. In chat, explore and shape them with the datatable tools you were given. The reference below is for code you author inside runnables (inline app runnables, scripts, or flow rawscript modules) that reads or writes datatable data at runtime.
 
 - A runnable accesses a datatable via \`wmill.datatable()\` (the default "main") or \`wmill.datatable('<name>')\`, referencing tables as \`schema.table\`.
 - Use parameterized queries (the tagged template in TypeScript, \`$1\`/\`$2\` placeholders in Python) — never interpolate untrusted values into SQL strings.
