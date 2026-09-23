@@ -79,6 +79,8 @@ class ChatImpl implements Chat {
   #persistTimer: ReturnType<typeof setTimeout> | undefined
   /** Settles once the selected conversation's first page has been read. */
   #selecting: Promise<void> = Promise.resolve()
+  /** Turns taken by this chat, so a read can tell one ran while it was in flight. */
+  #turnsTaken = 0
 
   constructor(options: ChatOptions) {
     this.#config = resolveConfig(options)
@@ -147,6 +149,7 @@ class ChatImpl implements Chat {
       streamedText: false
     }
     this.#turn = turn
+    this.#turnsTaken++
 
     const timestamp = now()
     const conversation: Conversation = this.#state.conversations.find(
@@ -232,6 +235,7 @@ class ChatImpl implements Chat {
       streamedText: false
     }
     this.#turn = turn
+    this.#turnsTaken++
     this.#set({ status: 'submitted', error: undefined })
     try {
       // The conversation's first page may still be on its way; it would land over the turn.
@@ -526,7 +530,12 @@ class ChatImpl implements Chat {
     }
     const newestBefore = latestSeq(this.#state.messages)
     const failure = lastFailureShown(this.#state.messages)
-    await this.#syncFromServer(conversationId)
+    // A turn that starts and ends while these rows are read leaves the chat holding messages
+    // this read knows nothing about, and the rows would land under them rather than in their
+    // own place. They are left to the next read, which sees the conversation as it is now.
+    const takenBefore = this.#turnsTaken
+    await this.#syncFromServer(conversationId, () => this.#turnsTaken === takenBefore)
+    if (this.#turnsTaken !== takenBefore) return
     if (!failure || this.#state.conversationId !== conversationId) return
     if (!this.#state.messages.some((m) => m.id === failure.id)) return
     // The turn this chat lost may have been carried to its end elsewhere, which only a row
@@ -912,9 +921,10 @@ class ChatImpl implements Chat {
     }
   }
 
-  async #syncFromServer(conversationId: string): Promise<void> {
+  async #syncFromServer(conversationId: string, stillCurrent?: () => boolean): Promise<void> {
     const rows = await this.#rowsAfterLastSeq(conversationId)
     if (this.#turn || this.#state.conversationId !== conversationId) return
+    if (stillCurrent && !stillCurrent()) return
     this.#mergeRows(rows)
     this.#set({ messages: finalized(this.#state.messages) })
   }

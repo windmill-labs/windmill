@@ -1374,6 +1374,46 @@ describe('createChat with server history', () => {
     ])
   })
 
+  test('a turn that runs while the rows are read leaves them to the next read', async () => {
+    let releaseRows!: (r: Response) => void
+    const rowsGate = new Promise<Response>((resolve) => (releaseRows = resolve))
+    let reads = 0
+    const { fetch } = fetchMock(
+      run,
+      (c) =>
+        c.url.pathname.includes('/jobs_u/getupdate_sse/')
+          ? sse([{ type: 'error', error: 'stream broke' }])
+          : undefined,
+      (c) =>
+        c.url.pathname.endsWith('/jobs_u/get/job-1')
+          ? json({ flow_status: { modules: [{ job: 'job-1' }] } })
+          : undefined,
+      (c) => {
+        if (!c.url.pathname.endsWith('/messages')) return undefined
+        if (++reads === 1) return json([messageRow(50, 'user', 'qA', { job_id: 'job-a' })])
+        // The read the refresh made, answered only after another turn has come and gone.
+        if (reads === 2) return rowsGate
+        return json([])
+      },
+      (c) => (c.url.pathname === '/api/w/ws/flow_conversations/list' ? json([]) : undefined)
+    )
+    const chat = createChat(options({}, fetch))
+    await chat.selectConversation('conv')
+    const refreshed = chat.refreshMessages()
+    // A turn starts and fails entirely while that read is in flight.
+    await chat.sendMessage('qB')
+    expect(chat.getState().status).toBe('error')
+    releaseRows(json([messageRow(51, 'assistant', "A's answer", { job_id: 'job-a' })]))
+    await refreshed
+    // A's answer is not appended under B: it waits for a read that sees the conversation as
+    // it is now.
+    expect(chat.getState().messages.map((m) => m.content)).toEqual([
+      'qA',
+      'qB',
+      'stream broke'
+    ])
+  })
+
   test('a turn that starts while the jobs are read still frees the answered failure', async () => {
     let releaseJobs!: (r: Response) => void
     const jobsGate = new Promise<Response>((resolve) => (releaseJobs = resolve))
