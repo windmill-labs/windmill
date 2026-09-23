@@ -281,10 +281,16 @@ enum ArchiveImpl {
     Tar(tokio_tar::Builder<File>),
 }
 
-/// Entry paths come from item paths stored in the workspace; an absolute path
-/// or a `..` segment would make extraction write outside the target directory.
+/// Entry paths come from item paths stored in the workspace; an absolute or
+/// drive-prefixed path, or a parent segment, would make extraction write outside
+/// the target directory. Win32 strips trailing dots and spaces from a segment,
+/// so `.. ` resolves to `..` there: any segment made only of those is refused.
 fn check_archive_entry_path(path: &str) -> Result<()> {
-    if path.starts_with('/') || path.split(['/', '\\']).any(|seg| seg == "..") {
+    let is_dot_segment = |seg: &str| !seg.is_empty() && seg.chars().all(|c| c == '.' || c == ' ');
+    if path.starts_with(['/', '\\'])
+        || path.contains(':')
+        || path.split(['/', '\\']).any(is_dot_segment)
+    {
         return Err(Error::internal_err(format!(
             "refusing to write archive entry with path traversal: {path}"
         )));
@@ -1812,11 +1818,30 @@ mod archive_entry_path_tests {
 
     #[test]
     fn rejects_traversal_and_absolute_paths() {
-        for ok in ["u/admin/app.app.json", "f/x/a..b.script.json", "settings.yaml"] {
-            assert!(check_archive_entry_path(ok).is_ok(), "{ok} should be accepted");
+        for ok in [
+            "u/admin/app.app.json",
+            "f/x/a..b.script.json",
+            "settings.yaml",
+        ] {
+            assert!(
+                check_archive_entry_path(ok).is_ok(),
+                "{ok} should be accepted"
+            );
         }
-        for bad in ["f/x/../../evil.app.json", "../evil", "/etc/evil", "f\\..\\evil"] {
-            assert!(check_archive_entry_path(bad).is_err(), "{bad} should be rejected");
+        for bad in [
+            "f/x/../../evil.app.json",
+            "../evil",
+            "/etc/evil",
+            "f\\..\\evil",
+            "f/x/.. /.. /evil.app.json",
+            "f/x/.../evil",
+            "C:/evil",
+            "\\evil",
+        ] {
+            assert!(
+                check_archive_entry_path(bad).is_err(),
+                "{bad} should be rejected"
+            );
         }
     }
 }

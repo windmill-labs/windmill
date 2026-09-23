@@ -3253,6 +3253,7 @@ async fn create_app_raw_source(
     // Before the compile, which costs a job on a worker: it must not run for a
     // path already taken, nor for one the caller can't write. `create_app_internal`
     // rejects both, but only after the sources have been built.
+    check_proper_path(&path)?;
     if app_exists(&db, &w_id, &path).await? {
         return Err(Error::BadRequest(format!("App {path} already exists")));
     }
