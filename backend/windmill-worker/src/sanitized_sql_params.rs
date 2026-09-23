@@ -79,6 +79,15 @@ impl SqlStringEscaping {
                 .replace('"', "\\x22"),
         }
     }
+
+    /// Whether some literal of the dialect reads `\` as an escape while the escaped value
+    /// can still start with a quote or `\`.
+    fn backslash_escapes_quotes(self) -> bool {
+        matches!(
+            self,
+            SqlStringEscaping::QuoteAndBackslash | SqlStringEscaping::MySql
+        )
+    }
 }
 
 /// A single pass, so a value containing `%%WM_*%%` is never itself expanded.
@@ -86,16 +95,40 @@ fn replace_contextual_variables(
     code: &mut String,
     contextual_variables: &HashMap<String, String>,
     escaping: SqlStringEscaping,
-) -> () {
-    *code = RE_SQL_CONTEXTUAL_VAR
+) -> Result<(), error::Error> {
+    let mut unsafe_position = None;
+    let replaced = RE_SQL_CONTEXTUAL_VAR
         .replace_all(code, |caps: &regex::Captures| {
-            let pattern = &caps[0];
-            match contextual_variables.get(&pattern[2..pattern.len() - 2]) {
-                Some(value) => escaping.escape(value),
-                None => pattern.to_string(),
+            let m = caps.get(0).unwrap();
+            let pattern = m.as_str();
+            let Some(value) = contextual_variables.get(&pattern[2..pattern.len() - 2]) else {
+                return pattern.to_string();
+            };
+            let escaped = escaping.escape(value);
+            // An odd run of `\` before the placeholder escapes the value's first character,
+            // which shifts the pairing of the doubled quotes or backslashes after it.
+            let preceding_backslashes = code[..m.start()]
+                .chars()
+                .rev()
+                .take_while(|c| *c == '\\')
+                .count();
+            if escaping.backslash_escapes_quotes()
+                && preceding_backslashes % 2 == 1
+                && escaped.starts_with(['\'', '"', '\\'])
+            {
+                unsafe_position = Some(pattern.to_string());
             }
+            escaped
         })
         .into_owned();
+    if let Some(pattern) = unsafe_position {
+        return Err(error::Error::ExecutionErr(format!(
+            "Contextual variable `{pattern}` directly follows a backslash, which would escape \
+             the first character of its value. Move the backslash away from the variable."
+        )));
+    }
+    *code = replaced;
+    Ok(())
 }
 
 pub fn sanitize_and_interpolate_unsafe_sql_args(
@@ -108,7 +141,7 @@ pub fn sanitize_and_interpolate_unsafe_sql_args(
     let mut ret = code.to_string();
     let mut args_to_skip = vec![];
 
-    replace_contextual_variables(&mut ret, contextual_variables, escaping);
+    replace_contextual_variables(&mut ret, contextual_variables, escaping)?;
 
     for arg in args {
         if let Some(typ) = &arg.otyp {
@@ -225,6 +258,23 @@ mod tests {
         )
         .unwrap();
         assert_eq!(out, "SELECT '%%WM_TOKEN%%@e.com', 'secret'");
+        // an author's `\` before the placeholder would escape the value's first quote
+        let odd_backslash = "SELECT 1 WHERE email = E'\\%%WM_END_USER_EMAIL%%'";
+        let payload = "'/**/OR/**/1=1--@e.com";
+        for escaping in [
+            SqlStringEscaping::QuoteAndBackslash,
+            SqlStringEscaping::MySql,
+        ] {
+            let vars = HashMap::from([("WM_END_USER_EMAIL".to_string(), payload.to_string())]);
+            assert!(sanitize_and_interpolate_unsafe_sql_args(
+                odd_backslash,
+                &vec![],
+                &HashMap::new(),
+                &vars,
+                escaping,
+            )
+            .is_err());
+        }
         for escaping in [
             SqlStringEscaping::Quote,
             SqlStringEscaping::BothQuotes,
