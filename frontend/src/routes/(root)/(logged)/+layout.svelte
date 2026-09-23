@@ -68,6 +68,7 @@
 	import {
 		PanelLeft,
 		PanelLeftClose,
+		PanelTop,
 		PanelLeftDashed,
 		PanelLeftOpen,
 		Home,
@@ -80,6 +81,7 @@
 	import { deepEqual } from 'fast-equals'
 	import { twMerge } from 'tailwind-merge'
 	import { navDetached } from '$lib/components/sidebar/navDetached.svelte'
+	import { appHeaderPinned } from '$lib/components/apps/appHeaderPin.svelte'
 	import { navHandleSlot } from '$lib/components/sidebar/navHandlePlacement.svelte'
 	import PageHeaderBar from '$lib/components/PageHeaderBar.svelte'
 	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
@@ -515,6 +517,21 @@
 		// Only the floating card peeks; the mobile drawer is opened deliberately and stays until
 		// it is dismissed.
 		if (detachedFloating) menuOpen = false
+	}, PEEK_CLOSE_DELAY_MS)
+
+	// A deployed app owns the viewport: the band floats above it until the corner handle calls it
+	// down, and stays once pinned. The sidebar is untouched — docked stays docked, detached stays a
+	// peek — since the pin is about the header alone.
+	const fullBleed = $derived(pageHeader.content?.fullBleed === true && !menuHidden)
+	const bandPeek = $derived(fullBleed && !appHeaderPinned.val)
+	let bandPeeked = $state(false)
+	let bandHandleHot = $state(false)
+	const bandShown = $derived(!bandPeek || bandPeeked)
+	const floatBand = $derived(pageHeader.content?.barRightInset != null || bandPeek)
+	// Same delay as the sidebar's peek, and for the same reason: the handle and the band do not
+	// touch, so the leave of one has to survive long enough for the enter of the other.
+	const { debounced: scheduleBandHide, clearDebounce: cancelBandHide } = debounce(() => {
+		bandPeeked = false
 	}, PEEK_CLOSE_DELAY_MS)
 
 	// The handle and the edge band both open the card this layout owns.
@@ -1544,24 +1561,72 @@
 			{#if !devOnly && (!menuHidden || pageHeader.actions.length > 0)}
 				{@const rightInset = pageHeader.content?.barRightInset}
 				{@const leftInset = useDrawer ? 0 : railWidth}
-				<!-- One element for both placements, styled rather than branched: a page registers its
+				<!-- One element for every placement, styled rather than branched: a page registers its
 				     inset on mount, and swapping between two `{#if}` arms would destroy the band and
 				     build another one a frame later — a blink of no header, with the content sliding
 				     up into the gap and the workspace menu losing the trigger it hangs from.
 				     In flow, the band spans the content beside the rail. With an inset, a page owns
 				     the right edge from the top (a session's side panel): the band floats, stopping
-				     where that column starts, and the page pads its own content to clear it. -->
+				     where that column starts, and the page pads its own content to clear it. Over a
+				     full-bleed page (a deployed app) it floats too, but waits above the viewport
+				     until the corner handle calls it down — and takes no pointer events up there. -->
 				<div
 					class={classNames(
-						rightInset != null ? 'absolute top-0 z-30' : 'shrink-0',
-						sidebarTransitionClass
+						floatBand ? 'absolute top-0 z-30' : 'shrink-0',
+						bandPeek
+							? 'transition-transform duration-150 ease-out ' +
+									(bandShown ? 'translate-y-0' : '-translate-y-full pointer-events-none')
+							: sidebarTransitionClass
 					)}
-					style:left={rightInset != null ? `${leftInset}rem` : undefined}
-					style:right={rightInset != null ? `${rightInset}px` : undefined}
-					style:padding-left={rightInset != null ? undefined : `${leftInset}rem`}
+					style:left={floatBand ? `${leftInset}rem` : undefined}
+					style:right={floatBand ? `${rightInset ?? 0}px` : undefined}
+					style:padding-left={floatBand ? undefined : `${leftInset}rem`}
+					onmouseenter={bandPeek ? cancelBandHide : undefined}
+					onmouseleave={bandPeek ? scheduleBandHide : undefined}
+					role={bandPeek ? 'presentation' : undefined}
 				>
-					<PageHeaderBar navHidden={menuHidden} onDock={() => setDetached(false)} />
+					<PageHeaderBar
+						navHidden={menuHidden}
+						onDock={() => setDetached(false)}
+						onUnpin={fullBleed && appHeaderPinned.val
+							? () => (appHeaderPinned.val = false)
+							: undefined}
+					/>
 				</div>
+
+				{#if bandPeek}
+					<!-- The way back to the chrome from an app that owns the viewport: hovering calls the
+					     band down for a look, a click pins it. Faded once the page has settled, so it
+					     costs an app's own corner as little as an always-present control can. -->
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<div
+						class="absolute top-1 z-40 transition-opacity duration-300 {bandShown || bandHandleHot
+							? 'opacity-100'
+							: 'opacity-40'}"
+						style:left="calc({leftInset}rem + 0.25rem)"
+						onmouseenter={() => {
+							bandHandleHot = true
+							cancelBandHide()
+							bandPeeked = true
+						}}
+						onmouseleave={() => {
+							bandHandleHot = false
+							scheduleBandHide()
+						}}
+					>
+						<button
+							class="flex items-center p-1.5 rounded bg-surface/80 backdrop-blur-sm shadow-sm border hover:bg-surface"
+							aria-label="Pin header"
+							title="Pin header"
+							onclick={() => {
+								appHeaderPinned.val = true
+								bandPeeked = false
+							}}
+						>
+							<PanelTop size={16} class="flex-shrink-0 text-hint" />
+						</button>
+					</div>
+				{/if}
 			{/if}
 			{#if $enterpriseLicense && !menuHidden}
 				<!-- Announcements are an EE feature, so the component never mounts on CE: no

@@ -7,7 +7,7 @@ section name — and the route's own buttons at the far end.
 The row's height matches the sidebar's own header row, so the two read as one band.
 -->
 <script lang="ts">
-	import { PanelLeft } from 'lucide-svelte'
+	import { PanelLeft, PanelTop } from 'lucide-svelte'
 	import { navDetached } from './sidebar/navDetached.svelte'
 	import { navHandleSlot } from './sidebar/navHandlePlacement.svelte'
 	import NavBreadcrumb from './NavBreadcrumb.svelte'
@@ -16,9 +16,12 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 
 	let {
 		navHidden = false,
-		onDock
+		onDock,
+		onUnpin
 	}: {
 		navHidden?: boolean
+		/** Sends the band back behind its handle, on a page that owns the viewport. */
+		onUnpin?: () => void
 		/** Docks the sidebar. The layout owns the two other things that must happen with it — the
 		 *  flag that suppresses the rail's entry animation, and closing the card. */
 		onDock?: () => void
@@ -32,6 +35,19 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 </script>
 
 <div data-page-header class="flex items-center gap-1 h-11 pl-2 pr-4 shrink-0 min-w-0 bg-surface">
+	{#if onUnpin}
+		<!-- First, before the sidebar's handle: this one is about the band the user is looking at,
+		     the other about the sidebar beside it. -->
+		<button
+			class="flex items-center p-1.5 rounded hover:bg-surface-hover"
+			aria-label="Unpin header"
+			title="Unpin header"
+			onclick={() => onUnpin?.()}
+		>
+			<PanelTop size={16} class="flex-shrink-0 text-hint" />
+		</button>
+	{/if}
+
 	{#if navDetached.val && !navHidden}
 		<!-- The only way back to a hidden sidebar: hovering slides the card in for a look, a click
 		     puts it back for good. Docked, the sidebar speaks for itself and nothing leads the bar. -->
