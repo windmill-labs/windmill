@@ -19,15 +19,17 @@ async function digestPath(p: string): Promise<string> {
 /** Bundle inputs that no codebase digest covers, so edits to them would not trigger a re-push. */
 export function uncoveredBundleInputs(
   codebase: Codebase,
+  entry: string,
   inputs: string[]
 ): string[] {
+  const entryAbs = path.resolve(entry);
   const roots = [codebase.relative_path, ...(codebase.extra_digest_paths ?? [])]
     .map((r) => path.resolve(r));
   return inputs.filter((i) => {
-    // non-file namespaces ("<define:x>", "ns:path") and installed packages
-    if (/^<|^[a-z-]{2,}:/i.test(i) || i.includes("node_modules")) return false;
+    // non-file namespaces ("<define:x>", "(disabled):x", "ns:path") and installed packages
+    if (/^[<(]|^[a-z-]{2,}:/i.test(i) || i.includes("node_modules")) return false;
     const abs = path.resolve(i);
-    return !roots.some((r) => abs == r || abs.startsWith(r + path.sep));
+    return abs != entryAbs && !roots.some((r) => abs == r || abs.startsWith(r + path.sep));
   });
 }
 
@@ -52,18 +54,20 @@ export function listSyncCodebases(options: SyncOptions): SyncCodebase[] {
       forceTar?: boolean
     ) => {
       if (_digest == undefined) {
-        _digest = await digestDir(
+        // Concurrent callers read `_digest` across these awaits: assign it only once complete.
+        let digest = await digestDir(
           codebase.relative_path,
           JSON.stringify(codebase)
         );
         const extra = codebase.extra_digest_paths ?? [];
         if (extra.length > 0) {
           const hashes = await Promise.all(extra.map(digestPath));
-          _digest = await generateHash(_digest + hashes.join(""));
+          digest = await generateHash(digest + hashes.join(""));
         }
         if (codebase.format == "esm") {
-          _digest += ".esm";
+          digest += ".esm";
         }
+        _digest = digest;
         if (!alreadyPrinted) {
           alreadyPrinted = true;
           log.info(`Codebase ${codebase.relative_path}, digest: ${_digest}`);

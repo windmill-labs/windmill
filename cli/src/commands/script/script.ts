@@ -455,6 +455,7 @@ export async function handleFile(
         const endTime = performance.now();
         const uncovered = uncoveredBundleInputs(
           codebase,
+          path,
           Object.keys(out.metafile?.inputs ?? {})
         );
         if (uncovered.length > 0) {

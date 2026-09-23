@@ -32,7 +32,8 @@ test("extra_digest_paths edits change the codebase digest", async () => {
 test("uncoveredBundleInputs reports only files outside the digested roots", () => {
   const codebase = { relative_path: "f", extra_digest_paths: ["packages/a"] };
   expect(
-    uncoveredBundleInputs(codebase, [
+    uncoveredBundleInputs(codebase, "g/entry.ts", [
+      "g/entry.ts",
       "f/main.ts",
       "packages/a/x.ts",
       "packages/ab/y.ts",
