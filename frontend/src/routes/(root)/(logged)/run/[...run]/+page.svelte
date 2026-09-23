@@ -152,18 +152,30 @@
 		string,
 		{ modules: import('$lib/gen').FlowModule[]; groups?: any[] }
 	> = $state({})
-	// With no step clicked, the restart button targets the first failed top-level
-	// step so it is visible without hunting for that step in a large graph.
-	const failedTopLevelStep = $derived(
-		job?.flow_status?.modules?.find((m) => m.type === 'Failure')?.id
-	)
-	const restartStep = $derived(selectedJobStep ?? failedTopLevelStep)
-	const restart = useNestedRestartState({
-		selectedJobStep: () => restartStep,
+	const selectedRestart = useNestedRestartState({
+		selectedJobStep: () => selectedJobStep,
 		job: () => job,
 		graphModuleStates: () => graphModuleStates,
 		expandedSubflows: () => expandedSubflows
 	})
+	// When the selection can't be restarted from (nothing clicked, Input/Result,
+	// a step inside a parallel loop), the button targets the first failed
+	// top-level step so it is visible without hunting for it in a large graph.
+	const failedTopLevelStep = $derived(
+		job?.flow_status?.modules?.find((m) => m.type === 'Failure')?.id
+	)
+	const failedRestart = useNestedRestartState({
+		selectedJobStep: () => failedTopLevelStep,
+		job: () => job,
+		graphModuleStates: () => graphModuleStates,
+		expandedSubflows: () => expandedSubflows
+	})
+	const selectionRestartable = $derived(
+		selectedJobStep !== undefined &&
+			(selectedRestart.topLevelRestartable || selectedRestart.nestedRestartSupported)
+	)
+	const restartStep = $derived(selectionRestartable ? selectedJobStep : failedTopLevelStep)
+	const restart = $derived(selectionRestartable ? selectedRestart : failedRestart)
 
 	let testIsLoading = $state(false)
 	let jobLoader: JobLoader | undefined = $state(undefined)
