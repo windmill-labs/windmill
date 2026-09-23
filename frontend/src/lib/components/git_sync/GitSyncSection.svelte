@@ -271,22 +271,11 @@
 							into it.
 						</p>
 					</div>
+					<!-- Sync only: promotion pushes wm_deploy/** branches to be merged into the branch
+					     another workspace syncs, so it is not where a workspace starts. -->
 					<Button unifiedSize="md" variant="accent" onClick={() => openSetup('sync')}>
 						Configure Git Sync
 					</Button>
-					{#if !isFork}
-						<div class="flex items-center gap-1">
-							<Button
-								unifiedSize="sm"
-								variant="subtle"
-								disabled={!$enterpriseLicense}
-								onClick={() => openSetup('promotion')}
-							>
-								Configure Git Promotion instead
-							</Button>
-							{#if !$enterpriseLicense}<EEOnly />{/if}
-						</div>
-					{/if}
 				</div>
 			{:else}
 				<div class="flex flex-col border rounded-md divide-y bg-surface-tertiary">
