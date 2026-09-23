@@ -51,9 +51,8 @@
 
 	let step: 1 | 2 | 3 | 4 | 5 = $state(1)
 	/** What the last step reports, set by the save that got there. */
-	let done:
-		| { savedWithoutInit: boolean; autoPullOn: boolean; webhookError?: string }
-		| undefined = $state(undefined)
+	let done: { savedWithoutInit: boolean; autoPullOn: boolean; webhookError?: string } | undefined =
+		$state(undefined)
 
 	/** Resource path of the unsaved repository step 3 configures. By path rather than
 	 * index, as the context's list can shift under it. */
@@ -139,6 +138,8 @@
 		discardDraft()
 		configureAttempt += 1
 		factsLoadedFor = undefined
+		// Whatever was pushed belonged to the draft just discarded, not to this one.
+		initialized = false
 		const before = ctx.repositories.length
 		if (mode === 'promotion') ctx.addPromotionRepository()
 		else ctx.addSyncRepository()
