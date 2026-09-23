@@ -213,6 +213,17 @@
 								? 'New commits are delivered instantly by webhook, with polling as a fallback.'
 								: 'The branch is checked for new commits about every minute.'}
 						</span>
+					{:else}
+						<span class="text-2xs text-secondary">
+							Leave it off to control deployment from your own pipeline (tests, custom gating,
+							deploy on PR merge) with
+							<a
+								href="https://www.windmill.dev/docs/advanced/deploy_gh_gl#github-actions-setup"
+								target="_blank"
+								rel="noreferrer"
+								class="text-accent hover:underline">GitHub Actions or a similar CI/CD workflow</a
+							>.
+						</span>
 					{/if}
 					<Toggle
 						disabled={!repo.auto_pull?.enabled}

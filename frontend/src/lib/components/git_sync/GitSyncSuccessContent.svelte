@@ -25,21 +25,12 @@ setup dialog, and in the standalone modal for a connection saved outside it.
 		</Alert>
 	{/if}
 
+	<!-- Nothing here about turning pull on: the step that offers the toggle says what it does,
+	     and by now the choice has been made. -->
 	{#if autoPullOn}
 		<Alert type="success" title="Pull from Git is on">
 			New commits to the tracked branch deploy into this workspace automatically. You can adjust
 			this anytime on the repository's settings.
-		</Alert>
-	{:else}
-		<Alert
-			type="warning"
-			title="Deploy changes from Git back to Windmill"
-			documentationLink="https://www.windmill.dev/docs/advanced/deploy_gh_gl#github-actions-setup"
-		>
-			Turn on "Automatically deploy changes from Git" on the repository to have Windmill pull new
-			commits into this workspace for you. Prefer to control deployment from your own pipeline
-			(tests, custom gating, deploy on PR merge)? Set up GitHub Actions or a similar CI/CD workflow
-			instead.
 		</Alert>
 	{/if}
 
