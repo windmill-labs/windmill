@@ -108,7 +108,7 @@
 		{:else}
 			{@const job = jobOf(entry.jobId)}
 			{@const failed = job?.type === 'CompletedJob' && !job.success}
-			{@const search = failed ? undefined : webSearchResultOf(entry.result)}
+			{@const search = webSearchResultOf(entry.result)}
 			<ChatCollapsibleCard
 				label={toolLabel(entry, search)}
 				expanded={expanded.has(index)}
@@ -121,7 +121,7 @@
 				{#if job?.logs}
 					<ToolContentDisplay title="Logs" content={job.logs} />
 				{/if}
-				{#if search}
+				{#if search && !failed}
 					<WebSearchSourcesDisplay sources={search.sources} />
 				{:else}
 					<ToolContentDisplay
