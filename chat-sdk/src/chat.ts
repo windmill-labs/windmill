@@ -528,7 +528,7 @@ class ChatImpl implements Chat {
     const failure = lastFailureShown(this.#state.messages)
     await this.#syncFromServer(conversationId)
     if (!failure || this.#state.conversationId !== conversationId) return
-    if (this.#state.status !== 'error') return
+    if (!this.#state.messages.some((m) => m.id === failure.id)) return
     // The turn this chat lost may have been carried to its end elsewhere, which only a row
     // this read brought can say, and only one of that turn's own: an agent writes its answer
     // from a task the run does not wait for, so an earlier turn's answer can commit after
@@ -536,8 +536,9 @@ class ChatImpl implements Chat {
     // failed turn's job is on the message it left; unknown jobs accept the row, as everywhere
     // else the turn's jobs are read.
     const jobs = failure.jobId ? await this.#turnJobIds(failure.jobId) : undefined
-    if (this.#state.conversationId !== conversationId || this.#state.status !== 'error') return
+    if (this.#state.conversationId !== conversationId) return
     const held = this.#state.messages
+    if (!held.some((m) => m.id === failure.id)) return
     const answered = held.some(
       (m) =>
         m.seq !== undefined &&
@@ -547,12 +548,13 @@ class ChatImpl implements Chat {
         (jobs === undefined || m.jobId === undefined || jobs.has(m.jobId))
     )
     if (!answered) return
-    // A turn that failed while those jobs were read owns the error now: this one's failure
-    // still goes, since its answer is here, but the conversation keeps that turn's outcome.
-    const newerFailure = lastFailureShown(held)?.id !== failure.id
+    // A turn that ran, or failed, while those jobs were read owns the state now: this one's
+    // failure still goes, since its answer is here, but that turn's outcome stands.
+    const settles =
+      this.#state.status === 'error' && lastFailureShown(held)?.id === failure.id
     this.#set({
       messages: held.filter((m) => m.id !== failure.id),
-      ...(newerFailure ? {} : { status: 'idle' as const, error: undefined })
+      ...(settles ? { status: 'idle' as const, error: undefined } : {})
     })
   }
 

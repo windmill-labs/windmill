@@ -1374,6 +1374,52 @@ describe('createChat with server history', () => {
     ])
   })
 
+  test('a turn that starts while the jobs are read still frees the answered failure', async () => {
+    let releaseJobs!: (r: Response) => void
+    const jobsGate = new Promise<Response>((resolve) => (releaseJobs = resolve))
+    let releaseRun!: (r: Response) => void
+    const runGate = new Promise<Response>((resolve) => (releaseRun = resolve))
+    const { fetch, calls } = fetchMock(
+      (c) => (c.method === 'POST' && c.url.pathname === `/api/w/ws/jobs/run/f/${FLOW}` ? runGate : undefined),
+      (c) =>
+        c.url.pathname.includes('/jobs_u/getupdate_sse/')
+          ? sse([{ type: 'error', error: 'stream broke' }])
+          : undefined,
+      (c) => (c.url.pathname.endsWith('/jobs_u/get/job-a') ? jobsGate : undefined),
+      (c) =>
+        c.url.pathname.endsWith('/jobs_u/get/job-b')
+          ? json({ flow_status: { modules: [{ job: 'job-b' }] } })
+          : undefined,
+      (c) => {
+        if (!c.url.pathname.endsWith('/messages')) return undefined
+        if (c.url.searchParams.get('after_seq') === '50') {
+          return json([messageRow(51, 'assistant', "A's answer", { job_id: 'job-a' })])
+        }
+        return json([messageRow(50, 'user', 'qA', { job_id: 'job-a' })])
+      },
+      (c) => (c.url.pathname === '/api/w/ws/flow_conversations/list' ? json([]) : undefined)
+    )
+    const chat = createChat(options({}, fetch))
+    await chat.selectConversation('conv')
+    await chat.resumeTurn({ jobId: 'job-a', userSeq: 50 })
+    expect(chat.getState().status).toBe('error')
+    const refreshed = chat.refreshMessages()
+    await until(
+      () => calls.some((c) => c.url.pathname.endsWith('/jobs_u/get/job-a')),
+      'the job read to start'
+    )
+    // A turn starts while that read is in flight, and is still running when it answers.
+    const sent = chat.sendMessage('qB')
+    await until(() => chat.getState().status === 'submitted', 'the new turn to take the chat')
+    releaseJobs(json({ flow_status: { modules: [{ job: 'job-a' }] } }))
+    await refreshed
+    // A's failure goes with its answer; the running turn keeps the chat busy.
+    expect(chat.getState().messages.some((m) => m.success === false)).toBe(false)
+    expect(chat.getState().status).toBe('submitted')
+    releaseRun(text('job-b'))
+    await sent
+  })
+
   test('a turn that fails while the jobs are read keeps its own failure', async () => {
     let releaseJobs!: (r: Response) => void
     const jobsGate = new Promise<Response>((resolve) => (releaseJobs = resolve))
