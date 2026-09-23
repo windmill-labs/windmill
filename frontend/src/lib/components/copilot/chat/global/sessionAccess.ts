@@ -34,10 +34,9 @@ export function fullSessionAccess(workspace: string): SessionAccess {
 }
 
 export function hasCapabilities(
-	access: SessionAccess | undefined,
+	access: SessionAccess,
 	requires: readonly SessionCapability[]
 ): boolean {
-	if (!access) return true
 	return requires.every((c) => access.capabilities.has(c))
 }
 

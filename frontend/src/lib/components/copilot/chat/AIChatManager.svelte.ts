@@ -3595,9 +3595,9 @@ export class AIChatManager implements ChatViewHost {
 				this.refreshMcpServers(this.operatingWorkspace ?? ''),
 				this.resolveSessionAccessForSend(this.operatingWorkspace ?? '')
 			])
-			// The two refreshes above rebuild as each lands, in whichever order they do,
-			// so a prompt built before the access profile resolved would still advertise
-			// the withheld tools. Rebuild once more now that all three have settled.
+			// Each of the above rebuilds as it lands, in whichever order they do, so a
+			// prompt built before the access profile resolved would still advertise the
+			// withheld tools. Rebuild once more, from the settled set.
 			this.configureGlobalMode()
 		}
 		// Stop/Escape during the beforeSend pre-flight aborted this send before any

@@ -23,9 +23,6 @@ export type GlobalAssemblyOpts = NonNullable<Parameters<typeof prepareGlobalSyst
 	pipelineContext?: PipelineContext
 }
 
-/** The sections gate on the same capabilities the tools do, so a tool withheld from
- * this session is never described to the model by the prompt that ships beside it. */
-
 export function assembleGlobalSystemMessage(
 	instructions: Parameters<typeof prepareGlobalSystemMessage>[0],
 	opts: GlobalAssemblyOpts
