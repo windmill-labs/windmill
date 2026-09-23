@@ -79,7 +79,7 @@
 			href={tokenHelpUrl}
 			target="_blank"
 			rel="noreferrer"
-			class="flex w-fit items-center gap-1 text-2xs text-blue-500 hover:underline"
+			class="flex w-fit items-center gap-1 text-2xs text-accent hover:underline"
 		>
 			<ExternalLink size={12} />
 			{#if provider === 'github'}
