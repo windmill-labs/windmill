@@ -227,6 +227,7 @@ import {
 	getGlobalDraftStoragePath,
 	itemKindFor,
 	listGlobalDrafts,
+	loadDraftNames,
 	persistGlobalDraft,
 	readGlobalDraftValue,
 	readLocalDraftCellByKind,
@@ -1364,6 +1365,7 @@ Rules:
 - Draft tools create or update drafts only; they do not deploy or mutate deployed workspace items.
 - Use list_workspace_items to find items and read_workspace_item before changing an existing item. For triggers, pass trigger_kind.
 - If the user message includes an ACTIVE EDITOR section, treat it as the currently open item and use it for references like "this", "current", or "open editor".${activePreviewRule}
+- A draft's \`draft_path\` is the name it deploys under and what to call it when talking to the user. Tools accept it or the draft's \`path\`; prefer \`path\`, which stays unambiguous when two drafts share a name. After a deploy the item lives at its \`draft_path\`.
 - Use deploy_workspace_item only after the user explicitly asks to deploy. It persists a draft to the workspace.
 - To undo something you created or changed in this chat, use discard_local_draft: everything you write is a draft until it is explicitly deployed, so "delete it" / "never mind" / "remove that" about your own work means discarding the draft (it also clears the matching open editor draft). Use delete_workspace_item only to remove an item that is already deployed in the workspace; it mutates the workspace and fails if nothing is deployed at that path.
 - Use diff to review changes — before deploying, or when the user asks what changed. It is read-only: without arguments it lists every draft in the workspace with its change status; with type+path it returns that item's unified diff (for multi-file apps, pass file to read one file's diff). In a fork, pass against="parent_workspace" to compare the deployed fork with its parent workspace instead. Pass search to grep changed lines across all diffs.
@@ -1863,6 +1865,19 @@ async function loadAppDraftValue(path: string, workspace: string): Promise<Loade
 
 	const app = await getRawAppByPath(workspace, path)
 	return { value: appSourceToDraftValue(app, app) }
+}
+
+/**
+ * A live editor's draft is displayed under its chosen name, which resolves to the draft only
+ * while that editor stays open. The model is handed the storage path instead, which keeps
+ * resolving after the tab closes, and the chosen name as `draftPath`.
+ */
+function addressedByStoragePath(workspace: string, item: WorkspaceItem): WorkspaceItem {
+	if (!item.isLiveDraft) return item
+	const storagePath = getGlobalDraftStoragePath(workspace, item.type, item.path, item.triggerKind)
+	// A new script or flow editor stores under '', which no tool call can address.
+	if (!storagePath || storagePath === item.path) return item
+	return { ...item, path: storagePath, draftPath: item.path }
 }
 
 async function saveAppDraft(
@@ -3280,7 +3295,7 @@ export const openPageTool: Tool<{}> = {
 	}
 }
 
-export const globalTools: Tool<{}>[] = [
+const unroutedGlobalTools: Tool<{}>[] = [
 	readSkillTool,
 	openPageTool,
 	{
@@ -3479,7 +3494,8 @@ export const globalTools: Tool<{}>[] = [
 			if ((parsed.page ?? 1) === 1) {
 				const draftCountByType = new Map<string, number>()
 				const prefix = parsed.path_prefix
-				for (const draft of await listGlobalDrafts(workspace)) {
+				for (const listed of await listGlobalDrafts(workspace)) {
+					const draft = addressedByStoragePath(workspace, listed)
 					if (!types.includes(draft.type)) continue
 					// A draft's staged name is often not where it is stored: the editor parks
 					// a new script, flow or app at a generated `draft_<uuid>` path, and a
@@ -3542,7 +3558,14 @@ export const globalTools: Tool<{}>[] = [
 								(draft.value as AppDraftValue)?.policy?.execution_mode
 							)
 						: undefined
-				return JSON.stringify(serializeWorkspaceItemForRead({ ...draft, executionMode }), null, 2)
+				return JSON.stringify(
+					serializeWorkspaceItemForRead({
+						...addressedByStoragePath(workspace, draft),
+						executionMode
+					}),
+					null,
+					2
+				)
 			}
 
 			toolCallbacks.setToolStatus(toolId, {
@@ -4253,7 +4276,7 @@ export const globalTools: Tool<{}>[] = [
 		),
 		fn: async (ctx) => {
 			const parsed = openPreviewSchema.parse(ctx.args)
-			return openSessionPreview(parsed, sessionIdFromCtx(ctx))
+			return openSessionPreview(parsed, ctx.workspace, sessionIdFromCtx(ctx))
 		}
 	},
 	{
@@ -4428,6 +4451,27 @@ export const globalTools: Tool<{}>[] = [
 	...fileTools
 ]
 
+// Every tool reaches drafts through the adapter's resolver, which can route a draft's
+// chosen name to where it is stored only with the user's current drafts loaded.
+export const globalTools: Tool<{}>[] = unroutedGlobalTools.map((tool) => {
+	const load = (p: { workspace: string; args: any }) =>
+		loadDraftNames(p.workspace, typeof p.args?.path === 'string' ? p.args.path : undefined)
+	return {
+		...tool,
+		// Also on the pre-confirmation check: it reads drafts too, and runs before `fn`.
+		validateBeforeConfirmation: tool.validateBeforeConfirmation
+			? async (p) => {
+					await load(p)
+					return tool.validateBeforeConfirmation!(p)
+				}
+			: undefined,
+		fn: async (p) => {
+			await load(p)
+			return tool.fn(p)
+		}
+	}
+})
+
 // Tools that only make sense inside an AI session (they drive the session's
 // side-panel preview). The regular global side-panel chat shouldn't even be
 // offered them — see `globalToolsFor`.
@@ -4536,7 +4580,10 @@ function liveFlowTestHookFromCtx(
 	path: string
 ): ((args?: Record<string, any>, memoryId?: string) => Promise<string | undefined>) | undefined {
 	const activeEditor = getActiveGlobalEditorContext(ctx.workspace)
-	if (activeEditor?.type !== 'flow' || activeEditor.path !== path) {
+	if (
+		activeEditor?.type !== 'flow' ||
+		(activeEditor.path !== path && activeEditor.storagePath !== path)
+	) {
 		return undefined
 	}
 	const testActiveFlow = (ctx.helpers as GlobalToolHelpers | undefined)?.testActiveFlow
@@ -4559,6 +4606,7 @@ export function setOpenPreviewHandler(handler: OpenPreviewHandler | undefined): 
 
 async function openSessionPreview(
 	args: { kind: 'script' | 'flow' | 'raw_app' | 'pipeline'; path: string },
+	workspace: string,
 	sessionId: string | undefined
 ): Promise<string> {
 	if (!openPreviewHandler) {
@@ -4567,7 +4615,12 @@ async function openSessionPreview(
 	// open_preview only exists in sessions, so no sessionId check is needed here.
 	// For a pipeline the handler awaits the editor's tool registration, so the
 	// model's next build_pipeline_node call can't race the async canvas mount.
-	return await openPreviewHandler({ ...args, sessionId })
+	// The preview loads the literal path, so a draft's chosen name is routed here.
+	const path =
+		args.kind === 'pipeline'
+			? args.path
+			: getGlobalDraftStoragePath(workspace, args.kind === 'raw_app' ? 'app' : args.kind, args.path)
+	return await openPreviewHandler({ ...args, path, sessionId })
 }
 
 // Opens a workspace *page* (Runs, Schedules, …) as a page tab in the session's
@@ -7939,14 +7992,16 @@ async function deployDraft(
 		await flushDraftOrThrow({ workspace, itemKind: type, path: storagePath }, `${type} "${path}"`)
 		// Stale-draft guard: block when the draft was forked from an older deploy than
 		// the current head (unless force), pointing the model at rebase_draft.
+		// The draft's base is the item it is stored at: a rename is staged over the old
+		// path, and `path` may be the new name the draft is addressed by.
 		if (type === 'script') {
-			const existing = (await ScriptService.existsScriptByPath({ workspace, path }))
-				? await ScriptService.getScriptByPath({ workspace, path })
+			const existing = (await ScriptService.existsScriptByPath({ workspace, path: storagePath }))
+				? await ScriptService.getScriptByPath({ workspace, path: storagePath })
 				: undefined
 			assertDraftBasedOnLatest('script', path, draft.parentHash, existing?.hash, force)
 		} else {
-			const existing = (await FlowService.existsFlowByPath({ workspace, path }))
-				? await FlowService.getFlowByPath({ workspace, path })
+			const existing = (await FlowService.existsFlowByPath({ workspace, path: storagePath }))
+				? await FlowService.getFlowByPath({ workspace, path: storagePath })
 				: undefined
 			assertDraftBasedOnLatest('flow', path, draft.parentVersionId, existing?.version_id, force)
 		}
@@ -8028,8 +8083,10 @@ async function deployDraft(
 				// Stale-draft guard: only fetch the deployed head when the draft records
 				// a fork base to compare against (pre-feature drafts have none).
 				if (draft.parentVersionId != null) {
-					const deployedApp = (await AppService.existsApp({ workspace, path }))
-						? await AppService.getAppByPath({ workspace, path })
+					// The draft's base is the app it is stored at, not the name it was addressed by.
+					const basePath = getGlobalDraftStoragePath(workspace, 'app', path)
+					const deployedApp = (await AppService.existsApp({ workspace, path: basePath }))
+						? await AppService.getAppByPath({ workspace, path: basePath })
 						: undefined
 					assertDraftBasedOnLatest(
 						'app',
@@ -8145,7 +8202,16 @@ async function deployDraft(
 					}
 				}
 				deployedPath = targetPath
-				if (await AppService.existsApp({ workspace, path: targetPath })) {
+				const targetExists = await AppService.existsApp({ workspace, path: targetPath })
+				// A draft of a deployed app is stored at that app's path, so a target elsewhere that
+				// already exists is another app: nothing checks a chosen name before deploy.
+				if (targetExists && targetPath !== storagePath) {
+					throw new Error(
+						`Cannot deploy app "${path}" to "${targetPath}": another app is already deployed there. ` +
+							`Ask the user for a different path for this draft.`
+					)
+				}
+				if (targetExists) {
 					// Omit custom_path on update for now. The backend preserves it when absent, while
 					// sending it requires admin privileges; this chat deploy path does not yet mirror
 					// the raw app editor's user/admin-specific custom_path handling.
@@ -8481,7 +8547,11 @@ export function prepareGlobalUserMessage(
 	if (activeEditor) {
 		content += '## ACTIVE EDITOR\n'
 		content += `type: ${activeEditor.type}\n`
-		content += `path: ${activeEditor.path}\n`
+		// Same '' storage key as in addressedByStoragePath: fall back to the chosen name.
+		content += `path: ${activeEditor.storagePath || activeEditor.path}\n`
+		if (activeEditor.storagePath && activeEditor.path !== activeEditor.storagePath) {
+			content += `draft_path: ${activeEditor.path}\n`
+		}
 		content += `isLiveDraft: true\n\n`
 	}
 
@@ -8504,7 +8574,11 @@ export function prepareGlobalUserMessage(
 					: context.type === 'workspace_flow'
 						? 'flow'
 						: 'raw_app'
-			content += `- type: ${itemType}, path: ${context.path}\n`
+			const draftPath =
+				context.draftPath && context.draftPath !== context.path
+					? `, draft_path: ${context.draftPath}`
+					: ''
+			content += `- type: ${itemType}, path: ${context.path}${draftPath}\n`
 		}
 		content += '\n'
 	}

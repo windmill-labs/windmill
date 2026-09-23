@@ -303,6 +303,7 @@ Content is materialized at message-prep time by `AIChatManager` — see PR #9216
 					path: d.path,
 					title: d.path,
 					summary: d.summary,
+					draftPath: d.draftPath,
 					deletable: true
 				}
 				onSelectWorkspaceItem(element)
@@ -312,6 +313,7 @@ Content is materialized at message-prep time by `AIChatManager` — see PR #9216
 					path: d.path,
 					title: d.path,
 					summary: d.summary,
+					draftPath: d.draftPath,
 					deletable: true
 				}
 				onSelectWorkspaceItem(element)
@@ -322,6 +324,7 @@ Content is materialized at message-prep time by `AIChatManager` — see PR #9216
 					path: d.path,
 					title: d.path,
 					summary: d.summary,
+					draftPath: d.draftPath,
 					deletable: true
 				}
 				onSelectWorkspaceItem(element)

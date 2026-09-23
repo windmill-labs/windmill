@@ -1,5 +1,5 @@
 import type { Flow, NewSchedule, NewScript } from '$lib/gen/types.gen'
-import { DraftService } from '$lib/gen'
+import { AppService, DraftService, FlowService, ScriptService } from '$lib/gen'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import { UserDraft, type UserDraftEntry, type UserDraftItemKind } from '$lib/userDraft.svelte'
@@ -303,16 +303,121 @@ function liveDisplayPath(
 	}
 }
 
+type StagedDraft = { storagePath: string; summary?: string }
+
+type DraftNames = {
+	/** `${itemKind}:${storagePath}` of every draft the current user has. */
+	stored: Set<string>
+	/** `${itemKind}:${chosen name}` → the drafts staged under that name. */
+	byName: Map<string, StagedDraft[]>
+	/** `${itemKind}:${name}` keys where a deployed item already sits at the name. */
+	deployedAt: Set<string>
+}
+
+const draftNamesByWorkspace = new Map<string, DraftNames>()
+
+// Scripts keep their chosen path in the value's own `path`; the other kinds in `draft_path`
+// (the same split listDrafts applies server-side).
+function chosenDraftName(itemKind: UserDraftItemKind, value: unknown): string | undefined {
+	const v = value as { path?: string; draft_path?: string } | null | undefined
+	return (itemKind === 'script' ? v?.path : v?.draft_path) || undefined
+}
+
+const deployedExists: Partial<
+	Record<UserDraftItemKind, (workspace: string, path: string) => Promise<boolean>>
+> = {
+	script: (workspace, path) => ScriptService.existsScriptByPath({ workspace, path }),
+	flow: (workspace, path) => FlowService.existsFlowByPath({ workspace, path }),
+	raw_app: (workspace, path) => AppService.existsApp({ workspace, path })
+}
+
+/**
+ * Loads the chosen names of the user's drafts so the synchronous resolver below can route
+ * a name to its draft. A new item is stored at a generated `draft_<uuid>` path until it is
+ * deployed, and a rename is staged over the old path, so the name the user and the model
+ * use is often not where the draft lives. Called before every chat tool call; `path` is
+ * the path that call addresses, checked against deployed items only when it is a name.
+ */
+export async function loadDraftNames(workspace: string, path?: string): Promise<void> {
+	const names: DraftNames = { stored: new Set(), byName: new Map(), deployedAt: new Set() }
+	const add = (
+		itemKind: UserDraftItemKind,
+		storagePath: string,
+		name: string | undefined,
+		summary: string | undefined
+	) => {
+		// A new script or flow editor stores under '', which no tool call can address.
+		if (!storagePath) return
+		names.stored.add(`${itemKind}:${storagePath}`)
+		if (!name || name === storagePath) return
+		const staged = names.byName.get(`${itemKind}:${name}`) ?? []
+		if (staged.some((s) => s.storagePath === storagePath)) return
+		staged.push({ storagePath, summary })
+		names.byName.set(`${itemKind}:${name}`, staged)
+	}
+	let rows: Awaited<ReturnType<typeof DraftService.listDrafts>>
+	try {
+		rows = await DraftService.listDrafts({ workspace })
+	} catch (e) {
+		// The names loaded earlier are kept: stale routing still sends a name to the draft
+		// it named a moment ago, while no table at all sends a write to the name itself,
+		// forking the draft in two.
+		console.warn('Could not refresh draft names', e)
+		return
+	}
+	for (const row of rows) {
+		add(row.kind, row.path, row.draft_path, row.summary)
+	}
+	for (const entry of UserDraft.list({ workspace, itemKinds: [...GLOBAL_DRAFT_KINDS] })) {
+		add(
+			entry.itemKind,
+			entry.path,
+			chosenDraftName(entry.itemKind, entry.value),
+			getItemSummary(entry.value)
+		)
+	}
+	// Each load only probes the name its own call addresses, so keep what earlier calls
+	// established: a concurrent call that addressed nothing must not drop a known
+	// deployed name and let this one route it to a draft.
+	names.deployedAt = new Set(draftNamesByWorkspace.get(workspace)?.deployedAt)
+	if (path) {
+		const probes = Object.entries(deployedExists).map(async ([itemKind, exists]) => {
+			const key = `${itemKind}:${path}`
+			if (!names.byName.has(key) || names.stored.has(key)) return
+			if (await exists(workspace, path)) names.deployedAt.add(key)
+			else names.deployedAt.delete(key)
+		})
+		await Promise.all(probes)
+	}
+	draftNamesByWorkspace.set(workspace, names)
+}
+
 function resolveDraftStoragePath(
 	workspace: string,
 	itemKind: UserDraftItemKind,
 	path: string
 ): string {
 	const liveDraft = UserDraft.getLiveEditorDraft(itemKind, { workspace })
-	if (!liveDraft) return path
-	if (path === liveDraft.storagePath || path === liveDraft.effectivePath)
+	if (liveDraft && (path === liveDraft.storagePath || path === liveDraft.effectivePath))
 		return liveDraft.storagePath
-	return path
+
+	const names = draftNamesByWorkspace.get(workspace)
+	const key = `${itemKind}:${path}`
+	if (!names || names.stored.has(key)) return path
+	const staged = names.byName.get(key)
+	// A deployed item keeps its own path: drafts staged under that name of another item's
+	// are reached by their storage path.
+	if (!staged || names.deployedAt.has(key)) return path
+	if (staged.length > 1) {
+		// Refused rather than guessed: nothing checks a name for uniqueness before deploy.
+		const listed = staged
+			.map((s) => (s.summary ? `${s.storagePath} ("${s.summary}")` : s.storagePath))
+			.join(', ')
+		throw new Error(
+			`Several drafts are staged under "${path}": ${listed}. Pass the path of the one you mean.`
+		)
+	}
+	return staged[0].storagePath
 }
 
 export function getGlobalDraftStoragePath(
