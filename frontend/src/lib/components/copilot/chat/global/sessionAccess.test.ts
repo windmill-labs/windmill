@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { whoami, deployPermission } = vi.hoisted(() => ({
+const { whoami, deployRules } = vi.hoisted(() => ({
 	whoami: vi.fn(),
-	deployPermission: vi.fn()
+	deployRules: vi.fn()
 }))
 
 vi.mock('$lib/gen', () => ({ UserService: { whoami } }))
-vi.mock('$lib/utils_workspace_deploy', () => ({ checkDeployPermission: deployPermission }))
+vi.mock('$lib/utils_workspace_deploy', () => ({ checkDeployRules: deployRules }))
 
 import { resolveSessionAccess } from './sessionAccess'
 import { clearWorkspaceRoleCache } from '$lib/user'
@@ -38,7 +38,7 @@ async function capabilitiesFor(overrides: WhoamiOverrides, workspace = 'ws') {
 describe('resolveSessionAccess', () => {
 	beforeEach(() => {
 		vi.clearAllMocks()
-		deployPermission.mockResolvedValue({ ok: true })
+		deployRules.mockResolvedValue({ ok: true })
 		// The role memo is app-wide, so without this each case answers from the previous one.
 		clearWorkspaceRoleCache()
 	})
@@ -48,18 +48,24 @@ describe('resolveSessionAccess', () => {
 		expect([...caps].sort()).toEqual(['deploy', 'run_preview', 'write_draft'])
 	})
 
-	it('leaves an operator only what their token can still do', async () => {
-		deployPermission.mockResolvedValue({ ok: false, reason: 'operators cannot deploy' })
+	// The folder handler has no operator check, so an unrestricted workspace must keep the
+	// capability that gates it — withholding it would be stricter than the server.
+	it('leaves an operator the deploy-rule capability, and nothing their token refuses', async () => {
+		const caps = await capabilitiesFor({ operator: true })
+		expect([...caps]).toEqual(['deploy'])
+	})
+
+	it('takes deploy from the rules alone, so a rule blocks an operator too', async () => {
+		deployRules.mockResolvedValue({ ok: false, refusedBy: 'DisableDirectDeployment' })
 		const caps = await capabilitiesFor({ operator: true })
 		expect([...caps]).toEqual([])
 	})
 
-	// Both spellings of `authed.is_admin`. Deploy follows drafting, not previews: the shared
-	// check refuses every operator, which is stricter than the folder handler it gates.
+	// Both spellings of `authed.is_admin`, which the draft path honours and the preview path
+	// does not.
 	it.each([{ is_admin: true }, { is_super_admin: true }])(
 		'lets an admin who is also an operator write drafts and deploy, but not run previews (%o)',
 		async (role) => {
-			deployPermission.mockResolvedValue({ ok: false, reason: 'operators cannot deploy' })
 			const caps = await capabilitiesFor({ ...role, operator: true })
 			expect(caps.has('write_draft')).toBe(true)
 			expect(caps.has('deploy')).toBe(true)
@@ -68,8 +74,8 @@ describe('resolveSessionAccess', () => {
 	)
 
 	// A deploy refusal must not take drafting down with it.
-	it('takes deploy from the shared permission check, not from the role', async () => {
-		deployPermission.mockResolvedValue({
+	it('takes deploy from the rules check, not from the role', async () => {
+		deployRules.mockResolvedValue({
 			ok: false,
 			reason: 'restricted to deployers',
 			refusedBy: 'RestrictDeployToDeployers'

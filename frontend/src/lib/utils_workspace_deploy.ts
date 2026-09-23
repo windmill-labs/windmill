@@ -803,34 +803,25 @@ export function deployPermissionForKinds(
 }
 
 /**
- * Whether the current user may deploy into `workspace`. Mirrors `check_deploy_rules` in
+ * The workspace's deploy-protection rules alone. Mirrors `check_deploy_rules` in
  * windmill-common so the UI can disable the action with a reason instead of letting the
  * click 403: `DisableDirectDeployment` is evaluated before `RestrictDeployToDeployers`, so
  * the same message wins here as on the server when both block; admins and superadmins bypass
  * both rules, while `wm_deployers` members bypass only the latter.
  *
- * The operator refusal is not part of that mirror. The server refuses operators in the item
- * handlers instead, and for fewer kinds, so refusing them for everything here is deliberately
- * stricter than the server rather than a faithful copy of it.
+ * Separate from `checkDeployPermission` because that one adds an operator refusal of its
+ * own, which no handler running these rules performs.
  *
  * Fails open on any error — the server still enforces on the actual deploy.
- * Shared by the session dock and the compare page so both gate identically.
  */
-export async function checkDeployPermission(
+export async function checkDeployRules(
 	workspace: string,
 	/** Pre-fetched identity for `workspace`, to save a round trip. Narrowed to the fields
 	 * read so a caller holding a `UserExt` can pass it without a cast. */
-	whoami?: Pick<User, 'operator' | 'is_admin' | 'is_super_admin' | 'username' | 'groups'>
+	whoami?: Pick<User, 'is_admin' | 'is_super_admin' | 'username' | 'groups'>
 ): Promise<DeployPermission> {
 	try {
 		const me = whoami ?? (await UserService.whoami({ workspace }))
-		if (me.operator) {
-			return {
-				ok: false,
-				reason: "You're an operator in this workspace — operators can't deploy",
-				refusedBy: 'operator'
-			}
-		}
 		const userInfo = {
 			is_admin: !!me.is_admin,
 			is_super_admin: !!me.is_super_admin,
@@ -873,6 +864,36 @@ export async function checkDeployPermission(
 			}
 		}
 		return { ok: true }
+	} catch {
+		return { ok: true }
+	}
+}
+
+/**
+ * Whether the current user may deploy into `workspace` at all: the protection rules above,
+ * plus a refusal of every operator.
+ *
+ * That refusal is not part of the `check_deploy_rules` mirror. The server refuses operators
+ * in the item handlers instead, and for fewer kinds, so refusing them for everything here is
+ * deliberately stricter than the server rather than a faithful copy of it. A caller mirroring
+ * one handler wants `checkDeployRules`.
+ *
+ * Shared by the session dock and the compare page so both gate identically.
+ */
+export async function checkDeployPermission(
+	workspace: string,
+	whoami?: Pick<User, 'operator' | 'is_admin' | 'is_super_admin' | 'username' | 'groups'>
+): Promise<DeployPermission> {
+	try {
+		const me = whoami ?? (await UserService.whoami({ workspace }))
+		if (me.operator) {
+			return {
+				ok: false,
+				reason: "You're an operator in this workspace — operators can't deploy",
+				refusedBy: 'operator'
+			}
+		}
+		return await checkDeployRules(workspace, me)
 	} catch {
 		return { ok: true }
 	}

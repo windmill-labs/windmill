@@ -1,12 +1,10 @@
 import { getWorkspaceRole } from '$lib/user'
-import { checkDeployPermission } from '$lib/utils_workspace_deploy'
+import { checkDeployRules } from '$lib/utils_workspace_deploy'
 
 /**
  * What a user may do in ONE workspace, as the AI session toolset needs to know it.
- *
- * Permission facts, never relevance judgements: a capability is absent only when the
- * backend would refuse the call. Best-effort, not a boundary — the token is the
- * enforcement point, so this narrows what the model is offered and guarantees nothing.
+ * Best-effort, not a boundary — the token is the enforcement point, so this narrows
+ * what the model is offered and guarantees nothing.
  */
 export type SessionCapability =
 	| 'write_draft'
@@ -28,6 +26,33 @@ export function fullSessionAccess(): SessionAccess {
 	return new Set(ALL_CAPABILITIES)
 }
 
+/** Pure, so the profiles this can produce are enumerable rather than listed by hand.
+ * `isAdmin` is one field because the server's `authed.is_admin` is
+ * `usr.is_admin || super_admin` (auth.rs), which `whoami` reports as two. */
+export function capabilitiesForRole(role: {
+	isAdmin: boolean
+	operator: boolean
+	deployRulesPass: boolean
+}): SessionAccess {
+	const capabilities = new Set<SessionCapability>()
+	// Per-capability precedence, NOT a role ladder: drafts.rs `require_can_write_path`
+	// returns Ok on `authed.is_admin` BEFORE its operator branch, while jobs.rs
+	// `run_preview_*` refuses operators first with no admin escape.
+	if (role.isAdmin || !role.operator) {
+		capabilities.add('write_draft')
+	}
+	if (!role.operator) {
+		capabilities.add('run_preview')
+	}
+	// No operator term: folders.rs `create_folder`, the one kind this gates, has no
+	// operator check, and its RLS insert passes because the handler makes the creator an
+	// owner. The rules alone also cover admins, who bypass them inside that check.
+	if (role.deployRulesPass) {
+		capabilities.add('deploy')
+	}
+	return capabilities
+}
+
 export async function resolveSessionAccess(workspace: string): Promise<SessionAccess> {
 	// Shares the 5-minute memo with the identity the same pre-flight resolves beside this
 	// one, so a send costs one `whoami` rather than two, at the cost of a role changed
@@ -39,29 +64,9 @@ export async function resolveSessionAccess(workspace: string): Promise<SessionAc
 	}
 	const me = lookup.user
 
-	const capabilities = new Set<SessionCapability>()
-	// The server's `authed.is_admin` is `usr.is_admin || super_admin` (auth.rs), which
-	// `whoami` reports as two fields. Two of the three rules below turn on it.
-	const isAdmin = me.is_admin || me.is_super_admin
-
-	// Per-capability precedence, NOT a role ladder: drafts.rs `require_can_write_path`
-	// returns Ok on `authed.is_admin` BEFORE its operator branch, while jobs.rs
-	// `run_preview_*` refuses operators first with no admin escape.
-	if (isAdmin || !me.operator) {
-		capabilities.add('write_draft')
-	}
-	if (!me.operator) {
-		capabilities.add('run_preview')
-	}
-
-	// Protection rules come from the shared preflight, but its operator refusal is not
-	// mirrored: it is stricter than the server, and the one kind this gates — folders.rs
-	// `create_folder` — has no operator check and bypasses its rules on `authed.is_admin`,
-	// like the draft path above. Without the admin term this withholds a folder the server
-	// creates, and the prompt tells a superadmin they cannot create one.
-	if (isAdmin || (await checkDeployPermission(workspace, me)).ok) {
-		capabilities.add('deploy')
-	}
-
-	return capabilities
+	return capabilitiesForRole({
+		isAdmin: !!me.is_admin || !!me.is_super_admin,
+		operator: !!me.operator,
+		deployRulesPass: (await checkDeployRules(workspace, me)).ok
+	})
 }

@@ -27,7 +27,12 @@ import { pipelineTools } from '../pipeline/core'
 import { ENTER_PLAN_MODE_TOOL, EXIT_PLAN_MODE_TOOL } from '../planMode'
 import { assembleGlobalSystemMessage, assembleGlobalTools } from './globalAssembly'
 import { SESSION_TOOL_POLICIES, filterSessionTools, sessionToolAllowed } from './sessionToolset'
-import { fullSessionAccess, type SessionAccess, type SessionCapability } from './sessionAccess'
+import {
+	capabilitiesForRole,
+	fullSessionAccess,
+	type SessionAccess,
+	type SessionCapability
+} from './sessionAccess'
 
 const ASSEMBLY_OPTS = {
 	previewTools: true,
@@ -58,6 +63,21 @@ function shippedSessionTools(access: SessionAccess) {
 function accessWith(capabilities: SessionCapability[]): SessionAccess {
 	return new Set(capabilities)
 }
+
+const profileKey = (access: SessionAccess) => [...access].sort().join(',')
+
+/** The profiles a real session can hold, over every combination of the role facts
+ * `capabilitiesForRole` reads. */
+const REACHABLE_PROFILES = new Set(
+	[false, true].flatMap((isAdmin) =>
+		[false, true].flatMap((operator) =>
+			// `checkDeployRules` bypasses on admin, so an admin has only the one outcome.
+			(isAdmin ? [true] : [false, true]).map((deployRulesPass) =>
+				profileKey(capabilitiesForRole({ isAdmin, operator, deployRulesPass }))
+			)
+		)
+	)
+)
 
 /** One per branch of getSessionContextPromptSection — each words the deploy target
  * differently, so a gate fixed in one branch can still leak in another. */
@@ -164,19 +184,20 @@ describe('session tool policies', () => {
 	// every reachable profile, and every tool from the policy table — so neither a new tool
 	// nor a new capability combination slips past.
 	it.each([
-		// `reachable` marks the profiles `resolveSessionAccess` can actually produce. The
-		// prompt is swept for the unreachable ones too, since gating it costs nothing; the
-		// tool DEFINITIONS are not, because the only way to satisfy those cases is to strip
-		// a sibling tool's name out of a description that earns its place for real sessions.
-		['read-only', [], true],
-		['drafts, no deploy', ['write_draft', 'run_preview'], true],
-		['drafts only', ['write_draft'], true],
-		['drafts, no preview', ['write_draft', 'deploy'], false],
-		['deploy, no drafts', ['deploy'], false]
-	] as [string, SessionCapability[], boolean][])(
+		// The prompt is swept for every profile, reachable or not, since gating it costs
+		// nothing. The tool DEFINITIONS are swept only for the reachable ones, because the
+		// only way to satisfy the rest is to strip a sibling tool's name out of a
+		// description that earns its place for real sessions.
+		['read-only', []],
+		['drafts, no deploy', ['write_draft', 'run_preview']],
+		['drafts only', ['write_draft']],
+		['drafts, no preview', ['write_draft', 'deploy']],
+		['deploy, no drafts', ['deploy']]
+	] as [string, SessionCapability[]][])(
 		'never names a withheld tool in the assembled prompt (%s)',
-		(_label, capabilities, reachable) => {
+		(_label, capabilities) => {
 			const access = accessWith(capabilities)
+			const reachable = REACHABLE_PROFILES.has(profileKey(access))
 			const withheld = assembledSessionToolNames().filter((n) => !sessionToolAllowed(n, access))
 			expect(withheld.length).toBeGreaterThan(0)
 			// The tool DEFINITIONS ship alongside the prompt, so a withheld name in a
