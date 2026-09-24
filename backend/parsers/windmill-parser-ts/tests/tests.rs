@@ -15,11 +15,15 @@ mod tests {
         let defaults: Vec<_> = sig
             .args
             .iter()
-            .map(|a| (a.has_default, a.default.clone()))
+            .map(|a| (a.typ.clone(), a.has_default, a.default.clone()))
             .collect();
         assert_eq!(
             defaults,
-            vec![(true, None), (true, None), (true, Some(json!(1)))]
+            vec![
+                (Typ::Object(ObjectType::new(None, None)), true, None),
+                (Typ::List(Box::new(Typ::Unknown)), true, None),
+                (Typ::Int, true, Some(json!(1)))
+            ]
         );
     }
 

@@ -93,11 +93,23 @@ async fn schemaless_deploy_infers_schema_keeping_annotations(
             ),
         )
         .await?;
-    let (_, schema) = head(&db).await?;
+    let (hash, schema) = head(&db).await?;
     assert_eq!(schema["required"], json!(["n", "flag"]));
     assert_eq!(schema["properties"]["n"]["description"], "how many");
     assert_eq!(schema["properties"]["flag"]["type"], "boolean");
     assert!(schema["properties"].get("name").is_none());
+
+    // Code that does not parse keeps the schema rather than losing it for good.
+    client
+        .create_script(
+            "test-workspace",
+            &bun_ns(
+                "export function main(n: number {",
+                Some(format!("{hash:016x}")),
+            ),
+        )
+        .await?;
+    assert_eq!(head(&db).await?.1, schema);
 
     Ok(())
 }

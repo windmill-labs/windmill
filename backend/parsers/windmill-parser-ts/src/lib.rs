@@ -578,6 +578,12 @@ fn parse_param(
                 }
             };
 
+            // Types an untyped parameter whose default cannot be evaluated (see `eval_sync`).
+            let literal_shape = match &*right {
+                Expr::Object(_) => Some(Typ::Object(ObjectType::new(None, None))),
+                Expr::Array(_) => Some(Typ::List(Box::new(Typ::Unknown))),
+                _ => None,
+            };
             let dflt = if skip_dflt {
                 None
             } else {
@@ -599,8 +605,12 @@ fn parse_param(
                 }
             };
 
-            if typ == Typ::Unknown && dflt.is_some() {
-                typ = json_to_typ(dflt.as_ref().unwrap(), false);
+            if typ == Typ::Unknown {
+                match &dflt {
+                    Some(d) => typ = json_to_typ(d, false),
+                    None if !skip_dflt => typ = literal_shape.unwrap_or(Typ::Unknown),
+                    None => {}
+                }
             }
             Ok(Arg {
                 otyp,

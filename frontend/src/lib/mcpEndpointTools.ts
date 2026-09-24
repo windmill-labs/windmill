@@ -710,7 +710,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "schema": {
                         "type": "object",
-                        "description": "JSON Schema of the arguments of `main`, which is what a run form and an MCP tool offer. Omitted (or `{}`), it is inferred from `content` for TypeScript, Python, Go, Bash, PowerShell, SQL, GraphQL and Ansible scripts, keeping what the superseded version's schema says about each argument. Other languages get none unless it is given."
+                        "description": "JSON Schema of the arguments of `main`, which is what a run form and an MCP tool offer. Omitted (or `{}`), it is inferred from `content` for TypeScript, Python, Go, Bash, PowerShell, SQL, GraphQL and Ansible scripts, keeping what the superseded version's schema says about each argument. For other languages, or code that does not parse, the superseded version's schema is kept (a new script gets none)."
                 },
                 "language": {
                         "type": "string",
@@ -770,7 +770,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "schema": {
                         "type": "object",
-                        "description": "JSON Schema of the arguments of `main`, which is what a run form and an MCP tool offer. Omitted (or `{}`), it is inferred from `content` for TypeScript, Python, Go, Bash, PowerShell, SQL, GraphQL and Ansible scripts, keeping what the superseded version's schema says about each argument. Other languages get none unless it is given."
+                        "description": "JSON Schema of the arguments of `main`, which is what a run form and an MCP tool offer. Omitted (or `{}`), it is inferred from `content` for TypeScript, Python, Go, Bash, PowerShell, SQL, GraphQL and Ansible scripts, keeping what the superseded version's schema says about each argument. For other languages, or code that does not parse, the superseded version's schema is kept (a new script gets none)."
                 },
                 "language": {
                         "type": "string",
