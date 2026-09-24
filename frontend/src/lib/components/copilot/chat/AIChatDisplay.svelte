@@ -848,18 +848,24 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 				onscroll={onScroll}
 			>
 				<div class="{columnClass} flex flex-col pb-2" bind:clientHeight={height}>
-					{#snippet messageRow(message: DisplayMessage, messageIndex: number, isLast: boolean)}
+					{#snippet messageRow(
+						message: DisplayMessage,
+						messageIndex: number,
+						isLast: boolean,
+						inGroup: boolean
+					)}
 						<AIChatMessage
 							{message}
 							{messageIndex}
 							{availableContext}
 							bind:editingMessageIndex
 							{isLast}
+							{inGroup}
 							showAnswerActions={showsAnswerActions[messageIndex]}
 						/>
 					{/snippet}
 					{#snippet groupRow(message: DisplayMessage, messageIndex: number)}
-						{@render messageRow(message, messageIndex, false)}
+						{@render messageRow(message, messageIndex, false, true)}
 					{/snippet}
 					{#each chatItems as item (item.kind === 'group' ? `g:${item.key}` : `m:${item.index}`)}
 						{#if item.kind === 'group'}
@@ -870,11 +876,16 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 								)}
 							>
 								<div class="px-[1px]">
-									<ToolGroupDisplay target={item.target} entries={item.entries} entry={groupRow} />
+									<ToolGroupDisplay group={item} entry={groupRow} />
 								</div>
 							</div>
 						{:else}
-							{@render messageRow(item.message, item.index, item.index === messages.length - 1)}
+							{@render messageRow(
+								item.message,
+								item.index,
+								item.index === messages.length - 1,
+								false
+							)}
 						{/if}
 					{/each}
 					{#if freeTierExhausted}

@@ -49,9 +49,10 @@
 
 	interface Props {
 		message: ToolDisplayMessage
+		hidePreviewChip?: boolean
 	}
 
-	let { message }: Props = $props()
+	let { message, hidePreviewChip = false }: Props = $props()
 
 	// Recorded by the call itself, from the connected-server list rather than from the
 	// model's arguments — which is what lets a reloaded transcript still resolve it, and
@@ -140,7 +141,11 @@
 	// shown once the tool settled, never while loading/erroring/awaiting confirmation.
 	const showPreviewChip = $derived(
 		Boolean(
-			message.previewCard && !message.isLoading && !message.error && !message.needsConfirmation
+			!hidePreviewChip &&
+				message.previewCard &&
+				!message.isLoading &&
+				!message.error &&
+				!message.needsConfirmation
 		)
 	)
 

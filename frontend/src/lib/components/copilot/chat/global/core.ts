@@ -236,6 +236,7 @@ import {
 	saveGlobalAppDraft,
 	type DraftPersistResult
 } from './userDraftAdapter'
+import { findModuleInFlow } from '$lib/components/flows/flowTree'
 import {
 	computeDiffParts,
 	expireWorkspaceDiffList,
@@ -5539,7 +5540,7 @@ async function readFlowModuleCode(
 		)
 	}
 	toolCallbacks.setToolStatus(toolId, {
-		content: `Read inline script for "${args.module_id}"`
+		content: `Read code of step ${flowStepName(base.flow.value, args.module_id)}`
 	})
 	return content
 }
@@ -5562,7 +5563,7 @@ async function setFlowModuleCode(
 	}
 	session.set(args.module_id, args.code)
 	const newFlowValue = applyEditableFlowJsonToFlow(base.flow.value, editable, session)
-	return writeFlowDraft(
+	const result = await writeFlowDraft(
 		{
 			path: args.path,
 			summary: base.summary,
@@ -5570,6 +5571,18 @@ async function setFlowModuleCode(
 		},
 		ctx
 	)
+	// Several code edits of one flow read as identical rows under the generic flow label.
+	if (JSON.parse(result).success) {
+		toolCallbacks.setToolStatus(toolId, {
+			content: `Updated code of step ${flowStepName(base.flow.value, args.module_id)}`
+		})
+	}
+	return result
+}
+
+function flowStepName(flow: FlowValue, moduleId: string): string {
+	const summary = findModuleInFlow(flow, moduleId)?.summary
+	return summary ? `${moduleId} "${summary}"` : moduleId
 }
 
 function normalizeTestRunArgs(args: Record<string, any> | null | undefined): Record<string, any> {

@@ -47,6 +47,8 @@
 		editingMessageIndex: number | null
 		isLast?: boolean
 		showAnswerActions?: boolean
+		/** Rendered inside a tool group, which owns the horizontal padding and the preview chip. */
+		inGroup?: boolean
 	}
 
 	let {
@@ -55,7 +57,8 @@
 		availableContext,
 		editingMessageIndex = $bindable(null),
 		isLast = false,
-		showAnswerActions = true
+		showAnswerActions = true,
+		inGroup = false
 	}: Props = $props()
 
 	// The edit box edits a copy of THIS message's original context, not the live
@@ -146,7 +149,8 @@
 				class={twMerge(
 					'text-sm px-2',
 					message.role === 'user' && 'py-1',
-					message.role === 'tool' && 'text-primary'
+					message.role === 'tool' && 'text-primary',
+					inGroup && 'px-0'
 				)}
 			>
 				{#if message.role === 'assistant'}
@@ -159,7 +163,10 @@
 					>
 				{:else if message.role === 'tool'}
 					<div class="px-[1px]"
-						><ToolExecutionDisplay message={message as ToolDisplayMessage} /></div
+						><ToolExecutionDisplay
+							message={message as ToolDisplayMessage}
+							hidePreviewChip={inGroup}
+						/></div
 					>
 				{:else}
 					{#if message.role === 'user' && message.images && message.images.length > 0}

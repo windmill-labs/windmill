@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { ChevronRight } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { slide } from 'svelte/transition'
+	import { fade, slide } from 'svelte/transition'
 	import type { Snippet } from 'svelte'
+	import { Throttled } from 'runed'
 
 	interface Props {
 		label: string
@@ -48,6 +49,12 @@
 		labelClass,
 		contentClass
 	}: Props = $props()
+
+	// A running call rewrites its label at each stage, sometimes several times a second. Each
+	// label stays up at least this long; one arriving sooner waits, and only the latest of those
+	// is shown, so a stage that passed quickly is skipped rather than flashed.
+	const LABEL_MIN_MS = 700
+	const shown = new Throttled(() => ({ prefix: labelPrefix, label }), LABEL_MIN_MS)
 </script>
 
 <div class={twMerge('font-mono text-xs', className)}>
@@ -59,8 +66,9 @@
 				highlight && 'text-emphasis'
 			)}
 		>
-			{#if labelPrefix}<span class="font-normal text-secondary">{labelPrefix}</span
-				>&nbsp;{/if}{label}
+			{#if shown.current.prefix}<span class="font-normal text-secondary"
+					>{shown.current.prefix}</span
+				>&nbsp;{/if}{shown.current.label}
 		</span>
 	{/snippet}
 
@@ -75,16 +83,23 @@
 			aria-expanded={toggleable ? expanded : undefined}
 		>
 			{@render headerLeft?.()}
-			{#if shimmer}
-				<span class="shimmer inline-flex items-center min-w-0">
-					{@render labelText(false)}
-					<span class="shimmer-band inline-flex items-center min-w-0" aria-hidden="true">
-						{@render labelText(true)}
-					</span>
+			<!-- The new label fades in. The key sits outside the shimmer branch: the label and the
+			     shimmer change together, and a transition inside a branch being swapped out does not
+			     play. In only: an outgoing copy would sit beside the new one and widen the row. -->
+			{#key `${shown.current.prefix ?? ''}\n${shown.current.label}`}
+				<span class="inline-flex items-center min-w-0" in:fade={{ duration: 400 }}>
+					{#if shimmer}
+						<span class="shimmer inline-flex items-center min-w-0">
+							{@render labelText(false)}
+							<span class="shimmer-band inline-flex items-center min-w-0" aria-hidden="true">
+								{@render labelText(true)}
+							</span>
+						</span>
+					{:else}
+						{@render labelText(false)}
+					{/if}
 				</span>
-			{:else}
-				{@render labelText(false)}
-			{/if}
+			{/key}
 			{#if toggleable}
 				<ChevronRight
 					class={twMerge(
