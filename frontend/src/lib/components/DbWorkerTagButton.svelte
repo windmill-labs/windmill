@@ -22,7 +22,7 @@
 		input,
 		workspace = undefined,
 		hideTrigger = false,
-		open = $bindable(false)
+		open = $bindable()
 	}: Props = $props()
 
 	let defaultTag = $derived(getDefaultDbTag(input))
@@ -30,7 +30,7 @@
 
 <Popover
 	floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
-	bind:isOpen={open}
+	bind:isOpen={() => open ?? false, (v) => (open = v)}
 	class={hideTrigger ? 'w-0 h-0 overflow-hidden' : undefined}
 	triggerAttrs={hideTrigger ? { tabindex: -1, 'aria-hidden': true } : undefined}
 >

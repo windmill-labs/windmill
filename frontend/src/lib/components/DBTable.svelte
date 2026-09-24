@@ -93,7 +93,8 @@
 		onRowFilterApplied?: () => void
 		/** localStorage key under which the columns the user resized or pinned are kept. */
 		layoutStorageKey?: string
-		/** Tables this one references by foreign key, whose columns can be shown beside its own. */
+		/** Tables this one references by foreign key, whose columns can be shown beside its own.
+		 * Undefined while they are not known yet. */
 		joinTargets?: DbJoinTarget[]
 		/** Offered from the add-column button: adding a column to the table itself. */
 		onNewColumn?: () => void
@@ -105,7 +106,7 @@
 		rowFilter,
 		onRowFilterApplied,
 		layoutStorageKey,
-		joinTargets = [],
+		joinTargets,
 		onNewColumn
 	}: Props = $props()
 
@@ -113,7 +114,7 @@
 		layoutStorageKey ? readDbTableLayout(layoutStorageKey) : ({} as DbTableLayout)
 	)
 	let joins: DbTableJoin[] = $state(storedLayout.joins ?? [])
-	let canAddColumn = $derived(!!onNewColumn || joinTargets.length > 0)
+	let canAddColumn = $derived(!!onNewColumn || !!joinTargets?.length)
 	let columns: ColumnDef[] = $derived([
 		...(dbTableOps.colDefs ?? []).filter((c) => c?.field && !c.ignored && !c.hide),
 		...joins.map(joinedColumnDef)
@@ -246,9 +247,23 @@
 		return rowCount !== undefined ? Math.max(rowCount, loadedEnd) : loadedEnd + BLOCK_SIZE
 	})
 
-	let firstVisible = $derived(Math.floor(scrollTop / ROW_HEIGHT))
+	// Browsers cap an element's height (about 33M px in Chrome, 18M in Firefox), which at
+	// ROW_HEIGHT is under a million rows. Past this cap the scroll range stands in for the rows'
+	// full height, scaled: scrollTop maps to an offset into them, and rows are drawn from there.
+	const MAX_SCROLL_HEIGHT = 10_000_000
+	let bodyHeight = $derived(Math.max(0, viewportHeight - HEADER_HEIGHT))
+	let rowsHeight = $derived(totalRows * ROW_HEIGHT)
+	let scrollBodyHeight = $derived(Math.min(rowsHeight, MAX_SCROLL_HEIGHT))
+	let scrollScale = $derived(
+		rowsHeight <= MAX_SCROLL_HEIGHT || scrollBodyHeight <= bodyHeight
+			? 1
+			: (rowsHeight - bodyHeight) / (scrollBodyHeight - bodyHeight)
+	)
+	let rowsOffset = $derived(scrollTop * scrollScale)
+
+	let firstVisible = $derived(Math.floor(rowsOffset / ROW_HEIGHT))
 	let lastVisible = $derived(
-		Math.min(totalRows, Math.ceil((scrollTop + viewportHeight - HEADER_HEIGHT) / ROW_HEIGHT))
+		Math.min(totalRows, Math.ceil((rowsOffset + bodyHeight) / ROW_HEIGHT))
 	)
 	let renderStart = $derived(Math.max(0, firstVisible - OVERSCAN))
 	let renderEnd = $derived(Math.min(totalRows, lastVisible + OVERSCAN))
@@ -394,6 +409,26 @@
 		joins = [...joins, join]
 		saveLayout()
 	}
+	// A stored join outlives the foreign key it follows: once the keys are known, one that no
+	// longer matches (key dropped, column renamed) would fail every read of the table.
+	$effect(() => {
+		const targets = joinTargets
+		if (!targets) return
+		untrack(() => {
+			const valid = joins.filter((j) =>
+				targets.some(
+					(t) =>
+						t.sourceColumn === j.sourceColumn &&
+						t.targetTable === j.targetTable &&
+						t.targetColumn === j.targetColumn &&
+						t.columns.some((c) => c.field === j.column)
+				)
+			)
+			if (valid.length === joins.length) return
+			joins = valid
+			saveLayout()
+		})
+	})
 	function removeJoin(alias: string) {
 		joins = joins.filter((j) => joinAlias(j) !== alias)
 		setPin(alias, undefined)
@@ -476,10 +511,9 @@
 	function scrollIntoView(cell: { row: number; column: string }) {
 		if (!scrollEl) return
 		const top = cell.row * ROW_HEIGHT
-		const bodyHeight = viewportHeight - HEADER_HEIGHT
-		if (top < scrollEl.scrollTop) scrollEl.scrollTop = top
-		else if (top + ROW_HEIGHT > scrollEl.scrollTop + bodyHeight)
-			scrollEl.scrollTop = top + ROW_HEIGHT - bodyHeight
+		if (top < rowsOffset) scrollEl.scrollTop = top / scrollScale
+		else if (top + ROW_HEIGHT > rowsOffset + bodyHeight)
+			scrollEl.scrollTop = (top + ROW_HEIGHT - bodyHeight) / scrollScale
 		// A pinned column is always in view; the others must clear the pinned ones.
 		if (pinned[cell.column]) return
 		let left = 0
@@ -752,15 +786,15 @@
 	let pickedTarget: number | undefined = $state()
 	let pickedColumn: string | undefined = $state()
 	let pickedTargetColumns = $derived(
-		pickedTarget !== undefined ? (joinTargets[pickedTarget]?.columns ?? []) : []
+		pickedTarget !== undefined ? (joinTargets?.[pickedTarget]?.columns ?? []) : []
 	)
 	function openJoinPicker() {
-		pickedTarget = joinTargets.length === 1 ? 0 : undefined
+		pickedTarget = joinTargets?.length === 1 ? 0 : undefined
 		pickedColumn = undefined
 		joinPickerOpen = true
 	}
 	function confirmJoin() {
-		const target = pickedTarget !== undefined ? joinTargets[pickedTarget] : undefined
+		const target = pickedTarget !== undefined ? joinTargets?.[pickedTarget] : undefined
 		const column = pickedTargetColumns.find((c) => c.field === pickedColumn)
 		if (!target || !column) return
 		addJoin({
@@ -792,7 +826,7 @@
 						? [{ displayName: 'New column', icon: Plus, action: () => onNewColumn?.() }]
 						: []),
 					// Only offered when the table references another by foreign key.
-					...(joinTargets.length
+					...(joinTargets?.length
 						? [{ displayName: 'Add joined column', icon: Merge, action: openJoinPicker }]
 						: [])
 				]}
@@ -819,7 +853,7 @@
 					<div class="flex w-72 flex-col gap-2 p-3" data-testid="db-join-picker">
 						<span class="text-xs font-semibold text-emphasis">Add joined column</span>
 						<Select
-							items={joinTargets.map((t, i) => ({
+							items={(joinTargets ?? []).map((t, i) => ({
 								label: `${t.targetTable} (via ${t.sourceColumn})`,
 								value: i
 							}))}
@@ -842,7 +876,7 @@
 									pickedTarget !== undefined &&
 									joinedAliases.has(
 										joinAlias({
-											sourceColumn: joinTargets[pickedTarget].sourceColumn,
+											sourceColumn: joinTargets![pickedTarget].sourceColumn,
 											column: c.field
 										})
 									)
@@ -951,7 +985,7 @@
 				<div
 					class="relative min-w-full"
 					style:width="{totalWidth}px"
-					style:height="{HEADER_HEIGHT + totalRows * ROW_HEIGHT}px"
+					style:height="{HEADER_HEIGHT + scrollBodyHeight}px"
 				>
 					<!-- Clipped because resize handles straddle the cell edges: a column pinned to the
 						 right would push its handle past the grid and scroll it sideways. -->
@@ -1030,7 +1064,7 @@
 
 					<div
 						class="absolute left-0 right-0"
-						style:top="{HEADER_HEIGHT + renderStart * ROW_HEIGHT}px"
+						style:top="{HEADER_HEIGHT + renderStart * ROW_HEIGHT - rowsOffset + scrollTop}px"
 					>
 						{#each renderedIndices as i (i)}
 							{@const data = rowAt(i)}

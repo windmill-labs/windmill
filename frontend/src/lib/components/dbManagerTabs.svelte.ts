@@ -23,9 +23,9 @@ type StoredTabs = { tabs: DbManagerTab[]; activeId: string }
 export class DbManagerTabs {
 	tabs = $state<DbManagerTab[]>([])
 	activeId = $state('')
-	/** Data tabs by last use, most recent first: where the tree opens a table when the active tab
-	 * is not a data tab. */
-	#dataRecency = $state<string[]>([])
+	/** Tabs by last use, most recent first: where closing the active tab goes back to, and which
+	 * data tab the tree opens a table in when the active tab is not one. */
+	#recency = $state<string[]>([])
 	private storageKey: string | undefined
 	private kinds: DbManagerTabKind[]
 
@@ -39,7 +39,7 @@ export class DbManagerTabs {
 		this.activeId = this.tabs.some((t) => t.id === stored?.activeId)
 			? stored!.activeId
 			: this.tabs[0].id
-		this.#dataRecency = this.tabs.filter((t) => t.kind === 'data').map((t) => t.id)
+		this.#recency = this.tabs.map((t) => t.id)
 		this.#touch(this.activeId)
 	}
 
@@ -49,7 +49,7 @@ export class DbManagerTabs {
 
 	/** The data tab the tree's selection belongs to: the active one, else the last used. */
 	get currentData(): DbManagerDataTab | undefined {
-		const id = this.active.kind === 'data' ? this.active.id : this.#dataRecency[0]
+		const id = this.#recency.find((r) => this.tabs.find((t) => t.id === r)?.kind === 'data')
 		return this.tabs.find((t): t is DbManagerDataTab => t.id === id && t.kind === 'data')
 	}
 
@@ -72,12 +72,12 @@ export class DbManagerTabs {
 		const index = this.tabs.findIndex((t) => t.id === id)
 		if (index === -1) return
 		this.tabs.splice(index, 1)
-		this.#dataRecency = this.#dataRecency.filter((d) => d !== id)
+		this.#recency = this.#recency.filter((r) => r !== id)
 		if (!this.tabs.length) {
 			this.add('data')
 			return
 		}
-		if (this.activeId === id) this.activate(this.tabs[Math.min(index, this.tabs.length - 1)].id)
+		if (this.activeId === id) this.activate(this.#recency[0] ?? this.tabs[0].id)
 		else this.#save()
 	}
 
@@ -125,8 +125,7 @@ export class DbManagerTabs {
 	}
 
 	#touch(id: string) {
-		if (this.tabs.find((t) => t.id === id)?.kind !== 'data') return
-		this.#dataRecency = [id, ...this.#dataRecency.filter((d) => d !== id)]
+		this.#recency = [id, ...this.#recency.filter((r) => r !== id)]
 	}
 
 	#load(): StoredTabs | undefined {

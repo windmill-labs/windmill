@@ -782,9 +782,9 @@
 		})
 	})
 	/** The tables a table can show columns of: those it references by a single-column
-	 * foreign key, with their columns. */
-	function joinTargetsOf(key: string): DbJoinTarget[] {
-		return (foreignKeysOf(key) ?? []).flatMap((fk) => {
+	 * foreign key, with their columns. Undefined until its foreign keys are read. */
+	function joinTargetsOf(key: string): DbJoinTarget[] | undefined {
+		return foreignKeysOf(key)?.flatMap((fk) => {
 			if (fk.columns.length !== 1 || !fk.targetTable) return []
 			const { sourceColumn, targetColumn } = fk.columns[0]
 			const resolved = resolveForeignKeyTarget(fk.targetTable)

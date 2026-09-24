@@ -199,16 +199,18 @@ fn select_source(
     db_type: DbType,
     version: Option<i64>,
 ) -> String {
-    let at = |t: &str| {
+    // DuckDB takes the time-travel clause after an alias, not before it.
+    let at = |t: &str, alias: Option<&str>| {
         let suffix = if db_type == DbType::Duckdb {
             duckdb_version_suffix(version)
         } else {
             String::new()
         };
-        format!("{}{}", quote_table_name(t, db_type), suffix)
+        let alias = alias.map(|a| format!(" AS {}", a)).unwrap_or_default();
+        format!("{}{}{}", quote_table_name(t, db_type), alias, suffix)
     };
     if joins.is_empty() {
-        return at(table);
+        return at(table, None);
     }
     // One join per foreign key, however many of its target's columns are shown.
     let mut keys: Vec<(&str, &str, &str)> = vec![];
@@ -247,9 +249,8 @@ fn select_source(
         .enumerate()
         .map(|(i, (source, target_table, target_column))| {
             format!(
-                " LEFT JOIN {} AS wm_j{} ON wm_base.{} = wm_j{}.{}",
-                at(target_table),
-                i,
+                " LEFT JOIN {} ON wm_base.{} = wm_j{}.{}",
+                at(target_table, Some(&format!("wm_j{}", i))),
                 qi(source, db_type),
                 i,
                 qi(target_column, db_type)
@@ -257,9 +258,9 @@ fn select_source(
         })
         .collect::<String>();
     format!(
-        "(SELECT wm_base.*, {} FROM {} AS wm_base{}) AS wm_src",
+        "(SELECT wm_base.*, {} FROM {}{}) AS wm_src",
         columns,
-        at(table),
+        at(table, Some("wm_base")),
         join_clauses
     )
 }
@@ -3093,6 +3094,23 @@ mod tests {
         .unwrap();
         assert!(count.contains("SELECT COUNT(*) as count FROM (SELECT wm_base.*"));
         assert!(count.contains(") AS wm_src WHERE ($1 = ''"));
+    }
+
+    #[test]
+    fn test_duckdb_joins_alias_before_time_travel() {
+        let cols = vec![col("id", "INTEGER"), col("user_id.name", "VARCHAR")];
+        let opts = SelectOptions { limit: None, offset: None, version: Some(3) };
+        let result = make_select_query_with_joins(
+            "main.orders",
+            &[joined("user_id", "main.users", "name")],
+            &cols,
+            None,
+            DbType::Duckdb,
+            Some(&opts),
+            None,
+        )
+        .unwrap();
+        assert!(result.contains(r#"FROM "main"."orders" AS wm_base AT (VERSION => 3) LEFT JOIN "main"."users" AS wm_j0 AT (VERSION => 3) ON"#));
     }
 
     #[test]

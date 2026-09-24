@@ -217,6 +217,18 @@
 		{ kind: 'diagram', label: 'Diagram', icon: Network },
 		{ kind: 'sql', label: 'SQL Editor', icon: Code }
 	]
+	/** A plain mouse wheel scrolls vertically, which the tab strip cannot: turn it sideways.
+	 * Registered by hand because Svelte's `onwheel` is passive and cannot prevent the default. */
+	function wheelScrollsSideways(el: HTMLElement) {
+		const onWheel = (e: WheelEvent) => {
+			if (e.deltaX || !e.deltaY || el.scrollWidth <= el.clientWidth) return
+			el.scrollLeft += e.deltaY
+			e.preventDefault()
+		}
+		el.addEventListener('wheel', onWheel, { passive: false })
+		return () => el.removeEventListener('wheel', onWheel)
+	}
+
 	let draggedTabId: string | undefined = $state()
 	let dropTarget: { id: string; side: 'before' | 'after' } | undefined = $state()
 	function tabLabel(tab: DbManagerTab): string {
@@ -391,9 +403,10 @@
 				<!-- Floating tabs over the right pane, starting where it starts, and scrolling
 					 sideways before they would run into the actions. -->
 				<div
-					class="absolute inset-y-0 right-28 flex items-center gap-1 overflow-x-auto scrollbar-hidden"
+					class="absolute inset-y-0 right-28 flex items-center gap-1 overflow-x-auto scrollbar-subtle"
 					style:left="{mainPaneLeft}px"
 					role="tablist"
+					{@attach wheelScrollsSideways}
 				>
 					{#each tabs.tabs as tab (tab.id)}
 						{@const active = tab.id === tabs.activeId}
@@ -436,6 +449,9 @@
 							ondragend={() => {
 								draggedTabId = undefined
 								dropTarget = undefined
+							}}
+							{@attach (el) => {
+								if (active) el.scrollIntoView({ block: 'nearest', inline: 'nearest' })
 							}}
 						>
 							{#if dropSide}
