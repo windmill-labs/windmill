@@ -54,7 +54,10 @@ vi.mock('$lib/gen', () => ({
 	AzureTriggerService: { createAzureTrigger: vi.fn() },
 	AmqpTriggerService: { createAmqpTrigger: vi.fn() },
 	EmailTriggerService: { createEmailTrigger: vi.fn() },
-	SettingService: { getGlobal: vi.fn() }
+	SettingService: { getGlobal: vi.fn() },
+	ResourceService: {
+		getResourceValue: vi.fn(async ({ path }: { path: string }) => ({ content: `body of ${path}` }))
+	}
 }))
 
 vi.mock('$lib/utils', () => ({
@@ -205,6 +208,106 @@ describe('buildContextString', () => {
 })
 
 describe('processToolCall', () => {
+	it('delivers folder instructions once, holding back a change until they are read', async () => {
+		const { createToolDef, processToolCall } = await import('./shared')
+		const read = vi.fn(async () => 'read ok')
+		const write = vi.fn(async () => 'write ok')
+		const tools = [
+			{ def: createToolDef(z.object({}), 'read_item', 'Read'), planModeSafe: true, fn: read },
+			{ def: createToolDef(z.object({}), 'write_item', 'Write'), fn: write }
+		]
+		const folderInstructions = {
+			list: () => [
+				{ path: 'f/billing/AGENTS', scope: 'f/billing/' },
+				{ path: 'f/billing/eu/AGENTS', scope: 'f/billing/eu/' },
+				{ path: 'f/other/AGENTS', scope: 'f/other/' },
+				{ path: 'g/ops/AGENTS', scope: 'g/ops/' }
+			],
+			deliveredBy: new Map<string, { workspace: string; paths: readonly string[] }>()
+		}
+		const messages: any[] = []
+		const call = async (
+			id: string,
+			name: string,
+			path: string | object,
+			workspace = 'test-workspace'
+		) => {
+			const message = await processToolCall({
+				tools,
+				toolCall: {
+					id,
+					type: 'function',
+					function: {
+						name,
+						arguments: JSON.stringify(typeof path === 'string' ? { path } : path)
+					}
+				},
+				helpers: {},
+				workspace,
+				messages,
+				toolCallbacks: { setToolStatus: vi.fn(), removeToolStatus: vi.fn(), folderInstructions }
+			})
+			messages.push(message)
+			return message.content as string
+		}
+		const turn = () => messages.push({ role: 'assistant', content: '' })
+
+		turn()
+		const readResult = await call('c1', 'read_item', 'f/billing/eu/invoice')
+		expect(read).toHaveBeenCalledTimes(1)
+		expect(readResult.startsWith('read ok')).toBe(true)
+		// Outermost first, so the nested folder's instructions read as the specific ones.
+		expect(readResult.indexOf('body of f/billing/AGENTS')).toBeLessThan(
+			readResult.indexOf('body of f/billing/eu/AGENTS')
+		)
+		// Same batch: the model has not read c1's result yet, so the write still waits,
+		// pointed at that result rather than handed the bodies twice.
+		const sameBatch = await call('c2', 'write_item', 'f/billing/eu/invoice')
+		expect(write).not.toHaveBeenCalled()
+		expect(sameBatch).not.toContain('body of f/billing/AGENTS')
+		expect(sameBatch).toContain('earlier result of this same batch')
+
+		turn()
+		expect(await call('c3', 'write_item', 'f/billing/eu/invoice')).toBe('write ok')
+
+		const held = await call('c4', 'write_item', 'f/other/x')
+		expect(write).toHaveBeenCalledTimes(1)
+		expect(held).toContain('body of f/other/AGENTS')
+		expect(held).not.toContain('body of f/billing/AGENTS')
+
+		turn()
+		expect(await call('c5', 'write_item', 'f/other/x')).toBe('write ok')
+
+		expect(await call('g1', 'read_item', 'g/ops/runbook')).toContain('body of g/ops/AGENTS')
+
+		// The same path in another workspace is another resource, delivered afresh.
+		expect(await call('w1', 'read_item', 'f/other/x', 'other-workspace')).toContain(
+			'body of f/other/AGENTS'
+		)
+
+		// A delivery lost from the conversation (compaction) is made again.
+		messages.splice(0)
+		turn()
+		expect(await call('c6', 'read_item', 'f/billing/y')).toContain('body of f/billing/AGENTS')
+
+		// A trigger names its target inside its config.
+		messages.splice(0)
+		turn()
+		const nested = await call('t1', 'write_item', { kind: 'http', config: { path: 'f/other/t' } })
+		expect(nested).toContain('body of f/other/AGENTS')
+		expect(write).toHaveBeenCalledTimes(2)
+
+		// A call stopped mid-run is answered with a placeholder under its id: no delivery.
+		messages.splice(0)
+		folderInstructions.deliveredBy.set('stopped', {
+			workspace: 'test-workspace',
+			paths: ['f/billing/AGENTS']
+		})
+		messages.push({ role: 'tool', tool_call_id: 'stopped', content: 'Interrupted' })
+		turn()
+		expect(await call('c7', 'read_item', 'f/billing/y')).toContain('body of f/billing/AGENTS')
+	})
+
 	it('returns pre-confirmation validation errors without asking for confirmation', async () => {
 		const { createToolDef, processToolCall } = await import('./shared')
 		const error = 'the script needs to be deployed before doing this action'
