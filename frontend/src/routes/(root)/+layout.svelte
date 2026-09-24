@@ -127,9 +127,9 @@
 		workspaceStore.set(undefined)
 	}
 
-	// Throws when `globalWhoami` shows the session itself is gone, which is the caller's cue to
-	// log out. The picker redirect waits on that answer: navigating first leaves the logout's
-	// `rd` pointing at the picker rather than at where the user was headed.
+	// Throws on any `globalWhoami` rejection, which is the caller's cue to log out. The picker
+	// redirect waits on that answer: navigating first leaves the logout's `rd` pointing at the
+	// picker rather than at where the user was headed.
 	async function loadWithoutWorkspace() {
 		let user = await UserService.globalWhoami()
 		noteSessionEmail(user.email)
@@ -169,10 +169,10 @@
 						return
 					}
 					if (!user) {
-						// The persisted workspace outlives the session that chose it: a single-use
-						// login link signs a different account in while storage still names a
-						// workspace that account is not a member of. Throwing here would log that
-						// brand-new session out; a missing membership is no evidence about it.
+						// The persisted workspace outlives the session that chose it: a login link
+						// signs a different account in while storage still names a workspace that
+						// account is not a member of. This lookup answers about the workspace, never
+						// about the session, so throwing here would log the new session out blind.
 						forgetWorkspace()
 						await loadWithoutWorkspace()
 						return
