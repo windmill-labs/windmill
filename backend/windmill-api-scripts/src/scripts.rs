@@ -1418,8 +1418,8 @@ async fn create_script_internal<'c>(
             if let Some(clashing_hash) = clashing_hash_o {
                 // Named only when the caller could already read it. The probe above has to be
                 // unscoped to be correct, but a hash alone reads a script's content back
-                // through `raw/h/{hash}`, which authorizes nothing per script — so echoing one
-                // the caller cannot see hands them a way to fetch it.
+                // through `raw/h/{hash}`, which reads through the admin pool and so applies no
+                // folder ACL — echoing one the caller cannot see hands them a way to fetch it.
                 let visible_to_caller = sqlx::query_scalar!(
                     "SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2",
                     clashing_hash,
