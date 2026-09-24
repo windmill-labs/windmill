@@ -701,7 +701,13 @@
 			return
 		}
 		const { schemaKey, table } = resolved
-		selectTable(currentDatatable, schemaKey, table)
+		if (tabs) {
+			// The referenced row opens beside the table it was followed from, not in its place.
+			reveal(currentDatatable, schemaKey)
+			tabs.add('data', { schema: schemaKey, table })
+		} else {
+			selectTable(currentDatatable, schemaKey, table)
+		}
 		rowFilter = {
 			tableKey: dbSupportsSchemas ? `${schemaKey}.${table}` : table,
 			column: target.column,
@@ -787,9 +793,7 @@
 			const columns = (colDefs?.[targetKey] ?? [])
 				.filter((c) => !c.ignored)
 				.map((c) => ({ field: c.field, datatype: c.datatype }))
-			return columns.length
-				? [{ sourceColumn, targetTable: targetKey, targetColumn, columns }]
-				: []
+			return columns.length ? [{ sourceColumn, targetTable: targetKey, targetColumn, columns }] : []
 		})
 	}
 
