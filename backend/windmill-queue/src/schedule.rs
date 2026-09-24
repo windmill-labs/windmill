@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use crate::jobs::HTTP_CLIENT;
 use crate::push;
 use crate::PushIsolationLevel;
 use anyhow::Context;
@@ -25,6 +26,7 @@ use windmill_common::jobs::OnBehalfOf;
 use windmill_common::runnable_settings::ConcurrencySettings;
 use windmill_common::runnable_settings::DebouncingSettings;
 use windmill_common::schedule::schedule_to_user;
+use windmill_common::scripts::get_full_hub_script_by_path;
 use windmill_common::scripts::ScriptHash;
 use windmill_common::triggers::TriggerMetadata;
 use windmill_common::utils::WarnAfterExt;
@@ -327,13 +329,21 @@ pub async fn push_scheduled_job<'c>(
     } else if schedule.script_path.starts_with("hub/") {
         let tag = schedule.tag.clone().filter(|t| !t.is_empty());
         let payload = match &schedule.retry {
-            // A hub script has no hash, so a retry runs it as a one-step flow
-            // whose module resolves the hub path.
+            // The language is what lets `push` materialize this as a native retry
+            // instead of a flow wrapper, which would queue the next tick at start.
             Some(retry) => JobPayload::SingleStepFlow {
                 path: schedule.script_path.clone(),
                 hash: None,
                 flow_version: None,
-                language: None,
+                language: Some(
+                    get_full_hub_script_by_path(
+                        StripPath(schedule.script_path.clone()),
+                        &HTTP_CLIENT,
+                        Some(db),
+                    )
+                    .await?
+                    .language,
+                ),
                 retry: Some(serde_json::from_value::<Retry>(retry.clone()).map_err(|e| {
                     error::Error::internal_err(format!(
                         "Unable to parse retry information from schedule: {e}"

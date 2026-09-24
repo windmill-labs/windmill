@@ -1077,9 +1077,9 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     // Auto-resolve a retry chain that ultimately worked, from whichever of the two
     // completions lands last (see resolve_retry_chain_if_succeeded): a success that has a
     // parent (so is a possible retry attempt), or a failure that just enqueued a retry.
-    // `retry_pending` already implies a non-flow-step `Script`.
+    // `retry_pending` already implies a non-flow-step `Script` or `Script_Hub`.
     let resolve_root = if success && !skipped && !completed_job.is_flow_step() {
-        matches!(completed_job.kind, JobKind::Script)
+        matches!(completed_job.kind, JobKind::Script | JobKind::Script_Hub)
             .then(|| completed_job.parent_job)
             .flatten()
     } else if !success && !skipped && retry_pending {
@@ -1833,7 +1833,10 @@ pub async fn maybe_enqueue_native_script_retry(
     result_fn: &(dyn Fn() -> Option<Box<serde_json::value::RawValue>> + Sync),
 ) -> Result<bool, Error> {
     // Only plain top-level scripts retry natively; cancellation always wins.
-    if canceled_by.is_some() || !matches!(job.kind, JobKind::Script) || job.is_flow_step() {
+    if canceled_by.is_some()
+        || !matches!(job.kind, JobKind::Script | JobKind::Script_Hub)
+        || job.is_flow_step()
+    {
         return Ok(false);
     }
 
@@ -6109,10 +6112,12 @@ async fn push_inner<'c, 'd>(
             // `quickjs` feature it cannot be evaluated and fails closed (no retry);
             // the flow path is not a fallback, since the flow runtime needs quickjs
             // too.
+            // A hub script has no hash and runs as a `Script_Hub` job.
+            let is_hub = hash.is_none() && path.starts_with("hub/");
             let native_retry = !is_flow
                 && skip_handler.is_none()
                 && error_handler_path.is_none()
-                && hash.is_some()
+                && (hash.is_some() || is_hub)
                 && language.is_some()
                 && windmill_common::runnable_settings::min_version_supports_runnable_settings_v0()
                     .await;
@@ -6142,7 +6147,11 @@ async fn push_inner<'c, 'd>(
                 break 'ssf JobPayloadUntagged {
                     runnable_id: hash.map(|h| h.0),
                     runnable_path: Some(path),
-                    job_kind: JobKind::Script,
+                    job_kind: if is_hub {
+                        JobKind::Script_Hub
+                    } else {
+                        JobKind::Script
+                    },
                     language,
                     dedicated_worker,
                     concurrency_settings,

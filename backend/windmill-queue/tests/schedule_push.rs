@@ -1771,14 +1771,16 @@ mod schedule_push {
         .await?;
         let hub_path = format!("hub/{version}/test/echo");
 
-        for (path, retry, kind) in [
-            ("f/system/hub_plain", None, "script_hub"),
+        // A retry must stay a native `script_hub` job: a flow wrapper would queue the
+        // next tick at start and let slow runs overlap.
+        for (path, retry) in [
+            ("f/system/hub_plain", None),
             (
                 "f/system/hub_retry",
                 Some(serde_json::json!({ "constant": { "attempts": 2, "seconds": 1 } })),
-                "singlestepflow",
             ),
         ] {
+            let has_retry = retry.is_some();
             let schedule = make_schedule(|s| {
                 s.path = path.to_string();
                 s.script_path = hub_path.clone();
@@ -1788,14 +1790,17 @@ mod schedule_push {
             let tx = push_scheduled_job(&db, tx, &schedule, Some(&make_authed()), None).await?;
             tx.commit().await?;
 
-            let (job_kind, runnable_path) = sqlx::query_as::<_, (String, Option<String>)>(
-                "SELECT kind::text, runnable_path FROM v2_job WHERE trigger = $1",
-            )
-            .bind(path)
-            .fetch_one(&db)
-            .await?;
-            assert_eq!(job_kind, kind);
+            let (job_kind, runnable_path, handle) =
+                sqlx::query_as::<_, (String, Option<String>, Option<i64>)>(
+                    "SELECT j.kind::text, j.runnable_path, q.runnable_settings_handle
+                     FROM v2_job j JOIN v2_job_queue q ON j.id = q.id WHERE j.trigger = $1",
+                )
+                .bind(path)
+                .fetch_one(&db)
+                .await?;
+            assert_eq!(job_kind, "script_hub");
             assert_eq!(runnable_path.as_deref(), Some(hub_path.as_str()));
+            assert_eq!(handle.is_some(), has_retry);
         }
         Ok(())
     }
