@@ -6188,9 +6188,14 @@ describe('global AI tools', () => {
 	it.each([
 		{
 			answer: 'the mounted form',
-			// A text field the form could not fill in comes back as the empty string, never absent.
+			// A field the form could not fill in comes back blank, never absent: text as the empty
+			// string, a list as `[]`.
 			callbacks: {
-				requestRunArgs: async (_toolId: string, form: any) => ({ ...form.args, user_message: '' })
+				requestRunArgs: async (_toolId: string, form: any) => ({
+					...form.args,
+					user_message: '',
+					enabled_tools: form.args.enabled_tools ?? []
+				})
 			}
 		},
 		{
@@ -6226,7 +6231,8 @@ describe('global AI tools', () => {
 									type: 'static',
 									value: { kind: 'openai', resource: '$res:u/admin/openai', model: 'gpt-4o' }
 								},
-								user_message: { type: 'javascript', expr: 'results.first.question' }
+								user_message: { type: 'javascript', expr: 'results.first.question' },
+								enabled_tools: { type: 'javascript', expr: 'results.first.tools' }
 							}
 						}
 					}
@@ -6246,6 +6252,7 @@ describe('global AI tools', () => {
 				type: 'javascript',
 				expr: 'flow_input.user_message'
 			})
+			expect(body.args.enabled_tools).toEqual([])
 		}
 	)
 

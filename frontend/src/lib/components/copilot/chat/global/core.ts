@@ -5669,6 +5669,9 @@ async function agentStepRunForm(
 		if (value !== undefined) evaluated[key] = value
 	}
 	const args = { ...evaluated, ...(proposed ?? {}) }
+	// A mounted form fills a blank list with `[]`, and the bypass posture submits the form unmounted.
+	// For `enabled_tools` the two mean opposite things: `[]` runs no tools, an absent key runs all.
+	if (keys.includes('enabled_tools')) args.enabled_tools ??= []
 
 	const properties = Object.fromEntries(keys.map((key) => [key, schema.properties[key]]))
 	if (properties.memory) properties.memory = memoryPropertyFor(properties.memory, args.memory)
