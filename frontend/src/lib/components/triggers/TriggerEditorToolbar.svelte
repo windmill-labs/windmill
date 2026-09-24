@@ -66,8 +66,9 @@
 
 	const canSave = $derived((permissions === 'write' && edit) || permissions === 'create')
 
-	// Applied here because every schedule and trigger editor renders this toolbar, while each of
-	// them derives its own `can_write` from path permissions alone. Anything that is not the
+	// The editors fold the lock into `can_write` only when they load an existing trigger. A new
+	// one starts writable, and can be opened outside the list pages (a script or flow's Triggers
+	// panel, the pipeline page), so the lock is applied here too. Anything that is not the
 	// schedule editor edits a trigger, the native editor — which passes no kind — included.
 	const writeLock = $derived(triggerKind === 'schedule' ? $scheduleLock : $triggerLock)
 

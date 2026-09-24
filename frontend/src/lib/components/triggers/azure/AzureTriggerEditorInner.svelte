@@ -10,6 +10,7 @@
 	import Path from '$lib/components/Path.svelte'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
+	import { triggerLock } from '$lib/operatorWriteRights'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import { Loader2 } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
@@ -234,7 +235,7 @@
 		event_type_filters = cfg?.event_type_filters
 		path = cfg?.path
 		mode = cfg?.mode ?? 'enabled'
-		can_write = canWrite(cfg?.path, cfg?.extra_perms, $userStore)
+		can_write = canWrite(cfg?.path, cfg?.extra_perms, $userStore) && !$triggerLock
 		error_handler_path = cfg?.error_handler_path
 		error_handler_args = cfg?.error_handler_args ?? {}
 		retry = cfg?.retry

@@ -29,6 +29,7 @@
 		generateRandomString,
 		sendUserToast
 	} from '$lib/utils'
+	import { triggerLock } from '$lib/operatorWriteRights'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2, Pipette, Plus } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
@@ -374,7 +375,7 @@
 			is_static_website = cfg?.is_static_website ?? false
 		}
 		extraPerms = cfg?.extra_perms ?? undefined
-		can_write = canWrite(path, cfg?.extra_perms ?? {}, $userStore)
+		can_write = canWrite(path, cfg?.extra_perms ?? {}, $userStore) && !$triggerLock
 		error_handler_path = cfg?.error_handler_path
 		error_handler_args = cfg?.error_handler_args ?? {}
 		retry = cfg?.retry

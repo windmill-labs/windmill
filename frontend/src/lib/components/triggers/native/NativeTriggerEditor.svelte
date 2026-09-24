@@ -213,7 +213,7 @@
 			serviceConfig = (fullTrigger.service_config as Record<string, any>) || {}
 			scriptPath = fullTrigger.script_path
 			initialScriptPath = fullTrigger.script_path
-			can_write = canWrite(fullTrigger.script_path, {}, $userStore)
+			can_write = canWrite(fullTrigger.script_path, {}, $userStore) && !$triggerLock
 			summary = fullTrigger.summary ?? ''
 			externalData = fullTrigger.external_data
 			externalError = fullTrigger.external_error ?? undefined
@@ -289,8 +289,6 @@
 			loadingConfig ||
 			loadingForm ||
 			!can_write ||
-			// Drawer mode draws its own Save, outside the shared toolbar that carries the lock.
-			!!$triggerLock ||
 			!hasChanged ||
 			loadError !== undefined
 	)

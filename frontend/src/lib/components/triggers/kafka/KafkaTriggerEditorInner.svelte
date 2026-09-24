@@ -14,6 +14,7 @@
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
+	import { triggerLock } from '$lib/operatorWriteRights'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2, RotateCcw } from 'lucide-svelte'
@@ -249,7 +250,7 @@
 		autoCommit = cfg?.auto_commit ?? true
 		mode = cfg?.mode ?? 'enabled'
 		extra_perms = cfg?.extra_perms
-		can_write = canWrite(path, cfg?.extra_perms, $userStore)
+		can_write = canWrite(path, cfg?.extra_perms, $userStore) && !$triggerLock
 		error_handler_path = cfg?.error_handler_path
 		error_handler_args = cfg?.error_handler_args ?? {}
 		retry = cfg?.retry

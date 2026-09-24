@@ -26,6 +26,7 @@
 	} from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptySchema, emptyString, sendUserToast } from '$lib/utils'
+	import { triggerLock } from '$lib/operatorWriteRights'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2, X, Plus } from 'lucide-svelte'
@@ -272,7 +273,7 @@
 		heartbeat_interval_secs = hb?.interval_secs ?? 41
 		heartbeat_message = hb?.message ?? ''
 		heartbeat_state_field = hb?.state_field ?? ''
-		can_write = canWrite(path, cfg?.extra_perms, $userStore)
+		can_write = canWrite(path, cfg?.extra_perms, $userStore) && !$triggerLock
 		error_handler_path = cfg?.error_handler_path
 		error_handler_args = cfg?.error_handler_args ?? {}
 		retry = cfg?.retry

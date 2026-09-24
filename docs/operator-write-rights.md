@@ -16,10 +16,9 @@ anything that is not a GET/HEAD/OPTIONS.
 
 That is not a style choice. A trigger kind can register routes of its own beside the shared CRUD
 ones — bulk HTTP creation, the Postgres publication and replication-slot setup — and those are
-hand-written, one per feature. The first version of this checked each handler, and every one of
-those extra routes was missed, along with the whole native-trigger family, which does not use the
-shared handlers at all. On the router the author of the next route writes nothing and is covered
-anyway.
+hand-written, one per feature. A check inside each handler misses every one of those extra routes,
+along with the whole native-trigger family, which does not use the shared handlers at all. On the
+router the author of the next route writes nothing and is covered anyway.
 
 **A layer only covers the routers it is on.** It closes routes added *inside* a gated router; it
 says nothing about a new feature that performs trigger writes from a router of its own. Capture is
@@ -58,9 +57,13 @@ alone, because `canWrite` also tells `SharedBadge` whether a row belongs to some
 lock into it and every row, including ones the operator owns and has never shared, claims to be
 shared read-only. Gate write affordances on `canEdit`, never the badge.
 
-The write actions inside an editor are gated in `TriggerEditorToolbar`, and sharing in
-`ShareModal`, which locks itself off the kind it was opened on rather than relying on each of the
-dozen menu entries that open it.
+Each schedule and trigger editor folds the lock into its own `can_write`, so a withdrawn operator
+gets the same read-only editor as someone without write access to the folder. There, unlike the
+list pages, nothing reads `can_write` as a sharing hint. They only do it when loading an existing
+trigger, so `TriggerEditorToolbar` takes the lock too: a new trigger's editor starts writable, and
+opens from outside the list pages (a script or flow's Triggers panel, the pipeline page). Sharing is
+gated in `ShareModal`, which locks itself off the kind it was opened on rather than relying on each
+of the dozen menu entries that open it.
 
 The cache is per process, so withdrawing a right has to reach every replica: an `AFTER UPDATE OF
 operator_settings` trigger writes a `notify_operator_settings_change` row and `process_notify_event`
@@ -70,7 +73,7 @@ authorizing writes on every other replica until its own entry expires.
 ## Granted unless withdrawn
 
 These name capabilities operators already hold, so absence has to mean "never configured", not a
-value. That is easy to get wrong in two places, and both were wrong in the obvious first draft:
+value. That is easy to get wrong in two places, and the obvious implementation gets both wrong:
 
 - The read coalesces to **true** (`operator_manage_rights`), including for a workspace with no
   `workspace_settings` row, which is what `OperatorManageRights::default` is for. Coalescing to

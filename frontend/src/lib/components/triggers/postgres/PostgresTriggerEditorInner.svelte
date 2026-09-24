@@ -21,6 +21,7 @@
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	import { canWrite, emptyString, emptyStringTrimmed, sendUserToast } from '$lib/utils'
+	import { triggerLock } from '$lib/operatorWriteRights'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2 } from 'lucide-svelte'
@@ -368,7 +369,7 @@
 		postgres_resource_path = cfg?.postgres_resource_path
 		publication_name = cfg?.publication_name
 		replication_slot_name = cfg?.replication_slot_name
-		can_write = canWrite(path, cfg?.extra_perms, $userStore)
+		can_write = canWrite(path, cfg?.extra_perms, $userStore) && !$triggerLock
 		transaction_to_track = [...cfg?.publication?.transaction_to_track]
 		relations = cfg?.publication?.table_to_track ?? []
 		error_handler_path = cfg?.error_handler_path

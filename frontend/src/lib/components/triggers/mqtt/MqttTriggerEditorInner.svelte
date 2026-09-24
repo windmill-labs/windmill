@@ -13,6 +13,7 @@
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
+	import { triggerLock } from '$lib/operatorWriteRights'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2 } from 'lucide-svelte'
@@ -244,7 +245,7 @@
 			v3_config = cfg?.v3_config ?? DEFAULT_V3_CONFIG
 			v5_config = cfg?.v5_config ?? DEFAULT_V5_CONFIG
 			client_id = cfg?.client_id ?? ''
-			can_write = canWrite(cfg?.path, cfg?.extra_perms, $userStore)
+			can_write = canWrite(cfg?.path, cfg?.extra_perms, $userStore) && !$triggerLock
 			error_handler_path = cfg?.error_handler_path
 			error_handler_args = cfg?.error_handler_args ?? {}
 			retry = cfg?.retry
