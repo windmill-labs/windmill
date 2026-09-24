@@ -42,7 +42,7 @@
 	import { Circle, ExternalLink } from 'lucide-svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
-	import { disableHubStore, hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
+	import { disableHubStore, hubBaseUrlStore, userStore } from '$lib/stores'
 	import { get } from 'svelte/store'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { Alert } from '$lib/components/common'
@@ -53,6 +53,9 @@
 		byPopularity,
 		localCountsByIntegration
 	} from '$lib/components/pickerPopularity'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
 
@@ -113,7 +116,7 @@
 			// Independent reads, so they share one round trip before first paint.
 			const [integrations, local] = await Promise.all([
 				listHubIntegrationsShared(filterKind, refreshCount),
-				$workspaceStore ? localCountsByIntegration($workspaceStore) : {}
+				$operatingWorkspace ? localCountsByIntegration($operatingWorkspace) : {}
 			])
 			const hubPicks = Object.fromEntries(integrations.map((x) => [x.name, x.picks ?? 0]))
 			popularity = byPopularity(hubPicks, local)

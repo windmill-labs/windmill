@@ -9,7 +9,6 @@
 		type Preview,
 		type WorkflowStatus
 	} from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { base } from '$lib/base'
 	import { displayDate } from '$lib/utils'
 	import Tabs from '../common/tabs/Tabs.svelte'
@@ -33,6 +32,9 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { PreviewPanelUi } from '../custom_ui'
 	import { getStringError } from '../copilot/chat/utils'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		lang: Preview['language'] | undefined
@@ -268,7 +270,7 @@
 										<Cell first>
 											<a
 												class="pr-3"
-												href="{base}/run/{id}?workspace={workspace ?? $workspaceStore}"
+												href="{base}/run/{id}?workspace={workspace ?? $operatingWorkspace}"
 												target="_blank">{id.substring(30)}</a
 											>
 										</Cell>
@@ -286,7 +288,7 @@
 												onclick={preventDefault(() => {
 													openDrawer({ mode: 'json', content: undefined, title: 'Result' })
 													JobService.getCompletedJobResult({
-														workspace: workspace ?? $workspaceStore ?? 'NO_W',
+														workspace: workspace ?? $operatingWorkspace ?? 'NO_W',
 														id
 													}).then((res) => {
 														drawerContent && (drawerContent.content = res)
@@ -302,7 +304,7 @@
 												onclick={preventDefault(async () => {
 													const code = (
 														await JobService.getCompletedJob({
-															workspace: workspace ?? $workspaceStore ?? 'NO_W',
+															workspace: workspace ?? $operatingWorkspace ?? 'NO_W',
 															id
 														})
 													).raw_code
@@ -323,7 +325,7 @@
 													const logs = await (
 														await fetch(
 															OpenAPI.BASE +
-																`/w/${workspace ?? $workspaceStore}/jobs_u/get_logs/${id}`
+																`/w/${workspace ?? $operatingWorkspace}/jobs_u/get_logs/${id}`
 														)
 													).text()
 													console.log(logs)

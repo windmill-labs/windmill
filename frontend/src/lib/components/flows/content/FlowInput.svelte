@@ -8,7 +8,6 @@
 	import JsonInputs from '$lib/components/JsonInputs.svelte'
 	import { convert } from '@redocly/json-to-json-schema'
 	import { sendUserToast } from '$lib/toast'
-	import { workspaceStore } from '$lib/stores'
 	import EditableSchemaForm from '$lib/components/EditableSchemaForm.svelte'
 	import AddPropertyV2 from '$lib/components/schema/AddPropertyV2.svelte'
 	import FlowInputViewer from '$lib/components/FlowInputViewer.svelte'
@@ -57,6 +56,9 @@
 	import type { AIAgentConfig } from '../agentResourceUtils'
 	import FlowChat from '../conversations/FlowChat.svelte'
 	import { SPECIAL_MODULE_IDS } from '$lib/components/copilot/chat/shared'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		noEditor: boolean
@@ -84,7 +86,7 @@
 		opWorkspace
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 	// Acting workspace when the flow editor runs in an AI session; else the nav workspace.
-	let opWs = $derived(opWorkspace?.() ?? $workspaceStore)
+	let opWs = $derived(opWorkspace?.() ?? $operatingWorkspace)
 
 	// Get diffManager from the graph
 	const diffManager = $derived(flowModuleSchemaMap?.getDiffManager())

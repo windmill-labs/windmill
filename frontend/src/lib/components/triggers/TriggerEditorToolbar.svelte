@@ -6,7 +6,6 @@
 	import { Tooltip } from '../meltComponents'
 	import DeleteTriggerButton from './DeleteTriggerButton.svelte'
 	import { type Trigger, type TriggerType } from './utils'
-	import { scheduleLock, triggerLock } from '$lib/operatorWriteRights'
 	import TriggerSuspendedJobsModal from './TriggerSuspendedJobsModal.svelte'
 	import type { TriggerMode } from '$lib/gen'
 	import TriggerModeToggle from './TriggerModeToggle.svelte'
@@ -14,7 +13,7 @@
 	import { stripBase, TRIGGER_PAGES, SCHEDULES_PATH } from '$lib/components/sessions/previewPaths'
 	import { pageDrawerSessionSource } from '../sessions/pageDrawerSession'
 	import { page } from '$app/state'
-	import { workspaceStore } from '$lib/stores'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import TriggerHistoryButton from './TriggerHistoryButton.svelte'
 
 	interface Props {
@@ -63,14 +62,10 @@
 		triggerPath,
 		triggerKind
 	}: Props = $props()
+	const operatingWorkspace = useOperatingWorkspace()
+	const wsId = $derived($operatingWorkspace)
 
 	const canSave = $derived((permissions === 'write' && edit) || permissions === 'create')
-
-	// The editors fold the lock into `can_write` only when they load an existing trigger. A new
-	// one starts writable, and can be opened outside the list pages (a script or flow's Triggers
-	// panel, the pipeline page), so the lock is applied here too. Anything that is not the
-	// schedule editor edits a trigger, the native editor — which passes no kind — included.
-	const writeLock = $derived(triggerKind === 'schedule' ? $scheduleLock : $triggerLock)
 
 	// "Open in AI session", on the standalone trigger list pages only: the route
 	// gate inside pageDrawerSessionSource is what keeps it off this same toolbar
@@ -86,7 +81,7 @@
 			? pageDrawerSessionSource(
 					triggerPagePath,
 					trigger?.isDraft ? undefined : triggerPath || trigger?.path,
-					$workspaceStore ?? undefined
+					wsId ?? undefined
 				)
 			: undefined
 	)
@@ -107,7 +102,7 @@
 	<OpenInSessionButton source={sessionSource} />
 	{#if edit}
 		<TriggerModeToggle
-			canWrite={canSave && !writeLock}
+			canWrite={canSave}
 			triggerMode={mode}
 			{onToggleMode}
 			{suspendedJobsModal}
@@ -119,8 +114,7 @@
 			size="sm"
 			variant="accent"
 			startIcon={{ icon: Save }}
-			disabled={saveDisabled || !!writeLock}
-			title={writeLock}
+			disabled={saveDisabled}
 			on:click={() => {
 				onUpdate?.()
 			}}
@@ -130,8 +124,6 @@
 		</Button>
 	{/if}
 {:else}
-	<!-- This toolbar inside a script or flow editor's Triggers panel: another path to the same
-		 trigger writes, so it takes the same lock. -->
 	<div class="flex flex-row gap-2 items-center">
 		{#if triggerKind && historyPath}
 			<TriggerHistoryButton {triggerKind} path={historyPath} />
@@ -140,7 +132,7 @@
 		{#if !trigger?.draftConfig}
 			<div class="center-center">
 				<TriggerModeToggle
-					canWrite={permissions !== 'none' && !writeLock}
+					canWrite={permissions !== 'none'}
 					triggerMode={mode}
 					{onToggleMode}
 					{suspendedJobsModal}
@@ -163,19 +155,12 @@
 			</Button>
 		{/if}
 		{#if canSave}
-			<Tooltip
-				placement="bottom-end"
-				disablePopup={!saveDisabled && !cloudDisabled && isDeployed && !writeLock}
-			>
+			<Tooltip placement="bottom-end" disablePopup={!saveDisabled && !cloudDisabled && isDeployed}>
 				<Button
 					variant="accent"
 					unifiedSize="sm"
 					startIcon={{ icon: Save }}
-					disabled={saveDisabled ||
-						cloudDisabled ||
-						!isDeployed ||
-						!trigger?.draftConfig ||
-						!!writeLock}
+					disabled={saveDisabled || cloudDisabled || !isDeployed || !trigger?.draftConfig}
 					on:click={() => {
 						onUpdate?.()
 					}}
@@ -185,9 +170,7 @@
 				</Button>
 				{#snippet text()}
 					<span>
-						{#if writeLock}
-							{writeLock}
-						{:else if !isDeployed}
+						{#if !isDeployed}
 							Deploy the runnable to enable trigger creation
 						{:else if cloudDisabled}
 							This trigger is disabled in the multi-tenant cloud

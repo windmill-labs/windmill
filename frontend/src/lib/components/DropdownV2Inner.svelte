@@ -13,9 +13,10 @@
 		items?: Item[] | (() => Item[]) | (() => Promise<Item[]>)
 		meltItem: MenubarMenuElements['item']
 		builders?: ReturnType<typeof createDropdownMenu>['builders']
+		close?: (afterClose?: () => void) => void
 	}
 
-	let { aiId, items = [], meltItem, builders }: Props = $props()
+	let { aiId, items = [], meltItem, builders, close }: Props = $props()
 
 	let computedItems: Item[] | undefined = $state(undefined)
 	async function computeItems() {
@@ -102,8 +103,8 @@
 			{#if item.separatorTop}
 				<div class="my-1 border-t border-border-light"></div>
 			{/if}
-			{#if item.submenuItems && builders}
-				<DropdownSubmenuItem {item} {builders} {meltItem} />
+			{#if (item.submenuItems || item.customSubmenu) && builders}
+				<DropdownSubmenuItem {item} {builders} {meltItem} close={close ?? (() => {})} />
 			{:else if item.disabled && item.tooltip}
 				<!-- Wrapper carries the native `title`; the disabled button's `pointer-events-none`
 				     lets the hover reach it so the user learns why the item is disabled. -->

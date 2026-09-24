@@ -10,9 +10,7 @@
 	import {
 		COPILOT_SESSION_MODEL_SETTING_NAME,
 		COPILOT_SESSION_PROVIDER_SETTING_NAME,
-		COPILOT_SESSION_REASONING_SETTING_NAME,
-		userStore,
-		workspaceStore
+		COPILOT_SESSION_REASONING_SETTING_NAME
 	} from '$lib/stores'
 	import { storeLocalSetting, type Item } from '$lib/utils'
 	import {
@@ -33,6 +31,14 @@
 		REASONING_OFF,
 		type ReasoningProviderModel
 	} from '../reasoningRegistry'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	let {
 		/** Whether this dropdown carries the custom-prompt entries. Off where the surface
@@ -97,7 +103,7 @@
 	// operations must key off this snapshot, not the reactive `mode`.
 	let activeMode = $state(aiChatManager.mode)
 
-	let isAdmin = $derived(Boolean($userStore?.is_admin || $userStore?.is_super_admin))
+	let isAdmin = $derived(Boolean(actingUser?.is_admin || actingUser?.is_super_admin))
 	// True when the workspace has no AI providers of its own (it uses instance defaults).
 	// In that case the backend never makes workspace custom_prompts effective, so a saved
 	// workspace prompt would be dead config — mirror the settings page and surface it read-only.
@@ -130,7 +136,7 @@
 		if (!isAdmin) {
 			initialPrompt = $copilotInfo.customPrompts?.[activeMode] ?? ''
 		} else {
-			const workspace = $workspaceStore
+			const workspace = $operatingWorkspace
 			try {
 				const settings = workspace ? await WorkspaceService.getSettings({ workspace }) : undefined
 				const providers = settings?.ai_config?.providers ?? {}
@@ -165,7 +171,7 @@
 			return
 		}
 
-		const workspace = $workspaceStore
+		const workspace = $operatingWorkspace
 		if (!workspace) return
 		try {
 			// Saving prompts requires a full ai_config round-trip; fetch the current

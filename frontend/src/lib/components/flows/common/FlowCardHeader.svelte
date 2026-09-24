@@ -19,7 +19,7 @@
 	import FlowPanelChrome from './FlowPanelChrome.svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import { hubBaseUrlStore, workspaceStore } from '$lib/stores'
+	import { hubBaseUrlStore } from '$lib/stores'
 	import { DEFAULT_HUB_BASE_URL, PRIVATE_HUB_MIN_VERSION } from '$lib/hub'
 	import { getLatestHashForScript } from '$lib/scripts'
 	import { sendUserToast, type Item } from '$lib/utils'
@@ -27,6 +27,9 @@
 	import { getToolNameError } from '$lib/components/flows/agentToolUtils'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
 	import autosize from '$lib/autosize'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		flowModuleValue?: FlowModuleValue | undefined
@@ -65,7 +68,7 @@
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
 	const { scriptEditorDrawer, workspaceScriptSettingsDrawer } = flowEditorContext
 
-	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
+	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $operatingWorkspace)
 	const scriptPath = $derived(flowModuleValue?.type === 'script' ? flowModuleValue.path : undefined)
 	const pinnedHash = $derived(flowModuleValue?.type === 'script' ? flowModuleValue.hash : undefined)
 	const isHub = $derived(scriptPath?.startsWith('hub/') ?? false)

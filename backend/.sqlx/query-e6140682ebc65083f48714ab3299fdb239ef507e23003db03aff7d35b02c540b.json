@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO draft (workspace_id, path, typ, value, created_at, email, base)\n         SELECT $2, path, typ,\n                to_json(\n                    CASE WHEN typ IN ('script', 'flow') THEN clean - 'on_behalf_of' ELSE clean END\n                    - CASE WHEN typ = 'flow' THEN 'version_id'\n                           WHEN typ IN ('app', 'raw_app') THEN 'parent_version'\n                           ELSE '' END\n                ),\n                created_at, email,\n                CASE WHEN typ = 'script' THEN base END\n         FROM (\n             SELECT d.path, d.typ, d.created_at, d.email, d.base,\n                    replace(replace(replace(d.value::text, chr(92) || chr(92), chr(1)), chr(92) || 'u0000', ''), chr(1), chr(92) || chr(92))::jsonb AS clean\n             FROM draft d\n             WHERE d.workspace_id = $1 AND (d.email = $3 OR d.email IS NULL)\n         ) s",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e6140682ebc65083f48714ab3299fdb239ef507e23003db03aff7d35b02c540b"
+}

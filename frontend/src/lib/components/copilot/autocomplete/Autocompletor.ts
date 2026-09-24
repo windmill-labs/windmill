@@ -4,7 +4,7 @@ import { editor as meditor, Position, languages, type IDisposable } from 'monaco
 import { LRUCache } from 'lru-cache'
 import { autocompleteRequest } from './request'
 import { FIM_MAX_TOKENS } from '../lib'
-import { getModelContextWindow } from '../modelConfig'
+import { ASSUMED_CONTEXT_WINDOW, getEffectiveModelContextWindow } from '../modelConfig'
 import { setGlobalCSS } from '../shared'
 import { supportsAutocomplete } from '../utils'
 import { get } from 'svelte/store'
@@ -94,8 +94,14 @@ export class Autocompletor {
 
 		const deletionsCues = editor.createDecorationsCollection()
 
-		const completionModel = get(copilotInfo).codeCompletionModel
-		this.#contextWindow = getModelContextWindow(completionModel?.model ?? '')
+		const { codeCompletionModel: completionModel, contextWindowPerModel } = get(copilotInfo)
+		this.#contextWindow = completionModel
+			? getEffectiveModelContextWindow(
+					completionModel.provider,
+					completionModel.model,
+					contextWindowPerModel
+				)
+			: ASSUMED_CONTEXT_WINDOW
 
 		this.#completionDisposable = languages.registerInlineCompletionsProvider(
 			{ pattern: '**' },

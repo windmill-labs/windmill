@@ -1,12 +1,14 @@
 <script lang="ts">
 	import { ResourceService, VariableService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { copyToClipboard, truncate } from '$lib/utils'
 	import { ClipboardCopy, Expand } from 'lucide-svelte'
 	import Drawer from './common/drawer/Drawer.svelte'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { Button, DrawerContent } from './common'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		value: any
@@ -22,14 +24,14 @@
 
 	async function getResource(path: string) {
 		jsonViewerContent = await ResourceService.getResourceValue({
-			workspace: $workspaceStore!,
+			workspace: $operatingWorkspace!,
 			path
 		})
 	}
 
 	async function getVariable(path: string) {
 		jsonViewerContent = await VariableService.getVariableValue({
-			workspace: $workspaceStore!,
+			workspace: $operatingWorkspace!,
 			path
 		})
 	}

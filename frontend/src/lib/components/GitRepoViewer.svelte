@@ -3,11 +3,13 @@
 	import { untrack } from 'svelte'
 	import { Alert, Button } from './common'
 	import S3FilePickerInner from './S3FilePickerInner.svelte'
-	import { workspaceStore } from '$lib/stores'
 	import { base } from '$lib/base'
 	import { Loader, Loader2, ChevronDown, ChevronRight, ExternalLink } from 'lucide-svelte'
 	import { hubPaths } from '$lib/hub'
 	import { sleep } from '$lib/utils'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	const CLONE_MARKER_FILE = '.windmill_clone_complete'
 	const POLL_INTERVAL_MS = 1500
@@ -42,7 +44,7 @@
 		workspace: workspaceProp = undefined
 	}: Props = $props()
 
-	let ws = $derived(workspaceProp ?? $workspaceStore)
+	let ws = $derived(workspaceProp ?? $operatingWorkspace)
 
 	let commitHash = $derived(commitHashInput)
 

@@ -52,18 +52,17 @@ app rather than telling them why. Both integration tests assert the status for t
 
 ## In the UI
 
-Each list page derives a per-row `canEdit` from `canWrite && !$lock` and leaves `canWrite` itself
-alone, because `canWrite` also tells `SharedBadge` whether a row belongs to someone else — fold the
+The shared lists (`TriggerList`, `SchedulesList`, `NativeTriggerTable`) derive a per-row `canEdit`
+from `canWrite && !$lock` and leave `canWrite` itself alone, because `canWrite` also tells `SharedBadge` whether a row belongs to someone else — fold the
 lock into it and every row, including ones the operator owns and has never shared, claims to be
 shared read-only. Gate write affordances on `canEdit`, never the badge.
 
 Each schedule and trigger editor folds the lock into its own `can_write`, so a withdrawn operator
 gets the same read-only editor as someone without write access to the folder. There, unlike the
-list pages, nothing reads `can_write` as a sharing hint. They only do it when loading an existing
-trigger, so `TriggerEditorToolbar` takes the lock too: a new trigger's editor starts writable, and
-opens from outside the list pages (a script or flow's Triggers panel, the pipeline page). Sharing is
-gated in `ShareModal`, which locks itself off the kind it was opened on rather than relying on each
-of the dozen menu entries that open it.
+list pages, nothing reads `can_write` as a sharing hint. It is derived for a new trigger too, so the
+toolbar, which takes its permissions from `can_write`, needs no lock of its own. Sharing is gated in
+`ShareModal`, which locks itself off the kind it was opened on rather than relying on each of the
+dozen menu entries that open it.
 
 The cache is per process, so withdrawing a right has to reach every replica: an `AFTER UPDATE OF
 operator_settings` trigger writes a `notify_operator_settings_change` row and `process_notify_event`

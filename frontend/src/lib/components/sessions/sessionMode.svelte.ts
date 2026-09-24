@@ -47,6 +47,17 @@ export function withMenuHidden(url: string, workspaceId?: string): string {
 	}
 }
 
+// True when this window is a sessions-preview iframe: embedded, with the `nomenubar` flag
+// the preview always sets and the logged layout stickies into sessionStorage.
+export function isSessionPreviewFrame(): boolean {
+	if (typeof window === 'undefined' || window.self === window.top) return false
+	try {
+		return sessionStorage.getItem('nomenubar_embedded') === 'true'
+	} catch {
+		return false
+	}
+}
+
 // Append `?workspace=` to a canonical route so a full-page navigation (e.g.
 // "Open in workspace") lands on the session's effective workspace instead of
 // the navigation workspace. Unlike withMenuHidden, the menu is kept visible —

@@ -880,7 +880,8 @@ async fn trigger_script_with_retry_and_error_handler<'c>(
         delete_after_secs,
     );
 
-    check_tag_available_for_workspace(&db, &workspace_id, &tag, &authed).await?;
+    let push_args = PushArgs { args: &args.args, extra: args.extra };
+    check_tag_available_for_workspace(&db, &workspace_id, &tag, &push_args, &authed).await?;
 
     let return_tx = tx_o.is_some();
 
@@ -906,8 +907,6 @@ async fn trigger_script_with_retry_and_error_handler<'c>(
             PushIsolationLevel::Isolated(user_db, authed.clone().into()),
         )
     };
-
-    let push_args = PushArgs { args: &args.args, extra: args.extra };
 
     let retryable_job_payload = match job_payload {
         JobPayload::ScriptHash {

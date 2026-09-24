@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userStore } from '$lib/stores'
 	import UserSettings from '../../UserSettings.svelte'
 	import { generateRandomString } from '$lib/utils'
 	import HighlightTheme from '../../HighlightTheme.svelte'
@@ -10,6 +10,9 @@
 	import Section from '../../Section.svelte'
 	import DefaultEmailConfigSection from './DefaultEmailConfigSection.svelte'
 	import { getEmailDomain } from './utils'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	let userSettings: UserSettings | undefined = $state(undefined)
 	interface Props {
@@ -55,7 +58,7 @@
 		token = e.detail
 		triggerTokens?.listTokens()
 	}}
-	newTokenWorkspace={$workspaceStore}
+	newTokenWorkspace={$operatingWorkspace}
 	newTokenLabel={`email-${$userStore?.username ?? 'superadmin'}-${generateRandomString(4)}`}
 	{scopes}
 />
@@ -70,7 +73,14 @@
 		<Skeleton layout={[[18]]} />
 	{:else}
 		{#if emailDomain}
-			<DefaultEmailConfigSection {runnableVersion} {token} {path} {isFlow} {userSettings} {emailDomain} />
+			<DefaultEmailConfigSection
+				{runnableVersion}
+				{token}
+				{path}
+				{isFlow}
+				{userSettings}
+				{emailDomain}
+			/>
 		{:else}
 			<div>
 				<Alert title="Email triggers are disabled" size="xs" type="warning">

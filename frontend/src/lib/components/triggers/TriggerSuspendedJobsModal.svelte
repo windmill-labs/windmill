@@ -19,8 +19,6 @@
 		TriggerMode
 	} from '$lib/gen/types.gen'
 	import Button from '../common/button/Button.svelte'
-	import { workspaceStore } from '$lib/stores'
-	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	import { JobService, TriggerService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import Cell from '$lib/components/table/Cell.svelte'
@@ -40,6 +38,7 @@
 		errorHandlerArgs,
 		slackErrorHandlerHubPathEnding
 	} from '../ErrorOrRecoveryHandler.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	type Props = {
 		triggerPath: string
@@ -50,8 +49,8 @@
 	}
 
 	let { triggerKind, triggerPath, onToggleMode, hasChanged, runnableConfig }: Props = $props()
-	const triggerWs = getTriggerWorkspace()
-	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
+	const operatingWorkspace = useOperatingWorkspace()
+	const wsId = $derived($operatingWorkspace)
 
 	let shouldShowModal = $state(false)
 	let queuedJobs = $state<QueuedJob[]>([])

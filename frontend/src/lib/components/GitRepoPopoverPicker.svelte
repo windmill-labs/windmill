@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { ResourceService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { Popover } from './meltComponents'
 	import { GitBranch, Loader2 } from 'lucide-svelte'
 	import { createEventDispatcher, untrack } from 'svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		isOpen?: boolean
@@ -20,12 +22,12 @@
 	let gitRepoResources = $state<{ path: string; description?: string }[]>([])
 
 	async function loadGitRepoResources() {
-		if (!$workspaceStore || loading) return
+		if (!$operatingWorkspace || loading) return
 
 		loading = true
 		try {
 			const resources = await ResourceService.listResource({
-				workspace: $workspaceStore,
+				workspace: $operatingWorkspace,
 				resourceType: 'git_repository'
 			})
 
@@ -39,7 +41,7 @@
 	}
 
 	$effect(() => {
-		if (isOpen && $workspaceStore) {
+		if (isOpen && $operatingWorkspace) {
 			untrack(() => loadGitRepoResources())
 		}
 	})

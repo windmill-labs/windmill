@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { run } from 'svelte/legacy'
 
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { userStore } from '$lib/stores'
 	import LabelsInput from './LabelsInput.svelte'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import {
@@ -53,6 +53,9 @@
 	import Label from './Label.svelte'
 	import ResourcePathHint from './ResourcePathHint.svelte'
 	import SchemaForm from './SchemaForm.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		step?: number
@@ -84,7 +87,7 @@
 		fillPath = undefined
 	}: Props = $props()
 
-	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
+	let effectiveWorkspace = $derived(workspace ?? $operatingWorkspace!)
 
 	let isValid = $state(true)
 
