@@ -7616,6 +7616,17 @@ describe('buildOpenPageUrl runs filters', () => {
 	})
 })
 
+describe('buildOpenPageUrl compare', () => {
+	// Without an explicit mode the page auto-picks, which is the draft view outside a fork.
+	it('always opens the fork comparison', () => {
+		const params = new URL(
+			buildOpenPageUrl('compare', { page: 'compare' }, { workspaceId: 'ws' }),
+			'http://x'
+		).searchParams
+		expect(params.get('mode')).toBe('fork')
+	})
+})
+
 describe('open_page workspace gating', () => {
 	const NAV = 'nav_ws'
 	const SESSION = 'session_ws'

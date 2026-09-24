@@ -1133,7 +1133,7 @@
 
 - id: global-openpage7-compare-fork-deploy
   prompt: |-
-    I'm done with my changes in this fork and want to ship them to the parent workspace. Let me look them over before they go out.
+    I'm done with my changes in this fork and want to ship them to the parent workspace myself. Take me there.
   runtime:
     maxTurns: 6
   validate:
@@ -1144,18 +1144,14 @@
     forbiddenToolsUsed:
       - deploy_workspace_item
       - delete_workspace_item
-    toolCallArgsSameCall:
+    toolCallArgs:
       - tool: open_page
-        args:
-          - field: page
-            stringIncludesAnyOf:
-              - compare
-          - field: mode
-            stringIncludesAnyOf:
-              - fork
+        field: page
+        stringIncludesAnyOf:
+          - compare
   skipJudge: true
   judgeChecklist:
-    - opens Compare & Deploy in fork mode only because the user explicitly wants to deploy the fork into its parent
+    - opens Compare & Deploy only because the user explicitly wants to deploy the fork into its parent
     - does not deploy or delete anything
 
 - id: global-openpage8-runs-label-and-worker

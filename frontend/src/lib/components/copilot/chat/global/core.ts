@@ -1438,7 +1438,7 @@ ${pipelineBullet}`
 - Whenever you ask the user to perform a manual step in the UI — fill in a resource's credentials, set a secret variable's value, adjust a schedule or setting — call open_page in the same message, targeted at that item (pass open with its path to land in its editor, or the page's filters otherwise). Never just describe where to click.${when(
 		canWriteDraft,
 		`
-- Do not offer or open the Compare & Deploy page for normal draft review. Only use open_page with page "compare" and mode "fork" when the user explicitly asks to deploy a forked workspace's changes to its parent workspace.`
+- Do not offer or open the Compare & Deploy page for normal draft review. Only use open_page with page "compare" when the user explicitly asks to deploy a forked workspace's changes to its parent workspace.`
 	)}${when(
 		canRunPreview,
 		`
@@ -2964,10 +2964,6 @@ const openPageFullSchema = z.object({
 		.enum([...WORKSPACE_SETTINGS_TABS] as [string, ...string[]])
 		.optional()
 		.describe('Workspace settings: which settings tab to open'),
-	mode: z
-		.enum(['fork'])
-		.optional()
-		.describe("Compare: always 'fork' (this forked workspace vs its parent)."),
 	items: z
 		.array(z.string())
 		.min(1)
@@ -3018,7 +3014,6 @@ const OPEN_PAGE_FIELD_PAGES: Record<string, OpenPageName[]> = {
 	operation: ['audit_logs'],
 	resource: ['audit_logs'],
 	tab: ['workspace_settings'],
-	mode: ['compare'],
 	items: ['compare']
 }
 
@@ -3065,7 +3060,7 @@ function buildOpenPageDefSchema(
 }
 
 const OPEN_PAGE_DESCRIPTION =
-	'Open a Windmill page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, Folders, Groups, Triggers (by kind), Workspace settings (on a specific tab), or the Compare & Deploy page. Inside an AI session it opens as a tab in the side-panel preview next to the chat; elsewhere it offers a clickable link. Use after surfacing something the user likely wants to inspect (e.g. "show me the failed runs of X", "open the schedule for Y", "open the git sync settings", "open the kafka triggers"), and ALWAYS when asking the user to perform a manual step themselves (fill in a resource\'s credentials, set a variable\'s value — pass open with the item path so its editor opens directly). Never offer page "compare" for draft review. Use it only when the user explicitly asks to deploy a forked workspace into its parent, and pass mode "fork". This is the only way to show one of these pages in the session preview — open_preview only handles editable items (scripts, flows, raw apps, pipelines). Only pages listed for this user are available; do not offer others.'
+	'Open a Windmill page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, Folders, Groups, Triggers (by kind), Workspace settings (on a specific tab), or the Compare & Deploy page. Inside an AI session it opens as a tab in the side-panel preview next to the chat; elsewhere it offers a clickable link. Use after surfacing something the user likely wants to inspect (e.g. "show me the failed runs of X", "open the schedule for Y", "open the git sync settings", "open the kafka triggers"), and ALWAYS when asking the user to perform a manual step themselves (fill in a resource\'s credentials, set a variable\'s value — pass open with the item path so its editor opens directly). Never offer page "compare" for draft review. Use it only when the user explicitly asks to deploy a forked workspace into its parent; it always opens the fork-vs-parent comparison. This is the only way to show one of these pages in the session preview — open_preview only handles editable items (scripts, flows, raw apps, pipelines). Only pages listed for this user are available; do not offer others.'
 
 // Non-arg input the URL builder needs: the chat's operating workspace (the compare
 // page cannot fall back to its own store default inside a session preview).
