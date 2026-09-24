@@ -1171,6 +1171,7 @@
 										{@const dt = root.datatable}
 										<DropdownV2
 											enableFlyTransition
+											class="[&_button]:text-secondary"
 											items={() => [
 												{
 													displayName: 'Migrations',
@@ -1235,6 +1236,7 @@
 											{#if !multiSelectMode}
 												<DropdownV2
 													enableFlyTransition
+													class="[&_button]:text-secondary"
 													items={() => [
 														...(isInstanceDatatable(root.datatable)
 															? [
@@ -1326,6 +1328,7 @@
 													{#if hasMenu}
 														<DropdownV2
 															enableFlyTransition
+															class="[&_button]:text-secondary"
 															items={() => [
 																...(isInstanceDatatable(root.datatable)
 																	? [
