@@ -61,6 +61,7 @@
 		dbColumnKind,
 		exactColumnFilterValue,
 		FREE_TEXT_KEY,
+		columnFiltersOf,
 		unescapeFreeText,
 		renderDbTableFilters
 	} from './dbTableFilters'
@@ -107,6 +108,7 @@
 	let filterWhere = $derived(
 		renderDbTableFilters(filters, filterSchema, columns, dbTableOps.dbType)
 	)
+	let columnFilters = $derived(columnFiltersOf(filters, filterSchema))
 	let hasFilters = $derived(!!quicksearch || !!filterWhere)
 
 	$effect(() => {
@@ -203,7 +205,7 @@
 		if (!$operatingWorkspace) return
 		const gen = generation
 		dbTableOps
-			.getCount({ quicksearch, whereClause: filterWhere })
+			.getCount({ quicksearch, whereClause: filterWhere, columnFilters })
 			.then((count) => gen === generation && (rowCount = count))
 			.catch(() => {})
 	}
@@ -249,8 +251,10 @@
 				limit: BLOCK_SIZE,
 				quicksearch,
 				whereClause: filterWhere,
+				columnFilters,
 				order_by: sort?.column ?? columns[0]?.field ?? '',
-				is_desc: sort?.desc ?? false
+				is_desc: sort?.desc ?? false,
+				explicitSort: !!sort
 			})) as Record<string, unknown>[]
 			if (gen !== generation) return
 			blocks = { ...blocks, [b]: { status: 'loaded', rows } }

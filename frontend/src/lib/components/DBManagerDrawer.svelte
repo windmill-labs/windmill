@@ -8,17 +8,21 @@
 	import Select from './select/Select.svelte'
 	import {
 		ArrowLeft,
+		Code,
 		Copy,
 		Download,
 		Network,
+		Plus,
 		RefreshCcw,
 		Table2,
 		Tag,
-		Upload
+		Upload,
+		X
 	} from 'lucide-svelte'
 	import DBManagerContent from './DBManagerContent.svelte'
 	import DropdownV2 from './DropdownV2.svelte'
-	import type { DbManagerViewMode, PendingRowAction } from './DBManager.svelte'
+	import type { PendingRowAction } from './DBManager.svelte'
+	import type { DbManagerTab, DbManagerTabKind } from './dbManagerTabs.svelte'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
 	import { getDbType } from './dbOps'
 	import DataTableMigrationsButton from './workspaceSettings/DataTableMigrationsButton.svelte'
@@ -194,15 +198,20 @@
 
 	let hasReplResult = $state(false)
 
-	// Which view the manager shows. Held here, beside the control that switches it
-	// and outside the key that remounts the manager, so picking another data table
-	// or role stays on the view the user was reading.
-	let requestedViewMode = $state<DbManagerViewMode>('data')
-	// Only PostgreSQL has a diagram; the manager clamps the mode itself, and this
-	// keeps the control off the header for a database that cannot show one.
+	// Only PostgreSQL has a diagram.
 	let diagramSupported = $derived(
 		!!uriState.effectiveInput && getDbType(uriState.effectiveInput) === 'postgresql'
 	)
+
+	const TAB_KINDS: { kind: DbManagerTabKind; label: string; icon: typeof Table2 }[] = [
+		{ kind: 'data', label: 'Data', icon: Table2 },
+		{ kind: 'diagram', label: 'Diagram', icon: Network },
+		{ kind: 'sql', label: 'SQL Editor', icon: Code }
+	]
+	function tabLabel(tab: DbManagerTab): string {
+		if (tab.kind === 'data') return tab.table ?? 'Data'
+		return TAB_KINDS.find((k) => k.kind === tab.kind)!.label
+	}
 
 	// Export/Import state
 	let exportDrawerOpen = $state(false)
@@ -332,8 +341,7 @@
 			{#key `${selectedDatatable}~${selectedRole ?? ''}`}
 				<DBManagerContent
 					bind:this={dbManagerContent}
-					{requestedViewMode}
-					onViewMode={(mode) => (requestedViewMode = mode)}
+					tabbed
 					input={contentInput}
 					workspace={uriState.workspace}
 					datatableTree={uriState.isDatatableInput ? datatables.current : undefined}
@@ -365,31 +373,67 @@
 		{/if}
 		{#snippet titleExtra()}
 			{@const mainPaneLeft = dbManagerContent?.dbManager()?.mainPaneLeft()}
-			{#if diagramSupported && mainPaneLeft}
-				<!-- Floating tabs over the right pane, starting where it starts. -->
+			{@const tabs = dbManagerContent?.tabsModel()}
+			{#if tabs && mainPaneLeft}
+				<!-- Floating tabs over the right pane, starting where it starts, and scrolling
+					 sideways before they would run into the actions. -->
 				<div
-					class="absolute inset-y-0 flex items-center gap-1"
+					class="absolute inset-y-0 right-28 flex items-center gap-1 overflow-x-auto scrollbar-hidden"
 					style:left="{mainPaneLeft}px"
 					role="tablist"
 				>
-					{#each [{ value: 'data', label: 'Data', icon: Table2 }, { value: 'diagram', label: 'Diagram', icon: Network }] as const as tab (tab.value)}
-						{@const active = requestedViewMode === tab.value}
-						<button
-							role="tab"
-							aria-selected={active}
+					{#each tabs.tabs as tab (tab.id)}
+						{@const active = tab.id === tabs.activeId}
+						{@const Icon = TAB_KINDS.find((k) => k.kind === tab.kind)!.icon}
+						<div
 							class={active
-								? 'flex h-7 items-center gap-1.5 rounded-md border bg-surface-tertiary px-2.5 text-xs font-medium text-emphasis shadow-sm'
-								: 'flex h-7 items-center gap-1.5 rounded-md border border-transparent px-2.5 text-xs text-secondary hover:bg-surface-hover hover:text-primary'}
-							onclick={() => {
-								if (active) return
-								requestedViewMode = tab.value
-								logFeatureUsage('db_manager', 'view_mode', { key: tab.value })
-							}}
+								? 'group flex h-7 shrink-0 items-center rounded-md border bg-surface-tertiary text-xs font-medium text-emphasis shadow-sm'
+								: 'group flex h-7 shrink-0 items-center rounded-md border border-transparent text-xs text-secondary hover:bg-surface-hover hover:text-primary'}
 						>
-							<tab.icon size={14} />
-							{tab.label}
-						</button>
+							<button
+								role="tab"
+								aria-selected={active}
+								class="flex h-full items-center gap-1.5 pl-2.5 pr-1 max-w-48"
+								title={tabLabel(tab)}
+								onclick={() => tabs.activate(tab.id)}
+							>
+								<Icon size={14} class="shrink-0" />
+								<span class="truncate">{tabLabel(tab)}</span>
+							</button>
+							<button
+								class={'mr-1 rounded p-0.5 text-hint hover:bg-surface-hover hover:text-primary ' +
+									(active ? '' : 'opacity-0 group-hover:opacity-100')}
+								title="Close tab"
+								aria-label="Close {tabLabel(tab)} tab"
+								onclick={() => tabs.close(tab.id)}
+							>
+								<X size={12} />
+							</button>
+						</div>
 					{/each}
+					<DropdownV2
+						enableFlyTransition
+						items={TAB_KINDS.filter((k) => k.kind !== 'diagram' || diagramSupported).map(
+							(k) => ({
+								displayName: k.label,
+								icon: k.icon,
+								action: () => {
+									tabs.add(k.kind)
+									logFeatureUsage('db_manager', 'view_mode', { key: k.kind })
+								}
+							})
+						)}
+						btnId="db-manager-new-tab"
+					>
+						{#snippet buttonReplacement()}
+							<div
+								class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-secondary hover:bg-surface-hover hover:text-primary"
+								title="New tab"
+							>
+								<Plus size={14} />
+							</div>
+						{/snippet}
+					</DropdownV2>
 				</div>
 			{/if}
 		{/snippet}

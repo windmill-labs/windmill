@@ -39,8 +39,17 @@ export type IDbTableOps = {
 		is_desc: boolean
 		/** Raw SQL predicate AND-ed into this read (already escaped). */
 		whereClause?: string
+		/** The same filters as `whereClause`, column → value, for a source that filters rows
+		 * itself. */
+		columnFilters?: Record<string, unknown>
+		/** Whether `order_by` was picked by the user rather than defaulted to the first column. */
+		explicitSort?: boolean
 	}) => Promise<unknown[]>
-	getCount: (params: { quicksearch: string; whereClause?: string }) => Promise<number>
+	getCount: (params: {
+		quicksearch: string
+		whereClause?: string
+		columnFilters?: Record<string, unknown>
+	}) => Promise<number>
 	onUpdate?: (
 		row: { values: object },
 		colDef: { field: string; datatype: string },
@@ -107,7 +116,7 @@ export function dbTableOpsWithPreviewScripts({
 			const count = result?.[0].count as number
 			return count
 		},
-		getRows: async ({ whereClause: extraWhere, ...params }) => {
+		getRows: async ({ whereClause: extraWhere, columnFilters: _, explicitSort: __, ...params }) => {
 			const where = combinedWhere(extraWhere)
 			const content = makeMarker('SELECT', {
 				table: tableKey,

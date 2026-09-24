@@ -19,7 +19,11 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { ClearableInput, Drawer, DrawerContent } from './common'
 	import { sendUserToast } from '$lib/toast'
-	import { renderDbEqualityFilter, type ColumnDef } from './apps/components/display/dbtable/utils'
+	import {
+		ColumnIdentity,
+		renderDbEqualityFilter,
+		type ColumnDef
+	} from './apps/components/display/dbtable/utils'
 	import DBTable, { type DbForeignKeyTarget, type DbRowFilter } from './DBTable.svelte'
 	import type { IDbSchemaOps, IDbTableOps } from './dbOps'
 	import DropdownV2 from './DropdownV2.svelte'
@@ -47,6 +51,9 @@
 	import DbSchemaDiagram from './dbdiagram/DbSchemaDiagram.svelte'
 	import type { DbRelation } from './dbRelations'
 	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
+	import type { DbManagerTabs } from './dbManagerTabs.svelte'
+	import type { TableEditorForeignKey } from './apps/components/display/dbtable/tableEditor'
+	import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 
 	const operatingUser = useOperatingUser()
 	const actingUser = $derived(operatingUser.current)
@@ -129,6 +136,11 @@
 		onImport?: (mode: 'schema_and_data' | 'schema_only') => void
 		/** Where a table's grid layout (pins, widths) is remembered; not remembered without it. */
 		tableLayoutKey?: (schema: string | undefined, table: string) => string
+		/** Tabs for the right pane, replacing the single view `requestedViewMode` picks. The tree's
+		 * selection is then the current data tab's table. */
+		tabs?: DbManagerTabs
+		/** A SQL editor tab's content. */
+		sqlTab?: Snippet<[{ id: string; code?: string }]>
 	}
 	let {
 		requestedViewMode = 'data',
@@ -162,6 +174,8 @@
 		asset,
 		onImport,
 		tableLayoutKey,
+		tabs,
+		sqlTab,
 		mainPane
 	}: Props = $props()
 
@@ -177,7 +191,9 @@
 	// The mode is asked for from outside, where the control that sets it lives, so
 	// a database this manager cannot draw has to be clamped here rather than left
 	// showing a diagram with no control in reach to leave it by.
-	let viewMode = $derived(supportsDiagram ? requestedViewMode : 'data')
+	let viewMode: DbManagerViewMode | 'sql' = $derived(
+		tabs ? tabs.active.kind : supportsDiagram ? requestedViewMode : 'data'
+	)
 
 	// Everything the diagram remembers, against the database it is about. The
 	// manager is not remounted when that database changes, so every read goes
@@ -198,12 +214,21 @@
 			? diagramState
 			: { databaseKey, tables: [], drawn: false }
 	)
-	let diagramTables = $derived(diagram.tables)
+	// With tabs, each diagram tab keeps its own tables, and the tree ticks the active one's.
+	let activeDiagramTab = $derived(tabs?.active.kind === 'diagram' ? tabs.active : undefined)
+	let diagramTables = $derived(tabs ? (activeDiagramTab?.tables ?? []) : diagram.tables)
+	let diagramDrawn = $derived(tabs ? activeDiagramTab?.tables !== undefined : diagram.drawn)
+
+	function setDiagramTables(tables: SelectedTable[]) {
+		if (tabs) {
+			if (activeDiagramTab) tabs.update(activeDiagramTab.id, { tables })
+		} else diagramState = { databaseKey, tables, drawn: true }
+	}
 
 	let checkedTables = $derived(viewMode === 'diagram' ? diagramTables : selectedTables)
 
 	function setCheckedTables(tables: SelectedTable[]) {
-		if (viewMode === 'diagram') diagramState = { databaseKey, tables, drawn: true }
+		if (viewMode === 'diagram') setDiagramTables(tables)
 		else selectedTables = tables
 	}
 
@@ -446,7 +471,8 @@
 		}
 		reveal(dt, schemaKey)
 		rowFilter = undefined
-		selected = { schemaKey, tableKey }
+		tabs?.focusData()
+		setSelected(schemaKey, tableKey)
 	}
 
 	/** Run a row action on the data table it belongs to, switching to it first
@@ -462,7 +488,7 @@
 
 	function startCreateTable(dt: string | undefined, schema: string) {
 		if (!onDatatable(dt, { kind: 'create-table', schema })) return
-		selected = { schemaKey: schema, tableKey: undefined }
+		setSelected(schema, undefined)
 		dbTableEditorState = { open: true }
 	}
 
@@ -473,7 +499,7 @@
 
 	function startAlterTable(dt: string | undefined, schema: string, table: string) {
 		if (!onDatatable(dt, { kind: 'alter-table', schema, table })) return
-		selected = { schemaKey: schema, tableKey: table }
+		setSelected(schema, table)
 		dbTableEditorState = { open: true, alterTableKey: table }
 	}
 
@@ -561,10 +587,30 @@
 	})
 
 	let search = $state('')
-	let selected: {
-		schemaKey?: undefined | string
-		tableKey?: undefined | string
-	} = $state({})
+	// The table the tree has selected. With tabs it is the current data tab's; `ownSelected`
+	// keeps the browsed schema for when there is no data tab, and for a new one to start in.
+	let ownSelected: { schemaKey?: string; tableKey?: string } = $state({})
+	const selected = {
+		get schemaKey(): string | undefined {
+			const tab = tabs?.currentData
+			return (tab ? tab.schema : undefined) ?? ownSelected.schemaKey
+		},
+		set schemaKey(schemaKey: string | undefined) {
+			setSelected(schemaKey, selected.tableKey)
+		},
+		get tableKey(): string | undefined {
+			const tab = tabs?.currentData
+			return tab ? tab.table : ownSelected.tableKey
+		},
+		set tableKey(tableKey: string | undefined) {
+			setSelected(selected.schemaKey, tableKey)
+		}
+	}
+	function setSelected(schemaKey: string | undefined, tableKey: string | undefined) {
+		ownSelected = { schemaKey, tableKey }
+		const tab = tabs?.currentData
+		if (tab) tabs!.update(tab.id, { schema: schemaKey, table: tableKey })
+	}
 
 	$effect(() => {
 		if (!selected.schemaKey && schemaKeys.length) {
@@ -581,7 +627,7 @@
 				initialTableKey && dbSchema.schema?.[schemaKey]?.[initialTableKey]
 					? initialTableKey
 					: undefined
-			selected = { schemaKey, tableKey }
+			setSelected(schemaKey, tableKey)
 		}
 	})
 
@@ -626,7 +672,6 @@
 	// to the table it was created for so a schema change can't carry it onto an
 	// unrelated table.
 	let rowFilter: (DbRowFilter & { tableKey: string }) | undefined = $state()
-	let activeRowFilter = $derived(rowFilter?.tableKey === tableKey ? rowFilter : undefined)
 
 	/** Where a foreign key's `schema.table` target lives in the sidebar, or
 	 * undefined when it cannot be opened from here. */
@@ -663,32 +708,78 @@
 		}
 	}
 
-	// The result carries the table it was fetched for: `resource` keeps the
-	// previous value while refetching, and a stale list would decorate the new
-	// table's same-named columns as foreign keys.
-	let foreignKeys = resource(
-		[() => selected.tableKey, () => selected.schemaKey, () => colDefs],
-		async ([table, schema], _prev, { signal }) => {
-			if (!table) return undefined
-			const forTableKey = dbSupportsSchemas && schema ? `${schema}.${table}` : table
-			const fks =
-				features?.foreignKeys === false
-					? []
-					: await dbSchemaOps.onFetchForeignKeys({ table, schema })
-			// A newer selection started meanwhile: an AbortError keeps this result
-			// out of `current`, where it would shadow the newer table's keys.
-			if (signal.aborted) throw new DOMException('Superseded', 'AbortError')
-			return { tableKey: forTableKey, foreignKeys: fks }
-		}
-	)
-	// Only keys whose target the sidebar can open get the "Go to row" affordance.
-	let currentForeignKeys = $derived.by(() => {
-		const fetched = foreignKeys.current
-		if (!fetched || fetched.tableKey !== tableKey) return undefined
-		return fetched.foreignKeys.filter(
-			(fk) => fk.targetTable && resolveForeignKeyTarget(fk.targetTable) !== undefined
+	// The schema lists a table's columns before the metadata query returns their full
+	// definitions: the grid shows its header from those meanwhile, and reads no rows until the
+	// definitions it queries with are in.
+	function provisionalColDefs(schema: string | undefined, table: string | undefined): ColumnDef[] {
+		const columns = (schema && table && dbSchema.schema?.[schema]?.[table]) || {}
+		return Object.entries(columns).map(([field, col]: [string, any]) => ({
+			field,
+			datatype: col?.type ?? '',
+			defaultvalue: col?.default ?? '',
+			isprimarykey: false,
+			isidentity: ColumnIdentity.No,
+			isnullable: col?.required ? 'NO' : 'YES',
+			isenum: false
+		}))
+	}
+	function waitingDbTableOps(defs: ColumnDef[], key: string): IDbTableOps {
+		const never = () => new Promise<never>(() => {})
+		return { dbType, tableKey: key, colDefs: defs, getRows: never, getCount: never }
+	}
+
+	const tableKeyOf = (schema: string | undefined, table: string | undefined) =>
+		table && (dbSupportsSchemas && schema ? `${schema}.${table}` : table)
+
+	// The tables on screen: every opened data tab keeps its grid, so each needs its keys.
+	let mountedTabs = new SvelteSet<string>()
+	$effect(() => {
+		if (tabs) mountedTabs.add(tabs.activeId)
+	})
+	let shownTables = $derived.by(() => {
+		if (!tabs) return tableKey ? [{ schema: selected.schemaKey, table: selected.tableKey! }] : []
+		return tabs.tabs.flatMap((t) =>
+			t.kind === 'data' && t.table && mountedTabs.has(t.id)
+				? [{ schema: t.schema ?? ownSelected.schemaKey, table: t.table }]
+				: []
 		)
 	})
+
+	// Foreign keys by table key, read once per table and metadata: a reload of the metadata
+	// (after a DDL) drops them all.
+	let fkCache = new SvelteMap<string, TableEditorForeignKey[]>()
+	let fkRequested = new Set<string>()
+	let fkDefs: unknown = undefined
+	$effect(() => {
+		const defs = colDefs
+		const wanted = shownTables
+		untrack(() => {
+			if (fkDefs !== defs) {
+				fkDefs = defs
+				fkCache.clear()
+				fkRequested.clear()
+			}
+			for (const { schema, table } of wanted) {
+				const key = tableKeyOf(schema, table)!
+				if (fkRequested.has(key)) continue
+				fkRequested.add(key)
+				if (features?.foreignKeys === false) {
+					fkCache.set(key, [])
+					continue
+				}
+				dbSchemaOps.onFetchForeignKeys({ table, schema }).then(
+					(fks) => fkDefs === defs && fkCache.set(key, fks),
+					() => fkRequested.delete(key)
+				)
+			}
+		})
+	})
+	// Only keys whose target the sidebar can open get the "Go to row" affordance.
+	function foreignKeysOf(key: string): TableEditorForeignKey[] | undefined {
+		return fkCache
+			.get(key)
+			?.filter((fk) => fk.targetTable && resolveForeignKeyTarget(fk.targetTable) !== undefined)
+	}
 
 	// Fetched once for the whole database rather than per table: the diagram needs
 	// every relation at once, and the per-table query would be one job each. A
@@ -769,22 +860,20 @@
 	// done without it is how a database ends up on a blank canvas for good.
 	const DIAGRAM_AUTOSELECT_LIMIT = 40
 	$effect(() => {
-		const key = databaseKey
+		// Re-run on a database switch, which the draw is per.
+		databaseKey
 		const schema = dbSchema.schema
-		if (viewMode !== 'diagram' || diagram.drawn) return
+		if (viewMode !== 'diagram' || diagramDrawn) return
 		const schemaKey = schemaToDraw(schema)
 		if (!schemaKey) return
 		const tables = Object.keys(schema[schemaKey] ?? {})
 		if (!tables.length) return
 		untrack(() => {
-			diagramState = {
-				databaseKey: key,
-				tables:
-					tables.length > DIAGRAM_AUTOSELECT_LIMIT
-						? []
-						: tables.map((table) => ({ datatable: currentDatatable, schema: schemaKey, table })),
-				drawn: true
-			}
+			setDiagramTables(
+				tables.length > DIAGRAM_AUTOSELECT_LIMIT
+					? []
+					: tables.map((table) => ({ datatable: currentDatatable, schema: schemaKey, table }))
+			)
 		})
 	})
 
@@ -891,8 +980,9 @@
 		}
 	}
 
-	let _dbTable: DBTable | undefined = $state()
-	export const dbTable = () => _dbTable
+	let dbTableRefs: Record<string, DBTable | undefined> = $state({})
+	/** The grid of the current data tab, or the only one without tabs. */
+	export const dbTable = () => dbTableRefs[tabs ? (tabs.currentData?.id ?? '') : '']
 
 	// Splitpanes sizes in percent, which makes the tree grow with the screen: convert a
 	// fixed width once, from the width the manager opens at.
@@ -910,6 +1000,76 @@
 	/** Where the right pane starts, in px from the manager's left edge; follows the divider. */
 	export const mainPaneLeft = () => managerWidth - mainPaneWidth
 </script>
+
+{#snippet diagramView(tables: SelectedTable[])}
+	<DbSchemaDiagram
+		{dbSchema}
+		{colDefs}
+		selectedTables={tables}
+		relations={currentRelations}
+		loading={shownRelationsRead?.status === 'loading'}
+		error={shownRelationsRead?.error}
+		onOpenTable={({ schema, table }) => {
+			if (!tabs) onViewMode?.('data')
+			selectTable(currentDatatable, schema, table)
+		}}
+	/>
+{/snippet}
+
+{#snippet dataView(
+	refKey: string,
+	schema: string | undefined,
+	table: string | undefined,
+	isCurrent: boolean
+)}
+	{@const key = tableKeyOf(schema, table)}
+	{@const schemaDefs = key && !colDefs?.[key]?.length ? provisionalColDefs(schema, table) : []}
+	{#if key && (colDefs?.[key]?.length || schemaDefs.length)}
+		{@const dbTableOps = colDefs?.[key]?.length
+			? dbTableOpsFactory({ colDefs: colDefs[key], tableKey: key })
+			: waitingDbTableOps(schemaDefs, key)}
+		<!-- Filters, sort and column widths belong to one table. -->
+		{#key key}
+			<DBTable
+				{dbTableOps}
+				foreignKeys={foreignKeysOf(key)}
+				onGoToRow={goToRow}
+				rowFilter={isCurrent && rowFilter?.tableKey === key ? rowFilter : undefined}
+				onRowFilterApplied={() => (rowFilter = undefined)}
+				layoutStorageKey={table ? tableLayoutKey?.(schema, table) : undefined}
+				bind:this={dbTableRefs[refKey]}
+			/>
+		{/key}
+	{:else if databaseIsEmpty}
+		<div class="h-full w-full center-center flex-col gap-4">
+			<span class="text-hint">Database is empty</span>
+			{#if onImport}
+				<div class="flex gap-4">
+					<button
+						onclick={() => onImport('schema_only')}
+						class="hover:opacity-70 transition-opacity rounded-md border aspect-square w-52 gap-4 p-4 center-center flex-col"
+					>
+						<UploadIcon size={64} class="text-secondary" />
+						<span class="text-center font-normal text-sm text-secondary">
+							Import schema from database
+						</span>
+					</button>
+					{#if !!actingUser?.is_admin || !!$superadmin}
+						<button
+							onclick={() => onImport('schema_and_data')}
+							class="hover:opacity-70 transition-opacity rounded-md border aspect-square w-52 gap-4 p-4 center-center flex-col"
+						>
+							<UploadIcon size={64} class="text-secondary" />
+							<span class="text-center font-normal text-sm text-secondary">
+								Import schema and data from database
+							</span>
+						</button>
+					{/if}
+				</div>
+			{/if}
+		</div>
+	{/if}
+{/snippet}
 
 <div class="h-full w-full" bind:clientWidth={managerWidth} {@attach measureTreeSize}>
 	{#if treeSize !== undefined}
@@ -1206,63 +1366,37 @@
 				<div class="absolute inset-x-0 top-0 h-0" bind:clientWidth={mainPaneWidth}></div>
 				{#if mainPane}
 					{@render mainPane()}
-				{:else if viewMode === 'diagram'}
-					<DbSchemaDiagram
-						{dbSchema}
-						{colDefs}
-						selectedTables={diagramTables}
-						relations={currentRelations}
-						loading={shownRelationsRead?.status === 'loading'}
-						error={shownRelationsRead?.error}
-						onOpenTable={({ schema, table }) => {
-							onViewMode?.('data')
-							selectTable(currentDatatable, schema, table)
-						}}
-					/>
-				{:else if tableKey && colDefs?.[tableKey]?.length}
-					{@const dbTableOps = dbTableOpsFactory({ colDefs: colDefs[tableKey], tableKey })}
-					<!-- Filters, sort and column widths belong to one table. -->
-					{#key tableKey}
-						<DBTable
-							{dbTableOps}
-							foreignKeys={currentForeignKeys}
-							onGoToRow={goToRow}
-							rowFilter={activeRowFilter}
-							onRowFilterApplied={() => (rowFilter = undefined)}
-							layoutStorageKey={selected.tableKey
-								? tableLayoutKey?.(selected.schemaKey, selected.tableKey)
-								: undefined}
-							bind:this={_dbTable}
-						/>
-					{/key}
-				{:else if databaseIsEmpty}
-					<div class="h-full w-full center-center flex-col gap-4">
-						<span class="text-hint">Database is empty</span>
-						{#if onImport}
-							<div class="flex gap-4">
-								<button
-									onclick={() => onImport('schema_only')}
-									class="hover:opacity-70 transition-opacity rounded-md border aspect-square w-52 gap-4 p-4 center-center flex-col"
-								>
-									<UploadIcon size={64} class="text-secondary" />
-									<span class="text-center font-normal text-sm text-secondary">
-										Import schema from database
-									</span>
-								</button>
-								{#if !!actingUser?.is_admin || !!$superadmin}
-									<button
-										onclick={() => onImport('schema_and_data')}
-										class="hover:opacity-70 transition-opacity rounded-md border aspect-square w-52 gap-4 p-4 center-center flex-col"
-									>
-										<UploadIcon size={64} class="text-secondary" />
-										<span class="text-center font-normal text-sm text-secondary">
-											Import schema and data from database
-										</span>
-									</button>
+				{:else if tabs}
+					<!-- Every opened tab stays mounted, only hidden, so it is found as it was left:
+						 scroll, filters, query results. Hidden is not enough on its own, as the diagram
+						 forces its layers visible: the active tab is also stacked above on an opaque
+						 background. -->
+					{#each tabs.tabs as tab (tab.id)}
+						{#if mountedTabs.has(tab.id)}
+							<div
+								class={tab.id === tabs.activeId
+									? 'absolute inset-0 z-10 bg-surface'
+									: 'absolute inset-0 z-0 invisible pointer-events-none'}
+							>
+								{#if tab.kind === 'data'}
+									{@render dataView(
+										tab.id,
+										tab.schema ?? ownSelected.schemaKey,
+										tab.table,
+										tab.id === tabs.currentData?.id
+									)}
+								{:else if tab.kind === 'diagram'}
+									{@render diagramView(tab.tables ?? [])}
+								{:else}
+									{@render sqlTab?.(tab)}
 								{/if}
 							</div>
 						{/if}
-					</div>
+					{/each}
+				{:else if viewMode === 'diagram'}
+					{@render diagramView(diagramTables)}
+				{:else}
+					{@render dataView('', selected.schemaKey, selected.tableKey, true)}
 				{/if}
 			</Pane>
 		</Splitpanes>

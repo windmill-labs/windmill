@@ -156,6 +156,18 @@ export function dbTableLayoutStorageKey(
 	return `${DB_TABLE_LAYOUT_PREFIX}${workspace}:${buildDbm({ ...dbmOfInput(input), role: undefined, schema, table })}`
 }
 
+/** localStorage key of the DB manager's tabs over a database, named as the `dbm` URL param
+ * names that database: no role, schema or table. */
+export function dbManagerTabsStorageKey(workspace: string, input: DbInput): string {
+	const dbm = buildDbm({
+		...dbmOfInput(input),
+		role: undefined,
+		schema: undefined,
+		table: undefined
+	})
+	return `dbManagerTabs:${workspace}:${dbm}`
+}
+
 export interface DbManagerUriState {
 	readonly input: DbInput | undefined
 	readonly effectiveInput: DbInput | undefined

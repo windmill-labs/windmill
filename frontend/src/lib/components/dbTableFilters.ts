@@ -156,3 +156,57 @@ export function exactColumnFilterValue(
 			return `=${String(value)}`
 	}
 }
+
+/** Column → filter value, for a source that filters its rows itself rather than in SQL. */
+export function columnFiltersOf(
+	filters: Record<string, unknown>,
+	{ columnOfKey }: DbTableFilterSchema
+): Record<string, unknown> {
+	const out: Record<string, unknown> = {}
+	for (const [key, value] of Object.entries(filters)) {
+		const column = columnOfKey[key]
+		if (!column || value === undefined || value === null || value === '') continue
+		out[column] = typeof value === 'string' ? normalizeSpaces(value) : value
+	}
+	return out
+}
+
+/** In-memory counterpart of `renderColumnFilter`, with the same semantics: a null never
+ * matches, and a malformed number matches nothing. */
+export function matchesColumnFilter(
+	value: unknown,
+	datatype: string | undefined,
+	filter: unknown
+): boolean {
+	if (value === null || value === undefined) return false
+	switch (dbColumnKind(datatype)) {
+		case 'boolean':
+			return typeof filter !== 'boolean' || value === filter
+		case 'number': {
+			const m = String(filter).trim().match(NUMERIC_FILTER)
+			if (!m) return false
+			const a = Number(value)
+			const b = Number(m[2])
+			switch (m[1]) {
+				case '>':
+					return a > b
+				case '>=':
+					return a >= b
+				case '<':
+					return a < b
+				case '<=':
+					return a <= b
+				case '!=':
+				case '<>':
+					return a !== b
+				default:
+					return a === b
+			}
+		}
+		case 'text': {
+			const text = typeof value === 'object' ? JSON.stringify(value) : String(value)
+			const f = String(filter)
+			return f.startsWith('=') ? text === f.slice(1) : text.toLowerCase().includes(f.toLowerCase())
+		}
+	}
+}
