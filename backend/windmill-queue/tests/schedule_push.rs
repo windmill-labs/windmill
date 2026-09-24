@@ -1757,4 +1757,46 @@ mod schedule_push {
         assert_eq!(count_queued_jobs(&db).await, 1);
         Ok(())
     }
+
+    #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
+    async fn test_push_hub_script_schedule(db: Pool<Postgres>) -> anyhow::Result<()> {
+        // Seed the hub cache so the push resolves the script without the network.
+        let version = "990000001";
+        let hub_dir = &*windmill_common::worker::HUB_CACHE_DIR;
+        tokio::fs::create_dir_all(hub_dir).await?;
+        tokio::fs::write(
+            format!("{hub_dir}/{version}"),
+            r#"{"content":"echo hi","lockfile":null,"language":"bash","schema":{},"summary":null}"#,
+        )
+        .await?;
+        let hub_path = format!("hub/{version}/test/echo");
+
+        for (path, retry, kind) in [
+            ("f/system/hub_plain", None, "script_hub"),
+            (
+                "f/system/hub_retry",
+                Some(serde_json::json!({ "constant": { "attempts": 2, "seconds": 1 } })),
+                "singlestepflow",
+            ),
+        ] {
+            let schedule = make_schedule(|s| {
+                s.path = path.to_string();
+                s.script_path = hub_path.clone();
+                s.retry = retry;
+            });
+            let tx = db.begin().await?;
+            let tx = push_scheduled_job(&db, tx, &schedule, Some(&make_authed()), None).await?;
+            tx.commit().await?;
+
+            let (job_kind, runnable_path) = sqlx::query_as::<_, (String, Option<String>)>(
+                "SELECT kind::text, runnable_path FROM v2_job WHERE trigger = $1",
+            )
+            .bind(path)
+            .fetch_one(&db)
+            .await?;
+            assert_eq!(job_kind, kind);
+            assert_eq!(runnable_path.as_deref(), Some(hub_path.as_str()));
+        }
+        Ok(())
+    }
 }
