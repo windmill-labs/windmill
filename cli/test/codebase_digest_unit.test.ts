@@ -1,12 +1,15 @@
 /**
- * Unit tests for per-script codebase digests (no backend).
+ * Unit tests for codebase digests (no backend).
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { listSyncCodebases } from "../src/utils/codebase.ts";
+import {
+  listSyncCodebases,
+  uncoveredBundleInputs,
+} from "../src/utils/codebase.ts";
 import type { SyncOptions } from "../src/core/conf.ts";
 
 let root: string;
@@ -19,7 +22,7 @@ async function write(file: string, content: string) {
 
 async function digests(scripts: string[]) {
   const [codebase] = listSyncCodebases({
-    codebases: [{ relative_path: "src" }],
+    codebases: [{ relative_path: "src", bundle_digest: true }],
   } as SyncOptions);
   await codebase.primeDigests(scripts);
   return Promise.all(scripts.map((s) => codebase.getDigest(s)));
@@ -50,7 +53,7 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-describe("codebase digest", () => {
+describe("bundle digest", () => {
   const scripts = ["f/uses_shared.ts", "f/uses_enum.ts"];
 
   test("changes only for scripts that bundle an edited file outside relative_path", async () => {
@@ -71,7 +74,7 @@ describe("codebase digest", () => {
     const batched = await digests([...scripts, nested]);
 
     const [codebase] = listSyncCodebases({
-      codebases: [{ relative_path: "src" }],
+      codebases: [{ relative_path: "src", bundle_digest: true }],
     } as SyncOptions);
     expect(await codebase.getDigest(nested)).toBe(batched[2]);
   });
@@ -98,4 +101,31 @@ describe("codebase digest", () => {
     expect(after[1]).not.toBe(before[1]);
     expect(after[0]).toBe(before[0]);
   });
+});
+
+test("extra_digest_paths edits change the codebase digest", async () => {
+  const digest = () =>
+    listSyncCodebases({
+      codebases: [
+        { relative_path: "src", extra_digest_paths: ["../packages/common"] },
+      ],
+    } as SyncOptions)[0].getDigest("f/uses_shared.ts");
+
+  const before = await digest();
+  await write("packages/common/shared.ts", "export const greet = () => 'hello';\n");
+  expect(await digest()).not.toBe(before);
+});
+
+test("uncoveredBundleInputs reports only files outside the digested roots", () => {
+  const codebase = { relative_path: "f", extra_digest_paths: ["packages/a"] };
+  expect(
+    uncoveredBundleInputs(codebase, "g/entry.ts", [
+      "g/entry.ts",
+      "f/main.ts",
+      "packages/a/x.ts",
+      "packages/ab/y.ts",
+      "node_modules/pg/index.js",
+      "<define:process.env>",
+    ])
+  ).toEqual(["packages/ab/y.ts"]);
 });

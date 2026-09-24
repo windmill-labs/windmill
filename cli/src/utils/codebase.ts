@@ -1,11 +1,52 @@
 import { createHash } from "node:crypto";
-import * as path from "node:path";
-import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { readFile, stat } from "node:fs/promises";
 import type { BuildOptions } from "esbuild";
 import { Codebase, SyncOptions } from "../core/conf.ts";
 import * as log from "../core/log.ts";
 import { getEsbuild } from "./esbuild_loader.ts";
 import { digestDir, generateHash, generateHashFromBuffer } from "./utils.ts";
+
+// A bare string is accepted, like `includes`/`excludes` in findCodebase.
+function extraDigestPaths(codebase: Codebase): string[] {
+  return ([] as string[]).concat(codebase.extra_digest_paths ?? []);
+}
+
+async function digestPath(p: string): Promise<string> {
+  let s;
+  try {
+    s = await stat(p);
+  } catch {
+    throw new Error(
+      `Codebase extra_digest_paths entry not found: ${p} (resolved to ${path.resolve(p)})`
+    );
+  }
+  return s.isDirectory()
+    ? await digestDir(p, "")
+    : await generateHashFromBuffer(await readFile(p));
+}
+
+/** Whether each script gets its own digest, computed from its bundle. */
+export function usesBundleDigest(codebase: Codebase): boolean {
+  return codebase.bundle_digest == true && !codebase.customBundler;
+}
+
+/** Bundle inputs that no codebase digest covers, so edits to them would not trigger a re-push. */
+export function uncoveredBundleInputs(
+  codebase: Codebase,
+  entry: string,
+  inputs: string[]
+): string[] {
+  const entryAbs = path.resolve(entry);
+  const roots = [codebase.relative_path, ...extraDigestPaths(codebase)]
+    .map((r) => path.resolve(r));
+  return inputs.filter((i) => {
+    // non-file namespaces ("<define:x>", "(disabled):x", "ns:path") and installed packages
+    if (/^[<(]|^[a-z-]{2,}:/i.test(i) || i.includes("node_modules")) return false;
+    const abs = path.resolve(i);
+    return abs != entryAbs && !roots.some((r) => abs == r || abs.startsWith(r + path.sep));
+  });
+}
 
 export type SyncCodebase = Codebase & {
   getDigest: (scriptPath: string, forceTar?: boolean) => Promise<string>;
@@ -84,6 +125,7 @@ export function listSyncCodebases(options: SyncOptions): SyncCodebase[] {
   for (const codebase of options?.codebases ?? []) {
     const hasAssets =
       Array.isArray(codebase.assets) && codebase.assets.length > 0;
+    const bundleDigest = usesBundleDigest(codebase);
     const digests = new Map<string, Promise<string>>();
 
     let assetsDigest: Promise<string> | undefined = undefined;
@@ -101,16 +143,20 @@ export function listSyncCodebases(options: SyncOptions): SyncCodebase[] {
       return assetsDigest;
     };
 
-    // A custom bundler's inputs are unknown, so its scripts share one digest
-    // of the whole `relative_path`.
+    // One digest shared by every script of the codebase.
     let dirDigest: Promise<string> | undefined = undefined;
     const getDirDigest = () => {
       if (!dirDigest) {
         dirDigest = (async () => {
-          const d = await digestDir(
+          let d = await digestDir(
             codebase.relative_path,
             JSON.stringify(codebase)
           );
+          const extra = extraDigestPaths(codebase);
+          if (extra.length > 0) {
+            const hashes = await Promise.all(extra.map(digestPath));
+            d = await generateHash(d + hashes.join(""));
+          }
           log.info(`Codebase ${codebase.relative_path}, digest: ${d}`);
           return d;
         })();
@@ -139,7 +185,7 @@ export function listSyncCodebases(options: SyncOptions): SyncCodebase[] {
     };
 
     const primeDigests = async (scriptPaths: string[]) => {
-      if (codebase.customBundler) return;
+      if (!bundleDigest) return;
       const pending = [
         ...new Set(scriptPaths.map((p) => path.resolve(p))),
       ].filter((p) => !digests.has(p));
@@ -167,7 +213,7 @@ export function listSyncCodebases(options: SyncOptions): SyncCodebase[] {
 
     const getDigest = async (scriptPath: string, forceTar?: boolean) => {
       let digest: string;
-      if (codebase.customBundler) {
+      if (!bundleDigest) {
         digest = await getDirDigest();
       } else {
         const key = path.resolve(scriptPath);

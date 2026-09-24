@@ -115,7 +115,11 @@ import {
 } from "../../utils/git.ts";
 import { Workspace } from "../workspace/workspace.ts";
 import { removePathPrefix } from "../../types.ts";
-import { listSyncCodebases, SyncCodebase } from "../../utils/codebase.ts";
+import {
+  listSyncCodebases,
+  SyncCodebase,
+  usesBundleDigest,
+} from "../../utils/codebase.ts";
 import {
   beginLockfileBatch,
   flushLockfileBatch,
@@ -620,7 +624,7 @@ async function primeCodebaseDigests(
   codebases: SyncCodebase[],
   defaultTs: "bun" | "deno" | undefined,
 ): Promise<void> {
-  if (codebases.length == 0) return;
+  if (!codebases.some(usesBundleDigest)) return;
   const localFiles: string[] = [];
   const metadataBases = new Set<string>();
   const collect = async (root: DynFSElement, isLocal: boolean) => {
@@ -644,7 +648,7 @@ async function primeCodebaseDigests(
     if (!metadataBases.has(base)) continue;
     if (inferContentTypeFromFilePath(file, defaultTs) != "bun") continue;
     const codebase = findCodebase(file, codebases);
-    if (!codebase) continue;
+    if (!codebase || !usesBundleDigest(codebase)) continue;
     const scripts = scriptsByCodebase.get(codebase) ?? [];
     scripts.push(file);
     scriptsByCodebase.set(codebase, scripts);

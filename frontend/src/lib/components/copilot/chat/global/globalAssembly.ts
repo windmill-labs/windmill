@@ -13,6 +13,7 @@ import {
 } from './core'
 import { createMcpTools } from './mcpTools'
 import { getPipelinePromptSection, pipelineTools, type PipelineContext } from '../pipeline/core'
+import { getFolderInstructionsPromptSection, type FolderInstruction } from '../folderInstructions'
 
 // Derived, not retyped: an option added to prepareGlobalSystemMessage is reachable
 // here at once. Hand-listing the four would compile fine while leaving the new one
@@ -21,6 +22,7 @@ import { getPipelinePromptSection, pipelineTools, type PipelineContext } from '.
 export type GlobalAssemblyOpts = NonNullable<Parameters<typeof prepareGlobalSystemMessage>[1]> & {
 	sessionContext?: SessionPromptContext
 	pipelineContext?: PipelineContext
+	folderInstructions?: readonly FolderInstruction[]
 }
 
 export function assembleGlobalSystemMessage(
@@ -28,6 +30,7 @@ export function assembleGlobalSystemMessage(
 	opts: GlobalAssemblyOpts
 ): ChatCompletionSystemMessageParam {
 	const systemMessage = prepareGlobalSystemMessage(instructions, opts)
+	systemMessage.content += getFolderInstructionsPromptSection(opts.folderInstructions ?? [])
 	if (opts.sessionContext) {
 		systemMessage.content += getSessionContextPromptSection(opts.sessionContext, opts.access)
 	}
