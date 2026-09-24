@@ -43,6 +43,13 @@ import type {
 	Script,
 	ScriptLang
 } from '$lib/gen/types.gen'
+import { loadSchemaFromModule, memoryPropertyFor } from '$lib/components/flows/flowInfers'
+import { flowLocalAgentSchema } from '$lib/components/flows/agentResourceUtils'
+import { AGENT_FIELDS, initialVisibleAgentFields } from '$lib/components/flows/agentFormFields'
+import { withAgentDrafts } from '$lib/components/flows/linkedAgentDrafts'
+import { resolveLinkedAgentTools } from '$lib/components/flows/flowState'
+import { enabledToolNames, type AgentTool } from '$lib/components/flows/agentToolUtils'
+import { evalValue } from '$lib/components/flows/utils.svelte'
 import { updateRawAppPolicy } from '$lib/components/raw_apps/rawAppPolicy'
 import {
 	FRAMEWORK_TEMPLATES,
@@ -992,7 +999,7 @@ const testRunStepSchema = z.object({
 const testRunStepToolDef = createToolDef(
 	testRunStepSchema,
 	'test_run_step',
-	"Execute a test run of one step in a flow by path, preferring draft flow/script content when it exists. `args` are the step's OWN inputs, not the flow's: a step is normally fed by its input transforms, so send what that step's code takes, not what the flow takes. The user gets an argument form prefilled with `args` and may edit or dismiss it before it runs, so fill in every argument you can infer. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal is minted into a short-lived secret before the run, but stays in this call.",
+	"Execute a test run of one step in a flow by path, preferring draft flow/script content when it exists. `args` are the step's OWN inputs, not the flow's: a step is normally fed by its input transforms, so send what that step's code takes, not what the flow takes. An AI agent step takes the inputs a run supplies rather than code arguments, `user_message` above all; its form opens on the step's own configuration, so send only what this run should change. The user gets an argument form prefilled with `args` and may edit or dismiss it before it runs, so fill in every argument you can infer. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal is minted into a short-lived secret before the run, but stays in this call.",
 	{ strict: false }
 )
 
@@ -1438,11 +1445,7 @@ ${pipelineBullet}`
 - Whenever you ask the user to perform a manual step in the UI — fill in a resource's credentials, set a secret variable's value, adjust a schedule or setting — call open_page in the same message, targeted at that item (pass open with its path to land in its editor, or the page's filters otherwise). Never just describe where to click.${when(
 		canWriteDraft,
 		`
-- When the user is happy with the changes and wants to review or deploy them, use open_page with page "compare" — it opens the Compare & Deploy review page.${
-			previewTools
-				? ' By default it preselects the items this chat modified; pass items ("<kind>:<path>" entries) to control the selection'
-				: ' Pass items ("<kind>:<path>" entries naming the items you changed) so the review is scoped to them — omitting items preselects every pending change in the workspace'
-		}, or mode ("draft" or "fork") to force which comparison is shown. Prefer offering this review page over calling deploy_workspace_item directly when several items changed.`
+- Do not offer or open the Compare & Deploy page for normal draft review. Only use open_page with page "compare" when the user explicitly asks to deploy a forked workspace's changes to its parent workspace.`
 	)}${when(
 		canRunPreview,
 		`
@@ -2803,17 +2806,6 @@ function allowsAllWorkspacesRuns(workspaceId: string | undefined = get(workspace
 	return (!!get(superadmin) || !!get(devopsRole)) && workspaceId === 'admins'
 }
 
-// The advertised `items` description must match this chat's surface: only chats that
-// track their modified items (AI sessions) can honor "omitted = this chat's edits" —
-// on an untracked chat (the global side panel) an omitted mask falls through to the
-// page's select-all default, so the model is told to pass the items explicitly there.
-const COMPARE_ITEMS_DESCRIPTIONS = {
-	tracked:
-		"Compare: preselect exactly these changed items, each as '<kind>:<path>' where kind is script, flow, raw_app, app, resource, variable, or a trigger kind like trigger_schedule / trigger_http (e.g. 'script:f/foo/bar'). Omit to preselect the items modified in this chat (everything when this chat modified nothing).",
-	untracked:
-		"Compare: preselect exactly these changed items, each as '<kind>:<path>' where kind is script, flow, raw_app, app, resource, variable, or a trigger kind like trigger_schedule / trigger_http (e.g. 'script:f/foo/bar'). If omitted, the page preselects EVERY pending change in the workspace, not just this chat's — when you changed specific items, pass them so the review is scoped to them."
-} as const
-
 // The Runs filters the page accepts several values for, all encoded in one param: the
 // value is a comma-separated list, and for the negatable ones a leading `!` excludes
 // instead (the page rejects a list mixing included and excluded values).
@@ -2979,13 +2971,13 @@ const openPageFullSchema = z.object({
 		.enum([...WORKSPACE_SETTINGS_TABS] as [string, ...string[]])
 		.optional()
 		.describe('Workspace settings: which settings tab to open'),
-	mode: z
-		.enum(['draft', 'fork'])
+	items: z
+		.array(z.string())
+		.min(1)
 		.optional()
 		.describe(
-			"Compare: which comparison to show — 'draft' (deployed items vs their pending drafts) or 'fork' (this forked workspace vs its parent). Omit to auto-pick: the view containing the preselected items (draft whenever any of them is a pending draft); with nothing preselected, fork on a forked workspace and draft otherwise."
+			"Compare: preselect exactly these fork changes, each as '<kind>:<path>' where kind is script, flow, raw_app, app, resource, variable, or a trigger kind like trigger_schedule / trigger_http (e.g. 'script:f/foo/bar'). Omit to use the page's default selection; pass items only when the user asked to deploy specific ones."
 		),
-	items: z.array(z.string()).min(1).optional().describe(COMPARE_ITEMS_DESCRIPTIONS.tracked),
 	new_tab: z
 		.boolean()
 		.optional()
@@ -3029,7 +3021,6 @@ const OPEN_PAGE_FIELD_PAGES: Record<string, OpenPageName[]> = {
 	operation: ['audit_logs'],
 	resource: ['audit_logs'],
 	tab: ['workspace_settings'],
-	mode: ['compare'],
 	items: ['compare']
 }
 
@@ -3040,7 +3031,6 @@ const OPEN_PAGE_FIELD_PAGES: Record<string, OpenPageName[]> = {
 function buildOpenPageDefSchema(
 	pages: readonly OpenPageName[],
 	triggerKinds: readonly PageTriggerKind[],
-	chatEditsTracked: boolean,
 	allWorkspacesRuns: boolean,
 	roleUnverified = false
 ): z.ZodTypeAny {
@@ -3070,25 +3060,18 @@ function buildOpenPageDefSchema(
 						.enum([...triggerKinds] as [string, ...string[]])
 						.optional()
 						.describe('Triggers: which trigger kind page to open')
-				: field === 'items'
-					? z
-							.array(z.string())
-							.min(1)
-							.optional()
-							.describe(COMPARE_ITEMS_DESCRIPTIONS[chatEditsTracked ? 'tracked' : 'untracked'])
-					: full[field]
+				: full[field]
 	}
 	shape.new_tab = full.new_tab
 	return z.object(shape)
 }
 
 const OPEN_PAGE_DESCRIPTION =
-	'Open a Windmill page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, Folders, Groups, Triggers (by kind), Workspace settings (on a specific tab), or the Compare & Deploy review page. Inside an AI session it opens as a tab in the side-panel preview next to the chat; elsewhere it offers a clickable link. Use after surfacing something the user likely wants to inspect (e.g. "show me the failed runs of X", "open the schedule for Y", "open the git sync settings", "open the kafka triggers"), and ALWAYS when asking the user to perform a manual step themselves (fill in a resource\'s credentials, set a variable\'s value — pass open with the item path so its editor opens directly). Use page "compare" when the user wants to review and deploy pending changes (the items field controls which changes are preselected). This is the only way to show one of these pages in the session preview — open_preview only handles editable items (scripts, flows, raw apps, pipelines). Only pages listed for this user are available; do not offer others.'
+	'Open a Windmill page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, Folders, Groups, Triggers (by kind), Workspace settings (on a specific tab), or the Compare & Deploy page. Inside an AI session it opens as a tab in the side-panel preview next to the chat; elsewhere it offers a clickable link. Use after surfacing something the user likely wants to inspect (e.g. "show me the failed runs of X", "open the schedule for Y", "open the git sync settings", "open the kafka triggers"), and ALWAYS when asking the user to perform a manual step themselves (fill in a resource\'s credentials, set a variable\'s value — pass open with the item path so its editor opens directly). Never offer page "compare" for draft review. Use it only when the user explicitly asks to deploy a forked workspace into its parent; it always opens the fork-vs-parent comparison. This is the only way to show one of these pages in the session preview — open_preview only handles editable items (scripts, flows, raw apps, pipelines). Only pages listed for this user are available; do not offer others.'
 
-// Non-arg inputs the URL builder needs: the chat's operating workspace (the compare
-// page cannot fall back to its own store default inside a session preview) and the
-// live modified-items mask backing the compare page's default preselection.
-type OpenPageUrlCtx = { workspaceId: string; chatItems?: readonly string[] }
+// Non-arg input the URL builder needs: the chat's operating workspace (the compare
+// page cannot fall back to its own store default inside a session preview).
+type OpenPageUrlCtx = { workspaceId: string }
 
 // The Runs page reads its two absolute bounds as `new Date(param)` and drops whatever
 // doesn't parse, so normalize to ISO here rather than passing a stamp the page will
@@ -3241,14 +3224,11 @@ export function buildOpenPageUrl(page: OpenPageName, a: OpenPageArgs, ctx: OpenP
 		case 'workspace_settings':
 			return buildWorkspaceSettingsUrl({ tab: a.tab })
 		case 'compare':
-			// Explicit `items` wins; otherwise preselect this chat's modified items. An
-			// empty mask (chat modified nothing) passes no items so the page keeps its
-			// select-all default instead of preselecting nothing.
-			return buildCompareUrl({
-				workspace_id: ctx.workspaceId,
-				mode: a.mode,
-				items: a.items ?? (ctx.chatItems?.length ? ctx.chatItems : undefined)
-			})
+			// Always fork: an omitted mode lets the page auto-pick the draft view. No
+			// chat-modified fallback for `items` either: a session's edits are usually
+			// undeployed drafts, which the fork comparison leaves out, so masking by them
+			// would open "deploy to parent" with nothing selected.
+			return buildCompareUrl({ workspace_id: ctx.workspaceId, mode: 'fork', items: a.items })
 	}
 }
 
@@ -3277,13 +3257,12 @@ function summarizeOpenPage(url: string, page: OpenPageName): string {
 
 export const openPageTool: SessionTool<{}> = {
 	requires: NONE,
-	// The initial def assumes an untracked chat and no resolved role; schemaFor below
-	// rebuilds it with the caller's real surface before each iteration.
+	// The initial def assumes no resolved role; schemaFor below rebuilds it with the
+	// caller's real surface before each iteration.
 	def: createToolDef(
 		buildOpenPageDefSchema(
 			restrictedOpenPages(get(workspaceStore)),
 			allowedTriggerKinds(),
-			false,
 			allowsAllWorkspacesRuns()
 		),
 		'open_page',
@@ -3302,7 +3281,6 @@ export const openPageTool: SessionTool<{}> = {
 			buildOpenPageDefSchema(
 				access.pages,
 				allowedTriggerKinds(),
-				(helpers as GlobalToolHelpers | undefined)?.getModifiedItems?.() !== undefined,
 				allowsAllWorkspacesRuns(operatingWorkspaceFromHelpers(helpers)),
 				access.roleUnverified
 			),
@@ -3348,10 +3326,7 @@ export const openPageTool: SessionTool<{}> = {
 		if (!urlWorkspace) {
 			return 'Error: no workspace is selected, so no page can be opened.'
 		}
-		const url = buildOpenPageUrl(page, parsed, {
-			workspaceId: urlWorkspace,
-			chatItems: (ctx.helpers as GlobalToolHelpers | undefined)?.getModifiedItems?.()
-		})
+		const url = buildOpenPageUrl(page, parsed, { workspaceId: urlWorkspace })
 		const pageLabel = OPEN_PAGE_LABELS[page]
 		const summary = summarizeOpenPage(url, page)
 
@@ -4709,10 +4684,6 @@ export type GlobalToolHelpers = SessionToolHelpers & {
 	// Wired only for session chats (see AIChatManager): the artifact tools are session-gated.
 	artifacts?: SessionArtifactsStore
 	getChatId?: () => string | undefined
-	// Live snapshot of the items this chat modified (`kind:path` mask keys, see
-	// modifiedItemsMask.ts); undefined when the chat doesn't track them (the global
-	// side-panel chat). Backs open_page's compare-page default preselection.
-	getModifiedItems?: () => string[] | undefined
 	openArtifact?: (artifactId: string, name: string, version?: ArtifactVersionTarget) => void
 }
 
@@ -5827,6 +5798,68 @@ async function loadSubflowForFlowStep(
 	}
 }
 
+/**
+ * The run form for an agent step: the rows the flow editor's own step test shows, opened on the
+ * values it opens them with, built from that form's helpers so the two cannot drift.
+ */
+async function agentStepRunForm(
+	module: FlowModule,
+	workspace: string,
+	proposed: Record<string, any> | null | undefined
+): Promise<{ schema: Record<string, any>; args: Record<string, any> }> {
+	const transforms = (module.value as { input_transforms?: Record<string, any> }).input_transforms
+	// A linked step's brain belongs to the resource rather than to this flow, so only the inputs
+	// this flow supplies are its to edit.
+	const full = (await loadSchemaFromModule(module, workspace)).schema
+	const schema = (module.value as { agent?: string }).agent ? flowLocalAgentSchema(full) : full
+
+	const visible = initialVisibleAgentFields(transforms, schema.properties)
+	// What the model asked to set, shown even where the step configures nothing: this form has no
+	// control for opening a row, so a field left out of it is one the chat cannot reach at all.
+	for (const key of Object.keys(proposed ?? {})) visible.add(key)
+	const position = new Map(AGENT_FIELDS.map((field, index) => [field.key, index]))
+	const keys = Object.keys(schema.properties ?? {})
+		// A key the field registry does not know is kept, so a new one is never silently dropped.
+		.filter((key) => !position.has(key) || visible.has(key))
+		.sort((a, b) => (position.get(a) ?? Infinity) - (position.get(b) ?? Infinity))
+
+	const evaluated: Record<string, any> = {}
+	for (const key of keys) {
+		const value = evalValue(key, module, undefined, false)
+		if (value !== undefined) evaluated[key] = value
+	}
+	const args = { ...evaluated, ...(proposed ?? {}) }
+	// A mounted form fills a blank list with `[]`, and the bypass posture submits the form unmounted.
+	// For `enabled_tools` the two mean opposite things: `[]` runs no tools, an absent key runs all.
+	if (keys.includes('enabled_tools')) args.enabled_tools ??= []
+
+	const properties = Object.fromEntries(keys.map((key) => [key, schema.properties[key]]))
+	if (properties.memory) properties.memory = memoryPropertyFor(properties.memory, args.memory)
+	// Picked from the agent's tools, as in the editor: a name typed by hand that matches none
+	// silently narrows the run to fewer tools.
+	const list = properties.enabled_tools
+	if (list) {
+		const { agent, tools } = module.value as { agent?: string; tools?: AgentTool[] }
+		const roster = agent ? await resolveLinkedAgentTools(agent, workspace, true) : (tools ?? [])
+		properties.enabled_tools = {
+			...list,
+			items: { ...(list.items ?? { type: 'string' }), enum: enabledToolNames(roster) }
+		}
+	}
+
+	return {
+		schema: {
+			...schema,
+			properties,
+			order: keys,
+			required: ((schema.required as string[] | undefined) ?? []).filter((key) =>
+				keys.includes(key)
+			)
+		},
+		args
+	}
+}
+
 // Leaf of a workspace path (last segment), for human-readable confirmation
 // prompts. Falls back to the full path, then a generic noun.
 function pathLeaf(path: unknown, fallback: string): string {
@@ -6284,7 +6317,9 @@ async function testRunFlowStepByPath(
 		toolCallbacks,
 		toolId,
 		loadScript: loadScriptForFlowStep,
-		loadSubflow: loadSubflowForFlowStep
+		loadSubflow: loadSubflowForFlowStep,
+		flowPath: args.path,
+		withAgentDrafts: (value) => withAgentDrafts(value, workspace)
 	})
 
 	// The module resolution landed on, not the id that was asked for: the job's entrypoint
@@ -6293,15 +6328,20 @@ async function testRunFlowStepByPath(
 	const isPreprocessor = resolved.module.id === SPECIAL_MODULE_IDS.PREPROCESSOR
 	// The step's own inputs, never the flow's: a step is fed by its input transforms, so the
 	// flow's schema names arguments this job would ignore and omits the ones it takes.
+	const agentForm =
+		resolved.module.value.type === 'aiagent'
+			? await agentStepRunForm(resolved.module, workspace, args.args)
+			: undefined
 	const schema =
-		resolved.code != undefined && resolved.lang
+		agentForm?.schema ??
+		(resolved.code != undefined && resolved.lang
 			? await schemaForTestRun({
 					content: resolved.code,
 					language: resolved.lang,
 					schema: resolved.schema,
 					entrypoint: isPreprocessor ? 'preprocessor' : undefined
 				})
-			: (resolved.schema ?? {})
+			: (resolved.schema ?? {}))
 
 	const stepSummary = resolved.module.summary
 	return runThroughForm(
@@ -6319,7 +6359,7 @@ async function testRunFlowStepByPath(
 			// itself be a draft.
 			schemaNoun: 'step',
 			toolName: 'test_run_step',
-			proposed: args.args,
+			proposed: agentForm?.args ?? args.args,
 			startMessage: resolved.startMessage,
 			contextName: resolved.runnableKind,
 			noun: 'step',
@@ -6328,7 +6368,9 @@ async function testRunFlowStepByPath(
 			autoAcceptable: true,
 			background: args.background,
 			detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
-			startJob: resolved.startJob
+			startJob: agentForm
+				? (submitted) => resolved.startJob(submitted, agentForm.schema.order)
+				: resolved.startJob
 		},
 		ctx
 	)

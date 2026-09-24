@@ -1,6 +1,7 @@
 <script lang="ts" module>
 	import { z } from 'zod'
 	import { useSearchParams } from '$lib/svelte5UtilsKit.svelte'
+	import { useHostedPage } from '$lib/components/hostedPage'
 	import { formatDatePretty, parsePrettyDate, type IconType } from '$lib/utils'
 
 	export type FilterSchemaRec = Record<string, FilterSchema>
@@ -134,8 +135,9 @@
 		// URL lacks, so a value written to the instance is undone on the next sync. Going through
 		// urlFilter rather than straight to history keeps the search-param cells in step, so it
 		// does not matter whether a popstate follows.
+		const hosted = useHostedPage()
 		function seed(values: Partial<FilterInstanceRec<T>>) {
-			const sp = new URLSearchParams(window.location.search)
+			const sp = new URLSearchParams(hosted ? untrack(() => hosted.search) : window.location.search)
 			for (const [key, value] of Object.entries(values) as [string, unknown][]) {
 				if (value === undefined || value === null || sp.has(key)) continue
 				urlFilter[key] = value instanceof Date ? value.toISOString() : value

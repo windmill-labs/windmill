@@ -276,16 +276,22 @@
 	// run's last answer carries the only link to that run. Keyed on the answer's own job (a step
 	// label repeats when a step runs in a loop), and on answers rather than the next row: a
 	// flow's tool rows have their own job, and a stopped turn can end on a tool row.
+	// None in a turn still running, paused on the user included (their reply lands as a tool
+	// result, so a row shown during the pause would vanish again): which answer ends the turn is
+	// unknown until it does, and one followed by a tool call would leave the row's blank gap above
+	// it. A manual compaction loads without a turn of its own, so the last turn keeps its row.
 	const showsAnswerActions = $derived.by(() => {
 		const shows: boolean[] = new Array(messages.length).fill(false)
 		const answeredLater = new Set<string | undefined>()
+		let inRunningTurn = chatHost.loading && !chatHost.compacting
 		for (let i = messages.length - 1; i >= 0; i--) {
 			const message = messages[i]
 			if (message.role === 'user' || message.role === 'summary') {
 				answeredLater.clear()
+				inRunningTurn = false
 			} else if (message.role === 'assistant' && message.content) {
 				const run = message.jobId ?? message.stepName
-				shows[i] = !answeredLater.has(run)
+				shows[i] = !inRunningTurn && !answeredLater.has(run)
 				answeredLater.add(run)
 			}
 		}

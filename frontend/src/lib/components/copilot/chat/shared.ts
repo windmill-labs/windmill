@@ -39,6 +39,7 @@ import type { CodePieceElement, ContextElement, FlowModuleCodePieceElement } fro
 import { workspaceStore } from '$lib/stores'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 import { findModuleInFlow, findModuleInModules } from '$lib/components/flows/flowTree'
+import { agentTestInputTransforms } from '$lib/components/flows/agentFormFields'
 import type { FunctionParameters } from 'openai/resources/shared.mjs'
 import { z } from 'zod'
 import {
@@ -2212,6 +2213,13 @@ type FlowStepRunConfig = {
 	toolId: string
 	loadScript?: FlowStepScriptLoader
 	loadSubflow?: FlowStepSubflowLoader
+	/** The path of the flow the step belongs to. An agent step's preview carries it, as the flow
+	 * editor's own step test does: the run is filed under it, and a managed memory keyed on a
+	 * memory id someone named reads the flow's conversation rather than a stray one. */
+	flowPath?: string
+	/** The flow editor's substitution of a linked agent's unsaved draft, passed in because it
+	 * reaches the draft store, which this module's import list must not. */
+	withAgentDrafts?: (value: FlowValue) => Promise<FlowValue>
 }
 
 export type FlowStepTestRunConfig = FlowStepRunConfig & {
@@ -2236,8 +2244,9 @@ export type ResolvedFlowStepRun = {
 	startMessage: string
 	/** Takes the arguments as submitted. The preprocessor's entrypoint override is added
 	 * here rather than by the caller: it is declared by no schema, so anything that
-	 * conforms arguments to one would drop it. */
-	startJob: (args: Record<string, any>) => Promise<string>
+	 * conforms arguments to one would drop it. An agent step also takes the run form's rows:
+	 * each runs from its submitted value, including one the submission leaves out. */
+	startJob: (args: Record<string, any>, formKeys?: readonly string[]) => Promise<string>
 }
 
 function normalizeFlowStepArgs(args: Record<string, any> | null | undefined): Record<string, any> {
@@ -2281,7 +2290,9 @@ export async function resolveFlowStepRun({
 	toolCallbacks,
 	toolId,
 	loadScript = loadDeployedScriptForFlowStep,
-	loadSubflow
+	loadSubflow,
+	flowPath,
+	withAgentDrafts
 }: FlowStepRunConfig): Promise<ResolvedFlowStepRun> {
 	const targetModule = findModuleInFlow(flowValue, stepId) ?? undefined
 
@@ -2368,12 +2379,51 @@ export async function resolveFlowStepRun({
 		}
 	}
 
+	if (moduleValue.type === 'aiagent') {
+		return {
+			module: targetModule,
+			// The job started is a flow preview: an agent step has none of its own, and the tool
+			// calls it makes are that flow's steps.
+			runnableKind: 'flow',
+			startMessage: `Starting test run of agent step "${stepId}"...`,
+			startJob: async (args, formKeys) => {
+				// The step alone, stripped of the settings around it: a mock would answer for it
+				// and a suspend would hold the run for an approval nobody is watching for.
+				const value: FlowValue = {
+					modules: [
+						{
+							id: targetModule.id,
+							value: {
+								...moduleValue,
+								input_transforms: agentTestInputTransforms(
+									moduleValue.input_transforms,
+									args,
+									formKeys
+								)
+							}
+						}
+					]
+				}
+				return JobService.runFlowPreview({
+					workspace,
+					requestBody: {
+						// After the inputs are wired, as the flow editor's step test does: a linked agent's
+						// draft brings its own brain and tools, and the step's run inputs stay on top.
+						value: withAgentDrafts ? await withAgentDrafts(value) : value,
+						args,
+						path: flowPath
+					}
+				})
+			}
+		}
+	}
+
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Step type "${moduleValue.type}" not supported for testing`,
 		error: `Cannot test step of type "${moduleValue.type}"`
 	})
 	throw new Error(
-		`Cannot test step of type "${moduleValue.type}". Supported types: rawscript, script, flow`
+		`Cannot test step of type "${moduleValue.type}". Supported types: rawscript, script, flow, aiagent`
 	)
 }
 

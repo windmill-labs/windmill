@@ -14,6 +14,7 @@
 		BookOpen
 	} from 'lucide-svelte'
 	import { base } from '$lib/base'
+	import { truncateRev } from '$lib/utils'
 	import {
 		EXIT_PLAN_MODE_TOOL,
 		isPlanCardTool,
@@ -291,7 +292,7 @@
 			class="shrink-0 inline-flex items-center gap-1 font-main text-2xs text-tertiary hover:text-primary hover:underline"
 			title="Open this run"
 		>
-			<span>job <span class="font-mono">{message.jobId?.slice(0, 8)}</span></span>
+			<span>job <span class="font-mono">{truncateRev(message.jobId ?? '', 8)}</span></span>
 			<ExternalLink size={11} class="shrink-0" />
 		</a>
 	{/snippet}

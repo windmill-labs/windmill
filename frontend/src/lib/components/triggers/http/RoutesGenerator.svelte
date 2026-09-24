@@ -16,16 +16,20 @@
 	import RouteEditor from './RouteEditor.svelte'
 	import { generateHttpTriggerFromOpenApi, type Source } from './utils'
 	import { isCloudHosted } from '$lib/cloud'
-	import { usedTriggerKinds, userStore } from '$lib/stores'
+	import { usedTriggerKinds } from '$lib/stores'
 	import FileInput from '../../common/fileInput/FileInput.svelte'
 	import { emptyStringTrimmed, sendUserToast } from '$lib/utils'
 	import FolderPicker from '../../FolderPicker.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import { Drawer, DrawerContent } from '$lib/components/common'
 	import { get } from 'svelte/store'
-	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
 
 	type Props = {
 		closeFn: () => Promise<void>
@@ -137,7 +141,9 @@
 		}
 	}
 
-	let userIsAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
+	let userIsAdmin = $derived(
+		operatingUser.current?.is_admin || operatingUser.current?.is_super_admin
+	)
 
 	async function generateHttpTrigger() {
 		try {
