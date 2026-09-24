@@ -61,6 +61,8 @@
 		onSelectTool?: (toolId: string | undefined) => void
 		/** Ran after a successful deploy, with the path actually written, which a rename can move. */
 		onSaved?: (path: string) => void | Promise<void>
+		/** The path was minted for a new agent, so a missing row starts an empty one. */
+		isNew?: boolean
 	}
 
 	let {
@@ -69,7 +71,8 @@
 		enableAi = false,
 		toolId = undefined,
 		onSelectTool = undefined,
-		onSaved = undefined
+		onSaved = undefined,
+		isNew = false
 	}: Props = $props()
 
 	/** The one module the editor edits. Standalone (no `agent` key) so `initFlowState` loads a
@@ -78,7 +81,11 @@
 	 *  schema to the root's. */
 	const AGENT_ID = '__wm_agent_root'
 
-	const draft = useAgentDraft({ path: () => path, workspace: () => workspace })
+	const draft = useAgentDraft({
+		path: () => path,
+		workspace: () => workspace,
+		isNew: () => isNew
+	})
 
 	/** Read access only. Everything that could write is blocked, down to the draft itself: an
 	 *  autosave the server rejects would look like a save and lose the edit. Running the agent,
@@ -447,6 +454,7 @@
 								}
 								bind:error={pathError}
 								initialPath={path}
+								checkInitialPathExistence={draft.noDeployed}
 								namePlaceholder="agent"
 								kind="resource"
 								workspaceOverride={workspace}

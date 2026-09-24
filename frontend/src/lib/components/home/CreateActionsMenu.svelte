@@ -8,6 +8,7 @@
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import {
 		Plus,
+		Bot,
 		Code2,
 		LayoutDashboard,
 		ChevronDown,
@@ -29,6 +30,7 @@
 	import YAML from 'yaml'
 	import type { Snippet } from 'svelte'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
+	import { NEW_AGENT_HASH, RESOURCES_PATH } from '$lib/components/sessions/previewPaths'
 
 	interface Props {
 		/** Replaces the default `New` button, e.g. with an inline text link. */
@@ -120,6 +122,21 @@
 					}
 				] as Option[])
 			: []),
+		{
+			key: 'agent',
+			label: 'AI agent',
+			icon: Bot,
+			accent: 'purple',
+			tagline: 'A reusable agent with tools',
+			description:
+				'Pick a model, write the system prompt and give the agent tools: scripts, flows, MCP servers or other agents. Test it from the editor and link it from any flow.',
+			bullets: [
+				'Any provider and model',
+				'Tools from scripts, flows and MCP',
+				'Shared across flows'
+			],
+			onSelect: () => goto(`${base}${RESOURCES_PATH}${NEW_AGENT_HASH}`)
+		},
 		...(HOME_SHOW_CREATE_APP
 			? ([
 					{

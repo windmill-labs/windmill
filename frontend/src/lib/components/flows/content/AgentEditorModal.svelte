@@ -386,6 +386,7 @@
 			toolId={target.toolId}
 			onSelectTool={(id) => showAgentEditorTool(id)}
 			{onSaved}
+			isNew={target.isNew}
 		/>
 	{/snippet}
 

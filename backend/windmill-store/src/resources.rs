@@ -467,12 +467,10 @@ async fn list_resources(
             let v: serde_json::Value =
                 serde_json::from_str(row.value.0.get()).unwrap_or(serde_json::Value::Null);
             // ResourceEditor's `ResourceState`: { path, description, args, labels?, wsSpecific, resource_type? }
-            let path = v
-                .get("path")
-                .and_then(|s| s.as_str())
-                .unwrap_or("")
-                .to_string();
-            if path.is_empty() || !allowed(&path) {
+            // Listed at the draft's key rather than its `path`: an editor keys the draft on the path
+            // it opened, which is the only one a draft read can find, while `path` moves on rename.
+            let path = row.path;
+            if !allowed(&path) {
                 continue;
             }
             let description = v

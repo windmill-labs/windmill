@@ -181,6 +181,8 @@ export interface AgentDraftOptions {
 	/** The `ai_agent` resource being edited. */
 	path: () => string | undefined
 	workspace: () => string | undefined
+	/** A missing row is a new agent to start empty, not a load failure. */
+	isNew?: () => boolean
 }
 
 export interface AgentDraftHandle {
@@ -327,10 +329,26 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 						await sync.maybeRestore()
 					},
 					(err) => {
+						if (loadedFor !== key) return
+						// Nothing is written until the first edit: the sync saves only on user input, and
+						// the first deploy creates the resource at whatever path the form then holds.
+						if (opts.isNew?.() && (err as { status?: number })?.status === 404) {
+							noDeployed = true
+							deployed = undefined
+							canWriteResource = true
+							state = {
+								path,
+								description: '',
+								args: {},
+								resource_type: 'ai_agent',
+								wsSpecific: false
+							}
+							loading = false
+							return
+						}
 						// A failed load knows neither the resource's type nor its value, so it refuses:
 						// clearing `loading` alone would let the sync restore a persisted draft into a form
 						// that would then deploy over a resource nobody read.
-						if (loadedFor !== key) return
 						refuse(`Could not load agent ${path}: ${err}`)
 					}
 				)
