@@ -3,7 +3,7 @@
 	import ChatCollapsibleCard from './ChatCollapsibleCard.svelte'
 	import ToolPreviewCard from './ToolPreviewCard.svelte'
 	import type { DisplayMessage, ToolDisplayMessage } from './shared'
-	import { groupHeader, type ToolGroup } from './toolGroups'
+	import { callFailed, groupHeader, type ToolGroup } from './toolGroups'
 
 	interface Props {
 		group: ToolGroup
@@ -19,7 +19,7 @@
 	)
 	const running = $derived(calls.some((m) => m.isLoading || m.isQueued || m.isStreamingArguments))
 	const header = $derived(groupHeader(group, running))
-	const failedCount = $derived(calls.filter((m) => m.error !== undefined).length)
+	const failedCount = $derived(calls.filter(callFailed).length)
 	// Every edit of one flow carries the same chip, so the group shows it once.
 	const previewCard = $derived(calls.findLast((m) => m.previewCard && !m.error)?.previewCard)
 	// What the group is doing right now, so a collapsed run still names its current step.

@@ -190,6 +190,16 @@ function callName(call: ToolDisplayMessage): string {
 	return name.replaceAll('_', ' ')
 }
 
+// A draft save that failed or hit a conflict reports it through `result` alone, not `error`
+// (draftWriteFailure in global/core.ts), and a collapsed group would otherwise hide it.
+const FAILED_SAVE_RESULTS = new Set(['Save failed', 'Conflict'])
+export function callFailed(call: ToolDisplayMessage): boolean {
+	return (
+		call.error !== undefined ||
+		(typeof call.result === 'string' && FAILED_SAVE_RESULTS.has(call.result))
+	)
+}
+
 function plural(n: number, word: string): string {
 	return `${n} ${word}${n === 1 ? '' : 's'}`
 }
@@ -212,7 +222,9 @@ export function groupHeader(group: ToolGroup, running: boolean): { prefix: strin
 		.map((e) => e.message)
 		.filter((m): m is ToolDisplayMessage => m.role === 'tool')
 	if (group.groupKind === 'edit') {
-		const edits = calls.filter((m) => FLOW_EDIT_TOOLS.has(m.toolName ?? '')).length
+		const edits = calls.filter(
+			(m) => FLOW_EDIT_TOOLS.has(m.toolName ?? '') && !callFailed(m)
+		).length
 		return {
 			prefix: running ? 'Editing' : 'Edited',
 			label: `${group.target || 'the flow'} · ${plural(edits, 'change')}`

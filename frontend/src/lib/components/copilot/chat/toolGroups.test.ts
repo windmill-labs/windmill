@@ -99,6 +99,14 @@ describe('groupToolRuns', () => {
 				tool('patch_flow_json', flow)
 			])
 		).toBe('Edited f/a/flow · 2 changes')
+		// A save rejected as a conflict reports it in `result`, not `error`: not a change.
+		expect(
+			header([
+				tool('patch_flow_json', flow),
+				tool('patch_flow_json', flow, { result: 'Conflict' }),
+				tool('set_flow_module_code', flow, { result: 'Save failed' })
+			])
+		).toBe('Edited f/a/flow · 1 change')
 		expect(
 			header([
 				tool('search_workspace'),
