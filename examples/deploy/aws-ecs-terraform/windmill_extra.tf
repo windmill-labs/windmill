@@ -118,5 +118,9 @@ resource "aws_ecs_service" "windmill_cluster_windmill_extra_service" {
     container_port   = 3000
   }
 
-  depends_on = [aws_autoscaling_group.windmill_cluster_asg]
+  # ECS rejects a service whose target group is not yet attached to the load balancer.
+  depends_on = [
+    aws_autoscaling_group.windmill_cluster_asg,
+    aws_lb_listener_rule.windmill_cluster_alb_extra_rule,
+  ]
 }
