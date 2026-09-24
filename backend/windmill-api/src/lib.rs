@@ -77,6 +77,8 @@ mod ai_shared_artifacts;
 mod apps;
 mod apps_raw_bundle;
 pub use apps::invalidate_app_policy_cache;
+#[cfg(feature = "mcp")]
+pub use windmill_mcp::server::notify_tools_changed as notify_mcp_tools_changed;
 pub mod args;
 mod audit;
 pub mod auth;

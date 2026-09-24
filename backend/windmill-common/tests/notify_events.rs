@@ -1083,3 +1083,44 @@ async fn test_two_server_processes_both_receive_event() {
     let _ = server_a.child.kill();
     let _ = server_b.child.kill();
 }
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_trigger_notify_mcp_tools_change_once_per_transaction(db: Pool<Postgres>) {
+    let script_path = format!("f/test/script_{}", uuid::Uuid::new_v4());
+    for _ in 0..3 {
+        sqlx::query(
+            "INSERT INTO script (workspace_id, hash, path, summary, description, content, created_by, language, kind)
+             VALUES ('test-workspace', $1, $2, 'test', 'test', 'def main(): pass', 'test-user', 'python3', 'script')",
+        )
+        .bind(rand::random::<i64>().abs())
+        .bind(&script_path)
+        .execute(&db)
+        .await
+        .expect("Failed to insert script");
+    }
+
+    let before_id = get_latest_event_id(&db).await.unwrap();
+    let mut tx = db.begin().await.unwrap();
+    sqlx::query("UPDATE script SET archived = true WHERE path = $1")
+        .bind(&script_path)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM script WHERE path = $1")
+        .bind(&script_path)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+
+    // Archiving a path touches every version and deleting a workspace every script; one event
+    // per row would back up the poll loop that every other channel shares.
+    let events: Vec<_> = poll_notify_events(&db, before_id)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.channel == "notify_mcp_tools_change")
+        .collect();
+    assert_eq!(events.len(), 1, "one event per workspace per transaction");
+    assert_eq!(events[0].payload, "test-workspace");
+}

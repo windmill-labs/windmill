@@ -22,14 +22,16 @@ use rmcp::model::{
     CacheScope, CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock,
     Implementation, InitializeResult, ListPromptsResult, ListResourceTemplatesResult,
     ListResourcesResult, ListToolsResult, PaginatedRequestParams, ProtocolVersion,
-    ServerCapabilities, ServerInfo,
+    ServerCapabilities, ServerInfo, ServerNotification, SubscriptionFilter,
 };
-use rmcp::service::{RequestContext, RoleServer};
+use rmcp::service::{RequestContext, RoleServer, SubscriptionContext};
 use rmcp::ErrorData;
 use serde_json::Value;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
+use std::time::Duration;
+use tokio::sync::broadcast;
 
 /// Protocol revisions this server is willing to speak. `2026-07-28` is served
 /// statelessly with per-request metadata; the older revisions keep the
@@ -46,14 +48,28 @@ const SUPPORTED_PROTOCOL_VERSIONS: &[ProtocolVersion] = &[
 /// leaves them unset, and a strict client rejects the response without them.
 ///
 /// Zero because nothing here is cacheable: the listing is rebuilt from the
-/// workspace's scripts and flows, which change at any time, and this server
-/// advertises no `listChanged` capability, so a client that cached a stale list
-/// would have no way to learn it had gone stale.
+/// workspace's scripts and flows, which change at any time, and `list_changed`
+/// only reaches clients holding a `subscriptions/listen` stream, a poll interval
+/// after the change.
 const LIST_TTL_MS: u64 = 0;
 /// Every listing is filtered by the caller's token scopes and workspace
 /// membership, so no two callers necessarily see the same tools — a shared
 /// cache entry would leak one token's view to another.
 const LIST_CACHE_SCOPE: CacheScope = CacheScope::Private;
+
+/// Workspaces whose listed scripts or flows changed. Fed from the notify-event
+/// poll loop, so a change committed through any replica reaches the listen
+/// streams held by every replica.
+static TOOLS_CHANGED: LazyLock<broadcast::Sender<String>> =
+    LazyLock::new(|| broadcast::channel(1024).0);
+
+/// A poll batch delivers all of its events back to back; waiting this long before
+/// notifying folds a bulk change into one `list_changed` per stream.
+const TOOLS_CHANGED_COALESCE: Duration = Duration::from_secs(1);
+
+pub fn notify_tools_changed(workspace_id: &str) {
+    let _ = TOOLS_CHANGED.send(workspace_id.to_string());
+}
 
 // Re-export from http crate for extracting request parts
 use http::request::Parts as HttpParts;
@@ -428,12 +444,17 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
             .with_title("Windmill")
             .with_website_url("https://windmill.dev");
 
-        InitializeResult::new(ServerCapabilities::builder().enable_tools().build())
-            .with_server_info(server_info)
-            .with_instructions(
-                "This server provides a list of scripts and flows the user can run on Windmill. \
+        InitializeResult::new(
+            ServerCapabilities::builder()
+                .enable_tools()
+                .enable_tool_list_changed()
+                .build(),
+        )
+        .with_server_info(server_info)
+        .with_instructions(
+            "This server provides a list of scripts and flows the user can run on Windmill. \
                  Each flow and script is a tool callable with their respective arguments.",
-            )
+        )
     }
 
     /// Pinned rather than left to rmcp's default (every version the SDK knows), so a
@@ -442,6 +463,41 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
     /// per-request version validation alike.
     fn supported_protocol_versions(&self) -> Cow<'static, [ProtocolVersion]> {
         Cow::Borrowed(SUPPORTED_PROTOCOL_VERSIONS)
+    }
+
+    fn accepted_subscription_filter(
+        &self,
+        _requested: &SubscriptionFilter,
+    ) -> Option<SubscriptionFilter> {
+        Some(SubscriptionFilter::builder().tools_list_changed().build())
+    }
+
+    async fn listen(&self, context: SubscriptionContext) -> Result<(), ErrorData> {
+        let McpContext { mode, .. } = Self::extract_context(context.request_context())?;
+        // A multi-workspace listing holds only the fixed endpoint tools.
+        let McpMode::Single(workspace_id) = mode else {
+            context.cancelled().await;
+            return Ok(());
+        };
+        let mut changes = TOOLS_CHANGED.subscribe();
+        loop {
+            tokio::select! {
+                _ = context.cancelled() => return Ok(()),
+                // `Lagged` falls through: some of the missed events may have been ours.
+                changed = changes.recv() => if matches!(changed, Ok(w_id) if w_id != workspace_id) {
+                    continue;
+                },
+            }
+            tokio::time::sleep(TOOLS_CHANGED_COALESCE).await;
+            while !matches!(
+                changes.try_recv(),
+                Err(broadcast::error::TryRecvError::Empty)
+            ) {}
+            let notification = ServerNotification::ToolListChangedNotification(Default::default());
+            if context.sink().send(notification).await.is_err() {
+                return Ok(());
+            }
+        }
     }
 
     async fn list_tools(
