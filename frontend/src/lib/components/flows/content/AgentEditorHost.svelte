@@ -63,6 +63,9 @@
 		onSaved?: (path: string) => void | Promise<void>
 		/** The path was minted for a new agent, so a missing row starts an empty one. */
 		isNew?: boolean
+		/** The deployed agent to run rather than a draft to edit: the run pane leads, and the form
+		 *  beside it only shows the configuration. Fixed for the mount's lifetime. */
+		view?: boolean
 	}
 
 	let {
@@ -72,7 +75,8 @@
 		toolId = undefined,
 		onSelectTool = undefined,
 		onSaved = undefined,
-		isNew = false
+		isNew = false,
+		view = false
 	}: Props = $props()
 
 	/** The one module the editor edits. Standalone (no `agent` key) so `initFlowState` loads a
@@ -84,13 +88,14 @@
 	const draft = useAgentDraft({
 		path: () => path,
 		workspace: () => workspace,
-		isNew: () => isNew
+		isNew: () => isNew,
+		deployedOnly: () => view
 	})
 
 	/** Read access only. Everything that could write is blocked, down to the draft itself: an
 	 *  autosave the server rejects would look like a save and lose the edit. Running the agent,
 	 *  its history and its evals stay open, none of them being a write to the resource. */
-	let readOnly = $derived(!draft.canWrite)
+	let readOnly = $derived(view || !draft.canWrite)
 
 	const flowStore = $state({
 		val: {
@@ -441,153 +446,160 @@
 		<!-- Resizable as the step panel's config and test are: a long system prompt and a long
 		     answer want opposite splits, and only the reader knows which they are on. -->
 		<Splitpanes class="h-full">
-			<Pane size={55} minSize={30}>
-				<div class="h-full min-h-0 overflow-auto">
-					<div class="px-4 pt-4">
-						<Label label="Path">
-							<Path
-								bind:path={
-									() => draft.state?.path,
-									(v) => {
-										if (draft.state && v !== undefined) draft.state.path = v
-									}
-								}
-								bind:error={pathError}
-								initialPath={path}
-								checkInitialPathExistence={draft.noDeployed}
-								namePlaceholder="agent"
-								kind="resource"
-								workspaceOverride={workspace}
-								autofocus={false}
-								disabled={readOnly}
-							/>
-						</Label>
-					</div>
-					<PropPickerWrapper
-						pickableProperties={stepPropPicker?.pickableProperties}
-						noPadding
-						sidePane
-					>
-						<AiAgentStepInputs
-							class="px-4 pb-8"
-							{schema}
-							filter={brainFilter}
-							previousModuleId={undefined}
-							pickableProperties={stepPropPicker?.pickableProperties}
-							extraLib={stepPropPicker?.extraLib ?? 'missing extraLib'}
-							{enableAi}
-							{workspace}
-							staticOnly
-							visibilityKey={`agent:${path}`}
-							{tools}
-							{readOnly}
-							onSelectTool={(id) => onSelectTool?.(id)}
-							onAddTool={readOnly ? undefined : addTool}
-							onDeleteTool={readOnly ? undefined : deleteTool}
-							toolPickerPortal="#agent-editor"
-							bind:args={
-								() => (agentValue?.input_transforms ?? {}) as Record<string, InputTransform>,
-								(v) => agentValue && (agentValue.input_transforms = v)
-							}
-						/>
-					</PropPickerWrapper>
-				</div>
-			</Pane>
-			<Pane size={45} minSize={20}>
-				<div class="h-full min-h-0 flex flex-col">
-					<!-- Laid out as the script editor's preview column is: what a run takes above what it
-					     produced, both alongside what is being edited. -->
-					<div class="flex-1 min-h-0 {testMode === 'chat' ? 'hidden' : ''}">
-						<Splitpanes horizontal class="h-full">
-							<Pane size={40} minSize={15}>
-								<div class="h-full overflow-auto">
-									<ModulePreview
-										mod={agentModule as FlowModule}
-										schema={flowLocalAgentSchema(schema)}
-										pickableProperties={stepPropPicker?.pickableProperties}
-										runInputKeys={AGENT_EDITOR_RUN_INPUTS}
-										bind:testJob
-										bind:testIsLoading
-										bind:scriptProgress
-									/>
-								</div>
-							</Pane>
-							<Pane size={60} minSize={20}>
-								<ModulePreviewResultViewer
-									lang="deno"
-									editor={undefined}
-									diffEditor={undefined}
-									mod={agentModule as FlowModule}
-									{testJob}
-									{testIsLoading}
-									{scriptProgress}
-									disableMock
-									disableHistory
-								/>
-							</Pane>
-						</Splitpanes>
-					</div>
-					{#if chatMounted}
-						<div class={testMode === 'chat' ? 'flex flex-col flex-1 min-h-0' : 'hidden'}>
-							{#if chatGap?.memory}
-								<div
-									class="flex-1 flex flex-col items-center justify-center gap-2 px-8 text-center"
-								>
-									<MessageCircleOff size={48} class="text-tertiary opacity-50 mb-2" />
-									<p class="text-sm font-semibold text-emphasis">Chat needs managed memory</p>
-									<p class="text-xs text-secondary max-w-xs">
-										{chatGap.memoryCanTurnOn
-											? 'Without it, every message would be answered without the ones before it.'
-											: 'This agent replays a fixed list of messages. Switch its memory to managed to chat with it.'}
-									</p>
-									{#if chatGap.memoryCanTurnOn && !readOnly}
-										<Button
-											unifiedSize="sm"
-											variant="default"
-											btnClasses="bg-surface mt-2"
-											onClick={turnOnMemory}
-										>
-											Turn on managed memory
-										</Button>
-									{/if}
-								</div>
-							{:else if chatGap?.noStream}
-								<div
-									class="shrink-0 flex items-center gap-2 px-4 py-1.5 border-b text-2xs text-secondary"
-								>
-									<Info size={12} class="shrink-0" />
-									<span class="flex-1">
-										{chatGap.noStream === 'image'
-											? 'Image answers do not stream: each one shows once its run ends.'
-											: 'Streaming is off: each answer shows once its run ends.'}
-									</span>
-									{#if chatGap.noStream === 'off' && !readOnly}
-										<Button unifiedSize="2xs" variant="subtle" onClick={turnOnStreaming}>
-											Turn on
-										</Button>
-									{/if}
-								</div>
-							{/if}
-							<!-- Hidden rather than unmounted while memory is off: switching it off mid-turn must
-							     not end the chat following that turn. Test chats, since what runs is the agent as
-							     edited. -->
-							<div class={chatGap?.memory ? 'hidden' : 'flex flex-col flex-1 min-h-0'}>
-								<FlowChat
-									onRunFlow={runChatTurn}
-									path={chatPath}
-									conversationKind="test"
-									subject="agent"
-									frame="none"
-									inputSchema={AGENT_CHAT_SCHEMA}
-									flowModules={chatModules}
-								/>
-							</div>
-						</div>
-					{/if}
-				</div>
-			</Pane>
+			<!-- Viewing leads with running the agent; editing leads with what is being edited. -->
+			{#if view}
+				<Pane size={62} minSize={30}>{@render runPane()}</Pane>
+				<Pane size={38} minSize={20}>{@render configPane()}</Pane>
+			{:else}
+				<Pane size={55} minSize={30}>{@render configPane()}</Pane>
+				<Pane size={45} minSize={20}>{@render runPane()}</Pane>
+			{/if}
 		</Splitpanes>
 	</div>
+
+	{#snippet configPane()}
+		<div class="h-full min-h-0 overflow-auto">
+			<!-- A view shows the path in its page header, and renaming is not for it anyway. -->
+			{#if !view}
+				<div class="px-4 pt-4">
+					<Label label="Path">
+						<Path
+							bind:path={
+								() => draft.state?.path,
+								(v) => {
+									if (draft.state && v !== undefined) draft.state.path = v
+								}
+							}
+							bind:error={pathError}
+							initialPath={path}
+							checkInitialPathExistence={draft.noDeployed}
+							namePlaceholder="agent"
+							kind="resource"
+							workspaceOverride={workspace}
+							autofocus={false}
+							disabled={readOnly}
+						/>
+					</Label>
+				</div>
+			{/if}
+			<PropPickerWrapper pickableProperties={stepPropPicker?.pickableProperties} noPadding sidePane>
+				<AiAgentStepInputs
+					class="px-4 pb-8"
+					{schema}
+					filter={brainFilter}
+					previousModuleId={undefined}
+					pickableProperties={stepPropPicker?.pickableProperties}
+					extraLib={stepPropPicker?.extraLib ?? 'missing extraLib'}
+					{enableAi}
+					{workspace}
+					staticOnly
+					visibilityKey={`agent:${path}`}
+					{tools}
+					{readOnly}
+					onSelectTool={(id) => onSelectTool?.(id)}
+					onAddTool={readOnly ? undefined : addTool}
+					onDeleteTool={readOnly ? undefined : deleteTool}
+					toolPickerPortal="#agent-editor"
+					bind:args={
+						() => (agentValue?.input_transforms ?? {}) as Record<string, InputTransform>,
+						(v) => agentValue && (agentValue.input_transforms = v)
+					}
+				/>
+			</PropPickerWrapper>
+		</div>
+	{/snippet}
+
+	{#snippet runPane()}
+		<div class="h-full min-h-0 flex flex-col">
+			<!-- Laid out as the script editor's preview column is: what a run takes above what it
+					     produced, both alongside what is being edited. -->
+			<div class="flex-1 min-h-0 {testMode === 'chat' ? 'hidden' : ''}">
+				<Splitpanes horizontal class="h-full">
+					<Pane size={40} minSize={15}>
+						<div class="h-full overflow-auto">
+							<ModulePreview
+								mod={agentModule as FlowModule}
+								schema={flowLocalAgentSchema(schema)}
+								pickableProperties={stepPropPicker?.pickableProperties}
+								runInputKeys={AGENT_EDITOR_RUN_INPUTS}
+								bind:testJob
+								bind:testIsLoading
+								bind:scriptProgress
+							/>
+						</div>
+					</Pane>
+					<Pane size={60} minSize={20}>
+						<ModulePreviewResultViewer
+							lang="deno"
+							editor={undefined}
+							diffEditor={undefined}
+							mod={agentModule as FlowModule}
+							{testJob}
+							{testIsLoading}
+							{scriptProgress}
+							disableMock
+							disableHistory
+						/>
+					</Pane>
+				</Splitpanes>
+			</div>
+			{#if chatMounted}
+				<div class={testMode === 'chat' ? 'flex flex-col flex-1 min-h-0' : 'hidden'}>
+					{#if chatGap?.memory}
+						<div class="flex-1 flex flex-col items-center justify-center gap-2 px-8 text-center">
+							<MessageCircleOff size={48} class="text-tertiary opacity-50 mb-2" />
+							<p class="text-sm font-semibold text-emphasis">Chat needs managed memory</p>
+							<p class="text-xs text-secondary max-w-xs">
+								{chatGap.memoryCanTurnOn
+									? 'Without it, every message would be answered without the ones before it.'
+									: 'This agent replays a fixed list of messages. Switch its memory to managed to chat with it.'}
+							</p>
+							{#if chatGap.memoryCanTurnOn && !readOnly}
+								<Button
+									unifiedSize="sm"
+									variant="default"
+									btnClasses="bg-surface mt-2"
+									onClick={turnOnMemory}
+								>
+									Turn on managed memory
+								</Button>
+							{/if}
+						</div>
+					{:else if chatGap?.noStream}
+						<div
+							class="shrink-0 flex items-center gap-2 px-4 py-1.5 border-b text-2xs text-secondary"
+						>
+							<Info size={12} class="shrink-0" />
+							<span class="flex-1">
+								{chatGap.noStream === 'image'
+									? 'Image answers do not stream: each one shows once its run ends.'
+									: 'Streaming is off: each answer shows once its run ends.'}
+							</span>
+							{#if chatGap.noStream === 'off' && !readOnly}
+								<Button unifiedSize="2xs" variant="subtle" onClick={turnOnStreaming}>
+									Turn on
+								</Button>
+							{/if}
+						</div>
+					{/if}
+					<!-- Hidden rather than unmounted while memory is off: switching it off mid-turn must
+							     not end the chat following that turn. Test chats, since what runs is the agent as
+							     edited. -->
+					<div class={chatGap?.memory ? 'hidden' : 'flex flex-col flex-1 min-h-0'}>
+						<FlowChat
+							onRunFlow={runChatTurn}
+							path={chatPath}
+							conversationKind="test"
+							subject="agent"
+							frame="none"
+							inputSchema={AGENT_CHAT_SCHEMA}
+							flowModules={chatModules}
+						/>
+					</div>
+				</div>
+			{/if}
+		</div>
+	{/snippet}
 
 	<!-- A tool is a whole step editor, so it gets a surface of its own rather than a level of the
 	     dialog: the agent stays visible behind it, along with the banner and Deploy that its edits

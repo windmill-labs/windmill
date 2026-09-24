@@ -88,9 +88,7 @@
 		handOffPageDrawer,
 		setPageDrawerAnchor
 	} from '$lib/components/sessions/pageDrawerSession'
-	import { NEW_AGENT_HASH, RESOURCES_PATH } from '$lib/components/sessions/previewPaths'
-	import { getUsernameForNamespace } from '$lib/userNamespace'
-	import { random_adj } from '$lib/components/random_positive_adjetive'
+	import { RESOURCES_PATH } from '$lib/components/sessions/previewPaths'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
 	import ExploreAssetButton, {
 		assetCanBeExplored
@@ -673,18 +671,6 @@
 	let handledHash = ''
 	$effect(() => {
 		const hash = page.url.hash
-		if (hash === NEW_AGENT_HASH) {
-			if (hash === handledHash) return
-			handledHash = hash
-			untrack(() => {
-				resourceEditor?.close?.({ keepAnchor: true })
-				openAgentEditor({
-					path: `u/${getUsernameForNamespace()}/${random_adj()}_agent`,
-					isNew: true
-				})
-			})
-			return
-		}
 		if (!hash.startsWith('#/resource/')) {
 			// Navigating away from a drawer target must clear the tracker, or
 			// re-targeting the same item later would be skipped as already handled.

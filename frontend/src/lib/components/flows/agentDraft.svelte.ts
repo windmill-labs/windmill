@@ -7,6 +7,7 @@ import { canWrite } from '$lib/utils'
 import { userStore } from '$lib/stores'
 import { getUserExt } from '$lib/user'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+import { UserDraft } from '$lib/userDraft.svelte'
 import { useTriggerDraftSync, type TriggerDraftSync } from '../triggers/useTriggerDraftSync.svelte'
 import { logReusableAgentUsage } from './agentTelemetry'
 import {
@@ -183,6 +184,9 @@ export interface AgentDraftOptions {
 	workspace: () => string | undefined
 	/** A missing row is a new agent to start empty, not a load failure. */
 	isNew?: () => boolean
+	/** Only the deployed agent, as a page that runs it shows it: no draft is loaded, restored or
+	 *  written, and a write from another tab does not land here. */
+	deployedOnly?: () => boolean
 }
 
 export interface AgentDraftHandle {
@@ -223,7 +227,8 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 
 	const sync = useTriggerDraftSync({
 		itemKind: 'resource',
-		path: () => opts.path() ?? '',
+		// An empty path holds no draft handle, which is what keeps a deployed-only view off the draft.
+		path: () => (opts.deployedOnly?.() ? '' : (opts.path() ?? '')),
 		workspace: () => opts.workspace(),
 		drawerLoading: () => loading || refusal != null,
 		// `$state.snapshot` deep-reads, so the sync effects re-run when a nested field of `args`
@@ -267,7 +272,7 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 			// folders and the admin flag are all per workspace, so the nav user would answer for the
 			// wrong membership in both directions.
 			Promise.all([
-				ResourceService.getResource({ workspace: ws, path, getDraft: true }),
+				ResourceService.getResource({ workspace: ws, path, getDraft: !opts.deployedOnly?.() }),
 				getUserExt(ws).catch(() => undefined)
 			])
 				// The rejection handler is `then`'s second argument rather than a trailing `catch`, so
@@ -277,8 +282,9 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 					async ([r, user]) => {
 						// A slower response for a path we have left must not overwrite the current one.
 						if (loadedFor !== key) return
-						// The path was minted as free, so something already there is someone else's work.
-						if (opts.isNew?.()) {
+						// The path was minted as free, so a deployed agent there is someone else's work. A
+						// draft-only one is the caller's own new agent, reopened.
+						if (opts.isNew?.() && !(r as any).no_deployed) {
 							refuse(`${path} already exists. Close this and create the agent again.`)
 							return
 						}
@@ -326,14 +332,16 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 						// conflict or failure for the key: a conflict is deliberately sticky (the retry
 						// keeps the same baseline), and nothing else mounts a resolver for `resource`
 						// drafts, so re-opening the agent is the only place it can be resolved.
-						UserDraftDbSyncer.recordRemoteSync(
-							{ workspace: ws, itemKind: 'resource', path },
-							(r as { draft_saved_at?: string }).draft_saved_at
-						)
+						if (!opts.deployedOnly?.()) {
+							UserDraftDbSyncer.recordRemoteSync(
+								{ workspace: ws, itemKind: 'resource', path },
+								(r as { draft_saved_at?: string }).draft_saved_at
+							)
+						}
 						loading = false
 						await sync.maybeRestore()
 					},
-					async (err) => {
+					(err) => {
 						if (loadedFor !== key) return
 						// Nothing is written until the first edit: the sync saves only on user input, and
 						// the first deploy creates the resource at whatever path the form then holds.
@@ -350,8 +358,9 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 							}
 							loading = false
 							// Seeds the draft cell with the empty agent, or its first-write guard swallows the
-							// first edit.
-							await sync.maybeRestore()
+							// first edit. Not `sync.maybeRestore`: with nothing deployed to compare against, it
+							// takes the form for a restored draft and autosaves it before any input.
+							UserDraft.seed('resource', path, $state.snapshot(state), { workspace: ws })
 							return
 						}
 						// A failed load knows neither the resource's type nor its value, so it refuses:

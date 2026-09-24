@@ -11,8 +11,6 @@ export const RUNS_PATH = '/runs'
 export const SCHEDULES_PATH = '/schedules'
 export const VARIABLES_PATH = '/variables'
 export const RESOURCES_PATH = '/resources'
-/** On the resources page, opens the agent editor on a new, not yet saved agent. */
-export const NEW_AGENT_HASH = '#/new_agent'
 export const ASSETS_PATH = '/assets'
 export const AUDIT_LOGS_PATH = '/audit_logs'
 export const WORKSPACE_SETTINGS_PATH = '/workspace_settings'

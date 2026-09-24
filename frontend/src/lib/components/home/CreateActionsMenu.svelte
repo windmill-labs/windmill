@@ -30,7 +30,6 @@
 	import YAML from 'yaml'
 	import type { Snippet } from 'svelte'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
-	import { NEW_AGENT_HASH, RESOURCES_PATH } from '$lib/components/sessions/previewPaths'
 
 	interface Props {
 		/** Replaces the default `New` button, e.g. with an inline text link. */
@@ -135,7 +134,7 @@
 				'Tools from scripts, flows and MCP',
 				'Shared across flows'
 			],
-			onSelect: () => goto(`${base}${RESOURCES_PATH}${NEW_AGENT_HASH}`)
+			onSelect: () => goto(`${base}/agents/add`)
 		},
 		...(HOME_SHOW_CREATE_APP
 			? ([

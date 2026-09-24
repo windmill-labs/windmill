@@ -12,9 +12,9 @@
 	import { sendUserToast } from '$lib/toast'
 	import { isDeployable } from '$lib/utils_deployable'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
-	import { RESOURCES_PATH } from '$lib/components/sessions/previewPaths'
 	import { createEventDispatcher } from 'svelte'
-	import { FileUp, FolderInput, Shield, Trash } from 'lucide-svelte'
+	import { FileUp, FolderInput, Pen, Shield, Trash } from 'lucide-svelte'
+	import Button from '../button/Button.svelte'
 	import Row from './Row.svelte'
 
 	/**
@@ -56,10 +56,14 @@
 			sendUserToast(`Could not delete agent ${path}: ${err}`, true)
 		}
 	}
+
+	let editHref = $derived(`${base}/agents/edit/${agent.path}`)
+	// A draft-only agent has nothing deployed for its page to run, so it opens in the editor.
+	let rowHref = $derived(agent.draft_only ? editHref : `${base}/agents/get/${agent.path}`)
 </script>
 
 <Row
-	href="{base}{RESOURCES_PATH}#/resource/{agent.path}"
+	href={rowHref}
 	kind="agent"
 	{keyboardSelected}
 	{marked}
@@ -84,6 +88,19 @@
 	{/snippet}
 
 	{#snippet actions()}
+		{#if agent.canWrite}
+			<span class="hidden md:inline-flex">
+				<Button
+					variant="subtle"
+					wrapperClasses="w-20"
+					unifiedSize="md"
+					startIcon={{ icon: Pen }}
+					href={editHref}
+				>
+					Edit
+				</Button>
+			</span>
+		{/if}
 		<Dropdown
 			items={async () => {
 				const { path } = agent
