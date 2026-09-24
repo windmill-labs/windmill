@@ -90,7 +90,11 @@
 	import SessionModeSwitch from '$lib/components/sessions/SessionModeSwitch.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 	import { copilotInfo } from '$lib/aiStore'
-	import { parsePreviewItemRoute } from '$lib/components/sessions/previewPaths'
+	import {
+		isPageItemListPath,
+		parsePreviewItemRoute,
+		stripBase
+	} from '$lib/components/sessions/previewPaths'
 	import { rememberNavRoute } from '$lib/components/sessions/sessionSwitch.svelte'
 	import { sessionState } from '$lib/components/sessions/sessionState.svelte'
 	import { restoreSessionBackups } from '$lib/components/sessions/sessionMirror.svelte'
@@ -426,6 +430,21 @@
 				try {
 					window.parent.postMessage(
 						{ type: 'wm.session.openEditor', kind: target.kind, path: target.path },
+						window.location.origin
+					)
+				} catch {}
+				return
+			}
+			// A list page mounts in process too, where its rows open as tabs of their own.
+			const listUrl = navigation.to?.url
+			if (listUrl && isPageItemListPath(stripBase(listUrl.pathname))) {
+				navigation.cancel()
+				const u = new URL(listUrl.href)
+				u.searchParams.delete('nomenubar')
+				u.searchParams.delete('workspace')
+				try {
+					window.parent.postMessage(
+						{ type: 'wm.session.openList', href: u.pathname + u.search + u.hash },
 						window.location.origin
 					)
 				} catch {}
