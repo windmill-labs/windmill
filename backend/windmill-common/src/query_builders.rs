@@ -1402,16 +1402,7 @@ pub fn make_delete_query(table: &str, columns: &[ColumnDef], db_type: DbType) ->
             let conditions: String = columns
                 .iter()
                 .enumerate()
-                .map(|(i, c)| {
-                    let qf = qi(&c.field, db_type);
-                    format!(
-                        "(${} IS NULL AND {} IS NULL OR {} = ${})",
-                        i + 1,
-                        qf,
-                        qf,
-                        i + 1,
-                    )
-                })
+                .map(|(i, c)| pg_row_match(&c.field, &c.datatype, i + 1))
                 .collect::<Vec<_>>()
                 .join("\n    AND ");
             query.push_str(&format!(
@@ -1535,6 +1526,17 @@ fn pg_value(param: &str, datatype: &str) -> String {
         format!("{}::text::{}", param, datatype.trim().to_lowercase())
     } else {
         param.to_string()
+    }
+}
+
+/// PostgreSQL predicate matching a row's `field` against parameter `$param`, NULL included.
+/// The row's JSON values were read as text, and `json` has no `=`: they compare as text.
+fn pg_row_match(field: &str, datatype: &str, param: usize) -> String {
+    let qf = qi(field, DbType::Postgresql);
+    if pg_is_json(datatype) {
+        format!("(${param} IS NULL AND {qf} IS NULL OR {qf}::text = ${param}::text)")
+    } else {
+        format!("(${param} IS NULL AND {qf} IS NULL OR {qf} = ${param})")
     }
 }
 
@@ -1719,27 +1721,7 @@ pub fn make_update_query(
             let conditions: String = columns
                 .iter()
                 .enumerate()
-                .map(|(i, c)| {
-                    let qf = qi(&c.field, db_type);
-                    // The row's JSON values were read as text, and `json` has no `=`.
-                    if pg_is_json(&c.datatype) {
-                        format!(
-                            "(${} IS NULL AND {} IS NULL OR {}::text = ${}::text)",
-                            i + 2,
-                            qf,
-                            qf,
-                            i + 2,
-                        )
-                    } else {
-                        format!(
-                            "(${} IS NULL AND {} IS NULL OR {} = ${})",
-                            i + 2,
-                            qf,
-                            qf,
-                            i + 2,
-                        )
-                    }
-                })
+                .map(|(i, c)| pg_row_match(&c.field, &c.datatype, i + 2))
                 .collect::<Vec<_>>()
                 .join("\n    AND ");
 
@@ -3190,6 +3172,8 @@ mod tests {
             make_insert_query("t", &[col("id", "int4"), col("js", "jsonb")], DbType::Postgresql)
                 .unwrap();
         assert!(insert.contains("VALUES ($1, $2::text::jsonb"), "{}", insert);
+        let delete = make_delete_query("t", &[col("js", "json")], DbType::Postgresql);
+        assert!(delete.contains(r#""js"::text = $1::text"#), "{}", delete);
     }
 
     #[test]
