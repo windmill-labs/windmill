@@ -9,6 +9,7 @@
 	import { itemDisplayName } from './previewRouter'
 	import SessionItemNotFound from './SessionItemNotFound.svelte'
 	import { setEditorStoragePath } from '../editorStoragePathContext'
+	import { setOperatingWorkspace } from '../operatingWorkspace.svelte'
 
 	let {
 		runtime,
@@ -51,6 +52,7 @@
 	// component instance keeps the first runtime's manager — so descendants may
 	// rely on its presence, not its identity.
 	setContext('aiChatManager', runtime.manager)
+	setOperatingWorkspace(() => workspaceId)
 
 	// This tab's storage path, for the editor below: several tabs are mounted at
 	// once and only this one knows which item each is open on.

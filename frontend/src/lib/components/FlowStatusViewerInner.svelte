@@ -15,7 +15,6 @@
 		type FlowNote,
 		type FlowValue
 	} from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { base } from '$lib/base'
 	import FlowJobResult from './FlowJobResult.svelte'
 	import WorkflowTimeline from './WorkflowTimeline.svelte'
@@ -69,6 +68,9 @@
 		releaseLinkedToolsScope,
 		retainLinkedToolsScope
 	} from './flows/linkedAgentToolsStore.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	let {
 		flowState: flowStateStore,
@@ -168,7 +170,7 @@
 		isSubflow = false,
 		reducedPolling = false,
 		wideResults = false,
-		workspace = $workspaceStore,
+		workspace = $operatingWorkspace,
 		prefix = undefined,
 		topModuleStates = undefined,
 		refreshGlobal,
@@ -242,7 +244,7 @@
 						resourceMetadataCache[asset.path] = undefined
 						if (!isReplay) {
 							ResourceService.getResource({
-								workspace: workspace ?? $workspaceStore!,
+								workspace: workspace ?? $operatingWorkspace!,
 								path: asset.path
 							})
 								.then((r) => (resourceMetadataCache[asset.path] = r))
@@ -278,7 +280,7 @@
 	// resolving in the navigation one finds nothing, or an unrelated resource sharing the path. The
 	// store scope stays keyed on `workspace` to match what FlowGraphV2 reads — the job id in the key
 	// already makes the bucket unique.
-	let agentFetchWorkspace = $derived(workspaceId ?? job?.workspace_id ?? $workspaceStore)
+	let agentFetchWorkspace = $derived(workspaceId ?? job?.workspace_id ?? $operatingWorkspace)
 	// Hold this scope for as long as the viewer is mounted, so the store's cap can't drop tools the
 	// run still needs (nothing would refetch them — the set of linked steps hasn't changed).
 	$effect(() => {
@@ -627,7 +629,7 @@
 				) {
 					if (!isReplay) {
 						JobService.getJob({
-							workspace: workspaceId ?? $workspaceStore ?? '',
+							workspace: workspaceId ?? $operatingWorkspace ?? '',
 							id: mod.job ?? '',
 							noLogs: true,
 							noCode: true
@@ -722,7 +724,7 @@
 						})
 						if (!isReplay) {
 							JobService.getStartedAtByIds({
-								workspace: workspaceId ?? $workspaceStore ?? '',
+								workspace: workspaceId ?? $operatingWorkspace ?? '',
 								requestBody: missingStartedAtIds
 							})
 								.then((jobs) => {
@@ -1569,7 +1571,7 @@
 									let storedJob = storedListJobs[j]
 									if (!storedJob && !isReplay) {
 										storedJob = await JobService.getJob({
-											workspace: workspaceId ?? $workspaceStore ?? '',
+											workspace: workspaceId ?? $operatingWorkspace ?? '',
 											id: loopJobId,
 											noLogs: true,
 											noCode: true
@@ -2135,7 +2137,7 @@
 															id={isReplay ? undefined : job.id}
 															workspace={isReplay
 																? undefined
-																: (job.workspace_id ?? $workspaceStore ?? 'no_w')}
+																: (job.workspace_id ?? $operatingWorkspace ?? 'no_w')}
 															args={job.args}
 														/>
 													{:else}
@@ -2202,7 +2204,7 @@
 																			id={isReplay ? undefined : node.job_id}
 																			workspace={isReplay
 																				? undefined
-																				: (job.workspace_id ?? $workspaceStore ?? 'no_w')}
+																				: (job.workspace_id ?? $operatingWorkspace ?? 'no_w')}
 																			args={node.args}
 																		/>
 																	</div>

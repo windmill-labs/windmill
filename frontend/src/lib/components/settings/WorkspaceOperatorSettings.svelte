@@ -43,6 +43,9 @@
 	let isChanged = $state(false)
 	let currentWorkspace: string | null = $state(null)
 	let confirmBuilderOpen = $state(false)
+	// Saving sends every key, so saving before the load, or over a late response for another
+	// workspace, would write defaults over the rights stored there.
+	let loadedWorkspace: string | null = $state(null)
 
 	const settingsPayload = $derived({
 		...operatorWorkspaceSettings,
@@ -93,10 +96,10 @@
 	$effect(() => {
 		if ($workspaceStore && $workspaceStore !== currentWorkspace) {
 			;(async () => {
-				currentWorkspace = $workspaceStore
-				const settings = await WorkspaceService.getSettings({
-					workspace: $workspaceStore
-				})
+				const ws = $workspaceStore
+				currentWorkspace = ws
+				const settings = await WorkspaceService.getSettings({ workspace: ws })
+				if (ws !== currentWorkspace) return
 				if (settings.operator_settings !== null) {
 					const {
 						builder_flows: remoteFlows,
@@ -115,6 +118,7 @@
 						manage_triggers: manageTriggers
 					}
 				}
+				loadedWorkspace = ws
 			})()
 		}
 	})
@@ -134,22 +138,22 @@
 <Section
 	label="Operator settings"
 	collapsable={true}
-	tooltip="Configure the operator visibility settings for your workspace. Toggle the settings you want to enable."
-	description="Configure the operator visibility settings for your workspace. Toggle the settings you want to enable."
+	tooltip="Operators run what is shared with them. Choose what else they can change and see in this workspace."
+	description="Operators run what is shared with them. Choose what else they can change and see in this workspace."
 >
 	{#snippet action()}
 		<Button
 			on:click={onSaveClicked}
 			startIcon={{ icon: SaveIcon }}
-			disabled={!isChanged}
+			disabled={!isChanged || loadedWorkspace !== $workspaceStore}
 			variant="accent"
 		>
 			Save operator settings
 		</Button>
 	{/snippet}
 
-	<div class="flex flex-col gap-y-1 mb-4">
-		<span class="text-xs font-semibold text-emphasis">Builder rights</span>
+	<div class="flex flex-col gap-y-1 mb-6">
+		<span class="text-xs font-semibold text-emphasis">Build flows</span>
 		<span class="text-xs font-normal text-secondary">
 			Let operators compose flows out of scripts and flows that are already deployed. They still
 			cannot write code. Granting this makes each operator consume a full seat instead of half a
@@ -162,11 +166,12 @@
 		/>
 	</div>
 
-	<div class="flex flex-col gap-y-1 mb-4">
-		<span class="text-xs font-semibold text-emphasis">Schedules and triggers</span>
+	<div class="flex flex-col gap-y-1 mb-6">
+		<span class="text-xs font-semibold text-emphasis">Change schedules and triggers</span>
 		<span class="text-xs font-normal text-secondary">
 			Operators can create, edit and delete schedules and triggers wherever their folder permissions
-			let them write. Turn these off to withdraw that.
+			let them write. When turned off, the server refuses these changes, including through the API
+			and the CLI.
 		</span>
 		<Toggle
 			bind:checked={manageSchedules}
@@ -178,6 +183,14 @@
 			options={{ right: 'Operators can manage triggers' }}
 			size="xs"
 		/>
+	</div>
+
+	<div class="flex flex-col gap-y-1 mb-2">
+		<span class="text-xs font-semibold text-emphasis">Pages in their menu</span>
+		<span class="text-xs font-normal text-secondary">
+			Hides pages from an operator's menu. It does not block access through the API: use folder and
+			item permissions to restrict what they can read.
+		</span>
 	</div>
 
 	<DataTable tableFixed={true} size="xs">

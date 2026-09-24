@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { type Job, JobService, type FlowModule, type RestartedFrom } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { Button } from './common'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
@@ -11,6 +10,9 @@
 	import FlowProgressBar from './flows/FlowProgressBar.svelte'
 	import { CornerDownLeft, Play, RefreshCw, X } from 'lucide-svelte'
 	import type { Schema } from '$lib/common'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		open: boolean
@@ -165,7 +167,7 @@
 					try {
 						jobId &&
 							(await JobService.cancelQueuedJob({
-								workspace: opWorkspace?.() ?? $workspaceStore ?? '',
+								workspace: opWorkspace?.() ?? $operatingWorkspace ?? '',
 								id: jobId,
 								requestBody: {}
 							}))

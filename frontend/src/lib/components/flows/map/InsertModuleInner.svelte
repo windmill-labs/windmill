@@ -12,10 +12,13 @@
 	import RefreshButton from '$lib/components/common/button/RefreshButton.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { ResourceService } from '$lib/gen'
-	import { operatorBuilderFlows, workspaceStore } from '$lib/stores'
+	import { operatorBuilderFlows } from '$lib/stores'
 	import type { FlowEditorContext } from '../types'
 	import { logReusableAgentUsage } from '../agentTelemetry'
 	import { BotIcon, Loader2, Plus } from 'lucide-svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	const dispatch = createEventDispatcher()
 	interface Props {
@@ -60,7 +63,7 @@
 
 	// Optional: this picker also renders outside the flow editor's context (the triggers wrapper).
 	const flowEditorContext = getContext<FlowEditorContext | undefined>('FlowEditorContext')
-	let ws = $derived(flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
+	let ws = $derived(flowEditorContext?.opWorkspace?.() ?? $operatingWorkspace)
 
 	// Flagged for the whole menu, whichever pane is showing: the flow builder walks node
 	// selection on ArrowUp/ArrowDown while it is unset, which tears the popover down.

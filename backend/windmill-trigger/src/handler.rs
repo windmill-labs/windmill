@@ -22,9 +22,8 @@ use windmill_common::{
         fetch_draft_only_list_rows, overlay_or_draft_only, UserDraftItemKind, WithDraftOverlay,
         WithDraftQuery,
     },
-    utils::{paginate, Pagination, StripPath},
+    utils::{check_proper_path, paginate, Pagination, StripPath},
     worker::CLOUD_HOSTED,
-    workspaces::{check_operator_can_manage, ManageKind},
     DB,
 };
 use windmill_git_sync::DeployedObject;
@@ -548,15 +547,7 @@ async fn create_trigger<T: TriggerCrud>(
             &new_trigger.base.path
         )
     })?;
-
-    check_operator_can_manage(
-        &db,
-        &workspace_id,
-        authed.is_operator,
-        ManageKind::Triggers,
-        "create triggers",
-    )
-    .await?;
+    check_proper_path(&new_trigger.base.path)?;
 
     if *CLOUD_HOSTED && !T::IS_ALLOWED_ON_CLOUD {
         return Err(Error::BadRequest(format!(
@@ -827,15 +818,9 @@ async fn update_trigger<T: TriggerCrud>(
             &edit_trigger.base.path
         )
     })?;
-
-    check_operator_can_manage(
-        &db,
-        &workspace_id,
-        authed.is_operator,
-        ManageKind::Triggers,
-        "edit triggers",
-    )
-    .await?;
+    if edit_trigger.base.path != path {
+        check_proper_path(&edit_trigger.base.path)?;
+    }
 
     edit_trigger.error_handling.validate()?;
 
@@ -991,14 +976,6 @@ async fn delete_trigger<T: TriggerCrud>(
     check_scopes(&authed, || {
         format!("{}:write:{}", T::scope_domain_name(), &path)
     })?;
-    check_operator_can_manage(
-        &db,
-        &workspace_id,
-        authed.is_operator,
-        ManageKind::Triggers,
-        "delete triggers",
-    )
-    .await?;
 
     let mut tx = user_db.begin(&authed).await?;
 
@@ -1140,14 +1117,6 @@ async fn set_trigger_mode<T: TriggerCrud>(
 ) -> Result<String> {
     let path = path.to_path();
     check_scopes(&authed, || format!("{}:write", T::scope_domain_name()))?;
-    check_operator_can_manage(
-        &db,
-        &workspace_id,
-        authed.is_operator,
-        ManageKind::Triggers,
-        "enable or disable triggers",
-    )
-    .await?;
 
     let mut tx = user_db.begin(&authed).await?;
 

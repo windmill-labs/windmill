@@ -8,7 +8,7 @@ BEGIN
     VALUES ('notify_operator_settings_change', NEW.workspace_id);
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 DROP TRIGGER IF EXISTS operator_settings_change_trigger ON workspace_settings;
 CREATE TRIGGER operator_settings_change_trigger

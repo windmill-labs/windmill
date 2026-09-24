@@ -10,10 +10,12 @@
 	import FlowGraphViewerStep from './FlowGraphViewerStep.svelte'
 	import FlowGraphV2 from './graph/FlowGraphV2.svelte'
 	import { dfs } from './flows/dfs'
-	import { workspaceStore } from '$lib/stores'
 	import { untrack } from 'svelte'
 	import { publishLinkedAgentTools } from './flows/flowState'
 	import { linkedToolsScope } from './flows/linkedAgentToolsStore.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		flow: {
@@ -45,7 +47,7 @@
 		noGraph = false,
 		triggerNode = false,
 		stepDetail = $bindable(undefined),
-		workspace = $workspaceStore,
+		workspace = $operatingWorkspace,
 		minHeight = 400,
 		noBorder = false,
 		hideDefaultInputs = false,

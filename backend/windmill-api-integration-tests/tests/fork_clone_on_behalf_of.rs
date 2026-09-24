@@ -407,9 +407,18 @@ async fn test_fork_repoints_unresolvable_identities(db: Pool<Postgres>) -> anyho
         text("SELECT value->'policy'->>'on_behalf_of' FROM draft WHERE workspace_id = 'wm-fork-repoint' AND path = 'u/test-user/stranger' AND typ = 'raw_app'").await?,
         "u/test-user"
     );
+    // `clone_drafts` strips a NUL escape as it copies, so the row reaches the fork
+    // parseable and the repoint below reaches it like any other draft's. The rule this
+    // guards is that the fork completes and no identity naming nobody survives it; the
+    // skip only ever existed because `to_jsonb` raises on a value still holding one.
     assert_eq!(
         text("SELECT CASE WHEN strpos(value::text, 'u/test-user-2') > 0 THEN 'kept' ELSE 'rewritten' END FROM draft WHERE workspace_id = 'wm-fork-repoint' AND path = 'u/test-user/nul'").await?,
-        "kept"
+        "rewritten"
+    );
+    // And it arrives without the poison that made it a special case.
+    assert_eq!(
+        text("SELECT CASE WHEN position(chr(92) || 'u0000' in value::text) > 0 THEN 'poisoned' ELSE 'clean' END FROM draft WHERE workspace_id = 'wm-fork-repoint' AND path = 'u/test-user/nul'").await?,
+        "clean"
     );
     assert_eq!(
         text("SELECT value->>'permissioned_as' FROM draft WHERE workspace_id = 'wm-fork-repoint' AND typ = 'trigger_websocket'").await?,

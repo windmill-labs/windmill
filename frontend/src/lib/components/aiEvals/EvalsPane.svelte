@@ -22,7 +22,6 @@
 		type Scorer,
 		type ScorerMean
 	} from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { onDestroy, onMount, untrack } from 'svelte'
 	import {
@@ -52,6 +51,9 @@
 		subjectLabel,
 		type EvalsLocation
 	} from './evalUtils'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	/** A dataset is capped at this many cases, so one page holds the whole set. */
 	const CASE_PAGE_SIZE = 1000
@@ -84,7 +86,7 @@
 		active?: boolean
 	} = $props()
 
-	let ws = $derived(opWorkspace ?? $workspaceStore)
+	let ws = $derived(opWorkspace ?? $operatingWorkspace)
 	let datasets = $state<EvalDataset[]>([])
 	let dataset = $state<EvalDataset | undefined>(undefined)
 	let selectedDataset = $state<string | undefined>(undefined)

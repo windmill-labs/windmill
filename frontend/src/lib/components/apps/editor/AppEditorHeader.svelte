@@ -32,7 +32,7 @@
 		Zap,
 		Globe
 	} from 'lucide-svelte'
-	import { getContext, untrack } from 'svelte'
+	import { getContext, onDestroy, untrack } from 'svelte'
 	import { orderedJsonStringify, type Value, replaceFalseWithUndefined } from '../../../utils'
 	import type { App, AppEditorContext, AppViewerContext } from '../types'
 	import { toStatic } from '../utils'
@@ -110,6 +110,10 @@
 		// (not `on:restore` forwarding): forwarding a `createEventDispatcher`
 		// event up through these runes-mode components silently drops it.
 		onRestore?: (restoredApp: any) => void
+		// Fired after a successful deploy, which keeps this editor open: `version` is what
+		// the deploy wrote, for the next draft's fork base, and `head` what is deployed
+		// now, with its author and time.
+		onDeploy?: (e: { version?: number; head?: number; headBy?: string; headAt?: string }) => void
 	}
 
 	let {
@@ -137,7 +141,8 @@
 		loadedFromDraft = false,
 		othersDraftsCount = 0,
 		onOpenOthersDrafts,
-		onRestore
+		onRestore,
+		onDeploy
 	}: Props = $props()
 
 	/** Mirror of the path the user is editing in the pen popover. Initialized
@@ -329,13 +334,24 @@
 		}
 	}
 
-	async function syncWithDeployed() {
+	/** The opening this editor claimed last. A path change remounts this editor while the
+	 *  drawer stays mounted, so its teardown hands that opening back rather than leaving
+	 *  the drawer on the app the user left. */
+	let lastOpening: number | undefined = undefined
+	onDestroy(() => {
+		if (lastOpening != null) diffDrawer?.abandonOpening(lastOpening)
+	})
+
+	async function syncWithDeployed(opening?: number) {
 		const deployedApp = await AppService.getAppByPath({
 			workspace: $workspaceStore!,
 			path: $appPath!,
 			withStarredInfo: true
 		})
 
+		// A superseded opening must not write these: the current one would then render
+		// against the older deployed value.
+		if (opening != null && !diffDrawer?.ownsOpening(opening)) return
 		deployedBy = deployedApp.created_by
 
 		// Strip off extra information
@@ -351,7 +367,7 @@
 
 	async function updateApp(npath: string) {
 		policy = await updatePolicy($app, policy)
-		await AppService.updateApp({
+		const deployed = await AppService.updateApp({
 			workspace: $workspaceStore!,
 			path: $appPath!,
 			requestBody: {
@@ -377,16 +393,26 @@
 			custom_path: customPath,
 			labels: $state.snapshot(labels)
 		}
-		const appHistory = await AppService.getAppHistoryByPath({
+		const head = await AppService.getAppLatestVersion({
 			workspace: $workspaceStore!,
 			path: npath
 		})
-		version = appHistory[0]?.version
-		// Re-pin the fork base to the just-deployed head: the editor stays open, so a
+		// `version` is what is deployed now, which is the deploy guard's fallback head; the
+		// deploy's own answer is the base, and the two differ when another landed beside it.
+		version = head?.version
+		// Re-pin the fork base to the version just written: the editor stays open, so a
 		// follow-up deploy (or a new edit) would otherwise compare against the now-
 		// superseded base and falsely warn. parent_version is in
 		// DRAFT_COMPARE_IGNORED_FIELDS, so this write can't spawn a spurious draft.
-		if ($app) $app.parent_version = version
+		if ($app) $app.parent_version = deployed.version
+		// The route owns the pair the out-of-date prompt reads, and this editor stays open
+		// across the deploy, so hand both over rather than leaving it on the old ones.
+		onDeploy?.({
+			version: deployed.version,
+			head: version,
+			headBy: head?.created_by,
+			headAt: head?.created_at
+		})
 
 		closeSaveDrawer()
 		sendUserToast('App deployed successfully')
@@ -430,6 +456,9 @@
 	}
 
 	let onLatest = $state(true)
+	/** The last comparison could not read the head, so the confirmation it raises is
+	 *  caution and not an observed deploy. Cleared by the next reading comparison. */
+	let headUnknown = $state(false)
 	async function compareVersions() {
 		// Compare the draft's pinned fork base (`$app.parent_version`) against the
 		// current head when editing a draft, else the load-time head. Catches both a
@@ -445,9 +474,14 @@
 				path: $appPath
 			})
 			onLatest = appVersion?.version === undefined || base === appVersion?.version
+			headUnknown = false
 		} catch (e) {
 			console.error('Error comparing versions', e)
-			onLatest = true
+			// The head is what this compares against, so an unanswered read is not
+			// evidence of being current: confirm, as an unclaimable deploy does, and say
+			// that is why rather than claiming a version that was never seen.
+			onLatest = false
+			headUnknown = true
 		}
 	}
 
@@ -624,23 +658,33 @@
 				if (!savedApp || newApp) {
 					return
 				}
+				// The fetch below is awaited, so a reopen (or a path change, which remounts
+				// this editor but not the drawer) while it runs must not have the older one
+				// land last. The drawer counts the openings for that reason.
+				const opening = diffDrawer?.beginOpening()
+				lastOpening = opening
+				if (opening == null) return
 
 				// deployedValue should be syncronized when we open Diff
-				await syncWithDeployed()
+				await syncWithDeployed(opening)
 
-				diffDrawer?.openDrawer()
-				diffDrawer?.setDiff({
-					mode: 'normal',
-					deployed: deployedValue ?? savedApp,
-					current: {
-						summary: $summary,
-						value: $app,
-						path: newEditedPath || savedApp.path,
-						policy,
-						custom_path: customPath,
-						labels
-					}
-				})
+				if (!diffDrawer?.ownsOpening(opening)) return
+				diffDrawer.openDrawer(opening)
+				diffDrawer.setDiff(
+					{
+						mode: 'normal',
+						deployed: deployedValue ?? savedApp,
+						current: {
+							summary: $summary,
+							value: $app,
+							path: newEditedPath || savedApp.path,
+							policy,
+							custom_path: customPath,
+							labels
+						}
+					},
+					opening
+				)
 			},
 			disabled: !savedApp || newApp
 		},
@@ -721,6 +765,8 @@
 	{confirmCallback}
 	bind:open
 	{diffDrawer}
+	claimOpening={() => (lastOpening = diffDrawer?.beginOpening())}
+	{headUnknown}
 	bind:deployedValue
 	currentValue={{
 		summary: $summary,
@@ -759,33 +805,41 @@
 						if (!savedApp || newApp) {
 							return
 						}
+						// The other entry point into the same drawer, so it takes an opening too.
+						const opening = diffDrawer?.beginOpening()
+						lastOpening = opening
+						if (opening == null) return
 						// deployedValue should be syncronized when we open Diff
-						await syncWithDeployed()
+						await syncWithDeployed(opening)
 
+						if (!diffDrawer?.ownsOpening(opening)) return
 						saveDrawerOpen = false
-						diffDrawer?.openDrawer()
-						diffDrawer?.setDiff({
-							mode: 'normal',
-							deployed: deployedValue ?? savedApp,
-							current: {
-								summary: $summary,
-								value: $app,
-								path: newEditedPath || savedApp.path,
-								policy,
-								custom_path: customPath,
-								labels
-							},
-							button: {
-								text: 'Looks good, deploy',
-								onClick: () => {
-									if (newApp) {
-										createApp(newEditedPath)
-									} else {
-										handleUpdateApp(newEditedPath)
+						diffDrawer.openDrawer(opening)
+						diffDrawer.setDiff(
+							{
+								mode: 'normal',
+								deployed: deployedValue ?? savedApp,
+								current: {
+									summary: $summary,
+									value: $app,
+									path: newEditedPath || savedApp.path,
+									policy,
+									custom_path: customPath,
+									labels
+								},
+								button: {
+									text: 'Looks good, deploy',
+									onClick: () => {
+										if (newApp) {
+											createApp(newEditedPath)
+										} else {
+											handleUpdateApp(newEditedPath)
+										}
 									}
 								}
-							}
-						})
+							},
+							opening
+						)
 					}}
 				>
 					<div class="flex flex-row gap-2 items-center">
@@ -818,6 +872,7 @@
 			{setPublishState}
 			appPath={$appPath}
 			{onLatest}
+			{headUnknown}
 			{savedApp}
 			bind:summary={$summary}
 			bind:customPath

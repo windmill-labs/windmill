@@ -151,7 +151,10 @@ export async function getTriggersDeployData(
 	kind: TriggerKind,
 	path: string,
 	workspace: string,
-	onBehalfOf?: string
+	onBehalfOf?: string,
+	/** Root URL of the instance the trigger is deployed to, when that is not this one. A GCP or
+	 * Azure push subscription posts to the instance serving the trigger, so it has to name that one. */
+	targetBaseUrl?: string
 ) {
 	const preservePermissionedAs = onBehalfOf !== undefined
 
@@ -247,7 +250,9 @@ export async function getTriggersDeployData(
 			...gcpTrigger,
 			delivery_config: gcpTrigger.delivery_config ?? undefined,
 			base_endpoint:
-				gcpTrigger.delivery_type === 'push' ? `${window.location.origin}${base}` : undefined,
+				gcpTrigger.delivery_type === 'push'
+					? (targetBaseUrl ?? `${window.location.origin}${base}`)
+					: undefined,
 			permissioned_as: onBehalfOf,
 			preserve_permissioned_as: preservePermissionedAs
 		}
@@ -311,6 +316,11 @@ export async function getTriggersDeployData(
 		return {
 			data: {
 				...azureTrigger,
+				// Not stored on the trigger, but a push subscription is created from it.
+				base_endpoint:
+					azureTrigger.azure_mode === 'namespace_pull'
+						? undefined
+						: (targetBaseUrl ?? `${window.location.origin}${base}`),
 				permissioned_as: onBehalfOf,
 				preserve_permissioned_as: preservePermissionedAs
 			},

@@ -66,7 +66,6 @@
 </script>
 
 <script lang="ts">
-	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { createGrid, type GridApi, type IDatasource } from 'ag-grid-community'
 	import { transformColumnDefs } from './apps/components/display/table/utils'
@@ -82,6 +81,9 @@
 	import 'ag-grid-community/styles/ag-theme-alpine.css'
 	import '$lib/components/apps/components/display/table/theme/windmill-theme.css'
 	import { untrack } from 'svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	type Props = {
 		dbTableOps: IDbTableOps
@@ -101,7 +103,7 @@
 
 	let datasource: IDatasource = {
 		getRows: async function (params) {
-			if (!$workspaceStore) return params.failCallback()
+			if (!$operatingWorkspace) return params.failCallback()
 			let lastRow = rowCount && rowCount <= params.endRow ? rowCount : -1
 
 			const items = await dbTableOps.getRows({
@@ -132,7 +134,7 @@
 						minWidth: 150,
 						editable: true,
 						onCellValueChanged: (e) => {
-							if (!$workspaceStore) return
+							if (!$operatingWorkspace) return
 							const colDef = e.colDef as unknown as { field: string; datatype: string }
 							dbTableOps
 								.onUpdate?.(
@@ -169,7 +171,7 @@
 
 	let prevUpdateKey: any = undefined
 	$effect(() => {
-		if (!$workspaceStore || !api) return
+		if (!$operatingWorkspace || !api) return
 		const key = { quicksearch, colDefs: dbTableOps.colDefs, refreshCount, rowFilter }
 		if (deepEqual(key, prevUpdateKey)) return
 		prevUpdateKey = key
@@ -191,7 +193,7 @@
 			),
 			...(dbTableOps.onDelete && {
 				onDelete: (values) => {
-					if (!$workspaceStore) return
+					if (!$operatingWorkspace) return
 					dbTableOps
 						.onDelete?.({ values })
 						.then(() => {
@@ -249,7 +251,7 @@
 				columnDefs={dbTableOps.colDefs ?? []}
 				dbType={dbTableOps.dbType}
 				onInsert={(values) => {
-					if (!$workspaceStore) return
+					if (!$operatingWorkspace) return
 					dbTableOps.onInsert?.({ values }).then((result) => {
 						refresh?.()
 						sendUserToast('Row inserted')

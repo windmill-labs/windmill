@@ -245,6 +245,9 @@ lazy_static::lazy_static! {
 /// Reject a path the `proper_id` constraint would reject anyway, so the caller
 /// gets a plain 400 instead of the raw Postgres constraint-violation string,
 /// which names the table and constraint and echoes the input back.
+///
+/// `app` and the trigger tables have no such constraint: for them this check is
+/// the only authority, so loosening it lets malformed paths be stored.
 pub fn check_proper_path(path: &str) -> Result<()> {
     // The column is varchar(255); without this an over-long but well-formed path
     // still reaches Postgres and leaks the same kind of message back.
@@ -476,6 +479,28 @@ pub fn paginate(pagination: Pagination) -> (usize, usize) {
         .max(1)
         .min(MAX_PER_PAGE);
     let offset = (pagination.page.unwrap_or(1).max(1) - 1) * per_page;
+    (per_page, offset)
+}
+
+/// [`paginate`] for a listing that answers whole unless a size is asked for: the deploy
+/// histories, which the history panels and the CLI read unpaged while the diff picker takes
+/// a page at a time. An asked-for size is still clamped, and the offset saturates rather
+/// than wrapping, so no caller can turn this into an unbounded scan or a negative bind.
+pub fn paginate_optional(pagination: Pagination) -> (i64, i64) {
+    // Naming neither parameter asks for the whole listing, the contract these endpoints
+    // have always answered on. Naming either makes it a page like any other listing's.
+    if pagination.page.is_none() && pagination.per_page.is_none() {
+        return (i64::MAX, 0);
+    }
+    let per_page = pagination
+        .per_page
+        .unwrap_or(DEFAULT_PER_PAGE)
+        .clamp(1, MAX_PER_PAGE) as i64;
+    // Bound before Postgres sees it: an unchecked cast of a caller-controlled page becomes
+    // a negative OFFSET, which is an error rather than an empty page.
+    let offset = i64::try_from(pagination.page.unwrap_or(1).max(1) - 1)
+        .unwrap_or(i64::MAX)
+        .saturating_mul(per_page);
     (per_page, offset)
 }
 
@@ -1671,6 +1696,31 @@ pub fn truncate_with_ellipsis(s: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_paginate_optional_answers_whole_but_bounds_what_is_asked_for() {
+        // Nothing asked for: every row there can be, which is what the history panels and
+        // the CLI read.
+        assert_eq!(
+            paginate_optional(Pagination { page: None, per_page: None }),
+            (i64::MAX, 0)
+        );
+        assert_eq!(
+            paginate_optional(Pagination { page: Some(3), per_page: Some(20) }),
+            (20, 40)
+        );
+        // An asked-for size is still capped, so no caller turns this into an unbounded scan.
+        assert_eq!(
+            paginate_optional(Pagination { page: None, per_page: Some(usize::MAX) }),
+            (MAX_PER_PAGE as i64, 0)
+        );
+        // A page nobody could mean lands past the end rather than going negative, which
+        // Postgres would reject outright.
+        let (per_page, offset) =
+            paginate_optional(Pagination { page: Some(usize::MAX), per_page: Some(20) });
+        assert_eq!(per_page, 20);
+        assert_eq!(offset, i64::MAX);
+    }
 
     /// A 5-field crontab line is the most common way to get a schedule rejected, and both
     /// parsers report it in terms a crontab user cannot act on, so the seconds field and the

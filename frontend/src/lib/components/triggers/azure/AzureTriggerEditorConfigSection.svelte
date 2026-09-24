@@ -10,8 +10,9 @@
 	import type { AzureMode, AzureArmResource } from '$lib/gen'
 	import { AzureTriggerService } from '$lib/gen'
 	import { emptyStringTrimmed } from '$lib/utils'
-	import { workspaceStore } from '$lib/stores'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import { RefreshCw } from 'lucide-svelte'
+	import { triggerLock } from '$lib/operatorWriteRights'
 
 	interface Props {
 		can_write?: boolean
@@ -38,6 +39,8 @@
 		event_type_filters = $bindable(),
 		path = ''
 	}: Props = $props()
+	const operatingWorkspace = useOperatingWorkspace()
+	const wsId = $derived($operatingWorkspace)
 
 	type Edition = 'basic' | 'namespace'
 	type Delivery = 'push' | 'pull'
@@ -64,8 +67,8 @@
 	})
 
 	$effect(() => {
-		if (emptyStringTrimmed(subscription_name) && !emptyStringTrimmed(path) && $workspaceStore) {
-			const generated = `windmill-${$workspaceStore}-${path.replaceAll(/[^A-Za-z0-9-]/g, '-')}`
+		if (emptyStringTrimmed(subscription_name) && !emptyStringTrimmed(path) && wsId) {
+			const generated = `windmill-${wsId}-${path.replaceAll(/[^A-Za-z0-9-]/g, '-')}`
 			subscription_name = generated.slice(0, 50)
 		}
 	})
@@ -90,7 +93,8 @@
 	let scopeError = $state<string | undefined>(undefined)
 
 	async function loadScopeResources() {
-		if (!$workspaceStore || emptyStringTrimmed(azure_resource_path)) {
+		// POST reads the write gate refuses, fired on open: see RouteEditorConfigSection.
+		if ($triggerLock || !wsId || emptyStringTrimmed(azure_resource_path)) {
 			scopeResources = []
 			return
 		}
@@ -99,11 +103,11 @@
 		try {
 			const result = is_namespace
 				? await AzureTriggerService.listAzureNamespaces({
-						workspace: $workspaceStore,
+						workspace: wsId,
 						path: azure_resource_path
 					})
 				: await AzureTriggerService.listAzureBasicTopics({
-						workspace: $workspaceStore,
+						workspace: wsId,
 						path: azure_resource_path
 					})
 			scopeResources = result
@@ -142,8 +146,9 @@
 
 	async function loadTopics() {
 		if (
+			$triggerLock ||
 			!is_namespace ||
-			!$workspaceStore ||
+			!wsId ||
 			emptyStringTrimmed(azure_resource_path) ||
 			emptyStringTrimmed(scope_resource_id)
 		) {
@@ -154,7 +159,7 @@
 		topicsError = undefined
 		try {
 			const result = await AzureTriggerService.listAzureNamespaceTopics({
-				workspace: $workspaceStore,
+				workspace: wsId,
 				path: azure_resource_path,
 				requestBody: { scope_resource_id }
 			})
@@ -271,7 +276,7 @@
 				</div>
 				{#if scopeError}
 					<p class="text-xs text-red-600 mt-1">{scopeError}</p>
-				{:else if !scopeLoading && scopeResources.length === 0}
+				{:else if can_write && !scopeLoading && scopeResources.length === 0}
 					<p class="text-xs text-tertiary mt-1">
 						No {scopeLabel.toLowerCase()} found. Create one in Azure and click refresh.
 					</p>

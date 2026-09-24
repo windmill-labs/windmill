@@ -11,9 +11,7 @@
 		defaultScripts,
 		enterpriseLicense,
 		hubBaseUrlStore,
-		operatorBuilderFlows,
-		userStore,
-		workspaceStore
+		operatorBuilderFlows
 	} from '$lib/stores'
 	import type { SupportedLanguage } from '$lib/common'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
@@ -35,6 +33,14 @@
 		canHaveApproval,
 		canHaveFailure
 	} from '$lib/script_helpers'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	const dispatch = createEventDispatcher()
 
@@ -66,8 +72,8 @@
 		refreshCount = 0
 	}: Props = $props()
 
-	if ($workspaceStore && cachedOwners?.[$workspaceStore]) {
-		owners = cachedOwners[$workspaceStore]
+	if ($operatingWorkspace && cachedOwners?.[$operatingWorkspace]) {
+		owners = cachedOwners[$operatingWorkspace]
 	}
 	type HubCompletion = {
 		path: string
@@ -410,7 +416,7 @@
 				<div class="text-2xs font-normal text-secondary ml-2"
 					>New {selectedKind != 'script' ? selectedKind + ' ' : ''}script</div
 				>
-				{#if $userStore?.is_admin || $userStore?.is_super_admin}
+				{#if actingUser?.is_admin || actingUser?.is_super_admin}
 					{#if !openScriptSettings}
 						<Button
 							onClick={() => (openScriptSettings = true)}
@@ -504,7 +510,7 @@
 					bind:owners={
 						() => owners,
 						(v) => {
-							$workspaceStore && (cachedOwners[$workspaceStore] = v)
+							$operatingWorkspace && (cachedOwners[$operatingWorkspace] = v)
 							owners = v
 						}
 					}

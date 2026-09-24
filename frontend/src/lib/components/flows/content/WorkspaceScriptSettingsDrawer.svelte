@@ -4,14 +4,16 @@
 	import ScriptAdvancedSettings from '$lib/components/ScriptAdvancedSettings.svelte'
 	import ScriptSettingsBadges from '$lib/components/ScriptSettingsBadges.svelte'
 	import { ScriptService, type Script } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { emptyString, sendUserToast } from '$lib/utils'
 	import { Loader2, Save } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
-	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
+	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $operatingWorkspace)
 
 	let drawer: Drawer | undefined = $state()
 	// cache_ignore_s3_path lives on NewScript but not the returned Script type;

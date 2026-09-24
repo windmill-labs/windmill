@@ -2,7 +2,7 @@
 	import { Alert } from '$lib/components/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userStore } from '$lib/stores'
 	import { Loader2 } from 'lucide-svelte'
 
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -26,6 +26,14 @@
 	import { canUserBypassRuleKind, protectionRulesState } from '$lib/workspaceProtectionRules.svelte'
 	import { FRONTEND_SDK_SCOPES } from '$lib/components/raw_apps/sdkScopes'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspaceStore = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	const WM_DEPLOYERS_GROUP = 'wm_deployers'
 
@@ -35,6 +43,7 @@
 		appPath,
 		customPath = $bindable(),
 		onLatest,
+		headUnknown = false,
 		savedApp,
 		summary = $bindable(),
 		deploymentMsg = $bindable(),
@@ -54,6 +63,9 @@
 		appPath: string
 		customPath: string | undefined
 		onLatest: boolean
+		/** The comparison behind `onLatest` could not read the deployed head, so the warning
+		 *  is caution rather than an observed newer version. */
+		headUnknown?: boolean
 		savedApp: any
 		summary: string
 		deploymentMsg: string | undefined
@@ -74,29 +86,27 @@
 		 *  (`/secret_of/...` 404s with no `app` row) and renders a placeholder
 		 *  instead of the eternally-spinning link. */
 		newApp?: boolean
-		/** Workspace the app is deployed to — the session's acting workspace when
-		 *  embedded in a session preview, else the navigation `$workspaceStore`.
-		 *  The secret-URL / custom-path / folder / on-behalf-of lookups must target
-		 *  it, not `$workspaceStore` (which stays on the nav workspace in a session). */
+		/** Workspace the app is deployed to. The secret-URL / custom-path / folder /
+		 *  on-behalf-of lookups target it; defaults to the operating workspace. */
 		operatingWorkspace?: string
 	} = $props()
 
-	const opWs = $derived(operatingWorkspace ?? $workspaceStore)
+	const opWs = $derived(operatingWorkspace ?? $operatingWorkspaceStore)
 
-	let isDeployer = $derived($userStore?.groups?.includes(WM_DEPLOYERS_GROUP) ?? false)
+	let isDeployer = $derived(actingUser?.groups?.includes(WM_DEPLOYERS_GROUP) ?? false)
 	// Admins always pass the backend check. For everyone else, fail closed
 	// while the workspace protection rules are still loading so the toggle
 	// is never briefly enabled for a user the rules will end up restricting.
 	let rulesetsLoaded = $derived(protectionRulesState.rulesets !== undefined)
 	let canSetAnonymous = $derived(
-		!!$userStore?.is_admin ||
-			!!$userStore?.is_super_admin ||
+		!!actingUser?.is_admin ||
+			!!actingUser?.is_super_admin ||
 			(rulesetsLoaded &&
 				canUserBypassRuleKind('RestrictAnonymousAppDeployment', $userStore ?? undefined))
 	)
 	let canSetGuest = $derived(
-		!!$userStore?.is_admin ||
-			!!$userStore?.is_super_admin ||
+		!!actingUser?.is_admin ||
+			!!actingUser?.is_super_admin ||
 			(rulesetsLoaded &&
 				canUserBypassRuleKind('RestrictGuestAppDeployment', $userStore ?? undefined))
 	)
@@ -143,7 +153,7 @@
 			setPublishState()
 		}
 	}
-	let canPreserve = $derived(!!$userStore?.is_admin || !!$userStore?.is_super_admin || isDeployer)
+	let canPreserve = $derived(!!actingUser?.is_admin || !!actingUser?.is_super_admin || isDeployer)
 	let savedOnBehalfOfEmail = $derived(savedApp?.policy?.on_behalf_of_email)
 	let savedOnBehalfOf = $derived(savedApp?.policy?.on_behalf_of)
 	let onBehalfOfChoice: OnBehalfOfChoice = $state(undefined)
@@ -239,8 +249,15 @@
 </script>
 
 {#if !onLatest}
-	<Alert title="You're not on the latest app version. " type="warning">
-		By deploying, you may overwrite changes made by other users. Press 'Deploy' to see diff.
+	<Alert
+		title={headUnknown
+			? 'Could not check the deployed version. '
+			: "You're not on the latest app version. "}
+		type="warning"
+	>
+		{headUnknown
+			? "Deploying may overwrite changes made by other users. Press 'Deploy' to see diff."
+			: "By deploying, you may overwrite changes made by other users. Press 'Deploy' to see diff."}
 	</Alert>
 	<div class="py-2"></div>
 {/if}
@@ -596,7 +613,7 @@
 		{/if}
 
 		<div class="mt-4">
-			{#if !($userStore?.is_admin || $userStore?.is_super_admin)}
+			{#if !(actingUser?.is_admin || actingUser?.is_super_admin)}
 				<Alert type="warning" title="Admin only" size="xs">
 					Custom path can only be set by workspace admins
 				</Alert>
@@ -617,7 +634,7 @@
 				options={{
 					right: 'Use a custom URL'
 				}}
-				disabled={!$enterpriseLicense || !($userStore?.is_admin || $userStore?.is_super_admin)}
+				disabled={!$enterpriseLicense || !(actingUser?.is_admin || actingUser?.is_super_admin)}
 			/>
 
 			{#if customPath !== undefined}
@@ -625,7 +642,7 @@
 					<div>Custom path</div>
 				</div>
 				<input
-					disabled={!($userStore?.is_admin || $userStore?.is_super_admin)}
+					disabled={!(actingUser?.is_admin || actingUser?.is_super_admin)}
 					type="text"
 					autocomplete="off"
 					bind:value={customPath}

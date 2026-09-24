@@ -14,9 +14,11 @@
 	import type SimpleEditor from './SimpleEditor.svelte'
 	import { getResourceTypes } from './resourceTypesStore'
 	import { twMerge } from 'tailwind-merge'
-	import { workspaceStore } from '$lib/stores'
 	import { AGENT_FIELDS, initialVisibleAgentFields } from './flows/agentFormFields'
 	import { openAgentFields } from './flows/content/AiAgentStepInputs.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		schema: Schema | { properties?: Record<string, any>; required?: string[] }
@@ -47,7 +49,7 @@
 	const { stepsInputArgs, flowStateStore, flowStore, previewArgs, opWorkspace } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
-	let opWs = $derived(opWorkspace?.() ?? $workspaceStore)
+	let opWs = $derived(opWorkspace?.() ?? $operatingWorkspace)
 
 	let inputCheck: { [id: string]: boolean } = $state({})
 	$effect(() => {
