@@ -1521,13 +1521,30 @@ fn get_user_default_value(column: &ColumnDef) -> Option<String> {
     None
 }
 
+/// Whether a PostgreSQL column is JSON. The preview reads and edits every value as text, and
+/// the executor binds a string parameter as `text`, which Postgres will not assign to a JSON
+/// column implicitly.
+fn pg_is_json(datatype: &str) -> bool {
+    matches!(datatype.trim().to_lowercase().as_str(), "json" | "jsonb")
+}
+
+/// A PostgreSQL parameter as a value for a column of `datatype`: JSON goes through text, so
+/// either a string or a JSON value can be bound.
+fn pg_value(param: &str, datatype: &str) -> String {
+    if pg_is_json(datatype) {
+        format!("{}::text::{}", param, datatype.trim().to_lowercase())
+    } else {
+        param.to_string()
+    }
+}
+
 fn format_insert_values(columns: &[ColumnDef], db_type: DbType, start_index: usize) -> String {
     columns
         .iter()
         .enumerate()
         .map(|(i, c)| match db_type {
             DbType::Mysql => format!(":{}", c.field),
-            DbType::Postgresql => format!("${}", start_index + i),
+            DbType::Postgresql => pg_value(&format!("${}", start_index + i), &c.datatype),
             DbType::MsSqlServer => format!("@p{}", start_index + i),
             DbType::Snowflake => "?".to_string(),
             DbType::Bigquery => format!("@{}", c.field),
@@ -1704,20 +1721,34 @@ pub fn make_update_query(
                 .enumerate()
                 .map(|(i, c)| {
                     let qf = qi(&c.field, db_type);
-                    format!(
-                        "(${} IS NULL AND {} IS NULL OR {} = ${})",
-                        i + 2,
-                        qf,
-                        qf,
-                        i + 2,
-                    )
+                    // The row's JSON values were read as text, and `json` has no `=`.
+                    if pg_is_json(&c.datatype) {
+                        format!(
+                            "(${} IS NULL AND {} IS NULL OR {}::text = ${}::text)",
+                            i + 2,
+                            qf,
+                            qf,
+                            i + 2,
+                        )
+                    } else {
+                        format!(
+                            "(${} IS NULL AND {} IS NULL OR {} = ${})",
+                            i + 2,
+                            qf,
+                            qf,
+                            i + 2,
+                        )
+                    }
                 })
                 .collect::<Vec<_>>()
                 .join("\n    AND ");
 
             query.push_str(&format!(
-                "\nUPDATE {} SET {} = $1 \nWHERE {}\tRETURNING 1",
-                qt, qcol, conditions
+                "\nUPDATE {} SET {} = {} \nWHERE {}\tRETURNING 1",
+                qt,
+                qcol,
+                pg_value("$1", &column.datatype),
+                conditions
             ));
         }
         DbType::Mysql => {
@@ -3143,6 +3174,22 @@ mod tests {
                 make_count_query_with_joins(db_type, "s.orders", &joins, None, &cols, None).unwrap();
             assert!(count.contains(expected), "{:?} count: {}", db_type, count);
         }
+    }
+
+    #[test]
+    fn test_pg_json_columns_are_written_through_text() {
+        let update = make_update_query(
+            "t",
+            &simple_col("js", "jsonb"),
+            &[simple_col("js", "jsonb")],
+            DbType::Postgresql,
+        );
+        assert!(update.contains(r#"SET "js" = $1::text::jsonb"#), "{}", update);
+        assert!(update.contains(r#""js"::text = $2::text"#), "{}", update);
+        let insert =
+            make_insert_query("t", &[col("id", "int4"), col("js", "jsonb")], DbType::Postgresql)
+                .unwrap();
+        assert!(insert.contains("VALUES ($1, $2::text::jsonb"), "{}", insert);
     }
 
     #[test]
