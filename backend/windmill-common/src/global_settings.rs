@@ -301,6 +301,51 @@ pub fn validate_accent_color(value: &serde_json::Value) -> Result<(), String> {
     Ok(())
 }
 
+/// The settings every signed-in browser reads on load and on each banner poll, served
+/// together from memory so that traffic never reaches the database.
+#[derive(serde::Serialize, Clone, Debug, Default, PartialEq)]
+pub struct InstanceUi {
+    pub instance_banner: Option<serde_json::Value>,
+    pub accent_color: Option<serde_json::Value>,
+}
+
+lazy_static::lazy_static! {
+    /// `None` until first read. Kept current by the `notify_global_setting_change` listener,
+    /// and by the writing process right after a write so its own next read is not stale.
+    static ref INSTANCE_UI: arc_swap::ArcSwapOption<InstanceUi> = arc_swap::ArcSwapOption::empty();
+}
+
+pub async fn reload_instance_ui(db: &Pool<Postgres>) -> error::Result<Arc<InstanceUi>> {
+    let rows = sqlx::query!(
+        "SELECT name, value FROM global_settings WHERE name = ANY($1)",
+        &[INSTANCE_BANNER_SETTING, ACCENT_COLOR_SETTING] as &[&str]
+    )
+    .fetch_all(db)
+    .await?;
+    let mut ui = InstanceUi::default();
+    for row in rows {
+        match row.name.as_str() {
+            INSTANCE_BANNER_SETTING => ui.instance_banner = Some(row.value),
+            ACCENT_COLOR_SETTING => ui.accent_color = Some(row.value),
+            _ => {}
+        }
+    }
+    let ui = Arc::new(ui);
+    INSTANCE_UI.store(Some(ui.clone()));
+    Ok(ui)
+}
+
+pub async fn get_instance_ui(db: &Pool<Postgres>) -> error::Result<Arc<InstanceUi>> {
+    match INSTANCE_UI.load_full() {
+        Some(ui) => Ok(ui),
+        None => reload_instance_ui(db).await,
+    }
+}
+
+pub fn is_instance_ui_setting(name: &str) -> bool {
+    name == INSTANCE_BANNER_SETTING || name == ACCENT_COLOR_SETTING
+}
+
 /// Validate a [`GITHUB_APP_WEBHOOK_BASE_URL_SETTING`] value.
 ///
 /// The receiver path is appended to it verbatim, so anything that doesn't
@@ -427,6 +472,7 @@ pub fn is_setting_readable_by_agent_worker(name: &str) -> bool {
 }
 
 use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 
 lazy_static::lazy_static! {
     pub static ref HTTP_ROUTE_WORKSPACED_ROUTE: AtomicBool = AtomicBool::new(false);

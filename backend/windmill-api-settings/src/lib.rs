@@ -115,6 +115,16 @@ async fn get_ruff_config_unauthed(Extension(db): Extension<DB>) -> error::Result
         .unwrap())
 }
 
+/// The announcement banner and accent color, which every signed-in session reads on load
+/// and on each banner poll. Served from the in-memory copy, never the database.
+async fn get_instance_ui(
+    Extension(db): Extension<DB>,
+    _authed: ApiAuthed,
+) -> JsonResult<windmill_common::global_settings::InstanceUi> {
+    let ui = windmill_common::global_settings::get_instance_ui(&db).await?;
+    Ok(Json((*ui).clone()))
+}
+
 pub fn global_service() -> Router {
     #[warn(unused_mut)]
     let r = Router::new()
@@ -126,6 +136,7 @@ pub fn global_service() -> Router {
             "/global/{key}",
             post(set_global_setting).get(get_global_setting),
         )
+        .route("/instance_ui", get(get_instance_ui))
         .route("/list_global", get(list_global_settings))
         .route("/github_app_stale_webhooks", get(github_app_stale_webhooks))
         .route(
@@ -927,6 +938,11 @@ pub async fn set_global_setting_internal(
             tracing::error!(error = %e, "Could not reload custom tags setting after write");
         }
     }
+    if windmill_common::global_settings::is_instance_ui_setting(&key) {
+        if let Err(e) = windmill_common::global_settings::reload_instance_ui(db).await {
+            tracing::error!(error = %e, "Could not reload instance ui settings after write");
+        }
+    }
 
     Ok(())
 }
@@ -1312,6 +1328,18 @@ async fn set_instance_config(
         if ai_config_changed {
             bump_instance_ai_config_revision();
         }
+
+        let touches_instance_ui = settings_diff
+            .upserts
+            .iter()
+            .map(|(k, _)| k)
+            .chain(settings_diff.deletes.iter())
+            .any(|k| windmill_common::global_settings::is_instance_ui_setting(k));
+        if touches_instance_ui {
+            if let Err(e) = windmill_common::global_settings::reload_instance_ui(&db).await {
+                tracing::error!(error = %e, "Could not reload instance ui settings after write");
+            }
+        }
     }
 
     if !desired.worker_configs.is_empty() {
@@ -1371,7 +1399,6 @@ pub async fn get_global_setting(
         && key != HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING
         && key != WS_BASE_URL_SETTING
         && key != INSTANCE_BANNER_SETTING
-        && key != ACCENT_COLOR_SETTING
         // The token form reads it to stop offering expirations the server would shorten.
         && key != MAX_TOKEN_EXPIRATION_DAYS_SETTING
         // Whoever is wiring up an MCP client reads it to know whether a URL-borne token

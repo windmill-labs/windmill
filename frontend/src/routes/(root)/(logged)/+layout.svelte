@@ -81,7 +81,7 @@
 	import { pruneMeaninglessDrafts } from '$lib/userDraftPrune'
 	import DraftMigrationErrorModal from '$lib/components/DraftMigrationErrorModal.svelte'
 	import InstanceBanner from '$lib/components/InstanceBanner.svelte'
-	import InstanceAccentColor from '$lib/components/InstanceAccentColor.svelte'
+	import InstanceUiSync from '$lib/components/InstanceUiSync.svelte'
 	import { onDestroy, setContext, untrack } from 'svelte'
 	import { base } from '$app/paths'
 	import { Menubar } from '$lib/components/meltComponents'
@@ -1440,12 +1440,11 @@
 		<div class="flex flex-col h-full w-full">
 			<!-- Not gated on `$enterpriseLicense`: it paints the cached accent before the license
 			     resolves, and checks the license itself. -->
-			<InstanceAccentColor />
+			<InstanceUiSync />
 			{#if $enterpriseLicense && !menuHidden}
-				<!-- Announcements are an EE feature, so the component never mounts on CE: no
-				     fetch, no poll, no listener there. Also skipped when the menu is hidden —
-				     that is an embed or an OAuth callback, where the announcement would land
-				     inside someone else's page. -->
+				<!-- Announcements are an EE feature, so the component never mounts on CE. Also
+				     skipped when the menu is hidden — that is an embed or an OAuth callback,
+				     where the announcement would land inside someone else's page. -->
 				<InstanceBanner />
 			{/if}
 			{#if $userStore?.is_service_account}
