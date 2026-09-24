@@ -56,14 +56,28 @@ export function mintToken(privateKey, { workspaceId, email = 'test@windmill.dev'
 
 /**
  * A stand-in for the Windmill backend's /api/debug/jwks, serving the public half
- * of an Ed25519 key pair. `delayMs` keeps the response pending long enough that
- * the server is guaranteed to still be fetching the key when a client connects.
+ * of an Ed25519 key pair.
+ *
+ * With `hold: true` the response is parked indefinitely until `release()` is
+ * called. That is what makes the cold-start tests deterministic: the server
+ * cannot obtain the key, so the pre-auth window stays open for exactly as long
+ * as the test wants, rather than for a wall-clock delay that a slow machine
+ * could overrun.
  */
-export async function startJwksServer({ delayMs = 0 } = {}) {
+export async function startJwksServer({ hold = false } = {}) {
   const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519')
   const jwk = publicKey.export({ format: 'jwk' })
+  const body = JSON.stringify({
+    keys: [{ kty: jwk.kty, crv: jwk.crv, x: jwk.x, kid: 'test', use: 'sig', alg: 'EdDSA' }]
+  })
   let requests = 0
-  const pending = new Map()
+  let released = !hold
+  const held = new Set()
+
+  const respond = (res) => {
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(body)
+  }
 
   const server = http.createServer((req, res) => {
     if (!req.url?.startsWith('/api/debug/jwks')) {
@@ -72,16 +86,11 @@ export async function startJwksServer({ delayMs = 0 } = {}) {
       return
     }
     requests++
-    const timer = setTimeout(() => {
-      pending.delete(res)
-      res.writeHead(200, { 'Content-Type': 'application/json' })
-      res.end(
-        JSON.stringify({
-          keys: [{ kty: jwk.kty, crv: jwk.crv, x: jwk.x, kid: 'test', use: 'sig', alg: 'EdDSA' }]
-        })
-      )
-    }, delayMs)
-    pending.set(res, timer)
+    if (released) {
+      respond(res)
+    } else {
+      held.add(res)
+    }
   })
 
   await new Promise((resolve, reject) => {
@@ -96,15 +105,18 @@ export async function startJwksServer({ delayMs = 0 } = {}) {
     get requests() {
       return requests
     },
+    /** Answer every parked request, and any that arrive later. */
+    release() {
+      released = true
+      for (const res of held) respond(res)
+      held.clear()
+    },
     async close() {
-      // Destroy the still-delayed responses rather than only cancelling their
-      // timers: server.close() waits for in-flight requests, so a request left
-      // hanging would deadlock teardown.
-      for (const [res, timer] of pending) {
-        clearTimeout(timer)
-        res.destroy()
-      }
-      pending.clear()
+      // Destroy the still-parked responses rather than just dropping them:
+      // server.close() waits for in-flight requests, so one left hanging would
+      // deadlock teardown.
+      for (const res of held) res.destroy()
+      held.clear()
       const closed = new Promise((resolve) => server.close(resolve))
       server.closeAllConnections()
       await closed
