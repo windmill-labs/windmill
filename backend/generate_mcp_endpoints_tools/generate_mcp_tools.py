@@ -128,11 +128,16 @@ def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Opt
                     r for r in body_schema['required'] if r in include_fields
                 ]
 
-        # Apply opaque_fields: simplify listed properties to {"type": "object"}
+        # Apply opaque_fields: simplify listed properties to {"type": "object"},
+        # keeping the description, which is all a caller learns about the field
         if body_schema and opaque_fields and 'properties' in body_schema:
             for field in opaque_fields:
                 if field in body_schema['properties']:
-                    body_schema['properties'][field] = {"type": "object"}
+                    opaque = {"type": "object"}
+                    description = body_schema['properties'][field].get('description')
+                    if description:
+                        opaque['description'] = description
+                    body_schema['properties'][field] = opaque
 
         # If we have required fields specified and a body schema, update the required array
         if body_schema and required_fields:

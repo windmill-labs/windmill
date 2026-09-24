@@ -10665,6 +10665,9 @@ paths:
         - kind
         - tag
         - deployment_message
+        - schema
+      x-mcp-tool-opaque-fields:
+        - schema
       tags:
         - script
       parameters:
@@ -10704,6 +10707,9 @@ paths:
         - kind
         - tag
         - deployment_message
+        - schema
+      x-mcp-tool-opaque-fields:
+        - schema
       tags:
         - script
       parameters:
@@ -29722,6 +29728,10 @@ components:
           type: string
         schema:
           type: object
+          description: >-
+            JSON Schema of the arguments of `main`, which is what a run form and an
+            MCP tool offer. Omitted, it is inferred from `content` and `language`,
+            keeping the argument descriptions of the version this one supersedes.
         is_template:
           type: boolean
         lock:
