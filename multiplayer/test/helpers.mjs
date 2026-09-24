@@ -16,7 +16,12 @@ export function base64url(buffer) {
   return Buffer.from(buffer).toString('base64url')
 }
 
-export async function freePort() {
+/**
+ * Ask the kernel for an unused port. There is an unavoidable gap between giving
+ * the port up and the server.mjs child binding it, so `startMultiplayerServer`
+ * retries on EADDRINUSE; servers started in-process bind port 0 directly instead.
+ */
+async function freePort() {
   return new Promise((resolve, reject) => {
     const probe = net.createServer()
     probe.on('error', reject)
@@ -58,7 +63,7 @@ export async function startJwksServer({ delayMs = 0 } = {}) {
   const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519')
   const jwk = publicKey.export({ format: 'jwk' })
   let requests = 0
-  const pending = new Set()
+  const pending = new Map()
 
   const server = http.createServer((req, res) => {
     if (!req.url?.startsWith('/api/debug/jwks')) {
@@ -68,7 +73,7 @@ export async function startJwksServer({ delayMs = 0 } = {}) {
     }
     requests++
     const timer = setTimeout(() => {
-      pending.delete(timer)
+      pending.delete(res)
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(
         JSON.stringify({
@@ -76,14 +81,14 @@ export async function startJwksServer({ delayMs = 0 } = {}) {
         })
       )
     }, delayMs)
-    pending.add(timer)
+    pending.set(res, timer)
   })
 
-  const port = await freePort()
   await new Promise((resolve, reject) => {
     server.on('error', reject)
-    server.listen(port, '127.0.0.1', resolve)
+    server.listen(0, '127.0.0.1', resolve)
   })
+  const { port } = server.address()
 
   return {
     privateKey,
@@ -92,18 +97,39 @@ export async function startJwksServer({ delayMs = 0 } = {}) {
       return requests
     },
     async close() {
-      for (const timer of pending) clearTimeout(timer)
+      // Destroy the still-delayed responses rather than only cancelling their
+      // timers: server.close() waits for in-flight requests, so a request left
+      // hanging would deadlock teardown.
+      for (const [res, timer] of pending) {
+        clearTimeout(timer)
+        res.destroy()
+      }
       pending.clear()
-      await new Promise((resolve) => server.close(resolve))
+      const closed = new Promise((resolve) => server.close(resolve))
+      server.closeAllConnections()
+      await closed
     }
   }
 }
 
-/** Start server.mjs as a child process and resolve once it is listening. */
-export async function startMultiplayerServer(env = {}) {
+/**
+ * Start server.mjs as a child process and resolve once it is listening, retrying
+ * if another process grabbed the port between `freePort()` and the child binding.
+ */
+export async function startMultiplayerServer(env = {}, attemptsLeft = 5) {
   const port = await freePort()
   const child = spawn(process.execPath, [SERVER_PATH], {
-    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', ...env },
+    // Pin the settings the tests assert on, so an ambient
+    // REQUIRE_SIGNED_MULTIPLAYER_REQUESTS=false cannot turn the rejection tests
+    // into false passes, and BASE_INTERNAL_URL cannot stand in for the fake JWKS.
+    env: {
+      ...process.env,
+      REQUIRE_SIGNED_MULTIPLAYER_REQUESTS: 'true',
+      BASE_INTERNAL_URL: '',
+      PORT: String(port),
+      HOST: '127.0.0.1',
+      ...env
+    },
     stdio: ['ignore', 'pipe', 'pipe']
   })
 
@@ -118,7 +144,15 @@ export async function startMultiplayerServer(env = {}) {
     child.once('error', reject)
     child.once('exit', (code) => reject(new Error(`server exited early (code ${code}):\n${output}`)))
   })
-  await listening
+
+  try {
+    await listening
+  } catch (error) {
+    if (output.includes('EADDRINUSE') && attemptsLeft > 1) {
+      return startMultiplayerServer(env, attemptsLeft - 1)
+    }
+    throw error
+  }
 
   return {
     port,

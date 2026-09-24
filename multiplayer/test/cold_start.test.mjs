@@ -140,6 +140,40 @@ test('cold start: a forged token is rejected with 4403 and its messages are drop
   assert.deepEqual(client.received, [])
 })
 
+test('cold start: a peer that floods before authenticating is closed and the server keeps serving', { timeout: 60000 }, async (t) => {
+  const jwks = await startJwksServer({ delayMs: JWKS_DELAY_MS })
+  const server = await startMultiplayerServer({ WINDMILL_BASE_URL: jwks.baseUrl })
+  t.after(async () => {
+    await server.close()
+    await jwks.close()
+  })
+
+  const token = mintToken(jwks.privateKey, { workspaceId: WORKSPACE })
+
+  // Four 600 KiB frames sent while the key is still being fetched: the second one
+  // takes the buffer past MAX_PREAUTH_BYTES (1 MiB). The token is valid, so only
+  // the cap can be closing this connection.
+  const flooder = openClient(`${server.url}/${DOC_PATH}?token=${token}`, {
+    onOpen: (ws) => {
+      for (let i = 0; i < 4; i++) ws.send(Buffer.alloc(600 * 1024))
+    }
+  })
+
+  await waitFor(() => flooder.closeCode !== undefined, { message: 'the flooding connection to be closed' })
+  assert.equal(flooder.closeCode, 1009)
+  assert.deepEqual(flooder.received, [])
+
+  // The server is unharmed and still syncs a well-behaved client.
+  const healthy = openClient(`${server.url}/${DOC_PATH}?token=${token}`, {
+    onOpen: (ws) => ws.send(syncStep1Message())
+  })
+  t.after(() => healthy.ws.close())
+
+  await waitFor(() => hasKind(healthy, syncStep2), {
+    message: 'the server to still answer a well-behaved client with sync step 2'
+  })
+})
+
 test('a connection without a token is rejected with 4401', { timeout: 60000 }, async (t) => {
   const jwks = await startJwksServer()
   const server = await startMultiplayerServer({ WINDMILL_BASE_URL: jwks.baseUrl })

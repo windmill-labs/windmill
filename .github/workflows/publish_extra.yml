@@ -35,7 +35,8 @@ jobs:
         with:
           bun-version: latest
 
-      # Matches the Node major installed in DockerfileExtra
+      # Matches the Node major DockerfileExtra installs. The pin is load-bearing:
+      # glob arguments to `node --test` need Node >= 21.
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
