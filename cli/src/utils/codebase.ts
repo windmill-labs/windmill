@@ -14,7 +14,9 @@ async function digestPath(p: string): Promise<string> {
   try {
     s = await stat(p);
   } catch {
-    throw new Error(`Codebase extra_digest_paths entry not found: ${p}`);
+    throw new Error(
+      `Codebase extra_digest_paths entry not found: ${p} (resolved to ${path.resolve(p)})`
+    );
   }
   return s.isDirectory()
     ? await digestDir(p, "")

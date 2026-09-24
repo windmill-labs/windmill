@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -24,9 +24,13 @@ test("extra_digest_paths edits change the codebase digest", async () => {
       ],
     } as any)[0].getDigest();
 
-  const before = await digest();
-  await writeFile(join(root, "packages/utils/a.ts"), "export const a = 2");
-  expect(await digest()).not.toBe(before);
+  try {
+    const before = await digest();
+    await writeFile(join(root, "packages/utils/a.ts"), "export const a = 2");
+    expect(await digest()).not.toBe(before);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("uncoveredBundleInputs reports only files outside the digested roots", () => {
