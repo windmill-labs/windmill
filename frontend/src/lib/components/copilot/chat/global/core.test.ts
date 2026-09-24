@@ -6250,8 +6250,9 @@ describe('global AI tools', () => {
 	)
 
 	// The memory picker resets a value whose kind it does not offer to its first option, so a
-	// step saved with a legacy kind would run with its history switched off.
-	it('test_run_step offers an aiagent step its legacy memory kind', async () => {
+	// step saved with a legacy kind would run with its history switched off. And a tool name typed
+	// by hand that matches none silently narrows the run, so the roster is offered as in the editor.
+	it("test_run_step offers an aiagent step the editor's choices", async () => {
 		let opened: RunFormDisplay | undefined
 		await callGlobalTool('write_flow', {
 			path: 'f/flows/agent-legacy-memory',
@@ -6261,14 +6262,27 @@ describe('global AI tools', () => {
 					id: 'ask',
 					value: {
 						type: 'aiagent',
-						tools: [],
+						tools: [
+							{
+								id: 'b',
+								summary: 'get_code',
+								value: {
+									tool_type: 'flowmodule',
+									type: 'rawscript',
+									language: 'bun',
+									content: 'export async function main() { return 1 }',
+									input_transforms: {}
+								}
+							}
+						],
 						input_transforms: {
 							provider: {
 								type: 'static',
 								value: { kind: 'openai', resource: '$res:u/admin/openai', model: 'gpt-4o' }
 							},
 							user_message: { type: 'static', value: 'hi' },
-							memory: { type: 'static', value: { kind: 'auto', context_length: 5 } }
+							memory: { type: 'static', value: { kind: 'auto', context_length: 5 } },
+							enabled_tools: { type: 'static', value: ['get_code'] }
 						}
 					}
 				}
@@ -6293,6 +6307,7 @@ describe('global AI tools', () => {
 			(variant: any) => variant.properties.kind.enum[0]
 		)
 		expect(kinds).toContain('auto')
+		expect(opened?.schema.properties.enabled_tools.items.enum).toEqual(['get_code'])
 	})
 
 	// A step is fed by its input transforms, so its arguments are its own and the flow's

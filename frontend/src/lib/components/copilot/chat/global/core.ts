@@ -47,6 +47,8 @@ import { loadSchemaFromModule, memoryPropertyFor } from '$lib/components/flows/f
 import { flowLocalAgentSchema } from '$lib/components/flows/agentResourceUtils'
 import { AGENT_FIELDS, initialVisibleAgentFields } from '$lib/components/flows/agentFormFields'
 import { withAgentDrafts } from '$lib/components/flows/linkedAgentDrafts'
+import { resolveLinkedAgentTools } from '$lib/components/flows/flowState'
+import { enabledToolNames, type AgentTool } from '$lib/components/flows/agentToolUtils'
 import { evalValue } from '$lib/components/flows/utils.svelte'
 import { updateRawAppPolicy } from '$lib/components/raw_apps/rawAppPolicy'
 import {
@@ -5668,17 +5670,24 @@ async function agentStepRunForm(
 	}
 	const args = { ...evaluated, ...(proposed ?? {}) }
 
+	const properties = Object.fromEntries(keys.map((key) => [key, schema.properties[key]]))
+	if (properties.memory) properties.memory = memoryPropertyFor(properties.memory, args.memory)
+	// Picked from the agent's tools, as in the editor: a name typed by hand that matches none
+	// silently narrows the run to fewer tools.
+	const list = properties.enabled_tools
+	if (list) {
+		const { agent, tools } = module.value as { agent?: string; tools?: AgentTool[] }
+		const roster = agent ? await resolveLinkedAgentTools(agent, workspace, true) : (tools ?? [])
+		properties.enabled_tools = {
+			...list,
+			items: { ...(list.items ?? { type: 'string' }), enum: enabledToolNames(roster) }
+		}
+	}
+
 	return {
 		schema: {
 			...schema,
-			properties: Object.fromEntries(
-				keys.map((key) => [
-					key,
-					key === 'memory'
-						? memoryPropertyFor(schema.properties.memory, args.memory)
-						: schema.properties[key]
-				])
-			),
+			properties,
 			order: keys,
 			required: ((schema.required as string[] | undefined) ?? []).filter((key) =>
 				keys.includes(key)
