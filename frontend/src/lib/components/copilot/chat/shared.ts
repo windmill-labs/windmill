@@ -744,6 +744,8 @@ export type ToolDisplayMessage = {
 	/** Refused by the plan-mode gate. Renders as its own lean row rather than a tool
 	 * error, so the transcript says the mode stopped it and not that the call failed. */
 	blockedByPlanMode?: boolean
+	/** Held back until the model has read the folder instructions it was handed. */
+	heldForFolderInstructions?: boolean
 	/** The user declined: the reject button, a Stop, or a posture switch. Set only there, so
 	 * a decision is distinguishable from every other way a call errors. */
 	declinedByUser?: boolean
@@ -1103,6 +1105,7 @@ export async function processToolCall<T>({
 			logToolOutcome('held_for_instructions')
 			toolCallbacks.setToolStatus(toolCall.id, {
 				content: 'Read folder instructions',
+				heldForFolderInstructions: true,
 				parameters: args,
 				isLoading: false,
 				isQueued: false,

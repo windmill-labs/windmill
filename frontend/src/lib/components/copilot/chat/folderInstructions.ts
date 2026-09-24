@@ -52,14 +52,14 @@ export async function listFolderInstructions(workspace: string): Promise<FolderI
 }
 
 /** Workspace paths a tool call names: every string argument called `path` or
- * `*_path` that is a `u/` or `f/` path, nested ones included — a trigger's target
+ * `*_path` that is a `u/`, `f/` or `g/` path, nested ones included — a trigger's target
  * sits in `config.path`, and missing it would let that write through unheld. */
 export function workspacePathsInArgs(args: unknown, depth = 0): string[] {
 	if (!args || typeof args !== 'object' || depth > 4) return []
 	if (Array.isArray(args)) return args.flatMap((v) => workspacePathsInArgs(v, depth + 1))
 	return Object.entries(args as Record<string, unknown>).flatMap(([key, value]) =>
 		typeof value === 'string'
-			? (key === 'path' || key.endsWith('_path')) && /^[uf]\/[^/]+/.test(value)
+			? (key === 'path' || key.endsWith('_path')) && /^[ufg]\/[^/]+/.test(value)
 				? [value]
 				: []
 			: workspacePathsInArgs(value, depth + 1)

@@ -220,7 +220,8 @@ describe('processToolCall', () => {
 			list: () => [
 				{ path: 'f/billing/AGENTS', scope: 'f/billing/' },
 				{ path: 'f/billing/eu/AGENTS', scope: 'f/billing/eu/' },
-				{ path: 'f/other/AGENTS', scope: 'f/other/' }
+				{ path: 'f/other/AGENTS', scope: 'f/other/' },
+				{ path: 'g/ops/AGENTS', scope: 'g/ops/' }
 			],
 			deliveredBy: new Map<string, { workspace: string; paths: readonly string[] }>()
 		}
@@ -276,6 +277,8 @@ describe('processToolCall', () => {
 
 		turn()
 		expect(await call('c5', 'write_item', 'f/other/x')).toBe('write ok')
+
+		expect(await call('g1', 'read_item', 'g/ops/runbook')).toContain('body of g/ops/AGENTS')
 
 		// The same path in another workspace is another resource, delivered afresh.
 		expect(await call('w1', 'read_item', 'f/other/x', 'other-workspace')).toContain(
