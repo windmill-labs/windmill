@@ -367,9 +367,10 @@
 
 	/**
 	 * The workspace's saved agents, as the kind the home page shows them as. Read from the
-	 * resource listing, which pages nothing and orders nothing, so the order is applied here and
-	 * the rows are stamped after every runnable ordinal: a page of runnables keeps the server's
-	 * order and the agents follow it as one block.
+	 * resource listing, which the runnables' keyset order knows nothing of, so the order is applied
+	 * here and the rows are stamped before every runnable ordinal: the agents lead as one block and
+	 * a page of runnables keeps the server's order. Leading rather than trailing, or the list's
+	 * first window would never reach them past a page of runnables.
 	 */
 	async function loadAgents(): Promise<void> {
 		const ws = $workspaceStore
@@ -431,8 +432,8 @@
 			ord: AGENT_ORD_BASE + i
 		}))
 	}
-	/** Above any ordinal a runnables page can reach, so agents sort after them as a block. */
-	const AGENT_ORD_BASE = 1_000_000
+	/** Below any ordinal a runnables page stamps (they count up from 0), so agents lead as a block. */
+	const AGENT_ORD_BASE = -1_000_000
 
 	// The merged, server-ordered, keyset-paginated source. `reset` reloads from
 	// the first page (order/filter change or workspace switch); otherwise it
@@ -450,19 +451,22 @@
 		// arrays (mixing streams) or clobber the pending reset's generation.
 		if (!reset && serverCursor === undefined) return
 		if (scripts === undefined) loading = true
-		// One request per reset: the resource listing is not paged, so a load-more has
-		// nothing to append for agents.
-		if (reset) void loadAgents()
+		// One load per reset: agents are fetched whole, so a load-more has nothing to append.
+		const agentsLoad = reset ? loadAgents() : undefined
 		if (!showsRunnables) {
 			// Supersedes a page still in flight, which would otherwise land in the agent view.
-			++loadGen
+			const gen = ++loadGen
+			serverCursor = undefined
+			hasMoreServer = false
+			// The rows on screen stay until the agents replace them, as a reload keeps them, or the
+			// view reads as empty in between.
+			await agentsLoad
+			if (gen !== loadGen) return
 			scripts = []
 			flows = []
 			apps = []
 			raw_apps = []
 			pipelineMemberFolders = new Set()
-			serverCursor = undefined
-			hasMoreServer = false
 			loading = false
 			return
 		}
@@ -990,7 +994,15 @@
 		const f: string[] = []
 		if (filter !== '') f.push(`search “${filter}”`)
 		if (itemKind !== 'all')
-			f.push(itemKind === 'script' ? 'Scripts' : itemKind === 'flow' ? 'Flows' : 'Apps')
+			f.push(
+				itemKind === 'script'
+					? 'Scripts'
+					: itemKind === 'flow'
+						? 'Flows'
+						: itemKind === 'agent'
+							? 'Agents'
+							: 'Apps'
+			)
 		if (ownerFilter != undefined) f.push(ownerFilter)
 		if (labelFilter != undefined) f.push(`label “${labelFilter}”`)
 		if (archived) f.push('archived only')

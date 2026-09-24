@@ -24,7 +24,8 @@
 		owns={(t) => t.host === undefined}
 		onClose={(deployed) => goto(deployed ? `${base}/agents/get/${path}` : `${base}/?kind=agent`)}
 		onDeployed={(saved) =>
-			// Replaced, not pushed: Back would otherwise reopen `new_draft` on an agent that now exists.
-			goto(`${base}/agents/get/${saved}`, { replaceState: isNew })}
+			// Replaced, not pushed, when this URL stopped naming what it opens: Back would otherwise
+			// reopen `new_draft` on an agent that now exists, or a path a rename just moved away from.
+			goto(`${base}/agents/get/${saved}`, { replaceState: isNew || saved !== path })}
 	/>
 </div>
