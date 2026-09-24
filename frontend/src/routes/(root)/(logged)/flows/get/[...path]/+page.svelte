@@ -374,23 +374,26 @@
 			return buttons
 		}
 
-		buttons.push({
-			label: 'Build app',
-			narrow: 'menu',
-			buttonProps: {
-				onClick: async () => {
-					const app = createRawAppFromFlow(flow.path, flow.summary, flow.schema)
-					// /apps_raw/add hard-reloads (cross-origin isolation), so the
-					// in-memory importStore would be dropped; hand off via sessionStorage.
-					sessionStorage.setItem('rawAppImport', JSON.stringify(app))
-					await goto('/apps_raw/add')
-				},
-				unifiedSize: 'md',
-				variant: 'subtle',
-				disabled: !showEditButtons,
-				startIcon: LayoutDashboard
-			}
-		})
+		// The builder right covers flows only; building an app is still refused to operators.
+		if (!$userStore?.operator) {
+			buttons.push({
+				label: 'Build app',
+				narrow: 'menu',
+				buttonProps: {
+					onClick: async () => {
+						const app = createRawAppFromFlow(flow.path, flow.summary, flow.schema)
+						// /apps_raw/add hard-reloads (cross-origin isolation), so the
+						// in-memory importStore would be dropped; hand off via sessionStorage.
+						sessionStorage.setItem('rawAppImport', JSON.stringify(app))
+						await goto('/apps_raw/add')
+					},
+					unifiedSize: 'md',
+					variant: 'subtle',
+					disabled: !showEditButtons,
+					startIcon: LayoutDashboard
+				}
+			})
+		}
 
 		buttons.push({
 			label: 'Edit',
