@@ -16,6 +16,7 @@ use crate::server::backend::{McpAuth, McpBackend, McpRequest, PathFilter};
 use crate::server::endpoints::{
     endpoint_tool_to_mcp_tool, endpoint_tool_to_mcp_tool_multi, list_workspaces_tool, EndpointTool,
 };
+use crate::server::list_changes::ListChanges;
 use crate::server::tools::create_tool_from_item;
 use rmcp::handler::server::ServerHandler;
 use rmcp::model::{
@@ -49,7 +50,8 @@ const SUPPORTED_PROTOCOL_VERSIONS: &[ProtocolVersion] = &[
 /// Zero because nothing here is cacheable: the listing is rebuilt from the
 /// workspace's scripts and flows, which change at any time, and `listChanged`
 /// covers only some of what the listing depends on (not resources, favorites or
-/// permissions) and reaches only clients that hold a `subscriptions/listen` stream.
+/// permissions), lags by up to a poll interval, and reaches only clients that hold a
+/// `subscriptions/listen` stream.
 const LIST_TTL_MS: u64 = 0;
 
 /// Every listing is filtered by the caller's token scopes and workspace
@@ -89,11 +91,12 @@ fn truncate_tool_result(text: String) -> String {
 /// to perform the actual operations (database queries, job execution, etc.)
 pub struct Runner<B: McpBackend> {
     backend: Arc<B>,
+    list_changes: Arc<ListChanges>,
 }
 
 impl<B: McpBackend> Clone for Runner<B> {
     fn clone(&self) -> Self {
-        Self { backend: self.backend.clone() }
+        Self { backend: self.backend.clone(), list_changes: self.list_changes.clone() }
     }
 }
 
@@ -119,7 +122,7 @@ struct McpContext<A> {
 impl<B: McpBackend> Runner<B> {
     /// Create a new Runner with the given backend
     pub fn new(backend: B) -> Self {
-        Self { backend: Arc::new(backend) }
+        Self { backend: Arc::new(backend), list_changes: Arc::default() }
     }
 
     /// Extract authentication, the workspace mode and the HTTP request itself
@@ -239,9 +242,8 @@ fn endpoint_path_policy(endpoint_name: &str) -> Option<EndpointPathPolicy> {
 }
 
 /// Endpoint tools that change which scripts/flows a workspace exposes, or their
-/// schemas. Every replica learns of these changes through the notify-event poller;
-/// the one serving the call signals its own listeners at once, so a client that
-/// just deployed a script can call it without waiting out a poll interval.
+/// schemas. The process serving the call polls the workspace right away rather than
+/// at its next interval, so a client that just deployed a script can call it.
 fn changes_runnable_list(endpoint_name: &str) -> bool {
     matches!(
         endpoint_name,
@@ -515,20 +517,17 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
             }
         };
 
-        let mut changes = windmill_common::notify_events::subscribe_runnable_list_changes();
+        let mut changes = self.list_changes.subscribe(&self.backend, &workspace_id);
         loop {
             tokio::select! {
                 _ = subscription.cancelled() => return Ok(()),
                 change = changes.recv() => match change {
-                    Ok(changed) if changed != workspace_id => continue,
-                    // A lagged receiver may have missed this workspace's change.
-                    Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Ok(()) | Err(broadcast::error::RecvError::Lagged(_)) => {}
                     Err(broadcast::error::RecvError::Closed) => return Ok(()),
                 },
             }
-            // One deploy both archives the previous version and inserts the new one, and
-            // a sync or bulk delete touches many items: collapse the burst into one
-            // notification, so the client re-lists once.
+            // A client creating several scripts in a row: collapse the burst into one
+            // notification, so it re-lists once.
             tokio::select! {
                 _ = subscription.cancelled() => return Ok(()),
                 _ = tokio::time::sleep(LIST_CHANGE_COALESCE) => {}
@@ -819,7 +818,7 @@ impl<B: McpBackend> Runner<B> {
                     .call_endpoint(auth, workspace_id, endpoint_tool, args)
                     .await?;
                 if changes_runnable_list(&endpoint_tool.name) {
-                    windmill_common::notify_events::notify_runnable_list_change(workspace_id);
+                    self.list_changes.poll_now(workspace_id);
                 }
 
                 return Ok(CallToolResult::success(vec![ContentBlock::text(
