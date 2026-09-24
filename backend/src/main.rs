@@ -1542,9 +1542,25 @@ Windmill Community Edition {GIT_VERSION}
                                     match windmill_common::notify_events::poll_notify_events(&db, last_event_id).await {
                                         Ok(events) => {
                                             let mut http_trigger_change_handled = false;
+                                            // One signal per workspace per batch: a sync deploying many
+                                            // scripts emits an event per row, and enough of them would
+                                            // overflow the in-process channel, which its listeners must
+                                            // read as a possible change to every workspace.
+                                            let mut runnable_list_changes = std::collections::HashSet::new();
                                             for event in events {
                                                 if !*windmill_common::QUIET_LOGS {
                                                     tracing::info!("Processing notify event: channel={}, payload={}", event.channel, event.payload);
+                                                }
+                                                match event.channel.as_str() {
+                                                    "notify_runnable_list_change" => {
+                                                        runnable_list_changes.insert(event.payload.clone());
+                                                    }
+                                                    "notify_runnable_version_change" => {
+                                                        if let Some((w_id, _)) = event.payload.split_once(':') {
+                                                            runnable_list_changes.insert(w_id.to_string());
+                                                        }
+                                                    }
+                                                    _ => {}
                                                 }
                                                 let is_http_trigger_change = event.channel == "notify_http_trigger_change";
                                                 // Every changed http_trigger row emits its own event and each one forces
@@ -1566,6 +1582,9 @@ Windmill Community Edition {GIT_VERSION}
                                                     http_trigger_change_handled |= is_http_trigger_change && handled;
                                                 }
                                                 last_event_id = last_event_id.max(event.id);
+                                            }
+                                            for w_id in runnable_list_changes {
+                                                windmill_common::notify_events::notify_runnable_list_change(&w_id);
                                             }
                                         }
                                         Err(e) => {
@@ -1821,10 +1840,8 @@ async fn process_notify_event(
                     .await;
             }
         }
-        "notify_runnable_list_change" => {
-            tracing::debug!("Runnable list change for workspace {payload}");
-            windmill_common::notify_events::notify_runnable_list_change(payload);
-        }
+        // Signalled once per poll batch by the poll loop.
+        "notify_runnable_list_change" => {}
         "notify_webhook_change" => {
             tracing::info!(
                 "Webhook change detected, invalidating webhook cache: {}",
@@ -1884,7 +1901,6 @@ async fn process_notify_event(
             tracing::info!("Runnable version change detected: {}", payload);
             match payload.split(':').collect::<Vec<&str>>().as_slice() {
                 [workspace_id, source_type, path, kind] => {
-                    windmill_common::notify_events::notify_runnable_list_change(workspace_id);
                     let key = (workspace_id.to_string(), path.to_string());
                     match *source_type {
                         "script" => {
