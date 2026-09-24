@@ -387,7 +387,7 @@ impl McpBackend for WindmillBackend {
     }
 
     async fn runnable_list_fingerprint(&self, workspace_id: &str) -> BackendResult<String> {
-        windmill_common::scripts::runnable_list_fingerprint(&self.db, workspace_id)
+        windmill_common::runnables::runnable_list_fingerprint(&self.db, workspace_id)
             .await
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))
     }

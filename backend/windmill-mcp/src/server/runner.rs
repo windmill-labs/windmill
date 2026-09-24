@@ -518,13 +518,18 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         };
 
         let mut changes = self.list_changes.subscribe(&self.backend, &workspace_id);
+        // Every stream opens with one notification: a change the watcher recorded between
+        // this client's `tools/list` and this subscription is never broadcast again.
+        let mut opening = true;
         loop {
-            tokio::select! {
-                _ = subscription.cancelled() => return Ok(()),
-                change = changes.recv() => match change {
-                    Ok(()) | Err(broadcast::error::RecvError::Lagged(_)) => {}
-                    Err(broadcast::error::RecvError::Closed) => return Ok(()),
-                },
+            if !std::mem::take(&mut opening) {
+                tokio::select! {
+                    _ = subscription.cancelled() => return Ok(()),
+                    change = changes.recv() => match change {
+                        Ok(()) | Err(broadcast::error::RecvError::Lagged(_)) => {}
+                        Err(broadcast::error::RecvError::Closed) => return Ok(()),
+                    },
+                }
             }
             // A client creating several scripts in a row: collapse the burst into one
             // notification, so it re-lists once.

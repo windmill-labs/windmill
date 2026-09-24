@@ -1,5 +1,5 @@
 use sqlx::{Pool, Postgres};
-use windmill_common::scripts::runnable_list_fingerprint;
+use windmill_common::runnables::runnable_list_fingerprint;
 
 /// MCP clients refresh their tool list when this fingerprint moves, so it must move on every
 /// change to what the listing shows and stay put on writes it does not show.
