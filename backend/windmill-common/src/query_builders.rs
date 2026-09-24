@@ -3114,6 +3114,38 @@ mod tests {
     }
 
     #[test]
+    fn test_joins_read_from_a_derived_source_in_every_dialect() {
+        let cols = vec![col("id", "int"), col("user_id.name", "text")];
+        let joins = vec![joined("user_id", "s.users", "name")];
+        for (db_type, expected) in [
+            (
+                DbType::Mysql,
+                "FROM (SELECT wm_base.*, wm_j0.`name` AS `user_id.name` FROM `s`.`orders` AS wm_base LEFT JOIN `s`.`users` AS wm_j0 ON wm_base.`user_id` = wm_j0.`id`) AS wm_src",
+            ),
+            (
+                DbType::MsSqlServer,
+                "FROM (SELECT wm_base.*, wm_j0.[name] AS [user_id.name] FROM [s].[orders] AS wm_base LEFT JOIN [s].[users] AS wm_j0 ON wm_base.[user_id] = wm_j0.[id]) AS wm_src",
+            ),
+            (
+                DbType::Snowflake,
+                r#"FROM (SELECT wm_base.*, wm_j0."name" AS "user_id.name" FROM "s"."orders" AS wm_base LEFT JOIN "s"."users" AS wm_j0 ON wm_base."user_id" = wm_j0."id") AS wm_src"#,
+            ),
+            (
+                DbType::Bigquery,
+                "FROM (SELECT wm_base.*, wm_j0.`name` AS `user_id.name` FROM `s`.`orders` AS wm_base LEFT JOIN `s`.`users` AS wm_j0 ON wm_base.`user_id` = wm_j0.`id`) AS wm_src",
+            ),
+        ] {
+            let select =
+                make_select_query_with_joins("s.orders", &joins, &cols, None, db_type, None, None)
+                    .unwrap();
+            assert!(select.contains(expected), "{:?} select: {}", db_type, select);
+            let count =
+                make_count_query_with_joins(db_type, "s.orders", &joins, None, &cols, None).unwrap();
+            assert!(count.contains(expected), "{:?} count: {}", db_type, count);
+        }
+    }
+
+    #[test]
     fn test_select_without_joins_is_unchanged() {
         let cols = vec![col("id", "int4")];
         assert_eq!(
