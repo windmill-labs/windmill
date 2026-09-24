@@ -263,6 +263,15 @@
 	// out without an attachment the user already dropped, and reserves cap slots
 	// against a concurrent drop.
 	let pendingImages = $state(0)
+	// The reads running right now, so a host taking this composer's draft as the panel goes
+	// can wait for what is still being decoded instead of losing it.
+	const reading = new Set<Promise<unknown>>()
+	function tracked(run: () => Promise<void>): Promise<void> {
+		const read = run()
+		reading.add(read)
+		void read.finally(() => reading.delete(read))
+		return read
+	}
 
 	/** Attach dropped/pasted image files (downscaled + bounded). */
 	export async function addImages(files: (File | Blob)[]) {
@@ -321,6 +330,7 @@
 		// Claim the slots before awaiting, and hold sending until they resolve:
 		// decoding takes ~50-800ms, and a send during it would clear `images` while
 		// this closure still appends to it, landing the picture on the next message.
+		await tracked(async () => {
 		pendingImages += batch.length
 		try {
 			// One at a time: a decoded bitmap costs ~4 bytes per pixel (a 12MP photo is
@@ -340,6 +350,7 @@
 		} finally {
 			pendingImages -= batch.length
 		}
+		})
 	}
 
 	function removeImage(index: number) {
@@ -446,8 +457,9 @@
 		}
 		batch = withinBudget
 		if (batch.length === 0) return
-		pendingFiles += batch.length
 		const reservedBytes = batch.reduce((sum, f) => sum + f.size, 0)
+		await tracked(async () => {
+		pendingFiles += batch.length
 		pendingFileBytes += reservedBytes
 		try {
 			const reads: { name: string; content: string }[] = []
@@ -485,6 +497,7 @@
 			pendingFiles -= batch.length
 			pendingFileBytes -= reservedBytes
 		}
+		})
 	}
 
 	function removeFile(index: number) {
@@ -547,6 +560,7 @@
 		if (batch.length < usable.length) {
 			sendUserToast(skippedMessage(MAX_ATTACHED_BLOBS, 'files', usable.length - batch.length), true)
 		}
+		await tracked(async () => {
 		pendingBlobs += batch.length
 		try {
 			const added: AttachedBlob[] = []
@@ -561,6 +575,7 @@
 		} finally {
 			pendingBlobs -= batch.length
 		}
+		})
 	}
 
 	function removeBlob(index: number) {
@@ -706,13 +721,34 @@
 		images: AttachedImage[]
 		files: AttachedTextFile[]
 		blobs: AttachedBlob[]
+		/** What was still being read, once it lands: those reads append to the draft this
+		 * composer leaves behind, so they are taken from it when they are done. */
+		rest?: Promise<{
+			text: string
+			images: AttachedImage[]
+			files: AttachedTextFile[]
+			blobs: AttachedBlob[]
+		}>
 	} {
 		const taken = draft.take()
+		const reads = [...reading]
 		return {
 			text: expanded(chatDraft(taken.text, taken.pastes)),
 			images: taken.images,
 			files: taken.files,
-			blobs: taken.blobs
+			blobs: taken.blobs,
+			rest:
+				reads.length > 0
+					? Promise.allSettled(reads).then(() => {
+							const late = draft.take()
+							return {
+								text: expanded(chatDraft(late.text, late.pastes)),
+								images: late.images,
+								files: late.files,
+								blobs: late.blobs
+							}
+						})
+					: undefined
 		}
 	}
 

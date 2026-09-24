@@ -569,8 +569,16 @@ export class FlowChatViewHost implements ChatViewHost, DraftSender<ComposerAttac
 				// The composer goes with its panel when the reader opens another conversation, and
 				// what they had written in it would go too: it waits with the conversation's turns
 				// for the next composer to show this conversation.
-				const { text, images, blobs } = leaving.takeDraft()
+				const { text, images, blobs, rest } = leaving.takeDraft()
 				this.#turns.adopt(composerDraft(text.trim() ? text : '', images, blobs))
+				// A file still being read when the panel went belongs to that draft too, and
+				// lands in the conversation's turns when its read is done.
+				void rest?.then((late) => {
+					if (this.#disposed) return
+					this.#turns.adopt(
+						composerDraft(late.text.trim() ? late.text : '', late.images, late.blobs)
+					)
+				})
 			}
 			this.#takeReturned()
 		})

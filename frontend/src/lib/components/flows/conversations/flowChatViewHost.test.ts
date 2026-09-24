@@ -608,6 +608,25 @@ describe('FlowChatViewHost', () => {
 		host.dispose()
 	})
 
+	it('takes a file still being read when the composer goes', async () => {
+		const { chat } = fakeChat()
+		const host = hostOn(chat)
+		let finishRead: (v: { text: string; images: any[]; files: any[]; blobs: any[] }) => void
+		const rest = new Promise<any>((resolve) => (finishRead = resolve))
+		host.setAiChatInput({
+			takeDraft: () => ({ text: 'look at this', images: [], files: [], blobs: [], rest })
+		} as any)
+		host.setAiChatInput(null)
+		expect(host.turns.queued.text).toBe('')
+		// The read lands after the panel is gone.
+		finishRead!({ text: '', images: [], files: [], blobs: [pdf] })
+		await flush()
+		const prependText = vi.fn()
+		host.setAiChatInput({ prependText } as any)
+		expect(prependText).toHaveBeenCalledWith('look at this', [], [], [pdf])
+		host.dispose()
+	})
+
 	it('keeps what the composer held when it goes, for the next one showing this conversation', () => {
 		const { chat } = fakeChat()
 		const host = hostOn(chat)
