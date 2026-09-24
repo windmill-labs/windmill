@@ -419,7 +419,7 @@ export async function pushWorkspaceSettings(
       localOperatorSettings[key] = remote;
     }
   }
-  if (!deepEqual(localOperatorSettings, settings.operator_settings)) {
+  if (localOperatorSettings && !deepEqual(localOperatorSettings, settings.operator_settings)) {
     log.debug(`Updating operator settings...`);
     await wmill.updateOperatorSettings({
       workspace,

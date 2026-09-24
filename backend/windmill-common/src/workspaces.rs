@@ -1297,8 +1297,9 @@ pub fn invalidate_operator_rights_cache(workspace_id: &str) {
 
 /// Gate for a write operators may perform unless the workspace withdrew it. Prefer layering
 /// `gate_operator_writes` on a whole router over calling this per handler; see
-/// `docs/operator-write-rights.md`. `is_operator` MUST come from the authenticated caller
-/// (`ApiAuthed::is_operator`): passing `false` skips the check.
+/// `docs/operator-write-rights.md`. Both `workspace_id` and `is_operator` MUST come from the
+/// authenticated request (the route's workspace, `ApiAuthed::is_operator`): passing `false` skips
+/// the check, and another workspace's id checks the wrong settings.
 pub async fn check_operator_can_manage(
     db: &DB,
     workspace_id: &str,

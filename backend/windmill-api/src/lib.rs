@@ -661,12 +661,10 @@ pub async fn run_server(
                         // ingestion routes are a separate service and stay open.
                         .nest(
                             "/capture",
-                            capture::workspaced_service()
-                                .layer(from_fn_with_state(
-                                    ManageKind::Triggers,
-                                    gate_operator_writes,
-                                ))
-                                .merge(capture::workspaced_move_service()),
+                            capture::workspaced_service().layer(from_fn_with_state(
+                                ManageKind::Triggers,
+                                gate_operator_writes,
+                            )),
                         )
                         .nest(
                             "/concurrency_groups",
