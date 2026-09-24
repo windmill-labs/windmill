@@ -3,6 +3,7 @@
 	import SqlRepl from './SqlRepl.svelte'
 	import DBTable from './DBTable.svelte'
 	import type { DbInput } from './dbTypes'
+	import type { DBSchema } from '$lib/stores'
 	import { staticDbTableOps } from './staticDbTableOps'
 	import { getDbType } from './dbOps'
 
@@ -14,6 +15,7 @@
 		initialCode?: string
 		onCodeChange?: (code: string) => void
 		onSchemaChange?: () => void
+		schema?: DBSchema
 	}
 	let {
 		input,
@@ -22,7 +24,8 @@
 		placeholderTableName,
 		initialCode,
 		onCodeChange,
-		onSchemaChange
+		onSchemaChange,
+		schema
 	}: Props = $props()
 
 	let result: Record<string, unknown>[] | undefined = $state.raw()
@@ -41,6 +44,7 @@
 			{initialCode}
 			{onCodeChange}
 			{onSchemaChange}
+			{schema}
 			onData={(data) => (result = data)}
 		/>
 	</Pane>

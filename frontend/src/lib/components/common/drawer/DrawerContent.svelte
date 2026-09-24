@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { classNames } from '$lib/utils'
+	import { twMerge } from 'tailwind-merge'
 	import CloseButton from '../CloseButton.svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
@@ -32,6 +33,8 @@
 		bannerReserved?: boolean
 		/** For content rendered in place of a drawer, which has nothing to close. */
 		hideClose?: boolean
+		/** Merged over the title's classes, e.g. to shrink it. */
+		titleClass?: string
 		children?: import('svelte').Snippet
 	}
 
@@ -53,6 +56,7 @@
 		banner,
 		bannerReserved = false,
 		hideClose = false,
+		titleClass = undefined,
 		children
 	}: Props = $props()
 
@@ -92,7 +96,7 @@
 					<CloseButton on:close Icon={CloseIcon} id="{id}-close-btn" />
 				</div>
 			{/if}
-			<span class="font-semibold text-emphasis truncate text-lg max-w-sm"
+			<span class={twMerge('font-semibold text-emphasis truncate text-lg max-w-sm', titleClass)}
 				>{title ?? ''}
 				{#if tooltip != '' || documentationLink}
 					<Tooltip {documentationLink}>{tooltip}</Tooltip>

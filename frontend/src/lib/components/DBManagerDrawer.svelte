@@ -198,6 +198,14 @@
 
 	let hasReplResult = $state(false)
 
+	// The tabs start where the right pane does, so a narrow tree pane would run them into the
+	// title: below the room the title needs, in pixels, it goes.
+	const TITLE_ROOM_PX = 200
+	let showTitle = $derived.by(() => {
+		const left = dbManagerContent?.dbManager()?.mainPaneLeft()
+		return !dbManagerContent?.tabsModel() || !left || left >= TITLE_ROOM_PX
+	})
+
 	// Only PostgreSQL has a diagram.
 	let diagramSupported = $derived(
 		!!uriState.effectiveInput && getDbType(uriState.effectiveInput) === 'postgresql'
@@ -324,7 +332,7 @@
 
 <Drawer bind:open placement="center" preventEscape {offset} on:close={handleClose}>
 	<DrawerContent
-		title={hasReplResult ? 'Query Result' : 'Database Manager'}
+		title={showTitle ? (hasReplResult ? 'Query Result' : 'Database Manager') : undefined}
 		on:close={() => {
 			if (hasReplResult) {
 				dbManagerContent?.clearReplResult()
@@ -335,6 +343,8 @@
 		CloseIcon={hasReplResult ? ArrowLeft : undefined}
 		noPadding
 		overflow_y={false}
+		fullScreen={false}
+		titleClass="text-sm text-primary"
 		id="db-manager-drawer"
 	>
 		{#if contentInput && ws && roleSettled}
@@ -413,16 +423,23 @@
 					{/each}
 					<DropdownV2
 						enableFlyTransition
-						items={TAB_KINDS.filter((k) => k.kind !== 'diagram' || diagramSupported).map(
-							(k) => ({
-								displayName: k.label,
-								icon: k.icon,
-								action: () => {
-									tabs.add(k.kind)
-									logFeatureUsage('db_manager', 'view_mode', { key: k.kind })
-								}
-							})
-						)}
+						items={TAB_KINDS.filter((k) => k.kind !== 'diagram' || diagramSupported).map((k) => ({
+							displayName: k.label,
+							icon: k.icon,
+							action: () => {
+								// A query opened from a data tab starts on that tab's table.
+								const from = tabs.active.kind === 'data' ? tabs.active : undefined
+								tabs.add(
+									k.kind,
+									k.kind === 'sql' && from?.table
+										? {
+												code: `SELECT * FROM ${from.schema ? `${from.schema}.` : ''}${from.table}`
+											}
+										: {}
+								)
+								logFeatureUsage('db_manager', 'view_mode', { key: k.kind })
+							}
+						}))}
 						btnId="db-manager-new-tab"
 					>
 						{#snippet buttonReplacement()}

@@ -1369,14 +1369,14 @@
 				{:else if tabs}
 					<!-- Every opened tab stays mounted, only hidden, so it is found as it was left:
 						 scroll, filters, query results. Hidden is not enough on its own, as the diagram
-						 forces its layers visible: the active tab is also stacked above on an opaque
-						 background. -->
+						 forces its layers visible: the others are also stacked below the active one,
+						 which has an opaque background. -->
 					{#each tabs.tabs as tab (tab.id)}
 						{#if mountedTabs.has(tab.id)}
 							<div
 								class={tab.id === tabs.activeId
-									? 'absolute inset-0 z-10 bg-surface'
-									: 'absolute inset-0 z-0 invisible pointer-events-none'}
+									? 'absolute inset-0 bg-surface'
+									: 'absolute inset-0 -z-10 invisible pointer-events-none'}
 							>
 								{#if tab.kind === 'data'}
 									{@render dataView(

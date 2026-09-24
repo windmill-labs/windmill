@@ -140,8 +140,11 @@
 	let colDefsRun = 0
 	let schemaRun = 0
 
+	// Keyed on the database rather than `input`, which is replaced whenever the selected table
+	// changes: re-reading on that would redo the whole database's reads per click.
+	let databaseCacheKey = $derived(input ? schemaCacheKey(ws, input) : undefined)
 	let colDefs = resource(
-		() => [input, ws, workerTag],
+		() => [databaseCacheKey, workerTag],
 		async () => {
 			const run = ++colDefsRun
 			colDefsError = undefined
@@ -167,7 +170,7 @@
 	)
 
 	let dbSchemasPromise = resource(
-		() => [input, ws, workerTag],
+		() => [databaseCacheKey, workerTag],
 		async () => {
 			const run = ++schemaRun
 			schemaError = undefined
@@ -342,6 +345,7 @@
 			initialCode={tab.code}
 			onCodeChange={(code) => tabs?.update(tab.id, { code })}
 			onSchemaChange={() => refresh()}
+			schema={shownSchema}
 		/>
 	{/snippet}
 	<Splitpanes horizontal>
@@ -439,6 +443,7 @@
 					}}
 					onSchemaChange={() => refresh()}
 					{placeholderTableName}
+					schema={shownSchema}
 				/>
 			</Pane>
 		{/if}

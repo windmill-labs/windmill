@@ -9,6 +9,7 @@
 	import StepHistory, { type StepHistoryData } from './flows/propPicker/StepHistory.svelte'
 	import { getDatabaseArg, getDbType } from './dbOps'
 	import type { DbInput } from './dbTypes'
+	import type { DBSchema } from '$lib/stores'
 	import { wrapDucklakeQuery } from './ducklake'
 	import { splitSqlStatements, pruneComments } from './sqlDdl'
 	import DdlMigrationGuard from './DdlMigrationGuard.svelte'
@@ -34,6 +35,8 @@
 		/** Editor content to start from instead of the placeholder query. */
 		initialCode?: string
 		onCodeChange?: (code: string) => void
+		/** The database's schema, for completing table and column names. */
+		schema?: DBSchema
 	}
 	let {
 		input,
@@ -43,7 +46,8 @@
 		workspace = undefined,
 		tag = undefined,
 		initialCode,
-		onCodeChange
+		onCodeChange,
+		schema
 	}: Props = $props()
 	let ws = $derived(workspace ?? $operatingWorkspace)
 	let dbType = $derived(getDbType(input))
@@ -202,6 +206,7 @@
 			bind:this={editor}
 			bind:code={() => code, (v) => ((code = v), onCodeChange?.(v))}
 			scriptLang="mysql"
+			sqlSchema={schema}
 			class="w-full h-full"
 			cmdEnterAction={run}
 		/>
