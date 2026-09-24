@@ -53,6 +53,7 @@
 	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
 	import type { DbManagerTabs } from './dbManagerTabs.svelte'
 	import type { TableEditorForeignKey } from './apps/components/display/dbtable/tableEditor'
+	import type { DbJoinTarget } from './dbTableJoins'
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 
 	const operatingUser = useOperatingUser()
@@ -774,6 +775,24 @@
 			}
 		})
 	})
+	/** The tables a table can show columns of: those it references by a single-column
+	 * foreign key, with their columns. */
+	function joinTargetsOf(key: string): DbJoinTarget[] {
+		return (foreignKeysOf(key) ?? []).flatMap((fk) => {
+			if (fk.columns.length !== 1 || !fk.targetTable) return []
+			const { sourceColumn, targetColumn } = fk.columns[0]
+			const resolved = resolveForeignKeyTarget(fk.targetTable)
+			if (!sourceColumn || !targetColumn || !resolved) return []
+			const targetKey = tableKeyOf(resolved.schemaKey, resolved.table)!
+			const columns = (colDefs?.[targetKey] ?? [])
+				.filter((c) => !c.ignored)
+				.map((c) => ({ field: c.field, datatype: c.datatype }))
+			return columns.length
+				? [{ sourceColumn, targetTable: targetKey, targetColumn, columns }]
+				: []
+		})
+	}
+
 	// Only keys whose target the sidebar can open get the "Go to row" affordance.
 	function foreignKeysOf(key: string): TableEditorForeignKey[] | undefined {
 		return fkCache
@@ -1037,6 +1056,10 @@
 				rowFilter={isCurrent && rowFilter?.tableKey === key ? rowFilter : undefined}
 				onRowFilterApplied={() => (rowFilter = undefined)}
 				layoutStorageKey={table ? tableLayoutKey?.(schema, table) : undefined}
+				joinTargets={joinTargetsOf(key)}
+				onNewColumn={schema && table
+					? () => startAlterTable(currentDatatable, schema, table)
+					: undefined}
 				bind:this={dbTableRefs[refKey]}
 			/>
 		{/key}

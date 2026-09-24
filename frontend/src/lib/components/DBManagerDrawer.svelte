@@ -21,6 +21,7 @@
 	} from 'lucide-svelte'
 	import DBManagerContent from './DBManagerContent.svelte'
 	import DropdownV2 from './DropdownV2.svelte'
+	import { flip } from 'svelte/animate'
 	import type { PendingRowAction } from './DBManager.svelte'
 	import type { DbManagerTab, DbManagerTabKind } from './dbManagerTabs.svelte'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
@@ -216,6 +217,7 @@
 		{ kind: 'diagram', label: 'Diagram', icon: Network },
 		{ kind: 'sql', label: 'SQL Editor', icon: Code }
 	]
+	let draggedTabId: string | undefined = $state()
 	function tabLabel(tab: DbManagerTab): string {
 		if (tab.kind === 'data') return tab.table ?? 'Data'
 		return TAB_KINDS.find((k) => k.kind === tab.kind)!.label
@@ -395,10 +397,27 @@
 					{#each tabs.tabs as tab (tab.id)}
 						{@const active = tab.id === tabs.activeId}
 						{@const Icon = TAB_KINDS.find((k) => k.kind === tab.kind)!.icon}
+						<!-- Reordered live as the dragged tab passes over another, as browser tabs are. -->
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
 						<div
-							class={active
-								? 'group flex h-7 shrink-0 items-center rounded-md border bg-surface-tertiary text-xs font-medium text-emphasis shadow-sm'
-								: 'group flex h-7 shrink-0 items-center rounded-md border border-transparent text-xs text-secondary hover:bg-surface-hover hover:text-primary'}
+							class={(active
+								? 'group flex h-7 shrink-0 items-center rounded-md bg-surface-sunken text-xs font-medium text-emphasis'
+								: 'group flex h-7 shrink-0 items-center rounded-md text-xs text-secondary hover:bg-surface-hover hover:text-primary') +
+								(draggedTabId === tab.id ? ' opacity-50' : '')}
+							draggable="true"
+							animate:flip={{ duration: 150 }}
+							ondragstart={(e) => {
+								draggedTabId = tab.id
+								e.dataTransfer?.setData('text/plain', tab.id)
+								if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
+							}}
+							ondragover={(e) => {
+								if (!draggedTabId) return
+								e.preventDefault()
+								if (draggedTabId !== tab.id) tabs.move(draggedTabId, tab.id)
+							}}
+							ondrop={(e) => e.preventDefault()}
+							ondragend={() => (draggedTabId = undefined)}
 						>
 							<button
 								role="tab"
@@ -472,12 +491,12 @@
 							...(enableImportExport && !uriState.isDatatableInput
 								? [
 										{
-											displayName: 'Export',
+											displayName: 'Export database',
 											icon: Download,
 											action: () => handleExportSchema()
 										},
 										{
-											displayName: 'Import',
+											displayName: 'Import database',
 											icon: Upload,
 											action: () => ((importTarget = undefined), (importDrawerOpen = true))
 										}

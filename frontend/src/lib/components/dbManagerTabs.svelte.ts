@@ -81,6 +81,16 @@ export class DbManagerTabs {
 		else this.#save()
 	}
 
+	/** Moves a tab to where `beforeId` is, as a drag over that tab would. */
+	move(id: string, beforeId: string) {
+		const from = this.tabs.findIndex((t) => t.id === id)
+		const to = this.tabs.findIndex((t) => t.id === beforeId)
+		if (from === -1 || to === -1 || from === to) return
+		const [tab] = this.tabs.splice(from, 1)
+		this.tabs.splice(to, 0, tab)
+		this.#save()
+	}
+
 	update<T extends DbManagerTab>(id: string, patch: Partial<Omit<T, 'id' | 'kind'>>) {
 		const tab = this.tabs.find((t) => t.id === id)
 		if (!tab) return

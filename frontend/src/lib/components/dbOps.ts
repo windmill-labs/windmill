@@ -25,6 +25,7 @@ import {
 	type RawForeignKey
 } from './apps/components/display/dbtable/queries/relationalKeys'
 import { groupForeignKeyRows, type DbRelation, type RawAllForeignKeyRow } from './dbRelations'
+import { joinedColumnDef, joinsPayload, type DbTableJoin } from './dbTableJoins'
 
 export type IDbTableOps = {
 	dbType: DbType
@@ -44,11 +45,14 @@ export type IDbTableOps = {
 		columnFilters?: Record<string, unknown>
 		/** Whether `order_by` was picked by the user rather than defaulted to the first column. */
 		explicitSort?: boolean
+		/** Columns of referenced tables to read beside the table's own. */
+		joins?: DbTableJoin[]
 	}) => Promise<unknown[]>
 	getCount: (params: {
 		quicksearch: string
 		whereClause?: string
 		columnFilters?: Record<string, unknown>
+		joins?: DbTableJoin[]
 	}) => Promise<number>
 	onUpdate?: (
 		row: { values: object },
@@ -92,6 +96,14 @@ export function dbTableOpsWithPreviewScripts({
 		if (ducklake) payload.ducklake = ducklake
 		return `-- WM_INTERNAL_DB_${op} ${JSON.stringify(payload)}`
 	}
+	// A joined column is read as one more column of the table, named by its alias.
+	function readColumns(joins: DbTableJoin[] | undefined) {
+		if (!joins?.length) return { columnDefs: colDefs }
+		return {
+			columnDefs: [...colDefs, ...joins.map(joinedColumnDef)],
+			joins: joinsPayload(joins)
+		}
+	}
 	function combinedWhere(extra: string | undefined): string | undefined {
 		if (!whereClause || !extra) return whereClause || extra || undefined
 		return `(${whereClause}) AND (${extra})`
@@ -101,11 +113,11 @@ export function dbTableOpsWithPreviewScripts({
 		dbType,
 		tableKey,
 		colDefs,
-		getCount: async ({ quicksearch, whereClause: extraWhere }) => {
+		getCount: async ({ quicksearch, whereClause: extraWhere, joins }) => {
 			const where = combinedWhere(extraWhere)
 			const content = makeMarker('COUNT', {
 				table: tableKey,
-				columnDefs: colDefs,
+				...readColumns(joins),
 				...(where ? { whereClause: where } : {}),
 				...(version != undefined ? { version } : {})
 			})
@@ -116,11 +128,17 @@ export function dbTableOpsWithPreviewScripts({
 			const count = result?.[0].count as number
 			return count
 		},
-		getRows: async ({ whereClause: extraWhere, columnFilters: _, explicitSort: __, ...params }) => {
+		getRows: async ({
+			whereClause: extraWhere,
+			columnFilters: _,
+			explicitSort: __,
+			joins,
+			...params
+		}) => {
 			const where = combinedWhere(extraWhere)
 			const content = makeMarker('SELECT', {
 				table: tableKey,
-				columnDefs: colDefs,
+				...readColumns(joins),
 				fixPgIntTypes: true,
 				...(where ? { whereClause: where } : {}),
 				...(version != undefined ? { version } : {})

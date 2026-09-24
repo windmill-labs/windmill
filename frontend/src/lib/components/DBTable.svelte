@@ -7,7 +7,7 @@
 		| { status: 'loaded'; rows: Record<string, unknown>[] }
 		| { status: 'error' }
 
-	const ROW_HEIGHT = 32
+	const ROW_HEIGHT = 34
 	const HEADER_HEIGHT = 30
 	const BLOCK_SIZE = 100
 	const MAX_BLOCKS = 20
@@ -42,7 +42,9 @@
 		Download,
 		KeyRound,
 		Link,
+		Merge,
 		Pencil,
+		Plus,
 		Pin,
 		PinOff,
 		ArrowLeftToLine,
@@ -67,12 +69,16 @@
 	} from './dbTableFilters'
 	import ContextMenu, { type ContextMenuItem } from './common/contextmenu/ContextMenu.svelte'
 	import GenericDropdown from './select/GenericDropdown.svelte'
+	import DropdownV2 from './DropdownV2.svelte'
+	import Popover from './meltComponents/Popover.svelte'
+	import Select from './select/Select.svelte'
 	import TextInput from './text_input/TextInput.svelte'
 	import { copyToClipboard, download } from '$lib/utils'
 	import { readDbTableLayout, saveDbTableLayout, type DbTableLayout } from './dbTableLayoutStorage'
 	import { convertJsonToCsv } from './table/tableUtils'
 	import { twMerge } from 'tailwind-merge'
 	import { deepEqual } from 'fast-equals'
+	import { joinAlias, joinedColumnDef, type DbJoinTarget, type DbTableJoin } from './dbTableJoins'
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -87,6 +93,10 @@
 		onRowFilterApplied?: () => void
 		/** localStorage key under which the columns the user resized or pinned are kept. */
 		layoutStorageKey?: string
+		/** Tables this one references by foreign key, whose columns can be shown beside its own. */
+		joinTargets?: DbJoinTarget[]
+		/** Offered from the add-column button: adding a column to the table itself. */
+		onNewColumn?: () => void
 	}
 	let {
 		dbTableOps,
@@ -94,12 +104,26 @@
 		onGoToRow,
 		rowFilter,
 		onRowFilterApplied,
-		layoutStorageKey
+		layoutStorageKey,
+		joinTargets = [],
+		onNewColumn
 	}: Props = $props()
 
-	let columns: ColumnDef[] = $derived(
-		(dbTableOps.colDefs ?? []).filter((c) => c?.field && !c.ignored && !c.hide)
+	const storedLayout = untrack(() =>
+		layoutStorageKey ? readDbTableLayout(layoutStorageKey) : ({} as DbTableLayout)
 	)
+	let joins: DbTableJoin[] = $state(storedLayout.joins ?? [])
+	let canAddColumn = $derived(!!onNewColumn || joinTargets.length > 0)
+	let columns: ColumnDef[] = $derived([
+		...(dbTableOps.colDefs ?? []).filter((c) => c?.field && !c.ignored && !c.hide),
+		...joins.map(joinedColumnDef)
+	])
+	let joinedAliases = $derived(new Set(joins.map(joinAlias)))
+	/** A row as the table has it: joined columns belong to another table, so an update or
+	 * delete must not match on them. */
+	function ownValues(row: Record<string, unknown>): Record<string, unknown> {
+		return Object.fromEntries(Object.entries(row).filter(([k]) => !joinedAliases.has(k)))
+	}
 
 	// ── Filters ──────────────────────────────────────────────────────────────
 	let filterSchema = $derived(buildDbTableFilterSchema(columns))
@@ -182,6 +206,7 @@
 			quicksearch,
 			filterWhere,
 			sort,
+			joins,
 			workspace: $operatingWorkspace,
 			refreshCount
 		}
@@ -205,7 +230,7 @@
 		if (!$operatingWorkspace) return
 		const gen = generation
 		dbTableOps
-			.getCount({ quicksearch, whereClause: filterWhere, columnFilters })
+			.getCount({ quicksearch, whereClause: filterWhere, columnFilters, joins })
 			.then((count) => gen === generation && (rowCount = count))
 			.catch(() => {})
 	}
@@ -254,7 +279,8 @@
 				columnFilters,
 				order_by: sort?.column ?? columns[0]?.field ?? '',
 				is_desc: sort?.desc ?? false,
-				explicitSort: !!sort
+				explicitSort: !!sort,
+				joins
 			})) as Record<string, unknown>[]
 			if (gen !== generation) return
 			blocks = { ...blocks, [b]: { status: 'loaded', rows } }
@@ -306,11 +332,9 @@
 		)
 		if (Object.keys(sizedWidths).length) layout.widths = sizedWidths
 		if (Object.keys(pinned).length) layout.pinned = $state.snapshot(pinned)
+		if (joins.length) layout.joins = $state.snapshot(joins)
 		saveDbTableLayout(layoutStorageKey, layout)
 	}
-	const storedLayout = untrack(() =>
-		layoutStorageKey ? readDbTableLayout(layoutStorageKey) : ({} as DbTableLayout)
-	)
 
 	// ── Column widths ────────────────────────────────────────────────────────
 	let widths: Record<string, number> = $state({ ...storedLayout.widths })
@@ -356,10 +380,25 @@
 	})
 
 	let colWidth = (field: string) => widths[field] ?? DEFAULT_COL_WIDTH
-	let totalWidth = $derived(columns.reduce((acc, c) => acc + colWidth(c.field), 0))
+	const ADD_COLUMN_WIDTH = 36
+	let totalWidth = $derived(
+		columns.reduce((acc, c) => acc + colWidth(c.field), 0) + (canAddColumn ? ADD_COLUMN_WIDTH : 0)
+	)
 
 	// ── Pinning ──────────────────────────────────────────────────────────────
 	let pinned: Record<string, 'left' | 'right'> = $state({ ...storedLayout.pinned })
+
+	// ── Joined columns ───────────────────────────────────────────────────────
+	function addJoin(join: DbTableJoin) {
+		if (joinedAliases.has(joinAlias(join))) return
+		joins = [...joins, join]
+		saveLayout()
+	}
+	function removeJoin(alias: string) {
+		joins = joins.filter((j) => joinAlias(j) !== alias)
+		setPin(alias, undefined)
+	}
+
 	let displayColumns = $derived([
 		...columns.filter((c) => pinned[c.field] === 'left'),
 		...columns.filter((c) => !pinned[c.field]),
@@ -515,7 +554,7 @@
 
 	function startEdit(row: number, column: string) {
 		clearTimeout(fkClickTimer)
-		if (!dbTableOps.onUpdate) return
+		if (!dbTableOps.onUpdate || joinedAliases.has(column)) return
 		const data = rowAt(row)
 		if (!data || data === 'loading') return
 		selected = { row, column }
@@ -543,7 +582,7 @@
 			blocks = { ...blocks, [b]: { status: 'loaded', rows } }
 		}
 		try {
-			await dbTableOps.onUpdate({ values: edit.data }, colDef, edit.value)
+			await dbTableOps.onUpdate({ values: ownValues(edit.data) }, colDef, edit.value)
 			sendUserToast('Value updated')
 		} catch (e) {
 			sendUserToast('Error updating value: ' + ((e as Error)?.message || e), true)
@@ -642,6 +681,17 @@
 					icon: PinOff,
 					onClick: () => setPin(column, undefined)
 				})
+			if (joinedAliases.has(column))
+				items.push(
+					{ id: 'divider', label: '', divider: true },
+					{
+						id: 'remove-join',
+						label: 'Remove column',
+						icon: Trash2,
+						type: 'delete',
+						onClick: () => removeJoin(column)
+					}
+				)
 			return items
 		}
 		const { row, column } = menuTarget
@@ -662,7 +712,7 @@
 				}
 			}
 		]
-		if (dbTableOps.onUpdate) {
+		if (dbTableOps.onUpdate && !joinedAliases.has(column)) {
 			items.push({
 				id: 'edit',
 				label: 'Edit value',
@@ -689,12 +739,38 @@
 		const data = rowAt(row)
 		if (!data || data === 'loading' || !$operatingWorkspace) return
 		dbTableOps
-			.onDelete?.({ values: data })
+			.onDelete?.({ values: ownValues(data) })
 			.then(() => {
 				refresh()
 				sendUserToast('Row deleted')
 			})
 			.catch((e) => sendUserToast(`Error deleting row: ${e?.message ?? e}`, true))
+	}
+
+	// ── Add column ───────────────────────────────────────────────────────────
+	let joinPickerOpen = $state(false)
+	let pickedTarget: number | undefined = $state()
+	let pickedColumn: string | undefined = $state()
+	let pickedTargetColumns = $derived(
+		pickedTarget !== undefined ? (joinTargets[pickedTarget]?.columns ?? []) : []
+	)
+	function openJoinPicker() {
+		pickedTarget = joinTargets.length === 1 ? 0 : undefined
+		pickedColumn = undefined
+		joinPickerOpen = true
+	}
+	function confirmJoin() {
+		const target = pickedTarget !== undefined ? joinTargets[pickedTarget] : undefined
+		const column = pickedTargetColumns.find((c) => c.field === pickedColumn)
+		if (!target || !column) return
+		addJoin({
+			sourceColumn: target.sourceColumn,
+			targetTable: target.targetTable,
+			targetColumn: target.targetColumn,
+			column: column.field,
+			datatype: column.datatype
+		})
+		joinPickerOpen = false
 	}
 
 	function downloadCsv() {
@@ -703,6 +779,99 @@
 		download(`${dbTableOps.tableKey}.csv`, convertJsonToCsv(rows), 'text/csv')
 	}
 </script>
+
+{#snippet addColumnHeader()}
+	{#if canAddColumn}
+		<div
+			class="relative flex shrink-0 items-center justify-center border-r"
+			style:width="{ADD_COLUMN_WIDTH}px"
+		>
+			<DropdownV2
+				items={[
+					...(onNewColumn
+						? [{ displayName: 'New column', icon: Plus, action: () => onNewColumn?.() }]
+						: []),
+					// Only offered when the table references another by foreign key.
+					...(joinTargets.length
+						? [{ displayName: 'Add joined column', icon: Merge, action: openJoinPicker }]
+						: [])
+				]}
+				btnId="db-table-add-column"
+			>
+				{#snippet buttonReplacement()}
+					<div
+						class="flex h-6 w-6 items-center justify-center rounded text-secondary hover:bg-surface-hover hover:text-primary"
+						title="Add column"
+					>
+						<Plus size={14} />
+					</div>
+				{/snippet}
+			</DropdownV2>
+			<!-- Opened from the menu above rather than by a trigger of its own. -->
+			<Popover
+				floatingConfig={{ strategy: 'fixed', placement: 'bottom-end' }}
+				bind:isOpen={joinPickerOpen}
+				class="absolute bottom-0 right-0 h-0 w-0 overflow-hidden"
+				triggerAttrs={{ tabindex: -1, 'aria-hidden': true }}
+			>
+				{#snippet trigger()}{/snippet}
+				{#snippet content()}
+					<div class="flex w-72 flex-col gap-2 p-3" data-testid="db-join-picker">
+						<span class="text-xs font-semibold text-emphasis">Add joined column</span>
+						<Select
+							items={joinTargets.map((t, i) => ({
+								label: `${t.targetTable} (via ${t.sourceColumn})`,
+								value: i
+							}))}
+							bind:value={
+								() => pickedTarget,
+								(v) => {
+									pickedTarget = v
+									pickedColumn = undefined
+								}
+							}
+							placeholder="Table"
+							size="sm"
+						/>
+						<Select
+							items={pickedTargetColumns.map((c) => ({
+								label: c.field,
+								subtitle: c.datatype,
+								value: c.field,
+								disabled:
+									pickedTarget !== undefined &&
+									joinedAliases.has(
+										joinAlias({
+											sourceColumn: joinTargets[pickedTarget].sourceColumn,
+											column: c.field
+										})
+									)
+							}))}
+							bind:value={pickedColumn}
+							placeholder="Column"
+							disabled={pickedTarget === undefined}
+							size="sm"
+						/>
+						<Button
+							variant="accent"
+							unifiedSize="sm"
+							disabled={pickedTarget === undefined || !pickedColumn}
+							onClick={confirmJoin}
+						>
+							Add
+						</Button>
+					</div>
+				{/snippet}
+			</Popover>
+		</div>
+	{/if}
+{/snippet}
+
+{#snippet addColumnCell()}
+	{#if canAddColumn}
+		<div class="shrink-0 border-r" style:width="{ADD_COLUMN_WIDTH}px"></div>
+	{/if}
+{/snippet}
 
 <svelte:window onmousedown={() => editing && cancelEdit()} />
 
@@ -795,6 +964,7 @@
 							{@const sorted = sort?.column === col.field ? sort : undefined}
 							{@const pin = pinned[col.field]}
 							{#if col.field === firstRightPinned}
+								{@render addColumnHeader()}
 								<div class="flex-1"></div>
 							{/if}
 							<div
@@ -822,6 +992,8 @@
 										<KeyRound size={12} class="shrink-0 text-secondary" />
 									{:else if fkByColumn[col.field]}
 										<Link size={12} class="shrink-0 text-secondary" />
+									{:else if joinedAliases.has(col.field)}
+										<Merge size={12} class="shrink-0 text-secondary" />
 									{/if}
 									<span class="truncate">{col.field}</span>
 									{#if pin}
@@ -845,6 +1017,7 @@
 							</div>
 						{/each}
 						{#if !firstRightPinned}
+							{@render addColumnHeader()}
 							<div class="flex-1"></div>
 						{/if}
 					</div>
@@ -871,6 +1044,7 @@
 									{@const isSelected = selected?.row === i && selected.column === col.field}
 									{@const pin = pinned[col.field]}
 									{#if col.field === firstRightPinned}
+										{@render addColumnCell()}
 										<div class="flex-1"></div>
 									{/if}
 									<div
@@ -919,6 +1093,7 @@
 									</div>
 								{/each}
 								{#if !firstRightPinned}
+									{@render addColumnCell()}
 									<div class="flex-1"></div>
 								{/if}
 							</div>
