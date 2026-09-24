@@ -36,9 +36,9 @@ The following stack will be deployed by this terraform as it is provided:
 - 1 native Windmill worker (requiring 2 CPU and 3GiB of Memory)
 - 1 high performance Windmill worker (requiring 4 CPU and 15GiB of Memory)
 
-The ECS cluster will be composed of 1 autoscaling group composed of up-to 6 `t3.medium` instances (enough for the entire load, plus 1 more for rolling upgrades). This will host all the services except the high performance workers. Those will be deployed on a separate auto-scaling group composed of up-to 2 `t3.xlarge` instances.
+The ECS cluster will be composed of 1 autoscaling group of `t3.medium` instances, sized by the ECS capacity provider up to `max_size` (10) in [ecs_cluster.tf](./ecs_cluster.tf). In our test deployment it settled on 5 instances for this load; the headroom covers rolling upgrades. This will host all the services except the high performance workers. Those will be deployed on a separate auto-scaling group composed of up-to 2 `t3.xlarge` instances.
 
-Of course the above is provided as an example, it should be tuned for you own needs, both in terms of instance specs, but also in terms of service architecture. For example, you might not need high performance workers, in which case you won't need the second autoscaling group at all. Same for the native worker, or even Windmill Extra (though its LSP is highly recommended for a better coding experience). Its services are switched on and off with the `ENABLE_LSP`, `ENABLE_MULTIPLAYER` (Enterprise Edition) and `ENABLE_DEBUGGER` variables in [windmill_extra.tf](./windmill_extra.tf).
+Of course the above is provided as an example, it should be tuned for your own needs, both in terms of instance specs, but also in terms of service architecture. For example, you might not need high performance workers, in which case you won't need the second autoscaling group at all. Same for the native worker, or even Windmill Extra (though its LSP is highly recommended for a better coding experience). Its services are switched on and off with the `ENABLE_LSP`, `ENABLE_MULTIPLAYER` (Enterprise Edition) and `ENABLE_DEBUGGER` variables in [windmill_extra.tf](./windmill_extra.tf).
 
 The only strictly required components are:
 - At least 1 Windmill server

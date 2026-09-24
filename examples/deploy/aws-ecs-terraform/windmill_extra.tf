@@ -38,6 +38,8 @@ resource "aws_ecs_task_definition" "windmill_cluster_windmill_extra_td" {
           value = "true"
         },
         {
+          # The target group health check (GET /) is answered by the LSP: keep it enabled, or set a
+          # health_check path on windmill_cluster_windmill_extra_tg that another enabled service answers.
           name  = "ENABLE_LSP"
           value = "true"
         },
@@ -47,8 +49,6 @@ resource "aws_ecs_task_definition" "windmill_cluster_windmill_extra_td" {
           value = "true"
         },
         {
-          # To enable the debugger, also set WINDMILL_BASE_URL to a URL at which this task can
-          # reach a Windmill server (it fetches the key that signs debug requests from there).
           # Keep REQUIRE_SIGNED_DEBUG_REQUESTS=true on any internet-reachable deployment.
           name  = "ENABLE_DEBUGGER"
           value = "false"
@@ -56,6 +56,13 @@ resource "aws_ecs_task_definition" "windmill_cluster_windmill_extra_td" {
         {
           name  = "REQUIRE_SIGNED_DEBUG_REQUESTS"
           value = "true"
+        },
+        {
+          # Multiplayer and the debugger verify the tokens the Windmill server signs, with the key
+          # they fetch from <WINDMILL_BASE_URL>/api/debug/jwks. Without it, every multiplayer
+          # session is rejected. Use https:// if you add a TLS listener.
+          name  = "WINDMILL_BASE_URL"
+          value = "http://${aws_lb.windmill_cluster_alb.dns_name}"
         },
       ]
       mountPoints = [
