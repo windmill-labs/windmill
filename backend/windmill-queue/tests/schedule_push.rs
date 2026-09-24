@@ -1773,34 +1773,42 @@ mod schedule_push {
 
         // A retry must stay a native `script_hub` job: a flow wrapper would queue the
         // next tick at start and let slow runs overlap.
-        for (path, retry) in [
-            ("f/system/hub_plain", None),
-            (
-                "f/system/hub_retry",
-                Some(serde_json::json!({ "constant": { "attempts": 2, "seconds": 1 } })),
-            ),
+        let retry = serde_json::json!({ "constant": { "attempts": 2, "seconds": 1 } });
+        for (path, retry, dynamic_skip) in [
+            ("f/system/hub_plain", None, None),
+            ("f/system/hub_retry", Some(retry), None),
+            // A skip handler needs a flow wrapper, so its metadata lookup must not
+            // go through the `script` table.
+            ("f/system/hub_skip", None, Some("f/system/skip".to_string())),
         ] {
             let has_retry = retry.is_some();
+            let has_skip = dynamic_skip.is_some();
             let schedule = make_schedule(|s| {
                 s.path = path.to_string();
                 s.script_path = hub_path.clone();
                 s.retry = retry;
+                s.dynamic_skip = dynamic_skip;
             });
             let tx = db.begin().await?;
             let tx = push_scheduled_job(&db, tx, &schedule, Some(&make_authed()), None).await?;
             tx.commit().await?;
 
-            let (job_kind, runnable_path, handle) =
-                sqlx::query_as::<_, (String, Option<String>, Option<i64>)>(
-                    "SELECT j.kind::text, j.runnable_path, q.runnable_settings_handle
+            let (job_kind, runnable_path, language, handle) =
+                sqlx::query_as::<_, (String, Option<String>, Option<String>, Option<i64>)>(
+                    "SELECT j.kind::text, j.runnable_path, j.script_lang::text, q.runnable_settings_handle
                      FROM v2_job j JOIN v2_job_queue q ON j.id = q.id WHERE j.trigger = $1",
                 )
                 .bind(path)
                 .fetch_one(&db)
                 .await?;
-            assert_eq!(job_kind, "script_hub");
             assert_eq!(runnable_path.as_deref(), Some(hub_path.as_str()));
-            assert_eq!(handle.is_some(), has_retry);
+            if has_skip {
+                assert_eq!(job_kind, "singlestepflow");
+            } else {
+                assert_eq!(job_kind, "script_hub");
+                assert_eq!(language.as_deref(), Some("bash"));
+                assert_eq!(handle.is_some(), has_retry);
+            }
         }
         Ok(())
     }

@@ -34,7 +34,8 @@
 		allowEdit?: boolean
 		allowView?: boolean
 		clearable?: boolean
-		/** Offer picking a script from the Hub; the picked path is `hub/...`. */
+		/** Offer picking a script from the Hub; the picked path is `hub/...`. Browses plain
+		 * scripts only, whatever `kinds` is. */
 		allowHub?: boolean
 		/** Workspace to list runnables from. Defaults to the operating workspace (see
 		 * `useOperatingWorkspace`). */

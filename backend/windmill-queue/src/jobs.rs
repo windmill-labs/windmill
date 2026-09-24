@@ -1809,10 +1809,10 @@ async fn eval_retry_if(
     false
 }
 
-/// Native script retry. When a failed `Script` job carries a retry policy (via
-/// `runnable_settings_handle`) and has attempts left, enqueue a fresh attempt of
-/// the same script after the policy's backoff delay — instead of having wrapped
-/// it in a one-step flow. Each attempt is a real `Script` job; the attempt
+/// Native script retry. When a failed `Script` or `Script_Hub` job carries a retry
+/// policy (via `runnable_settings_handle`) and has attempts left, enqueue a fresh
+/// attempt of the same script after the policy's backoff delay — instead of having
+/// wrapped it in a one-step flow. Each attempt is a job of the same kind; the attempt
 /// counter lives in the `native_retry_attempt` marker, written here and read only
 /// on the next failure (never on the hot job-pull path).
 ///
