@@ -815,7 +815,8 @@ async function callTool<T>({
 			`Unknown tool call: ${functionName}. Probably not in the correct mode, use the change_mode tool to switch to the correct mode.`
 		)
 	}
-	const result = await tool.fn({ args, workspace, helpers, toolCallbacks, toolId })
+	const target = await tool.draftTarget?.({ args, workspace })
+	const result = await tool.fn({ args, workspace, helpers, toolCallbacks, toolId, target })
 	toolCompletionListener?.(functionName, args, workspace)
 	return result
 }
@@ -1150,6 +1151,19 @@ export function appendPendingToolImages(
 	addedMessages.push(message)
 }
 
+/** Where a tool's draft is stored, resolved once by the dispatch. A draft's chosen name and
+ * the key it is stored at differ for a never-deployed item, so every backend call in the tool
+ * must address `storagePath`. */
+export type ResolvedDraftTarget = {
+	/** The path the call named. What the model and the user see, so messages quote this. */
+	path: string
+	storagePath: string
+	/** The draft's value when resolving it already read one, so the body does not refetch. */
+	value?: unknown
+	/** Whether `value` reflects a read: `undefined` then means no draft, not "not looked". */
+	fetched: boolean
+}
+
 export interface Tool<T> {
 	def: ChatCompletionFunctionTool
 	fn: (p: {
@@ -1158,7 +1172,16 @@ export interface Tool<T> {
 		helpers: T
 		toolCallbacks: ToolCallbacks
 		toolId: string
+		/** Resolved from `draftTarget`; absent when the tool declares none, or when its
+		 * declaration says this call addresses no draft. */
+		target?: ResolvedDraftTarget
 	}) => Promise<string>
+	/** Names the draft this call addresses, and resolves it. The dispatch awaits this once and
+	 * hands the result to `fn` as `target`, so a tool never resolves a path in its own body —
+	 * a read and the write that follows it can then not disagree about which draft they mean.
+	 * Undefined for a call that addresses no draft, such as a read pinned to the deployed
+	 * version. */
+	draftTarget?: (p: { args: any; workspace: string }) => Promise<ResolvedDraftTarget | undefined>
 	preAction?: (p: { toolCallbacks: ToolCallbacks; toolId: string }) => void
 	/** Refuse the call before any confirmation is offered. A bare string is both the row the
 	 * user reads and the result the model gets; return the pair when the model needs a steer

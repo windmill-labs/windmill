@@ -395,7 +395,8 @@ import {
 	deleteGlobalDraft,
 	listGlobalDrafts,
 	persistGlobalDraft,
-	readGlobalDraftValueAt,
+	readGlobalDraftValue,
+	resolveDraftTarget,
 	saveGlobalAppDraft
 } from './userDraftAdapter'
 import { bundleRawAppDraft } from './rawAppBundlerBridge'
@@ -466,12 +467,27 @@ async function callGlobalTool(
 	callbacks: ToolCallbacks = toolCallbacks,
 	helpers: Record<string, unknown> = {}
 ): Promise<string> {
-	return getGlobalTool(name).fn({
+	return runGlobalTool(name, args, WORKSPACE, callbacks, helpers)
+}
+
+/** Mirrors the dispatch in shared.ts: the tool's declared draft is resolved once, before
+ * its body runs. Calling `fn` without this would hand the body no storage key at all. */
+async function runGlobalTool(
+	name: string,
+	args: Record<string, unknown>,
+	workspace: string,
+	callbacks: ToolCallbacks = toolCallbacks,
+	helpers: Record<string, unknown> = {}
+): Promise<string> {
+	const tool = getGlobalTool(name)
+	const target = await tool.draftTarget?.({ args, workspace })
+	return tool.fn({
 		args,
-		workspace: WORKSPACE,
+		workspace,
 		helpers,
 		toolCallbacks: callbacks,
-		toolId: `test-${name}`
+		toolId: `test-${name}`,
+		target
 	})
 }
 
@@ -2502,7 +2518,7 @@ describe('global AI tools', () => {
 	it('refuses to write to an unresolvable path when the drafts cannot be listed', async () => {
 		const workspace = 'ws-unlistable-drafts'
 		const call = (name: string, args: Record<string, unknown>) =>
-			getGlobalTool(name).fn({ args, workspace, helpers: {}, toolCallbacks, toolId: 'no-names' })
+			runGlobalTool(name, args, workspace)
 		const listing = vi.mocked(DraftService.listDrafts).getMockImplementation()
 		vi.mocked(DraftService.listDrafts).mockRejectedValue(new Error('server error'))
 
@@ -2592,7 +2608,7 @@ describe('global AI tools', () => {
 
 	// Deleting the deployed item removes the reason its path outranks a draft staged under
 	// that name, so a cleanup resolved afterwards would delete that unrelated draft.
-	it('leaves alone a draft staged under a deleted item\'s path', async () => {
+	it("leaves alone a draft staged under a deleted item's path", async () => {
 		seedBackendDraft(
 			'raw_app',
 			'u/admin/draft_namesake',
@@ -2928,7 +2944,7 @@ describe('global AI tools', () => {
 	// directly: a non-force save whose recorded baseline is older than the
 	// server row is rejected with `status:'conflict'`, and `override` (force)
 	// pushes our version through. NB: this targets persistGlobalDraft, not the
-	// write_* tools — those re-read the backend first (readGlobalDraftValueAt ->
+	// write_* tools — those re-read the backend first (readGlobalDraftValue ->
 	// recordRemoteSync), which re-seeds the baseline and so can only surface a
 	// conflict when a live editor cell is mounted (not the case in unit tests).
 	it('persistGlobalDraft surfaces a conflict on a stale baseline and override forces it', async () => {
@@ -2950,7 +2966,8 @@ describe('global AI tools', () => {
 		)
 
 		const v2 = { ...v1, summary: 'v2', content: 'export function main() { return 1 }' }
-		const conflict = await persistGlobalDraft(WORKSPACE, 'script', path, v2)
+		const target = await resolveDraftTarget(WORKSPACE, { type: 'script', path })
+		const conflict = await persistGlobalDraft(WORKSPACE, 'script', target, v2)
 		expect(conflict.status).toBe('conflict')
 		if (conflict.status === 'conflict') {
 			expect(conflict.serverTimestamp).toBe('2026-06-15T00:01:00Z')
@@ -2961,7 +2978,7 @@ describe('global AI tools', () => {
 		})
 
 		// override:true bypasses the check and persists our version.
-		const forced = await persistGlobalDraft(WORKSPACE, 'script', path, v2, { force: true })
+		const forced = await persistGlobalDraft(WORKSPACE, 'script', target, v2, { force: true })
 		expect(forced.status).toBe('saved')
 		expect(getBackendDraft<any>('script', path, { workspace: WORKSPACE })).toMatchObject({
 			summary: 'v2',
@@ -2981,7 +2998,12 @@ describe('global AI tools', () => {
 			content: 'export function main() {}',
 			language: 'bun'
 		}
-		const res = await persistGlobalDraft(WORKSPACE, 'script', path, v)
+		const res = await persistGlobalDraft(
+			WORKSPACE,
+			'script',
+			await resolveDraftTarget(WORKSPACE, { type: 'script', path }),
+			v
+		)
 		expect(res.status).toBe('error')
 		if (res.status === 'error') expect(res.message).toBeTruthy()
 		// Nothing was persisted.
@@ -2993,7 +3015,9 @@ describe('global AI tools', () => {
 	it('a non-404 backend read failure propagates instead of returning undefined', async () => {
 		const path = 'f/scripts/readfail'
 		failingReads.add(`script:${path}`)
-		await expect(readGlobalDraftValueAt(WORKSPACE, 'script', path)).rejects.toThrow()
+		await expect(
+			readGlobalDraftValue(WORKSPACE, 'script', { path, storagePath: path, fetched: false })
+		).rejects.toThrow()
 	})
 
 	// Raw-app writes go through saveGlobalAppDraft, which must carry the conflict
@@ -3007,11 +3031,11 @@ describe('global AI tools', () => {
 			{ workspace: WORKSPACE, itemKind: 'raw_app', path },
 			'2026-06-15T00:00:00Z'
 		)
-		const res = await saveGlobalAppDraft(WORKSPACE, path, {
-			summary: 'v2',
-			files: {},
-			runnables: {}
-		} as any)
+		const res = await saveGlobalAppDraft(
+			WORKSPACE,
+			await resolveDraftTarget(WORKSPACE, { type: 'app', path }),
+			{ summary: 'v2', files: {}, runnables: {} } as any
+		)
 		expect(res.status).toBe('conflict')
 	})
 
@@ -3026,7 +3050,13 @@ describe('global AI tools', () => {
 			language: 'bun'
 		})
 		failingWrites.add(`script:${path}`)
-		await expect(deleteGlobalDraft(WORKSPACE, 'script', path)).rejects.toThrow()
+		await expect(
+			deleteGlobalDraft(
+				WORKSPACE,
+				'script',
+				await resolveDraftTarget(WORKSPACE, { type: 'script', path })
+			)
+		).rejects.toThrow()
 	})
 
 	// `override` is a tool-only conflict flag and must not leak into the persisted
@@ -3089,6 +3119,47 @@ describe('global AI tools', () => {
 			getBackendDraft('trigger_schedule', 'u/admin/test_schedule_greet', {
 				workspace: WORKSPACE
 			})
+		).toBeUndefined()
+	})
+
+	// write_trigger is the one tool whose path is nested inside another argument, so its
+	// target declaration has to reach into `config` to find the name to resolve.
+	it('routes a trigger write nested in config to the draft staged under that name', async () => {
+		seedBackendDraft(
+			'trigger_http',
+			'u/admin/draft_http_0001',
+			{
+				path: 'u/admin/draft_http_0001',
+				draft_path: 'u/admin/staged_route',
+				script_path: 'f/scripts/handler',
+				is_flow: false,
+				route_path: 'api/staged',
+				http_method: 'get',
+				authentication_method: 'none',
+				is_static_website: false
+			},
+			{ workspace: WORKSPACE }
+		)
+
+		await callGlobalTool('write_trigger', {
+			kind: 'http',
+			config: {
+				path: 'u/admin/staged_route',
+				script_path: 'f/scripts/handler',
+				is_flow: false,
+				route_path: 'api/renamed',
+				http_method: 'get',
+				authentication_method: 'none',
+				is_static_website: false
+			}
+		})
+
+		expect(
+			getBackendDraft<any>('trigger_http', 'u/admin/draft_http_0001', { workspace: WORKSPACE })
+				?.route_path
+		).toBe('api/renamed')
+		expect(
+			getBackendDraft('trigger_http', 'u/admin/staged_route', { workspace: WORKSPACE })
 		).toBeUndefined()
 	})
 

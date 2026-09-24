@@ -3,6 +3,7 @@ import { AppService, DraftService, FlowService, ScriptService } from '$lib/gen'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import { UserDraft, type UserDraftEntry, type UserDraftItemKind } from '$lib/userDraft.svelte'
+import type { ResolvedDraftTarget } from '../shared'
 import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 import {
 	getWorkspaceItemKey,
@@ -417,7 +418,7 @@ function liveEditorStoragePath(
 }
 
 /** Follows the open editor's staged rename only, for callers that already hold a storage
- * path. A path that may be a draft's chosen name needs `resolveGlobalDraftStoragePath`. */
+ * path. A path that may be a draft's chosen name needs `resolveDraftTarget`. */
 export function liveGlobalDraftStoragePath(
 	workspace: string,
 	type: WorkspaceItemType,
@@ -428,66 +429,40 @@ export function liveGlobalDraftStoragePath(
 	return itemKind ? liveEditorStoragePath(workspace, itemKind, path) : path
 }
 
-/** One resolution for a whole operation, so a tool reads its merge base, writes and
- * cleans up at the same key. Resolving twice lets a listing that fails in between send
- * the two halves to different drafts. `value` is the draft found while resolving, if any;
- * `fetched` says the backend was already asked, so no caller asks again. */
-export async function resolveGlobalDraft(
+/** The draft a call addresses: the path it named, and whether the call goes on to write. */
+export type DraftTarget = {
+	type: WorkspaceItemType
+	path: string
+	triggerKind?: TriggerKind
+	/** A write must know which draft a name belongs to; a read can fall back to the path
+	 * itself, which is what it addressed before names were resolved at all. */
+	forWrite?: boolean
+}
+
+/**
+ * The only way to turn a path into a storage key. Every other function here takes the key,
+ * so an operation resolves once — at the tool boundary — and its read, its write and its
+ * cleanup cannot end up on different drafts because a listing failed in between.
+ *
+ * A tool body reads its own target off `ctx.target`; it calls this only to address a
+ * *second* item, such as the script a flow step points at.
+ */
+export async function resolveDraftTarget(
 	workspace: string,
-	type: WorkspaceItemType,
-	path: string,
-	triggerKind?: TriggerKind,
-	opts: { forWrite?: boolean } = {}
-): Promise<{ storagePath: string; value?: unknown; fetched: boolean }> {
+	target: DraftTarget
+): Promise<ResolvedDraftTarget> {
+	const { type, path, triggerKind, forWrite } = target
 	const itemKind = itemKindFor(type, triggerKind)
-	if (!itemKind) return { storagePath: path, fetched: false }
-	const resolved = await resolveDraft(workspace, itemKind, path, opts)
+	if (!itemKind) return { path, storagePath: path, fetched: false }
+	const resolved = await resolveDraft(workspace, itemKind, path, { forWrite })
 	const cell = UserDraft.get(itemKind, resolved.storagePath, { workspace })
 	return {
+		path,
 		storagePath: resolved.storagePath,
 		value: cell ?? resolved.value,
 		// Only the path it probed was fetched; a name resolved elsewhere was not.
 		fetched: cell !== undefined || resolved.storagePath === path
 	}
-}
-
-/** Where the draft a model-supplied path names is stored. */
-export async function resolveGlobalDraftStoragePath(
-	workspace: string,
-	type: WorkspaceItemType,
-	path: string,
-	triggerKind?: TriggerKind
-): Promise<string> {
-	const itemKind = itemKindFor(type, triggerKind)
-	if (!itemKind) return path
-	return (await resolveDraft(workspace, itemKind, path)).storagePath
-}
-
-function getGlobalDraftSlot(
-	workspace: string,
-	type: WorkspaceItemType,
-	path: string,
-	triggerKind?: TriggerKind
-) {
-	const itemKind = itemKindFor(type, triggerKind)
-	if (!itemKind) return undefined
-	const storagePath = liveEditorStoragePath(workspace, itemKind, path)
-	const draft = UserDraft.get(itemKind, storagePath, { workspace })
-	if (draft === undefined) return undefined
-
-	const { displayPath, isLiveDraft } = liveDisplayPath(workspace, itemKind, storagePath)
-	const entry = {
-		workspace,
-		itemKind,
-		path: storagePath,
-		value: draft,
-		meta: {},
-		persisted: false,
-		live: false
-	}
-	const item = userDraftEntryToWorkspaceItem(entry, displayPath, isLiveDraft)
-	if (!item) return undefined
-	return { itemKind, storagePath, displayPath, item }
 }
 
 // Current user's persisted draft value (+ records the sync baseline so a later
@@ -513,19 +488,21 @@ async function fetchBackendDraftValue(
 	return resp.value ?? undefined
 }
 
-/** Draft VALUE at a key already resolved: cell-if-present (the user's freshest in-tab
- * edits) else the current user's backend draft. */
-export async function readGlobalDraftValueAt<V>(
+/** Draft VALUE at a resolved target: cell-if-present (the user's freshest in-tab edits)
+ * else the current user's backend draft. Answers from what resolving the target already
+ * read, unless `fresh` — for a caller that has since changed the draft it is reading. */
+export async function readGlobalDraftValue<V>(
 	workspace: string,
 	type: WorkspaceItemType,
-	storagePath: string,
-	triggerKind?: TriggerKind
+	target: ResolvedDraftTarget,
+	opts: { triggerKind?: TriggerKind; fresh?: boolean } = {}
 ): Promise<V | undefined> {
-	const itemKind = itemKindFor(type, triggerKind)
+	if (target.fetched && !opts.fresh) return target.value as V | undefined
+	const itemKind = itemKindFor(type, opts.triggerKind)
 	if (!itemKind) return undefined
-	const cell = UserDraft.get<V>(itemKind, storagePath, { workspace })
+	const cell = UserDraft.get<V>(itemKind, target.storagePath, { workspace })
 	if (cell !== undefined) return cell
-	return (await fetchBackendDraftValue(workspace, itemKind, storagePath)) as V | undefined
+	return (await fetchBackendDraftValue(workspace, itemKind, target.storagePath)) as V | undefined
 }
 
 // `itemKind` + `storagePath` are the canonical identity of the persisted draft
@@ -555,18 +532,13 @@ export type DraftPersistResult =
 export async function persistGlobalDraft(
 	workspace: string,
 	type: WorkspaceItemType,
-	path: string,
+	target: ResolvedDraftTarget,
 	value: unknown,
-	opts: { triggerKind?: TriggerKind; force?: boolean; storagePath?: string } = {}
+	opts: { triggerKind?: TriggerKind; force?: boolean } = {}
 ): Promise<DraftPersistResult> {
 	const itemKind = itemKindFor(type, opts.triggerKind)
 	if (!itemKind) throw new Error(`Unsupported draft type "${type}".`)
-	// Resolved rather than taken as given: a write under a chosen name that did not resolve
-	// would create a second draft beside the one it meant to edit. A caller that resolved
-	// for the whole operation passes its key so both halves land on one draft.
-	const storagePath =
-		opts.storagePath ??
-		(await resolveDraft(workspace, itemKind, path, { forWrite: true })).storagePath
+	const { path, storagePath } = target
 	UserDraft.seed(itemKind, storagePath, value, { workspace })
 	await UserDraftDbSyncer.save({
 		workspace,
@@ -612,39 +584,17 @@ export async function persistGlobalDraft(
 	return { status: 'saved', item, itemKind, storagePath }
 }
 
+/** The draft at a resolved target, so one operation reads, writes and cleans up at the
+ * same draft even if the listing changes under it. */
 export async function getGlobalDraft(
 	workspace: string,
 	type: WorkspaceItemType,
-	path: string,
+	target: ResolvedDraftTarget,
 	triggerKind?: TriggerKind
 ): Promise<WorkspaceItem | undefined> {
-	const slot = getGlobalDraftSlot(workspace, type, path, triggerKind)
-	if (slot) return slot.item
 	const itemKind = itemKindFor(type, triggerKind)
 	if (!itemKind) return undefined
-	const resolved = await resolveDraft(workspace, itemKind, path)
-	return draftItemAt(workspace, itemKind, resolved.storagePath, {
-		value: resolved.value,
-		// Resolution already asked for this key and found nothing; asking again returns
-		// the same nothing.
-		fetched: resolved.storagePath === path
-	})
-}
-
-/** The draft at a key the caller already resolved, so one operation reads, writes and
- * cleans up at the same draft even if the listing changes under it. */
-export async function getGlobalDraftAt(
-	workspace: string,
-	type: WorkspaceItemType,
-	storagePath: string,
-	triggerKind?: TriggerKind,
-	/** What the caller's own resolution already found at this key, so it is not fetched
-	 * a second time. */
-	found: { value?: unknown; fetched?: boolean } = {}
-): Promise<WorkspaceItem | undefined> {
-	const itemKind = itemKindFor(type, triggerKind)
-	if (!itemKind) return undefined
-	return draftItemAt(workspace, itemKind, storagePath, found)
+	return draftItemAt(workspace, itemKind, target.storagePath, target)
 }
 
 async function draftItemAt(
@@ -747,34 +697,28 @@ export async function listGlobalDrafts(workspace: string): Promise<WorkspaceItem
 
 export async function saveGlobalAppDraft(
 	workspace: string,
-	path: string,
-	value: AppDraftValue,
-	opts: { storagePath?: string } = {}
+	target: ResolvedDraftTarget,
+	value: AppDraftValue
 ): Promise<DraftPersistResult> {
 	// Return the full result (not just the item) so app write tools surface a
 	// conflict / save failure instead of reporting every stale write as saved.
-	return persistGlobalDraft(workspace, 'app', path, normalizeAppDraftValue(value), opts)
+	return persistGlobalDraft(workspace, 'app', target, normalizeAppDraftValue(value))
 }
 
 type DeleteGlobalDraftOptions = {
 	preserveLiveDraft?: boolean
-	/** Key resolved by the caller, for a cleanup whose own resolution would now answer
-	 * differently — after a deploy created the item at the draft's chosen name, or after
-	 * the deployed item that outranked that name was deleted. */
-	storagePath?: string
 }
 
 export async function deleteGlobalDraft(
 	workspace: string,
 	type: WorkspaceItemType,
-	path: string,
+	target: ResolvedDraftTarget,
 	triggerKind?: TriggerKind,
 	options: DeleteGlobalDraftOptions = {}
 ): Promise<void> {
 	const itemKind = itemKindFor(type, triggerKind)
 	if (!itemKind) return
-	const storagePath =
-		options.storagePath ?? (await resolveDraft(workspace, itemKind, path)).storagePath
+	const { path, storagePath } = target
 	const liveDraft = UserDraft.getLiveEditorDraft(itemKind, { workspace })
 	if (options.preserveLiveDraft && liveDraft?.storagePath === storagePath) {
 		UserDraft.remove(itemKind, storagePath, { workspace })
