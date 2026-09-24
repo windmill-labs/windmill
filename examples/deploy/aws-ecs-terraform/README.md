@@ -32,14 +32,13 @@ Windmill relies on a PostgreSQL database which will be created by Terraform. The
 The following stack will be deployed by this terraform as it is provided:
 - 2 Windmill servers (each requiring 1 CPU and 1.5GiB of Memory)
 - 2 multi-purpose Windmill workers (each requiring 2 CPU and 3GiB of Memory)
-- Windmill LSP (requiring 1 CPU and 1.5GiB of Memory)
-- Windmill Multiplayer (requiring 1 CPU and 1.5GiB of Memory)
+- Windmill Extra: LSP and Multiplayer, plus the optional Debugger (requiring 1 CPU and 1.5GiB of Memory)
 - 1 native Windmill worker (requiring 2 CPU and 3GiB of Memory)
 - 1 high performance Windmill worker (requiring 4 CPU and 15GiB of Memory)
 
-The ECS cluster will be composed of 1 autoscaling group composed of up-to 6 `t3.medium` instances (5 necessary for the entire load, and 1 more for rolling upgrades). This will host all the services except the high performance workers. Those will be deployed on a separate auto-scaling group composed of up-to 2 `t3.xlarge` instances.
+The ECS cluster will be composed of 1 autoscaling group composed of up-to 6 `t3.medium` instances (enough for the entire load, plus 1 more for rolling upgrades). This will host all the services except the high performance workers. Those will be deployed on a separate auto-scaling group composed of up-to 2 `t3.xlarge` instances.
 
-Of course the above is provided as an example, it should be tuned for you own needs, both in terms of instance specs, but also in terms of service architecture. For example, you might not need high performance workers, in which case you won't need the second autoscaling group at all. Same for the native worker, multiplayer, or even LSP (though LSP is highly recommended for a better coding experience).
+Of course the above is provided as an example, it should be tuned for you own needs, both in terms of instance specs, but also in terms of service architecture. For example, you might not need high performance workers, in which case you won't need the second autoscaling group at all. Same for the native worker, or even Windmill Extra (though its LSP is highly recommended for a better coding experience). Its services are switched on and off with the `ENABLE_LSP`, `ENABLE_MULTIPLAYER` (Enterprise Edition) and `ENABLE_DEBUGGER` variables in [windmill_extra.tf](./windmill_extra.tf).
 
 The only strictly required components are:
 - At least 1 Windmill server
@@ -49,14 +48,13 @@ This terraform has been assembled to easily remove components. Each component me
 
 - _REQUIRED_ Windmill server -> [windmill_server.tf](./windmill_server.tf)
 - _REQUIRED_ Multi-purpose windmill worker -> [windmill_worker_basic.tf](./windmill_worker_basic.tf)
-- _OPTIONAL_ Windmill LSP -> [windmill_lsp.tf](./windmill_lsp.tf)
-- _OPTIONAL_ Windmill Multiplayer -> [windmill_multiplayer.tf](./windmill_multiplayer.tf)
+- _OPTIONAL_ Windmill Extra (LSP, Multiplayer, Debugger) -> [windmill_extra.tf](./windmill_extra.tf)
 - _OPTIONAL_ Windmill Native worker -> [windmill_worker_native.tf](./windmill_worker_native.tf)
 - _OPTIONAL_ Windmill High Performace worker -> [windmill_worker_high_performance.tf](./windmill_worker_high_performance.tf) - this one is a lot longer because it deploys a new auto scaling group
 
 ### Network
 
-The network deployed here is a single VPC, composed on 4 subnets spread across 2 availability zones (1 public and 1 private subnet per zone). All the services are behind a load balancer routing the request to Windmill server, LSP or multiplayer.
+The network deployed here is a single VPC, composed on 4 subnets spread across 2 availability zones (1 public and 1 private subnet per zone). All the services are behind a load balancer routing the request to Windmill server or Windmill Extra (`/ws/*`, `/ws_mp/*`, `/ws_debug/*`).
 
 A single security group is used, allowing HTTP traffic on port 80 (it is not deploying custom certificates and therefore does not use HTTPS).
 

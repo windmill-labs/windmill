@@ -19,7 +19,7 @@ resource "aws_db_instance" "windmill_cluster_rds" {
   # iops                  = 3000
 
   engine               = "postgres"
-  engine_version       = "16.1"
+  engine_version       = "16"
   parameter_group_name = "default.postgres16"
   license_model        = "postgresql-license"
 

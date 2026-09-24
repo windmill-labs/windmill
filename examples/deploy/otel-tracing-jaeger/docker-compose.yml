@@ -136,22 +136,25 @@ services:
       - windmill_index:/tmp/windmill/search
       - worker_logs:/tmp/windmill/logs
 
-  lsp:
-    image: ghcr.io/windmill-labs/windmill-lsp:latest
+  # Combined extra services behind one gateway on port 3000: LSP, Multiplayer and Debugger.
+  # Caddy routes /ws/*, /ws_mp/* and /ws_debug/* here (see the Caddyfile at the repo root).
+  #   - ENABLE_LSP=true (default) - Language Server Protocol for code intelligence
+  #   - ENABLE_MULTIPLAYER=false - Real-time collaboration (Enterprise Edition)
+  #   - ENABLE_DEBUGGER=false - Interactive debugging via DAP WebSocket
+  windmill_extra:
+    image: ghcr.io/windmill-labs/windmill-extra:latest
     pull_policy: always
     restart: unless-stopped
     expose:
-      - 3001
+      - 3000
+    environment:
+      - ENABLE_LSP=true
+      - ENABLE_MULTIPLAYER=false # Set to true to enable multiplayer (Enterprise Edition)
+      - ENABLE_DEBUGGER=false # Set to true to enable the debugger
+      - REQUIRE_SIGNED_DEBUG_REQUESTS=true # Do NOT set to false on any internet-reachable deployment
+      - WINDMILL_BASE_URL=http://windmill_server:8000
     volumes:
-      - lsp_cache:/root/.cache
-
-  multiplayer:
-    image: ghcr.io/windmill-labs/windmill-multiplayer:latest
-    deploy:
-      replicas: 0 # Set to 1 to enable multiplayer, only available on Enterprise Edition
-    restart: unless-stopped
-    expose:
-      - 3002
+      - lsp_cache:/pyls/.cache
 
   caddy:
     image: ghcr.io/windmill-labs/caddy-l4:latest
