@@ -7,7 +7,9 @@ resource "aws_lb_target_group" "windmill_cluster_windmill_server_tg" {
 }
 
 resource "aws_lb_target_group" "windmill_cluster_windmill_extra_tg" {
-  name        = "windmill-cluster-extra-tg"
+  # A prefix, not a fixed name: with create_before_destroy the replacement exists alongside the old
+  # group for a moment, and target group names must be unique.
+  name_prefix = "wmext-"
   port        = 3000
   protocol    = "HTTP"
   target_type = "ip"
