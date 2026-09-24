@@ -1324,7 +1324,7 @@ pub async fn check_operator_can_build_flows(
     action: &str,
 ) -> Result<()> {
     if is_operator && !operator_can_build_flows(db, workspace_id).await? {
-        return Err(Error::NotAuthorized(format!(
+        return Err(Error::PermissionDenied(format!(
             "Operators cannot {action} for security reasons"
         )));
     }

@@ -672,7 +672,7 @@ pub async fn validate_operator_composed_flow(
         .await?
         .unwrap_or(false);
         if !readable {
-            return Err(Error::NotAuthorized(format!(
+            return Err(Error::PermissionDenied(format!(
                 "{} {path} does not exist or is not readable by you",
                 if *is_flow { "Flow" } else { "Script" }
             )));
@@ -689,7 +689,7 @@ pub async fn validate_operator_composed_flow(
         .await?
         .unwrap_or(false);
         if !exists {
-            return Err(Error::NotAuthorized(format!(
+            return Err(Error::PermissionDenied(format!(
                 "Version {hash} is not a readable version of {path}"
             )));
         }
@@ -706,13 +706,7 @@ async fn create_flow(
     Path(w_id): Path<String>,
     Json(mut nf): Json<NewFlow>,
 ) -> Result<(StatusCode, String)> {
-    check_operator_can_build_flows(
-        &db,
-        &w_id,
-        authed.is_operator,
-        "create flows",
-    )
-    .await?;
+    check_operator_can_build_flows(&db, &w_id, authed.is_operator, "create flows").await?;
     check_scopes(&authed, || format!("flows:write:{}", nf.path))?;
 
     // A `<= 0` flow timeout is "unset", not a 0-second limit that kills every run instantly.
@@ -1303,13 +1297,7 @@ async fn update_flow(
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Json(ef): Json<EditFlow>,
 ) -> Result<String> {
-    check_operator_can_build_flows(
-        &db,
-        &w_id,
-        authed.is_operator,
-        "update flows",
-    )
-    .await?;
+    check_operator_can_build_flows(&db, &w_id, authed.is_operator, "update flows").await?;
     let flow_path = flow_path.to_path();
     // The URL identifies the flow being updated; the body path is only needed to rename.
     let mut nf = ef.into_new_flow(flow_path);
@@ -1973,13 +1961,7 @@ async fn archive_flow_by_path(
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(archived): Json<Archived>,
 ) -> Result<String> {
-    check_operator_can_build_flows(
-        &db,
-        &w_id,
-        authed.is_operator,
-        "archive flows",
-    )
-    .await?;
+    check_operator_can_build_flows(&db, &w_id, authed.is_operator, "archive flows").await?;
     let path = path.to_path();
     check_scopes(&authed, || format!("flows:write:{}", path))?;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
@@ -2120,13 +2102,7 @@ async fn delete_flow_by_path(
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(query): Query<DeleteFlowQuery>,
 ) -> Result<String> {
-    check_operator_can_build_flows(
-        &db,
-        &w_id,
-        authed.is_operator,
-        "delete flows",
-    )
-    .await?;
+    check_operator_can_build_flows(&db, &w_id, authed.is_operator, "delete flows").await?;
     let path = path.to_path();
     check_scopes(&authed, || format!("flows:write:{}", path))?;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(

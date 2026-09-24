@@ -1138,7 +1138,7 @@ async fn require_can_write_path(
         let granted =
             matches!(kind, UserDraftItemKind::Flow) && operator_can_build_flows(db, w_id).await?;
         if !granted {
-            return Err(Error::NotAuthorized(
+            return Err(Error::PermissionDenied(
                 "operators cannot save drafts".to_string(),
             ));
         }

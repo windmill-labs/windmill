@@ -100,8 +100,9 @@ async fn test_operator_builder_flows_boundary(db: Pool<Postgres>) -> anyhow::Res
         ))
         .send()
         .await?;
-    assert!(
-        !resp.status().is_success(),
+    assert_eq!(
+        resp.status(),
+        403,
         "an operator without the builder right must not create a flow"
     );
 
@@ -126,8 +127,9 @@ async fn test_operator_builder_flows_boundary(db: Pool<Postgres>) -> anyhow::Res
         .json(&inline_code_flow("u/operator/f2"))
         .send()
         .await?;
-    assert!(
-        !resp.status().is_success(),
+    assert_eq!(
+        resp.status(),
+        403,
         "a builder must not deploy a flow carrying inline code"
     );
 
@@ -137,8 +139,9 @@ async fn test_operator_builder_flows_boundary(db: Pool<Postgres>) -> anyhow::Res
         .json(&json!({"value": inline_code_flow("u/operator/f2")["value"], "args": {}}))
         .send()
         .await?;
-    assert!(
-        !resp.status().is_success(),
+    assert_eq!(
+        resp.status(),
+        403,
         "a builder must not preview a flow carrying inline code"
     );
 
@@ -169,8 +172,9 @@ async fn test_operator_builder_flows_boundary(db: Pool<Postgres>) -> anyhow::Res
         .json(&composition_flow_at("u/operator/f4", "u/alice/private"))
         .send()
         .await?;
-    assert!(
-        !resp.status().is_success(),
+    assert_eq!(
+        resp.status(),
+        403,
         "a builder must not compose a runnable it cannot read"
     );
 
@@ -194,8 +198,9 @@ async fn test_operator_builder_flows_boundary(db: Pool<Postgres>) -> anyhow::Res
         .json(&pinned("0000000000000000"))
         .send()
         .await?;
-    assert!(
-        !resp.status().is_success(),
+    assert_eq!(
+        resp.status(),
+        403,
         "a builder must not pin a hash that is not a version of the step's path"
     );
     let resp = c

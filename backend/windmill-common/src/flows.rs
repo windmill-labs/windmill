@@ -297,7 +297,7 @@ fn check_module_value_is_composition_only(
     refs: &mut ComposedFlowRefs,
 ) -> Result<(), Error> {
     let refuse = |what: &str| {
-        Err(Error::NotAuthorized(format!(
+        Err(Error::PermissionDenied(format!(
             "Step {id}: {what}. Operators with builder rights compose runnables that are already \
              deployed; they cannot author code."
         )))
@@ -377,7 +377,7 @@ fn check_branches_are_composition_only(
 ) -> Result<(), Error> {
     for branch in branches {
         if branch.modules_node.is_some() {
-            return Err(Error::NotAuthorized(format!(
+            return Err(Error::PermissionDenied(format!(
                 "Step {id}: a branch references code stored outside the flow. Operators with \
                  builder rights compose runnables that are already deployed; they cannot author \
                  code."
@@ -392,7 +392,7 @@ fn check_branches_are_composition_only(
 
 fn check_composable_path(path: &str, id: &str) -> Result<(), Error> {
     if path.starts_with("hub/") {
-        return Err(Error::NotAuthorized(format!(
+        return Err(Error::PermissionDenied(format!(
             "Step {id}: hub runnables are not available to operators with builder rights. Deploy \
              it to the workspace first."
         )));
