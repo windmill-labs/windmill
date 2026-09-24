@@ -129,6 +129,11 @@ import { resolveSessionAccess } from './global/sessionAccess'
 import type { SessionAccess } from './sessionCapabilities'
 import { filterSessionTools } from './global/sessionToolset'
 import {
+	listFolderInstructions,
+	type FolderInstruction,
+	type FolderInstructionsDelivery
+} from './folderInstructions'
+import {
 	loadWorkspaceSkills,
 	resolveGlobalPromptIdentity,
 	type GlobalPromptIdentity,
@@ -1349,6 +1354,13 @@ export class AIChatManager implements ChatViewHost {
 	globalSkills = $state<AiSkillListItem[]>([])
 	private globalSkillsRefreshId = 0
 
+	// The `ai_instruction` resources readable in the operating workspace, loaded
+	// alongside skills. The prompt names their folders; the tool loop delivers each
+	// one's body the first time a call touches its folder, recording which call did.
+	private globalFolderInstructions: FolderInstruction[] = []
+	private globalFolderInstructionsRefreshId = 0
+	private folderInstructionsDeliveredBy = new Map<string, FolderInstructionsDelivery>()
+
 	// External MCP servers the user connected (resources of type `mcp`). Loaded
 	// asynchronously alongside skills; the MCP tools are only registered when
 	// this is non-empty, so a workspace with no connection pays no schema cost
@@ -2428,6 +2440,7 @@ export class AIChatManager implements ChatViewHost {
 			this.configureGlobalMode()
 			void this.refreshGlobalIdentity()
 			void this.refreshGlobalSkills()
+			void this.refreshGlobalFolderInstructions()
 			void this.refreshMcpServers()
 		} else if (mode === AIMode.APP) {
 			const customPrompt = getCombinedCustomPrompt(mode)
@@ -2482,6 +2495,7 @@ export class AIChatManager implements ChatViewHost {
 		previewTools: this.isSessionChat,
 		user: this.globalIdentity,
 		skills: this.globalSkills,
+		folderInstructions: this.globalFolderInstructions,
 		mcpServers: this.mcpServers,
 		access: this.sessionAccess,
 		sessionContext: this.sessionContextResolver?.(),
@@ -2502,6 +2516,25 @@ export class AIChatManager implements ChatViewHost {
 		// skills to a chat now acting elsewhere. Same check the identity and MCP
 		// refreshes make.
 		this.globalSkills = workspace === (this.operatingWorkspace ?? '') ? skills : []
+		if (this.mode === AIMode.GLOBAL) {
+			this.configureGlobalMode()
+		}
+	}
+
+	// Same shape as refreshGlobalSkills.
+	refreshGlobalFolderInstructions = async (workspace = this.operatingWorkspace ?? '') => {
+		const refreshId = ++this.globalFolderInstructionsRefreshId
+		let instructions: FolderInstruction[] = []
+		try {
+			instructions = await listFolderInstructions(workspace)
+		} catch (e) {
+			console.error('Failed to load folder instructions', e)
+		}
+		if (refreshId !== this.globalFolderInstructionsRefreshId) {
+			return
+		}
+		this.globalFolderInstructions =
+			workspace === (this.operatingWorkspace ?? '') ? instructions : []
 		if (this.mode === AIMode.GLOBAL) {
 			this.configureGlobalMode()
 		}
@@ -3583,14 +3616,16 @@ export class AIChatManager implements ChatViewHost {
 				return false
 			}
 		}
-		// Session chats commit their workspace in beforeSend; the identity, skills, MCP
-		// servers and capabilities must all match the committed workspace before the system
-		// prompt is sent. Settling them here rather than mid-turn also keeps the prompt — the
-		// cached prefix of every iteration — stable for the whole request.
+		// Session chats commit their workspace in beforeSend; the identity, skills, folder
+		// instructions, MCP servers and capabilities must all match the committed workspace
+		// before the system prompt is sent. Settling them here rather than mid-turn also
+		// keeps the prompt — the cached prefix of every iteration — stable for the whole
+		// request.
 		if (this.mode === AIMode.GLOBAL) {
 			await Promise.all([
 				this.refreshGlobalIdentity(this.operatingWorkspace ?? ''),
 				this.refreshGlobalSkills(this.operatingWorkspace ?? ''),
+				this.refreshGlobalFolderInstructions(this.operatingWorkspace ?? ''),
 				this.refreshMcpServers(this.operatingWorkspace ?? ''),
 				this.refreshSessionAccess(this.operatingWorkspace ?? '')
 			])
@@ -4050,7 +4085,11 @@ export class AIChatManager implements ChatViewHost {
 						? {
 								onJobStarted: (job) => this.registerJob(job),
 								onJobStatus: (jobId, update) => this.updateJob(jobId, update),
-								onJobDetached: (jobId) => this.markJobDetached(jobId)
+								onJobDetached: (jobId) => this.markJobDetached(jobId),
+								folderInstructions: {
+									list: () => this.globalFolderInstructions,
+									deliveredBy: this.folderInstructionsDeliveredBy
+								}
 							}
 						: {}),
 					removeToolStatus: (id) => {

@@ -60,6 +60,7 @@ import { forLater } from '$lib/forLater'
 import { scriptLangToEditorLang } from '$lib/scripts'
 import { getCurrentModel } from '$lib/aiStore'
 import { type editor as meditor } from 'monaco-editor'
+import { pendingFolderInstructions, type FolderInstructionsContext } from './folderInstructions'
 
 // Prettify function for code arguments - extracts and formats code from JSON
 function prettifyCodeArguments(content: string): string {
@@ -743,6 +744,8 @@ export type ToolDisplayMessage = {
 	/** Refused by the plan-mode gate. Renders as its own lean row rather than a tool
 	 * error, so the transcript says the mode stopped it and not that the call failed. */
 	blockedByPlanMode?: boolean
+	/** Held back until the model has read the folder instructions it was handed. */
+	heldForFolderInstructions?: boolean
 	/** The user declined: the reject button, a Stop, or a posture switch. Set only there, so
 	 * a decision is distinguishable from every other way a call errors. */
 	declinedByUser?: boolean
@@ -975,20 +978,29 @@ function stringifyErrorBody(body: unknown): string {
  * (tab closed while a tool polls) logs nothing, so the statuses sum to the calls that
  * finished, not to the calls made.
  */
-type ToolCallStatus = 'ok' | 'error' | 'declined' | 'rejected' | 'blocked_plan_mode'
+type ToolCallStatus =
+	| 'ok'
+	| 'error'
+	| 'declined'
+	| 'rejected'
+	| 'blocked_plan_mode'
+	| 'held_for_instructions'
 
 export async function processToolCall<T>({
 	tools,
 	toolCall,
 	helpers,
 	toolCallbacks,
-	workspace
+	workspace,
+	messages = []
 }: {
 	tools: Tool<T>[]
 	toolCall: ChatCompletionMessageFunctionToolCall
 	helpers: T
 	toolCallbacks: ToolCallbacks
 	workspace?: string
+	/** The conversation so far, for which folder instructions it already carries. */
+	messages?: readonly ChatCompletionMessageParam[]
 }): Promise<ChatCompletionMessageParam> {
 	const tool = tools.find((t) => t.def.function.name === toolCall.function.name)
 	const workspaceId = workspace ?? get(workspaceStore) ?? ''
@@ -1069,6 +1081,43 @@ export async function processToolCall<T>({
 				role: 'tool' as const,
 				tool_call_id: toolCall.id,
 				content: rejection.result
+			}
+		}
+
+		// After the gates that refuse the call, so a refused call does not use up the
+		// delivery. A call that changes something is held back until the model has read
+		// the instructions: arriving with its result, they would be too late to shape it.
+		const folderInstructions = tool
+			? await pendingFolderInstructions(
+					toolCallbacks.folderInstructions,
+					messages,
+					args,
+					workspaceId
+				)
+			: undefined
+		if (folderInstructions?.paths.length) {
+			toolCallbacks.folderInstructions?.deliveredBy.set(toolCall.id, {
+				workspace: workspaceId,
+				paths: folderInstructions.paths
+			})
+		}
+		if (folderInstructions && tool?.planModeSafe !== true) {
+			logToolOutcome('held_for_instructions')
+			toolCallbacks.setToolStatus(toolCall.id, {
+				content: 'Read folder instructions',
+				heldForFolderInstructions: true,
+				parameters: args,
+				isLoading: false,
+				isQueued: false,
+				isStreamingArguments: false,
+				needsConfirmation: false,
+				showDetails: tool?.showDetails,
+				autoCollapseDetails: tool?.autoCollapseDetails
+			})
+			return {
+				role: 'tool' as const,
+				tool_call_id: toolCall.id,
+				content: `Not run: this call touches a folder whose instructions you had not read yet. Follow them, then make the call again (adjusted if they require it).\n\n${folderInstructions.text}`
 			}
 		}
 
@@ -1176,7 +1225,7 @@ export async function processToolCall<T>({
 		const toAdd = {
 			role: 'tool' as const,
 			tool_call_id: toolCall.id,
-			content: result
+			content: folderInstructions ? `${result}\n\n${folderInstructions.text}` : result
 		}
 		return toAdd
 	} catch (err) {
@@ -1454,6 +1503,9 @@ export interface ToolCallbacks {
 	attachToolImage?: (toolId: string, image: AttachedImage) => void
 	/** Drain every image buffered this batch (insertion order), clearing the buffer. */
 	takePendingToolImages?: () => AttachedImage[]
+	/** Wired only by the global/sessions chat: delivers the folder instructions
+	 * covering the paths a tool call names, once per conversation. */
+	folderInstructions?: FolderInstructionsContext
 }
 
 export function createToolDef(

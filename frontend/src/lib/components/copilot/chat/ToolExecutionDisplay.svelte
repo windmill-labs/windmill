@@ -10,7 +10,8 @@
 		FileText,
 		PanelRight,
 		Lock,
-		ExternalLink
+		ExternalLink,
+		BookOpen
 	} from 'lucide-svelte'
 	import { base } from '$lib/base'
 	import {
@@ -169,6 +170,18 @@
 		</span>
 		{#if message.toolName}
 			<span class="text-2xs text-tertiary truncate">{message.toolName}</span>
+		{/if}
+	</div>
+{:else if message.heldForFolderInstructions}
+	<!-- The call never ran: the model gets the folder's instructions and calls it again.
+	     A diff or run card here would show a write that did not happen. -->
+	<div class="font-mono text-xs flex items-center gap-2 py-0.5 my-0.5 min-w-0">
+		<BookOpen class="w-3.5 h-3.5 text-tertiary shrink-0" />
+		<span class="font-medium text-2xs text-tertiary shrink-0">
+			{message.content}
+		</span>
+		{#if message.toolName}
+			<span class="text-2xs text-tertiary truncate">{message.toolName} held until read</span>
 		{/if}
 	</div>
 {:else if isRunCard}
