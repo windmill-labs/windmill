@@ -81,6 +81,8 @@ async fn get_schedule_metadata<'c>(
             Some(version),
             parsed_retry,
         ))
+    } else if schedule.script_path.starts_with("hub/") {
+        Ok((None, None, None, None, None, parsed_retry))
     } else {
         let (
             hash,
@@ -322,6 +324,40 @@ pub async fn push_scheduled_job<'c>(
             None,
             on_behalf_of,
         )
+    } else if schedule.script_path.starts_with("hub/") {
+        let tag = schedule.tag.clone().filter(|t| !t.is_empty());
+        let payload = match &schedule.retry {
+            // A hub script has no hash, so a retry runs it as a one-step flow
+            // whose module resolves the hub path.
+            Some(retry) => JobPayload::SingleStepFlow {
+                path: schedule.script_path.clone(),
+                hash: None,
+                flow_version: None,
+                language: None,
+                retry: Some(serde_json::from_value::<Retry>(retry.clone()).map_err(|e| {
+                    error::Error::internal_err(format!(
+                        "Unable to parse retry information from schedule: {e}"
+                    ))
+                })?),
+                error_handler_path: None,
+                error_handler_args: None,
+                skip_handler: None,
+                args: args.clone(),
+                cache_ttl: None,
+                cache_ignore_s3_path: None,
+                priority: None,
+                tag_override: tag.clone(),
+                trigger_path: None,
+                apply_preprocessor: false,
+                concurrency_settings: ConcurrencySettings::default(),
+                debouncing_settings: DebouncingSettings::default(),
+            },
+            None => JobPayload::ScriptHub {
+                path: schedule.script_path.clone(),
+                apply_preprocessor: false,
+            },
+        };
+        (payload, tag, None, None)
     } else {
         let (
             hash,

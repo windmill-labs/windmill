@@ -12,7 +12,9 @@
 	import FlowPathViewer from './flows/content/FlowPathViewer.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import { Code, Code2, ExternalLink, Pen, RefreshCw } from 'lucide-svelte'
+	import { Code, Code2, ExternalLink, Globe2, Pen, RefreshCw } from 'lucide-svelte'
+	import PickHubScript from './flows/pickers/PickHubScript.svelte'
+	import { disableHubStore } from '$lib/stores'
 	import type { SupportedLanguage } from '$lib/common'
 	import FlowIcon from './home/FlowIcon.svelte'
 	import DarkModeObserver from './DarkModeObserver.svelte'
@@ -32,6 +34,8 @@
 		allowEdit?: boolean
 		allowView?: boolean
 		clearable?: boolean
+		/** Offer picking a script from the Hub; the picked path is `hub/...`. */
+		allowHub?: boolean
 		/** Workspace to list runnables from. Defaults to the operating workspace (see
 		 * `useOperatingWorkspace`). */
 		workspace?: string
@@ -48,8 +52,12 @@
 		allowEdit = true,
 		allowView = true,
 		clearable = false,
+		allowHub = false,
 		workspace = undefined
 	}: Props = $props()
+
+	let isHubPath = $derived(itemKind == 'script' && !!scriptPath?.startsWith('hub/'))
+	let drawerHub: Drawer | undefined = $state()
 
 	let effectiveWorkspace = $derived(workspace ?? $operatingWorkspace)
 	// Edit/View routes open in the workspace listed here, not wherever the tab lands.
@@ -115,6 +123,20 @@
 	</DrawerContent>
 </Drawer>
 
+{#if allowHub}
+	<Drawer bind:this={drawerHub} size="900px">
+		<DrawerContent title="Pick a Hub script" on:close={drawerHub.closeDrawer}>
+			<PickHubScript
+				on:pick={(e) => {
+					scriptPath = e.detail.path
+					dispatch('select', { path: e.detail.path, itemKind })
+					drawerHub?.closeDrawer()
+				}}
+			/>
+		</DrawerContent>
+	</Drawer>
+{/if}
+
 <div class="flex flex-row items-center gap-1 w-full">
 	{#if options.length > 1}
 		<div>
@@ -145,10 +167,21 @@
 				}
 			}
 			class="grow shrink max-w-full"
-			{items}
+			items={isHubPath ? [{ value: scriptPath!, label: scriptPath! }, ...items] : items}
 			{clearable}
 			placeholder="Pick {itemKind === 'app' ? 'an' : 'a'} {itemKind}"
 		/>
+	{/if}
+
+	{#if allowHub && itemKind == 'script' && !disabled && !$disableHubStore}
+		<Button
+			variant="default"
+			unifiedSize="md"
+			startIcon={{ icon: Globe2 }}
+			on:click={() => drawerHub?.openDrawer()}
+		>
+			Hub
+		</Button>
 	{/if}
 
 	{#if allowRefresh}
@@ -212,7 +245,7 @@
 			</div>
 		{:else}
 			<div class="flex gap-2">
-				{#if allowEdit}
+				{#if allowEdit && !isHubPath}
 					<Button
 						startIcon={{ icon: Pen }}
 						target="_blank"

@@ -14,6 +14,7 @@
 	import LabelsInput from '$lib/components/LabelsInput.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
+	import { loadSchema } from '$lib/infer'
 	import PipelineLockedRunnableInfo from '$lib/components/triggers/PipelineLockedRunnableInfo.svelte'
 	import ErrorOrRecoveryHandler from '$lib/components/ErrorOrRecoveryHandler.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -111,7 +112,7 @@
 	// already-bound script. We swap the runnable ScriptPicker for a read-only
 	// viewer so the trigger can't be silently reassigned off the pipeline.
 	let fixedScriptPath = $state('')
-	let runnable: Script | Flow | undefined = $state()
+	let runnable: Pick<Script | Flow, 'schema'> | undefined = $state()
 	let args: Record<string, any> = $state({})
 	let loading = $state(false)
 	let drawerLoading = $state(true)
@@ -418,6 +419,8 @@
 			try {
 				if (is_flow) {
 					runnable = await FlowService.getFlowByPath({ workspace: wsId!, path: p })
+				} else if (p.startsWith('hub/')) {
+					runnable = await loadSchema(wsId!, p, 'hubscript')
 				} else {
 					runnable = await ScriptService.getScriptByPath({ workspace: wsId!, path: p })
 				}
@@ -971,6 +974,7 @@
 							initialPath={initialScriptPath}
 							kinds={['script']}
 							allowFlow={true}
+							allowHub={true}
 							allowRefresh={can_write}
 							bind:itemKind
 							bind:scriptPath={script_path}
