@@ -3,6 +3,7 @@ import type { FilterSchema, FilterSchemaRec } from './FilterSearchbar.svelte'
 import {
 	renderDbContainsFilter,
 	renderDbEqualityFilter,
+	renderDbLiteral,
 	renderDbQuotedIdentifier,
 	type ColumnDef
 } from './apps/components/display/dbtable/utils'
@@ -112,8 +113,13 @@ export function renderColumnFilter(
 		}
 		case 'text': {
 			const text = String(value)
-			if (text.startsWith('=')) return renderDbEqualityFilter(column, text.slice(1), dbType)
-			return renderDbContainsFilter(column, text, dbType)
+			if (!text.startsWith('=')) return renderDbContainsFilter(column, text, dbType)
+			// PostgreSQL `json` has no `=`: compare as the text the grid shows.
+			if (dbType === 'postgresql' && /^jsonb?$/i.test((datatype ?? '').trim())) {
+				const literal = renderDbLiteral(text.slice(1), dbType)!
+				return `CAST(${renderDbQuotedIdentifier(column, dbType)} AS TEXT) = ${literal}`
+			}
+			return renderDbEqualityFilter(column, text.slice(1), dbType)
 		}
 	}
 }

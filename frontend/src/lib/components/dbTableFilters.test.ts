@@ -38,6 +38,12 @@ describe('renderColumnFilter', () => {
 		expect(renderColumnFilter('name', 'varchar', '=Bob', 'mysql')).toBe("`name` = 'Bob'")
 	})
 
+	it('compares PostgreSQL json as text for an exact match', () => {
+		expect(renderColumnFilter('js', 'json', '={"a": 1}', 'postgresql')).toBe(
+			`CAST("js" AS TEXT) = '{"a": 1}'`
+		)
+	})
+
 	it('compares numbers and never passes a malformed one through', () => {
 		expect(renderColumnFilter('id', 'int4', '>= 10', 'postgresql')).toBe('"id" >= 10')
 		expect(renderColumnFilter('id', 'int4', '!=3', 'postgresql')).toBe('"id" <> 3')
