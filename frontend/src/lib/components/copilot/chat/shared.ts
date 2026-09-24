@@ -894,7 +894,13 @@ function stringifyErrorBody(body: unknown): string {
  * (tab closed while a tool polls) logs nothing, so the statuses sum to the calls that
  * finished, not to the calls made.
  */
-type ToolCallStatus = 'ok' | 'error' | 'declined' | 'rejected' | 'blocked_plan_mode'
+type ToolCallStatus =
+	| 'ok'
+	| 'error'
+	| 'declined'
+	| 'rejected'
+	| 'blocked_plan_mode'
+	| 'held_for_instructions'
 
 export async function processToolCall<T>({
 	tools,
@@ -1012,7 +1018,7 @@ export async function processToolCall<T>({
 			})
 		}
 		if (folderInstructions && tool?.planModeSafe !== true) {
-			logToolOutcome('rejected')
+			logToolOutcome('held_for_instructions')
 			toolCallbacks.setToolStatus(toolCall.id, {
 				content: 'Read folder instructions',
 				parameters: args,

@@ -3586,8 +3586,8 @@ export class AIChatManager implements ChatViewHost {
 				return false
 			}
 		}
-		// Session chats commit their workspace in beforeSend; the identity, skills and
-		// MCP servers must all match the committed workspace before the system prompt is
+		// Session chats commit their workspace in beforeSend; the identity, skills, folder
+		// instructions and MCP servers must all match the committed workspace before the system prompt is
 		// sent. Settling them here rather than mid-turn also keeps the prompt — the
 		// cached prefix of every iteration — stable for the whole request.
 		if (this.mode === AIMode.GLOBAL) {

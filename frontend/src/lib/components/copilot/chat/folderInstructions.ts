@@ -10,6 +10,9 @@ export const FOLDER_INSTRUCTIONS_RESOURCE_TYPE = 'ai_instruction'
 
 /** Bytes of one instruction body a tool result may carry. */
 export const MAX_FOLDER_INSTRUCTIONS_LENGTH = 32 * 1024
+/** Bytes all the bodies one tool result carries may add up to, so nested folders
+ * cannot stack several full-size bodies onto a single result. */
+export const MAX_FOLDER_INSTRUCTIONS_TOTAL = 48 * 1024
 
 /** Scopes the system prompt names. Past this the list is cut, not the delivery:
  * a scope left out still has its instructions delivered on first touch. */
@@ -183,10 +186,20 @@ function openingTag(path: string): string {
 export function formatFolderInstructions(
 	blocks: readonly { instruction: FolderInstruction; body: string }[]
 ): string {
+	// The budget goes innermost first: the most specific instructions are the last to
+	// be cut. An outer body the budget no longer reaches keeps its tag, so it still
+	// counts as delivered, with the cut marked.
+	let remaining = MAX_FOLDER_INSTRUCTIONS_TOTAL
+	const bodies = [...blocks].reverse().map(({ body }) => {
+		const cut = truncateForPrompt(body, Math.min(MAX_FOLDER_INSTRUCTIONS_LENGTH, remaining))
+		remaining = Math.max(0, remaining - new TextEncoder().encode(cut).byteLength)
+		return cut
+	})
+	bodies.reverse()
 	return blocks
 		.map(
-			({ instruction, body }) =>
-				`${openingTag(instruction.path)} scope="${instruction.scope}">\n${truncateForPrompt(body, MAX_FOLDER_INSTRUCTIONS_LENGTH)}\n</folder_instructions>`
+			({ instruction }, i) =>
+				`${openingTag(instruction.path)} scope="${instruction.scope}">\n${bodies[i]}\n</folder_instructions>`
 		)
 		.join('\n\n')
 }
