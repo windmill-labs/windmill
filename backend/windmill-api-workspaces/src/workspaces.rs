@@ -5831,7 +5831,13 @@ async fn edit_variable_expiration_handler(
     windmill_common::feature_usage::log_feature_usage(
         "variable_expiration",
         "handler_configured",
-        if es.path.is_some() { "set" } else { "cleared" },
+        // The built-ins are matched on the hub slug the frontend picks them by, not the hub id.
+        match es.path.as_deref() {
+            None => "cleared",
+            Some(p) if p.ends_with("/variable-expiration-handler-slack") => "slack",
+            Some(p) if p.ends_with("/variable-expiration-handler-teams") => "teams",
+            Some(_) => "custom",
+        },
     );
 
     Ok(format!(
