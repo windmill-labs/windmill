@@ -1075,7 +1075,8 @@ async fn check_path_conflict<'c>(
 /// Resource types the platform writes on its own behalf rather than users editing them:
 /// `state` backs `setState` and `cache` backs cached job results, so both are rewritten on
 /// every job run. Workspace export skips them for the same reason the `record_resource_version`
-/// trigger does; that trigger repeats this list in SQL, so the two have to move together.
+/// trigger does; that trigger and the `notify_mcp_tools_change` resource triggers repeat this
+/// list in SQL, so they have to move together.
 pub const INTERNAL_RESOURCE_TYPES: [&str; 2] = ["state", "cache"];
 
 /// Versions retained per resource path. The monitor sweep enforces it eventually; the history

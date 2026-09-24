@@ -59,7 +59,7 @@ EXECUTE FUNCTION notify_mcp_tools_change();
 CREATE TRIGGER resource_mcp_tools_update_trigger
 AFTER UPDATE OF path, resource_type, description ON resource
 FOR EACH ROW
-WHEN (NEW.resource_type NOT IN ('cache', 'state')
+WHEN ((OLD.resource_type NOT IN ('cache', 'state') OR NEW.resource_type NOT IN ('cache', 'state'))
     AND (OLD.path IS DISTINCT FROM NEW.path
         OR OLD.resource_type IS DISTINCT FROM NEW.resource_type
         OR OLD.description IS DISTINCT FROM NEW.description))
