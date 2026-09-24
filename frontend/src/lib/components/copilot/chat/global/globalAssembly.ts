@@ -4,7 +4,7 @@
  * on another. Plan mode's decoration is not here: it is applied per request, later.
  */
 import type { ChatCompletionSystemMessageParam } from 'openai/resources/index.mjs'
-import type { Tool } from '../shared'
+import type { SessionTool } from '../sessionCapabilities'
 import {
 	getSessionContextPromptSection,
 	globalToolsFor,
@@ -32,15 +32,15 @@ export function assembleGlobalSystemMessage(
 	const systemMessage = prepareGlobalSystemMessage(instructions, opts)
 	systemMessage.content += getFolderInstructionsPromptSection(opts.folderInstructions ?? [])
 	if (opts.sessionContext) {
-		systemMessage.content += getSessionContextPromptSection(opts.sessionContext)
+		systemMessage.content += getSessionContextPromptSection(opts.sessionContext, opts.access)
 	}
 	if (opts.pipelineContext) {
-		systemMessage.content += getPipelinePromptSection(opts.pipelineContext)
+		systemMessage.content += getPipelinePromptSection(opts.pipelineContext, opts.access)
 	}
 	return systemMessage
 }
 
-export function assembleGlobalTools(opts: GlobalAssemblyOpts): Tool<any>[] {
+export function assembleGlobalTools(opts: GlobalAssemblyOpts): SessionTool<any>[] {
 	return [
 		...globalToolsFor({ sessionPreview: opts.previewTools ?? false }),
 		...(opts.pipelineContext ? pipelineTools : []),

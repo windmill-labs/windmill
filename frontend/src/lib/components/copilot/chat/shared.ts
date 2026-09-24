@@ -7,6 +7,7 @@ import type { UserDraftItemKind } from '$lib/gen'
 // The gate's two refusals, from a module that holds prose and one size limit: under the
 // shallow-import rule below, the rest of plan mode is not reachable from here.
 import { PLAN_MODE_MESSAGES } from './planModeMessages'
+import { NONE } from './sessionCapabilities'
 // Import-free leaf, so it satisfies the shallow-import rule below.
 import {
 	openItemPreviewAction,
@@ -611,6 +612,84 @@ export type WebSearchSource = {
 	title?: string
 }
 
+export type ToolCodeDiff = {
+	before: string
+	after: string
+	/** Monaco language id. */
+	lang: string
+}
+
+/** The result shape any tool returns to have it rendered as a web search card. */
+export type WebSearchResult = {
+	sources: WebSearchSource[]
+	query?: string
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/** A link the card can render: the source list drops everything else, so a result whose
+ * urls are relative or `javascript:` would show as an empty list in place of its own output. */
+export function isRenderableSourceUrl(url: string): boolean {
+	try {
+		return ['http:', 'https:'].includes(new URL(url).protocol)
+	} catch {
+		return false
+	}
+}
+
+/** An absent optional field reaches JSON as `null` from a Python tool and as nothing from a
+ * TypeScript one, so both read as absent. */
+function isOptionalString(value: unknown): boolean {
+	return value === null || typeof value === 'string'
+}
+
+function isWebSearchSource(value: unknown): value is { url: string; title?: unknown } {
+	return (
+		isRecord(value) &&
+		typeof value.url === 'string' &&
+		isRenderableSourceUrl(value.url) &&
+		Object.entries(value).every(
+			([key, v]) => key === 'url' || (key === 'title' && isOptionalString(v))
+		)
+	)
+}
+
+/**
+ * A tool result as a web search, or undefined when it is anything else. The keys must be
+ * exactly `sources` and an optional `query`: the card renders only urls and titles, so a
+ * result carrying more would lose it. Accepts the result as its JSON text too.
+ */
+export function webSearchResultOf(result: unknown): WebSearchResult | undefined {
+	if (typeof result === 'string') {
+		try {
+			result = JSON.parse(result)
+		} catch {
+			return undefined
+		}
+	}
+	if (!isRecord(result) || !Array.isArray(result.sources) || result.sources.length === 0) {
+		return undefined
+	}
+	const sources = result.sources
+	if (
+		!sources.every(isWebSearchSource) ||
+		!Object.entries(result).every(
+			([key, v]) => key === 'sources' || (key === 'query' && isOptionalString(v))
+		)
+	) {
+		return undefined
+	}
+	return {
+		sources: sources.map((source) => ({
+			url: source.url,
+			title: typeof source.title === 'string' ? source.title : undefined
+		})),
+		query: typeof result.query === 'string' ? result.query : undefined
+	}
+}
+
 export type ToolDisplayMessage = {
 	role: 'tool'
 	tool_call_id: string
@@ -655,6 +734,9 @@ export type ToolDisplayMessage = {
 	 * always-visible card that opens (or focuses) the item's preview in the
 	 * session side panel. Set only for session chats — the side panel is their surface. */
 	previewCard?: { kind: PreviewCardKind; path: string }
+	/** Whole text on both sides of an edit this call saved. Kept in full rather than as a
+	 * reference: drafts are overwritten in place, so the sides cannot be fetched back later. */
+	codeDiff?: ToolCodeDiff
 	planArtifactId?: string
 	/** The version this card's proposal wrote, so a card scrolled far up still opens the plan
 	 * it proposed rather than what the document became. */
@@ -1214,7 +1296,10 @@ export interface Tool<T> {
 		workspace: string
 		helpers: T
 	}) => MaybePromise<ToolRejection | undefined>
-	setSchema?: (helpers: any) => Promise<void>
+	/** This chat's definition of the tool, for a schema that depends on the chat (its workspace,
+	 * its open flow). Returns a new def: tools are module singletons shared by every chat, so
+	 * one written back leaks into the others. */
+	schemaFor?: (helpers: any) => Promise<ChatCompletionFunctionTool>
 	/** Safe to run while plan mode is active. Absence fails closed. */
 	planModeSafe?: boolean
 	/** The arguments a plan-mode-safe tool still refuses while the posture holds — for a tool
@@ -1517,6 +1602,7 @@ export function isHubPath(path: string): boolean {
 }
 
 export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
+	requires: NONE,
 	def: searchHubScriptsToolDef,
 	planModeSafe: true,
 	fn: async ({ args, toolId, toolCallbacks }) => {

@@ -569,6 +569,32 @@ const assistantTools = (...ids: string[]): ChatCompletionMessageParam => ({
 		function: { name: 'do_thing', arguments: '{}' }
 	}))
 })
+describe('runChatLoop per-chat tool schemas', () => {
+	beforeEach(() => {
+		vi.resetAllMocks()
+		mocks.resolveRequestReasoning.mockReturnValue(undefined)
+		mocks.getOpenAIResponsesCompletion.mockResolvedValue({})
+		mocks.parseOpenAIResponsesCompletion.mockResolvedValue({ shouldContinue: false, tokenUsage })
+	})
+
+	// The def `schemaFor` returns is the chat's own: it must be what the provider is sent and
+	// what the tool is dispatched with, while the shared tool object keeps its own.
+	it('sends and dispatches the def schemaFor returns, leaving the shared tool alone', async () => {
+		const base = { type: 'function', function: { name: 'dyn', parameters: {} } } as any
+		const perChat = {
+			type: 'function',
+			function: { name: 'dyn', parameters: { marked: 1 } }
+		} as any
+		const shared = { def: base, fn: async () => '', schemaFor: async () => perChat }
+
+		await runChatLoop({ ...createConfig({ workspace: `ws-${randomUUID()}` }), tools: [shared] })
+
+		expect(mocks.getOpenAIResponsesCompletion.mock.calls[0][2]).toEqual([perChat])
+		expect(mocks.parseOpenAIResponsesCompletion.mock.calls[0][4][0].def).toBe(perChat)
+		expect(shared.def).toBe(base)
+	})
+})
+
 const tool = (id: string): ChatCompletionMessageParam => ({
 	role: 'tool',
 	tool_call_id: id,
