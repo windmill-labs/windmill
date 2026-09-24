@@ -50,6 +50,7 @@
 		type AttachedBlob
 	} from './blobUtils'
 	import { MessageDraft } from './messageDraft.svelte'
+	import { ReadsInFlight } from './readsInFlight'
 	import ExpandableImage, {
 		isImageViewerOpen
 	} from '$lib/components/common/image/ExpandableImage.svelte'
@@ -265,13 +266,7 @@
 	let pendingImages = $state(0)
 	// The reads running right now, so a host taking this composer's draft as the panel goes
 	// can wait for what is still being decoded instead of losing it.
-	const reading = new Set<Promise<unknown>>()
-	function tracked(run: () => Promise<void>): Promise<void> {
-		const read = run()
-		reading.add(read)
-		void read.finally(() => reading.delete(read))
-		return read
-	}
+	const reading = new ReadsInFlight()
 
 	/** Attach dropped/pasted image files (downscaled + bounded). */
 	export async function addImages(files: (File | Blob)[]) {
@@ -330,7 +325,7 @@
 		// Claim the slots before awaiting, and hold sending until they resolve:
 		// decoding takes ~50-800ms, and a send during it would clear `images` while
 		// this closure still appends to it, landing the picture on the next message.
-		await tracked(async () => {
+		await reading.track(async () => {
 		pendingImages += batch.length
 		try {
 			// One at a time: a decoded bitmap costs ~4 bytes per pixel (a 12MP photo is
@@ -367,10 +362,14 @@
 	export function holdSendForIngestion(): () => void {
 		ingestionHolds += 1
 		let released = false
+		// Counted among the reads in flight too: the routing it covers ends in a read, and a
+		// draft taken while it runs has to wait for that read rather than for nothing.
+		const finish = reading.hold()
 		return () => {
 			if (!released) {
 				released = true
 				ingestionHolds -= 1
+				finish()
 			}
 		}
 	}
@@ -458,7 +457,7 @@
 		batch = withinBudget
 		if (batch.length === 0) return
 		const reservedBytes = batch.reduce((sum, f) => sum + f.size, 0)
-		await tracked(async () => {
+		await reading.track(async () => {
 		pendingFiles += batch.length
 		pendingFileBytes += reservedBytes
 		try {
@@ -560,7 +559,7 @@
 		if (batch.length < usable.length) {
 			sendUserToast(skippedMessage(MAX_ATTACHED_BLOBS, 'files', usable.length - batch.length), true)
 		}
-		await tracked(async () => {
+		await reading.track(async () => {
 		pendingBlobs += batch.length
 		try {
 			const added: AttachedBlob[] = []
@@ -731,15 +730,14 @@
 		}>
 	} {
 		const taken = draft.take()
-		const reads = [...reading]
+		const inFlight = reading.busy
 		return {
 			text: expanded(chatDraft(taken.text, taken.pastes)),
 			images: taken.images,
 			files: taken.files,
 			blobs: taken.blobs,
-			rest:
-				reads.length > 0
-					? Promise.allSettled(reads).then(() => {
+			rest: inFlight
+					? reading.settled().then(() => {
 							const late = draft.take()
 							return {
 								text: expanded(chatDraft(late.text, late.pastes)),
