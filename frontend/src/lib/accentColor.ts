@@ -102,25 +102,28 @@ function recolor(tokens: Record<string, string>, accent: Oklch): string {
 	}).join('')
 }
 
-export function accentStylesheet(color: string): string {
+/** The accent overrides for every theme, or `undefined` when `value` is not `#rrggbb`. */
+export function accentStylesheet(value: unknown): string | undefined {
+	const color = parseAccentColor(value)
+	if (color == undefined) return undefined
 	const accent = hexToOklch(color)
 	// `:root[attr]` outranks the `html`, `html.dark` and `html.dark.github-dark` rules
 	// that define the default tokens, whatever order the stylesheets load in.
 	return [
 		`:root[${ACCENT_ATTR}]{${recolor(tokensFile.tokens[lightModeName], accent)}` +
-			`--sidebar-bg-light:color-mix(in oklab, ${color} 18%, #f3f3f7);}`,
+			`--sidebar-bg-light:color-mix(in oklab, ${color} 18%, var(--sidebar-bg-light-base));}`,
 		`:root[${ACCENT_ATTR}].dark{${recolor(tokensFile.tokens[darkModeName], accent)}` +
-			`--sidebar-bg-dark:color-mix(in oklab, ${color} 22%, #1e232e);}`,
-		`:root[${ACCENT_ATTR}].dark.github-dark{${recolor(githubDarkTokens, accent)}` +
-			`--sidebar-bg-dark:color-mix(in oklab, ${color} 22%, #010409);}`
+			`--sidebar-bg-dark:color-mix(in oklab, ${color} 22%, var(--sidebar-bg-dark-base));}`,
+		`:root[${ACCENT_ATTR}].dark.github-dark{${recolor(githubDarkTokens, accent)}}`
 	].join('\n')
 }
 
 /** Apply the instance accent to the whole document, or restore the default with `undefined`. */
-export function applyAccentColor(color: string | undefined): void {
+export function applyAccentColor(value: string | undefined): void {
 	const root = document.documentElement
 	let style = document.getElementById(STYLE_ID)
-	if (color == undefined) {
+	const css = accentStylesheet(value)
+	if (css == undefined) {
 		style?.remove()
 		root.removeAttribute(ACCENT_ATTR)
 		return
@@ -130,6 +133,6 @@ export function applyAccentColor(color: string | undefined): void {
 		style.id = STYLE_ID
 		document.head.appendChild(style)
 	}
-	style.textContent = accentStylesheet(color)
+	style.textContent = css
 	root.setAttribute(ACCENT_ATTR, '')
 }

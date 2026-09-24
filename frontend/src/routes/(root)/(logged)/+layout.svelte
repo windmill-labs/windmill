@@ -1438,9 +1438,9 @@
 			</div>
 		{/if}
 		<div class="flex flex-col h-full w-full">
-			{#if $enterpriseLicense}
-				<InstanceAccentColor />
-			{/if}
+			<!-- Not gated on `$enterpriseLicense`: it paints the cached accent before the license
+			     resolves, and checks the license itself. -->
+			<InstanceAccentColor />
 			{#if $enterpriseLicense && !menuHidden}
 				<!-- Announcements are an EE feature, so the component never mounts on CE: no
 				     fetch, no poll, no listener there. Also skipped when the menu is hidden —

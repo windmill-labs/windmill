@@ -604,7 +604,10 @@ const config = {
 					color: 'rgb(var(--color-text-primary))',
 
 					// Sidebar rail chrome — consumed via var(--sidebar-bg-light) (see sidebarChrome.ts).
-					'--sidebar-bg-light': '#F3F3F7',
+					// The `-base` vars hold the theme's color; the accent (accentColor.ts) tints
+					// `--sidebar-bg-*` from them, which a self-reference could not do.
+					'--sidebar-bg-light-base': '#F3F3F7',
+					'--sidebar-bg-light': 'var(--sidebar-bg-light-base)',
 
 					'--vscode-editorSuggestWidget-background': '#f3f3f3',
 					'--vscode-editorHoverWidget-foreground': '#616161',
@@ -625,7 +628,8 @@ const config = {
 						...darkColorVariables,
 
 						// Sidebar rail chrome — consumed via var(--sidebar-bg-dark) (see sidebarChrome.ts).
-						'--sidebar-bg-dark': '#1e232e',
+						'--sidebar-bg-dark-base': '#1e232e',
+						'--sidebar-bg-dark': 'var(--sidebar-bg-dark-base)',
 
 						'--vscode-editorSuggestWidget-background': '#252526',
 						'--vscode-editorHoverWidget-foreground': '#cccccc',
@@ -641,7 +645,7 @@ const config = {
 						// GitHub's canvas.inset — the authentic recessed surface, sitting below
 						// the canvas (#0d1117) like the sidebar-vs-primary relationship in the
 						// default dark theme.
-						'--sidebar-bg-dark': '#010409',
+						'--sidebar-bg-dark-base': '#010409',
 
 						// Monaco popup chrome — the &.dark defaults above are VS Code's greys;
 						// override so the widgets match the GitHub Dark palette in this variant.

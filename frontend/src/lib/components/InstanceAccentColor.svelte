@@ -1,11 +1,15 @@
 <script lang="ts">
+	import { get } from 'svelte/store'
 	import { SettingService } from '$lib/gen'
+	import { enterpriseLicense } from '$lib/stores'
+	import { setLicense } from '$lib/enterpriseUtils'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 	import { ACCENT_COLOR_SETTING, applyAccentColor, parseAccentColor } from '$lib/accentColor'
 	import { instanceSettingsSaved } from './instanceSettings'
 
-	// Last color seen, so a reload paints the right accent before the fetch returns
-	// instead of flashing the default blue.
+	// Painted on mount, before the license and setting requests return, so a reload
+	// does not flash the default blue. Only written on a licensed instance, and cleared
+	// once the license check says there is none.
 	const cached = useLocalStorageValue<string>('instance_accent_color', '', 'string')
 
 	let color = $state(parseAccentColor(cached.val))
@@ -14,7 +18,11 @@
 	async function load() {
 		const generation = ++latestLoad
 		try {
-			const next = parseAccentColor(await SettingService.getGlobal({ key: ACCENT_COLOR_SETTING }))
+			// `enterpriseLicense` stays unset both while loading and on CE, so resolve it here.
+			await setLicense()
+			const next = get(enterpriseLicense)
+				? parseAccentColor(await SettingService.getGlobal({ key: ACCENT_COLOR_SETTING }))
+				: undefined
 			if (generation !== latestLoad) return
 			color = next
 			cached.val = next ?? ''
