@@ -20,16 +20,17 @@ use crate::server::tools::create_tool_from_item;
 use rmcp::handler::server::ServerHandler;
 use rmcp::model::{
     CacheScope, CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock,
-    Implementation, InitializeResult, ListPromptsResult, ListResourceTemplatesResult,
-    ListResourcesResult, ListToolsResult, PaginatedRequestParams, ProtocolVersion,
-    ServerCapabilities, ServerInfo,
+    Implementation, InitializeRequestParams, InitializeResult, ListPromptsResult,
+    ListResourceTemplatesResult, ListResourcesResult, ListToolsResult, PaginatedRequestParams,
+    ProtocolVersion, ServerCapabilities, ServerInfo, SubscriptionFilter,
 };
-use rmcp::service::{RequestContext, RoleServer};
+use rmcp::service::{RequestContext, RoleServer, SubscriptionContext};
 use rmcp::ErrorData;
 use serde_json::Value;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use tokio::sync::broadcast;
 
 /// Protocol revisions this server is willing to speak. `2026-07-28` is served
 /// statelessly with per-request metadata; the older revisions keep the
@@ -46,14 +47,19 @@ const SUPPORTED_PROTOCOL_VERSIONS: &[ProtocolVersion] = &[
 /// leaves them unset, and a strict client rejects the response without them.
 ///
 /// Zero because nothing here is cacheable: the listing is rebuilt from the
-/// workspace's scripts and flows, which change at any time, and this server
-/// advertises no `listChanged` capability, so a client that cached a stale list
-/// would have no way to learn it had gone stale.
+/// workspace's scripts and flows, which change at any time, and `listChanged`
+/// covers only some of what the listing depends on (not resources, favorites or
+/// permissions) and reaches only clients that hold a `subscriptions/listen` stream.
 const LIST_TTL_MS: u64 = 0;
+
 /// Every listing is filtered by the caller's token scopes and workspace
 /// membership, so no two callers necessarily see the same tools — a shared
 /// cache entry would leak one token's view to another.
 const LIST_CACHE_SCOPE: CacheScope = CacheScope::Private;
+
+/// How long a `subscriptions/listen` stream waits after a change before notifying,
+/// collecting the rest of the burst into the same notification.
+const LIST_CHANGE_COALESCE: std::time::Duration = std::time::Duration::from_millis(500);
 
 // Re-export from http crate for extracting request parts
 use http::request::Parts as HttpParts;
@@ -230,6 +236,23 @@ fn endpoint_path_policy(endpoint_name: &str) -> Option<EndpointPathPolicy> {
         "deleteScriptByHash" | "runScriptPreviewAndWaitResult" => Some(Unconfinable("script")),
         _ => None,
     }
+}
+
+/// Endpoint tools that change which scripts/flows a workspace exposes, or their
+/// schemas. Every replica learns of these changes through the notify-event poller;
+/// the one serving the call signals its own listeners at once, so a client that
+/// just deployed a script can call it without waiting out a poll interval.
+fn changes_runnable_list(endpoint_name: &str) -> bool {
+    matches!(
+        endpoint_name,
+        "createScript"
+            | "updateScript"
+            | "deleteScriptByPath"
+            | "deleteScriptByHash"
+            | "createFlow"
+            | "updateFlow"
+            | "deleteFlowByPath"
+    )
 }
 
 /// Whether the token restricts `kind` ("script"/"flow") to specific paths. A
@@ -428,12 +451,17 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
             .with_title("Windmill")
             .with_website_url("https://windmill.dev");
 
-        InitializeResult::new(ServerCapabilities::builder().enable_tools().build())
-            .with_server_info(server_info)
-            .with_instructions(
-                "This server provides a list of scripts and flows the user can run on Windmill. \
+        InitializeResult::new(
+            ServerCapabilities::builder()
+                .enable_tools()
+                .enable_tool_list_changed()
+                .build(),
+        )
+        .with_server_info(server_info)
+        .with_instructions(
+            "This server provides a list of scripts and flows the user can run on Windmill. \
                  Each flow and script is a tool callable with their respective arguments.",
-            )
+        )
     }
 
     /// Pinned rather than left to rmcp's default (every version the SDK knows), so a
@@ -442,6 +470,79 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
     /// per-request version validation alike.
     fn supported_protocol_versions(&self) -> Cow<'static, [ProtocolVersion]> {
         Cow::Borrowed(SUPPORTED_PROTOCOL_VERSIONS)
+    }
+
+    /// Only clients below `2026-07-28` send `initialize`, and those receive server
+    /// notifications on a session's standalone stream. The transport is sessionless, so
+    /// there is none: `listChanged` is withheld from them rather than promised and
+    /// never delivered. `2026-07-28` clients learn it from `server/discover` and
+    /// receive it on `subscriptions/listen` (see `listen`).
+    async fn initialize(
+        &self,
+        request: InitializeRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> Result<InitializeResult, ErrorData> {
+        context.peer.set_peer_info(request.clone());
+        let mut info = self.get_info();
+        if let Some(tools) = info.capabilities.tools.as_mut() {
+            tools.list_changed = None;
+        }
+        if SUPPORTED_PROTOCOL_VERSIONS.contains(&request.protocol_version) {
+            info.protocol_version = request.protocol_version;
+        }
+        Ok(info)
+    }
+
+    fn accepted_subscription_filter(
+        &self,
+        _requested: &SubscriptionFilter,
+    ) -> Option<SubscriptionFilter> {
+        Some(SubscriptionFilter::builder().tools_list_changed().build())
+    }
+
+    async fn listen(&self, subscription: SubscriptionContext) -> Result<(), ErrorData> {
+        let McpContext { auth, mode, .. } = Self::extract_context(subscription.request_context())?;
+        // Multi-workspace mode and read-only tokens list no scripts or flows, so their
+        // tool list never changes.
+        let workspace_id = match mode {
+            McpMode::Single(workspace_id) if !auth.read_only() => workspace_id,
+            _ => {
+                subscription.cancelled().await;
+                return Ok(());
+            }
+        };
+
+        let mut changes = windmill_common::notify_events::subscribe_runnable_list_changes();
+        loop {
+            tokio::select! {
+                _ = subscription.cancelled() => return Ok(()),
+                change = changes.recv() => match change {
+                    Ok(changed) if changed != workspace_id => continue,
+                    // A lagged receiver may have missed this workspace's change.
+                    Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(broadcast::error::RecvError::Closed) => return Ok(()),
+                },
+            }
+            // One deploy both archives the previous version and inserts the new one, and
+            // a sync or bulk delete touches many items: collapse the burst into one
+            // notification, so the client re-lists once.
+            tokio::select! {
+                _ = subscription.cancelled() => return Ok(()),
+                _ = tokio::time::sleep(LIST_CHANGE_COALESCE) => {}
+            }
+            while !matches!(
+                changes.try_recv(),
+                Err(broadcast::error::TryRecvError::Empty | broadcast::error::TryRecvError::Closed)
+            ) {}
+            if subscription
+                .sink()
+                .notify_tool_list_changed()
+                .await
+                .is_err()
+            {
+                return Ok(());
+            }
+        }
     }
 
     async fn list_tools(
@@ -714,6 +815,9 @@ impl<B: McpBackend> Runner<B> {
                     .backend
                     .call_endpoint(auth, workspace_id, endpoint_tool, args)
                     .await?;
+                if changes_runnable_list(&endpoint_tool.name) {
+                    windmill_common::notify_events::notify_runnable_list_change(workspace_id);
+                }
 
                 return Ok(CallToolResult::success(vec![ContentBlock::text(
                     truncate_tool_result(

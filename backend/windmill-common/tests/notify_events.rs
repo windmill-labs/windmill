@@ -671,6 +671,79 @@ async fn test_trigger_notify_runnable_version_change_flow(db: Pool<Postgres>) {
     assert_eq!(parts[1], "flow", "Second part should be 'flow'");
 }
 
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_trigger_notify_runnable_list_change(db: Pool<Postgres>) {
+    let script_path = "f/test/list_change";
+    for _ in 0..3 {
+        sqlx::query(
+            "INSERT INTO script (workspace_id, hash, path, summary, description, content, created_by, language, kind)
+             VALUES ('test-workspace', $1, $2, 'test', 'test', 'def main(): pass', 'test-user', 'python3', 'script')",
+        )
+        .bind(rand::random::<i64>().abs())
+        .bind(script_path)
+        .execute(&db)
+        .await
+        .expect("Failed to insert script");
+    }
+    sqlx::query(
+        "INSERT INTO flow (workspace_id, path, summary, description, value, edited_by, schema)
+         VALUES ('test-workspace', 'f/test/list_change_flow', 'test', 'test', '{}'::jsonb, 'test-user', '{}'::json)",
+    )
+    .execute(&db)
+    .await
+    .expect("Failed to insert flow");
+
+    let list_changes = |from: i64| {
+        let db = db.clone();
+        async move {
+            poll_notify_events(&db, from)
+                .await
+                .expect("Should poll events")
+                .into_iter()
+                .filter(|e| e.channel == "notify_runnable_list_change")
+                .map(|e| e.payload)
+                .collect::<Vec<_>>()
+        }
+    };
+
+    // An update that leaves the item exposed signals nothing.
+    let before = get_latest_event_id(&db).await.unwrap();
+    sqlx::query("UPDATE script SET summary = 'renamed' WHERE path = $1")
+        .bind(script_path)
+        .execute(&db)
+        .await
+        .unwrap();
+    assert!(list_changes(before).await.is_empty());
+
+    // Archiving every version of a path is one statement, so one event.
+    let before = get_latest_event_id(&db).await.unwrap();
+    sqlx::query("UPDATE script SET archived = true WHERE path = $1")
+        .bind(script_path)
+        .execute(&db)
+        .await
+        .unwrap();
+    assert_eq!(list_changes(before).await, vec!["test-workspace"]);
+
+    let before = get_latest_event_id(&db).await.unwrap();
+    sqlx::query("DELETE FROM script WHERE path = $1")
+        .bind(script_path)
+        .execute(&db)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE flow SET archived = true WHERE path = 'f/test/list_change_flow'")
+        .execute(&db)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM flow WHERE path = 'f/test/list_change_flow'")
+        .execute(&db)
+        .await
+        .unwrap();
+    assert_eq!(
+        list_changes(before).await,
+        vec!["test-workspace", "test-workspace", "test-workspace"]
+    );
+}
+
 // ============================================================================
 // Concurrent Access Tests
 // ============================================================================

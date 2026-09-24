@@ -64,3 +64,19 @@ pub async fn cleanup_old_events(
 
     Ok(result.rows_affected())
 }
+
+/// Workspaces whose set of scripts or flows changed, fanned out to in-process subscribers (the
+/// MCP server's `tools/list_changed` streams). Fed both by the notify-event poller, for changes
+/// made on any replica, and inline by the process that made a change, which would otherwise
+/// learn of its own change only a poll interval later.
+static RUNNABLE_LIST_CHANGES: std::sync::LazyLock<tokio::sync::broadcast::Sender<String>> =
+    std::sync::LazyLock::new(|| tokio::sync::broadcast::channel(256).0);
+
+pub fn notify_runnable_list_change(workspace_id: &str) {
+    // Errs only when nobody is subscribed.
+    let _ = RUNNABLE_LIST_CHANGES.send(workspace_id.to_string());
+}
+
+pub fn subscribe_runnable_list_changes() -> tokio::sync::broadcast::Receiver<String> {
+    RUNNABLE_LIST_CHANGES.subscribe()
+}

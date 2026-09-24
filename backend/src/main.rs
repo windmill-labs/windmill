@@ -1821,6 +1821,10 @@ async fn process_notify_event(
                     .await;
             }
         }
+        "notify_runnable_list_change" => {
+            tracing::debug!("Runnable list change for workspace {payload}");
+            windmill_common::notify_events::notify_runnable_list_change(payload);
+        }
         "notify_webhook_change" => {
             tracing::info!(
                 "Webhook change detected, invalidating webhook cache: {}",
@@ -1880,6 +1884,7 @@ async fn process_notify_event(
             tracing::info!("Runnable version change detected: {}", payload);
             match payload.split(':').collect::<Vec<&str>>().as_slice() {
                 [workspace_id, source_type, path, kind] => {
+                    windmill_common::notify_events::notify_runnable_list_change(workspace_id);
                     let key = (workspace_id.to_string(), path.to_string());
                     match *source_type {
                         "script" => {
