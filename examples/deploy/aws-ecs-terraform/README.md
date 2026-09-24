@@ -64,6 +64,12 @@ All this is provided as an example. It can be refined depending on your needs. A
 
 Windmill heavily relies on PostgreSQL database. This terraform deploys a standalone RDS instance having 100GiB of storage, which can be scaled up to 1000GiB. For production use cases, we recommend deploying a Multi-AZ instance, or even a Multi-AZ DB cluster. The RDS definition is in [rds.tf](./rds.tf)
 
+### Upgrading a stack deployed before Windmill Extra
+
+Earlier versions of this example ran the LSP and Multiplayer as two separate services (`windmill_lsp.tf` and `windmill_multiplayer.tf`). A plain `terraform apply` of this version migrates such a stack: the `moved` blocks in [load_balancer.tf](./load_balancer.tf) keep the listener rule in place, and the old services and target groups are removed.
+
+While the new `windmill-extra` task starts (about 2.5 minutes in our test), the `/ws/*`, `/ws_mp/*` and `/ws_debug/*` routes answer 503, so code intelligence, multiplayer and the debugger are unavailable in the editor until it is healthy. The Windmill servers and workers are not affected.
+
 ### Ready?
 
 REMINDER: don't forget to edit [terraform.tfvars](./terraform.tfvars) before deploying the stack.
