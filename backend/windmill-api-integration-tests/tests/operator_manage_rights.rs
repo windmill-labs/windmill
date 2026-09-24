@@ -177,9 +177,25 @@ async fn test_manage_triggers_covers_a_route_outside_the_shared_handler(
         Ok((resp.status().as_u16(), resp.text().await?))
     };
 
+    // Capture is a separate router with its own layer, so a reshuffle of the nesting can drop it.
+    let set_capture = async || -> anyhow::Result<(u16, String)> {
+        let resp = c
+            .post(format!("{api}/capture/set_config"))
+            .json(&json!({
+                "trigger_kind": "webhook",
+                "path": "u/operator/some_script",
+                "is_flow": false,
+            }))
+            .send()
+            .await?;
+        Ok((resp.status().as_u16(), resp.text().await?))
+    };
+
     // Held by default: the route is reached and does its own work.
     let (status, body) = create_many().await?;
     assert_eq!(status, 201, "{body}");
+    let (status, body) = set_capture().await?;
+    assert_eq!(status, 200, "{body}");
 
     assert_eq!(
         set_settings(&api, json!({"manage_triggers": false})).await?,
@@ -187,6 +203,8 @@ async fn test_manage_triggers_covers_a_route_outside_the_shared_handler(
     );
 
     let (status, body) = create_many().await?;
+    assert_eq!(status, 403, "{body}");
+    let (status, body) = set_capture().await?;
     assert_eq!(status, 403, "{body}");
 
     Ok(())

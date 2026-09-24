@@ -10522,6 +10522,16 @@ async fn update_operator_settings(
     .execute(&mut *tx)
     .await?;
 
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.update_operator_settings",
+        ActionKind::Update,
+        &w_id,
+        None,
+        Some([("operator_settings", settings_json.to_string().as_str())].into()),
+    )
+    .await?;
     tx.commit().await?;
 
     windmill_common::workspaces::invalidate_operator_rights_cache(&w_id);
