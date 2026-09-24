@@ -954,7 +954,7 @@
 		</div>
 	</div>
 	<div
-		class="relative flex flex-col flex-1 min-h-0 overflow-hidden bg-surface-tertiary border-t"
+		class="relative flex flex-col flex-1 min-h-0 overflow-hidden bg-surface-tertiary dark:bg-surface-input border-t"
 		oncontextmenucapture={onContextMenuCapture}
 	>
 		<ContextMenu items={menuItems} class="flex-1 min-h-0 cursor-auto" zIndex="z-[9999]">
@@ -990,7 +990,7 @@
 					<!-- Clipped because resize handles straddle the cell edges: a column pinned to the
 						 right would push its handle past the grid and scroll it sideways. -->
 					<div
-						class="sticky top-0 z-10 flex overflow-x-clip bg-surface-tertiary border-b"
+						class="sticky top-0 z-10 flex overflow-x-clip bg-surface-tertiary dark:bg-surface-input border-b"
 						style:height="{HEADER_HEIGHT}px"
 						role="row"
 					>
@@ -1005,7 +1005,7 @@
 								class={twMerge(
 									'relative shrink-0 flex items-center border-r',
 									// Above the other header cells, whose resize handles sit at z-10.
-									pin ? 'sticky z-20 bg-surface-tertiary' : '',
+									pin ? 'sticky z-20 bg-surface-tertiary dark:bg-surface-input' : '',
 									// The pinned block's edge against the scrolling columns is a pixel thicker.
 									col.field === lastLeftPinned ? 'border-r-2' : '',
 									col.field === firstRightPinned ? 'border-l-2' : ''
@@ -1085,7 +1085,7 @@
 										class={twMerge(
 											'shrink-0 px-2 border-r truncate select-none',
 											dbColumnKind(col.datatype) === 'number' ? 'text-right tabular-nums' : '',
-											pin ? 'sticky z-[1] bg-surface-tertiary' : '',
+											pin ? 'sticky z-[1] bg-surface-tertiary dark:bg-surface-input' : '',
 											col.field === lastLeftPinned ? 'border-r-2' : '',
 											col.field === firstRightPinned ? 'border-l-2' : '',
 											isSelected ? 'outline outline-1 -outline-offset-1 outline-border-accent' : ''
