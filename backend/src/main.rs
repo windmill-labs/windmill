@@ -1876,8 +1876,10 @@ async fn process_notify_event(
             );
             windmill_common::workspaces::PUBLIC_APP_RATE_LIMIT_CACHE.remove(payload);
         }
-        #[cfg(feature = "mcp")]
-        "notify_mcp_tools_change" => windmill_api::notify_mcp_tools_changed(payload),
+        "notify_mcp_tools_change" => {
+            #[cfg(feature = "mcp")]
+            windmill_api::notify_mcp_tools_changed(payload);
+        }
         "notify_runnable_version_change" => {
             tracing::info!("Runnable version change detected: {}", payload);
             match payload.split(':').collect::<Vec<&str>>().as_slice() {

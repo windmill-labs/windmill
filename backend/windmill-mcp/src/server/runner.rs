@@ -57,16 +57,19 @@ const LIST_TTL_MS: u64 = 0;
 /// cache entry would leak one token's view to another.
 const LIST_CACHE_SCOPE: CacheScope = CacheScope::Private;
 
-/// Workspaces whose listed scripts or flows changed. Fed from the notify-event
-/// poll loop, so a change committed through any replica reaches the listen
-/// streams held by every replica.
+/// Workspaces whose tool listing changed. Fed from the notify-event poll loop, so
+/// a change committed through any replica reaches the listen streams held by
+/// every replica. Sized well past the poll loop's 1000-event batch: a lagged
+/// receiver notifies, and every stream on the instance would re-list at once.
 static TOOLS_CHANGED: LazyLock<broadcast::Sender<String>> =
-    LazyLock::new(|| broadcast::channel(1024).0);
+    LazyLock::new(|| broadcast::channel(8192).0);
 
 /// A poll batch delivers all of its events back to back; waiting this long before
 /// notifying folds a bulk change into one `list_changed` per stream.
 const TOOLS_CHANGED_COALESCE: Duration = Duration::from_secs(1);
 
+/// Wake the `subscriptions/listen` streams of `workspace_id` on this process.
+/// Fire-and-forget: with no stream open, the event is dropped.
 pub fn notify_tools_changed(workspace_id: &str) {
     let _ = TOOLS_CHANGED.send(workspace_id.to_string());
 }
@@ -465,10 +468,10 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         Cow::Borrowed(SUPPORTED_PROTOCOL_VERSIONS)
     }
 
-    /// Only the pre-2026-07-28 revisions reach `initialize`, and they have no stream
-    /// to receive `list_changed` on (legacy sessions are off and
-    /// `subscriptions/listen` is 2026-07-28 only), so the capability is withdrawn
-    /// here. It stays in `get_info`, which bounds what a listen filter may accept.
+    /// A pre-2026-07-28 revision has no stream to receive `list_changed` on (legacy
+    /// sessions are off and `subscriptions/listen` is 2026-07-28 only), so the
+    /// capability is withdrawn when one is negotiated. It stays in `get_info`, which
+    /// bounds what a listen filter may accept.
     async fn initialize(
         &self,
         request: InitializeRequestParams,
@@ -479,8 +482,10 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         if SUPPORTED_PROTOCOL_VERSIONS.contains(&request.protocol_version) {
             info.protocol_version = request.protocol_version;
         }
-        if let Some(tools) = info.capabilities.tools.as_mut() {
-            tools.list_changed = None;
+        if info.protocol_version != ProtocolVersion::V_2026_07_28 {
+            if let Some(tools) = info.capabilities.tools.as_mut() {
+                tools.list_changed = None;
+            }
         }
         Ok(info)
     }
