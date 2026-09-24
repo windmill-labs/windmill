@@ -184,7 +184,11 @@ import {
   DBT_DESCRIPTOR_NAME,
   isDbtDescriptorPath,
 } from "../../utils/resource_folders.ts";
-import { isSharedLockPath, SHARED_LOCK_DIR } from "../../utils/script_common.ts";
+import {
+  inferContentTypeFromFilePath,
+  isSharedLockPath,
+  SHARED_LOCK_DIR,
+} from "../../utils/script_common.ts";
 import {
   applySharedLockPlanToDisk,
   applySharedLockPlanToMap,
@@ -591,7 +595,7 @@ async function addCodebaseDigestIfRelevant(
         if (ignoreCodebaseChanges) {
           parsed["codebase"] = undefined;
         } else {
-          parsed["codebase"] = await c.getDigest();
+          parsed["codebase"] = await c.getDigest(replacedPath);
         }
         parsed["lock"] = "";
         return yamlStringify(parsed, yamlOptions);
@@ -603,6 +607,53 @@ async function addCodebaseDigestIfRelevant(
     }
   }
   return content;
+}
+
+// The diff asks for digests one script at a time, and each would otherwise be
+// its own esbuild run: priming bundles every script of a codebase in one pass.
+// Only bun scripts with metadata on either side are primed, since a single file
+// that fails to bundle (a flow inline script, a deno script) fails the batch.
+async function primeCodebaseDigests(
+  local: DynFSElement,
+  remote: DynFSElement,
+  ignore: (path: string, isDirectory: boolean) => boolean,
+  codebases: SyncCodebase[],
+  defaultTs: "bun" | "deno" | undefined,
+): Promise<void> {
+  if (codebases.length == 0) return;
+  const localFiles: string[] = [];
+  const metadataBases = new Set<string>();
+  const collect = async (root: DynFSElement, isLocal: boolean) => {
+    for await (const entry of readDirRecursiveWithIgnore(ignore, root)) {
+      if (entry.isDirectory || entry.ignored) continue;
+      const p = entry.path.replaceAll(SEP, "/");
+      if (p.endsWith(".script.yaml") || p.endsWith(".script.json")) {
+        metadataBases.add(p.slice(0, -".script.yaml".length));
+      } else if (isLocal) {
+        localFiles.push(entry.path);
+      }
+    }
+  };
+  await collect(local, true);
+  await collect(remote, false);
+
+  const scriptsByCodebase = new Map<SyncCodebase, string[]>();
+  for (const file of localFiles) {
+    if (!file.endsWith(".ts") || isScriptModulePath(file)) continue;
+    const base = file.replaceAll(SEP, "/").slice(0, -".ts".length);
+    if (!metadataBases.has(base)) continue;
+    if (inferContentTypeFromFilePath(file, defaultTs) != "bun") continue;
+    const codebase = findCodebase(file, codebases);
+    if (!codebase) continue;
+    const scripts = scriptsByCodebase.get(codebase) ?? [];
+    scripts.push(file);
+    scriptsByCodebase.set(codebase, scripts);
+  }
+  await Promise.all(
+    [...scriptsByCodebase].map(([codebase, scripts]) =>
+      codebase.primeDigests(scripts),
+    ),
+  );
 }
 
 /**
@@ -2870,7 +2921,7 @@ export async function compareDynFSElement(
         continue;
       }
       const c = findCodebase(tsFile, codebases);
-      if ((await c?.getDigest()) != v) {
+      if ((await c?.getDigest(tsFile)) != v) {
         changes.push({
           name: "edited",
           path: tsFile,
@@ -4927,10 +4978,14 @@ export async function push(
     codebases,
     false,
   );
+  const ignore = await ignoreF(opts);
+  if (!opts.skipScripts) {
+    await primeCodebaseDigests(local, remote, ignore, codebases, opts.defaultTs);
+  }
   const { changes, localMap } = await compareDynFSElement(
     local,
     remote,
-    await ignoreF(opts),
+    ignore,
     opts.json ?? false,
     opts,
     true,

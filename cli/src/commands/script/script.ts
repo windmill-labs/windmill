@@ -61,7 +61,11 @@ import {
   readConfigFile,
   readEffectiveSyncBehavior,
 } from "../../core/conf.ts";
-import { SyncCodebase, listSyncCodebases } from "../../utils/codebase.ts";
+import {
+  SyncCodebase,
+  codebaseBuildOptions,
+  listSyncCodebases,
+} from "../../utils/codebase.ts";
 import { pollJobWithQueueLogging } from "../../utils/job_polling.ts";
 import fs from "node:fs";
 import { createTarBlob, type TarEntry } from "../../utils/tar.ts";
@@ -430,22 +434,9 @@ export async function handleFile(
 
         log.info(`Started bundling ${path} ...`);
         const startTime = performance.now();
-        const format = codebase.format ?? "cjs";
         const out = await esbuild.build({
+          ...codebaseBuildOptions(codebase),
           entryPoints: [path],
-          format: format,
-          bundle: true,
-          write: false,
-          external: codebase.external,
-          inject: codebase.inject,
-          define: codebase.define,
-          loader: codebase.loader ?? { ".node": "file" },
-          outdir: "/",
-          platform: "node",
-          packages: "bundle",
-          target: format == "cjs" ? "node20.15.1" : "esnext",
-          banner: codebase.banner,
-          // ...(codebase.banner != null && { banner: codebase.banner }),
         });
         const endTime = performance.now();
         bundleContent = out.outputFiles[0].text;
@@ -556,7 +547,7 @@ export async function handleFile(
     }
 
     if (typed && codebase) {
-      typed.codebase = await codebase.getDigest(forceTar);
+      typed.codebase = await codebase.getDigest(path, forceTar);
     }
 
     // Scan for modules: folder layout (entry point inside __mod/) or flat layout
@@ -612,7 +603,7 @@ export async function handleFile(
       debounce_args_to_accumulate: typed?.debounce_args_to_accumulate,
       max_total_debouncing_time: typed?.max_total_debouncing_time,
       max_total_debounces_amount: typed?.max_total_debounces_amount,
-      codebase: await codebase?.getDigest(forceTar),
+      codebase: await codebase?.getDigest(path, forceTar),
       timeout: nonePositiveInt(typed?.timeout),
       // 0 means "delete immediately after completion", so it must survive as 0
       // rather than being folded into "unset" the way the positive-only settings are.
@@ -1955,21 +1946,9 @@ async function preview(
         log.info(`Bundling ${filePath} for preview...`);
       }
       const startTime = performance.now();
-      const format = codebase.format ?? "cjs";
       const out = await esbuild.build({
+        ...codebaseBuildOptions(codebase),
         entryPoints: [filePath],
-        format: format,
-        bundle: true,
-        write: false,
-        external: codebase.external,
-        inject: codebase.inject,
-        define: codebase.define,
-        loader: codebase.loader ?? { ".node": "file" },
-        outdir: "/",
-        platform: "node",
-        packages: "bundle",
-        target: format == "cjs" ? "node20.15.1" : "esnext",
-        banner: codebase.banner,
       });
       const endTime = performance.now();
       bundledContent = out.outputFiles[0].text;
