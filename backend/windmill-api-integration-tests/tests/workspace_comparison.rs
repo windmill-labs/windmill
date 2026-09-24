@@ -2537,7 +2537,10 @@ async fn test_rename_records_the_vacated_path(db: Pool<Postgres>) -> anyhow::Res
             .await?;
         let status = resp.status();
         let hash = resp.text().await?;
-        assert!(status.is_success(), "script deploy failed: {status} — {hash}");
+        assert!(
+            status.is_success(),
+            "script deploy failed: {status} — {hash}"
+        );
         parent_hash = Some(hash.trim().trim_matches('"').to_string());
     }
     let mut vacated = None;
@@ -2557,6 +2560,91 @@ async fn test_rename_records_the_vacated_path(db: Pool<Postgres>) -> anyhow::Res
     let vacated = vacated.expect("the inline rename should report the path it left");
     assert_eq!(vacated.fork_last_event_kind.as_deref(), Some("rename_from"));
     assert_eq!(vacated.fork_last_event_origin.as_deref(), Some("authored"));
+
+    Ok(())
+}
+
+/// `compare_two_variables` hand-lists the columns it reads, so a column the variable
+/// carries but the comparison forgets makes that difference invisible in the fork diff
+/// — and an invisible difference can never be promoted.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_compare_variables_detects_value_expires_at(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base_url = format!("http://localhost:{port}/api");
+    let admin = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+
+    sqlx::query!(
+        "INSERT INTO variable (workspace_id, path, value, is_secret, description, value_expires_at)
+         VALUES ('test-workspace', 'u/admin/expiring', 'v', false, 'same', '2027-01-01T00:00:00Z')"
+    )
+    .execute(&db)
+    .await?;
+
+    let resp = admin
+        .client()
+        .post(&format!(
+            "{base_url}/w/test-workspace/workspaces/create_fork"
+        ))
+        .json(&json!({ "id": "wm-fork-expiry", "name": "Expiry Fork" }))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "fork creation failed: {}",
+        resp.status()
+    );
+
+    // Asserted before the UPDATE below overwrites it: the fork has to inherit the date from
+    // the source. Without this, a `clone_variables` that dropped the column would leave NULL
+    // here, the UPDATE would set 2029 anyway, and the comparison would still differ.
+    let inherited: Option<String> = sqlx::query_scalar(
+        "SELECT to_char(value_expires_at, 'YYYY-MM-DD') FROM variable
+         WHERE workspace_id = 'wm-fork-expiry' AND path = 'u/admin/expiring'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(inherited.as_deref(), Some("2027-01-01"));
+
+    // Only the expiry differs — value, is_secret and description stay identical, so a
+    // comparison that skips the column sees two equal variables.
+    sqlx::query!(
+        "UPDATE variable SET value_expires_at = '2029-12-31T00:00:00Z'
+         WHERE workspace_id = 'wm-fork-expiry' AND path = 'u/admin/expiring'"
+    )
+    .execute(&db)
+    .await?;
+
+    // `has_changes = NULL` makes the endpoint re-evaluate the pair instead of trusting
+    // a cached verdict.
+    sqlx::query!(
+        "INSERT INTO workspace_diff
+         (source_workspace_id, fork_workspace_id, path, kind, ahead, behind, has_changes)
+         VALUES ('test-workspace', 'wm-fork-expiry', 'u/admin/expiring', 'variable', 0, 1, NULL)"
+    )
+    .execute(&db)
+    .await?;
+
+    let comparison = admin
+        .client()
+        .get(&format!(
+            "{base_url}/w/test-workspace/workspaces/compare/wm-fork-expiry"
+        ))
+        .send()
+        .await?
+        .json::<serde_json::Value>()
+        .await?;
+
+    assert_eq!(
+        comparison["summary"]["variables_changed"].as_u64(),
+        Some(1),
+        "an expiry-only change must show as deployable: {comparison}"
+    );
 
     Ok(())
 }

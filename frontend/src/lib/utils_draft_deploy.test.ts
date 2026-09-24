@@ -6,7 +6,7 @@ vi.mock('$lib/gen', () => ({
 	FlowService: { getFlowByPath: vi.fn(), createFlow: vi.fn(), updateFlow: vi.fn() },
 	DraftService: { deleteDraft: vi.fn() },
 	AppService: {},
-	VariableService: {},
+	VariableService: { getVariable: vi.fn(), createVariable: vi.fn(), updateVariable: vi.fn() },
 	ResourceService: { getResource: vi.fn(), updateResource: vi.fn(), createResource: vi.fn() },
 	ScheduleService: {},
 	HttpTriggerService: {},
@@ -32,7 +32,7 @@ vi.mock('$lib/components/raw_apps/utils', () => ({ canonicalRawAppDiffValue: vi.
 vi.mock('$lib/appDiffSides', () => ({ classicAppDraftParts: vi.fn() }))
 vi.mock('$lib/utils_deployable', () => ({ TRIGGER_RUNTIME_IGNORE: [] }))
 
-import { ScriptService, FlowService, ResourceService } from '$lib/gen'
+import { ScriptService, FlowService, VariableService, ResourceService } from '$lib/gen'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 
 // draftBaseIsStale compares a draft's base pointer against the deployed head
@@ -121,6 +121,59 @@ describe('deployDraft preserves on_behalf_of', () => {
 				})
 			})
 		)
+	})
+})
+
+// The variable deploy bodies are built field-by-field, so a field left out of them is
+// dropped with no error. `value_expires_at` is additionally tri-state on update — absent
+// leaves the stored date alone, null clears it — which is why it is diffed against the
+// deployed row rather than sent as-is.
+describe('deployDraft variable value_expires_at', () => {
+	beforeEach(() => vi.clearAllMocks())
+
+	const DATE = '2027-03-15T08:30:00.000Z'
+
+	function mockVariable(deployedExpiry: string | undefined, draftExpiry: string | undefined) {
+		vi.mocked(VariableService.getVariable).mockResolvedValueOnce({
+			path: 'u/admin/key',
+			value: 'v',
+			is_secret: false,
+			description: '',
+			value_expires_at: deployedExpiry,
+			draft: {
+				path: 'u/admin/key',
+				variable: { value: 'v', is_secret: false, description: '' },
+				value_expires_at: draftExpiry
+			}
+		} as any)
+	}
+
+	const updateBody = () =>
+		vi.mocked(VariableService.updateVariable).mock.calls[0][0].requestBody as any
+
+	it('sends a date the draft set on a variable that had none', async () => {
+		mockVariable(undefined, DATE)
+		await deployDraft('variable', 'u/admin/key', 'ws')
+		expect(updateBody().value_expires_at).toBe(DATE)
+	})
+
+	it('sends null when the draft cleared the deployed date', async () => {
+		mockVariable(DATE, undefined)
+		await deployDraft('variable', 'u/admin/key', 'ws')
+		expect(updateBody().value_expires_at).toBeNull()
+	})
+
+	it('omits it when the draft leaves the deployed date alone', async () => {
+		mockVariable(DATE, DATE)
+		await deployDraft('variable', 'u/admin/key', 'ws')
+		expect(updateBody().value_expires_at).toBeUndefined()
+	})
+
+	it('carries the date onto a draft-only variable', async () => {
+		mockVariable(undefined, DATE)
+		await deployDraft('variable', 'u/admin/key', 'ws', { draftOnly: true })
+		const body = vi.mocked(VariableService.createVariable).mock.calls[0][0].requestBody as any
+		expect(body.value_expires_at).toBe(DATE)
 	})
 })
 

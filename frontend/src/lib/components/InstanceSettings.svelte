@@ -1096,9 +1096,9 @@
 							point, the name of any public hub project imported from the home page and how far that
 							import got, whether a pre-approved trial offer was opened, whether data tables are put
 							under roles and whether callers name a role or take the default, which kinds of access
-							change (grant, revoke, ownership, default privileges) are applied to data tables, and
+							change (grant, revoke, ownership, default privileges) are applied to data tables,
 							whether a data table under roles is cloned into a fork with its schema only or with
-							its data, last 30 days)</li
+							its data, and whether a variable whose value expired was a secret, last 30 days)</li
 						>
 						<li
 							>feature adoption (counts of which flow, script, trigger, worker and data table
@@ -1167,9 +1167,9 @@
 							point, the name of any public hub project imported from the home page and how far that
 							import got, whether a pre-approved trial offer was opened, whether data tables are put
 							under roles and whether callers name a role or take the default, which kinds of access
-							change (grant, revoke, ownership, default privileges) are applied to data tables, and
+							change (grant, revoke, ownership, default privileges) are applied to data tables,
 							whether a data table under roles is cloned into a fork with its schema only or with
-							its data, last 30 days)</li
+							its data, and whether a variable whose value expired was a secret, last 30 days)</li
 						>
 						<li
 							>feature adoption (counts of which flow, script, trigger, worker and data table

@@ -98,6 +98,7 @@ export interface VariableFile {
   description: string;
   account?: number;
   is_oauth?: boolean;
+  value_expires_at?: string;
   extra_perms?: Record<string, boolean>;
 }
 
@@ -161,7 +162,16 @@ export async function pushVariable(
   const { extra_perms: localPerms, ...localVariableBody } = localVariable;
 
   if (variable) {
-    if (isSuperset(localVariableBody, variable)) {
+    // The server reads an absent `value_expires_at` as "leave the stored date alone", so
+    // dropping the key from the file has to be sent as an explicit `null`. `isSuperset`
+    // only compares keys the file still has, so a removed expiry is also invisible to it:
+    // without both halves the clear never applies and every later push re-reports it.
+    const clearsValueExpiresAt =
+      localVariableBody.value_expires_at === undefined &&
+      variable.value_expires_at !== undefined &&
+      variable.value_expires_at !== null;
+
+    if (!clearsValueExpiresAt && isSuperset(localVariableBody, variable)) {
       log.debug(`Variable ${remotePath} is up-to-date`);
     } else {
       log.debug(`Variable ${remotePath} is not up-to-date, updating`);
@@ -187,6 +197,7 @@ export async function pushVariable(
           ...localVariableBody,
           is_secret: nextIsSecret,
           ...(wsSpecific !== undefined ? { ws_specific: wsSpecific } : {}),
+          ...(clearsValueExpiresAt ? { value_expires_at: null } : {}),
         },
       });
     }

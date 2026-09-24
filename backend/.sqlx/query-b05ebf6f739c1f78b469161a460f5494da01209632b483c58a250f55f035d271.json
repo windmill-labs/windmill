@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT v.workspace_id AS \"workspace_id!\",\n                  ws.variable_expiration_handler->>'path' AS \"handler_path!\"\n           FROM variable v\n           JOIN workspace_settings ws ON ws.workspace_id = v.workspace_id\n           JOIN workspace w ON w.id = v.workspace_id\n           WHERE NOT w.deleted\n             AND v.value_expires_at IS NOT NULL\n             AND v.value_expires_at IS DISTINCT FROM v.expiration_dispatched_for\n             AND v.value_expires_at <= now() + ($1::text)::interval\n             AND ws.variable_expiration_handler->>'path' IS NOT NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "handler_path!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "b05ebf6f739c1f78b469161a460f5494da01209632b483c58a250f55f035d271"
+}

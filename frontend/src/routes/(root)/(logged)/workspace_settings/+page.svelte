@@ -11,6 +11,10 @@
 	import RemoteDeployTargetSetting from '$lib/components/RemoteDeployTargetSetting.svelte'
 	import DevWorkspaceSetting from '$lib/components/DevWorkspaceSetting.svelte'
 	import ErrorOrRecoveryHandler from '$lib/components/ErrorOrRecoveryHandler.svelte'
+	import VariableExpirationHandler, {
+		getVariableExpirationHandlerType,
+		type VariableExpirationHandlerType
+	} from '$lib/components/VariableExpirationHandler.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 
@@ -48,6 +52,7 @@
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import Popover from '$lib/components/Popover.svelte'
 
 	import ChangeWorkspaceName from '$lib/components/settings/ChangeWorkspaceName.svelte'
 	import ChangeWorkspaceId from '$lib/components/settings/ChangeWorkspaceId.svelte'
@@ -186,6 +191,15 @@
 	let errorHandlerMutedOnCancel: boolean | undefined = $state(undefined)
 	let errorHandlerMutedOnUserPath: boolean | undefined = $state(undefined)
 	let successHandlerScriptPath: string | undefined = $state(undefined)
+	let variableExpirationPath: string | undefined = $state(undefined)
+	let variableExpirationItemKind: 'flow' | 'script' = $state('script')
+	let variableExpirationMutedOnUserPath: boolean = $state(false)
+	let variableExpirationSelected: VariableExpirationHandlerType = $state('custom')
+	// The built-in destinations write `channel` here, and the API and CLI can set arbitrary
+	// fixed arguments the tab never renders. Both have to survive a save that keeps the
+	// handler, since the endpoint rebuilds the setting from the request and an omitted
+	// `extra_args` erases it. Only a save that clears the handler drops it.
+	let variableExpirationExtraArgs: Record<string, any> = $state({})
 	let criticalAlertUIMuted: boolean | undefined = $state(undefined)
 	let initialCriticalAlertUIMuted: boolean | undefined = $state(undefined)
 	let publicAppRateLimitPerMinute: number | undefined = $state(undefined)
@@ -258,6 +272,12 @@
 	// Track initial success handler for unsaved changes detection
 	let initialSuccessHandlerScriptPath: string | undefined = $state(undefined)
 
+	// Track initial variable expiration handler for unsaved changes detection
+	let initialVariableExpirationPath: string | undefined = $state(undefined)
+	let initialVariableExpirationItemKind: 'flow' | 'script' = $state('script')
+	let initialVariableExpirationMutedOnUserPath: boolean = $state(false)
+	let initialVariableExpirationExtraArgs: Record<string, any> = $state({})
+
 	let s3ResourceSettings: S3ResourceSettings = $state({
 		resourceType: 's3',
 		resourcePath: undefined,
@@ -305,6 +325,41 @@
 		return hasUnsavedChanges(
 			{ successHandlerScriptPath: initialSuccessHandlerScriptPath },
 			{ successHandlerScriptPath: successHandlerScriptPath }
+		)
+	})
+
+	// The stored setting is a single prefixed path, so the kind only counts as a change
+	// while a path is selected — otherwise toggling script/flow on an empty picker reads
+	// as unsaved work that would save nothing.
+	function variableExpirationFullPath(kind: 'flow' | 'script', path: string | undefined) {
+		return path ? `${kind}/${path}` : undefined
+	}
+
+	// The mute flag is stored inside the handler setting, so saving with no path selected
+	// clears the whole setting and drops it. Gating the toggle keeps the tab from offering
+	// a change it cannot persist.
+	let variableExpirationHasHandler = $derived(
+		!!variableExpirationFullPath(variableExpirationItemKind, variableExpirationPath)
+	)
+
+	// `handlerPath`, not `path`: `hasUnsavedChanges` blanks a key of that name, so a change
+	// of handler would never register as one.
+	let hasVariableExpirationChanges = $derived.by(() => {
+		if (tab !== 'variable_expiration') return false
+		return hasUnsavedChanges(
+			{
+				handlerPath: variableExpirationFullPath(
+					initialVariableExpirationItemKind,
+					initialVariableExpirationPath
+				),
+				mutedOnUserPath: initialVariableExpirationMutedOnUserPath,
+				extraArgs: normalizeHandlerExtraArgs(initialVariableExpirationExtraArgs)
+			},
+			{
+				handlerPath: variableExpirationFullPath(variableExpirationItemKind, variableExpirationPath),
+				mutedOnUserPath: variableExpirationMutedOnUserPath,
+				extraArgs: normalizeHandlerExtraArgs(variableExpirationExtraArgs)
+			}
 		)
 	})
 
@@ -400,6 +455,7 @@
 			| 'dev_workspace'
 			| 'error_handler'
 			| 'success_handler'
+			| 'variable_expiration'
 			| 'critical_alerts'
 			| 'ai'
 			| 'windmill_data_tables'
@@ -721,6 +777,15 @@
 			| { path?: string; extra_args?: any }
 			| undefined
 		successHandlerScriptPath = (successHandler?.path ?? '').split('/').slice(1).join('/')
+		const variableExpirationHandler = settings.variable_expiration_handler
+		const variableExpirationHandlerPath = variableExpirationHandler?.path ?? ''
+		variableExpirationItemKind = variableExpirationHandlerPath
+			? (variableExpirationHandlerPath.split('/')[0] as 'flow' | 'script')
+			: 'script'
+		variableExpirationPath = variableExpirationHandlerPath.split('/').slice(1).join('/')
+		variableExpirationMutedOnUserPath = variableExpirationHandler?.muted_on_user_path ?? false
+		variableExpirationExtraArgs = variableExpirationHandler?.extra_args ?? {}
+		variableExpirationSelected = getVariableExpirationHandlerType(variableExpirationPath)
 		workspaceDefaultAppPath = settings.default_app
 		initialWorkspaceDefaultAppPath = settings.default_app
 
@@ -772,6 +837,12 @@
 
 		// Store initial success handler state for unsaved changes detection
 		initialSuccessHandlerScriptPath = successHandlerScriptPath
+
+		// Store initial variable expiration handler state for unsaved changes detection
+		initialVariableExpirationPath = variableExpirationPath
+		initialVariableExpirationItemKind = variableExpirationItemKind
+		initialVariableExpirationMutedOnUserPath = variableExpirationMutedOnUserPath
+		initialVariableExpirationExtraArgs = clone(variableExpirationExtraArgs)
 
 		loadedSettings = true
 	}
@@ -942,6 +1013,45 @@
 		initialErrorHandlerExtraArgs = clone(errorHandlerExtraArgs)
 		initialErrorHandlerMutedOnCancel = errorHandlerMutedOnCancel
 		initialErrorHandlerMutedOnUserPath = errorHandlerMutedOnUserPath
+	}
+
+	async function editVariableExpirationHandler() {
+		const path = variableExpirationFullPath(variableExpirationItemKind, variableExpirationPath)
+		// Saving with no path clears the whole setting server-side, `extra_args` included, so
+		// the in-memory copy has to go too: a handler picked afterwards without reloading the
+		// page would otherwise be persisted with the cleared one's arguments, including any the
+		// API or CLI set that this tab never renders.
+		if (!path) {
+			variableExpirationExtraArgs = {}
+		}
+		await WorkspaceService.editVariableExpirationHandler({
+			workspace: $workspaceStore!,
+			requestBody: {
+				path,
+				extra_args: variableExpirationExtraArgs,
+				muted_on_user_path: variableExpirationMutedOnUserPath
+			}
+		})
+		sendUserToast(
+			path
+				? `Variable expiration handler set to ${path}`
+				: initialVariableExpirationPath
+					? 'Variable expiration handler removed'
+					: 'Variable expiration settings saved'
+		)
+
+		initialVariableExpirationPath = variableExpirationPath
+		initialVariableExpirationItemKind = variableExpirationItemKind
+		initialVariableExpirationMutedOnUserPath = variableExpirationMutedOnUserPath
+		initialVariableExpirationExtraArgs = clone(variableExpirationExtraArgs)
+	}
+
+	function discardVariableExpirationChanges() {
+		variableExpirationPath = initialVariableExpirationPath
+		variableExpirationItemKind = initialVariableExpirationItemKind
+		variableExpirationMutedOnUserPath = initialVariableExpirationMutedOnUserPath
+		variableExpirationExtraArgs = clone(initialVariableExpirationExtraArgs)
+		variableExpirationSelected = getVariableExpirationHandlerType(variableExpirationPath)
 	}
 
 	async function editSuccessHandler() {
@@ -1208,6 +1318,25 @@
 					}
 				}
 			}
+			case 'variable_expiration':
+				return {
+					savedValue: {
+						handlerPath: variableExpirationFullPath(
+							initialVariableExpirationItemKind,
+							initialVariableExpirationPath
+						),
+						mutedOnUserPath: initialVariableExpirationMutedOnUserPath,
+						extraArgs: normalizeHandlerExtraArgs(initialVariableExpirationExtraArgs)
+					},
+					modifiedValue: {
+						handlerPath: variableExpirationFullPath(
+							variableExpirationItemKind,
+							variableExpirationPath
+						),
+						mutedOnUserPath: variableExpirationMutedOnUserPath,
+						extraArgs: normalizeHandlerExtraArgs(variableExpirationExtraArgs)
+					}
+				}
 			case 'critical_alerts':
 				return {
 					savedValue: { criticalAlertUIMuted: initialCriticalAlertUIMuted },
@@ -1247,6 +1376,9 @@
 			case 'error_handler':
 				discardErrorHandlerSettingsChanges()
 				successHandlerScriptPath = initialSuccessHandlerScriptPath
+				break
+			case 'variable_expiration':
+				discardVariableExpirationChanges()
 				break
 			case 'critical_alerts':
 				criticalAlertUIMuted = initialCriticalAlertUIMuted
@@ -1354,6 +1486,13 @@
 					aiId: 'workspace-settings-error-handler',
 					aiDescription: 'Error and success handler workspace settings',
 					isEE: true
+				},
+				{
+					id: 'variable_expiration',
+					label: 'Variable expiration',
+					aiId: 'workspace-settings-variable-expiration',
+					aiDescription:
+						'Runnable executed when a variable value is about to expire, so the value can be rotated'
 				},
 				{
 					id: 'critical_alerts',
@@ -2105,6 +2244,109 @@ export async function main(
 									}}
 									saveLabel="Save success handler"
 									disabled={!$enterpriseLicense}
+								/>
+							</Section>
+						{:else if tab == 'variable_expiration'}
+							<SettingsPageHeader
+								title="Variable expiration handler"
+								description="Run a script or flow an hour before the value of a workspace variable expires, so it can be rotated before it stops working."
+								link="https://www.windmill.dev/docs/core_concepts/variables_and_secrets"
+							/>
+
+							{#if !$enterpriseLicense && variableExpirationSelected !== 'custom'}
+								<Alert type="warning" title="Slack and Teams handlers are an EE feature">
+									Connecting a workspace to Slack or Teams is a Windmill EE feature.
+								</Alert>
+							{/if}
+
+							<Section label="Handler">
+								<div class="flex flex-col gap-6">
+									<!-- Bound rather than seeded through `initialPath`: the picker keeps its own
+									copy of the selection, so a Discard that only reset the page state would leave
+									the reverted path invisible. -->
+									<VariableExpirationHandler
+										isEditable={true}
+										bind:handlerSelected={variableExpirationSelected}
+										bind:handlerPath={variableExpirationPath}
+										bind:handlerKind={variableExpirationItemKind}
+										bind:handlerExtraArgs={variableExpirationExtraArgs}
+										customScriptTemplate={`${base}/scripts/add?lang=bun#` +
+											encodeState({
+												path: 'f/variable_expiration_handler',
+												summary: 'Workspace Variable Expiration Handler',
+												description:
+													'Called an hour before the value of a variable in this workspace expires',
+												content: `// Workspace Variable Expiration Handler
+// Called an hour before the value of a variable in this workspace expires, and
+// again whenever that date is moved to a new one.
+//
+// The value itself is never passed in: job arguments and results are stored in
+// cleartext and shown in Runs. Read it with the Windmill client if the rotation
+// needs it, but never return or log it.
+
+export async function main(
+  variable_path: string,
+  description: string,
+  value_expires_at: string,
+  is_secret: boolean
+) {
+  console.log(\`\${variable_path} expires at \${value_expires_at}\`)
+
+  // Rotate the value here, then write the next expiry date back onto the
+  // variable — that is what re-arms this handler for the following rotation.
+}
+`
+											})}
+									/>
+
+									<SettingCard class="gap-2">
+										<!-- `w-fit`: the trigger is a flex item of the card, so it would otherwise
+										stretch the full width and anchor the popup away from the toggle. -->
+										<Popover
+											notClickable
+											disablePopup={variableExpirationHasHandler}
+											placement="bottom-start"
+											class="w-fit"
+										>
+											<Toggle
+												bind:checked={variableExpirationMutedOnUserPath}
+												disabled={!variableExpirationHasHandler}
+												options={{
+													right: 'Do not run the handler for variables in u/ paths'
+												}}
+											/>
+											{#snippet text()}
+												Select a handler first
+											{/snippet}
+										</Popover>
+									</SettingCard>
+
+									<Alert type="info" title="Runs as g/variable_expiration_handler">
+										{#if variableExpirationSelected === 'custom'}
+											The handler is executed by the automatically created group
+											g/variable_expiration_handler. Rotating a variable means writing to it, so
+											grant that group write access to the variables it is meant to rotate. It
+											starts with none. A script that carries an on-behalf-of identity is the
+											exception: it runs as that user, with their permissions rather than the
+											group's.
+										{:else}
+											The handler is executed by the automatically created group
+											g/variable_expiration_handler. It only posts a message, so it needs no access
+											to your variables: it is given the path and the expiry date, never the value.
+											{#if variableExpirationSelected === 'slack'}
+												Access to the Slack bot token is granted for you.
+											{/if}
+										{/if}
+									</Alert>
+								</div>
+
+								<SettingsFooter
+									class="mt-6"
+									inline
+									hasUnsavedChanges={hasVariableExpirationChanges}
+									onSave={editVariableExpirationHandler}
+									onDiscard={discardVariableExpirationChanges}
+									saveLabel="Save variable expiration handler"
 								/>
 							</Section>
 						{:else if tab == 'critical_alerts'}

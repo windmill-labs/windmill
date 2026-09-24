@@ -27,17 +27,21 @@
 	import { useDraftConflictSession } from '$lib/draftConflictSession.svelte'
 	import { isEncryptedDraftValue } from '$lib/encryptedDraft'
 	import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
+	import { logFeatureUsage } from '$lib/utils/featureUsage'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
 
 	const dispatch = createEventDispatcher()
 
+	// Subset of VariableDraftState (copilot/chat/global/workspaceItems.ts) — the same
+	// localStorage rows back both, so a field this shape omits is dropped on save.
 	type VariableState = {
 		path: string
 		variable: { value: string; is_secret: boolean; description: string }
 		labels: string[] | undefined
 		wsSpecific: boolean
+		value_expires_at?: string
 	}
 
 	// The "current" workspace this editor defaults New/Edit actions to. Session
@@ -330,7 +334,8 @@
 						description: v.description ?? ''
 					},
 					labels: v.labels ?? undefined,
-					wsSpecific: v.ws_specific ?? false
+					wsSpecific: v.ws_specific ?? false,
+					value_expires_at: v.value_expires_at ?? undefined
 				}
 				// A refused save leaves this tab's own version parked. `.draft` is the version
 				// that refused it, so opening on that would quietly drop the edit the alert is
@@ -412,6 +417,12 @@
 	async function save(): Promise<void> {
 		const dirty = dirtyWorkspaces
 		const savedPath = (curWs ? states[curWs]?.draft?.path : undefined) ?? editPath ?? ''
+		// Counted before the loop rewrites the baselines, and once per save rather than
+		// once per workspace, so a multi-workspace edit is one act of setting an expiry.
+		const expiryEdited = dirty.some(
+			(ws) => initialStates[ws]?.value_expires_at !== states[ws].draft?.value_expires_at
+		)
+		const expiryNowSet = dirty.some((ws) => !!states[ws].draft?.value_expires_at)
 		try {
 			for (const ws of dirty) {
 				const s = states[ws].draft!
@@ -429,6 +440,11 @@
 								ini.variable.description != s.variable.description
 									? s.variable.description
 									: undefined,
+							// Tri-state: absent leaves the stored date alone, `null` clears it.
+							value_expires_at:
+								ini.value_expires_at != s.value_expires_at
+									? (s.value_expires_at ?? null)
+									: undefined,
 							labels: s.labels,
 							ws_specific: s.wsSpecific
 						}
@@ -441,6 +457,7 @@
 							value: s.variable.value,
 							is_secret: s.variable.is_secret,
 							description: s.variable.description,
+							value_expires_at: s.value_expires_at,
 							labels: s.labels,
 							ws_specific: s.wsSpecific
 						}
@@ -456,6 +473,11 @@
 				// Path now exists server-side — drop the autocomplete cache so
 				// it shows up immediately instead of after the 60s TTL.
 				invalidateWorkspacePaths(ws)
+			}
+			if (expiryEdited) {
+				logFeatureUsage('variable_expiration', 'expiry_edited', {
+					key: expiryNowSet ? 'set' : 'cleared'
+				})
 			}
 			sendUserToast(edit ? `Updated variable in ${dirty.length} workspace(s)` : `Created variable`)
 			dispatch('create')
@@ -544,6 +566,7 @@
 						bind:variable={current.variable}
 						bind:labels={current.labels}
 						bind:wsSpecific={current.wsSpecific}
+						bind:valueExpiresAt={current.value_expires_at}
 						{initialPath}
 						deployTo={deployTo.current}
 						can_write={can_write === true}

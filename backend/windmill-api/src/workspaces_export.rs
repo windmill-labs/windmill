@@ -524,6 +524,7 @@ struct SimplifiedSettings {
     // mirroring every other workspace setting.
     error_handler: Option<Value>,
     success_handler: Option<Value>,
+    variable_expiration_handler: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     ai_config: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -601,6 +602,7 @@ struct SettingsRow {
     webhook: Option<String>,
     error_handler: Option<Value>,
     success_handler: Option<Value>,
+    variable_expiration_handler: Option<Value>,
     ai_config: Option<serde_json::Value>,
     large_file_storage: Option<Value>,
     git_sync: Option<Value>,
@@ -1002,9 +1004,9 @@ pub(crate) async fn tarball_workspace(
     if !skip_variables.unwrap_or(false) {
         let variables =
              sqlx::query_as::<_, ExportableListableVariable>(if !skip_secrets.unwrap_or(false) {
-                 "SELECT workspace_id, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at, labels FROM variable WHERE workspace_id = $1 AND expires_at IS NULL"
+                 "SELECT workspace_id, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at, value_expires_at, labels FROM variable WHERE workspace_id = $1 AND expires_at IS NULL"
              } else {
-                 "SELECT workspace_id, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at, labels FROM variable WHERE workspace_id = $1 AND is_secret = false AND expires_at IS NULL"
+                 "SELECT workspace_id, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at, value_expires_at, labels FROM variable WHERE workspace_id = $1 AND is_secret = false AND expires_at IS NULL"
              })
              .bind(&w_id)
              .fetch_all(&mut *tx)
@@ -1591,6 +1593,7 @@ pub(crate) async fn tarball_workspace(
                  webhook,
                  error_handler,
                  success_handler,
+                 variable_expiration_handler,
                  ai_config,
                  large_file_storage,
                  git_sync,
@@ -1659,6 +1662,7 @@ pub(crate) async fn tarball_workspace(
                 webhook: row.webhook,
                 error_handler: row.error_handler,
                 success_handler: row.success_handler,
+                variable_expiration_handler: row.variable_expiration_handler,
                 ai_config: row.ai_config,
                 large_file_storage: row.large_file_storage,
                 git_sync: redact_git_sync_for_export(row.git_sync),
