@@ -3739,6 +3739,7 @@ async fn get_script_by_hash(
 }
 
 async fn raw_script_by_hash(
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, hash_str)): Path<(String, String)>,
 ) -> Result<String> {
@@ -3748,6 +3749,8 @@ async fn raw_script_by_hash(
     })?)?);
     let r = get_script_by_hash_internal(&mut tx, &w_id, &hash, None).await?;
     tx.commit().await?;
+
+    check_scopes(&authed, || format!("scripts:read:{}", &r.script.path))?;
 
     Ok(r.script.content)
 }
@@ -3759,12 +3762,13 @@ struct DeploymentStatus {
     job_id: Option<sqlx::types::Uuid>,
 }
 async fn get_deployment_status(
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, hash)): Path<(String, ScriptHash)>,
 ) -> JsonResult<DeploymentStatus> {
     let mut tx = db.begin().await?;
     let status_o = sqlx::query!(
-        "SELECT s.lock, s.lock_error_logs, dm.job_id
+        "SELECT s.path, s.lock, s.lock_error_logs, dm.job_id
          FROM script s
          LEFT JOIN deployment_metadata dm ON s.hash = dm.script_hash AND s.workspace_id = dm.workspace_id
          WHERE s.hash = $1 AND s.workspace_id = $2",
@@ -3775,6 +3779,7 @@ async fn get_deployment_status(
     .await?;
 
     let status = not_found_if_none(status_o, "DeploymentStatus", hash.to_string())?;
+    check_scopes(&authed, || format!("scripts:read:{}", &status.path))?;
 
     let deployment_status = DeploymentStatus {
         lock: status.lock,
