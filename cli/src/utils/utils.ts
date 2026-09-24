@@ -223,8 +223,9 @@ export function isRawAppFile(path: string): boolean {
   return isRawAppPath(path);
 }
 
+/** Sync paths carry the platform separator: `dependencies\x` on Windows. */
 export function isWorkspaceDependencies(path: string): boolean {
-  return path.startsWith("dependencies/");
+  return path.startsWith("dependencies/") || path.startsWith("dependencies\\");
 }
 
 export function printSync(input: string | Uint8Array) {

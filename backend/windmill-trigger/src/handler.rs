@@ -22,7 +22,7 @@ use windmill_common::{
         fetch_draft_only_list_rows, overlay_or_draft_only, UserDraftItemKind, WithDraftOverlay,
         WithDraftQuery,
     },
-    utils::{paginate, Pagination, StripPath},
+    utils::{check_proper_path, paginate, Pagination, StripPath},
     worker::CLOUD_HOSTED,
     DB,
 };
@@ -547,6 +547,7 @@ async fn create_trigger<T: TriggerCrud>(
             &new_trigger.base.path
         )
     })?;
+    check_proper_path(&new_trigger.base.path)?;
 
     if *CLOUD_HOSTED && !T::IS_ALLOWED_ON_CLOUD {
         return Err(Error::BadRequest(format!(
@@ -817,6 +818,9 @@ async fn update_trigger<T: TriggerCrud>(
             &edit_trigger.base.path
         )
     })?;
+    if edit_trigger.base.path != path {
+        check_proper_path(&edit_trigger.base.path)?;
+    }
 
     edit_trigger.error_handling.validate()?;
 
