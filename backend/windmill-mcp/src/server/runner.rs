@@ -1075,6 +1075,9 @@ impl<B: McpBackend> Runner<B> {
             .backend
             .call_endpoint(&resolved_auth, &workspace_id, endpoint_tool, args)
             .await?;
+        if changes_runnable_list(&endpoint_tool.name) {
+            self.list_changes.poll_now(&workspace_id);
+        }
 
         Ok(CallToolResult::success(vec![ContentBlock::text(
             truncate_tool_result(

@@ -29,8 +29,8 @@ async fn fingerprint_tracks_the_live_runnable_list(db: Pool<Postgres>) {
     .await;
     assert_moved("deploy", true).await;
 
-    exec("UPDATE script SET summary = 'x', lock = '' WHERE hash = 1").await;
-    assert_moved("unrelated update", false).await;
+    exec("UPDATE script SET lock = '' WHERE hash = 1").await;
+    assert_moved("lock update", false).await;
 
     exec("UPDATE script SET path = 'f/test/b' WHERE hash = 1").await;
     assert_moved("path move", true).await;

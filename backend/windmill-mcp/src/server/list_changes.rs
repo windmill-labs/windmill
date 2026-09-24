@@ -86,7 +86,10 @@ impl ListChanges {
             }
             match backend.runnable_list_fingerprint(&workspace_id).await {
                 Ok(fingerprint) => {
-                    if last.as_ref().is_some_and(|last| *last != fingerprint) {
+                    // The first fingerprint also notifies: it is taken after the listener
+                    // subscribed, possibly after its client listed tools, so a change landing
+                    // in between would otherwise become the baseline and never be announced.
+                    if last.as_ref() != Some(&fingerprint) {
                         let _ = changes.send(());
                     }
                     last = Some(fingerprint);
