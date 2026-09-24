@@ -6086,6 +6086,237 @@ describe('global AI tools', () => {
 		})
 	})
 
+	// An agent step has no job of its own, so it runs as a flow preview of itself alone, opened on
+	// the same rows and the same values as the flow editor's own step test. A setting the step
+	// leaves alone is not offered at all, so a mounted widget cannot invent a value for it: an
+	// `enabled_tools` the form synthesized empty would advertise none of the agent's tools.
+	it("test_run_step opens an aiagent step on the step's own configuration", async () => {
+		const providerValue = { kind: 'openai', resource: '$res:u/admin/openai', model: 'gpt-4o' }
+		let opened: RunFormDisplay | undefined
+		await callGlobalTool('write_flow', {
+			path: 'f/flows/agent-step',
+			summary: 'Flow with an agent step',
+			modules: JSON.stringify([
+				{
+					id: 'ask',
+					value: {
+						type: 'aiagent',
+						tools: [
+							{
+								id: 'b',
+								summary: 'get_code',
+								value: {
+									tool_type: 'flowmodule',
+									type: 'rawscript',
+									language: 'bun',
+									content: 'export async function main() { return 1 }',
+									input_transforms: {}
+								}
+							}
+						],
+						input_transforms: {
+							provider: { type: 'static', value: providerValue },
+							user_message: { type: 'static', value: 'authored question' }
+						}
+					}
+				}
+			])
+		})
+
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'test_run_step',
+				{
+					path: 'f/flows/agent-step',
+					stepId: 'ask',
+					args: { user_message: 'What is the capital of France?' }
+				},
+				{
+					...toolCallbacks,
+					requestRunArgs: async (_toolId, form) => {
+						opened = form
+						return form.args
+					}
+				}
+			)
+		)
+
+		// The step configures these two, so the form offers them, filled in with what the step
+		// holds — and the model's own message wins over the authored one.
+		expect(opened?.args).toMatchObject({
+			provider: providerValue,
+			user_message: 'What is the capital of France?'
+		})
+		// Those two plus the rows the editor always shows, and nothing else the step is silent
+		// about: `enabled_tools` above all, whose synthesized empty value would advertise no tools.
+		expect(Object.keys(opened?.schema?.properties ?? {})).toEqual([
+			'provider',
+			'user_message',
+			'system_prompt'
+		])
+
+		expect(JobService.runFlowPreview).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: {
+				value: {
+					modules: [
+						{
+							id: 'ask',
+							value: expect.objectContaining({
+								type: 'aiagent',
+								input_transforms: {
+									provider: { type: 'javascript', expr: 'flow_input.provider' },
+									user_message: { type: 'javascript', expr: 'flow_input.user_message' },
+									// Every row of the form runs from it, the blank ones too.
+									system_prompt: { type: 'javascript', expr: 'flow_input.system_prompt' }
+								}
+							})
+						}
+					]
+				},
+				args: { provider: providerValue, user_message: 'What is the capital of France?' },
+				// Filed under the flow, as the editor's step test does: a managed memory keyed on a
+				// named memory id is found under it.
+				path: 'f/flows/agent-step'
+			}
+		})
+	})
+
+	// What the form submits is what runs, as in the editor's step test: a field cleared over the
+	// step's expression runs cleared rather than falling back to the expression, whether the
+	// mounted form sends it as the empty string or the bypass posture sends the form unchanged.
+	it.each([
+		{
+			answer: 'the mounted form',
+			// A field the form could not fill in comes back blank, never absent: text as the empty
+			// string, a list as `[]`.
+			callbacks: {
+				requestRunArgs: async (_toolId: string, form: any) => ({
+					...form.args,
+					user_message: '',
+					enabled_tools: form.args.enabled_tools ?? []
+				})
+			}
+		},
+		{
+			answer: 'the bypass posture',
+			callbacks: {
+				shouldAutoAcceptToolConfirmations: () => true,
+				requestRunArgs: async (_toolId: string, form: any) => form.args
+			}
+		}
+	])(
+		'test_run_step runs an aiagent field left blank by $answer as blank',
+		async ({ callbacks }) => {
+			await callGlobalTool('write_flow', {
+				path: 'f/flows/agent-expr',
+				summary: 'Agent fed by an earlier step',
+				modules: JSON.stringify([
+					{
+						id: 'first',
+						value: {
+							type: 'rawscript',
+							language: 'bun',
+							content: 'export async function main() { return { question: "hi" } }',
+							input_transforms: {}
+						}
+					},
+					{
+						id: 'ask',
+						value: {
+							type: 'aiagent',
+							tools: [],
+							input_transforms: {
+								provider: {
+									type: 'static',
+									value: { kind: 'openai', resource: '$res:u/admin/openai', model: 'gpt-4o' }
+								},
+								user_message: { type: 'javascript', expr: 'results.first.question' },
+								enabled_tools: { type: 'javascript', expr: 'results.first.tools' }
+							}
+						}
+					}
+				])
+			})
+
+			await withCompletedTestJob(() =>
+				callGlobalTool(
+					'test_run_step',
+					{ path: 'f/flows/agent-expr', stepId: 'ask', args: {} },
+					{ ...toolCallbacks, ...callbacks }
+				)
+			)
+
+			const body = vi.mocked(JobService.runFlowPreview).mock.calls.at(-1)?.[0].requestBody as any
+			expect(body.value.modules[0].value.input_transforms.user_message).toEqual({
+				type: 'javascript',
+				expr: 'flow_input.user_message'
+			})
+			expect(body.args.enabled_tools).toEqual([])
+		}
+	)
+
+	// The memory picker resets a value whose kind it does not offer to its first option, so a
+	// step saved with a legacy kind would run with its history switched off. And a tool name typed
+	// by hand that matches none silently narrows the run, so the roster is offered as in the editor.
+	it("test_run_step offers an aiagent step the editor's choices", async () => {
+		let opened: RunFormDisplay | undefined
+		await callGlobalTool('write_flow', {
+			path: 'f/flows/agent-legacy-memory',
+			summary: 'Agent with legacy memory',
+			modules: JSON.stringify([
+				{
+					id: 'ask',
+					value: {
+						type: 'aiagent',
+						tools: [
+							{
+								id: 'b',
+								summary: 'get_code',
+								value: {
+									tool_type: 'flowmodule',
+									type: 'rawscript',
+									language: 'bun',
+									content: 'export async function main() { return 1 }',
+									input_transforms: {}
+								}
+							}
+						],
+						input_transforms: {
+							provider: {
+								type: 'static',
+								value: { kind: 'openai', resource: '$res:u/admin/openai', model: 'gpt-4o' }
+							},
+							user_message: { type: 'static', value: 'hi' },
+							memory: { type: 'static', value: { kind: 'auto', context_length: 5 } },
+							enabled_tools: { type: 'static', value: ['get_code'] }
+						}
+					}
+				}
+			])
+		})
+
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'test_run_step',
+				{ path: 'f/flows/agent-legacy-memory', stepId: 'ask', args: {} },
+				{
+					...toolCallbacks,
+					requestRunArgs: async (_toolId, form) => {
+						opened = form
+						return form.args
+					}
+				}
+			)
+		)
+
+		const kinds = opened?.schema.properties.memory.oneOf.map(
+			(variant: any) => variant.properties.kind.enum[0]
+		)
+		expect(kinds).toContain('auto')
+		expect(opened?.schema.properties.enabled_tools.items.enum).toEqual(['get_code'])
+	})
+
 	// A step is fed by its input transforms, so its arguments are its own and the flow's
 	// schema describes a different set entirely. Opening the form on the flow's would offer
 	// fields this job ignores and drop the ones it takes.
