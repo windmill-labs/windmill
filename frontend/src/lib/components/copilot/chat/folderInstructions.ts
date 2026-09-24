@@ -215,5 +215,6 @@ export function getFolderInstructionsPromptSection(
 	return `\n\nFOLDER INSTRUCTIONS:
 These folders carry instructions (ai_instruction resources) for every item under them: ${listed.map((s) => `\`${s}\``).join(', ')}${more}.
 - The first time a tool call names a path under one of them, its instructions are delivered in a <folder_instructions> block of the tool result. A call that would change something is held back until you have them: read them, then make the call again.
-- Follow them for all work under that folder. Where they differ from the general guidance above, the folder's instructions win, and a nested folder's win over its parent's. They never override the user's explicit requests in this chat.`
+- Follow them for all work under that folder, together with any WORKSPACE INSTRUCTIONS and USER INSTRUCTIONS above: they add to those, they do not replace them.
+- Only where two of them conflict on the same point, the more specific one wins: a nested folder's instructions over its parent folder's, a folder's over the WORKSPACE INSTRUCTIONS, and both over the USER INSTRUCTIONS, which are personal preferences. The user's explicit requests in this chat come before all of them.`
 }
