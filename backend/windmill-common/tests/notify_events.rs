@@ -674,13 +674,15 @@ async fn test_trigger_notify_runnable_version_change_flow(db: Pool<Postgres>) {
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_trigger_notify_runnable_list_change(db: Pool<Postgres>) {
     let script_path = "f/test/list_change";
-    for _ in 0..3 {
+    // Two archived versions and the live one, as a path looks after two redeploys.
+    for archived in [true, true, false] {
         sqlx::query(
-            "INSERT INTO script (workspace_id, hash, path, summary, description, content, created_by, language, kind)
-             VALUES ('test-workspace', $1, $2, 'test', 'test', 'def main(): pass', 'test-user', 'python3', 'script')",
+            "INSERT INTO script (workspace_id, hash, path, summary, description, content, created_by, language, kind, archived)
+             VALUES ('test-workspace', $1, $2, 'test', 'test', 'def main(): pass', 'test-user', 'python3', 'script', $3)",
         )
         .bind(rand::random::<i64>().abs())
         .bind(script_path)
+        .bind(archived)
         .execute(&db)
         .await
         .expect("Failed to insert script");
@@ -715,7 +717,8 @@ async fn test_trigger_notify_runnable_list_change(db: Pool<Postgres>) {
         .unwrap();
     assert!(list_changes(before).await.is_empty());
 
-    // A path move, as a username change or an offboarding does, renames the tool.
+    // A path move, as a username change or an offboarding does, renames the tool. Only the live
+    // version signals; the archived ones are not listed.
     let moved_path = "f/test/list_change_moved";
     let before = get_latest_event_id(&db).await.unwrap();
     sqlx::query("UPDATE script SET path = $1 WHERE path = $2")
@@ -724,7 +727,7 @@ async fn test_trigger_notify_runnable_list_change(db: Pool<Postgres>) {
         .execute(&db)
         .await
         .unwrap();
-    assert_eq!(list_changes(before).await, vec!["test-workspace"; 3]);
+    assert_eq!(list_changes(before).await, vec!["test-workspace"]);
 
     let before = get_latest_event_id(&db).await.unwrap();
     sqlx::query("UPDATE script SET archived = true WHERE path = $1")
@@ -732,7 +735,7 @@ async fn test_trigger_notify_runnable_list_change(db: Pool<Postgres>) {
         .execute(&db)
         .await
         .unwrap();
-    assert_eq!(list_changes(before).await, vec!["test-workspace"; 3]);
+    assert_eq!(list_changes(before).await, vec!["test-workspace"]);
 
     // Statement-level, so deleting every version is one event.
     let before = get_latest_event_id(&db).await.unwrap();

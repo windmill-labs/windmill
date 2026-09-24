@@ -5,7 +5,8 @@
 -- Row-level with a column list and a WHEN guard, so the many unrelated UPDATEs on these tables
 -- (locks, `on_behalf_of` rewrites, workspace renames) pay nothing. A statement-level trigger would
 -- need transition tables, which Postgres refuses to combine with a column list, and would copy
--- every updated row, content included. The poller collapses the per-row events per workspace.
+-- every updated row, content included. A path move signals only unarchived rows: a bulk move
+-- (username change, offboarding) also rewrites every archived version, which no listing shows.
 CREATE OR REPLACE FUNCTION notify_runnable_list_change()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -31,7 +32,7 @@ AFTER UPDATE OF archived, deleted, path ON script
 FOR EACH ROW
 WHEN (OLD.archived IS DISTINCT FROM NEW.archived
     OR OLD.deleted IS DISTINCT FROM NEW.deleted
-    OR OLD.path IS DISTINCT FROM NEW.path)
+    OR (OLD.path IS DISTINCT FROM NEW.path AND NOT NEW.archived))
 EXECUTE FUNCTION notify_runnable_list_change();
 
 CREATE TRIGGER script_list_change_delete_trigger
@@ -43,7 +44,8 @@ EXECUTE FUNCTION notify_runnable_list_delete();
 CREATE TRIGGER flow_list_change_update_trigger
 AFTER UPDATE OF archived, path ON flow
 FOR EACH ROW
-WHEN (OLD.archived IS DISTINCT FROM NEW.archived OR OLD.path IS DISTINCT FROM NEW.path)
+WHEN (OLD.archived IS DISTINCT FROM NEW.archived
+    OR (OLD.path IS DISTINCT FROM NEW.path AND NOT NEW.archived))
 EXECUTE FUNCTION notify_runnable_list_change();
 
 CREATE TRIGGER flow_list_change_delete_trigger
