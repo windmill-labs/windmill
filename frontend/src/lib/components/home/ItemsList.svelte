@@ -379,13 +379,22 @@
 			agentOwnerCounts = {}
 			return
 		}
-		let rows: ListableResource[]
+		const rows: ListableResource[] = []
 		try {
-			rows = await ResourceService.listResource({
-				workspace: ws,
-				resourceType: 'ai_agent',
-				includeDraftOnly: true
-			})
+			// Paged even though search and scoping run over the whole set here: the listing caps a
+			// page, and only the first carries the draft-only rows, so a short page ends it.
+			const perPage = 1000
+			for (let page = 1; ; page++) {
+				const batch = await ResourceService.listResource({
+					workspace: ws,
+					resourceType: 'ai_agent',
+					includeDraftOnly: true,
+					page,
+					perPage
+				})
+				rows.push(...batch)
+				if (batch.length < perPage || gen !== agentsGen) break
+			}
 		} catch (e: any) {
 			if (gen !== agentsGen) return
 			sendUserToast(`Failed to load agents: ${e?.body ?? e?.message ?? e}`, true)

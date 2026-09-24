@@ -29,7 +29,7 @@
 		deploymentDrawer: DeployWorkspaceDrawer
 		deleteConfirmedCallback?: (() => void) | undefined
 		depth?: number
-		menuOpen?: boolean
+		menuOpen: boolean
 		keyboardSelected?: boolean
 	}
 
@@ -41,7 +41,7 @@
 		deploymentDrawer,
 		deleteConfirmedCallback = $bindable(),
 		depth = 0,
-		menuOpen = $bindable(false),
+		menuOpen = $bindable(),
 		keyboardSelected = false
 	}: Props = $props()
 

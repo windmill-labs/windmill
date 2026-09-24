@@ -333,7 +333,7 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 						loading = false
 						await sync.maybeRestore()
 					},
-					(err) => {
+					async (err) => {
 						if (loadedFor !== key) return
 						// Nothing is written until the first edit: the sync saves only on user input, and
 						// the first deploy creates the resource at whatever path the form then holds.
@@ -349,6 +349,9 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 								wsSpecific: false
 							}
 							loading = false
+							// Seeds the draft cell with the empty agent, or its first-write guard swallows the
+							// first edit.
+							await sync.maybeRestore()
 							return
 						}
 						// A failed load knows neither the resource's type nor its value, so it refuses:
