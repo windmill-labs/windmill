@@ -68,7 +68,7 @@ Windmill heavily relies on PostgreSQL database. This terraform deploys a standal
 
 Earlier versions of this example ran the LSP and Multiplayer as two separate services (`windmill_lsp.tf` and `windmill_multiplayer.tf`). A plain `terraform apply` of this version migrates such a stack: the `moved` blocks in [load_balancer.tf](./load_balancer.tf) keep the listener rule in place, and the old services and target groups are removed.
 
-While the new `windmill-extra` task starts (about 2.5 minutes in our test), the `/ws/*`, `/ws_mp/*` and `/ws_debug/*` routes answer 503, so code intelligence, multiplayer and the debugger are unavailable in the editor until it is healthy. The Windmill servers and workers are not affected.
+While the new `windmill-extra` task starts (about 2.5 minutes in our test), the `/ws/*` and `/ws_mp/*` routes answer 503, so code intelligence and multiplayer are unavailable in the editor until it is healthy. The debugger (`/ws_debug/*`) stays off in this example unless you set `ENABLE_DEBUGGER=true` in [windmill_extra.tf](./windmill_extra.tf). The Windmill servers and workers are not affected.
 
 ### Ready?
 
