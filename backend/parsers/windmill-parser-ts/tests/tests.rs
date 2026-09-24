@@ -7,6 +7,22 @@ mod tests {
         remove_pinned_import_specifiers,
     };
 
+    /// The server parses defaults natively, where a non-JSON literal cannot be evaluated.
+    #[test]
+    fn non_json_defaults_parse_without_a_value() {
+        let code = "export function main(opts = { enabled: true }, tags = ['a'], n = 1) {}";
+        let sig = parse_deno_signature(code, false, false, None).unwrap();
+        let defaults: Vec<_> = sig
+            .args
+            .iter()
+            .map(|a| (a.has_default, a.default.clone()))
+            .collect();
+        assert_eq!(
+            defaults,
+            vec![(true, None), (true, None), (true, Some(json!(1)))]
+        );
+    }
+
     #[test]
     fn test_imports_basic() {
         let code = r#"

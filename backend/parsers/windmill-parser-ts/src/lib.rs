@@ -1361,5 +1361,7 @@ pub fn eval_sync(code: &str) -> Result<serde_json::Value, String> {
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn eval_sync(_code: &str) -> Result<serde_json::Value, String> {
-    panic!("eval_sync is only available in wasm32")
+    // The server parses signatures with defaults too: a default that is not JSON
+    // (`{ a: 1 }`, `['x']`) is then left out rather than failing the parse.
+    Err("evaluating a JavaScript default needs the wasm build".to_string())
 }

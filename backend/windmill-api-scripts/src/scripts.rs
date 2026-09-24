@@ -1134,12 +1134,15 @@ async fn validate_dbt_relation(
 
 /// The schema the editor would have derived from `content`, for a deploy that sends
 /// none (MCP, a bare API call). `None` for a language whose parser this build lacks,
-/// or code that does not parse: the script still deploys, with no run-form schema.
+/// or code that does not parse.
 fn infer_main_schema(
     language: &ScriptLang,
+    kind: Option<&ScriptKind>,
     content: &str,
     previous: Option<&serde_json::Value>,
 ) -> Option<Schema> {
+    let entrypoint =
+        matches!(kind, Some(ScriptKind::Preprocessor)).then(|| "preprocessor".to_string());
     // The database a SQL script runs against is an argument unless the code names
     // it (`-- database f/...`), as in the editor.
     let with_db = |sig: anyhow::Result<windmill_parser::MainArgSignature>, resource: &str| {
@@ -1159,10 +1162,12 @@ fn infer_main_schema(
     };
     let sig = match language {
         ScriptLang::Bun | ScriptLang::Bunnative | ScriptLang::Deno | ScriptLang::Nativets => {
-            windmill_parser_ts::parse_deno_signature(content, false, false, None)
+            windmill_parser_ts::parse_deno_signature(content, false, false, entrypoint)
         }
         #[cfg(feature = "python")]
-        ScriptLang::Python3 => windmill_parser_py::parse_python_signature(content, None, false),
+        ScriptLang::Python3 => {
+            windmill_parser_py::parse_python_signature(content, entrypoint, false)
+        }
         ScriptLang::Go => windmill_parser_go::parse_go_sig(content),
         ScriptLang::Bash => windmill_parser_bash::parse_bash_sig(content),
         ScriptLang::Powershell => windmill_parser_bash::parse_powershell_sig(content),
@@ -1463,7 +1468,19 @@ async fn create_script_internal<'c>(
             .map(|s| s.0),
             None => None,
         };
-        ns.schema = infer_main_schema(&ns.language, &ns.content, previous.as_ref());
+        // Code the server cannot parse keeps the previous version's schema, as it
+        // does in the editor, rather than losing it for good.
+        ns.schema = infer_main_schema(
+            &ns.language,
+            ns.kind.as_ref(),
+            &ns.content,
+            previous.as_ref(),
+        )
+        .or_else(|| {
+            previous
+                .and_then(|p| serde_json::value::to_raw_value(&p).ok())
+                .map(|v| Schema(sqlx::types::Json(v)))
+        });
     }
 
     // Must stay below the parent resolution above: an auto_parent deploy hashed before

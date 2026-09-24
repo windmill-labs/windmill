@@ -300,6 +300,8 @@ fn apply_typ(typ: &Typ, old: &mut Map<String, Value>) {
         .map(str::to_string);
     let is_date = |f: &Option<String>| matches!(f.as_deref(), Some("date" | "date-time"));
     let mut keep_old_format = false;
+    // A changed type takes every key `new` sets, so none of the adjustments below
+    // apply: running them would carry the old type's date format or items over.
     if old_type != new_type {
     } else if new_format.as_deref() == Some("date-time") && old_format.as_deref() == Some("date") {
         new.insert("format".into(), json!("date"));
