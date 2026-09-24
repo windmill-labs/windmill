@@ -141,7 +141,6 @@
 		on:change={() => dispatch('reload')}
 		agent={item}
 		{shareModal}
-		{moveDrawer}
 		{deploymentDrawer}
 		{depth}
 		bind:menuOpen

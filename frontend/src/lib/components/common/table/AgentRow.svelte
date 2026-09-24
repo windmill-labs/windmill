@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { base } from '$lib/base'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
-	import type MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
@@ -13,7 +12,7 @@
 	import { isDeployable } from '$lib/utils_deployable'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
 	import { createEventDispatcher } from 'svelte'
-	import { FileUp, FolderInput, Pen, Shield, Trash } from 'lucide-svelte'
+	import { FileUp, Pen, Shield, Trash } from 'lucide-svelte'
 	import Button from '../button/Button.svelte'
 	import Row from './Row.svelte'
 
@@ -25,7 +24,6 @@
 		agent: ListableResource & { canWrite: boolean }
 		marked: string | undefined
 		shareModal: ShareModal
-		moveDrawer: MoveDrawer
 		deploymentDrawer: DeployWorkspaceDrawer
 		deleteConfirmedCallback?: (() => void) | undefined
 		depth?: number
@@ -37,7 +35,6 @@
 		agent,
 		marked,
 		shareModal,
-		moveDrawer,
 		deploymentDrawer,
 		deleteConfirmedCallback = $bindable(),
 		depth = 0,
@@ -111,14 +108,6 @@
 						disabled: !agent.canWrite,
 						action: () => {
 							shareModal.openDrawer?.(path, 'resource')
-						}
-					},
-					{
-						displayName: 'Move/Rename',
-						icon: FolderInput,
-						disabled: !agent.canWrite || Boolean(agent.draft_only),
-						action: () => {
-							moveDrawer.openDrawer(path, agent.description, 'resource')
 						}
 					},
 					...(!agent.ws_specific &&

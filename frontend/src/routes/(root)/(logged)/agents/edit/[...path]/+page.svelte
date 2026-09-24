@@ -23,6 +23,8 @@
 		enableAi={$copilotInfo.enabled}
 		owns={(t) => t.host === undefined}
 		onClose={(deployed) => goto(deployed ? `${base}/agents/get/${path}` : `${base}/?kind=agent`)}
-		onDeployed={(saved) => goto(`${base}/agents/get/${saved}`)}
+		onDeployed={(saved) =>
+			// Replaced, not pushed: Back would otherwise reopen `new_draft` on an agent that now exists.
+			goto(`${base}/agents/get/${saved}`, { replaceState: isNew })}
 	/>
 </div>

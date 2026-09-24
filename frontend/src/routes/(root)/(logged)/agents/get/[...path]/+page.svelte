@@ -1,15 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state'
-	import {
-		Bot,
-		FileUp,
-		FolderInput,
-		FormInput,
-		MessageSquare,
-		Pen,
-		Shield,
-		Trash
-	} from 'lucide-svelte'
+	import { Bot, FileUp, FormInput, MessageSquare, Pen, Shield, Trash } from 'lucide-svelte'
 	import { base } from '$lib/base'
 	import { goto } from '$lib/navigation'
 	import { copilotInfo } from '$lib/aiStore'
@@ -19,7 +10,6 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
-	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import AgentEditorHost from '$lib/components/flows/content/AgentEditorHost.svelte'
 	import { keepsManagedMemory } from '$lib/components/flows/agentFormFields'
@@ -43,9 +33,19 @@
 	let loaded = $derived(agent?.state != undefined)
 	let chatAvailable = $derived(keepsManagedMemory(agent?.state?.args?.memory))
 	let canEdit = $derived(loaded && (agent?.canWrite ?? false) && !$userStore?.operator)
+	// An agent runs as a flow preview, and the server refuses a preview to an operator, and to a
+	// non-admin under another user's namespace (`require_path_read_access_for_preview`).
+	let runBlockedReason = $derived(
+		$userStore?.operator
+			? 'Operators cannot run agents yet.'
+			: !$userStore?.is_admin &&
+				  path.startsWith('u/') &&
+				  !path.startsWith(`u/${$userStore?.username}/`)
+				? `Only its owner and workspace admins can run an agent under ${path.split('/').slice(0, 2).join('/')}.`
+				: undefined
+	)
 
 	let shareModal: ShareModal | undefined = $state(undefined)
-	let moveDrawer: MoveDrawer | undefined = $state(undefined)
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state(undefined)
 	let deleteOpen = $state(false)
 
@@ -63,7 +63,6 @@
 
 <ShareModal bind:this={shareModal} />
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
-<MoveDrawer bind:this={moveDrawer} on:update={(e) => goto(`${base}/agents/get/${e.detail}`)} />
 <ConfirmationModal
 	open={deleteOpen}
 	title="Delete agent"
@@ -91,7 +90,7 @@
 		<div class="grow"></div>
 		<!-- Only an agent that keeps the conversation can chat: without managed memory every message
 		     would be answered alone, so it is run from its inputs and nothing is offered to switch. -->
-		{#if loaded && chatAvailable && testPane?.mode}
+		{#if loaded && chatAvailable && !runBlockedReason && testPane?.mode}
 			<ToggleButtonGroup
 				bind:selected={
 					() => testPane?.mode,
@@ -130,12 +129,6 @@
 						icon: Shield,
 						disabled: !canEdit,
 						action: () => shareModal?.openDrawer?.(path, 'resource')
-					},
-					{
-						displayName: 'Move/Rename',
-						icon: FolderInput,
-						disabled: !canEdit,
-						action: () => moveDrawer?.openDrawer(path, agent?.state?.description, 'resource')
 					},
 					...(!agent?.state?.wsSpecific &&
 					isDeployable('resource', path, await getDeployUiSettings())
@@ -178,6 +171,7 @@
 				{toolId}
 				onSelectTool={(id) => (toolId = id)}
 				view
+				{runBlockedReason}
 			/>
 		{/key}
 	</div>
