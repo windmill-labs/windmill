@@ -309,13 +309,34 @@ pub struct InstanceUi {
     pub accent_color: Option<serde_json::Value>,
 }
 
+/// How long a cached [`InstanceUi`] is served before the next request re-reads it. Changes
+/// also invalidate it through `notify_global_setting_change`; this bounds staleness when
+/// that notification is lost, at one query per server per period whatever the session count.
+const INSTANCE_UI_TTL: std::time::Duration = std::time::Duration::from_secs(60);
+
 lazy_static::lazy_static! {
-    /// `None` until first read. Kept current by the `notify_global_setting_change` listener,
-    /// and by the writing process right after a write so its own next read is not stale.
-    static ref INSTANCE_UI: arc_swap::ArcSwapOption<InstanceUi> = arc_swap::ArcSwapOption::empty();
+    /// `None` means "read the database on the next request". Changes invalidate rather than
+    /// reload, so a failed read can never leave a stale value behind.
+    static ref INSTANCE_UI: arc_swap::ArcSwapOption<(std::time::Instant, Arc<InstanceUi>)> =
+        arc_swap::ArcSwapOption::empty();
 }
 
-pub async fn reload_instance_ui(db: &Pool<Postgres>) -> error::Result<Arc<InstanceUi>> {
+/// Bumped by every invalidation, so a read that started before one does not store the
+/// pre-change value it fetched.
+static INSTANCE_UI_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+pub fn invalidate_instance_ui() {
+    INSTANCE_UI_GENERATION.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    INSTANCE_UI.store(None);
+}
+
+pub async fn get_instance_ui(db: &Pool<Postgres>) -> error::Result<Arc<InstanceUi>> {
+    if let Some(cached) = INSTANCE_UI.load_full() {
+        if cached.0.elapsed() < INSTANCE_UI_TTL {
+            return Ok(cached.1.clone());
+        }
+    }
+    let generation = INSTANCE_UI_GENERATION.load(std::sync::atomic::Ordering::SeqCst);
     let rows = sqlx::query!(
         "SELECT name, value FROM global_settings WHERE name = ANY($1)",
         &[INSTANCE_BANNER_SETTING, ACCENT_COLOR_SETTING] as &[&str]
@@ -331,15 +352,10 @@ pub async fn reload_instance_ui(db: &Pool<Postgres>) -> error::Result<Arc<Instan
         }
     }
     let ui = Arc::new(ui);
-    INSTANCE_UI.store(Some(ui.clone()));
-    Ok(ui)
-}
-
-pub async fn get_instance_ui(db: &Pool<Postgres>) -> error::Result<Arc<InstanceUi>> {
-    match INSTANCE_UI.load_full() {
-        Some(ui) => Ok(ui),
-        None => reload_instance_ui(db).await,
+    if INSTANCE_UI_GENERATION.load(std::sync::atomic::Ordering::SeqCst) == generation {
+        INSTANCE_UI.store(Some(Arc::new((std::time::Instant::now(), ui.clone()))));
     }
+    Ok(ui)
 }
 
 pub fn is_instance_ui_setting(name: &str) -> bool {

@@ -1,8 +1,7 @@
 <script lang="ts">
 	import { get } from 'svelte/store'
-	import { SettingService } from '$lib/gen'
+	import { SettingService, SettingsService } from '$lib/gen'
 	import { enterpriseLicense } from '$lib/stores'
-	import { setLicense } from '$lib/enterpriseUtils'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 	import { applyAccentColor, parseAccentColor } from '$lib/accentColor'
 	import { instanceUi } from '$lib/instanceUi'
@@ -20,7 +19,8 @@
 	const cached = useLocalStorageValue<string>('instance_accent_color', '', 'string')
 
 	let color = $state(parseAccentColor(cached.val))
-	let licensed = $state(false)
+	// `undefined` until a license check succeeds; only a confirmed CE answer stops the poll.
+	let licensed = $state<boolean | undefined>(undefined)
 
 	// The poll, the tab-focus refresh and the post-save refresh can overlap, and responses
 	// are not ordered: without this a slow earlier fetch lands last and puts a retracted
@@ -30,9 +30,12 @@
 	async function load() {
 		const generation = ++latestLoad
 		try {
-			// `enterpriseLicense` stays unset both while loading and on CE, so resolve it here.
-			await setLicense()
-			licensed = !!get(enterpriseLicense)
+			// `enterpriseLicense` stays unset both while loading and on CE, so ask directly.
+			// Not through `setLicense()`: it swallows a failed request, which would read as CE
+			// and retract the banner and accent of a licensed instance.
+			const license = get(enterpriseLicense) || (await SettingsService.getLicenseId())
+			if (license && !get(enterpriseLicense)) enterpriseLicense.set(license)
+			licensed = !!license
 			const next = licensed ? await SettingService.getInstanceUi() : undefined
 			if (generation !== latestLoad) return
 			instanceUi.set(next)
@@ -53,7 +56,7 @@
 	})
 
 	$effect(() => {
-		if (!licensed) return
+		if (licensed === false) return
 		const interval = setInterval(() => {
 			if (!document.hidden) load()
 		}, POLL_MS)

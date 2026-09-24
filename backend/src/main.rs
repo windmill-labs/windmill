@@ -1998,9 +1998,7 @@ async fn process_notify_event(
                     }
                 }
                 INSTANCE_BANNER_SETTING | ACCENT_COLOR_SETTING => {
-                    if let Err(e) = windmill_common::global_settings::reload_instance_ui(db).await {
-                        tracing::error!(error = %e, "Could not reload instance ui settings");
-                    }
+                    windmill_common::global_settings::invalidate_instance_ui();
                 }
                 LICENSE_KEY_SETTING => {
                     if let Err(e) = reload_license_key(&db.into()).await {

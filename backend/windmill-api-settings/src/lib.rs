@@ -939,9 +939,7 @@ pub async fn set_global_setting_internal(
         }
     }
     if windmill_common::global_settings::is_instance_ui_setting(&key) {
-        if let Err(e) = windmill_common::global_settings::reload_instance_ui(db).await {
-            tracing::error!(error = %e, "Could not reload instance ui settings after write");
-        }
+        windmill_common::global_settings::invalidate_instance_ui();
     }
 
     Ok(())
@@ -1336,9 +1334,7 @@ async fn set_instance_config(
             .chain(settings_diff.deletes.iter())
             .any(|k| windmill_common::global_settings::is_instance_ui_setting(k));
         if touches_instance_ui {
-            if let Err(e) = windmill_common::global_settings::reload_instance_ui(&db).await {
-                tracing::error!(error = %e, "Could not reload instance ui settings after write");
-            }
+            windmill_common::global_settings::invalidate_instance_ui();
         }
     }
 
