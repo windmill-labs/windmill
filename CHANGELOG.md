@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.817.0](https://github.com/windmill-labs/windmill/compare/v1.816.0...v1.817.0) (2026-09-22)
+
+
+### Features
+
+* add workspace mentions to AI composer ([#11264](https://github.com/windmill-labs/windmill/issues/11264)) ([e7ba595](https://github.com/windmill-labs/windmill/commit/e7ba5954b69514d72c140f9b1e697fb2236df23e))
+* allow workspace-scoped dynamic custom tags ([#11283](https://github.com/windmill-labs/windmill/issues/11283)) ([efa7a0a](https://github.com/windmill-labs/windmill/commit/efa7a0a70af43f8827542059dd450326a9b88d62))
+* check dynamic worker tags on the tag they resolve to ([#11271](https://github.com/windmill-labs/windmill/issues/11271)) ([69fafb9](https://github.com/windmill-labs/windmill/commit/69fafb9262f90184e6c2dc9a84f1c3feeb9d9638))
+* deploy from the UI to a workspace on another instance ([#11245](https://github.com/windmill-labs/windmill/issues/11245)) ([4d12ea4](https://github.com/windmill-labs/windmill/commit/4d12ea461454f89367bd91daa7e8c39a89035507))
+
+
+### Bug Fixes
+
+* add missing credential fields to settings redaction lists ([#11272](https://github.com/windmill-labs/windmill/issues/11272)) ([2a40f25](https://github.com/windmill-labs/windmill/commit/2a40f25bda81d41b9f578338c85656744f59ebfc))
+* apply SSRF validation to workspace webhook URLs ([#11285](https://github.com/windmill-labs/windmill/issues/11285)) ([586699c](https://github.com/windmill-labs/windmill/commit/586699c4938b5203920a43e69a706310078b93f5))
+* apply token path scopes to the native trigger list ([#11281](https://github.com/windmill-labs/windmill/issues/11281)) ([faf7b22](https://github.com/windmill-labs/windmill/commit/faf7b22be0827738c90c1f3ed6cd3e214d6c63d3))
+* check workflow-as-code task tags against CUSTOM_TAGS ([#11273](https://github.com/windmill-labs/windmill/issues/11273)) ([2699d50](https://github.com/windmill-labs/windmill/commit/2699d5065ea3dfe985636733fb6022ca23187291))
+* clear the impersonation token from session storage on logout ([#11274](https://github.com/windmill-labs/windmill/issues/11274)) ([9936673](https://github.com/windmill-labs/windmill/commit/9936673ee62fb6dd929a654a6138aeca687c0fb7))
+* enforce token path scopes on GET /raw_apps/list ([#11284](https://github.com/windmill-labs/windmill/issues/11284)) ([9ad2c91](https://github.com/windmill-labs/windmill/commit/9ad2c91ddb661ab60ada9ec4039ef8d025602969))
+* keep a cancel that lands after a worker last read its queue row ([#11246](https://github.com/windmill-labs/windmill/issues/11246)) ([02006f3](https://github.com/windmill-labs/windmill/commit/02006f364a4217e967435d9e71d8617c03b65413))
+* size the AI chat output budget by model, not provider ([#11286](https://github.com/windmill-labs/windmill/issues/11286)) ([7d0f2ce](https://github.com/windmill-labs/windmill/commit/7d0f2ce3bf920a68f1ea22d59481d239947f1b51))
+* stop cutting DeepSeek chat turns off mid-thought ([#11282](https://github.com/windmill-labs/windmill/issues/11282)) ([5821700](https://github.com/windmill-labs/windmill/commit/58217006ece56bbaf0447af67cac487e72b928c7))
+* stop the raw app editor stealing focus in ai sessions ([#11287](https://github.com/windmill-labs/windmill/issues/11287)) ([7322143](https://github.com/windmill-labs/windmill/commit/732214361f36eb07d65854118bd053c96ce681fb))
+
 ## [1.816.0](https://github.com/windmill-labs/windmill/compare/v1.815.0...v1.816.0) (2026-09-21)
 
 

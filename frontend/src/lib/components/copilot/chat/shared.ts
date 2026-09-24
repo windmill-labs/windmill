@@ -7,6 +7,7 @@ import type { UserDraftItemKind } from '$lib/gen'
 // The gate's two refusals, from a module that holds prose and one size limit: under the
 // shallow-import rule below, the rest of plan mode is not reachable from here.
 import { PLAN_MODE_MESSAGES } from './planModeMessages'
+import { NONE } from './sessionCapabilities'
 // Import-free leaf, so it satisfies the shallow-import rule below.
 import {
 	openItemPreviewAction,
@@ -38,6 +39,7 @@ import type { CodePieceElement, ContextElement, FlowModuleCodePieceElement } fro
 import { workspaceStore } from '$lib/stores'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 import { findModuleInFlow, findModuleInModules } from '$lib/components/flows/flowTree'
+import { agentTestInputTransforms } from '$lib/components/flows/agentFormFields'
 import type { FunctionParameters } from 'openai/resources/shared.mjs'
 import { z } from 'zod'
 import {
@@ -59,6 +61,7 @@ import { forLater } from '$lib/forLater'
 import { scriptLangToEditorLang } from '$lib/scripts'
 import { getCurrentModel } from '$lib/aiStore'
 import { type editor as meditor } from 'monaco-editor'
+import { pendingFolderInstructions, type FolderInstructionsContext } from './folderInstructions'
 
 // Prettify function for code arguments - extracts and formats code from JSON
 function prettifyCodeArguments(content: string): string {
@@ -610,6 +613,84 @@ export type WebSearchSource = {
 	title?: string
 }
 
+export type ToolCodeDiff = {
+	before: string
+	after: string
+	/** Monaco language id. */
+	lang: string
+}
+
+/** The result shape any tool returns to have it rendered as a web search card. */
+export type WebSearchResult = {
+	sources: WebSearchSource[]
+	query?: string
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/** A link the card can render: the source list drops everything else, so a result whose
+ * urls are relative or `javascript:` would show as an empty list in place of its own output. */
+export function isRenderableSourceUrl(url: string): boolean {
+	try {
+		return ['http:', 'https:'].includes(new URL(url).protocol)
+	} catch {
+		return false
+	}
+}
+
+/** An absent optional field reaches JSON as `null` from a Python tool and as nothing from a
+ * TypeScript one, so both read as absent. */
+function isOptionalString(value: unknown): boolean {
+	return value === null || typeof value === 'string'
+}
+
+function isWebSearchSource(value: unknown): value is { url: string; title?: unknown } {
+	return (
+		isRecord(value) &&
+		typeof value.url === 'string' &&
+		isRenderableSourceUrl(value.url) &&
+		Object.entries(value).every(
+			([key, v]) => key === 'url' || (key === 'title' && isOptionalString(v))
+		)
+	)
+}
+
+/**
+ * A tool result as a web search, or undefined when it is anything else. The keys must be
+ * exactly `sources` and an optional `query`: the card renders only urls and titles, so a
+ * result carrying more would lose it. Accepts the result as its JSON text too.
+ */
+export function webSearchResultOf(result: unknown): WebSearchResult | undefined {
+	if (typeof result === 'string') {
+		try {
+			result = JSON.parse(result)
+		} catch {
+			return undefined
+		}
+	}
+	if (!isRecord(result) || !Array.isArray(result.sources) || result.sources.length === 0) {
+		return undefined
+	}
+	const sources = result.sources
+	if (
+		!sources.every(isWebSearchSource) ||
+		!Object.entries(result).every(
+			([key, v]) => key === 'sources' || (key === 'query' && isOptionalString(v))
+		)
+	) {
+		return undefined
+	}
+	return {
+		sources: sources.map((source) => ({
+			url: source.url,
+			title: typeof source.title === 'string' ? source.title : undefined
+		})),
+		query: typeof result.query === 'string' ? result.query : undefined
+	}
+}
+
 export type ToolDisplayMessage = {
 	role: 'tool'
 	tool_call_id: string
@@ -654,6 +735,9 @@ export type ToolDisplayMessage = {
 	 * always-visible card that opens (or focuses) the item's preview in the
 	 * session side panel. Set only for session chats — the side panel is their surface. */
 	previewCard?: { kind: PreviewCardKind; path: string }
+	/** Whole text on both sides of an edit this call saved. Kept in full rather than as a
+	 * reference: drafts are overwritten in place, so the sides cannot be fetched back later. */
+	codeDiff?: ToolCodeDiff
 	planArtifactId?: string
 	/** The version this card's proposal wrote, so a card scrolled far up still opens the plan
 	 * it proposed rather than what the document became. */
@@ -661,6 +745,8 @@ export type ToolDisplayMessage = {
 	/** Refused by the plan-mode gate. Renders as its own lean row rather than a tool
 	 * error, so the transcript says the mode stopped it and not that the call failed. */
 	blockedByPlanMode?: boolean
+	/** Held back until the model has read the folder instructions it was handed. */
+	heldForFolderInstructions?: boolean
 	/** The user declined: the reject button, a Stop, or a posture switch. Set only there, so
 	 * a decision is distinguishable from every other way a call errors. */
 	declinedByUser?: boolean
@@ -893,20 +979,29 @@ function stringifyErrorBody(body: unknown): string {
  * (tab closed while a tool polls) logs nothing, so the statuses sum to the calls that
  * finished, not to the calls made.
  */
-type ToolCallStatus = 'ok' | 'error' | 'declined' | 'rejected' | 'blocked_plan_mode'
+type ToolCallStatus =
+	| 'ok'
+	| 'error'
+	| 'declined'
+	| 'rejected'
+	| 'blocked_plan_mode'
+	| 'held_for_instructions'
 
 export async function processToolCall<T>({
 	tools,
 	toolCall,
 	helpers,
 	toolCallbacks,
-	workspace
+	workspace,
+	messages = []
 }: {
 	tools: Tool<T>[]
 	toolCall: ChatCompletionMessageFunctionToolCall
 	helpers: T
 	toolCallbacks: ToolCallbacks
 	workspace?: string
+	/** The conversation so far, for which folder instructions it already carries. */
+	messages?: readonly ChatCompletionMessageParam[]
 }): Promise<ChatCompletionMessageParam> {
 	const tool = tools.find((t) => t.def.function.name === toolCall.function.name)
 	const workspaceId = workspace ?? get(workspaceStore) ?? ''
@@ -987,6 +1082,43 @@ export async function processToolCall<T>({
 				role: 'tool' as const,
 				tool_call_id: toolCall.id,
 				content: rejection.result
+			}
+		}
+
+		// After the gates that refuse the call, so a refused call does not use up the
+		// delivery. A call that changes something is held back until the model has read
+		// the instructions: arriving with its result, they would be too late to shape it.
+		const folderInstructions = tool
+			? await pendingFolderInstructions(
+					toolCallbacks.folderInstructions,
+					messages,
+					args,
+					workspaceId
+				)
+			: undefined
+		if (folderInstructions?.paths.length) {
+			toolCallbacks.folderInstructions?.deliveredBy.set(toolCall.id, {
+				workspace: workspaceId,
+				paths: folderInstructions.paths
+			})
+		}
+		if (folderInstructions && tool?.planModeSafe !== true) {
+			logToolOutcome('held_for_instructions')
+			toolCallbacks.setToolStatus(toolCall.id, {
+				content: 'Read folder instructions',
+				heldForFolderInstructions: true,
+				parameters: args,
+				isLoading: false,
+				isQueued: false,
+				isStreamingArguments: false,
+				needsConfirmation: false,
+				showDetails: tool?.showDetails,
+				autoCollapseDetails: tool?.autoCollapseDetails
+			})
+			return {
+				role: 'tool' as const,
+				tool_call_id: toolCall.id,
+				content: `Not run: this call touches a folder whose instructions you had not read yet. Follow them, then make the call again (adjusted if they require it).\n\n${folderInstructions.text}`
 			}
 		}
 
@@ -1094,7 +1226,7 @@ export async function processToolCall<T>({
 		const toAdd = {
 			role: 'tool' as const,
 			tool_call_id: toolCall.id,
-			content: result
+			content: folderInstructions ? `${result}\n\n${folderInstructions.text}` : result
 		}
 		return toAdd
 	} catch (err) {
@@ -1168,7 +1300,10 @@ export interface Tool<T> {
 		workspace: string
 		helpers: T
 	}) => MaybePromise<ToolRejection | undefined>
-	setSchema?: (helpers: any) => Promise<void>
+	/** This chat's definition of the tool, for a schema that depends on the chat (its workspace,
+	 * its open flow). Returns a new def: tools are module singletons shared by every chat, so
+	 * one written back leaks into the others. */
+	schemaFor?: (helpers: any) => Promise<ChatCompletionFunctionTool>
 	/** Safe to run while plan mode is active. Absence fails closed. */
 	planModeSafe?: boolean
 	/** The arguments a plan-mode-safe tool still refuses while the posture holds — for a tool
@@ -1369,6 +1504,9 @@ export interface ToolCallbacks {
 	attachToolImage?: (toolId: string, image: AttachedImage) => void
 	/** Drain every image buffered this batch (insertion order), clearing the buffer. */
 	takePendingToolImages?: () => AttachedImage[]
+	/** Wired only by the global/sessions chat: delivers the folder instructions
+	 * covering the paths a tool call names, once per conversation. */
+	folderInstructions?: FolderInstructionsContext
 }
 
 export function createToolDef(
@@ -1468,6 +1606,7 @@ export function isHubPath(path: string): boolean {
 }
 
 export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
+	requires: NONE,
 	def: searchHubScriptsToolDef,
 	planModeSafe: true,
 	fn: async ({ args, toolId, toolCallbacks }) => {
@@ -1871,6 +2010,15 @@ export async function buildTestRunArgs(
 	return parsedArgs
 }
 
+// Said with the result rather than in the system prompt: there, models still copied a
+// result's table or JSON into the reply, under a card that already renders it. Only for
+// a successful run in the generic card completedJobToolStatus fills: a failed run's card
+// lands on the error with the logs a tab away, and a formatCompletion card shows its own.
+// Never on a background completion: its card can be far up the chat by then, so the
+// reply may be the only place the user reads the result.
+const RESULT_SHOWN_NOTE =
+	"The user already sees this run's result in its card. Do not repeat the result or logs in your reply: say what it shows, quoting only the values your conclusion rests on."
+
 // The string handed back to the model when a job is backgrounded. It carries the
 // job id so the model can pull status/args/result/logs on demand (get_run / list_runs),
 // and tells it the completion will be reported later (notify-only wake).
@@ -2015,7 +2163,12 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 			...(job.success ? {} : { error: getErrorMessage(job.result) })
 		})
 
-		const summary = formatResultSummary(job.result, job.logs, job.success)
+		// detachEnabled marks the global/sessions chat; the in-editor chats read the summary
+		// alone. The card opening on the result is up to each tool: a run card does, a
+		// generic one only with `autoCollapseDetails: false` at its registration.
+		const summary =
+			(detachEnabled && job.success ? `${RESULT_SHOWN_NOTE}\n` : '') +
+			formatResultSummary(job.result, job.logs, job.success)
 		// get_run only exists in the global/sessions chat (the same hosts that wire
 		// the job hooks) — don't advertise it to in-editor chats.
 		if (detachEnabled && config.contextName === 'flow' && !job.success) {
@@ -2060,6 +2213,13 @@ type FlowStepRunConfig = {
 	toolId: string
 	loadScript?: FlowStepScriptLoader
 	loadSubflow?: FlowStepSubflowLoader
+	/** The path of the flow the step belongs to. An agent step's preview carries it, as the flow
+	 * editor's own step test does: the run is filed under it, and a managed memory keyed on a
+	 * memory id someone named reads the flow's conversation rather than a stray one. */
+	flowPath?: string
+	/** The flow editor's substitution of a linked agent's unsaved draft, passed in because it
+	 * reaches the draft store, which this module's import list must not. */
+	withAgentDrafts?: (value: FlowValue) => Promise<FlowValue>
 }
 
 export type FlowStepTestRunConfig = FlowStepRunConfig & {
@@ -2084,8 +2244,9 @@ export type ResolvedFlowStepRun = {
 	startMessage: string
 	/** Takes the arguments as submitted. The preprocessor's entrypoint override is added
 	 * here rather than by the caller: it is declared by no schema, so anything that
-	 * conforms arguments to one would drop it. */
-	startJob: (args: Record<string, any>) => Promise<string>
+	 * conforms arguments to one would drop it. An agent step also takes the run form's rows:
+	 * each runs from its submitted value, including one the submission leaves out. */
+	startJob: (args: Record<string, any>, formKeys?: readonly string[]) => Promise<string>
 }
 
 function normalizeFlowStepArgs(args: Record<string, any> | null | undefined): Record<string, any> {
@@ -2129,7 +2290,9 @@ export async function resolveFlowStepRun({
 	toolCallbacks,
 	toolId,
 	loadScript = loadDeployedScriptForFlowStep,
-	loadSubflow
+	loadSubflow,
+	flowPath,
+	withAgentDrafts
 }: FlowStepRunConfig): Promise<ResolvedFlowStepRun> {
 	const targetModule = findModuleInFlow(flowValue, stepId) ?? undefined
 
@@ -2216,12 +2379,51 @@ export async function resolveFlowStepRun({
 		}
 	}
 
+	if (moduleValue.type === 'aiagent') {
+		return {
+			module: targetModule,
+			// The job started is a flow preview: an agent step has none of its own, and the tool
+			// calls it makes are that flow's steps.
+			runnableKind: 'flow',
+			startMessage: `Starting test run of agent step "${stepId}"...`,
+			startJob: async (args, formKeys) => {
+				// The step alone, stripped of the settings around it: a mock would answer for it
+				// and a suspend would hold the run for an approval nobody is watching for.
+				const value: FlowValue = {
+					modules: [
+						{
+							id: targetModule.id,
+							value: {
+								...moduleValue,
+								input_transforms: agentTestInputTransforms(
+									moduleValue.input_transforms,
+									args,
+									formKeys
+								)
+							}
+						}
+					]
+				}
+				return JobService.runFlowPreview({
+					workspace,
+					requestBody: {
+						// After the inputs are wired, as the flow editor's step test does: a linked agent's
+						// draft brings its own brain and tools, and the step's run inputs stay on top.
+						value: withAgentDrafts ? await withAgentDrafts(value) : value,
+						args,
+						path: flowPath
+					}
+				})
+			}
+		}
+	}
+
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Step type "${moduleValue.type}" not supported for testing`,
 		error: `Cannot test step of type "${moduleValue.type}"`
 	})
 	throw new Error(
-		`Cannot test step of type "${moduleValue.type}". Supported types: rawscript, script, flow`
+		`Cannot test step of type "${moduleValue.type}". Supported types: rawscript, script, flow, aiagent`
 	)
 }
 

@@ -115,6 +115,7 @@ export interface SyncOptions {
 
 export interface Codebase {
   relative_path: string;
+  extra_digest_paths?: string[];
   includes?: string[];
   excludes?: string[];
   assets?: {

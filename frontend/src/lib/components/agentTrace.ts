@@ -8,10 +8,10 @@ import type { AgentMessage } from './aiAgentResult'
  * are shown as inputs, while the trace is what the agent did with them.
  */
 export type AgentTraceEntry =
-	| { kind: 'assistant'; content: string; sources?: WebSearchSource[] }
-	/** A search records only that one happened: the worker writes a constant
-	 *  sentence, and the citations ride on the assistant turn that follows. */
-	| { kind: 'search' }
+	| { kind: 'assistant'; content: string }
+	/** The worker records only that a search happened. Its citations ride on the assistant
+	 *  turn that follows, and are moved here so the search shows what it found. */
+	| { kind: 'search'; sources?: WebSearchSource[] }
 	| {
 			kind: 'tool'
 			name: string
@@ -99,8 +99,14 @@ export function buildAgentTrace(messages: AgentMessage[]): AgentTraceEntry[] {
 			continue
 		}
 		const content = contentText(message.content)
+		// The worker writes a provider call's search right before that call's answer, and
+		// only a call that searched carries annotations.
+		const previous = entries[entries.length - 1]
+		if (message.role === 'assistant' && previous?.kind === 'search' && !previous.sources) {
+			previous.sources = sourcesOf(message)
+		}
 		if (message.role === 'assistant' && content !== '') {
-			entries.push({ kind: 'assistant', content, sources: sourcesOf(message) })
+			entries.push({ kind: 'assistant', content })
 		}
 	}
 	return entries
@@ -108,27 +114,21 @@ export function buildAgentTrace(messages: AgentMessage[]): AgentTraceEntry[] {
 
 /**
  * Separates the turn that produced the output from the rest of the trace, so the
- * answer is rendered once with the citations that belong to it. Found by content
- * and searched from the end: a run whose last turn returned a tool call leaves its
- * answer mid-trace, where inspecting only the final entry prints it twice.
+ * answer is rendered once. Found by content and searched from the end: a run whose
+ * last turn returned a tool call leaves its answer mid-trace, where inspecting only
+ * the final entry prints it twice.
  */
-export function splitFinalAnswer(
-	entries: AgentTraceEntry[],
-	output: unknown
-): { trace: AgentTraceEntry[]; sources?: WebSearchSource[] } {
+export function splitFinalAnswer(entries: AgentTraceEntry[], output: unknown): AgentTraceEntry[] {
 	if (typeof output !== 'string') {
 		// A schema-shaped output is rendered by the result viewer itself and matches
 		// no turn, so the whole trace stands.
-		return { trace: entries }
+		return entries
 	}
 	for (let i = entries.length - 1; i >= 0; i--) {
 		const entry = entries[i]
 		if (entry.kind === 'assistant' && entry.content === output) {
-			// The citations are an annotation on that turn, so moving the turn without
-			// them would leave a run that shows a web search ran and no source for
-			// what it answered.
-			return { trace: [...entries.slice(0, i), ...entries.slice(i + 1)], sources: entry.sources }
+			return [...entries.slice(0, i), ...entries.slice(i + 1)]
 		}
 	}
-	return { trace: entries }
+	return entries
 }
