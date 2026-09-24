@@ -1016,7 +1016,7 @@
 									// Above the other header cells, whose resize handles sit at z-10.
 									pin ? 'sticky z-20 bg-surface-tertiary dark:bg-surface-input' : '',
 									// The pinned block's edge against the scrolling columns is a pixel thicker.
-									col.field === lastLeftPinned ? 'border-r-2' : '',
+									col.field === lastLeftPinned ? 'border-r-2 border-border-light' : '',
 									col.field === firstRightPinned ? 'border-l-2' : ''
 								)}
 								style:width="{colWidth(col.field)}px"
@@ -1095,7 +1095,7 @@
 											'shrink-0 px-2 border-r truncate select-none',
 											dbColumnKind(col.datatype) === 'number' ? 'text-right tabular-nums' : '',
 											pin ? 'sticky z-[1] bg-surface-tertiary dark:bg-surface-input' : '',
-											col.field === lastLeftPinned ? 'border-r-2' : '',
+											col.field === lastLeftPinned ? 'border-r-2 border-border-light' : '',
 											col.field === firstRightPinned ? 'border-l-2' : '',
 											isSelected ? 'outline outline-1 -outline-offset-1 outline-border-accent' : ''
 										)}
