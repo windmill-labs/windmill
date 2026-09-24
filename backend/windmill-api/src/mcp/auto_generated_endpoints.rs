@@ -701,7 +701,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 },
                 "schema": {
                         "type": "object",
-                        "description": "JSON Schema of the arguments of `main`, which is what a run form and an MCP tool offer. Omitted, it is inferred from `content` and `language`, keeping the argument descriptions of the version this one supersedes."
+                        "description": "JSON Schema of the arguments of `main`, which is what a run form and an MCP tool offer. Omitted (or `{}`), it is inferred from `content` for TypeScript, Python, Go, Bash, PowerShell, SQL, GraphQL and Ansible scripts, keeping what the superseded version's schema says about each argument. Other languages get none unless it is given."
                 },
                 "language": {
                         "type": "string",
@@ -763,7 +763,7 @@ is, a different one moves it there and archives the old path"),
                 },
                 "schema": {
                         "type": "object",
-                        "description": "JSON Schema of the arguments of `main`, which is what a run form and an MCP tool offer. Omitted, it is inferred from `content` and `language`, keeping the argument descriptions of the version this one supersedes."
+                        "description": "JSON Schema of the arguments of `main`, which is what a run form and an MCP tool offer. Omitted (or `{}`), it is inferred from `content` for TypeScript, Python, Go, Bash, PowerShell, SQL, GraphQL and Ansible scripts, keeping what the superseded version's schema says about each argument. Other languages get none unless it is given."
                 },
                 "language": {
                         "type": "string",
