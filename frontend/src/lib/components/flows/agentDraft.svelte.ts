@@ -277,6 +277,11 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 					async ([r, user]) => {
 						// A slower response for a path we have left must not overwrite the current one.
 						if (loadedFor !== key) return
+						// The path was minted as free, so something already there is someone else's work.
+						if (opts.isNew?.()) {
+							refuse(`${path} already exists. Close this and create the agent again.`)
+							return
+						}
 						// A step's `agent` is caller-authored, so it can name a resource of any type, and a
 						// deploy from here would replace that resource's whole value while keeping its type.
 						const refused = agentEditorRefusal(path, r.resource_type)

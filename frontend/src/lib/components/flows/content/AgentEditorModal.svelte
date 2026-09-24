@@ -218,7 +218,9 @@
 		const at = deployingFor ?? currentWriteTarget()
 		// Before the rename is announced: it finds the steps to refresh under the old path.
 		const reconciled = reconcile(at, savedPath)
-		if (at && savedPath !== at.path) {
+		// A new agent's first deploy is announced like a rename even at the same path: the surface
+		// has anchored nothing for it yet, and reopening drops `isNew` now that it exists.
+		if (at && (savedPath !== at.path || target?.isNew)) {
 			onRenamed?.(at.path, savedPath)
 			// The dialog is keyed on the path, so this reloads it on the renamed agent. Only while it
 			// still shows the one deployed: it can be closed or pointed elsewhere mid-request.

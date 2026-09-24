@@ -445,6 +445,8 @@
 		// nothing to append for agents.
 		if (reset) void loadAgents()
 		if (!showsRunnables) {
+			// Supersedes a page still in flight, which would otherwise land in the agent view.
+			++loadGen
 			scripts = []
 			flows = []
 			apps = []
@@ -628,6 +630,13 @@
 		// Track the prefix as open first — even a no-op call (re-expanding a cached node)
 		// means it's on screen, so later reloads must refresh it.
 		openOwners.add(owner)
+		// The agent view has no runnables to page in: its rows are the loaded agents, which
+		// `treeSource` adds itself. Rows an owner held from another kind go with the switch.
+		if (!showsRunnables) {
+			treeOwnerItems = treeOwnerItems.filter((x) => !effectivePath(x).startsWith(`${owner}/`))
+			ownerLoad[owner] = { hasMore: false, loading: false, loaded: true, gen: treeGen }
+			return
+		}
 		const st = ownerLoad[owner]
 		// Only a load for the CURRENT generation blocks a new one. A load left in flight
 		// by a superseded generation (treeGen bumped on a sort/filter reload) has already
