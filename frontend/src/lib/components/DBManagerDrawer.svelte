@@ -10,17 +10,15 @@
 		ArrowLeft,
 		Copy,
 		Download,
-		Expand,
-		Minimize,
 		Network,
 		RefreshCcw,
 		Table2,
+		Tag,
 		Upload
 	} from 'lucide-svelte'
 	import DBManagerContent from './DBManagerContent.svelte'
+	import DropdownV2 from './DropdownV2.svelte'
 	import type { DbManagerViewMode, PendingRowAction } from './DBManager.svelte'
-	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
 	import { getDbType } from './dbOps'
 	import DataTableMigrationsButton from './workspaceSettings/DataTableMigrationsButton.svelte'
@@ -176,12 +174,8 @@
 		dbManagerContent?.clearReplResult()
 	}
 
-	let windowWidth = $state(window.innerWidth)
-	let expand = $state(false)
-
 	$effect(() => {
 		if (!open) {
-			expand = false
 			uriState.closeDrawer()
 			// An action asked for on one data table must not be waiting when the
 			// drawer is next opened on another database — or on no data table at
@@ -214,6 +208,7 @@
 	let exportDrawerOpen = $state(false)
 	let exportResult = $state('')
 	let importDrawerOpen = $state(false)
+	let workerTagOpen = $state(false)
 	let importLoading = $state(false)
 	let importSource = $state<string | undefined>(undefined)
 	/** Which database an import writes into; set when driven from a tree row. */
@@ -318,15 +313,7 @@
 	}
 </script>
 
-<svelte:window bind:innerWidth={windowWidth} />
-
-<Drawer
-	bind:open
-	size={expand ? `${windowWidth}px` : '1200px'}
-	preventEscape
-	{offset}
-	on:close={handleClose}
->
+<Drawer bind:open placement="center" preventEscape {offset} on:close={handleClose}>
 	<DrawerContent
 		title={hasReplResult ? 'Query Result' : 'Database Manager'}
 		on:close={() => {
@@ -338,6 +325,7 @@
 		}}
 		CloseIcon={hasReplResult ? ArrowLeft : undefined}
 		noPadding
+		overflow_y={false}
 		id="db-manager-drawer"
 	>
 		{#if contentInput && ws && roleSettled}
@@ -375,51 +363,83 @@
 				></DBManagerContent>
 			{/key}
 		{/if}
+		{#snippet titleExtra()}
+			{@const mainPaneLeft = dbManagerContent?.dbManager()?.mainPaneLeft()}
+			{#if diagramSupported && mainPaneLeft}
+				<!-- Floating tabs over the right pane, starting where it starts. -->
+				<div
+					class="absolute inset-y-0 flex items-center gap-1"
+					style:left="{mainPaneLeft}px"
+					role="tablist"
+				>
+					{#each [{ value: 'data', label: 'Data', icon: Table2 }, { value: 'diagram', label: 'Diagram', icon: Network }] as const as tab (tab.value)}
+						{@const active = requestedViewMode === tab.value}
+						<button
+							role="tab"
+							aria-selected={active}
+							class={active
+								? 'flex h-7 items-center gap-1.5 rounded-md border bg-surface-tertiary px-2.5 text-xs font-medium text-emphasis shadow-sm'
+								: 'flex h-7 items-center gap-1.5 rounded-md border border-transparent px-2.5 text-xs text-secondary hover:bg-surface-hover hover:text-primary'}
+							onclick={() => {
+								if (active) return
+								requestedViewMode = tab.value
+								logFeatureUsage('db_manager', 'view_mode', { key: tab.value })
+							}}
+						>
+							<tab.icon size={14} />
+							{tab.label}
+						</button>
+					{/each}
+				</div>
+			{/if}
+		{/snippet}
 		{#snippet actions()}
-			<!-- A data table exports and imports from its row menu in the tree; a plain
-				 database has no tree row to hold them. -->
-			{#if enableImportExport && !uriState.isDatatableInput}
-				<Button startIcon={{ icon: Download }} onClick={() => handleExportSchema()}>Export</Button>
-				<Button
-					startIcon={{ icon: Upload }}
-					onClick={() => ((importTarget = undefined), (importDrawerOpen = true))}
-				>
-					Import
-				</Button>
-			{/if}
-			{#if diagramSupported}
-				<ToggleButtonGroup
-					bind:selected={requestedViewMode}
-					noWFull
-					onSelected={(v) => logFeatureUsage('db_manager', 'view_mode', { key: v })}
-				>
-					{#snippet children({ item })}
-						<ToggleButton value="data" label="Data" icon={Table2} {item} />
-						<ToggleButton value="diagram" label="Diagram" icon={Network} {item} />
-					{/snippet}
-				</ToggleButtonGroup>
-			{/if}
 			{#if uriState.effectiveInput && ws}
-				<DbWorkerTagButton
-					bind:tag={() => workerTag.tag, (v) => (workerTag.tag = v)}
-					input={uriState.effectiveInput}
-					workspace={ws}
-				/>
+				{@const input = uriState.effectiveInput}
+				<!-- The hidden tag button anchors its picker under this menu's trigger. -->
+				<div class="flex items-center">
+					<DropdownV2
+						enableFlyTransition
+						items={() => [
+							{
+								displayName: workerTag.tag ? `Worker tag: ${workerTag.tag}` : 'Worker tag',
+								icon: Tag,
+								action: () => (workerTagOpen = true)
+							},
+							// A data table exports and imports from its row menu in the tree; a
+							// plain database has no tree row to hold them.
+							...(enableImportExport && !uriState.isDatatableInput
+								? [
+										{
+											displayName: 'Export',
+											icon: Download,
+											action: () => handleExportSchema()
+										},
+										{
+											displayName: 'Import',
+											icon: Upload,
+											action: () => ((importTarget = undefined), (importDrawerOpen = true))
+										}
+									]
+								: [])
+						]}
+						btnId="db-manager-database-actions"
+					/>
+					<DbWorkerTagButton
+						bind:tag={() => workerTag.tag, (v) => (workerTag.tag = v)}
+						bind:open={workerTagOpen}
+						hideTrigger
+						{input}
+						workspace={ws}
+					/>
+				</div>
 			{/if}
-
 			<Button
 				loading={dbManagerContent?.isLoading() ?? false}
 				on:click={refreshManager}
 				startIcon={{ icon: RefreshCcw }}
 				iconOnly
 				title="Refresh"
-				size="xs"
-				color="light"
-			/>
-
-			<Button
-				on:click={() => (expand = !expand)}
-				startIcon={{ icon: expand ? Minimize : Expand }}
 				size="xs"
 				color="light"
 			/>

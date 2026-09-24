@@ -37,8 +37,10 @@ export type IDbTableOps = {
 		quicksearch: string
 		order_by: string
 		is_desc: boolean
+		/** Raw SQL predicate AND-ed into this read (already escaped). */
+		whereClause?: string
 	}) => Promise<unknown[]>
-	getCount: (params: { quicksearch: string }) => Promise<number>
+	getCount: (params: { quicksearch: string; whereClause?: string }) => Promise<number>
 	onUpdate?: (
 		row: { values: object },
 		colDef: { field: string; datatype: string },
@@ -81,16 +83,21 @@ export function dbTableOpsWithPreviewScripts({
 		if (ducklake) payload.ducklake = ducklake
 		return `-- WM_INTERNAL_DB_${op} ${JSON.stringify(payload)}`
 	}
+	function combinedWhere(extra: string | undefined): string | undefined {
+		if (!whereClause || !extra) return whereClause || extra || undefined
+		return `(${whereClause}) AND (${extra})`
+	}
 
 	return {
 		dbType,
 		tableKey,
 		colDefs,
-		getCount: async ({ quicksearch }) => {
+		getCount: async ({ quicksearch, whereClause: extraWhere }) => {
+			const where = combinedWhere(extraWhere)
 			const content = makeMarker('COUNT', {
 				table: tableKey,
 				columnDefs: colDefs,
-				...(whereClause ? { whereClause } : {}),
+				...(where ? { whereClause: where } : {}),
 				...(version != undefined ? { version } : {})
 			})
 			const result = await runScriptAndPollResult({
@@ -100,12 +107,13 @@ export function dbTableOpsWithPreviewScripts({
 			const count = result?.[0].count as number
 			return count
 		},
-		getRows: async (params) => {
+		getRows: async ({ whereClause: extraWhere, ...params }) => {
+			const where = combinedWhere(extraWhere)
 			const content = makeMarker('SELECT', {
 				table: tableKey,
 				columnDefs: colDefs,
 				fixPgIntTypes: true,
-				...(whereClause ? { whereClause } : {}),
+				...(where ? { whereClause: where } : {}),
 				...(version != undefined ? { version } : {})
 			})
 			let items = (await runScriptAndPollResult({

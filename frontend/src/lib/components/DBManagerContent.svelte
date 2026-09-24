@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { dbTableLayoutStorageKey } from './dbManagerDrawerModel.svelte'
 	import { dbSchemas, type DBSchema } from '$lib/stores'
 	import type { DataTableTables } from '$lib/gen'
 	import { sortArray } from '$lib/utils'
@@ -327,11 +328,10 @@
 				dbSchema={shownSchema}
 				mainPane={loadError ? errorPane : undefined}
 				colDefs={loadError ? undefined : colDefsOfInput}
-				dbTableOpsFactory={({ colDefs, tableKey, whereClause }) =>
+				dbTableOpsFactory={({ colDefs, tableKey }) =>
 					dbTableOpsWithPreviewScripts({
 						colDefs,
 						tableKey,
-						whereClause,
 						input: _input,
 						workspace: ws,
 						tag: workerTag
@@ -373,6 +373,7 @@
 				bind:this={_dbManager}
 				{disabledTables}
 				features={getDbFeatures(input)}
+				tableLayoutKey={(schema, table) => dbTableLayoutStorageKey(ws, _input, schema, table)}
 			/>
 		</Pane>
 		{#if showRepl}

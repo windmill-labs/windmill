@@ -74,7 +74,7 @@
 >
 	<div
 		class={classNames(
-			'flex justify-between w-full items-center pr-4 py-2 gap-2',
+			'relative flex justify-between w-full items-center pr-4 py-2 gap-2',
 			hideClose ? 'pl-4' : 'pl-2'
 		)}
 	>

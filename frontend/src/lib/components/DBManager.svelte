@@ -92,12 +92,7 @@
 		dbSupportsSchemas: boolean
 		databaseIsEmpty?: boolean
 		colDefs: Record<string, ColumnDef[]> | undefined
-		dbTableOpsFactory: (params: {
-			colDefs: ColumnDef[]
-			tableKey: string
-			/** Raw SQL predicate AND-ed into the reads (already escaped). */
-			whereClause?: string
-		}) => IDbTableOps
+		dbTableOpsFactory: (params: { colDefs: ColumnDef[]; tableKey: string }) => IDbTableOps
 		dbSchemaOps: IDbSchemaOps
 		refresh?: () => void
 		initialSchemaKey?: string
@@ -132,6 +127,8 @@
 		/** Shown in the data pane instead of the table, e.g. why the database could not be read. */
 		mainPane?: Snippet
 		onImport?: (mode: 'schema_and_data' | 'schema_only') => void
+		/** Where a table's grid layout (pins, widths) is remembered; not remembered without it. */
+		tableLayoutKey?: (schema: string | undefined, table: string) => string
 	}
 	let {
 		requestedViewMode = 'data',
@@ -164,6 +161,7 @@
 		features,
 		asset,
 		onImport,
+		tableLayoutKey,
 		mainPane
 	}: Props = $props()
 
@@ -624,15 +622,11 @@
 			: selected.tableKey
 	)
 
-	// Set by "Go to row" on a foreign-keyed cell; pinned to the table it was
-	// created for so a schema change can't carry it onto an unrelated table.
+	// Set by following a foreign key, until the table's search bar takes it; pinned
+	// to the table it was created for so a schema change can't carry it onto an
+	// unrelated table.
 	let rowFilter: (DbRowFilter & { tableKey: string }) | undefined = $state()
 	let activeRowFilter = $derived(rowFilter?.tableKey === tableKey ? rowFilter : undefined)
-	let whereClause = $derived(
-		activeRowFilter
-			? renderDbEqualityFilter(activeRowFilter.column, activeRowFilter.value, dbType)
-			: undefined
-	)
 
 	/** Where a foreign key's `schema.table` target lives in the sidebar, or
 	 * undefined when it cannot be opened from here. */
@@ -899,225 +893,157 @@
 
 	let _dbTable: DBTable | undefined = $state()
 	export const dbTable = () => _dbTable
+
+	// Splitpanes sizes in percent, which makes the tree grow with the screen: convert a
+	// fixed width once, from the width the manager opens at.
+	const TREE_WIDTH_PX = 320
+	let treeSize: number | undefined = $state()
+	function measureTreeSize(el: HTMLElement) {
+		untrack(() => {
+			if (treeSize === undefined && el.clientWidth > 0)
+				treeSize = Math.min(50, (TREE_WIDTH_PX / el.clientWidth) * 100)
+		})
+	}
+
+	let managerWidth = $state(0)
+	let mainPaneWidth = $state(0)
+	/** Where the right pane starts, in px from the manager's left edge; follows the divider. */
+	export const mainPaneLeft = () => managerWidth - mainPaneWidth
 </script>
 
-<Splitpanes>
-	<Pane size={28} class="relative flex flex-col">
-		<div class="mx-3 mt-3 flex flex-col gap-2">
-			<TextInput bind:value={search} inputProps={{ placeholder: 'Search table or schema...' }} />
-		</div>
-		<div class="overflow-x-clip overflow-y-auto relative mt-1.5 flex-1">
-			<!-- Normal mode: data table -> schema -> table, each level dropping out
-				     when it has nothing to say (no data table / no schemas). -->
-			{#if datatableTreeLoading && (datatableTree?.length ?? 0) === 0}
-				<div class="flex items-center gap-2 text-tertiary p-3">
-					<Loader2 class="animate-spin" size={14} />
-					<span class="text-xs">Loading...</span>
+<div class="h-full w-full" bind:clientWidth={managerWidth} {@attach measureTreeSize}>
+	{#if treeSize !== undefined}
+		<Splitpanes>
+			<Pane size={treeSize} class="relative flex flex-col">
+				<div class="mx-3 mt-3 flex flex-col gap-2">
+					<TextInput
+						bind:value={search}
+						inputProps={{ placeholder: 'Search table or schema...' }}
+					/>
 				</div>
-			{/if}
-			{#each treeRoots as root (root.datatable ?? '')}
-				{@const dtOpen = isExpanded(root.datatable)}
-				{#if root.datatable !== undefined}
-					{@const hasMenu = !multiSelectMode && onDatatableAction !== undefined}
-					{@const roleInfo = roleOf(root.datatable)}
-					<button
-						class="group w-full text-xs font-normal text-primary flex gap-2 items-center h-8 cursor-pointer pl-3 pr-1 hover:bg-gray-500/10"
-						onclick={() => toggle(root.datatable)}
-					>
-						{#if showsCheckbox(root.datatable)}
-							{@const state = batchState(root.datatable)}
-							<Checkbox
-								checked={state.checked}
-								indeterminate={state.indeterminate}
-								disabled={state.disabled}
-								onChange={() => toggleBatch(root.datatable)}
-								onClick={(e) => e.stopPropagation()}
-								class="shrink-0"
-							/>
-						{/if}
-						<ChevronDownIcon class={rowChevronClass(dtOpen)} size={14} />
-						<DatabaseIcon class="shrink-0" size={14} />
-						<span class="truncate text-ellipsis text-left text-xs">{root.datatable}</span>
-						{#if root.datatable === currentDatatable}
-							<!-- Several data tables are listed, but only one is the one being
-							     queried; the tree would otherwise not say which. -->
-							<span
-								class="shrink-0 w-1.5 h-1.5 rounded-full bg-green-400"
-								title="The data table this manager is connected to"
-							></span>
-						{/if}
-						{#if roleInfo?.kind === 'role'}
-							{@const dt = root.datatable}
-							<DatatableRoleBadge
-								role={roleInfo.role}
-								roles={roleInfo.roles}
-								onSelect={(role) => onSelectRole?.(dt, role)}
-							/>
-						{:else if roleInfo?.kind === 'none'}
-							<span
-								class="shrink-0 text-2xs text-tertiary"
-								title="This data table is under roles, and none of them is granted to you. Ask an admin of the workspace that governs it."
-							>
-								No usable role
-							</span>
-						{/if}
-						<div class="grow"></div>
-						<div class="relative shrink-0 w-6 h-8 flex items-center justify-end mr-2">
-							{#if hasMenu}
-								{@const dt = root.datatable}
-								<DropdownV2
-									enableFlyTransition
-									items={() => [
-										{
-											displayName: 'Migrations',
-											icon: HistoryIcon,
-											action: () => onDatatableAction?.(dt, 'migrations')
-										},
-										...(canManageDatatable && isInstanceDatatable(dt)
-											? [
-													{
-														displayName: 'Roles',
-														icon: KeyRoundIcon,
-														action: () => onDatatableAction?.(dt, 'roles')
-													}
-												]
-											: []),
-										{
-											displayName: 'Export',
-											icon: DownloadIcon,
-											action: () => onDatatableAction?.(dt, 'export')
-										},
-										{
-											displayName: 'Import',
-											icon: UploadIcon,
-											action: () => onDatatableAction?.(dt, 'import')
-										}
-									]}
-									btnId={'db-manager-datatable-actions-' + onlyAlphaNumAndUnderscore(dt)}
-								/>
-							{/if}
+				<div class="overflow-x-clip overflow-y-auto relative mt-1.5 flex-1">
+					<!-- Normal mode: data table -> schema -> table, each level dropping out
+				     when it has nothing to say (no data table / no schemas). -->
+					{#if datatableTreeLoading && (datatableTree?.length ?? 0) === 0}
+						<div class="flex items-center gap-2 text-tertiary p-3">
+							<Loader2 class="animate-spin" size={14} />
+							<span class="text-xs">Loading...</span>
 						</div>
-					</button>
-				{/if}
-				{#if dtOpen}
-					{#if root.error}
-						<p class="text-xs text-red-400 px-3 py-2">{root.error}</p>
 					{/if}
-					{#each root.schemas as sc (sc.schemaKey)}
-						{@const schemaOpen = isExpanded(root.datatable, sc.schemaKey)}
-						{@const indent = root.datatable !== undefined ? 'pl-7' : 'pl-3'}
-						{#if dbSupportsSchemas}
+					{#each treeRoots as root (root.datatable ?? '')}
+						{@const dtOpen = isExpanded(root.datatable)}
+						{#if root.datatable !== undefined}
+							{@const hasMenu = !multiSelectMode && onDatatableAction !== undefined}
+							{@const roleInfo = roleOf(root.datatable)}
 							<button
-								class={'group w-full text-xs font-normal text-primary flex gap-2 items-center h-8 cursor-pointer pr-1 hover:bg-gray-500/10 ' +
-									indent}
-								onclick={() => toggle(root.datatable, sc.schemaKey)}
+								class="group w-full text-xs font-normal text-primary flex gap-2 items-center h-8 cursor-pointer pl-3 pr-1 hover:bg-gray-500/10"
+								onclick={() => toggle(root.datatable)}
 							>
 								{#if showsCheckbox(root.datatable)}
-									{@const state = batchState(root.datatable, sc.schemaKey)}
+									{@const state = batchState(root.datatable)}
 									<Checkbox
 										checked={state.checked}
 										indeterminate={state.indeterminate}
 										disabled={state.disabled}
-										onChange={() => toggleBatch(root.datatable, sc.schemaKey)}
+										onChange={() => toggleBatch(root.datatable)}
 										onClick={(e) => e.stopPropagation()}
 										class="shrink-0"
 									/>
 								{/if}
-								<ChevronDownIcon class={rowChevronClass(schemaOpen)} size={14} />
-								<FolderIcon class="shrink-0" size={14} />
-								<span class="truncate text-ellipsis grow text-left text-xs">{sc.schemaKey}</span>
+								<ChevronDownIcon class={rowChevronClass(dtOpen)} size={14} />
+								<DatabaseIcon class="shrink-0" size={14} />
+								<span class="truncate text-ellipsis text-left text-xs">{root.datatable}</span>
+								{#if root.datatable === currentDatatable}
+									<!-- Several data tables are listed, but only one is the one being
+							     queried; the tree would otherwise not say which. -->
+									<span
+										class="shrink-0 w-1.5 h-1.5 rounded-full bg-green-400"
+										title="The data table this manager is connected to"
+									></span>
+								{/if}
+								{#if roleInfo?.kind === 'role'}
+									{@const dt = root.datatable}
+									<DatatableRoleBadge
+										role={roleInfo.role}
+										roles={roleInfo.roles}
+										onSelect={(role) => onSelectRole?.(dt, role)}
+									/>
+								{:else if roleInfo?.kind === 'none'}
+									<span
+										class="shrink-0 text-2xs text-tertiary"
+										title="This data table is under roles, and none of them is granted to you. Ask an admin of the workspace that governs it."
+									>
+										No usable role
+									</span>
+								{/if}
+								<div class="grow"></div>
 								<div class="relative shrink-0 w-6 h-8 flex items-center justify-end mr-2">
-									{#if !multiSelectMode}
+									{#if hasMenu}
+										{@const dt = root.datatable}
 										<DropdownV2
 											enableFlyTransition
 											items={() => [
-												...(isInstanceDatatable(root.datatable)
+												{
+													displayName: 'Migrations',
+													icon: HistoryIcon,
+													action: () => onDatatableAction?.(dt, 'migrations')
+												},
+												...(canManageDatatable && isInstanceDatatable(dt)
 													? [
 															{
-																displayName: 'Access',
+																displayName: 'Roles',
 																icon: KeyRoundIcon,
-																action: () =>
-																	(aclDrawer = {
-																		datatable: root.datatable,
-																		target: { kind: 'schema', schema: sc.schemaKey }
-																	})
-															}
-														]
-													: []),
-												...(SCHEMA_RENAME_DB_TYPES.includes(dbType)
-													? [
-															{
-																displayName: 'Rename schema',
-																icon: EditIcon,
-																action: () => startRenameSchema(root.datatable, sc.schemaKey)
+																action: () => onDatatableAction?.(dt, 'roles')
 															}
 														]
 													: []),
 												{
-													displayName: 'Drop schema',
-													icon: Trash2Icon,
-													type: 'delete',
-													action: () => startDropSchema(root.datatable, sc.schemaKey)
+													displayName: 'Export',
+													icon: DownloadIcon,
+													action: () => onDatatableAction?.(dt, 'export')
+												},
+												{
+													displayName: 'Import',
+													icon: UploadIcon,
+													action: () => onDatatableAction?.(dt, 'import')
 												}
 											]}
-											btnId={'db-manager-schema-actions-' + onlyAlphaNumAndUnderscore(sc.schemaKey)}
+											btnId={'db-manager-datatable-actions-' + onlyAlphaNumAndUnderscore(dt)}
 										/>
 									{/if}
 								</div>
 							</button>
 						{/if}
-						<!-- Opening a schema slides its tables in rather than snapping them. -->
-						<ResizeTransitionWrapper vertical innerClass="w-full">
-							{#if schemaOpen || !dbSupportsSchemas}
-								{@const tableIndent = dbSupportsSchemas
-									? root.datatable !== undefined
-										? 'pl-11'
-										: 'pl-7'
-									: root.datatable !== undefined
-										? 'pl-7'
-										: 'pl-3'}
-								{#each sc.tables as tableKey (tableKey)}
-									{@const entry = {
-										datatable: root.datatable,
-										schema: sc.schemaKey,
-										table: tableKey
-									}}
-									{@const hasMenu = !multiSelectMode}
-									{@const isSelected =
-										root.datatable === currentDatatable &&
-										selected.schemaKey === sc.schemaKey &&
-										selected.tableKey === tableKey}
+						{#if dtOpen}
+							{#if root.error}
+								<p class="text-xs text-red-400 px-3 py-2">{root.error}</p>
+							{/if}
+							{#each root.schemas as sc (sc.schemaKey)}
+								{@const schemaOpen = isExpanded(root.datatable, sc.schemaKey)}
+								{@const indent = root.datatable !== undefined ? 'pl-7' : 'pl-3'}
+								{#if dbSupportsSchemas}
 									<button
-										class={'group w-full text-xs font-normal text-primary flex gap-2 items-center h-8 cursor-pointer pr-1 ' +
-											tableIndent +
-											' ' +
-											(isSelected ? 'bg-surface-secondary' : 'hover:bg-surface-hover')}
-										onclick={() => onTableRowClick(entry)}
+										class={'group w-full text-xs font-normal text-primary flex gap-2 items-center h-8 cursor-pointer pr-1 hover:bg-gray-500/10 ' +
+											indent}
+										onclick={() => toggle(root.datatable, sc.schemaKey)}
 									>
 										{#if showsCheckbox(root.datatable)}
+											{@const state = batchState(root.datatable, sc.schemaKey)}
 											<Checkbox
-												checked={isTableSelected(entry) || isTableDisabled(entry)}
-												disabled={isTableDisabled(entry)}
-												title={isTableDisabled(entry) ? 'Already added' : undefined}
-												onChange={() => toggleTableSelection(entry)}
+												checked={state.checked}
+												indeterminate={state.indeterminate}
+												disabled={state.disabled}
+												onChange={() => toggleBatch(root.datatable, sc.schemaKey)}
 												onClick={(e) => e.stopPropagation()}
 												class="shrink-0"
 											/>
 										{/if}
-										<span class="shrink-0 w-3.5"></span>
-										<Table2 class="shrink-0" size={14} />
-										<p class="db-manager-table-key truncate text-ellipsis text-left text-xs">
-											{tableKey}
-										</p>
-										{#if asset}
-											{@const starPath = tableAssetPath(root.datatable, sc.schemaKey, tableKey)}
-											<span class={rowStarClass(starPath)}>
-												<Star size={14} kind="asset" path={starPath} />
-											</span>
-										{/if}
-										<div class="grow"></div>
+										<ChevronDownIcon class={rowChevronClass(schemaOpen)} size={14} />
+										<FolderIcon class="shrink-0" size={14} />
+										<span class="truncate text-ellipsis grow text-left text-xs">{sc.schemaKey}</span
+										>
 										<div class="relative shrink-0 w-6 h-8 flex items-center justify-end mr-2">
-											{#if hasMenu}
+											{#if !multiSelectMode}
 												<DropdownV2
 													enableFlyTransition
 													items={() => [
@@ -1129,116 +1055,219 @@
 																		action: () =>
 																			(aclDrawer = {
 																				datatable: root.datatable,
-																				target: {
-																					kind: 'table',
-																					schema: sc.schemaKey,
-																					table: tableKey
-																				}
+																				target: { kind: 'schema', schema: sc.schemaKey }
 																			})
 																	}
 																]
 															: []),
+														...(SCHEMA_RENAME_DB_TYPES.includes(dbType)
+															? [
+																	{
+																		displayName: 'Rename schema',
+																		icon: EditIcon,
+																		action: () => startRenameSchema(root.datatable, sc.schemaKey)
+																	}
+																]
+															: []),
 														{
-															displayName: 'Delete table',
+															displayName: 'Drop schema',
 															icon: Trash2Icon,
-															action: () => startDeleteTable(root.datatable, sc.schemaKey, tableKey)
-														},
-														{
-															displayName: 'Alter table',
-															icon: EditIcon,
-															action: () => startAlterTable(root.datatable, sc.schemaKey, tableKey)
+															type: 'delete',
+															action: () => startDropSchema(root.datatable, sc.schemaKey)
 														}
 													]}
-													btnId={'db-manager-table-actions-' + onlyAlphaNumAndUnderscore(tableKey)}
+													btnId={'db-manager-schema-actions-' +
+														onlyAlphaNumAndUnderscore(sc.schemaKey)}
 												/>
 											{/if}
 										</div>
 									</button>
-								{/each}
-								{#if canCreateTableIn(root.datatable, sc.schemaKey)}
+								{/if}
+								<!-- Opening a schema slides its tables in rather than snapping them. -->
+								<ResizeTransitionWrapper vertical innerClass="w-full">
+									{#if schemaOpen || !dbSupportsSchemas}
+										{@const tableIndent = dbSupportsSchemas
+											? root.datatable !== undefined
+												? 'pl-11'
+												: 'pl-7'
+											: root.datatable !== undefined
+												? 'pl-7'
+												: 'pl-3'}
+										{#each sc.tables as tableKey (tableKey)}
+											{@const entry = {
+												datatable: root.datatable,
+												schema: sc.schemaKey,
+												table: tableKey
+											}}
+											{@const hasMenu = !multiSelectMode}
+											{@const isSelected =
+												root.datatable === currentDatatable &&
+												selected.schemaKey === sc.schemaKey &&
+												selected.tableKey === tableKey}
+											<button
+												class={'group w-full text-xs font-normal text-primary flex gap-2 items-center h-8 cursor-pointer pr-1 ' +
+													tableIndent +
+													' ' +
+													(isSelected ? 'bg-surface-secondary' : 'hover:bg-surface-hover')}
+												onclick={() => onTableRowClick(entry)}
+											>
+												{#if showsCheckbox(root.datatable)}
+													<Checkbox
+														checked={isTableSelected(entry) || isTableDisabled(entry)}
+														disabled={isTableDisabled(entry)}
+														title={isTableDisabled(entry) ? 'Already added' : undefined}
+														onChange={() => toggleTableSelection(entry)}
+														onClick={(e) => e.stopPropagation()}
+														class="shrink-0"
+													/>
+												{/if}
+												<span class="shrink-0 w-3.5"></span>
+												<Table2 class="shrink-0" size={14} />
+												<p class="db-manager-table-key truncate text-ellipsis text-left text-xs">
+													{tableKey}
+												</p>
+												{#if asset}
+													{@const starPath = tableAssetPath(root.datatable, sc.schemaKey, tableKey)}
+													<span class={rowStarClass(starPath)}>
+														<Star size={14} kind="asset" path={starPath} />
+													</span>
+												{/if}
+												<div class="grow"></div>
+												<div class="relative shrink-0 w-6 h-8 flex items-center justify-end mr-2">
+													{#if hasMenu}
+														<DropdownV2
+															enableFlyTransition
+															items={() => [
+																...(isInstanceDatatable(root.datatable)
+																	? [
+																			{
+																				displayName: 'Access',
+																				icon: KeyRoundIcon,
+																				action: () =>
+																					(aclDrawer = {
+																						datatable: root.datatable,
+																						target: {
+																							kind: 'table',
+																							schema: sc.schemaKey,
+																							table: tableKey
+																						}
+																					})
+																			}
+																		]
+																	: []),
+																{
+																	displayName: 'Delete table',
+																	icon: Trash2Icon,
+																	action: () =>
+																		startDeleteTable(root.datatable, sc.schemaKey, tableKey)
+																},
+																{
+																	displayName: 'Alter table',
+																	icon: EditIcon,
+																	action: () =>
+																		startAlterTable(root.datatable, sc.schemaKey, tableKey)
+																}
+															]}
+															btnId={'db-manager-table-actions-' +
+																onlyAlphaNumAndUnderscore(tableKey)}
+														/>
+													{/if}
+												</div>
+											</button>
+										{/each}
+										{#if canCreateTableIn(root.datatable, sc.schemaKey)}
+											<button
+												class={'w-full text-xs font-normal flex gap-2 items-center h-8 cursor-pointer pr-1 hover:bg-gray-500/10 text-secondary ' +
+													tableIndent}
+												onclick={() => startCreateTable(root.datatable, sc.schemaKey)}
+											>
+												<Plus class="shrink-0" size={14} />
+												<span class="text-xs">New table</span>
+											</button>
+										{/if}
+									{/if}
+								</ResizeTransitionWrapper>
+							{/each}
+							{#if dbSupportsSchemas && search.trim() === '' && canCreateSchemaIn(root.datatable)}
+								<button
+									class={'w-full text-xs font-normal flex gap-2 items-center h-8 cursor-pointer pr-1 hover:bg-gray-500/10 text-secondary ' +
+										(root.datatable !== undefined ? 'pl-7' : 'pl-3')}
+									onclick={() => startCreateSchema(root.datatable)}
+								>
+									<Plus class="shrink-0" size={14} />
+									<span class="text-xs">New schema</span>
+								</button>
+							{/if}
+						{/if}
+					{/each}
+				</div>
+			</Pane>
+			<Pane class={mainPane ? 'relative p-3 pt-1' : 'relative'}>
+				<div class="absolute inset-x-0 top-0 h-0" bind:clientWidth={mainPaneWidth}></div>
+				{#if mainPane}
+					{@render mainPane()}
+				{:else if viewMode === 'diagram'}
+					<DbSchemaDiagram
+						{dbSchema}
+						{colDefs}
+						selectedTables={diagramTables}
+						relations={currentRelations}
+						loading={shownRelationsRead?.status === 'loading'}
+						error={shownRelationsRead?.error}
+						onOpenTable={({ schema, table }) => {
+							onViewMode?.('data')
+							selectTable(currentDatatable, schema, table)
+						}}
+					/>
+				{:else if tableKey && colDefs?.[tableKey]?.length}
+					{@const dbTableOps = dbTableOpsFactory({ colDefs: colDefs[tableKey], tableKey })}
+					<!-- Filters, sort and column widths belong to one table. -->
+					{#key tableKey}
+						<DBTable
+							{dbTableOps}
+							foreignKeys={currentForeignKeys}
+							onGoToRow={goToRow}
+							rowFilter={activeRowFilter}
+							onRowFilterApplied={() => (rowFilter = undefined)}
+							layoutStorageKey={selected.tableKey
+								? tableLayoutKey?.(selected.schemaKey, selected.tableKey)
+								: undefined}
+							bind:this={_dbTable}
+						/>
+					{/key}
+				{:else if databaseIsEmpty}
+					<div class="h-full w-full center-center flex-col gap-4">
+						<span class="text-hint">Database is empty</span>
+						{#if onImport}
+							<div class="flex gap-4">
+								<button
+									onclick={() => onImport('schema_only')}
+									class="hover:opacity-70 transition-opacity rounded-md border aspect-square w-52 gap-4 p-4 center-center flex-col"
+								>
+									<UploadIcon size={64} class="text-secondary" />
+									<span class="text-center font-normal text-sm text-secondary">
+										Import schema from database
+									</span>
+								</button>
+								{#if !!actingUser?.is_admin || !!$superadmin}
 									<button
-										class={'w-full text-xs font-normal flex gap-2 items-center h-8 cursor-pointer pr-1 hover:bg-gray-500/10 text-secondary ' +
-											tableIndent}
-										onclick={() => startCreateTable(root.datatable, sc.schemaKey)}
+										onclick={() => onImport('schema_and_data')}
+										class="hover:opacity-70 transition-opacity rounded-md border aspect-square w-52 gap-4 p-4 center-center flex-col"
 									>
-										<Plus class="shrink-0" size={14} />
-										<span class="text-xs">New table</span>
+										<UploadIcon size={64} class="text-secondary" />
+										<span class="text-center font-normal text-sm text-secondary">
+											Import schema and data from database
+										</span>
 									</button>
 								{/if}
-							{/if}
-						</ResizeTransitionWrapper>
-					{/each}
-					{#if dbSupportsSchemas && search.trim() === '' && canCreateSchemaIn(root.datatable)}
-						<button
-							class={'w-full text-xs font-normal flex gap-2 items-center h-8 cursor-pointer pr-1 hover:bg-gray-500/10 text-secondary ' +
-								(root.datatable !== undefined ? 'pl-7' : 'pl-3')}
-							onclick={() => startCreateSchema(root.datatable)}
-						>
-							<Plus class="shrink-0" size={14} />
-							<span class="text-xs">New schema</span>
-						</button>
-					{/if}
-				{/if}
-			{/each}
-		</div>
-	</Pane>
-	<Pane class={viewMode === 'diagram' && !mainPane ? '' : 'p-3 pt-1'}>
-		{#if mainPane}
-			{@render mainPane()}
-		{:else if viewMode === 'diagram'}
-			<DbSchemaDiagram
-				{dbSchema}
-				{colDefs}
-				selectedTables={diagramTables}
-				relations={currentRelations}
-				loading={shownRelationsRead?.status === 'loading'}
-				error={shownRelationsRead?.error}
-				onOpenTable={({ schema, table }) => {
-					onViewMode?.('data')
-					selectTable(currentDatatable, schema, table)
-				}}
-			/>
-		{:else if tableKey && colDefs?.[tableKey]?.length}
-			{@const dbTableOps = dbTableOpsFactory({ colDefs: colDefs[tableKey], tableKey, whereClause })}
-			<DBTable
-				{dbTableOps}
-				foreignKeys={currentForeignKeys}
-				onGoToRow={goToRow}
-				rowFilter={activeRowFilter}
-				onClearRowFilter={() => (rowFilter = undefined)}
-				bind:this={_dbTable}
-			/>
-		{:else if databaseIsEmpty}
-			<div class="h-full w-full center-center flex-col gap-4">
-				<span class="text-hint">Database is empty</span>
-				{#if onImport}
-					<div class="flex gap-4">
-						<button
-							onclick={() => onImport('schema_only')}
-							class="hover:opacity-70 transition-opacity rounded-md border aspect-square w-52 gap-4 p-4 center-center flex-col"
-						>
-							<UploadIcon size={64} class="text-secondary" />
-							<span class="text-center font-normal text-sm text-secondary">
-								Import schema from database
-							</span>
-						</button>
-						{#if !!actingUser?.is_admin || !!$superadmin}
-							<button
-								onclick={() => onImport('schema_and_data')}
-								class="hover:opacity-70 transition-opacity rounded-md border aspect-square w-52 gap-4 p-4 center-center flex-col"
-							>
-								<UploadIcon size={64} class="text-secondary" />
-								<span class="text-center font-normal text-sm text-secondary">
-									Import schema and data from database
-								</span>
-							</button>
+							</div>
 						{/if}
 					</div>
 				{/if}
-			</div>
-		{/if}
-	</Pane>
-</Splitpanes>
+			</Pane>
+		</Splitpanes>
+	{/if}
+</div>
 
 <Portal>
 	<Drawer open={!!aclDrawer} size="900px" on:close={() => (aclDrawer = undefined)}>

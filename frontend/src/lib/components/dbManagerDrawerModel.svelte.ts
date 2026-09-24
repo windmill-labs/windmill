@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { useSearchParams } from '$lib/svelte5UtilsKit.svelte'
 import type { DbInput, DbType } from './dbTypes'
 import { isDbType } from './dbTypes'
+import { DB_TABLE_LAYOUT_PREFIX } from './dbTableLayoutStorage'
 
 /**
  * Single URL param `dbm` encodes the full DB manager state:
@@ -123,6 +124,38 @@ export function buildDbm(p: ParsedDbm): string {
 	return segments.join('~')
 }
 
+/** The `dbm` fields an input designates, before any schema or table is picked from it. */
+export function dbmOfInput(input: DbInput): ParsedDbm {
+	if (input.type === 'ducklake') {
+		return {
+			type: 'ducklake',
+			path: input.ducklake,
+			schema: input.specificSchema,
+			table: input.specificTable
+		}
+	}
+	const isDatatable = input.resourcePath.startsWith('datatable://')
+	return {
+		type: isDatatable ? 'datatable' : 'database',
+		path: isDatatable ? input.resourcePath.slice('datatable://'.length) : input.resourcePath,
+		resType: isDatatable ? undefined : input.resourceType,
+		role: isDatatable ? input.role : undefined,
+		schema: input.specificSchema,
+		table: input.specificTable
+	}
+}
+
+/** localStorage key of a table's grid layout: the table as the `dbm` URL param names it, in
+ * its workspace. The role is left out, since connecting as another role is the same table. */
+export function dbTableLayoutStorageKey(
+	workspace: string,
+	input: DbInput,
+	schema: string | undefined,
+	table: string
+): string {
+	return `${DB_TABLE_LAYOUT_PREFIX}${workspace}:${buildDbm({ ...dbmOfInput(input), role: undefined, schema, table })}`
+}
+
 export interface DbManagerUriState {
 	readonly input: DbInput | undefined
 	readonly effectiveInput: DbInput | undefined
@@ -183,24 +216,7 @@ export function useDbManagerUriState(): DbManagerUriState {
 
 	function openDrawer(nInput: DbInput, ws?: string) {
 		workspace = ws
-		if (nInput.type === 'database') {
-			const isDatatable = nInput.resourcePath.startsWith('datatable://')
-			params.dbm = buildDbm({
-				type: isDatatable ? 'datatable' : 'database',
-				path: isDatatable ? nInput.resourcePath.slice('datatable://'.length) : nInput.resourcePath,
-				resType: isDatatable ? undefined : nInput.resourceType,
-				role: isDatatable ? nInput.role : undefined,
-				schema: nInput.specificSchema,
-				table: nInput.specificTable
-			})
-		} else {
-			params.dbm = buildDbm({
-				type: 'ducklake',
-				path: nInput.ducklake,
-				schema: nInput.specificSchema,
-				table: nInput.specificTable
-			})
-		}
+		params.dbm = buildDbm(dbmOfInput(nInput))
 	}
 
 	function closeDrawer() {
