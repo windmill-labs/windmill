@@ -17,9 +17,10 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 CREATE TRIGGER script_mcp_tools_update_trigger
-AFTER UPDATE OF archived, deleted ON script
+AFTER UPDATE OF archived, deleted, path ON script
 FOR EACH ROW
-WHEN (OLD.archived IS DISTINCT FROM NEW.archived OR OLD.deleted IS DISTINCT FROM NEW.deleted)
+WHEN (OLD.archived IS DISTINCT FROM NEW.archived OR OLD.deleted IS DISTINCT FROM NEW.deleted
+    OR OLD.path IS DISTINCT FROM NEW.path)
 EXECUTE FUNCTION notify_mcp_tools_change();
 
 CREATE TRIGGER script_mcp_tools_delete_trigger
@@ -36,9 +37,9 @@ WHEN (cardinality(NEW.versions) > 0)
 EXECUTE FUNCTION notify_mcp_tools_change();
 
 CREATE TRIGGER flow_mcp_tools_update_trigger
-AFTER UPDATE OF archived ON flow
+AFTER UPDATE OF archived, path ON flow
 FOR EACH ROW
-WHEN (OLD.archived IS DISTINCT FROM NEW.archived)
+WHEN (OLD.archived IS DISTINCT FROM NEW.archived OR OLD.path IS DISTINCT FROM NEW.path)
 EXECUTE FUNCTION notify_mcp_tools_change();
 
 CREATE TRIGGER flow_mcp_tools_delete_trigger
@@ -46,16 +47,28 @@ AFTER DELETE ON flow
 FOR EACH ROW
 EXECUTE FUNCTION notify_mcp_tools_change();
 
--- A tool's input schema lists the workspace's resources of each resource type it takes.
-CREATE TRIGGER resource_mcp_tools_insert_delete_trigger
-AFTER INSERT OR DELETE ON resource
+-- A tool's input schema lists the workspace's resources of each resource type it takes. The
+-- internal `cache` and `state` types are written on every cache miss and swept every monitor
+-- tick, and no tool takes them.
+CREATE TRIGGER resource_mcp_tools_insert_trigger
+AFTER INSERT ON resource
 FOR EACH ROW
+WHEN (NEW.resource_type NOT IN ('cache', 'state'))
 EXECUTE FUNCTION notify_mcp_tools_change();
 
-CREATE TRIGGER resource_mcp_tools_rename_trigger
-AFTER UPDATE OF path ON resource
+CREATE TRIGGER resource_mcp_tools_update_trigger
+AFTER UPDATE OF path, resource_type, description ON resource
 FOR EACH ROW
-WHEN (OLD.path IS DISTINCT FROM NEW.path)
+WHEN (NEW.resource_type NOT IN ('cache', 'state')
+    AND (OLD.path IS DISTINCT FROM NEW.path
+        OR OLD.resource_type IS DISTINCT FROM NEW.resource_type
+        OR OLD.description IS DISTINCT FROM NEW.description))
+EXECUTE FUNCTION notify_mcp_tools_change();
+
+CREATE TRIGGER resource_mcp_tools_delete_trigger
+AFTER DELETE ON resource
+FOR EACH ROW
+WHEN (OLD.resource_type NOT IN ('cache', 'state'))
 EXECUTE FUNCTION notify_mcp_tools_change();
 
 -- Favorites are the tool list of an `mcp:favorites` token.
