@@ -20,9 +20,9 @@ use crate::server::tools::create_tool_from_item;
 use rmcp::handler::server::ServerHandler;
 use rmcp::model::{
     CacheScope, CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock,
-    Implementation, InitializeResult, ListPromptsResult, ListResourceTemplatesResult,
-    ListResourcesResult, ListToolsResult, PaginatedRequestParams, ProtocolVersion,
-    ServerCapabilities, ServerInfo, ServerNotification, SubscriptionFilter,
+    Implementation, InitializeRequestParams, InitializeResult, ListPromptsResult,
+    ListResourceTemplatesResult, ListResourcesResult, ListToolsResult, PaginatedRequestParams,
+    ProtocolVersion, ServerCapabilities, ServerInfo, ServerNotification, SubscriptionFilter,
 };
 use rmcp::service::{RequestContext, RoleServer, SubscriptionContext};
 use rmcp::ErrorData;
@@ -463,6 +463,26 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
     /// per-request version validation alike.
     fn supported_protocol_versions(&self) -> Cow<'static, [ProtocolVersion]> {
         Cow::Borrowed(SUPPORTED_PROTOCOL_VERSIONS)
+    }
+
+    /// Only the pre-2026-07-28 revisions reach `initialize`, and they have no stream
+    /// to receive `list_changed` on (legacy sessions are off and
+    /// `subscriptions/listen` is 2026-07-28 only), so the capability is withdrawn
+    /// here. It stays in `get_info`, which bounds what a listen filter may accept.
+    async fn initialize(
+        &self,
+        request: InitializeRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> Result<InitializeResult, ErrorData> {
+        context.peer.set_peer_info(request.clone());
+        let mut info = self.get_info();
+        if SUPPORTED_PROTOCOL_VERSIONS.contains(&request.protocol_version) {
+            info.protocol_version = request.protocol_version;
+        }
+        if let Some(tools) = info.capabilities.tools.as_mut() {
+            tools.list_changed = None;
+        }
+        Ok(info)
     }
 
     fn accepted_subscription_filter(
