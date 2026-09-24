@@ -47,7 +47,7 @@
 
 	import type { Schema, SupportedLanguage } from '$lib/common'
 	import { base } from '$lib/base'
-	import { workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { emptySchema, emptyString, sendUserToast, tryEvery } from '$lib/utils'
 	import {
 		FlowService,
@@ -301,7 +301,7 @@
 
 			{#if workspaceConnectedToSlack}
 				<Toggle
-					disabled={!isEditable}
+					disabled={!$enterpriseLicense || !isEditable}
 					checked={isSlackHandler}
 					options={{ right: 'Notify a Slack channel when a variable is about to expire' }}
 					on:change={async (e) => {
@@ -316,7 +316,7 @@
 						<Loader2 class="animate-spin" />
 					{:then Module}
 						<Module.default
-							disabled={!isEditable}
+							disabled={!$enterpriseLicense || !isEditable}
 							schema={slackHandlerSchema}
 							hiddenArgs={['slack']}
 							schemaFieldTooltip={{
@@ -341,7 +341,7 @@
 
 			{#if workspaceConnectedToTeams}
 				<Toggle
-					disabled={!isEditable}
+					disabled={!$enterpriseLicense || !isEditable}
 					checked={isTeamsHandler}
 					options={{ right: 'Notify a Teams channel when a variable is about to expire' }}
 					on:change={async (e) => {
@@ -378,7 +378,7 @@
 			{/if}
 		{/if}
 
-		{#if (isSlackHandler || isTeamsHandler) && isEditable}
+		{#if (isSlackHandler || isTeamsHandler) && isEditable && $enterpriseLicense}
 			<div class="flex flex-col gap-2">
 				<Button
 					disabled={emptyString(handlerExtraArgs[CHANNEL_KEY])}
