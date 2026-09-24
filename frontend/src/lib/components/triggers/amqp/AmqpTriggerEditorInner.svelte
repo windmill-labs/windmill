@@ -2,7 +2,6 @@
 	import { untrack } from 'svelte'
 	import {
 		clearPageDrawerAnchor,
-		handOffPageDrawer,
 		setPageDrawerAnchor
 	} from '$lib/components/sessions/pageDrawerSession'
 	import { TRIGGER_PAGES } from '$lib/components/sessions/previewPaths'
@@ -176,7 +175,6 @@
 		defaultConfig?: Record<string, any>,
 		fixedScriptPath_?: string
 	) {
-		if (handOffPageDrawer(TRIGGER_PAGES.amqp.path, ePath)) return
 		// A `whoami` that failed earlier would otherwise pin this workspace to "unknown user".
 		operatingUser.forgetFailures()
 		let loadingTimeout = setTimeout(() => {

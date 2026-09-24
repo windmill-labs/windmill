@@ -601,7 +601,8 @@ export async function parseOpenAIResponsesCompletion(
 				toolCall,
 				helpers,
 				toolCallbacks: callbacks,
-				workspace: options?.workspace
+				workspace: options?.workspace,
+				messages
 			})
 			messages.push(messageToAdd)
 			addedMessages.push(messageToAdd)

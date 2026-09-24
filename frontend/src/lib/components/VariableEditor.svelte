@@ -7,7 +7,6 @@
 	import OpenInSessionButton from './sessions/OpenInSessionButton.svelte'
 	import {
 		clearPageDrawerAnchor,
-		handOffPageDrawer,
 		pageDrawerSessionSource,
 		setPageDrawerAnchor
 	} from './sessions/pageDrawerSession'
@@ -394,7 +393,6 @@
 	}
 
 	export function editVariable(edit_path: string): void {
-		if (handOffPageDrawer(VARIABLES_PATH, edit_path)) return
 		reset()
 		editPath = edit_path
 		selected = curWs!

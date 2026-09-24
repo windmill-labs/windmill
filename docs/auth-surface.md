@@ -46,6 +46,12 @@ Symbols, not line numbers, are cited: they drift less.
   (`windmill-api-auth/src/lib.rs`) errors on `authed.job_id.is_some()`. A script that needs
   `users/create`, `tokens/impersonate`, `set_login_type`, … must use a dedicated superadmin user
   token stored as a secret, never `$WM_TOKEN`. Token scopes cannot narrow superadmin routes.
+- **Write access to a folder steers its readers' AI chat.** An `ai_instruction` resource's body is
+  delivered to the global chat of everyone who can read the resource, with no opt-in, whenever the
+  chat touches a path under its folder (`copilot/chat/folderInstructions.ts`); the chat then acts
+  with that reader's permissions, outside the folder too. `ai_skill` bodies are likewise in play
+  for every reader until turned off. The resource ACL is the only control, so granting write on a
+  folder grants that influence.
 - **A remote deploy token is a credential for another instance**, held per account and workspace
   (`remote_deploy_token`, encrypted under the workspace key, re-keyed by `set_encryption_key`).
   Its `email` references `password(email)` with `ON DELETE/UPDATE CASCADE`, so whatever deletes or
