@@ -374,36 +374,34 @@
 			return buttons
 		}
 
-		if (canAuthorFlow) {
-			buttons.push({
-				label: 'Build app',
-				narrow: 'menu',
-				buttonProps: {
-					onClick: async () => {
-						const app = createRawAppFromFlow(flow.path, flow.summary, flow.schema)
-						// /apps_raw/add hard-reloads (cross-origin isolation), so the
-						// in-memory importStore would be dropped; hand off via sessionStorage.
-						sessionStorage.setItem('rawAppImport', JSON.stringify(app))
-						await goto('/apps_raw/add')
-					},
-					unifiedSize: 'md',
-					variant: 'subtle',
-					disabled: !showEditButtons,
-					startIcon: LayoutDashboard
-				}
-			})
+		buttons.push({
+			label: 'Build app',
+			narrow: 'menu',
+			buttonProps: {
+				onClick: async () => {
+					const app = createRawAppFromFlow(flow.path, flow.summary, flow.schema)
+					// /apps_raw/add hard-reloads (cross-origin isolation), so the
+					// in-memory importStore would be dropped; hand off via sessionStorage.
+					sessionStorage.setItem('rawAppImport', JSON.stringify(app))
+					await goto('/apps_raw/add')
+				},
+				unifiedSize: 'md',
+				variant: 'subtle',
+				disabled: !showEditButtons,
+				startIcon: LayoutDashboard
+			}
+		})
 
-			buttons.push({
-				label: 'Edit',
-				buttonProps: {
-					href: `${base}/flows/edit/${path}`,
-					variant: 'accent',
-					unifiedSize: 'md',
-					disabled: !can_write || !showEditButtons,
-					startIcon: Pen
-				}
-			})
-		}
+		buttons.push({
+			label: 'Edit',
+			buttonProps: {
+				href: `${base}/flows/edit/${path}`,
+				variant: 'accent',
+				unifiedSize: 'md',
+				disabled: !can_write || !showEditButtons,
+				startIcon: Pen
+			}
+		})
 		return buttons
 	}
 

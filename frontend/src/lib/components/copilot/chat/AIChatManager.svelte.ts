@@ -88,7 +88,7 @@ import {
 import type { FlowModuleState, FlowState } from '$lib/components/flows/flowState'
 import type { CurrentEditor, ExtendedOpenFlow } from '$lib/components/flows/types'
 import { untrack } from 'svelte'
-import { get } from 'svelte/store'
+import { fromStore, get } from 'svelte/store'
 import { BROWSER } from 'esm-env'
 import { workspaceStore, type DBSchemas } from '$lib/stores'
 import { copilotInfo } from '$lib/aiStore'
@@ -291,10 +291,7 @@ export function supportsPlanMode(mode: AIMode): boolean {
 	return PLAN_MODES.has(mode)
 }
 
-// Rune mirror of the store: a class `$derived` cannot track a store read, and this one gates
-// which chat modes exist.
-const isOperatorBuilderFlows = $state({ val: false })
-operatorBuilderFlows.subscribe((v) => (isOperatorBuilderFlows.val = v))
+const isOperatorBuilderFlows = fromStore(operatorBuilderFlows)
 
 export function isAIModeVisible(mode: AIMode): boolean {
 	return mode !== AIMode.GLOBAL || isGlobalAiEnabled()
@@ -1417,11 +1414,11 @@ export class AIChatManager implements ChatViewHost {
 			this.flowAiChatHelpers === undefined &&
 			this.scriptEditorOptions !== undefined &&
 			!this.disabledModes.script &&
-			!isOperatorBuilderFlows.val,
+			!isOperatorBuilderFlows.current,
 		flow:
 			this.flowAiChatHelpers !== undefined &&
 			!this.disabledModes.flow &&
-			!isOperatorBuilderFlows.val,
+			!isOperatorBuilderFlows.current,
 		app: this.appAiChatHelpers !== undefined && !this.disabledModes.app,
 		navigator: !this.disabledModes.navigator,
 		ask: !this.disabledModes.ask,

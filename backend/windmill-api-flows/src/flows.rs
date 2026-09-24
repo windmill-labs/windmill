@@ -619,11 +619,11 @@ pub async fn validate_operator_composed_flow(
 
     // A tag is how a step picks the worker group it runs on: unauthorized, a builder could route
     // a job onto a privileged one.
-    refs.tags.extend(flow_tag.clone());
-    if refs.tags.iter().any(|t| !t.is_empty()) {
+    refs.tags.extend(flow_tag.clone().filter(|t| !t.is_empty()));
+    if !refs.tags.is_empty() {
         // Job-aware: a WM_TOKEN running as a superadmin must not unlock restricted tags.
         let is_super_admin = windmill_api_auth::is_super_admin_authed(db, authed).await?;
-        for tag in refs.tags.iter().filter(|t| !t.is_empty()) {
+        for tag in &refs.tags {
             windmill_common::jobs::check_tag_available_for_workspace_internal(
                 db,
                 w_id,

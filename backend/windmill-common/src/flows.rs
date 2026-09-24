@@ -296,12 +296,7 @@ fn check_module_value_is_composition_only(
     id: &str,
     refs: &mut ComposedFlowRefs,
 ) -> Result<(), Error> {
-    let refuse = |what: &str| {
-        Err(Error::PermissionDenied(format!(
-            "Step {id}: {what}. Operators with builder rights compose runnables that are already \
-             deployed; they cannot author code."
-        )))
-    };
+    let refuse = |what: &str| Err(refused(id, what));
     // A node id points at code stored in a `flow_node` row. Only the dependency job produces them,
     // by hoisting a step's code out of the flow value, so an authored value carrying one names
     // code that belongs to some other flow. `modules` is what the walk below covers, and an
@@ -377,17 +372,23 @@ fn check_branches_are_composition_only(
 ) -> Result<(), Error> {
     for branch in branches {
         if branch.modules_node.is_some() {
-            return Err(Error::PermissionDenied(format!(
-                "Step {id}: a branch references code stored outside the flow. Operators with \
-                 builder rights compose runnables that are already deployed; they cannot author \
-                 code."
-            )));
+            return Err(refused(
+                id,
+                "a branch references code stored outside the flow",
+            ));
         }
         for module in &branch.modules {
             check_module_is_composition_only(module, refs)?;
         }
     }
     Ok(())
+}
+
+fn refused(id: &str, what: &str) -> Error {
+    Error::PermissionDenied(format!(
+        "Step {id}: {what}. Operators with builder rights compose runnables that are already \
+         deployed; they cannot author code."
+    ))
 }
 
 fn check_composable_path(path: &str, id: &str) -> Result<(), Error> {

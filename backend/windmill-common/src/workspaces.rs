@@ -1305,10 +1305,6 @@ async fn operator_rights(db: &DB, workspace_id: &str) -> Result<OperatorRights> 
     Ok(rights)
 }
 
-async fn operator_manage_rights(db: &DB, workspace_id: &str) -> Result<OperatorManageRights> {
-    Ok(operator_rights(db, workspace_id).await?.manage)
-}
-
 /// Whether operators of this workspace may compose flows out of already-deployed runnables. Per
 /// workspace, not per user: every operator gets it, and consumes a full seat for it.
 pub async fn operator_can_build_flows(db: &DB, workspace_id: &str) -> Result<bool> {
@@ -1357,7 +1353,7 @@ pub async fn check_operator_can_manage(
     is_operator: bool,
     kind: ManageKind,
 ) -> Result<()> {
-    if is_operator && !operator_manage_rights(db, workspace_id).await?.has(kind) {
+    if is_operator && !operator_rights(db, workspace_id).await?.manage.has(kind) {
         // 403, not 401: the caller is authenticated and simply lacks the right. The frontend reads
         // an uncaught 401 as a dead session and logs the user out, so `NotAuthorized` here would
         // eject an operator from the app instead of telling them why.
