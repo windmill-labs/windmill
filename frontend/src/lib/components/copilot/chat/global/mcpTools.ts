@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { ResourceService, type GetMcpToolsResponse } from '$lib/gen'
-import { createToolDef, type Tool } from '../shared'
+import { createToolDef } from '../shared'
+import { NONE, type SessionTool } from '../sessionCapabilities'
 import { enabledMcpPaths } from '$lib/components/mcp/enabledServers'
 import { isOwnOrSharedMcpPath, MCP_LIST_PER_PAGE, mcpViewer } from '$lib/components/mcp/ownServers'
 
@@ -349,9 +350,10 @@ const callMcpToolSchema = z.object({
  * mode and behind the user's confirmation — building both from one body keeps
  * them from drifting.
  */
-function createCallTool(servers: McpServer[], mode: 'read' | 'write'): Tool<{}> {
+function createCallTool(servers: McpServer[], mode: 'read' | 'write'): SessionTool<{}> {
 	const isRead = mode === 'read'
 	return {
+		requires: NONE,
 		def: createToolDef(
 			callMcpToolSchema,
 			isRead ? 'call_mcp_read_tool' : 'call_mcp_write_tool',
@@ -419,12 +421,13 @@ function createCallTool(servers: McpServer[], mode: 'read' | 'write'): Tool<{}> 
  * are not registered at all, so a workspace without an MCP connection pays no
  * per-iteration schema cost for them.
  */
-export function createMcpTools(servers: McpServer[]): Tool<{}>[] {
+export function createMcpTools(servers: McpServer[]): SessionTool<{}>[] {
 	if (servers.length === 0) return []
 	const serverList = servers.map((s) => s.path).join(', ')
 
 	return [
 		{
+			requires: NONE,
 			def: createToolDef(
 				searchMcpToolsSchema,
 				'search_mcp_tools',

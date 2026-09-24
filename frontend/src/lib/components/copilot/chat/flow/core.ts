@@ -302,7 +302,7 @@ const patchFlowJsonToolDef = createToolDef(
 	'patch_flow_json',
 	'Make a quick exact text edit in the current compact flow JSON. Prefer this for small localized changes; use set_flow_json for larger structural rewrites.'
 )
-// Will be overridden by setSchema
+// Replaced per chat by schemaFor
 const testRunFlowSchema = z.object({
 	args: z
 		.object({})
@@ -435,11 +435,10 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				contextName: 'flow'
 			})
 		},
-		setSchema: async function (helpers: FlowAIChatHelpers) {
-			await buildSchemaForTool(this.def, async () => {
-				const flowInputsSchema = await helpers.getFlowInputsSchema()
-				return flowInputsSchema
-			})
+		schemaFor: async (helpers: FlowAIChatHelpers) => {
+			const def = structuredClone(testRunFlowToolDef)
+			await buildSchemaForTool(def, () => helpers.getFlowInputsSchema())
+			return def
 		},
 		requiresConfirmation: true,
 		confirmationMessage: 'Run a test of the current flow',
