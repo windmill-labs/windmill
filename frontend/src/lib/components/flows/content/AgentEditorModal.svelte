@@ -169,7 +169,8 @@
 	 *  the URL keeps claiming the agent is open and a refresh reopens it. Anchored to that page, so
 	 *  this is a no-op when the editor was opened from a flow. */
 	function close() {
-		const deployed = !draftOnly && !refused
+		// Unknown until the load answers, and a detail page that does not exist is the worse guess.
+		const deployed = draft != undefined && !draft.loading && !draftOnly && !refused
 		closeAgentEditor()
 		if (layout === 'modal') void clearPageDrawerAnchor(RESOURCES_PATH)
 		onClose?.(deployed)
