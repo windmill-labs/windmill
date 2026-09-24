@@ -107,18 +107,46 @@
 			}
 		}
 
-		try {
-			clearWorkspaceFromStorage()
-		} catch (e) {
-			console.error('Could not clear workspace storage during deleted-workspace recovery', e)
-		}
-		workspaceStore.set(undefined)
+		forgetWorkspace()
 		sendUserToast(
 			`Workspace ${workspaceId} is no longer available, please pick a workspace.`,
 			'warning'
 		)
 		await goto('/user/workspaces')
 		return true
+	}
+
+	// Storage is what a reload reads the workspace back from, so dropping only the store
+	// leaves the same dead id waiting for the next load (see getWorkspaceFromStorage).
+	function forgetWorkspace() {
+		try {
+			clearWorkspaceFromStorage()
+		} catch (e) {
+			console.error('Could not clear workspace storage', e)
+		}
+		workspaceStore.set(undefined)
+	}
+
+	// No workspace selected: `/user/*` pages stand on their own, anything else goes to the
+	// picker. Throws when `globalWhoami` shows the session itself is gone, which is the
+	// caller's cue to log out.
+	async function loadWithoutWorkspace() {
+		if (
+			(!page.url.pathname.startsWith('/user/') || page.url.pathname.startsWith('/user/cli')) &&
+			// The MCP consent page carries its own workspace picker, so it is left to
+			// run without one. Nothing sets `$userStore` on this branch, which is why
+			// that page must stay outside the (logged) layout — see its `@(root)` name.
+			!page.url.pathname.startsWith(`${base}/oauth/mcp_authorize`) &&
+			// The hub import wizard asks for the destination itself, and may end in a
+			// workspace that does not exist yet — bouncing it to the picker would
+			// force the very choice it exists to make.
+			!page.url.pathname.startsWith(`${base}/projects/import`)
+		) {
+			goto(`/user/workspaces?rd=${encodeURIComponent(page.url.href.replace(page.url.origin, ''))}`)
+		}
+		let user = await UserService.globalWhoami()
+		noteSessionEmail(user.email)
+		console.log(`Welcome back ${user.email}`)
 	}
 
 	async function loadUser() {
@@ -141,29 +169,19 @@
 						return
 					}
 					if (!user) {
-						throw Error('Not logged in')
+						// The persisted workspace outlives the session that chose it: a single-use
+						// login link signs a different account in while storage still names a
+						// workspace that account is not a member of. A missing membership is no
+						// evidence about the session, so forget the workspace and carry on without
+						// one rather than logging the new session straight back out.
+						forgetWorkspace()
+						await loadWithoutWorkspace()
+						return
 					}
 					$userStore = user
 				}
 			} else {
-				if (
-					(!page.url.pathname.startsWith('/user/') || page.url.pathname.startsWith('/user/cli')) &&
-					// The MCP consent page carries its own workspace picker, so it is left to
-					// run without one. Nothing sets `$userStore` on this branch, which is why
-					// that page must stay outside the (logged) layout — see its `@(root)` name.
-					!page.url.pathname.startsWith(`${base}/oauth/mcp_authorize`) &&
-					// The hub import wizard asks for the destination itself, and may end in a
-					// workspace that does not exist yet — bouncing it to the picker would
-					// force the very choice it exists to make.
-					!page.url.pathname.startsWith(`${base}/projects/import`)
-				) {
-					goto(
-						`/user/workspaces?rd=${encodeURIComponent(page.url.href.replace(page.url.origin, ''))}`
-					)
-				}
-				let user = await UserService.globalWhoami()
-				noteSessionEmail(user.email)
-				console.log(`Welcome back ${user.email}`)
+				await loadWithoutWorkspace()
 			}
 		} catch (e) {
 			console.error(e)
