@@ -11014,8 +11014,8 @@ async fn update_operator_settings(
 
     let settings_json = serde_json::json!(settings);
 
-    // Merge rather than overwrite so an omitted key keeps its stored value. The visibility flags
-    // are plain bools and always serialize, so this is a no-op for them.
+    // Merged for the `Option` fields above; the visibility flags always serialize, so for them
+    // this is a plain overwrite.
     sqlx::query!(
         "UPDATE workspace_settings
          SET operator_settings = COALESCE(operator_settings, '{}'::jsonb) || $1

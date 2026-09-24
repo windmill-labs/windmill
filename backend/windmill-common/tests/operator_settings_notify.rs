@@ -1,8 +1,7 @@
 /*!
- * `operator_settings` write rights are authorization decisions read through a per-process cache,
- * so a withdrawal only reaches the other API replicas through the event this trigger writes. The
- * integration tests clear that cache in-process, so they pass whether or not it fires. Only the
- * emitting half is covered here: `process_notify_event` lives in the server binary.
+ * The integration tests clear the rights cache in-process, so they pass whether or not this
+ * trigger fires. Only the emitting half is covered here: `process_notify_event` lives in the
+ * server binary.
  */
 
 use sqlx::{Pool, Postgres};

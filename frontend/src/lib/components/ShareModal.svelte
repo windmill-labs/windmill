@@ -66,11 +66,10 @@
 	// cast keeps TS from narrowing it to the initial value, which openDrawer always replaces.
 	let kind: Kind = $state('script' as Kind)
 
-	// Sharing a schedule or a trigger is a write the workspace can withdraw from operators. Gated
-	// here rather than at each of the dozen menu entries that open this drawer, so a new entry
-	// point is covered too. Reading stays open: only the mutations below go away. Matching the
-	// suffix rather than listing the kinds — unlike the server, which is the actual boundary and
-	// spells them out — so a trigger kind added later greys out here without a second edit.
+	// Sharing a schedule or trigger is a write operators can lose. Gated here rather than at the
+	// dozen menu entries opening this drawer, so a new entry point is covered; reading stays open.
+	// Matched on the suffix, unlike the server (the real boundary, which lists kinds), so a
+	// trigger kind added later greys out here without a second edit.
 	let writeLock = $derived(
 		kind === 'schedule' ? $scheduleLock : kind.endsWith('_trigger') ? $triggerLock : undefined
 	)

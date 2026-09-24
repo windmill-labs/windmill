@@ -48,10 +48,7 @@ async fn set_settings(api: &str, body: serde_json::Value) -> anyhow::Result<u16>
     Ok(status)
 }
 
-/// Schedules and triggers are rights operators hold until an admin withdraws them, so the stored
-/// setting has to survive a payload that never mentions it: this endpoint takes whole-object
-/// bodies from git-sync files written before the keys existed, and either default would let such a
-/// file silently flip the right on every pull.
+/// Granted unless withdrawn, and a payload that omits the key leaves the stored value alone.
 #[sqlx::test(migrations = "../migrations", fixtures("base", "permissions_test"))]
 #[serial]
 async fn test_operator_manage_rights(db: Pool<Postgres>) -> anyhow::Result<()> {
@@ -108,8 +105,7 @@ async fn test_operator_manage_rights(db: Pool<Postgres>) -> anyhow::Result<()> {
         .await?;
     assert_eq!(resp.status(), 200, "{}", resp.text().await?);
 
-    // A payload omitting the key must not restore it. This is what an older git-sync settings file
-    // looks like, and what a serde or SQL default of either polarity would get wrong.
+    // A payload omitting the key must not restore it.
     assert_eq!(set_settings(&api, json!({"runs": true})).await?, 200);
 
     let resp = c
@@ -119,8 +115,7 @@ async fn test_operator_manage_rights(db: Pool<Postgres>) -> anyhow::Result<()> {
         .await?;
     assert_eq!(resp.status(), 403, "{}", resp.text().await?);
 
-    // And the other direction: omitting the key must not withdraw a stored grant, which is what a
-    // plain `bool` field would do by serializing its own default over it.
+    // Nor withdraw a stored grant.
     assert_eq!(
         set_settings(&api, json!({"manage_schedules": true})).await?,
         200
