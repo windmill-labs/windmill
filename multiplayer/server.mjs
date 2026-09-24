@@ -168,7 +168,7 @@ const send = (conn, message) => {
   }
 }
 
-const setupWSConnection = (conn, req, docName) => {
+const setupWSConnection = (conn, req, docName, bufferedMessages = []) => {
   const doc = getYDoc(docName)
 
   // Initialize awareness
@@ -182,7 +182,7 @@ const setupWSConnection = (conn, req, docName) => {
   if (!doc.conns) doc.conns = new Set()
   doc.conns.add(conn)
 
-  conn.on('message', (message) => {
+  const messageHandler = (message) => {
     const data = new Uint8Array(message)
     const decoder = decoding.createDecoder(data)
     const messageType = decoding.readVarUint(decoder)
@@ -200,7 +200,8 @@ const setupWSConnection = (conn, req, docName) => {
         awarenessProtocol.applyAwarenessUpdate(awareness, decoding.readVarUint8Array(decoder), conn)
         break
     }
-  })
+  }
+  conn.on('message', messageHandler)
 
   // Send initial sync step 1
   {
@@ -250,6 +251,10 @@ const setupWSConnection = (conn, req, docName) => {
     // Clean up awareness for this connection
     awarenessProtocol.removeAwarenessStates(awareness, [doc.clientID], null)
   })
+
+  // Replay, in order, the messages that arrived while the token was being
+  // verified, now that the handlers above are in place.
+  bufferedMessages.forEach(messageHandler)
 }
 
 // --- HTTP + WebSocket server ---
@@ -294,6 +299,14 @@ wss.on('connection', async (ws, req) => {
     return
   }
 
+  // A y-websocket client sends sync step 1 as soon as the socket opens, which can
+  // be before token verification resolves (the first connection after startup has
+  // to wait for the JWKS fetch). `ws` drops messages emitted with no listener
+  // attached, so buffer them here and replay them once the connection is accepted.
+  const bufferedMessages = []
+  const bufferMessage = (message) => { bufferedMessages.push(message) }
+  ws.on('message', bufferMessage)
+
   // Verify JWT token
   const urlParams = new URLSearchParams(req.url?.split('?')[1] || '')
   const token = urlParams.get('token')
@@ -301,6 +314,7 @@ wss.on('connection', async (ws, req) => {
   if (!token) {
     if (REQUIRE_SIGNED_REQUESTS) {
       console.warn(`[${new Date().toISOString()}] REJECTED: doc="${docName}" from=${clientIp} reason="no token"`)
+      ws.off('message', bufferMessage)
       ws.close(4401, 'Authentication required')
       return
     }
@@ -309,10 +323,13 @@ wss.on('connection', async (ws, req) => {
     const error = await verifyToken(token, docName)
     if (error) {
       console.warn(`[${new Date().toISOString()}] REJECTED: doc="${docName}" from=${clientIp} reason="${error}"`)
+      ws.off('message', bufferMessage)
       ws.close(4403, 'Token verification failed')
       return
     }
   }
+
+  ws.off('message', bufferMessage)
 
   console.log(`[${new Date().toISOString()}] CONNECT: doc="${docName}" from=${clientIp}`)
 
@@ -320,7 +337,7 @@ wss.on('connection', async (ws, req) => {
     console.log(`[${new Date().toISOString()}] DISCONNECT: doc="${docName}" from=${clientIp}`)
   })
 
-  setupWSConnection(ws, req, docName)
+  setupWSConnection(ws, req, docName, bufferedMessages)
 })
 
 server.listen(PORT, HOST, () => {
@@ -329,5 +346,14 @@ server.listen(PORT, HOST, () => {
     console.log(`[${new Date().toISOString()}] Signed requests REQUIRED (set REQUIRE_SIGNED_MULTIPLAYER_REQUESTS=false to disable)`)
   } else {
     console.log(`[${new Date().toISOString()}] Signed requests DISABLED`)
+  }
+
+  // Warm the JWKS cache so the first connection does not have to wait for it.
+  // Best-effort insurance only: getPublicKey() stays the lazy fallback, and a
+  // connection arriving before this resolves is handled by the message buffer.
+  if (WINDMILL_BASE_URL) {
+    getPublicKey().catch(error =>
+      console.error(`[${new Date().toISOString()}] Failed to prefetch public key at startup: ${error}`)
+    )
   }
 })
