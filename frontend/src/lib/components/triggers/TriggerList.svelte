@@ -854,11 +854,12 @@
 									{#if live}
 										<TriggerModeToggle
 											disabled={draft_only}
-											title={draft_only
-												? 'Draft only: deploy the trigger to enable it'
-												: hasDraft
-													? 'Enables/disables the deployed trigger; the draft is not affected'
-													: undefined}
+											title={$triggerLock ??
+												(draft_only
+													? 'Draft only: deploy the trigger to enable it'
+													: hasDraft
+														? 'Enables/disables the deployed trigger; the draft is not affected'
+														: undefined)}
 											onToggleMode={(newMode) => onToggleMode(path, newMode)}
 											triggerMode={effectiveMode}
 											includeModalConfig={{

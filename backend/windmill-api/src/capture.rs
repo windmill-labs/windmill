@@ -100,12 +100,17 @@ pub fn workspaced_service() -> Router {
         )
         .route("/get_configs/{runnable_kind}/{*path}", get(get_configs))
         .route("/list/{runnable_kind}/{*path}", get(list_captures))
-        .route(
-            "/move/{runnable_kind}/{*path}",
-            post(move_captures_and_configs),
-        )
         .route("/{id}", delete(delete_capture))
         .route("/{id}", get(get_capture))
+}
+
+/// Kept out of the operator trigger-write gate: it only relocates the caller's own captures from a
+/// new runnable's draft path, and the builders call it on every script and flow creation.
+pub fn workspaced_move_service() -> Router {
+    Router::new().route(
+        "/move/{runnable_kind}/{*path}",
+        post(move_captures_and_configs),
+    )
 }
 
 pub fn workspaced_unauthed_service() -> Router {

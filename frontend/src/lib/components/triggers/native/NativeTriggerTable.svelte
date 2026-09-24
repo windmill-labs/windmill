@@ -164,6 +164,7 @@
 						<div class="flex gap-2 items-center justify-end">
 							<TriggerModeToggle
 								canWrite={canEdit}
+								title={$triggerLock}
 								triggerMode={trigger.enabled ? 'enabled' : 'disabled'}
 								onToggleMode={(mode) => onToggleMode(trigger, mode)}
 								hideToggleLabels

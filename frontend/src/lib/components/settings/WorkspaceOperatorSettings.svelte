@@ -39,6 +39,9 @@
 	})
 	let isChanged = $state(false)
 	let currentWorkspace: string | null = $state(null)
+	// Saving sends every key, so saving before the load, or over a late response for another
+	// workspace, would write defaults over the rights stored there.
+	let loadedWorkspace: string | null = $state(null)
 
 	const settingsPayload = $derived({
 		...operatorWorkspaceSettings,
@@ -77,10 +80,10 @@
 	$effect(() => {
 		if ($workspaceStore && $workspaceStore !== currentWorkspace) {
 			;(async () => {
-				currentWorkspace = $workspaceStore
-				const settings = await WorkspaceService.getSettings({
-					workspace: $workspaceStore
-				})
+				const ws = $workspaceStore
+				currentWorkspace = ws
+				const settings = await WorkspaceService.getSettings({ workspace: ws })
+				if (ws !== currentWorkspace) return
 				if (settings.operator_settings !== null) {
 					const {
 						manage_schedules: remoteSchedules,
@@ -96,6 +99,7 @@
 						manage_triggers: manageTriggers
 					}
 				}
+				loadedWorkspace = ws
 			})()
 		}
 	})
@@ -122,7 +126,7 @@
 		<Button
 			on:click={saveSettings}
 			startIcon={{ icon: SaveIcon }}
-			disabled={!isChanged}
+			disabled={!isChanged || loadedWorkspace !== $workspaceStore}
 			variant="accent"
 		>
 			Save operator settings

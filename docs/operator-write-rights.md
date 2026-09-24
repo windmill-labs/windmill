@@ -24,7 +24,9 @@ router the author of the next route writes nothing and is covered anyway.
 says nothing about a new feature that performs trigger writes from a router of its own. Capture is
 exactly that — it configures a trigger without creating one, and saving a Postgres capture config
 creates a replication slot and a publication on the target database — and it needed its own layer
-rather than inheriting one. Before adding a feature that writes trigger or schedule state, ask
+rather than inheriting one. Its `move` route is merged outside that layer: the builders call it on
+every script and flow creation to relocate the caller's own captures, and it writes no config.
+Before adding a feature that writes trigger or schedule state, ask
 which router it lands on.
 
 Three consequences to keep in mind when adding a route under one of these:

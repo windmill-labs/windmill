@@ -202,5 +202,14 @@ async fn test_manage_triggers_covers_a_route_outside_the_shared_handler(
     let (status, body) = set_capture().await?;
     assert_eq!(status, 403, "{body}");
 
+    // Moving captures off a new runnable's draft path stays open: the builders call it on every
+    // script and flow creation.
+    let resp = c
+        .post(format!("{api}/capture/move/script/u/operator/draft_path"))
+        .json(&json!({"new_path": "u/operator/some_script"}))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+
     Ok(())
 }

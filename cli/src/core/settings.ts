@@ -408,7 +408,18 @@ export async function pushWorkspaceSettings(
     });
   }
 
-  if (!deepEqual(localSettings.operator_settings, settings.operator_settings)) {
+  // The endpoint keeps the stored value of a write right the file omits, so an older file must
+  // not count as differing on those keys, or every push would re-post it.
+  const localOperatorSettings = localSettings.operator_settings && {
+    ...localSettings.operator_settings,
+  };
+  for (const key of ["manage_schedules", "manage_triggers"] as const) {
+    const remote = settings.operator_settings?.[key];
+    if (localOperatorSettings && localOperatorSettings[key] === undefined && remote !== undefined) {
+      localOperatorSettings[key] = remote;
+    }
+  }
+  if (!deepEqual(localOperatorSettings, settings.operator_settings)) {
     log.debug(`Updating operator settings...`);
     await wmill.updateOperatorSettings({
       workspace,

@@ -1256,7 +1256,7 @@ impl OperatorManageRights {
 ///
 /// Call it before opening an RLS transaction: it takes a connection from the root pool, and a
 /// second pooled connection held alongside a transaction self-deadlocks on a one-connection pool.
-pub async fn operator_manage_rights(db: &DB, workspace_id: &str) -> Result<OperatorManageRights> {
+async fn operator_manage_rights(db: &DB, workspace_id: &str) -> Result<OperatorManageRights> {
     let now = chrono::Utc::now().timestamp();
 
     if let Some((rights, expiry)) = OPERATOR_RIGHTS_CACHE.get(workspace_id) {
@@ -1297,7 +1297,8 @@ pub fn invalidate_operator_rights_cache(workspace_id: &str) {
 
 /// Gate for a write operators may perform unless the workspace withdrew it. Prefer layering
 /// `gate_operator_writes` on a whole router over calling this per handler; see
-/// `docs/operator-write-rights.md`.
+/// `docs/operator-write-rights.md`. `is_operator` MUST come from the authenticated caller
+/// (`ApiAuthed::is_operator`): passing `false` skips the check.
 pub async fn check_operator_can_manage(
     db: &DB,
     workspace_id: &str,
