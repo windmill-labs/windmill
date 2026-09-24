@@ -116,7 +116,7 @@ async fn get_ruff_config_unauthed(Extension(db): Extension<DB>) -> error::Result
 }
 
 /// The announcement banner and accent color, which every signed-in session reads on load
-/// and on each banner poll. Served from the in-memory copy, never the database.
+/// and on each banner poll. Served from the in-memory copy (see `INSTANCE_UI_TTL`).
 async fn get_instance_ui(
     Extension(db): Extension<DB>,
     _authed: ApiAuthed,
