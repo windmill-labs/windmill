@@ -730,6 +730,7 @@
 		secret_backend: ['token', 'client_secret', 'secret_access_key'],
 		object_store_cache_config: ['secret_key', 'serviceAccountKey', 'accessKey'],
 		custom_instance_pg_databases: ['user_pwd'],
+		external_instance_pg: ['password'],
 		rsa_keys: ['private_key'],
 		github_enterprise_app: ['private_key']
 	}

@@ -96,6 +96,7 @@
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { resource } from 'runed'
 	import CustomInstanceDbSelect from './CustomInstanceDbSelect.svelte'
+	import ExternalInstanceDbSelect from './ExternalInstanceDbSelect.svelte'
 	import { Popover } from '../meltComponents'
 	import ExploreAssetButton from '../ExploreAssetButton.svelte'
 	import DataTableMigrationsButton from './DataTableMigrationsButton.svelte'
@@ -167,6 +168,16 @@
 	}
 
 	const customInstanceDbs = resource([() => $workspaceStore], SettingService.listCustomInstanceDbs)
+
+	// Both endpoints are superadmin-only, and the kind is theirs to pick, so a workspace admin
+	// never loads them — and sees the option disabled rather than an empty picker.
+	const externalInstanceStatus = resource([() => $superadmin], ([isSuperadmin]) =>
+		isSuperadmin ? SettingService.getExternalInstancePgStatus() : Promise.resolve(undefined)
+	)
+	const externalInstanceDbs = resource([() => $superadmin], ([isSuperadmin]) =>
+		isSuperadmin ? SettingService.listExternalInstancePgDatabases() : Promise.resolve({})
+	)
+	let externalInstanceConfigured = $derived(externalInstanceStatus.current?.configured === true)
 
 	function defaultInstanceDbName(): string {
 		const usedNames = [
@@ -433,6 +444,16 @@
 												: isCloudHosted()
 													? 'Not available on cloud'
 													: 'Superadmin only'
+										},
+										{
+											value: 'external_instance',
+											label: 'External instance',
+											disabled: !externalInstanceConfigured,
+											subtitle: !$superadmin
+												? 'Superadmin only'
+												: externalInstanceConfigured
+													? undefined
+													: 'No external cluster configured'
 										}
 									]}
 									bind:value={
@@ -446,11 +467,18 @@
 										}
 									}
 									id="database-type-select"
-									class="w-28"
+									class="w-36"
 								/>
 							</div>
 							<div class="flex items-center gap-1 w-80 relative">
-								{#if dataTable.database.resource_type !== 'instance'}
+								{#if dataTable.database.resource_type === 'external_instance'}
+									<ExternalInstanceDbSelect
+										class="flex-1"
+										{externalInstanceDbs}
+										bind:value={dataTable.database.resource_path}
+										tag="datatable"
+									/>
+								{:else if dataTable.database.resource_type !== 'instance'}
 									<ResourcePicker
 										class="flex-1"
 										bind:value={dataTable.database.resource_path}

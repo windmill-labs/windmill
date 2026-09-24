@@ -67,6 +67,7 @@ export interface Setting {
 		| 'otel'
 		| 'otel_tracing_proxy'
 		| 'secret_backend'
+		| 'external_instance_pg'
 		| 'github_enterprise_app'
 		| 'webhook_base_url'
 		| 'ws_connectivity'
@@ -565,6 +566,17 @@ export const settings: Record<string, Setting[]> = {
 			cloudonly: true,
 			ee_only: '',
 			hideInQuickSetup: true
+		}
+	],
+	'External Postgres': [
+		{
+			label: 'External instance cluster',
+			description:
+				'A Postgres cluster Windmill administers for data tables and Ducklake catalogs, instead of its own database. It creates the databases there and manages the roles jobs connect as.',
+			key: 'external_instance_pg',
+			fieldType: 'external_instance_pg',
+			storage: 'setting',
+			ee_only: ''
 		}
 	],
 	'Object Storage': [
@@ -1268,6 +1280,13 @@ export const instanceSettingsNavigationGroups = [
 				aiId: 'instance-settings-object-storage',
 				aiDescription: 'Instance object storage settings',
 				isEE: true
+			},
+			{
+				id: 'external_instance_pg',
+				label: 'External Postgres',
+				aiId: 'instance-settings-external-instance-pg',
+				aiDescription: 'External Postgres cluster for data tables and Ducklake catalogs',
+				isEE: true
 			}
 		]
 	},
@@ -1387,6 +1406,7 @@ export const tabToCategoryMap: Record<string, string> = {
 	telemetry: 'Telemetry',
 	secret_storage: 'Secret Storage',
 	object_storage: 'Object Storage',
+	external_instance_pg: 'External Postgres',
 	jobs: 'Jobs',
 	private_hub: 'Private Hub',
 	github_enterprise_app: 'GitHub App',
@@ -1423,6 +1443,7 @@ export const categoryToTabMap: Record<string, string> = {
 	Telemetry: 'telemetry',
 	'Secret Storage': 'secret_storage',
 	'Object Storage': 'object_storage',
+	'External Postgres': 'external_instance_pg',
 	Jobs: 'jobs',
 	'Private Hub': 'private_hub',
 	'GitHub App': 'github_enterprise_app',

@@ -91,7 +91,7 @@
 	import { ScheduleService, SettingService, WorkspaceService } from '$lib/gen'
 	import type { GetSettingsResponse } from '$lib/gen'
 
-	import { enterpriseLicense, userWorkspaces, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, superadmin, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { base } from '$app/paths'
 	import Toggle from '../Toggle.svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -108,6 +108,7 @@
 	import { isCustomInstanceDbEnabled, getUnusedInstanceDbName } from './utils.svelte'
 	import { resource } from 'runed'
 	import CustomInstanceDbSelect from './CustomInstanceDbSelect.svelte'
+	import ExternalInstanceDbSelect from './ExternalInstanceDbSelect.svelte'
 	import Label from '../Label.svelte'
 
 	type Props = {
@@ -169,6 +170,16 @@
 	)
 
 	const customInstanceDbs = resource([() => $workspaceStore], SettingService.listCustomInstanceDbs)
+
+	// Superadmin-only endpoints, and the kind is theirs to pick: a workspace admin never loads
+	// them and sees the option disabled instead of an empty picker.
+	const externalInstanceStatus = resource([() => $superadmin], ([isSuperadmin]) =>
+		isSuperadmin ? SettingService.getExternalInstancePgStatus() : Promise.resolve(undefined)
+	)
+	const externalInstanceDbs = resource([() => $superadmin], ([isSuperadmin]) =>
+		isSuperadmin ? SettingService.listExternalInstancePgDatabases() : Promise.resolve({})
+	)
+	let externalInstanceConfigured = $derived(externalInstanceStatus.current?.configured === true)
 
 	async function onSave() {
 		try {
@@ -381,6 +392,16 @@
 										value: 'instance',
 										label: 'Instance',
 										subtitle: $isCustomInstanceDbEnabled ? undefined : 'Superadmin only'
+									},
+									{
+										value: 'external_instance',
+										label: 'External instance',
+										disabled: !externalInstanceConfigured,
+										subtitle: !$superadmin
+											? 'Superadmin only'
+											: externalInstanceConfigured
+												? undefined
+												: 'No external cluster configured'
 									}
 								]}
 								bind:value={
@@ -393,11 +414,19 @@
 										}
 									}
 								}
-								class="w-24"
+								id="ducklake-catalog-type-select"
+								class="w-36"
 							/>
 						</div>
 						<div class="flex flex-1">
-							{#if ducklake.catalog.resource_type !== 'instance'}
+							{#if ducklake.catalog.resource_type === 'external_instance'}
+								<ExternalInstanceDbSelect
+									class="flex-1 min-w-32"
+									bind:value={ducklake.catalog.resource_path}
+									{externalInstanceDbs}
+									tag="ducklake"
+								/>
+							{:else if ducklake.catalog.resource_type !== 'instance'}
 								<ResourcePicker
 									class="flex-1 min-w-32"
 									bind:value={ducklake.catalog.resource_path}
