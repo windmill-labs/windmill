@@ -399,6 +399,8 @@
 		{#snippet titleExtra()}
 			{@const mainPaneLeft = dbManagerContent?.dbManager()?.mainPaneLeft()}
 			{@const tabs = dbManagerContent?.tabsModel()}
+			<!-- `tabs` goes undefined while the content remounts on another data table, and this
+				 block can still re-read it on its way out: every read below tolerates that. -->
 			{#if tabs && mainPaneLeft}
 				<!-- Floating tabs over the right pane, starting where it starts, and scrolling
 					 sideways before they would run into the actions. -->
@@ -408,8 +410,8 @@
 					role="tablist"
 					{@attach wheelScrollsSideways}
 				>
-					{#each tabs.tabs as tab (tab.id)}
-						{@const active = tab.id === tabs.activeId}
+					{#each tabs?.tabs ?? [] as tab (tab.id)}
+						{@const active = tab.id === tabs?.activeId}
 						{@const Icon = TAB_KINDS.find((k) => k.kind === tab.kind)!.icon}
 						{@const dropSide = dropTarget?.id === tab.id ? dropTarget.side : undefined}
 						<!-- Moved only on drop: moving the dragged element mid-drag makes the browser
@@ -442,7 +444,7 @@
 							ondrop={(e) => {
 								e.preventDefault()
 								if (draggedTabId && dropTarget)
-									tabs.move(draggedTabId, dropTarget.id, dropTarget.side)
+									tabs?.move(draggedTabId, dropTarget.id, dropTarget.side)
 								draggedTabId = undefined
 								dropTarget = undefined
 							}}
@@ -465,7 +467,7 @@
 								aria-selected={active}
 								class="flex h-full items-center gap-1.5 pl-2.5 pr-1 max-w-48"
 								title={tabLabel(tab)}
-								onclick={() => tabs.activate(tab.id)}
+								onclick={() => tabs?.activate(tab.id)}
 							>
 								<Icon size={14} class="shrink-0" />
 								<span class="truncate">{tabLabel(tab)}</span>
@@ -475,7 +477,7 @@
 									(active ? '' : 'opacity-0 group-hover:opacity-100')}
 								title="Close tab"
 								aria-label="Close {tabLabel(tab)} tab"
-								onclick={() => tabs.close(tab.id)}
+								onclick={() => tabs?.close(tab.id)}
 							>
 								<X size={12} />
 							</button>
@@ -488,8 +490,8 @@
 							icon: k.icon,
 							action: () => {
 								// A query opened from a data tab starts on that tab's table.
-								const from = tabs.active.kind === 'data' ? tabs.active : undefined
-								tabs.add(
+								const from = tabs?.active.kind === 'data' ? tabs.active : undefined
+								tabs?.add(
 									k.kind,
 									k.kind === 'sql' && from?.table
 										? {
