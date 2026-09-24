@@ -26,6 +26,7 @@
 	import type { DbManagerTab, DbManagerTabKind } from './dbManagerTabs.svelte'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
 	import { getDbType } from './dbOps'
+	import { renderDbQuotedIdentifier } from './apps/components/display/dbtable/utils'
 	import DataTableMigrationsButton from './workspaceSettings/DataTableMigrationsButton.svelte'
 	import DataTablePermissionsButton from './workspaceSettings/DataTablePermissionsButton.svelte'
 	import { resource } from 'runed'
@@ -227,6 +228,13 @@
 		}
 		el.addEventListener('wheel', onWheel, { passive: false })
 		return () => el.removeEventListener('wheel', onWheel)
+	}
+
+	function quotedTableName(schema: string | undefined, table: string): string {
+		const input = uriState.effectiveInput
+		if (!input) return table
+		const q = (name: string) => renderDbQuotedIdentifier(name, getDbType(input))
+		return schema ? `${q(schema)}.${q(table)}` : q(table)
 	}
 
 	let draggedTabId: string | undefined = $state()
@@ -495,7 +503,7 @@
 									k.kind,
 									k.kind === 'sql' && from?.table
 										? {
-												code: `SELECT * FROM ${from.schema ? `${from.schema}.` : ''}${from.table}`
+												code: `SELECT * FROM ${quotedTableName(from.schema, from.table)}`
 											}
 										: {}
 								)

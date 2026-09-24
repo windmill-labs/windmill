@@ -149,7 +149,10 @@ export function exactColumnFilterValue(
 ): string | boolean {
 	switch (dbColumnKind(datatype)) {
 		case 'boolean':
-			return Boolean(value)
+			// Previews read values as text, so a false key arrives as "false" or "f".
+			return typeof value === 'string'
+				? ['true', 't', '1', 'yes', 'y'].includes(value.trim().toLowerCase())
+				: Boolean(value)
 		case 'number':
 			return String(value)
 		case 'text':

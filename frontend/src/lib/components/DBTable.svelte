@@ -404,28 +404,39 @@
 	let pinned: Record<string, 'left' | 'right'> = $state({ ...storedLayout.pinned })
 
 	// ── Joined columns ───────────────────────────────────────────────────────
+	// A joined column is read under its alias: one equal to a column of the table itself would
+	// make the read's columns ambiguous.
+	let ownFields = $derived(new Set((dbTableOps.colDefs ?? []).map((c) => c.field)))
+	function aliasTaken(join: Pick<DbTableJoin, 'sourceColumn' | 'column'>): boolean {
+		const alias = joinAlias(join)
+		return joinedAliases.has(alias) || ownFields.has(alias)
+	}
 	function addJoin(join: DbTableJoin) {
-		if (joinedAliases.has(joinAlias(join))) return
+		if (aliasTaken(join)) return
 		joins = [...joins, join]
 		saveLayout()
 	}
 	// A stored join outlives the foreign key it follows: once the keys are known, one that no
-	// longer matches (key dropped, column renamed) would fail every read of the table.
+	// longer matches (key dropped, column renamed) would fail every read of the table, and one
+	// whose target column changed type would filter with the old one.
 	$effect(() => {
 		const targets = joinTargets
+		const fields = ownFields
 		if (!targets) return
 		untrack(() => {
-			const valid = joins.filter((j) =>
-				targets.some(
+			const next = joins.flatMap((j) => {
+				const target = targets.find(
 					(t) =>
 						t.sourceColumn === j.sourceColumn &&
 						t.targetTable === j.targetTable &&
-						t.targetColumn === j.targetColumn &&
-						t.columns.some((c) => c.field === j.column)
+						t.targetColumn === j.targetColumn
 				)
-			)
-			if (valid.length === joins.length) return
-			joins = valid
+				const column = target?.columns.find((c) => c.field === j.column)
+				if (!column || fields.has(joinAlias(j))) return []
+				return [column.datatype === j.datatype ? j : { ...j, datatype: column.datatype }]
+			})
+			if (next.length === joins.length && next.every((j, i) => j === joins[i])) return
+			joins = next
 			saveLayout()
 		})
 	})
@@ -874,12 +885,10 @@
 								value: c.field,
 								disabled:
 									pickedTarget !== undefined &&
-									joinedAliases.has(
-										joinAlias({
-											sourceColumn: joinTargets![pickedTarget].sourceColumn,
-											column: c.field
-										})
-									)
+									aliasTaken({
+										sourceColumn: joinTargets![pickedTarget].sourceColumn,
+										column: c.field
+									})
 							}))}
 							bind:value={pickedColumn}
 							placeholder="Column"
