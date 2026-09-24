@@ -2276,9 +2276,7 @@ export async function main(
 												summary: 'Workspace Variable Expiration Handler',
 												description:
 													'Called an hour before the value of a variable in this workspace expires',
-												content: `//native
-
-// Workspace Variable Expiration Handler
+												content: `// Workspace Variable Expiration Handler
 // Called an hour before the value of a variable in this workspace expires, and
 // again whenever that date is moved to a new one.
 //
