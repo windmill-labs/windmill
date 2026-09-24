@@ -218,6 +218,7 @@
 		{ kind: 'sql', label: 'SQL Editor', icon: Code }
 	]
 	let draggedTabId: string | undefined = $state()
+	let dropTarget: { id: string; side: 'before' | 'after' } | undefined = $state()
 	function tabLabel(tab: DbManagerTab): string {
 		if (tab.kind === 'data') return tab.table ?? 'Data'
 		return TAB_KINDS.find((k) => k.kind === tab.kind)!.label
@@ -397,12 +398,14 @@
 					{#each tabs.tabs as tab (tab.id)}
 						{@const active = tab.id === tabs.activeId}
 						{@const Icon = TAB_KINDS.find((k) => k.kind === tab.kind)!.icon}
-						<!-- Reordered live as the dragged tab passes over another, as browser tabs are. -->
+						{@const dropSide = dropTarget?.id === tab.id ? dropTarget.side : undefined}
+						<!-- Moved only on drop: moving the dragged element mid-drag makes the browser
+							 abandon the drag and snap it back. A bar shows where it will land. -->
 						<!-- svelte-ignore a11y_no_static_element_interactions -->
 						<div
 							class={(active
-								? 'group flex h-7 shrink-0 items-center rounded-md bg-surface-sunken text-xs font-medium text-emphasis'
-								: 'group flex h-7 shrink-0 items-center rounded-md text-xs text-secondary hover:bg-surface-hover hover:text-primary') +
+								? 'group relative flex h-7 shrink-0 items-center rounded-md bg-surface-sunken text-xs font-medium text-emphasis'
+								: 'group relative flex h-7 shrink-0 items-center rounded-md text-xs text-secondary hover:bg-surface-hover hover:text-primary') +
 								(draggedTabId === tab.id ? ' opacity-50' : '')}
 							draggable="true"
 							animate:flip={{ duration: 150 }}
@@ -414,11 +417,33 @@
 							ondragover={(e) => {
 								if (!draggedTabId) return
 								e.preventDefault()
-								if (draggedTabId !== tab.id) tabs.move(draggedTabId, tab.id)
+								if (draggedTabId === tab.id) {
+									dropTarget = undefined
+									return
+								}
+								const rect = e.currentTarget.getBoundingClientRect()
+								const side = e.clientX < rect.left + rect.width / 2 ? 'before' : 'after'
+								if (dropTarget?.id !== tab.id || dropTarget.side !== side)
+									dropTarget = { id: tab.id, side }
 							}}
-							ondrop={(e) => e.preventDefault()}
-							ondragend={() => (draggedTabId = undefined)}
+							ondrop={(e) => {
+								e.preventDefault()
+								if (draggedTabId && dropTarget)
+									tabs.move(draggedTabId, dropTarget.id, dropTarget.side)
+								draggedTabId = undefined
+								dropTarget = undefined
+							}}
+							ondragend={() => {
+								draggedTabId = undefined
+								dropTarget = undefined
+							}}
 						>
+							{#if dropSide}
+								<div
+									class={'pointer-events-none absolute inset-y-1 w-0.5 rounded bg-surface-accent-primary ' +
+										(dropSide === 'before' ? '-left-1' : '-right-1')}
+								></div>
+							{/if}
 							<button
 								role="tab"
 								aria-selected={active}

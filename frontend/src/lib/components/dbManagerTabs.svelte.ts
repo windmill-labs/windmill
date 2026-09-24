@@ -81,13 +81,18 @@ export class DbManagerTabs {
 		else this.#save()
 	}
 
-	/** Moves a tab to where `beforeId` is, as a drag over that tab would. */
-	move(id: string, beforeId: string) {
+	/** Moves a tab next to another, on the given side of it. */
+	move(id: string, targetId: string, side: 'before' | 'after') {
+		if (id === targetId) return
 		const from = this.tabs.findIndex((t) => t.id === id)
-		const to = this.tabs.findIndex((t) => t.id === beforeId)
-		if (from === -1 || to === -1 || from === to) return
+		if (from === -1) return
 		const [tab] = this.tabs.splice(from, 1)
-		this.tabs.splice(to, 0, tab)
+		const target = this.tabs.findIndex((t) => t.id === targetId)
+		if (target === -1) {
+			this.tabs.splice(from, 0, tab)
+			return
+		}
+		this.tabs.splice(side === 'before' ? target : target + 1, 0, tab)
 		this.#save()
 	}
 
