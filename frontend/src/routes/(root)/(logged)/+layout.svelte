@@ -81,6 +81,7 @@
 	import { pruneMeaninglessDrafts } from '$lib/userDraftPrune'
 	import DraftMigrationErrorModal from '$lib/components/DraftMigrationErrorModal.svelte'
 	import InstanceBanner from '$lib/components/InstanceBanner.svelte'
+	import InstanceAccentColor from '$lib/components/InstanceAccentColor.svelte'
 	import { onDestroy, setContext, untrack } from 'svelte'
 	import { base } from '$app/paths'
 	import { Menubar } from '$lib/components/meltComponents'
@@ -1418,6 +1419,9 @@
 			</div>
 		{/if}
 		<div class="flex flex-col h-full w-full">
+			{#if $enterpriseLicense}
+				<InstanceAccentColor />
+			{/if}
 			{#if $enterpriseLicense && !menuHidden}
 				<!-- Announcements are an EE feature, so the component never mounts on CE: no
 				     fetch, no poll, no listener there. Also skipped when the menu is hidden —

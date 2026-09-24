@@ -58,9 +58,9 @@ use windmill_common::{
     error::{self, pg_error_message, JsonResult, Result},
     get_database_url,
     global_settings::{
-        AI_CONFIG_SETTING, APP_WORKSPACED_ROUTE_SETTING, AUTOMATE_USERNAME_CREATION_SETTING,
-        CRITICAL_ALERT_MUTE_UI_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
-        DISABLE_HUB_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
+        ACCENT_COLOR_SETTING, AI_CONFIG_SETTING, APP_WORKSPACED_ROUTE_SETTING,
+        AUTOMATE_USERNAME_CREATION_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING, CUSTOM_TAGS_SETTING,
+        DEFAULT_TAGS_WORKSPACES_SETTING, DISABLE_HUB_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
         GITHUB_APP_WEBHOOK_BASE_URL_SETTING, HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING,
         HTTP_ROUTE_WORKSPACED_ROUTE_SETTING, HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING,
         INSTANCE_BANNER_SETTING, MAX_RETENTION_OVERRIDE_WORKSPACES,
@@ -1216,6 +1216,12 @@ async fn run_setting_pre_write_hook(
                 }
             }
         }
+        ACCENT_COLOR_SETTING => match value {
+            serde_json::Value::Null => {}
+            serde_json::Value::String(s) if s.trim().is_empty() => {}
+            v => windmill_common::global_settings::validate_accent_color(v)
+                .map_err(|e| error::Error::BadRequest(format!("{ACCENT_COLOR_SETTING}: {e}")))?,
+        },
         _ => {}
     }
     Ok(())
@@ -1365,6 +1371,7 @@ pub async fn get_global_setting(
         && key != HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING
         && key != WS_BASE_URL_SETTING
         && key != INSTANCE_BANNER_SETTING
+        && key != ACCENT_COLOR_SETTING
         // The token form reads it to stop offering expirations the server would shorten.
         && key != MAX_TOKEN_EXPIRATION_DAYS_SETTING
         // Whoever is wiring up an MCP client reads it to know whether a URL-borne token

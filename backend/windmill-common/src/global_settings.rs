@@ -281,6 +281,26 @@ pub fn validate_instance_banner(value: &serde_json::Value) -> Result<(), String>
     Ok(())
 }
 
+/// Instance-wide accent color (`#rrggbb`) that recolors the UI's accent tokens and
+/// tints the sidebar, so each environment of a deployment is recognizable at a glance.
+/// Readable by any authenticated user, like [`INSTANCE_BANNER_SETTING`].
+pub const ACCENT_COLOR_SETTING: &str = "accent_color";
+
+/// Validate an [`ACCENT_COLOR_SETTING`] value.
+///
+/// Only `#rrggbb` is accepted: the value is interpolated into a stylesheet every user
+/// loads, so anything looser is CSS injection into every session of the instance.
+pub fn validate_accent_color(value: &serde_json::Value) -> Result<(), String> {
+    let s = value
+        .as_str()
+        .ok_or_else(|| "must be a string".to_string())?;
+    let hex = s.strip_prefix('#').unwrap_or("");
+    if hex.len() != 6 || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err("must be a hex color of the form #rrggbb".to_string());
+    }
+    Ok(())
+}
+
 /// Validate a [`GITHUB_APP_WEBHOOK_BASE_URL_SETTING`] value.
 ///
 /// The receiver path is appended to it verbatim, so anything that doesn't
@@ -936,6 +956,26 @@ mod tests {
                 !err.contains(SECRET),
                 "'{bad}' leaked its credential into: {err}"
             );
+        }
+    }
+
+    #[test]
+    fn accent_color_accepts_only_hex_rgb() {
+        for ok in ["#1f9d55", "#ABCDEF"] {
+            assert!(
+                validate_accent_color(&serde_json::json!(ok)).is_ok(),
+                "{ok}"
+            );
+        }
+        for bad in [
+            serde_json::json!("1f9d55"),
+            serde_json::json!("#fff"),
+            serde_json::json!("red"),
+            serde_json::json!("#000000;} body{display:none"),
+            serde_json::json!("#12345g"),
+            serde_json::json!(123),
+        ] {
+            assert!(validate_accent_color(&bad).is_err(), "{bad}");
         }
     }
 

@@ -603,6 +603,9 @@ const config = {
 					backgroundColor: 'rgb(var(--color-surface-primary))',
 					color: 'rgb(var(--color-text-primary))',
 
+					// Sidebar rail chrome — consumed via var(--sidebar-bg-light) (see sidebarChrome.ts).
+					'--sidebar-bg-light': '#F3F3F7',
+
 					'--vscode-editorSuggestWidget-background': '#f3f3f3',
 					'--vscode-editorHoverWidget-foreground': '#616161',
 					'--vscode-editorHoverWidget-border': '#c8c8c8',
