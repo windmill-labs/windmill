@@ -493,11 +493,14 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         Ok(info)
     }
 
+    /// `None` for a request that asks for nothing this server sends, so the client is
+    /// told the subscription is unsupported rather than acked with an empty filter.
     fn accepted_subscription_filter(
         &self,
-        _requested: &SubscriptionFilter,
+        requested: &SubscriptionFilter,
     ) -> Option<SubscriptionFilter> {
-        Some(SubscriptionFilter::builder().tools_list_changed().build())
+        (requested.tools_list_changed == Some(true))
+            .then(|| SubscriptionFilter::builder().tools_list_changed().build())
     }
 
     async fn listen(&self, subscription: SubscriptionContext) -> Result<(), ErrorData> {

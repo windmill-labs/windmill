@@ -715,21 +715,35 @@ async fn test_trigger_notify_runnable_list_change(db: Pool<Postgres>) {
         .unwrap();
     assert!(list_changes(before).await.is_empty());
 
-    // Archiving every version of a path is one statement, so one event.
+    // A path move, as a username change or an offboarding does, renames the tool.
+    let moved_path = "f/test/list_change_moved";
+    let before = get_latest_event_id(&db).await.unwrap();
+    sqlx::query("UPDATE script SET path = $1 WHERE path = $2")
+        .bind(moved_path)
+        .bind(script_path)
+        .execute(&db)
+        .await
+        .unwrap();
+    assert_eq!(list_changes(before).await, vec!["test-workspace"; 3]);
+
     let before = get_latest_event_id(&db).await.unwrap();
     sqlx::query("UPDATE script SET archived = true WHERE path = $1")
-        .bind(script_path)
+        .bind(moved_path)
+        .execute(&db)
+        .await
+        .unwrap();
+    assert_eq!(list_changes(before).await, vec!["test-workspace"; 3]);
+
+    // Statement-level, so deleting every version is one event.
+    let before = get_latest_event_id(&db).await.unwrap();
+    sqlx::query("DELETE FROM script WHERE path = $1")
+        .bind(moved_path)
         .execute(&db)
         .await
         .unwrap();
     assert_eq!(list_changes(before).await, vec!["test-workspace"]);
 
     let before = get_latest_event_id(&db).await.unwrap();
-    sqlx::query("DELETE FROM script WHERE path = $1")
-        .bind(script_path)
-        .execute(&db)
-        .await
-        .unwrap();
     sqlx::query("UPDATE flow SET archived = true WHERE path = 'f/test/list_change_flow'")
         .execute(&db)
         .await
@@ -738,10 +752,7 @@ async fn test_trigger_notify_runnable_list_change(db: Pool<Postgres>) {
         .execute(&db)
         .await
         .unwrap();
-    assert_eq!(
-        list_changes(before).await,
-        vec!["test-workspace", "test-workspace", "test-workspace"]
-    );
+    assert_eq!(list_changes(before).await, vec!["test-workspace"; 2]);
 }
 
 // ============================================================================

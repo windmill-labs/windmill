@@ -1,52 +1,53 @@
--- Signals that a workspace's set of live scripts/flows shrank (archive, delete, and flow
--- renames, which delete the old row). Deploys are already signalled by
--- `notify_runnable_version_change`. Statement-level so that a bulk change, such as deleting a
--- workspace or a user's items, emits one event per workspace rather than one per row.
+-- Signals that a workspace's set of live scripts/flows changed other than by a deploy, which
+-- `notify_runnable_version_change` already signals: an archive, a delete, a flow rename (which
+-- deletes the old row), or a path move such as a username change or an offboarding.
+
+-- Row-level with a column list and a WHEN guard, so the many unrelated UPDATEs on these tables
+-- (locks, `on_behalf_of` rewrites, workspace renames) pay nothing. A statement-level trigger would
+-- need transition tables, which Postgres refuses to combine with a column list, and would copy
+-- every updated row, content included. The poller collapses the per-row events per workspace.
 CREATE OR REPLACE FUNCTION notify_runnable_list_change()
 RETURNS TRIGGER AS $$
 BEGIN
-    IF TG_OP = 'DELETE' THEN
-        INSERT INTO notify_event (channel, payload)
-        SELECT DISTINCT 'notify_runnable_list_change', workspace_id FROM old_rows;
-    ELSIF TG_TABLE_NAME = 'script' THEN
-        INSERT INTO notify_event (channel, payload)
-        SELECT DISTINCT 'notify_runnable_list_change', n.workspace_id
-        FROM new_rows n
-        JOIN old_rows o ON o.workspace_id = n.workspace_id AND o.hash = n.hash
-        WHERE o.archived IS DISTINCT FROM n.archived OR o.deleted IS DISTINCT FROM n.deleted;
-    ELSE
-        INSERT INTO notify_event (channel, payload)
-        SELECT DISTINCT 'notify_runnable_list_change', n.workspace_id
-        FROM new_rows n
-        JOIN old_rows o ON o.workspace_id = n.workspace_id AND o.path = n.path
-        WHERE o.archived IS DISTINCT FROM n.archived;
-    END IF;
+    INSERT INTO notify_event (channel, payload)
+    VALUES ('notify_runnable_list_change', NEW.workspace_id);
     RETURN NULL;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Postgres rejects transition tables on a trigger with a column list, so the UPDATE triggers
--- fire on every UPDATE statement and the function filters for the columns that matter.
+-- Statement-level, so deleting a workspace or a user's items emits one event per workspace
+-- rather than one per row.
+CREATE OR REPLACE FUNCTION notify_runnable_list_delete()
+RETURNS TRIGGER AS $$
+BEGIN
+    INSERT INTO notify_event (channel, payload)
+    SELECT DISTINCT 'notify_runnable_list_change', workspace_id FROM old_rows;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
 CREATE TRIGGER script_list_change_update_trigger
-AFTER UPDATE ON script
-REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows
-FOR EACH STATEMENT
+AFTER UPDATE OF archived, deleted, path ON script
+FOR EACH ROW
+WHEN (OLD.archived IS DISTINCT FROM NEW.archived
+    OR OLD.deleted IS DISTINCT FROM NEW.deleted
+    OR OLD.path IS DISTINCT FROM NEW.path)
 EXECUTE FUNCTION notify_runnable_list_change();
 
 CREATE TRIGGER script_list_change_delete_trigger
 AFTER DELETE ON script
 REFERENCING OLD TABLE AS old_rows
 FOR EACH STATEMENT
-EXECUTE FUNCTION notify_runnable_list_change();
+EXECUTE FUNCTION notify_runnable_list_delete();
 
 CREATE TRIGGER flow_list_change_update_trigger
-AFTER UPDATE ON flow
-REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows
-FOR EACH STATEMENT
+AFTER UPDATE OF archived, path ON flow
+FOR EACH ROW
+WHEN (OLD.archived IS DISTINCT FROM NEW.archived OR OLD.path IS DISTINCT FROM NEW.path)
 EXECUTE FUNCTION notify_runnable_list_change();
 
 CREATE TRIGGER flow_list_change_delete_trigger
 AFTER DELETE ON flow
 REFERENCING OLD TABLE AS old_rows
 FOR EACH STATEMENT
-EXECUTE FUNCTION notify_runnable_list_change();
+EXECUTE FUNCTION notify_runnable_list_delete();
