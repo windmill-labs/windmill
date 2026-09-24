@@ -966,8 +966,7 @@ pub async fn gate_operator_writes(
     }
 
     // Resolved here rather than taken as an extractor so that reads, which are the traffic under
-    // these routers, do not pay for it: `ApiAuthed` memoizes nothing between extractions, so
-    // whatever this layer resolves the handler behind it resolves again.
+    // these routers, do not pay for it.
     let (mut parts, body) = request.into_parts();
     let authed = <ApiAuthed as FromRequestParts<()>>::from_request_parts(&mut parts, &()).await?;
 

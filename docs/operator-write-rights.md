@@ -31,8 +31,9 @@ Three consequences to keep in mind when adding a route under one of these:
 
 - A read served over POST gets refused, and an unprompted refusal reaches the operator as a bare
   privilege toast. The connection test is button-fired, so it only refuses someone who asked. The
-  route-path check runs from an effect on editor open, so `RouteEditorConfigSection` skips it while
-  the lock is set. Put new reads on GET; if one must stay POST, check nothing fires it unprompted.
+  HTTP route and email address availability checks and the Azure scope and topic lists run on
+  editor open, so their config sections skip them while the lock is set. Put new reads on GET; if
+  one must stay POST, check nothing fires it unprompted.
 - Anything mounted under a gated router inherits the gate. The native-trigger mount also carries
   the workspace's integration setup, which is a settings concern, so the layer goes on the trigger
   routes alone rather than the whole mount.
