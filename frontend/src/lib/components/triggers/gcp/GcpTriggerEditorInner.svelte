@@ -2,7 +2,6 @@
 	import { Alert, Button } from '$lib/components/common'
 	import {
 		clearPageDrawerAnchor,
-		handOffPageDrawer,
 		setPageDrawerAnchor
 	} from '$lib/components/sessions/pageDrawerSession'
 	import { TRIGGER_PAGES } from '$lib/components/sessions/previewPaths'
@@ -167,7 +166,6 @@
 		defaultValues?: Record<string, any>,
 		fixedScriptPath_?: string
 	) {
-		if (handOffPageDrawer(TRIGGER_PAGES.gcp.path, ePath)) return
 		// A `whoami` that failed earlier would otherwise pin this workspace to "unknown user".
 		operatingUser.forgetFailures()
 		drawerLoading = true

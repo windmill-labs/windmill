@@ -4,6 +4,7 @@
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import DarkModeToggle from '$lib/components/sidebar/DarkModeToggle.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
 	import AssistantMessage from '$lib/components/copilot/chat/AssistantMessage.svelte'
 	import type { DisplayMessage } from '$lib/components/copilot/chat/shared'
@@ -133,12 +134,23 @@ That's the full round-trip.`
 		role: 'assistant',
 		content: chatSampleContent
 	}
+
+	const toggleSizes = ['2xs', 'xs', 'sm', 'md'] as const
+	const toggleColors = ['blue', 'red', 'nord'] as const
+	// The knob's gap against the track border is thin enough that it only misreads once the
+	// track lands between device pixels, which needs a 1x screen. These offsets put one row of
+	// each size on every quarter-pixel so the worst case is on the page rather than left to
+	// whichever label widths a real view happens to have.
+	const subpixelOffsets = [0, 0.25, 0.5, 0.75]
+	let toggleChecked = $state(true)
+	let toggleDisabled = $state(false)
 </script>
 
 <DarkModeToggle forcedDarkMode={false} />
 
 <Tabs bind:selected={tab}>
 	<Tab value="button" label="Buttons" />
+	<Tab value="toggle" label="Toggles" />
 	<Tab value="markdown" label="Markdown" />
 	<Tab value="chat" label="AI Chat" />
 	<Tab value="scrollbar" label="Scrollbar" />
@@ -193,6 +205,77 @@ That's the full round-trip.`
 				<Button variant="default" {dropdownItems}>Lorem</Button>
 				<Button variant="default" {dropdownItems}>Lorem</Button>
 				<Button variant="default" {dropdownItems}>Lorem</Button>
+			</div>
+		</TabContent>
+		<TabContent value="toggle" class="p-4 flex gap-6 flex-col">
+			<div class="flex flex-row items-center gap-4">
+				<Toggle bind:checked={toggleChecked} options={{ right: 'Checked' }} size="xs" />
+				<Toggle bind:checked={toggleDisabled} options={{ right: 'Disabled' }} size="xs" />
+			</div>
+
+			<div>
+				<div class="font-bold text-md mb-2">Sizes</div>
+				<div class="flex flex-row items-center gap-6">
+					{#each toggleSizes as size}
+						<Toggle
+							{size}
+							checked={toggleChecked}
+							disabled={toggleDisabled}
+							options={{ right: size }}
+						/>
+					{/each}
+				</div>
+			</div>
+
+			<div>
+				<div class="font-bold text-md mb-2">Colors</div>
+				<div class="flex flex-row items-center gap-6">
+					{#each toggleColors as color}
+						<Toggle
+							{color}
+							checked={toggleChecked}
+							disabled={toggleDisabled}
+							options={{ right: color }}
+						/>
+					{/each}
+				</div>
+			</div>
+
+			<div>
+				<div class="font-bold text-md mb-2">Labels</div>
+				<div class="flex flex-row items-center gap-6">
+					<Toggle checked={toggleChecked} disabled={toggleDisabled} />
+					<Toggle
+						checked={toggleChecked}
+						disabled={toggleDisabled}
+						options={{ left: 'Left', right: 'Right' }}
+					/>
+					<Toggle
+						checked={toggleChecked}
+						disabled={toggleDisabled}
+						options={{ right: 'With a tooltip', rightTooltip: 'Tooltip body' }}
+					/>
+					<Toggle checked={toggleChecked} disabled eeOnly options={{ right: 'EE only' }} />
+				</div>
+			</div>
+
+			<div>
+				<div class="font-bold text-md mb-2">Quarter-pixel offsets</div>
+				<div class="text-xs text-tertiary mb-2">
+					Zoom a 1x screen in on these: the knob must keep a visible ring of track on every side in
+					both states. It reads as overflowing the track once that ring drops below a device pixel.
+				</div>
+				<div class="flex flex-col gap-2">
+					{#each toggleSizes as size}
+						<div class="flex flex-row items-center gap-6">
+							{#each subpixelOffsets as offset}
+								<div style="padding-left: {offset}px">
+									<Toggle {size} checked={toggleChecked} disabled={toggleDisabled} />
+								</div>
+							{/each}
+						</div>
+					{/each}
+				</div>
 			</div>
 		</TabContent>
 		<TabContent value="markdown" class="p-4">
