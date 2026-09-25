@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO workspace_integrations (workspace_id, service_name, oauth_data, created_by)\n             VALUES ($1, $2, $3, $4)\n             ON CONFLICT (workspace_id, service_name) DO UPDATE SET oauth_data = EXCLUDED.oauth_data\n             WHERE workspace_integrations.oauth_data IS NULL",
+  "query": "INSERT INTO workspace_integrations (workspace_id, service_name, oauth_data, created_by)\n             VALUES ($1, $2, $3, $4)\n             ON CONFLICT (workspace_id, service_name) DO NOTHING",
   "describe": {
     "columns": [],
     "parameters": {
@@ -24,5 +24,5 @@
     },
     "nullable": []
   },
-  "hash": "3419911d3acc46540ad818015390d4f366724e0d4040faeccf443ef9ce30665c"
+  "hash": "5294237a0bb6b23aed6915f430ac595c6f0d6f215725132fb7ef33bb1847831d"
 }
