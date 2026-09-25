@@ -8,21 +8,25 @@
 	import Select from './select/Select.svelte'
 	import {
 		ArrowLeft,
+		Code,
 		Copy,
 		Download,
-		Expand,
-		Minimize,
 		Network,
+		Plus,
 		RefreshCcw,
 		Table2,
-		Upload
+		Tag,
+		Upload,
+		X
 	} from 'lucide-svelte'
 	import DBManagerContent from './DBManagerContent.svelte'
-	import type { DbManagerViewMode, PendingRowAction } from './DBManager.svelte'
-	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+	import DropdownV2 from './DropdownV2.svelte'
+	import { flip } from 'svelte/animate'
+	import type { PendingRowAction } from './DBManager.svelte'
+	import type { DbManagerTab, DbManagerTabKind } from './dbManagerTabs.svelte'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
 	import { getDbType } from './dbOps'
+	import { renderDbQuotedIdentifier } from './apps/components/display/dbtable/utils'
 	import DataTableMigrationsButton from './workspaceSettings/DataTableMigrationsButton.svelte'
 	import DataTablePermissionsButton from './workspaceSettings/DataTablePermissionsButton.svelte'
 	import { resource } from 'runed'
@@ -176,12 +180,8 @@
 		dbManagerContent?.clearReplResult()
 	}
 
-	let windowWidth = $state(window.innerWidth)
-	let expand = $state(false)
-
 	$effect(() => {
 		if (!open) {
-			expand = false
 			uriState.closeDrawer()
 			// An action asked for on one data table must not be waiting when the
 			// drawer is next opened on another database — or on no data table at
@@ -200,20 +200,55 @@
 
 	let hasReplResult = $state(false)
 
-	// Which view the manager shows. Held here, beside the control that switches it
-	// and outside the key that remounts the manager, so picking another data table
-	// or role stays on the view the user was reading.
-	let requestedViewMode = $state<DbManagerViewMode>('data')
-	// Only PostgreSQL has a diagram; the manager clamps the mode itself, and this
-	// keeps the control off the header for a database that cannot show one.
+	// The tabs start where the right pane does, so a narrow tree pane would run them into the
+	// title: below the room the title needs, in pixels, it goes.
+	const TITLE_ROOM_PX = 200
+	let showTitle = $derived.by(() => {
+		const left = dbManagerContent?.dbManager()?.mainPaneLeft()
+		return !dbManagerContent?.tabsModel() || !left || left >= TITLE_ROOM_PX
+	})
+
+	// Only PostgreSQL has a diagram.
 	let diagramSupported = $derived(
 		!!uriState.effectiveInput && getDbType(uriState.effectiveInput) === 'postgresql'
 	)
+
+	const TAB_KINDS: { kind: DbManagerTabKind; label: string; icon: typeof Table2 }[] = [
+		{ kind: 'data', label: 'Data', icon: Table2 },
+		{ kind: 'diagram', label: 'Diagram', icon: Network },
+		{ kind: 'sql', label: 'SQL Editor', icon: Code }
+	]
+	/** A plain mouse wheel scrolls vertically, which the tab strip cannot: turn it sideways.
+	 * Registered by hand because Svelte's `onwheel` is passive and cannot prevent the default. */
+	function wheelScrollsSideways(el: HTMLElement) {
+		const onWheel = (e: WheelEvent) => {
+			if (e.deltaX || !e.deltaY || el.scrollWidth <= el.clientWidth) return
+			el.scrollLeft += e.deltaY
+			e.preventDefault()
+		}
+		el.addEventListener('wheel', onWheel, { passive: false })
+		return () => el.removeEventListener('wheel', onWheel)
+	}
+
+	function quotedTableName(schema: string | undefined, table: string): string {
+		const input = uriState.effectiveInput
+		if (!input) return table
+		const q = (name: string) => renderDbQuotedIdentifier(name, getDbType(input))
+		return schema ? `${q(schema)}.${q(table)}` : q(table)
+	}
+
+	let draggedTabId: string | undefined = $state()
+	let dropTarget: { id: string; side: 'before' | 'after' } | undefined = $state()
+	function tabLabel(tab: DbManagerTab): string {
+		if (tab.kind === 'data') return tab.table ?? 'Data'
+		return TAB_KINDS.find((k) => k.kind === tab.kind)!.label
+	}
 
 	// Export/Import state
 	let exportDrawerOpen = $state(false)
 	let exportResult = $state('')
 	let importDrawerOpen = $state(false)
+	let workerTagOpen = $state(false)
 	let importLoading = $state(false)
 	let importSource = $state<string | undefined>(undefined)
 	/** Which database an import writes into; set when driven from a tree row. */
@@ -318,17 +353,9 @@
 	}
 </script>
 
-<svelte:window bind:innerWidth={windowWidth} />
-
-<Drawer
-	bind:open
-	size={expand ? `${windowWidth}px` : '1200px'}
-	preventEscape
-	{offset}
-	on:close={handleClose}
->
+<Drawer bind:open placement="center" preventEscape {offset} on:close={handleClose}>
 	<DrawerContent
-		title={hasReplResult ? 'Query Result' : 'Database Manager'}
+		title={showTitle ? (hasReplResult ? 'Query Result' : 'Database Manager') : undefined}
 		on:close={() => {
 			if (hasReplResult) {
 				dbManagerContent?.clearReplResult()
@@ -338,14 +365,16 @@
 		}}
 		CloseIcon={hasReplResult ? ArrowLeft : undefined}
 		noPadding
+		overflow_y={false}
+		fullScreen={false}
+		titleClass="text-sm text-primary"
 		id="db-manager-drawer"
 	>
 		{#if contentInput && ws && roleSettled}
 			{#key `${selectedDatatable}~${selectedRole ?? ''}`}
 				<DBManagerContent
 					bind:this={dbManagerContent}
-					{requestedViewMode}
-					onViewMode={(mode) => (requestedViewMode = mode)}
+					tabbed
 					input={contentInput}
 					workspace={uriState.workspace}
 					datatableTree={uriState.isDatatableInput ? datatables.current : undefined}
@@ -357,9 +386,7 @@
 						uriState.selectedRole = role
 					}}
 					bind:pendingAction
-					canManageDatatable={!!($superadmin || $userStore?.is_admin) &&
-						!!$enterpriseLicense &&
-						!isCloudHosted()}
+					canManageDatatable={!!($superadmin || $userStore?.is_admin)}
 					onDatatableAction={runDatatableAction}
 					bind:workerTag={() => workerTag.tag, (v) => (workerTag.tag = v)}
 					bind:hasReplResult
@@ -375,51 +402,173 @@
 				></DBManagerContent>
 			{/key}
 		{/if}
+		{#snippet titleExtra()}
+			{@const mainPaneLeft = dbManagerContent?.dbManager()?.mainPaneLeft()}
+			{@const tabs = dbManagerContent?.tabsModel()}
+			<!-- `tabs` goes undefined while the content remounts on another data table, and this
+				 block can still re-read it on its way out: every read below tolerates that. -->
+			{#if tabs && mainPaneLeft}
+				<!-- Floating tabs over the right pane, starting where it starts, and scrolling
+					 sideways before they would run into the actions. -->
+				<div
+					class="absolute inset-y-0 right-28 flex items-center gap-1 overflow-x-auto scrollbar-subtle"
+					style:left="{mainPaneLeft}px"
+					role="tablist"
+					{@attach wheelScrollsSideways}
+				>
+					{#each tabs?.tabs ?? [] as tab (tab.id)}
+						{@const active = tab.id === tabs?.activeId}
+						{@const Icon = TAB_KINDS.find((k) => k.kind === tab.kind)!.icon}
+						{@const dropSide = dropTarget?.id === tab.id ? dropTarget.side : undefined}
+						<!-- Moved only on drop: moving the dragged element mid-drag makes the browser
+							 abandon the drag and snap it back. A bar shows where it will land. -->
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
+						<div
+							class={(active
+								? 'group relative flex h-7 shrink-0 items-center rounded-md bg-surface-sunken text-xs font-medium text-emphasis'
+								: 'group relative flex h-7 shrink-0 items-center rounded-md text-xs text-secondary hover:bg-surface-hover hover:text-primary') +
+								(draggedTabId === tab.id ? ' opacity-50' : '')}
+							draggable="true"
+							animate:flip={{ duration: 150 }}
+							ondragstart={(e) => {
+								draggedTabId = tab.id
+								e.dataTransfer?.setData('text/plain', tab.id)
+								if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
+							}}
+							ondragover={(e) => {
+								if (!draggedTabId) return
+								e.preventDefault()
+								if (draggedTabId === tab.id) {
+									dropTarget = undefined
+									return
+								}
+								const rect = e.currentTarget.getBoundingClientRect()
+								const side = e.clientX < rect.left + rect.width / 2 ? 'before' : 'after'
+								if (dropTarget?.id !== tab.id || dropTarget.side !== side)
+									dropTarget = { id: tab.id, side }
+							}}
+							ondrop={(e) => {
+								e.preventDefault()
+								if (draggedTabId && dropTarget)
+									tabs?.move(draggedTabId, dropTarget.id, dropTarget.side)
+								draggedTabId = undefined
+								dropTarget = undefined
+							}}
+							ondragend={() => {
+								draggedTabId = undefined
+								dropTarget = undefined
+							}}
+							{@attach (el) => {
+								if (active) el.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+							}}
+						>
+							{#if dropSide}
+								<div
+									class={'pointer-events-none absolute inset-y-1 w-0.5 rounded bg-surface-accent-primary ' +
+										(dropSide === 'before' ? '-left-1' : '-right-1')}
+								></div>
+							{/if}
+							<button
+								role="tab"
+								aria-selected={active}
+								class="flex h-full items-center gap-1.5 pl-2.5 pr-1 max-w-48"
+								title={tabLabel(tab)}
+								onclick={() => tabs?.activate(tab.id)}
+							>
+								<Icon size={14} class="shrink-0" />
+								<span class="truncate">{tabLabel(tab)}</span>
+							</button>
+							<button
+								class={'mr-1 rounded p-0.5 text-hint hover:bg-surface-hover hover:text-primary ' +
+									(active ? '' : 'opacity-0 group-hover:opacity-100')}
+								title="Close tab"
+								aria-label="Close {tabLabel(tab)} tab"
+								onclick={() => tabs?.close(tab.id)}
+							>
+								<X size={12} />
+							</button>
+						</div>
+					{/each}
+					<DropdownV2
+						enableFlyTransition
+						items={TAB_KINDS.filter((k) => k.kind !== 'diagram' || diagramSupported).map((k) => ({
+							displayName: k.label,
+							icon: k.icon,
+							action: () => {
+								// A query opened from a data tab starts on that tab's table.
+								const from = tabs?.active.kind === 'data' ? tabs.active : undefined
+								tabs?.add(
+									k.kind,
+									k.kind === 'sql' && from?.table
+										? {
+												code: `SELECT * FROM ${quotedTableName(from.schema, from.table)}`
+											}
+										: {}
+								)
+								logFeatureUsage('db_manager', 'view_mode', { key: k.kind })
+							}
+						}))}
+						btnId="db-manager-new-tab"
+					>
+						{#snippet buttonReplacement()}
+							<div
+								class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-secondary hover:bg-surface-hover hover:text-primary"
+								title="New tab"
+							>
+								<Plus size={14} />
+							</div>
+						{/snippet}
+					</DropdownV2>
+				</div>
+			{/if}
+		{/snippet}
 		{#snippet actions()}
-			<!-- A data table exports and imports from its row menu in the tree; a plain
-				 database has no tree row to hold them. -->
-			{#if enableImportExport && !uriState.isDatatableInput}
-				<Button startIcon={{ icon: Download }} onClick={() => handleExportSchema()}>Export</Button>
-				<Button
-					startIcon={{ icon: Upload }}
-					onClick={() => ((importTarget = undefined), (importDrawerOpen = true))}
-				>
-					Import
-				</Button>
-			{/if}
-			{#if diagramSupported}
-				<ToggleButtonGroup
-					bind:selected={requestedViewMode}
-					noWFull
-					onSelected={(v) => logFeatureUsage('db_manager', 'view_mode', { key: v })}
-				>
-					{#snippet children({ item })}
-						<ToggleButton value="data" label="Data" icon={Table2} {item} />
-						<ToggleButton value="diagram" label="Diagram" icon={Network} {item} />
-					{/snippet}
-				</ToggleButtonGroup>
-			{/if}
 			{#if uriState.effectiveInput && ws}
-				<DbWorkerTagButton
-					bind:tag={() => workerTag.tag, (v) => (workerTag.tag = v)}
-					input={uriState.effectiveInput}
-					workspace={ws}
-				/>
+				{@const input = uriState.effectiveInput}
+				<!-- The hidden tag button anchors its picker under this menu's trigger. -->
+				<div class="flex items-center">
+					<DropdownV2
+						enableFlyTransition
+						items={() => [
+							{
+								displayName: workerTag.tag ? `Worker tag: ${workerTag.tag}` : 'Worker tag',
+								icon: Tag,
+								action: () => (workerTagOpen = true)
+							},
+							// A data table exports and imports from its row menu in the tree; a
+							// plain database has no tree row to hold them.
+							...(enableImportExport && !uriState.isDatatableInput
+								? [
+										{
+											displayName: 'Export database',
+											icon: Download,
+											action: () => handleExportSchema()
+										},
+										{
+											displayName: 'Import database',
+											icon: Upload,
+											action: () => ((importTarget = undefined), (importDrawerOpen = true))
+										}
+									]
+								: [])
+						]}
+						btnId="db-manager-database-actions"
+					/>
+					<DbWorkerTagButton
+						bind:tag={() => workerTag.tag, (v) => (workerTag.tag = v)}
+						bind:open={workerTagOpen}
+						hideTrigger
+						{input}
+						workspace={ws}
+					/>
+				</div>
 			{/if}
-
 			<Button
 				loading={dbManagerContent?.isLoading() ?? false}
 				on:click={refreshManager}
 				startIcon={{ icon: RefreshCcw }}
 				iconOnly
 				title="Refresh"
-				size="xs"
-				color="light"
-			/>
-
-			<Button
-				on:click={() => (expand = !expand)}
-				startIcon={{ icon: expand ? Minimize : Expand }}
 				size="xs"
 				color="light"
 			/>

@@ -537,15 +537,22 @@ pub async fn update_flow_status_after_job_completion_internal(
             if let Some(cached) = RESOLVED_FLOW_ENV_CACHE.get(&flow) {
                 Some(cached)
             } else {
-                resolve_flow_env_for_status_update(db, client, flow, w_id, flow_value)
-                    .await
-                    .map(|(env, is_cacheable)| {
-                        let arc = Arc::new(env);
-                        if is_cacheable {
-                            RESOLVED_FLOW_ENV_CACHE.insert(flow, arc.clone());
-                        }
-                        arc
-                    })
+                resolve_flow_env_for_status_update(
+                    db,
+                    client,
+                    flow,
+                    w_id,
+                    flow_value,
+                    old_status.no_inherited_flow_env,
+                )
+                .await
+                .map(|(env, is_cacheable)| {
+                    let arc = Arc::new(env);
+                    if is_cacheable {
+                        RESOLVED_FLOW_ENV_CACHE.insert(flow, arc.clone());
+                    }
+                    arc
+                })
             }
         } else {
             None
@@ -2521,6 +2528,7 @@ async fn resolve_flow_env_for_status_update(
     flow_job_id: Uuid,
     workspace_id: &str,
     flow_value: &FlowValue,
+    no_inherited_flow_env: bool,
 ) -> Option<(HashMap<String, Box<RawValue>>, bool)> {
     // Fetch the env source. For the inherited path, we first need to know whether the
     // flow even has a parent — `fetch_root_flow_env` runs a recursive CTE on `v2_job`
@@ -2529,6 +2537,8 @@ async fn resolve_flow_env_for_status_update(
     let (env, mini): (HashMap<String, Box<RawValue>>, Option<MiniPulledJob>) =
         if let Some(ref e) = flow_value.flow_env {
             (e.clone(), None)
+        } else if no_inherited_flow_env {
+            return None;
         } else {
             let mini = match get_mini_pulled_job(db, &flow_job_id).await {
                 Ok(Some(j)) => j,
@@ -2542,7 +2552,13 @@ async fn resolve_flow_env_for_status_update(
                 // No own flow_env and no parent to inherit from — nothing to resolve.
                 return None;
             }
-            let env = fetch_root_flow_env(db, flow_job_id, workspace_id).await?;
+            let env = match fetch_root_flow_env(db, flow_job_id, workspace_id).await {
+                Ok(env) => env?,
+                Err(e) => {
+                    tracing::warn!("Failed to look up the inherited flow_env: {e:#}");
+                    return None;
+                }
+            };
             (env, Some(mini))
         };
     if env.is_empty() {
@@ -2608,7 +2624,7 @@ async fn fetch_root_flow_env(
     db: &DB,
     flow_job_id: Uuid,
     workspace_id: &str,
-) -> Option<HashMap<String, Box<RawValue>>> {
+) -> Result<Option<HashMap<String, Box<RawValue>>>, sqlx::Error> {
     sqlx::query_scalar!(
         r#"WITH RECURSIVE chain(id, parent_job, flow_innermost_root_job, runnable_id, runnable_path, raw_flow, depth) AS (
             SELECT id, parent_job, flow_innermost_root_job, runnable_id, runnable_path, raw_flow, 0
@@ -2645,10 +2661,7 @@ async fn fetch_root_flow_env(
     )
     .fetch_optional(db)
     .await
-    .ok()
-    .flatten()
-    .flatten()
-    .map(|json| json.0)
+    .map(|row| row.flatten().map(|json| json.0))
 }
 
 struct FailureContext {
@@ -2793,18 +2806,31 @@ pub async fn handle_flow(
 ) -> anyhow::Result<()> {
     let flow = flow_data.value();
 
+    let status = flow_job
+        .parse_flow_status()
+        .with_context(|| "Unable to parse flow status")?;
+
     // Sub-flows spawned by `payload_from_modules` for branches/loops don't
     // carry the parent's `flow_env` in their own FlowValue. Fall back to the
     // nearest enclosing scope's `flow_env` so predicates like `skip_if`,
     // `stop_after_if`, and branch conditions see the same env as input
     // transforms.
-    let inherited_env: Option<HashMap<String, Box<RawValue>>> =
-        if flow.flow_env.is_none() && flow_job.parent_job.is_some() {
-            fetch_root_flow_env(db, flow_job.id, &flow_job.workspace_id).await
-        } else {
-            None
-        };
+    let (inherited_env, inherited_env_known) = if flow.flow_env.is_none()
+        && flow_job.parent_job.is_some()
+        && !status.no_inherited_flow_env
+    {
+        match fetch_root_flow_env(db, flow_job.id, &flow_job.workspace_id).await {
+            Ok(env) => (env, true),
+            Err(e) => {
+                tracing::warn!("Failed to look up the inherited flow_env: {e:#}");
+                (None, false)
+            }
+        }
+    } else {
+        (None, true)
+    };
     let env_source = flow.flow_env.as_ref().or(inherited_env.as_ref());
+    let no_flow_env = inherited_env_known && env_source.is_none_or(|e| e.is_empty());
 
     // Resolve $var: and $res: references in flow_env.
     // We resolve into a separate variable to avoid cloning the entire FlowValue
@@ -2849,10 +2875,6 @@ pub async fn handle_flow(
             }
         }
     }
-
-    let status = flow_job
-        .parse_flow_status()
-        .with_context(|| "Unable to parse flow status")?;
 
     let schedule_path = flow_job.schedule_path();
     if !flow_job.is_flow_step()
@@ -2997,6 +3019,7 @@ pub async fn handle_flow(
             status,
             flow,
             flow_env,
+            no_flow_env,
             db,
             client,
             last_result.clone(),
@@ -3240,6 +3263,8 @@ async fn push_next_flow_job(
     mut status: FlowStatus,
     flow: &FlowValue,
     flow_env: Option<&HashMap<String, Box<RawValue>>>,
+    // Neither this flow nor any ancestor defines `flow_env`.
+    no_flow_env: bool,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClient,
     last_job_result: Option<Arc<Box<RawValue>>>,
@@ -4229,7 +4254,14 @@ async fn push_next_flow_job(
 
     let mut tx = db.begin().warn_after_seconds(3).await?;
     let nargs = args.as_ref();
-    for (i, payload_tag) in job_payloads.into_iter().enumerate() {
+    for (i, mut payload_tag) in job_payloads.into_iter().enumerate() {
+        // A `FlowNode` here is a branch/loop sub-flow from `payload_from_modules`: it never defines
+        // its own `flow_env`, so it inherits exactly this flow's. The mark lives in the child's
+        // status, not its definition: a `RawFlow` child's stored definition is replayed by nested
+        // restarts, whose root may have gained a `flow_env` since.
+        if let JobPayload::FlowNode { no_inherited_flow_env, .. } = &mut payload_tag.payload {
+            *no_inherited_flow_env = no_flow_env;
+        }
         if i % 100 == 0 && i != 0 {
             tracing::info!(id = %flow_job.id, root_id = %job_root, "pushed (non-commited yet) first {i} subflows of {len}");
             // Ping on the pool, outside `tx`, so the zombie flow monitor sees it before the
@@ -5218,7 +5250,7 @@ fn payload_from_modules<'a>(
     }
 
     if let Some(id) = modules_node {
-        return Some(JobPayload::FlowNode { id, path: path() });
+        return Some(JobPayload::FlowNode { id, path: path(), no_inherited_flow_env: false });
     }
 
     add_virtual_items_if_necessary(&mut modules);

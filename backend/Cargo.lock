@@ -15412,6 +15412,7 @@ dependencies = [
 name = "windmill-api-scripts"
 version = "1.817.0"
 dependencies = [
+ "anyhow",
  "axum 0.8.9",
  "chrono",
  "futures",
@@ -15436,6 +15437,9 @@ dependencies = [
  "windmill-native-triggers",
  "windmill-object-store",
  "windmill-parser",
+ "windmill-parser-bash",
+ "windmill-parser-go",
+ "windmill-parser-graphql",
  "windmill-parser-py",
  "windmill-parser-py-asset",
  "windmill-parser-sql",
@@ -16518,6 +16522,7 @@ dependencies = [
  "lazy_static",
  "matchit 0.7.3",
  "quick_cache",
+ "rand 0.9.5",
  "regex",
  "serde",
  "serde_json",

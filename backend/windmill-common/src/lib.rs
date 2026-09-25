@@ -118,6 +118,7 @@ pub mod queue;
 pub mod queue_metrics;
 pub mod result_stream;
 pub mod runnable_settings;
+pub mod runnables;
 pub mod schedule;
 pub mod schema;
 pub mod scripts;

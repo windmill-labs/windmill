@@ -1132,6 +1132,96 @@ async fn validate_dbt_relation(
         })
 }
 
+/// The schema the editor would have derived from `content`, for a deploy that sends
+/// none (MCP, a bare API call). `None` for a language whose parser this build lacks,
+/// or code that does not parse.
+fn infer_main_schema(
+    language: &ScriptLang,
+    kind: Option<&ScriptKind>,
+    content: &str,
+    previous: Option<&serde_json::Value>,
+) -> Option<Schema> {
+    let entrypoint =
+        matches!(kind, Some(ScriptKind::Preprocessor)).then(|| "preprocessor".to_string());
+    // The database a SQL script runs against is an argument unless the code names
+    // it (`-- database f/...`), as in the editor.
+    let with_db = |sig: anyhow::Result<windmill_parser::MainArgSignature>, resource: &str| {
+        sig.map(|mut sig| {
+            if windmill_parser_sql::parse_db_resource(content).is_none() {
+                sig.args.insert(
+                    0,
+                    windmill_parser::Arg {
+                        name: "database".to_string(),
+                        typ: windmill_parser::Typ::Resource(resource.to_string()),
+                        ..Default::default()
+                    },
+                );
+            }
+            sig
+        })
+    };
+    let sig = match language {
+        ScriptLang::Bun | ScriptLang::Bunnative | ScriptLang::Deno | ScriptLang::Nativets => {
+            windmill_parser_ts::parse_deno_signature(content, false, false, entrypoint)
+        }
+        #[cfg(feature = "python")]
+        ScriptLang::Python3 => {
+            windmill_parser_py::parse_python_signature(content, entrypoint, false)
+        }
+        ScriptLang::Go => windmill_parser_go::parse_go_sig(content),
+        ScriptLang::Bash => windmill_parser_bash::parse_bash_sig(content),
+        ScriptLang::Powershell => windmill_parser_bash::parse_powershell_sig(content),
+        ScriptLang::Postgresql => {
+            with_db(windmill_parser_sql::parse_pgsql_sig(content), "postgresql")
+        }
+        ScriptLang::Mysql => with_db(windmill_parser_sql::parse_mysql_sig(content), "mysql"),
+        ScriptLang::Bigquery => {
+            with_db(windmill_parser_sql::parse_bigquery_sig(content), "bigquery")
+        }
+        ScriptLang::Snowflake => with_db(
+            windmill_parser_sql::parse_snowflake_sig(content),
+            "snowflake",
+        ),
+        ScriptLang::Mssql => with_db(
+            windmill_parser_sql::parse_mssql_sig(content),
+            "ms_sql_server",
+        ),
+        ScriptLang::OracleDB => {
+            with_db(windmill_parser_sql::parse_oracledb_sig(content), "oracledb")
+        }
+        ScriptLang::DuckDb => windmill_parser_sql::parse_duckdb_sig(content),
+        ScriptLang::Graphql => {
+            windmill_parser_graphql::parse_graphql_sig(content).map(|mut sig| {
+                sig.args.insert(
+                    0,
+                    windmill_parser::Arg {
+                        name: "api".to_string(),
+                        typ: windmill_parser::Typ::Resource("graphql".to_string()),
+                        ..Default::default()
+                    },
+                );
+                sig
+            })
+        }
+        ScriptLang::Ansible => windmill_parser_yaml::parse_ansible_sig(content),
+        _ => return None,
+    };
+    match sig {
+        Ok(sig) => serde_json::value::to_raw_value(&windmill_parser::json_schema::main_arg_schema(
+            &sig, previous,
+        ))
+        .ok()
+        .map(|v| Schema(sqlx::types::Json(v))),
+        Err(e) => {
+            tracing::warn!(
+                "could not infer the schema of a {} script: {e:#}",
+                language.as_str()
+            );
+            None
+        }
+    }
+}
+
 async fn create_script_internal<'c>(
     mut ns: NewScript,
     w_id: String,
@@ -1357,6 +1447,40 @@ async fn create_script_internal<'c>(
             None => None,
         };
         parent_adopted_from_retired_path = ns.parent_hash.is_some();
+    }
+
+    // Before hashing, so the hash and the no-op check see the schema that gets stored.
+    // `{}` counts as absent: an agent filling every tool argument sends it for "none".
+    let schema_absent = ns.schema.as_ref().is_none_or(|s| {
+        serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(s.0.get())
+            .is_ok_and(|m| m.is_empty())
+    });
+    if schema_absent && !matches!(ns.language, ScriptLang::Dbt) {
+        let previous = match &ns.parent_hash {
+            Some(p_hash) => sqlx::query_scalar::<_, Option<sqlx::types::Json<serde_json::Value>>>(
+                "SELECT schema FROM script WHERE hash = $1 AND workspace_id = $2",
+            )
+            .bind(p_hash.0)
+            .bind(&w_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .flatten()
+            .map(|s| s.0),
+            None => None,
+        };
+        // Code the server cannot parse keeps the previous version's schema, as it
+        // does in the editor, rather than losing it for good.
+        ns.schema = infer_main_schema(
+            &ns.language,
+            ns.kind.as_ref(),
+            &ns.content,
+            previous.as_ref(),
+        )
+        .or_else(|| {
+            previous
+                .and_then(|p| serde_json::value::to_raw_value(&p).ok())
+                .map(|v| Schema(sqlx::types::Json(v)))
+        });
     }
 
     // Must stay below the parent resolution above: an auto_parent deploy hashed before
