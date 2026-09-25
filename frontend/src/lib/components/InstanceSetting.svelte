@@ -27,6 +27,7 @@
 	import WebhookBaseUrlSetting from './instanceSettings/WebhookBaseUrlSetting.svelte'
 	import WsConnectivityTest from './instanceSettings/WsConnectivityTest.svelte'
 	import InstanceBannerSetting from './instanceSettings/InstanceBannerSetting.svelte'
+	import AccentColorSetting from './instanceSettings/AccentColorSetting.svelte'
 	import IndexerMemorySettings from './instanceSettings/IndexerMemorySettings.svelte'
 	import IndexerJobIndexSettings from './instanceSettings/IndexerJobIndexSettings.svelte'
 	import IndexerLogIndexSettings from './instanceSettings/IndexerLogIndexSettings.svelte'
@@ -872,6 +873,8 @@
 					<WsConnectivityTest {values} />
 				{:else if setting.fieldType == 'instance_banner'}
 					<InstanceBannerSetting {values} disabled={loading || !$enterpriseLicense} />
+				{:else if setting.fieldType == 'accent_color'}
+					<AccentColorSetting {values} disabled={loading || !$enterpriseLicense} />
 				{/if}
 				{#if hasError}
 					<span class="text-red-600 dark:text-red-400 text-xs">

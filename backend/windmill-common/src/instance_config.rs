@@ -1029,9 +1029,10 @@ const NESTED_SENSITIVE_FIELDS: &[(&str, &[&str])] = &[
     ),
     (
         "object_store_cache_config",
-        &["secret_key", "serviceAccountKey"],
+        &["secret_key", "serviceAccountKey", "accessKey"],
     ),
     ("custom_instance_pg_databases", &["user_pwd"]),
+    ("github_enterprise_app", &["private_key"]),
 ];
 
 fn redact_json_value(value: &serde_json::Value) -> serde_json::Value {
@@ -1351,6 +1352,14 @@ pub async fn sync_global_settings_declarative(
             // The validator's messages name the offending field and its expected type,
             // never the submitted value, so they are safe to surface here.
             .map_err(|e| anyhow::anyhow!("{banner_key}: {e}"))?,
+    }
+
+    let accent_key = crate::global_settings::ACCENT_COLOR_SETTING;
+    match desired.get(accent_key) {
+        None | Some(serde_json::Value::Null) => {}
+        Some(serde_json::Value::String(s)) if s.trim().is_empty() => {}
+        Some(color) => crate::global_settings::validate_accent_color(color)
+            .map_err(|e| anyhow::anyhow!("{accent_key}: {e}"))?,
     }
 
     // An origin list that cannot be parsed is dropped at boot, leaving the
@@ -2645,6 +2654,26 @@ mod tests {
         assert!(!formatted.contains("my-super-secret-12345"));
         assert!(formatted.contains("client-id"));
         assert!(formatted.contains("****"));
+    }
+
+    #[test]
+    fn format_setting_value_redacts_nested_credentials() {
+        let val = serde_json::json!({
+            "type": "Azure",
+            "accountName": "acct",
+            "containerName": "c",
+            "accessKey": "azure-storage-account-key-12345"
+        });
+        let formatted = format_setting_value("object_store_cache_config", &val);
+        assert!(!formatted.contains("azure-storage-account-key-12345"));
+        assert!(formatted.contains("acct"));
+
+        let val = serde_json::json!({
+            "app_id": 1,
+            "private_key": "-----BEGIN RSA PRIVATE KEY-----\nMIIEsecretbody\n-----END RSA PRIVATE KEY-----"
+        });
+        let formatted = format_setting_value("github_enterprise_app", &val);
+        assert!(!formatted.contains("MIIEsecretbody"));
     }
 
     #[test]

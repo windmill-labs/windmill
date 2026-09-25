@@ -30,6 +30,28 @@ export const AGENT_TOOLS_ROW = 'tools'
 export const AGENT_HISTORY_KEYS = ['memory_id', 'previous_messages'] as const
 export type AgentHistoryKey = (typeof AGENT_HISTORY_KEYS)[number]
 
+/** The input transforms a one-off test of an agent step runs with: each form key is fed from
+ *  `flow_input`, over the step's own transforms. A blank history input is unset, as on the step:
+ *  an expression evaluating to nothing reads as an empty memory id, and the step's transform is
+ *  stale. */
+export function agentTestInputTransforms(
+	stepTransforms: Record<string, InputTransform> | undefined,
+	args: Record<string, unknown>,
+	formKeys: readonly string[] = Object.keys(args)
+): Record<string, InputTransform> {
+	const isBlank = (v: unknown) => v == undefined || v === '' || (Array.isArray(v) && !v.length)
+	const kept = (key: string) =>
+		!(AGENT_HISTORY_KEYS as readonly string[]).includes(key) || !isBlank(args[key])
+	return {
+		...Object.fromEntries(Object.entries(stepTransforms ?? {}).filter(([key]) => kept(key))),
+		...Object.fromEntries(
+			formKeys
+				.filter(kept)
+				.map((key) => [key, { type: 'javascript' as const, expr: `flow_input.${key}` }])
+		)
+	}
+}
+
 /** What turning managed memory on writes. Both call sites are chat mode, and a chat conversation
  *  is open-ended: it keeps everything and summarizes the older part rather than dropping messages
  *  off the front. No context window, so the run reads the one known for the model it ends up on. */

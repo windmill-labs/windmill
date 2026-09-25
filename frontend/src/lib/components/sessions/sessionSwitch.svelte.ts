@@ -4,6 +4,7 @@ import { workspaceStore } from '$lib/stores'
 import {
 	createSession,
 	selectSession,
+	sessionPageHref,
 	sessionInCurrentFamily,
 	sessionLastActivityAt,
 	sessionState,
@@ -81,7 +82,7 @@ function resumableSession(): Session | undefined {
 export async function enterSessionMode(opts?: { replace?: boolean }): Promise<void> {
 	const target = resumableSession() ?? createSession()
 	selectSession(target.id)
-	await goto(`/sessions?session_name=${encodeURIComponent(target.name)}`, {
+	await goto(sessionPageHref(target.id), {
 		replaceState: opts?.replace ?? false
 	})
 }
@@ -197,7 +198,7 @@ async function openInSession(
 		navRouteOffered = true
 	}
 	selectSession(session.id)
-	await goto(`/sessions?session_name=${encodeURIComponent(session.name)}`)
+	await goto(sessionPageHref(session.id))
 }
 
 // Open an editor's own hand-off, running its `beforeOpen` (which persists the
@@ -243,5 +244,5 @@ export async function startSessionWithPrompt(
 	// An empty prompt has nothing to send; leave the composer focused instead.
 	if (opts?.autoSend && prompt.trim()) setSessionAutoSend(session.id)
 	selectSession(session.id)
-	await goto(`/sessions?session_name=${encodeURIComponent(session.name)}`)
+	await goto(sessionPageHref(session.id))
 }

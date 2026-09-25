@@ -152,12 +152,41 @@
 		string,
 		{ modules: import('$lib/gen').FlowModule[]; groups?: any[] }
 	> = $state({})
-	const restart = useNestedRestartState({
+	const selectedRestart = useNestedRestartState({
 		selectedJobStep: () => selectedJobStep,
 		job: () => job,
 		graphModuleStates: () => graphModuleStates,
 		expandedSubflows: () => expandedSubflows
 	})
+	// When the selection can't be restarted from (nothing clicked, Input/Result,
+	// a step inside a parallel loop), the button targets the top-level step that
+	// failed the run, so it is visible without hunting for it in a large graph.
+	// A continue-on-error step keeps its `Failure` status on a run that succeeds,
+	// so only a failed run counts, and its last `Failure` is the one that ended it.
+	const failedTopLevelStep = $derived.by(() => {
+		if (job?.type !== 'CompletedJob' || job.success !== false || job.canceled) return undefined
+		const failures = job.flow_status?.modules?.filter((m) => m.type === 'Failure') ?? []
+		return failures[failures.length - 1]?.id
+	})
+	const failedRestart = useNestedRestartState({
+		selectedJobStep: () => failedTopLevelStep,
+		job: () => job,
+		graphModuleStates: () => graphModuleStates,
+		expandedSubflows: () => expandedSubflows
+	})
+	const selectionRestartable = $derived(
+		selectedJobStep !== undefined &&
+			(selectedRestart.topLevelRestartable || selectedRestart.nestedRestartSupported)
+	)
+	const restartStep = $derived(selectionRestartable ? selectedJobStep : failedTopLevelStep)
+	const restart = $derived(selectionRestartable ? selectedRestart : failedRestart)
+	function canRestart(state: ReturnType<typeof useNestedRestartState>) {
+		return (
+			job?.type === 'CompletedJob' &&
+			job.job_kind === 'flow' &&
+			(state.topLevelRestartable || state.nestedRestartSupported)
+		)
+	}
 
 	let testIsLoading = $state(false)
 	let jobLoader: JobLoader | undefined = $state(undefined)
@@ -643,6 +672,36 @@
 	/>
 {/if}
 
+{#snippet flowRestartButton(
+	state: ReturnType<typeof useNestedRestartState>,
+	step: string,
+	triggerStyle: 'button' | 'link'
+)}
+	{#if job}
+		<FlowRestartButton
+			jobId={job.id}
+			selectedJobStep={step}
+			selectedJobStepType={state.selectedJobStepType}
+			restartBranchNames={state.restartBranchNames}
+			nestedPath={state.nestedRestartSupported ? state.nestedRestartPath : undefined}
+			nestedTopStepId={state.nestedRestartTopStepId}
+			nestedTopBranchOrIterationN={state.nestedRestartTopBranchOrIterationN}
+			presetIterationN={state.topLevelLoopIteration}
+			iterationCounts={state.iterationCounts}
+			nestedPathIterationCounts={state.nestedPathIterationCounts}
+			onRestartComplete={(newJobId) => {
+				goto('/run/' + newJobId + '?workspace=' + $workspaceStore)
+			}}
+			flowPath={job.script_path}
+			flowVersionId={job.script_hash ? parseInt(job.script_hash, 16) : undefined}
+			disabled={!$enterpriseLicense}
+			enterpriseOnly={!$enterpriseLicense}
+			{triggerStyle}
+			unifiedSize="sm"
+		/>
+	{/if}
+{/snippet}
+
 <Portal name="persistent-run">
 	<PersistentScriptDrawer bind:this={persistentScriptDrawer} />
 </Portal>
@@ -738,13 +797,13 @@
 						<Button
 							nonCaptureEvent
 							variant="default"
-							unifiedSize="md"
+							unifiedSize="sm"
 							startIcon={{ icon: Trash }}
 						/>
 					{/snippet}
 				</Dropdown>
 				{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
-					<Button href={runsHref} variant="default" unifiedSize="md" startIcon={{ icon: List }}>
+					<Button href={runsHref} variant="default" unifiedSize="sm" startIcon={{ icon: List }}>
 						View runs
 					</Button>
 				{/if}
@@ -772,7 +831,7 @@
 					]}
 				>
 					{#snippet buttonReplacement()}
-						<Button nonCaptureEvent variant="default" unifiedSize="md" startIcon={{ icon: Share2 }}>
+						<Button nonCaptureEvent variant="default" unifiedSize="sm" startIcon={{ icon: Share2 }}>
 							Share
 						</Button>
 					{/snippet}
@@ -794,7 +853,7 @@
 						class="h-auto"
 					>
 						{#snippet buttonReplacement()}
-							<Button nonCaptureEvent unifiedSize="md" variant="subtle">
+							<Button nonCaptureEvent unifiedSize="sm" variant="subtle">
 								<div class="flex flex-row items-center">
 									<EllipsisVertical size={14} />
 								</div>
@@ -805,7 +864,7 @@
 			{/if}
 			{#if isFlowPreview(job?.job_kind) || isScriptPreview(job?.job_kind)}
 				<Button
-					unifiedSize="md"
+					unifiedSize="sm"
 					variant="default"
 					startIcon={{ icon: GitBranch }}
 					on:click={forkPreview}
@@ -817,7 +876,7 @@
 			{/if}
 			{#if persistentScriptDefinition !== undefined}
 				<Button
-					unifiedSize="md"
+					unifiedSize="sm"
 					variant="default"
 					startIcon={{ icon: Activity }}
 					on:click={() => {
@@ -830,7 +889,7 @@
 			{#if job && job?.type != 'CompletedJob' && (!job?.schedule_path || job?.['running'] == true)}
 				{#if !forceCancel}
 					<Button
-						unifiedSize="md"
+						unifiedSize="sm"
 						variant="accent"
 						destructive
 						startIcon={{ icon: TimerOff }}
@@ -848,7 +907,7 @@
 					</Button>
 				{:else}
 					<Button
-						unifiedSize="md"
+						unifiedSize="sm"
 						variant="accent"
 						destructive
 						startIcon={{ icon: TimerOff }}
@@ -864,7 +923,7 @@
 			{/if}
 			{#if job?.schedule_path}
 				<Button
-					unifiedSize="md"
+					unifiedSize="sm"
 					variant="default"
 					on:click={() => {
 						if (!job || !job.schedule_path) {
@@ -875,26 +934,8 @@
 					startIcon={{ icon: Calendar }}>Edit schedule</Button
 				>
 			{/if}
-			{#if job?.type === 'CompletedJob' && job?.job_kind === 'flow' && selectedJobStep !== undefined && (restart.topLevelRestartable || restart.nestedRestartSupported) && job.id}
-				<FlowRestartButton
-					jobId={job.id}
-					{selectedJobStep}
-					selectedJobStepType={restart.selectedJobStepType}
-					restartBranchNames={restart.restartBranchNames}
-					nestedPath={restart.nestedRestartSupported ? restart.nestedRestartPath : undefined}
-					nestedTopStepId={restart.nestedRestartTopStepId}
-					nestedTopBranchOrIterationN={restart.nestedRestartTopBranchOrIterationN}
-					presetIterationN={restart.topLevelLoopIteration}
-					iterationCounts={restart.iterationCounts}
-					nestedPathIterationCounts={restart.nestedPathIterationCounts}
-					onRestartComplete={(newJobId) => {
-						goto('/run/' + newJobId + '?workspace=' + $workspaceStore)
-					}}
-					flowPath={job.script_path}
-					flowVersionId={job.script_hash ? parseInt(job.script_hash, 16) : undefined}
-					disabled={!$enterpriseLicense}
-					enterpriseOnly={!$enterpriseLicense}
-				/>
+			{#if restartStep !== undefined && canRestart(restart)}
+				{@render flowRestartButton(restart, restartStep, 'button')}
 			{/if}
 			{#if job?.job_kind === 'script' || job?.job_kind === 'script_hub' || job?.job_kind === 'flow'}
 				<Button
@@ -909,7 +950,7 @@
 								`#${computeSharableHash(job?.args, await getRerunTagOverride(job?.args))}`
 						)
 					}}
-					unifiedSize="md"
+					unifiedSize="sm"
 					variant="default"
 					startIcon={{ icon: RefreshCw }}
 					loading={runImmediatelyLoading}
@@ -936,10 +977,9 @@
 							on:click={() => {
 								$initialArgsStore = job?.args
 							}}
-							unifiedSize="md"
+							unifiedSize="sm"
 							variant="default"
 							disabled={!showEditButton}
-							size="sm"
 							startIcon={{ icon: Pen }}>Edit</Button
 						>
 						{#if showEditButton}
@@ -951,7 +991,7 @@
 									target: { kind: isScript ? 'script' : 'flow', path: job?.script_path ?? '' },
 									workspaceId: $workspaceStore ?? undefined
 								}}
-								btnProps={{ unifiedSize: 'md' }}
+								btnProps={{ unifiedSize: 'sm' }}
 							/>
 						{/if}
 					{/if}
@@ -962,9 +1002,8 @@
 								onEditInForkClick(e, isScript ? 'script' : 'flow', job?.script_path ?? '', {
 									hasHref: true
 								})}
-							unifiedSize="md"
+							unifiedSize="sm"
 							variant="default"
-							size="sm"
 							startIcon={{ icon: Pen }}>{editInForkLabel($workspaceStore, $userWorkspaces)}</Button
 						>
 					{/if}
@@ -973,7 +1012,7 @@
 			{#if job?.job_kind === 'script' || job?.job_kind === 'script_hub' || job?.job_kind === 'flow'}
 				<Button
 					href={viewHref}
-					unifiedSize="md"
+					unifiedSize="sm"
 					variant="accent"
 					startIcon={{
 						icon:
@@ -1024,7 +1063,18 @@
 					textPosition="bottom"
 					slim
 					showStepId
-				/>
+				>
+					{#snippet errorAction()}
+						{#if failedTopLevelStep}
+							<span>at step {failedTopLevelStep}</span>
+							{#if $enterpriseLicense && canRestart(failedRestart)}
+								<span>·</span>
+								{@render flowRestartButton(failedRestart, failedTopLevelStep, 'link')}
+								<span>on this flow version, or on a new one after you fix it</span>
+							{/if}
+						{/if}
+					{/snippet}
+				</FlowProgressBar>
 				{#if suspendStatus}
 					<FlowExecutionStatus
 						{job}

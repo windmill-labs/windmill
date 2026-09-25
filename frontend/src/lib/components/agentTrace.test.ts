@@ -45,7 +45,7 @@ describe('buildAgentTrace', () => {
 				result: '{"eu-central-1":0.184}',
 				jobId: '0199-job'
 			},
-			{ kind: 'assistant', content: 'eu-central-1 is down.', sources: undefined }
+			{ kind: 'assistant', content: 'eu-central-1 is down.' }
 		])
 	})
 
@@ -76,8 +76,8 @@ describe('buildAgentTrace', () => {
 
 	// The worker splits a search the same way: a `tool` message tagged web_search
 	// carrying a constant sentence, then the assistant turn that carries the
-	// citations. The search row therefore has nothing of its own to show.
-	it('records the search and puts its citations on the turn that follows', () => {
+	// citations, which move onto the search so it shows what it found.
+	it('puts the citations of the turn that follows on the search', () => {
 		const entries = buildAgentTrace([
 			{
 				role: 'tool',
@@ -92,12 +92,11 @@ describe('buildAgentTrace', () => {
 			}
 		])
 		expect(entries).toEqual([
-			{ kind: 'search' },
 			{
-				kind: 'assistant',
-				content: 'Postgres 17 changed the default.',
+				kind: 'search',
 				sources: [{ url: 'https://postgresql.org/docs', title: 'Release notes' }]
-			}
+			},
+			{ kind: 'assistant', content: 'Postgres 17 changed the default.' }
 		])
 	})
 
@@ -118,7 +117,7 @@ describe('buildAgentTrace', () => {
 })
 
 describe('splitFinalAnswer', () => {
-	it('moves the answering turn out of the trace, with its citations', () => {
+	it('moves the answering turn out of the trace, leaving its citations on the search', () => {
 		const entries = buildAgentTrace([
 			{ role: 'tool', content: 'Used websearch tool', agent_action: { type: 'web_search' } },
 			{
@@ -128,10 +127,12 @@ describe('splitFinalAnswer', () => {
 				agent_action: { type: 'message' }
 			}
 		])
-		expect(splitFinalAnswer(entries, 'Postgres 17 changed the default.')).toEqual({
-			trace: [{ kind: 'search' }],
-			sources: [{ url: 'https://postgresql.org/docs', title: 'Release notes' }]
-		})
+		expect(splitFinalAnswer(entries, 'Postgres 17 changed the default.')).toEqual([
+			{
+				kind: 'search',
+				sources: [{ url: 'https://postgresql.org/docs', title: 'Release notes' }]
+			}
+		])
 	})
 
 	// A run whose last turn returned a tool call and no text leaves its answer
@@ -152,12 +153,12 @@ describe('splitFinalAnswer', () => {
 				}
 			}
 		])
-		expect(splitFinalAnswer(entries, 'Let me check.').trace).toEqual([entries[1]])
+		expect(splitFinalAnswer(entries, 'Let me check.')).toEqual([entries[1]])
 	})
 
 	it('leaves the trace whole when the output is not a turn of its own', () => {
 		const entries = buildAgentTrace(messages)
-		expect(splitFinalAnswer(entries, { rows: 3 })).toEqual({ trace: entries })
+		expect(splitFinalAnswer(entries, { rows: 3 })).toEqual(entries)
 	})
 })
 

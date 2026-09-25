@@ -2,7 +2,6 @@
 	import { Alert, Badge, Button, ButtonType, Tab, Tabs } from '$lib/components/common'
 	import {
 		clearPageDrawerAnchor,
-		handOffPageDrawer,
 		setPageDrawerAnchor
 	} from '$lib/components/sessions/pageDrawerSession'
 	import { SCHEDULES_PATH } from '$lib/components/sessions/previewPaths'
@@ -181,7 +180,6 @@
 		defaultCfg?: Record<string, any>,
 		fixedScriptPath_?: string
 	) {
-		if (handOffPageDrawer(SCHEDULES_PATH, ePath)) return
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms

@@ -1,10 +1,8 @@
 const SAFE_PROTOCOLS = ['http:', 'https:', 'mailto:']
 
 /**
- * The href a rendered markdown link may carry, or undefined for one that must be dropped.
- *
- * Markdown reaches the chat renderers from a model, and from another member for a shared
- * artifact, and `svelte-exmarkdown` passes `javascript:` and `data:` hrefs through untouched.
+ * The href a link built from untrusted content may carry, or undefined for one that must be
+ * dropped: `javascript:`, `data:` and any other non-navigating scheme.
  * Relative links resolve against `base` (the page), so they stay.
  */
 export function safeHref(href: string | undefined, base: string): string | undefined {

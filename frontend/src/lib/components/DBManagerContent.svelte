@@ -27,7 +27,7 @@
 	import { schemaCacheKey } from './dbSchemaCache'
 	import { getDbSchemas, loadAllTablesMetaData } from './apps/components/display/dbtable/metadata'
 
-	import type { PendingRowAction, SelectedTable } from './DBManager.svelte'
+	import type { DbManagerViewMode, PendingRowAction, SelectedTable } from './DBManager.svelte'
 	import { getDbFeatures } from './apps/components/display/dbtable/dbFeatures'
 	import { resource } from 'runed'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
@@ -66,6 +66,9 @@
 		/** Worker tag every job of this manager runs on, overriding the database
 		 *  language's native tag. Bound so the hints below can offer to set it. */
 		workerTag?: string
+		/** Which view the right pane shows, set by the control the caller renders. */
+		requestedViewMode?: DbManagerViewMode
+		onViewMode?: (mode: DbManagerViewMode) => void
 	}
 
 	let {
@@ -86,7 +89,9 @@
 		disabledTables = [],
 		onImport,
 		workspace = undefined,
-		workerTag = $bindable()
+		workerTag = $bindable(),
+		requestedViewMode,
+		onViewMode
 	}: Props = $props()
 
 	let ws = $derived(workspace ?? $operatingWorkspace)
@@ -132,15 +137,24 @@
 			const run = ++colDefsRun
 			colDefsError = undefined
 			if (!input) return
+			const databaseKey = schemaCacheKey(ws, input)
 			try {
 				const metadata = await loadAllTablesMetaData(ws, input, workerTag)
-				return run === colDefsRun ? metadata : colDefs.current
+				return run === colDefsRun ? { databaseKey, metadata } : colDefs.current
 			} catch (e) {
 				if (run !== colDefsRun) return colDefs.current
 				colDefsError = 'Error loading tables metadata: ' + ((e as Error)?.message || e)
 				return
 			}
 		}
+	)
+	// A resource keeps its previous value while it refetches, and after a switch of
+	// database that value is the previous database's metadata. Handed down as this
+	// one's, it would draw that database's columns and key work to the wrong one.
+	let colDefsOfInput = $derived(
+		input && colDefs.current?.databaseKey === schemaCacheKey(ws, input)
+			? colDefs.current.metadata
+			: undefined
 	)
 
 	let dbSchemasPromise = resource(
@@ -304,12 +318,15 @@
 				{/if}
 			</div>
 			<DbManager
+				{requestedViewMode}
+				{onViewMode}
+				databaseKey={schemaCacheKey(ws, _input)}
 				dbSupportsSchemas={dbSupportsSchemas(dbType)}
 				databaseIsEmpty={!loadError &&
 					!Object.values(shownSchema.schema).flatMap((s) => Object.values(s)).length}
 				dbSchema={shownSchema}
 				mainPane={loadError ? errorPane : undefined}
-				colDefs={loadError ? undefined : colDefs.current}
+				colDefs={loadError ? undefined : colDefsOfInput}
 				dbTableOpsFactory={({ colDefs, tableKey, whereClause }) =>
 					dbTableOpsWithPreviewScripts({
 						colDefs,

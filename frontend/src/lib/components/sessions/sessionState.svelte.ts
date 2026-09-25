@@ -82,7 +82,9 @@ export type SessionSummarySource = 'placeholder' | 'generated' | 'manual'
 
 export type Session = {
 	id: string
-	name: string
+	// Per-browser `session-N` label that older sessions-page URLs carried; only read
+	// to resolve those links.
+	name?: string
 	// Committed strictly at first user-message send. Undefined for drafts
 	// that have never been sent — those scope by `pending_workspace_id`
 	// instead and don't show the fork bar.
@@ -1005,8 +1007,8 @@ if (BROWSER) {
 	})
 }
 
-export function findSessionByName(name: string): Session | undefined {
-	return sessionState.sessions.find((s) => s.name === name)
+export function sessionPageHref(id: string): string {
+	return `/sessions?session=${encodeURIComponent(id)}`
 }
 
 // Bumped to ask the active session's composer to re-focus even when
@@ -1045,15 +1047,6 @@ export function findEmptyLandingSession(): Session | undefined {
 	)
 }
 
-// Session names are a per-browser counter (`session-N`) that the sessions page puts in
-// its URL, so a new or restored record takes the number after the highest in use.
-function nextSessionNumber(sessions: Session[]): number {
-	const numbers = sessions
-		.map((s) => /^session-(\d+)$/.exec(s.name)?.[1])
-		.map((n) => (n ? parseInt(n, 10) : 0))
-	return (numbers.length ? Math.max(...numbers) : 0) + 1
-}
-
 export function createSession(): Session {
 	// Reuse an existing untouched draft from the active family rather than pile a
 	// blank entry on every `+`, so several pending sessions can still be built up
@@ -1074,7 +1067,6 @@ export function createSession(): Session {
 		return reusable
 	}
 	sessionState.sessions = sessionState.sessions.filter((s) => !isDiscardableDraft(s))
-	const next = nextSessionNumber(sessionState.sessions)
 	// Start in the workspace you're in. The one exception: a root you can't
 	// deploy to (locked, no bypass) steers to its dev, since a session there
 	// couldn't edit anything. The picker lets you switch.
@@ -1100,7 +1092,6 @@ export function createSession(): Session {
 	const summary = `${adj.charAt(0).toUpperCase() + adj.slice(1)} session`
 	const session: Session = {
 		id: createLongHash(),
-		name: `session-${next}`,
 		summary,
 		summarySource: 'placeholder',
 		pending_workspace_id: pending && pending.length > 0 ? pending : undefined,
@@ -1459,11 +1450,10 @@ export async function importSessions(records: Session[], email: string): Promise
 	try {
 		const tx = db.transaction('sessions', 'readwrite')
 		const existing = new Set((await tx.store.getAllKeys()).map(String))
-		let next = nextSessionNumber([...(await tx.store.getAll()), ...sessionState.sessions])
 		const restoredAt = Date.now()
 		for (const r of records) {
 			if (existing.has(r.id) || deletedSessionIds.has(r.id)) continue
-			const record: Session = { ...r, name: `session-${next++}`, restoredAt }
+			const record: Session = { ...r, restoredAt }
 			delete record.transient
 			delete record.workspace_root_id
 			ensureSessionRootId(record)
