@@ -6,6 +6,17 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'Automatically test scripts and flows on deploy',
+		href: 'https://www.windmill.dev/changelog/ci-test-scripts',
+		date: '2026-04-13'
+	},
+	{
+		label: 'Reassign a user\'s items when removing them',
+		href: 'https://www.windmill.dev/changelog/user-offboarding',
+		date: '2026-04-13'
+	},
+
+	{
 		label: 'AWS Bedrock support for Windmill AI',
 		href: 'https://www.windmill.dev/changelog/aws-bedrock',
 		date: '2025-11-19'
