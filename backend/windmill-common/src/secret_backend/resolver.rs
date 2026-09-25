@@ -12,12 +12,13 @@
 //! lower-level helpers such as [`crate::variables::get_variable_or_self`] can
 //! route secret reads through the configured backend. With an external backend
 //! (Vault / Azure Key Vault / AWS Secrets Manager), the `variable.value` column
-//! holds a `$vault:`/`$azure_kv:`/`$aws_sm:` marker rather than base64
+//! holds a `$vault:`/`$azure_kv:`/`$aws_sm:`/`$keychain:` marker rather than base64
 //! ciphertext, so decrypting it directly fails — reads must go through the
 //! backend instead.
 //!
-//! Note: external backends require Enterprise Edition. The OSS version only
-//! supports the database backend.
+//! Note: most external backends require Enterprise Edition. Without it the
+//! database and, when built with the `keychain` feature, Apple Keychain are
+//! available.
 
 use std::sync::Arc;
 
@@ -28,12 +29,16 @@ use crate::{
     variables::{build_crypt, decrypt},
 };
 
-#[cfg(all(feature = "private", feature = "enterprise"))]
 use crate::{
     global_settings::{load_value_from_global_settings, SECRET_BACKEND_SETTING},
+    secret_backend::SecretBackendConfig,
+};
+
+#[cfg(all(feature = "private", feature = "enterprise"))]
+use crate::{
     secret_backend::{
         AwsSecretsManagerBackend, AwsSecretsManagerSettings, AzureKeyVaultBackend,
-        AzureKeyVaultSettings, SecretBackendConfig, VaultBackend, VaultSettings,
+        AzureKeyVaultSettings, VaultBackend, VaultSettings,
     },
 };
 
@@ -78,11 +83,44 @@ lazy_static::lazy_static! {
 
 /// Get the current secret backend based on global settings
 ///
-/// OSS: Always returns DatabaseBackend
-/// EE: Returns configured backend (Database or Vault)
+/// Returns the configured backend, failing closed: a backend that is not part
+/// of this build is reported rather than replaced by the database.
 #[cfg(not(all(feature = "private", feature = "enterprise")))]
 pub async fn get_secret_backend(db: &DB) -> Result<Arc<dyn SecretBackend>> {
-    Ok(Arc::new(DatabaseBackend::new(db.clone())))
+    // Read the configured backend rather than assuming the database. Only
+    // backends that exist in this build are accepted; the Enterprise ones
+    // report that plainly instead of being silently downgraded to the database,
+    // which would put plaintext where the operator asked for none.
+    // An unparsable setting is an error, not a reason to fall back. Defaulting
+    // to the database here would store plaintext-equivalent ciphertext in the
+    // very place the operator configured an external backend to avoid, and it
+    // would do so silently — existing external secrets would merely look absent.
+    let config = match load_value_from_global_settings(db, SECRET_BACKEND_SETTING).await? {
+        Some(value) => serde_json::from_value::<SecretBackendConfig>(value).map_err(|e| {
+            Error::internal_err(format!(
+                "the {SECRET_BACKEND_SETTING} instance setting could not be read: {e}"
+            ))
+        })?,
+        None => SecretBackendConfig::default(),
+    };
+
+    match config {
+        SecretBackendConfig::Database => Ok(Arc::new(DatabaseBackend::new(db.clone()))),
+        #[cfg(feature = "keychain")]
+        SecretBackendConfig::AppleKeychain(settings) => {
+            Ok(Arc::new(crate::secret_backend::keychain::KeychainBackend::new(settings)))
+        }
+        #[cfg(not(feature = "keychain"))]
+        SecretBackendConfig::AppleKeychain(_) => Err(Error::internal_err(
+            "the Apple Keychain secret backend is configured but this build was made \
+             without the `keychain` feature"
+                .to_string(),
+        )),
+        other => Err(Error::internal_err(format!(
+            "the {} secret backend requires Windmill Enterprise Edition",
+            other.name()
+        ))),
+    }
 }
 
 #[cfg(all(feature = "private", feature = "enterprise"))]
@@ -103,6 +141,15 @@ pub async fn get_secret_backend(db: &DB) -> Result<Arc<dyn SecretBackend>> {
         SecretBackendConfig::AwsSecretsManager(settings) => {
             get_or_create_aws_sm_backend(db, settings).await
         }
+        #[cfg(feature = "keychain")]
+        SecretBackendConfig::AppleKeychain(settings) => Ok(Arc::new(
+            crate::secret_backend::keychain::KeychainBackend::new(settings),
+        )),
+        #[cfg(not(feature = "keychain"))]
+        SecretBackendConfig::AppleKeychain(_) => Err(Error::internal_err(
+            "the Apple Keychain secret backend is configured but this build was made \
+             without the `keychain` feature",
+        )),
     }
 }
 
@@ -221,15 +268,24 @@ async fn get_or_create_aws_sm_backend(
 ///
 /// OSS: Always returns false
 /// EE: Checks global settings
-#[cfg(not(all(feature = "private", feature = "enterprise")))]
-pub async fn is_vault_backend_configured(_db: &DB) -> Result<bool> {
-    Ok(false)
-}
-
-#[cfg(all(feature = "private", feature = "enterprise"))]
+/// Whether secrets live in a backend outside the database.
+///
+/// Compiled unconditionally. The OSS copy used to answer `false` outright, which
+/// was true while no external backend existed there; with Apple Keychain
+/// available it meant deleting a variable never reached the backend, so the row
+/// went away and the keychain item was left orphaned.
+///
+/// The name is kept for now because it is used across several crates, but it
+/// answers for any external backend, not only Vault.
 pub async fn is_vault_backend_configured(db: &DB) -> Result<bool> {
+    // Fail closed on an unreadable setting, as elsewhere: treating it as "no
+    // external backend" would silently stop deleting secrets from the backend.
     let config = match load_value_from_global_settings(db, SECRET_BACKEND_SETTING).await? {
-        Some(value) => serde_json::from_value::<SecretBackendConfig>(value).unwrap_or_default(),
+        Some(value) => serde_json::from_value::<SecretBackendConfig>(value).map_err(|e| {
+            Error::internal_err(format!(
+                "the {SECRET_BACKEND_SETTING} instance setting could not be read: {e}"
+            ))
+        })?,
         None => SecretBackendConfig::default(),
     };
 
@@ -238,6 +294,7 @@ pub async fn is_vault_backend_configured(db: &DB) -> Result<bool> {
         SecretBackendConfig::HashiCorpVault(_)
             | SecretBackendConfig::AzureKeyVault(_)
             | SecretBackendConfig::AwsSecretsManager(_)
+            | SecretBackendConfig::AppleKeychain(_)
     ))
 }
 
@@ -252,27 +309,41 @@ pub async fn get_secret_value(
     path: &str,
     encrypted_value: &str,
 ) -> Result<String> {
-    let backend = get_secret_backend(db).await?;
+    // Route by how the value was stored, not by what is configured now.
+    //
+    // Dispatching on the configured backend made every existing secret
+    // unreadable the moment an external backend was switched on: those values
+    // are still ciphertext in the database, but the read went to the external
+    // store and came back as "not found". That also makes migration impossible,
+    // since migrating a secret starts by reading it.
+    let Some(marker) = external_marker_prefix(encrypted_value) else {
+        let mc = build_crypt(db, workspace_id).await?;
+        return decrypt(&mc, encrypted_value.to_string()).map_err(|e| {
+            Error::internal_err(format!("Error decrypting variable {}: {}", path, e))
+        });
+    };
 
-    match backend.backend_name() {
-        "database" => {
-            // Use existing database decryption
-            let mc = build_crypt(db, workspace_id).await?;
-            decrypt(&mc, encrypted_value.to_string()).map_err(|e| {
-                Error::internal_err(format!("Error decrypting variable {}: {}", path, e))
-            })
-        }
-        "hashicorp_vault" => {
-            // Fetch from Vault directly
-            backend.get_secret(workspace_id, path).await
-        }
-        "azure_key_vault" => backend.get_secret(workspace_id, path).await,
-        "aws_secrets_manager" => backend.get_secret(workspace_id, path).await,
-        _ => Err(Error::internal_err(format!(
-            "Unknown backend: {}",
+    let backend = get_secret_backend(db).await?;
+    let Some(expected) = marker_for_backend(backend.backend_name()) else {
+        return Err(Error::internal_err(format!(
+            "variable {} is stored in an external backend but {} is configured",
+            path,
             backend.backend_name()
-        ))),
+        )));
+    };
+    if marker != expected {
+        // Reading it from the configured backend would ask the wrong store and
+        // report the secret as missing, which reads like data loss.
+        return Err(Error::internal_err(format!(
+            "variable {} was stored with the {} prefix but {} is configured; \
+             the secret still lives in the backend that wrote it",
+            path,
+            marker,
+            backend.backend_name()
+        )));
     }
+
+    backend.get_secret(workspace_id, path).await
 }
 
 /// Check if a value is stored in Vault (indicated by the $vault: prefix)
@@ -290,9 +361,44 @@ pub fn is_aws_sm_stored_value(value: &str) -> bool {
     value.starts_with("$aws_sm:")
 }
 
+/// Check if a value is stored in an Apple Keychain (indicated by the $keychain: prefix)
+pub fn is_keychain_stored_value(value: &str) -> bool {
+    value.starts_with("$keychain:")
+}
+
 /// Check if a value is stored in any external secret backend
 pub fn is_external_stored_value(value: &str) -> bool {
-    is_vault_stored_value(value) || is_azure_kv_stored_value(value) || is_aws_sm_stored_value(value)
+    external_marker_prefix(value).is_some()
+}
+
+/// The marker prefix a given backend writes.
+///
+/// Pairs with `external_marker_prefix`: one says where a value came from, the
+/// other where the configured backend would put it. Comparing the two is what
+/// keeps an operation from reading or writing the wrong store after the backend
+/// setting has been changed.
+pub fn marker_for_backend(backend_name: &str) -> Option<&'static str> {
+    match backend_name {
+        "hashicorp_vault" => Some("$vault:"),
+        "azure_key_vault" => Some("$azure_kv:"),
+        "aws_secrets_manager" => Some("$aws_sm:"),
+        "apple_keychain" => Some("$keychain:"),
+        _ => None,
+    }
+}
+
+/// The marker prefix a value was stored with, if it was stored externally.
+///
+/// One place rather than one if-chain per call site: the prefix was derived
+/// independently in three functions, so adding a backend meant remembering all
+/// three, and forgetting one silently rewrote a value with the wrong prefix.
+pub fn external_marker_prefix(value: &str) -> Option<&'static str> {
+    for prefix in ["$vault:", "$azure_kv:", "$aws_sm:", "$keychain:"] {
+        if value.starts_with(prefix) {
+            return Some(prefix);
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -304,6 +410,12 @@ mod tests {
         assert!(is_external_stored_value("$vault:u/admin/secret"));
         assert!(is_external_stored_value("$azure_kv:u/admin/secret"));
         assert!(is_external_stored_value("$aws_sm:u/admin/secret"));
+        assert!(is_external_stored_value("$keychain:u/admin/secret"));
+        assert_eq!(
+            external_marker_prefix("$keychain:u/admin/secret"),
+            Some("$keychain:")
+        );
+        assert_eq!(external_marker_prefix("not a marker"), None);
     }
 
     #[test]

@@ -21,8 +21,8 @@ use windmill_common::{db::DB, error::Result};
 use windmill_common::{
     error::Error,
     secret_backend::{
-        get_secret_backend, is_aws_sm_stored_value, is_azure_kv_stored_value,
-        is_external_stored_value, is_vault_backend_configured,
+        external_marker_prefix, get_secret_backend, is_external_stored_value,
+        is_vault_backend_configured,
     },
 };
 
@@ -65,13 +65,10 @@ pub async fn rename_vault_secrets_with_prefix(
             continue;
         }
 
-        // Determine the marker prefix from the stored value
-        let marker_prefix = if is_azure_kv_stored_value(&value) {
-            "$azure_kv:"
-        } else if is_aws_sm_stored_value(&value) {
-            "$aws_sm:"
-        } else {
-            "$vault:"
+        // One helper rather than a chain per call site; see
+        // `external_marker_prefix`.
+        let Some(marker_prefix) = external_marker_prefix(&value) else {
+            continue;
         };
 
         // Calculate new path by replacing prefix
