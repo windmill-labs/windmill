@@ -9,6 +9,7 @@ pub struct NextCloudOAuthData {
     pub access_token: String,
     pub refresh_token: Option<String>,
     pub token_expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub connection_path: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

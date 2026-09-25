@@ -69,6 +69,9 @@
 	import Trashbin from '$lib/components/settings/Trashbin.svelte'
 	import { untrack } from 'svelte'
 	import { getHandlerType } from '$lib/components/triggers/utils'
+	import NativeOAuthCallback from '$lib/components/triggers/native/NativeOAuthCallback.svelte'
+	import { nativeOAuthRedirectUri } from '$lib/components/triggers/native/utils'
+	import type { NativeServiceName } from '$lib/gen'
 	import DbtSettings, {
 		convertDbtSettingsFromBackend,
 		type DbtSettingsType
@@ -372,6 +375,13 @@
 	// The deploy filters configure what may be promoted into the parent, so they only mean
 	// something for a fork. A root workspace deploys nowhere by lineage.
 	const showDeployToTab = $derived(Boolean(currentWorkspace?.parent_workspace_id))
+	// The page native trigger OAuth providers redirect to. Anyone can connect an account, so the
+	// callback is handled before the admin gate.
+	const nativeOAuthService = $derived(
+		$page.url.searchParams.get('tab') === 'native_triggers' && $page.url.searchParams.has('state')
+			? ($page.url.searchParams.get('service') as NativeServiceName | null)
+			: null
+	)
 	const canAdmin = $derived(($userStore?.is_admin ?? false) || Boolean($superadmin))
 	// The creator of a fork gets the fork members screen even when they are not an admin of it:
 	// their `usr` row is copied from the parent, so forking as an ordinary developer leaves them
@@ -1460,7 +1470,9 @@
 </script>
 
 <CenteredPage wrapperClasses="pb-0 h-screen" handleOverflow={false} class="flex flex-col h-full">
-	{#if canAdmin || isForkOwner}
+	{#if nativeOAuthService}
+		<NativeOAuthCallback redirectUri={nativeOAuthRedirectUri(nativeOAuthService)} />
+	{:else if canAdmin || isForkOwner}
 		<PageHeader title="Workspace settings: {$workspaceStore}">
 			{#snippet titleActions()}
 				{#if $workspaceStore}
