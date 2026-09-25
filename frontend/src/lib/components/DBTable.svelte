@@ -467,6 +467,11 @@
 			saveLayout()
 		})
 	})
+	function joinedColumnTitle(alias: string): string {
+		const join = joins.find((j) => joinAlias(j) === alias)
+		if (!join) return alias
+		return `${join.column} of ${join.targetTable}, joined on ${join.sourceColumn}. Only shown in this view.`
+	}
 	function removeJoin(alias: string) {
 		joins = joins.filter((j) => joinAlias(j) !== alias)
 		setPin(alias, undefined)
@@ -758,7 +763,7 @@
 					{ id: 'divider', label: '', divider: true },
 					{
 						id: 'remove-join',
-						label: 'Remove column',
+						label: 'Remove from view',
 						icon: Trash2,
 						type: 'delete',
 						onClick: () => removeJoin(column)
@@ -876,7 +881,7 @@
 						: []),
 					// Only offered when the table references another by foreign key.
 					...(joinTargets?.length
-						? [{ displayName: 'Add joined column', icon: Merge, action: openJoinPicker }]
+						? [{ displayName: 'View joined column', icon: Merge, action: openJoinPicker }]
 						: [])
 				]}
 				btnId="db-table-add-column"
@@ -900,7 +905,12 @@
 				{#snippet trigger()}{/snippet}
 				{#snippet content()}
 					<div class="flex w-72 flex-col gap-2 p-3" data-testid="db-join-picker">
-						<span class="text-xs font-semibold text-emphasis">Add joined column</span>
+						<div class="flex flex-col gap-0.5">
+							<span class="text-xs font-semibold text-emphasis">View joined column</span>
+							<span class="text-2xs text-secondary">
+								Shows a column of a linked table in this view. The table itself is not changed.
+							</span>
+						</div>
 						<Select
 							items={(joinTargets ?? []).map((t, i) => ({
 								label: `${t.targetTable} (via ${t.sourceColumn})`,
@@ -939,7 +949,7 @@
 							disabled={pickedTarget === undefined || !pickedColumn}
 							onClick={confirmJoin}
 						>
-							Add
+							Show
 						</Button>
 					</div>
 				{/snippet}
@@ -1137,7 +1147,9 @@
 							>
 								<button
 									class="flex items-center gap-1 w-full h-full px-2 font-semibold text-emphasis text-left hover:bg-surface-hover min-w-0"
-									title="{col.field} ({col.datatype})"
+									title={joinedAliases.has(col.field)
+										? joinedColumnTitle(col.field)
+										: `${col.field} (${col.datatype})`}
 									onclick={() => toggleSort(col.field)}
 								>
 									{#if col.isprimarykey}
