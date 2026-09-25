@@ -23,8 +23,13 @@ const ALERT_WINDOW_SECS: i64 = 24 * 3600;
 /// Same tag in the same workspace is reported at most once per this interval.
 const ALERT_COOLDOWN_SECS: i64 = 24 * 3600;
 
+/// New alerts raised per pass; the rest are raised on the next passes.
+const MAX_ALERTS_PER_PASS: usize = 10;
+
 /// Upper bound on cancellations per pass; a larger backlog drains over the next passes.
-const MAX_CANCELS_PER_PASS: usize = 500;
+const MAX_CANCELS_PER_PASS: i64 = 500;
+
+const MAX_CANCEL_AFTER_DAYS: i64 = 3650;
 
 /// Next to the other monitor pass locks (737_483_920..=737_483_923).
 const STRANDED_JOBS_LOCK_ID: i64 = 737_483_924;
@@ -64,13 +69,8 @@ pub async fn check_stranded_jobs(db: &Pool<Postgres>) {
         }
     };
 
-    if let Err(e) = report_stranded_jobs(db, cancel_after_days).await {
-        tracing::error!("stranded jobs: report failed: {e:#}");
-    }
-    if let Some(days) = cancel_after_days {
-        if let Err(e) = cancel_stranded_jobs(db, days).await {
-            tracing::error!("stranded jobs: cancellation failed: {e:#}");
-        }
+    if let Err(e) = run_pass(db, cancel_after_days).await {
+        tracing::error!("stranded jobs: {e:#}");
     }
 
     let _ = lock_tx.rollback().await;
@@ -81,8 +81,44 @@ async fn cancel_after_days(db: &Pool<Postgres>) -> error::Result<Option<i64>> {
         load_value_from_global_settings(db, CANCEL_STRANDED_JOBS_AFTER_DAYS_SETTING)
             .await?
             .and_then(|v| v.as_i64())
-            .filter(|d| *d > 0),
+            .filter(|d| *d > 0)
+            .map(|d| d.min(MAX_CANCEL_AFTER_DAYS)),
     )
+}
+
+async fn run_pass(db: &Pool<Postgres>, cancel_after_days: Option<i64>) -> error::Result<()> {
+    // With no worker pinging at all over a window, every tag looks unserved: that is a fleet
+    // outage, which would otherwise raise one alert per tag and cancel the whole queue.
+    if !any_worker_pinged(db, ALERT_WINDOW_SECS).await? {
+        tracing::warn!("stranded jobs: no worker pinged in the last 24 hours, skipping");
+        return Ok(());
+    }
+
+    let groups = find_stranded(db, ALERT_WINDOW_SECS).await?;
+    report_stranded_jobs(db, &groups, cancel_after_days).await?;
+
+    if let Some(days) = cancel_after_days {
+        let window_secs = days * 24 * 3600;
+        let groups = if window_secs == ALERT_WINDOW_SECS {
+            groups
+        } else if any_worker_pinged(db, window_secs).await? {
+            find_stranded(db, window_secs).await?
+        } else {
+            vec![]
+        };
+        cancel_stranded_jobs(db, &groups, days).await?;
+    }
+    Ok(())
+}
+
+async fn any_worker_pinged(db: &Pool<Postgres>, window_secs: i64) -> error::Result<bool> {
+    Ok(sqlx::query_scalar!(
+        r#"SELECT EXISTS (SELECT 1 FROM worker_ping
+            WHERE ping_at > now() - $1::bigint * interval '1 second') AS "exists!""#,
+        window_secs,
+    )
+    .fetch_one(db)
+    .await?)
 }
 
 /// Stranded jobs of one tag in one workspace.
@@ -91,17 +127,16 @@ struct StrandedGroup {
     tag: String,
     count: i64,
     oldest: DateTime<Utc>,
-    /// The oldest ones, at most `MAX_CANCELS_PER_PASS`.
-    ids: Vec<Uuid>,
 }
 
 /// Top-level pending jobs due for at least `window_secs` whose tag no worker that pinged within
 /// the same window serves, grouped by workspace and tag. Children are covered by their root.
 ///
-/// Jobs carry their resolved tag (per-workspace suffix, `$workspace`, dedicated-worker tag) and
-/// the pull matches it exactly, so exact comparison is the pull's own criterion. Agent workers
-/// ping `worker_ping` through the API, so they count too. `worker_ping` keeps a worker's current
-/// tags only: a tag removed from a group's config stops counting as served at the next ping.
+/// A worker pulls its `custom_tags`, which hold resolved tags (dedicated-worker tag included),
+/// plus its own name prefix. Jobs carry their resolved tag (per-workspace suffix, `$workspace`)
+/// and the pull matches it exactly, so exact comparison is the pull's own criterion. Agent
+/// workers ping `worker_ping` through the API, so they count too. `worker_ping` keeps a worker's
+/// current tags only: a tag removed from a group's config stops counting at the next ping.
 async fn find_stranded(db: &Pool<Postgres>, window_secs: i64) -> error::Result<Vec<StrandedGroup>> {
     // MATERIALIZED keeps the queue driving the plan: joined freely, the planner may instead walk
     // every root job of `v2_job`, which holds the whole job history.
@@ -110,9 +145,7 @@ async fn find_stranded(db: &Pool<Postgres>, window_secs: i64) -> error::Result<V
         r#"WITH served AS (
             SELECT unnest(custom_tags) AS tag FROM worker_ping
                 WHERE ping_at > now() - $1::bigint * interval '1 second'
-            UNION SELECT unnest(dedicated_workers) FROM worker_ping
-                WHERE ping_at > now() - $1::bigint * interval '1 second'
-            UNION SELECT dedicated_worker FROM worker_ping
+            UNION SELECT regexp_replace(worker, '-[^-]*$', '') FROM worker_ping
                 WHERE ping_at > now() - $1::bigint * interval '1 second'
         ),
         pending AS MATERIALIZED (
@@ -123,14 +156,12 @@ async fn find_stranded(db: &Pool<Postgres>, window_secs: i64) -> error::Result<V
                 AND NOT EXISTS (SELECT 1 FROM served s WHERE s.tag = q.tag)
         )
         SELECT p.workspace_id AS "workspace_id!", p.tag AS "tag!", count(*) AS "count!",
-            min(p.scheduled_for) AS "oldest!",
-            (array_agg(p.id ORDER BY p.scheduled_for))[1:$2] AS "ids!"
+            min(p.scheduled_for) AS "oldest!"
         FROM pending p JOIN v2_job j ON j.id = p.id
         WHERE j.parent_job IS NULL
         GROUP BY p.workspace_id, p.tag
         ORDER BY min(p.scheduled_for)"#,
         window_secs,
-        MAX_CANCELS_PER_PASS as i32,
     )
     .fetch_all(db)
     .await?)
@@ -138,9 +169,9 @@ async fn find_stranded(db: &Pool<Postgres>, window_secs: i64) -> error::Result<V
 
 async fn report_stranded_jobs(
     db: &Pool<Postgres>,
+    groups: &[StrandedGroup],
     cancel_after_days: Option<i64>,
 ) -> error::Result<()> {
-    let groups = find_stranded(db, ALERT_WINDOW_SECS).await?;
     if groups.is_empty() {
         return Ok(());
     }
@@ -161,11 +192,14 @@ async fn report_stranded_jobs(
     .collect();
 
     let now = Utc::now();
-    for StrandedGroup { workspace_id, tag, count, oldest, .. } in groups {
-        let resource = format!("{ALERT_RESOURCE_PREFIX}{tag}");
-        if recently_alerted.contains(&(workspace_id.clone(), resource.clone())) {
-            continue;
-        }
+    let to_alert = groups
+        .iter()
+        .map(|g| (g, format!("{ALERT_RESOURCE_PREFIX}{}", g.tag)))
+        .filter(|(g, resource)| {
+            !recently_alerted.contains(&(g.workspace_id.clone(), resource.clone()))
+        })
+        .take(MAX_ALERTS_PER_PASS);
+    for (StrandedGroup { workspace_id, tag, count, oldest }, resource) in to_alert {
         let cleanup = match cancel_after_days {
             Some(days) => format!(
                 " Jobs whose tag no worker serves for {} are canceled automatically.",
@@ -175,42 +209,53 @@ async fn report_stranded_jobs(
         };
         let message = format!(
             "Workspace {workspace_id} has {} with tag '{tag}', which no worker has served in the last {}. The oldest has waited {}.{cleanup}",
-            plural(count, "pending job"),
+            plural(*count, "pending job"),
             fmt_duration(ALERT_WINDOW_SECS),
-            fmt_duration((now - oldest).num_seconds()),
+            fmt_duration((now - *oldest).num_seconds()),
         );
         tracing::warn!(workspace_id, tag, count, "stranded jobs: {message}");
-        report_critical_error(message, db.clone(), Some(&workspace_id), Some(&resource)).await;
+        report_critical_error(
+            message,
+            db.clone(),
+            Some(workspace_id.as_str()),
+            Some(&resource),
+        )
+        .await;
     }
     Ok(())
 }
 
-async fn cancel_stranded_jobs(db: &Pool<Postgres>, days: i64) -> error::Result<()> {
-    let window_secs = days.saturating_mul(24 * 3600);
-
-    // With no worker pinging at all over the window this is a fleet outage, not a tag nobody
-    // serves: cancelling would empty the whole queue.
-    let any_worker = sqlx::query_scalar!(
-        r#"SELECT EXISTS (SELECT 1 FROM worker_ping
-            WHERE ping_at > now() - $1::bigint * interval '1 second') AS "exists!""#,
-        window_secs,
-    )
-    .fetch_one(db)
-    .await?;
-    if !any_worker {
-        tracing::warn!(
-            "stranded jobs: no worker pinged in the last {days} day(s), not cancelling anything"
-        );
-        return Ok(());
-    }
-
+async fn cancel_stranded_jobs(
+    db: &Pool<Postgres>,
+    groups: &[StrandedGroup],
+    days: i64,
+) -> error::Result<()> {
+    let window_secs = days * 24 * 3600;
     let mut budget = MAX_CANCELS_PER_PASS;
-    for group in find_stranded(db, window_secs).await? {
-        if budget == 0 {
+    for group in groups {
+        if budget <= 0 {
             break;
         }
-        let ids = &group.ids[..group.ids.len().min(budget)];
-        budget -= ids.len();
+        let ids = sqlx::query_scalar!(
+            r#"WITH pending AS MATERIALIZED (
+                SELECT q.id, q.scheduled_for FROM v2_job_queue q
+                WHERE q.workspace_id = $1 AND q.tag = $2
+                    AND q.running = false
+                    AND q.canceled_by IS NULL
+                    AND q.scheduled_for <= now() - $3::bigint * interval '1 second'
+            )
+            SELECT p.id FROM pending p JOIN v2_job j ON j.id = p.id
+            WHERE j.parent_job IS NULL
+            ORDER BY p.scheduled_for
+            LIMIT $4"#,
+            group.workspace_id,
+            group.tag,
+            window_secs,
+            budget,
+        )
+        .fetch_all(db)
+        .await?;
+        budget -= ids.len() as i64;
         tracing::warn!(
             workspace_id = group.workspace_id,
             tag = group.tag,
@@ -225,7 +270,7 @@ async fn cancel_stranded_jobs(db: &Pool<Postgres>, days: i64) -> error::Result<(
         );
         for id in ids {
             if let Err(e) =
-                cancel_one(db, *id, &group.workspace_id, reason.clone(), window_secs).await
+                cancel_one(db, id, &group.workspace_id, reason.clone(), window_secs).await
             {
                 tracing::error!("stranded jobs: could not cancel job {id}: {e:#}");
             }
@@ -242,18 +287,21 @@ async fn cancel_one(
     window_secs: i64,
 ) -> error::Result<()> {
     let mut tx = db.begin().await?;
-    // A worker for the tag may have come back since the job was selected. The row lock keeps
-    // the pull (which skips locked rows) off it until the cancel commits.
+    // A worker for the tag may have come back since the job was selected. The row lock keeps the
+    // pull (which skips locked rows) off it, and `canceled_by` is set under that lock because
+    // `cancel_job` completes a pending job asynchronously: a worker pulling it in between
+    // completes it as canceled instead of running it.
     let still_stranded = sqlx::query_scalar!(
-        r#"SELECT q.id FROM v2_job_queue q
-        WHERE q.id = $1 AND q.running = false
+        r#"UPDATE v2_job_queue q SET canceled_by = 'monitor', canceled_reason = $3
+        WHERE q.id = $1 AND q.running = false AND q.canceled_by IS NULL
             AND NOT EXISTS (SELECT 1 FROM worker_ping w
                 WHERE w.ping_at > now() - $2::bigint * interval '1 second'
-                    AND (q.tag = ANY(w.custom_tags) OR q.tag = ANY(w.dedicated_workers)
-                        OR q.tag = w.dedicated_worker))
-        FOR UPDATE OF q"#,
+                    AND (q.tag = ANY(w.custom_tags)
+                        OR q.tag = regexp_replace(w.worker, '-[^-]*$', '')))
+        RETURNING q.id"#,
         id,
         window_secs,
+        reason,
     )
     .fetch_optional(&mut *tx)
     .await?
@@ -323,15 +371,14 @@ mod tests {
         id
     }
 
-    async fn ping(db: &Pool<Postgres>, worker: &str, age: &str, tags: &[&str], dws: &[&str]) {
+    async fn ping(db: &Pool<Postgres>, worker: &str, age: &str, tags: &[&str]) {
         sqlx::query(
-            "INSERT INTO worker_ping (worker, worker_instance, ping_at, custom_tags, dedicated_workers)
-            VALUES ($1, 'test', now() - $2::interval, $3, $4)",
+            "INSERT INTO worker_ping (worker, worker_instance, ping_at, custom_tags)
+            VALUES ($1, 'test', now() - $2::interval, $3)",
         )
         .bind(worker)
         .bind(age)
         .bind(tags)
-        .bind(dws)
         .execute(db)
         .await
         .unwrap();
@@ -339,24 +386,17 @@ mod tests {
 
     #[sqlx::test(migrations = "./migrations")]
     async fn find_stranded_selects_unserved_root_jobs(db: Pool<Postgres>) {
-        ping(&db, "live", "1 minute", &["live"], &[]).await;
+        ping(&db, "wk-live-a1b2", "1 minute", &["live"]).await;
         // A group scaled to zero within the window still serves its tags.
-        ping(&db, "night", "10 hours", &["night"], &[]).await;
-        ping(&db, "gone", "2 days", &["gone"], &[]).await;
-        ping(
-            &db,
-            "dedicated",
-            "1 minute",
-            &["other"],
-            &["admins:f/dedicated"],
-        )
-        .await;
+        ping(&db, "wk-night-c3d4", "10 hours", &["night"]).await;
+        ping(&db, "wk-gone-e5f6", "2 days", &["gone"]).await;
 
-        let nobody = plant(&db, "nobody", "3 days", None).await;
-        let gone = plant(&db, "gone", "3 days", None).await;
+        plant(&db, "nobody", "3 days", None).await;
+        plant(&db, "gone", "3 days", None).await;
         let live = plant(&db, "live", "3 days", None).await;
         plant(&db, "night", "3 days", None).await;
-        plant(&db, "admins:f/dedicated", "3 days", None).await;
+        // A worker also pulls its own name prefix.
+        plant(&db, "wk-live", "3 days", None).await;
         plant(&db, "nobody", "1 hour", None).await;
         plant(&db, "nobody", "-1 day", None).await;
         plant(&db, "nobody", "3 days", Some(live)).await;
@@ -367,19 +407,16 @@ mod tests {
             .await
             .unwrap();
 
-        let mut found: Vec<(String, i64, Vec<Uuid>)> = find_stranded(&db, ALERT_WINDOW_SECS)
+        let mut found: Vec<(String, i64)> = find_stranded(&db, ALERT_WINDOW_SECS)
             .await
             .unwrap()
             .into_iter()
-            .map(|g| (g.tag, g.count, g.ids))
+            .map(|g| (g.tag, g.count))
             .collect();
         found.sort();
         assert_eq!(
             found,
-            vec![
-                ("gone".to_string(), 1, vec![gone]),
-                ("nobody".to_string(), 1, vec![nobody])
-            ]
+            vec![("gone".to_string(), 1), ("nobody".to_string(), 1)]
         );
 
         // Picked up by a worker after selection: must not be interrupted.
