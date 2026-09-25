@@ -4,10 +4,12 @@ set -e
 # Windmill Extra Services Entrypoint
 # Starts LSP, Multiplayer, and Debugger services based on environment variables
 
-# Track PIDs for cleanup
+# Track PIDs for cleanup, with a parallel array of names so a dead service can be
+# named in the logs rather than reported as a bare PID.
 PIDS=()
+NAMES=()
 
-cleanup() {
+stop_services() {
     echo "[entrypoint] Shutting down services..."
     for pid in "${PIDS[@]}"; do
         if kill -0 "$pid" 2>/dev/null; then
@@ -16,6 +18,10 @@ cleanup() {
     done
     wait
     echo "[entrypoint] All services stopped"
+}
+
+cleanup() {
+    stop_services
     exit 0
 }
 
@@ -116,6 +122,7 @@ if [ "${ENABLE_LSP:-true}" = "true" ]; then
     cd /pyls
     PORT=${LSP_PORT:-3001} python3 pyls_launcher.py &
     PIDS+=($!)
+    NAMES+=("LSP")
     echo "[entrypoint] LSP started (PID: ${PIDS[-1]})"
 fi
 
@@ -125,6 +132,7 @@ if [ "${ENABLE_MULTIPLAYER:-true}" = "true" ]; then
     cd /multiplayer
     PORT=${MULTIPLAYER_PORT:-3002} HOST=${HOST:-0.0.0.0} node server.mjs &
     PIDS+=($!)
+    NAMES+=("Multiplayer")
     echo "[entrypoint] Multiplayer started (PID: ${PIDS[-1]})"
 fi
 
@@ -144,6 +152,7 @@ if [ "${ENABLE_DEBUGGER:-true}" = "true" ]; then
 
     bun run dap_debug_service.ts $DEBUGGER_ARGS &
     PIDS+=($!)
+    NAMES+=("Debugger")
     echo "[entrypoint] Debugger started (PID: ${PIDS[-1]})"
 fi
 
@@ -153,6 +162,7 @@ if [ "${ENABLE_GATEWAY:-true}" = "true" ]; then
     cd /multiplayer
     PORT=${GATEWAY_PORT:-3000} node gateway.mjs &
     PIDS+=($!)
+    NAMES+=("Gateway")
     echo "[entrypoint] Gateway started (PID: ${PIDS[-1]})"
 fi
 
@@ -165,15 +175,30 @@ fi
 
 echo "[entrypoint] All enabled services started. Waiting..."
 
-# Wait for any process to exit
-wait -n "${PIDS[@]}" 2>/dev/null || true
+# Wait for any process to exit. `|| status=$?` also keeps `set -e` from aborting
+# here, which would skip the reporting and shutdown below.
+status=0
+wait -n "${PIDS[@]}" 2>/dev/null || status=$?
 
-# If one process exits, check which one and report
+# A dead service is not something this container can recover from: nothing here
+# restarts one, and the health checks in front of the container probe a single
+# service, so a dead sibling is invisible and stays dead until someone notices by
+# hand. Report which one went, stop the rest, and exit non-zero so the
+# orchestrator replaces the whole container (docker-compose `restart:
+# unless-stopped`, a Kubernetes pod's default `restartPolicy: Always`, an ECS
+# service replacing the stopped task).
 for i in "${!PIDS[@]}"; do
     if ! kill -0 "${PIDS[$i]}" 2>/dev/null; then
-        echo "[entrypoint] Service (PID: ${PIDS[$i]}) has exited"
+        echo "[entrypoint] ERROR: ${NAMES[$i]} (PID: ${PIDS[$i]}) has exited" >&2
     fi
 done
 
-# Keep running and wait for remaining processes
-wait
+stop_services
+
+# Carry the dead service's own status where there is one, but never exit 0: that
+# would read as a successful, deliberate shutdown.
+if [ "$status" -eq 0 ]; then
+    status=1
+fi
+echo "[entrypoint] Exiting with status $status so the container is restarted" >&2
+exit "$status"

@@ -176,6 +176,7 @@ const send = (conn, message) => {
 
 const setupWSConnection = (conn, req, docName, bufferedMessages = []) => {
   const doc = getYDoc(docName)
+  const clientIp = req.socket.remoteAddress
 
   // Initialize awareness
   if (!doc.awareness) {
@@ -189,22 +190,42 @@ const setupWSConnection = (conn, req, docName, bufferedMessages = []) => {
   doc.conns.add(conn)
 
   const messageHandler = (message) => {
-    const data = new Uint8Array(message)
-    const decoder = decoding.createDecoder(data)
-    const messageType = decoding.readVarUint(decoder)
+    // A frame that arrived before we decided to close this connection (or that a
+    // replay below already made moot) must not still be applied to the document.
+    if (conn.readyState !== 1) return // WebSocket.OPEN
 
-    switch (messageType) {
-      case messageSync:
-        const encoder = encoding.createEncoder()
-        encoding.writeVarUint(encoder, messageSync)
-        syncProtocol.readSyncMessage(decoder, encoder, doc, null)
-        if (encoding.length(encoder) > 1) {
-          send(conn, encoding.toUint8Array(encoder))
+    try {
+      const data = new Uint8Array(message)
+      const decoder = decoding.createDecoder(data)
+      const messageType = decoding.readVarUint(decoder)
+
+      switch (messageType) {
+        case messageSync: {
+          const encoder = encoding.createEncoder()
+          encoding.writeVarUint(encoder, messageSync)
+          syncProtocol.readSyncMessage(decoder, encoder, doc, null)
+          if (encoding.length(encoder) > 1) {
+            send(conn, encoding.toUint8Array(encoder))
+          }
+          break
         }
-        break
-      case messageAwareness:
-        awarenessProtocol.applyAwarenessUpdate(awareness, decoding.readVarUint8Array(decoder), conn)
-        break
+        case messageAwareness:
+          awarenessProtocol.applyAwarenessUpdate(awareness, decoding.readVarUint8Array(decoder), conn)
+          break
+      }
+    } catch (error) {
+      // The decoders above throw on anything they cannot parse, and `ws` re-emits
+      // a listener's exception on the process. Without this catch a single
+      // malformed frame from one authenticated peer would take the whole server
+      // down, disconnecting every other document and client. Drop the offender
+      // instead. 1007 is RFC 6455's "invalid frame payload data"; server.mjs
+      // already uses standard close codes for protocol faults (1009 for the
+      // pre-auth flood cap) and reserves the private 4xxx range for
+      // Windmill-specific auth outcomes (4401/4403).
+      // The payload is deliberately never logged: it is untrusted, can be
+      // hundreds of KiB, and may hold document contents.
+      console.warn(`[${new Date().toISOString()}] MALFORMED MESSAGE: doc="${docName}" from=${clientIp} error="${error?.message ?? error}"`)
+      conn.close(1007, 'Invalid message')
     }
   }
   conn.on('message', messageHandler)

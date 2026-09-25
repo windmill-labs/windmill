@@ -172,6 +172,12 @@ export async function startMultiplayerServer(env = {}, attemptsLeft = 5) {
     get output() {
       return output
     },
+    /** How the child died, or null while it is still running. */
+    get exitStatus() {
+      if (child.exitCode !== null) return `exited with code ${child.exitCode}`
+      if (child.signalCode !== null) return `killed by ${child.signalCode}`
+      return null
+    },
     async close() {
       if (child.exitCode !== null) return
       const exited = new Promise((resolve) => child.once('exit', resolve))
