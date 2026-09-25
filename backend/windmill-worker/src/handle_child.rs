@@ -41,7 +41,7 @@ use windmill_common::job_metrics;
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
     sync::{broadcast, watch},
-    time::{interval, sleep, Instant, MissedTickBehavior},
+    time::{interval_at, sleep, Instant, MissedTickBehavior},
 };
 
 use futures::{
@@ -955,7 +955,9 @@ where
     let update_job_interval = Duration::from_millis(500);
 
     let conn = conn.clone();
-    let mut interval = interval(update_job_interval);
+    // No tick at t=0: a job that finishes within the first interval issues none of the
+    // ping/metric statements below. Cancels are picked up by the first ping, 500 ms in.
+    let mut interval = interval_at(Instant::now() + update_job_interval, update_job_interval);
     interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
     let mut i = 0;
@@ -993,7 +995,7 @@ where
                 }
 
 
-                let update_job_row = i == 2 || (!*SLOW_LOGS && (i < 20 || (i < 120 && i % 5 == 0) || i % 10 == 0)) || i % 20 == 0;
+                let update_job_row = i == 1 || (!*SLOW_LOGS && (i < 20 || (i < 120 && i % 5 == 0) || i % 10 == 0)) || i % 20 == 0;
                 if update_job_row && job_id != Uuid::nil() {
                     if let Connection::Sql(ref db) = conn {
                         // Only track memory when it's non-zero (avoids storing all-zero timeseries for jobs that don't report memory)
