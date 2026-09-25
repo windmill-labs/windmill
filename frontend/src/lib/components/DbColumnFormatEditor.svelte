@@ -57,7 +57,7 @@
 				items={[
 					{ label: 'None', value: '' },
 					...UNIT_PRESETS.map((p) => ({
-						label: p.symbol,
+						label: p.symbol.trim(),
 						value: p.symbol
 					})),
 					{ label: 'Custom', value: CUSTOM }

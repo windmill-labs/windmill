@@ -17,10 +17,11 @@ export type ColorRule = {
 	text?: string
 }
 
+// Each where it is usually written: 12.5%, $5, 5 €, £5, ¥5.
 export const UNIT_PRESETS: { symbol: string; position: 'before' | 'after' }[] = [
 	{ symbol: '%', position: 'after' },
 	{ symbol: '$', position: 'before' },
-	{ symbol: '€', position: 'before' },
+	{ symbol: '\u00A0€', position: 'after' },
 	{ symbol: '£', position: 'before' },
 	{ symbol: '¥', position: 'before' }
 ]
@@ -62,9 +63,10 @@ export function formatSignificant(n: number, digits: number): string {
 export function formatValue(value: unknown, format: ColumnFormat | undefined): string | undefined {
 	if (!format || value === null || value === undefined) return undefined
 	const n = asNumber(value)
-	let text = n !== undefined && format.digits ? formatSignificant(n, format.digits) : undefined
-	if (!format.unit?.symbol) return text
-	text ??= typeof value === 'object' ? JSON.stringify(value) : String(value)
+	// A unit on text would read as a quantity: `N/A` must not become `$N/A`.
+	if (n === undefined) return undefined
+	const text = format.digits ? formatSignificant(n, format.digits) : String(value).trim()
+	if (!format.unit?.symbol) return format.digits ? text : undefined
 	const { symbol, position } = format.unit
 	if (position === 'after') return `${text}${symbol}`
 	// A sign reads before a leading unit: -$5, not $-5.

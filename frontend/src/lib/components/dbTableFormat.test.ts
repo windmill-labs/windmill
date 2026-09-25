@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cellColors, formatSignificant, formatValue } from './dbTableFormat'
+import { cellColors, formatSignificant, formatValue, UNIT_PRESETS } from './dbTableFormat'
 
 describe('formatSignificant', () => {
 	it('rounds to significant digits, compacting only past them', () => {
@@ -20,13 +20,12 @@ describe('formatValue', () => {
 	it('places the unit on its side, the sign before a leading one', () => {
 		expect(formatValue('12.5', { unit: { symbol: '%', position: 'after' } })).toBe('12.5%')
 		expect(formatValue(-5, { unit: { symbol: '$', position: 'before' } })).toBe('-$5')
-		expect(formatValue('35412345', { digits: 3, unit: { symbol: '€', position: 'before' } })).toBe(
-			'€35.4m'
-		)
+		expect(formatValue('35412345', { digits: 3, unit: UNIT_PRESETS[2] })).toBe('35.4m\u00A0€')
 	})
 
 	it('leaves a value untouched when nothing applies to it', () => {
 		expect(formatValue('abc', { digits: 3 })).toBeUndefined()
+		expect(formatValue('N/A', { unit: { symbol: '$', position: 'before' } })).toBeUndefined()
 		expect(formatValue(null, { unit: { symbol: '$', position: 'before' } })).toBeUndefined()
 	})
 })
