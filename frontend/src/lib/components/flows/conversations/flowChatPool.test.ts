@@ -272,6 +272,31 @@ describe('FlowChatPool', () => {
 		p.destroy()
 	})
 
+	it('keeps the chat the reader is on when two first turns withdraw with both composers written in', async () => {
+		const written = new Set<unknown>()
+		const { pool: p, fakeOf, shown } = pool({ holdsDraft: (host) => written.has(host) })
+		const first = shown()
+		const firstChat = fakeOf(first.chat)
+		firstChat.set({ conversationId: 'new-1' })
+		written.add(first.host)
+		// A second first message goes out from a new chat, and is the one on screen.
+		const second = p.newChat()
+		const secondChat = fakeOf(second.chat)
+		secondChat.set({ conversationId: 'new-2' })
+		written.add(second.host)
+		expect(shown()).toBe(second)
+
+		// Both uploads fail, the hidden one first: the reader must keep the panel in front of
+		// them, since its composer is the only place what they wrote in it exists.
+		firstChat.set({ conversationId: undefined })
+		expect(shown()).toBe(second)
+		secondChat.set({ conversationId: undefined })
+		expect(shown()).toBe(second)
+		await new Promise((resolve) => setTimeout(resolve, 0))
+		expect(second.chat.destroy).not.toHaveBeenCalled()
+		p.destroy()
+	})
+
 	it('keeps a withdrawn chat whose composer holds a draft, over the empty one that replaced it', async () => {
 		let written: unknown
 		const { pool: p, fakeOf, shown } = pool({ holdsDraft: (host) => host === written })

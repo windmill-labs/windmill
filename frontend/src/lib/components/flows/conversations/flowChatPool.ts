@@ -291,12 +291,18 @@ export class FlowChatPool<H extends DraftSender<A>, A> {
 
 	/** Takes an entry back out of the list of conversations, as the chat that starts one. */
 	#undoNewConversation(entry: Entry<H, A>): void {
+		// Whether the reader is looking at this chat, read before the id it was selected under
+		// goes: it decides which of two chats with nothing to show stays in front of them.
+		let wasShown = false
 		for (const [key, held] of this.#entries) {
 			if (held !== entry) continue
 			this.#entries.delete(key)
 			this.#unread.delete(key)
 			this.#running.delete(key)
-			if (this.#selectedId === key) this.#selectedId = undefined
+			if (this.#selectedId === key) {
+				this.#selectedId = undefined
+				wasShown = true
+			}
 		}
 		if (!this.#draft) {
 			this.#draft = entry
@@ -308,10 +314,10 @@ export class FlowChatPool<H extends DraftSender<A>, A> {
 		// is the only place that text exists; where both were, the one the reader has in
 		// front of them stays.
 		const opened = this.#draft
-		const keepWithdrawn =
-			this.#options.holdsDraft(entry.host) && !this.#options.holdsDraft(opened.host)
-		const kept = keepWithdrawn ? entry : opened
-		const retired = keepWithdrawn ? opened : entry
+		const written = this.#options.holdsDraft(entry.host)
+		const openedWritten = this.#options.holdsDraft(opened.host)
+		const kept = written === openedWritten ? (wasShown ? entry : opened) : written ? entry : opened
+		const retired = kept === entry ? opened : entry
 		this.#draft = kept
 		// The other is released only once the send that withdrew this conversation has
 		// reported what it could not do — the refusal reaches it after this — and the message
