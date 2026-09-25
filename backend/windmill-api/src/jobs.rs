@@ -8433,7 +8433,9 @@ fn operator_preview_refusal(job_id: Option<Uuid>) -> error::Error {
     } else {
         "Operators cannot run preview jobs for security reasons"
     };
-    error::Error::NotAuthorized(reason.to_string())
+    // 403, not 401: the frontend reads a 401 as a dead session and logs the user out, and the
+    // flow editor builders open reaches this route.
+    error::Error::PermissionDenied(reason.to_string())
 }
 
 async fn run_preview_script(
