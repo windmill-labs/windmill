@@ -31710,6 +31710,11 @@ components:
             (over a deployed row or a synthesized draft-only row).
             Frontend appends a `*` to the displayed name.
           type: boolean
+        agent_memory:
+          description: |
+            For an `ai_agent` resource only, its `memory` setting: the one part
+            of the value a listing returns, since it decides whether the agent
+            keeps a conversation.
       required:
         - path
         - resource_type

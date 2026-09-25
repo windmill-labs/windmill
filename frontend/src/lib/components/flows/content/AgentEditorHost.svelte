@@ -11,6 +11,8 @@
 		agentChatPath
 	} from '../conversations/agentEditorChat'
 	import { runFlowPreview } from '../utils.svelte'
+	import RunForm from '$lib/components/RunForm.svelte'
+	import { goto } from '$lib/navigation'
 	import { deepEqual } from 'fast-equals'
 	import type { Flow, FlowModule, InputTransform, Job, OpenFlow } from '$lib/gen'
 	import { emptySchema, type StateStore } from '$lib/utils'
@@ -355,6 +357,26 @@
 		)
 	}
 
+	let runLoading = $state(false)
+	let scheduledForStr = $state<string | undefined>(undefined)
+	let invisible_to_owner = $state<boolean | undefined>(undefined)
+	let overrideTag = $state<string | undefined>(undefined)
+
+	/** One run from the form, as the same one-step flow a chat turn runs but outside any
+	 *  conversation, then onto its run page. */
+	async function runOnce(_scheduledFor: string | undefined, args: Record<string, any>) {
+		if (!agentModule) return
+		runLoading = true
+		try {
+			const flow = agentChatFlow($state.snapshot(agentModule) as FlowModule)
+			flow.value.chat_input_enabled = false
+			const id = await runFlowPreview(args, flow, path, undefined, undefined, undefined, workspace)
+			await goto(`/run/${id}?workspace=${workspace}`)
+		} finally {
+			runLoading = false
+		}
+	}
+
 	// What the composer reads for its model button and paperclip.
 	let chatModules = $derived(agentModule ? agentChatFlow(agentModule).value.modules : undefined)
 	let chatGap = $derived(agentChatGap(agentValue?.input_transforms))
@@ -446,18 +468,17 @@
 	<!-- Named and positioned so the tool picker's popover can portal here: the `#flow-editor` it
 	     otherwise targets is behind this dialog, and does not exist at all on the resources page. -->
 	<div id="agent-editor" class="relative h-full min-h-0">
-		<!-- Resizable as the step panel's config and test are: a long system prompt and a long
-		     answer want opposite splits, and only the reader knows which they are on. -->
-		<Splitpanes class="h-full">
-			<!-- Viewing leads with running the agent; editing leads with what is being edited. -->
-			{#if view}
-				<Pane size={62} minSize={30}>{@render runPane()}</Pane>
-				<Pane size={38} minSize={20}>{@render configPane()}</Pane>
-			{:else}
+		{#if view}
+			<!-- A view only runs the agent: the page beside it summarizes the configuration. -->
+			{@render runPane()}
+		{:else}
+			<!-- Resizable as the step panel's config and test are: a long system prompt and a long
+			     answer want opposite splits, and only the reader knows which they are on. -->
+			<Splitpanes class="h-full">
 				<Pane size={55} minSize={30}>{@render configPane()}</Pane>
 				<Pane size={45} minSize={20}>{@render runPane()}</Pane>
-			{/if}
-		</Splitpanes>
+			</Splitpanes>
+		{/if}
 	</div>
 
 	{#snippet configPane()}
@@ -521,36 +542,54 @@
 			<div class="h-full min-h-0 flex flex-col">
 				<!-- Laid out as the script editor's preview column is: what a run takes above what it
 					     produced, both alongside what is being edited. -->
-				<div class="flex-1 min-h-0 {testMode === 'chat' ? 'hidden' : ''}">
-					<Splitpanes horizontal class="h-full">
-						<Pane size={40} minSize={15}>
-							<div class="h-full overflow-auto">
-								<ModulePreview
+				{#if view}
+					<!-- A run of the deployed agent is a run like any other item's, so it opens on its
+					     own page rather than as a test result beside the form. -->
+					<div class="flex-1 min-h-0 overflow-auto p-4 {testMode === 'chat' ? 'hidden' : ''}">
+						<RunForm
+							runnable={{ schema: AGENT_CHAT_SCHEMA, path }}
+							runAction={runOnce}
+							schedulable={false}
+							detailed={false}
+							autofocus
+							loading={runLoading}
+							bind:scheduledForStr
+							bind:invisible_to_owner
+							bind:overrideTag
+						/>
+					</div>
+				{:else}
+					<div class="flex-1 min-h-0 {testMode === 'chat' ? 'hidden' : ''}">
+						<Splitpanes horizontal class="h-full">
+							<Pane size={40} minSize={15}>
+								<div class="h-full overflow-auto">
+									<ModulePreview
+										mod={agentModule as FlowModule}
+										schema={flowLocalAgentSchema(schema)}
+										pickableProperties={stepPropPicker?.pickableProperties}
+										runInputKeys={AGENT_EDITOR_RUN_INPUTS}
+										bind:testJob
+										bind:testIsLoading
+										bind:scriptProgress
+									/>
+								</div>
+							</Pane>
+							<Pane size={60} minSize={20}>
+								<ModulePreviewResultViewer
+									lang="deno"
+									editor={undefined}
+									diffEditor={undefined}
 									mod={agentModule as FlowModule}
-									schema={flowLocalAgentSchema(schema)}
-									pickableProperties={stepPropPicker?.pickableProperties}
-									runInputKeys={AGENT_EDITOR_RUN_INPUTS}
-									bind:testJob
-									bind:testIsLoading
-									bind:scriptProgress
+									{testJob}
+									{testIsLoading}
+									{scriptProgress}
+									disableMock
+									disableHistory
 								/>
-							</div>
-						</Pane>
-						<Pane size={60} minSize={20}>
-							<ModulePreviewResultViewer
-								lang="deno"
-								editor={undefined}
-								diffEditor={undefined}
-								mod={agentModule as FlowModule}
-								{testJob}
-								{testIsLoading}
-								{scriptProgress}
-								disableMock
-								disableHistory
-							/>
-						</Pane>
-					</Splitpanes>
-				</div>
+							</Pane>
+						</Splitpanes>
+					</div>
+				{/if}
 				{#if chatMounted}
 					<div class={testMode === 'chat' ? 'flex flex-col flex-1 min-h-0' : 'hidden'}>
 						{#if chatGap?.memory}

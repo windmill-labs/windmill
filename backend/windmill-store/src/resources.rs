@@ -206,6 +206,20 @@ pub struct ListableResource {
     pub is_draft: Option<bool>,
 }
 
+/// A row of the resource listing: the resource as a single read returns it, plus what only the
+/// listing carries.
+#[derive(FromRow, Serialize)]
+pub struct ListedResource {
+    #[sqlx(flatten)]
+    #[serde(flatten)]
+    pub resource: ListableResource,
+    /// An `ai_agent`'s `memory` setting, the one part of its value a listing shows: whether it
+    /// keeps a conversation decides how it is offered. `value` stays unlisted for every type.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub agent_memory: Option<serde_json::Value>,
+}
+
 #[derive(Deserialize)]
 pub struct CreateResource {
     pub path: String,
@@ -322,7 +336,7 @@ async fn list_resources(
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-) -> JsonResult<Vec<ListableResource>> {
+) -> JsonResult<Vec<ListedResource>> {
     let (per_page, offset) = paginate(pagination);
 
     let mut sqlb = SqlBuilder::select_from("resource")
@@ -344,6 +358,7 @@ async fn list_resources(
             "resource.labels",
             "folder_labels(resource.workspace_id, resource.path) as inherited_labels",
             "ws_specific.path IS NOT NULL as ws_specific",
+            "CASE WHEN resource.resource_type = 'ai_agent' THEN resource.value->'memory' END as agent_memory",
         ])
         // Scalar EXISTS flags the authed user's per-user draft without fanning rows out.
         .field(
@@ -428,11 +443,11 @@ async fn list_resources(
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
     let allowed = build_scope_path_predicate(&authed, "resources", "read");
-    let mut rows = sqlx::query_as::<_, ListableResource>(&sql)
+    let mut rows = sqlx::query_as::<_, ListedResource>(&sql)
         .fetch_all(&mut *tx)
         .await?
         .into_iter()
-        .filter(|r| allowed(&r.path))
+        .filter(|r| allowed(&r.resource.path))
         .collect::<Vec<_>>();
 
     tx.commit().await?;
@@ -503,8 +518,13 @@ async fn list_resources(
                 })
             });
             let ws_specific = v.get("wsSpecific").and_then(|x| x.as_bool());
+            let agent_memory = if resource_type == "ai_agent" {
+                value.as_ref().and_then(|a| a.get("memory")).cloned()
+            } else {
+                None
+            };
 
-            rows.push(ListableResource {
+            let resource = ListableResource {
                 workspace_id: w_id.clone(),
                 path,
                 value,
@@ -526,7 +546,8 @@ async fn list_resources(
                 draft_only: Some(true),
                 // Synthesized rows are the authed user's draft.
                 is_draft: Some(true),
-            });
+            };
+            rows.push(ListedResource { resource, agent_memory });
         }
     }
 

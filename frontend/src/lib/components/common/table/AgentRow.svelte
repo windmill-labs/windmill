@@ -14,6 +14,8 @@
 	import { createEventDispatcher } from 'svelte'
 	import { FileUp, Pen, Shield, Trash } from 'lucide-svelte'
 	import Button from '../button/Button.svelte'
+	import ChatFlowBadge from '$lib/components/flows/ChatFlowBadge.svelte'
+	import { keepsManagedMemory } from '$lib/components/flows/agentFormFields'
 	import Row from './Row.svelte'
 
 	/**
@@ -59,8 +61,13 @@
 	let rowHref = $derived(agent.draft_only ? editHref : `${base}/agents/get/${agent.path}`)
 </script>
 
+{#snippet chatBadge()}
+	<ChatFlowBadge title="Managed memory on: this agent opens as a conversation" />
+{/snippet}
+
 <Row
 	href={rowHref}
+	titleBadge={keepsManagedMemory(agent.agent_memory) ? chatBadge : undefined}
 	kind="agent"
 	{keyboardSelected}
 	{marked}

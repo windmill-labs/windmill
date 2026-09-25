@@ -1,6 +1,5 @@
 <script lang="ts">
 	import {
-		ArrowLeft,
 		ChevronRight,
 		FlaskConical,
 		FormInput,
@@ -286,14 +285,6 @@
 		{:else}
 			<div class="h-full min-h-0 flex flex-col">
 				<div class="flex items-center gap-2 px-4 py-2 border-b shrink-0">
-					<Button
-						variant="subtle"
-						unifiedSize="sm"
-						iconOnly
-						startIcon={{ icon: ArrowLeft }}
-						title="Back"
-						onClick={close}
-					/>
 					<div class="min-w-0 flex flex-col">
 						<div class="flex items-center gap-1 min-w-0">
 							{#each trail as segment, i (i)}
@@ -450,23 +441,24 @@
 	{/snippet}
 
 	<!-- Mounted under the evals level too: it holds the draft the header's banner and Deploy act on,
-	     and the config a draft run is offered on. -->
+	     and the config a draft run is offered on. The target is read optionally: a deploy that
+	     navigates away clears it while these are still rendered. -->
 	{#snippet agentPage()}
 		<AgentEditorHost
 			bind:this={host}
-			path={target.path}
+			path={target?.path ?? ''}
 			workspace={ws}
 			{enableAi}
-			toolId={target.toolId}
+			toolId={target?.toolId}
 			onSelectTool={(id) => showAgentEditorTool(id)}
 			{onSaved}
-			isNew={target.isNew}
+			isNew={target?.isNew}
 		/>
 	{/snippet}
 
 	{#snippet evalsPage()}
 		<EvalsPane
-			agentPath={target.path}
+			agentPath={target?.path ?? ''}
 			opWorkspace={ws}
 			editedConfig={draft?.sync.hasDraft ? editedConfig : undefined}
 			bind:location={evalsLocation}
