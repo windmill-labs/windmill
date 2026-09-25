@@ -1488,7 +1488,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 .and_then(|s| s.job_result().map(|r| (s.id(), json!(r))));
 
             let flow_job = if inc_step_counter || module_status.is_some() || remove_retry {
-                advance_flow_status(
+                match advance_flow_status(
                     &mut tx,
                     flow,
                     inc_step_counter.then_some(step_counter),
@@ -1497,6 +1497,10 @@ pub async fn update_flow_status_after_job_completion_internal(
                     remove_retry,
                 )
                 .await?
+                {
+                    Some(flow_job) => Some(flow_job),
+                    None => get_mini_pulled_job(&mut *tx, &flow).await?,
+                }
             } else {
                 get_mini_pulled_job(&mut *tx, &flow).await?
             };
@@ -2323,8 +2327,9 @@ async fn set_success_and_duration_in_flow_job_success<'c>(
 /// statement: every UPDATE of that row writes a new row version carrying the whole
 /// `flow_status`, so the edits must not be split. `leaf_job` is only written here when the flow
 /// is its own innermost root; otherwise it belongs on the root's row and the caller writes it
-/// there. `Ok(None)` means the flow is no longer queued and nothing was written: the caller
-/// must not commit as if the step had advanced.
+/// there. `Ok(None)` means nothing was written because the flow has no queued `v2_job_status`
+/// row; the caller then reads the flow with `get_mini_pulled_job`, whose LEFT JOIN still returns
+/// a queued flow that lacks a status row.
 async fn advance_flow_status(
     tx: &mut Transaction<'_, Postgres>,
     flow: Uuid,
@@ -2333,24 +2338,32 @@ async fn advance_flow_status(
     leaf_job: Option<&(String, Value)>,
     remove_retry: bool,
 ) -> error::Result<Option<MiniPulledJob>> {
-    let step = step.map_or_else(|| json!({}), |step| json!({ "step": step }));
-    let (module_index, module_status) = module_status.unzip();
+    // An edit that does not apply gets an empty path, which JSONB_SET treats as a no-op. Each
+    // edit stays a JSONB_SET on its own path so that a malformed `flow_status` fails exactly as
+    // the equivalent separate UPDATEs would.
+    let (step_path, step) = match step {
+        Some(step) => (vec!["step"], json!(step)),
+        None => (vec![], Value::Null),
+    };
+    let (module_path, module_status) = match &module_status {
+        Some((index, status)) => (vec!["modules", index.as_str()], status),
+        None => (vec![], &Value::Null),
+    };
     let (leaf_id, leaf_result) = leaf_job.map(|(id, r)| (id.as_str(), r)).unzip();
     let removed_keys: &[&str] = if remove_retry { &["retry"] } else { &[] };
 
     sqlx::query_as!(
         MiniPulledJob,
         "UPDATE v2_job_status SET
-            flow_status = (
-                CASE WHEN $3::TEXT IS NULL THEN v2_job_status.flow_status
-                ELSE JSONB_SET(v2_job_status.flow_status, ARRAY['modules', $3::TEXT], $4) END
-                || $2::JSONB
-            ) - $5::TEXT[],
+            flow_status = JSONB_SET(
+                JSONB_SET(v2_job_status.flow_status, $2::TEXT[], $3),
+                $4::TEXT[], $5
+            ) - $6::TEXT[],
             flow_leaf_jobs = CASE
-                WHEN $6::TEXT IS NULL
+                WHEN $7::TEXT IS NULL
                     OR COALESCE(v2_job.flow_innermost_root_job, v2_job_status.id) <> v2_job_status.id
                 THEN v2_job_status.flow_leaf_jobs
-                ELSE JSONB_SET(COALESCE(v2_job_status.flow_leaf_jobs, '{}'::JSONB), ARRAY[$6::TEXT], $7) END
+                ELSE JSONB_SET(COALESCE(v2_job_status.flow_leaf_jobs, '{}'::JSONB), ARRAY[$7::TEXT], $8) END
         FROM v2_job_queue INNER JOIN v2_job ON v2_job.id = v2_job_queue.id
         WHERE v2_job_status.id = $1 AND v2_job_queue.id = $1
         RETURNING
@@ -2390,8 +2403,9 @@ async fn advance_flow_status(
             v2_job.visible_to_owner,
             NULL as permissioned_as_end_user_email",
         flow,
+        &step_path as &[&str],
         step,
-        module_index,
+        &module_path as &[&str],
         module_status,
         removed_keys as &[&str],
         leaf_id,

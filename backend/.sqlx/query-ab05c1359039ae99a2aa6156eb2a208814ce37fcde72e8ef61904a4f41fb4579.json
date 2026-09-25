@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE v2_job_status SET\n            flow_status = (\n                CASE WHEN $3::TEXT IS NULL THEN v2_job_status.flow_status\n                ELSE JSONB_SET(v2_job_status.flow_status, ARRAY['modules', $3::TEXT], $4) END\n                || $2::JSONB\n            ) - $5::TEXT[],\n            flow_leaf_jobs = CASE\n                WHEN $6::TEXT IS NULL\n                    OR COALESCE(v2_job.flow_innermost_root_job, v2_job_status.id) <> v2_job_status.id\n                THEN v2_job_status.flow_leaf_jobs\n                ELSE JSONB_SET(COALESCE(v2_job_status.flow_leaf_jobs, '{}'::JSONB), ARRAY[$6::TEXT], $7) END\n        FROM v2_job_queue INNER JOIN v2_job ON v2_job.id = v2_job_queue.id\n        WHERE v2_job_status.id = $1 AND v2_job_queue.id = $1\n        RETURNING\n            v2_job_queue.workspace_id,\n            v2_job_queue.id,\n            v2_job.args as \"args: sqlx::types::Json<HashMap<String, Box<RawValue>>>\",\n            v2_job.parent_job,\n            v2_job.created_by,\n            v2_job_queue.started_at,\n            v2_job_queue.runnable_settings_handle,\n            v2_job_queue.scheduled_for,\n            v2_job.runnable_path,\n            v2_job.kind as \"kind: JobKind\",\n            v2_job.runnable_id as \"runnable_id: ScriptHash\",\n            v2_job_queue.canceled_reason,\n            v2_job_queue.canceled_by,\n            v2_job.permissioned_as,\n            v2_job.permissioned_as_email,\n            v2_job_status.flow_status as \"flow_status: sqlx::types::Json<Box<RawValue>>\",\n            v2_job.tag,\n            v2_job.script_lang as \"script_lang: ScriptLang\",\n            v2_job.same_worker,\n            v2_job.pre_run_error,\n            v2_job.concurrent_limit,\n            v2_job.concurrency_time_window_s,\n            v2_job.flow_innermost_root_job,\n            v2_job.root_job,\n            v2_job.timeout,\n            v2_job.flow_step_id,\n            v2_job.cache_ttl,\n            v2_job_queue.cache_ignore_s3_path,\n            v2_job_queue.priority,\n            v2_job.preprocessed,\n            v2_job.script_entrypoint_override,\n            v2_job.trigger,\n            v2_job.trigger_kind as \"trigger_kind: TriggerKindLabel\",\n            v2_job.visible_to_owner,\n            NULL as permissioned_as_end_user_email",
+  "query": "UPDATE v2_job_status SET\n            flow_status = JSONB_SET(\n                JSONB_SET(v2_job_status.flow_status, $2::TEXT[], $3),\n                $4::TEXT[], $5\n            ) - $6::TEXT[],\n            flow_leaf_jobs = CASE\n                WHEN $7::TEXT IS NULL\n                    OR COALESCE(v2_job.flow_innermost_root_job, v2_job_status.id) <> v2_job_status.id\n                THEN v2_job_status.flow_leaf_jobs\n                ELSE JSONB_SET(COALESCE(v2_job_status.flow_leaf_jobs, '{}'::JSONB), ARRAY[$7::TEXT], $8) END\n        FROM v2_job_queue INNER JOIN v2_job ON v2_job.id = v2_job_queue.id\n        WHERE v2_job_status.id = $1 AND v2_job_queue.id = $1\n        RETURNING\n            v2_job_queue.workspace_id,\n            v2_job_queue.id,\n            v2_job.args as \"args: sqlx::types::Json<HashMap<String, Box<RawValue>>>\",\n            v2_job.parent_job,\n            v2_job.created_by,\n            v2_job_queue.started_at,\n            v2_job_queue.runnable_settings_handle,\n            v2_job_queue.scheduled_for,\n            v2_job.runnable_path,\n            v2_job.kind as \"kind: JobKind\",\n            v2_job.runnable_id as \"runnable_id: ScriptHash\",\n            v2_job_queue.canceled_reason,\n            v2_job_queue.canceled_by,\n            v2_job.permissioned_as,\n            v2_job.permissioned_as_email,\n            v2_job_status.flow_status as \"flow_status: sqlx::types::Json<Box<RawValue>>\",\n            v2_job.tag,\n            v2_job.script_lang as \"script_lang: ScriptLang\",\n            v2_job.same_worker,\n            v2_job.pre_run_error,\n            v2_job.concurrent_limit,\n            v2_job.concurrency_time_window_s,\n            v2_job.flow_innermost_root_job,\n            v2_job.root_job,\n            v2_job.timeout,\n            v2_job.flow_step_id,\n            v2_job.cache_ttl,\n            v2_job_queue.cache_ignore_s3_path,\n            v2_job_queue.priority,\n            v2_job.preprocessed,\n            v2_job.script_entrypoint_override,\n            v2_job.trigger,\n            v2_job.trigger_kind as \"trigger_kind: TriggerKindLabel\",\n            v2_job.visible_to_owner,\n            NULL as permissioned_as_end_user_email",
   "describe": {
     "columns": [
       {
@@ -274,8 +274,9 @@
     "parameters": {
       "Left": [
         "Uuid",
+        "TextArray",
         "Jsonb",
-        "Text",
+        "TextArray",
         "Jsonb",
         "TextArray",
         "Text",
@@ -320,5 +321,5 @@
       null
     ]
   },
-  "hash": "18bf5cb0acaea522f5a68dca11ca3359b326490b4ce4f837dbe2731240fb3611"
+  "hash": "ab05c1359039ae99a2aa6156eb2a208814ce37fcde72e8ef61904a4f41fb4579"
 }
