@@ -139,6 +139,18 @@ export type WorkspaceItem = {
 	 * without it a reader cannot tell a secret from a plain variable, since the
 	 * value is always redacted. */
 	isSecret?: boolean
+	/** Apps only. True for a code app, false for one built in the drag-and-drop
+	 * editor. The two are edited by disjoint tool sets, so the distinction has to
+	 * reach the model before it picks one. */
+	rawApp?: boolean
+	/** Apps only. Who may open the app — read from a draft, who may open it once
+	 * that draft is deployed: `anonymous` is anyone with the URL and no login,
+	 * `guest` anyone the identity provider authenticates, the rest a workspace
+	 * member. A `guest` app whose instance or workspace admits
+	 * no guest says so here, since the mode is stored either way. Reported per
+	 * app, not in listings — a listing carrying it would make absence read as
+	 * proof of no exposure. */
+	executionMode?: string
 	isDraft: boolean
 	isLiveDraft?: boolean
 }

@@ -98,9 +98,8 @@
 	import TriggersBadge from '$lib/components/graph/renderers/triggers/TriggersBadge.svelte'
 	import TriggersEditor from '$lib/components/triggers/TriggersEditor.svelte'
 	import { Triggers } from '$lib/components/triggers/triggers.svelte'
-	import { setDetailWorkspace } from '$lib/components/details/detailWorkspace'
 	import { interceptNav } from '$lib/components/details/interceptNav'
-	import { setTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
+	import { setOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import {
 		buildForkEditUrl,
 		editInForkAllowed,
@@ -145,8 +144,7 @@
 
 	// Every workspace-scoped call below and in the drawers this page opens targets
 	// `workspace`, not the nav store: a session views an item in its own workspace.
-	setDetailWorkspace(() => workspace)
-	setTriggerWorkspace(() => workspace)
+	setOperatingWorkspace(() => workspace)
 
 	let script: Script | undefined = $state()
 	let topHash: string | undefined = $state()

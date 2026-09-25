@@ -275,6 +275,67 @@ async fn test_encryption_key_rotation_dispatches_batched_git_sync(
     Ok(())
 }
 
+/// Stored repository tokens and webhook secrets are encrypted under the
+/// workspace key but never synced, so a rotation has to carry them over even
+/// when the caller skips re-encrypting variables.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_encryption_key_rotation_reencrypts_git_sync_secrets(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    use windmill_common::variables::{build_crypt, crypt_from_key_with_suffix, decrypt, encrypt};
+    initialize_tracing().await;
+
+    create_folder(&db, "28103").await?;
+    create_git_repo_resource(&db).await?;
+    let sync_script_path = "f/28103/test_sync_script_git_secrets";
+    create_sync_script(&db, sync_script_path).await?;
+    setup_git_sync_config(&db, sync_script_path).await?;
+
+    let mc = build_crypt(&db, "test-workspace").await?;
+    sqlx::query(
+        r#"
+        UPDATE workspace_settings SET
+            git_credentials = jsonb_build_array(jsonb_build_object(
+                'token', $1::text, 'repo_identity', 'https://gitlab.example.com/grp/proj')),
+            git_sync = jsonb_set(git_sync, '{repositories,0,auto_pull}', jsonb_build_object(
+                'enabled', true, 'mode', 'webhook', 'webhook_id', 1, 'webhook_secret', $2::text))
+        WHERE workspace_id = 'test-workspace'
+        "#,
+    )
+    .bind(encrypt(&mc, "stored-token"))
+    .bind(encrypt(&mc, "hook-secret"))
+    .execute(&db)
+    .await?;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/workspaces");
+
+    let new_key = "c".repeat(64);
+    let resp = authed(client().post(format!("{base}/encryption_key")))
+        .json(&json!({"new_key": new_key, "skip_reencrypt": true}))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "set_encryption_key failed: {}",
+        resp.text().await?
+    );
+
+    let (token, secret): (String, String) = sqlx::query_as(
+        "SELECT git_credentials->0->>'token', git_sync#>>'{repositories,0,auto_pull,webhook_secret}'
+         FROM workspace_settings WHERE workspace_id = 'test-workspace'",
+    )
+    .fetch_one(&db)
+    .await?;
+    let new_mc = crypt_from_key_with_suffix(&new_key, "");
+    assert_eq!(decrypt(&new_mc, token)?, "stored-token");
+    assert_eq!(decrypt(&new_mc, secret)?, "hook-secret");
+
+    Ok(())
+}
+
 /// Regression test for the non-debouncing fallback: a workspace whose sync
 /// script predates hub version 28103 must still receive git-sync jobs for the
 /// encryption_key entry and every re-encrypted secret. Before the fallback was

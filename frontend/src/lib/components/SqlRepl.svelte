@@ -3,7 +3,6 @@
 	import Button from './common/button/Button.svelte'
 	import { runScriptAndPollResult } from './jobs/utils'
 	import { writingJobOptions } from './jobs/writingJob'
-	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { untrack } from 'svelte'
 	import { getLanguageByResourceType } from './apps/components/display/dbtable/utils'
@@ -14,6 +13,9 @@
 	import { wrapDucklakeQuery } from './ducklake'
 	import { splitSqlStatements, pruneComments } from './sqlDdl'
 	import DdlMigrationGuard from './DdlMigrationGuard.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	type Props = {
 		input: DbInput
@@ -39,7 +41,7 @@
 		workspace = undefined,
 		tag = undefined
 	}: Props = $props()
-	let ws = $derived(workspace ?? $workspaceStore)
+	let ws = $derived(workspace ?? $operatingWorkspace)
 	let dbType = $derived(getDbType(input))
 
 	// A datatable REPL targets `datatable://<name>`; surface DDL statements as
@@ -103,14 +105,21 @@
 			// We don't always put the fix by default for row ordering concerns
 			let transformedCode = code
 			if (doPostgresRowToJsonFix) {
-				transformedCode = statements
-					.map((statement) => {
-						if (READ_OPS.some((op) => statement.trim().toUpperCase().startsWith(op))) {
-							return `SELECT row_to_json(__t__) FROM (${statement}) __t__`
-						}
-						return statement
-					})
-					.join(';')
+				// Rebuilt from the pruned statements, which drops the leading comment block — and
+				// with it the `-- role <name>` annotation that decides which login the query runs
+				// as. Carry it over, or the retry connects as the data table's default role and a
+				// query the first attempt was denied succeeds on the second.
+				const leadingAnnotations = code.match(/^(?:[^\S\n]*\n|[^\S\n]*--[^\n]*\n)*/)?.[0] ?? ''
+				transformedCode =
+					leadingAnnotations +
+					statements
+						.map((statement) => {
+							if (READ_OPS.some((op) => statement.trim().toUpperCase().startsWith(op))) {
+								return `SELECT row_to_json(__t__) FROM (${statement}) __t__`
+							}
+							return statement
+						})
+						.join(';')
 			}
 			const dbArg = getDatabaseArg(input)
 
@@ -216,5 +225,10 @@
 </Splitpanes>
 
 {#if datatableName && ws}
-	<DdlMigrationGuard bind:this={ddlGuard} workspace={ws} datatable={datatableName} />
+	<DdlMigrationGuard
+		bind:this={ddlGuard}
+		workspace={ws}
+		datatable={datatableName}
+		role={input.type === 'database' ? (input.role ?? input.migrationRole) : undefined}
+	/>
 {/if}

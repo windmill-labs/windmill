@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { JobService, type FlowValue } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { tryEvery } from '$lib/utils'
 	import { Check, LoaderCircle, Server, X, Cpu } from 'lucide-svelte'
 	import Button from './common/button/Button.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface CredentialsCheckResult {
 		available: boolean
@@ -28,7 +30,7 @@
 		apiResult = null
 
 		try {
-			const response = await fetch(`/api/w/${$workspaceStore}/ai/check_bedrock_credentials`)
+			const response = await fetch(`/api/w/${$operatingWorkspace}/ai/check_bedrock_credentials`)
 			if (!response.ok) {
 				throw new Error(`HTTP error: ${response.status}`)
 			}
@@ -78,7 +80,7 @@
 			}
 
 			const job = await JobService.runFlowPreview({
-				workspace: $workspaceStore!,
+				workspace: $operatingWorkspace!,
 				requestBody: {
 					value: flowValue as unknown as FlowValue,
 					args: {}
@@ -88,7 +90,7 @@
 			tryEvery({
 				tryCode: async () => {
 					const testResult = await JobService.getCompletedJob({
-						workspace: $workspaceStore!,
+						workspace: $operatingWorkspace!,
 						id: job
 					})
 
@@ -130,7 +132,7 @@
 					workerStatus = 'error'
 					try {
 						await JobService.cancelQueuedJob({
-							workspace: $workspaceStore!,
+							workspace: $operatingWorkspace!,
 							id: job,
 							requestBody: {
 								reason: 'Timeout checking Bedrock credentials'

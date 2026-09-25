@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_settings SET auto_invite = (COALESCE(auto_invite, '{}'::jsonb) - 'domain') || $1::jsonb WHERE workspace_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Jsonb",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a1bcf143135ecb9f32709a56a353d3246dc238920c3e155caa9cf767246fa6fb"
+}

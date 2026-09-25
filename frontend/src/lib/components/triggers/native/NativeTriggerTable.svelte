@@ -4,7 +4,7 @@
 	import type { ExtendedNativeTrigger } from './utils'
 	import { getServiceConfig } from './utils'
 	import { canWrite, sendUserToast } from '$lib/utils'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { userStore } from '$lib/stores'
 	import TriggerModeToggle from '$lib/components/triggers/TriggerModeToggle.svelte'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -16,6 +16,9 @@
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import GoogleDriveIcon from '$lib/components/icons/GoogleDriveIcon.svelte'
 	import GoogleCalendarIcon from '$lib/components/icons/GoogleCalendarIcon.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	type TriggerW = ExtendedNativeTrigger & { marked?: any }
 
@@ -51,7 +54,7 @@
 		const enabled = mode === 'enabled'
 		try {
 			await NativeTriggerService.setNativeTriggerEnabled({
-				workspace: $workspaceStore!,
+				workspace: $operatingWorkspace!,
 				serviceName: service,
 				externalId: trigger.external_id,
 				requestBody: { enabled }
@@ -76,7 +79,7 @@
 		isDeleting = true
 		try {
 			await NativeTriggerService.deleteNativeTrigger({
-				workspace: $workspaceStore!,
+				workspace: $operatingWorkspace!,
 				serviceName: service,
 				externalId: triggerToDelete.external_id
 			})

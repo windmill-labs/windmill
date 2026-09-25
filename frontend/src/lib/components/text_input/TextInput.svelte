@@ -46,17 +46,17 @@
 	// Base leading == (unified height − vertical padding) so a single-line
 	// contenteditable div centers its text the way a native <input> does.
 	//
-	// In "large mode" (viewport ≥ 1760px, where app.css bumps :root to 18px →
+	// In "large mode" (screen ≥ 1760px, where app.css bumps :root to 18px →
 	// font 13.5px) headless-Chromium ink measurement showed the text sitting
 	// ~1px low with the base leading. The residual is a fixed ~2px of line box,
 	// so the exact centered value there is (content-box height − 2px). Scoped to
-	// the same 1760px breakpoint as the font-size bump; small mode is unchanged.
+	// the same query as the font-size bump; small mode is unchanged.
 	export const inputLeadingClasses: Record<ButtonType.UnifiedSize, string> = {
-		'2xs': 'leading-4 min-[1760px]:leading-[calc(1rem_-_2px)]', // h-5 − py-0.5 → 1rem
-		xs: 'leading-4 min-[1760px]:leading-[calc(1rem_-_2px)]', // h-5 − py-0.5 → 1rem
-		sm: 'leading-6 min-[1760px]:leading-[calc(1.5rem_-_2px)]', // h-7 − py-0.5 → 1.5rem
-		md: 'leading-8 min-[1760px]:leading-[calc(2rem_-_2px)]', // h-8, no py → 2rem
-		lg: 'leading-10 min-[1760px]:leading-[calc(2.5rem_-_2px)]' // h-10, no py → 2.5rem
+		'2xs': 'leading-4 [@media(min-device-width:1760px)]:leading-[calc(1rem_-_2px)]', // h-5 − py-0.5 → 1rem
+		xs: 'leading-4 [@media(min-device-width:1760px)]:leading-[calc(1rem_-_2px)]', // h-5 − py-0.5 → 1rem
+		sm: 'leading-6 [@media(min-device-width:1760px)]:leading-[calc(1.5rem_-_2px)]', // h-7 − py-0.5 → 1.5rem
+		md: 'leading-8 [@media(min-device-width:1760px)]:leading-[calc(2rem_-_2px)]', // h-8, no py → 2rem
+		lg: 'leading-10 [@media(min-device-width:1760px)]:leading-[calc(2.5rem_-_2px)]' // h-10, no py → 2.5rem
 	}
 </script>
 

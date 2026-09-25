@@ -239,6 +239,7 @@ async function createWorkspaceFork(
   interface ForkedDatatableInfo {
     name: string;
     new_dbname: string;
+    fork_behavior?: "schema_only" | "schema_and_data";
   }
   const forkedDatatables: ForkedDatatableInfo[] = [];
 
@@ -285,6 +286,23 @@ async function createWorkspaceFork(
 
         const newDbName = `${trueWorkspaceId.replace(/-/g, "_")}__${dt.name}`;
 
+        const forkBehavior = dtBehavior as "schema_only" | "schema_and_data";
+        // A server that reports `permissioned` copies each data table in the fork request itself,
+        // and refuses a database copied beforehand. An older one only takes a database copied here.
+        if (typeof dt.permissioned === "boolean") {
+          log.info(
+            colors.blue(
+              `  Datatable "${dt.name}" will be cloned (${forkBehavior === "schema_only" ? "schema" : "schema + data"}) into "${newDbName}" when the fork is created.`
+            )
+          );
+          forkedDatatables.push({
+            name: dt.name,
+            new_dbname: newDbName,
+            fork_behavior: forkBehavior,
+          });
+          continue;
+        }
+
         try {
           log.info(
             colors.blue(`  Creating database "${newDbName}" for datatable "${dt.name}"...`)
@@ -300,7 +318,7 @@ async function createWorkspaceFork(
 
           log.info(
             colors.blue(
-              `  Importing ${dtBehavior === "schema_only" ? "schema" : "schema + data"}...`
+              `  Importing ${forkBehavior === "schema_only" ? "schema" : "schema + data"}...`
             )
           );
 
@@ -310,7 +328,7 @@ async function createWorkspaceFork(
               source: `datatable://${dt.name}`,
               target: `datatable://${dt.name}`,
               target_dbname_override: newDbName,
-              fork_behavior: dtBehavior as "schema_only" | "schema_and_data",
+              fork_behavior: forkBehavior,
             },
           });
 
@@ -336,6 +354,8 @@ async function createWorkspaceFork(
         id: trueWorkspaceId,
         name: opts.createWorkspaceName ?? workspaceName ?? trueWorkspaceId,
         color: forkColor,
+        // So a clone the fork would refuse is refused before any branch is created.
+        forked_datatables: forkedDatatables,
       },
     });
     if (gitSyncJobIds && gitSyncJobIds.length > 0) {

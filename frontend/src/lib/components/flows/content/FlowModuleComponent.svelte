@@ -39,7 +39,6 @@
 	import type { ButtonProp } from '$lib/components/diffEditorTypes'
 	import { loadSchemaFromModule } from '../flowInfers'
 	import { type Job } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { checkIfParentLoop } from '../utils.svelte'
 	import { useWorkspaceScriptSettings } from '../useWorkspaceScriptSettings.svelte'
 	import ScriptSettingsBadges from '$lib/components/ScriptSettingsBadges.svelte'
@@ -72,6 +71,9 @@
 	} from '$lib/components/debug'
 	import { Bug, Terminal } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/utils'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	const {
 		selectionManager,
@@ -103,7 +105,7 @@
 		return empty
 	}
 
-	let opWs = $derived(opWorkspace?.() ?? $workspaceStore)
+	let opWs = $derived(opWorkspace?.() ?? $operatingWorkspace)
 
 	interface Props {
 		flowModule: FlowModule
@@ -1474,12 +1476,6 @@
 											{testJob}
 											{scriptProgress}
 											mod={flowModule}
-											linkedAgentTools={agentLinked
-												? getLinkedAgentTools(
-														linkedToolsScope(opWs, $pathStore),
-														linkedToolsModuleId
-													)
-												: undefined}
 											{testIsLoading}
 											disableMock={preprocessorModule || failureModule}
 											disableHistory={failureModule}

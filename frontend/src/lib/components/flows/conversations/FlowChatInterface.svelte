@@ -10,6 +10,7 @@
 	import { emptyString, type DynamicInput } from '$lib/utils'
 	import { onDestroy, tick, untrack } from 'svelte'
 	import type { Chat } from 'windmill-chat'
+	import { chatFlowKey } from './flowChatProps'
 	import type { FlowModule } from '$lib/gen'
 	import { useWorkspaceStorageConfigured } from '$lib/components/inputTransformEnv.svelte'
 	import {
@@ -35,12 +36,16 @@
 		 * and the attachments input. */
 		flowModules?: FlowModule[]
 		path: string
+		/** What the stored inputs are filed under when the path is not steady (see FlowChat). */
+		identity?: string
 		workspace?: string
 		/** The flow's description, shown under the empty transcript's prompt. */
 		description?: string
 		wideLayout?: boolean
 		/** What this surface's runs create: previews in the editor, deployed runs on the flow page. */
 		conversationKind?: 'test' | 'deployed'
+		/** What a message runs, as the composer names it. */
+		subject?: 'flow' | 'agent'
 	}
 
 	let {
@@ -49,10 +54,12 @@
 		additionalInputsSchema,
 		flowModules,
 		path,
+		identity = undefined,
 		workspace = undefined,
 		description = undefined,
 		wideLayout = false,
-		conversationKind = 'deployed'
+		conversationKind = 'deployed',
+		subject = 'flow'
 	}: Props = $props()
 
 	// Derive helperScript for dynamic inputs from schema
@@ -87,7 +94,7 @@
 	const modelWiring = $derived(resolveAgentModelWiring(flowModules))
 	// An agent with nothing to call cannot answer, and the composer cannot fix it, so the
 	// chat says what to go and do instead of offering controls that write nowhere.
-	const modelGap = $derived(agentModelGap(modelWiring))
+	const modelGap = $derived(agentModelGap(modelWiring, subject))
 	const showModelButton = $derived(showsModelButton(modelWiring))
 
 	// LocalStorage helpers
@@ -122,7 +129,7 @@
 	const runInputs = $derived(withoutRejectedEffort(modelWiring, effectiveInputs))
 
 	function getStorageKey(): string {
-		return `${STORAGE_KEY_PREFIX}${path}`
+		return `${STORAGE_KEY_PREFIX}${chatFlowKey({ path, identity })}`
 	}
 
 	function loadInputsFromStorage(): Record<string, any> | null {
@@ -181,7 +188,10 @@
 					? undefined
 					: 'This workspace has no object storage, so files cannot be attached.',
 			workspace: () => workspace,
-			sendDisabled: () => deploymentInProgress || !!modelGap || !!wrongKindReason
+			sendDisabled: () => deploymentInProgress || !!modelGap || !!wrongKindReason,
+			// The model controls only: a retry changes model when the reader did, but replays
+			// the run's own attachments rather than whatever the composer holds now.
+			inputsShownInComposer: () => composerOwnedInputs(modelWiring, undefined)
 		}
 	)
 	setChatViewHost(chatHost)
@@ -266,7 +276,7 @@
 		{:else}
 			<MessageCircle size={48} class="mx-auto mb-4 opacity-50" />
 			<p class="text-lg font-medium">Start a conversation</p>
-			<p class="text-sm">Send a message to run the flow and see the results</p>
+			<p class="text-sm">Send a message to run the {subject} and see the results</p>
 			{#if !emptyString(description)}
 				<div class="mt-6 pt-4 border-t max-w-md text-left text-xs text-tertiary">
 					<GfmMarkdown md={description ?? ''} noPadding prose="sm" />
@@ -329,7 +339,7 @@
 		{wideLayout}
 		{emptyHint}
 		footerSettings={modalSchema || showModelButton ? footerSettings : undefined}
-		placeholder="Send a message to run the flow"
+		placeholder="Send a message to run the {subject}"
 		disabled={deploymentInProgress || !!modelGap || !!wrongKindReason}
 		disabledMessage={deploymentInProgress
 			? 'Deployment in progress'

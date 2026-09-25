@@ -48,7 +48,10 @@
 	import AssetRunsPanel from './AssetRunsPanel.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { fade } from 'svelte/transition'
-	import { userStore } from '$lib/stores'
+	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	interface Props {
 		// Regular selection — loads the script by path for inline editing.
@@ -662,7 +665,7 @@
 	// hand-rolled here because we need *two* confirm buttons, not one.
 	let removeOpen = $state(false)
 	let removing = $state(false)
-	let canHardDelete = $derived(!!($userStore?.is_admin || $userStore?.is_super_admin))
+	let canHardDelete = $derived(!!(actingUser?.is_admin || actingUser?.is_super_admin))
 
 	// React to the parent's remove-signal counter and pop the same modal
 	// the in-pane trash button uses. Skipped for drafts (the parent calls

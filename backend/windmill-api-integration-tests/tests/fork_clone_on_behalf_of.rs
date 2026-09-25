@@ -311,3 +311,130 @@ async fn test_fork_keeps_only_resolvable_on_behalf_of(db: Pool<Postgres>) -> any
 
     Ok(())
 }
+
+/// Apps, schedules, triggers and their drafts cannot drop an identity the way scripts and flows
+/// do, so one naming nobody in the fork goes to its creator while one that still resolves stays.
+/// Forked as an admin, whose app policies the clone otherwise keeps.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_fork_repoints_unresolvable_identities(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let base_url = format!("http://localhost:{}/api", server.addr.port());
+
+    let stranger = json!({
+        "on_behalf_of": "u/test-user-2",
+        "on_behalf_of_email": "test2@windmill.dev",
+        "execution_mode": "publisher",
+    });
+    sqlx::query(
+        "INSERT INTO app (workspace_id, path, summary, policy, versions)
+         VALUES ('test-workspace', 'u/test-user/stranger', '', $1, '{}'),
+                ('test-workspace', 'u/test-user/group', '', $2, '{}')",
+    )
+    .bind(&stranger)
+    .bind(json!({
+        "on_behalf_of": "g/all",
+        "on_behalf_of_email": "group-all@windmill.dev",
+        "execution_mode": "publisher",
+    }))
+    .execute(&db)
+    .await?;
+    // The clone re-aggregates `versions` from `app_version`, and the column is NOT NULL.
+    sqlx::query(
+        "WITH v AS (
+            INSERT INTO app_version (app_id, value, created_by)
+            SELECT id, '{}'::json, 'test-user' FROM app WHERE workspace_id = 'test-workspace'
+            RETURNING id, app_id
+         )
+         UPDATE app SET versions = ARRAY[v.id] FROM v WHERE app.id = v.app_id",
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO draft (workspace_id, path, typ, value, created_at, email)
+         VALUES ('test-workspace', 'u/test-user/stranger', 'raw_app', $1::json, NOW(), 'test@windmill.dev'),
+                ('test-workspace', 'u/test-user/stranger', 'trigger_websocket', $2::json, NOW(), 'test@windmill.dev'),
+                ('test-workspace', 'u/test-user/nul', 'raw_app', $3::json, NOW(), 'test@windmill.dev')",
+    )
+    .bind(json!({ "policy": stranger }))
+    .bind(json!({ "permissioned_as": "u/test-user-2" }))
+    // Saved before drafts were stripped of NULs: any jsonb parse of it raises, so it must be
+    // skipped rather than abort the fork. Built from parts because a NUL escape can't sit in source.
+    .bind(format!(
+        r#"{{"policy":{{"on_behalf_of":"u/test-user-2"}},"files":{{"f":"a{}u0000"}}}}"#,
+        "\\"
+    ))
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO schedule (workspace_id, path, edited_by, schedule, script_path, email, permissioned_as, enabled)
+         VALUES ('test-workspace', 'u/test-user/stranger', 'test-user', '0 0 * * * *', 'u/test-user/s', 'test2@windmill.dev', 'u/test-user-2', false)",
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO websocket_trigger (workspace_id, path, url, script_path, is_flow, edited_by, permissioned_as, mode)
+         VALUES ('test-workspace', 'u/test-user/stranger', 'ws://localhost', 'u/test-user/s', false, 'test-user', 'u/test-user-2', 'disabled')",
+    )
+    .execute(&db)
+    .await?;
+
+    let resp = reqwest::Client::new()
+        .post(format!(
+            "{base_url}/w/test-workspace/workspaces/create_fork"
+        ))
+        .header("Authorization", "Bearer SECRET_TOKEN")
+        .json(&json!({ "id": "wm-fork-repoint", "name": "Fork", "color": "#0000ff" }))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "creating the fork: {}",
+        resp.text().await?
+    );
+
+    let text = |sql: &'static str| sqlx::query_scalar::<_, String>(sql).fetch_one(&db);
+    assert_eq!(
+        text("SELECT (policy->>'on_behalf_of') || ' ' || (policy->>'on_behalf_of_email') FROM app WHERE workspace_id = 'wm-fork-repoint' AND path = 'u/test-user/stranger'").await?,
+        "u/test-user test@windmill.dev"
+    );
+    assert_eq!(
+        text("SELECT policy->>'on_behalf_of' FROM app WHERE workspace_id = 'wm-fork-repoint' AND path = 'u/test-user/group'").await?,
+        "g/all"
+    );
+    assert_eq!(
+        text("SELECT value->'policy'->>'on_behalf_of' FROM draft WHERE workspace_id = 'wm-fork-repoint' AND path = 'u/test-user/stranger' AND typ = 'raw_app'").await?,
+        "u/test-user"
+    );
+    // `clone_drafts` strips a NUL escape as it copies, so the row reaches the fork
+    // parseable and the repoint below reaches it like any other draft's. The rule this
+    // guards is that the fork completes and no identity naming nobody survives it; the
+    // skip only ever existed because `to_jsonb` raises on a value still holding one.
+    assert_eq!(
+        text("SELECT CASE WHEN strpos(value::text, 'u/test-user-2') > 0 THEN 'kept' ELSE 'rewritten' END FROM draft WHERE workspace_id = 'wm-fork-repoint' AND path = 'u/test-user/nul'").await?,
+        "rewritten"
+    );
+    // And it arrives without the poison that made it a special case.
+    assert_eq!(
+        text("SELECT CASE WHEN position(chr(92) || 'u0000' in value::text) > 0 THEN 'poisoned' ELSE 'clean' END FROM draft WHERE workspace_id = 'wm-fork-repoint' AND path = 'u/test-user/nul'").await?,
+        "clean"
+    );
+    assert_eq!(
+        text("SELECT value->>'permissioned_as' FROM draft WHERE workspace_id = 'wm-fork-repoint' AND typ = 'trigger_websocket'").await?,
+        "u/test-user"
+    );
+    assert_eq!(
+        text("SELECT permissioned_as || ' ' || email FROM schedule WHERE workspace_id = 'wm-fork-repoint'").await?,
+        "u/test-user test@windmill.dev"
+    );
+    assert_eq!(
+        text(
+            "SELECT permissioned_as FROM websocket_trigger WHERE workspace_id = 'wm-fork-repoint'"
+        )
+        .await?,
+        "u/test-user"
+    );
+
+    Ok(())
+}

@@ -6,7 +6,10 @@ import mkcert from 'vite-plugin-mkcert'
 
 const file = fileURLToPath(new URL('package.json', import.meta.url))
 const json = readFileSync(file, 'utf8')
-const version = JSON.parse(json)
+// Only the version is exposed to the client (see `define` below). Defining the
+// whole parsed package.json would inline it — scripts, dependency lists, ... —
+// into every chunk that reads `__pkg__.version`.
+const { version } = JSON.parse(json)
 
 // The postinstall downloads the pinned UI Builder artifact into static/ui_builder,
 // which SvelteKit serves at /ui_builder. Serve that directly; only proxy to a
@@ -278,7 +281,7 @@ const config = {
 		assertAcyclicChunks(),
 		assertLeanPublicAppRoutes()
 	],
-	define: { __pkg__: version },
+	define: { '__pkg__.version': JSON.stringify(version) },
 	optimizeDeps: {
 		include: ['highlight.js', 'highlight.js/lib/core', 'monaco-vim'],
 		exclude: [

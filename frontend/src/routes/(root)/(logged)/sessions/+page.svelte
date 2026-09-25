@@ -35,6 +35,7 @@
 		isTearingDownOpenSession,
 		selectSession,
 		sessionInCurrentFamily,
+		sessionPageHref,
 		sessionState,
 		type SessionPreviewTab
 	} from '$lib/components/sessions/sessionState.svelte'
@@ -61,12 +62,15 @@
 		artifactKey,
 		itemDisplayName,
 		matchPreviewPage,
+		pageItemUrl,
 		pageKey,
 		parseArtifactRoute,
-		parseRunFormRoute,
+		parsePageItemRoute,
+		type PageItemRef,
 		parsePreviewItemRoute,
 		previewLocationLabel,
 		resolvePreviewTab,
+		workspacePageHref,
 		type PreviewTarget
 	} from '$lib/components/sessions/previewRouter'
 	import {
@@ -74,6 +78,7 @@
 		tabsToReload,
 		viewerTabsToReload
 	} from '$lib/components/sessions/previewReload'
+	import { isPageItemListPath, stripBase } from '$lib/components/sessions/previewPaths'
 	import {
 		leafKeyFor,
 		loadKind,
@@ -110,7 +115,8 @@
 				() => import('$lib/components/sessions/ScriptEditorView.svelte'),
 				() => import('$lib/components/sessions/FlowEditorView.svelte'),
 				() => import('$lib/components/sessions/RawAppEditorView.svelte'),
-				() => import('$lib/components/sessions/PipelineEditorView.svelte')
+				() => import('$lib/components/sessions/PipelineEditorView.svelte'),
+				() => import('$lib/components/sessions/PageItemEditorView.svelte')
 			]
 			for (const load of loaders) {
 				if (disposed) return
@@ -129,28 +135,37 @@
 		}
 	})
 
-	const sessionName = $derived(page.url.searchParams.get('session_name') ?? '')
-
-	// Unfiltered resolution by name: drives the recovery effect below and the
-	// active-session lookup.
-	const sessionByName = $derived(
-		sessionName ? sessionState.sessions.find((s) => s.name === sessionName) : undefined
-	)
+	const sessionId = $derived(page.url.searchParams.get('session') ?? '')
+	// Links from before sessions were addressed by id name a per-browser `session-N`.
+	const legacySessionName = $derived(page.url.searchParams.get('session_name') ?? '')
+	const requestsSession = $derived(!!sessionId || !!legacySessionName)
 
 	// Opening a session deliberately does NOT switch the global workspace: the
 	// chat targets the session's own workspace via the manager's workspace
 	// resolver, so the user's active (navigation-mode) workspace is left alone.
 
-	// Resolve by name without applying the sidebar scope filter so an open
-	// chat survives within-family workspace switches.
-	const activeSession = $derived(sessionState.sessions.find((s) => s.name === sessionName))
+	// Resolved without applying the sidebar scope filter so an open chat survives
+	// within-family workspace switches.
+	const activeSession = $derived(
+		sessionId
+			? sessionState.sessions.find((s) => s.id === sessionId)
+			: legacySessionName
+				? sessionState.sessions.find((s) => s.name === legacySessionName)
+				: undefined
+	)
+
+	$effect(() => {
+		if (embedded || sessionId || !activeSession) return
+		const id = activeSession.id
+		untrack(() => void goto(sessionPageHref(id), { replaceState: true }))
+	})
 
 	// Family reconcile: a workspace switch can land this page with no session
 	// selected or with another family's session in the URL (the sidebar picker's
 	// link navigation keeps the route), and a chat must not bleed across
 	// families. Re-enter session mode scoped to the active family: keep the open
 	// chat when it belongs there, else its most recent active session, else a
-	// fresh one. A `session_name` that resolves to nothing is left to the
+	// fresh one. A `session` that resolves to nothing is left to the
 	// recovery effect below.
 	$effect(() => {
 		if (embedded || !sessionState.hydrated) return
@@ -163,15 +178,14 @@
 		$workspaceStore
 		$userWorkspaces
 		const current = activeSession
-		const shouldReenter = current ? !sessionInCurrentFamily(current) : !sessionName
+		const shouldReenter = current ? !sessionInCurrentFamily(current) : !requestsSession
 		if (!shouldReenter) return
 		untrack(() => void enterSessionMode({ replace: true }))
 	})
 
 	// Held across the swap so the session layout mounts once, after the navigation
-	// settles. A recovered session often takes the very name that was missing, so
-	// the URL resolves before `goto` returns; mounting the panes mid-navigation
-	// makes Splitpanes miss the collapsed pane's `maxSize: 0` and leave it open.
+	// settles: mounting the panes mid-navigation makes Splitpanes miss the collapsed
+	// pane's `maxSize: 0` and leave it open.
 	let recovering = $state(false)
 
 	// Bounds the wait for the workspace list the guard above needs. The list can
@@ -196,7 +210,7 @@
 		// they just deleted couldn't be found.
 		if (isTearingDownOpenSession()) return
 		if ($usersWorkspaceStore === undefined && !workspaceListOverdue) return
-		if (!sessionName || sessionByName) return
+		if (!requestsSession || activeSession) return
 		untrack(() => void recoverToNewSession())
 	})
 
@@ -222,18 +236,38 @@
 			// deep links the same way they react to picker clicks.
 			selectSession(session.id)
 			getOrCreateRuntime(session)
+			mountChat(session.id)
 		})
 	})
 
-	// Warm = sessions with a live runtime. The picker eagerly creates runtimes
-	// for its visible sessions, so this tracks whatever it shows. Keeping warm
-	// chats mounted (stacked, visibility-toggled) preserves their scroll/draft
-	// state across switches.
+	// Warm = sessions with a live runtime: the ones visited this page load plus
+	// any a chat tool or a running job started.
 	const warmSessions = $derived(
 		listRuntimes()
 			.map((r) => sessionState.sessions.find((s) => s.id === r.sessionId))
 			.filter((s): s is NonNullable<typeof s> => s != null)
 	)
+
+	// Chat columns stay mounted (stacked, visibility-toggled) so switching back
+	// keeps scroll position, MRU-capped like preview tabs: every mounted column
+	// is a full transcript in the DOM. Unmounting drops only the column — the
+	// runtime keeps the chat — so a column is kept while its composer holds
+	// unsent input (component-local) or its turn is running.
+	const MAX_MOUNTED_CHATS = 5
+	const mountedChatIds = new SvelteSet<string>()
+	function keepsChatMounted(id: string): boolean {
+		const m = getRuntime(id)?.manager
+		return !!m && (m.loading || m.sendInFlight || m.sendPending || m.hasUnsentInput)
+	}
+	function mountChat(id: string) {
+		mountedChatIds.delete(id)
+		mountedChatIds.add(id)
+		for (const oldest of [...mountedChatIds]) {
+			if (mountedChatIds.size <= MAX_MOUNTED_CHATS) break
+			if (oldest !== id && !keepsChatMounted(oldest)) mountedChatIds.delete(oldest)
+		}
+	}
+	const mountedChatSessions = $derived(warmSessions.filter((s) => mountedChatIds.has(s.id)))
 
 	// Mark the active session "seen" up to its current message count: arrive →
 	// clear unread; AI streams a new message while we're here → clear again. The
@@ -258,7 +292,7 @@
 			const target = findEmptyLandingSession() ?? createSession()
 			selectSession(target.id)
 			markSessionRecovered(target.id)
-			await goto(`/sessions?session_name=${encodeURIComponent(target.name)}`, {
+			await goto(sessionPageHref(target.id), {
 				replaceState: true
 			})
 			await tick()
@@ -510,13 +544,9 @@
 	// Page path shown after the workspace breadcrumb — the active tab's observed
 	// location, so the breadcrumb tracks where the user browses inside the tab.
 	const displayPath = $derived(owner?.activeTab?.loc ?? owner?.activeTab?.url ?? `${base}/`)
-	// Artifacts have no workspace page, so "Open in workspace" can't resolve for them.
 	const activeArtifact = $derived(owner?.activeTab ? parseArtifactRoute(owner.activeTab.url) : null)
-	// Nor does a run form: it belongs to a chat, and its url is a scheme rather than a path,
-	// so the link would resolve to the tool call id as a route.
-	const activeTabHasNoWorkspacePage = $derived(
-		activeArtifact != null ||
-			(owner?.activeTab ? parseRunFormRoute(owner.activeTab.url) != null : false)
+	const activeWorkspaceHref = $derived(
+		owner?.activeTab ? workspacePageHref(owner.activeTab.loc || owner.activeTab.url) : `${base}/`
 	)
 	// The active session's artifacts, surfaced as an "Artifacts" branch in the
 	// preview pickers.
@@ -568,33 +598,35 @@
 		}
 	}
 
-	// Reload mounted preview tabs affected by a mutating chat tool. Editor and pipeline
-	// tabs self-sync from the store the chat mutates, so nothing reloads them. Two kinds
-	// do need telling, and each only when a tool actually changed what IT shows
-	// (toolReloadEffect): list-page tabs (schedules, resources, …), which are iframes, and
-	// tabs on an item's View side, which render the deployed version over the API. So a
-	// schedule write leaves the Resources tab alone, and a purely local tool (saving user
-	// instructions) reloads nothing.
+	// Reload mounted preview tabs affected by a mutating chat tool. Item and pipeline
+	// tabs are live editors that self-sync from the store the chat mutates, so nothing
+	// reloads them. Three kinds do need telling, each only when a tool actually changed
+	// what IT shows (toolReloadEffect): list-page tabs (schedules, resources, …), page
+	// item tabs, and tabs on an item's View side, which render the deployed version over
+	// the API. So a schedule write leaves the Resources tab alone, and a purely local
+	// tool (saving user instructions) reloads nothing.
 	const tabHosts: Record<string, PreviewTabHost | undefined> = {}
 
 	let reloadHandle: ReturnType<typeof setTimeout> | undefined
-	// Base-stripped list-page paths (e.g. `/schedules`) a chat round touched since
-	// the last flush — see toolReloadEffect for how tools map to pages.
-	let pendingPages = new Set<string>()
-	// Item paths whose DEPLOYED version a chat round changed. Only the View side of a tab
-	// reads that version, so these refresh those tabs and leave the editors alone.
-	let pendingItems = new Set<string>()
+	// Per workspace a chat round touched since the last flush: base-stripped list-page paths
+	// (e.g. `/schedules`, see toolReloadEffect), the page items its tools named, as tab urls,
+	// and the item paths whose deployed version changed. By workspace because a path names an
+	// item only within one: a write in one fork must not remount the same path's editor in a
+	// session on another.
+	let pending = new Map<string, { pages: Set<string>; items: Set<string>; deployed: Set<string> }>()
 
-	// Reload the mounted list-page tabs a chat round changed, across all warm
-	// sessions (a hidden preview would otherwise show pre-mutation content on
-	// return). tabsToReload picks only the tabs whose page is in `pages`.
-	function reloadTabs(pages: Set<string>, items: Set<string>) {
+	// Reload the mounted tabs a chat round changed in each warm session acting on that
+	// workspace (a hidden preview would otherwise show pre-mutation content on return).
+	function flushReload() {
+		const touched = pending
+		pending = new Map()
 		for (const s of warmSessions) {
+			const scope = touched.get(getEffectiveWorkspaceId(s) ?? $workspaceStore ?? '')
 			const owner = getRuntime(s.id)?.previewTabs
-			if (!owner) continue
+			if (!scope || !owner) continue
 			const affected = [
-				...tabsToReload(owner.tabs, pages),
-				...viewerTabsToReload(owner.tabs, items)
+				...tabsToReload(owner.tabs, scope.pages, scope.items),
+				...viewerTabsToReload(owner.tabs, scope.deployed)
 			]
 			for (const tab of affected) {
 				const key = tabKey(s.id, tab.id)
@@ -602,27 +634,26 @@
 			}
 		}
 	}
-	function flushReload() {
-		const pages = pendingPages
-		const items = pendingItems
-		pendingPages = new Set()
-		pendingItems = new Set()
-		reloadTabs(pages, items)
-	}
 	$effect(() => {
 		// Debounced so a burst of writes (the AI editing several files) reloads once.
-		setToolCompletionListener((name, args) => {
-			const { pages, items } = toolReloadEffect(name, args)
-			if (pages.length === 0 && items.length === 0) return
-			for (const p of pages) pendingPages.add(p)
-			for (const i of items) pendingItems.add(i)
+		setToolCompletionListener((name, args, workspace) => {
+			const { pages, items, deployed } = toolReloadEffect(name, args)
+			if (pages.length === 0 && deployed.length === 0) return
+			let scope = pending.get(workspace)
+			if (!scope)
+				pending.set(
+					workspace,
+					(scope = { pages: new Set(), items: new Set(), deployed: new Set() })
+				)
+			for (const p of pages) scope.pages.add(p)
+			for (const item of items) scope.items.add(pageItemUrl(item))
+			for (const d of deployed) scope.deployed.add(d)
 			clearTimeout(reloadHandle)
 			reloadHandle = setTimeout(flushReload, 500)
 		})
 		return () => {
 			clearTimeout(reloadHandle)
-			pendingPages = new Set()
-			pendingItems = new Set()
+			pending = new Map()
 			setToolCompletionListener(undefined)
 		}
 	})
@@ -638,6 +669,22 @@
 			const target = previewTargetForSessionTarget(action.previewKind, action.path)
 			if (!target) return
 			o.open(target)
+		})
+	})
+	// Variables, resources, schedules and triggers the chat links to open as tabs of their
+	// own here, rather than in the drawers the layout opens them in elsewhere.
+	$effect(() => {
+		return registerToolDisplayActionHandler('open_created_resource', (action) => {
+			if (action.type !== 'open_created_resource') return
+			const ref: PageItemRef | undefined =
+				action.resource === 'trigger'
+					? action.triggerKind && {
+							kind: 'trigger',
+							triggerKind: action.triggerKind,
+							path: action.path
+						}
+					: { kind: action.resource, path: action.path }
+			if (ref) owner?.open({ type: 'pageitem', ref })
 		})
 	})
 
@@ -778,7 +825,8 @@
 		const path =
 			tab.friendlyPath ??
 			listedItemFor(tab, workspace)?.draftPath ??
-			parsePreviewItemRoute(tab.loc)?.itemPath
+			parsePreviewItemRoute(tab.loc)?.itemPath ??
+			parsePageItemRoute(tab.loc)?.path
 		return path && path !== label ? `${label}\n${path}` : label
 	}
 
@@ -822,6 +870,13 @@
 						? { kind: 'app', raw_app: true, path: d.path, summary: '' }
 						: { kind: d.kind, path: d.path, summary: '' }
 				owner?.navigate({ type: 'item', item })
+				return
+			}
+			// A preview frame navigating to a list page: re-point the active tab to the list
+			// mounted in process, whose rows open as tabs of their own.
+			if (d.type === 'wm.session.openList') {
+				if (typeof d.href !== 'string' || !isPageItemListPath(stripBase(d.href))) return
+				owner?.navigate({ type: 'page', href: d.href, label: previewLocationLabel(d.href) })
 				return
 			}
 			// A job clicked inside a preview tab: open the run detail in a NEW tab so the
@@ -902,9 +957,9 @@
 		<div class="flex-1 flex items-center justify-center">
 			<Loader2 class="animate-spin" />
 		</div>
-	{:else if !sessionName}
+	{:else if !requestsSession}
 		<div class="p-8 text-secondary">No session selected — pick one in the sidebar.</div>
-	{:else if !sessionByName || recovering}
+	{:else if !activeSession || recovering}
 		<!-- A tick while recovery swaps in an empty session, or the length of a
 		     fork teardown's HTTP round trip while a delete holds recovery off. -->
 		<div class="flex-1 flex items-center justify-center">
@@ -926,11 +981,11 @@
 					class="flex-1 min-h-0 session-splitter {previewCollapsed ? 'splitter-off' : ''}"
 				>
 					{#if !fullscreen}
-						<!-- Chat column. Warm sessions stay mounted (stacked, visibility-toggled)
-					     so switching between them preserves chat scroll/draft state. -->
+						<!-- Chat column. Recently visited sessions stay mounted (stacked,
+					     visibility-toggled) — see mountChat. -->
 						<Pane bind:size={chatPaneSize} minSize={25} class="flex flex-col min-h-0">
 							<div class="relative flex-1 min-h-0">
-								{#each warmSessions as s (s.id)}
+								{#each mountedChatSessions as s (s.id)}
 									<div
 										class="absolute inset-0 flex flex-col {s.id === activeSession?.id
 											? 'z-10 opacity-100 pointer-events-auto'
@@ -982,20 +1037,16 @@
 								<!-- Open-in-full-page + full-screen toggle, floating over the top-right
 								     corner to mirror the collapse control. -->
 								<!-- Spans the tab strip's own height and centres within it, rather than
-							     being pinned a fixed distance from the top: the controls here are not
-							     all one height (the View|Edit toggle is taller than the icon buttons),
-							     so an offset that centres one leaves the rest — and the collapse
-							     button opposite — sitting off the strip's axis. -->
+							     being pinned a fixed distance from the top, so these controls sit on
+							     the same axis as the collapse button opposite. Its width is measured
+							     so the strip can reserve room and its tabs never scroll underneath. -->
 								<div
 									bind:clientWidth={previewActionsWidth}
 									class="absolute top-0 right-1 z-30 flex h-8 items-center gap-0.5"
 								>
-									{#if !activeTabHasNoWorkspacePage}
+									{#if activeWorkspaceHref}
 										<a
-											href={withWorkspaceParam(
-												owner?.activeTab?.loc || owner?.activeTab?.url || `${base}/`,
-												previewWorkspace
-											)}
+											href={withWorkspaceParam(activeWorkspaceHref, previewWorkspace)}
 											title="Open in workspace"
 											aria-label="Open in workspace"
 											class="inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"

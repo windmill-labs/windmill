@@ -2,8 +2,6 @@
 	import { Alert } from '$lib/components/common'
 	import Required from '$lib/components/Required.svelte'
 	import Section from '$lib/components/Section.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
-	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	// import { page } from '$app/state'
 	import { getEmailAddress, getEmailDomain } from './utils'
 	import { isCloudHosted } from '$lib/cloud'
@@ -12,6 +10,10 @@
 	import { untrack } from 'svelte'
 	import { EmailTriggerService } from '$lib/gen'
 	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
 	interface Props {
 		initialTriggerPath?: string | undefined
 		dirtyLocalPart?: boolean
@@ -35,8 +37,10 @@
 		isDraftOnly = true,
 		showTestingBadge = false
 	}: Props = $props()
-	const triggerWs = getTriggerWorkspace()
-	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
+	const wsId = $derived($operatingWorkspace)
 
 	let validateTimeout: number | undefined = undefined
 
@@ -95,7 +99,7 @@
 		local_part === undefined && (local_part = '')
 	})
 
-	let userIsAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
+	let userIsAdmin = $derived(actingUser?.is_admin || actingUser?.is_super_admin)
 	let userCanEditConfig = $derived(userIsAdmin || isDraftOnly) // User can edit config if they are admin or if the trigger is a draft which will not be saved
 </script>
 

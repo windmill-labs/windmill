@@ -31,6 +31,7 @@ mock.module("../gen/services.gen.ts", () => ({
     editWebhookCalls.push(a);
   },
   editAutoInvite: async () => {},
+  editInstanceGroups: async () => {},
   editErrorHandler: async () => {},
   editSuccessHandler: async () => {},
   editCopilotConfig: async () => {},

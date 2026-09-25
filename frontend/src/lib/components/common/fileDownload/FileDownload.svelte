@@ -1,8 +1,10 @@
 <script lang="ts">
-	import { workspaceStore } from '$lib/stores'
 	import { Download } from 'lucide-svelte'
 	import { base } from '$lib/base'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		s3object: any
@@ -12,7 +14,7 @@
 
 	let { s3object, workspaceId = undefined, appPath = undefined }: Props = $props()
 
-	let workspace = $derived(workspaceId ?? $workspaceStore)
+	let workspace = $derived(workspaceId ?? $operatingWorkspace)
 	let filename = $derived(s3object?.s3?.split?.('/')?.pop() ?? 'unnamed_download.file')
 
 	let apiPath = $derived(

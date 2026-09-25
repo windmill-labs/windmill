@@ -51,8 +51,9 @@
 	let deployedAt = $state<string | undefined>(undefined)
 	// The app_version the draft was forked from (pinned), + the deployed head, for
 	// the precise staleness check in DraftEditorModals (vs the drifting timestamp).
-	let draftBaseVersion = $state<number | undefined>(undefined)
-	let deployedHeadVersion = $state<number | undefined>(undefined)
+	let draftBaseVersion = $state<string | undefined>(undefined)
+	let deployedHeadVersion = $state<string | undefined>(undefined)
+	let deployedBy = $state<string | undefined>(undefined)
 
 	/** Increments per `loadApp` call. Stale loads (e.g. when picker
 	 * navigation races a draft-discard reload) bail at the next checkpoint
@@ -90,6 +91,7 @@
 			// reused route and falsely trip the stale-draft modal.
 			draftBaseVersion = undefined
 			deployedHeadVersion = undefined
+			deployedBy = undefined
 			// Brand-new app: no deployed baseline, so never discard-on-equal.
 			deployedBaseline = undefined
 			const templatePath = page.url.searchParams.get('template')
@@ -274,13 +276,15 @@
 		// `no_deployed` — no baseline to be older than.
 		draftSavedAt = backendApp.draft_saved_at as string | undefined
 		deployedAt = backendApp.no_deployed ? undefined : (backendApp.created_at as string | undefined)
-		// `parent_version` rides on the persisted draft (pinned at fork); undefined
-		// for a pre-feature draft. Head = the last entry of the deployed `versions`.
-		draftBaseVersion = savedDraftApp?.parent_version
-		deployedHeadVersion =
+		deployedBy = backendApp.no_deployed ? undefined : (backendApp.created_by as string | undefined)
+		// The app_version the draft forked from; undefined for a draft never forked
+		// from a deploy. Head = the last entry of the deployed `versions`.
+		draftBaseVersion = backendApp.draft_base
+		const headVersion =
 			backendApp.no_deployed || !backendApp.versions
 				? undefined
 				: backendApp.versions[backendApp.versions.length - 1]
+		deployedHeadVersion = headVersion != null ? String(headVersion) : undefined
 		const backendApp_ = structuredClone(stateSnapshot(backendApp))
 		savedApp = {
 			summary: backendApp_.summary,
@@ -303,6 +307,11 @@
 		}
 		if (pendingLoad) {
 			backendApp = { ...backendApp, value: pendingLoad.value as App } as typeof backendApp
+			// Their draft's base, not ours: the prompt and the deploy guard read it, and
+			// deploying their content on our base would claim a version it never forked
+			// from. See /scripts/edit.
+			const theirs = (pendingLoad.value as App)?.parent_version
+			draftBaseVersion = theirs != null ? String(theirs) : undefined
 			if (hasOwnDraft) {
 				// AppEditor `migrateApp`s the value in place on mount (see its
 				// `migratedDeployedBaseline`), so the draft cell settles to the
@@ -330,7 +339,8 @@
 		// draft value. An existing own draft already carries it (preserved by the
 		// value swap above). `parent_version` is in DRAFT_COMPARE_IGNORED_FIELDS, so it
 		// never trips the autosave no-op / "unsaved changes" comparison.
-		if (!hasOwnDraft && !backendApp.no_deployed && backendApp.value) {
+		// Not after loading a teammate's draft either: that value carries their base.
+		if (!hasOwnDraft && !pendingLoad && !backendApp.no_deployed && backendApp.value) {
 			const versions = (backendApp as { versions?: number[] }).versions
 			const head = Array.isArray(versions) ? versions[versions.length - 1] : undefined
 			if (head != null) (backendApp.value as App).parent_version = head
@@ -444,6 +454,7 @@
 	{deployedAt}
 	{draftBaseVersion}
 	{deployedHeadVersion}
+	{deployedBy}
 	onLoadLatestDeploy={async () => {
 		if (!$workspaceStore) return
 		await runResetToDeployed({
@@ -484,6 +495,26 @@
 				{loadedFromDraft}
 				othersDraftsCount={otherDraftsUsers.length}
 				onOpenOthersDrafts={() => (othersModalOpen = true)}
+				onDeploy={({ version, head, headBy, headAt }) => {
+					// The editor stays open across a deploy and pins what it wrote onto the value
+					// itself. Keep that as the prompt's base while this deploy is the head, so
+					// the pair still describes the draft the next edit starts; a raced deploy
+					// leaves it unknown, or the pair would differ and open the prompt on the
+					// draft this deploy consumed.
+					draftBaseVersion = version != null && version === head ? String(version) : undefined
+					draftSavedAt = undefined
+					if (head != null) {
+						// Named by whoever deployed the head, not by the page load's author.
+						deployedHeadVersion = String(head)
+						deployedBy = headBy
+						deployedAt = headAt
+					}
+					// Another deploy landed on top of this one: there is no draft for the prompt
+					// to talk about, so say what happened instead.
+					if (version != null && head != null && version !== head) {
+						sendUserToast(`Version ${head} was deployed on top of yours (${version})`)
+					}
+				}}
 			/>
 		</div>
 	{/if}

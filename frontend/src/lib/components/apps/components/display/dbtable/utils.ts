@@ -282,7 +282,8 @@ const scriptsV2: typeof legacyScripts = {
 		...legacyScripts.postgresql,
 		code: `
 SELECT table_name, column_name, udt_name, column_default, is_nullable, nsp.nspname AS table_schema FROM information_schema.columns
-RIGHT JOIN pg_namespace nsp ON table_schema = nsp.nspname WHERE nsp.nspname NOT IN ('information_schema', 'pg_toast', 'pg_catalog')`
+RIGHT JOIN pg_namespace nsp ON table_schema = nsp.nspname WHERE nsp.nspname NOT IN ('information_schema', 'pg_toast', 'pg_catalog')
+AND NOT starts_with(nsp.nspname, 'pg_') AND has_schema_privilege(nsp.oid, 'USAGE')`
 	}
 }
 

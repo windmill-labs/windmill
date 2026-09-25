@@ -13,8 +13,11 @@
 	import LabelsInput from '$lib/components/LabelsInput.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
+	import { loadSchema } from '$lib/infer'
 	import PipelineLockedRunnableInfo from '$lib/components/triggers/PipelineLockedRunnableInfo.svelte'
-	import ErrorOrRecoveryHandler from '$lib/components/ErrorOrRecoveryHandler.svelte'
+	import ErrorOrRecoveryHandler, {
+		handlerFullPath
+	} from '$lib/components/ErrorOrRecoveryHandler.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
@@ -29,7 +32,7 @@
 		type Schedule,
 		type ErrorHandler
 	} from '$lib/gen'
-	import { enterpriseLicense, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense } from '$lib/stores'
 	import { canWrite, emptyString, formatCron, sendUserToast, cronV1toV2 } from '$lib/utils'
 	import { base } from '$lib/base'
 	import Section from '$lib/components/Section.svelte'
@@ -49,11 +52,13 @@
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import PermissionedAsLine from '../PermissionedAsLine.svelte'
-	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	import { useActingUser } from '$lib/actingUser.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	let {
 		useDrawer = true,
+		inline = false,
+		onClose = undefined,
 		hideTarget = false,
 		docDescription = undefined,
 		allowDraft = false,
@@ -108,7 +113,7 @@
 	// already-bound script. We swap the runnable ScriptPicker for a read-only
 	// viewer so the trigger can't be silently reassigned off the pipeline.
 	let fixedScriptPath = $state('')
-	let runnable: Script | Flow | undefined = $state()
+	let runnable: Pick<Script | Flow, 'schema'> | undefined = $state()
 	let args: Record<string, any> = $state({})
 	let loading = $state(false)
 	let drawerLoading = $state(true)
@@ -136,8 +141,8 @@
 	let selectedPermissionedAs = $state<string | undefined>(undefined)
 	let preservePermissionedAs = $state(false)
 
-	const triggerWs = getTriggerWorkspace()
-	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
+	const operatingWorkspace = useOperatingWorkspace()
+	const wsId = $derived($operatingWorkspace)
 	// `undefined` while the lookup is in flight or after it failed; the checks below then
 	// refuse rather than fall back to rights that belong to another workspace.
 	const acting = useActingUser(() => wsId)
@@ -157,9 +162,9 @@
 				emptyString(errorHandlerExtraArgs['channel'])) ||
 			!can_write
 	)
-	// Carry the acting workspace onto "create from template" routes when a
-	// session override is set, so the script is created in the session workspace.
-	const wsParam = $derived(triggerWs?.() ? `&workspace=${encodeURIComponent(wsId!)}` : '')
+	// Carry the acting workspace onto "create from template" routes, so the script is created
+	// in the workspace this schedule lives in.
+	const wsParam = $derived(wsId ? `&workspace=${encodeURIComponent(wsId)}` : '')
 	const scheduleCfg = $derived.by(getScheduleCfg)
 
 	const draftSync = useTriggerDraftSync({
@@ -414,6 +419,8 @@
 			try {
 				if (is_flow) {
 					runnable = await FlowService.getFlowByPath({ workspace: wsId!, path: p })
+				} else if (p.startsWith('hub/')) {
+					runnable = await loadSchema(wsId!, p, 'hubscript')
 				} else {
 					runnable = await ScriptService.getScriptByPath({ workspace: wsId!, path: p })
 				}
@@ -437,7 +444,7 @@
 					path:
 						errorHandlerPath == undefined
 							? undefined
-							: `${errorHandleritemKind}/${errorHandlerPath}`,
+							: handlerFullPath(errorHandlerSelected, errorHandleritemKind, errorHandlerPath),
 					extra_args: errorHandlerExtraArgs,
 					number_of_occurence: failedTimes,
 					number_of_occurence_exact: failedExact,
@@ -466,7 +473,11 @@
 					path:
 						recoveryHandlerPath === undefined
 							? undefined
-							: `${recoveryHandlerItemKind}/${recoveryHandlerPath}`,
+							: handlerFullPath(
+									recoveryHandlerSelected,
+									recoveryHandlerItemKind,
+									recoveryHandlerPath
+								),
 					extra_args: recoveryHandlerExtraArgs,
 					number_of_occurence: recoveredTimes
 				}
@@ -493,7 +504,7 @@
 					path:
 						successHandlerPath === undefined
 							? undefined
-							: `${successHandlerItemKind}/${successHandlerPath}`,
+							: handlerFullPath(successHandlerSelected, successHandlerItemKind, successHandlerPath),
 					extra_args: successHandlerExtraArgs,
 					number_of_occurence: recoveredTimes
 				}
@@ -635,15 +646,18 @@
 		const handlerMap = {
 			error: {
 				teams: '/workspace-or-schedule-error-handler-teams',
-				slack: '/workspace-or-schedule-error-handler-slack'
+				slack: '/workspace-or-schedule-error-handler-slack',
+				email: '/workspace-or-error-handler-email'
 			},
 			recovery: {
 				teams: '/schedule-recovery-handler-teams',
-				slack: '/schedule-recovery-handler-slack'
+				slack: '/schedule-recovery-handler-slack',
+				email: '/workspace-or-error-handler-email'
 			},
 			success: {
 				teams: '/schedule-success-handler-teams',
-				slack: '/schedule-success-handler-slack'
+				slack: '/schedule-success-handler-slack',
+				email: '/workspace-or-error-handler-email'
 			}
 		}
 
@@ -689,17 +703,19 @@
 			is_flow: is_flow,
 			args: args,
 			enabled: enabled,
-			on_failure: errorHandlerPath ? `${errorHandleritemKind}/${errorHandlerPath}` : undefined,
+			on_failure: errorHandlerPath
+				? handlerFullPath(errorHandlerSelected, errorHandleritemKind, errorHandlerPath)
+				: undefined,
 			on_failure_times: failedTimes,
 			on_failure_exact: failedExact,
 			on_failure_extra_args: errorHandlerPath ? errorHandlerExtraArgs : undefined,
 			on_recovery: recoveryHandlerPath
-				? `${recoveryHandlerItemKind}/${recoveryHandlerPath}`
+				? handlerFullPath(recoveryHandlerSelected, recoveryHandlerItemKind, recoveryHandlerPath)
 				: undefined,
 			on_recovery_times: recoveredTimes,
 			on_recovery_extra_args: recoveryHandlerPath ? recoveryHandlerExtraArgs : {},
 			on_success: successHandlerPath
-				? `${successHandlerItemKind}/${successHandlerPath}`
+				? handlerFullPath(successHandlerSelected, successHandlerItemKind, successHandlerPath)
 				: undefined,
 			on_success_extra_args: successHandlerPath ? successHandlerExtraArgs : {},
 			ws_error_handler_muted: wsErrorHandlerMuted,
@@ -967,6 +983,7 @@
 							initialPath={initialScriptPath}
 							kinds={['script']}
 							allowFlow={true}
+							allowHub={true}
 							allowRefresh={can_write}
 							bind:itemKind
 							bind:scriptPath={script_path}
@@ -1420,34 +1437,42 @@
 	</div>
 {/snippet}
 
-{#if useDrawer}
+{#snippet drawerBody()}
+	<DrawerContent
+		hideClose={inline && !onClose}
+		fullScreen={!inline}
+		bannerReserved={draftSync.hasBaseline}
+		title={edit
+			? can_write
+				? `Edit schedule ${initialPath}`
+				: `View schedule ${initialPath}`
+			: 'New schedule'}
+		on:close={() => (inline ? onClose?.() : drawer?.closeDrawer())}
+	>
+		{#snippet actions()}
+			<div class="flex flex-row gap-4 items-center">
+				{@render saveButton()}
+			</div>
+		{/snippet}
+		{#snippet banner()}
+			<LocalDraftBanner
+				show={draftSync.hasDraft}
+				getDeployed={() => draftSync.deployed}
+				reserveSpace={draftSync.hasBaseline}
+				getCurrent={() => draftSync.current}
+				onDiscard={() => draftSync.resetToDeployed(initialPath)}
+				disabled={!can_write}
+			/>
+		{/snippet}
+		{@render content()}
+	</DrawerContent>
+{/snippet}
+
+{#if useDrawer && inline}
+	{@render drawerBody()}
+{:else if useDrawer}
 	<Drawer size="900px" bind:this={drawer} on:close={() => clearPageDrawerAnchor(SCHEDULES_PATH)}>
-		<DrawerContent
-			bannerReserved={draftSync.hasBaseline}
-			title={edit
-				? can_write
-					? `Edit schedule ${initialPath}`
-					: `View schedule ${initialPath}`
-				: 'New schedule'}
-			on:close={drawer.closeDrawer}
-		>
-			{#snippet actions()}
-				<div class="flex flex-row gap-4 items-center">
-					{@render saveButton()}
-				</div>
-			{/snippet}
-			{#snippet banner()}
-				<LocalDraftBanner
-					show={draftSync.hasDraft}
-					getDeployed={() => draftSync.deployed}
-					reserveSpace={draftSync.hasBaseline}
-					getCurrent={() => draftSync.current}
-					onDiscard={() => draftSync.resetToDeployed(initialPath)}
-					disabled={!can_write}
-				/>
-			{/snippet}
-			{@render content()}
-		</DrawerContent>
+		{@render drawerBody()}
 	</Drawer>
 {:else}
 	<Section label={!customLabel ? 'Schedule' : ''} headerClass="grow min-w-0 h-[30px]">

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_settings SET add_admins_and_developers_to_forks = $1 WHERE workspace_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bool",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9bd1995747f0073b3a866d1238e78f7e6dfa9185056f7731547ff05b8176b271"
+}

@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT ws.workspace_id AS \"workspace_id!\", dt.key AS \"datatable!\"\n        FROM workspace_settings ws\n        JOIN workspace w ON w.id = ws.workspace_id AND w.deleted = false\n        CROSS JOIN LATERAL jsonb_each(COALESCE(ws.datatable->'datatables', '{}'::jsonb)) dt\n        WHERE ws.workspace_id <> $1\n          AND dt.value->'database'->>'resource_type' = 'instance'\n          AND dt.value->'database'->>'resource_path' = $2\n        ORDER BY ws.workspace_id, dt.key\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "datatable!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "79799b5a2e499df6c28e286c42b9ad2db940c2455ab19cc95e5198baf96d5629"
+}

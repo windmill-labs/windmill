@@ -15,8 +15,6 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { base } from '$lib/base'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
-	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 
 	import { Button, Url } from '$lib/components/common'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
@@ -25,11 +23,17 @@
 	import TestingBadge from '../testingBadge.svelte'
 	import Select from '$lib/components/select/Select.svelte'
 	import { safeSelectItems } from '$lib/components/select/utils.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
 
 	// Declared before `DEFAULT_PUSH_CONFIG` / the `base_endpoint` prop default,
 	// which call `getBaseUrl()` (a `wsId` reader) during component init.
-	const triggerWs = getTriggerWorkspace()
-	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
+	const wsId = $derived($operatingWorkspace)
 
 	let topic_items: string[] = $state([])
 	let subscription_items: string[] = $state([])
@@ -152,14 +156,14 @@
 	// Keyed on the loaded mode, not the live one: reading the live mode would make the toggle a
 	// one-way door, disabling itself the moment a non-admin switched an inherited ADC trigger away.
 	const canUseDefaultCredentials = $derived(
-		$userStore?.is_admin === true || loaded_uses_default_credentials
+		actingUser?.is_admin === true || loaded_uses_default_credentials
 	)
 	const hasCredentials = $derived(usesDefaultCredentials || !emptyStringTrimmed(gcp_resource_path))
 	/** Saving re-provisions the subscription with the instance's credentials, so the backend runs
 	 * the admin check on every write, not only when the mode is switched. A non-admin who inherits
 	 * such a trigger can open it, so say why saving is unavailable instead of letting them hit a
 	 * bare 403. */
-	const blockedByAdminGate = $derived(usesDefaultCredentials && $userStore?.is_admin !== true)
+	const blockedByAdminGate = $derived(usesDefaultCredentials && actingUser?.is_admin !== true)
 
 	// One-shot on mount, so read the props rather than the derived: referencing `$derived` state
 	// here captures its initial value anyway, and Svelte warns about it.
@@ -274,7 +278,10 @@
 							     travel as `?project_id=`, dirty the config, and reach the column as a
 							     value `empty_as_none` does not trim away. -->
 							<TextInput
-								bind:value={() => project_id ?? '', (v) => (project_id = emptyStringTrimmed(v) ? undefined : v)}
+								bind:value={
+									() => project_id ?? '',
+									(v) => (project_id = emptyStringTrimmed(v) ? undefined : v)
+								}
 								inputProps={{
 									placeholder: 'my-gcp-project',
 									disabled: !can_write,

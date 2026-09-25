@@ -3,17 +3,15 @@
 	import { Badge, Button, Drawer } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import { createEventDispatcher, onDestroy } from 'svelte'
-	import { workspaceStore } from '$lib/stores'
 	import { base } from '$lib/base'
 	import { displayDate, sleep, sendUserToast } from '$lib/utils'
 	import TableCustom from './TableCustom.svelte'
 	import { Hourglass, Loader2, Play, RefreshCw } from 'lucide-svelte'
-	import { getDetailWorkspace } from '$lib/components/details/detailWorkspace'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	let dispatch = createEventDispatcher()
-
-	const detailWs = getDetailWorkspace()
-	let ws = $derived(detailWs?.() ?? $workspaceStore)
 	let drawer: Drawer | undefined = $state()
 
 	let script: Script | undefined = $state()
@@ -42,7 +40,7 @@
 		const timeStart = new Date().getTime()
 		queuedJobsLoading = true
 		let qjs = await JobService.listQueue({
-			workspace: ws ?? '',
+			workspace: $operatingWorkspace ?? '',
 			orderDesc: false,
 			scriptPathExact: script?.path
 		})
@@ -74,7 +72,7 @@
 	async function scaleToZero() {
 		cancellingInProgress = true
 		await JobService.cancelPersistentQueuedJobs({
-			workspace: ws ?? '',
+			workspace: $operatingWorkspace ?? '',
 			path: script?.path ?? '',
 			requestBody: {
 				reason: undefined
@@ -143,15 +141,17 @@
 							<td class="text-xs">
 								<a
 									class="pr-3"
-									href="{base}/scripts/get/{scriptHash}?workspace={ws}"
+									href="{base}/scripts/get/{scriptHash}?workspace={$operatingWorkspace}"
 									target="_blank"
 								>
 									{scriptHash}
 								</a>
 							</td>
 							<td class="text-xs">
-								<a class="pr-3" href="{base}/run/{jobId}?workspace={ws}" target="_blank"
-									>{jobId.substring(24)}</a
+								<a
+									class="pr-3"
+									href="{base}/run/{jobId}?workspace={$operatingWorkspace}"
+									target="_blank">{jobId.substring(24)}</a
 								>
 							</td>
 							<td class="text-xs">

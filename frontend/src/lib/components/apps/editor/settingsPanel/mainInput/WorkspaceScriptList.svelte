@@ -7,9 +7,11 @@
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import { type Script, ScriptService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { emptyString } from '$lib/utils'
 	import { Skeleton } from '$lib/components/common'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		filter?: string
@@ -26,7 +28,7 @@
 
 	async function loadScripts(): Promise<void> {
 		const loadedScripts = await ScriptService.listScripts({
-			workspace: $workspaceStore!,
+			workspace: $operatingWorkspace!,
 			perPage: 300,
 			withoutDescription: true
 		})

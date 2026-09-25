@@ -438,21 +438,11 @@ async fn get_workspace_fairness_events(
             FROM audit_partitioned
             WHERE workspace_id = 'admins'
               AND operation = 'workspace_fairness.capped'
-            UNION ALL
-            SELECT timestamp, operation, resource, parameters
-            FROM audit
-            WHERE workspace_id = 'admins'
-              AND operation = 'workspace_fairness.capped'
             ORDER BY timestamp DESC
             LIMIT 200
         ), uncapped AS (
             SELECT timestamp, operation, resource, parameters
             FROM audit_partitioned
-            WHERE workspace_id = 'admins'
-              AND operation = 'workspace_fairness.uncapped'
-            UNION ALL
-            SELECT timestamp, operation, resource, parameters
-            FROM audit
             WHERE workspace_id = 'admins'
               AND operation = 'workspace_fairness.uncapped'
             ORDER BY timestamp DESC

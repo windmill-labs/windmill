@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT count(*) FROM remote_deploy_token WHERE email = 'test2@windmill.dev'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "f9692bba979c2b5a22e65106a330a0c0827dea6115daf9d006f8ccda0d041d76"
+}

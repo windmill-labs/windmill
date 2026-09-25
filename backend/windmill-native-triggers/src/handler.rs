@@ -16,7 +16,8 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgConnection;
 use std::sync::Arc;
 use windmill_api_auth::{
-    check_scopes, create_token_internal, require_is_writer, ApiAuthed, NewToken,
+    build_scope_path_filter, check_scopes, create_token_internal, require_is_writer, ApiAuthed,
+    NewToken,
 };
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::{
@@ -701,6 +702,7 @@ async fn list_native_triggers_handler<T: External>(
         query.per_page,
         query.path.as_deref(),
         query.is_flow,
+        build_scope_path_filter(&authed, "native_triggers", "read"),
     )
     .await?;
     tx.commit().await?;

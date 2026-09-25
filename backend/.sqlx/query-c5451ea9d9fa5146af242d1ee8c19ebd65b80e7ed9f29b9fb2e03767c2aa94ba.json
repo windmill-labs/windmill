@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT ws.workspace_id AS \"workspace_id!\", dt.key AS \"datatable!\"\n           FROM workspace_settings ws\n           CROSS JOIN LATERAL jsonb_each(COALESCE(ws.datatable->'datatables', '{}'::jsonb)) dt\n           WHERE dt.value->'reference'->>'workspace_id' = $1\n           ORDER BY ws.workspace_id, dt.key",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "datatable!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "c5451ea9d9fa5146af242d1ee8c19ebd65b80e7ed9f29b9fb2e03767c2aa94ba"
+}

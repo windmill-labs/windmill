@@ -13,15 +13,38 @@
 	} from './workspaceItems.svelte'
 	import { markdownProse } from '$lib/components/markdownProse'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
+	import { Bot, ExternalLink } from 'lucide-svelte'
+	import CopyButton from '$lib/components/common/button/CopyButton.svelte'
+	import { base } from '$lib/base'
+	import { displayDate, truncateRev } from '$lib/utils'
 
 	interface Props {
 		message: DisplayMessage
 		// Workspace the message's paths are resolved against: the one the chat
 		// operates on, which is not always the one being navigated.
 		workspace: string | undefined
+		// Only the last answer of a run (a copilot turn, or a flow step's run) gets the copy /
+		// timestamp / run row: it stays in the layout while invisible, so on an answer between
+		// tool calls it would double the gap below it.
+		showActions?: boolean
 	}
 
-	let { message, workspace }: Props = $props()
+	let { message, workspace, showActions = true }: Props = $props()
+
+	// The run this answer came out of. Only a flow chat has one — a copilot turn runs in
+	// the browser — so the job link is absent rather than empty elsewhere.
+	const jobId = $derived(message.role === 'assistant' ? message.jobId : undefined)
+	const createdAt = $derived(message.role === 'assistant' ? message.createdAt : undefined)
+	const runHref = $derived(jobId ? `${base}/run/${jobId}?workspace=${workspace}` : undefined)
+	// Today's answers show the time alone; the day earns its place only on a conversation
+	// read back later. Resolved at render, so a chat left open across midnight keeps
+	// yesterday's format until it is reopened.
+	const timestamp = $derived.by(() => {
+		if (!createdAt) return undefined
+		const at = new Date(createdAt)
+		const today = new Date().toDateString() === at.toDateString()
+		return displayDate(at, false, !today)
+	})
 
 	const reasoning = $derived(
 		message.role === 'assistant' ? message.reasoning?.trim() || undefined : undefined
@@ -113,9 +136,16 @@
 	})
 </script>
 
+<!-- An agent step's answer is headed by the agent's own icon, hung in the margin so the
+     answer itself stays on the same left edge as the reader's messages. The icon sits in
+     the padding the message column already carries. -->
 {#if stepName}
-	<div class="text-2xs text-tertiary font-medium mb-1 truncate" title="Answered by {stepName}">
-		{stepName}
+	<div
+		class="flex items-center gap-2 -ml-6 pt-1 text-2xs text-tertiary"
+		title="Answered by {stepName}"
+	>
+		<Bot size={16} class="shrink-0" />
+		<span class="font-mono truncate">{stepName}</span>
 	</div>
 {/if}
 
@@ -125,7 +155,7 @@
 		expanded={reasoningExpanded}
 		onToggle={() => (reasoningToggled = !reasoningExpanded)}
 		shimmer={reasoningStreaming}
-		class="mb-2"
+		class={message.content ? 'mb-1' : ''}
 		labelClass="truncate"
 		contentClass="font-main text-secondary {markdownProse.xs}"
 	>
@@ -134,9 +164,36 @@
 {/if}
 
 {#if s3Object}
-	<DisplayResult result={s3Object} workspaceId={workspace} noControls={true} />
+	<div class="py-1">
+		<DisplayResult result={s3Object} workspaceId={workspace} noControls={true} />
+	</div>
 {:else if message.content}
-	<div class="w-full space-y-2 {markdownProse.sm}">
+	<div class="w-full space-y-2 py-1 {markdownProse.sm}">
 		<Markdown md={message.content} {plugins} />
+	</div>
+{/if}
+
+{#if message.content && showActions}
+	<!-- Kept in flow while invisible, so revealing it on hover does not nudge the message
+	     below. A thinking-only row has no answer to copy, and its run's last answer links the run. -->
+	<div
+		class="flex items-center gap-2 text-2xs text-tertiary opacity-0 transition-opacity duration-150 group-hover/answer:opacity-100 focus-within:opacity-100"
+	>
+		<CopyButton value={message.content} title="Copy answer" class="-ml-1" />
+		{#if timestamp}
+			<span>{timestamp}</span>
+		{/if}
+		{#if runHref}
+			<a
+				href={runHref}
+				target="_blank"
+				rel="noopener noreferrer"
+				class="inline-flex items-center gap-1 hover:text-primary hover:underline"
+				title="Open this run"
+			>
+				<span>job <span class="font-mono">{truncateRev(jobId ?? '', 8)}</span></span>
+				<ExternalLink size={11} class="shrink-0" />
+			</a>
+		{/if}
 	</div>
 {/if}

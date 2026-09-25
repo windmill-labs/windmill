@@ -25,7 +25,7 @@ type Esbuild = typeof import("esbuild");
 
 // Version to fall back to if the native host's version can't be read. Keep in
 // sync with the "esbuild" pin in cli/package.json.
-const FALLBACK_VERSION = "0.28.0";
+const FALLBACK_VERSION = "0.28.2";
 
 let cached: Esbuild | undefined;
 let inFlight: Promise<Esbuild> | undefined;

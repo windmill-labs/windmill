@@ -1442,6 +1442,7 @@ const CLEANED_VALUE_KEYS = new Set([
 	'draft_only',
 	'draft_saved_at',
 	'draft_created_at',
+	'draft_base',
 	'is_draft',
 	'other_drafts_users',
 	'created_at',
@@ -1676,6 +1677,8 @@ export type Item = {
 	iconColor?: string
 	/** Extra props for `icon`, for an icon that does not take lucide's `size`. */
 	iconProps?: Record<string, any>
+	customSubmenu?: import('svelte').Component<any>
+	customSubmenuProps?: Record<string, unknown>
 	href?: string
 	hrefTarget?: '_blank' | '_self' | '_parent' | '_top'
 	disabled?: boolean

@@ -6,8 +6,18 @@
 	import { joinSqlStatements, splitSqlRuns } from './sqlDdl'
 	import { logDdlGuardChoice } from './workspaceSettings/datatableTelemetry'
 	import { CornerDownLeft } from 'lucide-svelte'
+	import { withMigrationRole } from './datatableMigrationRole'
 
-	let { workspace, datatable }: { workspace: string; datatable: string } = $props()
+	let {
+		workspace,
+		datatable,
+		role
+	}: {
+		workspace: string
+		datatable: string
+		/** The role the editor runs as. The migration declares it, or it would run as admin. */
+		role?: string
+	} = $props()
 
 	type Choice = 'run' | 'migrate' | 'cancel'
 
@@ -73,7 +83,7 @@
 	function openMigrationModal(sql: string): Promise<boolean> {
 		return new Promise((resolve) => {
 			resolveMigrationClosed = (created: boolean) => resolve(created)
-			newMigrationModal?.open({ codeUp: sql })
+			newMigrationModal?.open({ codeUp: withMigrationRole(sql, role) })
 		})
 	}
 
@@ -145,6 +155,11 @@
 				migrations rather than run ad-hoc. Create a migration for it instead?
 			{/if}
 		</p>
+		{#if role}
+			<p class="text-sm text-secondary">
+				It will run as role <span class="font-mono">{role}</span>.
+			</p>
+		{/if}
 		<pre
 			class="text-xs whitespace-pre-wrap font-mono bg-surface-secondary rounded p-3 max-h-48 overflow-auto"
 			>{promptSql}</pre

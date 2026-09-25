@@ -4,7 +4,6 @@
 	const bubble = createBubbler()
 	import type { Schema } from '$lib/common'
 	import { VariableService, type ScriptLang } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { Button } from './common'
 	import ItemPicker from './ItemPicker.svelte'
 	import VariableEditor from './VariableEditor.svelte'
@@ -36,6 +35,9 @@
 	import Section from '$lib/components/Section.svelte'
 	import Editor from './Editor.svelte'
 	import AddPropertyV2 from './schema/AddPropertyV2.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	// export let openEditTab: () => void = () => {}
 	const dispatch = createEventDispatcher()
@@ -128,7 +130,7 @@
 		workspace = undefined
 	}: Props = $props()
 
-	let ws = $derived(workspace ?? $workspaceStore)
+	let ws = $derived(workspace ?? $operatingWorkspace)
 
 	$effect.pre(() => {
 		if (args == undefined) {

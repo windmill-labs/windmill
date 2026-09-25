@@ -113,7 +113,7 @@ pub(crate) async fn change_workspace_id(
     // Duplicate workspace settings (keep copy in old workspace for reference)
     info!("Duplicating workspace_settings table");
     sqlx::query!(
-        "INSERT INTO workspace_settings (workspace_id, slack_team_id, slack_name, slack_command_script, slack_email, customer_id, plan, webhook, ai_config, large_file_storage, git_sync, default_app, default_scripts, deploy_ui, mute_critical_alerts, color, operator_settings, teams_command_script, teams_team_id, teams_team_name, git_app_installations, git_credentials, ducklake, dbt_warehouses, slack_oauth_client_id, slack_oauth_client_secret, datatable, teams_team_guid, auto_invite, error_handler, success_handler, public_app_execution_limit_per_minute, error_handler_fallback_to_instance_alerts, guest_access_enabled, guest_jwt_public_key, guest_jwt_jwks_url) SELECT $1, slack_team_id, slack_name, slack_command_script, slack_email, customer_id, plan, webhook, ai_config, large_file_storage, git_sync, default_app, default_scripts, deploy_ui, mute_critical_alerts, color, operator_settings, teams_command_script, teams_team_id, teams_team_name, git_app_installations, git_credentials, ducklake, dbt_warehouses, slack_oauth_client_id, slack_oauth_client_secret, datatable, teams_team_guid, auto_invite, error_handler, success_handler, public_app_execution_limit_per_minute, error_handler_fallback_to_instance_alerts, guest_access_enabled, guest_jwt_public_key, guest_jwt_jwks_url FROM workspace_settings WHERE workspace_id = $2",
+        "INSERT INTO workspace_settings (workspace_id, slack_team_id, slack_name, slack_command_script, slack_email, customer_id, plan, webhook, ai_config, large_file_storage, git_sync, default_app, default_scripts, deploy_ui, mute_critical_alerts, color, operator_settings, teams_command_script, teams_team_id, teams_team_name, git_app_installations, git_credentials, ducklake, dbt_warehouses, slack_oauth_client_id, slack_oauth_client_secret, datatable, teams_team_guid, auto_invite, error_handler, success_handler, public_app_execution_limit_per_minute, error_handler_fallback_to_instance_alerts, guest_access_enabled, guest_jwt_public_key, guest_jwt_jwks_url, add_admins_and_developers_to_forks, remote_deploy_target, remote_deploy_target_changed_at) SELECT $1, slack_team_id, slack_name, slack_command_script, slack_email, customer_id, plan, webhook, ai_config, large_file_storage, git_sync, default_app, default_scripts, deploy_ui, mute_critical_alerts, color, operator_settings, teams_command_script, teams_team_id, teams_team_name, git_app_installations, git_credentials, ducklake, dbt_warehouses, slack_oauth_client_id, slack_oauth_client_secret, datatable, teams_team_guid, auto_invite, error_handler, success_handler, public_app_execution_limit_per_minute, error_handler_fallback_to_instance_alerts, guest_access_enabled, guest_jwt_public_key, guest_jwt_jwks_url, add_admins_and_developers_to_forks, remote_deploy_target, remote_deploy_target_changed_at FROM workspace_settings WHERE workspace_id = $2",
         &rw.new_id,
         &old_id
     )
@@ -382,6 +382,13 @@ pub(crate) async fn change_workspace_id(
     )
     .execute(&mut *tx)
     .await?;
+    sqlx::query!(
+        "UPDATE draft_move SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
 
     info!("Updating favorite table");
     sqlx::query!(
@@ -490,6 +497,34 @@ pub(crate) async fn change_workspace_id(
         &old_id
     )
     .fetch_all(&mut *tx)
+    .await?;
+
+    // A fork's data table entry names the workspace that governs it by id, so the rename has to
+    // follow there too — anywhere, not just in the reparented children: a detached workspace can
+    // point at this one without being its fork. Left behind, the pointer resolves to the archived
+    // shell and every job through it stops. A clone's `governed_by` names it the same way.
+    info!("Re-pointing data table references to the new workspace id");
+    sqlx::query!(
+        r#"UPDATE workspace_settings ws
+           SET datatable = (
+               SELECT jsonb_set(ws.datatable, '{datatables}', jsonb_object_agg(
+                   dt.key,
+                   (SELECT CASE WHEN r.v->'governed_by'->>'workspace_id' = $2
+                               THEN jsonb_set(r.v, '{governed_by,workspace_id}', to_jsonb($1::text))
+                               ELSE r.v END
+                    FROM (SELECT CASE WHEN dt.value->'reference'->>'workspace_id' = $2
+                                     THEN jsonb_set(dt.value, '{reference,workspace_id}', to_jsonb($1::text))
+                                     ELSE dt.value END AS v) r)
+               ))
+               FROM jsonb_each(ws.datatable->'datatables') dt
+           )
+           WHERE jsonb_typeof(ws.datatable->'datatables') = 'object'
+             AND (ws.datatable::text LIKE '%"reference"%'
+                  OR ws.datatable::text LIKE '%"governed_by"%')"#,
+        &rw.new_id,
+        &old_id,
+    )
+    .execute(&mut *tx)
     .await?;
 
     info!("Updating workspace_protection_rule table");
@@ -806,6 +841,14 @@ pub(crate) async fn change_workspace_id(
     .execute(&mut *tx)
     .await?;
 
+    sqlx::query!(
+        "UPDATE remote_deploy_token SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
     info!("Updating variable table");
     sqlx::query!(
         "UPDATE variable SET workspace_id = $1 WHERE workspace_id = $2",
@@ -971,6 +1014,24 @@ pub(crate) async fn delete_workspace(
     // but the destructive cleanup itself runs only after the commit below: a delete that
     // fails mid-way must never leave a live workspace with its fork data destroyed and no
     // registry row to retry from. Read-only: nothing is dropped here.
+    // Read before the delete: another workspace's data table entry can point at one of this
+    // workspace's, or be a clone taking its roles from one, and deleting the workspace it names
+    // leaves it resolving to nothing. Nothing sweeps them — turning them back into copies would
+    // hand each fork the database outright — so the deleter is told which data tables they just
+    // stranded.
+    let stranded_pointers = sqlx::query_as::<_, (String, String)>(
+        r#"SELECT ws.workspace_id, dt.key
+           FROM workspace_settings ws
+           CROSS JOIN LATERAL jsonb_each(COALESCE(ws.datatable->'datatables', '{}'::jsonb)) dt
+           WHERE dt.value->'reference'->>'workspace_id' = $1
+              OR dt.value->'governed_by'->>'workspace_id' = $1
+           ORDER BY ws.workspace_id, dt.key"#,
+    )
+    .bind(&w_id)
+    .fetch_all(&db)
+    .await
+    .unwrap_or_default();
+
     let fork_ducklake_cleanups = prepare_fork_ducklake_cleanups(&db, &w_id, None)
         .await
         .unwrap_or_else(|e| {
@@ -1289,7 +1350,23 @@ pub(crate) async fn delete_workspace(
         tracing::warn!("failed to broadcast fork lineage change: {e:#}");
     }
 
-    Ok(format!("Deleted workspace {}", &w_id))
+    if stranded_pointers.is_empty() {
+        Ok(format!("Deleted workspace {}", &w_id))
+    } else {
+        let stranded = stranded_pointers
+            .iter()
+            .map(|(workspace_id, datatable)| format!("{workspace_id}/{datatable}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        Ok(format!(
+            concat!(
+                "Deleted workspace {}. These data tables were governed by it and no longer ",
+                "resolve: {}. Their databases still exist; a superadmin can point them at ",
+                "another workspace's data table."
+            ),
+            &w_id, stranded
+        ))
+    }
 }
 
 #[derive(Deserialize)]
@@ -1343,15 +1420,20 @@ pub async fn drop_forked_datatable_databases(
     let mut errors: Vec<String> = Vec::new();
 
     for dt_name in &req.datatable_names {
-        let dt = match datatables.get(dt_name) {
-            Some(dt) if dt.forked_from.is_some() => dt,
+        // Only a clone is droppable, and a clone is terminal by construction: a kept data table is
+        // a pointer at the parent's database, which this fork does not own.
+        let database = match datatables.get(dt_name) {
+            Some(dt) if dt.forked_from.is_some() => match dt.database.as_ref() {
+                Some(database) => database,
+                None => continue,
+            },
             _ => continue,
         };
 
-        if dt.database.resource_type
+        if database.resource_type
             == windmill_common::workspaces::DataTableCatalogResourceType::Instance
         {
-            let db_to_drop = &dt.database.resource_path;
+            let db_to_drop = &database.resource_path;
             if !db_to_drop.starts_with("wm_fork_") {
                 errors.push(format!(
                     "Refusing to drop instance database '{}' for datatable://{}:  name does not start with 'wm_fork_'",

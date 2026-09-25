@@ -1007,7 +1007,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         ));
     }
 
-    // Native script retry: a failed `Script` job that carries a retry policy and
+    // Native script retry: a failed `Script` or `Script_Hub` job that carries a retry policy and
     // has attempts left gets its next attempt enqueued here — before the queue
     // row (which holds the attempt counter) is removed by commit. The failed
     // attempt is still recorded as a completed job below. `maybe_enqueue_…`
@@ -1077,9 +1077,9 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     // Auto-resolve a retry chain that ultimately worked, from whichever of the two
     // completions lands last (see resolve_retry_chain_if_succeeded): a success that has a
     // parent (so is a possible retry attempt), or a failure that just enqueued a retry.
-    // `retry_pending` already implies a non-flow-step `Script`.
+    // `retry_pending` already implies a non-flow-step `Script` or `Script_Hub`.
     let resolve_root = if success && !skipped && !completed_job.is_flow_step() {
-        matches!(completed_job.kind, JobKind::Script)
+        matches!(completed_job.kind, JobKind::Script | JobKind::Script_Hub)
             .then(|| completed_job.parent_job)
             .flatten()
     } else if !success && !skipped && retry_pending {
@@ -1285,7 +1285,25 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     }
 
     let mut _skip_downstream_error_handlers = false;
-    tx = delete_job(tx, &job_id).warn_after_seconds(10).await?;
+    let (ntx, canceled_at_delete) = delete_job(tx, &job_id).warn_after_seconds(10).await?;
+    tx = ntx;
+    // `canceled_by` is only what the worker last read from the queue row. Deleting the row waits
+    // for a cancel still being written, so the row it removed is the final word on whether this
+    // job was canceled.
+    if canceled_by.is_none() {
+        if let Some(canceled) = canceled_at_delete {
+            sqlx::query!(
+                "UPDATE v2_job_completed SET status = 'canceled'::job_status, canceled_by = $2, \
+                 canceled_reason = $3 WHERE id = $1",
+                job_id,
+                canceled.username,
+                canceled.reason,
+            )
+            .execute(&mut *tx)
+            .warn_after_seconds(10)
+            .await?;
+        }
+    }
     // tracing::error!("3 {:?}", start.elapsed());
 
     if completed_job.is_flow_step() {
@@ -1611,6 +1629,22 @@ async fn restart_job_if_perpetual_inner(
     };
 
     if restart {
+        // Not `canceled_by`: a worker reads the queue row on a widening interval, up to every 5s
+        // once a job has run for a minute, so a cancel landing after its last read reaches a
+        // completion carrying none. `commit_completed_job` records it from the queue row it
+        // deletes, so the completed row is what says whether this loop was stopped.
+        let canceled = sqlx::query_scalar!(
+            "SELECT canceled_by IS NOT NULL AS \"canceled!\" FROM v2_job_completed \
+             WHERE id = $1 AND workspace_id = $2",
+            queued_job.id,
+            &queued_job.workspace_id
+        )
+        .fetch_optional(db)
+        .await?
+        .unwrap_or(false);
+        if canceled {
+            return Ok(());
+        }
         let tx = PushIsolationLevel::IsolatedRoot(db.clone());
 
         // perpetual jobs can run one job per 10s max. If the job was faster than 10s, schedule the next one with the appropriate delay
@@ -1809,10 +1843,10 @@ async fn eval_retry_if(
     false
 }
 
-/// Native script retry. When a failed `Script` job carries a retry policy (via
-/// `runnable_settings_handle`) and has attempts left, enqueue a fresh attempt of
-/// the same script after the policy's backoff delay — instead of having wrapped
-/// it in a one-step flow. Each attempt is a real `Script` job; the attempt
+/// Native script retry. When a failed `Script` or `Script_Hub` job carries a retry
+/// policy (via `runnable_settings_handle`) and has attempts left, enqueue a fresh
+/// attempt of the same script after the policy's backoff delay — instead of having
+/// wrapped it in a one-step flow. Each attempt is a job of the same kind; the attempt
 /// counter lives in the `native_retry_attempt` marker, written here and read only
 /// on the next failure (never on the hot job-pull path).
 ///
@@ -1833,7 +1867,10 @@ pub async fn maybe_enqueue_native_script_retry(
     result_fn: &(dyn Fn() -> Option<Box<serde_json::value::RawValue>> + Sync),
 ) -> Result<bool, Error> {
     // Only plain top-level scripts retry natively; cancellation always wins.
-    if canceled_by.is_some() || !matches!(job.kind, JobKind::Script) || job.is_flow_step() {
+    if canceled_by.is_some()
+        || !matches!(job.kind, JobKind::Script | JobKind::Script_Hub)
+        || job.is_flow_step()
+    {
         return Ok(false);
     }
 
@@ -4650,6 +4687,30 @@ pub fn tag_reads_args(tag: &str) -> bool {
     RE_ARG_TAG.is_match(tag)
 }
 
+/// Whether the tag reads the flow's state (`$flow_expr[results.a.foo]`), which only the flow
+/// runtime can resolve, right before pushing the step. A malformed placeholder counts too, so it
+/// is rejected or dropped instead of queueing the job on its literal text.
+pub fn tag_reads_flow_expr(tag: &str) -> bool {
+    tag.contains("$flow_expr[")
+}
+
+/// Renders the value at the dotted `path` below `root` as a dynamic tag component, shared by
+/// `$args[...]` and `$flow_expr[...]`: its JSON text with surrounding quotes trimmed, and empty
+/// once a segment is missing. Only object keys are followed, never array indexes.
+pub fn render_tag_path(root: Option<&RawValue>, path: &str) -> String {
+    let mut value = root.map(|x| x.get()).unwrap_or_default().to_string();
+    for part in path.split('.').filter(|p| !p.is_empty()) {
+        match serde_json::from_str::<serde_json::Value>(&value) {
+            Ok(obj) => value = obj.get(part).map(|v| v.to_string()).unwrap_or_default(),
+            Err(_) => {
+                value = String::new();
+                break;
+            }
+        }
+    }
+    value.trim_matches('"').to_string()
+}
+
 pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> String {
     // Save this value to avoid parsing twice
     let workspaced = x.as_str().replace("$workspace", workspace_id).to_string();
@@ -4657,40 +4718,12 @@ pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> Strin
         let mut interpolated = workspaced.clone();
         for cap in RE_ARG_TAG.captures_iter(&workspaced) {
             let arg_name = cap.get(1).unwrap().as_str();
-            let arg_value = if arg_name.contains('.') {
-                let parts: Vec<&str> = arg_name.split('.').collect();
-                let root = parts[0];
-                let mut value = args
-                    .args
-                    .get(root)
-                    .or(args.extra.as_ref().and_then(|x| x.get(root)))
-                    .map(|x| x.get())
-                    .unwrap_or_default()
-                    .to_string();
-
-                for part in parts.iter().skip(1) {
-                    if let Ok(obj) = serde_json::from_str::<serde_json::Value>(&value) {
-                        value = obj
-                            .get(part)
-                            .and_then(|v| Some(v.to_string()))
-                            .unwrap_or_default()
-                            .as_str()
-                            .to_string();
-                    } else {
-                        value = "".to_string(); // Invalid JSON or missing field
-                        break;
-                    }
-                }
-                value.trim_matches('"').to_string()
-            } else {
-                args.args
-                    .get(arg_name)
-                    .or(args.extra.as_ref().and_then(|x| x.get(arg_name)))
-                    .map(|x| x.get())
-                    .unwrap_or_default()
-                    .trim_matches('"')
-                    .to_string()
-            };
+            let (root, rest) = arg_name.split_once('.').unwrap_or((arg_name, ""));
+            let root_value = args
+                .args
+                .get(root)
+                .or(args.extra.as_ref().and_then(|x| x.get(root)));
+            let arg_value = render_tag_path(root_value.map(|x| &**x), rest);
             interpolated =
                 interpolated.replace(format!("$args[{}]", arg_name).as_str(), &arg_value);
         }
@@ -4698,6 +4731,72 @@ pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> Strin
     } else {
         workspaced
     }
+}
+
+/// The queue an explicit `tag` sends a job pushed with `args` to, or `None` when `push` drops the
+/// tag and the job runs on its default one.
+pub async fn resolve_push_tag(
+    tag: &str,
+    args: &PushArgs<'_>,
+    workspace_id: &str,
+    db: &DB,
+) -> Option<String> {
+    // The flow runtime resolves a step's `$flow_expr[...]` before pushing it, so one still here
+    // was pushed with no flow state to read (a step test, a dependency job) and would name a
+    // queue no worker serves: the job runs on its default tag instead.
+    if tag.is_empty() || tag_reads_flow_expr(tag) {
+        return None;
+    }
+    // `$workspace` must resolve the same way the default tags do, or an explicit tag and a default
+    // tag from the same workspace address two different worker pools. Resolving costs a lookup,
+    // so pay it only for tags that actually interpolate `$workspace`.
+    let tag_ws = if tag.contains("$workspace") {
+        crate::tags::tag_workspace_id(workspace_id, db).await
+    } else {
+        workspace_id.to_string()
+    };
+    Some(interpolate_args(tag.to_string(), args, &tag_ws))
+}
+
+/// Refuses a `tag` the caller chose that the instance's custom tags do not let `w_id` use,
+/// judging the queue it resolves to. `args` must be the ones the job is pushed with: resolving
+/// with any others checks a queue the job does not land on.
+pub async fn check_tag_available_for_push(
+    db: &DB,
+    w_id: &str,
+    tag: &str,
+    args: &PushArgs<'_>,
+    is_super_admin: bool,
+    scope_tags: Option<Vec<&str>>,
+) -> Result<(), Error> {
+    check_tag_written_as_available_for_push(db, w_id, tag, tag, args, is_super_admin, scope_tags)
+        .await
+}
+
+/// [`check_tag_available_for_push`] for a `tag` the flow runtime already partly resolved from
+/// `written_tag`, the step's tag as its author wrote it.
+pub async fn check_tag_written_as_available_for_push(
+    db: &DB,
+    w_id: &str,
+    written_tag: &str,
+    tag: &str,
+    args: &PushArgs<'_>,
+    is_super_admin: bool,
+    scope_tags: Option<Vec<&str>>,
+) -> Result<(), Error> {
+    let Some(resolved_tag) = resolve_push_tag(tag, args, w_id, db).await else {
+        return Ok(());
+    };
+    windmill_common::jobs::check_tag_available_for_workspace_internal(
+        db,
+        w_id,
+        written_tag,
+        Some(&resolved_tag),
+        crate::tags::tag_workspace_id(w_id, db),
+        is_super_admin,
+        scope_tags,
+    )
+    .await
 }
 
 pub fn fullpath_with_workspace(
@@ -5091,34 +5190,44 @@ async fn extract_result_from_job_result(
     }
 }
 
+/// Also reports the cancellation the deleted row carried, if any. Unlike a plain read of the queue
+/// row, this waits for a cancel that is still being written, so it is the last word on one.
 pub async fn delete_job<'c>(
     mut tx: Transaction<'c, Postgres>,
     job_id: &Uuid,
-) -> windmill_common::error::Result<Transaction<'c, Postgres>> {
+) -> windmill_common::error::Result<(Transaction<'c, Postgres>, Option<CanceledBy>)> {
     #[cfg(feature = "prometheus")]
     if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
         QUEUE_DELETE_COUNT.inc();
     }
     otel_incr_queue_delete_count();
 
-    let job_removed =
-        sqlx::query_scalar!("DELETE FROM v2_job_queue WHERE id = $1 RETURNING 1", job_id,)
-            .fetch_optional(&mut *tx)
-            .await;
+    let job_removed = sqlx::query!(
+        "DELETE FROM v2_job_queue WHERE id = $1 RETURNING canceled_by, canceled_reason",
+        job_id,
+    )
+    .fetch_optional(&mut *tx)
+    .await;
 
-    if let Err(job_removed) = job_removed {
-        tracing::error!(
-            "Job {job_id} could not be deleted: {job_removed}. This is not necessarily an error, as the job might have been deleted by another process such as in the case of cancelling"
-        );
-    } else {
-        let job_removed = job_removed.unwrap().flatten().unwrap_or(0);
-        if job_removed != 1 {
-            tracing::error!("Job {job_id} could not be deleted, returned not 1: {job_removed}. This is not necessarily an error, as the job might have been deleted by another process such as in the case of cancelling");
+    let canceled = match &job_removed {
+        Err(job_removed) => {
+            tracing::error!(
+                "Job {job_id} could not be deleted: {job_removed}. This is not necessarily an error, as the job might have been deleted by another process such as in the case of cancelling"
+            );
+            None
         }
-    }
+        Ok(None) => {
+            tracing::error!("Job {job_id} could not be deleted, no row was removed. This is not necessarily an error, as the job might have been deleted by another process such as in the case of cancelling");
+            None
+        }
+        Ok(Some(row)) => row.canceled_by.as_ref().map(|username| CanceledBy {
+            username: Some(username.clone()),
+            reason: row.canceled_reason.clone(),
+        }),
+    };
 
     tracing::debug!("Job {job_id} deleted");
-    Ok(tx)
+    Ok((tx, canceled))
 }
 
 pub async fn job_is_complete(db: &DB, id: Uuid, w_id: &str) -> error::Result<bool> {
@@ -5269,6 +5378,8 @@ pub fn empty_result() -> Box<RawValue> {
 
 lazy_static::lazy_static! {
     pub static ref RE_ARG_TAG: Regex = Regex::new(r#"\$args\[((?:\w+\.)*\w+)\]"#).unwrap();
+    pub static ref RE_FLOW_EXPR_TAG: Regex =
+        Regex::new(r#"\$flow_expr\[((?:\w+\.)*\w+)\]"#).unwrap();
 }
 
 #[cfg(feature = "cloud")]
@@ -5746,10 +5857,10 @@ async fn push_inner<'c, 'd>(
             dedicated_worker,
             ..Default::default()
         },
-        JobPayload::FlowNode { id, path } => {
+        JobPayload::FlowNode { id, path, no_inherited_flow_env } => {
             let data = cache::flow::fetch_flow(db, id).await?;
             let value = data.value();
-            let status = Some(FlowStatus::new(value));
+            let status = Some(FlowStatus { no_inherited_flow_env, ..FlowStatus::new(value) });
             // Keep inserting `value` if not all workers are updated.
             // Starting at `v1.440`, the value is fetched on pull from the flow node id.
             let value_o = if !MIN_VERSION_IS_AT_LEAST_1_440.met().await {
@@ -5986,6 +6097,7 @@ async fn push_inner<'c, 'd>(
                         stream_job: None,
                         chat_input_enabled: None,
                         memory_id: None,
+                        no_inherited_flow_env: false,
                     }
                 }
                 _ => {
@@ -6045,10 +6157,12 @@ async fn push_inner<'c, 'd>(
             // `quickjs` feature it cannot be evaluated and fails closed (no retry);
             // the flow path is not a fallback, since the flow runtime needs quickjs
             // too.
+            // A hub script has no hash and runs as a `Script_Hub` job.
+            let is_hub = hash.is_none() && path.starts_with("hub/");
             let native_retry = !is_flow
                 && skip_handler.is_none()
                 && error_handler_path.is_none()
-                && hash.is_some()
+                && (hash.is_some() || is_hub)
                 && language.is_some()
                 && windmill_common::runnable_settings::min_version_supports_runnable_settings_v0()
                     .await;
@@ -6078,7 +6192,11 @@ async fn push_inner<'c, 'd>(
                 break 'ssf JobPayloadUntagged {
                     runnable_id: hash.map(|h| h.0),
                     runnable_path: Some(path),
-                    job_kind: JobKind::Script,
+                    job_kind: if is_hub {
+                        JobKind::Script_Hub
+                    } else {
+                        JobKind::Script
+                    },
                     language,
                     dedicated_worker,
                     concurrency_settings,
@@ -6380,6 +6498,7 @@ async fn push_inner<'c, 'd>(
                 stream_job: None,
                 chat_input_enabled: None,
                 memory_id: None,
+                no_inherited_flow_env: false,
             };
             let value = flow_data.value();
             let priority = value.priority;
@@ -6537,20 +6656,9 @@ async fn push_inner<'c, 'd>(
         );
         windmill_common::worker::dedicated_worker_tag(workspace_id, &full_path)
     } else {
-        if tag == Some("".to_string()) {
-            tag = None;
-        }
-
-        // `$workspace` must resolve the same way the default tags below do, or an explicit tag and
-        // a default tag from the same workspace address two different worker pools. Resolving costs
-        // a lookup, so pay it only for tags that actually interpolate `$workspace`.
         let interpolated_tag = match tag {
+            Some(x) => resolve_push_tag(&x, &args, workspace_id, db).await,
             None => None,
-            Some(x) if x.contains("$workspace") => {
-                let tag_ws = crate::tags::tag_workspace_id(&workspace_id, db).await;
-                Some(interpolate_args(x, &args, &tag_ws))
-            }
-            Some(x) => Some(interpolate_args(x, &args, workspace_id)),
         };
         let effective_ws = per_workspace_tag(&workspace_id, db).await;
 
@@ -7920,5 +8028,45 @@ mod result_metadata_tests {
         let meta = from_raw(r#"{"wm_labels": ["label"], "wm_failure": "boom"}"#);
         assert_eq!(meta.wm_labels, Some(vec!["label".to_string()]));
         assert_eq!(meta.wm_failure.as_deref(), Some("boom"));
+    }
+}
+
+#[cfg(test)]
+mod render_tag_path_tests {
+    use super::{interpolate_args, render_tag_path, PushArgs};
+    use serde_json::value::RawValue;
+    use std::collections::HashMap;
+
+    fn render(root: &str, path: &str) -> String {
+        render_tag_path(
+            Some(&RawValue::from_string(root.to_string()).unwrap()),
+            path,
+        )
+    }
+
+    // Existing `$args[...]` tags route on exactly these renderings.
+    #[test]
+    fn renders_like_args_tags() {
+        assert_eq!(render(r#""eu""#, ""), "eu");
+        assert_eq!(render(r#"{"a": {"b": "eu"}}"#, "a.b"), "eu");
+        assert_eq!(render(r#"{"n": 4}"#, "n"), "4");
+        assert_eq!(render("null", ""), "null");
+        assert_eq!(render(r#"{"a": 1}"#, "b.c"), "");
+        assert_eq!(render(r#"{"a": ["eu"]}"#, "a.0"), "");
+        assert_eq!(render_tag_path(None, "a"), "");
+
+        let args = HashMap::from([("cfg".to_string(), raw(r#"{"lang": "eu"}"#))]);
+        let push_args = PushArgs {
+            args: &args,
+            extra: Some(HashMap::from([("e".to_string(), raw(r#""x""#))])),
+        };
+        assert_eq!(
+            interpolate_args("w-$args[cfg.lang]-$args[e]".to_string(), &push_args, "ws"),
+            "w-eu-x"
+        );
+    }
+
+    fn raw(json: &str) -> Box<RawValue> {
+        RawValue::from_string(json.to_string()).unwrap()
     }
 }

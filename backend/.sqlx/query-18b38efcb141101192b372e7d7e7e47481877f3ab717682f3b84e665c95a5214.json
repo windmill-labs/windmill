@@ -1,0 +1,49 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT a.id as app_id, av.id as version_id, dm.deployment_msg as deployment_msg,\n                av.created_by as created_by, av.created_at as created_at\n        FROM app a\n        JOIN LATERAL (\n            SELECT av2.id, COALESCE(v.ord, 0) AS ord\n            FROM app_version av2\n            LEFT JOIN unnest(a.versions) WITH ORDINALITY AS v(id, ord) ON v.id = av2.id\n            WHERE av2.app_id = a.id\n            ORDER BY ord DESC, av2.id DESC\n            LIMIT $3 OFFSET $4\n        ) page ON TRUE\n        JOIN app_version av ON av.id = page.id\n        LEFT JOIN deployment_metadata dm ON av.id = dm.app_version\n        WHERE a.workspace_id = $1 AND a.path = $2\n        ORDER BY page.ord DESC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "app_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "version_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "deployment_msg",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "created_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "18b38efcb141101192b372e7d7e7e47481877f3ab717682f3b84e665c95a5214"
+}

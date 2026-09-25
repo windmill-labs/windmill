@@ -8,15 +8,18 @@
 	import { updateItemPathAndSummary, checkFlowOnBehalfOf } from './moveRenameManager'
 	import Label from './Label.svelte'
 	import TextInput from './text_input/TextInput.svelte'
-	import { FlowService, ScriptService, type TriggersCount } from '$lib/gen'
-	import { getDetailWorkspace } from '$lib/components/details/detailWorkspace'
+	import { DraftService, FlowService, ScriptService, type TriggersCount } from '$lib/gen'
 
 	const dispatch = createEventDispatcher()
 
-	const detailWs = getDetailWorkspace()
-	let ws = $derived(detailWs?.() ?? $workspaceStore)
-
 	type Kind = 'script' | 'resource' | 'schedule' | 'variable' | 'flow' | 'app'
+
+	/** The address the move endpoint takes: where a draft-only item's row lives, which
+	 * `initialPath` (what the user sees and edits) need not equal. Empty for a deployed
+	 * item, which is addressed by `initialPath` instead. */
+	let storagePath = $state('')
+	let rawApp = $state(false)
+	let draftOnly = $derived(storagePath !== '')
 
 	let kind = $state<Kind>('flow')
 	let initialPath = $state('')
@@ -70,23 +73,33 @@
 	})
 	let attachedTotal = $derived(attachedSummary.reduce((s, { count }) => s + count, 0))
 
+	/** `draft` marks an item that exists only as the caller's draft: pass the
+	 * generated path its draft row sits at, and `initialPath_l` is then the name
+	 * the user sees. Nothing is deployed, so there are no triggers to cascade
+	 * and no on-behalf-of identity to warn about. */
 	export async function openDrawer(
 		initialPath_l: string,
 		summary_l: string | undefined,
-		kind_l: Kind
+		kind_l: Kind,
+		draft?: { storagePath: string; rawApp?: boolean }
 	) {
 		kind = kind_l
 		path = undefined
 		dirtyPath = false
 		onBehalfOfEmail = undefined
 		attachedTriggers = undefined
+		storagePath = draft?.storagePath ?? ''
+		rawApp = draft?.rawApp ?? false
 		initialPath = initialPath_l
 		initialSummary = summary_l ?? ''
 		summary = summary_l
 		loadOwner()
 		drawer.openDrawer()
+		if (draftOnly) {
+			return
+		}
 		if (kind === 'flow') {
-			onBehalfOfEmail = await checkFlowOnBehalfOf(ws!, initialPath_l)
+			onBehalfOfEmail = await checkFlowOnBehalfOf($workspaceStore!, initialPath_l)
 		}
 		if (kind === 'script' || kind === 'flow') {
 			void loadAttachedTriggers()
@@ -95,7 +108,7 @@
 
 	async function loadAttachedTriggers() {
 		try {
-			const workspace = ws!
+			const workspace = $workspaceStore!
 			attachedTriggers =
 				kind === 'flow'
 					? await FlowService.getTriggersCountOfFlow({ workspace, path: initialPath })
@@ -107,13 +120,20 @@
 	}
 
 	function loadOwner() {
-		own = isOwner(initialPath, $userStore!, ws!)
+		own = isOwner(draftOnly ? storagePath : initialPath, $userStore!, $workspaceStore!)
 	}
 
 	async function updatePath() {
-		if (kind === 'flow' || kind === 'script' || kind === 'app') {
+		if (draftOnly && (kind === 'flow' || kind === 'script' || kind === 'app')) {
+			await DraftService.moveDraft({
+				workspace: $workspaceStore!,
+				kind: kind === 'app' && rawApp ? 'raw_app' : kind,
+				path: storagePath,
+				requestBody: { new_path: path ?? '', summary: summary ?? '' }
+			})
+		} else if (kind === 'flow' || kind === 'script' || kind === 'app') {
 			await updateItemPathAndSummary({
-				workspace: ws!,
+				workspace: $workspaceStore!,
 				kind,
 				initialPath,
 				newPath: path ?? '',

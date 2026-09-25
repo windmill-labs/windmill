@@ -18,7 +18,7 @@ parquet = []
 aws_auth = ["dep:aws-sdk-sts", "dep:aws-config"]
 otel = ["dep:opentelemetry-semantic-conventions", "dep:opentelemetry-otlp", "dep:opentelemetry_sdk",
     "dep:tracing-opentelemetry", "dep:opentelemetry-appender-tracing", "dep:tonic", "dep:opentelemetry"]
-smtp = ["dep:mail-send"]
+smtp = ["dep:mail-send", "dep:rustls", "dep:tokio-rustls", "dep:rustls-native-certs", "dep:webpki-roots"]
 scoped_cache = []
 cloud = []
 dev_override = []
@@ -85,6 +85,10 @@ aws-sdk-rds = { workspace = true, optional = true }
 indexmap.workspace = true
 bytes.workspace = true
 mail-send = { workspace = true, optional = true }
+rustls = { workspace = true, optional = true }
+tokio-rustls = { workspace = true, optional = true }
+rustls-native-certs = { workspace = true, optional = true }
+webpki-roots = { workspace = true, optional = true }
 futures-core.workspace = true
 async-stream.workspace = true
 const_format.workspace = true
@@ -136,6 +140,7 @@ equivalent = "1.0.2"
 [dev-dependencies]
 # `test-util` is not part of tokio's `full`; it is what lets tests pause the clock.
 tokio = { workspace = true, features = ["test-util"] }
+rcgen.workspace = true
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemalloc-ctl = { optional = true, workspace = true }

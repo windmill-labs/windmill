@@ -185,7 +185,7 @@
 		: 'w-[44px]'}"
 >
 	<!-- Header -->
-	<div class="flex-shrink-0 border-b">
+	<div class="flex-shrink-0">
 		<div class="flex flex-col gap-2 p-1">
 			<Button
 				unifiedSize="md"

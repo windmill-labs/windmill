@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { DataMetricService, WorkspaceService } from '$lib/gen'
-import { createToolDef, type Tool } from './shared'
+import { createToolDef } from './shared'
+import { NONE, type SessionTool } from './sessionCapabilities'
 
 /**
  * Workspace-scoped DuckLake tools, the pipeline counterpart to `list_datatables`
@@ -69,9 +70,10 @@ const NO_DATA_METRICS_NOTE =
 const DEFAULT_DATA_METRICS_LIMIT = 200
 
 /** The workspace DuckLake tools, for registration in global mode. */
-export function getDucklakeTools(): Tool<{}>[] {
+export function getDucklakeTools(): SessionTool<{}>[] {
 	return [
 		{
+			requires: NONE,
 			def: listDataMetricsToolDef,
 			planModeSafe: true,
 			showDetails: true,
@@ -106,6 +108,7 @@ export function getDucklakeTools(): Tool<{}>[] {
 			}
 		},
 		{
+			requires: NONE,
 			def: listDucklakesToolDef,
 			planModeSafe: true,
 			fn: async ({ workspace, toolId, toolCallbacks }) => {

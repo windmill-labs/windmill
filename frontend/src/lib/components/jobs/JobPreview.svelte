@@ -15,8 +15,10 @@
 	import { Badge } from '../common'
 	import { forLater } from '$lib/forLater'
 	import DurationMs from '../DurationMs.svelte'
-	import { workspaceStore } from '$lib/stores'
 	import { twMerge } from 'tailwind-merge'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	const POPUP_HEIGHT = 320 as const
 
@@ -115,7 +117,7 @@
 					<span class="text-xs font-normal text-secondary">Arguments</span>
 					<JobArgs
 						id={job?.id}
-						workspace={job?.workspace_id ?? $workspaceStore ?? 'no_w'}
+						workspace={job?.workspace_id ?? $operatingWorkspace ?? 'no_w'}
 						args={job?.args}
 					/>
 				</div>

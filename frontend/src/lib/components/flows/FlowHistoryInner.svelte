@@ -5,12 +5,14 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { classNames, displayDate, emptyString, sendUserToast } from '$lib/utils'
 	import { type Flow, FlowService, type FlowVersion } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { Skeleton } from '$lib/components/common'
 	import Button from '../common/button/Button.svelte'
 	import { ArrowRight, Loader2, Pencil, X } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from './types'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		path: string
@@ -21,7 +23,7 @@
 	let { path, allowFork = false, onHistoryRestore }: Props = $props()
 
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
-	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
+	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $operatingWorkspace)
 
 	let loading: boolean = $state(false)
 

@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM draft_move\n         WHERE workspace_id = $1 AND typ::text = ANY($2::text[])\n           AND old_path IN ($3, $4) AND ($5::text IS NULL OR email = $5)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "TextArray",
+        "Varchar",
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "797896e0152046844dbfee9d0e57e0055d742e44119bfb31ae7ff37a89b34d14"
+}

@@ -197,8 +197,8 @@
 		return previewTargetForDeployKind(item.deployKind, item.path)
 	}
 
-	// The row's primary action is the preview; kinds the panel can't host
-	// (triggers, schedules, resources, variables) fall back to their diff.
+	// The row's primary action is the preview; kinds the panel can't host fall back
+	// to their diff.
 	function openRow(item: DeployItem) {
 		if (previewTargetFor(item)) openInPreview(item)
 		else openDrawer(item.key)

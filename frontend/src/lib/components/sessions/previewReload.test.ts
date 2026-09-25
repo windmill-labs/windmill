@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { toolReloadEffect, tabsToReload, viewerTabsToReload } from './previewReload'
 import type { SessionPreviewTab } from './sessionState.svelte'
+import { pageItemUrl } from './previewPaths'
 
 describe('toolReloadEffect', () => {
 	it('maps a non-item mutation to its own list page only', () => {
@@ -49,6 +50,26 @@ describe('toolReloadEffect', () => {
 
 	it('reloads nothing for a trigger of unknown kind rather than guessing', () => {
 		expect(toolReloadEffect('write_trigger', { kind: 'not_a_kind' }).pages).toEqual([])
+	})
+})
+
+describe('page item tabs', () => {
+	const tab = (url: string): SessionPreviewTab => ({ id: url, url, loc: url })
+	const kafkaA = tab('pageitem:trigger.kafka/u%2Fme%2Fa')
+	const kafkaB = tab('pageitem:trigger.kafka/u%2Fme%2Fb')
+	const list = tab('/kafka_triggers')
+
+	it('reloads only the trigger a write names, and its list page', () => {
+		const { pages, items } = toolReloadEffect('write_trigger', {
+			kind: 'kafka',
+			config: { path: 'u/me/a' }
+		})
+		const named = new Set(items.map((i) => pageItemUrl(i)))
+		expect(tabsToReload([kafkaA, kafkaB, list], new Set(pages), named)).toEqual([kafkaA, list])
+	})
+
+	it('reloads every tab of the kind when the tool names no item', () => {
+		expect(tabsToReload([kafkaA, kafkaB], new Set(['/kafka_triggers']))).toEqual([kafkaA, kafkaB])
 	})
 })
 
@@ -120,31 +141,31 @@ describe('viewerTabsToReload', () => {
 	})
 })
 
-describe('toolReloadEffect items', () => {
+describe('toolReloadEffect deployed', () => {
 	// A deploy is invisible to a View tab otherwise: it renders the deployed version over
 	// the API and shares no store with the chat.
 	it('names the item a deploy or delete changed, for the kinds a tab can view', () => {
 		for (const type of ['script', 'flow', 'app']) {
-			expect(toolReloadEffect('deploy_workspace_item', { type, path: 'u/me/x' }).items).toEqual([
+			expect(toolReloadEffect('deploy_workspace_item', { type, path: 'u/me/x' }).deployed).toEqual([
 				'u/me/x'
 			])
-			expect(toolReloadEffect('delete_workspace_item', { type, path: 'u/me/x' }).items).toEqual([
+			expect(toolReloadEffect('delete_workspace_item', { type, path: 'u/me/x' }).deployed).toEqual([
 				'u/me/x'
 			])
 		}
 	})
 
 	it('names no item for a draft-only tool — nothing deployed changed', () => {
-		expect(toolReloadEffect('write_script', { path: 'u/me/x' }).items).toEqual([])
+		expect(toolReloadEffect('write_script', { path: 'u/me/x' }).deployed).toEqual([])
 		expect(
-			toolReloadEffect('discard_local_draft', { type: 'script', path: 'u/me/x' }).items
+			toolReloadEffect('discard_local_draft', { type: 'script', path: 'u/me/x' }).deployed
 		).toEqual([])
-		expect(toolReloadEffect('rebase_draft', { type: 'flow', path: 'u/me/x' }).items).toEqual([])
+		expect(toolReloadEffect('rebase_draft', { type: 'flow', path: 'u/me/x' }).deployed).toEqual([])
 	})
 
 	it('names no item for types that have a list page instead of a view side', () => {
 		expect(
-			toolReloadEffect('deploy_workspace_item', { type: 'schedule', path: 'u/me/s' }).items
+			toolReloadEffect('deploy_workspace_item', { type: 'schedule', path: 'u/me/s' }).deployed
 		).toEqual([])
 	})
 })

@@ -167,7 +167,13 @@ pub fn jwk_algorithms(jwk: &Jwk) -> Option<Vec<Algorithm>> {
     {
         return None;
     }
-    match (&jwk.algorithm, jwk.common.algorithm) {
+    let alg = crate::jwt::jwk_algorithm(jwk);
+    // A key that names an `alg` we cannot verify with (RSA-OAEP, ...) is not an alg-less
+    // key to be tried against the whole family: it is published for something else.
+    if alg.is_none() && jwk.common.key_algorithm.is_some() {
+        return None;
+    }
+    match (&jwk.algorithm, alg) {
         (AlgorithmParameters::RSA(_), Some(alg)) if RSA_ALGORITHMS.contains(&alg) => {
             Some(vec![alg])
         }
@@ -197,6 +203,9 @@ pub fn verify(
     let mut validation = Validation::new(algorithms[0]);
     validation.algorithms = algorithms.to_vec();
     validation.validate_nbf = true;
+    // Audience is not part of the guest contract: issuers commonly stamp their own `aud`,
+    // and no accepted audience is configured, so an `aud` claim must not fail the token.
+    validation.validate_aud = false;
     let claims = jsonwebtoken::decode::<GuestJwtClaims>(token, key, &validation)
         .map_err(|e| Error::NotAuthorized(format!("guest JWT refused: {e}")))?
         .claims;
@@ -649,6 +658,12 @@ mod tests {
     }
 
     #[test]
+    fn a_key_naming_an_encryption_alg_is_refused() {
+        let k = jwk(serde_json::json!({"kty":"RSA","alg":"RSA-OAEP","n":"aa","e":"AQAB"}));
+        assert_eq!(jwk_algorithms(&k), None);
+    }
+
+    #[test]
     fn a_key_marked_for_encryption_is_refused() {
         let k = jwk(serde_json::json!({"kty":"RSA","use":"enc","n":"aa","e":"AQAB"}));
         assert_eq!(jwk_algorithms(&k), None);
@@ -787,6 +802,50 @@ mod tests {
             "-----BEGIN CERTIFICATE-----\nnope\n-----END CERTIFICATE-----"
         )
         .is_err());
+    }
+
+    #[test]
+    fn a_token_carrying_an_audience_still_verifies() {
+        // jsonwebtoken validates `aud` by default when the token has one, which would refuse
+        // every issuer that stamps its own audience.
+        let key = jsonwebtoken::DecodingKey::from_jwk(&jwk(serde_json::json!({
+            "kty": "EC", "crv": "P-256", "kid": "k1", "x": PUB1_X, "y": PUB1_Y
+        })))
+        .unwrap();
+        let token = jsonwebtoken::encode(
+            &jsonwebtoken::Header::new(Algorithm::ES256),
+            &serde_json::json!({
+                "email": "g@example.com",
+                "workspace_id": "ws",
+                "app_path": "u/a/app",
+                "aud": "https://issuer.example/api",
+                "exp": jsonwebtoken::get_current_timestamp() + 600,
+            }),
+            &jsonwebtoken::EncodingKey::from_ec_pem(PRIV1.as_bytes()).unwrap(),
+        )
+        .unwrap();
+        verify(&token, &key, &[Algorithm::ES256], "ws").expect("aud is not validated");
+    }
+
+    #[test]
+    fn an_8192_bit_rsa_key_verifies() {
+        // The largest modulus real issuers use; a crypto backend capped at 4096 bits rejects
+        // every token signed with it while the key itself still loads.
+        const PRIVATE: &str = include_str!("../tests/fixtures/guest_jwt_rsa8192_private.pem");
+        const PUBLIC: &str = include_str!("../tests/fixtures/guest_jwt_rsa8192_public.pem");
+        let (key, algs) = decoding_key_from_pem(PUBLIC).expect("8192-bit SPKI loads");
+        let token = jsonwebtoken::encode(
+            &jsonwebtoken::Header::new(Algorithm::RS256),
+            &serde_json::json!({
+                "email": "g@example.com",
+                "workspace_id": "ws",
+                "app_path": "u/a/app",
+                "exp": jsonwebtoken::get_current_timestamp() + 600,
+            }),
+            &jsonwebtoken::EncodingKey::from_rsa_pem(PRIVATE.as_bytes()).unwrap(),
+        )
+        .unwrap();
+        verify(&token, &key, algs, "ws").expect("8192-bit RSA signature verifies");
     }
 
     // A real RSA public key (SPKI). Its private counterpart is RSA_PKCS1_PRIVATE below.

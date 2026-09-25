@@ -9,6 +9,13 @@
 // state is the `onReveal` callback — so the pacing is unit-testable with an
 // injected clock and scheduler.
 
+import { BROWSER } from 'esm-env'
+
+/** SSR and readers who prefer reduced motion get no pacing: text lands as it arrives. */
+export function prefersInstantReveal(): boolean {
+	return !BROWSER || (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false)
+}
+
 type Schedule = (cb: () => void) => unknown
 type Cancel = (handle: unknown) => void
 

@@ -11,7 +11,7 @@
 		type ScriptLang,
 		type ScriptModule
 	} from '$lib/gen'
-	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userStore } from '$lib/stores'
 	import { copyToClipboard, emptySchema, sendUserToast } from '$lib/utils'
 	import Editor from './Editor.svelte'
 	import { inferArgs, inferAssets, inferAnsibleExecutionMode } from '$lib/infer'
@@ -129,6 +129,9 @@
 	import { resource, watch } from 'runed'
 	import { buildScriptRecording, downloadRecordingJson } from './recording/runRecording'
 	import DropdownV2 from './DropdownV2.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		// Exported
@@ -226,10 +229,8 @@
 		// built by the pipeline page from the resolved graph. Absent outside the
 		// pipeline editor — the check still runs, just without suppression.
 		schemaContractContext?: SchemaContractGraphContext
-		// Workspace to scope this editor's calls to. Defaults to the nav
-		// `$workspaceStore`; an AI-session live editor passes the session's
-		// acting workspace (a fork) so tests, captures and toolbar lookups hit
-		// the right workspace instead of the nav one.
+		// Workspace to scope this editor's calls to (tests, captures, toolbar lookups).
+		// Defaults to the operating workspace (see `useOperatingWorkspace`).
 		workspaceOverride?: string
 	}
 
@@ -278,7 +279,7 @@
 		workspaceOverride = undefined
 	}: Props = $props()
 
-	let opWs = $derived(workspaceOverride ?? $workspaceStore)
+	let opWs = $derived(workspaceOverride ?? $operatingWorkspace)
 
 	// Publish this editor's hand-off for AI entry points below it (the preview
 	// panel's "AI Fix"), withheld under `disableAi` so an embed that turned AI off

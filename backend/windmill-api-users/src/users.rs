@@ -47,7 +47,10 @@ use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::audit::AuditAuthor;
 use windmill_common::auth::{hash_token, safe_token_prefix, TOKEN_PREFIX_LEN};
-use windmill_common::global_settings::AUTOMATE_USERNAME_CREATION_SETTING;
+use windmill_common::global_settings::{
+    load_value_from_global_settings, parse_max_token_expiration_days,
+    AUTOMATE_USERNAME_CREATION_SETTING, MAX_TOKEN_EXPIRATION_DAYS_SETTING,
+};
 use windmill_common::oauth2::InstanceEvent;
 use windmill_common::per_minute_counter::PerMinuteCounter;
 use windmill_common::users::truncate_token;
@@ -524,7 +527,7 @@ async fn list_users_as_super_admin(
     let rows = if active_only.is_some_and(|x| x) {
         sqlx::query_as!(
             GlobalUserInfo,
-            r#"WITH active_users AS (SELECT distinct username as email FROM (SELECT username, timestamp, operation FROM audit_partitioned UNION ALL SELECT username, timestamp, operation FROM audit) AS a WHERE timestamp > NOW() - INTERVAL '1 month' AND (operation = 'users.login' OR operation = 'oauth.login' OR operation = 'users.token.refresh')),
+            r#"WITH active_users AS (SELECT distinct username as email FROM audit_partitioned WHERE timestamp > NOW() - INTERVAL '1 month' AND (operation = 'users.login' OR operation = 'oauth.login' OR operation = 'users.token.refresh')),
             authors as (SELECT distinct email FROM usr WHERE usr.operator IS false)
             SELECT email as "email!", (email NOT IN (SELECT email FROM authors)) as operator_only, NULL::bool as is_workspace_admin, login_type::text, verified as "verified!", super_admin as "super_admin!", devops as "devops!", name, company, username, first_time_user as "first_time_user!", role_source as "role_source!", disabled as "disabled!", NULL::text as workspace_id
             FROM password
@@ -1703,14 +1706,25 @@ async fn delete_user(
         .await?;
     windmill_common::user_drafts::delete_drafts_of_email(&mut *tx, &email_to_delete).await?;
 
-    let usernames = sqlx::query_scalar!(
-        "DELETE FROM usr WHERE email = $1 RETURNING username",
+    let memberships = sqlx::query!(
+        "DELETE FROM usr WHERE email = $1 RETURNING username, workspace_id",
         &email_to_delete
     )
     .fetch_all(&mut *tx)
     .await?;
 
-    for username in usernames {
+    for row in memberships {
+        let username = row.username;
+        // A tenant list names a principal of its workspace, so the name has to be freed in every
+        // workspace this account belonged to: a later account taking the username would otherwise
+        // inherit the data table access it had.
+        windmill_common::workspaces::remove_datatable_tenant_in_workspace(
+            &mut tx,
+            &row.workspace_id,
+            &format!("u/{username}"),
+        )
+        .await?;
+
         sqlx::query!("DELETE FROM password WHERE email = $1", &email_to_delete)
             .execute(&mut *tx)
             .await?;
@@ -2456,6 +2470,15 @@ pub async fn delete_workspace_user_internal(
     tx: &mut Transaction<'_, Postgres>,
     authed: Option<&ApiAuthed>, // None for system operations
 ) -> Result<()> {
+    // Same reasoning as the `extra_perms` sweep below: a freed username must not stay named
+    // anywhere that grants access, tenant lists included.
+    windmill_common::workspaces::remove_datatable_tenant_in_workspace(
+        tx,
+        w_id,
+        &format!("u/{username_to_delete}"),
+    )
+    .await?;
+
     // ---- Clean up extra_perms referencing this user ----
     let extra_perms_tables = [
         "script",
@@ -2534,6 +2557,14 @@ pub async fn delete_workspace_user_internal(
     // ---- Delete user records ----
     sqlx::query_scalar!(
         "DELETE FROM usr WHERE email = $1 AND workspace_id = $2",
+        email_to_delete,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        "DELETE FROM remote_deploy_token WHERE email = $1 AND workspace_id = $2",
         email_to_delete,
         w_id
     )
@@ -3072,11 +3103,68 @@ pub async fn create_guest_session_token<'c>(
 
 // create_token_internal is re-exported from windmill-api-auth above
 
+/// Applies the instance-wide ceiling on how long a token a caller picks the lifetime of may
+/// live (`create_token`, and `impersonate` for superadmins), returning the expiration to store:
+/// the requested one while it fits, the ceiling otherwise, and the ceiling as well when none was
+/// requested. Only the stored expiration is capped: tokens already stored when the setting is
+/// turned on or lowered keep theirs, since the auth lookup never reads the setting.
+///
+/// It shortens rather than refuses because most callers do not comply on their own. The CLI
+/// authorization page, `wmill user create-token` and the editor's language-server token each
+/// pick a lifetime, often none at all, without reading the setting (and CLIs already installed
+/// never will), so refusing would break logging in and the editor instead of the long-lived
+/// tokens the setting is aimed at.
+///
+/// Read from `global_settings` on each call rather than cached: token creation is rare
+/// enough that the round trip costs nothing, and the ceiling is then never served stale.
+///
+/// A token owned by a service account is exempt: in the workspace the token names, or in any
+/// workspace for a workspace-less token, which has none to match. Service accounts are the
+/// identity automation that needs a long-lived credential runs as. The cost is that any
+/// workspace admin can create and impersonate one to hold an uncapped token, so the ceiling
+/// bounds personal tokens rather than what an admin can obtain.
+async fn cap_token_expiration(
+    db: &DB,
+    owner_email: &str,
+    workspace_id: Option<&str>,
+    requested: Option<chrono::DateTime<chrono::Utc>>,
+) -> Result<Option<chrono::DateTime<chrono::Utc>>> {
+    let value = load_value_from_global_settings(db, MAX_TOKEN_EXPIRATION_DAYS_SETTING).await?;
+    let max_days = match parse_max_token_expiration_days(value.as_ref()) {
+        Ok(Some(max_days)) => max_days,
+        Ok(None) => return Ok(requested),
+        // Both write paths reject this, so only a row written around them gets here.
+        Err(e) => {
+            tracing::warn!("ignoring {MAX_TOKEN_EXPIRATION_DAYS_SETTING}: {e}");
+            return Ok(requested);
+        }
+    };
+    let max = chrono::Utc::now() + chrono::Duration::days(max_days);
+
+    let is_service_account = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM usr WHERE email = $1 AND is_service_account IS true
+            AND ($2::varchar IS NULL OR workspace_id = $2))",
+        owner_email,
+        workspace_id,
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(false);
+    if is_service_account {
+        return Ok(requested);
+    }
+
+    Ok(Some(match requested {
+        Some(expiration) if expiration < max => expiration,
+        _ => max,
+    }))
+}
+
 async fn create_token(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
     OptJobAuthed { job_id, .. }: OptJobAuthed,
-    Json(token_config): Json<NewToken>,
+    Json(mut token_config): Json<NewToken>,
 ) -> Result<(StatusCode, String)> {
     forbid_elevated_job_token(&db, &authed.email, job_id).await?;
     check_token_create_rate_limit(&authed.username)?;
@@ -3097,6 +3185,14 @@ async fn create_token(
     }
 
     windmill_api_auth::ensure_scopes_within_caller(&authed, token_config.scopes.as_deref())?;
+
+    token_config.expiration = cap_token_expiration(
+        &db,
+        &authed.email,
+        token_config.workspace_id.as_deref(),
+        token_config.expiration,
+    )
+    .await?;
 
     let mut tx = db.begin().await?;
 
@@ -3154,6 +3250,7 @@ async fn impersonate(
     .fetch_optional(&db)
     .await?
     .unwrap_or(false);
+    let expiration = cap_token_expiration(&db, &impersonated, None, new_token.expiration).await?;
     let mut tx = db.begin().await?;
 
     sqlx::query!(
@@ -3165,7 +3262,7 @@ async fn impersonate(
         plaintext as Option<&str>,
         impersonated,
         new_token.label,
-        new_token.expiration,
+        expiration,
         is_super_admin
     )
     .execute(&mut *tx)
@@ -3175,7 +3272,7 @@ async fn impersonate(
         &mut *tx,
         &t_hash,
         new_token.label.as_deref(),
-        new_token.expiration,
+        expiration,
     )
     .await;
 
@@ -3925,6 +4022,8 @@ async fn update_token_label(
                  AND NOT starts_with(label, 'embed_app:')
                  AND NOT starts_with(label, 'sdk_app:')
                  AND NOT starts_with(label, 'impersonation:')
+                 AND NOT starts_with(label, 'cli-login:')
+                 AND NOT starts_with(label, 'remote-deploy:')
              ))
            RETURNING token_prefix",
         req.label.as_deref(),
@@ -3965,13 +4064,31 @@ async fn leave_workspace(
 ) -> Result<String> {
     forbid_job_token_account_destruction(&authed)?;
     let mut tx = db.begin().await?;
-    sqlx::query!(
+    windmill_common::workspaces::remove_datatable_tenant_in_workspace(
+        &mut tx,
+        &w_id,
+        &format!("u/{}", authed.username),
+    )
+    .await?;
+    let left = sqlx::query!(
         "DELETE FROM usr WHERE workspace_id = $1 AND username = $2",
         &w_id,
         authed.username
     )
     .execute(&mut *tx)
-    .await?;
+    .await?
+    .rows_affected();
+    // A superadmin deploys from workspaces it is no member of; leaving none is no reason to drop
+    // its connection.
+    if left > 0 {
+        sqlx::query!(
+            "DELETE FROM remote_deploy_token WHERE email = $1 AND workspace_id = $2",
+            &authed.email,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
 
     audit_log(
         &mut *tx,

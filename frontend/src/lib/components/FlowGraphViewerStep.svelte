@@ -12,7 +12,7 @@
 	import SchemaViewer from './SchemaViewer.svelte'
 	import { scriptPathToHref } from '$lib/scripts'
 	import { cleanExpr, copyToClipboard } from '$lib/utils'
-	import { hubBaseUrlStore, workspaceStore } from '$lib/stores'
+	import { hubBaseUrlStore } from '$lib/stores'
 
 	import { twMerge } from 'tailwind-merge'
 	import FlowModuleScript from './flows/content/FlowModuleScript.svelte'
@@ -20,6 +20,9 @@
 	import HighlightTheme from './HighlightTheme.svelte'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
 	import FlowGraphViewerStepHeader from './FlowGraphViewerStepHeader.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		schema?: any | undefined
@@ -41,7 +44,7 @@
 		workspace = undefined,
 		onBack = undefined
 	}: Props = $props()
-	let ws = $derived(workspace ?? $workspaceStore)
+	let ws = $derived(workspace ?? $operatingWorkspace)
 	let codeViewer: Drawer | undefined = $state()
 </script>
 

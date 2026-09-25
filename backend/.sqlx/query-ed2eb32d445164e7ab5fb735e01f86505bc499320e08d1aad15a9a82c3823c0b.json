@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM v2_job_queue WHERE id = $1 RETURNING canceled_by, canceled_reason",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "canceled_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "canceled_reason",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true,
+      true
+    ]
+  },
+  "hash": "ed2eb32d445164e7ab5fb735e01f86505bc499320e08d1aad15a9a82c3823c0b"
+}
