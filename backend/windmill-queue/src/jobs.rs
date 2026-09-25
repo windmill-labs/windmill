@@ -1203,7 +1203,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         && monitor_parent.is_none()
         && !is_scheduled
     {
-        let Some(duration) = completion.execute(db).await? else {
+        let Some(duration) = completion.execute(&mut *db.acquire().await?).await? else {
             return Err(not_in_queue_error(db, job_id).await);
         };
         log_completed_job(completed_job, duration, success);
@@ -1484,7 +1484,7 @@ impl Completion<'_> {
     /// It locks the queue row before the completed row's key. Any other writer completing a job
     /// (the monitor's zombie fallback, debounce) must take them in the same order, or the two
     /// deadlock.
-    async fn execute<'e>(&self, conn: impl PgExecutor<'e>) -> error::Result<Option<i64>> {
+    async fn execute(&self, conn: &mut sqlx::PgConnection) -> error::Result<Option<i64>> {
         let Completion {
             completed_job,
             success,
@@ -1506,7 +1506,10 @@ impl Completion<'_> {
             .is_flow_step()
             .then_some(completed_job.parent_job)
             .flatten();
-        sqlx::query_scalar!(
+        // A cancel of the flow marks the flow and then its steps. When the delete waited on it,
+        // the parent row read by this statement's snapshot predates it, so the ping moves to a
+        // statement of its own that sees the cancel.
+        let completed = sqlx::query!(
         "WITH deleted AS (
             DELETE FROM v2_job_queue WHERE id = $1
             RETURNING id, workspace_id, started_at, worker, canceled_by, canceled_reason
@@ -1549,8 +1552,11 @@ impl Completion<'_> {
             FROM v2_job_queue q
             WHERE r.id = $11 AND q.id = r.id AND q.workspace_id = $12 AND q.canceled_by IS NULL
                 AND EXISTS (SELECT 1 FROM completed)
+                AND NOT EXISTS (SELECT 1 FROM deleted WHERE canceled_by IS NOT NULL)
         )
-        SELECT duration_ms AS \"duration_ms!\" FROM completed",
+        SELECT c.duration_ms AS \"duration_ms!\",
+            EXISTS (SELECT 1 FROM deleted WHERE canceled_by IS NOT NULL) AS \"carried_cancel!\"
+        FROM completed c",
         /* $1 */ completed_job.id,
         /* $2 */ success,
         /* $3 */ result,
@@ -1564,7 +1570,7 @@ impl Completion<'_> {
         /* $11 */ parent_to_ping,
         /* $12 */ &completed_job.workspace_id,
     )
-    .fetch_optional(conn)
+    .fetch_optional(&mut *conn)
     .warn_after_seconds(10)
     .await
     .map_err(|e| {
@@ -1572,7 +1578,26 @@ impl Completion<'_> {
             "Could not add completed job {}: {e:#}",
             completed_job.id
         ))
-    })
+    })?;
+        let Some(completed) = completed else {
+            return Ok(None);
+        };
+        if let Some(parent_job) = parent_to_ping.filter(|_| completed.carried_cancel) {
+            sqlx::query!(
+                "UPDATE v2_job_runtime r SET
+                        ping = now()
+                    FROM v2_job_queue q
+                    WHERE r.id = $1 AND q.id = r.id
+                        AND q.workspace_id = $2
+                        AND canceled_by IS NULL",
+                parent_job,
+                &completed_job.workspace_id
+            )
+            .execute(&mut *conn)
+            .warn_after_seconds(10)
+            .await?;
+        }
+        Ok(Some(completed.duration_ms))
     }
 }
 
