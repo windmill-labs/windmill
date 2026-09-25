@@ -78,7 +78,9 @@
 	let savedAgentsLoading = $state(false)
 	let savedAgentsWs: string | undefined = undefined
 	async function loadSavedAgents() {
-		if (!ws || savedAgentsWs === ws) {
+		// A linked agent takes its tools from a resource operators may rewrite after the flow is
+		// deployed, so the backend refuses one in a flow a builder authors.
+		if (!ws || savedAgentsWs === ws || $operatorBuilderFlows) {
 			return
 		}
 		savedAgentsLoading = true
@@ -357,7 +359,9 @@
 						<kbd class="!text-xs">&crarr;</kbd>
 					{/if}
 				</Button>
-				{#if savedAgentsLoading}
+				{#if $operatorBuilderFlows}
+					<!-- Linked agents are refused to builders, see `loadSavedAgents`. -->
+				{:else if savedAgentsLoading}
 					<div class="flex items-center gap-2 p-2 text-xs text-tertiary">
 						<Loader2 size={13} class="animate-spin" /> Loading saved agents
 					</div>
