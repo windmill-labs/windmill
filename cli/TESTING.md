@@ -57,8 +57,10 @@ The API client `gen/services.gen.ts` is the exception, and is stubbed only throu
 `mockServices` in `test/mock_services.ts`. Bun fixes a mocked module's export names at
 the first `mock.module` call of the run, so a stub that replaced the module with just the
 functions its suite needed left every other name undefined for the rest of the run, even
-for suites that stubbed that name themselves. `mockServices` lays the stubs over the real
-exports and hands the real module back in `afterAll`.
+for suites that stubbed that name themselves. `test/mock_services.ts` therefore calls
+`mock.module` exactly once, with every real export behind a dispatcher; `mockServices`
+only swaps which stubs the dispatcher routes to, so it doesn't rely on the unreliable
+`afterAll` re-mock described above.
 
 `raw_app_push_policy_unit.test.ts` deliberately does not stub `bundle.ts`, which failed
 the rule.
