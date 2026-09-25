@@ -58,6 +58,10 @@ pub mod ee_oss;
 pub mod email_ee;
 pub mod email_oss;
 pub mod error;
+pub mod external_instance_pg;
+#[cfg(all(feature = "private", feature = "enterprise"))]
+mod external_instance_pg_ee;
+pub mod external_instance_pg_oss;
 pub mod external_ip;
 #[cfg(feature = "private")]
 pub mod feature_usage_ee;
@@ -1082,7 +1086,13 @@ impl PgDatabase {
                 if err_str.contains("password authentication failed for user")
                     && err_str.contains("custom_instance_user")
                 {
-                    if let Some(db) = main_db {
+                    // The external instance cluster has a `custom_instance_user` of its own, whose
+                    // password setup manages. Rotating the local one would break every instance
+                    // data table and fix nothing.
+                    let local = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
+                    let on_local_cluster = local.host == self.host
+                        && local.port.unwrap_or(5432) == self.port.unwrap_or(5432);
+                    if let Some(db) = main_db.filter(|_| on_local_cluster) {
                         tracing::warn!(
                             "custom_instance_user password auth failed, refreshing and retrying..."
                         );
@@ -1623,11 +1633,39 @@ pub async fn instance_database_users(
 }
 
 /// Drop a custom instance database: validate, terminate connections, DROP DATABASE, remove from global_settings.
+///
+/// Authorization: drops any instance database but Windmill's own and checks nothing. Callers MUST
+/// be superadmin, or have established the caller may drop this one — a fork's owner cleaning up
+/// its own copy that nothing else uses.
 pub async fn drop_custom_instance_database(db: &DB, dbname: &str) -> error::Result<()> {
     drop_custom_instance_database_on(&mut *db.acquire().await?, dbname).await
 }
 
+/// [`drop_custom_instance_database`] leaving its registry entry, for a caller holding row locks in
+/// a transaction: the registry write has to go through that transaction, as waiting on another
+/// connection for a lock the transaction's own peers hold is a deadlock Postgres cannot see. Same
+/// authorization contract.
+pub async fn drop_custom_instance_database_keep_entry(db: &DB, dbname: &str) -> error::Result<()> {
+    drop_instance_database_keep_entry_on(&mut *db.acquire().await?, dbname).await
+}
+
 async fn drop_custom_instance_database_on(
+    conn: &mut sqlx::PgConnection,
+    dbname: &str,
+) -> error::Result<()> {
+    let dbname = dbname.trim();
+    drop_instance_database_keep_entry_on(&mut *conn, dbname).await?;
+    // Always remove from global_settings
+    sqlx::query!(
+        r#"UPDATE global_settings SET value = value #- ARRAY['databases', $1] WHERE name = 'custom_instance_pg_databases'"#,
+        dbname
+    )
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
+}
+
+async fn drop_instance_database_keep_entry_on(
     conn: &mut sqlx::PgConnection,
     dbname: &str,
 ) -> error::Result<()> {
@@ -1676,14 +1714,6 @@ async fn drop_custom_instance_database_on(
         tracing::info!("Database '{}' does not exist, skipping drop", dbname);
     }
 
-    // Always remove from global_settings
-    sqlx::query!(
-        r#"UPDATE global_settings SET value = value #- ARRAY['databases', $1] WHERE name = 'custom_instance_pg_databases'"#,
-        dbname
-    )
-    .execute(&mut *conn)
-    .await?;
-
     Ok(())
 }
 
@@ -1723,11 +1753,13 @@ pub async fn ensure_instance_db_grant_options_unchecked(
 }
 
 /// Create a custom instance database: CREATE DATABASE, grant permissions, register in global_settings.
-/// The `tag` is stored in global_settings metadata (e.g. "datatable" or "ducklake").
+/// The `tag` is stored in global_settings metadata (e.g. "datatable" or "ducklake"). `for_workspace`
+/// is the workspace a member creates a fork copy for; see [`ensure_fork_database_available_to`].
 pub async fn create_custom_instance_database(
     db: &DB,
     dbname: &str,
     tag: &str,
+    for_workspace: Option<&str>,
 ) -> error::Result<()> {
     let dbname = dbname.trim();
     validate_dbname(dbname)?;
@@ -1757,7 +1789,7 @@ pub async fn create_custom_instance_database(
 
     // Nothing names a database that failed past this point, and its name blocks the retry: drop it
     // rather than leave it behind.
-    if let Err(e) = finish_custom_instance_database(db, dbname, tag).await {
+    if let Err(e) = finish_custom_instance_database(db, dbname, tag, for_workspace).await {
         match drop_unused_instance_database(db, dbname).await {
             Ok(Cleanup::InUse(users)) => tracing::warn!(
                 "Kept '{dbname}' after failing to set it up: workspaces {} use it",
@@ -1787,7 +1819,12 @@ pub async fn create_custom_instance_database(
 }
 
 /// Grant `custom_instance_user` its privileges on a database just created, and register it.
-async fn finish_custom_instance_database(db: &DB, dbname: &str, tag: &str) -> error::Result<()> {
+async fn finish_custom_instance_database(
+    db: &DB,
+    dbname: &str,
+    tag: &str,
+    for_workspace: Option<&str>,
+) -> error::Result<()> {
     // Grant permissions to custom_instance_user
     let wmill_pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
     let new_pg_creds = PgDatabase { dbname: dbname.to_string(), ..wmill_pg_creds };
@@ -1814,7 +1851,8 @@ async fn finish_custom_instance_database(db: &DB, dbname: &str, tag: &str) -> er
         },
         "success": true,
         "error": null,
-        "tag": tag
+        "tag": tag,
+        "workspace_id": for_workspace,
     });
     sqlx::query!(
         r#"UPDATE global_settings SET value = jsonb_set(value, '{databases}', (COALESCE(value->'databases', '{}'::jsonb) || to_jsonb($1::json))) WHERE name = 'custom_instance_pg_databases'"#,
@@ -1822,6 +1860,74 @@ async fn finish_custom_instance_database(db: &DB, dbname: &str, tag: &str) -> er
     )
     .execute(db)
     .await?;
+    Ok(())
+}
+
+/// The system's CA bundle file, for libpq clients that cannot take `sslrootcert=system`: that value
+/// needs libpq 16, and verify-full only.
+pub fn system_ca_bundle() -> Option<std::path::PathBuf> {
+    std::env::var_os("SSL_CERT_FILE")
+        .map(std::path::PathBuf::from)
+        .into_iter()
+        .chain(
+            [
+                "/etc/ssl/certs/ca-certificates.crt",
+                "/etc/pki/tls/certs/ca-bundle.crt",
+                "/etc/ssl/cert.pem",
+                "/etc/ssl/ca-bundle.pem",
+            ]
+            .map(std::path::PathBuf::from),
+        )
+        .find(|path| path.is_file())
+}
+
+/// Refuse a workspace member writing a fork copy into, or pointing a fork at, the managed database
+/// `dbname` of `kind`, unless `w_id` created it for that ([`create_custom_instance_database`], or
+/// its external instance counterpart) and nothing uses it yet. The `wm_fork_` prefix is no
+/// authorization: every database of a cluster answers to the same `custom_instance_user`, so a name
+/// is all it takes to reach another workspace's copy.
+///
+/// Runs on `conn`: its callers hold a transaction with the fork lock while they check, and a
+/// second connection taken from the pool under it is how a small pool deadlocks.
+///
+/// Authorization: reads the global registries and every workspace's settings, and names other
+/// workspaces in its refusal. Callers MUST have authorized `w_id` for the caller first — a member
+/// of it forking or importing there — and MUST NOT call it on a workspace the caller is not in.
+pub async fn ensure_fork_database_available_to(
+    conn: &mut sqlx::PgConnection,
+    kind: workspaces::DataTableCatalogResourceType,
+    dbname: &str,
+    w_id: &str,
+) -> error::Result<()> {
+    let created_for = match kind {
+        workspaces::DataTableCatalogResourceType::ExternalInstance => {
+            external_instance_pg::read_external_instance_pg_state(&mut *conn)
+                .await?
+                .databases
+                .remove(dbname)
+                .and_then(|entry| entry.workspace_id)
+        }
+        _ => sqlx::query_scalar::<_, Option<String>>(
+            "SELECT value->'databases'->$1->>'workspace_id' FROM global_settings
+             WHERE name = 'custom_instance_pg_databases'",
+        )
+        .bind(dbname)
+        .fetch_optional(&mut *conn)
+        .await?
+        .flatten(),
+    };
+    if created_for.as_deref() != Some(w_id) {
+        return Err(Error::BadRequest(format!(
+            "Database '{dbname}' was not created for a fork of workspace '{w_id}'"
+        )));
+    }
+    let uses = workspaces::managed_database_uses(conn, kind, dbname, None).await?;
+    if !uses.is_empty() {
+        return Err(Error::BadRequest(format!(
+            "Database '{dbname}' is already in use: {}",
+            uses.join(", ")
+        )));
+    }
     Ok(())
 }
 

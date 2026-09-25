@@ -13,7 +13,7 @@
 		ducklakes: {
 			name: string
 			catalog: {
-				resource_type: 'postgresql' | 'mysql' | 'instance'
+				resource_type: 'postgresql' | 'mysql' | 'instance' | 'external_instance'
 				resource_path?: string // Name of the database when resource_type is instance
 			}
 			storage: {
@@ -91,7 +91,7 @@
 	import { ScheduleService, SettingService, WorkspaceService } from '$lib/gen'
 	import type { GetSettingsResponse } from '$lib/gen'
 
-	import { enterpriseLicense, userWorkspaces, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, superadmin, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { base } from '$app/paths'
 	import Toggle from '../Toggle.svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -108,6 +108,7 @@
 	import { isCustomInstanceDbEnabled, getUnusedInstanceDbName } from './utils.svelte'
 	import { resource } from 'runed'
 	import CustomInstanceDbSelect from './CustomInstanceDbSelect.svelte'
+	import ExternalInstanceDbSelect from './ExternalInstanceDbSelect.svelte'
 	import Label from '../Label.svelte'
 
 	type Props = {
@@ -169,6 +170,16 @@
 	)
 
 	const customInstanceDbs = resource([() => $workspaceStore], SettingService.listCustomInstanceDbs)
+
+	// Superadmin-only endpoints, and the kind is theirs to pick: a workspace admin never loads
+	// them and sees the option disabled instead of an empty picker.
+	const externalInstanceStatus = resource([() => $superadmin], ([isSuperadmin]) =>
+		isSuperadmin ? SettingService.getExternalInstancePgStatus() : Promise.resolve(undefined)
+	)
+	const externalInstanceDbs = resource([() => $superadmin], ([isSuperadmin]) =>
+		isSuperadmin ? SettingService.listExternalInstancePgDatabases() : Promise.resolve({})
+	)
+	let externalInstanceConfigured = $derived(externalInstanceStatus.current?.configured === true)
 
 	async function onSave() {
 		try {
@@ -283,10 +294,9 @@
 			This workspace is a fork, and these settings are its own copy. Lakes marked
 			<span class="font-semibold">isolated</span> read the parent's tables through defer views and
 			write to a fork-scoped namespace that is cleaned up when the fork is deleted. Lakes marked
-			<span class="font-semibold">shared with parent</span> read and write the parent's physical
-			lake directly — editing their catalog or storage here repoints the shared lake for this
-			fork's jobs. The choice is made per lake when the fork is created and cannot be changed
-			here.
+			<span class="font-semibold">shared with parent</span> read and write the parent's physical lake
+			directly — editing their catalog or storage here repoints the shared lake for this fork's jobs.
+			The choice is made per lake when the fork is created and cannot be changed here.
 		</Alert>
 	</div>
 {/if}
@@ -359,8 +369,8 @@
 									isolated
 								</span>
 								<Tooltip>
-									Writes go to a fork-scoped namespace; reads of tables not yet materialized in
-									this fork defer to the parent. Deleting the fork cleans the namespace up.
+									Writes go to a fork-scoped namespace; reads of tables not yet materialized in this
+									fork defer to the parent. Deleting the fork cleans the namespace up.
 								</Tooltip>
 							{/if}
 						</div>
@@ -382,6 +392,16 @@
 										value: 'instance',
 										label: 'Instance',
 										subtitle: $isCustomInstanceDbEnabled ? undefined : 'Superadmin only'
+									},
+									{
+										value: 'external_instance',
+										label: 'External instance',
+										disabled: !externalInstanceConfigured,
+										subtitle: !$superadmin
+											? 'Superadmin only'
+											: externalInstanceConfigured
+												? undefined
+												: 'No external cluster configured'
 									}
 								]}
 								bind:value={
@@ -394,11 +414,19 @@
 										}
 									}
 								}
-								class="w-24"
+								id="ducklake-catalog-type-select"
+								class="w-36"
 							/>
 						</div>
 						<div class="flex flex-1">
-							{#if ducklake.catalog.resource_type !== 'instance'}
+							{#if ducklake.catalog.resource_type === 'external_instance'}
+								<ExternalInstanceDbSelect
+									class="flex-1 min-w-32"
+									bind:value={ducklake.catalog.resource_path}
+									{externalInstanceDbs}
+									tag="ducklake"
+								/>
+							{:else if ducklake.catalog.resource_type !== 'instance'}
 								<ResourcePicker
 									class="flex-1 min-w-32"
 									bind:value={ducklake.catalog.resource_path}
