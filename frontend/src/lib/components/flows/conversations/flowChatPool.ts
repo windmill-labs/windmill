@@ -23,6 +23,16 @@ export interface FlowChatPoolState {
 	unread: Record<string, number>
 	/** Conversations holding a queued message. */
 	queued: Record<string, true>
+	/**
+	 * A key per chat with a panel — the conversations followed, and the chat a new one starts
+	 * on — oldest chat first, an order that never changes while a chat is held. Each keeps its
+	 * panel mounted: a composer holds what the reader typed, and unmounting it would take that
+	 * with it. The key belongs to the chat, not to its conversation, so a new chat's panel
+	 * survives its first turn naming the conversation.
+	 */
+	mounted: string[]
+	/** The key in `mounted` whose panel is on screen. */
+	shownKey: string
 }
 
 export interface PooledChat<H> {
@@ -36,6 +46,9 @@ export interface FlowChatPoolOptions<H extends DraftSender<A>, A> {
 	/** The view of one conversation; its sends go through `turns`. */
 	createHost(turns: ConversationTurns<A>): H
 	disposeHost(host: H): void
+	/** Whether the composer showing this conversation holds text or files not sent yet. Such
+	 * a chat is never released: its panel is the only place that draft exists. */
+	holdsDraft(host: H): boolean
 	/**
 	 * A page of the flow's conversations of every kind, most recently active first, as the
 	 * server lists them now; empty past the last one. Read while a conversation this pool
@@ -48,6 +61,8 @@ export interface FlowChatPoolOptions<H extends DraftSender<A>, A> {
 }
 
 interface Entry<H, A> extends PooledChat<H> {
+	/** Names this chat's panel for its whole life, whatever conversation the chat ends up on. */
+	key: string
 	turns: ConversationTurns<A>
 	unsubscribe: () => void
 	lastShownAt: number
@@ -71,6 +86,9 @@ interface Entry<H, A> extends PooledChat<H> {
 export class FlowChatPool<H extends DraftSender<A>, A> {
 	readonly #options: FlowChatPoolOptions<H, A>
 	readonly #entries = new Map<string, Entry<H, A>>()
+	/** Every chat held, by panel key, so a panel can be found without knowing its conversation. */
+	readonly #byKey = new Map<string, Entry<H, A>>()
+	#keys = 0
 	/** The chat a new conversation starts on; it joins `#entries` once its first turn names it. */
 	#draft: Entry<H, A> | undefined
 	/** Turns running in conversations this pool is not following, as a listing reported them. */
@@ -82,7 +100,14 @@ export class FlowChatPool<H extends DraftSender<A>, A> {
 	readonly #unread = new Map<string, number>()
 	readonly #listeners = new Set<(state: FlowChatPoolState) => void>()
 	#selectedId: string | undefined
-	#state: FlowChatPoolState = { selectedId: undefined, activity: {}, unread: {}, queued: {} }
+	#state: FlowChatPoolState = {
+		selectedId: undefined,
+		activity: {},
+		unread: {},
+		queued: {},
+		mounted: [],
+		shownKey: ''
+	}
 	#poll: ReturnType<typeof setTimeout> | undefined
 	#polling = false
 	#pollFailures = 0
@@ -107,15 +132,14 @@ export class FlowChatPool<H extends DraftSender<A>, A> {
 		}
 	}
 
-	/** The chat shown now. */
-	get selected(): PooledChat<H> {
+	get #selectedEntry(): Entry<H, A> {
 		// The shown conversation is never evicted, and forgetting it shows a new chat.
 		return (this.#selectedId === undefined ? this.#draft : this.#entries.get(this.#selectedId))!
 	}
 
-	/** The chat of a conversation, when this pool holds one. */
-	get(conversationId: string): PooledChat<H> | undefined {
-		return this.#entries.get(conversationId)
+	/** The chat a key in `mounted` names, while this pool still holds it. */
+	get(key: string): PooledChat<H> | undefined {
+		return this.#byKey.get(key)
 	}
 
 	/** Shows a new chat, reusing the one already waiting for its first message. */
@@ -134,7 +158,6 @@ export class FlowChatPool<H extends DraftSender<A>, A> {
 			entry = this.#track(conversationId)
 			this.#entries.set(conversationId, entry)
 		}
-		const leaving = this.#selectedId
 		this.#selectedId = conversationId
 		entry.lastShownAt = ++this.#clock
 		this.#unread.delete(conversationId)
@@ -147,9 +170,7 @@ export class FlowChatPool<H extends DraftSender<A>, A> {
 			// A failed read leaves the rows it holds; the next return reads again.
 			void entry.chat.refreshMessages().catch(() => {})
 		}
-		// Not the conversation being left: its composer is still mounted, and hands what the
-		// reader wrote in it to its turns only as the panel goes.
-		this.#evict(leaving)
+		this.#evict()
 		this.#publish()
 	}
 
@@ -210,6 +231,7 @@ export class FlowChatPool<H extends DraftSender<A>, A> {
 		if (conversationId !== undefined) void chat.selectConversation(conversationId)
 		const turns = new ConversationTurns<A>(chat, () => entry.host)
 		const entry: Entry<H, A> = {
+			key: `chat-${++this.#keys}`,
 			chat,
 			turns,
 			host: this.#options.createHost(turns),
@@ -220,6 +242,7 @@ export class FlowChatPool<H extends DraftSender<A>, A> {
 			busy: false,
 			settledAt: 0
 		}
+		this.#byKey.set(entry.key, entry)
 		const unsubscribeChat = chat.subscribe((state) => this.#onChatState(entry, state))
 		// What waits in a chat decides whether it may be released, and marks its row.
 		const unsubscribeTurns = turns.subscribe(() => {
@@ -282,7 +305,7 @@ export class FlowChatPool<H extends DraftSender<A>, A> {
 		}
 		// A new chat opened meanwhile is the draft now, so this chat has nowhere to show. It
 		// is released only once its send has reported what it could not do — the refusal
-		// reaches it after this — and what the reader wrote moves to the chat in its place.
+		// reaches it after this — and the message it hands back goes to the chat in its place.
 		const kept = this.#draft
 		this.#retiring.add(entry)
 		setTimeout(() => {
@@ -302,20 +325,23 @@ export class FlowChatPool<H extends DraftSender<A>, A> {
 	}
 
 	/** Settled chats past the budget go, least recently shown first; their unread count stays. */
-	#evict(spared?: string): void {
+	#evict(): void {
 		const settled = [...this.#entries.entries()].filter(
 			([id, entry]) =>
-				id !== this.#selectedId && !isBusy(entry.chat.getState().status) && entry.turns.releasable
+				id !== this.#selectedId &&
+				!isBusy(entry.chat.getState().status) &&
+				entry.turns.releasable &&
+				!this.#options.holdsDraft(entry.host)
 		)
 		settled.sort(([, a], [, b]) => b.lastShownAt - a.lastShownAt)
 		for (const [id, entry] of settled.slice(this.#options.keepSettled ?? 5)) {
-			if (id === spared) continue
 			this.#release(entry)
 			this.#entries.delete(id)
 		}
 	}
 
 	#release(entry: Entry<H, A>): void {
+		this.#byKey.delete(entry.key)
 		entry.unsubscribe()
 		this.#options.disposeHost(entry.host)
 		entry.turns.dispose()
@@ -400,11 +426,21 @@ export class FlowChatPool<H extends DraftSender<A>, A> {
 		for (const [id, entry] of this.#entries) {
 			if (entry.turns.queued.text) queued[id] = true
 		}
+		// In the order the chats were created — `#byKey` insertion order — and never in the
+		// order they were shown: a key that moves in the `{#each}` takes its panel out of the
+		// DOM and back in, which loses the transcript's scroll and the composer's selection.
+		const withPanel = new Set(this.#entries.values())
+		if (this.#draft) withPanel.add(this.#draft)
+		const mounted = [...this.#byKey.values()]
+			.filter((entry) => withPanel.has(entry))
+			.map((entry) => entry.key)
 		this.#state = {
 			selectedId: this.#selectedId,
 			activity,
 			unread: Object.fromEntries(this.#unread),
-			queued
+			queued,
+			mounted,
+			shownKey: this.#selectedEntry.key
 		}
 		for (const listener of this.#listeners) listener(this.#state)
 	}

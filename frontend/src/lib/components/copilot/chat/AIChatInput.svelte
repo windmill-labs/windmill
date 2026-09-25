@@ -50,7 +50,6 @@
 		type AttachedBlob
 	} from './blobUtils'
 	import { MessageDraft } from './messageDraft.svelte'
-	import { ReadsInFlight } from './readsInFlight'
 	import ExpandableImage, {
 		isImageViewerOpen
 	} from '$lib/components/common/image/ExpandableImage.svelte'
@@ -264,9 +263,6 @@
 	// out without an attachment the user already dropped, and reserves cap slots
 	// against a concurrent drop.
 	let pendingImages = $state(0)
-	// The reads running right now, so a host taking this composer's draft as the panel goes
-	// can wait for what is still being decoded instead of losing it.
-	const reading = new ReadsInFlight()
 
 	/** Attach dropped/pasted image files (downscaled + bounded). */
 	export async function addImages(files: (File | Blob)[]) {
@@ -325,27 +321,25 @@
 		// Claim the slots before awaiting, and hold sending until they resolve:
 		// decoding takes ~50-800ms, and a send during it would clear `images` while
 		// this closure still appends to it, landing the picture on the next message.
-		await reading.track(async () => {
-			pendingImages += batch.length
-			try {
-				// One at a time: a decoded bitmap costs ~4 bytes per pixel (a 12MP photo is
-				// ~48MB), so decoding the whole batch at once would hold every one of them
-				// live simultaneously.
-				const added: AttachedImage[] = []
-				let failed = 0
-				for (const file of batch) {
-					try {
-						added.push(await fileToAttachedImage(file))
-					} catch {
-						failed++
-					}
+		pendingImages += batch.length
+		try {
+			// One at a time: a decoded bitmap costs ~4 bytes per pixel (a 12MP photo is
+			// ~48MB), so decoding the whole batch at once would hold every one of them
+			// live simultaneously.
+			const added: AttachedImage[] = []
+			let failed = 0
+			for (const file of batch) {
+				try {
+					added.push(await fileToAttachedImage(file))
+				} catch {
+					failed++
 				}
-				if (added.length > 0) draft.addImages(added)
-				if (failed > 0) sendUserToast(`Could not attach ${failed} image(s).`, true)
-			} finally {
-				pendingImages -= batch.length
 			}
-		})
+			if (added.length > 0) draft.addImages(added)
+			if (failed > 0) sendUserToast(`Could not attach ${failed} image(s).`, true)
+		} finally {
+			pendingImages -= batch.length
+		}
 	}
 
 	function removeImage(index: number) {
@@ -362,14 +356,10 @@
 	export function holdSendForIngestion(): () => void {
 		ingestionHolds += 1
 		let released = false
-		// Counted among the reads in flight too: the routing it covers ends in a read, and a
-		// draft taken while it runs has to wait for that read rather than for nothing.
-		const finish = reading.hold()
 		return () => {
 			if (!released) {
 				released = true
 				ingestionHolds -= 1
-				finish()
 			}
 		}
 	}
@@ -456,47 +446,45 @@
 		}
 		batch = withinBudget
 		if (batch.length === 0) return
+		pendingFiles += batch.length
 		const reservedBytes = batch.reduce((sum, f) => sum + f.size, 0)
-		await reading.track(async () => {
-			pendingFiles += batch.length
-			pendingFileBytes += reservedBytes
-			try {
-				const reads: { name: string; content: string }[] = []
-				let skipped = 0
-				for (const file of batch) {
-					try {
-						const attached = await fileToAttachedTextFile(file)
-						if (attached) reads.push(attached)
-						else skipped++
-					} catch {
-						skipped++
-					}
+		pendingFileBytes += reservedBytes
+		try {
+			const reads: { name: string; content: string }[] = []
+			let skipped = 0
+			for (const file of batch) {
+				try {
+					const attached = await fileToAttachedTextFile(file)
+					if (attached) reads.push(attached)
+					else skipped++
+				} catch {
+					skipped++
 				}
-				// Commit through the draft in one synchronous step — fold (dedupe,
-				// courtesy rename) and decoded-byte admission both run against the live
-				// list, so another batch landing between this one's file reads can't be
-				// missed, and malformed input that inflates on decode can't slip past the
-				// raw-size admission above. This batch's own raw reservation is excluded
-				// from the budget — the decoded sizes replace it.
-				const liveBudget =
-					MAX_CONVERSATION_FILE_BYTES -
-					chatHost.attachmentBytesExcluding(composerKey) -
-					draft.files.reduce((sum, f) => sum + textByteLength(f.content), 0) -
-					(pendingFileBytes - reservedBytes)
-				const { droppedAtBudget } = draft.addFiles(reads, liveBudget)
-				if (droppedAtBudget > 0) {
-					const mb = Math.round(MAX_CONVERSATION_FILE_BYTES / 1_000_000)
-					sendUserToast(
-						`${droppedAtBudget} file(s) skipped — this conversation reached its ${mb}MB attachment budget. Link a folder to read larger sets on demand.`,
-						true
-					)
-				}
-				if (skipped > 0) sendUserToast(`Skipped ${skipped} file(s) (non-text).`, true)
-			} finally {
-				pendingFiles -= batch.length
-				pendingFileBytes -= reservedBytes
 			}
-		})
+			// Commit through the draft in one synchronous step — fold (dedupe,
+			// courtesy rename) and decoded-byte admission both run against the live
+			// list, so another batch landing between this one's file reads can't be
+			// missed, and malformed input that inflates on decode can't slip past the
+			// raw-size admission above. This batch's own raw reservation is excluded
+			// from the budget — the decoded sizes replace it.
+			const liveBudget =
+				MAX_CONVERSATION_FILE_BYTES -
+				chatHost.attachmentBytesExcluding(composerKey) -
+				draft.files.reduce((sum, f) => sum + textByteLength(f.content), 0) -
+				(pendingFileBytes - reservedBytes)
+			const { droppedAtBudget } = draft.addFiles(reads, liveBudget)
+			if (droppedAtBudget > 0) {
+				const mb = Math.round(MAX_CONVERSATION_FILE_BYTES / 1_000_000)
+				sendUserToast(
+					`${droppedAtBudget} file(s) skipped — this conversation reached its ${mb}MB attachment budget. Link a folder to read larger sets on demand.`,
+					true
+				)
+			}
+			if (skipped > 0) sendUserToast(`Skipped ${skipped} file(s) (non-text).`, true)
+		} finally {
+			pendingFiles -= batch.length
+			pendingFileBytes -= reservedBytes
+		}
 	}
 
 	function removeFile(index: number) {
@@ -559,22 +547,20 @@
 		if (batch.length < usable.length) {
 			sendUserToast(skippedMessage(MAX_ATTACHED_BLOBS, 'files', usable.length - batch.length), true)
 		}
-		await reading.track(async () => {
-			pendingBlobs += batch.length
-			try {
-				const added: AttachedBlob[] = []
-				for (const file of batch) {
-					try {
-						added.push(await fileToAttachedBlob(file))
-					} catch (e) {
-						sendUserToast(`Could not read ${file.name}`, true)
-					}
+		pendingBlobs += batch.length
+		try {
+			const added: AttachedBlob[] = []
+			for (const file of batch) {
+				try {
+					added.push(await fileToAttachedBlob(file))
+				} catch (e) {
+					sendUserToast(`Could not read ${file.name}`, true)
 				}
-				if (added.length > 0) draft.addBlobs(added)
-			} finally {
-				pendingBlobs -= batch.length
 			}
-		})
+			if (added.length > 0) draft.addBlobs(added)
+		} finally {
+			pendingBlobs -= batch.length
+		}
 	}
 
 	function removeBlob(index: number) {
@@ -711,43 +697,6 @@
 		}
 		focusInput()
 		return mergedIntoDraft
-	}
-
-	/** Everything the composer holds, taken out of it: for a host that keeps the draft while
-	 * no composer shows its conversation. Paste tokens are expanded, as for a queued message. */
-	export function takeDraft(): {
-		text: string
-		images: AttachedImage[]
-		files: AttachedTextFile[]
-		blobs: AttachedBlob[]
-		/** What was still being read, once it lands: those reads append to the draft this
-		 * composer leaves behind, so they are taken from it when they are done. */
-		rest?: Promise<{
-			text: string
-			images: AttachedImage[]
-			files: AttachedTextFile[]
-			blobs: AttachedBlob[]
-		}>
-	} {
-		const taken = draft.take()
-		const inFlight = reading.busy
-		return {
-			text: expanded(chatDraft(taken.text, taken.pastes)),
-			images: taken.images,
-			files: taken.files,
-			blobs: taken.blobs,
-			rest: inFlight
-				? reading.settled().then(() => {
-						const late = draft.take()
-						return {
-							text: expanded(chatDraft(late.text, late.pastes)),
-							images: late.images,
-							files: late.files,
-							blobs: late.blobs
-						}
-					})
-				: undefined
-		}
 	}
 
 	/** Insert a plain @filename mention for an attached file (used by the @ menu Files category). */

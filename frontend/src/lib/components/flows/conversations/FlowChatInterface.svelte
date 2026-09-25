@@ -10,7 +10,7 @@
 	import { emptyString, type DynamicInput } from '$lib/utils'
 	import { tick, untrack } from 'svelte'
 	import type { Chat } from 'windmill-chat'
-	import { chatFlowKey } from './flowChatProps'
+	import { saveFlowChatInputs } from './flowChatProps'
 	import type { FlowModule } from '$lib/gen'
 	import { useWorkspaceStorageConfigured } from '$lib/components/inputTransformEnv.svelte'
 	import {
@@ -30,9 +30,12 @@
 
 	interface Props {
 		chat: Chat
-		/** The conversation's host, which outlives this panel: FlowChat remounts the panel per
-		 * conversation, under `{#key}`, so a later value of either prop never reaches it. */
+		/** The conversation's host, which outlives this panel. One panel follows one chat for
+		 * its whole life, so a later value of either prop never reaches it. */
 		chatHost: FlowChatViewHost
+		/** The flow inputs the reader chose, shared by every conversation in the flow: FlowChat
+		 * holds them, since each conversation has a panel of its own mounted. */
+		inputValues: Record<string, any>
 		/** Whether a conversation is a test chat, once the list has said. */
 		isTestOf?: (conversationId: string) => boolean | undefined
 		deploymentInProgress?: boolean
@@ -56,6 +59,7 @@
 	let {
 		chat,
 		chatHost: chatHostProp,
+		inputValues = $bindable(),
 		isTestOf = undefined,
 		deploymentInProgress = false,
 		additionalInputsSchema,
@@ -104,12 +108,7 @@
 	const modelGap = $derived(agentModelGap(modelWiring, subject))
 	const showModelButton = $derived(showsModelButton(modelWiring))
 
-	// LocalStorage helpers
-	const STORAGE_KEY_PREFIX = 'windmill_flow_chat_inputs_'
-
 	let showInputsModal = $state(false)
-	// Conversation settings, persisted per flow: what the reader chose, and nothing else.
-	let inputValues = $state<Record<string, any>>(loadInputsFromStorage() ?? {})
 	let modalDraft = $state<Record<string, any>>({})
 
 	/** What the flow's own form would open on. */
@@ -135,31 +134,9 @@
 	// value, an author's default — is made safe before it reaches the provider.
 	const runInputs = $derived(withoutRejectedEffort(modelWiring, effectiveInputs))
 
-	function getStorageKey(): string {
-		return `${STORAGE_KEY_PREFIX}${chatFlowKey({ path, identity })}`
-	}
-
-	function loadInputsFromStorage(): Record<string, any> | null {
-		try {
-			const stored = localStorage.getItem(getStorageKey())
-			return stored ? JSON.parse(stored) : null
-		} catch (e) {
-			console.error('Failed to load inputs from localStorage:', e)
-			return null
-		}
-	}
-
-	function saveInputsToStorage(values: Record<string, any>) {
-		try {
-			localStorage.setItem(getStorageKey(), JSON.stringify(values))
-		} catch (e) {
-			console.error('Failed to save inputs to localStorage:', e)
-		}
-	}
-
 	function setInputValue(name: string, value: any) {
 		inputValues = { ...inputValues, [name]: value }
-		saveInputsToStorage(inputValues)
+		saveFlowChatInputs({ path, identity }, inputValues)
 	}
 
 	function handleModalConfirm() {
@@ -174,18 +151,18 @@
 			)
 		)
 		inputValues = kept
-		saveInputsToStorage(inputValues)
+		saveFlowChatInputs({ path, identity }, inputValues)
 		showInputsModal = false
 	}
 
 	function openInputsModal() {
-		modalDraft = { ...effectiveInputs, ...(loadInputsFromStorage() ?? inputValues) }
+		modalDraft = { ...effectiveInputs, ...inputValues }
 		showInputsModal = true
 	}
 
 	// The host belongs to the conversation, not to this panel: the pool keeps it alive so a
 	// message queued here still goes out once the reader has moved on. What it reads is this
-	// panel's, set on mount; FlowChat remounts the panel per conversation.
+	// panel's, set on mount; one panel shows one conversation for its whole life.
 	const chatHost = untrack(() => chatHostProp)
 	chatHost.setOptions({
 		additionalInputs: () => (additionalInputsSchema ? { ...runInputs } : undefined),

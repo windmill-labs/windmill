@@ -360,7 +360,6 @@ export class FlowChatViewHost implements ChatViewHost, DraftSender<ComposerAttac
 	#disposed = false
 	dispose() {
 		this.#disposed = true
-		this.#releaseReadingHold()
 		this.#unsubscribe()
 		for (const id of Object.keys(this.#reveals)) this.#dropReveal(id)
 	}
@@ -573,66 +572,18 @@ export class FlowChatViewHost implements ChatViewHost, DraftSender<ComposerAttac
 	// across import specifiers, and the two would then not be assignable.
 	#aiChatInput: Parameters<ChatViewHost['setAiChatInput']>[0] = null
 	setAiChatInput: ChatViewHost['setAiChatInput'] = (aiChatInput) =>
-		// Called from the composer's mount effect. Moving a draft in or out reads the draft it
-		// writes, which would rerun that effect, and each rerun takes the draft out and puts
-		// it back again.
+		// Called from the composer's mount effect, and taking what a turn handed back reads the
+		// draft it writes: tracked, that would rerun the effect and hand it back again.
 		untrack(() => {
-			const leaving = this.#aiChatInput
 			this.#aiChatInput = aiChatInput
-			// The hold belongs to the composer that took it; the one replacing it takes its own
-			// below, for as long as the read is still running.
-			if (leaving !== aiChatInput) this.#releaseReadingHold()
-			if (leaving && leaving !== aiChatInput && !this.#disposed) {
-				// The composer goes with its panel when the reader opens another conversation, and
-				// what they had written in it would go too: it waits with the conversation's turns
-				// for the next composer to show this conversation.
-				const { text, images, files, blobs, rest } = leaving.takeDraft()
-				this.#turns.adopt(composerDraft(text.trim() ? text : '', images, blobs, files))
-				// A file still being read when the panel went belongs to that draft too, and
-				// lands in the conversation's turns when its read is done.
-				if (rest) {
-					this.#reading++
-					void rest
-						.then((late) => {
-							if (this.#disposed) return
-							this.#turns.adopt(
-								composerDraft(
-									late.text.trim() ? late.text : '',
-									late.images,
-									late.blobs,
-									late.files
-								)
-							)
-						})
-						// Counted, not a flag: a second drop can be reading while the first one still is,
-						// and the hold stands until the last of them has landed — including one that ends
-						// in a failure, which would otherwise hold this chat for good.
-						.catch(() => {})
-						.finally(() => {
-							this.#reading--
-							if (this.#reading === 0) this.#releaseReadingHold()
-						})
-				}
-			}
-			this.#holdWhileReading()
 			this.#takeReturned()
 		})
-	/** Files composers were still reading when they went, which this conversation is owed. */
-	#reading = 0
-	#releaseHold: (() => void) | undefined
-	/**
-	 * Holds sending in the composer showing this conversation until that file lands. The
-	 * composer that took the drop held sending the same way; a message sent from the one
-	 * that replaced it would otherwise go out without the file, which would then ride the
-	 * message after it.
-	 */
-	#holdWhileReading() {
-		if (this.#reading === 0 || !this.#aiChatInput || this.#releaseHold) return
-		this.#releaseHold = this.#aiChatInput.holdSendForIngestion()
-	}
-	#releaseReadingHold() {
-		this.#releaseHold?.()
-		this.#releaseHold = undefined
+
+	/** Whether a composer showing this conversation holds something not sent — text, an
+	 * attachment, a file still being read. Its panel stays mounted for as long as one does:
+	 * nothing else holds that draft. */
+	holdsDraft(): boolean {
+		return this.#composersWithDraft.size > 0
 	}
 
 	/** Puts what a turn handed back into the composer, when one shows this conversation;
@@ -672,8 +623,15 @@ export class FlowChatViewHost implements ChatViewHost, DraftSender<ComposerAttac
 		this.#turns.dequeue()
 	}
 	setComposerStaged = () => {}
-	setComposerHasDraft = () => {}
-	clearComposerStaged = () => {}
+	/** Plain, not `$state`: read by the pool deciding what to release, never rendered. */
+	readonly #composersWithDraft = new Set<string>()
+	setComposerHasDraft = (key: string, hasDraft: boolean) => {
+		if (hasDraft) this.#composersWithDraft.add(key)
+		else this.#composersWithDraft.delete(key)
+	}
+	clearComposerStaged = (key: string) => {
+		this.#composersWithDraft.delete(key)
+	}
 	attachmentBytesExcluding = () => 0
 
 	// Per-message actions

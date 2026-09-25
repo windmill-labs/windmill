@@ -608,108 +608,19 @@ describe('FlowChatViewHost', () => {
 		host.dispose()
 	})
 
-	it('takes a file still being read when the composer goes', async () => {
+	it('reports a composer holding a draft, so its conversation keeps its panel', () => {
 		const { chat } = fakeChat()
 		const host = hostOn(chat)
-		let finishRead: (v: { text: string; images: any[]; files: any[]; blobs: any[] }) => void
-		const rest = new Promise<any>((resolve) => (finishRead = resolve))
-		host.setAiChatInput({
-			takeDraft: () => ({ text: 'look at this', images: [], files: [], blobs: [], rest })
-		} as any)
-		host.setAiChatInput(null)
-		expect(host.turns.queued.text).toBe('')
-		// The read lands after the panel is gone.
-		finishRead!({ text: '', images: [], files: [], blobs: [pdf] })
-		await flush()
-		const prependText = vi.fn()
-		host.setAiChatInput({ prependText } as any)
-		expect(prependText).toHaveBeenCalledWith('look at this', [], [], [pdf])
-		host.dispose()
-	})
-
-	it('holds sending in the next composer until the file being read lands', async () => {
-		const { chat } = fakeChat()
-		const host = hostOn(chat)
-		let finishRead: (v: { text: string; images: any[]; files: any[]; blobs: any[] }) => void
-		const rest = new Promise<any>((resolve) => (finishRead = resolve))
-		host.setAiChatInput({
-			takeDraft: () => ({ text: 'read this', images: [], files: [], blobs: [], rest })
-		} as any)
-		host.setAiChatInput(null)
-		// The reader comes back before the read is done: this composer may not send yet.
-		const release = vi.fn()
-		const holdSendForIngestion = vi.fn(() => release)
-		const prependText = vi.fn()
-		const empty = () => ({ text: '', images: [], files: [], blobs: [] })
-		host.setAiChatInput({ holdSendForIngestion, prependText, takeDraft: empty } as any)
-		expect(holdSendForIngestion).toHaveBeenCalledTimes(1)
-		expect(release).not.toHaveBeenCalled()
-		// They leave and come back again while the read is still running: the composer on
-		// screen is held each time, not just the first one.
-		host.setAiChatInput(null)
-		expect(release).toHaveBeenCalledTimes(1)
-		const releaseAgain = vi.fn()
-		const holdAgain = vi.fn(() => releaseAgain)
-		host.setAiChatInput({
-			holdSendForIngestion: holdAgain,
-			prependText,
-			takeDraft: empty
-		} as any)
-		expect(holdAgain).toHaveBeenCalledTimes(1)
-		expect(releaseAgain).not.toHaveBeenCalled()
-		// A second file is dropped and its composer leaves before the first read lands: the
-		// hold stands until both are in.
-		let finishSecond: (v: { text: string; images: any[]; files: any[]; blobs: any[] }) => void
-		const second = new Promise<any>((resolve) => (finishSecond = resolve))
-		host.setAiChatInput({
-			holdSendForIngestion: holdAgain,
-			prependText,
-			takeDraft: () => ({ text: '', images: [], files: [], blobs: [], rest: second })
-		} as any)
-		const releaseLast = vi.fn()
-		const holdLast = vi.fn(() => releaseLast)
-		host.setAiChatInput({ holdSendForIngestion: holdLast, prependText, takeDraft: empty } as any)
-		finishRead!({ text: '', images: [], files: [], blobs: [pdf] })
-		await flush()
-		expect(releaseLast).not.toHaveBeenCalled()
-		finishSecond!({ text: '', images: [], files: [], blobs: [] })
-		await flush()
-		expect(releaseLast).toHaveBeenCalledTimes(1)
-		host.dispose()
-	})
-
-	it('frees the send when the read it was waiting for fails', async () => {
-		const { chat } = fakeChat()
-		const host = hostOn(chat)
-		let failRead: (e: Error) => void
-		const rest = new Promise<any>((_, reject) => (failRead = reject))
-		host.setAiChatInput({
-			takeDraft: () => ({ text: 'read this', images: [], files: [], blobs: [], rest })
-		} as any)
-		host.setAiChatInput(null)
-		const release = vi.fn()
-		host.setAiChatInput({
-			holdSendForIngestion: () => release,
-			prependText: vi.fn(),
-			takeDraft: () => ({ text: '', images: [], files: [], blobs: [] })
-		} as any)
-		failRead!(new Error('the file could not be read'))
-		await flush()
-		expect(release).toHaveBeenCalledTimes(1)
-		host.dispose()
-	})
-
-	it('keeps what the composer held when it goes, for the next one showing this conversation', () => {
-		const { chat } = fakeChat()
-		const host = hostOn(chat)
-		const takeDraft = vi.fn(() => ({ text: 'half written', images: [], files: [], blobs: [pdf] }))
-		host.setAiChatInput({ takeDraft } as any)
-		// The reader opens another conversation: this panel and its composer go.
-		host.setAiChatInput(null)
-		expect(host.turns.holdsText).toBe(true)
-		const prependText = vi.fn()
-		host.setAiChatInput({ prependText } as any)
-		expect(prependText).toHaveBeenCalledWith('half written', [], [], [pdf])
+		expect(host.holdsDraft()).toBe(false)
+		// Two composers can show one conversation at once: the message being edited and the
+		// one being written. The panel stays for as long as either holds something.
+		host.setComposerHasDraft('composer', true)
+		host.setComposerHasDraft('edit-box', true)
+		expect(host.holdsDraft()).toBe(true)
+		host.setComposerHasDraft('composer', false)
+		expect(host.holdsDraft()).toBe(true)
+		host.clearComposerStaged('edit-box')
+		expect(host.holdsDraft()).toBe(false)
 		host.dispose()
 	})
 

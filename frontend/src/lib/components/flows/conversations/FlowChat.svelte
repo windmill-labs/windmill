@@ -16,7 +16,7 @@
 	import { ApiError, type FlowModule } from '$lib/gen'
 	import { FlowChatPool, type FlowChatPoolState } from './flowChatPool'
 	import { FlowChatViewHost, type ComposerAttachment } from './flowChatViewHost.svelte'
-	import { FRAME_CLASS, type ChatFrame } from './flowChatProps'
+	import { FRAME_CLASS, loadFlowChatInputs, type ChatFrame } from './flowChatProps'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
@@ -129,6 +129,7 @@
 			createChat: () => createChat(options),
 			createHost: (turns) => new FlowChatViewHost(turns),
 			disposeHost: (host) => host.dispose(),
+			holdsDraft: (host) => host.holdsDraft(),
 			// Every kind: a conversation the reader follows keeps running whatever the filter lists.
 			listRecent: async (page) =>
 				(await api.listConversations(flowPath, { page, perPage: 50, kind: 'all' })).map((row) => ({
@@ -150,12 +151,12 @@
 		}
 	})
 
-	// A new chat keeps its chat once its first turn names the conversation, so the panel is
-	// only remounted when the reader moves to another one.
-	const shown = $derived.by(() => {
-		void poolState?.selectedId
-		return pool?.selected
-	})
+	// The panel on screen. Every other panel the pool holds stays mounted behind it.
+	const shownKey = $derived(poolState?.shownKey)
+
+	// What the reader chose for this flow — the model among them — held here rather than in
+	// each panel, so every conversation's composer sends and shows the same values.
+	let inputValues = $state(loadFlowChatInputs({ path, identity }))
 
 	// Derive additional inputs schema (excluding user_message) for chat mode
 	const additionalInputsSchema = $derived.by(() => {
@@ -173,7 +174,7 @@
 </script>
 
 <div class="flex overflow-hidden flex-1 {FRAME_CLASS[frame]}">
-	{#if listChat && listState && pool && poolState && shown}
+	{#if listChat && listState && pool && poolState}
 		{#if !hideSidebar}
 			<FlowConversationsSidebar
 				bind:this={sidebar}
@@ -187,26 +188,43 @@
 		<!-- pb-3 on the chat alone, not on the row: the transcript and composer stop short of
 		     the panel edge the way the session chat does, while the sidebar and the border
 		     dividing it from the chat still reach the bottom. -->
-		<div class="flex flex-1 min-w-0 min-h-0 pb-3">
-			<!-- One panel per conversation: the shown chat and its host come from the pool, and
-			     moving to another conversation mounts a fresh panel rather than a stale host. -->
-			{#key shown}
-				<FlowChatInterface
-					chat={shown.chat}
-					chatHost={shown.host}
-					isTestOf={(id) => listState?.conversations.find((c) => c.id === id)?.isTest}
-					{deploymentInProgress}
-					{additionalInputsSchema}
-					{flowModules}
-					{path}
-					{identity}
-					{workspace}
-					{description}
-					{wideLayout}
-					{conversationKind}
-					{subject}
-				/>
-			{/key}
+		<div class="relative flex flex-1 min-w-0 min-h-0">
+			<!-- One panel per chat the pool holds, all mounted: the composer keeps what the
+			     reader typed, and what is still being read finishes into it, so leaving a
+			     conversation and coming back finds it as it was. The shown panel is in flow, so
+			     the chat keeps a height of its own where the host gives none (the editor's
+			     Test-flow panel); the others lie over it, invisible but laid out, which keeps
+			     their transcript scrolled where it was. -->
+			{#each poolState.mounted as key (key)}
+				{@const panel = pool.get(key)}
+				{#if panel}
+					{@const shown = key === shownKey}
+					<div
+						class="flex min-w-0 min-h-0 pb-3 {shown ? 'relative flex-1' : 'absolute inset-0'}"
+						class:invisible={!shown}
+						class:pointer-events-none={!shown}
+						aria-hidden={!shown}
+						inert={!shown}
+					>
+						<FlowChatInterface
+							chat={panel.chat}
+							chatHost={panel.host}
+							bind:inputValues
+							isTestOf={(id) => listState?.conversations.find((c) => c.id === id)?.isTest}
+							{deploymentInProgress}
+							{additionalInputsSchema}
+							{flowModules}
+							{path}
+							{identity}
+							{workspace}
+							{description}
+							{wideLayout}
+							{conversationKind}
+							{subject}
+						/>
+					</div>
+				{/if}
+			{/each}
 		</div>
 	{/if}
 </div>

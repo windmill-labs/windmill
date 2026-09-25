@@ -247,8 +247,16 @@
 		function onWindowKeydownCapture(e: KeyboardEvent) {
 			if (e.key !== 'Escape' || !chatHost.loading) return
 			const active = document.activeElement
+			// Focus parked on the body answers for the panel on screen only: the flow chat keeps
+			// a panel per conversation mounted, several of which can be loading, and a hidden
+			// one's listener would otherwise swallow the press (immediate form, below) and stop
+			// its own turn instead. `inert` marks the panels behind, and is matched as an
+			// attribute so the browsers without `checkVisibility` read it too.
+			const hidden =
+				panelEl?.closest('[inert]') != null ||
+				panelEl?.checkVisibility?.({ visibilityProperty: true }) === false
 			const focusOnChat =
-				!active || active === document.body || (panelEl?.contains(active) ?? false)
+				!hidden && (!active || active === document.body || panelEl?.contains(active) === true)
 			// An Escape while a run form is open must not discard what the user typed, so the action
 			// row alone stops the turn — wherever it is mounted, since the preview panel holds the
 			// form outside `panelEl`. Matched by call: two chats can be loading at once, and one's
@@ -481,9 +489,9 @@
 		const flatFiles = Array.from(dt.files ?? [])
 		const topLevelImages = flatFiles.filter(isImageFile)
 		const imageWork: Promise<unknown>[] = []
-		// The composer this drop landed on, held for the whole routing: opening another
-		// conversation destroys this panel and clears the binding, and the file would then
-		// reach no composer at all. Its draft is handed to that conversation as the panel goes.
+		// The composer this drop landed on, held for the whole routing: a panel destroyed
+		// while a file is being read clears the binding, and the file would then reach no
+		// composer at all.
 		const dropped = aiChatInput
 		if (topLevelImages.length > 0) {
 			imageWork.push(dropped?.addImages(topLevelImages) ?? Promise.resolve())
@@ -569,7 +577,7 @@
 	}
 
 	/** `input` is the composer the files are for, captured before any await: read off the
-	 * binding afterwards it would be null once a keyed panel has been replaced. */
+	 * binding afterwards it would be null once the panel has been destroyed. */
 	async function attachNonImageFiles(files: File[], input: typeof aiChatInput) {
 		await input?.addNonImageFiles(files)
 	}

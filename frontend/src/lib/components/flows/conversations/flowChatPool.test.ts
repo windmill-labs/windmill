@@ -59,9 +59,11 @@ function pool(
 	options: {
 		keepSettled?: number
 		listRecent?: (page: number) => Promise<readonly ListedConversation[]>
+		holdsDraft?: (host: TestHost) => boolean
 	} = {}
 ) {
 	const chats: ReturnType<typeof fakeChat>[] = []
+	const hosts: TestHost[] = []
 	const dispose = vi.fn()
 	const created = new FlowChatPool<TestHost, never>({
 		createChat: () => {
@@ -69,21 +71,35 @@ function pool(
 			chats.push(fake)
 			return fake.chat
 		},
-		createHost: (turns) => ({
-			chat: turns.chat,
-			turns,
-			prepareSend: () => ({}),
-			sendFailed: () => {}
-		}),
+		createHost: (turns) => {
+			const host: TestHost = {
+				chat: turns.chat,
+				turns,
+				prepareSend: () => ({}),
+				sendFailed: () => {}
+			}
+			hosts.push(host)
+			return host
+		},
 		disposeHost: dispose,
+		holdsDraft: options.holdsDraft ?? (() => false),
 		listRecent: options.listRecent ?? (async () => []),
 		keepSettled: options.keepSettled,
 		pollMs: 10
 	})
 	const chatOf = (id: string) => chats.find((c) => c.chat.getState().conversationId === id)!
 	const fakeOf = (chat: Chat) => chats.find((c) => c.chat === chat)!
-	const turnsOf = (id: string) => (created.get(id)!.host as TestHost).turns
-	return { pool: created, chatOf, fakeOf, turnsOf, dispose }
+	const turnsOf = (id: string) =>
+		hosts.find((host) => host.chat.getState().conversationId === id)!.turns
+	/** The panel on screen, as the state names it. */
+	const shown = () => created.get(created.getState().shownKey)!
+	/** The panel showing a conversation, while the pool still holds one for it. */
+	const held = (id: string) =>
+		created
+			.getState()
+			.mounted.map((key) => created.get(key)!)
+			.find((panel) => panel.chat.getState().conversationId === id)
+	return { pool: created, chatOf, fakeOf, turnsOf, held, shown, dispose }
 }
 
 const typed = (text: string) => ({ text, attachments: [] })
@@ -218,8 +234,8 @@ describe('FlowChatPool', () => {
 	})
 
 	it('takes a chat back as the new one when its first message never ran', () => {
-		const { pool: p, fakeOf } = pool()
-		const draft = p.selected
+		const { pool: p, fakeOf, held, shown } = pool()
+		const draft = shown()
 		const { set } = fakeOf(draft.chat)
 		// A new chat's first message names its conversation, then is withdrawn: the upload
 		// failed, or Stop was pressed while it ran, so that conversation was never created.
@@ -227,19 +243,19 @@ describe('FlowChatPool', () => {
 		expect(p.getState().selectedId).toBe('new-1')
 		set({ conversationId: undefined })
 		expect(p.getState().selectedId).toBeUndefined()
-		expect(p.get('new-1')).toBeUndefined()
+		expect(held('new-1')).toBeUndefined()
 		expect(p.getState().activity).toEqual({})
 		// The next message mints its own id on that same chat, and the pool follows it there.
-		expect(p.selected).toBe(draft)
+		expect(shown()).toBe(draft)
 		set({ conversationId: 'new-2' })
 		expect(p.getState().selectedId).toBe('new-2')
-		expect(p.get('new-2')).toBe(draft)
+		expect(held('new-2')).toBe(draft)
 		p.destroy()
 	})
 
 	it('hands what a withdrawn chat held to the new chat that took its place', async () => {
-		const { pool: p, fakeOf } = pool()
-		const withdrawn = p.selected
+		const { pool: p, fakeOf, shown } = pool()
+		const withdrawn = shown()
 		const { set } = fakeOf(withdrawn.chat)
 		set({ conversationId: 'new-1' })
 		;(withdrawn.host as TestHost).turns.adopt(typed('typed while uploading'))
@@ -252,27 +268,27 @@ describe('FlowChatPool', () => {
 		await new Promise((resolve) => setTimeout(resolve, 0))
 		expect(withdrawn.chat.destroy).toHaveBeenCalled()
 		expect((kept.host as TestHost).turns.takeReturned().text).toBe('typed while uploading')
-		expect(p.selected).toBe(kept)
+		expect(shown()).toBe(kept)
 		p.destroy()
 	})
 
 	it('keeps a settled chat that still holds a queued message, and marks its row', () => {
-		const { pool: p, chatOf, turnsOf } = pool({ keepSettled: 1 })
+		const { pool: p, chatOf, turnsOf, held } = pool({ keepSettled: 1 })
 		p.select('typed')
 		turnsOf('typed').queue(typed('later'))
 		for (const id of ['b', 'c', 'd']) p.select(id)
-		expect(p.get('typed')).toBeDefined()
+		expect(held('typed')).toBeDefined()
 		expect(p.getState().queued).toEqual({ typed: true })
 		expect(chatOf('typed').chat.destroy).not.toHaveBeenCalled()
 		// Once it is taken back, the chat is releasable like any other.
 		turnsOf('typed').takeHeld()
 		p.select('e')
-		expect(p.get('typed')).toBeUndefined()
+		expect(held('typed')).toBeUndefined()
 		p.destroy()
 	})
 
 	it('keeps a chat whose send has not settled, so a refusal can hand its draft back', async () => {
-		const { pool: p, chatOf, turnsOf } = pool({ keepSettled: 1 })
+		const { pool: p, chatOf, turnsOf, held } = pool({ keepSettled: 1 })
 		p.select('a')
 		let refuse = (_e: Error) => {}
 		chatOf('a').chat.sendMessage.mockImplementationOnce(
@@ -280,7 +296,7 @@ describe('FlowChatPool', () => {
 		)
 		const sent = turnsOf('a').send(typed('with a file'))
 		for (const id of ['b', 'c', 'd']) p.select(id)
-		expect(p.get('a')).toBeDefined()
+		expect(held('a')).toBeDefined()
 		refuse(new Error('upload failed (500)'))
 		await sent
 		expect(turnsOf('a').takeReturned().text).toBe('with a file')
@@ -288,27 +304,82 @@ describe('FlowChatPool', () => {
 	})
 
 	it('never releases the conversation being left, whose composer still holds its draft', () => {
-		const { pool: p, fakeOf } = pool({ keepSettled: 1 })
+		const { pool: p, fakeOf, held } = pool({ keepSettled: 1 })
 		for (const id of ['a', 'b', 'c']) p.select(id)
 		const started = p.newChat()
 		fakeOf(started.chat).set({ conversationId: 'n' })
 		p.select('d')
-		expect(p.get('n')).toBe(started)
+		expect(held('n')).toBe(started)
 		expect(started.chat.destroy).not.toHaveBeenCalled()
 		p.destroy()
 	})
 
+	it('keeps a chat whose composer holds a draft, whatever its turns hold', () => {
+		let typedIn = ''
+		const {
+			pool: p,
+			chatOf,
+			held
+		} = pool({
+			keepSettled: 1,
+			holdsDraft: (host) => host.chat.getState().conversationId === typedIn
+		})
+		p.select('typed')
+		typedIn = 'typed'
+		for (const id of ['b', 'c', 'd']) p.select(id)
+		expect(held('typed')).toBeDefined()
+		expect(chatOf('typed').chat.destroy).not.toHaveBeenCalled()
+		// Sent or taken back, the chat is releasable like any other.
+		typedIn = ''
+		p.select('e')
+		expect(held('typed')).toBeUndefined()
+		p.destroy()
+	})
+
+	it('keeps one panel key per chat, across the first turn naming its conversation', () => {
+		const { pool: p, fakeOf, held, shown } = pool()
+		const startedOn = p.getState().shownKey
+		expect(p.getState().mounted).toEqual([startedOn])
+		const started = shown()
+
+		// The panel is where the reader is typing: its key must not change under it when the
+		// send names the conversation, or Svelte tears the composer down mid-turn.
+		fakeOf(started.chat).set({ conversationId: 'a', status: 'submitted' })
+		expect(p.getState()).toMatchObject({ mounted: [startedOn], shownKey: startedOn })
+		expect(p.getState().selectedId).toBe('a')
+		expect(held('a')).toBe(started)
+
+		// Nor when the send is refused and the chat goes back to being the new chat.
+		fakeOf(started.chat).set({ conversationId: undefined, status: 'idle' })
+		expect(p.getState()).toMatchObject({ mounted: [startedOn], shownKey: startedOn })
+		expect(p.getState().selectedId).toBeUndefined()
+
+		// A conversation opened beside it gets a key of its own, and both panels stay.
+		p.select('b')
+		const opened = p.getState().shownKey
+		expect(opened).not.toBe(startedOn)
+		expect(p.getState().mounted).toEqual([startedOn, opened])
+		expect(p.get(opened)).toBe(shown())
+
+		// Moving between them must not reorder the keys: a key that moves takes its panel out
+		// of the DOM and back in, which loses the transcript's scroll.
+		p.newChat()
+		p.select('b')
+		expect(p.getState().mounted).toEqual([startedOn, opened])
+		p.destroy()
+	})
+
 	it('releases settled chats past the budget, never one still running', () => {
-		const { pool: p, chatOf, dispose } = pool({ keepSettled: 1 })
+		const { pool: p, chatOf, held, dispose } = pool({ keepSettled: 1 })
 		p.select('busy')
 		chatOf('busy').set({ status: 'streaming' })
 		p.select('old')
 		p.select('recent')
 		p.select('shown')
 		expect(chatOf('old').chat.destroy).toHaveBeenCalled()
-		expect(p.get('old')).toBeUndefined()
-		expect(p.get('recent')).toBeDefined()
-		expect(p.get('busy')).toBeDefined()
+		expect(held('old')).toBeUndefined()
+		expect(held('recent')).toBeDefined()
+		expect(held('busy')).toBeDefined()
 		expect(dispose).toHaveBeenCalledTimes(1)
 		p.destroy()
 	})
