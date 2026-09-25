@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Badge, Button } from './common'
 	import Popover from './meltComponents/Popover.svelte'
-	import { Play, RefreshCw } from 'lucide-svelte'
+	import { ChevronDown, Play, RefreshCw } from 'lucide-svelte'
 	import { FlowService, JobService, type FlowVersion } from '$lib/gen'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
@@ -20,6 +20,8 @@
 		enterpriseOnly?: boolean
 		variant?: 'default' | 'accent'
 		unifiedSize?: 'xs' | 'sm' | 'md' | 'lg'
+		/** `link` renders the trigger as inline text, for use inside a sentence. */
+		triggerStyle?: 'button' | 'link'
 		/**
 		 * For nested-step restarts: path of ancestor containers from the top-level
 		 * step down to the leaf. When provided, the LAST entry's step_id is the
@@ -71,6 +73,7 @@
 		enterpriseOnly = false,
 		variant = 'default',
 		unifiedSize = 'md',
+		triggerStyle = 'button',
 		nestedPath = undefined,
 		nestedTopStepId = undefined,
 		nestedTopBranchOrIterationN = undefined,
@@ -87,6 +90,10 @@
 		isNested && nestedPath && nestedPath.length > 0
 			? nestedPath[nestedPath.length - 1].step_id
 			: selectedJobStep
+	)
+
+	const restartTitle = $derived(
+		`Re-start this flow from step ${displayStepId} (included).${enterpriseOnly ? ' This is a feature only available in enterprise edition.' : ''}`
 	)
 
 	// Sentinel value meaning "use the same version as the original run" (backend receives undefined)
@@ -142,8 +149,13 @@
 		})
 		return out
 	})
+	// A link has no button of its own to restart on click: it always opens the
+	// popover, whose Restart button then acts as the confirmation.
 	const needsPopup = $derived(
-		!!flowPath || iterationFields.length > 0 || selectedJobStepType !== 'single'
+		triggerStyle === 'link' ||
+			!!flowPath ||
+			iterationFields.length > 0 ||
+			selectedJobStepType !== 'single'
 	)
 	let selectedFlowVersion: number = $state(RUN_VERSION_SENTINEL)
 	let flowVersions: Array<FlowVersion> = $state([])
@@ -244,12 +256,21 @@
 	</label>
 {/snippet}
 {#snippet restartTriggerButton(usePlayIcon: boolean)}
+	{#if triggerStyle === 'link'}
+		<!-- The popover trigger is already a <button>; nesting another is invalid. -->
+		<span class="underline hover:no-underline" title={restartTitle}>Restart from this step</span>
+	{:else}
+		{@render restartButton(usePlayIcon)}
+	{/if}
+{/snippet}
+{#snippet restartButton(usePlayIcon: boolean)}
 	<Button
-		title={`Re-start this flow from step ${displayStepId} (included).${enterpriseOnly ? ' This is a feature only available in enterprise edition.' : ''}`}
+		title={restartTitle}
 		{variant}
 		{unifiedSize}
 		{disabled}
 		startIcon={{ icon: usePlayIcon ? Play : RefreshCw }}
+		endIcon={needsPopup ? { icon: ChevronDown } : undefined}
 		nonCaptureEvent={!usePlayIcon || !!flowPath}
 		onClick={() => {
 			if (usePlayIcon && !flowPath) {
@@ -273,6 +294,12 @@
 	<Popover
 		floatingConfig={{ strategy: 'absolute', placement: 'bottom-start' }}
 		disablePopup={!needsPopup}
+		triggerAttrs={{
+			'aria-label':
+				triggerStyle === 'link'
+					? `Restart from this step (${displayStepId})`
+					: `Re-start from ${displayStepId}`
+		}}
 		on:openChange={(e) => {
 			if (e.detail) {
 				loadFlowVersions()

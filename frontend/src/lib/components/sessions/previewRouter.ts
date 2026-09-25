@@ -3,6 +3,7 @@ import {
 	AUDIT_LOGS_PATH,
 	FOLDERS_PATH,
 	GROUPS_PATH,
+	isPageItemListPath,
 	pageItemForListPath,
 	pageItemListPath,
 	pageItemPageHref,
@@ -530,13 +531,14 @@ export const isArtifactKey = (key: string) => key.startsWith('artifact:')
 // fallback. Any editable item of a wrappable kind (script, flow, raw app) mounts
 // its per-(kind,path) cell editor; a `/pipeline/<folder>` route mounts the
 // data-pipeline graph editor (single, shared runtime.pipelineEditorState — `path`
-// is the folder); everything else (static pages, regular drag-and-drop apps, any
-// other route) stays an iframe.
+// is the folder); the list page of a page item kind mounts that list; everything
+// else (static pages, regular drag-and-drop apps, any other route) stays an iframe.
 export type PreviewSlot =
 	| { kind: 'editor'; editorKind: SessionTargetKind | 'pipeline'; path: string }
 	| { kind: 'artifact'; id: string; version?: number }
 	| { kind: 'runform'; toolCallId: string }
 	| { kind: 'pageitem'; ref: PageItemRef }
+	| { kind: 'pagelist'; path: string }
 	| { kind: 'iframe' }
 
 export function resolvePreviewTab(url: string): PreviewSlot {
@@ -546,22 +548,24 @@ export function resolvePreviewTab(url: string): PreviewSlot {
 	if (runForm) return { kind: 'runform', toolCallId: runForm.toolCallId }
 	const pageItem = parsePageItemRoute(url)
 	if (pageItem) return { kind: 'pageitem', ref: pageItem }
+	const route = stripBase(url)
+	if (isPageItemListPath(route)) return { kind: 'pagelist', path: route }
 	const pipelineFolder = parsePipelineRoute(url)
 	if (pipelineFolder) {
 		return { kind: 'editor', editorKind: 'pipeline', path: pipelineFolder }
 	}
-	const route = parsePreviewItemRoute(url)
-	if (!route) return { kind: 'iframe' }
+	const item = parsePreviewItemRoute(url)
+	if (!item) return { kind: 'iframe' }
 	const editorKind: SessionTargetKind | undefined =
-		route.kind === 'script'
+		item.kind === 'script'
 			? 'script'
-			: route.kind === 'flow'
+			: item.kind === 'flow'
 				? 'flow'
-				: route.kind === 'app' && route.raw_app
+				: item.kind === 'app' && item.raw_app
 					? 'raw_app'
 					: undefined
 	if (!editorKind) return { kind: 'iframe' }
-	return { kind: 'editor', editorKind, path: route.itemPath }
+	return { kind: 'editor', editorKind, path: item.itemPath }
 }
 
 /** The full workspace page showing what a tab shows ("Open in workspace"), or undefined when
@@ -576,6 +580,7 @@ export function workspacePageHref(location: string): string | undefined {
 		case 'pageitem':
 			return pageItemPageHref(slot.ref)
 		case 'editor':
+		case 'pagelist':
 		case 'iframe':
 			return location
 		default: {

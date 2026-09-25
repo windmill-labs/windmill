@@ -2,7 +2,6 @@
 	import { Alert, Button } from '$lib/components/common'
 	import {
 		clearPageDrawerAnchor,
-		handOffPageDrawer,
 		setPageDrawerAnchor
 	} from '$lib/components/sessions/pageDrawerSession'
 	import { TRIGGER_PAGES } from '$lib/components/sessions/previewPaths'
@@ -202,7 +201,6 @@
 		isFlow: boolean,
 		defaultConfig?: Record<string, any>
 	) {
-		if (handOffPageDrawer(TRIGGER_PAGES.websocket.path, ePath)) return
 		// A `whoami` that failed earlier would otherwise pin this workspace to "unknown user".
 		operatingUser.forgetFailures()
 		let loadingTimeout = setTimeout(() => {

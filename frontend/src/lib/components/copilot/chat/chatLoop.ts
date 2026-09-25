@@ -71,13 +71,8 @@ export interface ChatLoopConfig {
 	 * lets the caller recover partial output if the loop throws or is aborted.
 	 */
 	addedMessages?: ChatCompletionMessageParam[]
-	/** Called before each iteration (e.g. to refresh tool schemas, or to record
-	 * which model the iteration is about to use). */
-	onBeforeIteration?: (
-		tools: Tool<any>[],
-		helpers: any,
-		modelProvider: ReasoningProviderModel
-	) => Promise<void>
+	/** Called before each iteration (e.g. to record which model it is about to use). */
+	onBeforeIteration?: (modelProvider: ReasoningProviderModel) => Promise<void>
 	/** Fired for each completed provider response, before the loop continues. The
 	 * loop can fail or be aborted at any iteration, so spend has to be handed over
 	 * as it happens — a callback only at the end would discard everything the
@@ -399,7 +394,6 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 		// Re-read these from config each iteration so that mode changes
 		// (e.g. changeModeTool in Navigator) take effect immediately.
 		// Callers can use JS getter properties to provide dynamic values.
-		const tools = config.tools
 		const helpers = config.helpers
 		const systemMessage = config.systemMessage
 		const modelProvider = config.modelProvider
@@ -411,8 +405,11 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 			!unsupportedWebSearchCache.has(webSearchCacheKey)
 
 		if (onBeforeIteration) {
-			await onBeforeIteration(tools, helpers, modelProvider)
+			await onBeforeIteration(modelProvider)
 		}
+		const tools = await Promise.all(
+			config.tools.map(async (t) => (t.schemaFor ? { ...t, def: await t.schemaFor(helpers) } : t))
+		)
 
 		const pendingUserMessage = getPendingUserMessage?.()
 

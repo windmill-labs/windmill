@@ -49,6 +49,9 @@
 		 * users have no test chats to look at.
 		 */
 		conversationKind?: 'test' | 'deployed'
+		/** What a message runs, as the chat names it. An agent has no deployed chats, so its
+		 *  sidebar offers no filter between those and the test ones. */
+		subject?: 'flow' | 'agent'
 	}
 
 	let {
@@ -62,7 +65,8 @@
 		description = undefined,
 		wideLayout = false,
 		frame = 'top',
-		conversationKind = 'deployed'
+		conversationKind = 'deployed',
+		subject = 'flow'
 	}: Props = $props()
 
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
@@ -87,13 +91,13 @@
 			pollDelayMs: $enterpriseLicense ? 50 : undefined,
 			run: async ({ user_message, ...inputs }, { conversationId }) => {
 				const jobId = await onRunFlow(String(user_message), conversationId, inputs)
-				if (!jobId) throw new Error('the flow did not start')
+				if (!jobId) throw new Error(`the ${subject} did not start`)
 				// The server creates the conversation with the run, so the sidebar can list
 				// it now, whatever becomes of the turn.
 				sidebar?.conversationStarted(conversationId)
 				return jobId
 			},
-			onError: (error) => sendUserToast('Failed to run flow: ' + error.message, true)
+			onError: (error) => sendUserToast(`Failed to run ${subject}: ${error.message}`, true)
 		})
 		const unsubscribe = created.subscribe((s) => (chatState = s))
 		chat = created
@@ -126,7 +130,7 @@
 				{chat}
 				{chatState}
 				defaultKind={conversationKind}
-				canFilterKind={conversationKind !== 'deployed'}
+				canFilterKind={conversationKind !== 'deployed' && subject === 'flow'}
 			/>
 		{/if}
 		<!-- pb-3 on the chat alone, not on the row: the transcript and composer stop short of
@@ -147,6 +151,7 @@
 					{description}
 					{wideLayout}
 					{conversationKind}
+					{subject}
 				/>
 			{/key}
 		</div>

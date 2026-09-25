@@ -40,11 +40,14 @@ jobs:
     # an author_association gate: the pull_request webhook payload reports private org
     # members as CONTRIBUTOR/NONE (only public members show as MEMBER), which silently
     # skips auto-review for every private member.
+    # Dependabot-triggered runs get a separate secret scope, so this job has no API
+    # key and cannot review. workflow_call stays open for an explicit request.
     if: |
       github.event_name == 'workflow_call' ||
       (
         github.event.pull_request.draft == false &&
-        github.event.pull_request.head.repo.fork == false
+        github.event.pull_request.head.repo.fork == false &&
+        github.event.pull_request.user.login != 'dependabot[bot]'
       )
     permissions:
       contents: read

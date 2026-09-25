@@ -406,7 +406,8 @@ function createRuntime(session: Session): SessionRuntime {
 		const tab = owner?.displayedTab
 		if (!tab) return undefined
 		const slotKind = resolvePreviewTab(tab.url).kind
-		if (slotKind !== 'iframe' && slotKind !== 'pageitem') return undefined
+		if (slotKind !== 'iframe' && slotKind !== 'pageitem' && slotKind !== 'pagelist')
+			return undefined
 		return previewLocationContext(whereIs(tab))
 	}
 	// Pre-flight: materialise the (still-transient) session, then commit

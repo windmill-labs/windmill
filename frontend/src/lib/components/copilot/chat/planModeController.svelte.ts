@@ -1,6 +1,7 @@
 import type { ChatCompletionSystemMessageParam } from 'openai/resources/chat/completions.mjs'
 import type { ArtifactVersionTarget } from '$lib/components/sessions/previewRouter'
-import { createToolDef, type Tool, type ToolCallbacks } from './shared'
+import { createToolDef, type ToolCallbacks } from './shared'
+import { NONE, type SessionTool } from './sessionCapabilities'
 import {
 	appendPlanModeInstructions,
 	derivePlanTitle,
@@ -100,14 +101,24 @@ export class PlanModeController {
 
 	/** Only the transition the current posture allows; auto-accepting exposes neither, since
 	 * entering is the user's choice. */
-	get tools(): Tool<any>[] {
+	get tools(): SessionTool<any>[] {
 		if (!this.#host.available) return []
 		if (this.#host.autoAccepting) return []
 		return this.#host.active ? [this.exitTool] : [this.enterTool]
 	}
 
+	/** Both transitions, whichever posture is selected: what plan mode contributes to this
+	 * chat's capabilities, rather than to the turn it is about to send. */
+	get availableTools(): SessionTool<any>[] {
+		return this.#host.available ? [this.enterTool, this.exitTool] : []
+	}
+
 	// This safety tag is what keeps plan mode escapable through its handoff tool.
-	exitTool: Tool<any> = {
+	exitTool: SessionTool<any> = {
+		// Ungated even for a user who can change nothing: the posture is the USER's choice,
+		// and its instructions order this call to hand the plan over — withholding it
+		// strands the model in a round nothing else can end.
+		requires: NONE,
 		def: createToolDef(exitPlanModeArgs, EXIT_PLAN_MODE_TOOL, EXIT_PLAN_MODE_TOOL_DESCRIPTION),
 		planModeSafe: true,
 		requiresConfirmation: true,
@@ -156,7 +167,8 @@ export class PlanModeController {
 		}
 	}
 
-	enterTool: Tool<any> = {
+	enterTool: SessionTool<any> = {
+		requires: NONE,
 		def: createToolDef(enterPlanModeArgs, ENTER_PLAN_MODE_TOOL, ENTER_PLAN_MODE_TOOL_DESCRIPTION),
 		planModeSafe: true,
 		requiresConfirmation: true,

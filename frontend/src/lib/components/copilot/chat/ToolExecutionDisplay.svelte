@@ -10,9 +10,11 @@
 		FileText,
 		PanelRight,
 		Lock,
-		ExternalLink
+		ExternalLink,
+		BookOpen
 	} from 'lucide-svelte'
 	import { base } from '$lib/base'
+	import { truncateRev } from '$lib/utils'
 	import {
 		EXIT_PLAN_MODE_TOOL,
 		isPlanCardTool,
@@ -26,7 +28,7 @@
 	import { getChatViewHost } from './chatViewHost'
 
 	const chatHost = getChatViewHost()
-	import { isActiveUserQuestion, type ToolDisplayMessage } from './shared'
+	import { isActiveUserQuestion, webSearchResultOf, type ToolDisplayMessage } from './shared'
 	import ChatCollapsibleCard from './ChatCollapsibleCard.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { slide } from 'svelte/transition'
@@ -40,6 +42,8 @@
 	import ToolPreviewCard from './ToolPreviewCard.svelte'
 	import AskUserQuestionDisplay from './AskUserQuestionDisplay.svelte'
 	import RunScriptCard from './RunScriptCard.svelte'
+	import ToolDiffCard from './ToolDiffCard.svelte'
+	import { hasToolCodeDiff } from './toolCodeDiff'
 	import WebSearchSourcesDisplay from './WebSearchSourcesDisplay.svelte'
 	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
 	import McpServerIcon from '$lib/components/mcp/McpServerIcon.svelte'
@@ -132,6 +136,7 @@
 	// A call that inspected a run rather than starting one gets the same card, bound to
 	// the job it named — what happened in a run reads the same either way.
 	const isRunCard = $derived(Boolean(message.runForm || message.inspectedRun))
+	const isDiffCard = $derived(Boolean(message.codeDiff) || hasToolCodeDiff(message.toolName))
 
 	// The preview chip sits on the header row (to the right of the tool-call text);
 	// shown once the tool settled, never while loading/erroring/awaiting confirmation.
@@ -139,6 +144,18 @@
 		Boolean(
 			message.previewCard && !message.isLoading && !message.error && !message.needsConfirmation
 		)
+	)
+
+	// A provider-side search sets `webSearchSources` and words its own header; any other tool
+	// gets the same card by returning the web search result shape.
+	const searchResult = $derived(
+		message.webSearchSources || message.error ? undefined : webSearchResultOf(message.result)
+	)
+	const sources = $derived(message.webSearchSources ?? searchResult?.sources)
+	const label = $derived(
+		searchResult?.query !== undefined
+			? `${message.content} · "${searchResult.query}"`
+			: message.content
 	)
 </script>
 
@@ -156,8 +173,22 @@
 			<span class="text-2xs text-tertiary truncate">{message.toolName}</span>
 		{/if}
 	</div>
+{:else if message.heldForFolderInstructions}
+	<!-- The call never ran: the model gets the folder's instructions and calls it again.
+	     A diff or run card here would show a write that did not happen. -->
+	<div class="font-mono text-xs flex items-center gap-2 py-0.5 my-0.5 min-w-0">
+		<BookOpen class="w-3.5 h-3.5 text-tertiary shrink-0" />
+		<span class="font-medium text-2xs text-tertiary shrink-0">
+			{message.content}
+		</span>
+		{#if message.toolName}
+			<span class="text-2xs text-tertiary truncate">{message.toolName} held until read</span>
+		{/if}
+	</div>
 {:else if isRunCard}
 	<RunScriptCard {message} />
+{:else if isDiffCard}
+	<ToolDiffCard {message} />
 {:else if planState}
 	<!-- Same lean shape as a tool call below: a header row that collapses into the
 	     transcript, with everything else in one box under it. -->
@@ -261,7 +292,7 @@
 			class="shrink-0 inline-flex items-center gap-1 font-main text-2xs text-tertiary hover:text-primary hover:underline"
 			title="Open this run"
 		>
-			<span>job <span class="font-mono">{message.jobId?.slice(0, 8)}</span></span>
+			<span>job <span class="font-mono">{truncateRev(message.jobId ?? '', 8)}</span></span>
 			<ExternalLink size={11} class="shrink-0" />
 		</a>
 	{/snippet}
@@ -281,7 +312,7 @@
 	     weight alone: queued calls (waiting their turn behind the executing tool)
 	     are faded, the running one sweeps, a settled one is plain. -->
 	<ChatCollapsibleCard
-		label={message.content}
+		{label}
 		expanded={isExpanded}
 		onToggle={() => (isExpanded = !isExpanded)}
 		toggleable={detailsAvailable || message.isStreamingArguments === true}
@@ -343,8 +374,8 @@
 
 			{#if visibleActions.length > 0}
 				<ToolMessageActions actions={visibleActions} />
-			{:else if message.webSearchSources?.length && !message.error}
-				<WebSearchSourcesDisplay sources={message.webSearchSources} />
+			{:else if sources?.length && !message.error}
+				<WebSearchSourcesDisplay {sources} favicons={message.webSearchSources !== undefined} />
 			{:else}
 				<ToolContentDisplay
 					title="Result"

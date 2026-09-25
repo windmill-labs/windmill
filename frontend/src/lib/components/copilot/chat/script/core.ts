@@ -9,6 +9,7 @@ import type {
 } from 'openai/resources/index.mjs'
 import { type DBSchema, dbSchemas } from '$lib/stores'
 import type { ContextElement } from '../context'
+import { NONE, RUN_PREVIEW, type SessionTool } from '../sessionCapabilities'
 import {
 	createSearchHubScriptsTool,
 	type Tool,
@@ -27,6 +28,7 @@ import type { ReviewChangesOpts } from '../monaco-adapter'
 import { copilotInfo, getCurrentModel } from '$lib/aiStore'
 import { get } from 'svelte/store'
 import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/metadata'
+import { scriptLangToEditorLang } from '$lib/scripts'
 import { getScriptPrompt, getWorkflowAsCodePrompt } from '$system_prompts'
 
 // Score threshold for npm packages search filtering
@@ -461,9 +463,12 @@ export const resourceTypeTool: Tool<ScriptChatHelpers> = {
 // Generic DB schema tool factory shared by the script, flow and global modes
 export function createDbSchemaTool<T>(
 	opts: { description?: string; updateEditorCache?: boolean } = {}
-): Tool<T> {
+): SessionTool<T> {
 	const { description, updateEditorCache = true } = opts
 	return {
+		// `getDbSchemas` below introspects by running a query job through /jobs/run/preview,
+		// which jobs.rs refuses operators — so this reads like a lookup but gates like a run.
+		requires: RUN_PREVIEW,
 		def: description
 			? {
 					...DB_SCHEMA_FUNCTION_DEF,
@@ -609,7 +614,8 @@ const SEARCH_NPM_PACKAGES_TOOL: ChatCompletionFunctionTool = {
 }
 
 // Helpers-agnostic so both script mode and global mode can offer it.
-export const searchNpmPackagesTool: Tool<{}> = {
+export const searchNpmPackagesTool: SessionTool<{}> = {
+	requires: NONE,
 	def: SEARCH_NPM_PACKAGES_TOOL,
 	planModeSafe: true,
 	fn: async ({ args, toolId, toolCallbacks }) => {
@@ -826,7 +832,12 @@ export const editCodeToolWithDiff: Tool<ScriptChatHelpers> = {
 
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Code changes applied`,
-				result: 'Success'
+				result: 'Success',
+				codeDiff: {
+					before: oldCode,
+					after: updatedCode,
+					lang: scriptLangToEditorLang(scriptOptions.lang)
+				}
 			})
 			return `Applied changes to the script editor.`
 		} catch (error) {
@@ -878,7 +889,12 @@ export const editCodeTool: Tool<ScriptChatHelpers> = {
 
 			toolCallbacks.setToolStatus(toolId, {
 				content: 'Code changes applied',
-				result: 'Success'
+				result: 'Success',
+				codeDiff: {
+					before: oldCode,
+					after: args.code,
+					lang: scriptLangToEditorLang(scriptOptions.lang)
+				}
 			})
 			return 'Code has been applied to the script editor.'
 		} catch (error) {

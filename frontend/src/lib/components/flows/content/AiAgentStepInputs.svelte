@@ -48,7 +48,7 @@
 	import { AlertTriangle, Plus, X } from 'lucide-svelte'
 	import type { PickableProperties } from '../previousResults'
 	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
-	import { toolEnabledName, type AgentTool } from '../agentToolUtils'
+	import { enabledToolNames, type AgentTool } from '../agentToolUtils'
 	import {
 		AGENT_FIELDS,
 		AGENT_FIELD_BY_KEY,
@@ -216,9 +216,7 @@
 		// By what each tool is named, not the summary alone: an MCP entry is added without one and is
 		// named by its resource path, so keying on `summary` would leave a whole server with no name
 		// to pick. `narrow_roster` matches that path for the same reason.
-		const names = tools
-			.map((tool) => toolEnabledName(tool))
-			.filter((name): name is string => !!name)
+		const names = enabledToolNames(tools)
 		const properties = schemaProperties
 		untrack(() => {
 			const list = properties['enabled_tools']
