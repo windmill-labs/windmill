@@ -105,3 +105,28 @@ test("deployItem: never sends the source workspace's on_behalf_of", async () => 
     expect("on_behalf_of" in JSON.parse(JSON.stringify(identity))).toBe(false);
   }
 });
+
+// An agent carries its principal inside its resource value, and is handed the chosen one as a
+// principal. The source's must never be sent: without a choice the key is dropped, leaving the
+// backend to make the agent the deployer's.
+test("deployItem: an agent takes the chosen principal, never the source's", async () => {
+  const captured: any[] = [];
+  const provider = {
+    existsResource: async () => true,
+    getResource: async () => ({
+      path: "f/x/agent",
+      resource_type: "ai_agent",
+      description: "",
+      value: { system_prompt: "hi", on_behalf_of: "u/alice" },
+    }),
+    updateResource: async (p: any) => void captured.push(p.requestBody),
+  } as any;
+
+  await deployItem(provider, "resource" as any, "f/x/agent", "src", "dst", "u/bob");
+  await deployItem(provider, "resource" as any, "f/x/agent", "src", "dst", undefined);
+
+  expect(captured[0].value).toEqual({ system_prompt: "hi", on_behalf_of: "u/bob" });
+  expect(captured[0].preserve_on_behalf_of).toBe(true);
+  expect(captured[1].value).toEqual({ system_prompt: "hi" });
+  expect(captured[1].preserve_on_behalf_of).toBe(false);
+});
