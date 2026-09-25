@@ -1509,7 +1509,8 @@ impl Completion<'_> {
         };
         // A step's completion is progress of its flow, and keeps the flow from being reaped as a
         // zombie. Any other completion runs the statement without the ping: Postgres sets up every
-        // write of a plan, so an unused ping would cost about a tenth of the completion.
+        // write of a plan, so an unused ping would cost about a tenth of the completion. The two
+        // statements differ only by the ping; a change to the delete or the insert goes in both.
         let Some(parent_to_ping) = completed_job
             .is_flow_step()
             .then_some(completed_job.parent_job)
