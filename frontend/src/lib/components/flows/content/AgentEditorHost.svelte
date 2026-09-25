@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { getContext, setContext, untrack } from 'svelte'
 	import { writable } from 'svelte/store'
-	import { Info, MessageCircleOff } from 'lucide-svelte'
+	import { MessageCircleOff } from 'lucide-svelte'
+	import PaneNotice from '$lib/components/common/paneNotice/PaneNotice.svelte'
 	import { Alert, Button } from '$lib/components/common'
 	import FlowChat from '../conversations/FlowChat.svelte'
 	import {
@@ -572,17 +573,11 @@
 						<!-- An agent reused as a step has no use for memory unless its flow gives it a
 						     conversation, and the form is where such an agent is tried. -->
 						{#if !chatGap?.memory && !readOnly}
-							<div
-								class="shrink-0 flex items-center gap-2 px-4 py-1.5 border-b text-2xs text-secondary"
-							>
-								<Info size={12} class="shrink-0" />
-								<span class="flex-1">
-									Managed memory keeps the conversation between runs. It's useful if you chat with
-									this agent, use it in a flow in chat mode, or pass it a memory id. Otherwise, you
-									can turn it off.
-								</span>
-								<Button unifiedSize="2xs" variant="subtle" onClick={turnOffMemory}>Turn off</Button>
-							</div>
+							<PaneNotice action={{ label: 'Turn off', onClick: turnOffMemory }}>
+								Managed memory keeps the conversation between runs. It's useful if you chat with
+								this agent, use it in a flow in chat mode, or pass it a memory id. Otherwise, you
+								can turn it off.
+							</PaneNotice>
 						{/if}
 						<Splitpanes horizontal class="flex-1 min-h-0">
 							<Pane size={40} minSize={15}>
@@ -637,21 +632,15 @@
 								{/if}
 							</div>
 						{:else if chatGap?.noStream}
-							<div
-								class="shrink-0 flex items-center gap-2 px-4 py-1.5 border-b text-2xs text-secondary"
+							<PaneNotice
+								action={chatGap.noStream === 'off' && !readOnly
+									? { label: 'Turn on', onClick: turnOnStreaming }
+									: undefined}
 							>
-								<Info size={12} class="shrink-0" />
-								<span class="flex-1">
-									{chatGap.noStream === 'image'
-										? 'Image answers do not stream: each one shows once its run ends.'
-										: 'Streaming is off: each answer shows once its run ends.'}
-								</span>
-								{#if chatGap.noStream === 'off' && !readOnly}
-									<Button unifiedSize="2xs" variant="subtle" onClick={turnOnStreaming}>
-										Turn on
-									</Button>
-								{/if}
-							</div>
+								{chatGap.noStream === 'image'
+									? 'Image answers do not stream: each one shows once its run ends.'
+									: 'Streaming is off: each answer shows once its run ends.'}
+							</PaneNotice>
 						{/if}
 						<!-- Hidden rather than unmounted while memory is off: switching it off mid-turn must
 							     not end the chat following that turn. Test chats, since what runs is the agent as
