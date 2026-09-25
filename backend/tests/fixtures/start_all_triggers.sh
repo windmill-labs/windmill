@@ -48,11 +48,14 @@ echo "All services ready. Run the e2e tests with:"
 echo ""
 
 if [[ "$ACTION" == "oss" ]]; then
-    echo "  cargo test --test trigger_e2e --features mqtt_trigger,websocket,postgres_trigger -- --ignored --nocapture"
+    echo "  cargo test -p windmill-api-integration-tests --test trigger_e2e --features mqtt_trigger,websocket,postgres_trigger -- --ignored --nocapture"
 else
     echo "  # OSS triggers"
-    echo "  cargo test --test trigger_e2e --features mqtt_trigger,websocket,postgres_trigger -- --ignored --nocapture"
+    echo "  cargo test -p windmill-api-integration-tests --test trigger_e2e --features mqtt_trigger,websocket,postgres_trigger -- --ignored --nocapture"
     echo ""
     echo "  # Enterprise triggers"
-    echo "  AWS_ENDPOINT_URL=http://localhost:4566 PUBSUB_EMULATOR_HOST=localhost:8085 cargo test --test trigger_e2e --features kafka,nats,sqs_trigger,gcp_trigger,enterprise,private -- --ignored --nocapture"
+    echo "  AWS_ENDPOINT_URL=http://localhost:4566 PUBSUB_EMULATOR_HOST=localhost:8085 cargo test -p windmill-api-integration-tests --test trigger_e2e --features kafka,nats,sqs_trigger,gcp_trigger,enterprise,private -- --ignored --nocapture"
+    echo ""
+    echo "  # SQS is not #[ignore]d, so --ignored would skip it"
+    echo "  AWS_ENDPOINT_URL=http://localhost:4566 cargo test -p windmill-api-integration-tests --test trigger_e2e test_sqs_e2e --features sqs_trigger,enterprise,private -- --nocapture"
 fi

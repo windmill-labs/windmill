@@ -12,6 +12,10 @@ path = "src/lib.rs"
 default = []
 private = ["windmill-api/private"]
 enterprise = ["windmill-api/enterprise"]
+# `run_server` only spawns the SQS listener when windmill-api carries this feature,
+# so an e2e test of the trigger has to ask for it rather than rely on another
+# workspace member happening to enable it.
+sqs_trigger = ["windmill-api/sqs_trigger"]
 python = ["windmill-common/python"]
 deno_core = ["dep:windmill-runtime-nativets"]
 mcp = ["windmill-api/mcp"]

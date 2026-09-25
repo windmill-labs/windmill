@@ -1,11 +1,13 @@
 /*!
  * End-to-end integration tests for Windmill trigger listeners.
  *
- * Each test is `#[ignore]` because it requires a running external service
- * (MQTT broker, NATS server, Kafka broker, etc.). See individual test doc
- * comments for setup instructions.
+ * Most tests are `#[ignore]` because they require a running external service
+ * (MQTT broker, NATS server, Kafka broker, etc.). `test_sqs_e2e` is the
+ * exception: CI starts LocalStack for it, so it runs unignored and must not be
+ * invoked with `--ignored`. See individual test doc comments for setup.
  *
- * Quick start — use the helper scripts in `tests/fixtures/`:
+ * Quick start — use the helper scripts in `tests/fixtures/` (paths relative to
+ * `backend/`):
  * ```bash
  * ./tests/fixtures/start_all_triggers.sh          # start all services
  * ./tests/fixtures/start_all_triggers.sh oss      # start OSS services only
@@ -710,25 +712,23 @@ async fn test_nats_e2e(db: Pool<Postgres>) -> anyhow::Result<()> {
 
 /// End-to-end test for SQS trigger (Enterprise only).
 ///
-/// Requires LocalStack with the test queue. Setup:
+/// Unlike the other tests here this one is not `#[ignore]`d: CI starts LocalStack
+/// and creates the queue (see `backend-test.yml`). Locally, from `backend/`:
 /// ```bash
 /// ./tests/fixtures/start_sqs.sh
-/// ```
-///
-/// Run:
-/// ```bash
 /// AWS_ENDPOINT_URL=http://localhost:4566 \
-/// cargo test --test trigger_e2e test_sqs_e2e \
-///     --features sqs_trigger,enterprise,private -- --ignored --nocapture
+/// cargo test -p windmill-api-integration-tests --test trigger_e2e test_sqs_e2e \
+///     --features sqs_trigger,enterprise,private -- --nocapture
 /// ```
-#[cfg(all(feature = "enterprise", feature = "private"))]
-#[ignore = "requires LocalStack SQS on localhost:4566"]
+// `sqs_trigger` is what makes run_server spawn the SQS listener; the aws-sdk-sqs dev
+// dependency arrives with `private`, so without this gate the test would build, run
+// against a server that has no listener, and time out.
+#[cfg(all(feature = "sqs_trigger", feature = "enterprise", feature = "private"))]
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_sqs_e2e(db: Pool<Postgres>) -> anyhow::Result<()> {
-    initialize_tracing().await;
+    use aws_sdk_sqs::types::QueueAttributeName;
 
-    // The SQS listener uses aws_config which respects AWS_ENDPOINT_URL for LocalStack.
-    std::env::set_var("AWS_ENDPOINT_URL", "http://localhost:4566");
+    initialize_tracing().await;
 
     let script_path = "f/test/sqs_e2e_handler";
     insert_test_script(&db, script_path).await?;
@@ -779,15 +779,57 @@ async fn test_sqs_e2e(db: Pool<Postgres>) -> anyhow::Result<()> {
         .await;
     let sqs_client = aws_sdk_sqs::Client::new(&config);
 
+    let queue_url = "http://localhost:4566/000000000000/windmill-e2e-test";
     sqs_client
         .send_message()
-        .queue_url("http://localhost:4566/000000000000/windmill-e2e-test")
+        .queue_url(queue_url)
         .message_body("hello from sqs e2e test")
         .send()
         .await?;
 
     let job = poll_for_trigger_job(&db, script_path, "sqs", Duration::from_secs(30)).await?;
-    assert!(job.args.is_some(), "job should have args");
+    // No preprocessor, so the args are the bare payload map with no `wm_trigger` extra.
+    // (SQS resolves to the V2 format here, but its v1 and v2 payload fns are identical.)
+    assert_eq!(
+        job.args.as_deref(),
+        Some(&json!({ "msg": "hello from sqs e2e test" })),
+        "the message body must reach the job unchanged"
+    );
+
+    // The ack half: a received message must be deleted, or every message is replayed
+    // forever once its visibility timeout lapses. Poll because the delete is issued
+    // after the job is pushed.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        let attrs = sqs_client
+            .get_queue_attributes()
+            .queue_url(queue_url)
+            .attribute_names(QueueAttributeName::ApproximateNumberOfMessages)
+            .attribute_names(QueueAttributeName::ApproximateNumberOfMessagesNotVisible)
+            .send()
+            .await?;
+        // Both attributes are always returned when requested, so treating a missing or
+        // unparseable one as zero would let the assertion pass on a broken response.
+        let count = |name: QueueAttributeName| {
+            attrs
+                .attributes()
+                .and_then(|a| a.get(&name))
+                .unwrap_or_else(|| panic!("SQS did not return {name:?}"))
+                .parse::<u32>()
+                .expect("SQS returned a non-numeric message count")
+        };
+        let visible = count(QueueAttributeName::ApproximateNumberOfMessages);
+        let in_flight = count(QueueAttributeName::ApproximateNumberOfMessagesNotVisible);
+        if visible == 0 && in_flight == 0 {
+            break;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            panic!(
+                "message was not deleted from the queue: {visible} visible, {in_flight} in flight"
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
 
     Ok(())
 }
