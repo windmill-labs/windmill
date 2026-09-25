@@ -232,6 +232,8 @@ pub struct GlobalSettings {
     pub request_size_limit_mb: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout_wait_result: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cancel_stranded_jobs_after_days: Option<i64>,
 
     // Boolean settings
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -248,6 +250,8 @@ pub struct GlobalSettings {
     pub dev_instance: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub critical_alert_mute_ui: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub critical_alert_mute_stranded_jobs: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub monitor_logs_on_s3: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]

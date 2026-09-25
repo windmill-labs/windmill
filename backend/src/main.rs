@@ -171,6 +171,7 @@ mod db_connect;
 pub mod ee;
 mod ee_oss;
 mod monitor;
+mod stranded_jobs;
 
 // Windows service support - EE feature
 #[cfg(all(windows, feature = "enterprise", feature = "private"))]
