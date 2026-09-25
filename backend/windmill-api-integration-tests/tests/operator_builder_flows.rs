@@ -122,6 +122,19 @@ async fn test_operator_builder_flows_boundary(db: Pool<Postgres>) -> anyhow::Res
         resp.text().await?
     );
 
+    // A legacy draft has no owner, so it lists as the builder's own, and a script draft is one
+    // the builder cannot write: that row must read as not writable, not fail the whole list.
+    sqlx::query(
+        "INSERT INTO draft (workspace_id, path, typ, value) VALUES ($1, 'u/operator/some_script', 'script', '{}')",
+    )
+    .bind(WS)
+    .execute(&db)
+    .await?;
+    let resp = c.get(format!("{api}/drafts/list")).send().await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    let drafts: serde_json::Value = resp.json().await?;
+    assert_eq!(drafts[0]["can_write"], false, "{drafts}");
+
     let resp = c
         .post(format!("{api}/flows/create"))
         .json(&inline_code_flow("u/operator/f2"))

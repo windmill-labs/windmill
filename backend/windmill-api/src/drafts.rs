@@ -155,10 +155,13 @@ async fn list_drafts(
                 {
                     Ok(()) => true,
                     // A stored draft can sit at an unwritable path — unauthorized,
-                    // or malformed (`BadRequest`; the `draft` table has no path
-                    // constraint). Either way it's not writable, and one bad row
-                    // must not 400 the whole listing.
-                    Err(Error::NotAuthorized(_)) | Err(Error::BadRequest(_)) => false,
+                    // refused to an operator (`PermissionDenied`), or malformed
+                    // (`BadRequest`; the `draft` table has no path constraint).
+                    // Either way it's not writable, and one bad row must not fail
+                    // the whole listing.
+                    Err(Error::NotAuthorized(_))
+                    | Err(Error::PermissionDenied(_))
+                    | Err(Error::BadRequest(_)) => false,
                     Err(e) => return Err(e),
                 };
             out.push(row);
@@ -1112,7 +1115,8 @@ fn table_for_kind(kind: UserDraftItemKind) -> Option<&'static str> {
 }
 
 /// Resolves to `Ok(())` if `authed` may SAVE a draft at `path`. Operators are
-/// rejected outright. Two layers:
+/// rejected, except for flow drafts in a workspace that granted them builder
+/// rights. Two layers:
 ///   1. Claim-based namespace rules (admin, own `u/`, member `g/`, writable
 ///      `f/`) — mirror what RLS reads from the same JWT claims, and are the
 ///      ENTIRE check for draft-only paths (no deployed row for RLS to use).
