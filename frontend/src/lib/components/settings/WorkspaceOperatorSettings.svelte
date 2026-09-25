@@ -133,13 +133,13 @@
 		</Button>
 	{/snippet}
 
-	<div class="flex flex-col gap-y-1 mb-6">
-		<span class="text-xs font-semibold text-emphasis">Change schedules and triggers</span>
-		<span class="text-xs font-normal text-secondary">
-			Operators can create, edit and delete schedules and triggers wherever their folder permissions
-			let them write. When turned off, the server refuses these changes, including through the API
-			and the CLI.
-		</span>
+	<Section
+		small
+		label="Change schedules and triggers"
+		description="Operators can create, edit and delete schedules and triggers wherever their folder permissions let them write. When turned off, the server refuses these changes, including through the API and the CLI."
+		wrapperClass="mb-6"
+		class="flex flex-col gap-y-1"
+	>
 		<Toggle
 			bind:checked={manageSchedules}
 			options={{ right: 'Operators can manage schedules' }}
@@ -150,65 +150,69 @@
 			options={{ right: 'Operators can manage triggers' }}
 			size="xs"
 		/>
-	</div>
+	</Section>
 
-	<div class="flex flex-col gap-y-1 mb-2">
-		<span class="text-xs font-semibold text-emphasis">Pages in their menu</span>
-		<span class="text-xs font-normal text-secondary">
-			Hides pages from an operator's menu. It does not block access through the API: use folder and
-			item permissions to restrict what they can read.
-		</span>
-	</div>
-
-	<DataTable tableFixed={true} size="xs">
-		<Head>
-			<tr>
-				<Cell head first>Section</Cell>
-				<Cell head>Description</Cell>
-				<Cell head last>
-					<ToggleButtonGroup
-						bind:selected={
-							() => (allDisabled ? 'false' : allEnabled ? 'true' : ''),
-							(v) => {
-								Object.keys(operatorWorkspaceSettings).forEach((key) => {
-									if (v === 'true') operatorWorkspaceSettings[key] = true
-									if (v === 'false') operatorWorkspaceSettings[key] = false
-								})
-							}
-						}
-					>
-						{#snippet children({ item })}
-							<ToggleButton icon={EyeIcon} small={true} value={'true'} label="Enable All" {item} />
-							<ToggleButton
-								icon={EyeOffIcon}
-								small={true}
-								value={'false'}
-								label="Disable All"
-								{item}
-							/>
-						{/snippet}
-					</ToggleButtonGroup>
-				</Cell>
-			</tr>
-		</Head>
-		<tbody class="divide-y bg-surface">
-			{#each Object.entries(descriptions) as [key, { title, description }]}
+	<Section
+		small
+		label="Pages in their menu"
+		description="Hides pages from an operator's menu. It does not block access through the API: use folder and item permissions to restrict what they can read."
+	>
+		<DataTable tableFixed={true} size="xs">
+			<Head>
 				<tr>
-					<Cell first>{title}</Cell>
-					<Cell>{description}</Cell>
-					<Cell last class="pl-8">
+					<Cell head first>Section</Cell>
+					<Cell head>Description</Cell>
+					<Cell head last>
 						<ToggleButtonGroup
-							selected={operatorWorkspaceSettings[key] ? 'on' : 'off'}
-							on:selected={({ detail }) => (operatorWorkspaceSettings[key] = detail === 'on')}
+							bind:selected={
+								() => (allDisabled ? 'false' : allEnabled ? 'true' : ''),
+								(v) => {
+									Object.keys(operatorWorkspaceSettings).forEach((key) => {
+										if (v === 'true') operatorWorkspaceSettings[key] = true
+										if (v === 'false') operatorWorkspaceSettings[key] = false
+									})
+								}
+							}
 						>
 							{#snippet children({ item })}
-								<ToggleButton icon={EyeIcon} small={true} value={'on'} label="On" {item} />
-								<ToggleButton icon={EyeOffIcon} small={true} value={'off'} label="Off" {item} />
+								<ToggleButton
+									icon={EyeIcon}
+									small={true}
+									value={'true'}
+									label="Enable All"
+									{item}
+								/>
+								<ToggleButton
+									icon={EyeOffIcon}
+									small={true}
+									value={'false'}
+									label="Disable All"
+									{item}
+								/>
 							{/snippet}
 						</ToggleButtonGroup>
 					</Cell>
 				</tr>
-			{/each}
-		</tbody>
-	</DataTable>
+			</Head>
+			<tbody class="divide-y bg-surface">
+				{#each Object.entries(descriptions) as [key, { title, description }]}
+					<tr>
+						<Cell first>{title}</Cell>
+						<Cell>{description}</Cell>
+						<Cell last class="pl-8">
+							<ToggleButtonGroup
+								selected={operatorWorkspaceSettings[key] ? 'on' : 'off'}
+								on:selected={({ detail }) => (operatorWorkspaceSettings[key] = detail === 'on')}
+							>
+								{#snippet children({ item })}
+									<ToggleButton icon={EyeIcon} small={true} value={'on'} label="On" {item} />
+									<ToggleButton icon={EyeOffIcon} small={true} value={'off'} label="Off" {item} />
+								{/snippet}
+							</ToggleButtonGroup>
+						</Cell>
+					</tr>
+				{/each}
+			</tbody>
+		</DataTable>
+	</Section>
 </Section>
