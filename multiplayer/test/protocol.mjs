@@ -14,7 +14,11 @@ import * as decoding from 'lib0/decoding'
 export const messageSync = 0
 export const messageAwareness = 1
 
-// y-protocols/sync sub-types.
+// y-protocols/sync sub-types. Note these overlap numerically with the message
+// types above (`syncStep1 === messageSync === 0`), which is a property of the
+// wire format, not a mistake — so no runtime check can tell a caller that passed
+// the wrong family apart from one that passed the right one. `hasSyncType` is
+// named for the family it takes; pass it only the three constants below.
 export const syncStep1 = 0
 export const syncStep2 = 1
 export const syncUpdate = 2
@@ -84,7 +88,7 @@ export function openClient(url, { onOpen } = {}) {
   return client
 }
 
-/** Has `client` received a sync message of this sub-type? */
-export function hasKind(client, syncType) {
+/** Has `client` received a sync message of this sub-type (never a message type)? */
+export function hasSyncType(client, syncType) {
   return client.received.some((data) => messageKind(data).syncType === syncType)
 }

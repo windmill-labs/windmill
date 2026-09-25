@@ -23,7 +23,7 @@ import {
   startMultiplayerServer,
   waitFor
 } from './helpers.mjs'
-import { hasKind, openClient, syncStep1, syncStep1Message, syncStep2 } from './protocol.mjs'
+import { hasSyncType, openClient, syncStep1, syncStep1Message, syncStep2 } from './protocol.mjs'
 
 const WORKSPACE = 'test_workspace'
 const DOC_PATH = `${WORKSPACE}/f/foo/bar`
@@ -45,11 +45,11 @@ async function assertStillServing(t, server, token) {
   t.after(() => healthy.ws.close())
   // Resolve as soon as either outcome is settled, so a dead server fails fast
   // and with its own output rather than by timing out.
-  await waitFor(() => hasKind(healthy, syncStep2) || server.exitStatus !== null, {
+  await waitFor(() => hasSyncType(healthy, syncStep2) || server.exitStatus !== null, {
     message: 'the server to answer a new client with sync step 2'
   })
   assert.equal(server.exitStatus, null, `server died: ${server.output}`)
-  assert.ok(hasKind(healthy, syncStep2))
+  assert.ok(hasSyncType(healthy, syncStep2))
 }
 
 test('an illegal WebSocket frame from an authenticated client does not exit the server', { timeout: 60000 }, async (t) => {
@@ -64,7 +64,7 @@ test('an illegal WebSocket frame from an authenticated client does not exit the 
 
   const offender = openClient(`${server.url}/${DOC_PATH}?token=${token}`)
   // The server's sync step 1 means this peer is past authentication.
-  await waitFor(() => hasKind(offender, syncStep1), { message: 'the server to send sync step 1' })
+  await waitFor(() => hasSyncType(offender, syncStep1), { message: 'the server to send sync step 1' })
   offender.ws._socket.write(UNMASKED_FRAME)
 
   await waitFor(() => offender.closeCode !== undefined, {

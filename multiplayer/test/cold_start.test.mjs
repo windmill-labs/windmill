@@ -22,7 +22,7 @@ import * as decoding from 'lib0/decoding'
 
 import { mintToken, startJwksServer, startMultiplayerServer, waitFor } from './helpers.mjs'
 import {
-  hasKind,
+  hasSyncType,
   messageKind,
   openClient,
   syncStep1Message,
@@ -73,11 +73,11 @@ test('cold start: a sync step 1 sent while the key is still being fetched is ans
   await delay(FLIGHT_MARGIN_MS)
   jwks.release()
 
-  await waitFor(() => hasKind(cold, syncStep2), {
+  await waitFor(() => hasSyncType(cold, syncStep2), {
     message: 'the server to answer the cold client with sync step 2'
   })
   // The echo of our own update proves it was applied to the server-side doc.
-  await waitFor(() => hasKind(cold, syncUpdate), {
+  await waitFor(() => hasSyncType(cold, syncUpdate), {
     message: 'the server to broadcast back the update sent during the cold window'
   })
   cold.ws.close()
@@ -88,7 +88,7 @@ test('cold start: a sync step 1 sent while the key is still being fetched is ans
   })
   t.after(() => warm.ws.close())
 
-  await waitFor(() => hasKind(warm, syncStep2), {
+  await waitFor(() => hasSyncType(warm, syncStep2), {
     message: 'the server to answer the second client with sync step 2'
   })
 
@@ -157,7 +157,7 @@ test('cold start: a peer that floods before authenticating is closed and the ser
   })
   t.after(() => healthy.ws.close())
 
-  await waitFor(() => hasKind(healthy, syncStep2), {
+  await waitFor(() => hasSyncType(healthy, syncStep2), {
     message: 'the server to still answer a well-behaved client with sync step 2'
   })
 })

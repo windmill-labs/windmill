@@ -21,7 +21,7 @@ import * as encoding from 'lib0/encoding'
 
 import { mintToken, startJwksServer, startMultiplayerServer, waitFor } from './helpers.mjs'
 import {
-  hasKind,
+  hasSyncType,
   messageAwareness,
   messageSync,
   openClient,
@@ -103,7 +103,7 @@ const MALFORMED = [
 /** Connect, wait for the server's sync step 1, i.e. for the peer to be authenticated. */
 async function connectAuthenticated(server, token, { onOpen } = {}) {
   const client = openClient(`${server.url}/${DOC_PATH}?token=${token}`, { onOpen })
-  await waitFor(() => hasKind(client, syncStep1) || client.closeCode !== undefined, {
+  await waitFor(() => hasSyncType(client, syncStep1) || client.closeCode !== undefined, {
     message: 'the server to send sync step 1'
   })
   assert.equal(client.closeCode, undefined, 'connection was closed before it was set up')
@@ -125,7 +125,7 @@ for (const [label, payload] of MALFORMED) {
     const bystander = await connectAuthenticated(server, token, {
       onOpen: (ws) => ws.send(syncStep1Message())
     })
-    await waitFor(() => hasKind(bystander, syncStep2), {
+    await waitFor(() => hasSyncType(bystander, syncStep2), {
       message: 'the server to answer the bystander with sync step 2'
     })
     t.after(() => bystander.ws.close())
@@ -141,15 +141,19 @@ for (const [label, payload] of MALFORMED) {
     })
     assert.equal(offender.closeCode, INVALID_PAYLOAD)
     assert.equal(server.exitStatus, null, `server died: ${server.output}`)
-    assert.ok(server.output.includes(`doc="${DOC_PATH}"`), 'the refusal must name the document')
     // The frame itself is never logged: 600 KiB of zeros must not reach the log.
     assert.ok(server.output.length < 8192, `server logged ${server.output.length} bytes, payload leaked?`)
 
-    // Exactly one refusal line, and nothing a peer put in the frame can escape
-    // it: an error message can quote the payload (V8 does so for JSON.parse), so
-    // the line must carry no control characters at all.
+    // Exactly one refusal line, and every assertion about it is made against the
+    // line itself: CONNECT and DISCONNECT also name the document, so checking the
+    // whole log would pass even if the refusal stopped naming anything.
     const refusals = server.output.split('\n').filter((line) => line.includes(REFUSED))
     assert.equal(refusals.length, 1, `expected one refusal line, got:\n${server.output}`)
+    assert.ok(refusals[0].includes(`doc="${DOC_PATH}"`), `the refusal must name the document: ${refusals[0]}`)
+    assert.ok(refusals[0].includes('from='), `the refusal must name the peer: ${refusals[0]}`)
+    // Nothing a peer put in the frame can escape that line: an error message can
+    // quote the payload (V8 does so for JSON.parse), so it must carry no control
+    // characters at all.
     assert.doesNotMatch(refusals[0], /[\x00-\x1f\x7f]/, 'the refusal line must have no control characters')
 
     // The bystander was not disturbed, and a new client still syncs.
@@ -158,7 +162,7 @@ for (const [label, payload] of MALFORMED) {
       onOpen: (ws) => ws.send(syncStep1Message())
     })
     t.after(() => latecomer.ws.close())
-    await waitFor(() => hasKind(latecomer, syncStep2), {
+    await waitFor(() => hasSyncType(latecomer, syncStep2), {
       message: 'the server to answer a new client with sync step 2'
     })
 
@@ -208,7 +212,7 @@ test('a malformed frame replayed from the pre-auth buffer is refused, not fatal'
     onOpen: (ws) => ws.send(syncStep1Message())
   })
   t.after(() => healthy.ws.close())
-  await waitFor(() => hasKind(healthy, syncStep2), {
+  await waitFor(() => hasSyncType(healthy, syncStep2), {
     message: 'the server to still answer a well-behaved client with sync step 2'
   })
 })
