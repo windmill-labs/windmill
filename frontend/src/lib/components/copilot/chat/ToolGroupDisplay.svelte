@@ -4,6 +4,7 @@
 	import ToolPreviewCard from './ToolPreviewCard.svelte'
 	import type { DisplayMessage, ToolDisplayMessage } from './shared'
 	import { callFailed, groupHeader, type ToolGroup } from './toolGroups'
+	import { HeldValue, LABEL_MIN_MS } from './heldValue.svelte'
 
 	interface Props {
 		group: ToolGroup
@@ -26,8 +27,12 @@
 	// Every edit of one flow carries the same chip, so the group shows it once.
 	const previewCard = $derived(calls.findLast((m) => m.previewCard && !m.error)?.previewCard)
 	// What the group is doing right now, so a collapsed run still names its current step.
-	const liveLabel = $derived(
-		running ? calls.findLast((m) => m.isLoading || m.isStreamingArguments)?.content : undefined
+	// Held like the header's label, which it would otherwise outrun: it is the same per-stage
+	// status text, and it would vanish while the held header still reads as running.
+	const liveLabel = new HeldValue(
+		() =>
+			running ? calls.findLast((m) => m.isLoading || m.isStreamingArguments)?.content : undefined,
+		() => LABEL_MIN_MS
 	)
 </script>
 
@@ -55,8 +60,8 @@
 	contentClass="border-0 border-l rounded-none bg-transparent p-0 pl-2 ml-1.5 mt-0.5"
 >
 	{#snippet belowHeader()}
-		{#if liveLabel && !expanded}
-			<div class="pl-3 text-2xs text-tertiary truncate">{liveLabel}</div>
+		{#if liveLabel.current && !expanded}
+			<div class="pl-3 text-2xs text-tertiary truncate">{liveLabel.current}</div>
 		{/if}
 	{/snippet}
 	{#each group.entries as { message, index } (index)}

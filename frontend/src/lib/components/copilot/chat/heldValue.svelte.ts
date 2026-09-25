@@ -1,5 +1,8 @@
 import { watch } from 'runed'
 
+/** How long a tool-call status label stays up before a newer one replaces it. */
+export const LABEL_MIN_MS = 700
+
 /**
  * A value that, once shown, stays shown for at least `minMs`. A change arriving sooner waits
  * for the rest of that time, and only the latest of the changes made meanwhile is shown. The

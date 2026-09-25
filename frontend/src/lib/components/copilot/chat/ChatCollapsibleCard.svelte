@@ -3,7 +3,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { fade, slide } from 'svelte/transition'
 	import type { Snippet } from 'svelte'
-	import { HeldValue } from './heldValue.svelte'
+	import { HeldValue, LABEL_MIN_MS } from './heldValue.svelte'
 
 	interface Props {
 		label: string
@@ -55,7 +55,6 @@
 		contentClass
 	}: Props = $props()
 
-	const LABEL_MIN_MS = 700
 	// The shimmer is held with the label: released on its own, a call settling right after its
 	// last status would show the running label without the running shimmer.
 	const held = new HeldValue(
