@@ -55,7 +55,7 @@ use crate::var_resource_cache::{
 };
 use lazy_static::lazy_static;
 use serde::Deserialize;
-use sqlx::{Acquire, Postgres, Transaction};
+use sqlx::{Acquire, PgConnection, Postgres, Transaction};
 use windmill_common::variables::encrypt;
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 
@@ -585,6 +585,47 @@ fn validate_already_encrypted_secret(path: &str, value: &str) -> Result<()> {
     Ok(())
 }
 
+/// Reading a variable linked to an OAuth account refreshes through that account and hands the
+/// fresh token to the reader. So only the account's creator may link it, or a caller who can
+/// already read a variable that does (`tx` is the caller's transaction, so RLS decides that).
+async fn require_account_link_allowed(
+    db: &DB,
+    tx: &mut PgConnection,
+    w_id: &str,
+    account: Option<i32>,
+    username: &str,
+) -> Result<()> {
+    let Some(account) = account else {
+        return Ok(());
+    };
+    let created_by = sqlx::query_scalar!(
+        "SELECT created_by FROM account WHERE workspace_id = $1 AND id = $2",
+        w_id,
+        account
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten();
+    if created_by.as_deref() == Some(username) {
+        return Ok(());
+    }
+    let readable = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM variable WHERE workspace_id = $1 AND account = $2)",
+        w_id,
+        account
+    )
+    .fetch_one(&mut *tx)
+    .await?
+    .unwrap_or(false);
+    if readable {
+        Ok(())
+    } else {
+        Err(Error::NotAuthorized(format!(
+            "OAuth account {account} was connected by someone else"
+        )))
+    }
+}
+
 async fn create_variable(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -645,6 +686,8 @@ async fn create_variable(
     };
 
     let mut tx = user_db.begin(&authed).await?;
+
+    require_account_link_allowed(&db, &mut tx, &w_id, variable.account, &authed.username).await?;
 
     sqlx::query!(
         "INSERT INTO variable
@@ -1194,6 +1237,10 @@ async fn update_variable(
     };
 
     let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
+
+    if ns.account != old_account_id {
+        require_account_link_allowed(&db, &mut tx, &w_id, ns.account, &authed.username).await?;
+    }
 
     if let Some(npath) = ns.path.clone() {
         if npath != path {
