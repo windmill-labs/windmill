@@ -6210,8 +6210,8 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
 }
 
 /// Force-complete a zombie job that handle_job_error failed to complete.
-/// This is a minimal fallback: it inserts a failed completed job and deletes
-/// from the queue in a single transaction, without schedule pushing or
+/// This is a minimal fallback: it moves the job from the queue to a failed
+/// completed job in a single transaction, without schedule pushing or
 /// error handler logic. The one thing it keeps is the WAC parent notification,
 /// deliberately inside the transaction: if that fails, the whole completion
 /// rolls back and the job waits for the next sweep, which is cheaper than a
@@ -6248,52 +6248,67 @@ async fn force_complete_zombie_job(
 
     let mut tx = db.begin().await?;
 
+    // Locks in the order of every other completion: a WAC parent's rows, then this job's queue
+    // row, then its completed row (see `record_child_completion`). A worker completing the same
+    // job concurrently would otherwise deadlock against this.
     let duration_ms = sqlx::query_scalar!(
-        "INSERT INTO v2_job_completed
-            (workspace_id, id, started_at, duration_ms, result, memory_peak, status, worker)
-        SELECT q.workspace_id, q.id, q.started_at,
-            COALESCE((EXTRACT('epoch' FROM now()) - EXTRACT('epoch' FROM COALESCE(q.started_at, now()))) * 1000, 0)::bigint,
-            $2::jsonb, r.memory_peak, 'failure'::job_status, q.worker
-        FROM v2_job_queue q
-        LEFT JOIN v2_job_runtime r ON r.id = q.id
-        WHERE q.id = $1
-        ON CONFLICT (id) DO UPDATE SET status = 'failure', result = $2::jsonb
-        RETURNING duration_ms AS \"duration_ms!\"",
+        "SELECT COALESCE(c.duration_ms, COALESCE((EXTRACT('epoch' FROM now()) - EXTRACT('epoch' FROM COALESCE(q.started_at, now()))) * 1000, 0)::bigint) AS \"duration_ms!\"
+        FROM v2_job_queue q LEFT JOIN v2_job_completed c ON c.id = q.id WHERE q.id = $1",
         job_id,
-        error_value,
     )
     .fetch_optional(&mut *tx)
     .await?;
+    let Some(duration_ms) = duration_ms else {
+        return Ok(());
+    };
 
     // A WAC parent parked on this job must learn of the failure here too, or it
     // waits out its whole suspend window and runs the task again.
     let mut wac_parent_ready = false;
-    if let Some(duration_ms) = duration_ms {
-        let parent = sqlx::query!(
-            "SELECT parent_job, flow_step_id FROM v2_job WHERE id = $1",
-            job_id
+    let parent = sqlx::query!(
+        "SELECT parent_job, flow_step_id FROM v2_job WHERE id = $1",
+        job_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    if let Some(parent_job) = parent
+        .filter(|j| j.flow_step_id.is_none())
+        .and_then(|j| j.parent_job)
+    {
+        wac_parent_ready = windmill_common::wac::record_child_completion(
+            &mut tx,
+            &parent_job,
+            job_id,
+            false,
+            duration_ms,
+            &error_value.to_string(),
         )
-        .fetch_optional(&mut *tx)
         .await?;
-        if let Some(parent_job) = parent
-            .filter(|j| j.flow_step_id.is_none())
-            .and_then(|j| j.parent_job)
-        {
-            wac_parent_ready = windmill_common::wac::record_child_completion(
-                &mut tx,
-                &parent_job,
-                job_id,
-                false,
-                duration_ms,
-                &error_value.to_string(),
-            )
-            .await?;
-        }
     }
 
-    sqlx::query!("DELETE FROM v2_job_queue WHERE id = $1", job_id)
-        .execute(&mut *tx)
-        .await?;
+    let completed = sqlx::query_scalar!(
+        "WITH deleted AS (
+            DELETE FROM v2_job_queue WHERE id = $1 RETURNING id, workspace_id, started_at, worker
+        )
+        INSERT INTO v2_job_completed
+            (workspace_id, id, started_at, duration_ms, result, memory_peak, status, worker)
+        SELECT d.workspace_id, d.id, d.started_at, $3, $2::jsonb, r.memory_peak,
+            'failure'::job_status, d.worker
+        FROM deleted d
+        LEFT JOIN v2_job_runtime r ON r.id = d.id
+        ON CONFLICT (id) DO UPDATE SET status = 'failure', result = $2::jsonb
+        RETURNING id",
+        job_id,
+        error_value,
+        duration_ms,
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    // Completed by someone else while this waited on the WAC parent: roll back, so the parent
+    // keeps what the winning completion recorded.
+    if completed.is_none() {
+        return Ok(());
+    }
 
     tx.commit().await?;
 

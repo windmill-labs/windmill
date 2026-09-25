@@ -1177,74 +1177,76 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     let serialized_result = result.serialized_json();
     let sanitized_result = strip_json_nul(serialized_result.as_ref());
 
+    let labels = result.wm_labels();
+    let is_scheduled =
+        completed_job.schedule_path().is_some() && completed_job.runnable_path.is_some();
+    let wac_parent = (!completed_job.is_flow_step())
+        .then_some(completed_job.parent_job)
+        .flatten();
+    let monitor_parent = (completed_job.is_flow_step() && flow_is_done)
+        .then_some(completed_job.parent_job)
+        .flatten();
+    let completion = Completion {
+        completed_job,
+        success,
+        skipped,
+        result: sanitized_result.as_ref(),
+        result_columns,
+        mem_peak,
+        canceled_by,
+        duration,
+    };
+
+    if labels.is_none()
+        && !has_concurrent_limit
+        && wac_parent.is_none()
+        && monitor_parent.is_none()
+        && !is_scheduled
+    {
+        let Some(duration) = completion.execute(&mut *db.acquire().await?).await? else {
+            return Err(not_in_queue_error(db, job_id).await);
+        };
+        log_completed_job(completed_job, duration, success);
+        return Ok((None, duration, false, false));
+    }
+
     let mut tx = db.begin().warn_after_seconds(10).await?;
 
-    let duration =  sqlx::query_scalar!(
-            "INSERT INTO v2_job_completed AS cj
-                    ( workspace_id
-                    , id
-                    , started_at
-                    , duration_ms
-                    , result
-                    , result_columns
-                    , canceled_by
-                    , canceled_reason
-                    , flow_status
-                    , workflow_as_code_status
-                    , memory_peak
-                    , status
-                    , worker
-                    )
-                SELECT q.workspace_id, q.id, started_at, COALESCE($9::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(started_at, now()))))*1000), $3::text::jsonb, $10, $5, $6,
-                        flow_status, workflow_as_code_status,
-                        $8, CASE WHEN $4::BOOL THEN 'canceled'::job_status
-                        WHEN $7::BOOL THEN 'skipped'::job_status
-                        WHEN $2::BOOL THEN 'success'::job_status
-                        ELSE 'failure'::job_status END AS status,
-                        q.worker
-                FROM v2_job_queue q LEFT JOIN v2_job_status USING (id) WHERE q.id = $1
-            ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, result = $3::text::jsonb RETURNING duration_ms AS \"duration_ms!\"",
-            /* $1 */ completed_job.id,
-            /* $2 */ success,
-            /* $3 */ sanitized_result.as_ref(),
-            /* $4 */ canceled_by.is_some(),
-            /* $5 */ canceled_by.clone().map(|cb| cb.username).flatten(),
-            /* $6 */ canceled_by.clone().map(|cb| cb.reason).flatten(),
-            /* $7 */ skipped,
-            /* $8 */ if mem_peak > 0 { Some(mem_peak) } else { None },
-            /* $9 */ duration,
-            /* $10 */ result_columns as Option<&Vec<String>>,
+    // The parent's rows are locked ahead of the child's own queue row (see
+    // `record_child_completion` for the order this must keep), so the duration it stamps is read
+    // before the completion: the one the completed row will hold. `now()` is fixed for the
+    // transaction, and a completed row already there keeps its own duration.
+    let mut wac_parent_ready = false;
+    if let Some(parent_job) = wac_parent {
+        let Some(duration) = sqlx::query_scalar!(
+            "SELECT COALESCE(c.duration_ms, COALESCE($2::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(q.started_at, now()))))*1000)::bigint) AS \"duration_ms!\"
+             FROM v2_job_queue q LEFT JOIN v2_job_completed c ON c.id = q.id WHERE q.id = $1",
+            job_id,
+            duration,
         )
         .fetch_optional(&mut *tx)
         .warn_after_seconds(10)
-        .await
-        .map_err(|e| Error::internal_err(format!("Could not add completed job {job_id}: {e:#}")))?;
-
-    let duration = if let Some(duration) = duration {
-        duration
-    } else {
-        let already_inserted = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM v2_job_completed WHERE id = $1)",
-            job_id
+        .await?
+        else {
+            return Err(not_in_queue_error(&mut *tx, job_id).await);
+        };
+        wac_parent_ready = windmill_common::wac::record_child_completion(
+            &mut tx,
+            &parent_job,
+            &completed_job.id,
+            success,
+            duration,
+            sanitized_result.as_ref(),
         )
-        .fetch_one(&mut *tx)
         .warn_after_seconds(10)
-        .await
-        .map_err(|e| Error::internal_err(format!("Could not add completed job {job_id}: {e:#}")))?
-        .unwrap_or(false);
+        .await?;
+    }
 
-        if already_inserted {
-            return Err(Error::AlreadyCompleted(format!(
-                "The queued job {job_id} is already completed."
-            )));
-        } else {
-            return Err(Error::AlreadyCompleted(format!(
-                "There is no queued job anymore for {job_id} but there is no completed job either."
-            )));
-        }
+    let Some(duration) = completion.execute(&mut *tx).await? else {
+        return Err(not_in_queue_error(&mut *tx, job_id).await);
     };
 
-    if let Some(mut labels) = result.wm_labels() {
+    if let Some(mut labels) = labels {
         // A `\u0000` inside a wm_labels entry decodes to a real NUL that the
         // `text[]` column rejects, which would abort this same transaction (and
         // roll back the sanitized result insert) exactly like an unsanitized
@@ -1266,78 +1268,19 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         .map_err(|e| Error::InternalErr(format!("Could not update job labels: {e:#}")))?;
     }
 
-    // Before `delete_job`: the parent's rows are locked ahead of the child's own
-    // queue row (see `record_child_completion` for the order this must keep).
-    let mut wac_parent_ready = false;
-    if !completed_job.is_flow_step() {
-        if let Some(parent_job) = completed_job.parent_job {
-            wac_parent_ready = windmill_common::wac::record_child_completion(
-                &mut tx,
-                &parent_job,
-                &completed_job.id,
-                success,
-                duration,
-                sanitized_result.as_ref(),
-            )
-            .warn_after_seconds(10)
-            .await?;
-        }
-    }
-
     let mut _skip_downstream_error_handlers = false;
-    let (ntx, canceled_at_delete) = delete_job(tx, &job_id).warn_after_seconds(10).await?;
-    tx = ntx;
-    // `canceled_by` is only what the worker last read from the queue row. Deleting the row waits
-    // for a cancel still being written, so the row it removed is the final word on whether this
-    // job was canceled.
-    if canceled_by.is_none() {
-        if let Some(canceled) = canceled_at_delete {
-            sqlx::query!(
-                "UPDATE v2_job_completed SET status = 'canceled'::job_status, canceled_by = $2, \
-                 canceled_reason = $3 WHERE id = $1",
-                job_id,
-                canceled.username,
-                canceled.reason,
-            )
-            .execute(&mut *tx)
-            .warn_after_seconds(10)
-            .await?;
-        }
-    }
-    // tracing::error!("3 {:?}", start.elapsed());
-
     if completed_job.is_flow_step() {
-        if let Some(parent_job) = completed_job.parent_job {
-            // persist the flow last progress timestamp to avoid zombie flow jobs
-            tracing::debug!(
-                "Persisting flow last progress timestamp to flow job: {:?}",
-                parent_job
-            );
-            sqlx::query!(
-                "UPDATE v2_job_runtime r SET
-                        ping = now()
-                    FROM v2_job_queue q
-                    WHERE r.id = $1 AND q.id = r.id
-                        AND q.workspace_id = $2
-                        AND canceled_by IS NULL",
+        if let Some(parent_job) = monitor_parent {
+            let r = sqlx::query_scalar!(
+                "UPDATE parallel_monitor_lock SET last_ping = now() WHERE parent_flow_id = $1 and job_id = $2 RETURNING 1",
                 parent_job,
-                &completed_job.workspace_id
-            )
-            .execute(&mut *tx)
-            .warn_after_seconds(10)
-            .await?;
-            if flow_is_done {
-                let r = sqlx::query_scalar!(
-                    "UPDATE parallel_monitor_lock SET last_ping = now() WHERE parent_flow_id = $1 and job_id = $2 RETURNING 1",
-                    parent_job,
-                    &completed_job.id
-                ).fetch_optional(&mut *tx).warn_after_seconds(10).await?;
-                if r.is_some() {
-                    tracing::info!(
-                            "parallel flow iteration is done, setting parallel monitor last ping lock for job {}",
-                            &completed_job.id
-                        );
-                }
+                &completed_job.id
+            ).fetch_optional(&mut *tx).warn_after_seconds(10).await?;
+            if r.is_some() {
+                tracing::info!(
+                        "parallel flow iteration is done, setting parallel monitor last ping lock for job {}",
+                        &completed_job.id
+                    );
             }
         }
     } else {
@@ -1509,6 +1452,238 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
 
     tx.commit().warn_after_seconds(10).await?;
 
+    log_completed_job(completed_job, duration, success);
+    // tracing::info!("completed job: {:?}", start.elapsed().as_micros());
+    Ok((
+        None,
+        duration,
+        _skip_downstream_error_handlers,
+        wac_parent_ready,
+    ))
+}
+
+/// What a job's completion writes, for `Completion::execute`.
+struct Completion<'a> {
+    completed_job: &'a MiniCompletedJob,
+    success: bool,
+    skipped: bool,
+    result: &'a str,
+    result_columns: Option<&'a Vec<String>>,
+    mem_peak: i32,
+    canceled_by: &'a Option<CanceledBy>,
+    duration: Option<i64>,
+}
+
+impl Completion<'_> {
+    /// Moves the job from the queue to the completed jobs and refreshes a flow step's parent
+    /// ping, as one statement. Returns `None` when the job was no longer in the queue.
+    ///
+    /// The completion takes its cancellation from the queue row it deletes, not only from
+    /// `canceled_by`: that is what the worker last read, and the delete waits for a cancel still
+    /// being written, so the deleted row is the final word on whether the job was canceled.
+    ///
+    /// It locks the queue row before the completed row's key. Any other writer completing a job
+    /// (the monitor's zombie fallback, debounce) must take them in the same order, or the two
+    /// deadlock.
+    async fn execute(&self, conn: &mut sqlx::PgConnection) -> error::Result<Option<i64>> {
+        let Completion {
+            completed_job,
+            success,
+            skipped,
+            result,
+            result_columns,
+            mem_peak,
+            canceled_by,
+            duration,
+        } = *self;
+        #[cfg(feature = "prometheus")]
+        if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+            QUEUE_DELETE_COUNT.inc();
+        }
+        otel_incr_queue_delete_count();
+        let err = |e: sqlx::Error| {
+            Error::internal_err(format!(
+                "Could not add completed job {}: {e:#}",
+                completed_job.id
+            ))
+        };
+        // A step's completion is progress of its flow, and keeps the flow from being reaped as a
+        // zombie. Any other completion runs the statement without the ping: Postgres sets up every
+        // write of a plan, so an unused ping would cost about a tenth of the completion. The two
+        // statements differ only by the ping; a change to the delete or the insert goes in both.
+        let Some(parent_to_ping) = completed_job
+            .is_flow_step()
+            .then_some(completed_job.parent_job)
+            .flatten()
+        else {
+            return sqlx::query_scalar!(
+                "WITH deleted AS (
+                    DELETE FROM v2_job_queue WHERE id = $1
+                    RETURNING id, workspace_id, started_at, worker, canceled_by, canceled_reason
+                ), completed AS (
+                    INSERT INTO v2_job_completed AS cj
+                        ( workspace_id
+                        , id
+                        , started_at
+                        , duration_ms
+                        , result
+                        , result_columns
+                        , canceled_by
+                        , canceled_reason
+                        , flow_status
+                        , workflow_as_code_status
+                        , memory_peak
+                        , status
+                        , worker
+                        )
+                    SELECT d.workspace_id, d.id, d.started_at,
+                        COALESCE($9::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(d.started_at, now()))))*1000),
+                        $3::text::jsonb, $10,
+                        CASE WHEN $4::BOOL THEN $5 ELSE d.canceled_by END,
+                        CASE WHEN $4::BOOL THEN $6 WHEN d.canceled_by IS NOT NULL THEN d.canceled_reason END,
+                        s.flow_status, s.workflow_as_code_status, $8,
+                        CASE WHEN $4::BOOL OR d.canceled_by IS NOT NULL THEN 'canceled'::job_status
+                            WHEN $7::BOOL THEN 'skipped'::job_status
+                            WHEN $2::BOOL THEN 'success'::job_status
+                            ELSE 'failure'::job_status END,
+                        d.worker
+                    FROM deleted d LEFT JOIN v2_job_status s ON s.id = d.id
+                    ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, result = $3::text::jsonb,
+                        canceled_by = CASE WHEN NOT $4::BOOL AND EXCLUDED.canceled_by IS NOT NULL
+                            THEN EXCLUDED.canceled_by ELSE cj.canceled_by END,
+                        canceled_reason = CASE WHEN NOT $4::BOOL AND EXCLUDED.canceled_by IS NOT NULL
+                            THEN EXCLUDED.canceled_reason ELSE cj.canceled_reason END
+                    RETURNING duration_ms
+                )
+                SELECT duration_ms AS \"duration_ms!\" FROM completed",
+                /* $1 */ completed_job.id,
+                /* $2 */ success,
+                /* $3 */ result,
+                /* $4 */ canceled_by.is_some(),
+                /* $5 */ canceled_by.as_ref().and_then(|cb| cb.username.as_deref()),
+                /* $6 */ canceled_by.as_ref().and_then(|cb| cb.reason.as_deref()),
+                /* $7 */ skipped,
+                /* $8 */ if mem_peak > 0 { Some(mem_peak) } else { None },
+                /* $9 */ duration,
+                /* $10 */ result_columns as Option<&Vec<String>>,
+            )
+            .fetch_optional(&mut *conn)
+            .warn_after_seconds(10)
+            .await
+            .map_err(err);
+        };
+        // A cancel of the flow marks the flow and then its steps. When the delete waited on it,
+        // the parent row read by this statement's snapshot predates it, so the ping moves to a
+        // statement of its own that sees the cancel.
+        let completed = sqlx::query!(
+        "WITH deleted AS (
+            DELETE FROM v2_job_queue WHERE id = $1
+            RETURNING id, workspace_id, started_at, worker, canceled_by, canceled_reason
+        ), completed AS (
+            INSERT INTO v2_job_completed AS cj
+                ( workspace_id
+                , id
+                , started_at
+                , duration_ms
+                , result
+                , result_columns
+                , canceled_by
+                , canceled_reason
+                , flow_status
+                , workflow_as_code_status
+                , memory_peak
+                , status
+                , worker
+                )
+            SELECT d.workspace_id, d.id, d.started_at,
+                COALESCE($9::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(d.started_at, now()))))*1000),
+                $3::text::jsonb, $10,
+                CASE WHEN $4::BOOL THEN $5 ELSE d.canceled_by END,
+                CASE WHEN $4::BOOL THEN $6 WHEN d.canceled_by IS NOT NULL THEN d.canceled_reason END,
+                s.flow_status, s.workflow_as_code_status, $8,
+                CASE WHEN $4::BOOL OR d.canceled_by IS NOT NULL THEN 'canceled'::job_status
+                    WHEN $7::BOOL THEN 'skipped'::job_status
+                    WHEN $2::BOOL THEN 'success'::job_status
+                    ELSE 'failure'::job_status END,
+                d.worker
+            FROM deleted d LEFT JOIN v2_job_status s ON s.id = d.id
+            ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, result = $3::text::jsonb,
+                canceled_by = CASE WHEN NOT $4::BOOL AND EXCLUDED.canceled_by IS NOT NULL
+                    THEN EXCLUDED.canceled_by ELSE cj.canceled_by END,
+                canceled_reason = CASE WHEN NOT $4::BOOL AND EXCLUDED.canceled_by IS NOT NULL
+                    THEN EXCLUDED.canceled_reason ELSE cj.canceled_reason END
+            RETURNING duration_ms
+        ), parent_ping AS (
+            UPDATE v2_job_runtime r SET ping = now()
+            FROM v2_job_queue q
+            WHERE r.id = $11 AND q.id = r.id AND q.workspace_id = $12 AND q.canceled_by IS NULL
+                AND EXISTS (SELECT 1 FROM completed)
+                AND NOT EXISTS (SELECT 1 FROM deleted WHERE canceled_by IS NOT NULL)
+        )
+        SELECT c.duration_ms AS \"duration_ms!\",
+            EXISTS (SELECT 1 FROM deleted WHERE canceled_by IS NOT NULL) AS \"carried_cancel!\"
+        FROM completed c",
+        /* $1 */ completed_job.id,
+        /* $2 */ success,
+        /* $3 */ result,
+        /* $4 */ canceled_by.is_some(),
+        /* $5 */ canceled_by.as_ref().and_then(|cb| cb.username.as_deref()),
+        /* $6 */ canceled_by.as_ref().and_then(|cb| cb.reason.as_deref()),
+        /* $7 */ skipped,
+        /* $8 */ if mem_peak > 0 { Some(mem_peak) } else { None },
+        /* $9 */ duration,
+        /* $10 */ result_columns as Option<&Vec<String>>,
+        /* $11 */ parent_to_ping,
+        /* $12 */ &completed_job.workspace_id,
+    )
+    .fetch_optional(&mut *conn)
+    .warn_after_seconds(10)
+    .await
+    .map_err(err)?;
+        let Some(completed) = completed else {
+            return Ok(None);
+        };
+        if completed.carried_cancel {
+            sqlx::query!(
+                "UPDATE v2_job_runtime r SET
+                        ping = now()
+                    FROM v2_job_queue q
+                    WHERE r.id = $1 AND q.id = r.id
+                        AND q.workspace_id = $2
+                        AND canceled_by IS NULL",
+                parent_to_ping,
+                &completed_job.workspace_id
+            )
+            .execute(&mut *conn)
+            .warn_after_seconds(10)
+            .await?;
+        }
+        Ok(Some(completed.duration_ms))
+    }
+}
+
+/// The error for a completion that found no queue row to complete.
+async fn not_in_queue_error<'e>(conn: impl PgExecutor<'e>, job_id: Uuid) -> Error {
+    let already_inserted = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM v2_job_completed WHERE id = $1)",
+        job_id
+    )
+    .fetch_one(conn)
+    .warn_after_seconds(10)
+    .await;
+    match already_inserted {
+        Err(e) => Error::internal_err(format!("Could not add completed job {job_id}: {e:#}")),
+        Ok(Some(true)) => {
+            Error::AlreadyCompleted(format!("The queued job {job_id} is already completed."))
+        }
+        Ok(_) => Error::AlreadyCompleted(format!(
+            "There is no queued job anymore for {job_id} but there is no completed job either."
+        )),
+    }
+}
+
+fn log_completed_job(completed_job: &MiniCompletedJob, duration: i64, success: bool) {
+    let job_id = completed_job.id;
     tracing::info!(
         %job_id,
         root_job = ?completed_job.flow_innermost_root_job.map(|x| x.to_string()).unwrap_or_else(|| String::new()),
@@ -1527,13 +1702,6 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         "inserted completed job: {} (success: {success})",
         completed_job.id
     );
-    // tracing::info!("completed job: {:?}", start.elapsed().as_micros());
-    Ok((
-        None,
-        duration,
-        _skip_downstream_error_handlers,
-        wac_parent_ready,
-    ))
 }
 
 async fn check_result_size<T: ValidableJson>(
@@ -5188,46 +5356,6 @@ async fn extract_result_from_job_result(
         .flatten()
         .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null))),
     }
-}
-
-/// Also reports the cancellation the deleted row carried, if any. Unlike a plain read of the queue
-/// row, this waits for a cancel that is still being written, so it is the last word on one.
-pub async fn delete_job<'c>(
-    mut tx: Transaction<'c, Postgres>,
-    job_id: &Uuid,
-) -> windmill_common::error::Result<(Transaction<'c, Postgres>, Option<CanceledBy>)> {
-    #[cfg(feature = "prometheus")]
-    if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
-        QUEUE_DELETE_COUNT.inc();
-    }
-    otel_incr_queue_delete_count();
-
-    let job_removed = sqlx::query!(
-        "DELETE FROM v2_job_queue WHERE id = $1 RETURNING canceled_by, canceled_reason",
-        job_id,
-    )
-    .fetch_optional(&mut *tx)
-    .await;
-
-    let canceled = match &job_removed {
-        Err(job_removed) => {
-            tracing::error!(
-                "Job {job_id} could not be deleted: {job_removed}. This is not necessarily an error, as the job might have been deleted by another process such as in the case of cancelling"
-            );
-            None
-        }
-        Ok(None) => {
-            tracing::error!("Job {job_id} could not be deleted, no row was removed. This is not necessarily an error, as the job might have been deleted by another process such as in the case of cancelling");
-            None
-        }
-        Ok(Some(row)) => row.canceled_by.as_ref().map(|username| CanceledBy {
-            username: Some(username.clone()),
-            reason: row.canceled_reason.clone(),
-        }),
-    };
-
-    tracing::debug!("Job {job_id} deleted");
-    Ok((tx, canceled))
 }
 
 pub async fn job_is_complete(db: &DB, id: Uuid, w_id: &str) -> error::Result<bool> {
