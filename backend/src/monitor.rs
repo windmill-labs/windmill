@@ -6200,8 +6200,8 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
 }
 
 /// Force-complete a zombie job that handle_job_error failed to complete.
-/// This is a minimal fallback: it inserts a failed completed job and deletes
-/// from the queue in a single transaction, without schedule pushing or
+/// This is a minimal fallback: it moves the job from the queue to a failed
+/// completed job in a single transaction, without schedule pushing or
 /// error handler logic. The one thing it keeps is the WAC parent notification,
 /// deliberately inside the transaction: if that fails, the whole completion
 /// rolls back and the job waits for the next sweep, which is cheaper than a
@@ -6276,7 +6276,7 @@ async fn force_complete_zombie_job(
         .await?;
     }
 
-    sqlx::query!(
+    let completed = sqlx::query_scalar!(
         "WITH deleted AS (
             DELETE FROM v2_job_queue WHERE id = $1 RETURNING id, workspace_id, started_at, worker
         )
@@ -6286,13 +6286,19 @@ async fn force_complete_zombie_job(
             'failure'::job_status, d.worker
         FROM deleted d
         LEFT JOIN v2_job_runtime r ON r.id = d.id
-        ON CONFLICT (id) DO UPDATE SET status = 'failure', result = $2::jsonb",
+        ON CONFLICT (id) DO UPDATE SET status = 'failure', result = $2::jsonb
+        RETURNING id",
         job_id,
         error_value,
         duration_ms,
     )
-    .execute(&mut *tx)
+    .fetch_optional(&mut *tx)
     .await?;
+    // Completed by someone else while this waited on the WAC parent: roll back, so the parent
+    // keeps what the winning completion recorded.
+    if completed.is_none() {
+        return Ok(());
+    }
 
     tx.commit().await?;
 

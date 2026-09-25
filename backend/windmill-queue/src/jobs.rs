@@ -1461,15 +1461,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     ))
 }
 
-/// Moves the job from the queue to the completed jobs and refreshes a flow step's parent ping, as
-/// one statement. Returns `None` when the job was no longer in the queue.
-///
-/// The completion takes its cancellation from the queue row it deletes, not only from
-/// `canceled_by`: that is what the worker last read, and the delete waits for a cancel still being
-/// written, so the deleted row is the final word on whether the job was canceled.
-///
-/// It locks the queue row before the completed row's key. Any other writer completing a job (the
-/// monitor's zombie fallback) must take them in the same order, or the two deadlock.
+/// What a job's completion writes, for `Completion::execute`.
 struct Completion<'a> {
     completed_job: &'a MiniCompletedJob,
     success: bool,
@@ -1482,6 +1474,16 @@ struct Completion<'a> {
 }
 
 impl Completion<'_> {
+    /// Moves the job from the queue to the completed jobs and refreshes a flow step's parent
+    /// ping, as one statement. Returns `None` when the job was no longer in the queue.
+    ///
+    /// The completion takes its cancellation from the queue row it deletes, not only from
+    /// `canceled_by`: that is what the worker last read, and the delete waits for a cancel still
+    /// being written, so the deleted row is the final word on whether the job was canceled.
+    ///
+    /// It locks the queue row before the completed row's key. Any other writer completing a job
+    /// (the monitor's zombie fallback, debounce) must take them in the same order, or the two
+    /// deadlock.
     async fn execute<'e>(&self, conn: impl PgExecutor<'e>) -> error::Result<Option<i64>> {
         let Completion {
             completed_job,
