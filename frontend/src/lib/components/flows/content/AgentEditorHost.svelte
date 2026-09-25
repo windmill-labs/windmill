@@ -491,15 +491,22 @@
 
 <!-- In the form's Run row, where a schedulable form keeps its Advanced options. -->
 {#snippet configurationButton()}
-	<Button
-		unifiedSize="md"
-		variant="default"
-		startIcon={{ icon: SlidersHorizontal }}
-		title="The model, instructions and tools this agent runs with"
-		onClick={() => onOpenConfig?.()}
-	>
-		Configuration
-	</Button>
+	<Tooltip small placement="top">
+		<Button
+			unifiedSize="md"
+			variant="default"
+			iconOnly
+			startIcon={{ icon: SlidersHorizontal }}
+			aria-label="Agent configuration"
+			onClick={() => onOpenConfig?.()}
+		/>
+		{#snippet text()}
+			<div class="max-w-64 text-xs">
+				<p class="font-semibold">Agent configuration</p>
+				<p class="mt-1">The model, instructions and tools this agent runs with.</p>
+			</div>
+		{/snippet}
+	</Tooltip>
 {/snippet}
 
 {#if draft.refusal}
