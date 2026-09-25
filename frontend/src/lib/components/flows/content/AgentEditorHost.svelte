@@ -577,8 +577,9 @@
 							>
 								<Info size={12} class="shrink-0" />
 								<span class="flex-1">
-									Managed memory keeps a conversation: this agent's chat, a flow in chat mode, or a
-									memory id a step sets. Turn it off if this agent runs without any of them.
+									Managed memory keeps the conversation between runs. It's useful if you chat with
+									this agent, use it in a flow in chat mode, or pass it a memory id. Otherwise, you
+									can turn it off.
 								</span>
 								<Button unifiedSize="2xs" variant="subtle" onClick={turnOffMemory}>Turn off</Button>
 							</div>
