@@ -199,14 +199,16 @@ export function agentOnBehalfOf(
   localResource: ResourceFile,
   permissionedAsContext: PermissionedAsContext | undefined
 ): string | undefined {
-  if ((deployed?.resource_type ?? localResource.resource_type) !== "ai_agent") {
+  // What the push writes is the tracked file's type: an agent retyped into
+  // another resource keeps its value exactly as the file states it.
+  if (localResource.resource_type !== "ai_agent") {
     return undefined;
   }
   const local = localResource.value;
   if (local && typeof local === "object") {
     delete local.on_behalf_of;
   }
-  const value = deployed?.value;
+  const value = deployed?.resource_type === "ai_agent" ? deployed.value : undefined;
   const onBehalfOf =
     value && typeof value === "object" ? value.on_behalf_of : undefined;
   if (deployed && onBehalfOf !== undefined) {

@@ -46,10 +46,12 @@ test("anyone else claims nothing", () => {
   expect(local.value.on_behalf_of).toBeUndefined();
 });
 
-test("other resources are left alone", () => {
-  const deployed = { resource_type: "json", value: { on_behalf_of: "u/bob" } } as any;
-  const local = { resource_type: "json", value: { on_behalf_of: "u/x" } } as any;
-  expect(agentOnBehalfOf(deployed, local, ctx(true))).toBeUndefined();
-  expect(local.value.on_behalf_of).toBe("u/x");
-  expect(deployed.value.on_behalf_of).toBe("u/bob");
+test("other resources are left alone, an agent retyped into one included", () => {
+  for (const deployedType of ["json", "ai_agent"]) {
+    const deployed = { resource_type: deployedType, value: { on_behalf_of: "u/bob" } } as any;
+    const local = { resource_type: "json", value: { on_behalf_of: "u/x" } } as any;
+    expect(agentOnBehalfOf(deployed, local, ctx(true))).toBeUndefined();
+    expect(local.value.on_behalf_of).toBe("u/x");
+    expect(deployed.value.on_behalf_of).toBe("u/bob");
+  }
 });
