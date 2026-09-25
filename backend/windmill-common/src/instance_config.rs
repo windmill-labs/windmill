@@ -251,6 +251,8 @@ pub struct GlobalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub critical_alert_mute_ui: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub critical_alert_mute_stranded_jobs: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub monitor_logs_on_s3: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub app_workspaced_route: Option<bool>,

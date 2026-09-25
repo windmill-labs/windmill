@@ -4,14 +4,15 @@
 //! shared `queue_sort_v2` index. This pass alerts superadmins about them and, when
 //! `cancel_stranded_jobs_after_days` is set, cancels them.
 
-use std::collections::HashSet;
-
 use chrono::{DateTime, Utc};
 use sqlx::{Pool, Postgres};
 use uuid::Uuid;
 use windmill_common::{
     error,
-    global_settings::{load_value_from_global_settings, CANCEL_STRANDED_JOBS_AFTER_DAYS_SETTING},
+    global_settings::{
+        load_value_from_global_settings, CANCEL_STRANDED_JOBS_AFTER_DAYS_SETTING,
+        CRITICAL_ALERT_MUTE_STRANDED_JOBS_SETTING,
+    },
     utils::report_critical_error,
 };
 use windmill_queue::cancel_job;
@@ -20,11 +21,11 @@ use windmill_queue::cancel_job;
 /// Long enough that a group autoscaled to zero, or only started at night, is not reported.
 const ALERT_WINDOW_SECS: i64 = 24 * 3600;
 
-/// Same tag in the same workspace is reported at most once per this interval.
+/// At most one alert per this interval, however many tags are stranded.
 const ALERT_COOLDOWN_SECS: i64 = 24 * 3600;
 
-/// New alerts raised per pass; the rest are raised on the next passes.
-const MAX_ALERTS_PER_PASS: usize = 10;
+/// Tags listed in one alert; the rest are counted.
+const MAX_LISTED_GROUPS: usize = 20;
 
 /// Upper bound on cancellations per pass; a larger backlog drains over the next passes.
 const MAX_CANCELS_PER_PASS: i64 = 500;
@@ -34,7 +35,7 @@ const MAX_CANCEL_AFTER_DAYS: i64 = 3650;
 /// Next to the other monitor pass locks (737_483_920..=737_483_923).
 const STRANDED_JOBS_LOCK_ID: i64 = 737_483_924;
 
-const ALERT_RESOURCE_PREFIX: &str = "stranded_tag:";
+const ALERT_RESOURCE: &str = "stranded_jobs";
 
 pub async fn check_stranded_jobs(db: &Pool<Postgres>) {
     // Transaction-scoped so a monitor timeout dropping this future cannot leave the lock held
@@ -185,53 +186,64 @@ async fn report_stranded_jobs(
     if groups.is_empty() {
         return Ok(());
     }
-
-    let recently_alerted: HashSet<(String, String)> = sqlx::query!(
-        r#"SELECT workspace_id AS "workspace_id!", resource AS "resource!" FROM alerts
-        WHERE alert_type = 'critical_error'
-            AND resource LIKE $1 || '%'
-            AND workspace_id IS NOT NULL
-            AND created_at > now() - $2::bigint * interval '1 second'"#,
-        ALERT_RESOURCE_PREFIX,
+    let muted = load_value_from_global_settings(db, CRITICAL_ALERT_MUTE_STRANDED_JOBS_SETTING)
+        .await?
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    if muted {
+        return Ok(());
+    }
+    // Read from `alerts` rather than kept in memory so the limit holds across servers.
+    let alerted_recently = sqlx::query_scalar!(
+        r#"SELECT EXISTS (SELECT 1 FROM alerts
+            WHERE alert_type = 'critical_error' AND resource = $1
+                AND created_at > now() - $2::bigint * interval '1 second') AS "exists!""#,
+        ALERT_RESOURCE,
         ALERT_COOLDOWN_SECS,
     )
-    .fetch_all(db)
-    .await?
-    .into_iter()
-    .map(|r| (r.workspace_id, r.resource))
-    .collect();
+    .fetch_one(db)
+    .await?;
+    if alerted_recently {
+        return Ok(());
+    }
 
     let now = Utc::now();
-    let to_alert = groups
-        .iter()
-        .map(|g| (g, format!("{ALERT_RESOURCE_PREFIX}{}", g.tag)))
-        .filter(|(g, resource)| {
-            !recently_alerted.contains(&(g.workspace_id.clone(), resource.clone()))
-        })
-        .take(MAX_ALERTS_PER_PASS);
-    for (StrandedGroup { workspace_id, tag, count, oldest }, resource) in to_alert {
-        let cleanup = match cancel_after_days {
-            Some(days) => format!(
-                " Jobs whose tag no worker serves for {} are canceled automatically.",
-                plural(days, "day")
-            ),
-            None => " Add the tag to a worker group, or cancel these jobs.".to_string(),
-        };
-        let message = format!(
-            "Workspace {workspace_id} has {} with tag '{tag}', which no worker has served in the last {}. The oldest has waited {}.{cleanup}",
-            plural(*count, "pending job"),
-            fmt_duration(ALERT_WINDOW_SECS),
-            fmt_duration((now - *oldest).num_seconds()),
-        );
-        tracing::warn!(workspace_id, tag, count, "stranded jobs: {message}");
-        report_critical_error(
-            message,
-            db.clone(),
-            Some(workspace_id.as_str()),
-            Some(&resource),
-        )
-        .await;
+    let total: i64 = groups.iter().map(|g| g.count).sum();
+    let mut message = format!(
+        "{} waiting on tags that no worker has served in the last {}:",
+        plural(total, "pending job"),
+        fmt_duration(ALERT_WINDOW_SECS),
+    );
+    for g in groups.iter().take(MAX_LISTED_GROUPS) {
+        message.push_str(&format!(
+            "\n- workspace {}, tag '{}': {}, oldest waiting {}",
+            g.workspace_id,
+            g.tag,
+            plural(g.count, "job"),
+            fmt_duration((now - g.oldest).num_seconds()),
+        ));
     }
+    if groups.len() > MAX_LISTED_GROUPS {
+        message.push_str(&format!(
+            "\n- and {} more",
+            plural((groups.len() - MAX_LISTED_GROUPS) as i64, "tag")
+        ));
+    }
+    match cancel_after_days {
+        Some(days) => message.push_str(&format!(
+            "\nJobs whose tag no worker serves for {} are canceled automatically.",
+            plural(days, "day")
+        )),
+        None => message.push_str(
+            "\nAdd these tags to a worker group or cancel the jobs. To cancel such jobs automatically, set 'Cancel jobs on unserved tags after (days)' in Instance settings > Jobs.",
+        ),
+    }
+    message.push_str(
+        "\nThis alert is sent at most once a day. To turn it off, enable 'Mute stranded job alerts' in Instance settings > Alerts.",
+    );
+
+    tracing::warn!("stranded jobs: {message}");
+    report_critical_error(message, db.clone(), None, Some(ALERT_RESOURCE)).await;
     Ok(())
 }
 
@@ -511,5 +523,38 @@ mod tests {
             .unwrap();
         assert_eq!(alerts, 0);
         assert_eq!(canceled_by(&db, job).await, None);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn alerts_at_most_daily_and_can_be_muted(db: Pool<Postgres>) {
+        let groups = vec![StrandedGroup {
+            workspace_id: "admins".to_string(),
+            tag: "nobody".to_string(),
+            count: 3,
+            oldest: Utc::now() - chrono::Duration::days(3),
+        }];
+        let alerts = || async {
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM alerts")
+                .fetch_one(&db)
+                .await
+                .unwrap()
+        };
+
+        sqlx::query(
+            "INSERT INTO global_settings (name, value) VALUES ('critical_alert_mute_stranded_jobs', 'true')",
+        )
+        .execute(&db)
+        .await
+        .unwrap();
+        report_stranded_jobs(&db, &groups, None).await.unwrap();
+        assert_eq!(alerts().await, 0);
+
+        sqlx::query("DELETE FROM global_settings WHERE name = 'critical_alert_mute_stranded_jobs'")
+            .execute(&db)
+            .await
+            .unwrap();
+        report_stranded_jobs(&db, &groups, None).await.unwrap();
+        report_stranded_jobs(&db, &groups, None).await.unwrap();
+        assert_eq!(alerts().await, 1);
     }
 }
