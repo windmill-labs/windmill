@@ -7,22 +7,34 @@ mod tests {
         remove_pinned_import_specifiers,
     };
 
-    /// The server parses defaults natively, where a non-JSON literal cannot be evaluated.
+    /// The server parses defaults natively, where a non-JSON literal cannot be evaluated
+    /// but must still type and default the argument as the editor's wasm parse does.
     #[test]
-    fn non_json_defaults_parse_without_a_value() {
-        let code = "export function main(opts = { enabled: true }, tags = ['a'], n = 1) {}";
+    fn non_json_literal_defaults_parse_natively() {
+        let code =
+            "export function main(opts = { enabled: true, 'n': -1 }, tags = ['a'], o = { a: x }) {}";
         let sig = parse_deno_signature(code, false, false, None).unwrap();
         let defaults: Vec<_> = sig
             .args
             .iter()
-            .map(|a| (a.typ.clone(), a.has_default, a.default.clone()))
+            .map(|a| (a.typ.clone(), a.default.clone()))
             .collect();
         assert_eq!(
             defaults,
             vec![
-                (Typ::Object(ObjectType::new(None, None)), true, None),
-                (Typ::List(Box::new(Typ::Unknown)), true, None),
-                (Typ::Int, true, Some(json!(1)))
+                (
+                    Typ::Object(ObjectType::new(
+                        None,
+                        Some(vec![
+                            ObjectProperty::new("enabled".into(), Box::new(Typ::Bool)),
+                            ObjectProperty::new("n".into(), Box::new(Typ::Int)),
+                        ])
+                    )),
+                    Some(json!({"enabled": true, "n": -1}))
+                ),
+                (Typ::List(Box::new(Typ::Str(None))), Some(json!(["a"]))),
+                // Not a plain literal: typed by its shape, with no default value.
+                (Typ::Object(ObjectType::new(None, None)), None),
             ]
         );
     }
