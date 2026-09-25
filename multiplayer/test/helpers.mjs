@@ -187,6 +187,34 @@ export async function startMultiplayerServer(env = {}, attemptsLeft = 5) {
   }
 }
 
+/**
+ * Start server.mjs and wait for it to exit, for the cases where it is expected
+ * to fail rather than come up. Returns how it died and everything it printed.
+ */
+export async function runMultiplayerServerUntilExit(env = {}, { timeoutMs = 15000 } = {}) {
+  const child = spawn(process.execPath, [SERVER_PATH], {
+    env: {
+      ...process.env,
+      REQUIRE_SIGNED_MULTIPLAYER_REQUESTS: 'true',
+      BASE_INTERNAL_URL: '',
+      HOST: '127.0.0.1',
+      ...env
+    },
+    stdio: ['ignore', 'pipe', 'pipe']
+  })
+
+  let output = ''
+  child.stdout.on('data', (chunk) => { output += chunk.toString() })
+  child.stderr.on('data', (chunk) => { output += chunk.toString() })
+
+  const killer = setTimeout(() => child.kill('SIGKILL'), timeoutMs)
+  const [code, signal] = await new Promise((resolve) => {
+    child.once('exit', (exitCode, exitSignal) => resolve([exitCode, exitSignal]))
+  })
+  clearTimeout(killer)
+  return { code, signal, output }
+}
+
 /** Poll `predicate` until it is true, or throw after `timeoutMs`. */
 export async function waitFor(predicate, { timeoutMs = 15000, intervalMs = 10, message = 'condition' } = {}) {
   const deadline = Date.now() + timeoutMs

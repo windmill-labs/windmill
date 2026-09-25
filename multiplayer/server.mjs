@@ -169,10 +169,14 @@ const getYDoc = (docname) => {
 }
 
 /**
- * One safe log field out of an error: single-line and bounded, so nothing that
- * ends up in an error message can forge a log line or flood the log.
+ * One safe log field out of an error: printable ASCII only and bounded.
+ * An error message is not always a fixed string — `applyAwarenessUpdate` runs
+ * `JSON.parse` on the peer's bytes, and V8 quotes ~30 bytes of the offending
+ * input back verbatim — so treat every message as peer-controlled. Stripping
+ * everything outside \x20-\x7e removes newlines (forged log lines) and
+ * terminal escapes alike; the cap keeps a long message from flooding the log.
  */
-const describeError = (error) => String(error?.message ?? error).replace(/\s+/g, ' ').slice(0, 200)
+const describeError = (error) => String(error?.message ?? error).replace(/[^\x20-\x7e]+/g, ' ').slice(0, 200)
 
 const send = (conn, message) => {
   if (conn.readyState === 1) { // WebSocket.OPEN
@@ -228,10 +232,10 @@ const setupWSConnection = (conn, req, docName, bufferedMessages = []) => {
       // already uses standard close codes for protocol faults (1009 for the
       // pre-auth flood cap) and reserves the private 4xxx range for
       // Windmill-specific auth outcomes (4401/4403).
-      // The payload is deliberately never logged: it is untrusted, can be
-      // hundreds of KiB, and may hold document contents. The decoders' messages
-      // are fixed strings, but bound and single-line them anyway so nothing a
-      // peer can influence can flood or forge log lines.
+      // The frame itself is never logged: it is untrusted, can be hundreds of
+      // KiB, and may hold document contents. The error message can still quote a
+      // short fragment of it (see describeError), so it goes through the same
+      // sanitising.
       console.warn(`[${new Date().toISOString()}] MALFORMED MESSAGE: doc="${docName}" from=${clientIp} error="${describeError(error)}"`)
       conn.close(1007, 'Invalid message')
     }
@@ -316,10 +320,15 @@ const server = http.createServer((req, res) => {
 
 const wss = new WebSocketServer({ server })
 
-// Same reason as the per-connection listener below: an unhandled 'error' on the
-// server emitter would end the process.
+// `ws` forwards the HTTP server's errors here, and a server-level error is fatal
+// — a failed listen leaves a process with nothing to serve. Without a listener
+// that was an unhandled 'error' and the process died with a stack trace, which
+// was at least honest; log it and still fail, so the entrypoint replaces the
+// container instead of seeing what looks like a clean shutdown. Set the exit
+// code rather than calling process.exit(), which can truncate this very line.
 wss.on('error', (error) => {
   console.error(`[${new Date().toISOString()}] WEBSOCKET SERVER ERROR: ${describeError(error)}`)
+  process.exitCode = 1
 })
 
 wss.on('connection', async (ws, req) => {

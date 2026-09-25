@@ -13,9 +13,16 @@
  */
 
 import assert from 'node:assert/strict'
+import net from 'node:net'
 import test from 'node:test'
 
-import { mintToken, startJwksServer, startMultiplayerServer, waitFor } from './helpers.mjs'
+import {
+  mintToken,
+  runMultiplayerServerUntilExit,
+  startJwksServer,
+  startMultiplayerServer,
+  waitFor
+} from './helpers.mjs'
 import { hasKind, openClient, syncStep1, syncStep1Message, syncStep2 } from './protocol.mjs'
 
 const WORKSPACE = 'test_workspace'
@@ -94,4 +101,21 @@ test('an illegal WebSocket frame before authentication does not exit the server'
 
   jwks.release()
   await assertStillServing(t, server, token)
+})
+
+test('a server-level error is fatal, not swallowed', { timeout: 60000 }, async (t) => {
+  // Hold the port so server.mjs's listen fails with EADDRINUSE. `ws` forwards
+  // the HTTP server's errors to the WebSocketServer, so this is what reaches the
+  // `wss.on('error')` handler — and a process with no listening socket must not
+  // report a clean exit, or nothing upstream knows to replace it.
+  const blocker = net.createServer()
+  await new Promise((resolve) => blocker.listen(0, '127.0.0.1', resolve))
+  const { port } = blocker.address()
+  t.after(() => new Promise((resolve) => blocker.close(resolve)))
+
+  const { code, signal, output } = await runMultiplayerServerUntilExit({ PORT: String(port) })
+
+  assert.ok(output.includes('EADDRINUSE'), `expected a listen failure, got:\n${output}`)
+  assert.equal(signal, null, 'the server should exit on its own, not have to be killed')
+  assert.notEqual(code, 0, `expected a non-zero exit, got ${code}:\n${output}`)
 })

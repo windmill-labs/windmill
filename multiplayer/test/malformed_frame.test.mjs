@@ -17,6 +17,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { setTimeout as delay } from 'node:timers/promises'
+import * as encoding from 'lib0/encoding'
 
 import { mintToken, startJwksServer, startMultiplayerServer, waitFor } from './helpers.mjs'
 import {
@@ -45,6 +46,8 @@ const KEY_LOADED = 'Successfully loaded Ed25519 public key'
 // Grace for a frame the client has already written to be delivered over loopback
 // and read by the (otherwise idle) server, before the key is released.
 const FLIGHT_MARGIN_MS = 250
+// A control character a peer would use to forge log lines or drive a terminal.
+const ESC = '\x1b'
 
 /**
  * 600 KiB of zeros: `messageSync`, then sync step 1 with a zero-length state
@@ -69,11 +72,32 @@ function truncatedAwarenessMessage() {
   return Uint8Array.from([messageAwareness, 8, 1, 2, 3])
 }
 
+/**
+ * `messageAwareness` + one well-formed entry whose state is not JSON, so
+ * `applyAwarenessUpdate` fails inside `JSON.parse`. V8 quotes the offending
+ * input back in its message, which is how peer bytes — ESC included — can reach
+ * a log line that interpolates `error.message`.
+ */
+function awarenessWithUnparseableState() {
+  const update = encoding.createEncoder()
+  encoding.writeVarUint(update, 1) // one client
+  encoding.writeVarUint(update, 42) // client id
+  encoding.writeVarUint(update, 1) // clock
+  // Not starting with '{': V8 only quotes the input back for a value that is
+  // invalid from position 0, which is the case this needs to reproduce.
+  encoding.writeVarString(update, `x${ESC}[2J OWNED THE LOG`)
+  const encoder = encoding.createEncoder()
+  encoding.writeVarUint(encoder, messageAwareness)
+  encoding.writeVarUint8Array(encoder, encoding.toUint8Array(update))
+  return encoding.toUint8Array(encoder)
+}
+
 const MALFORMED = [
   ['600 KiB of zeros', zeroFlood],
   ['a truncated sync message', truncatedSyncMessage],
   ['a truncated sync step 1 state vector', truncatedStateVector],
-  ['a truncated awareness update', truncatedAwarenessMessage]
+  ['a truncated awareness update', truncatedAwarenessMessage],
+  ['an awareness state that is not JSON', awarenessWithUnparseableState]
 ]
 
 /** Connect, wait for the server's sync step 1, i.e. for the peer to be authenticated. */
@@ -117,10 +141,16 @@ for (const [label, payload] of MALFORMED) {
     })
     assert.equal(offender.closeCode, INVALID_PAYLOAD)
     assert.equal(server.exitStatus, null, `server died: ${server.output}`)
-    assert.ok(server.output.includes(REFUSED), `server did not log the refused frame:\n${server.output}`)
     assert.ok(server.output.includes(`doc="${DOC_PATH}"`), 'the refusal must name the document')
-    // The payload itself is never logged: 600 KiB of zeros must not reach the log.
+    // The frame itself is never logged: 600 KiB of zeros must not reach the log.
     assert.ok(server.output.length < 8192, `server logged ${server.output.length} bytes, payload leaked?`)
+
+    // Exactly one refusal line, and nothing a peer put in the frame can escape
+    // it: an error message can quote the payload (V8 does so for JSON.parse), so
+    // the line must carry no control characters at all.
+    const refusals = server.output.split('\n').filter((line) => line.includes(REFUSED))
+    assert.equal(refusals.length, 1, `expected one refusal line, got:\n${server.output}`)
+    assert.doesNotMatch(refusals[0], /[\x00-\x1f\x7f]/, 'the refusal line must have no control characters')
 
     // The bystander was not disturbed, and a new client still syncs.
     assert.equal(bystander.closeCode, undefined)

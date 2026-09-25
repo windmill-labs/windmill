@@ -69,12 +69,17 @@ export function syncedDoc(client) {
 export function openClient(url, { onOpen } = {}) {
   const ws = new WebSocket(url)
   const received = []
-  const client = { ws, received, closeCode: undefined }
+  const client = { ws, received, closeCode: undefined, lastError: undefined }
   ws.on('message', (data) => received.push(new Uint8Array(data)))
   ws.on('close', (code) => {
     client.closeCode = code
   })
-  ws.on('error', () => {})
+  // Keep the error rather than only silencing it: without a listener `ws` would
+  // throw, and without the record a failed connection shows up as a `waitFor`
+  // timeout with no cause attached.
+  ws.on('error', (error) => {
+    client.lastError = error
+  })
   if (onOpen) ws.on('open', () => onOpen(ws))
   return client
 }
