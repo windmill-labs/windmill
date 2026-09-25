@@ -1,0 +1,128 @@
+/**
+ * Regression tests for WebSocket-level protocol errors.
+ *
+ * A frame the `ws` library itself cannot parse — an unmasked frame from a
+ * client, a reserved opcode, a bad RSV bit — never reaches the application's
+ * 'message' handler. `ws` fails it in its Receiver and emits an 'error' on the
+ * WebSocket (`receiverOnError` in ws/lib/websocket.js), and an unhandled 'error'
+ * on an EventEmitter throws, so the process used to exit here too — the same
+ * blast radius as a malformed application payload, reached one layer lower.
+ *
+ * Raw bytes are written straight to the TCP socket, since the `ws` client would
+ * never produce an illegal frame on its own.
+ */
+
+import assert from 'node:assert/strict'
+import net from 'node:net'
+import test from 'node:test'
+
+import {
+  mintToken,
+  runMultiplayerServerUntilExit,
+  startJwksServer,
+  startMultiplayerServer,
+  waitFor
+} from './helpers.mjs'
+import { hasSyncType, openClient, syncStep1, syncStep1Message, syncStep2 } from './protocol.mjs'
+
+const WORKSPACE = 'test_workspace'
+const DOC_PATH = `${WORKSPACE}/f/foo/bar`
+// Logged by server.mjs for every connection `ws` failed at the protocol level.
+const SOCKET_ERROR = 'SOCKET ERROR'
+// RFC 6455 "protocol error": what `ws` closes with when its Receiver rejects a
+// frame, carried on the Receiver's error as `Symbol(status-code)`.
+const PROTOCOL_ERROR = 1002
+
+/**
+ * A FIN + text frame of 3 bytes with the MASK bit clear. RFC 6455 requires every
+ * client-to-server frame to be masked, so `ws` rejects it with
+ * WS_ERR_EXPECTED_MASK (close status 1002).
+ */
+const UNMASKED_FRAME = Buffer.from([0x81, 0x03, 0x61, 0x62, 0x63])
+
+/** Assert the server is alive by making it serve a fresh client. */
+async function assertStillServing(t, server, token) {
+  const healthy = openClient(`${server.url}/${DOC_PATH}?token=${token}`, {
+    onOpen: (ws) => ws.send(syncStep1Message())
+  })
+  t.after(() => healthy.ws.close())
+  // Resolve as soon as either outcome is settled, so a dead server fails fast
+  // and with its own output rather than by timing out.
+  await waitFor(() => hasSyncType(healthy, syncStep2) || server.exitStatus !== null, {
+    message: 'the server to answer a new client with sync step 2'
+  })
+  assert.equal(server.exitStatus, null, `server died: ${server.output}`)
+  assert.ok(hasSyncType(healthy, syncStep2))
+}
+
+test('an illegal WebSocket frame from an authenticated client does not exit the server', { timeout: 60000 }, async (t) => {
+  const jwks = await startJwksServer()
+  const server = await startMultiplayerServer({ WINDMILL_BASE_URL: jwks.baseUrl })
+  t.after(async () => {
+    await server.close()
+    await jwks.close()
+  })
+
+  const token = mintToken(jwks.privateKey, { workspaceId: WORKSPACE })
+
+  const offender = openClient(`${server.url}/${DOC_PATH}?token=${token}`)
+  // The server's sync step 1 means this peer is past authentication.
+  await waitFor(() => hasSyncType(offender, syncStep1), { message: 'the server to send sync step 1' })
+  offender.ws._socket.write(UNMASKED_FRAME)
+
+  await waitFor(() => offender.closeCode !== undefined, {
+    message: 'the offending connection to be closed'
+  })
+  assert.equal(offender.closeCode, PROTOCOL_ERROR)
+  assert.equal(server.exitStatus, null, `server died: ${server.output}`)
+  assert.ok(server.output.includes(SOCKET_ERROR), `server did not log the socket error:\n${server.output}`)
+
+  await assertStillServing(t, server, token)
+})
+
+test('an illegal WebSocket frame before authentication does not exit the server', { timeout: 60000 }, async (t) => {
+  const jwks = await startJwksServer({ hold: true })
+  const server = await startMultiplayerServer({ WINDMILL_BASE_URL: jwks.baseUrl })
+  t.after(async () => {
+    await server.close()
+    await jwks.close()
+  })
+
+  const token = mintToken(jwks.privateKey, { workspaceId: WORKSPACE })
+
+  // The JWKS response is parked and never released before the assertions below,
+  // so the server cannot authenticate anyone for the whole of this test.
+  const offender = openClient(`${server.url}/${DOC_PATH}?token=${token}`, {
+    onOpen: (ws) => ws._socket.write(UNMASKED_FRAME)
+  })
+
+  await waitFor(() => offender.closeCode !== undefined, {
+    message: 'the offending connection to be closed'
+  })
+  assert.equal(offender.closeCode, PROTOCOL_ERROR)
+  // server.mjs logs CONNECT only once a peer is past verification, so its absence
+  // is what makes this the pre-auth case rather than a repeat of the test above.
+  assert.ok(!server.output.includes('CONNECT:'), `a connection was accepted:\n${server.output}`)
+  assert.equal(server.exitStatus, null, `server died: ${server.output}`)
+  assert.ok(server.output.includes(SOCKET_ERROR), `server did not log the socket error:\n${server.output}`)
+
+  jwks.release()
+  await assertStillServing(t, server, token)
+})
+
+test('a server-level error is fatal, not swallowed', { timeout: 60000 }, async (t) => {
+  // Hold the port so server.mjs's listen fails with EADDRINUSE. `ws` forwards
+  // the HTTP server's errors to the WebSocketServer, so this is what reaches the
+  // `wss.on('error')` handler — and a process with no listening socket must not
+  // report a clean exit, or nothing upstream knows to replace it.
+  const blocker = net.createServer()
+  await new Promise((resolve) => blocker.listen(0, '127.0.0.1', resolve))
+  const { port } = blocker.address()
+  t.after(() => new Promise((resolve) => blocker.close(resolve)))
+
+  const { code, output, killedByTimeout } = await runMultiplayerServerUntilExit({ PORT: String(port) })
+
+  assert.equal(killedByTimeout, false, `the server had to be killed rather than exiting:\n${output}`)
+  assert.ok(output.includes('EADDRINUSE'), `expected a listen failure, got:\n${output}`)
+  assert.notEqual(code, 0, `expected a non-zero exit, got ${code}:\n${output}`)
+})

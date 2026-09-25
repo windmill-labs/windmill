@@ -172,12 +172,64 @@ export async function startMultiplayerServer(env = {}, attemptsLeft = 5) {
     get output() {
       return output
     },
+    /** How the child died, or null while it is still running. */
+    get exitStatus() {
+      if (child.exitCode !== null) return `exited with code ${child.exitCode}`
+      if (child.signalCode !== null) return `killed by ${child.signalCode}`
+      return null
+    },
     async close() {
       if (child.exitCode !== null) return
       const exited = new Promise((resolve) => child.once('exit', resolve))
       child.kill('SIGKILL')
       await exited
     }
+  }
+}
+
+/**
+ * Start server.mjs and wait for it to exit, for the cases where it is expected
+ * to fail rather than come up. Returns how it died and everything it printed.
+ */
+export async function runMultiplayerServerUntilExit(env = {}, { timeoutMs = 15000 } = {}) {
+  const child = spawn(process.execPath, [SERVER_PATH], {
+    env: {
+      ...process.env,
+      REQUIRE_SIGNED_MULTIPLAYER_REQUESTS: 'true',
+      BASE_INTERNAL_URL: '',
+      HOST: '127.0.0.1',
+      ...env
+    },
+    stdio: ['ignore', 'pipe', 'pipe']
+  })
+
+  let output = ''
+  child.stdout.on('data', (chunk) => { output += chunk.toString() })
+  child.stderr.on('data', (chunk) => { output += chunk.toString() })
+
+  // Record the rescue rather than inferring it from the exit signal: `signal` is
+  // null for every child exit on Windows, so a caller checking it could not tell
+  // a server that exited on its own from one this had to kill.
+  let killedByTimeout = false
+  const killer = setTimeout(() => {
+    // Claim the rescue only if there was something to rescue. The child may have
+    // exited moments ago with 'close' still pending on the stdio drain — the very
+    // window this helper waits for — and killing a corpse is not an intervention.
+    if (child.exitCode !== null || child.signalCode !== null) return
+    killedByTimeout = child.kill('SIGKILL')
+  }, timeoutMs)
+
+  try {
+    // 'close' rather than 'exit': 'exit' fires when the child terminates, which
+    // can be before its stdio pipes have been drained, and the caller reads
+    // `output`. A child that never starts emits neither, only 'error'.
+    const [code, signal] = await new Promise((resolve, reject) => {
+      child.once('close', (exitCode, exitSignal) => resolve([exitCode, exitSignal]))
+      child.once('error', reject)
+    })
+    return { code, signal, output, killedByTimeout }
+  } finally {
+    clearTimeout(killer)
   }
 }
 
