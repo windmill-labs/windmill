@@ -15,6 +15,9 @@ pub async fn update_flow_status_in_progress(
     let step = get_step_of_flow_status(db, flow).await?;
     match step {
         Step::Step { idx: step, .. } => {
+            // Children of a parallel module start concurrently and are tracked in `flow_jobs`, so
+            // its `job` is never read. Writing it anyway rewrites the parent's whole flow_status
+            // under its row lock once per child, which serializes large parallel loops.
             sqlx::query!(
                 "UPDATE v2_job_status SET
                     flow_status = jsonb_set(
@@ -22,7 +25,12 @@ pub async fn update_flow_status_in_progress(
                         ARRAY['modules', $3::INTEGER::TEXT, 'type'],
                         to_jsonb('InProgress'::text)
                     )
-                WHERE id = $2",
+                WHERE id = $2
+                  AND NOT COALESCE(
+                      flow_status->'modules'->$3::INTEGER->>'type' = 'InProgress'
+                      AND (flow_status->'modules'->$3::INTEGER->>'parallel')::bool,
+                      false
+                  )",
                 job_in_progress,
                 flow,
                 step as i32
