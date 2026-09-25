@@ -248,7 +248,7 @@ export async function pushObj(
   } else if (typeEnding === "resource") {
     if (!alreadySynced.includes(p)) {
       alreadySynced.push(p);
-      await pushResource(workspace, p, befObj, newObj, originalLocalPath || p, wsSpecific, true);
+      await pushResource(workspace, p, befObj, newObj, originalLocalPath || p, wsSpecific, true, permissionedAsContext);
     }
   } else if (typeEnding === "resource-type") {
     await pushResourceType(workspace, p, befObj, newObj);

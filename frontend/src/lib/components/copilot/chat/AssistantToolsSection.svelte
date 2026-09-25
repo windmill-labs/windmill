@@ -18,9 +18,12 @@ individually switchable, they follow the mode and the connected servers.
 	let {
 		tools,
 		active,
-		blocksClose = $bindable()
+		blocksClose = $bindable(),
+		description = 'What the assistant can call in this session: the built-in tools, plus whatever the connected MCP servers expose.'
 	}: {
 		tools: ToolSummary[]
+		/** What the list is, under its heading. */
+		description?: string
 		/** Whether this is the panel on screen. Gates the detail page's build, which pulls
 		 * in the schema table and its syntax highlighter. */
 		active: boolean
@@ -136,10 +139,7 @@ individually switchable, they follow the mode and the connected servers.
 		onkeydown={highlight.onKeydown}
 		onpointermove={highlight.pointerMoved}
 	>
-		<Section
-			label="Tools"
-			description="What the assistant can call in this session: the built-in tools, plus whatever the connected MCP servers expose."
-		>
+		<Section label="Tools" {description}>
 			<!-- Sticks to the top of the scrolling panel so a 70-row list stays searchable. -->
 			<div class="sticky top-0 z-10 bg-surface pb-2">
 				<TextInput

@@ -206,6 +206,25 @@ pub struct ListableResource {
     pub is_draft: Option<bool>,
 }
 
+/// A row of the resource listing: the resource as a single read returns it, plus what only the
+/// listing carries.
+#[derive(FromRow, Serialize)]
+pub struct ListedResource {
+    #[sqlx(flatten)]
+    #[serde(flatten)]
+    pub resource: ListableResource,
+    /// An `ai_agent`'s `memory` setting, the one part of its value a listing shows: whether it
+    /// keeps a conversation decides how it is offered. `value` stays unlisted for every type.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub agent_memory: Option<serde_json::Value>,
+    /// On a draft-only row, the path its editor has staged when it differs from the storage path
+    /// (a new item parked at `u/{user}/draft_{uuid}`), as the other kinds' listings report it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub draft_path: Option<String>,
+}
+
 #[derive(Deserialize)]
 pub struct CreateResource {
     pub path: String,
@@ -215,6 +234,10 @@ pub struct CreateResource {
     pub labels: Option<Vec<String>>,
     #[serde(default)]
     pub ws_specific: Option<bool>,
+    /// `ai_agent` only: keep the identity `value.on_behalf_of` names, for a caller allowed to
+    /// (see `resolve_agent_on_behalf_of`).
+    #[serde(default)]
+    pub preserve_on_behalf_of: Option<bool>,
 }
 #[derive(Deserialize)]
 struct EditResource {
@@ -224,6 +247,7 @@ struct EditResource {
     resource_type: Option<String>,
     labels: Option<Vec<String>>,
     ws_specific: Option<bool>,
+    preserve_on_behalf_of: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -322,7 +346,7 @@ async fn list_resources(
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-) -> JsonResult<Vec<ListableResource>> {
+) -> JsonResult<Vec<ListedResource>> {
     let (per_page, offset) = paginate(pagination);
 
     let mut sqlb = SqlBuilder::select_from("resource")
@@ -344,6 +368,7 @@ async fn list_resources(
             "resource.labels",
             "folder_labels(resource.workspace_id, resource.path) as inherited_labels",
             "ws_specific.path IS NOT NULL as ws_specific",
+            "CASE WHEN resource.resource_type = 'ai_agent' THEN resource.value->'memory' END as agent_memory",
         ])
         // Scalar EXISTS flags the authed user's per-user draft without fanning rows out.
         .field(
@@ -428,11 +453,11 @@ async fn list_resources(
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
     let allowed = build_scope_path_predicate(&authed, "resources", "read");
-    let mut rows = sqlx::query_as::<_, ListableResource>(&sql)
+    let mut rows = sqlx::query_as::<_, ListedResource>(&sql)
         .fetch_all(&mut *tx)
         .await?
         .into_iter()
-        .filter(|r| allowed(&r.path))
+        .filter(|r| allowed(&r.resource.path))
         .collect::<Vec<_>>();
 
     tx.commit().await?;
@@ -467,14 +492,18 @@ async fn list_resources(
             let v: serde_json::Value =
                 serde_json::from_str(row.value.0.get()).unwrap_or(serde_json::Value::Null);
             // ResourceEditor's `ResourceState`: { path, description, args, labels?, wsSpecific, resource_type? }
-            let path = v
-                .get("path")
-                .and_then(|s| s.as_str())
-                .unwrap_or("")
-                .to_string();
-            if path.is_empty() || !allowed(&path) {
+            // Listed at the draft's key rather than its `path`: an editor keys the draft on the path
+            // it opened, which is the only one a draft read can find, while `path` moves on rename.
+            // The staged `path` is reported beside it as `draft_path`.
+            let path = row.path;
+            if !allowed(&path) {
                 continue;
             }
+            let draft_path = v
+                .get("path")
+                .and_then(|s| s.as_str())
+                .filter(|p| !p.is_empty() && *p != path)
+                .map(str::to_string);
             let description = v
                 .get("description")
                 .and_then(|x| x.as_str())
@@ -505,8 +534,13 @@ async fn list_resources(
                 })
             });
             let ws_specific = v.get("wsSpecific").and_then(|x| x.as_bool());
+            let agent_memory = if resource_type == "ai_agent" {
+                value.as_ref().and_then(|a| a.get("memory")).cloned()
+            } else {
+                None
+            };
 
-            rows.push(ListableResource {
+            let resource = ListableResource {
                 workspace_id: w_id.clone(),
                 path,
                 value,
@@ -528,7 +562,8 @@ async fn list_resources(
                 draft_only: Some(true),
                 // Synthesized rows are the authed user's draft.
                 is_draft: Some(true),
-            });
+            };
+            rows.push(ListedResource { resource, agent_memory, draft_path });
         }
     }
 
@@ -1183,7 +1218,20 @@ async fn create_resource(
         check_path_conflict(&mut tx, &w_id, &resource.path).await?;
     }
 
-    let res_value = resource.value.unwrap_or_default();
+    let mut res_value = resource.value.unwrap_or_default();
+    if resource.resource_type == "ai_agent" {
+        res_value = resolve_agent_raw_value(
+            &mut tx,
+            &authed,
+            &db,
+            &w_id,
+            &resource.path,
+            &res_value,
+            resource.preserve_on_behalf_of.unwrap_or(false),
+            true,
+        )
+        .await?;
+    }
     let raw_json = sqlx::types::Json(res_value.as_ref());
 
     if resource.path.starts_with("f/app_themes/") {
@@ -2024,9 +2072,6 @@ async fn update_resource(
     if let Some(npath) = &ns.path {
         sqlb.set_str("path", npath);
     }
-    if let Some(nvalue) = &ns.value {
-        sqlb.set_str("value", nvalue.to_string());
-    }
     if let Some(nrt) = &ns.resource_type {
         sqlb.set_str("resource_type", nrt);
     }
@@ -2132,6 +2177,48 @@ async fn update_resource(
             .execute(&mut *tx)
             .await?;
         }
+    }
+
+    let current = sqlx::query!(
+        "SELECT resource_type, value AS \"value: sqlx::types::Json<Box<RawValue>>\"
+         FROM resource WHERE workspace_id = $1 AND path = $2",
+        &w_id,
+        path
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    let resource_type = ns
+        .resource_type
+        .clone()
+        .or_else(|| current.as_ref().map(|c| c.resource_type.clone()));
+    // Retyping a resource into an agent makes its value an agent's, identity included, so it is
+    // resolved as a written one is.
+    let retyped = ns.resource_type.as_deref() == Some("ai_agent")
+        && current
+            .as_ref()
+            .is_some_and(|c| c.resource_type != "ai_agent");
+    let nvalue = match &ns.value {
+        Some(v) => Some(v.clone()),
+        None if retyped => current.and_then(|c| c.value).map(|v| v.0),
+        None => None,
+    };
+    if let Some(nvalue) = nvalue {
+        let nvalue = if resource_type.as_deref() == Some("ai_agent") {
+            resolve_agent_raw_value(
+                &mut tx,
+                &authed,
+                &db,
+                &w_id,
+                ns.path.as_deref().unwrap_or(path),
+                &nvalue,
+                ns.preserve_on_behalf_of.unwrap_or(false),
+                false,
+            )
+            .await?
+        } else {
+            nvalue
+        };
+        sqlb.set_str("value", nvalue.to_string());
     }
 
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
@@ -2303,6 +2390,91 @@ async fn update_resource_value(
     Ok(format!("value of resource {} updated", path))
 }
 
+/// Rewrites the identity an `ai_agent` runs as (`value.on_behalf_of`), resolved on every write of
+/// it as a flow's `on_behalf_of` is on every deploy: the writer's own, unless one allowed to keep
+/// the one the value names asks to, and a folder's default for a new agent. The value is written
+/// by anyone who can write the agent, so the key it arrives with is only a request.
+async fn resolve_agent_on_behalf_of(
+    tx: &mut Transaction<'_, Postgres>,
+    authed: &ApiAuthed,
+    db: &DB,
+    w_id: &str,
+    path: &str,
+    value: &mut serde_json::Value,
+    preserve: bool,
+    created: bool,
+) -> Result<()> {
+    let Some(obj) = value.as_object_mut() else {
+        return Ok(());
+    };
+    let mut requested = obj
+        .remove("on_behalf_of")
+        .and_then(|v| v.as_str().map(str::to_string));
+    let mut preserve = preserve;
+    let explicit =
+        requested.is_some() && preserve && windmill_common::can_preserve_on_behalf_of(authed);
+    if created && !explicit && windmill_common::can_preserve_on_behalf_of(authed) {
+        if let Some((_, folder_default)) =
+            windmill_common::folders::resolve_folder_default_on_behalf_of(db, w_id, path).await?
+        {
+            requested = Some(folder_default);
+            preserve = true;
+        }
+    }
+    let own = windmill_common::users::username_to_permissioned_as(&authed.username);
+    // Always an identity: nothing requested is the writer's own.
+    let resolved = windmill_common::resolve_on_behalf_of(
+        None,
+        Some(requested.as_deref().unwrap_or(&own)),
+        preserve,
+        authed,
+        w_id,
+        db,
+    )
+    .await?;
+    if let Some(resolved) = resolved.as_ref() {
+        obj.insert("on_behalf_of".to_string(), resolved.clone().into());
+    }
+    if let Some(kept) = windmill_common::check_on_behalf_of_preservation(
+        resolved.as_deref(),
+        preserve,
+        authed,
+        &own,
+    ) {
+        audit_log(
+            &mut **tx,
+            authed,
+            "resources.on_behalf_of",
+            if created {
+                ActionKind::Create
+            } else {
+                ActionKind::Update
+            },
+            w_id,
+            Some(path),
+            Some([("on_behalf_of", kept.as_str())].into()),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+/// `resolve_agent_on_behalf_of` on a value as the request carried it.
+async fn resolve_agent_raw_value(
+    tx: &mut Transaction<'_, Postgres>,
+    authed: &ApiAuthed,
+    db: &DB,
+    w_id: &str,
+    path: &str,
+    value: &RawValue,
+    preserve: bool,
+    created: bool,
+) -> Result<Box<RawValue>> {
+    let mut parsed: serde_json::Value = serde_json::from_str(value.get())?;
+    resolve_agent_on_behalf_of(tx, authed, db, w_id, path, &mut parsed, preserve, created).await?;
+    Ok(serde_json::value::to_raw_value(&parsed)?)
+}
+
 /// Write a resource's value and run everything that has to follow it: a version row, the audit
 /// entry, deployment metadata, the webhook, and dependent CI tests. Shared with version restore
 /// so a restored value is indistinguishable downstream from any other edit.
@@ -2330,6 +2502,20 @@ async fn set_resource_value(
     authorize_azure_devops_reference(authed, db, user_db, w_id, value.as_ref()).await?;
 
     let mut tx = user_db.clone().begin(authed).await?;
+
+    let mut value = value;
+    if let Some(v) = value.as_mut() {
+        let resource_type = sqlx::query_scalar!(
+            "SELECT resource_type FROM resource WHERE workspace_id = $1 AND path = $2",
+            w_id,
+            path
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        if resource_type.as_deref() == Some("ai_agent") {
+            resolve_agent_on_behalf_of(&mut tx, authed, db, w_id, path, v, false, false).await?;
+        }
+    }
 
     // `RETURNING resource_type` rather than a second lookup: the advisory below has to know the
     // type to leave `state` and `cache` alone, and this statement already runs.

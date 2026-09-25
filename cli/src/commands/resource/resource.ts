@@ -20,6 +20,11 @@ import { Resource } from "../../../gen/types.gen.ts";
 import { readInlinePathSync, readTextFile } from "../../utils/utils.ts";
 import { isWorkspaceSpecificFile } from "../../core/specific_items.ts";
 import { getCurrentGitBranch } from "../../utils/git.ts";
+import {
+  buildPermissionedAsContext,
+  type PermissionedAsContext,
+} from "../../core/permissioned_as.ts";
+import { readEffectiveSyncBehavior } from "../../core/conf.ts";
 
 export interface ResourceFile {
   value: any;
@@ -83,6 +88,7 @@ export async function pushResource(
   // only round-trip the canonical layout); the standalone `resource push`
   // command pushes a single explicit file, where any pointer is fine.
   enforceCanonicalFileset?: boolean,
+  permissionedAsContext?: PermissionedAsContext,
 ): Promise<void> {
   remotePath = removeType(remotePath, "resource");
   try {
@@ -93,6 +99,11 @@ export async function pushResource(
   } catch {
     // flow doesn't exist
   }
+  const claimed = agentOnBehalfOf(
+    resource,
+    localResource,
+    permissionedAsContext
+  );
 
   // Helper function to resolve inline content
   const resolveInlineContent = async () => {
@@ -133,11 +144,23 @@ export async function pushResource(
 
     // Only resolve inline content if we're actually updating
     await resolveInlineContent();
+    if (claimed) {
+      log.info(`Preserving ${claimed} as permissioned_as for agent ${remotePath}`);
+    }
 
     await wmill.updateResource({
       workspace: workspace,
       path: remotePath.replaceAll(SEP, "/"),
-      requestBody: { ...localResource, ...(wsSpecific !== undefined ? { ws_specific: wsSpecific } : {}) },
+      requestBody: {
+        ...localResource,
+        ...(wsSpecific !== undefined ? { ws_specific: wsSpecific } : {}),
+        ...(claimed
+          ? {
+              value: { ...localResource.value, on_behalf_of: claimed },
+              preserve_on_behalf_of: true,
+            }
+          : {}),
+      },
     });
   } else {
     // New resource - resolve inline content
@@ -163,6 +186,39 @@ export async function pushResource(
   }
 }
 
+/**
+ * An agent runs as the identity in its value's `on_behalf_of`, which the backend
+ * sets to whoever writes the agent. Like an app's, it is never taken from the
+ * tracked file, which the pull leaves it out of: the deployed one is claimed
+ * back only by a pusher the backend lets keep it, an admin or a `wm_deployers`
+ * member. Strips the key from `localResource` (and from the deployed value, so
+ * an unchanged agent still compares equal) and returns the identity to claim.
+ */
+export function agentOnBehalfOf(
+  deployed: ResourceFile | Resource | undefined,
+  localResource: ResourceFile,
+  permissionedAsContext: PermissionedAsContext | undefined
+): string | undefined {
+  if ((deployed?.resource_type ?? localResource.resource_type) !== "ai_agent") {
+    return undefined;
+  }
+  const local = localResource.value;
+  if (local && typeof local === "object") {
+    delete local.on_behalf_of;
+  }
+  const value = deployed?.value;
+  const onBehalfOf =
+    value && typeof value === "object" ? value.on_behalf_of : undefined;
+  if (deployed && onBehalfOf !== undefined) {
+    const { on_behalf_of: _, ...rest } = value;
+    deployed.value = rest;
+  }
+  if (!onBehalfOf || !permissionedAsContext?.userIsAdminOrDeployer) {
+    return undefined;
+  }
+  return onBehalfOf;
+}
+
 type PushOptions = GlobalOptions;
 async function push(opts: PushOptions, filePath: string, remotePath: string) {
   const workspace = await resolveWorkspace(opts);
@@ -184,7 +240,13 @@ async function push(opts: PushOptions, filePath: string, remotePath: string) {
     remotePath,
     undefined,
     parseFromFile(filePath),
-    filePath  // Pass the local file path for branch-specific inline content resolution
+    filePath, // Pass the local file path for branch-specific inline content resolution
+    undefined,
+    undefined,
+    await buildPermissionedAsContext(
+      workspace.workspaceId,
+      await readEffectiveSyncBehavior(opts, workspace)
+    )
   );
   log.info(colors.bold.underline.green(`Resource ${remotePath} pushed`));
 }

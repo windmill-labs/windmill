@@ -18,6 +18,9 @@ export interface AgentEditorTarget {
 	/** Where to re-resolve a graph's tool nodes after a deploy, when opened from a flow step. Only a
 	 *  real flow sets it: the agent editor offers no way to open a second editor from inside itself. */
 	host?: { flowPath: string; moduleId: string }
+	/** The path was minted for an agent that does not exist yet: a missing row is an empty agent to
+	 *  start from rather than a load failure. */
+	isNew?: boolean
 }
 
 let target = $state<AgentEditorTarget | undefined>(undefined)

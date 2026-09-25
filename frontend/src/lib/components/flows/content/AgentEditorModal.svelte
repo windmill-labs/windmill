@@ -1,5 +1,12 @@
 <script lang="ts">
-	import { FlaskConical, FormInput, History, MessageSquare, Save } from 'lucide-svelte'
+	import {
+		ChevronRight,
+		FlaskConical,
+		FormInput,
+		History,
+		MessageSquare,
+		Save
+	} from 'lucide-svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { onDestroy, untrack } from 'svelte'
@@ -43,9 +50,23 @@
 		/** A deploy moved the agent from `from` to `to`. What names the old path belongs to the surface
 		 *  that opened the editor: a flow's own steps, a page's URL. */
 		onRenamed?: (from: string, to: string) => void
+		/** `page` fills its container with the editor's header and body instead of opening a dialog. */
+		layout?: 'modal' | 'page'
+		/** Where closing leads, for a layout that has no dialog to dismiss. `deployed` is false for an
+		 *  agent that exists only as a draft, which has no page of its own to return to. */
+		onClose?: (deployed: boolean) => void
+		/** Ran after every successful deploy, with the path written. */
+		onDeployed?: (path: string) => void
 	}
 
-	let { enableAi = false, owns, onRenamed = undefined }: Props = $props()
+	let {
+		enableAi = false,
+		owns,
+		onRenamed = undefined,
+		layout = 'modal',
+		onClose = undefined,
+		onDeployed = undefined
+	}: Props = $props()
 
 	// Every target names the surface that opened it, and only a flow step or a resource row can:
 	// an agent used as a tool of the agent being edited stays part of it, with no way in this editor
@@ -102,6 +123,9 @@
 	let inEvals = $derived(target?.view === 'evals' && !refused)
 	let readOnly = $derived(draft ? !draft.canWrite : false)
 	let draftOnly = $derived(draft?.noDeployed ?? false)
+	// A never-deployed agent is stored at a minted `draft_<uuid>` path, so it is named by the path
+	// its first deploy will create, as the home list names it.
+	let shownPath = $derived((draftOnly && draft?.state?.path) || target?.path)
 
 	// Where the evals pane is within itself, so its levels extend this dialog's trail rather than
 	// opening a dialog of their own. Cleared on the way in: the pane reports a level once it is on
@@ -116,7 +140,7 @@
 	const AGENT_DESCRIPTION = 'Changes here update the saved agent, and every flow that links to it.'
 
 	let root = $derived<ModalTrailSegment>({
-		label: target?.path ?? 'Agent',
+		label: shownPath ?? 'Agent',
 		onclick: inEvals ? () => showAgentEditorView(undefined) : undefined
 	})
 	let trail = $derived<ModalTrailSegment[]>(
@@ -147,8 +171,11 @@
 	 *  the URL keeps claiming the agent is open and a refresh reopens it. Anchored to that page, so
 	 *  this is a no-op when the editor was opened from a flow. */
 	function close() {
+		// Unknown until the load answers, and a detail page that does not exist is the worse guess.
+		const deployed = draft != undefined && !draft.loading && !draftOnly && !refused
 		closeAgentEditor()
-		void clearPageDrawerAnchor(RESOURCES_PATH)
+		if (layout === 'modal') void clearPageDrawerAnchor(RESOURCES_PATH)
+		onClose?.(deployed)
 	}
 
 	// The target is module-global and outlives this component: navigating away takes the mount that
@@ -218,7 +245,9 @@
 		const at = deployingFor ?? currentWriteTarget()
 		// Before the rename is announced: it finds the steps to refresh under the old path.
 		const reconciled = reconcile(at, savedPath)
-		if (at && savedPath !== at.path) {
+		// A new agent's first deploy is announced like a rename even at the same path: the surface
+		// has anchored nothing for it yet, and reopening drops `isNew` now that it exists.
+		if (at && (savedPath !== at.path || target?.isNew)) {
 			onRenamed?.(at.path, savedPath)
 			// The dialog is keyed on the path, so this reloads it on the renamed agent. Only while it
 			// still shows the one deployed: it can be closed or pointed elsewhere mid-request.
@@ -227,6 +256,7 @@
 			}
 		}
 		await reconciled
+		onDeployed?.(savedPath)
 	}
 </script>
 
@@ -238,160 +268,200 @@
 
 		     `paginated` throughout: the body is one strip of pages (the agent form, then evals), so
 		     the header keeps its height and only the pages move. -->
-		<Modal
-			bind:open={() => true, (open) => !open && close()}
-			kind="X"
-			fillHeight
-			enterConfirms={false}
-			paginated
-			title={target.path}
-			{trail}
-			{description}
-			class="w-[92vw] sm:w-[92vw] max-w-[1500px] sm:max-w-[1500px] h-[88vh]"
-		>
-			{#snippet titleBadge()}
-				<!-- Against the agent's own name wherever it appears, as the linked-agent card in the
-				     step panel has it. -->
-				{#if version != undefined && !refused}
-					<Badge color="gray" class="shrink-0" title="The version runs are recorded against">
-						v{version}
-					</Badge>
-				{/if}
-			{/snippet}
-			{#snippet levelBadge()}
-				<!-- Marks evals, not the agent, so it sits against that level's own name. Dropped a
-				     level deeper, where it would read as marking the run rather than the feature it
-				     belongs to. -->
-				{#if inEvals && !evalsLocation}
-					<Badge color="blue" small class="shrink-0 !py-0 leading-4">Beta</Badge>
-				{/if}
-			{/snippet}
-			<!-- Evals carries none of the editor's actions: nothing there edits the agent, and the run
-			     dialog states for itself whether a run is against the deployed version or the edits. -->
-			{#snippet settings()}
-				<div class="flex flex-row items-center gap-2 shrink-0">
-					{#if !inEvals && !refused}
-						<!-- Switches the editor's right-hand pane, and is drawn only once the agent has
-						     loaded and the pane has picked its first mode. -->
-						{#if testPane?.mode}
-							<ToggleButtonGroup
-								bind:selected={
-									() => testPane?.mode,
-									(mode) => {
-										if (testPane) testPane.mode = mode
-									}
-								}
-								noWFull
-							>
-								{#snippet children({ item })}
-									<ToggleButton
-										size="sm"
-										value="chat"
-										label="Chat"
-										icon={MessageSquare}
-										tooltip="Chat with the agent: each message runs it, and it remembers the conversation"
-										{item}
-									/>
-									<ToggleButton
-										size="sm"
-										value="form"
-										label="Form"
-										icon={FormInput}
-										tooltip="Run the agent once, on the inputs in a form"
-										{item}
-									/>
-								{/snippet}
-							</ToggleButtonGroup>
-						{/if}
-						{#if readOnly}
-							<Badge
-								color="gray"
-								class="shrink-0"
-								title="You do not have write access to this agent"
-							>
-								Read only
-							</Badge>
-						{/if}
-						<!-- Evals run against the deployed agent, and a draft-only one has none: the
-						     backend's `require_agent` would reject every run. -->
-						{#if !draftOnly}
-							<Button
-								unifiedSize="sm"
-								variant="default"
-								startIcon={{ icon: FlaskConical }}
-								title="Run this agent against a dataset of cases"
-								on:click={() => showAgentEditorView('evals')}
-							>
-								Evals
-							</Button>
-						{/if}
-						<Button
-							unifiedSize="sm"
-							variant="default"
-							startIcon={{ icon: History }}
-							iconOnly
-							title="Version history"
-							on:click={() => versionDrawer?.openDrawer()}
-						/>
-						<Button
-							unifiedSize="sm"
-							variant="accent"
-							startIcon={{ icon: Save }}
-							loading={saving}
-							disabled={readOnly}
-							title={readOnly ? 'You do not have write access to this agent' : undefined}
-							on:click={onDeploy}
-						>
-							Deploy
-						</Button>
-					{/if}
-				</div>
-			{/snippet}
+		{#if layout === 'modal'}
+			<Modal
+				bind:open={() => true, (open) => !open && close()}
+				kind="X"
+				fillHeight
+				enterConfirms={false}
+				paginated
+				title={shownPath ?? target.path}
+				{trail}
+				{description}
+				{titleBadge}
+				{levelBadge}
+				{settings}
+				class="w-[92vw] sm:w-[92vw] max-w-[1500px] sm:max-w-[1500px] h-[88vh]"
+			>
+				{@render body()}
+			</Modal>
+		{:else}
 			<div class="h-full min-h-0 flex flex-col">
-				<!-- Full-bleed, as a banner is everywhere else: the dialog's own horizontal padding is
-				     cancelled so it spans the body. -->
-				<div class="-mx-4 sm:-mx-6 shrink-0 {inEvals ? 'hidden' : ''}">
-					<LocalDraftBanner
-						show={draft?.sync.hasDraft ?? false}
-						reserveSpace={draft?.sync.hasBaseline ?? false}
-						getDeployed={() => draft?.deployed}
-						getCurrent={() => draft?.state}
-						onDiscard={() => draft?.sync.resetToDeployed(target?.path ?? '')}
-						title="Deployed <> Unsaved agent changes"
-					/>
+				<div class="flex items-center gap-2 px-4 py-2 border-b shrink-0">
+					<div class="min-w-0 flex flex-col">
+						<div class="flex items-center gap-1 min-w-0">
+							{#each trail as segment, i (i)}
+								{#if i > 0}
+									<ChevronRight size={14} class="text-tertiary shrink-0" />
+								{/if}
+								{#if segment.onclick}
+									<Button variant="subtle" unifiedSize="sm" onClick={segment.onclick}>
+										{segment.label}
+									</Button>
+								{:else}
+									<span class="text-sm font-semibold text-emphasis truncate">{segment.label}</span>
+								{/if}
+								{#if i === 0}
+									{@render titleBadge()}
+								{/if}
+							{/each}
+							{@render levelBadge()}
+						</div>
+						{#if description}
+							<span class="text-2xs text-tertiary truncate">{description}</span>
+						{/if}
+					</div>
+					<div class="grow"></div>
+					{@render settings()}
 				</div>
-				<!-- Two pages of one strip, so opening evals slides in from the right the way its own
-				     levels do. No `onNavigate`: the arrow keys belong to whichever pane is on screen,
-				     and evals answers them for its own levels. -->
-				<PagedContent
-					class="flex-1 min-h-0"
-					current={inEvals ? 'evals' : 'agent'}
-					pages={[
-						{ key: 'agent', content: agentPage },
-						{ key: 'evals', content: evalsPage }
-					]}
-				/>
+				<div class="flex-1 min-h-0 px-4 sm:px-6">
+					{@render body()}
+				</div>
 			</div>
-		</Modal>
+		{/if}
 	{/key}
 
+	{#snippet titleBadge()}
+		<!-- Against the agent's own name wherever it appears, as the linked-agent card in the
+				     step panel has it. -->
+		{#if version != undefined && !refused}
+			<Badge color="gray" class="shrink-0" title="The version runs are recorded against">
+				v{version}
+			</Badge>
+		{/if}
+	{/snippet}
+	{#snippet levelBadge()}
+		<!-- Marks evals, not the agent, so it sits against that level's own name. Dropped a
+				     level deeper, where it would read as marking the run rather than the feature it
+				     belongs to. -->
+		{#if inEvals && !evalsLocation}
+			<Badge color="blue" small class="shrink-0 !py-0 leading-4">Beta</Badge>
+		{/if}
+	{/snippet}
+	<!-- Evals carries none of the editor's actions: nothing there edits the agent, and the run
+			     dialog states for itself whether a run is against the deployed version or the edits. -->
+	{#snippet settings()}
+		<div class="flex flex-row items-center gap-2 shrink-0">
+			{#if !inEvals && !refused}
+				<!-- Switches the editor's right-hand pane, and is drawn only once the agent has
+						     loaded and the pane has picked its first mode. -->
+				{#if testPane?.mode}
+					<ToggleButtonGroup
+						bind:selected={
+							() => testPane?.mode,
+							(mode) => {
+								if (testPane) testPane.mode = mode
+							}
+						}
+						noWFull
+					>
+						{#snippet children({ item })}
+							<ToggleButton
+								size="sm"
+								value="chat"
+								label="Chat"
+								icon={MessageSquare}
+								tooltip="Chat with the agent: each message runs it, and it remembers the conversation"
+								{item}
+							/>
+							<ToggleButton
+								size="sm"
+								value="form"
+								label="Form"
+								icon={FormInput}
+								tooltip="Run the agent once, on the inputs in a form"
+								{item}
+							/>
+						{/snippet}
+					</ToggleButtonGroup>
+				{/if}
+				{#if readOnly}
+					<Badge color="gray" class="shrink-0" title="You do not have write access to this agent">
+						Read only
+					</Badge>
+				{/if}
+				<!-- Evals run against the deployed agent, and a draft-only one has none: the
+						     backend's `require_agent` would reject every run. -->
+				{#if !draftOnly}
+					<Button
+						unifiedSize="sm"
+						variant="default"
+						startIcon={{ icon: FlaskConical }}
+						title="Run this agent against a dataset of cases"
+						on:click={() => showAgentEditorView('evals')}
+					>
+						Evals
+					</Button>
+				{/if}
+				<Button
+					unifiedSize="sm"
+					variant="default"
+					startIcon={{ icon: History }}
+					iconOnly
+					title="Version history"
+					on:click={() => versionDrawer?.openDrawer()}
+				/>
+				<Button
+					unifiedSize="sm"
+					variant="accent"
+					startIcon={{ icon: Save }}
+					loading={saving}
+					disabled={readOnly}
+					title={readOnly ? 'You do not have write access to this agent' : undefined}
+					on:click={onDeploy}
+				>
+					Deploy
+				</Button>
+			{/if}
+		</div>
+	{/snippet}
+	{#snippet body()}
+		<div class="h-full min-h-0 flex flex-col">
+			<!-- Full-bleed, as a banner is everywhere else: the body's own horizontal padding is
+				     cancelled so it spans it. -->
+			<div class="-mx-4 sm:-mx-6 shrink-0 {inEvals ? 'hidden' : ''}">
+				<LocalDraftBanner
+					show={draft?.sync.hasDraft ?? false}
+					reserveSpace={draft?.sync.hasBaseline ?? false}
+					getDeployed={() => draft?.deployed}
+					getCurrent={() => draft?.state}
+					onDiscard={() => draft?.sync.resetToDeployed(target?.path ?? '')}
+					title="Deployed <> Unsaved agent changes"
+				/>
+			</div>
+			<!-- Two pages of one strip, so opening evals slides in from the right the way its own
+				     levels do. No `onNavigate`: the arrow keys belong to whichever pane is on screen,
+				     and evals answers them for its own levels. -->
+			<PagedContent
+				class="flex-1 min-h-0"
+				current={inEvals ? 'evals' : 'agent'}
+				pages={[
+					{ key: 'agent', content: agentPage },
+					{ key: 'evals', content: evalsPage }
+				]}
+			/>
+		</div>
+	{/snippet}
+
 	<!-- Mounted under the evals level too: it holds the draft the header's banner and Deploy act on,
-	     and the config a draft run is offered on. -->
+	     and the config a draft run is offered on. The target is read optionally: a deploy that
+	     navigates away clears it while these are still rendered. -->
 	{#snippet agentPage()}
 		<AgentEditorHost
 			bind:this={host}
-			path={target.path}
+			path={target?.path ?? ''}
 			workspace={ws}
 			{enableAi}
-			toolId={target.toolId}
+			toolId={target?.toolId}
 			onSelectTool={(id) => showAgentEditorTool(id)}
 			{onSaved}
+			isNew={target?.isNew}
 		/>
 	{/snippet}
 
 	{#snippet evalsPage()}
 		<EvalsPane
-			agentPath={target.path}
+			agentPath={target?.path ?? ''}
 			opWorkspace={ws}
 			editedConfig={draft?.sync.hasDraft ? editedConfig : undefined}
 			bind:location={evalsLocation}

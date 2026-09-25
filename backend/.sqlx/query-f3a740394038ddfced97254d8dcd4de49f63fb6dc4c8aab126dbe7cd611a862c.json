@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT value AS \"value: sqlx::types::Json<serde_json::Value>\"\n         FROM resource WHERE workspace_id = $1 AND path = $2 AND resource_type = 'ai_agent'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "value: sqlx::types::Json<serde_json::Value>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "f3a740394038ddfced97254d8dcd4de49f63fb6dc4c8aab126dbe7cd611a862c"
+}

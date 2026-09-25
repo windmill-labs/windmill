@@ -41,7 +41,7 @@
 
 	let tab = $state<Tab>('workspace')
 
-	let subtab: 'flow' | 'script' | 'app' = $state('script')
+	let subtab: 'flow' | 'script' | 'app' | 'agent' = $state('script')
 
 	const searchParams = useSearchParams(z.object({ search: z.string().nullable() }))
 	const getFilter = () => searchParams.search ?? ''
