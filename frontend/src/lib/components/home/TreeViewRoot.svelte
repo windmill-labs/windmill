@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { untrack } from 'svelte'
+	import { untrack, type Snippet } from 'svelte'
 	import TreeView from './TreeView.svelte'
 	import { countLeaves, groupItems, type ItemType, type UserItem } from './treeViewUtils'
 	import { Button } from '$lib/components/common'
@@ -44,6 +44,8 @@
 		// under it. Only for browsing: a search or filter must not hide its matches behind
 		// a closed row.
 		groupOtherUsers?: boolean
+		// See TreeView's `leaf`.
+		leaf?: Snippet<[ItemType, number]>
 	}
 
 	let {
@@ -64,7 +66,8 @@
 		onExpandOwner,
 		onCollapseOwner,
 		showEditButton = true,
-		groupOtherUsers = false
+		groupOtherUsers = false,
+		leaf
 	}: Props = $props()
 
 	// How many root nodes render at once. A root node is a collapsed owner row that
@@ -258,6 +261,7 @@
 		on:reload
 		{showCode}
 		{showEditButton}
+		{leaf}
 	/>
 {/snippet}
 
