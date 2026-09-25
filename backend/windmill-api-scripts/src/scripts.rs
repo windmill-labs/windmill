@@ -551,6 +551,7 @@ async fn create_snapshot_script(
     let mut handle_deployment_metadata = None;
     let mut moved_native_triggers = Vec::new();
     let mut deployed_path = None;
+    let mut deployed_perpetual = false;
     while let Some(field) = multipart.next_field().await.unwrap() {
         let name = field.name().unwrap().to_string();
         let data = field.bytes().await.unwrap();
@@ -559,6 +560,7 @@ async fn create_snapshot_script(
             let is_tar = ns.codebase.as_ref().is_some_and(|x| x.ends_with(".tar"));
             let use_esm = ns.codebase.as_ref().is_some_and(|x| x.contains(".esm"));
             deployed_path = Some(ns.path.clone());
+            deployed_perpetual = ns.restart_unless_cancelled == Some(true);
             let (new_hash, ntx, hdm, moved) = create_script_internal(
                 ns,
                 w_id.clone(),
@@ -616,6 +618,19 @@ async fn create_snapshot_script(
     }
     reregister_moved_native_triggers(&db, &authed, &w_id, moved_native_triggers);
     if let Some(hdm) = handle_deployment_metadata {
+        let runnable_now = matches!(hdm, PostCommitDeploy::Full { .. });
+        if let Some(script_path) = deployed_path
+            .as_deref()
+            .filter(|_| runnable_now && deployed_perpetual)
+        {
+            windmill_queue::restart_perpetual_runs_on_new_version(
+                &db,
+                &w_id,
+                script_path,
+                &authed.username,
+            )
+            .await;
+        }
         hdm.handle(&db).await?;
     }
     return Ok((StatusCode::CREATED, format!("{}", script_hash.unwrap())));
@@ -734,6 +749,9 @@ async fn deploy_script(
         return Err(Error::PermissionDenied(msg));
     }
     let script_path = ns.path.clone();
+    // Only a perpetual deploy can have runs to move, so every other one skips the lookups that
+    // would find that out.
+    let perpetual = ns.restart_unless_cancelled == Some(true);
     let email = authed.email.clone();
     let username = authed.username.clone();
     let authed_for_triggers = authed.clone();
@@ -757,6 +775,19 @@ async fn deploy_script(
         // they don't run against a version whose lock does not exist yet — and
         // don't run twice.
         let ready_to_test = matches!(hdm, PostCommitDeploy::Full { .. });
+        // The version is runnable, so the perpetual runs of earlier ones move to it here, before
+        // anything that can fail this deploy after its commit: a version nothing moved to would
+        // leave those runs on the old code with nothing left to notice. A deploy that needed lock
+        // generation hands this to its dependency job instead.
+        if ready_to_test && perpetual {
+            windmill_queue::restart_perpetual_runs_on_new_version(
+                &db,
+                &w_id,
+                &script_path,
+                &username,
+            )
+            .await;
+        }
         hdm.handle(&db).await?;
         let db2 = db.clone();
         if ready_to_test {
@@ -2875,6 +2906,12 @@ async fn create_script_internal<'c>(
         let mut args: HashMap<String, Box<serde_json::value::RawValue>> = HashMap::new();
         if let Some(dm) = ns.deployment_message {
             args.insert("deployment_message".to_string(), to_raw_value(&dm));
+        }
+        // The version becomes runnable when this job writes its lock, which is where the
+        // perpetual runs of earlier versions can move to it. Only a deploy someone made carries
+        // this, so a relock triggered by an imported script changing leaves those runs alone.
+        if ns.restart_unless_cancelled.is_some_and(|x| x) {
+            args.insert("restart_perpetual_runs".to_string(), to_raw_value(&true));
         }
         if let Some(ref p_path) = p_path_opt {
             args.insert("parent_path".to_string(), to_raw_value(&p_path));
