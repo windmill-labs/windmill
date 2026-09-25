@@ -806,9 +806,10 @@
 
 	// Inside an AI session pane (which injects an aiChatManager via context) the
 	// extra deploy-dropdown options — Deploy & Stay here, Fork, Edit in workspace
-	// fork, Exit & See details, Export — don't make sense: the session always
-	// stays put and is already scoped to a fork. Diff is exposed as a standalone
-	// top-bar button (rendered independently of the session pane), not here.
+	// fork, Export — don't make sense: the session always stays put and is already
+	// scoped to a fork. `Exit & See details` is the exception: the session hosts the
+	// details page itself, so it switches the tab instead of leaving. Diff is exposed
+	// as a standalone top-bar button (rendered independently of the pane), not here.
 	const inSessionPane = !!getContext('aiChatManager')
 
 	async function openDiffDrawer() {
@@ -874,10 +875,7 @@
 										: [])
 								]
 							: []),
-						...(!inSessionPane &&
-						savedScript?.no_deployed !== true &&
-						script.kind === 'script' &&
-						!script.auto_kind
+						...(savedScript?.no_deployed !== true && script.kind === 'script' && !script.auto_kind
 							? [
 									{
 										label: 'Exit & See details',

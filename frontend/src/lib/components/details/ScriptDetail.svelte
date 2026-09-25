@@ -798,8 +798,9 @@
 </Drawer>
 {#key script?.hash}
 	<DetailPageLayout bind:selected={rightPaneSelected} isOperator={$userStore?.operator}>
-		{#snippet header()}
+		{#snippet header({ wide }: { wide: boolean })}
 			<DetailPageHeader
+				{wide}
 				{mainButtons}
 				menuItems={getMenuItems(script, deployUiSettings)}
 				bind:errorHandlerMuted={

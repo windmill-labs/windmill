@@ -603,8 +603,9 @@
 		schema: flow?.schema
 	}}
 >
-	{#snippet header()}
+	{#snippet header({ wide }: { wide: boolean })}
 		<DetailPageHeader
+			{wide}
 			on:seeTriggers={() => {
 				detailLayout?.showTriggers()
 			}}

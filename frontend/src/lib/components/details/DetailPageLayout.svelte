@@ -11,7 +11,7 @@
 		selected: string
 		forceSmallScreen?: boolean
 		isChatMode?: boolean
-		header?: import('svelte').Snippet
+		header?: import('svelte').Snippet<[{ wide: boolean }]>
 		/** `graphInline`: whether the form should carry the flow graph under it. It does in the
 		 * split layout; the tabbed layout gives the graph a tab of its own. */
 		form?: import('svelte').Snippet<[{ graphInline: boolean }]>
@@ -70,7 +70,7 @@
 <main class="h-screen w-full" bind:clientWidth>
 	{#if useDesktopLayout}
 		<div class="h-full w-full flex flex-col">
-			{@render header?.()}
+			{@render header?.({ wide: useDesktopLayout })}
 			<div class="grow min-h-0 w-full">
 				<Splitpanes>
 					<Pane size={65} minSize={50}>
@@ -101,7 +101,7 @@
 		</div>
 	{:else}
 		<div class="h-full w-full flex flex-col">
-			{@render header?.()}
+			{@render header?.({ wide: useDesktopLayout })}
 			<div class="grow min-h-0 w-full flex flex-col">
 				<!-- no-scrollbar: at phone widths the tabs overflow their strip, and a browser with
 				     classic scrollbars would spend a track under them, opening a band between the tabs

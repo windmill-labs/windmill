@@ -70,9 +70,6 @@
 	const notDeployed = $derived(loadState === 'not_found')
 	function setLoadState(state: 'loaded' | 'not_found') {
 		loadState = state
-		// Tell the runtime, so the View|Edit control can withhold the switch from here on
-		// rather than sending the next reader to this same empty panel.
-		runtime.setDeployedExists(kind, path, state === 'loaded')
 	}
 	$effect(() => {
 		reloadKey

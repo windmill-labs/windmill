@@ -67,11 +67,8 @@
 		parsePreviewItemRoute,
 		previewLocationLabel,
 		resolvePreviewTab,
-		type PreviewItemMode,
 		type PreviewTarget
 	} from '$lib/components/sessions/previewRouter'
-	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import {
 		toolReloadEffect,
 		tabsToReload,
@@ -650,68 +647,6 @@
 	// to the plain path.
 	const parsedRoute = $derived(parsePreviewItemRoute(displayPath))
 
-	// The View|Edit control acts on the active tab by re-pointing its URL. Only an item
-	// with two sides gets one: pages, artifacts, pipelines and legacy drag-and-drop apps
-	// have a single side. Read from the tab's `url` rather than the observed `loc` — an
-	// in-realm side reports no location of its own, so `loc` can lag a flip.
-	const activeSide = $derived.by(() => {
-		const url = owner?.activeTab?.url
-		const slot = url ? resolvePreviewTab(url) : undefined
-		if (!slot) return undefined
-		if (slot.kind === 'viewer') {
-			return { kind: slot.viewerKind, path: slot.path, mode: 'view' as PreviewItemMode }
-		}
-		if (slot.kind === 'editor' && slot.editorKind !== 'pipeline') {
-			return { kind: slot.editorKind, path: slot.path, mode: 'edit' as PreviewItemMode }
-		}
-		return undefined
-	})
-
-	// Nothing to view until the item has been deployed once. This only ever hides the
-	// switch when the editor cell has actually been told so by the backend; when it knows
-	// nothing the switch stays open and the viewer says what it found, which is the case
-	// that has to work — a tab can be opened, or restored, straight onto the View side
-	// with no editor ever mounted.
-	const viewDisabledReason = $derived.by(() => {
-		const side = activeSide
-		const rt = activeRuntime
-		if (!side || !rt) return undefined
-		// Through the cell accessor, not `loadedEditorPath`: that one peeks into a plain
-		// Map, so this would read "no cell yet" once and never re-run when the load lands.
-		// The accessor creates the cell on a miss, which costs nothing here — a tab is open
-		// on this item, so its Edit side owns a cell either way.
-		const cell =
-			side.kind === 'flow'
-				? rt.flowCell(side.path)
-				: side.kind === 'script'
-					? rt.scriptCell(side.path)
-					: rt.rawAppCell(side.path)
-		// Two ways to know, because either side can be the one that looked: the editor
-		// cell's `no_deployed`, and what the viewer's own fetch found. An absent baseline is
-		// NOT a third: the cell is created empty and `SessionEditorTarget` clears
-		// `loadedPath` on every unmount, so "this cell knows nothing" is a state a deployed
-		// item reaches too — reading that as "not deployed" offered View on drafts and
-		// withheld it from deployed items, by whether the Edit side happened to be loaded.
-		const undeployed =
-			cell.saved.val?.no_deployed === true || rt.deployedExists(side.kind, side.path) === false
-		return undeployed ? 'Not deployed yet' : undefined
-	})
-
-	function switchSide(mode: PreviewItemMode) {
-		const side = activeSide
-		if (!side || side.mode === mode) return
-		const item: WorkspaceItem = {
-			path: side.path,
-			summary: '',
-			kind: side.kind === 'raw_app' ? 'app' : side.kind,
-			raw_app: side.kind === 'raw_app'
-		}
-		owner?.navigate({ type: 'item', item, mode })
-		// Counted per switch onto the View side, under keys disjoint from the tab-open
-		// ones, so `entity_count` answers how many sessions ever used it.
-		if (mode === 'view') activeRuntime?.logTabUsage(owner?.activeTab?.url ?? '')
-	}
-
 	// Split the item path into breadcrumb dirs + leaf, mirroring EditorHeader:
 	// scope (`f/<folder>` | `u/<user>`) → subfolders → item name. Prefers the
 	// tab's friendly path (a draft-only item's typed name): the picker tree
@@ -860,6 +795,12 @@
 			return
 		}
 		owner?.navigate({ type: 'item', item })
+	}
+
+	// An editor's `Exit & see details`: the session hosts the details page itself, so the
+	// tab moves to the item's deployed view rather than the browser leaving the session.
+	function seeDetailsInPreview(item: WorkspaceItem) {
+		owner?.navigate({ type: 'item', item, mode: 'view' })
 	}
 
 	// A preview iframe that navigates to an editor route posts up to us instead of
@@ -1049,28 +990,6 @@
 									bind:clientWidth={previewActionsWidth}
 									class="absolute top-0 right-1 z-30 flex h-8 items-center gap-0.5"
 								>
-									{#if activeSide}
-										<!-- Both sides of an item are one tab; this re-points it. -->
-										<div class="mr-1">
-											<ToggleButtonGroup
-												selected={activeSide.mode}
-												on:selected={({ detail }) => switchSide(detail as PreviewItemMode)}
-											>
-												{#snippet children({ item })}
-													<ToggleButton small value="edit" label="Edit" icon={Pen} {item} />
-													<ToggleButton
-														small
-														value="view"
-														label="View"
-														icon={Eye}
-														disabled={!!viewDisabledReason}
-														tooltip={viewDisabledReason}
-														{item}
-													/>
-												{/snippet}
-											</ToggleButtonGroup>
-										</div>
-									{/if}
 									{#if !activeTabHasNoWorkspacePage}
 										<a
 											href={withWorkspaceParam(
@@ -1227,6 +1146,7 @@
 												darkMode={isDarkMode.val}
 												{fullscreen}
 												onNavigate={navigateEditorTo}
+												onSeeDetails={seeDetailsInPreview}
 												onLoad={(frame) => tabs && onTabLoad(tabs, tab, frame)}
 											/>
 										{/each}

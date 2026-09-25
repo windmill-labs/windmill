@@ -15,6 +15,7 @@
 		path,
 		workspaceId,
 		onNavigate,
+		onSeeDetails,
 		isActiveSession = true,
 		active = true,
 		initialSelectedId
@@ -23,6 +24,9 @@
 		path: string
 		workspaceId: string
 		onNavigate?: (item: WorkspaceItem) => void
+		/** `Exit & see details` — flips this tab to the item's deployed view rather than
+		 * navigating out of the session. */
+		onSeeDetails?: (e: { path: string }) => void
 		/** Forwarded to SessionEditorTarget — only the visible session claims the
 		 * workspace's single live-editor slot. */
 		isActiveSession?: boolean
@@ -117,6 +121,7 @@
 			bind:savedFlow={cell.saved.val}
 			{diffDrawer}
 			{onNavigate}
+			onDetails={onSeeDetails}
 			condensedHeader={true}
 			customUi={{ topBar: { aiBuilder: false } }}
 			onDeploy={() => {

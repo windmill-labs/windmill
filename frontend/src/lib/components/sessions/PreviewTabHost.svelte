@@ -33,6 +33,7 @@
 		darkMode,
 		fullscreen = false,
 		onNavigate,
+		onSeeDetails,
 		onLoad
 	}: {
 		tab: SessionPreviewTab
@@ -57,6 +58,9 @@
 		darkMode: boolean
 		/** A link click inside a live editor re-points the active preview tab. */
 		onNavigate: (item: WorkspaceItem) => void
+		/** An editor's `Exit & see details` — re-points this tab at the item's deployed
+		 * view instead of navigating out of the session. */
+		onSeeDetails: (item: WorkspaceItem) => void
 		/** Iframe finished loading — the page reads back its observed location. */
 		onLoad: (frame: HTMLIFrameElement) => void
 	} = $props()
@@ -111,6 +115,16 @@
 		if (slot.kind === 'editor') editVisited = true
 		else if (slot.kind === 'viewer') viewVisited = true
 	})
+
+	// The path an editor reports is its deployed one, which a staged rename can make
+	// differ from this tab's — so the view opens on what actually exists.
+	const seeDetails = (e: { path: string }) =>
+		onSeeDetails({
+			path: e.path,
+			summary: '',
+			kind: itemKind === 'raw_app' ? 'app' : (itemKind as 'script' | 'flow'),
+			raw_app: itemKind === 'raw_app'
+		})
 
 	const sideVisibility = (shown: boolean) =>
 		shown ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
@@ -332,6 +346,7 @@
 							path={itemPath}
 							{workspaceId}
 							{onNavigate}
+							onSeeDetails={seeDetails}
 							{isActiveSession}
 							active={active && mode === 'edit'}
 							initialSelectedId={selectedId}
@@ -346,6 +361,7 @@
 							path={itemPath}
 							{workspaceId}
 							{onNavigate}
+							onSeeDetails={seeDetails}
 							{isActiveSession}
 							active={active && mode === 'edit'}
 							{fullscreen}

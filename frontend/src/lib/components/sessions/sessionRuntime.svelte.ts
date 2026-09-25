@@ -203,12 +203,6 @@ export interface SessionRuntime {
 	 * viewer refetches when this changes — it reads the deployed version from the
 	 * API, so nothing else tells it the editor beside it just published. */
 	deployedRevision(kind: SessionTargetKind, path: string): number
-	/** Whether a deployed version exists at (kind, path); `undefined` until something has
-	 * looked. Read by the View|Edit control to withhold a switch that could only land on
-	 * "not deployed yet". */
-	deployedExists(kind: SessionTargetKind, path: string): boolean | undefined
-	/** Record what a load found, from either side of the item. */
-	setDeployedExists(kind: SessionTargetKind, path: string, exists: boolean): void
 	/** Record that a preview tab landed on `url`. Fires for a newly opened tab and
 	 * for an existing one switched to the other side of its item. */
 	logTabUsage(url: string): void
@@ -485,18 +479,6 @@ function createRuntime(session: Session): SessionRuntime {
 	function deployedRevision(kind: SessionTargetKind, path: string): number {
 		return deployedRevisions[revisionKey(kind, path)] ?? 0
 	}
-	// Whether a deployed version exists at (kind, path), recorded by whichever side found
-	// out: the editor cell's load carries `no_deployed`, and the viewer's own fetch either
-	// renders the deployed item or 404s. Kept on the runtime rather than either component
-	// so the answer outlives them — a tab opened straight onto the View side has no editor
-	// cell to ask, and the View|Edit control has to know before it can withhold the switch.
-	const deployedExistsByItem = $state<Record<string, boolean>>({})
-	function deployedExists(kind: SessionTargetKind, path: string): boolean | undefined {
-		return deployedExistsByItem[revisionKey(kind, path)]
-	}
-	function setDeployedExists(kind: SessionTargetKind, path: string, exists: boolean): void {
-		deployedExistsByItem[revisionKey(kind, path)] = exists
-	}
 	function logTabUsage(url: string): void {
 		logFeatureUsage('ai_session', 'tab', {
 			key: tabUsageKey(resolvePreviewTab(url)),
@@ -607,8 +589,6 @@ function createRuntime(session: Session): SessionRuntime {
 		flowCell,
 		loadedEditorPath,
 		deployedRevision,
-		deployedExists,
-		setDeployedExists,
 		logTabUsage,
 
 		async loadFlow(workspace: string, path: string, force = false) {
@@ -645,10 +625,8 @@ function createRuntime(session: Session): SessionRuntime {
 					try {
 						const result = await FlowService.getFlowByPath({ workspace, path, getDraft: true })
 						saved.val = result as SavedFlow
-						setDeployedExists('flow', path, !(result as { no_deployed?: boolean }).no_deployed)
 					} catch {
 						saved.val = undefined
-						setDeployedExists('flow', path, false)
 					}
 					await initFlow(aiDraft, store, stateStore, workspace)
 					if (deployedVersionId != null && store.val) store.val.version_id = deployedVersionId
@@ -660,7 +638,6 @@ function createRuntime(session: Session): SessionRuntime {
 				// No local draft yet — seed from `result.draft ?? result`.
 				const result = await FlowService.getFlowByPath({ workspace, path, getDraft: true })
 				saved.val = result as SavedFlow
-				setDeployedExists('flow', path, !(result as { no_deployed?: boolean }).no_deployed)
 				const flow: Flow = ((result as SavedFlow).draft ?? (result as Flow)) as Flow
 				// Seed the per-tab last_sync from the server draft's timestamp so the
 				// seeding save below attaches a matching last_sync and the server can
@@ -712,10 +689,8 @@ function createRuntime(session: Session): SessionRuntime {
 					try {
 						const result = await ScriptService.getScriptByPath({ workspace, path, getDraft: true })
 						saved.val = result as SavedScript
-						setDeployedExists('script', path, !(result as { no_deployed?: boolean }).no_deployed)
 					} catch {
 						saved.val = undefined
-						setDeployedExists('script', path, false)
 					}
 					// Clone before layering the AI draft on top, else we'd mutate
 					// `saved.val` in place and lose the pristine diff baseline.
@@ -756,7 +731,6 @@ function createRuntime(session: Session): SessionRuntime {
 				// No local draft yet — seed from `result.draft ?? result`.
 				const result = await ScriptService.getScriptByPath({ workspace, path, getDraft: true })
 				saved.val = result as SavedScript
-				setDeployedExists('script', path, !(result as { no_deployed?: boolean }).no_deployed)
 				// Clone before mutating, else `baseline` aliases `result` and
 				// `baseline.parent_hash` corrupts the diff baseline.
 				const baseline = structuredClone(
@@ -825,10 +799,8 @@ function createRuntime(session: Session): SessionRuntime {
 							custom_path: result.custom_path,
 							no_deployed: result.no_deployed
 						}
-						setDeployedExists('raw_app', path, !result.no_deployed)
 					} catch {
 						saved.val = undefined
-						setDeployedExists('raw_app', path, false)
 					}
 					store.val = applyDraftToRuntimeRawApp(
 						{
@@ -863,7 +835,6 @@ function createRuntime(session: Session): SessionRuntime {
 					custom_path: result.custom_path,
 					no_deployed: result.no_deployed
 				}
-				setDeployedExists('raw_app', path, !result.no_deployed)
 				// Prefer the server draft over the deployed value (mirrors the
 				// flow/script `result.draft ?? result`). A raw-app draft is already
 				// editor-shaped, same keys the extraction below reads.
