@@ -14,7 +14,8 @@
 	const DEFAULT_PICK = '#1f9d55'
 
 	let raw = $derived($values[ACCENT_COLOR_SETTING])
-	let enabled = $derived(typeof raw === 'string')
+	// An empty value is deleted on save, so it reads as off rather than as an empty color.
+	let enabled = $derived(typeof raw === 'string' && raw !== '')
 </script>
 
 <div class="flex flex-col gap-2">
@@ -38,7 +39,7 @@
 			<div class="w-32">
 				<TextInput
 					inputProps={{ disabled, placeholder: DEFAULT_PICK }}
-					bind:value={() => raw ?? '', (v) => ($values[ACCENT_COLOR_SETTING] = String(v).trim())}
+					bind:value={() => raw ?? '', (v) => ($values[ACCENT_COLOR_SETTING] = String(v).trim() || undefined)}
 				/>
 			</div>
 		</div>
