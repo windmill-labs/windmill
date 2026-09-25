@@ -31606,12 +31606,9 @@ components:
             type: string
         ws_specific:
           type: boolean
-        on_behalf_of:
-          type: string
-          description: ai_agent only. The identity the agent runs as (`u/<username>`, `g/<group>`), kept only with preserve_on_behalf_of by a caller allowed to; otherwise the agent runs as the caller.
         preserve_on_behalf_of:
           type: boolean
-          description: ai_agent only. Keep on_behalf_of rather than running as the caller. Honoured for admins and members of wm_deployers.
+          description: ai_agent only. Keep the identity `value.on_behalf_of` names (`u/<username>`, `g/<group>`) rather than the caller's own. Honoured for admins and members of wm_deployers; otherwise every write of an agent sets it to the caller.
       required:
         - path
         - value
@@ -31636,12 +31633,9 @@ components:
             type: string
         ws_specific:
           type: boolean
-        on_behalf_of:
-          type: string
-          description: ai_agent only. The identity the agent runs as (`u/<username>`, `g/<group>`), kept only with preserve_on_behalf_of by a caller allowed to; a new value otherwise makes the agent run as the caller.
         preserve_on_behalf_of:
           type: boolean
-          description: ai_agent only. Keep on_behalf_of rather than running as the caller. Honoured for admins and members of wm_deployers.
+          description: ai_agent only. Keep the identity `value.on_behalf_of` names (`u/<username>`, `g/<group>`) rather than the caller's own. Honoured for admins and members of wm_deployers; otherwise every write of an agent sets it to the caller.
 
     Resource:
       type: object
@@ -31762,9 +31756,6 @@ components:
             (over a deployed row or a synthesized draft-only row).
             Frontend appends a `*` to the displayed name.
           type: boolean
-        on_behalf_of:
-          type: string
-          description: ai_agent only. The identity the agent runs as when run from its own page.
         agent_memory:
           description: |
             For an `ai_agent` resource only, its `memory` setting: the one part

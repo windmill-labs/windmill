@@ -204,10 +204,6 @@ pub struct ListableResource {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[sqlx(default)]
     pub is_draft: Option<bool>,
-    /// `ai_agent` only: the identity it runs as when run from its own page.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[sqlx(default)]
-    pub on_behalf_of: Option<String>,
 }
 
 /// A row of the resource listing: the resource as a single read returns it, plus what only the
@@ -238,10 +234,8 @@ pub struct CreateResource {
     pub labels: Option<Vec<String>>,
     #[serde(default)]
     pub ws_specific: Option<bool>,
-    /// `ai_agent` only: the identity to keep, honoured with `preserve_on_behalf_of` for a caller
-    /// allowed to keep one (see `set_agent_on_behalf_of`).
-    #[serde(default)]
-    pub on_behalf_of: Option<String>,
+    /// `ai_agent` only: keep the identity `value.on_behalf_of` names, for a caller allowed to
+    /// (see `resolve_agent_on_behalf_of`).
     #[serde(default)]
     pub preserve_on_behalf_of: Option<bool>,
 }
@@ -253,7 +247,6 @@ struct EditResource {
     resource_type: Option<String>,
     labels: Option<Vec<String>>,
     ws_specific: Option<bool>,
-    on_behalf_of: Option<String>,
     preserve_on_behalf_of: Option<bool>,
 }
 
@@ -569,8 +562,6 @@ async fn list_resources(
                 draft_only: Some(true),
                 // Synthesized rows are the authed user's draft.
                 is_draft: Some(true),
-                // Resolved on the first deploy; a draft runs nowhere but the editor's preview.
-                on_behalf_of: None,
             };
             rows.push(ListedResource { resource, agent_memory, draft_path });
         }
@@ -604,8 +595,7 @@ async fn get_resource(
         variable.account,
         ws_specific.path IS NOT NULL as ws_specific,
         null::bool as draft_only,
-        null::bool as is_draft,
-        resource.on_behalf_of
+        null::bool as is_draft
         FROM resource
         LEFT JOIN variable ON variable.path = resource.path AND variable.workspace_id = $2
         LEFT JOIN account ON variable.account = account.id AND account.workspace_id = $2
@@ -1228,7 +1218,20 @@ async fn create_resource(
         check_path_conflict(&mut tx, &w_id, &resource.path).await?;
     }
 
-    let res_value = resource.value.unwrap_or_default();
+    let mut res_value = resource.value.unwrap_or_default();
+    if resource.resource_type == "ai_agent" {
+        res_value = resolve_agent_raw_value(
+            &mut tx,
+            &authed,
+            &db,
+            &w_id,
+            &resource.path,
+            &res_value,
+            resource.preserve_on_behalf_of.unwrap_or(false),
+            true,
+        )
+        .await?;
+    }
     let raw_json = sqlx::types::Json(res_value.as_ref());
 
     if resource.path.starts_with("f/app_themes/") {
@@ -1299,20 +1302,6 @@ async fn create_resource(
                 resource.path
             )));
         }
-    }
-
-    if resource.resource_type == "ai_agent" {
-        set_agent_on_behalf_of(
-            &mut tx,
-            &authed,
-            &db,
-            &w_id,
-            &resource.path,
-            resource.on_behalf_of.as_deref(),
-            resource.preserve_on_behalf_of.unwrap_or(false),
-            true,
-        )
-        .await?;
     }
 
     // Mirror update_resource: Some(true) inserts, Some(false) clears (only
@@ -2083,9 +2072,6 @@ async fn update_resource(
     if let Some(npath) = &ns.path {
         sqlb.set_str("path", npath);
     }
-    if let Some(nvalue) = &ns.value {
-        sqlb.set_str("value", nvalue.to_string());
-    }
     if let Some(nrt) = &ns.resource_type {
         sqlb.set_str("resource_type", nrt);
     }
@@ -2193,6 +2179,48 @@ async fn update_resource(
         }
     }
 
+    let current = sqlx::query!(
+        "SELECT resource_type, value AS \"value: sqlx::types::Json<Box<RawValue>>\"
+         FROM resource WHERE workspace_id = $1 AND path = $2",
+        &w_id,
+        path
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    let resource_type = ns
+        .resource_type
+        .clone()
+        .or_else(|| current.as_ref().map(|c| c.resource_type.clone()));
+    // Retyping a resource into an agent makes its value an agent's, identity included, so it is
+    // resolved as a written one is.
+    let retyped = ns.resource_type.as_deref() == Some("ai_agent")
+        && current
+            .as_ref()
+            .is_some_and(|c| c.resource_type != "ai_agent");
+    let nvalue = match &ns.value {
+        Some(v) => Some(v.clone()),
+        None if retyped => current.and_then(|c| c.value).map(|v| v.0),
+        None => None,
+    };
+    if let Some(nvalue) = nvalue {
+        let nvalue = if resource_type.as_deref() == Some("ai_agent") {
+            resolve_agent_raw_value(
+                &mut tx,
+                &authed,
+                &db,
+                &w_id,
+                ns.path.as_deref().unwrap_or(path),
+                &nvalue,
+                ns.preserve_on_behalf_of.unwrap_or(false),
+                false,
+            )
+            .await?
+        } else {
+            nvalue
+        };
+        sqlb.set_str("value", nvalue.to_string());
+    }
+
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let npath_o: Option<String> = sqlx::query_scalar(&sql)
         .fetch_optional(&mut *tx)
@@ -2200,33 +2228,6 @@ async fn update_resource(
         .map_err(sanitize_db_error)?;
 
     let npath = not_found_if_none(npath_o, "Resource", path)?;
-
-    // A description or label edit changes nothing the agent runs, so only a new value or an
-    // identity asked for re-resolves who it runs as.
-    if ns.value.is_some() || ns.on_behalf_of.is_some() {
-        let is_agent = sqlx::query_scalar!(
-            "SELECT resource_type = 'ai_agent' FROM resource WHERE workspace_id = $1 AND path = $2",
-            &w_id,
-            &npath
-        )
-        .fetch_optional(&mut *tx)
-        .await?
-        .flatten()
-        .unwrap_or(false);
-        if is_agent {
-            set_agent_on_behalf_of(
-                &mut tx,
-                &authed,
-                &db,
-                &w_id,
-                &npath,
-                ns.on_behalf_of.as_deref(),
-                ns.preserve_on_behalf_of.unwrap_or(false),
-                false,
-            )
-            .await?;
-        }
-    }
 
     if let Some(nlabels) = &ns.labels {
         sqlx::query!(
@@ -2389,21 +2390,27 @@ async fn update_resource_value(
     Ok(format!("value of resource {} updated", path))
 }
 
-/// Records the identity an `ai_agent` runs as, resolved on every write of it as a flow's
-/// `on_behalf_of` is on every deploy: the writer's own, unless one allowed to keep another asks
-/// to, and a folder's default for a new agent. Called in the writer's transaction after the
-/// value lands, since a value change clears the column (`reset_agent_on_behalf_of`).
-async fn set_agent_on_behalf_of(
+/// Rewrites the identity an `ai_agent` runs as (`value.on_behalf_of`), resolved on every write of
+/// it as a flow's `on_behalf_of` is on every deploy: the writer's own, unless one allowed to keep
+/// the one the value names asks to, and a folder's default for a new agent. The value is written
+/// by anyone who can write the agent, so the key it arrives with is only a request.
+async fn resolve_agent_on_behalf_of(
     tx: &mut Transaction<'_, Postgres>,
     authed: &ApiAuthed,
     db: &DB,
     w_id: &str,
     path: &str,
-    requested: Option<&str>,
+    value: &mut serde_json::Value,
     preserve: bool,
     created: bool,
 ) -> Result<()> {
-    let (mut requested, mut preserve) = (requested.map(str::to_string), preserve);
+    let Some(obj) = value.as_object_mut() else {
+        return Ok(());
+    };
+    let mut requested = obj
+        .remove("on_behalf_of")
+        .and_then(|v| v.as_str().map(str::to_string));
+    let mut preserve = preserve;
     let explicit =
         requested.is_some() && preserve && windmill_common::can_preserve_on_behalf_of(authed);
     if created && !explicit && windmill_common::can_preserve_on_behalf_of(authed) {
@@ -2425,14 +2432,9 @@ async fn set_agent_on_behalf_of(
         db,
     )
     .await?;
-    sqlx::query!(
-        "UPDATE resource SET on_behalf_of = $1 WHERE workspace_id = $2 AND path = $3",
-        resolved,
-        w_id,
-        path
-    )
-    .execute(&mut **tx)
-    .await?;
+    if let Some(resolved) = resolved.as_ref() {
+        obj.insert("on_behalf_of".to_string(), resolved.clone().into());
+    }
     if let Some(kept) = windmill_common::check_on_behalf_of_preservation(
         resolved.as_deref(),
         preserve,
@@ -2455,6 +2457,22 @@ async fn set_agent_on_behalf_of(
         .await?;
     }
     Ok(())
+}
+
+/// `resolve_agent_on_behalf_of` on a value as the request carried it.
+async fn resolve_agent_raw_value(
+    tx: &mut Transaction<'_, Postgres>,
+    authed: &ApiAuthed,
+    db: &DB,
+    w_id: &str,
+    path: &str,
+    value: &RawValue,
+    preserve: bool,
+    created: bool,
+) -> Result<Box<RawValue>> {
+    let mut parsed: serde_json::Value = serde_json::from_str(value.get())?;
+    resolve_agent_on_behalf_of(tx, authed, db, w_id, path, &mut parsed, preserve, created).await?;
+    Ok(serde_json::value::to_raw_value(&parsed)?)
 }
 
 /// Write a resource's value and run everything that has to follow it: a version row, the audit
@@ -2485,6 +2503,20 @@ async fn set_resource_value(
 
     let mut tx = user_db.clone().begin(authed).await?;
 
+    let mut value = value;
+    if let Some(v) = value.as_mut() {
+        let resource_type = sqlx::query_scalar!(
+            "SELECT resource_type FROM resource WHERE workspace_id = $1 AND path = $2",
+            w_id,
+            path
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        if resource_type.as_deref() == Some("ai_agent") {
+            resolve_agent_on_behalf_of(&mut tx, authed, db, w_id, path, v, false, false).await?;
+        }
+    }
+
     // `RETURNING resource_type` rather than a second lookup: the advisory below has to know the
     // type to leave `state` and `cache` alone, and this statement already runs.
     let updated = sqlx::query_scalar!(
@@ -2499,9 +2531,6 @@ async fn set_resource_value(
     let Some(resource_type) = updated else {
         return Err(Error::NotFound(format!("Resource {} not found", path)));
     };
-    if resource_type == "ai_agent" {
-        set_agent_on_behalf_of(&mut tx, authed, db, w_id, path, None, false, false).await?;
-    }
     audit_log(
         &mut *tx,
         authed,

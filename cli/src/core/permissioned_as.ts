@@ -246,6 +246,15 @@ export async function preCheckPermissionedAs(
       if (match) {
         currentOwner = match[1];
       }
+    } else if (typeStr === "resource") {
+      // An agent always runs as someone, and the file never says who.
+      if (/["']?resource_type["']?\s*:\s*["']?ai_agent\b/.test(beforeContent)) {
+        wouldChangeItems.push({
+          path: change.path,
+          currentOwner: "(agent owner)",
+        });
+      }
+      continue;
     } else if (typeStr.endsWith("_trigger")) {
       wouldChangeItems.push({
         path: change.path,

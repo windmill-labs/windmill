@@ -3,7 +3,7 @@
 //! The run is built here from the stored agent rather than sent by the client, which is what lets
 //! anyone who can read the agent run it, operators included, the way a deployed flow runs by path:
 //! a preview takes arbitrary code, this takes only the run's inputs. It runs as the agent's
-//! `on_behalf_of`, resolved when the agent was deployed.
+//! `on_behalf_of`, which the server resolves on every write of the agent.
 
 use std::collections::HashMap;
 
@@ -46,8 +46,8 @@ pub(crate) async fn run_agent(
 
     // Read through the caller's own permissions: reading the agent is what allows running it.
     let mut tx = user_db.clone().begin(&authed).await?;
-    let row = sqlx::query!(
-        "SELECT value AS \"value: sqlx::types::Json<serde_json::Value>\", on_behalf_of
+    let value = sqlx::query_scalar!(
+        "SELECT value AS \"value: sqlx::types::Json<serde_json::Value>\"
          FROM resource WHERE workspace_id = $1 AND path = $2 AND resource_type = 'ai_agent'",
         w_id,
         path
@@ -55,13 +55,17 @@ pub(crate) async fn run_agent(
     .fetch_optional(&mut *tx)
     .await?;
     tx.commit().await?;
-    let row = not_found_if_none(row, "Agent", path)?;
-    let Some(value) = row.value else {
+    let Some(sqlx::types::Json(mut value)) = not_found_if_none(value, "Agent", path)? else {
         return Err(Error::BadRequest(format!(
             "Agent {path} has no configuration"
         )));
     };
-    let config = config_to_draft(value.0)?;
+    // Who the agent runs as, not one of its inputs.
+    let agent_obo = value
+        .as_object_mut()
+        .and_then(|o| o.remove("on_behalf_of"))
+        .and_then(|v| v.as_str().map(str::to_string));
+    let config = config_to_draft(value)?;
 
     // A chat turn is filed where the agent's chat lists its conversations, which a flow cannot
     // name (flow paths carry no `.`), so the two never share a conversation list.
@@ -74,7 +78,7 @@ pub(crate) async fn run_agent(
     let flow_value = agent_flow(&config, chat)?;
 
     let on_behalf_of =
-        windmill_common::on_behalf_of_from_permissioned_as(row.on_behalf_of.as_deref(), &w_id, &db)
+        windmill_common::on_behalf_of_from_permissioned_as(agent_obo.as_deref(), &w_id, &db)
             .await?;
     // As `run_flow` picks the identity of a deployed flow: the agent's own when it has one, the
     // caller's otherwise, which lends nobody's permissions.

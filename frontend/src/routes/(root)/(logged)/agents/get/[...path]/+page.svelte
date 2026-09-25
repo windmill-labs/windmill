@@ -35,17 +35,6 @@
 	let config = $derived(agent?.state?.args)
 	let chatAvailable = $derived(keepsManagedMemory(config?.memory))
 	let canEdit = $derived(config != undefined && (agent?.canWrite ?? false) && !$userStore?.operator)
-	// An agent runs as a flow preview, and the server refuses a preview to an operator, and to a
-	// non-admin under another user's namespace (`require_path_read_access_for_preview`).
-	let runBlockedReason = $derived(
-		$userStore?.operator
-			? 'Operators cannot run agents yet.'
-			: !$userStore?.is_admin &&
-				  path.startsWith('u/') &&
-				  !path.startsWith(`u/${$userStore?.username}/`)
-				? `Only its owner and workspace admins can run an agent under ${path.split('/').slice(0, 2).join('/')}.`
-				: undefined
-	)
 
 	let configModal: AgentConfigModal | undefined = $state(undefined)
 	let shareModal: ShareModal | undefined = $state(undefined)
@@ -94,7 +83,7 @@
 			<div class="flex gap-1 items-center pr-4">
 				<!-- Only an agent that keeps the conversation can chat: without managed memory every
 				     message would be answered alone, so it is run from its inputs with nothing to switch. -->
-				{#if chatAvailable && !runBlockedReason && testPane?.mode}
+				{#if chatAvailable && testPane?.mode}
 					<ToggleButtonGroup
 						bind:selected={
 							() => testPane?.mode,
@@ -176,7 +165,6 @@
 				workspace={ws}
 				enableAi={$copilotInfo.enabled}
 				view
-				{runBlockedReason}
 				onOpenConfig={() => configModal?.open()}
 			/>
 		{/key}

@@ -17,6 +17,7 @@
 	import { goto } from '$lib/navigation'
 	import { deepEqual } from 'fast-equals'
 	import type { Flow, FlowModule, InputTransform, Job, OpenFlow } from '$lib/gen'
+	import { JobService } from '$lib/gen'
 	import { emptySchema, type StateStore } from '$lib/utils'
 	import type { FlowInput } from '$lib/components/flows/types'
 	import type { FlowEditorContext, FlowInputEditorState, FlowPanelDetachContext } from '../types'
@@ -50,7 +51,8 @@
 		keepsManagedMemory
 	} from '../agentFormFields'
 	import { toolDisplayName, type AgentTool } from '../agentToolUtils'
-	import { useAgentDraft } from '../agentDraft.svelte'
+	import { useAgentDraft, type AgentRunAs } from '../agentDraft.svelte'
+	import PermissionedAsLine from '$lib/components/triggers/PermissionedAsLine.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import Label from '$lib/components/Label.svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -70,8 +72,6 @@
 		/** The deployed agent to run rather than a draft to edit: the run pane leads, and the form
 		 *  beside it only shows the configuration. Fixed for the mount's lifetime. */
 		view?: boolean
-		/** Why this reader cannot run the agent, if they cannot. Shown in place of the run pane. */
-		runBlockedReason?: string
 		/** Opens the agent's configuration, offered beside the model it runs with. */
 		onOpenConfig?: () => void
 	}
@@ -85,7 +85,6 @@
 		onSaved = undefined,
 		isNew = false,
 		view = false,
-		runBlockedReason = undefined,
 		onOpenConfig = undefined
 	}: Props = $props()
 
@@ -351,6 +350,16 @@
 		inputs?: Record<string, any>
 	): Promise<string | undefined> {
 		if (!agentModule) return undefined
+		// A view runs the deployed agent as its on-behalf-of identity, which anyone who can read it
+		// may do; the editor previews the draft as the one editing it.
+		if (view && workspace) {
+			return await JobService.runAgent({
+				workspace,
+				path,
+				memoryId: conversationId,
+				requestBody: { ...(inputs ?? {}), user_message: userMessage }
+			})
+		}
 		return await runFlowPreview(
 			{ ...(inputs ?? {}), user_message: userMessage },
 			agentChatFlow($state.snapshot(agentModule) as FlowModule),
@@ -367,15 +376,13 @@
 	let invisible_to_owner = $state<boolean | undefined>(undefined)
 	let overrideTag = $state<string | undefined>(undefined)
 
-	/** One run from the form, as the same one-step flow a chat turn runs but outside any
-	 *  conversation, then onto its run page. */
+	/** One run of the deployed agent from the view's form, outside any conversation, then onto its
+	 *  run page. */
 	async function runOnce(_scheduledFor: string | undefined, args: Record<string, any>) {
-		if (!agentModule) return
+		if (!workspace) return
 		runLoading = true
 		try {
-			const flow = agentChatFlow($state.snapshot(agentModule) as FlowModule)
-			flow.value.chat_input_enabled = false
-			const id = await runFlowPreview(args, flow, path, undefined, undefined, undefined, workspace)
+			const id = await JobService.runAgent({ workspace, path, requestBody: args })
 			await goto(`/run/${id}?workspace=${workspace}`)
 		} finally {
 			runLoading = false
@@ -437,12 +444,15 @@
 	 *  only report after the request. */
 	let pathError = $state('')
 
+	/** Who the next deploy makes the agent run as, as the "Permissioned as" line picked it. */
+	let runAs = $state<AgentRunAs | undefined>(undefined)
+
 	export function deploy(): Promise<boolean> {
 		if (pathError) {
 			sendUserToast(`Cannot deploy the agent: ${pathError}`, true)
 			return Promise.resolve(false)
 		}
-		return draft.deploy().then(async (written) => {
+		return draft.deploy(runAs).then(async (written) => {
 			// The path the write landed on, which a rename moves off the one this editor opened.
 			if (written) await onSaved?.(written)
 			return written !== undefined
@@ -558,6 +568,18 @@
 							disabled={readOnly}
 						/>
 					</Label>
+					<!-- Who the deployed agent runs as when someone runs it from its page, resolved on
+					     deploy as a flow's on-behalf-of identity is. -->
+					{#if !readOnly}
+						<div class="pt-2">
+							<PermissionedAsLine
+								permissionedAs={draft.onBehalfOf}
+								path={draft.state?.path}
+								onPermissionedAsChange={(permissionedAs, preserve) =>
+									(runAs = { permissionedAs, preserve })}
+							/>
+						</div>
+					{/if}
 				</div>
 			{/if}
 			<PropPickerWrapper pickableProperties={stepPropPicker?.pickableProperties} noPadding sidePane>
@@ -588,132 +610,121 @@
 	{/snippet}
 
 	{#snippet runPane()}
-		{#if runBlockedReason}
-			<div
-				class="h-full flex flex-col items-center justify-center gap-4 px-8 text-center text-xs text-secondary"
-			>
-				{runBlockedReason}
-				{#if onOpenConfig}
-					{@render configurationButton()}
-				{/if}
-			</div>
-		{:else}
-			<div class="h-full min-h-0 flex flex-col">
-				<!-- Laid out as the script editor's preview column is: what a run takes above what it
+		<div class="h-full min-h-0 flex flex-col">
+			<!-- Laid out as the script editor's preview column is: what a run takes above what it
 					     produced, both alongside what is being edited. -->
-				{#if view}
-					<!-- A run of the deployed agent is a run like any other item's, so it opens on its
+			{#if view}
+				<!-- A run of the deployed agent is a run like any other item's, so it opens on its
 					     own page rather than as a test result beside the form. -->
-					<!-- Centered at the width the chat's column keeps, so switching modes moves nothing. -->
-					<div class="flex-1 min-h-0 overflow-auto p-4 {testMode === 'chat' ? 'hidden' : ''}">
-						<div class="max-w-3xl mx-auto">
-							<RunForm
-								runnable={{ schema: AGENT_CHAT_SCHEMA, path }}
-								runAction={runOnce}
-								schedulable={false}
-								detailed={false}
-								autofocus
-								loading={runLoading}
-								bind:scheduledForStr
-								bind:invisible_to_owner
-								bind:overrideTag
-								actions={onOpenConfig ? configurationButton : undefined}
-							/>
-						</div>
+				<!-- Centered at the width the chat's column keeps, so switching modes moves nothing. -->
+				<div class="flex-1 min-h-0 overflow-auto p-4 {testMode === 'chat' ? 'hidden' : ''}">
+					<div class="max-w-3xl mx-auto">
+						<RunForm
+							runnable={{ schema: AGENT_CHAT_SCHEMA, path }}
+							runAction={runOnce}
+							schedulable={false}
+							detailed={false}
+							autofocus
+							loading={runLoading}
+							bind:scheduledForStr
+							bind:invisible_to_owner
+							bind:overrideTag
+							actions={onOpenConfig ? configurationButton : undefined}
+						/>
 					</div>
-				{:else}
-					<div class="flex-1 min-h-0 flex flex-col {testMode === 'chat' ? 'hidden' : ''}">
-						<!-- An agent reused as a step has no use for memory unless its flow gives it a
+				</div>
+			{:else}
+				<div class="flex-1 min-h-0 flex flex-col {testMode === 'chat' ? 'hidden' : ''}">
+					<!-- An agent reused as a step has no use for memory unless its flow gives it a
 						     conversation, and the form is where such an agent is tried. -->
-						{#if !chatGap?.memory && !readOnly}
-							<PaneNotice action={{ label: 'Turn off', onClick: turnOffMemory }}>
-								Managed memory keeps the conversation between runs. It's useful if you chat with
-								this agent, use it in a flow in chat mode, or pass it a memory id. Otherwise, you
-								can turn it off.
-							</PaneNotice>
-						{/if}
-						<Splitpanes horizontal class="flex-1 min-h-0">
-							<Pane size={40} minSize={15}>
-								<div class="h-full overflow-auto">
-									<ModulePreview
-										mod={agentModule as FlowModule}
-										schema={flowLocalAgentSchema(schema)}
-										pickableProperties={stepPropPicker?.pickableProperties}
-										runInputKeys={AGENT_EDITOR_RUN_INPUTS}
-										bind:testJob
-										bind:testIsLoading
-										bind:scriptProgress
-									/>
-								</div>
-							</Pane>
-							<Pane size={60} minSize={20}>
-								<ModulePreviewResultViewer
-									lang="deno"
-									editor={undefined}
-									diffEditor={undefined}
+					{#if !chatGap?.memory && !readOnly}
+						<PaneNotice action={{ label: 'Turn off', onClick: turnOffMemory }}>
+							Managed memory keeps the conversation between runs. It's useful if you chat with this
+							agent, use it in a flow in chat mode, or pass it a memory id. Otherwise, you can turn
+							it off.
+						</PaneNotice>
+					{/if}
+					<Splitpanes horizontal class="flex-1 min-h-0">
+						<Pane size={40} minSize={15}>
+							<div class="h-full overflow-auto">
+								<ModulePreview
 									mod={agentModule as FlowModule}
-									{testJob}
-									{testIsLoading}
-									{scriptProgress}
-									disableMock
-									disableHistory
+									schema={flowLocalAgentSchema(schema)}
+									pickableProperties={stepPropPicker?.pickableProperties}
+									runInputKeys={AGENT_EDITOR_RUN_INPUTS}
+									bind:testJob
+									bind:testIsLoading
+									bind:scriptProgress
 								/>
-							</Pane>
-						</Splitpanes>
-					</div>
-				{/if}
-				{#if chatMounted}
-					<div class={testMode === 'chat' ? 'flex flex-col flex-1 min-h-0' : 'hidden'}>
-						{#if chatGap?.memory}
-							<div class="flex-1 flex flex-col items-center justify-center gap-2 px-8 text-center">
-								<MessageCircleOff size={48} class="text-tertiary opacity-50 mb-2" />
-								<p class="text-sm font-semibold text-emphasis">Chat needs managed memory</p>
-								<p class="text-xs text-secondary max-w-xs">
-									{chatGap.memoryCanTurnOn
-										? 'Without it, every message would be answered without the ones before it.'
-										: 'This agent replays a fixed list of messages. Switch its memory to managed to chat with it.'}
-								</p>
-								{#if chatGap.memoryCanTurnOn && !readOnly}
-									<Button
-										unifiedSize="sm"
-										variant="default"
-										btnClasses="bg-surface mt-2"
-										onClick={turnOnMemory}
-									>
-										Turn on managed memory
-									</Button>
-								{/if}
 							</div>
-						{:else if chatGap?.noStream}
-							<PaneNotice
-								action={chatGap.noStream === 'off' && !readOnly
-									? { label: 'Turn on', onClick: turnOnStreaming }
-									: undefined}
-							>
-								{chatGap.noStream === 'image'
-									? 'Image answers do not stream: each one shows once its run ends.'
-									: 'Streaming is off: each answer shows once its run ends.'}
-							</PaneNotice>
-						{/if}
-						<!-- Hidden rather than unmounted while memory is off: switching it off mid-turn must
+						</Pane>
+						<Pane size={60} minSize={20}>
+							<ModulePreviewResultViewer
+								lang="deno"
+								editor={undefined}
+								diffEditor={undefined}
+								mod={agentModule as FlowModule}
+								{testJob}
+								{testIsLoading}
+								{scriptProgress}
+								disableMock
+								disableHistory
+							/>
+						</Pane>
+					</Splitpanes>
+				</div>
+			{/if}
+			{#if chatMounted}
+				<div class={testMode === 'chat' ? 'flex flex-col flex-1 min-h-0' : 'hidden'}>
+					{#if chatGap?.memory}
+						<div class="flex-1 flex flex-col items-center justify-center gap-2 px-8 text-center">
+							<MessageCircleOff size={48} class="text-tertiary opacity-50 mb-2" />
+							<p class="text-sm font-semibold text-emphasis">Chat needs managed memory</p>
+							<p class="text-xs text-secondary max-w-xs">
+								{chatGap.memoryCanTurnOn
+									? 'Without it, every message would be answered without the ones before it.'
+									: 'This agent replays a fixed list of messages. Switch its memory to managed to chat with it.'}
+							</p>
+							{#if chatGap.memoryCanTurnOn && !readOnly}
+								<Button
+									unifiedSize="sm"
+									variant="default"
+									btnClasses="bg-surface mt-2"
+									onClick={turnOnMemory}
+								>
+									Turn on managed memory
+								</Button>
+							{/if}
+						</div>
+					{:else if chatGap?.noStream}
+						<PaneNotice
+							action={chatGap.noStream === 'off' && !readOnly
+								? { label: 'Turn on', onClick: turnOnStreaming }
+								: undefined}
+						>
+							{chatGap.noStream === 'image'
+								? 'Image answers do not stream: each one shows once its run ends.'
+								: 'Streaming is off: each answer shows once its run ends.'}
+						</PaneNotice>
+					{/if}
+					<!-- Hidden rather than unmounted while memory is off: switching it off mid-turn must
 							     not end the chat following that turn. Test chats, since what runs is the agent as
 							     edited. -->
-						<div class={chatGap?.memory ? 'hidden' : 'flex flex-col flex-1 min-h-0'}>
-							<FlowChat
-								onRunFlow={runChatTurn}
-								path={chatPath}
-								conversationKind="test"
-								subject="agent"
-								frame="none"
-								inputSchema={AGENT_CHAT_SCHEMA}
-								flowModules={chatModules}
-								composerSettings={onOpenConfig ? configButton : undefined}
-							/>
-						</div>
+					<div class={chatGap?.memory ? 'hidden' : 'flex flex-col flex-1 min-h-0'}>
+						<FlowChat
+							onRunFlow={runChatTurn}
+							path={chatPath}
+							conversationKind={view ? 'deployed' : 'test'}
+							subject="agent"
+							frame="none"
+							inputSchema={AGENT_CHAT_SCHEMA}
+							flowModules={chatModules}
+							composerSettings={onOpenConfig ? configButton : undefined}
+						/>
 					</div>
-				{/if}
-			</div>
-		{/if}
+				</div>
+			{/if}
+		</div>
 	{/snippet}
 
 	<!-- A tool is a whole step editor, so it gets a surface of its own rather than a level of the

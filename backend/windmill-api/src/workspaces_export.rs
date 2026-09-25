@@ -933,7 +933,14 @@ pub(crate) async fn tarball_workspace(
          .fetch_all(&mut *tx)
          .await?;
 
-        for resource in resources {
+        for mut resource in resources {
+            // An agent's identity belongs to this workspace, and whoever writes it elsewhere gets
+            // their own, as `to_string_without_metadata` leaves out a flow's.
+            if resource.resource_type == "ai_agent" {
+                if let Some(obj) = resource.value.as_mut().and_then(|v| v.as_object_mut()) {
+                    obj.remove("on_behalf_of");
+                }
+            }
             let resource_str =
                 &to_string_without_metadata(&resource, ExtraPermsBehavior::Drop, None).unwrap();
             archive
