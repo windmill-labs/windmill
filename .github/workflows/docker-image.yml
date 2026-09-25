@@ -208,19 +208,19 @@ jobs:
           docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build.outputs.digest }}
           docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee@${{ needs.build_ee.outputs.digest }}
 
-      - uses: shrink/actions-docker-extract@v3
+      - uses: shrink/actions-docker-extract@v4
         id: extract
         with:
           image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build.outputs.digest }}
           path: "/usr/src/app/windmill"
 
-      - uses: shrink/actions-docker-extract@v3
+      - uses: shrink/actions-docker-extract@v4
         id: extract-duckdb-ffi-internal
         with:
           image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build.outputs.digest }}
           path: "/usr/src/app/libwindmill_duckdb_ffi_internal.so"
 
-      - uses: shrink/actions-docker-extract@v3
+      - uses: shrink/actions-docker-extract@v4
         id: extract-ee
         with:
           image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee@${{ needs.build_ee.outputs.digest }}
@@ -313,13 +313,13 @@ jobs:
   #         docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEV_SHA }}
   #         docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }}
 
-  #     - uses: shrink/actions-docker-extract@v3
+  #     - uses: shrink/actions-docker-extract@v4
   #       id: extract
   #       with:
   #         image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEV_SHA }}
   #         path: "/usr/src/app/windmill"
 
-  #     - uses: shrink/actions-docker-extract@v3
+  #     - uses: shrink/actions-docker-extract@v4
   #       id: extract-ee
   #       with:
   #         image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }}
@@ -502,7 +502,7 @@ jobs:
         id: version
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
-      - uses: shrink/actions-docker-extract@v3
+      - uses: shrink/actions-docker-extract@v4
         id: extract
         with:
           image: |-
