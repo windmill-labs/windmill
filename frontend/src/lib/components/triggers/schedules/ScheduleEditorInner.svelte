@@ -648,11 +648,13 @@
 			},
 			recovery: {
 				teams: '/schedule-recovery-handler-teams',
-				slack: '/schedule-recovery-handler-slack'
+				slack: '/schedule-recovery-handler-slack',
+				email: '/workspace-or-error-handler-email'
 			},
 			success: {
 				teams: '/schedule-success-handler-teams',
-				slack: '/schedule-success-handler-slack'
+				slack: '/schedule-success-handler-slack',
+				email: '/workspace-or-error-handler-email'
 			}
 		}
 
