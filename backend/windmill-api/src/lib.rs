@@ -534,7 +534,9 @@ pub async fn run_server(
     #[cfg(feature = "http_trigger")]
     {
         let http_killpill_rx = killpill_rx.resubscribe();
-        triggers::http::refresh_routers_loop(&db, http_killpill_rx).await;
+        // A worker only serves `/r` when one of its own jobs calls the local API, so it loads the
+        // routers on that first request rather than at startup.
+        triggers::http::refresh_routers_loop(&db, http_killpill_rx, server_mode).await;
     }
 
     let triggers_service = triggers::generate_trigger_routers();
@@ -731,6 +733,12 @@ pub async fn run_server(
                             path_autocomplete::workspaced_service(),
                         )
                         .nest("/raw_apps", raw_apps::workspaced_service())
+                        .nest(
+                            "/remote_deploy",
+                            windmill_api_workspaces::remote_deploy::workspaced_service(
+                                request_size_limit * 5,
+                            ),
+                        )
                         // CORS so the opaque-origin app iframe can read
                         // resources/list, resources/type/* with a scoped token.
                         .nest(

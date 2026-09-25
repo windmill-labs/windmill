@@ -116,7 +116,9 @@ use windmill_common::{
     query_builders,
     scripts::{ScriptHash, ScriptLang},
     users::username_to_permissioned_as,
-    utils::{not_found_if_none, now_from_db, paginate, require_admin, Pagination, StripPath},
+    utils::{
+        not_found_if_none, now_from_db, paginate, require_admin, Pagination, ScheduleType, StripPath,
+    },
 };
 
 use windmill_common::{
@@ -304,6 +306,7 @@ pub fn workspaced_service() -> Router {
         .route("/queue/position/{timestamp}", get(get_queue_position))
         .route("/queue/scheduled_for/{id}", get(get_scheduled_for))
         .route("/queue/cancel_selection", post(cancel_selection))
+        .route("/queue/run_now/{id}", post(run_queued_job_now))
         .route("/completed/count", get(count_completed_jobs))
         .route("/completed/count_jobs", get(count_completed_jobs_detail))
         .route(
@@ -833,6 +836,113 @@ async fn force_cancel(
             )));
         }
     }
+}
+
+/// Moves a queued job's `scheduled_for` to now so the next pull picks it up, keeping its id.
+/// A job with a concurrency limit still goes through the usual check at pull time and is
+/// re-scheduled again if its key is still saturated.
+async fn run_queued_job_now(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, id)): Path<(String, Uuid)>,
+) -> error::Result<String> {
+    require_job_update_read_access(&db, &user_db, &authed, &w_id, &id, None).await?;
+    refuse_upcoming_schedule_tick(&db, &w_id, id).await?;
+
+    let mut tx = db.begin().await?;
+    let previous = sqlx::query_scalar!(
+        "UPDATE v2_job_queue q SET scheduled_for = now()
+         FROM (SELECT id, scheduled_for FROM v2_job_queue WHERE id = $1 AND workspace_id = $2 FOR UPDATE) prev
+         WHERE q.id = prev.id AND NOT q.running AND q.suspend = 0 AND q.canceled_by IS NULL
+            AND q.scheduled_for > now()
+         RETURNING prev.scheduled_for",
+        id,
+        w_id,
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let Some(previous) = previous else {
+        tx.commit().await?;
+        return Err(
+            if sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT 1 FROM v2_job_queue WHERE id = $1 AND workspace_id = $2)",
+                id,
+                w_id
+            )
+            .fetch_one(&db)
+            .await?
+            .unwrap_or(false)
+            {
+                Error::BadRequest(format!(
+                    "job {id} is not waiting for a future start: it is running, suspended, \
+                     canceled or already due"
+                ))
+            } else {
+                Error::NotFound(format!("queued job id {id} does not exist"))
+            },
+        );
+    };
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "jobs.run_now",
+        ActionKind::Update,
+        &w_id,
+        Some(&id.to_string()),
+        Some([("previous_scheduled_for", previous.to_rfc3339().as_str())].into()),
+    )
+    .await?;
+    tx.commit().await?;
+
+    windmill_queue::append_logs(
+        &id,
+        &w_id,
+        format!(
+            "\nStart moved from {previous} to now by {}\n",
+            authed.display_username()
+        ),
+        &db.clone().into(),
+    )
+    .await;
+
+    Ok(id.to_string())
+}
+
+/// A schedule queues its next tick when the current one completes, computed from the
+/// completion time. Starting a tick that is not yet due would therefore queue that same
+/// tick again and run the schedule twice. A tick pushed past its time by a concurrency
+/// limit no longer sits on a cron occurrence, so it may still be started early.
+async fn refuse_upcoming_schedule_tick(db: &DB, w_id: &str, id: Uuid) -> error::Result<()> {
+    let Some(tick) = sqlx::query!(
+        "SELECT q.scheduled_for, s.path, s.schedule, s.cron_version, s.timezone
+         FROM v2_job j
+         JOIN v2_job_queue q USING (id)
+         JOIN schedule s ON s.workspace_id = j.workspace_id AND s.path = j.trigger
+         WHERE j.id = $1 AND j.workspace_id = $2 AND j.trigger_kind = 'schedule'
+            AND j.parent_job IS NULL AND q.scheduled_for > now()",
+        id,
+        w_id,
+    )
+    .fetch_optional(db)
+    .await?
+    else {
+        return Ok(());
+    };
+    let sched = ScheduleType::from_str(&tick.schedule, tick.cron_version.as_deref(), false)?;
+    let tz =
+        chrono_tz::Tz::from_str(&tick.timezone).map_err(|e| Error::BadRequest(e.to_string()))?;
+    let just_before = (tick.scheduled_for - chrono::Duration::milliseconds(1)).with_timezone(&tz);
+    if sched.find_next(&just_before)? == tick.scheduled_for {
+        return Err(Error::BadRequest(format!(
+            "job {id} is the upcoming tick of schedule {}; run the schedule's script or flow \
+             directly instead",
+            tick.path
+        )));
+    }
+    Ok(())
 }
 
 #[derive(Serialize)]
@@ -7226,7 +7336,10 @@ pub async fn run_workflow_as_code(
 ) -> error::Result<(StatusCode, String)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
-    check_tag_available_for_workspace(&db, &w_id, &run_query.tag, &authed).await?;
+    let mut extra = HashMap::new();
+    extra.insert(ENTRYPOINT_OVERRIDE.to_string(), to_raw_value(&entrypoint));
+    let args = PushArgs { args: &task.args.unwrap_or_else(HashMap::new), extra: Some(extra) };
+    check_tag_available_for_workspace(&db, &w_id, &run_query.tag, &args, &authed).await?;
     check_scopes(&authed, || format!("jobs:run"))?;
 
     if !is_valid_entrypoint_name(&entrypoint) {
@@ -7320,10 +7433,6 @@ pub async fn run_workflow_as_code(
         i += 1;
     }
 
-    let mut extra = HashMap::new();
-    extra.insert(ENTRYPOINT_OVERRIDE.to_string(), to_raw_value(&entrypoint));
-
-    let args = PushArgs { args: &task.args.unwrap_or_else(HashMap::new), extra: Some(extra) };
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
     let tag = run_query.tag.clone().or(tag).or(Some(job.tag));
@@ -7360,7 +7469,7 @@ pub async fn run_workflow_as_code(
         tx,
         &w_id,
         job_payload,
-        PushArgs { args: &args.args, extra: args.extra },
+        args,
         authed.display_username(),
         email,
         permissioned_as,
@@ -7646,7 +7755,8 @@ pub async fn run_wait_result_job_by_path_get(
         .await?;
 
     let tag = run_query.tag.clone().or(tag);
-    check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
+    let push_args = PushArgs { args: &args.args, extra: args.extra };
+    check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
 
     let (email, permissioned_as, push_authed, tx) =
         if let Some(on_behalf_of) = on_behalf_authed.as_ref() {
@@ -7670,7 +7780,7 @@ pub async fn run_wait_result_job_by_path_get(
         tx,
         &w_id,
         job_payload,
-        PushArgs { args: &args.args, extra: args.extra },
+        push_args,
         authed.display_username(),
         email,
         permissioned_as,
@@ -7791,7 +7901,8 @@ pub async fn run_wait_result_script_by_path_internal(
         .await?;
 
     let tag = run_query.tag.clone().or(tag);
-    check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
+    let push_args = PushArgs { args: &args.args, extra: args.extra };
+    check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
 
     let (email, permissioned_as, push_authed, tx) =
         if let Some(on_behalf_of) = on_behalf_of.as_ref() {
@@ -7815,7 +7926,7 @@ pub async fn run_wait_result_script_by_path_internal(
         tx,
         &w_id,
         job_payload,
-        PushArgs { args: &args.args, extra: args.extra },
+        push_args,
         authed.display_username(),
         email,
         permissioned_as,
@@ -7904,7 +8015,8 @@ pub async fn run_wait_result_script_by_hash(
     check_scopes(&authed, || format!("jobs:run:scripts:{path}"))?;
 
     let tag = run_query.tag.clone().or(tag);
-    check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
+    let push_args = PushArgs { args: &args.args, extra: args.extra };
+    check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
 
     let (email, permissioned_as, push_authed, tx) = if let Some(obo) = on_behalf_of.as_ref() {
         (
@@ -7940,7 +8052,7 @@ pub async fn run_wait_result_script_by_hash(
                 && has_preprocessor.unwrap_or(false),
             labels,
         },
-        PushArgs { args: &args.args, extra: args.extra },
+        push_args,
         authed.display_username(),
         email,
         permissioned_as,
@@ -8465,7 +8577,6 @@ async fn run_preview_script(
     require_path_read_access_for_preview(&authed, &preview.path)?;
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tag = run_query.tag.clone().or(preview.tag.clone());
-    check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
 
     let preview_args = preview.args.unwrap_or_default();
@@ -8484,6 +8595,7 @@ async fn run_preview_script(
     }
     let extra = if extra.is_empty() { None } else { Some(extra) };
     let push_args = PushArgs { extra, args: &preview_args };
+    check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
 
     let (uuid, tx) = push(
         &db,
@@ -8723,7 +8835,12 @@ fn register_potential_assets_on_inline_execution(
             .as_ref()
             .and_then(|args| args.get("database"))
             .map(|v| v.get().trim_matches('"'))
-            .and_then(|dt| dt.strip_prefix("datatable://"));
+            .and_then(|dt| dt.strip_prefix("datatable://"))
+            // `?role=` picks the connection, not the data table. Anything else after a `?` may be
+            // part of a name stored before names were restricted, so it stays.
+            .map(|dt| {
+                windmill_common::workspaces::parse_datatable_ref(dt).map_or(dt, |(name, _)| name)
+            });
         if let Some(datatable) = datatable {
             let re = regex::Regex::new(r#"SET search_path TO "([^"]+)";"#).unwrap();
             let (schema, content) = if let Some(captures) = re.captures(&preview.content) {
@@ -8840,7 +8957,6 @@ async fn run_bundle_preview_script(
 
             let scheduled_for = run_query.get_scheduled_for(&db).await?;
             let tag = run_query.tag.clone().or(preview.tag.clone());
-            check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
             let ltx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
 
             let args = preview.args.unwrap_or_default();
@@ -8855,6 +8971,7 @@ async fn run_bundle_preview_script(
                 m
             });
             let push_args = PushArgs { extra, args: &args };
+            check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
 
             is_tar = match preview.kind {
                 Some(PreviewKind::Tarbundle) => true,
@@ -9506,7 +9623,6 @@ async fn run_preview_flow_job(
     require_path_read_access_for_preview(&authed, &raw_flow.path)?;
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tag = run_query.tag.clone().or(raw_flow.tag.clone());
-    check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
 
     let chat_input_enabled = raw_flow.value.chat_input_enabled.unwrap_or(false);
@@ -9524,6 +9640,8 @@ async fn run_preview_flow_job(
             to_raw_value(temp_script_refs),
         );
     }
+    check_tag_available_for_workspace(&db, &w_id, &tag, &PushArgs::from(&flow_args), &authed)
+        .await?;
 
     let (uuid, mut tx) = push(
         &db,
@@ -9769,17 +9887,17 @@ async fn run_dynamic_select(
         }
     }
 
-    // Same tag-permission gate a normal run gets (run_flow / push_script_job_by_path_into_queue):
-    // a caller allowed to read the flow must still be allowed to use its worker tag. No-op for
-    // inline (tag is None); the script branch checked this inside its helper and returned above.
-    check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
-
     // Invoke the dyn-select entrypoint instead of `main`.
     let mut args = request.args.unwrap_or_default();
     args.insert(
         ENTRYPOINT_OVERRIDE.to_string(),
         serde_json::value::to_raw_value(&request.entrypoint_function)?,
     );
+
+    // Same tag-permission gate a normal run gets (run_flow / push_script_job_by_path_into_queue):
+    // a caller allowed to read the flow must still be allowed to use its worker tag. No-op for
+    // inline (tag is None); the script branch checked this inside its helper and returned above.
+    check_tag_available_for_workspace(&db, &w_id, &tag, &PushArgs::from(&args), &authed).await?;
 
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
@@ -9915,8 +10033,9 @@ pub async fn run_job_by_hash_inner(
     }
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tag = run_query.tag.clone().or(tag);
+    let push_args = PushArgs { args: &args.args, extra: args.extra };
 
-    check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
+    check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
 
     let (email, permissioned_as, push_authed, tx) = if let Some(obo) = on_behalf_of.as_ref() {
         (
@@ -9952,7 +10071,7 @@ pub async fn run_job_by_hash_inner(
                 && has_preprocessor.unwrap_or(false),
             labels,
         },
-        PushArgs { args: &args.args, extra: args.extra },
+        push_args,
         authed.display_username(),
         email,
         permissioned_as,

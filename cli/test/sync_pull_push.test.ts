@@ -2185,18 +2185,20 @@ describe("settings sync", () => {
       const files = await listFilesRecursive(tempDir);
       expect(files).toContain("settings.yaml");
 
-      // Read and modify a safe setting (webhook URL)
+      // Read and modify a safe setting (webhook URL). The server resolves the
+      // webhook host when it is saved and refuses one that does not resolve to a
+      // public address, so this must be a real public hostname.
+      const webhook = "https://example.com/hook";
       const settingsContent = await readFile(`${tempDir}/settings.yaml`, "utf-8");
 
       let modifiedSettings: string;
       if (settingsContent.includes("webhook:")) {
         modifiedSettings = settingsContent.replace(
           /webhook:.*/,
-          'webhook: "https://test-webhook.example.com/hook"'
+          `webhook: "${webhook}"`
         );
       } else {
-        modifiedSettings =
-          settingsContent + '\nwebhook: "https://test-webhook.example.com/hook"\n';
+        modifiedSettings = settingsContent + `\nwebhook: "${webhook}"\n`;
       }
       await writeFile(`${tempDir}/settings.yaml`, modifiedSettings, "utf-8");
 
@@ -2213,7 +2215,7 @@ describe("settings sync", () => {
       );
       expect(apiResp.status).toEqual(200);
       const settingsData = await apiResp.json();
-      expect(settingsData.webhook).toEqual("https://test-webhook.example.com/hook");
+      expect(settingsData.webhook).toEqual(webhook);
     });
   });
 });

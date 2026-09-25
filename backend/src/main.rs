@@ -1944,13 +1944,13 @@ async fn process_notify_event(
         #[cfg(feature = "http_trigger")]
         "notify_http_trigger_change" => {
             tracing::info!("HTTP trigger change detected: {}", payload);
-            match windmill_api::triggers::http::refresh_routers(db, true).await {
-                Ok(_) => {
+            match windmill_api::triggers::http::refresh_loaded_routers(db, true).await {
+                Ok(true) => {
                     tracing::info!("Refreshed HTTP routers (trigger change)");
                 }
+                Ok(false) => {}
                 Err(err) => {
                     tracing::error!("Error refreshing HTTP routers (trigger change): {err:#}");
-                    windmill_api::triggers::http::invalidate_routers();
                     return false;
                 }
             };
@@ -2207,8 +2207,8 @@ async fn process_notify_event(
                         tracing::error!(error = %e, "Could not reload http route workspaced route setting");
                     }
                     #[cfg(feature = "http_trigger")]
-                    match windmill_api::triggers::http::refresh_routers(db, false).await {
-                        Ok((true, _)) => {
+                    match windmill_api::triggers::http::refresh_loaded_routers(db, false).await {
+                        Ok(true) => {
                             tracing::info!(
                                 "Refreshed HTTP routers (http workspaced route setting change)"
                             );

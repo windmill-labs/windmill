@@ -210,7 +210,9 @@ pub fn validate_model_pricing_json(ai_config: &serde_json::Value) -> Result<(), 
             return Err(format!("Price override for {} is not an object", key));
         };
         for field in ["input", "output", "cache_read", "cache_write"] {
-            let Some(rate) = price.get(field) else { continue };
+            let Some(rate) = price.get(field) else {
+                continue;
+            };
             let rate = rate
                 .as_f64()
                 .filter(|r| r.is_finite() && *r >= 0.0 && *r <= MAX_MODEL_RATE);
@@ -223,9 +225,98 @@ pub fn validate_model_pricing_json(ai_config: &serde_json::Value) -> Result<(), 
         }
         for required in ["input", "output"] {
             if !price.contains_key(required) {
-                return Err(format!("Price override for {} is missing {}", key, required));
+                return Err(format!(
+                    "Price override for {} is missing {}",
+                    key, required
+                ));
             }
         }
     }
     Ok(())
+}
+
+// ============================================================================
+// Per-model token maps
+// ============================================================================
+
+/// One `provider:model` -> tokens map of the AI config, with the bounds the API
+/// documents for it. Both maps are validated the same way, so the bounds live here
+/// rather than at each call site.
+pub struct TokenMap {
+    pub field: &'static str,
+    pub label: &'static str,
+    pub min: i64,
+    pub max: i64,
+}
+
+/// The chat compacts its history as it nears the window, so a value below any real
+/// model's window would compact every turn; the ceiling is far above any shipped
+/// model and only catches typos.
+pub const CONTEXT_WINDOWS: TokenMap = TokenMap {
+    field: "context_window_per_model",
+    label: "Context window",
+    min: 1024,
+    max: 10_000_000,
+};
+
+/// The completion cap the chat asks the provider for.
+pub const OUTPUT_LIMITS: TokenMap =
+    TokenMap { field: "max_tokens_per_model", label: "Output limit", min: 1, max: 2_000_000 };
+
+pub const TOKEN_MAPS: [TokenMap; 2] = [CONTEXT_WINDOWS, OUTPUT_LIMITS];
+
+pub fn validate_token_limit(map: &TokenMap, key: &str, tokens: i64) -> Result<(), String> {
+    if (map.min..=map.max).contains(&tokens) {
+        Ok(())
+    } else {
+        Err(format!(
+            "{} for {} must be between {} and {} tokens",
+            map.label, key, map.min, map.max
+        ))
+    }
+}
+
+/// Bound these maps in the untyped instance AI config, for the reason given on
+/// `validate_model_pricing_json`.
+pub fn validate_token_maps_json(ai_config: &serde_json::Value) -> Result<(), String> {
+    for map in TOKEN_MAPS.iter() {
+        let entries = match ai_config.get(map.field) {
+            None | Some(serde_json::Value::Null) => continue,
+            Some(v) => v
+                .as_object()
+                .ok_or_else(|| format!("{} must be an object", map.field))?,
+        };
+        for (key, tokens) in entries {
+            let tokens = tokens
+                .as_i64()
+                .ok_or_else(|| format!("{} for {} must be an integer", map.label, key))?;
+            validate_token_limit(map, key, tokens)?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn instance_token_maps_are_bounded_integers() {
+        assert!(validate_token_maps_json(&json!({})).is_ok());
+        for map in TOKEN_MAPS.iter() {
+            let entry = |value| json!({ map.field: { "customai:m": value } });
+            assert!(validate_token_maps_json(&entry(json!(map.min))).is_ok());
+            assert!(validate_token_maps_json(&entry(json!(map.max))).is_ok());
+            for bad in [
+                json!(map.min - 1),
+                json!(map.max + 1),
+                json!(4096.5),
+                json!("4096"),
+            ] {
+                assert!(validate_token_maps_json(&entry(bad)).is_err());
+            }
+            assert!(validate_token_maps_json(&json!({ map.field: [4096] })).is_err());
+        }
+    }
 }

@@ -3,7 +3,7 @@ import type {
 	ChatSendRequestOptions,
 	ChatViewHost
 } from '$lib/components/copilot/chat/chatViewHost'
-import type { DisplayMessage } from '$lib/components/copilot/chat/shared'
+import type { DisplayMessage, WebSearchResult } from '$lib/components/copilot/chat/shared'
 import type { AIAutonomyMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
 import { isPlanCardTool } from '$lib/components/copilot/chat/planMode'
 import { AttachedFilesStore } from '$lib/components/copilot/chat/files/attachedFiles.svelte'
@@ -125,6 +125,33 @@ function toolErrorText(result: unknown): string | undefined {
 	return undefined
 }
 
+/**
+ * The provider-side search's row as the web search result shape, or undefined for any other
+ * row. The worker words it like a tool named `websearch`, which an agent tool may also be
+ * called; what tells them apart is that every agent tool's row stores its arguments, and the
+ * search stores none, only the citations it produced.
+ */
+function builtInWebSearch(message: ChatMessage): WebSearchResult | undefined {
+	const tool = message.tool
+	if (tool?.name !== 'websearch' || tool.arguments !== undefined || message.pending) {
+		return undefined
+	}
+	const citations = parseToolPayload(tool.result)
+	if (citations === undefined) return { sources: [] }
+	if (
+		!Array.isArray(citations) ||
+		!citations.every((c) => c && typeof c === 'object' && typeof c.url === 'string')
+	) {
+		return undefined
+	}
+	return {
+		sources: citations.map((c: { url: string; title?: unknown }) => ({
+			url: c.url,
+			title: typeof c.title === 'string' ? c.title : undefined
+		}))
+	}
+}
+
 /** The name the worker gives the structured-output tool: suffixed when an agent tool already has it. */
 const STRUCTURED_OUTPUT_CALL = /^structured_output(_\d+)?$/
 
@@ -168,6 +195,25 @@ export function toDisplayMessages(
 				]
 			}
 			case 'tool': {
+				const search = builtInWebSearch(message)
+				if (search) {
+					const found = search.sources.length > 0
+					// `autoCollapseDetails: false` opens it on its sources, as the session chat
+					// shows a search. A tool that returns the same shape stays collapsed like
+					// every other tool row, however many times the agent called it.
+					return [
+						{
+							role: 'tool',
+							tool_call_id: message.id,
+							content: 'Searched the web',
+							toolName: 'web_search',
+							webSearchSources: found ? search.sources : undefined,
+							showDetails: found,
+							autoCollapseDetails: false,
+							jobId: message.jobId
+						}
+					]
+				}
 				// The model's call and what the tool sent back, as the stream carried them or the
 				// worker stored them on the row. A row stored without them shows its name and job.
 				const toolName = message.tool?.name
@@ -398,6 +444,8 @@ export class FlowChatViewHost implements ChatViewHost {
 	get loading(): boolean {
 		return isBusy(this.#state.status)
 	}
+	// No transcript restore to wait for: a flow chat renders from its rows.
+	sendPending = false
 	runHeldElsewhere = false
 	loadingLabel = undefined
 	compacting = false
@@ -580,6 +628,7 @@ export class FlowChatViewHost implements ChatViewHost {
 		return taken
 	}
 	setComposerStaged = () => {}
+	setComposerHasDraft = () => {}
 	clearComposerStaged = () => {}
 	attachmentBytesExcluding = () => 0
 

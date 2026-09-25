@@ -13,11 +13,22 @@
 	import { SettingService, type InstanceDatatableRole } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 
+	let {
+		initialName = '',
+		onChanged
+	}: {
+		/** Prefills the name of the role to add. */
+		initialName?: string
+		/** Called after every change to the catalog, whether or not it went through. */
+		onChanged?: () => void
+	} = $props()
+
 	let roles = $state<InstanceDatatableRole[]>([])
 	let loading = $state(true)
 	let loadError = $state<string | undefined>(undefined)
 	let busy = $state(false)
-	let newName = $state('')
+	// svelte-ignore state_referenced_locally
+	let newName = $state(initialName)
 	/** Which role's name is being edited, and to what. */
 	let renaming = $state<{ id: string; name: string } | undefined>(undefined)
 
@@ -48,6 +59,7 @@
 			// holds, so a failed flip has to snap back rather than sit there claiming it landed.
 			await load()
 			busy = false
+			onChanged?.()
 		}
 	}
 

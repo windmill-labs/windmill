@@ -18,8 +18,6 @@
 		/** See `FlowModuleComponent`: set when the tool belongs to a saved agent rather than to a
 		 *  step of this flow. */
 		staticOnly?: boolean
-		/** See `FlowModuleComponent`: set where there is no graph to select a nested tool on. */
-		noToolNavigation?: boolean
 	}
 
 	let {
@@ -31,8 +29,7 @@
 		forceTestTab,
 		highlightArg,
 		siblingToolNames = undefined,
-		staticOnly = false,
-		noToolNavigation = false
+		staticOnly = false
 	}: Props = $props()
 </script>
 
@@ -64,7 +61,6 @@
 		highlightArg={highlightArg?.[tool.id]}
 		isAgentTool={true}
 		{staticOnly}
-		{noToolNavigation}
 		bind:toolDescription={tool.description}
 		{siblingToolNames}
 	/>

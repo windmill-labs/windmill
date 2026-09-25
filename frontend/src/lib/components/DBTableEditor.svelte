@@ -503,7 +503,7 @@
 		{/if}
 		{#if askingForConfirmation?.codeContent}
 			<div
-				class="bg-surface-secondary border border-surface-selected rounded-md p-2 relative group"
+				class="bg-surface-secondary border border-surface-selected rounded-md p-2 relative group min-w-0"
 			>
 				<button
 					class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-surface-hover"
@@ -512,9 +512,7 @@
 				>
 					<ClipboardCopy size={14} />
 				</button>
-				<pre class="whitespace-pre-wrap text-sm"
-					><code>{askingForConfirmation.codeContent}</code></pre
-				>
+				<pre class="overflow-x-auto text-sm"><code>{askingForConfirmation.codeContent}</code></pre>
 			</div>
 		{/if}
 	</ConfirmationModal>

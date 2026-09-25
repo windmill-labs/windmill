@@ -1,8 +1,11 @@
 <script lang="ts">
 	import type { SyncResponse } from '$lib/git-sync'
 
-	let { previewResult } = $props<{
+	let { previewResult, heightClass = 'max-h-40' } = $props<{
 		previewResult: SyncResponse | undefined
+		/** Room the list gets before it scrolls. A host with a whole step to spare hands it
+		 *  `flex-1 min-h-0` so it takes what is left. */
+		heightClass?: string
 	}>()
 
 	let added = $derived(
@@ -16,7 +19,7 @@
 	)
 </script>
 
-<div class="border rounded p-2 text-xs max-h-40 overflow-y-auto bg-surface-secondary">
+<div class="border rounded p-2 text-xs {heightClass} overflow-y-auto bg-surface-secondary">
 	<div class="font-semibold text-[11px] mb-1 text-primary">Preview of changes:</div>
 
 	{#if !added.length && !deleted.length && !edited.length}

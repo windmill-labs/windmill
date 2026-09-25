@@ -282,7 +282,8 @@ const scriptsV2: typeof legacyScripts = {
 		...legacyScripts.postgresql,
 		code: `
 SELECT table_name, column_name, udt_name, column_default, is_nullable, nsp.nspname AS table_schema FROM information_schema.columns
-RIGHT JOIN pg_namespace nsp ON table_schema = nsp.nspname WHERE nsp.nspname NOT IN ('information_schema', 'pg_toast', 'pg_catalog')`
+RIGHT JOIN pg_namespace nsp ON table_schema = nsp.nspname WHERE nsp.nspname NOT IN ('information_schema', 'pg_toast', 'pg_catalog')
+AND NOT starts_with(nsp.nspname, 'pg_') AND has_schema_privilege(nsp.oid, 'USAGE')`
 	}
 }
 
@@ -383,6 +384,31 @@ export function renderDbEqualityFilter(
 	const literal = renderDbLiteral(value, dbType)
 	if (literal === undefined) return undefined
 	return `${renderDbQuotedIdentifier(column, dbType)} = ${literal}`
+}
+
+/** Case-insensitive "column contains `term`" predicate. The column is cast to
+ * text first so it applies to any type (uuid, dates, json…). The term is
+ * matched with a position function rather than LIKE so `%` and `_` in it stay
+ * literal. */
+export function renderDbContainsFilter(column: string, term: string, dbType: DbType): string {
+	const quoted = renderDbQuotedIdentifier(column, dbType)
+	const literal = renderDbLiteral(term.toLowerCase(), dbType)!
+	switch (dbType) {
+		case 'postgresql':
+			return `strpos(lower(CAST(${quoted} AS TEXT)), ${literal}) > 0`
+		case 'mysql':
+			return `LOCATE(${literal}, LOWER(CAST(${quoted} AS CHAR))) > 0`
+		case 'ms_sql_server':
+			return `CHARINDEX(${literal}, LOWER(CAST(${quoted} AS NVARCHAR(MAX)))) > 0`
+		case 'snowflake':
+			return `CONTAINS(LOWER(TO_VARCHAR(${quoted})), ${literal})`
+		case 'duckdb':
+			return `contains(lower(CAST(${quoted} AS VARCHAR)), ${literal})`
+		case 'bigquery':
+			return `STRPOS(LOWER(CAST(${quoted} AS STRING)), ${literal}) > 0`
+		default:
+			throw new Error('Unsupported database type: ' + dbType)
+	}
 }
 
 export function getLanguageByResourceType(name: string): ScriptLang {
