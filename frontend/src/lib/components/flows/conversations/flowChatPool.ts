@@ -303,15 +303,24 @@ export class FlowChatPool<H extends DraftSender<A>, A> {
 			this.#publish()
 			return
 		}
-		// A new chat opened meanwhile is the draft now, so this chat has nowhere to show. It
-		// is released only once its send has reported what it could not do — the refusal
-		// reaches it after this — and the message it hands back goes to the chat in its place.
-		const kept = this.#draft
-		this.#retiring.add(entry)
+		// A new chat opened meanwhile, and only one chat can be the one a new conversation
+		// starts on. The chat whose composer was written in is the one kept, since its panel
+		// is the only place that text exists; where both were, the one the reader has in
+		// front of them stays.
+		const opened = this.#draft
+		const keepWithdrawn =
+			this.#options.holdsDraft(entry.host) && !this.#options.holdsDraft(opened.host)
+		const kept = keepWithdrawn ? entry : opened
+		const retired = keepWithdrawn ? opened : entry
+		this.#draft = kept
+		// The other is released only once the send that withdrew this conversation has
+		// reported what it could not do — the refusal reaches it after this — and the message
+		// it hands back goes to the chat kept.
+		this.#retiring.add(retired)
 		setTimeout(() => {
-			if (this.#destroyed || !this.#retiring.delete(entry)) return
-			kept.turns.adopt(entry.turns.takeHeld())
-			this.#release(entry)
+			if (this.#destroyed || !this.#retiring.delete(retired)) return
+			kept.turns.adopt(retired.turns.takeHeld())
+			this.#release(retired)
 			this.#publish()
 		}, 0)
 		this.#publish()

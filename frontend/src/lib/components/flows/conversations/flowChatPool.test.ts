@@ -272,6 +272,24 @@ describe('FlowChatPool', () => {
 		p.destroy()
 	})
 
+	it('keeps a withdrawn chat whose composer holds a draft, over the empty one that replaced it', async () => {
+		let written: unknown
+		const { pool: p, fakeOf, shown } = pool({ holdsDraft: (host) => host === written })
+		const withdrawn = shown()
+		const { set } = fakeOf(withdrawn.chat)
+		set({ conversationId: 'new-1' })
+		// The reader writes a follow-up in its composer, then opens another new chat.
+		written = withdrawn.host
+		const opened = p.newChat()
+		set({ conversationId: undefined })
+		// Nothing but that composer holds what was written, so its panel is the one that stays.
+		expect(shown()).toBe(withdrawn)
+		await new Promise((resolve) => setTimeout(resolve, 0))
+		expect(withdrawn.chat.destroy).not.toHaveBeenCalled()
+		expect(opened.chat.destroy).toHaveBeenCalled()
+		p.destroy()
+	})
+
 	it('keeps a settled chat that still holds a queued message, and marks its row', () => {
 		const { pool: p, chatOf, turnsOf, held } = pool({ keepSettled: 1 })
 		p.select('typed')
