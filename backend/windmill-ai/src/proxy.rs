@@ -263,6 +263,7 @@ mod tests {
             aws_access_key_id: None,
             aws_secret_access_key: None,
             aws_session_token: None,
+            oidc_role_arn: None,
             platform: AIPlatform::Standard,
             custom_headers: HashMap::new(),
         }
