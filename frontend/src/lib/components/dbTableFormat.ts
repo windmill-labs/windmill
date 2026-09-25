@@ -4,8 +4,14 @@ import { matchesColumnFilter } from './dbTableFilters'
  * the raw value. */
 export type ColumnFormat = {
 	unit?: { symbol: string; position: 'before' | 'after' }
-	/** Significant digits; undefined shows the value as is. */
-	digits?: number
+	/** Digits after the decimal point; undefined keeps those of the value. */
+	decimals?: number
+	/** Grouped by thousands: 1,234,567. */
+	thousands?: boolean
+	/** 35.4M rather than 35,412,345. */
+	compact?: boolean
+	/** Undefined aligns numbers right and anything else left. */
+	align?: 'left' | 'right'
 	/** The first rule whose condition matches styles the cell. */
 	rules?: ColorRule[]
 }
@@ -31,15 +37,6 @@ export const RULE_PRESETS: { bg?: string; text: string }[] = [
 	{ bg: '#ede9fe', text: '#5b21b6' },
 	{ bg: '#fce7f3', text: '#9d174d' },
 	{ bg: '#f3f4f6', text: '#374151' },
-	{ bg: '#dc2626', text: '#ffffff' },
-	{ bg: '#ea580c', text: '#ffffff' },
-	{ bg: '#f59e0b', text: '#1f2937' },
-	{ bg: '#16a34a', text: '#ffffff' },
-	{ bg: '#0d9488', text: '#ffffff' },
-	{ bg: '#2563eb', text: '#ffffff' },
-	{ bg: '#7c3aed', text: '#ffffff' },
-	{ bg: '#db2777', text: '#ffffff' },
-	{ bg: '#374151', text: '#ffffff' },
 	{ text: '#dc2626' },
 	{ text: '#ea580c' },
 	{ text: '#d97706' },
@@ -61,13 +58,6 @@ export const UNIT_PRESETS: { symbol: string; position: 'before' | 'after' }[] = 
 ]
 
 const NUMERIC = /^-?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i
-const COMPACT_UNITS: [number, string][] = [
-	[1e3, 'k'],
-	[1e6, 'm'],
-	[1e9, 'b'],
-	[1e12, 't']
-]
-
 /** Previews read most values as text, so a number may arrive as a string. */
 export function asNumber(value: unknown): number | undefined {
 	if (typeof value === 'number') return Number.isFinite(value) ? value : undefined
@@ -75,22 +65,15 @@ export function asNumber(value: unknown): number | undefined {
 	return undefined
 }
 
-const trimmed = (n: number, digits: number) => String(Number(n.toPrecision(digits)))
-
-/** `n` to `digits` significant digits. When its integer part alone has more digits than
- * that, it is compacted with a k/m/b/t suffix: 35 412 345 at 3 digits is `35.4m`. */
-export function formatSignificant(n: number, digits: number): string {
-	const abs = Math.abs(n)
-	if (abs < 10 ** digits) return trimmed(n, digits)
-	for (let i = 0; i < COMPACT_UNITS.length; i++) {
-		const [div, suffix] = COMPACT_UNITS[i]
-		const next = COMPACT_UNITS[i + 1]
-		const scaled = Number((n / div).toPrecision(digits))
-		// Rounding can carry into the next unit: 999 950 at 3 digits is 1.00m, not 1000k.
-		if (next && (Math.abs(scaled) >= 1000 || abs >= next[0])) continue
-		return `${trimmed(n / div, digits)}${suffix}`
-	}
-	return trimmed(n, digits)
+/** Whether the numbers of the column are formatted at all. */
+export function formatsNumbers(format: ColumnFormat | undefined): boolean {
+	return (
+		!!format &&
+		(format.decimals !== undefined ||
+			!!format.compact ||
+			!!format.unit?.symbol ||
+			!!format.thousands)
+	)
 }
 
 /** The text a cell shows for `value`, or undefined when the format leaves it as is. */
@@ -99,8 +82,16 @@ export function formatValue(value: unknown, format: ColumnFormat | undefined): s
 	const n = asNumber(value)
 	// A unit on text would read as a quantity: `N/A` must not become `$N/A`.
 	if (n === undefined) return undefined
-	const text = format.digits ? formatSignificant(n, format.digits) : String(value).trim()
-	if (!format.unit?.symbol) return format.digits ? text : undefined
+	if (!formatsNumbers(format)) return undefined
+	const text = new Intl.NumberFormat('en-US', {
+		useGrouping: !!format.thousands,
+		notation: format.compact ? 'compact' : 'standard',
+		minimumFractionDigits: format.decimals,
+		// Left to the value, or to the compact notation's own rounding.
+		maximumFractionDigits: format.decimals ?? (format.compact ? undefined : 100)
+		// A string keeps the digits a float would lose: numeric columns are read as text.
+	}).format(typeof value === 'string' ? (value.trim() as Intl.StringNumericLiteral) : n)
+	if (!format.unit?.symbol) return text
 	const { symbol, position } = format.unit
 	if (position === 'after') return `${text}${symbol}`
 	// A sign reads before a leading unit: -$5, not $-5.
@@ -130,5 +121,12 @@ export function cellStyle(
 }
 
 export function isEmptyFormat(format: ColumnFormat): boolean {
-	return !format.unit?.symbol && !format.digits && !format.rules?.length
+	return (
+		!format.unit?.symbol &&
+		format.decimals === undefined &&
+		!format.thousands &&
+		!format.compact &&
+		!format.align &&
+		!format.rules?.length
+	)
 }

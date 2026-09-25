@@ -1,12 +1,18 @@
 <script lang="ts">
-	import { Bold, GripVertical, Italic, Plus, X } from 'lucide-svelte'
+	import { AlignLeft, AlignRight, Bold, GripVertical, Italic, Plus, X } from 'lucide-svelte'
 	import { Button } from './common'
 	import Select from './select/Select.svelte'
 	import TextInput from './text_input/TextInput.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import Popover from './meltComponents/Popover.svelte'
-	import { RULE_PRESETS, UNIT_PRESETS, type ColorRule, type ColumnFormat } from './dbTableFormat'
+	import {
+		formatValue,
+		RULE_PRESETS,
+		UNIT_PRESETS,
+		type ColorRule,
+		type ColumnFormat
+	} from './dbTableFormat'
 
 	type Props = {
 		column: string
@@ -16,6 +22,7 @@
 	let { column, format, onChange }: Props = $props()
 
 	const CUSTOM = 'custom'
+	const AUTO_DECIMALS = -1
 
 	let unit = $derived(format?.unit)
 	let rules = $derived(format?.rules ?? [])
@@ -136,18 +143,58 @@
 	</div>
 
 	<div class="flex flex-col gap-1">
-		<span class="font-medium text-secondary">Digits</span>
-		<Select
-			size="sm"
-			items={[
-				{ label: 'All', value: 0 },
-				...Array.from({ length: 12 }, (_, i) => ({ label: String(i + 1), value: i + 1 }))
-			]}
-			bind:value={() => format?.digits ?? 0, (v) => update({ digits: v || undefined })}
-		/>
+		<span class="font-medium text-secondary">Decimals</span>
+		<div class="flex items-center gap-2">
+			<Select
+				class="grow"
+				size="sm"
+				items={[
+					{ label: 'Auto', value: AUTO_DECIMALS },
+					...Array.from({ length: 11 }, (_, i) => ({ label: String(i), value: i }))
+				]}
+				bind:value={
+					() => format?.decimals ?? AUTO_DECIMALS,
+					(v) => update({ decimals: v === AUTO_DECIMALS ? undefined : v })
+				}
+			/>
+			<Button
+				variant="default"
+				unifiedSize="sm"
+				selected={!!format?.thousands}
+				title="Thousands separator"
+				onClick={() => update({ thousands: !format?.thousands || undefined, compact: undefined })}
+			>
+				1,000
+			</Button>
+			<Button
+				variant="default"
+				unifiedSize="sm"
+				selected={!!format?.compact}
+				title="Shorten large numbers: 35.4M"
+				onClick={() => update({ compact: !format?.compact || undefined, thousands: undefined })}
+			>
+				Compact
+			</Button>
+		</div>
 		<span class="text-2xs text-hint">
-			Significant digits. Larger numbers are shortened: 35412345 at 3 digits shows 35.4m.
+			1234567.891 shows as {formatValue(1234567.891, format) ?? '1234567.891'}
 		</span>
+	</div>
+
+	<div class="flex flex-col gap-1">
+		<span class="font-medium text-secondary">Alignment</span>
+		<ToggleButtonGroup
+			bind:selected={
+				() => format?.align ?? 'auto',
+				(v) => update({ align: v === 'auto' ? undefined : (v as 'left' | 'right') })
+			}
+		>
+			{#snippet children({ item })}
+				<ToggleButton value="auto" label="Auto" {item} small />
+				<ToggleButton value="left" label="Left" icon={AlignLeft} {item} small />
+				<ToggleButton value="right" label="Right" icon={AlignRight} {item} small />
+			{/snippet}
+		</ToggleButtonGroup>
 	</div>
 
 	<div class="flex flex-col gap-1">

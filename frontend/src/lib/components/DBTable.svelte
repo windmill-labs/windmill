@@ -1299,7 +1299,11 @@
 									<div
 										class={twMerge(
 											'shrink-0 px-2 border-r truncate select-none',
-											dbColumnKind(col.datatype) === 'number' ? 'text-right tabular-nums' : '',
+											dbColumnKind(col.datatype) === 'number' ? 'tabular-nums' : '',
+											(formats[col.field]?.align ??
+												(dbColumnKind(col.datatype) === 'number' ? 'right' : 'left')) === 'right'
+												? 'text-right'
+												: '',
 											pin ? 'sticky z-[1] bg-surface-tertiary dark:bg-surface-input' : '',
 											col.field === lastLeftPinned ? 'border-r-2 border-border-light' : '',
 											col.field === firstRightPinned ? 'border-l-2' : '',
