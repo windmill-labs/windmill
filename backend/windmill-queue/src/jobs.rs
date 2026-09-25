@@ -5854,10 +5854,10 @@ async fn push_inner<'c, 'd>(
             dedicated_worker,
             ..Default::default()
         },
-        JobPayload::FlowNode { id, path } => {
+        JobPayload::FlowNode { id, path, no_inherited_flow_env } => {
             let data = cache::flow::fetch_flow(db, id).await?;
             let value = data.value();
-            let status = Some(FlowStatus::new(value));
+            let status = Some(FlowStatus { no_inherited_flow_env, ..FlowStatus::new(value) });
             // Keep inserting `value` if not all workers are updated.
             // Starting at `v1.440`, the value is fetched on pull from the flow node id.
             let value_o = if !MIN_VERSION_IS_AT_LEAST_1_440.met().await {
@@ -6094,6 +6094,7 @@ async fn push_inner<'c, 'd>(
                         stream_job: None,
                         chat_input_enabled: None,
                         memory_id: None,
+                        no_inherited_flow_env: false,
                     }
                 }
                 _ => {
@@ -6488,6 +6489,7 @@ async fn push_inner<'c, 'd>(
                 stream_job: None,
                 chat_input_enabled: None,
                 memory_id: None,
+                no_inherited_flow_env: false,
             };
             let value = flow_data.value();
             let priority = value.priority;
