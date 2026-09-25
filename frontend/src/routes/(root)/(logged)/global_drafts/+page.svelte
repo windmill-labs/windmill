@@ -4,7 +4,7 @@
 		clearGlobalDrafts,
 		deleteGlobalDraft,
 		listGlobalDrafts,
-		resolveDraftTarget
+		liveGlobalDraftTarget
 	} from '$lib/components/copilot/chat/global/userDraftAdapter'
 	import type { WorkspaceItem } from '$lib/components/copilot/chat/global/workspaceItems'
 	import { goto } from '$lib/navigation'
@@ -53,16 +53,12 @@
 	// A live editor's draft is listed under its chosen name, so the key to delete has to be
 	// resolved from it; a persisted row is already listed under its storage key.
 	function draftTargetOf(item: WorkspaceItem) {
-		return resolveDraftTarget($workspaceStore!, {
-			type: item.type,
-			path: item.path,
-			triggerKind: item.triggerKind
-		})
+		return liveGlobalDraftTarget($workspaceStore!, item.type, item.path, item.triggerKind)
 	}
 
 	async function deleteDraft(item: WorkspaceItem) {
 		if (!$workspaceStore) return
-		await deleteGlobalDraft($workspaceStore, item.type, await draftTargetOf(item), item.triggerKind)
+		await deleteGlobalDraft($workspaceStore, item.type, draftTargetOf(item), item.triggerKind)
 		refreshDrafts()
 	}
 
@@ -73,12 +69,7 @@
 		// Continue past a per-row failure so one bad delete doesn't strand the rest.
 		for (const item of [...drafts]) {
 			try {
-				await deleteGlobalDraft(
-					$workspaceStore,
-					item.type,
-					await draftTargetOf(item),
-					item.triggerKind
-				)
+				await deleteGlobalDraft($workspaceStore, item.type, draftTargetOf(item), item.triggerKind)
 			} catch (e) {
 				console.error('Failed to clear draft', item.path, e)
 			}

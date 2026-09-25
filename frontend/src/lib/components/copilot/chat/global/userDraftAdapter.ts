@@ -365,6 +365,13 @@ async function storagePathForChosenName(
 		if (staged.some((s) => s.storagePath === storagePath)) return
 		staged.push({ storagePath, summary })
 	}
+	// A deployed item keeps its own path: drafts staged under that name belong to other
+	// items and are reached by their storage path. Settled before the listing, which is
+	// workspace-wide — an indexed single-row check answers the common case, where the path
+	// is simply where something is deployed, and a path that is unambiguous by this rule is
+	// then never refused because the listing failed.
+	const exists = deployedExists[itemKind]
+	if (exists && (await exists(workspace, path))) return path
 	let rows: Awaited<ReturnType<typeof DraftService.listDrafts>>
 	try {
 		rows = await DraftService.listDrafts({ workspace })
@@ -388,10 +395,6 @@ async function storagePathForChosenName(
 		}
 	}
 	if (staged.length === 0) return path
-	// A deployed item keeps its own path: drafts staged under that name belong to other
-	// items and are reached by their storage path.
-	const exists = deployedExists[itemKind]
-	if (exists && (await exists(workspace, path))) return path
 	if (staged.length > 1) {
 		// Refused rather than guessed: nothing checks a name for uniqueness before deploy.
 		const listed = staged
@@ -427,6 +430,25 @@ export function liveGlobalDraftStoragePath(
 ): string {
 	const itemKind = itemKindFor(type, triggerKind)
 	return itemKind ? liveEditorStoragePath(workspace, itemKind, path) : path
+}
+
+/**
+ * The target for a caller that already holds a storage key and only needs the open editor's
+ * staged rename followed — a row it listed, not a path someone named. Synchronous, and
+ * deliberately without the name lookup: a legacy row (one with no owner) has no draft of
+ * this user at its path, so resolving it by name would walk on and match an unrelated draft
+ * staged under the same name.
+ */
+export function liveGlobalDraftTarget(
+	workspace: string,
+	type: WorkspaceItemType,
+	path: string,
+	triggerKind?: TriggerKind
+): ResolvedDraftTarget {
+	const storagePath = liveGlobalDraftStoragePath(workspace, type, path, triggerKind)
+	const itemKind = itemKindFor(type, triggerKind)
+	const cell = itemKind ? UserDraft.get(itemKind, storagePath, { workspace }) : undefined
+	return { path, storagePath, value: cell, fetched: cell !== undefined }
 }
 
 /** The draft a call addresses: the path it named, and whether the call goes on to write. */

@@ -3209,6 +3209,32 @@ describe('global AI tools', () => {
 		expect(draft?.content).toBe('export async function main() { return 2 }')
 	})
 
+	// Same rule, the other branch of `chosenDraftName`: a flow parks its name in
+	// `draft_path`, so the name and the addressed path are separate fields here.
+	it('keeps a flow draft name when the write addresses it by its storage key', async () => {
+		seedBackendDraft(
+			'flow',
+			'u/admin/draft_f1',
+			{
+				path: 'u/admin/draft_f1',
+				draft_path: 'f/team/new_flow',
+				summary: 'Staged under a new name',
+				value: { modules: [] }
+			},
+			{ workspace: WORKSPACE }
+		)
+
+		await callGlobalTool('write_flow', {
+			path: 'u/admin/draft_f1',
+			summary: 'Updated flow',
+			modules: JSON.stringify([{ id: 'step', value: { type: 'identity' } }])
+		})
+
+		const draft = getBackendDraft<any>('flow', 'u/admin/draft_f1', { workspace: WORKSPACE })
+		expect(draft?.draft_path).toBe('f/team/new_flow')
+		expect(draft?.path).toBe('f/team/new_flow')
+	})
+
 	// Same private-owner read path as schedules, for the trigger drawer kinds.
 	it('reads and deploys a trigger draft written by the chat', async () => {
 		await callGlobalTool('write_trigger', {
@@ -3438,7 +3464,9 @@ describe('global AI tools', () => {
 	})
 
 	it('preserves existing script metadata and seeds freshness on first script write', async () => {
-		vi.mocked(ScriptService.existsScriptByPath).mockResolvedValueOnce(true)
+		vi.mocked(ScriptService.existsScriptByPath).mockImplementation(
+			async ({ path }) => path === 'f/scripts/existing'
+		)
 		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
 			path: 'f/scripts/existing',
 			hash: 'deployed-hash',
@@ -3866,7 +3894,9 @@ describe('global AI tools', () => {
 	})
 
 	it('preserves existing flow metadata and seeds freshness on first flow write', async () => {
-		vi.mocked(FlowService.existsFlowByPath).mockResolvedValueOnce(true)
+		vi.mocked(FlowService.existsFlowByPath).mockImplementation(
+			async ({ path }) => path === 'f/flows/existing'
+		)
 		vi.mocked(FlowService.getFlowLatestVersion).mockResolvedValueOnce({ id: 42 } as any)
 		vi.mocked(FlowService.getFlowByPath).mockResolvedValueOnce({
 			path: 'f/flows/existing',
@@ -5474,7 +5504,9 @@ describe('global AI tools', () => {
 	// that rewrites the draft's schema from scratch, or a draft read that drops it, unmarks
 	// the field — and the form then takes the secret as a plain literal into the job's args.
 	it('test_run_script keeps the password marking of the script it previews', async () => {
-		vi.mocked(ScriptService.existsScriptByPath).mockResolvedValueOnce(true)
+		vi.mocked(ScriptService.existsScriptByPath).mockImplementation(
+			async ({ path }) => path === 'f/scripts/secretful'
+		)
 		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
 			path: 'f/scripts/secretful',
 			language: 'bun',
