@@ -70,6 +70,9 @@
 	import GitSyncSection from '$lib/components/git_sync/GitSyncSection.svelte'
 	import Trashbin from '$lib/components/settings/Trashbin.svelte'
 	import { untrack } from 'svelte'
+	import NativeOAuthCallback from '$lib/components/triggers/native/NativeOAuthCallback.svelte'
+	import { nativeOAuthRedirectUri } from '$lib/components/triggers/native/utils'
+	import type { NativeServiceName } from '$lib/gen'
 	import DbtSettings, {
 		convertDbtSettingsFromBackend,
 		type DbtSettingsType
@@ -385,6 +388,13 @@
 	// The deploy filters configure what may be promoted into the parent, so they only mean
 	// something for a fork. A root workspace deploys nowhere by lineage.
 	const showDeployToTab = $derived(Boolean(currentWorkspace?.parent_workspace_id))
+	// The page native trigger OAuth providers redirect to. Anyone can connect an account, so the
+	// callback is handled before the admin gate.
+	const nativeOAuthService = $derived(
+		$page.url.searchParams.get('tab') === 'native_triggers' && $page.url.searchParams.has('state')
+			? ($page.url.searchParams.get('service') as NativeServiceName | null)
+			: null
+	)
 	const canAdmin = $derived(($userStore?.is_admin ?? false) || Boolean($superadmin))
 	let yamlMode = $state(false)
 	// A workspace where the user is not an admin hides the toggle, so it must not stay in YAML mode.
@@ -1532,7 +1542,9 @@
 </script>
 
 <CenteredPage wrapperClasses="pb-0 h-full" handleOverflow={false} class="flex flex-col h-full">
-	{#if canAdmin || isForkOwner}
+	{#if nativeOAuthService}
+		<NativeOAuthCallback redirectUri={nativeOAuthRedirectUri(nativeOAuthService)} />
+	{:else if canAdmin || isForkOwner}
 		<!-- No title of its own: the band already says which workspace's settings these are, and the
 		     two controls that sat beside the title are the page's actions. The panes below scroll
 		     inside themselves, so the bar keeps its edge at rest rather than only under a scroll. -->

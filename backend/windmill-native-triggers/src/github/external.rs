@@ -33,7 +33,7 @@ impl External for GitHub {
     async fn create(
         &self,
         w_id: &str,
-        _oauth_data: &Self::OAuthData,
+        oauth_data: &Self::OAuthData,
         webhook_token: &str,
         data: &NativeTriggerData<Self::ServiceConfig>,
         db: &DB,
@@ -69,7 +69,15 @@ impl External for GitHub {
         });
 
         let response: CreateWebhookResponse = self
-            .http_client_request(&url, Method::POST, w_id, db, None, Some(&payload))
+            .http_client_request(
+                &url,
+                Method::POST,
+                w_id,
+                &oauth_data.connection_path,
+                db,
+                None,
+                Some(&payload),
+            )
             .await?;
 
         Ok(response)
@@ -78,7 +86,7 @@ impl External for GitHub {
     async fn update(
         &self,
         w_id: &str,
-        _oauth_data: &Self::OAuthData,
+        oauth_data: &Self::OAuthData,
         external_id: &str,
         webhook_token: &str,
         data: &NativeTriggerData<Self::ServiceConfig>,
@@ -114,7 +122,15 @@ impl External for GitHub {
         });
 
         let _: serde_json::Value = self
-            .http_client_request(&url, Method::PATCH, w_id, db, None, Some(&payload))
+            .http_client_request(
+                &url,
+                Method::PATCH,
+                w_id,
+                &oauth_data.connection_path,
+                db,
+                None,
+                Some(&payload),
+            )
             .await?;
 
         // Return the resolved service_config
@@ -125,7 +141,7 @@ impl External for GitHub {
     async fn get(
         &self,
         w_id: &str,
-        _oauth_data: &Self::OAuthData,
+        oauth_data: &Self::OAuthData,
         external_id: &str,
         db: &DB,
         _tx: &mut PgConnection,
@@ -137,7 +153,14 @@ impl External for GitHub {
         };
 
         let data = self
-            .get_webhook(w_id, &owner, &repo, external_id, db)
+            .get_webhook(
+                w_id,
+                &oauth_data.connection_path,
+                &owner,
+                &repo,
+                external_id,
+                db,
+            )
             .await?;
         Ok(Some(data))
     }
@@ -145,7 +168,7 @@ impl External for GitHub {
     async fn delete(
         &self,
         w_id: &str,
-        _oauth_data: &Self::OAuthData,
+        oauth_data: &Self::OAuthData,
         external_id: &str,
         db: &DB,
         _tx: &mut PgConnection,
@@ -165,7 +188,15 @@ impl External for GitHub {
         // Swallow 404 only (webhook may already be deleted on GitHub); propagate
         // other errors so callers don't think cleanup succeeded when it didn't.
         let result: std::result::Result<serde_json::Value, _> = self
-            .http_client_request::<_, ()>(&url, Method::DELETE, w_id, db, None, None)
+            .http_client_request::<_, ()>(
+                &url,
+                Method::DELETE,
+                w_id,
+                &oauth_data.connection_path,
+                db,
+                None,
+                None,
+            )
             .await;
 
         match result {
@@ -180,7 +211,7 @@ impl External for GitHub {
         db: &DB,
         workspace_id: &str,
         triggers: &[NativeTrigger],
-        _oauth_data: &Self::OAuthData,
+        oauth_data: &Self::OAuthData,
         synced: &mut Vec<crate::sync::TriggerSyncInfo>,
         errors: &mut Vec<crate::sync::SyncError>,
     ) {
@@ -208,7 +239,15 @@ impl External for GitHub {
             );
 
             let result: std::result::Result<GithubWebhookApiResponse, _> = self
-                .http_client_request::<_, ()>(&url, Method::GET, workspace_id, db, None, None)
+                .http_client_request::<_, ()>(
+                    &url,
+                    Method::GET,
+                    workspace_id,
+                    &oauth_data.connection_path,
+                    db,
+                    None,
+                    None,
+                )
                 .await;
 
             match result {
@@ -363,6 +402,7 @@ impl GitHub {
     async fn get_webhook(
         &self,
         w_id: &str,
+        connection_path: &str,
         owner: &str,
         repo: &str,
         external_id: &str,
@@ -374,7 +414,7 @@ impl GitHub {
         );
 
         let response: GithubWebhookApiResponse = self
-            .http_client_request::<_, ()>(&url, Method::GET, w_id, db, None, None)
+            .http_client_request::<_, ()>(&url, Method::GET, w_id, connection_path, db, None, None)
             .await?;
 
         Ok(GithubTriggerData {

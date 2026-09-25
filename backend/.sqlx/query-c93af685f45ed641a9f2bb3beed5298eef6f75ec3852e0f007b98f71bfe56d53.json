@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT v.path, r.created_by AS \"owner?\"\n         FROM variable v\n         JOIN account a ON a.workspace_id = v.workspace_id AND a.id = v.account\n         LEFT JOIN resource r ON r.workspace_id = v.workspace_id AND r.path = v.path\n         WHERE v.workspace_id = $1 AND a.client = $2 AND a.is_workspace_integration = true\n         ORDER BY v.path",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "owner?",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "c93af685f45ed641a9f2bb3beed5298eef6f75ec3852e0f007b98f71bfe56d53"
+}

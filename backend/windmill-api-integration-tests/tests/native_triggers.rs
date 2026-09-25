@@ -26,8 +26,8 @@ use windmill_native_triggers::{
     native_trigger_is_enabled,
     nextcloud::NextCloud,
     require_native_integration_use, set_native_trigger_enabled, store_native_trigger,
-    store_workspace_integration, update_native_trigger, External, ExternalReadFailure,
-    HttpRequestError, NativeTriggerConfig, OAuthConfig, ServiceName,
+    store_workspace_integration, update_native_trigger, update_oauth_token_resource, External,
+    ExternalReadFailure, HttpRequestError, NativeTriggerConfig, OAuthConfig, ServiceName,
 };
 
 // ============================================================================
@@ -133,7 +133,6 @@ async fn setup_oauth_integration(
         "test-workspace",
         service_name,
         oauth_data,
-        Some(resource_path),
     )
     .await?;
     tx.commit().await?;
@@ -149,73 +148,70 @@ fn now_ms() -> i64 {
 }
 
 // ============================================================================
-// 1. Resource Path Change
+// 1. Several connections of one service
 // ============================================================================
 
+/// Each connection keeps its own tokens: a refresh written back for one, or disconnecting one,
+/// must not touch another. Providers that rotate refresh tokens invalidate the old one, so a
+/// refresh token copied onto the wrong account breaks that account's next refresh.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn test_resource_path_change(db: Pool<Postgres>) -> anyhow::Result<()> {
-    let path_a = "u/test-user/native_gworkspace";
-    setup_oauth_integration(
+async fn test_connections_are_isolated(db: Pool<Postgres>) -> anyhow::Result<()> {
+    let path_a = "u/test-user/native_nextcloud";
+    let path_b = "u/other-user/native_nextcloud";
+    for (path, token) in [(path_a, "a"), (path_b, "b")] {
+        setup_oauth_integration(
+            &db,
+            ServiceName::Nextcloud,
+            path,
+            &format!("access-{token}"),
+            &format!("refresh-{token}"),
+            None,
+        )
+        .await?;
+    }
+
+    update_oauth_token_resource(
         &db,
-        ServiceName::Google,
-        path_a,
-        "token-a",
-        "refresh-a",
-        None,
-    )
-    .await?;
-
-    // Verify decrypt works at path A
-    let config: OAuthConfig =
-        decrypt_oauth_data(&db, "test-workspace", ServiceName::Google).await?;
-    assert_eq!(config.access_token, "token-a");
-
-    // Cleanup old path
-    let mut tx = db.begin().await?;
-    windmill_native_triggers::workspace_integrations::cleanup_oauth_resource(
-        &mut *tx,
         "test-workspace",
-        ServiceName::Google,
+        path_a,
+        "access-a2",
+        Some("refresh-a2"),
     )
     .await;
-    tx.commit().await?;
 
-    // Recreate at path B
-    let path_b = "u/test-user/native_gworkspace_v2";
-    setup_oauth_integration(
-        &db,
-        ServiceName::Google,
-        path_b,
-        "token-b",
-        "refresh-b",
-        None,
+    let a: OAuthConfig =
+        decrypt_oauth_data(&db, "test-workspace", ServiceName::Nextcloud, Some(path_a)).await?;
+    let b: OAuthConfig =
+        decrypt_oauth_data(&db, "test-workspace", ServiceName::Nextcloud, Some(path_b)).await?;
+    assert_eq!(
+        (a.access_token.as_str(), a.refresh_token.as_deref()),
+        ("access-a2", Some("refresh-a2"))
+    );
+    assert_eq!(
+        (b.access_token.as_str(), b.refresh_token.as_deref()),
+        ("access-b", Some("refresh-b"))
+    );
+
+    let mut tx = db.begin().await?;
+    windmill_native_triggers::workspace_integrations::cleanup_connection(
+        &mut *tx,
+        "test-workspace",
+        path_a,
     )
     .await?;
+    tx.commit().await?;
 
-    // Path A resources should be gone
-    let var_count: i64 = sqlx::query_scalar!(
-        "SELECT count(*) FROM variable WHERE workspace_id = 'test-workspace' AND path = $1",
-        path_a,
+    assert!(decrypt_oauth_data::<OAuthConfig>(
+        &db,
+        "test-workspace",
+        ServiceName::Nextcloud,
+        Some(path_a)
     )
-    .fetch_one(&db)
-    .await?
-    .unwrap_or(0);
-    assert_eq!(var_count, 0, "variable at old path should be deleted");
-
-    let res_count: i64 = sqlx::query_scalar!(
-        "SELECT count(*) FROM resource WHERE workspace_id = 'test-workspace' AND path = $1",
-        path_a,
-    )
-    .fetch_one(&db)
-    .await?
-    .unwrap_or(0);
-    assert_eq!(res_count, 0, "resource at old path should be deleted");
-
-    // Path B should work
-    let config: OAuthConfig =
-        decrypt_oauth_data(&db, "test-workspace", ServiceName::Google).await?;
-    assert_eq!(config.access_token, "token-b");
-    assert_eq!(config.refresh_token.as_deref(), Some("refresh-b"));
+    .await
+    .is_err());
+    let b: OAuthConfig =
+        decrypt_oauth_data(&db, "test-workspace", ServiceName::Nextcloud, Some(path_b)).await?;
+    assert_eq!(b.refresh_token.as_deref(), Some("refresh-b"));
 
     Ok(())
 }
@@ -237,8 +233,13 @@ async fn test_decrypt_workspace_level(db: Pool<Postgres>) -> anyhow::Result<()> 
     )
     .await?;
 
-    let config: OAuthConfig =
-        decrypt_oauth_data(&db, "test-workspace", ServiceName::Google).await?;
+    let config: OAuthConfig = decrypt_oauth_data(
+        &db,
+        "test-workspace",
+        ServiceName::Google,
+        Some(resource_path),
+    )
+    .await?;
 
     assert_eq!(config.access_token, "ws-access-token");
     assert_eq!(config.refresh_token.as_deref(), Some("ws-refresh-token"));
@@ -282,8 +283,13 @@ async fn test_decrypt_instance_level(db: Pool<Postgres>) -> anyhow::Result<()> {
     )
     .await?;
 
-    let config: OAuthConfig =
-        decrypt_oauth_data(&db, "test-workspace", ServiceName::Google).await?;
+    let config: OAuthConfig = decrypt_oauth_data(
+        &db,
+        "test-workspace",
+        ServiceName::Google,
+        Some(resource_path),
+    )
+    .await?;
 
     assert_eq!(config.client_id, "instance-client-id");
     assert_eq!(config.client_secret, "instance-client-secret");
@@ -306,8 +312,13 @@ async fn test_token_update_persists(db: Pool<Postgres>) -> anyhow::Result<()> {
     .await?;
 
     // Verify old tokens
-    let config: OAuthConfig =
-        decrypt_oauth_data(&db, "test-workspace", ServiceName::Google).await?;
+    let config: OAuthConfig = decrypt_oauth_data(
+        &db,
+        "test-workspace",
+        ServiceName::Google,
+        Some(resource_path),
+    )
+    .await?;
     assert_eq!(config.access_token, "old-access-token");
 
     // Simulate token refresh: update variable + account
@@ -330,8 +341,13 @@ async fn test_token_update_persists(db: Pool<Postgres>) -> anyhow::Result<()> {
     .await?;
 
     // Verify new tokens
-    let config: OAuthConfig =
-        decrypt_oauth_data(&db, "test-workspace", ServiceName::Google).await?;
+    let config: OAuthConfig = decrypt_oauth_data(
+        &db,
+        "test-workspace",
+        ServiceName::Google,
+        Some(resource_path),
+    )
+    .await?;
     assert_eq!(config.access_token, "new-access-token");
     assert_eq!(config.refresh_token.as_deref(), Some("new-refresh-token"));
 
@@ -458,6 +474,7 @@ async fn test_delete_integration_full_cascade(db: Pool<Postgres>) -> anyhow::Res
         json!({"triggerType": "drive"}),
         None,
         true,
+        "u/test-user/native_conn",
     )
     .await?;
 
@@ -468,12 +485,12 @@ async fn test_delete_integration_full_cascade(db: Pool<Postgres>) -> anyhow::Res
 
     // Step 2: Cleanup OAuth resources
     let mut tx = db.begin().await?;
-    windmill_native_triggers::workspace_integrations::cleanup_oauth_resource(
+    windmill_native_triggers::workspace_integrations::cleanup_service_connections(
         &mut *tx,
         "test-workspace",
         ServiceName::Google,
     )
-    .await;
+    .await?;
     tx.commit().await?;
 
     // Step 3: Delete workspace integration
@@ -549,17 +566,18 @@ async fn test_cleanup_preserves_triggers(db: Pool<Postgres>) -> anyhow::Result<(
         json!({"triggerType": "drive"}),
         None,
         true,
+        "u/test-user/native_conn",
     )
     .await?;
 
     // Cleanup OAuth only — should NOT remove the trigger
     let mut tx = db.begin().await?;
-    windmill_native_triggers::workspace_integrations::cleanup_oauth_resource(
+    windmill_native_triggers::workspace_integrations::cleanup_connection(
         &mut *tx,
         "test-workspace",
-        ServiceName::Google,
+        resource_path,
     )
-    .await;
+    .await?;
     tx.commit().await?;
 
     // OAuth resources gone
@@ -607,6 +625,7 @@ async fn test_rename_moves_native_trigger(db: Pool<Postgres>) -> anyhow::Result<
         json!({"event": "OCP\\Files\\Events\\Node\\NodeCreatedEvent"}),
         None,
         true,
+        "u/test-user/native_conn",
     )
     .await?;
     // An unrelated trigger already sitting on the target path must not be reported as moved.
@@ -624,6 +643,7 @@ async fn test_rename_moves_native_trigger(db: Pool<Postgres>) -> anyhow::Result<
         json!({"event": "OCP\\Files\\Events\\Node\\NodeCreatedEvent"}),
         None,
         true,
+        "u/test-user/native_conn",
     )
     .await?;
 
@@ -696,6 +716,7 @@ async fn test_list_native_triggers_scope_filter(db: Pool<Postgres>) -> anyhow::R
             json!({"event": "OCP\\Files\\Events\\Node\\NodeCreatedEvent"}),
             None,
             true,
+            "u/test-user/native_conn",
         )
         .await?;
     }
@@ -931,6 +952,7 @@ async fn test_native_trigger_enabled_toggle(db: Pool<Postgres>) -> anyhow::Resul
         json!({"event": "OCA\\Files\\Event\\LoadAdditionalScriptsEvent"}),
         None,
         true,
+        "u/test-user/native_conn",
     )
     .await?;
 
@@ -980,6 +1002,7 @@ async fn test_native_trigger_enabled_toggle(db: Pool<Postgres>) -> anyhow::Resul
         json!({}),
         None,
         false,
+        "u/test-user/native_conn",
     )
     .await?;
     assert!(
@@ -997,6 +1020,7 @@ async fn test_native_trigger_enabled_toggle(db: Pool<Postgres>) -> anyhow::Resul
         json!({}),
         None,
         true,
+        "u/test-user/native_conn",
     )
     .await?;
     assert!(
