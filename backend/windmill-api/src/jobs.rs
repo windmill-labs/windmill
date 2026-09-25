@@ -116,7 +116,9 @@ use windmill_common::{
     query_builders,
     scripts::{ScriptHash, ScriptLang},
     users::username_to_permissioned_as,
-    utils::{not_found_if_none, now_from_db, paginate, require_admin, Pagination, StripPath},
+    utils::{
+        not_found_if_none, now_from_db, paginate, require_admin, Pagination, ScheduleType, StripPath,
+    },
 };
 
 use windmill_common::{
@@ -304,6 +306,7 @@ pub fn workspaced_service() -> Router {
         .route("/queue/position/{timestamp}", get(get_queue_position))
         .route("/queue/scheduled_for/{id}", get(get_scheduled_for))
         .route("/queue/cancel_selection", post(cancel_selection))
+        .route("/queue/run_now/{id}", post(run_queued_job_now))
         .route("/completed/count", get(count_completed_jobs))
         .route("/completed/count_jobs", get(count_completed_jobs_detail))
         .route(
@@ -833,6 +836,113 @@ async fn force_cancel(
             )));
         }
     }
+}
+
+/// Moves a queued job's `scheduled_for` to now so the next pull picks it up, keeping its id.
+/// A job with a concurrency limit still goes through the usual check at pull time and is
+/// re-scheduled again if its key is still saturated.
+async fn run_queued_job_now(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, id)): Path<(String, Uuid)>,
+) -> error::Result<String> {
+    require_job_update_read_access(&db, &user_db, &authed, &w_id, &id, None).await?;
+    refuse_upcoming_schedule_tick(&db, &w_id, id).await?;
+
+    let mut tx = db.begin().await?;
+    let previous = sqlx::query_scalar!(
+        "UPDATE v2_job_queue q SET scheduled_for = now()
+         FROM (SELECT id, scheduled_for FROM v2_job_queue WHERE id = $1 AND workspace_id = $2 FOR UPDATE) prev
+         WHERE q.id = prev.id AND NOT q.running AND q.suspend = 0 AND q.canceled_by IS NULL
+            AND q.scheduled_for > now()
+         RETURNING prev.scheduled_for",
+        id,
+        w_id,
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let Some(previous) = previous else {
+        tx.commit().await?;
+        return Err(
+            if sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT 1 FROM v2_job_queue WHERE id = $1 AND workspace_id = $2)",
+                id,
+                w_id
+            )
+            .fetch_one(&db)
+            .await?
+            .unwrap_or(false)
+            {
+                Error::BadRequest(format!(
+                    "job {id} is not waiting for a future start: it is running, suspended, \
+                     canceled or already due"
+                ))
+            } else {
+                Error::NotFound(format!("queued job id {id} does not exist"))
+            },
+        );
+    };
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "jobs.run_now",
+        ActionKind::Update,
+        &w_id,
+        Some(&id.to_string()),
+        Some([("previous_scheduled_for", previous.to_rfc3339().as_str())].into()),
+    )
+    .await?;
+    tx.commit().await?;
+
+    windmill_queue::append_logs(
+        &id,
+        &w_id,
+        format!(
+            "\nStart moved from {previous} to now by {}\n",
+            authed.display_username()
+        ),
+        &db.clone().into(),
+    )
+    .await;
+
+    Ok(id.to_string())
+}
+
+/// A schedule queues its next tick when the current one completes, computed from the
+/// completion time. Starting a tick that is not yet due would therefore queue that same
+/// tick again and run the schedule twice. A tick pushed past its time by a concurrency
+/// limit no longer sits on a cron occurrence, so it may still be started early.
+async fn refuse_upcoming_schedule_tick(db: &DB, w_id: &str, id: Uuid) -> error::Result<()> {
+    let Some(tick) = sqlx::query!(
+        "SELECT q.scheduled_for, s.path, s.schedule, s.cron_version, s.timezone
+         FROM v2_job j
+         JOIN v2_job_queue q USING (id)
+         JOIN schedule s ON s.workspace_id = j.workspace_id AND s.path = j.trigger
+         WHERE j.id = $1 AND j.workspace_id = $2 AND j.trigger_kind = 'schedule'
+            AND j.parent_job IS NULL AND q.scheduled_for > now()",
+        id,
+        w_id,
+    )
+    .fetch_optional(db)
+    .await?
+    else {
+        return Ok(());
+    };
+    let sched = ScheduleType::from_str(&tick.schedule, tick.cron_version.as_deref(), false)?;
+    let tz =
+        chrono_tz::Tz::from_str(&tick.timezone).map_err(|e| Error::BadRequest(e.to_string()))?;
+    let just_before = (tick.scheduled_for - chrono::Duration::milliseconds(1)).with_timezone(&tz);
+    if sched.find_next(&just_before)? == tick.scheduled_for {
+        return Err(Error::BadRequest(format!(
+            "job {id} is the upcoming tick of schedule {}; run the schedule's script or flow \
+             directly instead",
+            tick.path
+        )));
+    }
+    Ok(())
 }
 
 #[derive(Serialize)]

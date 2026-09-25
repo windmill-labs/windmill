@@ -708,6 +708,10 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "content": {
                         "type": "string"
                 },
+                "schema": {
+                        "type": "object",
+                        "description": "JSON Schema of the arguments of `main`, which is what a run form and an MCP tool offer. Omitted (or `{}`), it is inferred from `content` for TypeScript, Python, Go, Bash, PowerShell, SQL, GraphQL and Ansible scripts. For other languages, or code that does not parse, a new script gets none. A new version of an existing script also keeps what the previous version's schema says about each argument, or that whole schema when nothing can be inferred. A dbt script always takes its schema from its descriptor, whatever is sent."
+                },
                 "language": {
                         "type": "string",
                         "description": "Possible values: python3, deno, go, bash, powershell, postgresql, mysql, bigquery, snowflake, mssql, oracledb, graphql, nativets, bun, php, rust, ansible, csharp, nu, java, ruby, rlang, duckdb, bunnative, dbt"
@@ -763,6 +767,10 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "content": {
                         "type": "string"
+                },
+                "schema": {
+                        "type": "object",
+                        "description": "JSON Schema of the arguments of `main`, which is what a run form and an MCP tool offer. Omitted (or `{}`), it is inferred from `content` for TypeScript, Python, Go, Bash, PowerShell, SQL, GraphQL and Ansible scripts. For other languages, or code that does not parse, a new script gets none. A new version of an existing script also keeps what the previous version's schema says about each argument, or that whole schema when nothing can be inferred. A dbt script always takes its schema from its descriptor, whatever is sent."
                 },
                 "language": {
                         "type": "string",
@@ -1031,10 +1039,12 @@ export const mcpEndpointTools: EndpointTool[] = [
                         "description": "Detailed documentation for this flow"
                 },
                 "value": {
-                        "type": "object"
+                        "type": "object",
+                        "description": "The flow structure containing modules and optional preprocessor/failure handlers"
                 },
                 "schema": {
-                        "type": "object"
+                        "type": "object",
+                        "description": "JSON Schema for flow inputs. Use this to define input parameters, their types, defaults, and validation. For resource inputs, set type to 'object' and format to 'resource-<type>' (e.g., 'resource-stripe')"
                 },
                 "path": {
                         "type": "string"
@@ -1087,10 +1097,12 @@ export const mcpEndpointTools: EndpointTool[] = [
                         "description": "Detailed documentation for this flow"
                 },
                 "value": {
-                        "type": "object"
+                        "type": "object",
+                        "description": "The flow structure containing modules and optional preprocessor/failure handlers"
                 },
                 "schema": {
-                        "type": "object"
+                        "type": "object",
+                        "description": "JSON Schema for flow inputs. Use this to define input parameters, their types, defaults, and validation. For resource inputs, set type to 'object' and format to 'resource-<type>' (e.g., 'resource-stripe')"
                 },
                 "tag": {
                         "type": "string"

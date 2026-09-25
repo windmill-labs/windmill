@@ -1354,6 +1354,14 @@ pub async fn sync_global_settings_declarative(
             .map_err(|e| anyhow::anyhow!("{banner_key}: {e}"))?,
     }
 
+    let accent_key = crate::global_settings::ACCENT_COLOR_SETTING;
+    match desired.get(accent_key) {
+        None | Some(serde_json::Value::Null) => {}
+        Some(serde_json::Value::String(s)) if s.trim().is_empty() => {}
+        Some(color) => crate::global_settings::validate_accent_color(color)
+            .map_err(|e| anyhow::anyhow!("{accent_key}: {e}"))?,
+    }
+
     // An origin list that cannot be parsed is dropped at boot, leaving the
     // empty default — which is no restriction at all. Rejecting it here is what
     // keeps a typo in a ConfigMap from silently widening CORS instance-wide.
