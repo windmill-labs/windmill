@@ -1007,7 +1007,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         ));
     }
 
-    // Native script retry: a failed `Script` job that carries a retry policy and
+    // Native script retry: a failed `Script` or `Script_Hub` job that carries a retry policy and
     // has attempts left gets its next attempt enqueued here — before the queue
     // row (which holds the attempt counter) is removed by commit. The failed
     // attempt is still recorded as a completed job below. `maybe_enqueue_…`

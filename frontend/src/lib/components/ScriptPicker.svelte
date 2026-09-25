@@ -275,16 +275,19 @@
 </div>
 
 {#snippet hubHint({ close }: { close: () => void })}
-	<button
-		class="sticky py-2 px-4 w-full text-left text-xs font-medium hover:bg-surface-hover flex items-center justify-center gap-2 border-t border-border-light"
-		onclick={() => {
+	<Button
+		variant="subtle"
+		size="xs2"
+		startIcon={{ icon: Globe2 }}
+		wrapperClasses="w-full border-t border-border-light"
+		btnClasses="w-full rounded-none font-normal"
+		onClick={() => {
 			// Read before close(): Select clears its filter text when the list closes.
 			hubFilter = filterText
 			close()
 			drawerHub?.openDrawer()
 		}}
 	>
-		<Globe2 class="inline" size={16} />
 		Browse Hub scripts
-	</button>
+	</Button>
 {/snippet}
