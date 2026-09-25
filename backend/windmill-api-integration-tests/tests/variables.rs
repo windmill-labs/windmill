@@ -282,6 +282,39 @@ async fn test_variable_value_cache_is_identity_scoped(db: Pool<Postgres>) -> any
     Ok(())
 }
 
+/// A denial confirms the variable exists but must not reveal who holds grants on it or on
+/// its folder: test-user-2's grants must never appear in test-user-3's error.
+#[sqlx::test(migrations = "../migrations", fixtures("base", "variable_cache_rls"))]
+async fn test_variable_denial_hides_grants(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    sqlx::query(
+        "UPDATE variable SET extra_perms = '{\"u/test-user-2\": true}'
+         WHERE workspace_id = 'test-workspace' AND path = 'f/secret/cache_target_var'",
+    )
+    .execute(&db)
+    .await?;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    for endpoint in ["get", "get_value"] {
+        let resp = client()
+            .get(variable_url(port, endpoint, "f/secret/cache_target_var"))
+            .header("Authorization", "Bearer SECRET_TOKEN_3")
+            .send()
+            .await?;
+        assert_eq!(resp.status(), 401);
+        let body = resp.text().await?;
+        assert!(
+            !body.contains("test-user-2"),
+            "{endpoint} leaked grants: {body}"
+        );
+        assert!(body.contains("exists but you don't have access"), "{body}");
+        assert!(body.contains("folder secret"), "{body}");
+    }
+
+    Ok(())
+}
+
 /// Secret variables ARE cached (with their per-read side effects — the EE
 /// `variables.decrypt_secret` audit and running-job secret registration — re-run on every
 /// hit; that re-emission is not observable in the OSS build since `audit_log` is a no-op).
