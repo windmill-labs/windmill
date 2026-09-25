@@ -21,6 +21,7 @@ windmill-common = { workspace = true, default-features = false }
 windmill-audit.workspace = true
 windmill-mcp = { workspace = true, optional = true }
 axum.workspace = true
+constant_time_eq.workspace = true
 http.workspace = true
 serde.workspace = true
 serde_json.workspace = true
