@@ -161,7 +161,7 @@ async fn process_jc(
             script_hash = field::Empty,
             otel.name = field::Empty,
             otel.status_code = "ERROR",
-            otel.status_message = field::Empty,
+            otel.status_description = field::Empty,
             success = %success,
             error.message = field::Empty,
             error.name = field::Empty,
@@ -219,11 +219,11 @@ async fn process_jc(
             span.record("error.message", result_error.message.as_str());
             span.record("error.name", result_error.name.as_str());
             span.record(
-                "otel.status_message",
+                "otel.status_description",
                 crate::worker::truncate_description(&result_error.message).as_str(),
             );
         } else {
-            span.record("otel.status_message", "Job failed");
+            span.record("otel.status_description", "Job failed");
         }
     }
 

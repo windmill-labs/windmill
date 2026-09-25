@@ -41,6 +41,7 @@ async fn ensure_setup() -> Arc<OtelTestState> {
             // Tracing: InMemorySpanExporter + SimpleSpanProcessor
             let span_exporter = InMemorySpanExporter::default();
             let tracer_provider = SdkTracerProvider::builder()
+                .with_id_generator(PresetIdGenerator::default())
                 .with_span_processor(SimpleSpanProcessor::new(span_exporter.clone()))
                 .build();
             let tracer = tracer_provider.tracer("windmill");
