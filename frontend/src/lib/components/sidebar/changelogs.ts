@@ -6,6 +6,12 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'BigQuery and Snowflake available in the community edition',
+		href: 'https://www.windmill.dev/changelog/bigquery-snowflake-in-community-edition',
+		date: '2026-07-25'
+	},
+
+	{
 		label: 'AWS Bedrock support for Windmill AI',
 		href: 'https://www.windmill.dev/changelog/aws-bedrock',
 		date: '2025-11-19'
