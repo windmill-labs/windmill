@@ -31715,6 +31715,12 @@ components:
             For an `ai_agent` resource only, its `memory` setting: the one part
             of the value a listing returns, since it decides whether the agent
             keeps a conversation.
+        draft_path:
+          type: string
+          description: |
+            On a draft-only row, the path its editor has staged when it
+            differs from the storage path (e.g. a never-deployed item parked at
+            `u/{user}/draft_{uuid}`).
       required:
         - path
         - resource_type

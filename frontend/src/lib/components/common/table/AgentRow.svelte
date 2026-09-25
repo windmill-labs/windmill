@@ -71,7 +71,7 @@
 	kind="agent"
 	{keyboardSelected}
 	{marked}
-	path={agent.path}
+	path={agent.draft_path ?? agent.path}
 	summary={agent.description}
 	workspaceId={agent.workspace_id ?? $workspaceStore ?? ''}
 	canFavorite={false}

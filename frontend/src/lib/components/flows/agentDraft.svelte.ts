@@ -282,12 +282,6 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 					async ([r, user]) => {
 						// A slower response for a path we have left must not overwrite the current one.
 						if (loadedFor !== key) return
-						// The path was minted as free, so a deployed agent there is someone else's work. A
-						// draft-only one is the caller's own new agent, reopened.
-						if (opts.isNew?.() && !(r as any).no_deployed) {
-							refuse(`${path} already exists. Close this and create the agent again.`)
-							return
-						}
 						// A step's `agent` is caller-authored, so it can name a resource of any type, and a
 						// deploy from here would replace that resource's whole value while keeping its type.
 						const refused = agentEditorRefusal(path, r.resource_type)
@@ -344,13 +338,15 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 					(err) => {
 						if (loadedFor !== key) return
 						// Nothing is written until the first edit: the sync saves only on user input, and
-						// the first deploy creates the resource at whatever path the form then holds.
+						// the first deploy creates the resource at whatever path the form then holds. The
+						// draft stays at the minted `draft_<uuid>` storage path; the form's own path starts
+						// empty so the path field names it, as a new script's or flow's does.
 						if (opts.isNew?.() && (err as { status?: number })?.status === 404) {
 							noDeployed = true
 							deployed = undefined
 							canWriteResource = true
 							state = {
-								path,
+								path: '',
 								description: '',
 								args: {},
 								resource_type: 'ai_agent',

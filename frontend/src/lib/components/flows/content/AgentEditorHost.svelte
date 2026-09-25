@@ -441,6 +441,10 @@
 	export function draftHandle() {
 		return draft
 	}
+	/** The arguments a tool takes, as this editor inferred them; undefined until it has. */
+	export function toolSchema(id: string): any {
+		return flowStateStore.val[id]?.schema
+	}
 	/** The switch between the form and the chat, which the dialog's header holds. `mode` is
 	 *  undefined until the agent loads and picks the first one. */
 	export function testPaneHandle() {
@@ -495,7 +499,7 @@
 								}
 							}
 							bind:error={pathError}
-							initialPath={path}
+							initialPath={draft.noDeployed ? '' : path}
 							checkInitialPathExistence={draft.noDeployed}
 							namePlaceholder="agent"
 							kind="resource"

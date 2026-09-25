@@ -1,21 +1,19 @@
 <script lang="ts">
 	import { page } from '$app/state'
-	import { MediaQuery } from 'svelte/reactivity'
 	import {
 		FileUp,
 		FormInput,
 		MessageSquare,
-		PanelRightClose,
-		PanelRightOpen,
 		Pen,
 		Shield,
+		SlidersHorizontal,
 		Trash
 	} from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { base } from '$lib/base'
 	import { goto } from '$lib/navigation'
 	import { copilotInfo } from '$lib/aiStore'
-	import { Button, Drawer, DrawerContent } from '$lib/components/common'
+	import { Button } from '$lib/components/common'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import SummaryPathDisplay from '$lib/components/SummaryPathDisplay.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -24,7 +22,7 @@
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import AgentEditorHost from '$lib/components/flows/content/AgentEditorHost.svelte'
-	import AgentConfigSummary from '$lib/components/flows/content/AgentConfigSummary.svelte'
+	import AgentConfigModal from '$lib/components/flows/content/AgentConfigModal.svelte'
 	import { keepsManagedMemory } from '$lib/components/flows/agentFormFields'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
 	import { ResourceService } from '$lib/gen'
@@ -57,12 +55,7 @@
 				: undefined
 	)
 
-	// Tailwind's `lg`, where the detail pages stop collapsing: the configuration sits beside the run
-	// pane above it, and in a drawer over it below, closed until asked for.
-	const wide = new MediaQuery('(min-width: 1024px)')
-	let panelOpen = $state<boolean | undefined>(undefined)
-	let showPanel = $derived(panelOpen ?? wide.current)
-
+	let configModal: AgentConfigModal | undefined = $state(undefined)
 	let shareModal: ShareModal | undefined = $state(undefined)
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state(undefined)
 	let deleteOpen = $state(false)
@@ -170,14 +163,17 @@
 						]}
 					/>
 				{/if}
-				<Button
-					variant="subtle"
-					unifiedSize="md"
-					iconOnly
-					startIcon={{ icon: showPanel ? PanelRightClose : PanelRightOpen }}
-					title={showPanel ? 'Hide configuration' : 'Show configuration'}
-					onClick={() => (panelOpen = !showPanel)}
-				/>
+				{#if config}
+					<Button
+						variant="default"
+						unifiedSize="md"
+						startIcon={{ icon: SlidersHorizontal }}
+						title="The model, instructions and tools the agent runs with"
+						onClick={() => configModal?.open()}
+					>
+						Configuration
+					</Button>
+				{/if}
 				{#if canEdit}
 					<Button
 						variant="accent"
@@ -191,33 +187,20 @@
 			</div>
 		</div>
 	</div>
-	<div class="flex-1 min-h-0 flex">
-		<div class="flex-1 min-w-0">
-			{#key `${ws}:${path}`}
-				<AgentEditorHost
-					bind:this={host}
-					{path}
-					workspace={ws}
-					enableAi={$copilotInfo.enabled}
-					view
-					{runBlockedReason}
-				/>
-			{/key}
-		</div>
-		{#if wide.current && showPanel && config}
-			<aside class="w-80 shrink-0 border-l overflow-y-auto">
-				<AgentConfigSummary {config} />
-			</aside>
-		{/if}
+	<div class="flex-1 min-h-0">
+		{#key `${ws}:${path}`}
+			<AgentEditorHost
+				bind:this={host}
+				{path}
+				workspace={ws}
+				enableAi={$copilotInfo.enabled}
+				view
+				{runBlockedReason}
+			/>
+		{/key}
 	</div>
 </main>
 
-{#if !wide.current}
-	<Drawer placement="right" size="320px" bind:open={() => showPanel, (open) => (panelOpen = open)}>
-		<DrawerContent title="Configuration" on:close={() => (panelOpen = false)} noPadding>
-			{#if config}
-				<AgentConfigSummary {config} />
-			{/if}
-		</DrawerContent>
-	</Drawer>
+{#if config}
+	<AgentConfigModal bind:this={configModal} {config} toolSchema={(id) => host?.toolSchema(id)} />
 {/if}

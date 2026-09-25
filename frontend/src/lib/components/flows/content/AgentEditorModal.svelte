@@ -123,6 +123,9 @@
 	let inEvals = $derived(target?.view === 'evals' && !refused)
 	let readOnly = $derived(draft ? !draft.canWrite : false)
 	let draftOnly = $derived(draft?.noDeployed ?? false)
+	// A never-deployed agent is stored at a minted `draft_<uuid>` path, so it is named by the path
+	// its first deploy will create, as the home list names it.
+	let shownPath = $derived((draftOnly && draft?.state?.path) || target?.path)
 
 	// Where the evals pane is within itself, so its levels extend this dialog's trail rather than
 	// opening a dialog of their own. Cleared on the way in: the pane reports a level once it is on
@@ -137,7 +140,7 @@
 	const AGENT_DESCRIPTION = 'Changes here update the saved agent, and every flow that links to it.'
 
 	let root = $derived<ModalTrailSegment>({
-		label: target?.path ?? 'Agent',
+		label: shownPath ?? 'Agent',
 		onclick: inEvals ? () => showAgentEditorView(undefined) : undefined
 	})
 	let trail = $derived<ModalTrailSegment[]>(
@@ -272,7 +275,7 @@
 				fillHeight
 				enterConfirms={false}
 				paginated
-				title={target.path}
+				title={shownPath ?? target.path}
 				{trail}
 				{description}
 				{titleBadge}

@@ -407,20 +407,22 @@
 		// Counted before the owner scope: the chips and tree nodes list every owner.
 		const counts: Record<string, number> = {}
 		for (const r of rows) {
-			const owner = r.path.split('/').slice(0, 2).join('/')
+			const owner = effectivePath(r).split('/').slice(0, 2).join('/')
 			counts[owner] = (counts[owner] ?? 0) + 1
 		}
 		agentOwnerCounts = counts
-		const scoped = ownerFilter ? rows.filter((r) => r.path.startsWith(ownerFilter + '/')) : rows
+		const scoped = ownerFilter
+			? rows.filter((r) => effectivePath(r).startsWith(ownerFilter + '/'))
+			: rows
 		const byTime = (r: ListableResource) => new Date(r.edited_at ?? 0).getTime()
 		const sorted = [...scoped].sort((a, b) => {
 			switch (sortOrder) {
 				case 'updated_asc':
 					return byTime(a) - byTime(b)
 				case 'name_asc':
-					return cmp(a.path, b.path)
+					return cmp(effectivePath(a), effectivePath(b))
 				case 'name_desc':
-					return cmp(b.path, a.path)
+					return cmp(effectivePath(b), effectivePath(a))
 				default:
 					return byTime(b) - byTime(a)
 			}

@@ -218,6 +218,11 @@ pub struct ListedResource {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[sqlx(default)]
     pub agent_memory: Option<serde_json::Value>,
+    /// On a draft-only row, the path its editor has staged when it differs from the storage path
+    /// (a new item parked at `u/{user}/draft_{uuid}`), as the other kinds' listings report it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub draft_path: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -484,10 +489,16 @@ async fn list_resources(
             // ResourceEditor's `ResourceState`: { path, description, args, labels?, wsSpecific, resource_type? }
             // Listed at the draft's key rather than its `path`: an editor keys the draft on the path
             // it opened, which is the only one a draft read can find, while `path` moves on rename.
+            // The staged `path` is reported beside it as `draft_path`.
             let path = row.path;
             if !allowed(&path) {
                 continue;
             }
+            let draft_path = v
+                .get("path")
+                .and_then(|s| s.as_str())
+                .filter(|p| !p.is_empty() && *p != path)
+                .map(str::to_string);
             let description = v
                 .get("description")
                 .and_then(|x| x.as_str())
@@ -547,7 +558,7 @@ async fn list_resources(
                 // Synthesized rows are the authed user's draft.
                 is_draft: Some(true),
             };
-            rows.push(ListedResource { resource, agent_memory });
+            rows.push(ListedResource { resource, agent_memory, draft_path });
         }
     }
 
