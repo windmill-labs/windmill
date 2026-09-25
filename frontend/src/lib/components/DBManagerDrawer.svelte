@@ -386,9 +386,7 @@
 						uriState.selectedRole = role
 					}}
 					bind:pendingAction
-					canManageDatatable={!!($superadmin || $userStore?.is_admin) &&
-						!!$enterpriseLicense &&
-						!isCloudHosted()}
+					canManageDatatable={!!($superadmin || $userStore?.is_admin)}
 					onDatatableAction={runDatatableAction}
 					bind:workerTag={() => workerTag.tag, (v) => (workerTag.tag = v)}
 					bind:hasReplResult

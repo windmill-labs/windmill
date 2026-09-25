@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { untrack, type Snippet } from 'svelte'
 	import { isCloudHosted } from '$lib/cloud'
-	import { superadmin, type DBSchema } from '$lib/stores'
+	import { enterpriseLicense, superadmin, type DBSchema } from '$lib/stores'
 	import {
 		ChevronDownIcon,
 		EditIcon,
@@ -122,7 +122,8 @@
 		onDatatableAction?: (datatable: string, action: DatatableRowAction) => void
 		/** Workspace the access drawer's own calls run against. */
 		workspace?: string
-		/** Whether the caller administers data tables here, which is who may edit their roles. */
+		/** Whether the caller administers data tables here, which is who may edit their roles.
+		 * The edition and hosting the feature also needs are checked here, to say which is missing. */
 		canManageDatatable?: boolean
 		/** Enable multi-select mode with checkboxes in sidebar */
 		multiSelectMode?: boolean
@@ -356,6 +357,47 @@
 		return (
 			!isCloudHosted() && !!datatableTree?.find((d) => d.datatable_name === datatable)?.instance
 		)
+	}
+
+	/** Why a data table's roles or grants cannot be used from here, or undefined when they can.
+	 * The menu entries stay listed either way, disabled with this reason, so the feature is
+	 * discoverable. `ee` marks the reason that is the edition. */
+	function accessBlocker(
+		datatable: string | undefined,
+		needsAdmin: boolean
+	): { reason: string; ee: boolean } | undefined {
+		if (!$enterpriseLicense)
+			return { reason: 'Data table roles and grants are an Enterprise Edition feature.', ee: true }
+		if (isCloudHosted())
+			return {
+				reason: 'Data table roles and grants are only available on self-hosted instances.',
+				ee: false
+			}
+		if (!isInstanceDatatable(datatable))
+			return {
+				reason: 'Only data tables stored in the instance database have roles and grants.',
+				ee: false
+			}
+		if (needsAdmin && !canManageDatatable)
+			return { reason: 'Only workspace admins can manage data table roles.', ee: false }
+		return undefined
+	}
+
+	/** A roles or grants menu entry, disabled with its reason when it cannot be used. */
+	function accessItem(
+		label: string,
+		datatable: string | undefined,
+		needsAdmin: boolean,
+		action: () => void
+	) {
+		const blocker = accessBlocker(datatable, needsAdmin)
+		return {
+			displayName: blocker?.ee ? `${label} (EE)` : label,
+			icon: KeyRoundIcon,
+			disabled: !!blocker,
+			tooltip: blocker?.reason,
+			action: blocker ? () => {} : action
+		}
 	}
 
 	function canCreateSchemaIn(datatable: string | undefined): boolean {
@@ -1178,15 +1220,7 @@
 													icon: HistoryIcon,
 													action: () => onDatatableAction?.(dt, 'migrations')
 												},
-												...(canManageDatatable && isInstanceDatatable(dt)
-													? [
-															{
-																displayName: 'Roles',
-																icon: KeyRoundIcon,
-																action: () => onDatatableAction?.(dt, 'roles')
-															}
-														]
-													: []),
+												accessItem('Roles', dt, true, () => onDatatableAction?.(dt, 'roles')),
 												{
 													displayName: 'Export',
 													icon: DownloadIcon,
@@ -1238,17 +1272,14 @@
 													enableFlyTransition
 													class="[&_button]:text-secondary"
 													items={() => [
-														...(isInstanceDatatable(root.datatable)
+														...(root.datatable !== undefined
 															? [
-																	{
-																		displayName: 'Access',
-																		icon: KeyRoundIcon,
-																		action: () =>
-																			(aclDrawer = {
-																				datatable: root.datatable,
-																				target: { kind: 'schema', schema: sc.schemaKey }
-																			})
-																	}
+																	accessItem('Access', root.datatable, false, () => {
+																		aclDrawer = {
+																			datatable: root.datatable,
+																			target: { kind: 'schema', schema: sc.schemaKey }
+																		}
+																	})
 																]
 															: []),
 														...(SCHEMA_RENAME_DB_TYPES.includes(dbType)
@@ -1330,21 +1361,18 @@
 															enableFlyTransition
 															class="[&_button]:text-secondary"
 															items={() => [
-																...(isInstanceDatatable(root.datatable)
+																...(root.datatable !== undefined
 																	? [
-																			{
-																				displayName: 'Access',
-																				icon: KeyRoundIcon,
-																				action: () =>
-																					(aclDrawer = {
-																						datatable: root.datatable,
-																						target: {
-																							kind: 'table',
-																							schema: sc.schemaKey,
-																							table: tableKey
-																						}
-																					})
-																			}
+																			accessItem('Access', root.datatable, false, () => {
+																				aclDrawer = {
+																					datatable: root.datatable,
+																					target: {
+																						kind: 'table',
+																						schema: sc.schemaKey,
+																						table: tableKey
+																					}
+																				}
+																			})
 																		]
 																	: []),
 																{
