@@ -113,9 +113,9 @@ test('a server-level error is fatal, not swallowed', { timeout: 60000 }, async (
   const { port } = blocker.address()
   t.after(() => new Promise((resolve) => blocker.close(resolve)))
 
-  const { code, signal, output } = await runMultiplayerServerUntilExit({ PORT: String(port) })
+  const { code, output, killedByTimeout } = await runMultiplayerServerUntilExit({ PORT: String(port) })
 
+  assert.equal(killedByTimeout, false, `the server had to be killed rather than exiting:\n${output}`)
   assert.ok(output.includes('EADDRINUSE'), `expected a listen failure, got:\n${output}`)
-  assert.equal(signal, null, 'the server should exit on its own, not have to be killed')
   assert.notEqual(code, 0, `expected a non-zero exit, got ${code}:\n${output}`)
 })

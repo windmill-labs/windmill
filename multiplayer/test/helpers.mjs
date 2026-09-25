@@ -207,12 +207,27 @@ export async function runMultiplayerServerUntilExit(env = {}, { timeoutMs = 1500
   child.stdout.on('data', (chunk) => { output += chunk.toString() })
   child.stderr.on('data', (chunk) => { output += chunk.toString() })
 
-  const killer = setTimeout(() => child.kill('SIGKILL'), timeoutMs)
-  const [code, signal] = await new Promise((resolve) => {
-    child.once('exit', (exitCode, exitSignal) => resolve([exitCode, exitSignal]))
-  })
-  clearTimeout(killer)
-  return { code, signal, output }
+  // Record the rescue rather than inferring it from the exit signal: `signal` is
+  // null for every child exit on Windows, so a caller checking it could not tell
+  // a server that exited on its own from one this had to kill.
+  let killedByTimeout = false
+  const killer = setTimeout(() => {
+    killedByTimeout = true
+    child.kill('SIGKILL')
+  }, timeoutMs)
+
+  try {
+    // 'close' rather than 'exit': 'exit' fires when the child terminates, which
+    // can be before its stdio pipes have been drained, and the caller reads
+    // `output`. A child that never starts emits neither, only 'error'.
+    const [code, signal] = await new Promise((resolve, reject) => {
+      child.once('close', (exitCode, exitSignal) => resolve([exitCode, exitSignal]))
+      child.once('error', reject)
+    })
+    return { code, signal, output, killedByTimeout }
+  } finally {
+    clearTimeout(killer)
+  }
 }
 
 /** Poll `predicate` until it is true, or throw after `timeoutMs`. */
