@@ -400,10 +400,11 @@ async fn invalidation_pending() -> bool {
 }
 
 const REFRESH_TICK: std::time::Duration = std::time::Duration::from_secs(60);
-/// Trigger changes reach every process as a `notify_http_trigger_change` event, which forces a
-/// rebuild, so the version is only read as a safety net for a change whose event was missed.
-/// Every process of an instance runs this loop: keep it off the database on the other ticks.
-const VERSION_CHECK_EVERY_TICKS: u32 = 20;
+/// Trigger changes normally reach every process as a `notify_http_trigger_change` event, which
+/// forces a rebuild. The version check catches the ones whose event a process skips: the event
+/// poll moves past ids that committed out of order, so a deleted or disabled trigger stays routed
+/// on that process until this check runs. Every process runs this loop, hence not every tick.
+const VERSION_CHECK_EVERY_TICKS: u32 = 5;
 
 pub async fn refresh_routers_loop(
     db: &DB,
