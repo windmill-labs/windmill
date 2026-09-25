@@ -6242,8 +6242,8 @@ async fn force_complete_zombie_job(
     // row, then its completed row (see `record_child_completion`). A worker completing the same
     // job concurrently would otherwise deadlock against this.
     let duration_ms = sqlx::query_scalar!(
-        "SELECT COALESCE((EXTRACT('epoch' FROM now()) - EXTRACT('epoch' FROM COALESCE(started_at, now()))) * 1000, 0)::bigint AS \"duration_ms!\"
-        FROM v2_job_queue WHERE id = $1",
+        "SELECT COALESCE(c.duration_ms, COALESCE((EXTRACT('epoch' FROM now()) - EXTRACT('epoch' FROM COALESCE(q.started_at, now()))) * 1000, 0)::bigint) AS \"duration_ms!\"
+        FROM v2_job_queue q LEFT JOIN v2_job_completed c ON c.id = q.id WHERE q.id = $1",
         job_id,
     )
     .fetch_optional(&mut *tx)

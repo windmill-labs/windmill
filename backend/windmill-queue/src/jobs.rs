@@ -1214,12 +1214,13 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
 
     // The parent's rows are locked ahead of the child's own queue row (see
     // `record_child_completion` for the order this must keep), so the duration it stamps is read
-    // before the completion. `now()` is fixed for the transaction, so it is the one stored below.
+    // before the completion: the one the completed row will hold. `now()` is fixed for the
+    // transaction, and a completed row already there keeps its own duration.
     let mut wac_parent_ready = false;
     if let Some(parent_job) = wac_parent {
         let Some(duration) = sqlx::query_scalar!(
-            "SELECT COALESCE($2::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(started_at, now()))))*1000)::bigint AS \"duration_ms!\"
-             FROM v2_job_queue WHERE id = $1",
+            "SELECT COALESCE(c.duration_ms, COALESCE($2::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(q.started_at, now()))))*1000)::bigint) AS \"duration_ms!\"
+             FROM v2_job_queue q LEFT JOIN v2_job_completed c ON c.id = q.id WHERE q.id = $1",
             job_id,
             duration,
         )
