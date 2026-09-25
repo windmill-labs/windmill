@@ -5064,12 +5064,12 @@ function stripBackendMetadata<T extends DraftConfig>(value: T): T {
 function mergeDraftConfig<T extends DraftConfig>(
 	base: T | undefined,
 	overrides: DraftConfig,
-	path: string
+	chosenName: string
 ): T {
 	return {
 		...(base ? stripBackendMetadata(base) : {}),
 		...structuredClone(overrides),
-		path
+		path: chosenName
 	} as unknown as T
 }
 
@@ -5358,13 +5358,14 @@ function finishDraftWrite(
 type WriteSpec<T, A> = {
 	probe: (workspace: string, path: string) => Promise<boolean>
 	fetchDeployed: (workspace: string, path: string) => Promise<T>
-	buildDraft: (base: T | undefined, args: A, path: string) => T | Promise<T>
+	/** `chosenName` is the name the draft deploys under, which is the only path a value
+	 * may carry — never the key it is stored at. */
+	buildDraft: (base: T | undefined, args: A, chosenName: string) => T | Promise<T>
 }
 
 async function writeDraft<T, A>(
 	spec: WriteSpec<T, A>,
 	type: WorkspaceItemType,
-	path: string,
 	args: A,
 	ctx: WriteDraftCtx,
 	opts: {
@@ -5375,19 +5376,27 @@ async function writeDraft<T, A>(
 ): Promise<string> {
 	const { workspace } = ctx
 	const target = draftTargetOf(ctx)
-	startDraftWrite(ctx, type, path)
+	startDraftWrite(ctx, type, target.path)
 
 	const existingDraft = await readGlobalDraftValue<T>(workspace, type, target, {
 		triggerKind: opts.triggerKind
 	})
 	let base = existingDraft
 	let existed = existingDraft !== undefined
-	if (base === undefined && (await spec.probe(workspace, path))) {
-		base = await spec.fetchDeployed(workspace, path)
+	if (base === undefined && (await spec.probe(workspace, target.path))) {
+		base = await spec.fetchDeployed(workspace, target.path)
 		existed = true
 	}
 
-	const draft = await spec.buildDraft(base, args, path)
+	// The name a base already carries wins over the path the call named: a draft is
+	// addressable by its storage key, and writing that key back into the value would
+	// rename the item to it — the deployer deploys at the path inside the value. Only a
+	// create (no base) takes its name from the call.
+	const itemKind = itemKindFor(type, opts.triggerKind)
+	const chosenName =
+		(base !== undefined && itemKind ? chosenDraftName(itemKind, base) : undefined) ?? target.path
+
+	const draft = await spec.buildDraft(base, args, chosenName)
 
 	const result = await persistGlobalDraft(workspace, type, target, draft, {
 		triggerKind: opts.triggerKind,
@@ -5411,17 +5420,17 @@ const SCRIPT_SPEC: WriteSpec<NewScript, ScriptDraftArgs> = {
 		const existing = await ScriptService.getScriptByPath({ workspace, path })
 		return { ...(existing as unknown as NewScript), parent_hash: existing.hash }
 	},
-	buildDraft: async (base, args, path) => {
+	buildDraft: async (base, args, chosenName) => {
 		const draft: NewScript = base
 			? {
 					...structuredClone(base),
-					path,
+					path: chosenName,
 					summary: args.summary ?? base.summary,
 					content: args.content,
 					language: args.language
 				}
 			: {
-					path,
+					path: chosenName,
 					summary: args.summary ?? '',
 					description: '',
 					content: args.content,
@@ -5452,7 +5461,7 @@ function writeScriptDraft(
 	ctx: WriteDraftCtx,
 	codeDiff?: ToolCodeDiff
 ): Promise<string> {
-	return writeDraft(SCRIPT_SPEC, 'script', args.path, args, ctx, {
+	return writeDraft(SCRIPT_SPEC, 'script', args, ctx, {
 		override: args.override,
 		codeDiff:
 			codeDiff ??
@@ -5481,7 +5490,7 @@ const FLOW_STRUCTURAL_VALUE_KEYS = new Set<string>(EDITABLE_FLOW_STRUCTURAL_KEYS
 const FLOW_SPEC: WriteSpec<Flow, FlowDraftArgs> = {
 	probe: (workspace, path) => FlowService.existsFlowByPath({ workspace, path }),
 	fetchDeployed: (workspace, path) => FlowService.getFlowByPath({ workspace, path }),
-	buildDraft: (base, args, path) => {
+	buildDraft: (base, args, chosenName) => {
 		const value = structuredClone(args.flow.value)
 		if (args.flow.groups !== undefined && args.flow.groups !== null) {
 			value.groups = structuredClone(args.flow.groups)
@@ -5499,14 +5508,14 @@ const FLOW_SPEC: WriteSpec<Flow, FlowDraftArgs> = {
 		return base
 			? {
 					...structuredClone(base),
-					path,
+					path: chosenName,
 					summary: args.summary ?? base.summary,
 					description: args.description ?? base.description,
 					value,
 					schema: args.flow.schema ?? base.schema
 				}
 			: {
-					path,
+					path: chosenName,
 					summary: args.summary ?? '',
 					description: args.description ?? '',
 					value,
@@ -5520,18 +5529,18 @@ const FLOW_SPEC: WriteSpec<Flow, FlowDraftArgs> = {
 }
 
 function writeFlowDraft(args: FlowDraftArgs, ctx: WriteDraftCtx): Promise<string> {
-	return writeDraft(FLOW_SPEC, 'flow', args.path, args, ctx, { override: args.override })
+	return writeDraft(FLOW_SPEC, 'flow', args, ctx, { override: args.override })
 }
 
 const SCHEDULE_SPEC: WriteSpec<ScheduleDraftConfig, NewSchedule & { override?: boolean }> = {
 	probe: (workspace, path) => ScheduleService.existsSchedule({ workspace, path }),
 	fetchDeployed: async (workspace, path) =>
 		(await ScheduleService.getSchedule({ workspace, path })) as ScheduleDraftConfig,
-	buildDraft: (base, args, path) => {
+	buildDraft: (base, args, chosenName) => {
 		// `override` is a tool-only conflict-resolution flag, not schedule config —
 		// strip it so mergeDraftConfig doesn't clone it into the persisted draft.
 		const { override: _override, ...config } = args
-		return mergeDraftConfig<ScheduleDraftConfig>(base, config as DraftConfig, path)
+		return mergeDraftConfig<ScheduleDraftConfig>(base, config as DraftConfig, chosenName)
 	}
 }
 
@@ -5539,7 +5548,7 @@ function writeScheduleDraft(
 	args: NewSchedule & { override?: boolean },
 	ctx: WriteDraftCtx
 ): Promise<string> {
-	return writeDraft(SCHEDULE_SPEC, 'schedule', args.path, args, ctx, { override: args.override })
+	return writeDraft(SCHEDULE_SPEC, 'schedule', args, ctx, { override: args.override })
 }
 
 function triggerWriteSpec(kind: TriggerKind): WriteSpec<TriggerDraftConfig, TriggerDraftConfig> {
@@ -5548,8 +5557,8 @@ function triggerWriteSpec(kind: TriggerKind): WriteSpec<TriggerDraftConfig, Trig
 		probe: (workspace, path) => service.exists({ workspace, path }),
 		fetchDeployed: async (workspace, path) =>
 			(await service.get({ workspace, path })) as TriggerDraftConfig,
-		buildDraft: (base, config, path) => {
-			const draft = mergeDraftConfig<TriggerDraftConfig>(base, config, path)
+		buildDraft: (base, config, chosenName) => {
+			const draft = mergeDraftConfig<TriggerDraftConfig>(base, config, chosenName)
 			if (kind === 'email') {
 				// workspaced_local_part maps to a NOT NULL column but is optional in the
 				// tool schema. Default on the merged draft (not the incoming config) so an
@@ -5567,7 +5576,7 @@ function writeTriggerDraft(
 	ctx: WriteDraftCtx
 ): Promise<string> {
 	const config = args.config as TriggerDraftConfig
-	return writeDraft(triggerWriteSpec(args.kind), 'trigger', config.path, config, ctx, {
+	return writeDraft(triggerWriteSpec(args.kind), 'trigger', config, ctx, {
 		triggerKind: args.kind,
 		override: args.override
 	})
@@ -5584,7 +5593,7 @@ function writeResourceDraft(
 	args: CreateResource & { override?: boolean },
 	ctx: WriteDraftCtx
 ): Promise<string> {
-	return writeDraft(RESOURCE_SPEC, 'resource', args.path, args, ctx, { override: args.override })
+	return writeDraft(RESOURCE_SPEC, 'resource', args, ctx, { override: args.override })
 }
 
 const VARIABLE_SPEC: WriteSpec<VariableDraftState, WriteVariableArgs> = {
@@ -5604,7 +5613,7 @@ function writeVariableDraft(args: WriteVariableArgs, ctx: WriteDraftCtx): Promis
 			`"${args.value}" is not a valid value for variable "${args.path}" — it is a self-reference. Omit value to keep the current one.`
 		)
 	}
-	return writeDraft(VARIABLE_SPEC, 'variable', args.path, args, ctx, { override: args.override })
+	return writeDraft(VARIABLE_SPEC, 'variable', args, ctx, { override: args.override })
 }
 
 async function loadScriptForEdit(

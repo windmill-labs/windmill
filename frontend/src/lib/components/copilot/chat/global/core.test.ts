@@ -3181,6 +3181,34 @@ describe('global AI tools', () => {
 		).toBeUndefined()
 	})
 
+	// A script draft's chosen name IS `value.path`, and the deployer deploys at the path
+	// inside the value — so a write addressed by the storage key must not write that key
+	// back as the name. The other kinds keep the name in `draft_path`, out of the way.
+	it('keeps a script draft name when the write addresses it by its storage key', async () => {
+		seedBackendDraft(
+			'script',
+			'u/admin/draft_s1',
+			{
+				path: 'f/team/new_script',
+				summary: 'Staged under a new name',
+				content: 'export async function main() { return 1 }',
+				language: 'bun',
+				kind: 'script'
+			},
+			{ workspace: WORKSPACE }
+		)
+
+		await callGlobalTool('write_script', {
+			path: 'u/admin/draft_s1',
+			language: 'bun',
+			content: 'export async function main() { return 2 }'
+		})
+
+		const draft = getBackendDraft<any>('script', 'u/admin/draft_s1', { workspace: WORKSPACE })
+		expect(draft?.path).toBe('f/team/new_script')
+		expect(draft?.content).toBe('export async function main() { return 2 }')
+	})
+
 	// Same private-owner read path as schedules, for the trigger drawer kinds.
 	it('reads and deploys a trigger draft written by the chat', async () => {
 		await callGlobalTool('write_trigger', {
