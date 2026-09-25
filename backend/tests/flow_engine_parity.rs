@@ -2877,9 +2877,9 @@ async fn test_flow_env_imported_flow_with_nested_branch(db: Pool<Postgres>) -> a
     Ok(())
 }
 
-// A branch/loop sub-flow is marked at push when its parent has no flow_env, own or
-// inherited, so its worker skips `fetch_root_flow_env`. With an env two scopes up (root →
-// loop → imported flow without env → parallel loop → leaf) nothing may be marked and the
+// A branch/loop sub-flow of a deployed flow is marked at push when its parent has no flow_env,
+// own or inherited, so its worker skips `fetch_root_flow_env`. With an env two scopes up (root
+// → loop → imported flow without env → parallel loop → leaf) nothing may be marked and the
 // root's value must reach the leaf; with no env anywhere every loop iteration is marked.
 #[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
@@ -2888,118 +2888,116 @@ async fn test_flow_env_marks_sub_flows_only_without_ancestor_env(
 ) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
 
-    let imported_path = "f/system/imported_loop_no_env";
-    let imported_value = json!({
-        "modules": [{
-            "id": "inner",
-            "value": {
-                "type": "forloopflow",
-                "iterator": { "type": "javascript", "expr": "[1, 2]" },
-                "skip_failures": false,
-                "parallel": true,
-                "modules": [{
-                    "id": "leaf",
-                    "value": {
-                        "type": "rawscript",
-                        "language": "deno",
-                        "content": "export function main(key: any) { return key ?? null; }",
-                        "input_transforms": {
-                            "key": { "type": "javascript", "expr": "flow_env.KEY" }
-                        }
-                    }
-                }]
-            }
-        }]
-    });
-    let imported_version_id: i64 = 9991004;
-    sqlx::query!(
-        "INSERT INTO public.flow(workspace_id, summary, description, path, versions, schema, value, edited_by) VALUES ($1, '', '', $2, ARRAY[$3]::bigint[], '{}'::jsonb, $4, 'system')",
-        "test-workspace",
-        imported_path,
-        imported_version_id,
-        imported_value.clone(),
-    )
-    .execute(&db)
-    .await?;
-    sqlx::query!(
-        "INSERT INTO public.flow_version(id, workspace_id, path, schema, value, created_by) VALUES ($1, $2, $3, '{}'::jsonb, $4, 'system')",
-        imported_version_id,
-        "test-workspace",
-        imported_path,
-        imported_value.clone(),
-    )
-    .execute(&db)
-    .await?;
-
-    let root = |flow_env| FlowValue {
-        modules: vec![flow_module(
-            "outer",
-            FlowModuleValue::ForloopFlow {
-                iterator: InputTransform::Javascript { expr: "[1]".to_string() },
-                skip_failures: false,
-                parallel: false,
-                squash: None,
-                parallelism: None,
-                modules: vec![flow_module(
-                    "import",
-                    FlowModuleValue::Flow {
-                        input_transforms: Default::default(),
-                        path: imported_path.to_string(),
-                        pass_flow_input_directly: None,
-                    },
-                )],
-                modules_node: None,
-            },
-        )],
-        flow_env,
-        same_worker: false,
-        ..Default::default()
-    };
-    // `flow_env` of every loop iteration pushed under the run: marked iterations carry `{}`.
-    let iteration_envs = |root_id: uuid::Uuid| {
+    // Deployed, so their loops run as `FlowNode` sub-flows.
+    let deploy = |path: &'static str, version: i64, value: serde_json::Value| {
         let db = db.clone();
         async move {
-            sqlx::query_scalar::<_, Option<serde_json::Value>>(
-                "SELECT raw_flow->'flow_env' FROM v2_job
-                 WHERE COALESCE(root_job, parent_job) = $1 AND flow_step_id IN ('outer', 'inner')",
+            sqlx::query(
+                "INSERT INTO flow(workspace_id, summary, description, path, versions, schema, value, edited_by) VALUES ('test-workspace', '', '', $1, ARRAY[$2]::bigint[], '{}'::jsonb, $3, 'system')",
             )
-            .bind(root_id)
+            .bind(path)
+            .bind(version)
+            .bind(&value)
+            .execute(&db)
+            .await?;
+            sqlx::query(
+                "INSERT INTO flow_version(id, workspace_id, path, schema, value, created_by) VALUES ($1, 'test-workspace', $2, '{}'::jsonb, $3, 'system')",
+            )
+            .bind(version)
+            .bind(path)
+            .bind(&value)
+            .execute(&db)
+            .await?;
+            RunJob::from(JobPayload::FlowDependencies {
+                path: path.to_string(),
+                dedicated_worker: None,
+                version,
+                debouncing_settings: Default::default(),
+            })
+            .run_until_complete(&db, false, port)
+            .await;
+            anyhow::Ok(())
+        }
+    };
+    deploy(
+        "f/system/imported_loop_no_env",
+        9991004,
+        json!({ "modules": [{ "id": "inner", "value": {
+            "type": "forloopflow",
+            "iterator": { "type": "javascript", "expr": "[1, 2]" },
+            "skip_failures": false,
+            "parallel": true,
+            "modules": [{ "id": "leaf", "value": {
+                "type": "rawscript",
+                "language": "deno",
+                "content": "export function main(key: any) { return key ?? null; }",
+                "input_transforms": { "key": { "type": "javascript", "expr": "flow_env.KEY" } }
+            }}, { "id": "tail", "value": {
+                // A single simple step is inlined rather than stored as a flow node.
+                "type": "rawscript",
+                "language": "deno",
+                "content": "export function main(prev: any) { return prev; }",
+                "input_transforms": { "prev": { "type": "javascript", "expr": "results.leaf" } }
+            }}]
+        }}]}),
+    )
+    .await?;
+    let root = |flow_env: serde_json::Value| {
+        json!({ "flow_env": flow_env, "modules": [{ "id": "outer", "value": {
+            "type": "forloopflow",
+            "iterator": { "type": "javascript", "expr": "[1]" },
+            "skip_failures": false,
+            "parallel": false,
+            "modules": [{ "id": "import", "value": {
+                "type": "flow",
+                "path": "f/system/imported_loop_no_env",
+                "input_transforms": {}
+            }}]
+        }}]})
+    };
+    deploy(
+        "f/system/root_with_env",
+        9991005,
+        root(json!({ "KEY": "from-root" })),
+    )
+    .await?;
+    deploy("f/system/root_no_env", 9991006, root(json!(null))).await?;
+
+    let run = |path: &'static str, version: i64| {
+        let db = db.clone();
+        async move {
+            let completed = RunJob::from(JobPayload::Flow {
+                path: path.to_string(),
+                dedicated_worker: None,
+                apply_preprocessor: false,
+                version,
+                labels: None,
+            })
+            .run_until_complete(&db, false, port)
+            .await;
+            // The mark of every loop iteration pushed under the run.
+            let marks = sqlx::query_as::<_, (String, Option<bool>)>(
+                "SELECT j.kind::text, (c.flow_status->>'no_inherited_flow_env')::bool
+                 FROM v2_job j JOIN v2_job_completed c ON c.id = j.id
+                 WHERE COALESCE(j.root_job, j.parent_job) = $1
+                   AND j.flow_step_id IN ('outer', 'inner')",
+            )
+            .bind(completed.id)
             .fetch_all(&db)
-            .await
+            .await?;
+            anyhow::Ok((completed.json_result().unwrap(), marks))
         }
     };
 
-    let env = [(
-        "KEY".to_string(),
-        windmill_common::worker::to_raw_value(&json!("from-root")),
-    )]
-    .into();
-    let completed = RunJob::from(JobPayload::RawFlow {
-        value: root(Some(env)),
-        path: None,
-        restarted_from: None,
-    })
-    .run_until_complete(&db, false, server.addr.port())
-    .await;
-    assert_eq!(
-        completed.json_result().unwrap(),
-        json!([["from-root", "from-root"]])
-    );
-    let envs = iteration_envs(completed.id).await?;
-    assert_eq!(envs.len(), 3);
-    assert!(
-        envs.iter().all(Option::is_none),
-        "marked under an env: {envs:?}"
-    );
+    let (result, marks) = run("f/system/root_with_env", 9991005).await?;
+    assert_eq!(result, json!([["from-root", "from-root"]]));
+    assert_eq!(marks, vec![("flownode".to_string(), None); 3]);
 
-    let completed =
-        RunJob::from(JobPayload::RawFlow { value: root(None), path: None, restarted_from: None })
-            .run_until_complete(&db, false, server.addr.port())
-            .await;
-    assert_eq!(completed.json_result().unwrap(), json!([[null, null]]));
-    let envs = iteration_envs(completed.id).await?;
-    assert_eq!(envs, vec![Some(json!({})); 3]);
+    let (result, marks) = run("f/system/root_no_env", 9991006).await?;
+    assert_eq!(result, json!([[null, null]]));
+    assert_eq!(marks, vec![("flownode".to_string(), Some(true)); 3]);
 
     Ok(())
 }

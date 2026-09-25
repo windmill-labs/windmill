@@ -545,14 +545,14 @@ pub async fn update_flow_status_after_job_completion_internal(
                     flow_value,
                     old_status.no_inherited_flow_env,
                 )
-                    .await
-                    .map(|(env, is_cacheable)| {
-                        let arc = Arc::new(env);
-                        if is_cacheable {
-                            RESOLVED_FLOW_ENV_CACHE.insert(flow, arc.clone());
-                        }
-                        arc
-                    })
+                .await
+                .map(|(env, is_cacheable)| {
+                    let arc = Arc::new(env);
+                    if is_cacheable {
+                        RESOLVED_FLOW_ENV_CACHE.insert(flow, arc.clone());
+                    }
+                    arc
+                })
             }
         } else {
             None
@@ -4255,8 +4255,12 @@ async fn push_next_flow_job(
     let mut tx = db.begin().warn_after_seconds(3).await?;
     let nargs = args.as_ref();
     for (i, mut payload_tag) in job_payloads.into_iter().enumerate() {
-        if no_flow_env {
-            mark_no_inherited_flow_env(&mut payload_tag.payload);
+        // A `FlowNode` here is a branch/loop sub-flow from `payload_from_modules`: it never defines
+        // its own `flow_env`, so it inherits exactly this flow's. The mark lives in the child's
+        // status, not its definition: a `RawFlow` child's stored definition is replayed by nested
+        // restarts, whose root may have gained a `flow_env` since.
+        if let JobPayload::FlowNode { no_inherited_flow_env, .. } = &mut payload_tag.payload {
+            *no_inherited_flow_env = no_flow_env;
         }
         if i % 100 == 0 && i != 0 {
             tracing::info!(id = %flow_job.id, root_id = %job_root, "pushed (non-commited yet) first {i} subflows of {len}");
@@ -5229,20 +5233,6 @@ fn nested_restart_payload(
         branch_chosen: nested.branch_chosen,
         nested: nested.nested,
     })
-}
-
-// Record on a branch/loop sub-flow that it has no `flow_env` to inherit, so its worker skips
-// `fetch_root_flow_env`. Only valid for `payload_from_modules` payloads (the only source of
-// `FlowNode`/`RawFlow` here): they never define their own env, so they inherit exactly their
-// parent's. An imported flow can define its own, and keeps the walk.
-fn mark_no_inherited_flow_env(payload: &mut JobPayload) {
-    match payload {
-        JobPayload::FlowNode { no_inherited_flow_env, .. } => *no_inherited_flow_env = true,
-        JobPayload::RawFlow { value, .. } => {
-            value.flow_env.get_or_insert_with(HashMap::new);
-        }
-        _ => {}
-    }
 }
 
 fn payload_from_modules<'a>(
