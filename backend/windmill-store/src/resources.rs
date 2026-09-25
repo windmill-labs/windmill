@@ -2096,7 +2096,7 @@ async fn update_resource(
             .await?;
 
             sqlx::query!(
-                "UPDATE workspace_integrations SET resource_path = $1 WHERE workspace_id = $2 AND resource_path = $3",
+                "UPDATE native_trigger SET connection_path = $1 WHERE workspace_id = $2 AND connection_path = $3",
                 npath,
                 w_id,
                 path

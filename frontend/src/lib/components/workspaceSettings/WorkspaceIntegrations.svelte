@@ -210,6 +210,20 @@
 	async function createOrUpdateIntegration(serviceName: string, oauthData: any) {
 		if (!$workspaceStore) return
 
+		const displayName = supportedServices[serviceName]?.displayName ?? serviceName
+		const current = getIntegrationByService(serviceName)?.oauth_data
+		const clientChanges =
+			current?.instance_shared || (current?.client_id ?? '') !== (oauthData.client_id ?? '')
+		// A refresh token only works with the OAuth app that issued it.
+		if (clientChanges && (connections[serviceName]?.length ?? 0) > 0) {
+			const confirmed = await confirmationModal.ask({
+				title: `Change the ${displayName} OAuth app?`,
+				confirmationText: 'Change',
+				children: `Accounts connected with the current app must be connected again, at the same path, before their triggers work again.`
+			})
+			if (!confirmed) return
+		}
+
 		try {
 			await WorkspaceIntegrationService.createNativeTriggerService({
 				workspace: $workspaceStore,
