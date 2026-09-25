@@ -619,7 +619,6 @@ async fn create_snapshot_script(
     reregister_moved_native_triggers(&db, &authed, &w_id, moved_native_triggers);
     if let Some(hdm) = handle_deployment_metadata {
         let runnable_now = matches!(hdm, PostCommitDeploy::Full { .. });
-        hdm.handle(&db).await?;
         if let Some(script_path) = deployed_path
             .as_deref()
             .filter(|_| runnable_now && deployed_perpetual)
@@ -632,6 +631,7 @@ async fn create_snapshot_script(
             )
             .await;
         }
+        hdm.handle(&db).await?;
     }
     return Ok((StatusCode::CREATED, format!("{}", script_hash.unwrap())));
 }
@@ -775,20 +775,22 @@ async fn deploy_script(
         // they don't run against a version whose lock does not exist yet — and
         // don't run twice.
         let ready_to_test = matches!(hdm, PostCommitDeploy::Full { .. });
+        // The version is runnable, so the perpetual runs of earlier ones move to it here, before
+        // anything that can fail this deploy after its commit: a version nothing moved to would
+        // leave those runs on the old code with nothing left to notice. A deploy that needed lock
+        // generation hands this to its dependency job instead.
+        if ready_to_test && perpetual {
+            windmill_queue::restart_perpetual_runs_on_new_version(
+                &db,
+                &w_id,
+                &script_path,
+                &username,
+            )
+            .await;
+        }
         hdm.handle(&db).await?;
         let db2 = db.clone();
         if ready_to_test {
-            // The version is runnable, so the perpetual runs of earlier ones move to it here. A
-            // deploy that needed lock generation hands this to its dependency job instead.
-            if perpetual {
-                windmill_queue::restart_perpetual_runs_on_new_version(
-                    &db,
-                    &w_id,
-                    &script_path,
-                    &username,
-                )
-                .await;
-            }
             tokio::spawn(async move {
                 if let Err(e) = windmill_dep_map::ci_tests::trigger_ci_tests_for_item(
                     &db2,
