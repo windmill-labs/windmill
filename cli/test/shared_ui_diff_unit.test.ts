@@ -5,7 +5,8 @@
  * (including no local folder) when the apply would be a no-op.
  */
 
-import { expect, test, describe, beforeEach, afterEach, mock } from "bun:test";
+import { expect, test, describe, beforeEach, afterEach } from "bun:test";
+import { mockServices } from "./mock_services.ts";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -14,7 +15,7 @@ let remoteFiles: Record<string, string> = {};
 let remoteUnreadable = false;
 let pushedFiles: Record<string, string> | undefined;
 
-mock.module("../gen/services.gen.ts", () => ({
+mockServices({
   getSharedUi: async (_args: { workspace: string }) => {
     if (remoteUnreadable) throw new Error("shared UI store unreadable");
     return { files: remoteFiles };
@@ -25,7 +26,7 @@ mock.module("../gen/services.gen.ts", () => ({
   }) => {
     pushedFiles = args.requestBody.files;
   },
-}));
+});
 
 const { diffSharedUi, pushSharedUi } = await import(
   "../src/commands/shared_ui.ts"

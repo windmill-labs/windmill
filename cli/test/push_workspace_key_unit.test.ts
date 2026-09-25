@@ -13,7 +13,8 @@
  * - WMILL_NO_REENCRYPT_ON_KEY_CHANGE=true does the same via env var
  */
 
-import { expect, test, describe, beforeEach, afterEach, mock } from "bun:test";
+import { expect, test, describe, beforeEach, afterEach } from "bun:test";
+import { mockServices } from "./mock_services.ts";
 
 // Track calls to mocked wmill functions
 let remoteKey = "";
@@ -23,7 +24,7 @@ let setEncryptionKeyCalls: {
 }[] = [];
 
 // Mock the wmill module before importing settings.ts
-mock.module("../gen/services.gen.ts", () => ({
+mockServices({
   getWorkspaceEncryptionKey: async (_args: { workspace: string }) => ({
     key: remoteKey,
   }),
@@ -33,7 +34,7 @@ mock.module("../gen/services.gen.ts", () => ({
   }) => {
     setEncryptionKeyCalls.push(args);
   },
-}));
+});
 
 import { pushWorkspaceKey } from "../src/core/settings.ts";
 
