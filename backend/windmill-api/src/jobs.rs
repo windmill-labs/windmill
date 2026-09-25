@@ -2772,8 +2772,8 @@ async fn send_email_with_instance_smtp(
         return Err(anyhow::anyhow!("Feature not supported in cloud hosted windmill").into());
     }
 
-    // These identities are only ever given to jobs pushed as a workspace or schedule error
-    // handler, custom handlers included, so they cannot be claimed by an ordinary script.
+    // Any code pushed as a workspace or schedule error handler, custom ones included, runs as
+    // one of these identities: this keeps out ad-hoc job tokens, not who authors handler code.
     let is_handler_job = authed.email == EMAIL_ERROR_HANDLER_USER_EMAIL
         || authed.email == ERROR_HANDLER_USER_EMAIL
         || authed.email == SCHEDULE_ERROR_HANDLER_USER_EMAIL;
