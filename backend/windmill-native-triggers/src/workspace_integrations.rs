@@ -348,22 +348,22 @@ async fn fetch_nextcloud_user_id(base_url: &str, access_token: &str) -> anyhow::
     Ok(ocs.ocs.data.id)
 }
 
-/// Delete the native triggers of a workspace+service — only those using `connection_path` when
-/// given — including remote webhook cleanup.
+/// Delete the native triggers of a workspace+service — only those in `external_ids` when given —
+/// including remote webhook cleanup.
 /// This is best-effort: errors during remote cleanup or token deletion are logged but ignored.
 #[cfg(feature = "native_trigger")]
 async fn delete_triggers_for_service(
     db: &DB,
     workspace_id: &str,
     service_name: ServiceName,
-    connection_path: Option<&str>,
+    external_ids: Option<&[String]>,
 ) {
     let triggers = sqlx::query!(
         "SELECT external_id, connection_path FROM native_trigger
-         WHERE workspace_id = $1 AND service_name = $2 AND ($3::text IS NULL OR connection_path = $3)",
+         WHERE workspace_id = $1 AND service_name = $2 AND ($3::text[] IS NULL OR external_id = ANY($3))",
         workspace_id,
         service_name as ServiceName,
-        connection_path,
+        external_ids,
     )
     .fetch_all(db)
     .await;
@@ -423,11 +423,11 @@ async fn delete_triggers_for_service(
     // disconnected integration keep starting jobs.
     let deleted_token_hashes = sqlx::query_scalar!(
         "DELETE FROM native_trigger
-         WHERE workspace_id = $1 AND service_name = $2 AND ($3::text IS NULL OR connection_path = $3)
+         WHERE workspace_id = $1 AND service_name = $2 AND ($3::text[] IS NULL OR external_id = ANY($3))
          RETURNING webhook_token_hash",
         workspace_id,
         service_name as ServiceName,
-        connection_path,
+        external_ids,
     )
     .fetch_all(db)
     .await
@@ -1084,9 +1084,10 @@ async fn delete_connection(
         )));
     }
 
-    // Disconnecting deletes these triggers, so a path-scoped token must cover each of them.
-    let trigger_paths = sqlx::query_scalar!(
-        "SELECT script_path FROM native_trigger
+    // Disconnecting deletes these triggers, so a path-scoped token must cover each of them. Only
+    // the rows checked here are deleted: one created meanwhile is never removed unchecked.
+    let triggers = sqlx::query!(
+        "SELECT external_id, script_path FROM native_trigger
          WHERE workspace_id = $1 AND service_name = $2 AND connection_path = $3",
         workspace_id,
         service_name as ServiceName,
@@ -1094,12 +1095,15 @@ async fn delete_connection(
     )
     .fetch_all(&db)
     .await?;
-    for script_path in &trigger_paths {
-        check_scopes(&authed, || format!("native_triggers:write:{script_path}"))?;
+    for trigger in &triggers {
+        check_scopes(&authed, || {
+            format!("native_triggers:write:{}", trigger.script_path)
+        })?;
     }
+    let external_ids: Vec<String> = triggers.into_iter().map(|t| t.external_id).collect();
 
     // Before the connection goes: removing the registrations needs its token.
-    delete_triggers_for_service(&db, &workspace_id, service_name, Some(&path)).await;
+    delete_triggers_for_service(&db, &workspace_id, service_name, Some(&external_ids)).await;
 
     let mut tx = user_db.begin(&authed).await?;
     let account = cleanup_connection(&mut *tx, &workspace_id, &path).await?;
