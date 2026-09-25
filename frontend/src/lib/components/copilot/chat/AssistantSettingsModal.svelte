@@ -149,6 +149,7 @@ callers that already know which section they mean, such as the "+" menu's Manage
 		if (!aiChatManager.loading && !aiChatManager.sendInFlight) {
 			void aiChatManager.refreshGlobalSkills()
 			void aiChatManager.refreshMcpServers()
+			void aiChatManager.refreshSessionAccess()
 		}
 	}
 </script>
