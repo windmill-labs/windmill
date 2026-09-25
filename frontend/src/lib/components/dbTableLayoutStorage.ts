@@ -1,5 +1,6 @@
 import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 import type { DbTableJoin } from './dbTableJoins'
+import type { ColumnFormat } from './dbTableFormat'
 
 export const DB_TABLE_LAYOUT_PREFIX = 'dbTableLayout:'
 // Every table opened gets a layout, so without a cap they pile up forever.
@@ -12,6 +13,7 @@ export type DbTableLayout = {
 	joins?: DbTableJoin[]
 	/** Columns left out of the grid. */
 	hidden?: string[]
+	formats?: Record<string, ColumnFormat>
 	lastUsed?: number
 }
 
@@ -26,7 +28,7 @@ export function readDbTableLayout(key: string): DbTableLayout {
 
 export function saveDbTableLayout(key: string, layout: DbTableLayout) {
 	try {
-		if (!layout.widths && !layout.pinned && !layout.joins && !layout.hidden) {
+		if (!layout.widths && !layout.pinned && !layout.joins && !layout.hidden && !layout.formats) {
 			storeLocalSetting(key, undefined)
 			return
 		}

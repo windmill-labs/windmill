@@ -45,6 +45,7 @@
 		KeyRound,
 		Link,
 		Merge,
+		Paintbrush,
 		Pencil,
 		Plus,
 		Pin,
@@ -82,6 +83,8 @@
 	import { twMerge } from 'tailwind-merge'
 	import { deepEqual } from 'fast-equals'
 	import { joinAlias, joinedColumnDef, type DbJoinTarget, type DbTableJoin } from './dbTableJoins'
+	import { cellColors, formatValue, isEmptyFormat, type ColumnFormat } from './dbTableFormat'
+	import DbColumnFormatEditor from './DbColumnFormatEditor.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -285,9 +288,7 @@
 	let rowsOffset = $derived(scrollTop * scrollScale)
 
 	let firstVisible = $derived(Math.floor(rowsOffset / ROW_HEIGHT))
-	let lastVisible = $derived(
-		Math.min(totalRows, Math.ceil((rowsOffset + bodyHeight) / ROW_HEIGHT))
-	)
+	let lastVisible = $derived(Math.min(totalRows, Math.ceil((rowsOffset + bodyHeight) / ROW_HEIGHT)))
 	let renderStart = $derived(Math.max(0, firstVisible - OVERSCAN))
 	let renderEnd = $derived(Math.min(totalRows, lastVisible + OVERSCAN))
 	let renderedIndices = $derived(
@@ -372,6 +373,7 @@
 		if (Object.keys(pinned).length) layout.pinned = $state.snapshot(pinned)
 		if (joins.length) layout.joins = $state.snapshot(joins)
 		if (hidden.length) layout.hidden = $state.snapshot(hidden)
+		if (Object.keys(formats).length) layout.formats = $state.snapshot(formats)
 		saveDbTableLayout(layoutStorageKey, layout)
 	}
 
@@ -673,6 +675,31 @@
 		scrollEl?.focus({ preventScroll: true })
 	}
 
+	// ── Formats ──────────────────────────────────────────────────────────────
+	let formats: Record<string, ColumnFormat> = $state({ ...storedLayout.formats })
+	let formatting: string | undefined = $state()
+	let formatEl: HTMLDivElement | undefined = $state()
+	let columnsAnchor: HTMLDivElement | undefined = $state()
+	let formatRect = new DOMRect()
+
+	function setFormat(column: string, format: ColumnFormat) {
+		if (isEmptyFormat(format)) {
+			const { [column]: _, ...rest } = formats
+			formats = rest
+		} else formats = { ...formats, [column]: format }
+		saveLayout()
+	}
+	function openFormat(column: string) {
+		columnsPickerOpen = false
+		formatting = column
+	}
+	// Selects inside the editor list their options in portals of their own.
+	function closeFormatOnOutsideClick(e: MouseEvent) {
+		const target = e.target as HTMLElement | null
+		if (!formatting || formatEl?.contains(target) || target?.closest('.dropdown-portal')) return
+		formatting = undefined
+	}
+
 	// ── Context menu ─────────────────────────────────────────────────────────
 	let menuTarget:
 		| { kind: 'cell'; row: number; column: string }
@@ -743,6 +770,12 @@
 					label: 'Hide',
 					icon: EyeOff,
 					onClick: () => setHidden(column, true)
+				},
+				{
+					id: 'format',
+					label: 'Format…',
+					icon: Paintbrush,
+					onClick: () => openFormat(column)
 				}
 			]
 			if (pin !== 'left')
@@ -797,6 +830,12 @@
 				}
 			}
 		]
+		items.push({
+			id: 'format',
+			label: 'Format column…',
+			icon: Paintbrush,
+			onClick: () => openFormat(column)
+		})
 		if (dbTableOps.onUpdate && !joinedAliases.has(column)) {
 			items.push({
 				id: 'edit',
@@ -871,7 +910,8 @@
 			class="flex shrink-0 items-center whitespace-nowrap px-2 text-xs font-normal text-hint"
 			style:width="{HIDDEN_NOTE_WIDTH}px"
 		>
-			{hidden.length} {hidden.length === 1 ? 'column' : 'columns'} hidden by filter
+			{hidden.length}
+			{hidden.length === 1 ? 'column' : 'columns'} hidden by filter
 		</div>
 	{/if}
 {/snippet}
@@ -976,7 +1016,15 @@
 	{/if}
 {/snippet}
 
-<svelte:window onmousedown={() => editing && cancelEdit()} />
+<svelte:window
+	onmousedown={(e) => {
+		if (editing) cancelEdit()
+		closeFormatOnOutsideClick(e)
+	}}
+	onkeydown={(e) => {
+		if (formatting && e.key === 'Escape') formatting = undefined
+	}}
+/>
 
 <div class="h-full relative flex flex-col">
 	<div class="flex justify-between items-center bg-surface-input pr-2">
@@ -1007,72 +1055,92 @@
 				title="Download loaded rows as CSV"
 				onClick={downloadCsv}
 			/>
-			<Popover
-				floatingConfig={{ strategy: 'fixed', placement: 'bottom-end' }}
-				bind:isOpen={columnsPickerOpen}
-			>
-				{#snippet trigger()}
-					<Button
-						variant="default"
-						unifiedSize="sm"
-						startIcon={{ icon: Columns3 }}
-						selected={hidden.length > 0}
-						nonCaptureEvent
-						title="Choose the columns to show"
-						btnClasses="max-w-64"
-					>
-						<span class="truncate">{hidden.length ? columnsLabel : 'Columns'}</span>
-					</Button>
-				{/snippet}
-				{#snippet content()}
-					<div class="flex w-60 flex-col py-1" data-testid="db-columns-picker">
-						<label
-							class="flex cursor-pointer items-center gap-2 border-b px-3 py-1.5 text-xs font-medium text-emphasis hover:bg-surface-hover"
+			<div class="flex" bind:this={columnsAnchor}>
+				<Popover
+					floatingConfig={{ strategy: 'fixed', placement: 'bottom-end' }}
+					bind:isOpen={columnsPickerOpen}
+				>
+					{#snippet trigger()}
+						<Button
+							variant="default"
+							unifiedSize="sm"
+							startIcon={{ icon: Columns3 }}
+							selected={hidden.length > 0}
+							nonCaptureEvent
+							title="Choose the columns to show"
+							btnClasses="max-w-64"
 						>
-							<Checkbox
-								checked={hidden.length === 0}
-								indeterminate={hidden.length > 0 && hidden.length < columns.length}
-								onClick={() => {
-									hidden = hidden.length === 0 ? columns.map((c) => c.field) : []
-									saveLayout()
-								}}
-							/>
-							<span>All columns</span>
-						</label>
-						<div class="max-h-80 overflow-y-auto">
-							{#each columns as col (col.field)}
-								<label
-									class="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-xs text-primary hover:bg-surface-hover"
-								>
-									<!-- Toggled on click: the popover cancels the click's default, so no
-										 change event would follow. -->
-									<Checkbox
-										checked={!hidden.includes(col.field)}
-										onClick={() => setHidden(col.field, !hidden.includes(col.field))}
-									/>
-									<span class="truncate">{col.field}</span>
-								</label>
-							{/each}
-						</div>
-						{#if onNewColumn}
-							<div class="border-t px-1 pt-1">
-								<Button
-									variant="subtle"
-									unifiedSize="sm"
-									startIcon={{ icon: Plus }}
-									btnClasses="w-full justify-start"
+							<span class="truncate">{hidden.length ? columnsLabel : 'Columns'}</span>
+						</Button>
+					{/snippet}
+					{#snippet content()}
+						<div class="flex w-60 flex-col py-1" data-testid="db-columns-picker">
+							<label
+								class="flex cursor-pointer items-center gap-2 border-b px-3 py-1.5 text-xs font-medium text-emphasis hover:bg-surface-hover"
+							>
+								<Checkbox
+									checked={hidden.length === 0}
+									indeterminate={hidden.length > 0 && hidden.length < columns.length}
 									onClick={() => {
-										columnsPickerOpen = false
-										onNewColumn?.()
+										hidden = hidden.length === 0 ? columns.map((c) => c.field) : []
+										saveLayout()
 									}}
-								>
-									Add column
-								</Button>
+								/>
+								<span>All columns</span>
+							</label>
+							<div class="max-h-80 overflow-y-auto">
+								{#each columns as col (col.field)}
+									<div class="group flex items-center pr-1 hover:bg-surface-hover">
+										<label
+											class="flex min-w-0 grow cursor-pointer items-center gap-2 py-1.5 pl-3 text-xs text-primary"
+										>
+											<!-- Toggled on click: the popover cancels the click's default, so no
+											 change event would follow. -->
+											<Checkbox
+												checked={!hidden.includes(col.field)}
+												onClick={() => setHidden(col.field, !hidden.includes(col.field))}
+											/>
+											<span class="truncate">{col.field}</span>
+										</label>
+										{#if formats[col.field]}
+											<span title="Formatted"
+												><Paintbrush size={12} class="mx-1 shrink-0 text-hint" /></span
+											>
+										{/if}
+										<DropdownV2
+											items={[
+												{
+													displayName: 'Format',
+													icon: Paintbrush,
+													action: () => openFormat(col.field)
+												}
+											]}
+											size="2xs"
+											class="opacity-0 group-hover:opacity-100 focus-within:opacity-100"
+										/>
+									</div>
+								{/each}
 							</div>
-						{/if}
-					</div>
-				{/snippet}
-			</Popover>
+							{#if onNewColumn}
+								<div class="border-t px-1 pt-1">
+									<Button
+										variant="subtle"
+										unifiedSize="sm"
+										startIcon={{ icon: Plus }}
+										btnClasses="w-full justify-start"
+										onClick={() => {
+											columnsPickerOpen = false
+											onNewColumn?.()
+										}}
+									>
+										Add column
+									</Button>
+								</div>
+							{/if}
+						</div>
+					{/snippet}
+				</Popover>
+			</div>
 			{#if dbTableOps.onInsert}
 				<InsertRowDrawerButton
 					unifiedSize="sm"
@@ -1215,6 +1283,10 @@
 								{#each displayColumns as col (col.field)}
 									{@const isSelected = selected?.row === i && selected.column === col.field}
 									{@const pin = pinned[col.field]}
+									{@const colors =
+										data && data !== 'loading'
+											? cellColors(data[col.field], col.datatype, formats[col.field])
+											: undefined}
 									{#if col.field === firstRightPinned}
 										{@render addColumnCell()}
 										<div class="flex-1"></div>
@@ -1230,6 +1302,8 @@
 										)}
 										style:width="{colWidth(col.field)}px"
 										style:line-height="{ROW_HEIGHT - 1}px"
+										style:background-color={colors?.bg}
+										style:color={colors?.text}
 										style:left={pin === 'left' ? `${pinOffsets[col.field]}px` : undefined}
 										style:right={pin === 'right' ? `${pinOffsets[col.field]}px` : undefined}
 										role="gridcell"
@@ -1246,6 +1320,8 @@
 											></div>
 										{:else if data}
 											{@const value = data[col.field]}
+											{@const format = formats[col.field]}
+											{@const shown = formatValue(value, format) ?? formatCell(value)}
 											{#if value === null || value === undefined}
 												<span class="italic text-hint">NULL</span>
 											{:else if fkByColumn[col.field] && hasForeignKeyValue(value)}
@@ -1256,10 +1332,10 @@
 													data-testid="db-fk-link"
 													onclick={() => followForeignKey(col.field, value)}
 												>
-													{formatCell(value)}
+													{shown}
 												</button>
 											{:else}
-												{formatCell(value)}
+												{shown}
 											{/if}
 										{/if}
 									</div>
@@ -1324,6 +1400,31 @@
 				}}
 			/>
 			<div class="text-2xs text-hint">Enter to save, Esc to cancel</div>
+		{/if}
+	</div>
+</GenericDropdown>
+
+<GenericDropdown
+	open={!!formatting}
+	maxHeight={640}
+	getInputRect={() => {
+		if (formatting) {
+			const header = scrollEl?.querySelector(`[data-header-column="${CSS.escape(formatting)}"]`)
+			// A hidden column has no header: its format opens from the columns button.
+			const el = header ?? columnsAnchor
+			if (el) formatRect = el.getBoundingClientRect()
+		}
+		return formatRect
+	}}
+>
+	<div bind:this={formatEl}>
+		{#if formatting}
+			{@const column = formatting}
+			<DbColumnFormatEditor
+				{column}
+				format={formats[column]}
+				onChange={(f) => setFormat(column, f)}
+			/>
 		{/if}
 	</div>
 </GenericDropdown>
