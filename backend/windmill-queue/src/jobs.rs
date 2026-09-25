@@ -4324,6 +4324,10 @@ async fn admit_pulled_job(
 /// ready to resume on any of the tags; then `tag_groups` from highest priority down, with the
 /// workspace-fairness share of the workers first restricted to uncapped workspaces. A job over
 /// its concurrency limit is re-queued for later and its worker is pulled for again.
+///
+/// No authorization happens here: jobs from every workspace matching the tags are claimed and
+/// returned with their args and permissions. Callers must authenticate each worker named and
+/// pass only tags that worker is allowed to serve.
 pub async fn pull_batch(
     db: &Pool<Postgres>,
     tag_groups: &[Vec<String>],
@@ -4336,13 +4340,24 @@ pub async fn pull_batch(
         if waiting.is_empty() {
             break;
         }
-        let claimed = claim_batch(
+        let claimed = match claim_batch(
             db,
             tag_groups,
             &waiting,
             suspend_first && pull_loop_count == 1,
         )
-        .await?;
+        .await
+        {
+            Ok(claimed) => claimed,
+            Err(e) if admitted.is_empty() => return Err(e),
+            // Jobs admitted by an earlier pass are running under their workers: return them.
+            Err(e) => {
+                tracing::error!(
+                    "batch pull re-pull failed, returning the jobs admitted so far: {e:#}"
+                );
+                break;
+            }
+        };
         let mut requeued = false;
         for (worker_name, job, suspended) in claimed {
             waiting.retain(|w| w != &worker_name);
