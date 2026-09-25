@@ -2862,14 +2862,8 @@ async fn create_script_internal<'c>(
             Some(windmill_common::worker::dedicated_worker_tag(
                 &w_id, &ns.path,
             ))
-        } else if ns.tag.as_ref().is_some_and(|x| x.contains("$args[")) {
-            None
-        } else if lang == ScriptLang::Bunnative {
-            // if a custom tag is set for a bunnative script, this prevents the custom tag to be used for the dependency job
-            // forcing the bundling to run on a worker with the bun tag
-            None
         } else {
-            ns.tag
+            windmill_common::scripts::dependency_job_tag(ns.tag, &lang)
         };
 
         let mut args: HashMap<String, Box<serde_json::value::RawValue>> = HashMap::new();
