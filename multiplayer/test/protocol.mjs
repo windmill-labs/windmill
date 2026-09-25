@@ -74,6 +74,11 @@ export function openClient(url, { onOpen } = {}) {
   const ws = new WebSocket(url)
   const received = []
   const client = { ws, received, closeCode: undefined, lastError: undefined }
+  // `ws` hands every frame over as a Buffer under the default
+  // binaryType 'nodebuffer', text frames included (it delivered those as strings
+  // in ws 7, which is where `new Uint8Array(string)` would have been a silent
+  // zero-fill), so this is lossless for both. Verified against the server's own
+  // text frame: /__ping__ arrives here as 39 bytes that decode to its JSON.
   ws.on('message', (data) => received.push(new Uint8Array(data)))
   ws.on('close', (code) => {
     client.closeCode = code
