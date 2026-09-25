@@ -122,6 +122,19 @@ async fn test_operator_builder_flows_boundary(db: Pool<Postgres>) -> anyhow::Res
         resp.text().await?
     );
 
+    // A dependency job rewrites bookkeeping stored under the path it names, so a builder must not
+    // aim one at a path it cannot write.
+    let resp = c
+        .post(format!("{api}/jobs/run/flow_dependencies"))
+        .json(&json!({"path": "u/alice/private_flow", "flow_value": {"modules": []}}))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        403,
+        "a builder must not run a dependency job on a path it cannot write"
+    );
+
     // A legacy draft has no owner, so it lists as the builder's own, and a script draft is one
     // the builder cannot write: that row must read as not writable, not fail the whole list.
     sqlx::query(

@@ -9131,6 +9131,21 @@ async fn push_flow_dependencies_job(
     // lock step from becoming the way to run code the write path refuses.
     if authed.is_operator {
         validate_operator_composed_flow(&req.flow_value, &None, authed, db, user_db, w_id).await?;
+        // The job rewrites bookkeeping stored under `req.path` (dependency map, asset usages,
+        // lock error) even with `skip_flow_update`, so a builder must be able to write there.
+        crate::drafts::require_can_write_path(
+            authed,
+            db,
+            user_db,
+            w_id,
+            windmill_common::user_drafts::UserDraftItemKind::Flow,
+            &req.path,
+        )
+        .await
+        .map_err(|e| match e {
+            error::Error::NotAuthorized(msg) => error::Error::PermissionDenied(msg),
+            e => e,
+        })?;
     }
 
     if req.raw_deps.is_some() {

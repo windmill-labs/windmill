@@ -1122,7 +1122,7 @@ fn table_for_kind(kind: UserDraftItemKind) -> Option<&'static str> {
 ///      ENTIRE check for draft-only paths (no deployed row for RLS to use).
 ///   2. An RLS write-probe on the deployed row (`SELECT ... FOR UPDATE`) for
 ///      what the path can't answer, above all item-level extra_perms grants.
-async fn require_can_write_path(
+pub(crate) async fn require_can_write_path(
     authed: &ApiAuthed,
     db: &DB,
     user_db: &UserDB,
