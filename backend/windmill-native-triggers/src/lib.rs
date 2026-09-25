@@ -1014,6 +1014,9 @@ pub async fn refresh_oauth_tokens(
 /// through that connection's variable, never by service: several connections share a service, and
 /// a provider that rotates refresh tokens invalidates the old one, so writing it onto another
 /// account would break that account's next refresh.
+///
+/// No authorization happens here: it overwrites the connection's secret as the server. Call it
+/// only with tokens just refreshed from that connection's own refresh token.
 pub async fn update_oauth_token_resource(
     db: &DB,
     workspace_id: &str,
