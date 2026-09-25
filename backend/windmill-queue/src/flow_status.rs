@@ -27,8 +27,7 @@ pub async fn update_flow_status_in_progress(
                     )
                 WHERE id = $2
                   AND NOT COALESCE(
-                      flow_status->'modules'->$3::INTEGER->>'type' = 'InProgress'
-                      AND (flow_status->'modules'->$3::INTEGER->>'parallel')::bool,
+                      flow_status->'modules'->$3::INTEGER @> '{\"type\": \"InProgress\", \"parallel\": true}',
                       false
                   )",
                 job_in_progress,
