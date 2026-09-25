@@ -14,7 +14,7 @@
 	import { CHAT_INPUT_PADDING, getAiChatManager } from './aiChatManagerContext'
 	import { getChatViewHost } from './chatViewHost'
 	import { composerBoxClass, COMPOSER_FIELD_RESET } from './composerBox'
-	import { formatMention } from './mention'
+	import { formatMention, hasMention, removeMentionFromText } from './mention'
 	import { twMerge } from 'tailwind-merge'
 	import { tick, untrack, type Snippet } from 'svelte'
 	import Portal from '$lib/components/Portal.svelte'
@@ -588,40 +588,33 @@
 
 	const contextKey = contextElementKey
 
-	/** Append `@title` to the textarea so the button-picker path stays in
-	 * sync with the inline `@<word>` mention path — both leave a visible
-	 * token tied to the selectedContext entry, which the textarea diffs on
-	 * to auto-remove items when the user deletes them. No-op when the
-	 * mention is already present so re-picking the same item doesn't
-	 * leave duplicate tokens. */
+	/** Insert `@title` so button/menu picker paths stay in sync with
+	 * the inline `@<word>` mention path — both leave a visible token tied
+	 * to the selectedContext entry, which the textarea diffs on to
+	 * auto-remove items when the user deletes them. No-op when the same
+	 * standalone mention is already present, so picking the same item
+	 * again doesn't leave duplicate tokens. */
 	export function insertMention(title: string) {
-		const target = `@${title}`
-		if (draft.text.split(/\s+/).includes(target)) return
+		if (hasMention(draft.text, title)) return
+		if (contextTextareaComponent) {
+			void contextTextareaComponent.insertMention(title)
+			return
+		}
 		const sep = draft.text.length === 0 || /\s$/.test(draft.text) ? '' : ' '
-		draft.text = `${draft.text}${sep}${target} `
+		draft.text = `${draft.text}${sep}${formatMention(title)} `
 	}
 
 	/** Strip every `@title` token from the textarea — used when the user
 	 * deletes the corresponding badge so the badge X-button mirrors the
-	 * inverse (text-delete-to-badge-remove) sync. Only matches `@title` as a
-	 * standalone token (boundary on both sides) so substring matches don't
-	 * bleed into other words; only the whitespace adjacent to the removed
-	 * mention is collapsed so unrelated double-spaces stay intact. */
+	 * inverse (text-delete-to-badge-remove) sync. Only matches tokens whose
+	 * `@` starts a word, so embedded text like `owner@app.ts` is left alone
+	 * while punctuation and non-spacing text after the token still work. */
 	export function removeMention(title: string) {
 		// Pre-zap the textarea's mention diff snapshot so the upcoming strip
 		// doesn't refire the removal effect on a same-title sibling — the host
 		// has already mutated `selectedContext` to drop the targeted entry.
 		contextTextareaComponent?.unsyncMention(title)
-		const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-		const re = new RegExp(`(^|\\s)@${escaped}(\\s|$)`, 'g')
-		draft.text = draft.text.replace(re, (_m, lead, trail) => {
-			// Boundary on at least one side → drop the mention entirely.
-			if (!lead || !trail) return ''
-			// Middle of text: keep ONE of the bracketing whitespace chars so
-			// the surviving tokens are still separated; preserve the leading
-			// one verbatim so newlines/tabs aren't downgraded to spaces.
-			return lead
-		})
+		draft.text = removeMentionFromText(draft.text, title)
 	}
 
 	export function focusInput() {

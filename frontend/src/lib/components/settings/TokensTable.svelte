@@ -63,7 +63,8 @@
 			!label.startsWith('embed_app:') &&
 			!label.startsWith('sdk_app:') &&
 			!label.startsWith('impersonation:') &&
-			!label.startsWith('cli-login:')
+			!label.startsWith('cli-login:') &&
+			!label.startsWith('remote-deploy:')
 		)
 	}
 
