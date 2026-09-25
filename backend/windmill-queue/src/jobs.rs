@@ -1501,12 +1501,76 @@ impl Completion<'_> {
             QUEUE_DELETE_COUNT.inc();
         }
         otel_incr_queue_delete_count();
+        let err = |e: sqlx::Error| {
+            Error::internal_err(format!(
+                "Could not add completed job {}: {e:#}",
+                completed_job.id
+            ))
+        };
         // A step's completion is progress of its flow, and keeps the flow from being reaped as a
-        // zombie.
-        let parent_to_ping = completed_job
+        // zombie. Any other completion runs the statement without the ping: Postgres sets up every
+        // write of a plan, so an unused ping would cost about a tenth of the completion.
+        let Some(parent_to_ping) = completed_job
             .is_flow_step()
             .then_some(completed_job.parent_job)
-            .flatten();
+            .flatten()
+        else {
+            return sqlx::query_scalar!(
+                "WITH deleted AS (
+                    DELETE FROM v2_job_queue WHERE id = $1
+                    RETURNING id, workspace_id, started_at, worker, canceled_by, canceled_reason
+                ), completed AS (
+                    INSERT INTO v2_job_completed AS cj
+                        ( workspace_id
+                        , id
+                        , started_at
+                        , duration_ms
+                        , result
+                        , result_columns
+                        , canceled_by
+                        , canceled_reason
+                        , flow_status
+                        , workflow_as_code_status
+                        , memory_peak
+                        , status
+                        , worker
+                        )
+                    SELECT d.workspace_id, d.id, d.started_at,
+                        COALESCE($9::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(d.started_at, now()))))*1000),
+                        $3::text::jsonb, $10,
+                        CASE WHEN $4::BOOL THEN $5 ELSE d.canceled_by END,
+                        CASE WHEN $4::BOOL THEN $6 WHEN d.canceled_by IS NOT NULL THEN d.canceled_reason END,
+                        s.flow_status, s.workflow_as_code_status, $8,
+                        CASE WHEN $4::BOOL OR d.canceled_by IS NOT NULL THEN 'canceled'::job_status
+                            WHEN $7::BOOL THEN 'skipped'::job_status
+                            WHEN $2::BOOL THEN 'success'::job_status
+                            ELSE 'failure'::job_status END,
+                        d.worker
+                    FROM deleted d LEFT JOIN v2_job_status s ON s.id = d.id
+                    ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, result = $3::text::jsonb,
+                        canceled_by = CASE WHEN NOT $4::BOOL AND EXCLUDED.canceled_by IS NOT NULL
+                            THEN EXCLUDED.canceled_by ELSE cj.canceled_by END,
+                        canceled_reason = CASE WHEN NOT $4::BOOL AND EXCLUDED.canceled_by IS NOT NULL
+                            THEN EXCLUDED.canceled_reason ELSE cj.canceled_reason END
+                    RETURNING duration_ms
+                )
+                SELECT duration_ms AS \"duration_ms!\" FROM completed",
+                /* $1 */ completed_job.id,
+                /* $2 */ success,
+                /* $3 */ result,
+                /* $4 */ canceled_by.is_some(),
+                /* $5 */ canceled_by.as_ref().and_then(|cb| cb.username.as_deref()),
+                /* $6 */ canceled_by.as_ref().and_then(|cb| cb.reason.as_deref()),
+                /* $7 */ skipped,
+                /* $8 */ if mem_peak > 0 { Some(mem_peak) } else { None },
+                /* $9 */ duration,
+                /* $10 */ result_columns as Option<&Vec<String>>,
+            )
+            .fetch_optional(&mut *conn)
+            .warn_after_seconds(10)
+            .await
+            .map_err(err);
+        };
         // A cancel of the flow marks the flow and then its steps. When the delete waited on it,
         // the parent row read by this statement's snapshot predates it, so the ping moves to a
         // statement of its own that sees the cancel.
@@ -1574,16 +1638,11 @@ impl Completion<'_> {
     .fetch_optional(&mut *conn)
     .warn_after_seconds(10)
     .await
-    .map_err(|e| {
-        Error::internal_err(format!(
-            "Could not add completed job {}: {e:#}",
-            completed_job.id
-        ))
-    })?;
+    .map_err(err)?;
         let Some(completed) = completed else {
             return Ok(None);
         };
-        if let Some(parent_job) = parent_to_ping.filter(|_| completed.carried_cancel) {
+        if completed.carried_cancel {
             sqlx::query!(
                 "UPDATE v2_job_runtime r SET
                         ping = now()
@@ -1591,7 +1650,7 @@ impl Completion<'_> {
                     WHERE r.id = $1 AND q.id = r.id
                         AND q.workspace_id = $2
                         AND canceled_by IS NULL",
-                parent_job,
+                parent_to_ping,
                 &completed_job.workspace_id
             )
             .execute(&mut *conn)
