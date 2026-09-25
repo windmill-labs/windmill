@@ -16,6 +16,7 @@
 
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { setTimeout as delay } from 'node:timers/promises'
 
 import { mintToken, startJwksServer, startMultiplayerServer, waitFor } from './helpers.mjs'
 import {
@@ -38,6 +39,12 @@ const INVALID_PAYLOAD = 1007
 // Logged by server.mjs for every frame it refused; asserted on so the tests
 // cannot pass on a connection that was closed for some unrelated reason.
 const REFUSED = 'MALFORMED MESSAGE'
+// Logged by server.mjs once the JWKS fetch resolves. While it is absent the
+// server demonstrably has no key, so anything it received is in the pre-auth window.
+const KEY_LOADED = 'Successfully loaded Ed25519 public key'
+// Grace for a frame the client has already written to be delivered over loopback
+// and read by the (otherwise idle) server, before the key is released.
+const FLIGHT_MARGIN_MS = 250
 
 /**
  * 600 KiB of zeros: `messageSync`, then sync step 1 with a zero-length state
@@ -152,6 +159,10 @@ test('a malformed frame replayed from the pre-auth buffer is refused, not fatal'
     onOpen: (ws) => ws.send(zeroFlood(), () => framesWritten++)
   })
   await waitFor(() => framesWritten === 1, { message: 'the offending client to write its frame' })
+  // The frame is on the wire while the server demonstrably has no key, so it can
+  // only reach the server inside the pre-auth window and be replayed later.
+  assert.ok(!server.output.includes(KEY_LOADED))
+  await delay(FLIGHT_MARGIN_MS)
   jwks.release()
 
   await waitFor(() => offender.closeCode !== undefined, {
