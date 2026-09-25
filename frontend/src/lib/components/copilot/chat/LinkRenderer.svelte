@@ -13,7 +13,7 @@
 		type WindmillItemKind,
 		type WorkspaceItemTargetKind
 	} from './workspaceItems.svelte'
-	import { safeHref } from './safeHref'
+	import { safeHref } from '$lib/utils/safeHref'
 
 	type Props = {
 		href?: string

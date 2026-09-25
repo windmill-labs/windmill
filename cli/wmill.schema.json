@@ -147,6 +147,13 @@
             "type": "string",
             "description": "Path to the codebase directory"
           },
+          "extra_digest_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Paths outside relative_path that scripts import, relative to wmill.yaml; hashed recursively"
+          },
           "includes": {
             "type": "array",
             "items": {

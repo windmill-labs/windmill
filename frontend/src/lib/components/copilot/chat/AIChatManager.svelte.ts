@@ -125,6 +125,14 @@ import {
 	isWebSearchEnabledForProvider
 } from '$lib/aiStore'
 import type { WorkspaceMutationTarget } from './workspaceTools'
+import { resolveSessionAccess } from './global/sessionAccess'
+import type { SessionAccess } from './sessionCapabilities'
+import { filterSessionTools } from './global/sessionToolset'
+import {
+	listFolderInstructions,
+	type FolderInstruction,
+	type FolderInstructionsDelivery
+} from './folderInstructions'
 import {
 	loadWorkspaceSkills,
 	resolveGlobalPromptIdentity,
@@ -696,6 +704,10 @@ export class AIChatManager implements ChatViewHost {
 	// needs the preview pane; the global side-panel chat leaves it false. Reactive because
 	// `planModeAvailable` derives from it.
 	isSessionChat = $state(false)
+	// Undefined until a send or the assistant settings modal resolves it. Reactive: both
+	// tool views derive from it.
+	private sessionAccess = $state<SessionAccess | undefined>(undefined)
+	private sessionAccessGeneration = 0
 	autoAcceptEditsAvailable = $derived(supportsAutoAcceptEdits(this.mode))
 	autoAcceptEditsActive = $derived(
 		this.autoAcceptEditsAvailable &&
@@ -719,15 +731,21 @@ export class AIChatManager implements ChatViewHost {
 	})
 	/** The sources the current mode assembled, concatenated. Private, because neither view
 	 * over it is this list: a consumer reading it would advertise a tool set no request ever
-	 * carries. */
-	#assembledTools = $state<Tool<any>[]>([])
+	 * carries. Raw: every write replaces the list, and a deep proxy would reach the tool
+	 * defs, which the session filter copies with `structuredClone` — that throws on a proxy. */
+	#assembledTools = $state.raw<Tool<any>[]>([])
+	/** Both views narrow the same way — concatenate every source, then filter — so a tool
+	 * reaching either one can never arrive unfiltered. A session withholds what its user's
+	 * capabilities do not cover; elsewhere `sessionAccess` is unset and nothing is dropped. */
+	#shipped = (planTools: Tool<any>[]): Tool<any>[] =>
+		filterSessionTools([...this.#assembledTools, ...planTools], this.sessionAccess)
 	/** What the request carries: the assembled tools plus the plan-mode transition the current
 	 * posture offers. Read by the request path and by the YOLO disclosure. */
-	tools: Tool<any>[] = $derived([...this.#assembledTools, ...this.planMode.tools])
+	tools: Tool<any>[] = $derived(this.#shipped(this.planMode.tools))
 	/** What the assistant can call in this session, posture-independent: both plan-mode
 	 * transitions, whichever one is offered right now. A reference answer, so flipping the
 	 * autonomy picker must not change it. */
-	availableTools: Tool<any>[] = $derived([...this.#assembledTools, ...this.planMode.availableTools])
+	availableTools: Tool<any>[] = $derived(this.#shipped(this.planMode.availableTools))
 	helpers = $state<any | undefined>(undefined)
 
 	scriptEditorOptions = $state<ScriptOptions | undefined>(undefined)
@@ -1336,6 +1354,13 @@ export class AIChatManager implements ChatViewHost {
 	globalSkills = $state<AiSkillListItem[]>([])
 	private globalSkillsRefreshId = 0
 
+	// The `ai_instruction` resources readable in the operating workspace, loaded
+	// alongside skills. The prompt names their folders; the tool loop delivers each
+	// one's body the first time a call touches its folder, recording which call did.
+	private globalFolderInstructions: FolderInstruction[] = []
+	private globalFolderInstructionsRefreshId = 0
+	private folderInstructionsDeliveredBy = new Map<string, FolderInstructionsDelivery>()
+
 	// External MCP servers the user connected (resources of type `mcp`). Loaded
 	// asynchronously alongside skills; the MCP tools are only registered when
 	// this is non-empty, so a workspace with no connection pays no schema cost
@@ -1427,10 +1452,12 @@ export class AIChatManager implements ChatViewHost {
 			typeof this.systemMessage.content === 'string'
 				? this.systemMessage.content.length / tokenPerCharacter
 				: 0
+		const tools = this.tools
+		// Counts each tool's shared `def`, not the per-chat one `schemaFor` builds at send time,
+		// so a flow's input schema is missed. Accepted: the estimate only stands in until the
+		// provider reports usage, and the compaction trigger's headroom absorbs the gap.
 		const toolTokens =
-			this.tools.length > 0
-				? JSON.stringify(this.tools.map((t) => t.def)).length / tokenPerCharacter
-				: 0
+			tools.length > 0 ? JSON.stringify(tools.map((t) => t.def)).length / tokenPerCharacter : 0
 		return systemTokens + toolTokens
 	}
 
@@ -2332,8 +2359,9 @@ export class AIChatManager implements ChatViewHost {
 		}
 	) {
 		if (!isAIModeVisible(mode)) return
-		// A session chat is GLOBAL for its whole life, and the plan gate reads that mode: moving
-		// it lifts the gate on a session the user still has set to Plan.
+		// A session chat is GLOBAL for its whole life, and two things read that mode: moving it
+		// lifts the plan gate on a session the user still has set to Plan, and hands the
+		// capability filter tools that declare no `requires`, so it fails closed to nothing.
 		if (this.isSessionChat && mode !== AIMode.GLOBAL) {
 			console.error(`Refusing to move a session chat to ${mode} mode: sessions are GLOBAL-only.`)
 			return
@@ -2412,6 +2440,7 @@ export class AIChatManager implements ChatViewHost {
 			this.configureGlobalMode()
 			void this.refreshGlobalIdentity()
 			void this.refreshGlobalSkills()
+			void this.refreshGlobalFolderInstructions()
 			void this.refreshMcpServers()
 		} else if (mode === AIMode.APP) {
 			const customPrompt = getCombinedCustomPrompt(mode)
@@ -2435,13 +2464,13 @@ export class AIChatManager implements ChatViewHost {
 						sessionId: this.sessionId,
 						operatingWorkspace: this.operatingWorkspace,
 						artifacts: this.artifacts,
+						access: this.sessionAccess,
 						getChatId: () => this.historyManager.getCurrentChatId(),
 						openArtifact: this.openArtifact
 					}
 				: {}),
 			testActiveFlow: async (storagePath: string, args?: Record<string, any>, memoryId?: string) =>
 				this.flowEditorFor(storagePath)?.testFlow(args, memoryId),
-			getModifiedItems: () => (this.modifiedItems ? [...this.modifiedItems] : undefined),
 			attachedFiles: this.attachedFiles,
 			getUserInstructions: () => getUserCustomPrompts()[AIMode.GLOBAL] ?? '',
 			setUserInstructions: (instructions: string) => {
@@ -2465,7 +2494,9 @@ export class AIChatManager implements ChatViewHost {
 		previewTools: this.isSessionChat,
 		user: this.globalIdentity,
 		skills: this.globalSkills,
+		folderInstructions: this.globalFolderInstructions,
 		mcpServers: this.mcpServers,
+		access: this.sessionAccess,
 		sessionContext: this.sessionContextResolver?.(),
 		pipelineContext: this.pipelineAiChatHelpers?.getPipelineContext()
 	})
@@ -2484,6 +2515,25 @@ export class AIChatManager implements ChatViewHost {
 		// skills to a chat now acting elsewhere. Same check the identity and MCP
 		// refreshes make.
 		this.globalSkills = workspace === (this.operatingWorkspace ?? '') ? skills : []
+		if (this.mode === AIMode.GLOBAL) {
+			this.configureGlobalMode()
+		}
+	}
+
+	// Same shape as refreshGlobalSkills.
+	refreshGlobalFolderInstructions = async (workspace = this.operatingWorkspace ?? '') => {
+		const refreshId = ++this.globalFolderInstructionsRefreshId
+		let instructions: FolderInstruction[] = []
+		try {
+			instructions = await listFolderInstructions(workspace)
+		} catch (e) {
+			console.error('Failed to load folder instructions', e)
+		}
+		if (refreshId !== this.globalFolderInstructionsRefreshId) {
+			return
+		}
+		this.globalFolderInstructions =
+			workspace === (this.operatingWorkspace ?? '') ? instructions : []
 		if (this.mode === AIMode.GLOBAL) {
 			this.configureGlobalMode()
 		}
@@ -2538,6 +2588,23 @@ export class AIChatManager implements ChatViewHost {
 			return
 		}
 		this.systemMessage = { ...target, content: `${target.content}\n\n${section}` }
+	}
+
+	// Same shape as refreshGlobalSkills. Re-resolved per send rather than once for the
+	// session's life: the operating workspace can change between sends, and a transient
+	// failure resolves fail-open, so the next message re-asks rather than keeping that answer.
+	refreshSessionAccess = async (workspace = this.operatingWorkspace ?? '') => {
+		if (!this.isSessionChat || !workspace) {
+			this.sessionAccess = undefined
+			return
+		}
+		const generation = ++this.sessionAccessGeneration
+		const access = await resolveSessionAccess(workspace)
+		if (generation !== this.sessionAccessGeneration) return
+		this.sessionAccess = workspace === (this.operatingWorkspace ?? '') ? access : undefined
+		if (this.mode === AIMode.GLOBAL) {
+			this.configureGlobalMode()
+		}
 	}
 
 	// Rebuild the GLOBAL system message in place so an updated user instruction (persisted by
@@ -3043,13 +3110,8 @@ export class AIChatManager implements ChatViewHost {
 						console.error('Failed to record AI usage', e)
 					}
 				},
-				onBeforeIteration: async (tools, _helpers, modelProvider) => {
+				onBeforeIteration: async (modelProvider) => {
 					this.lastIterationModel = modelProvider
-					for (const tool of tools) {
-						if (tool.setSchema) {
-							await tool.setSchema(this.helpers)
-						}
-					}
 				}
 			})
 			if (this.isSessionChat && this.sessionId && result.tokenUsage.total > 0) {
@@ -3553,15 +3615,18 @@ export class AIChatManager implements ChatViewHost {
 				return false
 			}
 		}
-		// Session chats commit their workspace in beforeSend; the identity, skills and
-		// MCP servers must all match the committed workspace before the system prompt is
-		// sent. Settling them here rather than mid-turn also keeps the prompt — the
-		// cached prefix of every iteration — stable for the whole request.
+		// Session chats commit their workspace in beforeSend; the identity, skills, folder
+		// instructions, MCP servers and capabilities must all match the committed workspace
+		// before the system prompt is sent. Settling them here rather than mid-turn also
+		// keeps the prompt — the cached prefix of every iteration — stable for the whole
+		// request.
 		if (this.mode === AIMode.GLOBAL) {
 			await Promise.all([
 				this.refreshGlobalIdentity(this.operatingWorkspace ?? ''),
 				this.refreshGlobalSkills(this.operatingWorkspace ?? ''),
-				this.refreshMcpServers(this.operatingWorkspace ?? '')
+				this.refreshGlobalFolderInstructions(this.operatingWorkspace ?? ''),
+				this.refreshMcpServers(this.operatingWorkspace ?? ''),
+				this.refreshSessionAccess(this.operatingWorkspace ?? '')
 			])
 		}
 		// Stop/Escape during the beforeSend pre-flight aborted this send before any
@@ -4019,7 +4084,11 @@ export class AIChatManager implements ChatViewHost {
 						? {
 								onJobStarted: (job) => this.registerJob(job),
 								onJobStatus: (jobId, update) => this.updateJob(jobId, update),
-								onJobDetached: (jobId) => this.markJobDetached(jobId)
+								onJobDetached: (jobId) => this.markJobDetached(jobId),
+								folderInstructions: {
+									list: () => this.globalFolderInstructions,
+									deliveredBy: this.folderInstructionsDeliveredBy
+								}
 							}
 						: {}),
 					removeToolStatus: (id) => {

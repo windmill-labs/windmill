@@ -2,7 +2,6 @@
 	import { Button } from '$lib/components/common'
 	import {
 		clearPageDrawerAnchor,
-		handOffPageDrawer,
 		setPageDrawerAnchor
 	} from '$lib/components/sessions/pageDrawerSession'
 	import { TRIGGER_PAGES } from '$lib/components/sessions/previewPaths'
@@ -143,7 +142,6 @@
 		defaultConfig?: Partial<NewEmailTrigger>,
 		fixedScriptPath_?: string
 	) {
-		if (handOffPageDrawer(TRIGGER_PAGES.email.path, ePath)) return
 		// A `whoami` that failed earlier would otherwise pin this workspace to "unknown user".
 		operatingUser.forgetFailures()
 		drawerLoading = true

@@ -12,7 +12,6 @@
 	import OpenInSessionButton from './sessions/OpenInSessionButton.svelte'
 	import {
 		clearPageDrawerAnchor,
-		handOffPageDrawer,
 		pageDrawerSessionSource,
 		setPageDrawerAnchor
 	} from './sessions/pageDrawerSession'
@@ -102,7 +101,6 @@
 	 *  dedicated editor elsewhere: the generic form would render its configuration field by field,
 	 *  and materialize a default into every one the value leaves out. */
 	export async function initEdit(p: string, opts?: { json?: boolean }): Promise<void> {
-		if (handOffPageDrawer(RESOURCES_PATH, p)) return
 		// A `close({ keepAnchor })` on an already-closed drawer emits no close event, so the flag
 		// would still be standing when the next drawer session ends and would swallow that one's
 		// anchor clear. Every session starts having to clear its own.

@@ -284,6 +284,17 @@ describe('resolvePreviewTab', () => {
 		expect(resolvePreviewTab('/runs')).toEqual({ kind: 'iframe' })
 	})
 
+	it('mounts the list page of a page item kind in process, whatever its filters', () => {
+		expect(resolvePreviewTab('/variables?path_start=f%2Fa%2F')).toEqual({
+			kind: 'pagelist',
+			path: '/variables'
+		})
+		expect(resolvePreviewTab('/kafka_triggers')).toEqual({
+			kind: 'pagelist',
+			path: '/kafka_triggers'
+		})
+	})
+
 	it('routes any script item to a live editor', () => {
 		expect(resolvePreviewTab('/scripts/edit/f/foo/bar')).toEqual({
 			kind: 'editor',

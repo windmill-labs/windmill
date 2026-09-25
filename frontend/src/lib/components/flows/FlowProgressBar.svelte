@@ -2,6 +2,7 @@
 	import { type Job } from '$lib/gen'
 	import ProgressBar from '../progressBar/ProgressBar.svelte'
 	import { forLater } from '$lib/forLater'
+	import type { Snippet } from 'svelte'
 
 	interface Props {
 		job?: Job | undefined
@@ -11,6 +12,7 @@
 		textPosition?: 'top' | 'bottom'
 		// Prefer step ID over step index when both are available
 		showStepId?: boolean
+		errorAction?: Snippet
 	}
 
 	let {
@@ -19,7 +21,8 @@
 		class: className,
 		slim = false,
 		textPosition = 'top',
-		showStepId = false
+		showStepId = false,
+		errorAction
 	}: Props = $props()
 
 	let error: number | undefined = $state(undefined)
@@ -183,4 +186,5 @@
 	{isCanceled}
 	{isScheduled}
 	{isSkipped}
+	{errorAction}
 />
