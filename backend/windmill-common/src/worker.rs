@@ -874,7 +874,7 @@ fn format_pull_query(peek: String) -> String {
 /// Returns the `PULLED_JOB_COLUMNS` plus `assigned_worker`.
 fn format_batch_pull_query(peek: String) -> String {
     format!(
-        "WITH peek AS (
+        "WITH peek AS MATERIALIZED (
             {peek}
         ), assign AS (
             SELECT id, ($1::text[])[row_number() OVER ()] AS assigned_worker FROM peek

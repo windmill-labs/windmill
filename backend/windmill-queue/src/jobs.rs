@@ -4102,7 +4102,7 @@ pub async fn pull(
         pull_loop_count += 1;
         if pull_loop_count > PULL_LOOP_LIMIT {
             tracing::warn!(
-                "Pull job loop count exceeded 10, backing off (likely concurrency re-queue storm)"
+                "Pull job loop count exceeded {PULL_LOOP_LIMIT}, backing off (likely concurrency re-queue storm)"
             );
             return Ok(PulledJobResult {
                 job: None,
@@ -4340,13 +4340,7 @@ pub async fn pull_batch(
         if waiting.is_empty() {
             break;
         }
-        let claimed = match claim_batch(
-            db,
-            tag_groups,
-            &waiting,
-            suspend_first && pull_loop_count == 1,
-        )
-        .await
+        let claimed = match claim_batch(db, tag_groups, &waiting, suspend_first).await
         {
             Ok(claimed) => claimed,
             Err(e) if admitted.is_empty() => return Err(e),
@@ -4415,8 +4409,8 @@ async fn claim_batch(
     let mut claimed = vec![];
     let mut waiting = worker_names.to_vec();
     let pass: windmill_common::error::Result<()> = async {
-        if suspend_first {
-            let tags: Vec<String> = tag_groups.iter().flatten().unique().cloned().collect();
+        let tags: Vec<String> = tag_groups.iter().flatten().unique().cloned().collect();
+        if suspend_first && !tags.is_empty() {
             for (worker, job) in
                 claim_from_queue(db, &tags, PullQueue::Suspended, &[], &waiting).await?
             {

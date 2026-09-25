@@ -148,13 +148,14 @@ async fn batch_pull_walks_suspended_then_priority_groups(db: Pool<Postgres>) -> 
 }
 
 // A job over its concurrency limit must go back to the queue rather than sit claimed, and the
-// worker it was claimed for must still be served from the rest of the queue.
+// worker it was claimed for is pulled for again in the same order: a resumable flow still wins
+// over a ready job on the re-pull, as it does on every loop of a single pull.
 #[cfg(feature = "enterprise")]
 #[sqlx::test(fixtures("base"))]
 async fn batch_pull_requeues_over_limit_job_and_serves_its_worker(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {
-    let limited = queue_job(&db, "batch", None).await?;
+    let limited = queue_job(&db, "batch", Some(0)).await?;
     sqlx::query(
         "UPDATE v2_job SET kind = 'script', runnable_path = 'f/test/limited', \
             concurrent_limit = 1, concurrency_time_window_s = 0 WHERE id = $1",
@@ -162,7 +163,7 @@ async fn batch_pull_requeues_over_limit_job_and_serves_its_worker(
     .bind(limited)
     .execute(&db)
     .await?;
-    // Claimed first, so the bounce happens before the free job is reached.
+    // Claimed first, so the bounce happens before the other jobs are reached.
     sqlx::query("UPDATE v2_job_queue SET priority = 10 WHERE id = $1")
         .bind(limited)
         .execute(&db)
@@ -177,17 +178,19 @@ async fn batch_pull_requeues_over_limit_job_and_serves_its_worker(
     )
     .execute(&db)
     .await?;
-    let free = queue_job(&db, "batch", None).await?;
+    let resumable = queue_job(&db, "batch", Some(0)).await?;
+    queue_job(&db, "batch", None).await?;
 
     let groups = vec![vec!["batch".to_string()]];
-    let claimed = pull_batch(&db, &groups, &names("w", 1), false).await?;
+    let claimed = pull_batch(&db, &groups, &names("w", 1), true).await?;
     assert_eq!(claimed.len(), 1);
     assert_eq!(claimed[0].0, "w-0");
     assert_eq!(
         job_id(&claimed[0].1),
-        free,
-        "the worker is served the job under no limit"
+        resumable,
+        "the worker is served the other resumable flow"
     );
+    assert!(claimed[0].1.suspended);
 
     let (running, rescheduled): (bool, bool) =
         sqlx::query_as("SELECT running, scheduled_for > now() FROM v2_job_queue WHERE id = $1")
@@ -196,6 +199,30 @@ async fn batch_pull_requeues_over_limit_job_and_serves_its_worker(
             .await?;
     assert!(!running, "the over-limit job is back in the queue");
     assert!(rescheduled, "the over-limit job waits for a free slot");
+    Ok(())
+}
+
+// Admission failing for one claimed job must hand it back to the queue: it is already marked
+// running under its worker, which will never be told about it.
+#[sqlx::test(fixtures("base"))]
+async fn batch_pull_requeues_job_whose_admission_fails(db: Pool<Postgres>) -> anyhow::Result<()> {
+    let broken = queue_job(&db, "batch", None).await?;
+    // A settings handle with no `runnable_settings` row makes the settings lookup fail.
+    sqlx::query("UPDATE v2_job_queue SET runnable_settings_handle = -42 WHERE id = $1")
+        .bind(broken)
+        .execute(&db)
+        .await?;
+
+    let groups = vec![vec!["batch".to_string()]];
+    let claimed = pull_batch(&db, &groups, &names("w", 1), false).await?;
+    assert!(claimed.is_empty());
+
+    let (running, started): (bool, bool) =
+        sqlx::query_as("SELECT running, started_at IS NOT NULL FROM v2_job_queue WHERE id = $1")
+            .bind(broken)
+            .fetch_one(&db)
+            .await?;
+    assert!(!running && !started, "the job is back in the queue, not stranded");
     Ok(())
 }
 
