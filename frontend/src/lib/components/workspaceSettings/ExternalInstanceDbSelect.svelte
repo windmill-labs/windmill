@@ -7,7 +7,7 @@
 	import Button from '../common/button/Button.svelte'
 	import { CirclePlus, TriangleAlert } from 'lucide-svelte'
 	import Tooltip from '../meltComponents/Tooltip.svelte'
-	import { workspaceStore } from '$lib/stores'
+	import { superadmin, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 
 	type Props = {
@@ -50,8 +50,13 @@
 		return all.filter((w) => w !== $workspaceStore)
 	}
 
+	// Listing the cluster's databases is superadmin-only, so a workspace admin holds an entry it
+	// cannot resolve: show it as it is rather than offering to create what already exists.
 	let unknownName = $derived(
-		value !== undefined && value !== '' && externalInstanceDbs.current?.[value] === undefined
+		$superadmin &&
+			value !== undefined &&
+			value !== '' &&
+			externalInstanceDbs.current?.[value] === undefined
 	)
 </script>
 
@@ -65,6 +70,7 @@
 		showPlaceholderOnOpen
 		{items}
 		id="external-instance-db-select"
+		disabled={!$superadmin}
 	>
 		{#snippet endSnippet({ item })}
 			{@render sharedWorkspacesWarning(item.value)}
@@ -83,7 +89,7 @@
 				>
 					Create
 				</Button>
-			{:else}
+			{:else if $superadmin}
 				{@render sharedWorkspacesWarning(value)}
 				<div class="w-1.5 h-1.5 rounded-full bg-green-400"></div>
 			{/if}

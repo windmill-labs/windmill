@@ -35,9 +35,16 @@
 
 	const KEY = 'external_instance_pg'
 
+	// The form is local, never a key seeded into `values`: the page snapshots those at load and
+	// bulk-saves whatever it holds, so an untouched form would be sent as a change and refused by
+	// the setting's validator — failing an admin's unrelated edit in the same save.
+	let form = $state<Record<string, any>>({})
+	let seededFrom: unknown = undefined
 	$effect(() => {
-		if (!$values[KEY]) {
-			$values[KEY] = { sslmode: 'verify-full' }
+		const stored = $values[KEY]
+		if (stored !== seededFrom) {
+			seededFrom = stored
+			form = stored ? { ...$state.snapshot(stored) } : {}
 		}
 	})
 
@@ -78,10 +85,12 @@
 	async function saveAndSetup(rotate: boolean) {
 		settingUp = true
 		try {
-			await SettingService.setGlobal({
-				key: KEY,
-				requestBody: { value: $state.snapshot($values[KEY]) }
-			})
+			const value = { ...$state.snapshot(form), sslmode: form.sslmode ?? 'verify-full' }
+			await SettingService.setGlobal({ key: KEY, requestBody: { value } })
+			// The page keeps its own copy of every setting and bulk-saves it: leaving the one it read
+			// at load in place would let a later save of an unrelated setting revert this one.
+			seededFrom = value
+			$values[KEY] = value
 			const report = await SettingService.setupExternalInstancePg({
 				requestBody: { rotate_passwords: rotate }
 			})
@@ -133,8 +142,7 @@
 	let databaseEntries = $derived(Object.entries(databases))
 </script>
 
-{#if $values[KEY]}
-	<div class="flex flex-col gap-6">
+<div class="flex flex-col gap-6">
 		{#if !$enterpriseLicense}
 			<EEOnly />
 		{/if}
@@ -153,7 +161,7 @@
 					<span class="text-secondary text-xs">Host</span>
 					<TextInput
 						inputProps={{ disabled, placeholder: 'db.internal', id: 'external-instance-pg-host' }}
-						bind:value={$values[KEY].host}
+						bind:value={form.host}
 					/>
 				</label>
 				<label class="flex flex-col gap-1 w-28">
@@ -165,14 +173,14 @@
 							placeholder: '5432',
 							id: 'external-instance-pg-port'
 						}}
-						bind:value={$values[KEY].port}
+						bind:value={form.port}
 					/>
 				</label>
 				<label class="flex flex-col gap-1 w-48">
 					<span class="text-secondary text-xs">Admin user</span>
 					<TextInput
 						inputProps={{ disabled, placeholder: 'postgres', id: 'external-instance-pg-user' }}
-						bind:value={$values[KEY].user}
+						bind:value={form.user}
 					/>
 				</label>
 			</div>
@@ -180,13 +188,13 @@
 			<div class="flex flex-wrap gap-3 items-end">
 				<div class="flex flex-col gap-1 grow min-w-48">
 					<span class="text-secondary text-xs">Admin password</span>
-					<Password small bind:password={$values[KEY].password} />
+					<Password small bind:password={form.password} />
 				</div>
 				<label class="flex flex-col gap-1 w-48">
 					<span class="text-secondary text-xs">Maintenance database</span>
 					<TextInput
 						inputProps={{ disabled, placeholder: 'postgres', id: 'external-instance-pg-dbname' }}
-						bind:value={$values[KEY].dbname}
+						bind:value={form.dbname}
 					/>
 				</label>
 				<div class="flex flex-col gap-1 w-44">
@@ -208,7 +216,7 @@
 							{ value: 'prefer', label: 'prefer' },
 							{ value: 'disable', label: 'disable' }
 						]}
-						bind:value={$values[KEY].sslmode}
+						bind:value={form.sslmode}
 						id="external-instance-pg-sslmode"
 					/>
 				</div>
@@ -222,7 +230,7 @@
 					class="text-xs font-mono"
 					placeholder="-----BEGIN CERTIFICATE-----"
 					id="external-instance-pg-root-cert"
-					bind:value={$values[KEY].root_certificate_pem}
+					bind:value={form.root_certificate_pem}
 				></textarea>
 			</label>
 		</div>
@@ -231,7 +239,7 @@
 			<Button
 				variant="accent"
 				unifiedSize="sm"
-				disabled={disabled || settingUp || !$values[KEY]?.host || !$values[KEY]?.user}
+				disabled={disabled || settingUp || !form.host || !form.user}
 				startIcon={{ icon: Database }}
 				onClick={() => saveAndSetup(false)}
 			>
@@ -377,7 +385,6 @@
 			</div>
 		{/if}
 	</div>
-{/if}
 
 <ConfirmationModal
 	open={rotateModalOpen}
