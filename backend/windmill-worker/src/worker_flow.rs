@@ -2320,9 +2320,11 @@ async fn set_success_and_duration_in_flow_job_success<'c>(
 }
 
 /// Applies a step's edits to the flow's `v2_job_status` row and reads the flow back, in one
-/// statement: every UPDATE of that row leaves a dead copy of its `flow_status`, so the edits
-/// must not be split. `leaf_job` is only written here when the flow is its own innermost root;
-/// otherwise it belongs on the root's row and the caller writes it there.
+/// statement: every UPDATE of that row writes a new row version carrying the whole
+/// `flow_status`, so the edits must not be split. `leaf_job` is only written here when the flow
+/// is its own innermost root; otherwise it belongs on the root's row and the caller writes it
+/// there. `Ok(None)` means the flow is no longer queued and nothing was written: the caller
+/// must not commit as if the step had advanced.
 async fn advance_flow_status(
     tx: &mut Transaction<'_, Postgres>,
     flow: Uuid,
