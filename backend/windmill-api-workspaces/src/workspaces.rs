@@ -3235,6 +3235,9 @@ pub(crate) async fn pg_dump_database(
     if let Some(ref sslmode) = pg_db.sslmode {
         cmd.env("PGSSLMODE", sslmode);
     }
+    if let Some(options) = pg_db.non_empty_options() {
+        cmd.env("PGOPTIONS", options);
+    }
 
     let output = cmd
         .output()
@@ -3371,6 +3374,9 @@ fn psql_command(pg_db: &PgDatabase) -> tokio::process::Command {
     }
     if let Some(ref sslmode) = pg_db.sslmode {
         cmd.env("PGSSLMODE", sslmode);
+    }
+    if let Some(options) = pg_db.non_empty_options() {
+        cmd.env("PGOPTIONS", options);
     }
     cmd
 }
