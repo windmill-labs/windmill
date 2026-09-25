@@ -30,7 +30,7 @@ use windmill_common::{
 };
 
 #[cfg(feature = "native_trigger")]
-use windmill_api_auth::{require_is_writer, ApiAuthed};
+use windmill_api_auth::{check_scopes, require_is_writer, ApiAuthed};
 
 #[cfg(feature = "native_trigger")]
 use crate::{
@@ -709,8 +709,7 @@ async fn oauth_callback(
         sqlx::query!(
             "INSERT INTO workspace_integrations (workspace_id, service_name, oauth_data, created_by)
              VALUES ($1, $2, $3, $4)
-             ON CONFLICT (workspace_id, service_name) DO UPDATE SET oauth_data = EXCLUDED.oauth_data
-             WHERE workspace_integrations.oauth_data IS NULL",
+             ON CONFLICT (workspace_id, service_name) DO NOTHING",
             workspace_id,
             service_name as ServiceName,
             json!({ "instance_shared": true, "base_url": "" }),
@@ -1005,9 +1004,10 @@ async fn get_instance_oauth_config(
     service_name: ServiceName,
 ) -> Result<WorkspaceOAuthConfig> {
     if !is_instance_sharing_enabled(db, service_name).await? {
-        return Err(Error::BadRequest(
-            "Instance credential sharing is not enabled for this service".to_string(),
-        ));
+        return Err(Error::BadRequest(format!(
+            "No {service_name} OAuth app is configured for this workspace. A workspace admin can \
+             configure one in the workspace settings, under native triggers."
+        )));
     }
 
     let (client_id, client_secret) =
@@ -1064,6 +1064,7 @@ async fn delete_connection(
     Path((workspace_id, service_name)): Path<(String, ServiceName)>,
     Query(ConnectionPathQuery { path }): Query<ConnectionPathQuery>,
 ) -> JsonResult<String> {
+    check_scopes(&authed, || format!("variables:write:{path}"))?;
     require_is_writer(
         &authed,
         &path,
@@ -1074,20 +1075,33 @@ async fn delete_connection(
     )
     .await?;
 
-    let mut tx = user_db.begin(&authed).await?;
-    if !list_usable_connections(&mut tx, &workspace_id, service_name)
-        .await?
-        .iter()
-        .any(|c| c.path == path)
-    {
+    let mut tx = user_db.clone().begin(&authed).await?;
+    let usable = list_usable_connections(&mut tx, &workspace_id, service_name).await?;
+    tx.commit().await?;
+    if !usable.iter().any(|c| c.path == path) {
         return Err(Error::NotFound(format!(
             "No {service_name} connection at {path}"
         )));
     }
 
+    // Disconnecting deletes these triggers, so a path-scoped token must cover each of them.
+    let trigger_paths = sqlx::query_scalar!(
+        "SELECT script_path FROM native_trigger
+         WHERE workspace_id = $1 AND service_name = $2 AND connection_path = $3",
+        workspace_id,
+        service_name as ServiceName,
+        path,
+    )
+    .fetch_all(&db)
+    .await?;
+    for script_path in &trigger_paths {
+        check_scopes(&authed, || format!("native_triggers:write:{script_path}"))?;
+    }
+
     // Before the connection goes: removing the registrations needs its token.
     delete_triggers_for_service(&db, &workspace_id, service_name, Some(&path)).await;
 
+    let mut tx = user_db.begin(&authed).await?;
     let account = cleanup_connection(&mut *tx, &workspace_id, &path).await?;
 
     audit_log(

@@ -1,7 +1,7 @@
 use crate::{
     classify_read_failure, decrypt_oauth_data, delete_native_trigger, delete_token_by_hash,
-    get_native_trigger, list_native_triggers, lock::TriggerLock, map_external_error,
-    map_external_error_with, resolve_usable_connection, rotate_webhook_token,
+    get_native_trigger, list_native_triggers, list_usable_connections, lock::TriggerLock,
+    map_external_error, map_external_error_with, resolve_usable_connection, rotate_webhook_token,
     set_native_trigger_enabled, store_native_trigger, sync::EXTERNAL_TRIGGER_MISSING_ERROR,
     update_native_trigger_error, update_native_trigger_if_runnable_unchanged, webhook_token_label,
     webhook_token_scopes, External, ExternalReadFailure, NativeTrigger, NativeTriggerConfig,
@@ -467,6 +467,28 @@ async fn get_native_trigger_handler<T: External>(
         db.clone(),
     )
     .await?;
+
+    // Reading the registration acts as the connection's account, like saving does.
+    let usable = match windmill_trigger.connection_path.as_deref() {
+        Some(path) => {
+            list_usable_connections(&mut tx, &workspace_id, service_name.integration_service())
+                .await?
+                .iter()
+                .any(|c| c.path == path)
+        }
+        None => false,
+    };
+    if !usable {
+        tx.commit().await?;
+        return Ok(Json(FullTriggerResponse {
+            windmill_data: windmill_trigger,
+            external_data: None,
+            external_error: Some(format!(
+                "You cannot use this trigger's {service_name} connection, so its registration was \
+                 not read."
+            )),
+        }));
+    }
 
     let oauth_data: T::OAuthData = decrypt_oauth_data(
         &db,
