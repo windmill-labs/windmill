@@ -1,0 +1,324 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job_status SET\n            flow_status = (\n                CASE WHEN $3::TEXT IS NULL THEN v2_job_status.flow_status\n                ELSE JSONB_SET(v2_job_status.flow_status, ARRAY['modules', $3::TEXT], $4) END\n                || $2::JSONB\n            ) - $5::TEXT[],\n            flow_leaf_jobs = CASE\n                WHEN $6::TEXT IS NULL\n                    OR COALESCE(v2_job.flow_innermost_root_job, v2_job_status.id) <> v2_job_status.id\n                THEN v2_job_status.flow_leaf_jobs\n                ELSE JSONB_SET(COALESCE(v2_job_status.flow_leaf_jobs, '{}'::JSONB), ARRAY[$6::TEXT], $7) END\n        FROM v2_job_queue INNER JOIN v2_job ON v2_job.id = v2_job_queue.id\n        WHERE v2_job_status.id = $1 AND v2_job_queue.id = $1\n        RETURNING\n            v2_job_queue.workspace_id,\n            v2_job_queue.id,\n            v2_job.args as \"args: sqlx::types::Json<HashMap<String, Box<RawValue>>>\",\n            v2_job.parent_job,\n            v2_job.created_by,\n            v2_job_queue.started_at,\n            v2_job_queue.runnable_settings_handle,\n            v2_job_queue.scheduled_for,\n            v2_job.runnable_path,\n            v2_job.kind as \"kind: JobKind\",\n            v2_job.runnable_id as \"runnable_id: ScriptHash\",\n            v2_job_queue.canceled_reason,\n            v2_job_queue.canceled_by,\n            v2_job.permissioned_as,\n            v2_job.permissioned_as_email,\n            v2_job_status.flow_status as \"flow_status: sqlx::types::Json<Box<RawValue>>\",\n            v2_job.tag,\n            v2_job.script_lang as \"script_lang: ScriptLang\",\n            v2_job.same_worker,\n            v2_job.pre_run_error,\n            v2_job.concurrent_limit,\n            v2_job.concurrency_time_window_s,\n            v2_job.flow_innermost_root_job,\n            v2_job.root_job,\n            v2_job.timeout,\n            v2_job.flow_step_id,\n            v2_job.cache_ttl,\n            v2_job_queue.cache_ignore_s3_path,\n            v2_job_queue.priority,\n            v2_job.preprocessed,\n            v2_job.script_entrypoint_override,\n            v2_job.trigger,\n            v2_job.trigger_kind as \"trigger_kind: TriggerKindLabel\",\n            v2_job.visible_to_owner,\n            NULL as permissioned_as_end_user_email",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "args: sqlx::types::Json<HashMap<String, Box<RawValue>>>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 3,
+        "name": "parent_job",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "started_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "runnable_settings_handle",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "scheduled_for",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 8,
+        "name": "runnable_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 9,
+        "name": "kind: JobKind",
+        "type_info": {
+          "Custom": {
+            "name": "job_kind",
+            "kind": {
+              "Enum": [
+                "script",
+                "preview",
+                "flow",
+                "dependencies",
+                "flowpreview",
+                "script_hub",
+                "identity",
+                "flowdependencies",
+                "http",
+                "graphql",
+                "postgresql",
+                "noop",
+                "appdependencies",
+                "deploymentcallback",
+                "singlestepflow",
+                "flowscript",
+                "flownode",
+                "appscript",
+                "aiagent",
+                "unassigned_script",
+                "unassigned_flow",
+                "unassigned_singlestepflow"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "runnable_id: ScriptHash",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "canceled_reason",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 12,
+        "name": "canceled_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 13,
+        "name": "permissioned_as",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 14,
+        "name": "permissioned_as_email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 15,
+        "name": "flow_status: sqlx::types::Json<Box<RawValue>>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 16,
+        "name": "tag",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 17,
+        "name": "script_lang: ScriptLang",
+        "type_info": {
+          "Custom": {
+            "name": "script_lang",
+            "kind": {
+              "Enum": [
+                "python3",
+                "deno",
+                "go",
+                "bash",
+                "postgresql",
+                "nativets",
+                "bun",
+                "mysql",
+                "bigquery",
+                "snowflake",
+                "graphql",
+                "powershell",
+                "mssql",
+                "php",
+                "bunnative",
+                "rust",
+                "ansible",
+                "csharp",
+                "oracledb",
+                "nu",
+                "java",
+                "duckdb",
+                "ruby",
+                "rlang",
+                "dbt"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 18,
+        "name": "same_worker",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 19,
+        "name": "pre_run_error",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 20,
+        "name": "concurrent_limit",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 21,
+        "name": "concurrency_time_window_s",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 22,
+        "name": "flow_innermost_root_job",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 23,
+        "name": "root_job",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 24,
+        "name": "timeout",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 25,
+        "name": "flow_step_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 26,
+        "name": "cache_ttl",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 27,
+        "name": "cache_ignore_s3_path",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 28,
+        "name": "priority",
+        "type_info": "Int2"
+      },
+      {
+        "ordinal": 29,
+        "name": "preprocessed",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 30,
+        "name": "script_entrypoint_override",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 31,
+        "name": "trigger",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 32,
+        "name": "trigger_kind: TriggerKindLabel",
+        "type_info": {
+          "Custom": {
+            "name": "job_trigger_kind",
+            "kind": {
+              "Enum": [
+                "webhook",
+                "http",
+                "websocket",
+                "kafka",
+                "email",
+                "nats",
+                "schedule",
+                "app",
+                "ui",
+                "postgres",
+                "sqs",
+                "gcp",
+                "mqtt",
+                "nextcloud",
+                "google",
+                "ci_test",
+                "github",
+                "azure",
+                "asset",
+                "freshness",
+                "amqp"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 33,
+        "name": "visible_to_owner",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 34,
+        "name": "permissioned_as_end_user_email",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Jsonb",
+        "Text",
+        "Jsonb",
+        "TextArray",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      false,
+      true,
+      true,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      null
+    ]
+  },
+  "hash": "18bf5cb0acaea522f5a68dca11ca3359b326490b4ce4f837dbe2731240fb3611"
+}
