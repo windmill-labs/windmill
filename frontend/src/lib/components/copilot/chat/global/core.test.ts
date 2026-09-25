@@ -2671,6 +2671,26 @@ describe('global AI tools', () => {
 		}
 	})
 
+	// Whether something is deployed at the path is what says whether a draft staged under
+	// that name is the one addressed. Unanswered, a delete would fall through to the
+	// namesake and remove an unrelated draft.
+	it('stops a delete when it cannot tell whether the path is a deployed item', async () => {
+		seedBackendDraft(
+			'raw_app',
+			'u/admin/draft_unreachable_probe',
+			{ summary: 'Namesake', draft_path: 'f/sales/flaky_app', files: {}, runnables: {} },
+			{ workspace: WORKSPACE }
+		)
+		vi.mocked(AppService.existsApp).mockRejectedValue(new Error('server error'))
+
+		await expect(
+			callGlobalTool('delete_workspace_item', { type: 'app', path: 'f/sales/flaky_app' })
+		).rejects.toThrow(/Could not tell whether/)
+		expect(
+			getBackendDraft('raw_app', 'u/admin/draft_unreachable_probe', { workspace: WORKSPACE })
+		).toBeDefined()
+	})
+
 	it('refuses a draft_path that two drafts are staged under', async () => {
 		for (const storage of ['u/admin/draft_a', 'u/admin/draft_b']) {
 			seedBackendDraft(

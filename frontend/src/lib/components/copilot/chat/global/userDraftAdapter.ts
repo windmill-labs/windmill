@@ -314,15 +314,15 @@ export function chosenDraftName(itemKind: UserDraftItemKind, value: unknown): st
 }
 
 /**
- * The kinds an editor can stage a name for: a flow and a raw app write `draft_path`, a
- * script renames the value's own `path`. A resource, variable, schedule or trigger draft
- * is only ever stored at its own path, so a failed drafts listing withholds nothing a
- * write of one needed.
+ * Deployed-existence probe per kind that can be stored under a name other than its path: a
+ * flow and a raw app stage one in `draft_path`, a script renames the value's own `path`. A
+ * resource, variable, schedule or trigger draft only ever lives at its own path.
+ *
+ * Being nameable and having a probe is the same property — a draft can only be staged under
+ * a name some deployed item might also hold — so the set below is derived from these keys
+ * rather than repeated. Listing a kind here without a probe would let a draft staged under a
+ * deployed item's name win that name, inverting the rule the resolution is built on.
  */
-const NAMEABLE_DRAFT_KINDS: ReadonlySet<UserDraftItemKind> = new Set(['script', 'flow', 'raw_app'])
-
-/** Deployed-existence probe per nameable kind — the same three kinds, since only an item
- * that can be deployed can leave a draft staged under its old name. */
 const deployedExists: Partial<
 	Record<UserDraftItemKind, (workspace: string, path: string) => Promise<boolean>>
 > = {
@@ -330,6 +330,10 @@ const deployedExists: Partial<
 	flow: (workspace, path) => FlowService.existsFlowByPath({ workspace, path }),
 	raw_app: (workspace, path) => AppService.existsApp({ workspace, path })
 }
+
+const NAMEABLE_DRAFT_KINDS: ReadonlySet<UserDraftItemKind> = new Set(
+	Object.keys(deployedExists) as UserDraftItemKind[]
+)
 
 /** What a path resolved to: where the draft is stored, and its value when reaching it
  * already fetched one, so a read does not ask for the same draft twice. */
