@@ -399,6 +399,23 @@ async fn invalidation_pending() -> bool {
         != HTTP_ROUTERS_CACHE.read().await.invalidations
 }
 
+async fn routers_loaded() -> bool {
+    HTTP_ROUTERS_CACHE.read().await.version != 0
+}
+
+/// `refresh_routers` for a process that has loaded its routers; a process that has not loads them
+/// on its first `/r` request instead, so a change never makes it read `http_trigger`. Returns
+/// whether the routers were rebuilt.
+pub async fn refresh_loaded_routers(db: &DB, force: bool) -> Result<bool> {
+    if !routers_loaded().await {
+        // A first load running concurrently may have read the rows before this change committed.
+        invalidate_routers();
+        return Ok(false);
+    }
+    let (rebuilt, _) = refresh_routers(db, force).await?;
+    Ok(rebuilt)
+}
+
 const REFRESH_TICK: std::time::Duration = std::time::Duration::from_secs(60);
 /// Trigger changes normally reach every process as a `notify_http_trigger_change` event, which
 /// forces a rebuild. The version check catches the ones whose event a process skips: the event
@@ -406,18 +423,23 @@ const REFRESH_TICK: std::time::Duration = std::time::Duration::from_secs(60);
 /// on that process until this check runs. Every process runs this loop, hence not every tick.
 const VERSION_CHECK_EVERY_TICKS: u32 = 5;
 
+/// `eager` loads the routers at startup and keeps retrying until they load. Otherwise they load
+/// on the first `/r` request, and the loop only keeps them fresh from then on.
 pub async fn refresh_routers_loop(
     db: &DB,
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
+    eager: bool,
 ) -> () {
-    match refresh_routers(db, false).await {
-        Ok(_) => {
-            tracing::info!("Loaded HTTP routers");
-        }
-        Err(err) => {
-            tracing::error!("Error loading HTTP routers: {err:#}");
-        }
-    };
+    if eager {
+        match refresh_routers(db, false).await {
+            Ok(_) => {
+                tracing::info!("Loaded HTTP routers");
+            }
+            Err(err) => {
+                tracing::error!("Error loading HTTP routers: {err:#}");
+            }
+        };
+    }
     let db = db.clone();
     // Spread the version checks of processes started together.
     let mut tick: u32 = rand::random_range(0..VERSION_CHECK_EVERY_TICKS);
@@ -429,7 +451,11 @@ pub async fn refresh_routers_loop(
                 }
                 _ = tokio::time::sleep(REFRESH_TICK) => {
                     tick = (tick + 1) % VERSION_CHECK_EVERY_TICKS;
-                    if tick != 0 && !invalidation_pending().await {
+                    if routers_loaded().await {
+                        if tick != 0 && !invalidation_pending().await {
+                            continue;
+                        }
+                    } else if !eager {
                         continue;
                     }
                     match refresh_routers(&db, false).await {
