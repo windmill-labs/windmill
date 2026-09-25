@@ -26,8 +26,8 @@ exactly that — it configures a trigger without creating one, and saving a Post
 creates a replication slot and a publication on the target database — and it needed its own layer
 rather than inheriting one. That includes `move`, which re-points existing capture configs between
 runnables: the builders, which call it on every script and flow creation, skip it while the right is
-withdrawn, since captures only arrive through a saved config. Before adding a feature that writes trigger or schedule state, ask
-which router it lands on.
+withdrawn, since captures only arrive through a saved config. Before adding a feature that writes
+trigger or schedule state, ask which router it lands on.
 
 Three consequences to keep in mind when adding a route under one of these:
 
@@ -39,9 +39,10 @@ Three consequences to keep in mind when adding a route under one of these:
 - Anything mounted under a gated router inherits the gate. The native-trigger mount also carries
   the workspace's integration setup, which is a settings concern, so the layer goes on the trigger
   routes alone rather than the whole mount.
-- A route operating on *jobs* rather than configuration inherits it too. `resume_suspended_trigger_jobs`
-  and its cancel twin stay gated: an operator who can neither suspend nor un-suspend a trigger should
-  not override the consequence. Weigh the next one rather than taking the router's answer.
+- A route operating on *jobs* rather than configuration inherits it too.
+  `resume_suspended_trigger_jobs` and its cancel twin stay gated: an operator who can neither
+  suspend nor un-suspend a trigger should not override the consequence. Weigh the next one rather
+  than taking the router's answer.
 
 `check_operator_can_manage` is still the function underneath, for a write that cannot be reached
 through one of these routers. `/acls/add` and `/acls/remove` are the case that needs it: sharing an
@@ -56,9 +57,10 @@ app rather than telling them why. Both integration tests assert the status for t
 ## In the UI
 
 The shared lists (`TriggerList`, `SchedulesList`, `NativeTriggerTable`) derive a per-row `canEdit`
-from `canWrite && !$lock` and leave `canWrite` itself alone, because `canWrite` also tells `SharedBadge` whether a row belongs to someone else — fold the
-lock into it and every row, including ones the operator owns and has never shared, claims to be
-shared read-only. Gate write affordances on `canEdit`, never the badge.
+from `canWrite && !$lock` and leave `canWrite` itself alone, because `canWrite` also tells
+`SharedBadge` whether a row belongs to someone else — fold the lock into it and every row,
+including ones the operator owns and has never shared, claims to be shared read-only. Gate write
+affordances on `canEdit`, never the badge.
 
 Each schedule and trigger editor folds the lock into its own `can_write`, so a withdrawn operator
 gets the same read-only editor as someone without write access to the folder. There, unlike the

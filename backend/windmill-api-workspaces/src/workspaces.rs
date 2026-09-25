@@ -598,6 +598,17 @@ pub struct NewWorkspaceUser {
     pub operator: bool,
 }
 
+/// The role is one choice stored as two flags; both set would show as admin in the UI while the
+/// server refuses the user as an operator.
+fn reject_admin_and_operator(is_admin: bool, operator: bool) -> Result<()> {
+    if is_admin && operator {
+        return Err(Error::BadRequest(
+            "A user cannot be both admin and operator".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 // New format for error handler (grouped)
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -10265,6 +10276,7 @@ async fn invite_user(
     Json(mut nu): Json<NewWorkspaceInvite>,
 ) -> Result<(StatusCode, String)> {
     require_admin(is_admin, &username)?;
+    reject_admin_and_operator(nu.is_admin, nu.operator)?;
 
     #[cfg(not(feature = "enterprise"))]
     if w_id == "admins" {
@@ -10412,6 +10424,8 @@ async fn add_user(
     Path(w_id): Path<String>,
     Json(mut nu): Json<NewWorkspaceUser>,
 ) -> Result<(StatusCode, String)> {
+    reject_admin_and_operator(nu.is_admin, nu.operator)?;
+
     #[cfg(not(feature = "enterprise"))]
     if w_id == "admins" {
         return Err(Error::BadRequest(
