@@ -6,10 +6,11 @@
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2 } from 'lucide-svelte'
-	import { getNextcloudSchema } from '../../utils'
+	import { getNextcloudSchema, useNativeConnection } from '../../utils'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
+	const connectionPath = useNativeConnection()
 
 	interface Props {
 		serviceConfig: Record<string, any>
@@ -49,7 +50,8 @@
 		eventsError = undefined
 		try {
 			const events = await NativeTriggerService.listNextCloudEvents({
-				workspace: $operatingWorkspace!
+				workspace: $operatingWorkspace!,
+				connectionPath: connectionPath()
 			})
 			availableEvents = events
 			serviceSchema = getNextcloudSchema(events)

@@ -2,7 +2,83 @@ import type { NativeServiceName, NativeTrigger, NativeTriggerData } from '$lib/g
 import { isCloudHosted } from '$lib/cloud'
 import { NativeTriggerService, WorkspaceIntegrationService } from '$lib/gen'
 import { get, type Writable } from 'svelte/store'
+import { getContext, setContext } from 'svelte'
 import { sendUserToast } from '$lib/toast'
+
+const CONNECTION_CONTEXT = Symbol('nativeTriggerConnection')
+
+/** Makes the connection a trigger editor acts through available to the pickers of its form. */
+export function setNativeConnectionContext(connectionPath: () => string | undefined) {
+	setContext(CONNECTION_CONTEXT, connectionPath)
+}
+
+/** The connection the service pickers browse through; undefined lets the server pick. */
+export function useNativeConnection(): () => string | undefined {
+	return getContext<(() => string | undefined) | undefined>(CONNECTION_CONTEXT) ?? (() => undefined)
+}
+
+const CONNECT_MESSAGE = 'native_trigger_oauth'
+
+export type NativeOAuthMessage =
+	| { type: typeof CONNECT_MESSAGE; ok: true; path: string }
+	| { type: typeof CONNECT_MESSAGE; ok: false; error: string }
+
+/** The page the provider redirects to, as registered on the workspace's OAuth apps. */
+export function nativeOAuthRedirectUri(service: NativeServiceName): string {
+	return `${window.location.origin}/workspace_settings?tab=native_triggers&service=${service}`
+}
+
+/** Hands the outcome of a connect popup back to the page that opened it. */
+export function postNativeOAuthResult(
+	result: { ok: true; path: string } | { ok: false; error: string }
+) {
+	const message = { type: CONNECT_MESSAGE, ...result } as NativeOAuthMessage
+	window.opener?.postMessage(message, window.location.origin)
+}
+
+/**
+ * Connect an account in a popup and resolve with the path of the saved connection. The
+ * connection is saved at `resourcePath`, or at the caller's default path when omitted.
+ */
+export async function connectNativeAccount(
+	workspace: string,
+	service: NativeServiceName,
+	resourcePath?: string
+): Promise<string> {
+	const authUrl = await WorkspaceIntegrationService.generateNativeTriggerServiceConnectUrl({
+		workspace,
+		serviceName: service,
+		requestBody: { redirect_uri: nativeOAuthRedirectUri(service), resource_path: resourcePath }
+	})
+	const popup = window.open(authUrl, '_blank', 'popup,width=600,height=750')
+	if (!popup) {
+		throw new Error('The connection window was blocked. Allow popups for this site and retry.')
+	}
+	return new Promise((resolve, reject) => {
+		const onMessage = (event: MessageEvent<NativeOAuthMessage>) => {
+			if (event.origin !== window.location.origin || event.data?.type !== CONNECT_MESSAGE) return
+			cleanup()
+			if (event.data.ok) resolve(event.data.path)
+			else reject(new Error(event.data.error))
+		}
+		// The callback page posts its result and then closes itself, so a closed window may still
+		// have a message in flight: give it a moment before treating the close as a cancel.
+		const closedPoll = setInterval(() => {
+			if (popup.closed) {
+				clearInterval(closedPoll)
+				setTimeout(() => {
+					cleanup()
+					reject(new Error('The connection window was closed before finishing'))
+				}, 1000)
+			}
+		}, 500)
+		function cleanup() {
+			window.removeEventListener('message', onMessage)
+			clearInterval(closedPoll)
+		}
+		window.addEventListener('message', onMessage)
+	})
+}
 
 export interface NativeTriggerConfig {
 	readonly serviceDisplayName: string
@@ -216,8 +292,13 @@ export async function saveNativeTriggerFromCfg(
 		service_config: triggerCfg.service_config,
 		summary: triggerCfg.summary
 	}
-	// Only a create can set it: an update ignores the field, and `setenabled` owns it thereafter.
-	const createBody: NativeTriggerData = { ...requestBody, enabled: triggerCfg.enabled ?? true }
+	// Only a create can set these: an update ignores both, `setenabled` owns `enabled` thereafter,
+	// and the connection stays the one the webhook was registered under.
+	const createBody: NativeTriggerData = {
+		...requestBody,
+		enabled: triggerCfg.enabled ?? true,
+		connection_path: triggerCfg.connection_path
+	}
 
 	const serviceName = NATIVE_TRIGGER_SERVICES[service].serviceDisplayName
 

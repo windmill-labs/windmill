@@ -6,8 +6,10 @@
 		validateCommonFields,
 		getServiceConfig,
 		getTemplatePath,
-		saveNativeTriggerFromCfg
+		saveNativeTriggerFromCfg,
+		setNativeConnectionContext
 	} from './utils'
+	import NativeConnectionPicker from './NativeConnectionPicker.svelte'
 	import { usedTriggerKinds } from '$lib/stores'
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { triggerLock } from '$lib/operatorWriteRights'
@@ -128,6 +130,8 @@
 	let externalError = $state<string | undefined>(undefined)
 	let retryEdit = $state<(() => void) | undefined>(undefined)
 	let enabled = $state(true)
+	let connectionPath = $state<string | undefined>(undefined)
+	setNativeConnectionContext(() => connectionPath)
 
 	export function openNew(
 		nis_flow?: boolean,
@@ -159,6 +163,7 @@
 		externalError = undefined
 		retryEdit = undefined
 		enabled = true
+		connectionPath = undefined
 	}
 
 	export function openRecreate(nativeTrigger: ExtendedNativeTrigger) {
@@ -188,6 +193,7 @@
 		externalError = undefined
 		retryEdit = undefined
 		enabled = nativeTrigger.enabled
+		connectionPath = nativeTrigger.connection_path ?? undefined
 	}
 
 	export async function openEdit(
@@ -222,6 +228,7 @@
 		initialScriptPath = ''
 		summary = ''
 		enabled = true
+		connectionPath = undefined
 
 		try {
 			const fullTrigger = await NativeTriggerService.getNativeTrigger({
@@ -239,6 +246,7 @@
 			externalData = fullTrigger.external_data
 			externalError = fullTrigger.external_error ?? undefined
 			enabled = fullTrigger.enabled
+			connectionPath = fullTrigger.connection_path ?? undefined
 
 			// Apply default values if provided (for draft triggers)
 			if (defaultValues) {
@@ -266,7 +274,8 @@
 			script_path: scriptPath,
 			is_flow: isFlow,
 			service_config: serviceConfig,
-			summary: summary !== '' ? summary : undefined
+			summary: summary !== '' ? summary : undefined,
+			connection_path: connectionPath
 		}
 	}
 
@@ -311,7 +320,8 @@
 			loadingForm ||
 			!can_write ||
 			!hasChanged ||
-			loadError !== undefined
+			loadError !== undefined ||
+			(isNew && !connectionPath)
 	)
 	const saveCfg = $derived.by(getSaveCfg)
 
@@ -560,6 +570,17 @@
 				</Section>
 			{/if}
 
+			{#if !loadingConfig}
+				<Section label="{serviceInfo?.serviceDisplayName} account">
+					<NativeConnectionPicker
+						{service}
+						bind:value={connectionPath}
+						locked={!isNew}
+						disabled={loading || !can_write}
+					/>
+				</Section>
+			{/if}
+
 			{#if loadingConfig}
 				<Section label="{serviceInfo?.serviceDisplayName} configuration">
 					<div class="flex items-center gap-2 text-secondary text-xs">
@@ -567,20 +588,25 @@
 						Loading configuration from {serviceInfo?.serviceDisplayName}...
 					</div>
 				</Section>
+			{:else if isNew && !connectionPath}
+				<!-- The pickers browse the service as the chosen account, so there is nothing to
+				     configure until one is chosen. -->
 			{:else if ServiceFormComponent}
-				<ServiceFormComponent
-					bind:loading={loadingForm}
-					bind:this={serviceFormRef}
-					bind:serviceConfig
-					bind:errors
-					{externalData}
-					disabled={loading || loadingConfig || !can_write}
-					path={scriptPath}
-					{isFlow}
-					token=""
-					triggerTokens={undefined}
-					scopes={[]}
-				/>
+				{#key connectionPath}
+					<ServiceFormComponent
+						bind:loading={loadingForm}
+						bind:this={serviceFormRef}
+						bind:serviceConfig
+						bind:errors
+						{externalData}
+						disabled={loading || loadingConfig || !can_write}
+						path={scriptPath}
+						{isFlow}
+						token=""
+						triggerTokens={undefined}
+						scopes={[]}
+					/>
+				{/key}
 			{:else}
 				<Section label="{serviceInfo?.serviceDisplayName} configuration">
 					<div class="text-red-500 text-xs space-y-2">

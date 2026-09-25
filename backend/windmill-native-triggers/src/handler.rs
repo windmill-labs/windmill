@@ -1,11 +1,11 @@
 use crate::{
     classify_read_failure, decrypt_oauth_data, delete_native_trigger, delete_token_by_hash,
     get_native_trigger, list_native_triggers, lock::TriggerLock, map_external_error,
-    map_external_error_with, rotate_webhook_token, set_native_trigger_enabled,
-    store_native_trigger, sync::EXTERNAL_TRIGGER_MISSING_ERROR, update_native_trigger_error,
-    update_native_trigger_if_runnable_unchanged, webhook_token_label, webhook_token_scopes,
-    External, ExternalReadFailure, NativeTrigger, NativeTriggerConfig, NativeTriggerData,
-    ServiceName,
+    map_external_error_with, resolve_usable_connection, rotate_webhook_token,
+    set_native_trigger_enabled, store_native_trigger, sync::EXTERNAL_TRIGGER_MISSING_ERROR,
+    update_native_trigger_error, update_native_trigger_if_runnable_unchanged, webhook_token_label,
+    webhook_token_scopes, External, ExternalReadFailure, NativeTrigger, NativeTriggerConfig,
+    NativeTriggerData, ServiceName,
 };
 use axum::{
     extract::{Path, Query},
@@ -187,9 +187,20 @@ async fn create_native_trigger<T: External>(
     )
     .await?;
 
-    let integration_service = service_name.integration_service();
-    let oauth_data: T::OAuthData =
-        decrypt_oauth_data(&db, &workspace_id, integration_service).await?;
+    let connection_path = resolve_usable_connection(
+        &mut tx,
+        &workspace_id,
+        service_name.integration_service(),
+        data.connection_path.as_deref(),
+    )
+    .await?;
+    let oauth_data: T::OAuthData = decrypt_oauth_data(
+        &db,
+        &workspace_id,
+        service_name.integration_service(),
+        Some(&connection_path),
+    )
+    .await?;
 
     let resp = handler
         .create(
@@ -241,6 +252,7 @@ async fn create_native_trigger<T: External>(
         service_config,
         data.summary.as_deref(),
         data.enabled,
+        &connection_path,
     )
     .await?;
 
@@ -282,10 +294,6 @@ async fn update_native_trigger_handler<T: External>(
     .await?;
     require_runnable_exists(&db, &workspace_id, &data.script_path, data.is_flow).await?;
 
-    let integration_service = service_name.integration_service();
-    let oauth_data: T::OAuthData =
-        decrypt_oauth_data(&db, &workspace_id, integration_service).await?;
-
     let lock = TriggerLock::acquire(&db, &workspace_id, service_name, &external_id).await?;
 
     let mut tx = user_db.clone().begin(&authed).await?;
@@ -293,6 +301,20 @@ async fn update_native_trigger_handler<T: External>(
     let existing = get_native_trigger(&mut *tx, &workspace_id, service_name, &external_id)
         .await?
         .ok_or_else(|| Error::NotFound(format!("Native trigger not found: {}", external_id)))?;
+
+    // Saving re-registers the webhook as the connection's account, so the editor must be allowed
+    // to act as it, not just to write the runnable.
+    let integration_service = service_name.integration_service();
+    if let Some(path) = existing.connection_path.as_deref() {
+        resolve_usable_connection(&mut tx, &workspace_id, integration_service, Some(path)).await?;
+    }
+    let oauth_data: T::OAuthData = decrypt_oauth_data(
+        &db,
+        &workspace_id,
+        integration_service,
+        existing.connection_path.as_deref(),
+    )
+    .await?;
 
     let runnable_changed =
         existing.script_path != data.script_path || existing.is_flow != data.is_flow;
@@ -446,9 +468,13 @@ async fn get_native_trigger_handler<T: External>(
     )
     .await?;
 
-    let integration_service = service_name.integration_service();
-    let oauth_data: T::OAuthData =
-        decrypt_oauth_data(&db, &workspace_id, integration_service).await?;
+    let oauth_data: T::OAuthData = decrypt_oauth_data(
+        &db,
+        &workspace_id,
+        service_name.integration_service(),
+        windmill_trigger.connection_path.as_deref(),
+    )
+    .await?;
 
     let native_trigger = handler
         .get(&workspace_id, &oauth_data, &external_id, &db, &mut tx)
@@ -554,23 +580,35 @@ async fn delete_native_trigger_handler<T: External>(
     )
     .await?;
 
-    let integration_service = service_name.integration_service();
-    let oauth_data: T::OAuthData =
-        decrypt_oauth_data(&db, &workspace_id, integration_service).await?;
-
-    handler
-        .delete(&workspace_id, &oauth_data, &external_id, &db, &mut tx)
-        .await
-        .map_err(|e| {
-            map_external_error_with(e, |m| {
-                let end = if m.ends_with(['.', '!', '?']) {
-                    ""
-                } else {
-                    "."
-                };
-                format!("{m}{end} The trigger was kept in Windmill, so it can still fire.")
-            })
-        })?;
+    // A connection can be deleted from under its triggers. Without it the registration cannot be
+    // removed, but deleting the row still revokes the webhook token, so the service's deliveries
+    // stop starting jobs; refusing would leave a trigger nobody can remove.
+    match decrypt_oauth_data::<T::OAuthData>(
+        &db,
+        &workspace_id,
+        service_name.integration_service(),
+        existing.connection_path.as_deref(),
+    )
+    .await
+    {
+        Ok(oauth_data) => handler
+            .delete(&workspace_id, &oauth_data, &external_id, &db, &mut tx)
+            .await
+            .map_err(|e| {
+                map_external_error_with(e, |m| {
+                    let end = if m.ends_with(['.', '!', '?']) {
+                        ""
+                    } else {
+                        "."
+                    };
+                    format!("{m}{end} The trigger was kept in Windmill, so it can still fire.")
+                })
+            })?,
+        Err(e @ (Error::NotFound(_) | Error::BadRequest(_))) => tracing::warn!(
+            "Deleting {service_name} trigger {external_id} without removing its registration: {e}"
+        ),
+        Err(e) => return Err(e),
+    }
 
     let deleted =
         delete_native_trigger(&mut *tx, &workspace_id, service_name, &external_id).await?;

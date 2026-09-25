@@ -1,15 +1,10 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT external_id, webhook_token_hash FROM native_trigger WHERE workspace_id = $1 AND service_name = $2",
+  "query": "DELETE FROM native_trigger\n         WHERE workspace_id = $1 AND service_name = $2 AND ($3::text IS NULL OR connection_path = $3)\n         RETURNING webhook_token_hash",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "external_id",
-        "type_info": "Varchar"
-      },
-      {
-        "ordinal": 1,
         "name": "webhook_token_hash",
         "type_info": "Varchar"
       }
@@ -28,13 +23,13 @@
               ]
             }
           }
-        }
+        },
+        "Text"
       ]
     },
     "nullable": [
-      false,
       false
     ]
   },
-  "hash": "6c75c89fb215c646f54f2036c40a86a4f4ea8880cc5d0b511aa70b6fd50072c5"
+  "hash": "6e1231d0db1d3736b05a41aa0a3f125cb2f383a53645d7c48cbd0478c3364663"
 }

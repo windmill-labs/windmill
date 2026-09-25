@@ -131,6 +131,7 @@ impl External for NextCloud {
                 &url,
                 Method::POST,
                 w_id,
+                &oauth_data.connection_path,
                 db,
                 Some(headers),
                 Some(&full_nextcloud_payload),
@@ -167,6 +168,7 @@ impl External for NextCloud {
                 &url,
                 Method::POST,
                 w_id,
+                &oauth_data.connection_path,
                 db,
                 Some(headers),
                 Some(&full_nextcloud_payload),
@@ -214,7 +216,15 @@ impl External for NextCloud {
         headers.insert("OCS-APIRequest".to_string(), "true".to_string());
 
         let ocs_response: OcsResponse<NextCloudTriggerData> = self
-            .http_client_request::<_, ()>(&url, Method::GET, w_id, db, Some(headers), None)
+            .http_client_request::<_, ()>(
+                &url,
+                Method::GET,
+                w_id,
+                &oauth_data.connection_path,
+                db,
+                Some(headers),
+                None,
+            )
             .await?;
 
         Ok(Some(ocs_response.ocs.data))
@@ -239,7 +249,15 @@ impl External for NextCloud {
         // A webhook already removed in Nextcloud is the outcome this call wants, so only 404 is
         // swallowed; anything else would leave a live webhook behind while Windmill forgets it.
         let _: serde_json::Value = self
-            .http_client_request::<_, ()>(&url, Method::DELETE, w_id, db, Some(headers), None)
+            .http_client_request::<_, ()>(
+                &url,
+                Method::DELETE,
+                w_id,
+                &oauth_data.connection_path,
+                db,
+                Some(headers),
+                None,
+            )
             .await
             .or_else(|e| match http_error_status(&e) {
                 Some(StatusCode::NOT_FOUND) => Ok(serde_json::Value::Null),
@@ -353,6 +371,7 @@ impl NextCloud {
                 &url,
                 Method::GET,
                 w_id,
+                &oauth_data.connection_path,
                 db,
                 Some(headers),
                 None,

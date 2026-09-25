@@ -1,14 +1,15 @@
 use std::sync::Arc;
 
-use axum::{extract::Path, routing::get, Extension, Json, Router};
+use axum::{
+    extract::{Path, Query},
+    routing::get,
+    Extension, Json, Router,
+};
 use http::Method;
 use windmill_api_auth::ApiAuthed;
-use windmill_common::{error::JsonResult, DB};
+use windmill_common::{db::UserDB, error::JsonResult, DB};
 
-use crate::{
-    get_workspace_integration, map_external_error, require_native_integration_use, External,
-    ServiceName,
-};
+use crate::{map_external_error, picker_connection, ConnectionQuery, External, ServiceName};
 
 use super::{GitHub, GithubApiRepoResponse, GithubRepoEntry};
 
@@ -19,10 +20,18 @@ async fn list_repos(
     authed: ApiAuthed,
     Extension(handler): Extension<Arc<GitHub>>,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path(workspace_id): Path<String>,
+    Query(query): Query<ConnectionQuery>,
 ) -> JsonResult<Vec<GithubRepoEntry>> {
-    require_native_integration_use(&authed)?;
-    get_workspace_integration(&db, &workspace_id, ServiceName::Github).await?;
+    let connection_path = picker_connection(
+        &authed,
+        user_db,
+        &workspace_id,
+        ServiceName::Github,
+        query.connection_path.as_deref(),
+    )
+    .await?;
 
     let mut all_entries = Vec::new();
 
@@ -35,7 +44,15 @@ async fn list_repos(
         );
 
         let repos: Vec<GithubApiRepoResponse> = handler
-            .http_client_request::<_, ()>(&url, Method::GET, &workspace_id, &db, None, None)
+            .http_client_request::<_, ()>(
+                &url,
+                Method::GET,
+                &workspace_id,
+                &connection_path,
+                &db,
+                None,
+                None,
+            )
             .await
             .map_err(map_external_error)?;
 
