@@ -34,6 +34,7 @@
 	} from '$lib/gen'
 	import { enterpriseLicense } from '$lib/stores'
 	import { canWrite, emptyString, formatCron, sendUserToast, cronV1toV2 } from '$lib/utils'
+	import { scheduleLock } from '$lib/operatorWriteRights'
 	import { base } from '$lib/base'
 	import Section from '$lib/components/Section.svelte'
 	import { List, Loader2, Save, AlertTriangle } from 'lucide-svelte'
@@ -148,7 +149,7 @@
 	const acting = useActingUser(() => wsId)
 	const actingUser = $derived(acting.current)
 	const can_write = $derived(
-		permsPath === undefined ? true : canWrite(permsPath, extraPerms, actingUser)
+		(permsPath === undefined || canWrite(permsPath, extraPerms, actingUser)) && !$scheduleLock
 	)
 	// Editing the runnable is closed to operators, and an unresolved acting user is no
 	// evidence that this one isn't.

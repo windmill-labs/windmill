@@ -4,6 +4,7 @@
 	import type { ExtendedNativeTrigger } from './utils'
 	import { getServiceConfig } from './utils'
 	import { canWrite, sendUserToast } from '$lib/utils'
+	import { triggerLock } from '$lib/operatorWriteRights'
 	import { userStore } from '$lib/stores'
 	import TriggerModeToggle from '$lib/components/triggers/TriggerModeToggle.svelte'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
@@ -109,6 +110,7 @@
 			{#each triggers as trigger (trigger.external_id)}
 				{@const isFlow = trigger.is_flow}
 				{@const href = `${isFlow ? '/flows/get' : '/scripts/get'}/${trigger.script_path}`}
+				{@const canEdit = canWrite(trigger.script_path, {}, $userStore) && !$triggerLock}
 				<div
 					class="hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0 first-of-type:rounded-t-md last-of-type:rounded-b-md flex flex-col"
 				>
@@ -161,7 +163,8 @@
 
 						<div class="flex gap-2 items-center justify-end">
 							<TriggerModeToggle
-								canWrite={canWrite(trigger.script_path, {}, $userStore)}
+								canWrite={canEdit}
+								title={$triggerLock}
 								triggerMode={trigger.enabled ? 'enabled' : 'disabled'}
 								onToggleMode={(mode) => onToggleMode(trigger, mode)}
 								hideToggleLabels
@@ -170,10 +173,10 @@
 							<Button
 								on:click={() => onEdit?.(trigger)}
 								unifiedSize="md"
-								startIcon={{ icon: Pen }}
+								startIcon={{ icon: canEdit ? Pen : Eye }}
 								variant="subtle"
 							>
-								Edit
+								{canEdit ? 'Edit' : 'View'}
 							</Button>
 							<Dropdown
 								size="md"
@@ -189,6 +192,8 @@
 										displayName: 'Delete',
 										type: 'delete' as const,
 										icon: Trash,
+										disabled: !canEdit,
+										tooltip: $triggerLock,
 										action: () => openDeleteConfirmation(trigger)
 									}
 								]}
@@ -204,6 +209,8 @@
 								size="xs"
 								variant="subtle"
 								startIcon={{ icon: RefreshCw }}
+								disabled={!!$triggerLock}
+								title={$triggerLock}
 								on:click={() => onRecreate?.(trigger)}
 							>
 								Recreate

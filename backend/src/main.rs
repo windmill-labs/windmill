@@ -1835,6 +1835,13 @@ async fn process_notify_event(
             );
             windmill_common::variables::CUSTOM_ENVS_CACHE.remove(payload);
         }
+        "notify_operator_settings_change" => {
+            tracing::info!(
+                "Operator settings change detected, invalidating operator rights cache: {}",
+                payload
+            );
+            windmill_common::workspaces::invalidate_operator_rights_cache(payload);
+        }
         "notify_asset_producer_change" => {
             tracing::debug!(
                 "Asset producer change for workspace {}, invalidating producer-writes cache",
