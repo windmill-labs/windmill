@@ -463,7 +463,6 @@ async fn eval_quickjs_inner(
         .as_ref()
         .map(|_| referenced_step_ids(expr))
         .unwrap_or_default();
-    // Called outside the expression's scope so user declarations can't shadow it.
     let prefetch = if step_ids.is_empty() {
         "Promise.resolve()".to_string()
     } else {
@@ -574,10 +573,12 @@ async fn eval_quickjs_inner(
         .map_err(quickjs_error_to_anyhow)?;
 
         // Determine if we need to add return statement.
+        // The prefetch runs outside the expression's function so user declarations
+        // can't shadow `__loadResults`; the expression stays a zero-arg IIFE.
         let code = if should_add_return_quickjs(&transformed_expr) {
-            format!("{}.then(async function() {{ return {}; }}).then((x) => JSON.stringify(x ?? null))", prefetch, transformed_expr)
+            format!("{}.then(() => (async function() {{ return {}; }})()).then((x) => JSON.stringify(x ?? null))", prefetch, transformed_expr)
         } else {
-            format!("{}.then(async function() {{ {} }}).then((x) => JSON.stringify(x ?? null))", prefetch, transformed_expr)
+            format!("{}.then(() => (async function() {{ {} }})()).then((x) => JSON.stringify(x ?? null))", prefetch, transformed_expr)
         };
 
         // Evaluate the expression (returns a Promise that resolves to a JSON string)
@@ -1231,6 +1232,14 @@ mod tests {
                 .await
                 .unwrap(),
             json!(1)
+        );
+        assert_eq!(
+            eval_with_results(
+                "function __loadResults() {}\nreturn [results.a.x, arguments.length];"
+            )
+            .await
+            .unwrap(),
+            json!([1, 0])
         );
         // A failed prefetch only throws when that step is actually read.
         assert_eq!(
