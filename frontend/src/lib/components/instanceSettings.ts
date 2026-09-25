@@ -587,13 +587,16 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Cancel jobs on unserved tags after (days)',
 			description:
-				"A job queued with a tag that no worker group serves waits forever. Superadmins get a daily critical alert listing such jobs once they have waited a day with no worker serving their tag (it can be muted under Alerts). When set, pending jobs whose tag no worker has served for this many days are also canceled, with a reason naming the tag. Only top-level jobs are checked: a step waiting inside a running flow is not. A canceled schedule tick is followed by the schedule's next one, on the same tag. Leave empty or set 0 to only alert.",
+				"A job queued with a tag that no worker group serves waits forever. Superadmins get a daily critical alert listing such jobs once they have waited a day with no worker serving their tag (it can be muted under Alerts). When set, pending jobs whose tag no worker has served for this many days are also canceled, with a reason naming the tag. Only top-level jobs are checked: a step waiting inside a running flow is not. A canceled schedule tick is followed by the schedule's next one, on the same tag. At most 3650. Leave empty or set 0 to only alert.",
 			key: 'cancel_stranded_jobs_after_days',
 			fieldType: 'number',
 			placeholder: 'off',
 			storage: 'setting',
 			hideInQuickSetup: true,
-			isValid: (v) => v == undefined || v === '' || (Number.isInteger(Number(v)) && Number(v) >= 0)
+			isValid: (v) =>
+				v == undefined ||
+				v === '' ||
+				(Number.isInteger(Number(v)) && Number(v) >= 0 && Number(v) <= 3650)
 		}
 	],
 	'Object Storage': [

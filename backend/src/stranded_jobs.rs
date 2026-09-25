@@ -37,6 +37,9 @@ const STRANDED_JOBS_LOCK_ID: i64 = 737_483_924;
 
 const ALERT_RESOURCE: &str = "stranded_jobs";
 
+/// Every cancel reason starts with it, which is how `finish_lost_cancels` recognises them.
+const CANCEL_REASON_PREFIX: &str = "no worker has served tag '";
+
 pub async fn check_stranded_jobs(db: &Pool<Postgres>) {
     // Transaction-scoped so a monitor timeout dropping this future cannot leave the lock held
     // on a pooled connection (see `reconcile_unarmed_schedules`).
@@ -88,6 +91,8 @@ async fn cancel_after_days(db: &Pool<Postgres>) -> error::Result<Option<i64>> {
 }
 
 async fn run_pass(db: &Pool<Postgres>, cancel_after_days: Option<i64>) -> error::Result<()> {
+    finish_lost_cancels(db).await?;
+
     // With no worker pinging at all over a window, every tag looks unserved: that is a fleet
     // outage, which would otherwise raise one alert per tag or cancel the whole queue. Each
     // window gets its own check: a fleet quiet for a day may still show which tags went
@@ -135,8 +140,10 @@ struct StrandedGroup {
     oldest: DateTime<Utc>,
 }
 
-/// Top-level pending jobs due for at least `window_secs` whose tag no worker that pinged within
-/// the same window serves, grouped by workspace and tag. Children are covered by their root.
+/// Pending jobs due for at least `window_secs` whose tag no worker that pinged within the same
+/// window serves, grouped by workspace and tag. A job whose parent is still queued is covered
+/// by that parent; one whose parent is gone (a native script retry points at the completed
+/// original) stands on its own.
 ///
 /// A worker pulls its `custom_tags`, which hold resolved tags (dedicated-worker tag included),
 /// the positive-priority `priority_tags` of its group config (which may be absent from
@@ -154,22 +161,25 @@ async fn find_stranded(db: &Pool<Postgres>, window_secs: i64) -> error::Result<V
                 WHERE ping_at > now() - $1::bigint * interval '1 second'
             UNION SELECT regexp_replace(worker, '-[^-]*$', '') FROM worker_ping
                 WHERE ping_at > now() - $1::bigint * interval '1 second'
-            UNION SELECT jsonb_object_keys(c.config->'priority_tags')
-                FROM worker_ping w JOIN config c ON c.name = 'worker__' || w.worker_group
+            UNION SELECT p.key
+                FROM worker_ping w JOIN config c ON c.name = 'worker__' || w.worker_group,
+                    jsonb_each(c.config->'priority_tags') p
                 WHERE w.ping_at > now() - $1::bigint * interval '1 second'
                     AND jsonb_typeof(c.config->'priority_tags') = 'object'
+                    AND jsonb_typeof(p.value) = 'number' AND p.value::text::numeric > 0
         ),
         pending AS MATERIALIZED (
             SELECT q.id, q.workspace_id, q.tag, q.scheduled_for FROM v2_job_queue q
             WHERE q.running = false
-                AND (q.canceled_by IS NULL OR q.canceled_by = 'monitor')
+                AND q.canceled_by IS NULL
                 AND q.scheduled_for <= now() - $1::bigint * interval '1 second'
                 AND NOT EXISTS (SELECT 1 FROM served s WHERE s.tag = q.tag)
         )
         SELECT p.workspace_id AS "workspace_id!", p.tag AS "tag!", count(*) AS "count!",
             min(p.scheduled_for) AS "oldest!"
         FROM pending p JOIN v2_job j ON j.id = p.id
-        WHERE j.parent_job IS NULL
+        WHERE (j.parent_job IS NULL
+            OR NOT EXISTS (SELECT 1 FROM v2_job_queue pq WHERE pq.id = j.parent_job))
         GROUP BY p.workspace_id, p.tag
         ORDER BY min(p.scheduled_for)"#,
         window_secs,
@@ -263,11 +273,12 @@ async fn cancel_stranded_jobs(
                 SELECT q.id, q.scheduled_for FROM v2_job_queue q
                 WHERE q.workspace_id = $1 AND q.tag = $2
                     AND q.running = false
-                    AND (q.canceled_by IS NULL OR q.canceled_by = 'monitor')
+                    AND q.canceled_by IS NULL
                     AND q.scheduled_for <= now() - $3::bigint * interval '1 second'
             )
             SELECT p.id FROM pending p JOIN v2_job j ON j.id = p.id
-            WHERE j.parent_job IS NULL
+            WHERE (j.parent_job IS NULL
+                OR NOT EXISTS (SELECT 1 FROM v2_job_queue pq WHERE pq.id = j.parent_job))
             ORDER BY p.scheduled_for
             LIMIT $4"#,
             group.workspace_id,
@@ -286,7 +297,7 @@ async fn cancel_stranded_jobs(
             group.count,
         );
         let reason = format!(
-            "no worker has served tag '{}' for {}",
+            "{CANCEL_REASON_PREFIX}{}' for {}",
             group.tag,
             plural(days, "day")
         );
@@ -313,18 +324,17 @@ async fn cancel_one(
     // pull (which skips locked rows) off it, and `canceled_by` is set under that lock because
     // `cancel_job` completes a pending job asynchronously: a worker pulling it in between
     // completes it as canceled instead of running it. That completion is lost if the server
-    // stops first, so rows already marked by `monitor` stay eligible for the next pass.
+    // stops first; `finish_lost_cancels` picks those rows up.
     let still_stranded = sqlx::query_scalar!(
         r#"UPDATE v2_job_queue q SET canceled_by = 'monitor', canceled_reason = $3
-        WHERE q.id = $1 AND q.running = false
-            AND (q.canceled_by IS NULL OR q.canceled_by = 'monitor')
+        WHERE q.id = $1 AND q.running = false AND q.canceled_by IS NULL
             AND NOT EXISTS (SELECT 1 FROM worker_ping w
                 LEFT JOIN config c ON c.name = 'worker__' || w.worker_group
                 WHERE w.ping_at > now() - $2::bigint * interval '1 second'
                     AND (q.tag = ANY(w.custom_tags)
                         OR q.tag = regexp_replace(w.worker, '-[^-]*$', '')
-                        OR (jsonb_typeof(c.config->'priority_tags') = 'object'
-                            AND c.config->'priority_tags' ? q.tag)))
+                        OR (jsonb_typeof(c.config->'priority_tags'->q.tag) = 'number'
+                            AND (c.config->'priority_tags'->>q.tag)::numeric > 0)))
         RETURNING q.id"#,
         id,
         window_secs,
@@ -336,6 +346,18 @@ async fn cancel_one(
     if !still_stranded {
         return Ok(());
     }
+    complete_canceled(tx, db, id, workspace_id, reason).await
+}
+
+/// Forced: the non-forced path leaves a job that has a parent to its worker, and no worker
+/// serves this one. A job whose parent is still queued never gets here.
+async fn complete_canceled(
+    tx: sqlx::Transaction<'_, Postgres>,
+    db: &Pool<Postgres>,
+    id: Uuid,
+    workspace_id: &str,
+    reason: String,
+) -> error::Result<()> {
     let (tx, _) = cancel_job(
         "monitor",
         Some(reason),
@@ -343,11 +365,42 @@ async fn cancel_one(
         workspace_id,
         tx,
         db,
-        false,
+        true,
         false,
     )
     .await?;
     tx.commit().await?;
+    Ok(())
+}
+
+/// Completes jobs an earlier pass marked canceled whose asynchronous completion was lost (the
+/// server stopped first). Runs whatever the cancel setting now says: the decision was made.
+async fn finish_lost_cancels(db: &Pool<Postgres>) -> error::Result<()> {
+    let rows = sqlx::query!(
+        r#"SELECT id, workspace_id, canceled_reason AS "reason!" FROM v2_job_queue
+        WHERE running = false AND canceled_by = 'monitor' AND canceled_reason LIKE $1 || '%'
+        LIMIT $2"#,
+        CANCEL_REASON_PREFIX,
+        MAX_CANCELS_PER_PASS,
+    )
+    .fetch_all(db)
+    .await?;
+    for row in rows {
+        let mut tx = db.begin().await?;
+        let still_marked = sqlx::query_scalar!(
+            "SELECT id FROM v2_job_queue WHERE id = $1 AND running = false FOR UPDATE",
+            row.id
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .is_some();
+        if still_marked {
+            tracing::warn!("stranded jobs: completing canceled job {}", row.id);
+            if let Err(e) = complete_canceled(tx, db, row.id, &row.workspace_id, row.reason).await {
+                tracing::error!("stranded jobs: could not complete job {}: {e:#}", row.id);
+            }
+        }
+    }
     Ok(())
 }
 
@@ -438,7 +491,7 @@ mod tests {
         // A positive-priority tag is pulled even when absent from the worker's tags.
         ping(&db, "wk-prio-g7h8", "prio", "1 minute", &["other"]).await;
         sqlx::query(
-            r#"INSERT INTO config (name, config) VALUES ('worker__prio', '{"priority_tags": {"prio": 2}}')"#,
+            r#"INSERT INTO config (name, config) VALUES ('worker__prio', '{"priority_tags": {"prio": 2, "zero": 0}}')"#,
         )
         .execute(&db)
         .await
@@ -449,14 +502,23 @@ mod tests {
         let live = plant(&db, "live", "3 days", None).await;
         plant(&db, "night", "3 days", None).await;
         plant(&db, "prio", "3 days", None).await;
+        // Priority 0 is only pulled when also in the worker's tags.
+        plant(&db, "zero", "3 days", None).await;
         // A worker also pulls its own name prefix.
         plant(&db, "wk-live", "3 days", None).await;
         plant(&db, "nobody", "1 hour", None).await;
         plant(&db, "nobody", "-1 day", None).await;
         plant(&db, "nobody", "3 days", Some(live)).await;
-        // Marked by an earlier pass whose completion was lost: taken again.
-        let retry = plant(&db, "retry", "3 days", None).await;
-        set_canceled_by(&db, retry, Some("monitor")).await;
+        // A native retry points at the completed original, which has left the queue.
+        let original = Uuid::new_v4();
+        sqlx::query("INSERT INTO v2_job (id, workspace_id, tag) VALUES ($1, 'admins', 'retry')")
+            .bind(original)
+            .execute(&db)
+            .await
+            .unwrap();
+        plant(&db, "retry", "3 days", Some(original)).await;
+        let marked = plant(&db, "nobody", "3 days", None).await;
+        set_canceled_by(&db, marked, Some("monitor")).await;
         let by_user = plant(&db, "nobody", "3 days", None).await;
         set_canceled_by(&db, by_user, Some("alice")).await;
         let running = plant(&db, "nobody", "3 days", None).await;
@@ -478,7 +540,8 @@ mod tests {
             vec![
                 ("gone".to_string(), 1),
                 ("nobody".to_string(), 1),
-                ("retry".to_string(), 1)
+                ("retry".to_string(), 1),
+                ("zero".to_string(), 1)
             ]
         );
 
@@ -498,16 +561,57 @@ mod tests {
         cancel_one(&db, nobody, "admins", "test".to_string(), ALERT_WINDOW_SECS)
             .await
             .unwrap();
-        // Gone once the completion lands; until then it must carry the mark.
-        let mark: Option<Option<String>> =
+        assert_eq!(cancel_state(&db, nobody).await, Some("monitor".to_string()));
+    }
+
+    /// `canceled_by` of a job, whether still queued or already completed.
+    async fn cancel_state(db: &Pool<Postgres>, id: Uuid) -> Option<String> {
+        // Queue first: the completion moves the row to `v2_job_completed` in one transaction.
+        let queued: Option<Option<String>> =
             sqlx::query_scalar("SELECT canceled_by FROM v2_job_queue WHERE id = $1")
-                .bind(nobody)
-                .fetch_optional(&db)
+                .bind(id)
+                .fetch_optional(db)
                 .await
                 .unwrap();
-        if let Some(by) = mark {
-            assert_eq!(by.as_deref(), Some("monitor"));
+        match queued {
+            Some(by) => by,
+            None => sqlx::query_scalar("SELECT canceled_by FROM v2_job_completed WHERE id = $1")
+                .bind(id)
+                .fetch_optional(db)
+                .await
+                .unwrap()
+                .flatten(),
         }
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn lost_cancels_are_completed(db: Pool<Postgres>) {
+        let job = plant(&db, "nobody", "3 days", None).await;
+        sqlx::query(
+            "UPDATE v2_job_queue SET canceled_by = 'monitor', canceled_reason = $2 WHERE id = $1",
+        )
+        .bind(job)
+        .bind(format!("{CANCEL_REASON_PREFIX}nobody' for 1 day"))
+        .execute(&db)
+        .await
+        .unwrap();
+
+        finish_lost_cancels(&db).await.unwrap();
+
+        for _ in 0..50 {
+            let done: bool = sqlx::query_scalar(
+                "SELECT EXISTS (SELECT 1 FROM v2_job_completed WHERE id = $1 AND status = 'canceled')",
+            )
+            .bind(job)
+            .fetch_one(&db)
+            .await
+            .unwrap();
+            if done {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        panic!("job was not completed as canceled");
     }
 
     #[sqlx::test(migrations = "./migrations")]
