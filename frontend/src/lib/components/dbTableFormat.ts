@@ -11,11 +11,45 @@ export type ColumnFormat = {
 }
 
 export type ColorRule = {
-	/** In the search bar's filter syntax: `=paid`, `>= 4`, `pend`. */
+	/** In the search bar's filter syntax: `=paid`, `>= 4`, `pend`. Empty matches every cell. */
 	condition: string
 	bg?: string
 	text?: string
+	bold?: boolean
+	italic?: boolean
 }
+
+/** Picked when adding a rule, so that one click sets a background and a text color that read
+ * well together. */
+export const RULE_PRESETS: { bg?: string; text: string }[] = [
+	{ bg: '#fee2e2', text: '#991b1b' },
+	{ bg: '#ffedd5', text: '#9a3412' },
+	{ bg: '#fef3c7', text: '#92400e' },
+	{ bg: '#dcfce7', text: '#166534' },
+	{ bg: '#ccfbf1', text: '#115e59' },
+	{ bg: '#dbeafe', text: '#1e40af' },
+	{ bg: '#ede9fe', text: '#5b21b6' },
+	{ bg: '#fce7f3', text: '#9d174d' },
+	{ bg: '#f3f4f6', text: '#374151' },
+	{ bg: '#dc2626', text: '#ffffff' },
+	{ bg: '#ea580c', text: '#ffffff' },
+	{ bg: '#f59e0b', text: '#1f2937' },
+	{ bg: '#16a34a', text: '#ffffff' },
+	{ bg: '#0d9488', text: '#ffffff' },
+	{ bg: '#2563eb', text: '#ffffff' },
+	{ bg: '#7c3aed', text: '#ffffff' },
+	{ bg: '#db2777', text: '#ffffff' },
+	{ bg: '#374151', text: '#ffffff' },
+	{ text: '#dc2626' },
+	{ text: '#ea580c' },
+	{ text: '#d97706' },
+	{ text: '#16a34a' },
+	{ text: '#0d9488' },
+	{ text: '#2563eb' },
+	{ text: '#7c3aed' },
+	{ text: '#db2777' },
+	{ text: '#9ca3af' }
+]
 
 // Each where it is usually written: 12.5%, $5, 5 €, £5, ¥5.
 export const UNIT_PRESETS: { symbol: string; position: 'before' | 'after' }[] = [
@@ -73,18 +107,26 @@ export function formatValue(value: unknown, format: ColumnFormat | undefined): s
 	return text.startsWith('-') ? `-${symbol}${text.slice(1)}` : `${symbol}${text}`
 }
 
-/** The colors of the first rule `value` matches, if any. */
-export function cellColors(
+export type CellStyle = Pick<ColorRule, 'bg' | 'text' | 'bold' | 'italic'>
+
+/** Every rule `value` matches, layered in order: a later rule overrides only what it sets. */
+export function cellStyle(
 	value: unknown,
 	datatype: string | undefined,
 	format: ColumnFormat | undefined
-): { bg?: string; text?: string } | undefined {
+): CellStyle | undefined {
+	let style: CellStyle | undefined
 	for (const rule of format?.rules ?? []) {
-		if (!rule.condition.trim() || (!rule.bg && !rule.text)) continue
-		if (matchesColumnFilter(value, datatype, rule.condition.trim()))
-			return { bg: rule.bg, text: rule.text }
+		const condition = rule.condition.trim()
+		// No condition styles every cell.
+		if (condition && !matchesColumnFilter(value, datatype, condition)) continue
+		style = { ...style }
+		if (rule.bg) style.bg = rule.bg
+		if (rule.text) style.text = rule.text
+		if (rule.bold) style.bold = true
+		if (rule.italic) style.italic = true
 	}
-	return undefined
+	return style
 }
 
 export function isEmptyFormat(format: ColumnFormat): boolean {

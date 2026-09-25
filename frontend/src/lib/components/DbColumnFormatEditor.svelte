@@ -1,11 +1,12 @@
 <script lang="ts">
-	import { Plus, X } from 'lucide-svelte'
+	import { Bold, GripVertical, Italic, Plus, X } from 'lucide-svelte'
 	import { Button } from './common'
 	import Select from './select/Select.svelte'
 	import TextInput from './text_input/TextInput.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
-	import { UNIT_PRESETS, type ColorRule, type ColumnFormat } from './dbTableFormat'
+	import Popover from './meltComponents/Popover.svelte'
+	import { RULE_PRESETS, UNIT_PRESETS, type ColorRule, type ColumnFormat } from './dbTableFormat'
 
 	type Props = {
 		column: string
@@ -15,13 +16,6 @@
 	let { column, format, onChange }: Props = $props()
 
 	const CUSTOM = 'custom'
-	// Readable in both themes: a light tint behind a dark text of the same hue.
-	const RULE_PRESETS: { bg: string; text: string }[] = [
-		{ bg: '#fee2e2', text: '#991b1b' },
-		{ bg: '#fef3c7', text: '#92400e' },
-		{ bg: '#dcfce7', text: '#166534' },
-		{ bg: '#dbeafe', text: '#1e40af' }
-	]
 
 	let unit = $derived(format?.unit)
 	let rules = $derived(format?.rules ?? [])
@@ -40,9 +34,51 @@
 	function setRule(i: number, patch: Partial<ColorRule>) {
 		update({ rules: rules.map((r, j) => (j === i ? { ...r, ...patch } : r)) })
 	}
+	let addRuleOpen = $state(false)
+	// Which rule's preview has its presets open.
+	let restyling: number | undefined = $state()
+
+	// Order matters, a later rule overrides an earlier one: rules are dragged by their handle.
+	let dragFrom: number | undefined = $state()
+	let dropAt: { index: number; side: 'above' | 'below' } | undefined = $state()
+	function dropRule() {
+		if (dragFrom === undefined || !dropAt) return
+		const moved = rules[dragFrom]
+		const rest = rules.filter((_, j) => j !== dragFrom)
+		let to = dropAt.index + (dropAt.side === 'below' ? 1 : 0)
+		if (dragFrom < to) to--
+		rest.splice(to, 0, moved)
+		update({ rules: rest })
+	}
 </script>
 
-<div class="flex w-80 flex-col gap-3 p-3 text-xs" data-testid="db-format-editor">
+{#snippet sample(style: { bg?: string; text?: string; bold?: boolean; italic?: boolean })}
+	<span
+		class="flex h-7 w-8 shrink-0 items-center justify-center rounded border"
+		style:background-color={style.bg}
+		style:color={style.text}
+		style:font-weight={style.bold ? 600 : undefined}
+		style:font-style={style.italic ? 'italic' : undefined}
+	>
+		Aa
+	</span>
+{/snippet}
+
+{#snippet presets(onPick: (preset: (typeof RULE_PRESETS)[number]) => void)}
+	<div class="grid grid-cols-9 gap-1 p-2">
+		{#each RULE_PRESETS as preset, i (i)}
+			<button
+				class="rounded hover:ring-2 hover:ring-border-selected"
+				title="Use these colors"
+				onclick={() => onPick(preset)}
+			>
+				{@render sample(preset)}
+			</button>
+		{/each}
+	</div>
+{/snippet}
+
+<div class="flex w-96 flex-col gap-3 p-3 text-xs" data-testid="db-format-editor">
 	<div class="flex flex-col gap-0.5">
 		<span class="truncate font-semibold text-emphasis">Format {column}</span>
 		<span class="text-2xs text-secondary">Only changes how values show in this view.</span>
@@ -117,11 +153,49 @@
 	<div class="flex flex-col gap-1">
 		<span class="font-medium text-secondary">Color rules</span>
 		{#each rules as rule, i (i)}
-			<div class="flex items-center gap-1.5" data-testid="db-format-rule">
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<div
+				class="relative flex items-center gap-1.5"
+				data-testid="db-format-rule"
+				ondragover={(e) => {
+					if (dragFrom === undefined) return
+					e.preventDefault()
+					const r = e.currentTarget.getBoundingClientRect()
+					dropAt = { index: i, side: e.clientY < r.top + r.height / 2 ? 'above' : 'below' }
+				}}
+				ondrop={(e) => {
+					e.preventDefault()
+					dropRule()
+				}}
+			>
+				{#if dropAt?.index === i && dragFrom !== undefined}
+					<div
+						class="pointer-events-none absolute inset-x-0 h-0.5 rounded bg-border-selected"
+						class:-top-1={dropAt.side === 'above'}
+						class:-bottom-1={dropAt.side === 'below'}
+					></div>
+				{/if}
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div
+					class="-mx-1 flex h-7 shrink-0 cursor-grab items-center text-hint hover:text-primary"
+					title="Drag to reorder"
+					draggable="true"
+					ondragstart={(e) => {
+						dragFrom = i
+						const row = e.currentTarget.parentElement
+						if (row) e.dataTransfer?.setDragImage(row, 8, row.offsetHeight / 2)
+					}}
+					ondragend={() => {
+						dragFrom = undefined
+						dropAt = undefined
+					}}
+				>
+					<GripVertical size={14} />
+				</div>
 				<div class="min-w-0 grow">
 					<TextInput
 						size="sm"
-						inputProps={{ placeholder: 'e.g. >= 4 or =paid' }}
+						inputProps={{ placeholder: 'All cells, or >= 4, =paid' }}
 						bind:value={() => rule.condition, (v) => setRule(i, { condition: v })}
 					/>
 				</div>
@@ -139,14 +213,39 @@
 					value={rule.text ?? '#000000'}
 					oninput={(e) => setRule(i, { text: e.currentTarget.value })}
 				/>
-				<div
-					class="flex h-7 w-8 shrink-0 items-center justify-center rounded border font-medium"
-					style:background-color={rule.bg}
-					style:color={rule.text}
-					title="Preview"
+				<Button
+					variant="subtle"
+					unifiedSize="sm"
+					iconOnly
+					startIcon={{ icon: Bold }}
+					selected={!!rule.bold}
+					title="Bold"
+					onClick={() => setRule(i, { bold: !rule.bold || undefined })}
+				/>
+				<Button
+					variant="subtle"
+					unifiedSize="sm"
+					iconOnly
+					startIcon={{ icon: Italic }}
+					selected={!!rule.italic}
+					title="Italic"
+					onClick={() => setRule(i, { italic: !rule.italic || undefined })}
+				/>
+				<Popover
+					contentClasses="z-[10001]"
+					floatingConfig={{ strategy: 'fixed', placement: 'bottom-end' }}
+					bind:isOpen={() => restyling === i, (open) => (restyling = open ? i : undefined)}
 				>
-					Aa
-				</div>
+					{#snippet trigger()}
+						<span title="Pick preset colors">{@render sample(rule)}</span>
+					{/snippet}
+					{#snippet content()}
+						{@render presets((preset) => {
+							setRule(i, { bg: preset.bg, text: preset.text })
+							restyling = undefined
+						})}
+					{/snippet}
+				</Popover>
 				<Button
 					variant="subtle"
 					unifiedSize="xs"
@@ -158,24 +257,28 @@
 			</div>
 		{/each}
 		<div class="flex items-center gap-1.5">
-			<Button
-				variant="subtle"
-				unifiedSize="sm"
-				startIcon={{ icon: Plus }}
-				onClick={() =>
-					update({
-						rules: [
-							...rules,
-							{ condition: '', ...RULE_PRESETS[rules.length % RULE_PRESETS.length] }
-						]
-					})}
+			<Popover
+				contentClasses="z-[10001]"
+				floatingConfig={{ strategy: 'fixed', placement: 'bottom-start' }}
+				bind:isOpen={addRuleOpen}
 			>
-				Add rule
-			</Button>
+				{#snippet trigger()}
+					<Button variant="subtle" unifiedSize="sm" startIcon={{ icon: Plus }} nonCaptureEvent>
+						Add rule
+					</Button>
+				{/snippet}
+				{#snippet content()}
+					{@render presets((preset) => {
+						update({ rules: [...rules, { condition: '', ...preset }] })
+						addRuleOpen = false
+					})}
+				{/snippet}
+			</Popover>
 		</div>
 		<span class="text-2xs text-hint">
 			Conditions use the search bar's syntax: text contains, =value is exact, numbers take &gt;,
-			&gt;=, &lt;, &lt;= and !=. The first matching rule applies.
+			&gt;=, &lt;, &lt;= and !=. An empty condition matches every cell. Every matching rule applies,
+			a later one overriding an earlier one.
 		</span>
 	</div>
 </div>

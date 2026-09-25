@@ -83,7 +83,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { deepEqual } from 'fast-equals'
 	import { joinAlias, joinedColumnDef, type DbJoinTarget, type DbTableJoin } from './dbTableJoins'
-	import { cellColors, formatValue, isEmptyFormat, type ColumnFormat } from './dbTableFormat'
+	import { cellStyle, formatValue, isEmptyFormat, type ColumnFormat } from './dbTableFormat'
 	import DbColumnFormatEditor from './DbColumnFormatEditor.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
@@ -693,10 +693,15 @@
 		columnsPickerOpen = false
 		formatting = column
 	}
-	// Selects inside the editor list their options in portals of their own.
+	// Selects and popovers inside the editor render in portals of their own.
 	function closeFormatOnOutsideClick(e: MouseEvent) {
 		const target = e.target as HTMLElement | null
-		if (!formatting || formatEl?.contains(target) || target?.closest('.dropdown-portal')) return
+		if (
+			!formatting ||
+			formatEl?.contains(target) ||
+			target?.closest('.dropdown-portal, [data-popover]')
+		)
+			return
 		formatting = undefined
 	}
 
@@ -1283,9 +1288,9 @@
 								{#each displayColumns as col (col.field)}
 									{@const isSelected = selected?.row === i && selected.column === col.field}
 									{@const pin = pinned[col.field]}
-									{@const colors =
+									{@const style =
 										data && data !== 'loading'
-											? cellColors(data[col.field], col.datatype, formats[col.field])
+											? cellStyle(data[col.field], col.datatype, formats[col.field])
 											: undefined}
 									{#if col.field === firstRightPinned}
 										{@render addColumnCell()}
@@ -1302,8 +1307,10 @@
 										)}
 										style:width="{colWidth(col.field)}px"
 										style:line-height="{ROW_HEIGHT - 1}px"
-										style:background-color={colors?.bg}
-										style:color={colors?.text}
+										style:background-color={style?.bg}
+										style:color={style?.text}
+										style:font-weight={style?.bold ? 600 : undefined}
+										style:font-style={style?.italic ? 'italic' : undefined}
 										style:left={pin === 'left' ? `${pinOffsets[col.field]}px` : undefined}
 										style:right={pin === 'right' ? `${pinOffsets[col.field]}px` : undefined}
 										role="gridcell"
@@ -1407,6 +1414,7 @@
 <GenericDropdown
 	open={!!formatting}
 	maxHeight={640}
+	portalName="db-format-portal"
 	getInputRect={() => {
 		if (formatting) {
 			const header = scrollEl?.querySelector(`[data-header-column="${CSS.escape(formatting)}"]`)

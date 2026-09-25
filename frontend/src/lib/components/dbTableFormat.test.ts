@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cellColors, formatSignificant, formatValue, UNIT_PRESETS } from './dbTableFormat'
+import { cellStyle, formatSignificant, formatValue, UNIT_PRESETS } from './dbTableFormat'
 
 describe('formatSignificant', () => {
 	it('rounds to significant digits, compacting only past them', () => {
@@ -30,19 +30,24 @@ describe('formatValue', () => {
 	})
 })
 
-describe('cellColors', () => {
-	it('uses the first matching rule, in the filter syntax', () => {
+describe('cellStyle', () => {
+	it('layers every matching rule, a later one overriding what it sets', () => {
 		const format = {
 			rules: [
-				{ condition: '>= 100', bg: '#fee2e2' },
-				{ condition: '>= 10', bg: '#fef9c3' }
+				{ condition: '', bold: true, bg: '#f3f4f6' },
+				{ condition: '>= 10', bg: '#fef9c3' },
+				{ condition: '>= 100', bg: '#fee2e2', text: '#991b1b' }
 			]
 		}
-		expect(cellColors('150', 'int4', format)?.bg).toBe('#fee2e2')
-		expect(cellColors('50', 'int4', format)?.bg).toBe('#fef9c3')
-		expect(cellColors('5', 'int4', format)).toBeUndefined()
-		expect(
-			cellColors('refunded', 'text', { rules: [{ condition: '=refunded', text: '#b91c1c' }] })
-		).toEqual({ bg: undefined, text: '#b91c1c' })
+		expect(cellStyle('150', 'int4', format)).toEqual({
+			bold: true,
+			bg: '#fee2e2',
+			text: '#991b1b'
+		})
+		expect(cellStyle('50', 'int4', format)).toEqual({ bold: true, bg: '#fef9c3' })
+		expect(cellStyle('5', 'int4', format)).toEqual({ bold: true, bg: '#f3f4f6' })
+		expect(cellStyle('refunded', 'text', { rules: [{ condition: '=paid', bold: true }] })).toBe(
+			undefined
+		)
 	})
 })
