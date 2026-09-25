@@ -112,7 +112,8 @@
 					{
 						displayName: 'Permissions',
 						icon: Shield,
-						disabled: !agent.canWrite,
+						// A draft-only agent has no resource yet to hold permissions.
+						disabled: !agent.canWrite || Boolean(agent.draft_only),
 						action: () => {
 							shareModal.openDrawer?.(path, 'resource')
 						}

@@ -54,6 +54,12 @@ is that one, since both answer the same question about what an assistant can see
 				parameters: { required: [], ...(toolSchema?.(tool?.id) ?? {}) }
 			}))
 			.sort((a, b) => a.name.localeCompare(b.name))
+			// The section keys and deduplicates its rows by name, and two MCP servers or web searches
+			// can share one, so a repeat is told apart by its position.
+			.map((tool, i, all) => {
+				const nth = all.slice(0, i).filter((t) => t.name === tool.name).length
+				return nth === 0 ? tool : { ...tool, name: `${tool.name} (${nth + 1})` }
+			})
 	)
 
 	let sections = $derived([
