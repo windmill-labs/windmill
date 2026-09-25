@@ -588,13 +588,14 @@ async fn oauth_callback(
 
     // 1. Create account record for token refresh
     let account_id = sqlx::query_scalar!(
-        "INSERT INTO account (workspace_id, client, expires_at, refresh_token, is_workspace_integration)
-         VALUES ($1, $2, now() + ($3 || ' seconds')::interval, $4, true)
+        "INSERT INTO account (workspace_id, client, expires_at, refresh_token, is_workspace_integration, created_by)
+         VALUES ($1, $2, now() + ($3 || ' seconds')::interval, $4, true, $5)
          RETURNING id",
         workspace_id,
         service_name.as_str(),
         expires_in.to_string(),
         token_response.refresh_token.as_deref().unwrap_or(""),
+        authed.username,
     )
     .fetch_one(&mut *tx)
     .await
