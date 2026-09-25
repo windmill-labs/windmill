@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH pending AS MATERIALIZED (\n                SELECT q.id, q.scheduled_for FROM v2_job_queue q\n                WHERE q.workspace_id = $1 AND q.tag = $2\n                    AND q.running = false\n                    AND (q.canceled_by IS NULL OR q.canceled_by = 'monitor')\n                    AND q.scheduled_for <= now() - $3::bigint * interval '1 second'\n            )\n            SELECT p.id FROM pending p JOIN v2_job j ON j.id = p.id\n            WHERE j.parent_job IS NULL\n            ORDER BY p.scheduled_for\n            LIMIT $4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "4b4ae39fb7e18f6514fe062d65288c6492141e949440f94d36a2da7040b5e677"
+}

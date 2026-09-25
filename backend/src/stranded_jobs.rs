@@ -88,13 +88,15 @@ async fn cancel_after_days(db: &Pool<Postgres>) -> error::Result<Option<i64>> {
 
 async fn run_pass(db: &Pool<Postgres>, cancel_after_days: Option<i64>) -> error::Result<()> {
     // With no worker pinging at all over a window, every tag looks unserved: that is a fleet
-    // outage, which would otherwise raise one alert per tag and cancel the whole queue.
-    if !any_worker_pinged(db, ALERT_WINDOW_SECS).await? {
-        tracing::warn!("stranded jobs: no worker pinged in the last 24 hours, skipping");
-        return Ok(());
-    }
-
-    let groups = find_stranded(db, ALERT_WINDOW_SECS).await?;
+    // outage, which would otherwise raise one alert per tag or cancel the whole queue. Each
+    // window gets its own check: a fleet quiet for a day may still show which tags went
+    // unserved over a longer cancel window.
+    let groups = if any_worker_pinged(db, ALERT_WINDOW_SECS).await? {
+        find_stranded(db, ALERT_WINDOW_SECS).await?
+    } else {
+        tracing::warn!("stranded jobs: no worker pinged in the last 24 hours, not alerting");
+        vec![]
+    };
     report_stranded_jobs(db, &groups, cancel_after_days).await?;
 
     if let Some(days) = cancel_after_days {
@@ -104,6 +106,9 @@ async fn run_pass(db: &Pool<Postgres>, cancel_after_days: Option<i64>) -> error:
         } else if any_worker_pinged(db, window_secs).await? {
             find_stranded(db, window_secs).await?
         } else {
+            tracing::warn!(
+                "stranded jobs: no worker pinged in the last {days} days, not cancelling"
+            );
             vec![]
         };
         cancel_stranded_jobs(db, &groups, days).await?;
@@ -133,7 +138,8 @@ struct StrandedGroup {
 /// the same window serves, grouped by workspace and tag. Children are covered by their root.
 ///
 /// A worker pulls its `custom_tags`, which hold resolved tags (dedicated-worker tag included),
-/// plus its own name prefix. Jobs carry their resolved tag (per-workspace suffix, `$workspace`)
+/// the positive-priority `priority_tags` of its group config (which may be absent from
+/// `custom_tags`), and its own name prefix. Jobs carry their resolved tag (per-workspace suffix, `$workspace`)
 /// and the pull matches it exactly, so exact comparison is the pull's own criterion. Agent
 /// workers ping `worker_ping` through the API, so they count too. `worker_ping` keeps a worker's
 /// current tags only: a tag removed from a group's config stops counting at the next ping.
@@ -147,11 +153,15 @@ async fn find_stranded(db: &Pool<Postgres>, window_secs: i64) -> error::Result<V
                 WHERE ping_at > now() - $1::bigint * interval '1 second'
             UNION SELECT regexp_replace(worker, '-[^-]*$', '') FROM worker_ping
                 WHERE ping_at > now() - $1::bigint * interval '1 second'
+            UNION SELECT jsonb_object_keys(c.config->'priority_tags')
+                FROM worker_ping w JOIN config c ON c.name = 'worker__' || w.worker_group
+                WHERE w.ping_at > now() - $1::bigint * interval '1 second'
+                    AND jsonb_typeof(c.config->'priority_tags') = 'object'
         ),
         pending AS MATERIALIZED (
             SELECT q.id, q.workspace_id, q.tag, q.scheduled_for FROM v2_job_queue q
             WHERE q.running = false
-                AND q.canceled_by IS NULL
+                AND (q.canceled_by IS NULL OR q.canceled_by = 'monitor')
                 AND q.scheduled_for <= now() - $1::bigint * interval '1 second'
                 AND NOT EXISTS (SELECT 1 FROM served s WHERE s.tag = q.tag)
         )
@@ -241,7 +251,7 @@ async fn cancel_stranded_jobs(
                 SELECT q.id, q.scheduled_for FROM v2_job_queue q
                 WHERE q.workspace_id = $1 AND q.tag = $2
                     AND q.running = false
-                    AND q.canceled_by IS NULL
+                    AND (q.canceled_by IS NULL OR q.canceled_by = 'monitor')
                     AND q.scheduled_for <= now() - $3::bigint * interval '1 second'
             )
             SELECT p.id FROM pending p JOIN v2_job j ON j.id = p.id
@@ -290,14 +300,19 @@ async fn cancel_one(
     // A worker for the tag may have come back since the job was selected. The row lock keeps the
     // pull (which skips locked rows) off it, and `canceled_by` is set under that lock because
     // `cancel_job` completes a pending job asynchronously: a worker pulling it in between
-    // completes it as canceled instead of running it.
+    // completes it as canceled instead of running it. That completion is lost if the server
+    // stops first, so rows already marked by `monitor` stay eligible for the next pass.
     let still_stranded = sqlx::query_scalar!(
         r#"UPDATE v2_job_queue q SET canceled_by = 'monitor', canceled_reason = $3
-        WHERE q.id = $1 AND q.running = false AND q.canceled_by IS NULL
+        WHERE q.id = $1 AND q.running = false
+            AND (q.canceled_by IS NULL OR q.canceled_by = 'monitor')
             AND NOT EXISTS (SELECT 1 FROM worker_ping w
+                LEFT JOIN config c ON c.name = 'worker__' || w.worker_group
                 WHERE w.ping_at > now() - $2::bigint * interval '1 second'
                     AND (q.tag = ANY(w.custom_tags)
-                        OR q.tag = regexp_replace(w.worker, '-[^-]*$', '')))
+                        OR q.tag = regexp_replace(w.worker, '-[^-]*$', '')
+                        OR (jsonb_typeof(c.config->'priority_tags') = 'object'
+                            AND c.config->'priority_tags' ? q.tag)))
         RETURNING q.id"#,
         id,
         window_secs,
@@ -371,12 +386,13 @@ mod tests {
         id
     }
 
-    async fn ping(db: &Pool<Postgres>, worker: &str, age: &str, tags: &[&str]) {
+    async fn ping(db: &Pool<Postgres>, worker: &str, group: &str, age: &str, tags: &[&str]) {
         sqlx::query(
-            "INSERT INTO worker_ping (worker, worker_instance, ping_at, custom_tags)
-            VALUES ($1, 'test', now() - $2::interval, $3)",
+            "INSERT INTO worker_ping (worker, worker_instance, worker_group, ping_at, custom_tags)
+            VALUES ($1, 'test', $2, now() - $3::interval, $4)",
         )
         .bind(worker)
+        .bind(group)
         .bind(age)
         .bind(tags)
         .execute(db)
@@ -384,22 +400,53 @@ mod tests {
         .unwrap();
     }
 
+    async fn set_canceled_by(db: &Pool<Postgres>, id: Uuid, by: Option<&str>) {
+        sqlx::query("UPDATE v2_job_queue SET canceled_by = $2 WHERE id = $1")
+            .bind(id)
+            .bind(by)
+            .execute(db)
+            .await
+            .unwrap();
+    }
+
+    async fn canceled_by(db: &Pool<Postgres>, id: Uuid) -> Option<String> {
+        sqlx::query_scalar("SELECT canceled_by FROM v2_job_queue WHERE id = $1")
+            .bind(id)
+            .fetch_one(db)
+            .await
+            .unwrap()
+    }
+
     #[sqlx::test(migrations = "./migrations")]
     async fn find_stranded_selects_unserved_root_jobs(db: Pool<Postgres>) {
-        ping(&db, "wk-live-a1b2", "1 minute", &["live"]).await;
+        ping(&db, "wk-live-a1b2", "live", "1 minute", &["live"]).await;
         // A group scaled to zero within the window still serves its tags.
-        ping(&db, "wk-night-c3d4", "10 hours", &["night"]).await;
-        ping(&db, "wk-gone-e5f6", "2 days", &["gone"]).await;
+        ping(&db, "wk-night-c3d4", "night", "10 hours", &["night"]).await;
+        ping(&db, "wk-gone-e5f6", "gone", "2 days", &["gone"]).await;
+        // A positive-priority tag is pulled even when absent from the worker's tags.
+        ping(&db, "wk-prio-g7h8", "prio", "1 minute", &["other"]).await;
+        sqlx::query(
+            r#"INSERT INTO config (name, config) VALUES ('worker__prio', '{"priority_tags": {"prio": 2}}')"#,
+        )
+        .execute(&db)
+        .await
+        .unwrap();
 
-        plant(&db, "nobody", "3 days", None).await;
+        let nobody = plant(&db, "nobody", "3 days", None).await;
         plant(&db, "gone", "3 days", None).await;
         let live = plant(&db, "live", "3 days", None).await;
         plant(&db, "night", "3 days", None).await;
+        plant(&db, "prio", "3 days", None).await;
         // A worker also pulls its own name prefix.
         plant(&db, "wk-live", "3 days", None).await;
         plant(&db, "nobody", "1 hour", None).await;
         plant(&db, "nobody", "-1 day", None).await;
         plant(&db, "nobody", "3 days", Some(live)).await;
+        // Marked by an earlier pass whose completion was lost: taken again.
+        let retry = plant(&db, "retry", "3 days", None).await;
+        set_canceled_by(&db, retry, Some("monitor")).await;
+        let by_user = plant(&db, "nobody", "3 days", None).await;
+        set_canceled_by(&db, by_user, Some("alice")).await;
         let running = plant(&db, "nobody", "3 days", None).await;
         sqlx::query("UPDATE v2_job_queue SET running = true WHERE id = $1")
             .bind(running)
@@ -416,7 +463,11 @@ mod tests {
         found.sort();
         assert_eq!(
             found,
-            vec![("gone".to_string(), 1), ("nobody".to_string(), 1)]
+            vec![
+                ("gone".to_string(), 1),
+                ("nobody".to_string(), 1),
+                ("retry".to_string(), 1)
+            ]
         );
 
         // Picked up by a worker after selection: must not be interrupted.
@@ -429,12 +480,36 @@ mod tests {
         )
         .await
         .unwrap();
-        let canceled_by: Option<String> =
+        assert_eq!(canceled_by(&db, running).await, None);
+
+        // Marked before its asynchronous completion, so a worker pulling it meanwhile skips it.
+        cancel_one(&db, nobody, "admins", "test".to_string(), ALERT_WINDOW_SECS)
+            .await
+            .unwrap();
+        // Gone once the completion lands; until then it must carry the mark.
+        let mark: Option<Option<String>> =
             sqlx::query_scalar("SELECT canceled_by FROM v2_job_queue WHERE id = $1")
-                .bind(running)
-                .fetch_one(&db)
+                .bind(nobody)
+                .fetch_optional(&db)
                 .await
                 .unwrap();
-        assert_eq!(canceled_by, None);
+        if let Some(by) = mark {
+            assert_eq!(by.as_deref(), Some("monitor"));
+        }
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn fleet_outage_neither_alerts_nor_cancels(db: Pool<Postgres>) {
+        ping(&db, "wk-all-a1b2", "all", "2 days", &["gone"]).await;
+        let job = plant(&db, "nobody", "3 days", None).await;
+
+        run_pass(&db, Some(1)).await.unwrap();
+
+        let alerts: i64 = sqlx::query_scalar("SELECT count(*) FROM alerts")
+            .fetch_one(&db)
+            .await
+            .unwrap();
+        assert_eq!(alerts, 0);
+        assert_eq!(canceled_by(&db, job).await, None);
     }
 }
