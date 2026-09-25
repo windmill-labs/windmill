@@ -514,6 +514,12 @@
 		// A newer request superseded this one (e.g. order changed mid-flight); drop
 		// this response so a stale page/cursor can't be mixed with the new order.
 		if (gen !== loadGen) return
+		// Landed together with the agents fetched beside it, or a workspace holding only agents
+		// reads as empty until they arrive.
+		if (agentsLoad) {
+			await agentsLoad
+			if (gen !== loadGen) return
+		}
 		serverCursor = res.next_cursor ?? undefined
 		hasMoreServer = !!res.next_cursor
 

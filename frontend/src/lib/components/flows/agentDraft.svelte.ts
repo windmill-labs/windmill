@@ -8,6 +8,9 @@ import { userStore } from '$lib/stores'
 import { getUserExt } from '$lib/user'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { UserDraft } from '$lib/userDraft.svelte'
+import { onUserInput } from '$lib/userDraftEditGate'
+import { getUsernameForNamespace } from '$lib/userNamespace'
+import { random_adj } from '$lib/components/random_positive_adjetive'
 import { useTriggerDraftSync, type TriggerDraftSync } from '../triggers/useTriggerDraftSync.svelte'
 import { logReusableAgentUsage } from './agentTelemetry'
 import {
@@ -241,6 +244,20 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 		deployed: () => deployed as Record<string, any> | undefined
 	})
 
+	/** A new agent has no deployed value for the sync to absorb the form's settling into, so until
+	 *  the user's first input the draft cell follows the form as a seed instead: what the editor
+	 *  fills in on its own, and the name the path field shows, is not an edit to save. */
+	let seedNewUntilInput = $state<{ ws: string; path: string } | undefined>(undefined)
+	onUserInput(() => {
+		seedNewUntilInput = undefined
+	})
+	$effect(() => {
+		const target = seedNewUntilInput
+		if (!target || !state) return
+		const settled = $state.snapshot(state)
+		untrack(() => UserDraft.seed('resource', target.path, settled, { workspace: target.ws }))
+	})
+
 	function refuse(reason: string) {
 		loading = false
 		refusal = reason
@@ -267,6 +284,7 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 			loadedFor = key
 			loading = true
 			refusal = undefined
+			seedNewUntilInput = undefined
 			// The user alongside the resource, as the generic resource editor loads it: a session or
 			// fork editor operates on a workspace that is not the one being navigated, and groups,
 			// folders and the admin flag are all per workspace, so the nav user would answer for the
@@ -339,14 +357,15 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 						if (loadedFor !== key) return
 						// Nothing is written until the first edit: the sync saves only on user input, and
 						// the first deploy creates the resource at whatever path the form then holds. The
-						// draft stays at the minted `draft_<uuid>` storage path; the form's own path starts
-						// empty so the path field names it, as a new script's or flow's does.
+						// draft stays at the minted `draft_<uuid>` storage path, and the form starts on the
+						// name a new script or flow gets. Named here rather than by the path field: a name
+						// minted after the seed below would differ from it, and the first click would save it.
 						if (opts.isNew?.() && (err as { status?: number })?.status === 404) {
 							noDeployed = true
 							deployed = undefined
 							canWriteResource = true
 							state = {
-								path: '',
+								path: `u/${getUsernameForNamespace()}/${random_adj()}_agent`,
 								description: '',
 								args: {},
 								resource_type: 'ai_agent',
@@ -356,7 +375,7 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 							// Seeds the draft cell with the empty agent, or its first-write guard swallows the
 							// first edit. Not `sync.maybeRestore`: with nothing deployed to compare against, it
 							// takes the form for a restored draft and autosaves it before any input.
-							UserDraft.seed('resource', path, $state.snapshot(state), { workspace: ws })
+							seedNewUntilInput = { ws, path }
 							return
 						}
 						// A failed load knows neither the resource's type nor its value, so it refuses:
