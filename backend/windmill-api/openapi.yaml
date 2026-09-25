@@ -16290,7 +16290,8 @@ paths:
       description: |
         Moves the start of a queued job that is waiting for a future time (scheduled, debounced,
         or re-scheduled by a concurrency limit) to now, keeping the same job id. A job with a
-        concurrency limit is still checked against its limit when it is pulled.
+        concurrency limit is still checked against its limit when it is pulled. A schedule's
+        upcoming tick is refused, since the schedule would queue that tick again.
       operationId: runQueuedJobNow
       tags:
         - job

@@ -1029,6 +1029,41 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
             .await?;
     assert!(due, "run_now must make the job due immediately");
 
+    // A schedule tick that is not due yet is refused: the schedule would queue that same
+    // tick again on completion and run twice.
+    sqlx::query(
+        "INSERT INTO schedule (workspace_id, path, edited_by, schedule, script_path, permissioned_as)
+         VALUES ('test-workspace', 'u/test-user-2/daily', 'test-user-2', '0 0 3 * * *',
+                 'u/test-user-2/running_secret', 'u/test-user-2')",
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "UPDATE v2_job SET trigger_kind = 'schedule', trigger = 'u/test-user-2/daily'
+         WHERE id = $1::uuid",
+    )
+    .bind(RUNNING_JOB)
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "UPDATE v2_job_queue SET scheduled_for =
+            (date_trunc('day', now() AT TIME ZONE 'UTC') + interval '1 day 3 hours') AT TIME ZONE 'UTC'
+         WHERE id = $1::uuid",
+    )
+    .bind(RUNNING_JOB)
+    .execute(&db)
+    .await?;
+    let (status, body) = post(&authed_base, &run_now, Some("SECRET_TOKEN_2")).await;
+    assert_eq!(
+        status,
+        reqwest::StatusCode::BAD_REQUEST,
+        "an upcoming schedule tick must not be started early (got {status}): {body}"
+    );
+    sqlx::query("UPDATE v2_job_queue SET scheduled_for = now() WHERE id = $1::uuid")
+        .bind(RUNNING_JOB)
+        .execute(&db)
+        .await?;
+
     // The owner still cancels their own job (no over-blocking). Keep this last: it
     // takes RUNNING_JOB out of the queue.
     let (status, body) = post(

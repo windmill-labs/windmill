@@ -116,7 +116,9 @@ use windmill_common::{
     query_builders,
     scripts::{ScriptHash, ScriptLang},
     users::username_to_permissioned_as,
-    utils::{not_found_if_none, now_from_db, paginate, require_admin, Pagination, StripPath},
+    utils::{
+        not_found_if_none, now_from_db, paginate, require_admin, Pagination, ScheduleType, StripPath,
+    },
 };
 
 use windmill_common::{
@@ -846,6 +848,7 @@ async fn run_queued_job_now(
     Path((w_id, id)): Path<(String, Uuid)>,
 ) -> error::Result<String> {
     require_job_update_read_access(&db, &user_db, &authed, &w_id, &id, None).await?;
+    refuse_upcoming_schedule_tick(&db, &w_id, id).await?;
 
     let mut tx = db.begin().await?;
     let previous = sqlx::query_scalar!(
@@ -906,6 +909,40 @@ async fn run_queued_job_now(
     .await;
 
     Ok(id.to_string())
+}
+
+/// A schedule queues its next tick when the current one completes, computed from the
+/// completion time. Starting a tick that is not yet due would therefore queue that same
+/// tick again and run the schedule twice. A tick pushed past its time by a concurrency
+/// limit no longer sits on a cron occurrence, so it may still be started early.
+async fn refuse_upcoming_schedule_tick(db: &DB, w_id: &str, id: Uuid) -> error::Result<()> {
+    let Some(tick) = sqlx::query!(
+        "SELECT q.scheduled_for, s.path, s.schedule, s.cron_version, s.timezone
+         FROM v2_job j
+         JOIN v2_job_queue q USING (id)
+         JOIN schedule s ON s.workspace_id = j.workspace_id AND s.path = j.trigger
+         WHERE j.id = $1 AND j.workspace_id = $2 AND j.trigger_kind = 'schedule'
+            AND j.parent_job IS NULL AND q.scheduled_for > now()",
+        id,
+        w_id,
+    )
+    .fetch_optional(db)
+    .await?
+    else {
+        return Ok(());
+    };
+    let sched = ScheduleType::from_str(&tick.schedule, tick.cron_version.as_deref(), false)?;
+    let tz =
+        chrono_tz::Tz::from_str(&tick.timezone).map_err(|e| Error::BadRequest(e.to_string()))?;
+    let just_before = (tick.scheduled_for - chrono::Duration::milliseconds(1)).with_timezone(&tz);
+    if sched.find_next(&just_before)? == tick.scheduled_for {
+        return Err(Error::BadRequest(format!(
+            "job {id} is the upcoming tick of schedule {}; run the schedule's script or flow \
+             directly instead",
+            tick.path
+        )));
+    }
+    Ok(())
 }
 
 #[derive(Serialize)]
