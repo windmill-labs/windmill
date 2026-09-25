@@ -516,10 +516,14 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
         Some("SECRET_TOKEN_2"),
     )
     .await;
-    assert!(status.is_success(), "owner must mint a resume secret: {secret}");
+    assert!(
+        status.is_success(),
+        "owner must mint a resume secret: {secret}"
+    );
     let secret = secret.trim().trim_matches('"').to_string();
-    let approval_result =
-        format!("completed/get_result/{STEP_JOB}?suspended_job={STEP_JOB}&resume_id=0&secret={secret}");
+    let approval_result = format!(
+        "completed/get_result/{STEP_JOB}?suspended_job={STEP_JOB}&resume_id=0&secret={secret}"
+    );
     let (status, body) = get(&base, &approval_result, None).await;
     assert!(
         status.is_success(),
@@ -991,6 +995,40 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
         !status.is_success(),
         "a public token must not let an anonymous caller cancel the run (got {status}): {body}"
     );
+    // ---- RUN_NOW is gated like cancel, and only moves a job still waiting for a
+    //      future start. ----
+    let run_now = format!("queue/run_now/{RUNNING_JOB}");
+    let (status, body) = post(&authed_base, &run_now, Some("SECRET_TOKEN_3")).await;
+    assert_eq!(
+        status,
+        reqwest::StatusCode::FORBIDDEN,
+        "viewer must not start another user's job early (got {status}): {body}"
+    );
+    let (status, body) = post(&authed_base, &run_now, Some("SECRET_TOKEN_2")).await;
+    assert_eq!(
+        status,
+        reqwest::StatusCode::BAD_REQUEST,
+        "a running job has no future start to move (got {status}): {body}"
+    );
+    sqlx::query(
+        "UPDATE v2_job_queue SET running = false, scheduled_for = now() + interval '1 hour'
+         WHERE id = $1::uuid",
+    )
+    .bind(RUNNING_JOB)
+    .execute(&db)
+    .await?;
+    let (status, body) = post(&authed_base, &run_now, Some("SECRET_TOKEN_2")).await;
+    assert!(
+        status.is_success(),
+        "owner must start their deferred job now (got {status}): {body}"
+    );
+    let due: bool =
+        sqlx::query_scalar("SELECT scheduled_for <= now() FROM v2_job_queue WHERE id = $1::uuid")
+            .bind(RUNNING_JOB)
+            .fetch_one(&db)
+            .await?;
+    assert!(due, "run_now must make the job due immediately");
+
     // The owner still cancels their own job (no over-blocking). Keep this last: it
     // takes RUNNING_JOB out of the queue.
     let (status, body) = post(

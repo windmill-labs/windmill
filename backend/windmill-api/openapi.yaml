@@ -16284,6 +16284,27 @@ paths:
                 items:
                   type: string
 
+  /w/{workspace}/jobs/queue/run_now/{id}:
+    post:
+      summary: start a queued job scheduled for later now
+      description: |
+        Moves the start of a queued job that is waiting for a future time (scheduled, debounced,
+        or re-scheduled by a concurrency limit) to now, keeping the same job id. A job with a
+        concurrency limit is still checked against its limit when it is pulled.
+      operationId: runQueuedJobNow
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: job id
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/jobs/queue/cancel_selection:
     post:
       summary: cancel jobs based on the given uuids
