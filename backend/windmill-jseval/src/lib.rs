@@ -92,8 +92,15 @@ pub fn replace_with_await(expr: String, fn_name: &str) -> String {
 fn referenced_step_ids(expr: &str) -> Vec<String> {
     let mut ids: Vec<String> = RE
         .captures_iter(expr)
-        .filter_map(|c| c.get(1).or_else(|| c.get(2)))
-        .map(|m| m.as_str().to_string())
+        .filter_map(|c| match (c.get(1), c.get(2)) {
+            (Some(m), _) => Some(m.as_str().to_string()),
+            // Decode escapes (`results["a"]` reads step `a`).
+            (_, Some(m)) => Some(
+                serde_json::from_str(&format!("\"{}\"", m.as_str()))
+                    .unwrap_or_else(|_| m.as_str().to_string()),
+            ),
+            _ => None,
+        })
         .collect();
     ids.sort();
     ids.dedup();
@@ -1151,7 +1158,7 @@ mod tests {
     #[test]
     fn test_referenced_step_ids() {
         assert_eq!(
-            referenced_step_ids(r#"results.b + results?.a + results["c"] + results.a"#),
+            referenced_step_ids(r#"results.b + results?.a + results["c"] + results["\u0061"]"#),
             vec!["a", "b", "c"]
         );
         assert!(referenced_step_ids("no_results_here").is_empty());
@@ -1159,7 +1166,7 @@ mod tests {
 
     /// `results.a` resolves to `previous_result` (step `a` is the previous
     /// step), so no client is needed.
-    async fn eval_with_results(expr: &str) -> serde_json::Value {
+    async fn eval_with_results(expr: &str) -> anyhow::Result<serde_json::Value> {
         let mut ctx = HashMap::new();
         ctx.insert(
             "previous_result".to_string(),
@@ -1182,26 +1189,37 @@ mod tests {
             Some(&by_id),
             None,
         )
-        .await
-        .unwrap_or_else(|e| panic!("eval failed for '{}': {}", expr, e));
-        serde_json::from_str(result.get()).unwrap()
+        .await?;
+        Ok(serde_json::from_str(result.get())?)
     }
 
     #[tokio::test]
     async fn test_results_in_nested_functions() {
         assert_eq!(
             eval_with_results("return (() => { const tm = results.a; return tm.x + tm.y; })();")
-                .await,
+                .await
+                .unwrap(),
             json!(3)
         );
         assert_eq!(
-            eval_with_results("flow_input.ids.map(id => results.a[id])").await,
+            eval_with_results("flow_input.ids.map(id => results.a[id])")
+                .await
+                .unwrap(),
             json!([2, 1])
         );
         assert_eq!(
-            eval_with_results(r#""results.a is " + JSON.stringify(results.a)"#).await,
+            eval_with_results(r#""results.a is " + JSON.stringify(results.a)"#)
+                .await
+                .unwrap(),
             json!(r#"results.a is {"x":1,"y":2}"#)
         );
+        // A failed prefetch only throws when that step is actually read.
+        assert_eq!(
+            eval_with_results("true ? 1 : results.other").await.unwrap(),
+            json!(1)
+        );
+        let err = eval_with_results("results.other").await.unwrap_err();
+        assert!(err.to_string().contains("Result fetching not available"));
     }
 
     #[test]
