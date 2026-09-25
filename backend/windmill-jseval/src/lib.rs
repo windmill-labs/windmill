@@ -61,8 +61,10 @@ lazy_static! {
     // prefetched before the expression runs so `results` reads synchronously:
     // rewriting accesses to `await` breaks inside non-async inner functions.
     // Over-matching (e.g. inside a string literal) only costs a spurious fetch.
+    // Bracket keys are captured as the whole JS string literal so QuickJS, not
+    // us, decodes their escapes.
     static ref RE: Regex = Regex::new(
-        r#"results(?:\?)?(?:\.([a-zA-Z_0-9]+)|\["(.*?)"\])"#
+        r#"(?:^|[^a-zA-Z0-9_$.])results(?:\??\.([a-zA-Z_0-9]+)|(?:\?\.)?\[("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')\])"#
     )
     .unwrap();
     // SQL fast-path: simple `results.X.Y[i]...` accesses are dispatched to
@@ -88,17 +90,14 @@ pub fn replace_with_await(expr: String, fn_name: &str) -> String {
     s
 }
 
+/// JS string literals naming the step ids statically read from `results`.
 #[cfg(feature = "quickjs")]
 fn referenced_step_ids(expr: &str) -> Vec<String> {
     let mut ids: Vec<String> = RE
         .captures_iter(expr)
         .filter_map(|c| match (c.get(1), c.get(2)) {
-            (Some(m), _) => Some(m.as_str().to_string()),
-            // Decode escapes (`results["a"]` reads step `a`).
-            (_, Some(m)) => Some(
-                serde_json::from_str(&format!("\"{}\"", m.as_str()))
-                    .unwrap_or_else(|_| m.as_str().to_string()),
-            ),
+            (Some(ident), _) => Some(format!("\"{}\"", ident.as_str())),
+            (_, Some(literal)) => Some(literal.as_str().to_string()),
             _ => None,
         })
         .collect();
@@ -465,10 +464,7 @@ async fn eval_quickjs_inner(
     let prefetch = if step_ids.is_empty() {
         String::new()
     } else {
-        format!(
-            "await __loadResults({});",
-            serde_json::to_string(&step_ids)?
-        )
+        format!("await __loadResults([{}]);", step_ids.join(","))
     };
 
     async_with!(context => |ctx| {
@@ -1158,8 +1154,10 @@ mod tests {
     #[test]
     fn test_referenced_step_ids() {
         assert_eq!(
-            referenced_step_ids(r#"results.b + results?.a + results["c"] + results["\u0061"]"#),
-            vec!["a", "b", "c"]
+            referenced_step_ids(
+                r#"results.b + results?.["a"] + results['c'] + x.results.d + my_results.e"#
+            ),
+            vec![r#""a""#, r#""b""#, "'c'"]
         );
         assert!(referenced_step_ids("no_results_here").is_empty());
     }
@@ -1212,6 +1210,14 @@ mod tests {
                 .await
                 .unwrap(),
             json!(r#"results.a is {"x":1,"y":2}"#)
+        );
+        assert_eq!(
+            eval_with_results(
+                r#"[0].map(() => results["\x61"].x + results?.['a'].y + results.a.y)"#
+            )
+            .await
+            .unwrap(),
+            json!([5])
         );
         // A failed prefetch only throws when that step is actually read.
         assert_eq!(
