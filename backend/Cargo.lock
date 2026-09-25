@@ -16512,6 +16512,7 @@ dependencies = [
  "lazy_static",
  "matchit 0.7.3",
  "quick_cache",
+ "rand 0.9.5",
  "regex",
  "serde",
  "serde_json",

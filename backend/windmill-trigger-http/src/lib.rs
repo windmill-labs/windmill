@@ -394,6 +394,17 @@ pub fn invalidate_routers() {
     HTTP_ROUTERS_INVALIDATIONS.fetch_add(1, Ordering::Relaxed);
 }
 
+async fn invalidation_pending() -> bool {
+    HTTP_ROUTERS_INVALIDATIONS.load(Ordering::Relaxed)
+        != HTTP_ROUTERS_CACHE.read().await.invalidations
+}
+
+const REFRESH_TICK: std::time::Duration = std::time::Duration::from_secs(60);
+/// Trigger changes reach every process as a `notify_http_trigger_change` event, which forces a
+/// rebuild, so the version is only read as a safety net for a change whose event was missed.
+/// Every process of an instance runs this loop: keep it off the database on the other ticks.
+const VERSION_CHECK_EVERY_TICKS: u32 = 20;
+
 pub async fn refresh_routers_loop(
     db: &DB,
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
@@ -407,13 +418,19 @@ pub async fn refresh_routers_loop(
         }
     };
     let db = db.clone();
+    // Spread the version checks of processes started together.
+    let mut tick: u32 = rand::random_range(0..VERSION_CHECK_EVERY_TICKS);
     tokio::spawn(async move {
         loop {
             tokio::select! {
                 _ = killpill_rx.recv() => {
                     break;
                 }
-                _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => {
+                _ = tokio::time::sleep(REFRESH_TICK) => {
+                    tick = (tick + 1) % VERSION_CHECK_EVERY_TICKS;
+                    if tick != 0 && !invalidation_pending().await {
+                        continue;
+                    }
                     match refresh_routers(&db, false).await {
                         Ok((true, _)) => {
                             tracing::info!("Refreshed HTTP routers");
