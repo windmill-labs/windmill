@@ -463,13 +463,11 @@ async fn eval_quickjs_inner(
         .as_ref()
         .map(|_| referenced_step_ids(expr))
         .unwrap_or_default();
+    // Called outside the expression's scope so user declarations can't shadow it.
     let prefetch = if step_ids.is_empty() {
-        String::new()
+        "Promise.resolve()".to_string()
     } else {
-        format!(
-            "await __loadResults({});",
-            serde_json::to_string(&step_ids)?
-        )
+        format!("__loadResults({})", serde_json::to_string(&step_ids)?)
     };
 
     async_with!(context => |ctx| {
@@ -577,9 +575,9 @@ async fn eval_quickjs_inner(
 
         // Determine if we need to add return statement.
         let code = if should_add_return_quickjs(&transformed_expr) {
-            format!("(async function() {{ {} return {}; }})().then((x) => JSON.stringify(x ?? null))", prefetch, transformed_expr)
+            format!("{}.then(async function() {{ return {}; }}).then((x) => JSON.stringify(x ?? null))", prefetch, transformed_expr)
         } else {
-            format!("(async function() {{ {} {} }})().then((x) => JSON.stringify(x ?? null))", prefetch, transformed_expr)
+            format!("{}.then(async function() {{ {} }}).then((x) => JSON.stringify(x ?? null))", prefetch, transformed_expr)
         };
 
         // Evaluate the expression (returns a Promise that resolves to a JSON string)
