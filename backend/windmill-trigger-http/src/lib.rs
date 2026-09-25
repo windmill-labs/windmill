@@ -405,15 +405,20 @@ async fn routers_loaded() -> bool {
 
 /// `refresh_routers` for a process that has loaded its routers; a process that has not loads them
 /// on its first `/r` request instead, so a change never makes it read `http_trigger`. Returns
-/// whether the routers were rebuilt.
+/// whether the routers were rebuilt. A failure is marked for the refresh loop to retry.
 pub async fn refresh_loaded_routers(db: &DB, force: bool) -> Result<bool> {
     if !routers_loaded().await {
         // A first load running concurrently may have read the rows before this change committed.
         invalidate_routers();
         return Ok(false);
     }
-    let (rebuilt, _) = refresh_routers(db, force).await?;
-    Ok(rebuilt)
+    match refresh_routers(db, force).await {
+        Ok((rebuilt, _)) => Ok(rebuilt),
+        Err(err) => {
+            invalidate_routers();
+            Err(err)
+        }
+    }
 }
 
 const REFRESH_TICK: std::time::Duration = std::time::Duration::from_secs(60);

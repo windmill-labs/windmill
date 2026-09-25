@@ -1951,7 +1951,6 @@ async fn process_notify_event(
                 Ok(false) => {}
                 Err(err) => {
                     tracing::error!("Error refreshing HTTP routers (trigger change): {err:#}");
-                    windmill_api::triggers::http::invalidate_routers();
                     return false;
                 }
             };
