@@ -37,6 +37,11 @@ permissions:
   that hash alone, with the path beside it never consulted, so a readable path paired with another
   script's hash still runs that other script.
 
+The value is not the only code a flow carries: the schema's `x-windmill-dyn-select-code` fills its
+dynamic dropdowns, run as whoever loads the form. A builder may keep or drop the code stored on the
+flow it updates, never add or change it, so the builder's editor previews dropdowns through the
+deployed flow rather than the inline route operators are refused.
+
 Call it on every write **and** every preview: `run_preview_flow_job` and
 `push_flow_dependencies_job` both take a request-supplied flow value, so leaving either out makes
 it the way to run what the write path refuses.

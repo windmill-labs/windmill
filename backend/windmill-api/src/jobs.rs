@@ -9671,9 +9671,7 @@ async fn run_dynamic_select(
         DynamicSelectRunnableRef::Inline { .. }
     ) && authed.is_operator
     {
-        return Err(error::Error::NotAuthorized(
-            "Operators cannot run preview jobs for security reasons".to_string(),
-        ));
+        return Err(operator_preview_refusal(None));
     }
 
     if !is_valid_entrypoint_name(&request.entrypoint_function) {

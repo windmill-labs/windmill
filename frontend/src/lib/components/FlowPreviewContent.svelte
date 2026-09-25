@@ -27,7 +27,8 @@
 		RefreshCw,
 		X
 	} from 'lucide-svelte'
-	import { sendUserToast, type StateStore } from '$lib/utils'
+	import { DynamicInput, sendUserToast, type StateStore } from '$lib/utils'
+	import { userStore } from '$lib/stores'
 	import { dfs } from './flows/dfs'
 	import { sliceModules } from './flows/flowStateUtils.svelte'
 	import InputSelectedBadge from './schema/InputSelectedBadge.svelte'
@@ -546,14 +547,14 @@
 											savedArgs = $state.snapshot(previewArgs.val)
 										}}
 										bind:isValid
-										helperScript={flowStore.val.schema?.['x-windmill-dyn-select-code'] &&
-										flowStore.val.schema?.['x-windmill-dyn-select-lang']
-											? {
-													source: 'inline',
-													code: flowStore.val.schema['x-windmill-dyn-select-code'] as string,
-													lang: flowStore.val.schema['x-windmill-dyn-select-lang'] as ScriptLang
-												}
-											: undefined}
+										helperScript={DynamicInput.flowHelperScript(
+											flowStore.val.schema?.['x-windmill-dyn-select-code'] as string | undefined,
+											flowStore.val.schema?.['x-windmill-dyn-select-lang'] as
+												| ScriptLang
+												| undefined,
+											$initialPathStore,
+											$userStore?.operator
+										)}
 									/>
 								</div>
 							{/key}

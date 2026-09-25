@@ -272,12 +272,9 @@ pub fn check_flow_is_composition_only(value: &FlowValue) -> Result<ComposedFlowR
 #[derive(Default)]
 pub struct ComposedFlowRefs {
     pub tags: Vec<String>,
-    /// Every workspace runnable a step references, as `(is_flow, path)`. The worker resolves
-    /// these with the root DB handle and adopts the referenced runnable's `on_behalf_of`, so
-    /// composing a path is enough to run it, and to run it as whoever it runs as.
+    /// Every workspace runnable a step references, as `(is_flow, path)`.
     pub runnables: Vec<(bool, String)>,
-    /// Version-pinned script steps. A step carrying a `hash` is dispatched by that hash alone,
-    /// with the path beside it ignored, so the pair has to be checked on top of the path.
+    /// Version-pinned script steps, as `(path, hash)`.
     pub pinned_scripts: Vec<(String, ScriptHash)>,
 }
 
@@ -297,11 +294,10 @@ fn check_module_value_is_composition_only(
     refs: &mut ComposedFlowRefs,
 ) -> Result<(), Error> {
     let refuse = |what: &str| Err(refused(id, what));
-    // A node id points at code stored in a `flow_node` row. Only the dependency job produces them,
-    // by hoisting a step's code out of the flow value, so an authored value carrying one names
-    // code that belongs to some other flow. `modules` is what the walk below covers, and an
-    // editor payload comes from the un-hoisted `flow_version.value`, so refusing them costs
-    // nothing legitimate.
+    // A node id points at code in a `flow_node` row, which only the dependency job produces by
+    // hoisting a step's code, so an authored value carrying one names another flow's code and slips
+    // past this walk. Editor payloads come from the un-hoisted `flow_version.value`, so refusing
+    // them costs nothing legitimate.
     let refuse_node = |node: &Option<FlowNodeId>| match node {
         Some(_) => refuse("references code stored outside the flow"),
         None => Ok(()),
@@ -477,8 +473,6 @@ mod tests {
         }
     }
 
-    /// An agent tool wraps a whole `FlowModuleValue`, and a linked agent resolves its tools from a
-    /// resource an operator may rewrite after the flow is deployed.
     #[test]
     fn composition_check_rejects_code_reachable_through_an_ai_agent() {
         for value in [

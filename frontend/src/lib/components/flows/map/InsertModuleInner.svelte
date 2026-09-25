@@ -78,8 +78,7 @@
 	let savedAgentsLoading = $state(false)
 	let savedAgentsWs: string | undefined = undefined
 	async function loadSavedAgents() {
-		// A linked agent takes its tools from a resource operators may rewrite after the flow is
-		// deployed, so the backend refuses one in a flow a builder authors.
+		// The backend refuses a linked agent in a builder's flow.
 		if (!ws || savedAgentsWs === ws || $operatorBuilderFlows) {
 			return
 		}

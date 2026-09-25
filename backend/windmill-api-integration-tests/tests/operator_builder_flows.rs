@@ -122,6 +122,51 @@ async fn test_operator_builder_flows_boundary(db: Pool<Postgres>) -> anyhow::Res
         resp.text().await?
     );
 
+    sqlx::query(
+        "UPDATE flow SET schema = '{\"x-windmill-dyn-select-code\": \"dev\", \"x-windmill-dyn-select-lang\": \"bun\"}' WHERE workspace_id = $1 AND path = 'u/operator/f1'",
+    )
+    .bind(WS)
+    .execute(&db)
+    .await?;
+    let with_dyn_code = |code: &str| {
+        let mut f = composition_flow_at("u/operator/f1", "u/operator/some_script");
+        f["schema"] =
+            json!({"x-windmill-dyn-select-code": code, "x-windmill-dyn-select-lang": "bun"});
+        f
+    };
+    let resp = c
+        .post(format!("{api}/flows/update/u/operator/f1"))
+        .json(&with_dyn_code("dev"))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "a builder must be able to keep a flow's dropdown code: {}",
+        resp.text().await?
+    );
+    let resp = c
+        .post(format!("{api}/flows/update/u/operator/f1"))
+        .json(&with_dyn_code("builder"))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        403,
+        "a builder must not change a flow's dropdown code"
+    );
+    let resp = c
+        .post(format!("{api}/jobs/run/dynamic_select"))
+        .json(
+            &json!({"entrypoint_function": "f", "runnable_ref": {"source": "inline", "code": "x"}}),
+        )
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        403,
+        "an operator's inline dropdown refusal must not be a 401"
+    );
+
     // A dependency job rewrites bookkeeping stored under the path it names, so a builder must not
     // aim one at a path it cannot write.
     let resp = c
@@ -189,9 +234,7 @@ async fn test_operator_builder_flows_boundary(db: Pool<Postgres>) -> anyhow::Res
         "a builder must not create a script"
     );
 
-    // Composing a runnable is enough to run it: the worker resolves a step's path with the root DB
-    // handle and adopts that runnable's `on_behalf_of`. `permissions_test` gives the operator
-    // fixture no rights on `u/alice/**`.
+    // `permissions_test` gives the operator fixture no rights on `u/alice/**`.
     add_script(&db, 4243, "u/alice/private", "alice").await?;
     let resp = c
         .post(format!("{api}/flows/create"))
@@ -204,8 +247,6 @@ async fn test_operator_builder_flows_boundary(db: Pool<Postgres>) -> anyhow::Res
         "a builder must not compose a runnable it cannot read"
     );
 
-    // A version-pinned step dispatches on its hash alone, so the pair must be real and readable:
-    // otherwise a builder pins the hash of a script it cannot reach and runs that instead.
     add_script(&db, 4242, "u/operator/pinned", "operator").await?;
     let pinned = |hash: &str| {
         json!({

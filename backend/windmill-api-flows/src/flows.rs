@@ -574,6 +574,7 @@ async fn list_paths_linking_agent(
 
 async fn validate_flow(
     new_flow: &NewFlow,
+    updated_path: Option<&str>,
     authed: &ApiAuthed,
     db: &DB,
     user_db: &UserDB,
@@ -599,9 +600,49 @@ async fn validate_flow(
             w_id,
         )
         .await?;
+        check_operator_kept_dyn_select_code(new_flow, updated_path, db, w_id).await?;
     }
 
     return Ok(());
+}
+
+/// A flow's dynamic dropdown code runs as whoever loads its form, so an operator may keep or drop
+/// the code stored on the flow being updated, never add or change it.
+async fn check_operator_kept_dyn_select_code(
+    new_flow: &NewFlow,
+    updated_path: Option<&str>,
+    db: &DB,
+    w_id: &str,
+) -> error::Result<()> {
+    const KEYS: [&str; 2] = ["x-windmill-dyn-select-code", "x-windmill-dyn-select-lang"];
+    let Some(schema) = &new_flow.schema else {
+        return Ok(());
+    };
+    let submitted: serde_json::Value = serde_json::from_str(schema.0.get())?;
+    if submitted.get(KEYS[0]).is_none() {
+        return Ok(());
+    }
+    let stored = match updated_path {
+        Some(path) => sqlx::query_scalar::<_, Option<serde_json::Value>>(
+            "SELECT schema FROM flow WHERE workspace_id = $1 AND path = $2",
+        )
+        .bind(w_id)
+        .bind(path)
+        .fetch_optional(db)
+        .await?
+        .flatten(),
+        None => None,
+    };
+    if KEYS
+        .iter()
+        .all(|k| stored.as_ref().and_then(|s| s.get(k)) == submitted.get(k))
+    {
+        return Ok(());
+    }
+    Err(Error::PermissionDenied(
+        "Operators cannot add or change a flow's dynamic dropdown code: ask a developer"
+            .to_string(),
+    ))
 }
 
 /// Runs on every write and every preview of a flow authored by an operator with builder rights.
@@ -648,11 +689,9 @@ pub async fn validate_operator_composed_flow(
         .sort_by_key(|(path, hash)| (path.clone(), hash.0));
     refs.pinned_scripts
         .dedup_by_key(|(path, hash)| (path.clone(), hash.0));
-    // Composing a runnable is enough to run it: the worker resolves a step's path with the root DB
-    // handle and adopts that runnable's `on_behalf_of`, so an unreadable path would let a builder
-    // execute code it cannot see, as whoever that code runs as. RLS on this transaction is the
-    // check. A pinned `hash` needs its own comparison on top: the dispatch ignores the path beside
-    // it, so a readable path paired with another script's hash still runs that other script.
+    // The worker resolves a step's path with the root DB handle and runs it as that runnable's
+    // `on_behalf_of`, so composing an unreadable path would run code the builder cannot see. RLS
+    // on this transaction is the check.
     let mut tx = user_db.clone().begin(authed).await?;
     for (is_flow, path) in &refs.runnables {
         let readable = if *is_flow {
@@ -678,6 +717,8 @@ pub async fn validate_operator_composed_flow(
             )));
         }
     }
+    // A pinned step is dispatched by its hash alone, ignoring the path beside it, so a readable
+    // path paired with another script's hash would still run that other script.
     for (path, hash) in &refs.pinned_scripts {
         let exists = sqlx::query_scalar!(
             "SELECT EXISTS(SELECT 1 FROM script WHERE workspace_id = $1 AND path = $2 AND hash = $3)",
@@ -726,7 +767,7 @@ async fn create_flow(
         return Err(Error::PermissionDenied(msg));
     }
 
-    validate_flow(&nf, &authed, &db, &user_db, &w_id).await?;
+    validate_flow(&nf, None, &authed, &db, &user_db, &w_id).await?;
     if *CLOUD_HOSTED {
         let nb_flows =
             sqlx::query_scalar!("SELECT COUNT(*) FROM flow WHERE workspace_id = $1", &w_id)
@@ -1324,7 +1365,7 @@ async fn update_flow(
         return Err(Error::PermissionDenied(msg));
     }
 
-    validate_flow(&nf, &authed, &db, &user_db, &w_id).await?;
+    validate_flow(&nf, Some(flow_path), &authed, &db, &user_db, &w_id).await?;
 
     let authed = maybe_refresh_folders(&flow_path, &w_id, authed, &db).await;
     let mut tx = user_db.clone().begin(&authed).await?;
