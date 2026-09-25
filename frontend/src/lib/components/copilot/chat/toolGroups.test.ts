@@ -80,6 +80,15 @@ describe('groupToolRuns', () => {
 				tool('patch_flow_json', flow)
 			])
 		).toEqual([0, 1, 2])
+		const sources = JSON.stringify({ sources: [{ url: 'https://example.com', title: 'x' }] })
+		expect(
+			shape([
+				tool('search_docs'),
+				tool('call_mcp_read_tool', { server: 'u/a/s', tool: 'search' }, { result: sources }),
+				tool('patch_flow_json', flow, { heldForFolderInstructions: true }),
+				tool('patch_flow_json', flow)
+			])
+		).toEqual([0, 1, 2, 3])
 	})
 
 	it('leaves a flow read that prepares an edit to the edit group, not the lookups before it', () => {

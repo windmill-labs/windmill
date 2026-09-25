@@ -1,5 +1,6 @@
 import type { DisplayMessage, ToolDisplayMessage } from './shared'
 import { DRAFT_CONFLICT_RESULT, DRAFT_SAVE_FAILED_RESULT } from './draftWriteResults'
+import { webSearchResultOf } from './webSearchResult'
 
 // A tool missing from these lists always renders as its own row, so a new write never gets
 // hidden by default.
@@ -81,10 +82,13 @@ export type ChatItem = { kind: 'message'; message: DisplayMessage; index: number
 function groupableCall(message: DisplayMessage): ToolDisplayMessage | undefined {
 	if (message.role !== 'tool' || !message.toolName) return undefined
 	// A row waiting on the user, or refused by plan mode, is a decision the user must see; a
-	// row with its own card (run, question, image, sources) is the content itself.
+	// row with its own card (run, question, diff, image, sources) is the content itself; a call
+	// held for folder instructions never ran, so it is not a change or a lookup.
 	if (message.needsConfirmation || message.blockedByPlanMode) return undefined
+	if (message.heldForFolderInstructions) return undefined
 	if (message.runForm || message.inspectedRun || message.userQuestion) return undefined
-	if (message.imageUrl || message.webSearchSources) return undefined
+	if (message.codeDiff || message.imageUrl || message.webSearchSources) return undefined
+	if (!message.error && webSearchResultOf(message.result)) return undefined
 	// The user's own refusal is a decision, not a failure to fold away.
 	if (message.declinedByUser) return undefined
 	return message
