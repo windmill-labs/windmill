@@ -14,7 +14,9 @@
 	import Required from '$lib/components/Required.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import PipelineLockedRunnableInfo from '$lib/components/triggers/PipelineLockedRunnableInfo.svelte'
-	import ErrorOrRecoveryHandler from '$lib/components/ErrorOrRecoveryHandler.svelte'
+	import ErrorOrRecoveryHandler, {
+		handlerFullPath
+	} from '$lib/components/ErrorOrRecoveryHandler.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
@@ -439,7 +441,7 @@
 					path:
 						errorHandlerPath == undefined
 							? undefined
-							: `${errorHandleritemKind}/${errorHandlerPath}`,
+							: handlerFullPath(errorHandleritemKind, errorHandlerPath),
 					extra_args: errorHandlerExtraArgs,
 					number_of_occurence: failedTimes,
 					number_of_occurence_exact: failedExact,
@@ -468,7 +470,7 @@
 					path:
 						recoveryHandlerPath === undefined
 							? undefined
-							: `${recoveryHandlerItemKind}/${recoveryHandlerPath}`,
+							: handlerFullPath(recoveryHandlerItemKind, recoveryHandlerPath),
 					extra_args: recoveryHandlerExtraArgs,
 					number_of_occurence: recoveredTimes
 				}
@@ -495,7 +497,7 @@
 					path:
 						successHandlerPath === undefined
 							? undefined
-							: `${successHandlerItemKind}/${successHandlerPath}`,
+							: handlerFullPath(successHandlerItemKind, successHandlerPath),
 					extra_args: successHandlerExtraArgs,
 					number_of_occurence: recoveredTimes
 				}
@@ -691,17 +693,19 @@
 			is_flow: is_flow,
 			args: args,
 			enabled: enabled,
-			on_failure: errorHandlerPath ? `${errorHandleritemKind}/${errorHandlerPath}` : undefined,
+			on_failure: errorHandlerPath
+				? handlerFullPath(errorHandleritemKind, errorHandlerPath)
+				: undefined,
 			on_failure_times: failedTimes,
 			on_failure_exact: failedExact,
 			on_failure_extra_args: errorHandlerPath ? errorHandlerExtraArgs : undefined,
 			on_recovery: recoveryHandlerPath
-				? `${recoveryHandlerItemKind}/${recoveryHandlerPath}`
+				? handlerFullPath(recoveryHandlerItemKind, recoveryHandlerPath)
 				: undefined,
 			on_recovery_times: recoveredTimes,
 			on_recovery_extra_args: recoveryHandlerPath ? recoveryHandlerExtraArgs : {},
 			on_success: successHandlerPath
-				? `${successHandlerItemKind}/${successHandlerPath}`
+				? handlerFullPath(successHandlerItemKind, successHandlerPath)
 				: undefined,
 			on_success_extra_args: successHandlerPath ? successHandlerExtraArgs : {},
 			ws_error_handler_muted: wsErrorHandlerMuted,

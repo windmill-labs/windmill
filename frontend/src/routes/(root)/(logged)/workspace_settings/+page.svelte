@@ -10,7 +10,9 @@
 	import DeployToSetting from '$lib/components/DeployToSetting.svelte'
 	import RemoteDeployTargetSetting from '$lib/components/RemoteDeployTargetSetting.svelte'
 	import DevWorkspaceSetting from '$lib/components/DevWorkspaceSetting.svelte'
-	import ErrorOrRecoveryHandler from '$lib/components/ErrorOrRecoveryHandler.svelte'
+	import ErrorOrRecoveryHandler, {
+		handlerFullPath
+	} from '$lib/components/ErrorOrRecoveryHandler.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 
@@ -907,7 +909,7 @@
 			await WorkspaceService.editErrorHandler({
 				workspace: $workspaceStore!,
 				requestBody: {
-					path: `${errorHandlerItemKind}/${errorHandlerScriptPath}`,
+					path: handlerFullPath(errorHandlerItemKind, errorHandlerScriptPath),
 					extra_args: errorHandlerExtraArgs,
 					muted_on_cancel: errorHandlerMutedOnCancel,
 					muted_on_user_path: errorHandlerMutedOnUserPath,

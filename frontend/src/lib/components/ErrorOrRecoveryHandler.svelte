@@ -17,6 +17,13 @@
 	]
 
 	export const slackErrorHandlerHubPathEnding = '/workspace-or-schedule-error-handler-slack'
+
+	/** The stored `<script|flow>/<path>` form of a handler. `kind` is the Custom tab's Script/Flow
+	 * choice and survives switching to a built-in tab, but every hub handler is a script: stored
+	 * as `flow/hub/...` it never runs. */
+	export function handlerFullPath(kind: 'flow' | 'script', path: string): string {
+		return `${path.startsWith('hub/') ? 'script' : kind}/${path}`
+	}
 </script>
 
 <script lang="ts">
