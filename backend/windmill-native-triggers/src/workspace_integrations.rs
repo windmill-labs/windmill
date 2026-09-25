@@ -61,8 +61,10 @@ type HmacSha256 = Hmac<Sha256>;
 const STATE_EXPIRATION_SECONDS: i64 = 600; // 10 minutes
 
 /// Generate a signed OAuth state that is cluster-safe.
-/// The state contains: workspace_id, service_name, timestamp, nonce, and the path the connection
-/// will be saved at, so the callback needs nothing from the page the provider redirects to.
+/// The state contains: workspace_id, service_name, timestamp, nonce, the path the connection
+/// will be saved at, and the user it was issued to. The path makes the callback independent of the
+/// page the provider redirects to; the user stops anyone else from finishing the flow, which would
+/// save their account at a path the issuer chose.
 /// It's signed with HMAC-SHA256 using the workspace key.
 #[cfg(feature = "native_trigger")]
 async fn generate_signed_state(
@@ -70,18 +72,20 @@ async fn generate_signed_state(
     workspace_id: &str,
     service_name: ServiceName,
     connection_path: &str,
+    username: &str,
 ) -> Result<String> {
     use windmill_common::variables::get_workspace_key;
 
     let nonce = uuid::Uuid::new_v4().to_string();
     let timestamp = chrono::Utc::now().timestamp();
     let payload = format!(
-        "{}:{}:{}:{}:{}",
+        "{}:{}:{}:{}:{}:{}",
         workspace_id,
         service_name.as_str(),
         timestamp,
         nonce,
-        URL_SAFE_NO_PAD.encode(connection_path)
+        URL_SAFE_NO_PAD.encode(connection_path),
+        URL_SAFE_NO_PAD.encode(username)
     );
 
     // Get workspace key for signing
@@ -98,14 +102,15 @@ async fn generate_signed_state(
     Ok(format!("{}:{}", encoded_payload, encoded_signature))
 }
 
-/// Validate a signed OAuth state (correct signature, workspace and service, not expired) and
-/// return the connection path it was issued for.
+/// Validate a signed OAuth state (correct signature, workspace, service and user, not expired)
+/// and return the connection path it was issued for.
 #[cfg(feature = "native_trigger")]
 async fn validate_signed_state(
     db: &DB,
     state: &str,
     workspace_id: &str,
     service_name: ServiceName,
+    username: &str,
 ) -> Result<String> {
     use windmill_common::variables::get_workspace_key;
 
@@ -119,14 +124,18 @@ async fn validate_signed_state(
         .and_then(|bytes| String::from_utf8(bytes).ok())
         .ok_or_else(invalid)?;
 
-    // Parse payload: workspace_id:service_name:timestamp:nonce:connection_path
-    let [state_workspace_id, state_service, timestamp, _nonce, encoded_path] = payload
-        .split(':')
-        .collect::<Vec<_>>()
-        .try_into()
-        .map_err(|_| invalid())?;
+    // Parse payload: workspace_id:service_name:timestamp:nonce:connection_path:username
+    let [state_workspace_id, state_service, timestamp, _nonce, encoded_path, encoded_user] =
+        payload
+            .split(':')
+            .collect::<Vec<_>>()
+            .try_into()
+            .map_err(|_| invalid())?;
 
-    if state_workspace_id != workspace_id || state_service != service_name.as_str() {
+    if state_workspace_id != workspace_id
+        || state_service != service_name.as_str()
+        || encoded_user != URL_SAFE_NO_PAD.encode(username)
+    {
         return Err(invalid());
     }
 
@@ -252,7 +261,14 @@ async fn generate_connect_url(
     };
 
     // Generate a signed state that is cluster-safe
-    let state = generate_signed_state(&db, &workspace_id, service_name, &connection_path).await?;
+    let state = generate_signed_state(
+        &db,
+        &workspace_id,
+        service_name,
+        &connection_path,
+        &authed.username,
+    )
+    .await?;
     let auth_url = build_authorization_url(&oauth_config, service_name, &state, &redirect_uri);
     Ok(Json(auth_url))
 }
@@ -589,8 +605,14 @@ async fn oauth_callback(
 ) -> JsonResult<String> {
     require_native_integration_use(&authed)?;
 
-    let resource_path =
-        validate_signed_state(&db, &body.state, &workspace_id, service_name).await?;
+    let resource_path = validate_signed_state(
+        &db,
+        &body.state,
+        &workspace_id,
+        service_name,
+        &authed.username,
+    )
+    .await?;
 
     let (oauth_config, is_instance_shared) =
         resolve_oauth_client(&db, &workspace_id, service_name).await?;
@@ -606,7 +628,7 @@ async fn oauth_callback(
     let mut tx = user_db.begin(&authed).await?;
 
     // Reconnecting at a path replaces the connection there; triggers using it keep working.
-    cleanup_connection(&mut *tx, &workspace_id, &resource_path).await?;
+    let replaced_account = cleanup_connection(&mut *tx, &workspace_id, &resource_path).await?;
 
     // 1. Create account record for token refresh
     let account_id = sqlx::query_scalar!(
@@ -710,6 +732,7 @@ async fn oauth_callback(
     .await?;
 
     tx.commit().await?;
+    delete_unlinked_account(&db, &workspace_id, replaced_account).await;
 
     Ok(Json(resource_path))
 }
@@ -861,13 +884,16 @@ fn build_authorization_url(
     format!("{}?{}", base_auth_url, query_string)
 }
 
-/// Remove the connection at `path`: its variable, the account behind it, and its resource.
+/// Remove the connection at `path`: its variable and its resource.
+///
+/// Returns the account the variable linked. The caller removes it with
+/// [`delete_unlinked_account`] once `tx` is committed.
 #[cfg(feature = "native_trigger")]
 pub async fn cleanup_connection(
     tx: &mut sqlx::PgConnection,
     workspace_id: &str,
     path: &str,
-) -> Result<()> {
+) -> Result<Option<i32>> {
     let account_id = sqlx::query_scalar!(
         "DELETE FROM variable WHERE workspace_id = $1 AND path = $2 RETURNING account",
         workspace_id,
@@ -877,16 +903,6 @@ pub async fn cleanup_connection(
     .await?
     .flatten();
 
-    if let Some(account_id) = account_id {
-        sqlx::query!(
-            "DELETE FROM account WHERE workspace_id = $1 AND id = $2 AND is_workspace_integration = true",
-            workspace_id,
-            account_id,
-        )
-        .execute(&mut *tx)
-        .await?;
-    }
-
     sqlx::query!(
         "DELETE FROM resource WHERE workspace_id = $1 AND path = $2",
         workspace_id,
@@ -895,7 +911,28 @@ pub async fn cleanup_connection(
     .execute(&mut *tx)
     .await?;
 
-    Ok(())
+    Ok(account_id)
+}
+
+/// Delete a connection's account once no variable links it any more. Any variable can link any
+/// account, so another one may still hold it; the check needs `db`, since the caller's own
+/// transaction does not see variables it cannot read.
+#[cfg(feature = "native_trigger")]
+pub async fn delete_unlinked_account(db: &DB, workspace_id: &str, account_id: Option<i32>) {
+    let Some(account_id) = account_id else {
+        return;
+    };
+    if let Err(e) = sqlx::query!(
+        "DELETE FROM account WHERE workspace_id = $1 AND id = $2 AND is_workspace_integration = true
+         AND NOT EXISTS (SELECT 1 FROM variable WHERE workspace_id = $1 AND account = $2)",
+        workspace_id,
+        account_id,
+    )
+    .execute(db)
+    .await
+    {
+        tracing::error!("Failed to delete account {account_id} in {workspace_id}: {e}");
+    }
 }
 
 /// Remove every connection of a service in the workspace.
@@ -1051,7 +1088,7 @@ async fn delete_connection(
     // Before the connection goes: removing the registrations needs its token.
     delete_triggers_for_service(&db, &workspace_id, service_name, Some(&path)).await;
 
-    cleanup_connection(&mut *tx, &workspace_id, &path).await?;
+    let account = cleanup_connection(&mut *tx, &workspace_id, &path).await?;
 
     audit_log(
         &mut *tx,
@@ -1065,6 +1102,7 @@ async fn delete_connection(
     .await?;
 
     tx.commit().await?;
+    delete_unlinked_account(&db, &workspace_id, account).await;
 
     Ok(Json(format!("Disconnected {path}")))
 }
