@@ -78,9 +78,9 @@ use windmill_common::{
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL},
     utils::{not_found_if_none, report_critical_error, StripPath, WarnAfterExt},
     worker::{
-        to_raw_value, CLOUD_HOSTED, DISABLE_FLOW_SCRIPT, NO_LOGS, PREVIEW_TAGS_OVERRIDE,
-        WORKER_PULL_QUERIES, WORKER_PULL_QUERIES_FAIRNESS, WORKER_SUSPENDED_PULL_QUERY,
-        WORKSPACE_FAIRNESS_OVERLOADED,
+        make_batch_pull_query, to_raw_value, PullQueue, CLOUD_HOSTED, DISABLE_FLOW_SCRIPT, NO_LOGS,
+        PREVIEW_TAGS_OVERRIDE, WORKER_PULL_QUERIES, WORKER_PULL_QUERIES_FAIRNESS,
+        WORKER_SUSPENDED_PULL_QUERY, WORKSPACE_FAIRNESS_OVERLOADED,
     },
     DB, METRICS_ENABLED,
 };
@@ -3421,7 +3421,7 @@ impl MiniPulledJob {
     }
 }
 
-#[derive(sqlx::FromRow, Debug, Clone)]
+#[derive(sqlx::FromRow, Debug, Clone, Serialize, Deserialize)]
 pub struct PulledJob {
     #[sqlx(flatten)]
     pub job: MiniPulledJob,
@@ -3688,7 +3688,7 @@ pub async fn get_queued_job_v2<'c>(
     Ok(job)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct PulledJobResult {
     pub job: Option<PulledJob>,
     pub suspended: bool,
@@ -4079,6 +4079,13 @@ async fn clone_runnable(j: &mut PulledJob, db: &DB) -> error::Result<()> {
     Ok(())
 }
 
+// Cap to bound DB work per pull cycle. Each iteration on an over-limit job runs
+// the full apply_concurrency_limit query stack (~7 queries), so without a tight
+// cap a single pull() can issue thousands of queries when the queue is full of
+// jobs sharing one over-limit concurrency key. Capping at 10 lets workers skip
+// a few stale jobs in healthy conditions while preventing storm amplification.
+const PULL_LOOP_LIMIT: i32 = 10;
+
 // TODO: Factorize
 /// Pull the job from queue
 pub async fn pull(
@@ -4093,12 +4100,7 @@ pub async fn pull(
     let mut pull_loop_count = 0;
     loop {
         pull_loop_count += 1;
-        // Cap to bound DB work per pull cycle. Each iteration on an over-limit job runs
-        // the full apply_concurrency_limit query stack (~7 queries), so without a tight
-        // cap a single pull() can issue thousands of queries when the queue is full of
-        // jobs sharing one over-limit concurrency key. Capping at 10 lets workers skip
-        // a few stale jobs in healthy conditions while preventing storm amplification.
-        if pull_loop_count > 10 {
+        if pull_loop_count > PULL_LOOP_LIMIT {
             tracing::warn!(
                 "Pull job loop count exceeded 10, backing off (likely concurrency re-queue storm)"
             );
@@ -4240,66 +4242,246 @@ pub async fn pull(
             });
         };
 
-        let concurrency_settings = windmill_common::runnable_settings::prefetch_cached_from_handle(
-            job.runnable_settings_handle,
-            db,
-        )
-        .await?
-        .1
-        .maybe_fallback(None, job.concurrent_limit, job.concurrency_time_window_s);
-
-        let has_concurent_limit =
-            has_active_concurrency_limit(concurrency_settings.concurrent_limit);
-
-        #[cfg(not(feature = "enterprise"))]
-        if has_concurent_limit && !job.is_dependency() {
-            tracing::error!("Concurrent limits are an EE feature only, ignoring constraints")
-        }
-
-        #[cfg(not(feature = "enterprise"))]
-        let has_concurent_limit = job.is_dependency()
-            && has_active_concurrency_limit(job.concurrent_limit)
-            && cfg!(feature = "private")
-            && !*WMDEBUG_NO_DEBOUNCING;
-        // if we don't have private flag, we don't have concurrency limit
-
-        // concurrency check. If more than X jobs for this path are already running, we re-queue and pull another job from the queue
-        let pulled_job = job;
-        if pulled_job.runnable_path.is_none()
-            || !has_concurent_limit
-            || pulled_job.canceled_by.is_some()
-        {
-            #[cfg(feature = "prometheus")]
-            if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
-                QUEUE_PULL_COUNT.inc();
-            }
-            otel_incr_queue_pull_count();
-            return Ok(PulledJobResult {
-                job: Some(pulled_job),
-                suspended,
-                missing_concurrency_key: false,
-                error_while_preprocessing: None,
-            });
-        }
-
-        #[cfg(feature = "private")]
-        if cfg!(feature = "enterprise") || (pulled_job.is_dependency() && !*WMDEBUG_NO_DEBOUNCING) {
-            if let Some(pulled_job_res) = timeout(
-                Duration::from_secs(15),
-                crate::jobs_ee::apply_concurrency_limit(
-                    db,
-                    pull_loop_count,
-                    suspended,
-                    pulled_job,
-                    &concurrency_settings,
-                ),
-            )
-            .await??
-            {
-                return Ok(pulled_job_res);
-            }
+        if let Some(pulled_job_res) = admit_pulled_job(db, job, suspended, pull_loop_count).await? {
+            return Ok(pulled_job_res);
         }
     }
+}
+
+/// Applies a just-claimed job's concurrency limit, if it has one. `None` means the job was over
+/// its limit and has been re-queued for later, so the claiming worker should pull again.
+async fn admit_pulled_job(
+    db: &Pool<Postgres>,
+    job: PulledJob,
+    suspended: bool,
+    pull_loop_count: i32,
+) -> windmill_common::error::Result<Option<PulledJobResult>> {
+    let concurrency_settings = windmill_common::runnable_settings::prefetch_cached_from_handle(
+        job.runnable_settings_handle,
+        db,
+    )
+    .await?
+    .1
+    .maybe_fallback(None, job.concurrent_limit, job.concurrency_time_window_s);
+
+    let has_concurent_limit = has_active_concurrency_limit(concurrency_settings.concurrent_limit);
+
+    #[cfg(not(feature = "enterprise"))]
+    if has_concurent_limit && !job.is_dependency() {
+        tracing::error!("Concurrent limits are an EE feature only, ignoring constraints")
+    }
+
+    #[cfg(not(feature = "enterprise"))]
+    let has_concurent_limit = job.is_dependency()
+        && has_active_concurrency_limit(job.concurrent_limit)
+        && cfg!(feature = "private")
+        && !*WMDEBUG_NO_DEBOUNCING;
+    // if we don't have private flag, we don't have concurrency limit
+
+    // concurrency check. If more than X jobs for this path are already running, we re-queue and pull another job from the queue
+    let pulled_job = job;
+    if pulled_job.runnable_path.is_none()
+        || !has_concurent_limit
+        || pulled_job.canceled_by.is_some()
+    {
+        #[cfg(feature = "prometheus")]
+        if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+            QUEUE_PULL_COUNT.inc();
+        }
+        otel_incr_queue_pull_count();
+        return Ok(Some(PulledJobResult {
+            job: Some(pulled_job),
+            suspended,
+            missing_concurrency_key: false,
+            error_while_preprocessing: None,
+        }));
+    }
+
+    #[cfg(feature = "private")]
+    if cfg!(feature = "enterprise") || (pulled_job.is_dependency() && !*WMDEBUG_NO_DEBOUNCING) {
+        return Ok(timeout(
+            Duration::from_secs(15),
+            crate::jobs_ee::apply_concurrency_limit(
+                db,
+                pull_loop_count,
+                suspended,
+                pulled_job,
+                &concurrency_settings,
+            ),
+        )
+        .await??);
+    }
+    #[cfg(not(feature = "private"))]
+    let _ = pull_loop_count;
+    Ok(None)
+}
+
+/// Claims jobs for several waiting workers in one statement per queue walked, instead of one
+/// pull per worker. Each distinct name in `worker_names` gets at most one job, marked running
+/// under that name; a worker missing from the result found nothing to run.
+///
+/// Walks the queues the way [`pull`] does for one worker: when `suspend_first`, suspended flows
+/// ready to resume on any of the tags; then `tag_groups` from highest priority down, with the
+/// workspace-fairness share of the workers first restricted to uncapped workspaces. A job over
+/// its concurrency limit is re-queued for later and its worker is pulled for again.
+pub async fn pull_batch(
+    db: &Pool<Postgres>,
+    tag_groups: &[Vec<String>],
+    worker_names: &[String],
+    suspend_first: bool,
+) -> windmill_common::error::Result<Vec<(String, PulledJobResult)>> {
+    let mut waiting: Vec<String> = worker_names.iter().unique().cloned().collect();
+    let mut admitted = vec![];
+    for pull_loop_count in 1..=PULL_LOOP_LIMIT {
+        if waiting.is_empty() {
+            break;
+        }
+        let claimed = claim_batch(
+            db,
+            tag_groups,
+            &waiting,
+            suspend_first && pull_loop_count == 1,
+        )
+        .await?;
+        let mut requeued = false;
+        for (worker_name, job, suspended) in claimed {
+            waiting.retain(|w| w != &worker_name);
+            let job_id = job.id;
+            match admit_pulled_job(db, job, suspended, pull_loop_count).await {
+                Ok(Some(res)) => admitted.push((worker_name, res)),
+                Ok(None) => {
+                    waiting.push(worker_name);
+                    requeued = true;
+                }
+                // The other claimed jobs are already running under their workers, so an error
+                // here must not abort the batch: hand this one back to the queue instead.
+                Err(e) => {
+                    tracing::error!(
+                        "error admitting batch-pulled job {job_id}, re-queuing it: {e:#}"
+                    );
+                    if let Err(e) = sqlx::query(
+                        "WITH ping AS (
+                            UPDATE v2_job_runtime SET ping = null WHERE id = $1
+                        )
+                        UPDATE v2_job_queue SET running = false, started_at = null
+                        WHERE id = $1 AND worker = $2 AND running = true",
+                    )
+                    .bind(job_id)
+                    .bind(&worker_name)
+                    .execute(db)
+                    .await
+                    {
+                        tracing::error!("could not re-queue batch-pulled job {job_id}: {e:#}");
+                    }
+                }
+            }
+        }
+        if !requeued {
+            break;
+        }
+        if pull_loop_count == PULL_LOOP_LIMIT {
+            tracing::warn!(
+                "Batch pull loop count reached {PULL_LOOP_LIMIT}, backing off (likely concurrency re-queue storm)"
+            );
+        }
+    }
+    Ok(admitted)
+}
+
+/// One pass over the queues for `worker_names`, returning `(worker, job, suspended)` for each
+/// job claimed. A failing statement ends the pass but keeps what was already claimed, since
+/// those jobs are marked running and would otherwise be stranded until the zombie monitor.
+async fn claim_batch(
+    db: &Pool<Postgres>,
+    tag_groups: &[Vec<String>],
+    worker_names: &[String],
+    suspend_first: bool,
+) -> windmill_common::error::Result<Vec<(String, PulledJob, bool)>> {
+    let mut claimed = vec![];
+    let mut waiting = worker_names.to_vec();
+    let pass: windmill_common::error::Result<()> = async {
+        if suspend_first {
+            let tags: Vec<String> = tag_groups.iter().flatten().unique().cloned().collect();
+            for (worker, job) in
+                claim_from_queue(db, &tags, PullQueue::Suspended, &[], &waiting).await?
+            {
+                waiting.retain(|w| w != &worker);
+                claimed.push((worker, job, true));
+            }
+        }
+
+        crate::workspace_fairness::maybe_refresh_overloaded(db);
+        let overloaded = WORKSPACE_FAIRNESS_OVERLOADED.load_full();
+        if !overloaded.is_empty() {
+            // Same admission draw `pull` makes once per worker, made here once per waiting worker.
+            let mut fair: Vec<String> = waiting
+                .iter()
+                .filter(|_| !crate::workspace_fairness::should_admit_capped())
+                .cloned()
+                .collect();
+            for tags in tag_groups.iter().filter(|t| !t.is_empty()) {
+                if fair.is_empty() {
+                    break;
+                }
+                for (worker, job) in claim_from_queue(
+                    db,
+                    tags,
+                    PullQueue::ReadyFairness,
+                    overloaded.as_slice(),
+                    &fair,
+                )
+                .await?
+                {
+                    fair.retain(|w| w != &worker);
+                    waiting.retain(|w| w != &worker);
+                    claimed.push((worker, job, false));
+                }
+            }
+        }
+
+        for tags in tag_groups.iter().filter(|t| !t.is_empty()) {
+            if waiting.is_empty() {
+                break;
+            }
+            for (worker, job) in claim_from_queue(db, tags, PullQueue::Ready, &[], &waiting).await?
+            {
+                waiting.retain(|w| w != &worker);
+                claimed.push((worker, job, false));
+            }
+        }
+        Ok(())
+    }
+    .await;
+    match pass {
+        Err(e) if claimed.is_empty() => Err(e),
+        Err(e) => {
+            tracing::error!(
+                "batch pull pass failed after claiming {} jobs: {e:#}",
+                claimed.len()
+            );
+            Ok(claimed)
+        }
+        Ok(()) => Ok(claimed),
+    }
+}
+
+async fn claim_from_queue(
+    db: &Pool<Postgres>,
+    tags: &[String],
+    queue: PullQueue,
+    overloaded: &[String],
+    worker_names: &[String],
+) -> windmill_common::error::Result<Vec<(String, PulledJob)>> {
+    use sqlx::{FromRow, Row};
+    let query = make_batch_pull_query(tags, queue);
+    let mut query = sqlx::query(&query).bind(worker_names);
+    if queue == PullQueue::ReadyFairness {
+        query = query.bind(overloaded);
+    }
+    let rows = timeout(Duration::from_secs(15), query.fetch_all(db)).await??;
+    rows.iter()
+        .map(|row| Ok((row.try_get("assigned_worker")?, PulledJob::from_row(row)?)))
+        .collect()
 }
 
 async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(

@@ -774,6 +774,60 @@ impl From<&Pool<Postgres>> for Connection {
     }
 }
 
+/// The columns every pull returns, read by name into `windmill_queue::PulledJob`. Expects `q`
+/// (the claimed `v2_job_queue` rows), `j` (their `v2_job` rows), `f`, `p` and `pj` in scope.
+const PULLED_JOB_COLUMNS: &str = "j.id, j.workspace_id, j.parent_job, j.created_by, q.started_at, q.scheduled_for,
+            j.runnable_id, j.runnable_path, j.args, q.canceled_by,
+            q.canceled_reason, j.kind, j.trigger, j.trigger_kind, j.permissioned_as,
+            f.flow_status, j.script_lang,
+            j.same_worker, j.pre_run_error, j.visible_to_owner,
+            j.tag, j.concurrent_limit, j.concurrency_time_window_s, j.flow_innermost_root_job, j.root_job,
+            j.timeout, j.flow_step_id, j.cache_ttl, q.cache_ignore_s3_path, q.runnable_settings_handle, j.priority, j.raw_code, j.raw_lock, j.raw_flow,
+            j.script_entrypoint_override, j.preprocessed, COALESCE(pj.runnable_path, j.args->>'_FLOW_PATH') as parent_runnable_path,
+            COALESCE(p.email, j.permissioned_as_email) as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin,
+            p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders, p.end_user_email as permissioned_as_end_user_email";
+
+fn sql_tag_list(tags: &[String]) -> String {
+    tags.iter()
+        .map(|x| format!("'{}'", x.replace('\'', "''")))
+        .join(", ")
+}
+
+/// Selects the next runnable jobs for `tags`, highest priority first. `exclude_overloaded` names
+/// the text[] bind parameter holding workspaces that workspace fairness currently caps.
+fn ready_peek(tags: &[String], exclude_overloaded: Option<&str>, limit: &str) -> String {
+    let fairness = exclude_overloaded
+        .map(|param| format!("\n          AND workspace_id <> ALL({param}::text[])"))
+        .unwrap_or_default();
+    format!(
+        "SELECT id
+        FROM v2_job_queue
+        WHERE running = false AND tag IN ({}) AND scheduled_for <= now(){fairness}
+        ORDER BY priority DESC NULLS LAST, scheduled_for
+        FOR UPDATE SKIP LOCKED
+        LIMIT {limit}",
+        sql_tag_list(tags)
+    )
+}
+
+// The `CASE` is `suspend <= 0 OR suspend_until <= now()` written as one indexable
+// expression, equivalent only under the `suspend_until IS NOT NULL` guard. It must stay in
+// sync with `queue_suspended_v2` (migration 20260826202939): if it no longer matches, the
+// test silently reverts to a heap filter over every suspended row on every worker poll.
+fn suspended_peek(tags: &[String], limit: &str) -> String {
+    format!(
+        "SELECT id
+        FROM v2_job_queue
+        WHERE suspend_until IS NOT NULL
+          AND (CASE WHEN suspend <= 0 THEN '-infinity'::timestamptz ELSE suspend_until END) <= now()
+          AND tag IN ({})
+        ORDER BY priority DESC NULLS LAST, created_at
+        FOR UPDATE SKIP LOCKED
+        LIMIT {limit}",
+        sql_tag_list(tags)
+    )
+}
+
 fn format_pull_query(peek: String) -> String {
     let r = format!(
         "WITH peek AS (
@@ -803,16 +857,7 @@ fn format_pull_query(peek: String) -> String {
                 raw_flow, script_entrypoint_override, preprocessed
             FROM v2_job
             WHERE id = (SELECT id FROM peek)
-        ) SELECT j.id, j.workspace_id, j.parent_job, j.created_by, started_at, scheduled_for,
-            j.runnable_id, j.runnable_path, j.args, canceled_by,
-            canceled_reason, j.kind, j.trigger, j.trigger_kind, j.permissioned_as,
-            flow_status, j.script_lang,
-            j.same_worker, j.pre_run_error, j.visible_to_owner,
-            j.tag, j.concurrent_limit, j.concurrency_time_window_s, j.flow_innermost_root_job, j.root_job,
-            j.timeout, j.flow_step_id, j.cache_ttl, q.cache_ignore_s3_path, q.runnable_settings_handle, j.priority, j.raw_code, j.raw_lock, j.raw_flow,
-            j.script_entrypoint_override, j.preprocessed, COALESCE(pj.runnable_path, j.args->>'_FLOW_PATH') as parent_runnable_path,
-            COALESCE(p.email, j.permissioned_as_email) as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin,
-            p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders, p.end_user_email as permissioned_as_end_user_email
+        ) SELECT {PULLED_JOB_COLUMNS}
         FROM q, j
             LEFT JOIN v2_job_status f USING (id)
             LEFT JOIN job_perms p ON p.job_id = j.id
@@ -824,22 +869,63 @@ fn format_pull_query(peek: String) -> String {
     r
 }
 
-// The `CASE` is `suspend <= 0 OR suspend_until <= now()` written as one indexable
-// expression, equivalent only under the `suspend_until IS NOT NULL` guard. It must stay in
-// sync with `queue_suspended_v2` (migration 20260826202939): if it no longer matches, the
-// test silently reverts to a heap filter over every suspended row on every worker poll.
+/// Claims up to `cardinality($1)` jobs in one statement and assigns the i-th claimed job to the
+/// worker named `$1[i]`, so each row is marked running under the worker that will run it.
+/// Returns the `PULLED_JOB_COLUMNS` plus `assigned_worker`.
+fn format_batch_pull_query(peek: String) -> String {
+    format!(
+        "WITH peek AS (
+            {peek}
+        ), assign AS (
+            SELECT id, ($1::text[])[row_number() OVER ()] AS assigned_worker FROM peek
+        ), q AS (
+            UPDATE v2_job_queue SET
+                running = true,
+                started_at = coalesce(started_at, now()),
+                suspend_until = null,
+                worker = assign.assigned_worker
+            FROM assign
+            WHERE v2_job_queue.id = assign.id
+            RETURNING
+                v2_job_queue.id, started_at, scheduled_for,
+                canceled_by, canceled_reason, worker, cache_ignore_s3_path, runnable_settings_handle
+        ), r AS (
+            UPDATE v2_job_runtime SET
+                ping = now()
+            WHERE id = ANY(ARRAY(SELECT id FROM q))
+        ) SELECT {PULLED_JOB_COLUMNS}, q.worker AS assigned_worker
+        FROM q
+            JOIN v2_job j ON j.id = q.id
+            LEFT JOIN v2_job_status f ON f.id = q.id
+            LEFT JOIN job_perms p ON p.job_id = q.id
+            LEFT JOIN v2_job pj ON j.parent_job = pj.id"
+    )
+}
+
+/// Which part of the queue a pull claims from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PullQueue {
+    /// Jobs ready to start.
+    Ready,
+    /// Jobs ready to start, excluding the workspaces bound as `$2::text[]`.
+    ReadyFairness,
+    /// Suspended flows whose resume condition is met.
+    Suspended,
+}
+
+/// Batch variant of the pull queries: binds the claiming workers' names as `$1::text[]`, which
+/// must be distinct, and claims at most one job per name.
+pub fn make_batch_pull_query(tags: &[String], queue: PullQueue) -> String {
+    const LIMIT: &str = "cardinality($1::text[])";
+    format_batch_pull_query(match queue {
+        PullQueue::Ready => ready_peek(tags, None, LIMIT),
+        PullQueue::ReadyFairness => ready_peek(tags, Some("$2"), LIMIT),
+        PullQueue::Suspended => suspended_peek(tags, LIMIT),
+    })
+}
+
 pub fn make_suspended_pull_query(tags: &[String]) -> String {
-    format_pull_query(format!(
-        "SELECT id
-        FROM v2_job_queue
-        WHERE suspend_until IS NOT NULL
-          AND (CASE WHEN suspend <= 0 THEN '-infinity'::timestamptz ELSE suspend_until END) <= now()
-          AND tag IN ({})
-        ORDER BY priority DESC NULLS LAST, created_at
-        FOR UPDATE SKIP LOCKED
-        LIMIT 1",
-        tags.iter().map(|x| format!("'{x}'")).join(", ")
-    ))
+    format_pull_query(suspended_peek(tags, "1"))
 }
 // pub async fn make_suspended
 pub async fn store_suspended_pull_query(wc: &WorkerConfig) {
@@ -852,16 +938,7 @@ pub async fn store_suspended_pull_query(wc: &WorkerConfig) {
 }
 
 pub fn make_pull_query(tags: &[String]) -> String {
-    let query = format_pull_query(format!(
-        "SELECT id
-        FROM v2_job_queue
-        WHERE running = false AND tag IN ({}) AND scheduled_for <= now()
-        ORDER BY priority DESC NULLS LAST, scheduled_for
-        FOR UPDATE SKIP LOCKED
-        LIMIT 1",
-        tags.iter().map(|x| format!("'{x}'")).join(", ")
-    ));
-    query
+    format_pull_query(ready_peek(tags, None, "1"))
 }
 
 // Variant of `make_pull_query` that additionally excludes jobs whose workspace_id is in the
@@ -872,17 +949,7 @@ pub fn make_pull_query(tags: &[String]) -> String {
 // `pub(crate)` because only `store_pull_query` consumes it; the resulting query string is what
 // crosses crate boundaries via `WORKER_PULL_QUERIES_FAIRNESS`.
 pub(crate) fn make_pull_query_fairness(tags: &[String]) -> String {
-    let query = format_pull_query(format!(
-        "SELECT id
-        FROM v2_job_queue
-        WHERE running = false AND tag IN ({}) AND scheduled_for <= now()
-          AND workspace_id <> ALL($2::text[])
-        ORDER BY priority DESC NULLS LAST, scheduled_for
-        FOR UPDATE SKIP LOCKED
-        LIMIT 1",
-        tags.iter().map(|x| format!("'{x}'")).join(", ")
-    ));
-    query
+    format_pull_query(ready_peek(tags, Some("$2"), "1"))
 }
 
 pub async fn store_pull_query(wc: &WorkerConfig) {
