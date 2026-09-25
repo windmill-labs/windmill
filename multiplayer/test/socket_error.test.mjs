@@ -86,9 +86,8 @@ test('an illegal WebSocket frame before authentication does not exit the server'
 
   const token = mintToken(jwks.privateKey, { workspaceId: WORKSPACE })
 
-  // The JWKS response is parked, so this connection is still unauthenticated and
-  // `setupWSConnection` has not run for it.
-  await waitFor(() => jwks.requests >= 1, { message: 'the server to request the JWKS' })
+  // The JWKS response is parked and never released before the assertions below,
+  // so the server cannot authenticate anyone for the whole of this test.
   const offender = openClient(`${server.url}/${DOC_PATH}?token=${token}`, {
     onOpen: (ws) => ws._socket.write(UNMASKED_FRAME)
   })
@@ -96,6 +95,9 @@ test('an illegal WebSocket frame before authentication does not exit the server'
   await waitFor(() => offender.closeCode !== undefined, {
     message: 'the offending connection to be closed'
   })
+  // server.mjs logs CONNECT only once a peer is past verification, so its absence
+  // is what makes this the pre-auth case rather than a repeat of the test above.
+  assert.ok(!server.output.includes('CONNECT:'), `a connection was accepted:\n${server.output}`)
   assert.equal(server.exitStatus, null, `server died: ${server.output}`)
   assert.ok(server.output.includes(SOCKET_ERROR), `server did not log the socket error:\n${server.output}`)
 

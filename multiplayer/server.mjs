@@ -292,7 +292,13 @@ const setupWSConnection = (conn, req, docName, bufferedMessages = []) => {
   })
 
   // Replay, in order, the messages that arrived while the token was being
-  // verified, now that the handlers above are in place.
+  // verified, now that the handlers above are in place. Say so: this path only
+  // runs when a client beat the JWKS fetch, which is worth seeing in the log of
+  // a slow-starting instance — and it is the only way to tell from outside that
+  // a frame went through the buffer rather than straight to the handler.
+  if (bufferedMessages.length > 0) {
+    console.log(`[${new Date().toISOString()}] REPLAY: doc="${docName}" from=${clientIp} messages=${bufferedMessages.length}`)
+  }
   bufferedMessages.forEach(messageHandler)
 }
 

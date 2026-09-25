@@ -44,8 +44,13 @@ const REFUSED = 'MALFORMED MESSAGE'
 // server demonstrably has no key, so anything it received is in the pre-auth window.
 const KEY_LOADED = 'Successfully loaded Ed25519 public key'
 // Grace for a frame the client has already written to be delivered over loopback
-// and read by the (otherwise idle) server, before the key is released.
-const FLIGHT_MARGIN_MS = 250
+// and read by the (otherwise idle) server, before the key is released. Only the
+// already-written bytes have to land in this time, and the REPLAY assertion
+// below fails loudly if they did not, rather than quietly testing the wrong path.
+const FLIGHT_MARGIN_MS = 500
+// Logged by server.mjs when, and only when, it replays messages that were
+// buffered before authentication.
+const REPLAYED = 'REPLAY:'
 // A control character a peer would use to forge log lines or drive a terminal.
 const ESC = '\x1b'
 
@@ -194,8 +199,8 @@ test('a malformed frame replayed from the pre-auth buffer is refused, not fatal'
     onOpen: (ws) => ws.send(zeroFlood(), () => framesWritten++)
   })
   await waitFor(() => framesWritten === 1, { message: 'the offending client to write its frame' })
-  // The frame is on the wire while the server demonstrably has no key, so it can
-  // only reach the server inside the pre-auth window and be replayed later.
+  // The frame is on the wire while the server demonstrably has no key, so it
+  // cannot have been authenticated yet.
   assert.ok(!server.output.includes(KEY_LOADED))
   await delay(FLIGHT_MARGIN_MS)
   jwks.release()
@@ -204,6 +209,14 @@ test('a malformed frame replayed from the pre-auth buffer is refused, not fatal'
     message: 'the offending connection to be closed'
   })
   assert.equal(offender.closeCode, INVALID_PAYLOAD)
+  // Without this the test would pass just as well if the frame had arrived after
+  // setup and gone through the live handler — the same close code, the same log
+  // line — so it would silently stop covering the replay path it is named for.
+  // server.mjs logs REPLAY only when it replays a pre-auth buffer.
+  assert.ok(
+    server.output.includes(`${REPLAYED} doc="${DOC_PATH}" from=127.0.0.1 messages=1`),
+    `the frame did not go through the pre-auth buffer:\n${server.output}`
+  )
   assert.equal(server.exitStatus, null, `server died: ${server.output}`)
   assert.ok(server.output.includes(REFUSED), `server did not log the refused frame:\n${server.output}`)
 

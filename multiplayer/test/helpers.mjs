@@ -212,8 +212,11 @@ export async function runMultiplayerServerUntilExit(env = {}, { timeoutMs = 1500
   // a server that exited on its own from one this had to kill.
   let killedByTimeout = false
   const killer = setTimeout(() => {
-    killedByTimeout = true
-    child.kill('SIGKILL')
+    // Claim the rescue only if there was something to rescue. The child may have
+    // exited moments ago with 'close' still pending on the stdio drain — the very
+    // window this helper waits for — and killing a corpse is not an intervention.
+    if (child.exitCode !== null || child.signalCode !== null) return
+    killedByTimeout = child.kill('SIGKILL')
   }, timeoutMs)
 
   try {
