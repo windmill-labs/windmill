@@ -389,6 +389,11 @@
 		}
 	}
 
+	function turnOffMemory() {
+		if (!agentValue) return
+		agentValue.input_transforms.memory = { type: 'static', value: { kind: 'off' } }
+	}
+
 	function turnOnStreaming() {
 		if (!agentValue) return
 		agentValue.input_transforms.streaming = { type: 'static', value: true }
@@ -563,8 +568,22 @@
 						/>
 					</div>
 				{:else}
-					<div class="flex-1 min-h-0 {testMode === 'chat' ? 'hidden' : ''}">
-						<Splitpanes horizontal class="h-full">
+					<div class="flex-1 min-h-0 flex flex-col {testMode === 'chat' ? 'hidden' : ''}">
+						<!-- An agent reused as a step has no use for memory unless its flow gives it a
+						     conversation, and the form is where such an agent is tried. -->
+						{#if !chatGap?.memory && !readOnly}
+							<div
+								class="shrink-0 flex items-center gap-2 px-4 py-1.5 border-b text-2xs text-secondary"
+							>
+								<Info size={12} class="shrink-0" />
+								<span class="flex-1">
+									Managed memory keeps a conversation: this agent's chat, a flow in chat mode, or a
+									memory id a step sets. Turn it off if this agent runs without any of them.
+								</span>
+								<Button unifiedSize="2xs" variant="subtle" onClick={turnOffMemory}>Turn off</Button>
+							</div>
+						{/if}
+						<Splitpanes horizontal class="flex-1 min-h-0">
 							<Pane size={40} minSize={15}>
 								<div class="h-full overflow-auto">
 									<ModulePreview

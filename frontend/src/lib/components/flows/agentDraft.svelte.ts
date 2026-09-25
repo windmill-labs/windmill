@@ -9,6 +9,7 @@ import { getUserExt } from '$lib/user'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { UserDraft } from '$lib/userDraft.svelte'
 import { onUserInput } from '$lib/userDraftEditGate'
+import { DEFAULT_AGENT_MEMORY } from './agentFormFields'
 import { getUsernameForNamespace } from '$lib/userNamespace'
 import { random_adj } from '$lib/components/random_positive_adjetive'
 import { useTriggerDraftSync, type TriggerDraftSync } from '../triggers/useTriggerDraftSync.svelte'
@@ -367,7 +368,9 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 							state = {
 								path: `u/${getUsernameForNamespace()}/${random_adj()}_agent`,
 								description: '',
-								args: {},
+								// Opens on a working chat, the way a new agent is first tried. The editor says
+								// what memory is for, and how to turn it off, while it is on.
+								args: { memory: structuredClone(DEFAULT_AGENT_MEMORY) },
 								resource_type: 'ai_agent',
 								wsSpecific: false
 							}
