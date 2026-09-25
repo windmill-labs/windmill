@@ -522,5 +522,12 @@ export default workflow(async function main(x: number) { return x; });"#;
             Some(ScriptLang::Bun),
             "export async function main() {}"
         ));
+
+        for lang in [ScriptLang::Bun, ScriptLang::Bunnative, ScriptLang::Python3] {
+            assert!(lang_supports_wac_v2(Some(lang)));
+        }
+        assert!(!lang_supports_wac_v2(Some(ScriptLang::Deno)));
+        assert!(!lang_supports_wac_v2(Some(ScriptLang::Bash)));
+        assert!(!lang_supports_wac_v2(None));
     }
 }
