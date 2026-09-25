@@ -6,7 +6,7 @@
 	import { isInstanceBannerVisible, resolveInstanceBanner } from './instanceBanner'
 	import { instanceUi } from '$lib/instanceUi'
 
-	// Fetched and polled by `InstanceUiSync`, which also carries the accent color.
+	// Fetched by `InstanceUiSync`, which also carries the accent color.
 	let banner = $derived(resolveInstanceBanner($instanceUi?.instance_banner))
 
 	// Per-viewer, per-announcement. Holds the fingerprint of the dismissed banner, so

@@ -1766,8 +1766,8 @@ paths:
     get:
       summary: get the instance-wide announcement banner and accent color
       description: |
-        Readable by any authenticated user and served from memory: every open
-        session polls it. Each value is the raw stored setting, or null when unset.
+        Readable by any authenticated user and served from memory: every page
+        load reads it. Each value is the raw stored setting, or null when unset.
       operationId: getInstanceUi
       tags:
         - setting

@@ -301,7 +301,7 @@ pub fn validate_accent_color(value: &serde_json::Value) -> Result<(), String> {
     Ok(())
 }
 
-/// The settings every signed-in browser reads on load and on each banner poll, served
+/// The settings every signed-in browser reads on each full page load, served
 /// together from memory: one query per server per [`INSTANCE_UI_TTL`], not one per session.
 #[derive(serde::Serialize, Clone, Debug, Default, PartialEq)]
 pub struct InstanceUi {
@@ -311,8 +311,7 @@ pub struct InstanceUi {
 
 /// How long a cached [`InstanceUi`] is served before the next request re-reads it. Changes
 /// also invalidate it through `notify_global_setting_change`; this bounds staleness when
-/// that notification is lost. Kept well under the frontend's 60s poll, or a poll could land
-/// just before expiry and serve the stale value for a second full period.
+/// that notification is lost.
 const INSTANCE_UI_TTL: std::time::Duration = std::time::Duration::from_secs(30);
 
 lazy_static::lazy_static! {
