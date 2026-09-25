@@ -59,6 +59,8 @@
 
 	let isHubPath = $derived(itemKind == 'script' && !!scriptPath?.startsWith('hub/'))
 	let drawerHub: Drawer | undefined = $state()
+	let filterText = $state('')
+	let hubFilter = $state('')
 
 	let effectiveWorkspace = $derived(workspace ?? $operatingWorkspace)
 	// Edit/View routes open in the workspace listed here, not wherever the tab lands.
@@ -128,6 +130,7 @@
 	<Drawer bind:this={drawerHub} size="900px">
 		<DrawerContent title="Pick a Hub script" on:close={drawerHub.closeDrawer}>
 			<PickHubScript
+				bind:filter={hubFilter}
 				on:pick={(e) => {
 					scriptPath = e.detail.path
 					dispatch('select', { path: e.detail.path, itemKind })
@@ -170,19 +173,10 @@
 			class="grow shrink max-w-full"
 			items={isHubPath ? [{ value: scriptPath!, label: scriptPath! }, ...items] : items}
 			{clearable}
+			bind:filterText
 			placeholder="Pick {itemKind === 'app' ? 'an' : 'a'} {itemKind}"
+			bottomSnippet={allowHub && itemKind == 'script' && !$disableHubStore ? hubHint : undefined}
 		/>
-	{/if}
-
-	{#if allowHub && itemKind == 'script' && !disabled && !$disableHubStore}
-		<Button
-			variant="default"
-			unifiedSize="md"
-			startIcon={{ icon: Globe2 }}
-			on:click={() => drawerHub?.openDrawer()}
-		>
-			Hub
-		</Button>
 	{/if}
 
 	{#if allowRefresh}
@@ -279,3 +273,18 @@
 		{/if}
 	{/if}
 </div>
+
+{#snippet hubHint({ close }: { close: () => void })}
+	<button
+		class="sticky py-2 px-4 w-full text-left text-xs font-medium hover:bg-surface-hover flex items-center justify-center gap-2 border-t border-border-light"
+		onclick={() => {
+			// Read before close(): Select clears its filter text when the list closes.
+			hubFilter = filterText
+			close()
+			drawerHub?.openDrawer()
+		}}
+	>
+		<Globe2 class="inline" size={16} />
+		Browse Hub scripts
+	</button>
+{/snippet}
