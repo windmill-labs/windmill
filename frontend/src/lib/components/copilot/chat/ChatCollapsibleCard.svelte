@@ -23,6 +23,9 @@
 		 * second: each label (with its shimmer) stays up at least 700 ms, one replaced sooner is
 		 * skipped, and the new one fades in. */
 		settleLabel?: boolean
+		/** The step in progress, shown under the header while collapsed. Held with the label, so
+		 * the two change together. */
+		liveLine?: string
 		// Ahead of the label, inside the toggle button: a status that reads as part of the
 		// row rather than as another control, leaving the chevron next to the label it opens.
 		headerLeft?: Snippet
@@ -45,6 +48,7 @@
 		toggleable = true,
 		shimmer = false,
 		settleLabel = false,
+		liveLine,
 		headerLeft,
 		headerRight,
 		belowHeader,
@@ -55,13 +59,16 @@
 		contentClass
 	}: Props = $props()
 
-	// The shimmer is held with the label: released on its own, a call settling right after its
-	// last status would show the running label without the running shimmer.
+	// The shimmer and live line are held with the label, in one value: held apart, a call settling
+	// right after its last status would show the running label, shimmer or line beside the
+	// settled others.
 	const held = new HeldValue(
-		() => ({ prefix: labelPrefix, label, shimmer }),
+		() => ({ prefix: labelPrefix, label, shimmer, liveLine }),
 		() => (settleLabel ? LABEL_MIN_MS : 0)
 	)
-	const shown = $derived(settleLabel ? held.current : { prefix: labelPrefix, label, shimmer })
+	const shown = $derived(
+		settleLabel ? held.current : { prefix: labelPrefix, label, shimmer, liveLine }
+	)
 </script>
 
 <div class={twMerge('font-mono text-xs', className)}>
@@ -129,6 +136,9 @@
 		{@render headerButton()}
 	{/if}
 
+	{#if shown.liveLine && !expanded}
+		<div class="pl-3 text-2xs text-tertiary truncate">{shown.liveLine}</div>
+	{/if}
 	{@render belowHeader?.()}
 
 	{#if expanded && children}
