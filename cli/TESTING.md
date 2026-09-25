@@ -53,9 +53,15 @@ in-process suite imports.** Check with `grep -rl "<exported fn>" test/` before r
 for one. A suite that drives the CLI through a spawned process is out of reach of a
 module mock and doesn't count.
 
-`raw_app_push_policy_unit.test.ts` is the worked example: it stubs `gen/services.gen.ts`,
-which passes the rule because nothing else in `test/` imports the three API functions it
-replaces, and deliberately does not stub `bundle.ts`, which failed it.
+The API client `gen/services.gen.ts` is the exception, and is stubbed only through
+`mockServices` in `test/mock_services.ts`. Bun fixes a mocked module's export names at
+the first `mock.module` call of the run, so a stub that replaced the module with just the
+functions its suite needed left every other name undefined for the rest of the run, even
+for suites that stubbed that name themselves. `mockServices` lays the stubs over the real
+exports and hands the real module back in `afterAll`.
+
+`raw_app_push_policy_unit.test.ts` deliberately does not stub `bundle.ts`, which failed
+the rule.
 
 ## AI Benchmark Caveats
 
