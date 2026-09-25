@@ -58,7 +58,6 @@
 					{ label: 'None', value: '' },
 					...UNIT_PRESETS.map((p) => ({
 						label: p.symbol,
-						subtitle: p.position === 'before' ? 'Before the value' : 'After the value',
 						value: p.symbol
 					})),
 					{ label: 'Custom', value: CUSTOM }
@@ -93,8 +92,8 @@
 				}
 			>
 				{#snippet children({ item })}
-					<ToggleButton value="before" label="Before the value" {item} small />
-					<ToggleButton value="after" label="After the value" {item} small />
+					<ToggleButton value="before" label="Before" {item} small />
+					<ToggleButton value="after" label="After" {item} small />
 				{/snippet}
 			</ToggleButtonGroup>
 		{/if}
