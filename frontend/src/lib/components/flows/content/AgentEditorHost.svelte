@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { getContext, setContext, untrack } from 'svelte'
 	import { writable } from 'svelte/store'
-	import { MessageCircleOff } from 'lucide-svelte'
+	import { Cpu, MessageCircleOff, SlidersHorizontal } from 'lucide-svelte'
+	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 	import PaneNotice from '$lib/components/common/paneNotice/PaneNotice.svelte'
 	import { Alert, Button } from '$lib/components/common'
 	import FlowChat from '../conversations/FlowChat.svelte'
@@ -71,6 +72,8 @@
 		view?: boolean
 		/** Why this reader cannot run the agent, if they cannot. Shown in place of the run pane. */
 		runBlockedReason?: string
+		/** Opens the agent's configuration, offered beside the model it runs with. */
+		onOpenConfig?: () => void
 	}
 
 	let {
@@ -82,8 +85,14 @@
 		onSaved = undefined,
 		isNew = false,
 		view = false,
-		runBlockedReason = undefined
+		runBlockedReason = undefined,
+		onOpenConfig = undefined
 	}: Props = $props()
+
+	let modelLabel = $derived.by(() => {
+		const provider = draft.state?.args?.provider as { kind?: string; model?: string } | undefined
+		return [provider?.kind, provider?.model].filter(Boolean).join(' · ')
+	})
 
 	/** The one module the editor edits. Standalone (no `agent` key) so `initFlowState` loads a
 	 *  schema per tool — the linked branch deliberately loads none. Reserved in `forbiddenIds`:
@@ -465,6 +474,36 @@
 	}
 </script>
 
+<!-- Beside the model in the chat's composer, as the AI session's assistant settings sit. -->
+{#snippet configButton()}
+	<Tooltip small placement="top">
+		<Button
+			unifiedSize="2xs"
+			variant="subtle"
+			iconOnly
+			startIcon={{ icon: SlidersHorizontal }}
+			aria-label="Agent configuration"
+			onClick={() => onOpenConfig?.()}
+		/>
+		{#snippet text()}
+			<div class="max-w-64 text-xs">
+				<p class="font-semibold">Agent configuration</p>
+				<p class="mt-1">The model, instructions and tools this agent runs with.</p>
+			</div>
+		{/snippet}
+	</Tooltip>
+{/snippet}
+
+<!-- Where the chat's composer names the model beside its configuration: a surface with no
+     composer (the form, a reader who cannot run the agent) carries the same pair above it. -->
+{#snippet modelStrip()}
+	{#if onOpenConfig}
+		<PaneNotice icon={Cpu} action={{ label: 'Configuration', onClick: onOpenConfig }}>
+			{modelLabel ? `Runs with ${modelLabel}` : 'No model configured'}
+		</PaneNotice>
+	{/if}
+{/snippet}
+
 {#if draft.refusal}
 	<div class="h-full flex items-center justify-center px-8">
 		<Alert type="error" size="sm" title={draft.refusal} class="max-w-lg">
@@ -545,8 +584,13 @@
 
 	{#snippet runPane()}
 		{#if runBlockedReason}
-			<div class="h-full flex items-center justify-center px-8 text-center text-xs text-secondary">
-				{runBlockedReason}
+			<div class="h-full flex flex-col">
+				{@render modelStrip()}
+				<div
+					class="flex-1 flex items-center justify-center px-8 text-center text-xs text-secondary"
+				>
+					{runBlockedReason}
+				</div>
 			</div>
 		{:else}
 			<div class="h-full min-h-0 flex flex-col">
@@ -555,18 +599,21 @@
 				{#if view}
 					<!-- A run of the deployed agent is a run like any other item's, so it opens on its
 					     own page rather than as a test result beside the form. -->
-					<div class="flex-1 min-h-0 overflow-auto p-4 {testMode === 'chat' ? 'hidden' : ''}">
-						<RunForm
-							runnable={{ schema: AGENT_CHAT_SCHEMA, path }}
-							runAction={runOnce}
-							schedulable={false}
-							detailed={false}
-							autofocus
-							loading={runLoading}
-							bind:scheduledForStr
-							bind:invisible_to_owner
-							bind:overrideTag
-						/>
+					<div class="flex-1 min-h-0 flex flex-col {testMode === 'chat' ? 'hidden' : ''}">
+						{@render modelStrip()}
+						<div class="flex-1 min-h-0 overflow-auto p-4">
+							<RunForm
+								runnable={{ schema: AGENT_CHAT_SCHEMA, path }}
+								runAction={runOnce}
+								schedulable={false}
+								detailed={false}
+								autofocus
+								loading={runLoading}
+								bind:scheduledForStr
+								bind:invisible_to_owner
+								bind:overrideTag
+							/>
+						</div>
 					</div>
 				{:else}
 					<div class="flex-1 min-h-0 flex flex-col {testMode === 'chat' ? 'hidden' : ''}">
@@ -654,6 +701,7 @@
 								frame="none"
 								inputSchema={AGENT_CHAT_SCHEMA}
 								flowModules={chatModules}
+								composerSettings={onOpenConfig ? configButton : undefined}
 							/>
 						</div>
 					</div>

@@ -1,14 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state'
-	import {
-		FileUp,
-		FormInput,
-		MessageSquare,
-		Pen,
-		Shield,
-		SlidersHorizontal,
-		Trash
-	} from 'lucide-svelte'
+	import { FileUp, FormInput, MessageSquare, Pen, Shield, Trash } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { base } from '$lib/base'
 	import { goto } from '$lib/navigation'
@@ -163,17 +155,6 @@
 						]}
 					/>
 				{/if}
-				{#if config}
-					<Button
-						variant="default"
-						unifiedSize="md"
-						startIcon={{ icon: SlidersHorizontal }}
-						title="The model, instructions and tools the agent runs with"
-						onClick={() => configModal?.open()}
-					>
-						Configuration
-					</Button>
-				{/if}
 				{#if canEdit}
 					<Button
 						variant="accent"
@@ -196,6 +177,7 @@
 				enableAi={$copilotInfo.enabled}
 				view
 				{runBlockedReason}
+				onOpenConfig={() => configModal?.open()}
 			/>
 		{/key}
 	</div>
