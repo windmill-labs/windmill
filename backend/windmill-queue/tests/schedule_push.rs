@@ -1815,4 +1815,59 @@ mod schedule_push {
         assert_eq!(count_queued_jobs(&db).await, 1);
         Ok(())
     }
+
+    #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
+    async fn test_push_hub_script_schedule(db: Pool<Postgres>) -> anyhow::Result<()> {
+        // Seed the hub cache so the push resolves the script without the network.
+        let version = "990000001";
+        let hub_dir = &*windmill_common::worker::HUB_CACHE_DIR;
+        tokio::fs::create_dir_all(hub_dir).await?;
+        tokio::fs::write(
+            format!("{hub_dir}/{version}"),
+            r#"{"content":"echo hi","lockfile":null,"language":"bash","schema":{},"summary":null}"#,
+        )
+        .await?;
+        let hub_path = format!("hub/{version}/test/echo");
+
+        // A retry must stay a native `script_hub` job: a flow wrapper would queue the
+        // next tick at start and let slow runs overlap.
+        let retry = serde_json::json!({ "constant": { "attempts": 2, "seconds": 1 } });
+        for (path, retry, dynamic_skip) in [
+            ("f/system/hub_plain", None, None),
+            ("f/system/hub_retry", Some(retry), None),
+            // A skip handler needs a flow wrapper, so its metadata lookup must not
+            // go through the `script` table.
+            ("f/system/hub_skip", None, Some("f/system/skip".to_string())),
+        ] {
+            let has_retry = retry.is_some();
+            let has_skip = dynamic_skip.is_some();
+            let schedule = make_schedule(|s| {
+                s.path = path.to_string();
+                s.script_path = hub_path.clone();
+                s.retry = retry;
+                s.dynamic_skip = dynamic_skip;
+            });
+            let tx = db.begin().await?;
+            let tx = push_scheduled_job(&db, tx, &schedule, Some(&make_authed()), None).await?;
+            tx.commit().await?;
+
+            let (job_kind, runnable_path, language, handle) =
+                sqlx::query_as::<_, (String, Option<String>, Option<String>, Option<i64>)>(
+                    "SELECT j.kind::text, j.runnable_path, j.script_lang::text, q.runnable_settings_handle
+                     FROM v2_job j JOIN v2_job_queue q ON j.id = q.id WHERE j.trigger = $1",
+                )
+                .bind(path)
+                .fetch_one(&db)
+                .await?;
+            assert_eq!(runnable_path.as_deref(), Some(hub_path.as_str()));
+            if has_skip {
+                assert_eq!(job_kind, "singlestepflow");
+            } else {
+                assert_eq!(job_kind, "script_hub");
+                assert_eq!(language.as_deref(), Some("bash"));
+                assert_eq!(handle.is_some(), has_retry);
+            }
+        }
+        Ok(())
+    }
 }

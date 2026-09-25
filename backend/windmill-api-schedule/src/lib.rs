@@ -620,6 +620,7 @@ async fn edit_schedule(
             dynamic_skip            = $23,
             email                   = $24,
             edited_by               = $25,
+            edited_at               = now(),
             permissioned_as         = $26,
             labels                  = COALESCE($27, labels),
             late_run_streak            = 0,

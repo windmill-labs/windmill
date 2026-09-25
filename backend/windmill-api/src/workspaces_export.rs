@@ -281,8 +281,29 @@ enum ArchiveImpl {
     Tar(tokio_tar::Builder<File>),
 }
 
+/// Entry paths come from item paths stored in the workspace; an absolute or
+/// drive-prefixed path, or a parent segment, would make extraction write outside
+/// the target directory. Win32 strips trailing dots and spaces from a segment,
+/// so `.. ` resolves to `..` there: any segment made only of those is refused.
+/// A colon matters only in the first segment (a drive prefix); later segments,
+/// such as a data table name, may carry one.
+fn check_archive_entry_path(path: &str) -> Result<()> {
+    let is_dot_segment = |seg: &str| !seg.is_empty() && seg.chars().all(|c| c == '.' || c == ' ');
+    let first = path.split(['/', '\\']).next().unwrap_or_default();
+    if path.starts_with(['/', '\\'])
+        || first.contains(':')
+        || path.split(['/', '\\']).any(is_dot_segment)
+    {
+        return Err(Error::internal_err(format!(
+            "refusing to write archive entry with path traversal: {path}"
+        )));
+    }
+    Ok(())
+}
+
 impl ArchiveImpl {
     async fn write_to_archive(&mut self, content: &str, path: &str) -> Result<()> {
+        check_archive_entry_path(path)?;
         match self {
             ArchiveImpl::Tar(t) => {
                 let bytes = content.as_bytes();
@@ -1647,7 +1668,9 @@ pub(crate) async fn tarball_workspace(
                 mute_critical_alerts: row.mute_critical_alerts,
                 color: row.color.clone(),
                 operator_settings: row.operator_settings.clone(),
-                datatable: windmill_common::workspaces::strip_datatable_permissions(row.datatable.clone()),
+                datatable: windmill_common::workspaces::strip_datatable_permissions(
+                    row.datatable.clone(),
+                ),
                 slack_team_id: row.slack_team_id.clone(),
                 slack_name: row.slack_name.clone(),
                 slack_command_script: row.slack_command_script.clone(),
@@ -1790,6 +1813,41 @@ pub(crate) async fn tarball_workspace(
         ),
     ];
     Ok((headers, body))
+}
+
+#[cfg(test)]
+mod archive_entry_path_tests {
+    use super::check_archive_entry_path;
+
+    #[test]
+    fn rejects_traversal_and_absolute_paths() {
+        for ok in [
+            "u/admin/app.app.json",
+            "f/x/a..b.script.json",
+            "settings.yaml",
+            "migrations/datatable/foo:bar/20260617120000_name.up.sql",
+        ] {
+            assert!(
+                check_archive_entry_path(ok).is_ok(),
+                "{ok} should be accepted"
+            );
+        }
+        for bad in [
+            "f/x/../../evil.app.json",
+            "../evil",
+            "/etc/evil",
+            "f\\..\\evil",
+            "f/x/.. /.. /evil.app.json",
+            "f/x/.../evil",
+            "C:/evil",
+            "\\evil",
+        ] {
+            assert!(
+                check_archive_entry_path(bad).is_err(),
+                "{bad} should be rejected"
+            );
+        }
+    }
 }
 
 #[cfg(test)]

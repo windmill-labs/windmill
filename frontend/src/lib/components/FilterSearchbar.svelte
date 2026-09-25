@@ -1,6 +1,7 @@
 <script lang="ts" module>
 	import { z } from 'zod'
 	import { useSearchParams } from '$lib/svelte5UtilsKit.svelte'
+	import { useHostedPage } from '$lib/components/hostedPage'
 	import { formatDatePretty, parsePrettyDate, type IconType } from '$lib/utils'
 
 	export type FilterSchemaRec = Record<string, FilterSchema>
@@ -134,8 +135,9 @@
 		// URL lacks, so a value written to the instance is undone on the next sync. Going through
 		// urlFilter rather than straight to history keeps the search-param cells in step, so it
 		// does not matter whether a popstate follows.
+		const hosted = useHostedPage()
 		function seed(values: Partial<FilterInstanceRec<T>>) {
-			const sp = new URLSearchParams(window.location.search)
+			const sp = new URLSearchParams(hosted ? untrack(() => hosted.search) : window.location.search)
 			for (const [key, value] of Object.entries(values) as [string, unknown][]) {
 				if (value === undefined || value === null || sp.has(key)) continue
 				urlFilter[key] = value instanceof Date ? value.toISOString() : value
@@ -337,6 +339,14 @@
 		hideDropdownOnFreeText?: boolean
 		// Notified whenever the dropdown's effective visibility changes
 		onDropdownVisibleChange?: (visible: boolean) => void
+		size?: 'md' | 'lg'
+		// On the right the icon gives way to the clear button once there is text; on the left
+		// it stays put.
+		searchIconPosition?: 'left' | 'right'
+		// Caps the suggestions dropdown, which otherwise matches the searchbar's width.
+		dropdownMaxWidth?: number
+		// Gap in px between the searchbar and the dropdown below it.
+		dropdownOffsetY?: number
 	}
 
 	type SchemaT = FilterSchemaRec // TODO: Generic
@@ -349,7 +359,11 @@
 		autofocus,
 		hideDropdownOnFreeText = false,
 		onDropdownVisibleChange,
-		inputId
+		inputId,
+		size = 'md',
+		searchIconPosition = 'right',
+		dropdownMaxWidth,
+		dropdownOffsetY = 0
 	}: Props<SchemaT> = $props()
 
 	let _value = new DebouncedTempValue(
@@ -700,7 +714,7 @@
 	class={twMerge(
 		'flex items-center rounded-md bg-surface-input overflow-clip',
 		inputBorderClass({ error: errors.length > 0, forceFocus: open }),
-		ButtonType.UnifiedHeightClasses.md,
+		ButtonType.UnifiedHeightClasses[size],
 		className
 	)}
 	onmousedown={(e) => {
@@ -714,6 +728,9 @@
 	}}
 	bind:this={inputElement}
 >
+	{#if searchIconPosition === 'left'}
+		<SearchIcon size={16} class="ml-2.5 shrink-0 text-hint" />
+	{/if}
 	<TaggedTextInput
 		bind:this={taggedTextInput}
 		id={inputId}
@@ -730,7 +747,10 @@
 		class={twMerge(
 			'overflow-x-auto !pr-24 bg-surface-input outline-none scrollbar-hidden text-nowrap flex-1 mr-2 mt-0.5',
 			inputBaseClass,
-			inputSizeClasses.md
+			inputSizeClasses[size],
+			// The editable's fixed top padding centres the text at md height.
+			size === 'lg' && '!pt-[0.7rem]',
+			searchIconPosition === 'left' && '!pl-1.5'
 		)}
 		{placeholder}
 		onKeyDown={(e) => {
@@ -750,7 +770,7 @@
 	/>
 	{#if asText.val}
 		<CloseButton small class="mr-1.5" onClick={() => (_value.current = {})} />
-	{:else}
+	{:else if searchIconPosition === 'right'}
 		<div class="mr-3">
 			<SearchIcon size={16} class="text-hint" />
 		</div>
@@ -760,7 +780,11 @@
 <GenericDropdown
 	open={dropdownVisible}
 	instantClose={hideDropdownOnFreeText}
-	getInputRect={() => inputElement?.getBoundingClientRect() ?? new DOMRect()}
+	getInputRect={() => {
+		const r = inputElement?.getBoundingClientRect() ?? new DOMRect()
+		const width = dropdownMaxWidth ? Math.min(r.width, dropdownMaxWidth) : r.width
+		return new DOMRect(r.x, r.y, width, r.height + dropdownOffsetY)
+	}}
 	innerClass="!max-h-[25rem]"
 	strictWidth
 >
