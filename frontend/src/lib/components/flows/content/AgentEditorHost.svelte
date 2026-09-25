@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { getContext, setContext, untrack } from 'svelte'
 	import { writable } from 'svelte/store'
-	import { Cpu, MessageCircleOff, SlidersHorizontal } from 'lucide-svelte'
+	import { MessageCircleOff, SlidersHorizontal } from 'lucide-svelte'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 	import PaneNotice from '$lib/components/common/paneNotice/PaneNotice.svelte'
 	import { Alert, Button } from '$lib/components/common'
@@ -88,11 +88,6 @@
 		runBlockedReason = undefined,
 		onOpenConfig = undefined
 	}: Props = $props()
-
-	let modelLabel = $derived.by(() => {
-		const provider = draft.state?.args?.provider as { kind?: string; model?: string } | undefined
-		return [provider?.kind, provider?.model].filter(Boolean).join(' · ')
-	})
 
 	/** The one module the editor edits. Standalone (no `agent` key) so `initFlowState` loads a
 	 *  schema per tool — the linked branch deliberately loads none. Reserved in `forbiddenIds`:
@@ -494,14 +489,17 @@
 	</Tooltip>
 {/snippet}
 
-<!-- Where the chat's composer names the model beside its configuration: a surface with no
-     composer (the form, a reader who cannot run the agent) carries the same pair above it. -->
-{#snippet modelStrip()}
-	{#if onOpenConfig}
-		<PaneNotice icon={Cpu} action={{ label: 'Configuration', onClick: onOpenConfig }}>
-			{modelLabel ? `Runs with ${modelLabel}` : 'No model configured'}
-		</PaneNotice>
-	{/if}
+<!-- In the form's Run row, where a schedulable form keeps its Advanced options. -->
+{#snippet configurationButton()}
+	<Button
+		unifiedSize="md"
+		variant="default"
+		startIcon={{ icon: SlidersHorizontal }}
+		title="The model, instructions and tools this agent runs with"
+		onClick={() => onOpenConfig?.()}
+	>
+		Configuration
+	</Button>
 {/snippet}
 
 {#if draft.refusal}
@@ -584,13 +582,13 @@
 
 	{#snippet runPane()}
 		{#if runBlockedReason}
-			<div class="h-full flex flex-col">
-				{@render modelStrip()}
-				<div
-					class="flex-1 flex items-center justify-center px-8 text-center text-xs text-secondary"
-				>
-					{runBlockedReason}
-				</div>
+			<div
+				class="h-full flex flex-col items-center justify-center gap-4 px-8 text-center text-xs text-secondary"
+			>
+				{runBlockedReason}
+				{#if onOpenConfig}
+					{@render configurationButton()}
+				{/if}
 			</div>
 		{:else}
 			<div class="h-full min-h-0 flex flex-col">
@@ -599,9 +597,9 @@
 				{#if view}
 					<!-- A run of the deployed agent is a run like any other item's, so it opens on its
 					     own page rather than as a test result beside the form. -->
-					<div class="flex-1 min-h-0 flex flex-col {testMode === 'chat' ? 'hidden' : ''}">
-						{@render modelStrip()}
-						<div class="flex-1 min-h-0 overflow-auto p-4">
+					<!-- Centered at the width the chat's column keeps, so switching modes moves nothing. -->
+					<div class="flex-1 min-h-0 overflow-auto p-4 {testMode === 'chat' ? 'hidden' : ''}">
+						<div class="max-w-3xl mx-auto">
 							<RunForm
 								runnable={{ schema: AGENT_CHAT_SCHEMA, path }}
 								runAction={runOnce}
@@ -612,6 +610,7 @@
 								bind:scheduledForStr
 								bind:invisible_to_owner
 								bind:overrideTag
+								actions={onOpenConfig ? configurationButton : undefined}
 							/>
 						</div>
 					</div>
