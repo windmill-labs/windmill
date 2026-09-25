@@ -46,7 +46,9 @@ it the way to run what the write path refuses.
 An operator of a builder workspace consumes a full author seat: composing deployable artifacts
 makes them an author, and there is no half-author. `consumes_operator_seat` is the seat-role
 helper; the EE counting queries share `OPERATOR_SEAT_SQL` so the displayed, enforced and reported
-numbers agree.
+numbers agree. The one exception is `get_user_usage` in `stats_ee.rs`: it is a compile-checked
+`query!`, which cannot interpolate the constant, so it spells the predicate out. Change both
+together.
 
 Granting the right runs `check_seat_cap_for_operator_builder`, which prices the change by counting
 seats twice rather than by counting the workspace's operators: an operator who already authors
