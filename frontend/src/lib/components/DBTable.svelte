@@ -1008,6 +1008,19 @@
 				{/snippet}
 				{#snippet content()}
 					<div class="flex w-60 flex-col py-1" data-testid="db-columns-picker">
+						<label
+							class="flex cursor-pointer items-center gap-2 border-b px-3 py-1.5 text-xs font-medium text-emphasis hover:bg-surface-hover"
+						>
+							<Checkbox
+								checked={hidden.length === 0}
+								indeterminate={hidden.length > 0 && hidden.length < columns.length}
+								onClick={() => {
+									hidden = hidden.length === 0 ? columns.map((c) => c.field) : []
+									saveLayout()
+								}}
+							/>
+							<span>All columns</span>
+						</label>
 						<div class="max-h-80 overflow-y-auto">
 							{#each columns as col (col.field)}
 								<label
@@ -1023,18 +1036,6 @@
 								</label>
 							{/each}
 						</div>
-						{#if hidden.length}
-							<div class="px-1 pb-1">
-								<Button
-									variant="subtle"
-									unifiedSize="sm"
-									btnClasses="w-full justify-start"
-									onClick={() => ((hidden = []), saveLayout())}
-								>
-									Show all
-								</Button>
-							</div>
-						{/if}
 						{#if onNewColumn}
 							<div class="border-t px-1 pt-1">
 								<Button
