@@ -45,15 +45,24 @@ export function messageKind(data) {
   return { messageType, syncType: decoding.readVarUint(decoder) }
 }
 
-/** Apply every sync message `client` has received to a fresh doc and return it. */
-export function replayInto(client, doc = new Y.Doc()) {
-  for (const data of client.received) {
-    if (messageKind(data).messageType !== messageSync) continue
-    const decoder = decoding.createDecoder(data)
-    decoding.readVarUint(decoder) // messageSync
-    syncProtocol.readSyncMessage(decoder, encoding.createEncoder(), doc, null)
+/**
+ * A live mirror of what `client` has been sent: one document that each call
+ * brings up to date with the frames received since the last one. Cheap enough
+ * to call from a polling predicate, and never re-applies a frame.
+ */
+export function syncedDoc(client) {
+  const doc = new Y.Doc()
+  let applied = 0
+  return () => {
+    while (applied < client.received.length) {
+      const data = client.received[applied++]
+      if (messageKind(data).messageType !== messageSync) continue
+      const decoder = decoding.createDecoder(data)
+      decoding.readVarUint(decoder) // messageSync
+      syncProtocol.readSyncMessage(decoder, encoding.createEncoder(), doc, null)
+    }
+    return doc
   }
-  return doc
 }
 
 /** Open a socket and collect every frame it receives, plus its close code. */

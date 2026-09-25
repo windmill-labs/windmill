@@ -168,6 +168,12 @@ const getYDoc = (docname) => {
   return doc
 }
 
+/**
+ * One safe log field out of an error: single-line and bounded, so nothing that
+ * ends up in an error message can forge a log line or flood the log.
+ */
+const describeError = (error) => String(error?.message ?? error).replace(/\s+/g, ' ').slice(0, 200)
+
 const send = (conn, message) => {
   if (conn.readyState === 1) { // WebSocket.OPEN
     conn.send(message, err => { if (err) console.error(err) })
@@ -223,8 +229,10 @@ const setupWSConnection = (conn, req, docName, bufferedMessages = []) => {
       // pre-auth flood cap) and reserves the private 4xxx range for
       // Windmill-specific auth outcomes (4401/4403).
       // The payload is deliberately never logged: it is untrusted, can be
-      // hundreds of KiB, and may hold document contents.
-      console.warn(`[${new Date().toISOString()}] MALFORMED MESSAGE: doc="${docName}" from=${clientIp} error="${error?.message ?? error}"`)
+      // hundreds of KiB, and may hold document contents. The decoders' messages
+      // are fixed strings, but bound and single-line them anyway so nothing a
+      // peer can influence can flood or forge log lines.
+      console.warn(`[${new Date().toISOString()}] MALFORMED MESSAGE: doc="${docName}" from=${clientIp} error="${describeError(error)}"`)
       conn.close(1007, 'Invalid message')
     }
   }
@@ -308,6 +316,12 @@ const server = http.createServer((req, res) => {
 
 const wss = new WebSocketServer({ server })
 
+// Same reason as the per-connection listener below: an unhandled 'error' on the
+// server emitter would end the process.
+wss.on('error', (error) => {
+  console.error(`[${new Date().toISOString()}] WEBSOCKET SERVER ERROR: ${describeError(error)}`)
+})
+
 wss.on('connection', async (ws, req) => {
   let docName = req.url?.slice(1).split('?')[0] || 'unknown'
 
@@ -317,6 +331,16 @@ wss.on('connection', async (ws, req) => {
   }
 
   const clientIp = req.socket.remoteAddress
+
+  // `ws` emits a WebSocket 'error' for a frame it cannot parse at the protocol
+  // level — an unmasked frame from a client, a reserved opcode, a bad RSV bit —
+  // and an unhandled 'error' on an EventEmitter ends the process. That is the
+  // same blast radius as the decode crash below (every document, every client)
+  // and reachable by the same peer, so take it here, before authentication:
+  // `ws` has already closed the offending connection by the time this runs.
+  ws.on('error', (error) => {
+    console.warn(`[${new Date().toISOString()}] SOCKET ERROR: doc="${docName}" from=${clientIp} error="${describeError(error)}"`)
+  })
 
   // Handle ping test — respond and close immediately
   if (docName === '__ping__') {

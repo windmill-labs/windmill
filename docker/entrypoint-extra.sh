@@ -9,6 +9,13 @@ set -e
 PIDS=()
 NAMES=()
 
+# How long a service gets to honour SIGTERM before it is killed outright. On the
+# `docker stop` path dockerd provides that deadline itself; the "a service died"
+# path at the end of this script signals itself, so without one a service that is
+# wedged or slow to exit would keep the container alive and half-dead forever —
+# the exact state that path exists to avoid.
+SHUTDOWN_GRACE_SECS="${SHUTDOWN_GRACE_SECS:-10}"
+
 stop_services() {
     echo "[entrypoint] Shutting down services..."
     for pid in "${PIDS[@]}"; do
@@ -16,6 +23,28 @@ stop_services() {
             kill "$pid" 2>/dev/null || true
         fi
     done
+
+    local i running pid
+    for ((i = 0; i < SHUTDOWN_GRACE_SECS * 10; i++)); do
+        running=0
+        for pid in "${PIDS[@]}"; do
+            if kill -0 "$pid" 2>/dev/null; then
+                running=1
+            fi
+        done
+        if [ "$running" -eq 0 ]; then
+            break
+        fi
+        sleep 0.1
+    done
+
+    for pid in "${PIDS[@]}"; do
+        if kill -0 "$pid" 2>/dev/null; then
+            echo "[entrypoint] WARNING: PID $pid did not stop within ${SHUTDOWN_GRACE_SECS}s, killing it" >&2
+            kill -9 "$pid" 2>/dev/null || true
+        fi
+    done
+
     wait
     echo "[entrypoint] All services stopped"
 }

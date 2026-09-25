@@ -24,7 +24,7 @@ import {
   messageAwareness,
   messageSync,
   openClient,
-  replayInto,
+  syncedDoc,
   syncStep1,
   syncStep1Message,
   syncStep2,
@@ -133,8 +133,9 @@ for (const [label, payload] of MALFORMED) {
     })
 
     // And a real edit still propagates from one client to the other.
+    const bystanderDoc = syncedDoc(bystander)
     latecomer.ws.send(updateMessage('hello'))
-    await waitFor(() => replayInto(bystander).getText('content').toString() === 'hello', {
+    await waitFor(() => bystanderDoc().getText('content').toString() === 'hello', {
       message: 'the edit to propagate to the bystander'
     })
   })
