@@ -3,7 +3,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { fade, slide } from 'svelte/transition'
 	import type { Snippet } from 'svelte'
-	import { Throttled } from 'runed'
+	import { HeldValue } from './heldValue.svelte'
 
 	interface Props {
 		label: string
@@ -19,6 +19,10 @@
 		toggleable?: boolean
 		// Sweeps a highlight across the label while the row is in progress.
 		shimmer?: boolean
+		/** For a label rewritten at each stage of a running call, sometimes several times a
+		 * second: each label (with its shimmer) stays up at least 700 ms, one replaced sooner is
+		 * skipped, and the new one fades in. */
+		settleLabel?: boolean
 		// Ahead of the label, inside the toggle button: a status that reads as part of the
 		// row rather than as another control, leaving the chevron next to the label it opens.
 		headerLeft?: Snippet
@@ -40,6 +44,7 @@
 		onToggle,
 		toggleable = true,
 		shimmer = false,
+		settleLabel = false,
 		headerLeft,
 		headerRight,
 		belowHeader,
@@ -50,11 +55,14 @@
 		contentClass
 	}: Props = $props()
 
-	// A running call rewrites its label at each stage, sometimes several times a second. Each
-	// label stays up at least this long; one arriving sooner waits, and only the latest of those
-	// is shown, so a stage that passed quickly is skipped rather than flashed.
 	const LABEL_MIN_MS = 700
-	const shown = new Throttled(() => ({ prefix: labelPrefix, label }), LABEL_MIN_MS)
+	// The shimmer is held with the label: released on its own, a call settling right after its
+	// last status would show the running label without the running shimmer.
+	const held = new HeldValue(
+		() => ({ prefix: labelPrefix, label, shimmer }),
+		() => (settleLabel ? LABEL_MIN_MS : 0)
+	)
+	const shown = $derived(settleLabel ? held.current : { prefix: labelPrefix, label, shimmer })
 </script>
 
 <div class={twMerge('font-mono text-xs', className)}>
@@ -66,9 +74,8 @@
 				highlight && 'text-emphasis'
 			)}
 		>
-			{#if shown.current.prefix}<span class="font-normal text-secondary"
-					>{shown.current.prefix}</span
-				>&nbsp;{/if}{shown.current.label}
+			{#if shown.prefix}<span class="font-normal text-secondary">{shown.prefix}</span
+				>&nbsp;{/if}{shown.label}
 		</span>
 	{/snippet}
 
@@ -83,12 +90,15 @@
 			aria-expanded={toggleable ? expanded : undefined}
 		>
 			{@render headerLeft?.()}
-			<!-- The new label fades in. The key sits outside the shimmer branch: the label and the
-			     shimmer change together, and a transition inside a branch being swapped out does not
-			     play. In only: an outgoing copy would sit beside the new one and widen the row. -->
-			{#key `${shown.current.prefix ?? ''}\n${shown.current.label}`}
-				<span class="inline-flex items-center min-w-0" in:fade={{ duration: 400 }}>
-					{#if shimmer}
+			<!-- A settled label fades in. The key sits outside the shimmer branch because a label
+			     change often comes with a shimmer change, and a transition inside a branch being
+			     swapped out does not play. In only: an outgoing copy would widen the row. -->
+			{#key `${shown.prefix ?? ''}\n${shown.label}`}
+				<span
+					class="inline-flex items-center min-w-0"
+					in:fade={{ duration: settleLabel ? 400 : 0 }}
+				>
+					{#if shown.shimmer}
 						<span class="shimmer inline-flex items-center min-w-0">
 							{@render labelText(false)}
 							<span class="shimmer-band inline-flex items-center min-w-0" aria-hidden="true">

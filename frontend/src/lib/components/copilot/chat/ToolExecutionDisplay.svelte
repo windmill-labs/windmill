@@ -308,6 +308,7 @@
 		onToggle={() => (isExpanded = !isExpanded)}
 		toggleable={detailsAvailable || message.isStreamingArguments === true}
 		shimmer={isRunning}
+		settleLabel
 		class={message.isQueued && !message.error
 			? 'opacity-60 hover:opacity-100 transition-opacity'
 			: ''}

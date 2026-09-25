@@ -17,8 +17,11 @@
 	const calls = $derived(
 		group.entries.map((e) => e.message).filter((m): m is ToolDisplayMessage => m.role === 'tool')
 	)
-	const running = $derived(calls.some((m) => m.isLoading || m.isQueued || m.isStreamingArguments))
-	const header = $derived(groupHeader(group, running))
+	// Same states as a single row: only an executing call shimmers, and a group whose calls are
+	// all still waiting their turn is faded like a queued row.
+	const running = $derived(calls.some((m) => m.isLoading || m.isStreamingArguments))
+	const queued = $derived(!running && calls.some((m) => m.isQueued))
+	const header = $derived(groupHeader(group, running || queued))
 	const failedCount = $derived(calls.filter(callFailed).length)
 	// Every edit of one flow carries the same chip, so the group shows it once.
 	const previewCard = $derived(calls.findLast((m) => m.previewCard && !m.error)?.previewCard)
@@ -45,6 +48,8 @@
 	{expanded}
 	onToggle={() => (expanded = !expanded)}
 	shimmer={running}
+	settleLabel
+	class={queued ? 'opacity-60 hover:opacity-100 transition-opacity' : ''}
 	labelClass="truncate"
 	headerRight={failedCount > 0 || previewCard ? status : undefined}
 	contentClass="border-0 border-l rounded-none bg-transparent p-0 pl-2 ml-1.5 mt-0.5"

@@ -237,6 +237,7 @@ import {
 	type DraftPersistResult
 } from './userDraftAdapter'
 import { findModuleInFlow } from '$lib/components/flows/flowTree'
+import { DRAFT_CONFLICT_RESULT, DRAFT_SAVE_FAILED_RESULT } from '../draftWriteResults'
 import {
 	computeDiffParts,
 	expireWorkspaceDiffList,
@@ -4955,7 +4956,7 @@ function draftWriteFailure(result: DraftPersistResult, ctx: WriteDraftCtx): stri
 	if (result.status === 'conflict') {
 		ctx.toolCallbacks.setToolStatus(ctx.toolId, {
 			content: `Draft ${stored.type} "${stored.path}" changed externally`,
-			result: `Conflict`
+			result: DRAFT_CONFLICT_RESULT
 		})
 		return JSON.stringify(
 			{
@@ -4970,7 +4971,7 @@ function draftWriteFailure(result: DraftPersistResult, ctx: WriteDraftCtx): stri
 	if (result.status === 'error') {
 		ctx.toolCallbacks.setToolStatus(ctx.toolId, {
 			content: `Failed to save ${stored.type} "${stored.path}"`,
-			result: `Save failed`
+			result: DRAFT_SAVE_FAILED_RESULT
 		})
 		return JSON.stringify(
 			{

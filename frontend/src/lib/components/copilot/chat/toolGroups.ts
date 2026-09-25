@@ -1,4 +1,5 @@
 import type { DisplayMessage, ToolDisplayMessage } from './shared'
+import { DRAFT_CONFLICT_RESULT, DRAFT_SAVE_FAILED_RESULT } from './draftWriteResults'
 
 // A tool missing from these lists always renders as its own row, so a new write never gets
 // hidden by default.
@@ -84,6 +85,8 @@ function groupableCall(message: DisplayMessage): ToolDisplayMessage | undefined 
 	if (message.needsConfirmation || message.blockedByPlanMode) return undefined
 	if (message.runForm || message.inspectedRun || message.userQuestion) return undefined
 	if (message.imageUrl || message.webSearchSources) return undefined
+	// The user's own refusal is a decision, not a failure to fold away.
+	if (message.declinedByUser) return undefined
 	return message
 }
 
@@ -116,11 +119,11 @@ function isSilentAssistant(message: DisplayMessage): boolean {
 function runEnd(
 	messages: DisplayMessage[],
 	start: number,
-	accepts: (m: DisplayMessage) => boolean
+	accepts: (m: DisplayMessage, index: number) => boolean
 ) {
 	let end = start
 	for (let j = start + 1; j < messages.length; j++) {
-		if (accepts(messages[j])) end = j
+		if (accepts(messages[j], j)) end = j
 		else if (!isSilentAssistant(messages[j])) break
 	}
 	return end
@@ -146,23 +149,24 @@ function toolGroup(
 	}
 }
 
+function editGroupAt(messages: DisplayMessage[], start: number): ToolGroup | undefined {
+	const flow = flowMembership(messages[start])
+	if (!flow) return undefined
+	const end = runEnd(messages, start, (m) => flowMembership(m)?.target === flow.target)
+	return toolGroup(messages, start, end, 'edit', flow.target)
+}
+
 export function groupToolRuns(messages: DisplayMessage[]): ChatItem[] {
 	const items: ChatItem[] = []
 	let i = 0
 	while (i < messages.length) {
-		const flow = flowMembership(messages[i])
-		// An edit group wins over an explore group: its reads belong to the edits they prepare.
+		// An edit group wins over an explore group: its reads belong to the edits they prepare,
+		// so an explore run also stops before a read that starts one.
+		const explores = (m: DisplayMessage, j: number) => isReadCall(m) && !editGroupAt(messages, j)
 		const group =
-			(flow &&
-				toolGroup(
-					messages,
-					i,
-					runEnd(messages, i, (m) => flowMembership(m)?.target === flow.target),
-					'edit',
-					flow.target
-				)) ||
+			editGroupAt(messages, i) ??
 			(isReadCall(messages[i])
-				? toolGroup(messages, i, runEnd(messages, i, isReadCall), 'explore', '')
+				? toolGroup(messages, i, runEnd(messages, i, explores), 'explore', '')
 				: undefined)
 		if (group) {
 			items.push(group)
@@ -190,9 +194,8 @@ function callName(call: ToolDisplayMessage): string {
 	return name.replaceAll('_', ' ')
 }
 
-// A draft save that failed or hit a conflict reports it through `result` alone, not `error`
-// (draftWriteFailure in global/core.ts), and a collapsed group would otherwise hide it.
-const FAILED_SAVE_RESULTS = new Set(['Save failed', 'Conflict'])
+// A collapsed group would otherwise hide a draft save that did not land.
+const FAILED_SAVE_RESULTS = new Set([DRAFT_CONFLICT_RESULT, DRAFT_SAVE_FAILED_RESULT])
 export function callFailed(call: ToolDisplayMessage): boolean {
 	return (
 		call.error !== undefined ||

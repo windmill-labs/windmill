@@ -73,6 +73,25 @@ describe('groupToolRuns', () => {
 				tool('read_flow_module_code', flow)
 			])
 		).toEqual([0, 1, { explore: [2, 3] }])
+		expect(
+			shape([
+				tool('patch_flow_json', flow),
+				tool('patch_flow_json', flow, { declinedByUser: true, error: 'Cancelled by user' }),
+				tool('patch_flow_json', flow)
+			])
+		).toEqual([0, 1, 2])
+	})
+
+	it('leaves a flow read that prepares an edit to the edit group, not the lookups before it', () => {
+		const flow = { type: 'flow', path: 'f/a/flow' }
+		expect(
+			shape([
+				tool('search_workspace'),
+				tool('list_workspace_items'),
+				tool('read_workspace_item', flow),
+				tool('patch_flow_json', flow)
+			])
+		).toEqual([{ explore: [0, 1] }, { edit: [2, 3] }])
 	})
 
 	it('folds consecutive lookups of any tool, split by a write or a row with its own card', () => {
