@@ -521,6 +521,11 @@ describe('global AI tools', () => {
 		failingReads.clear()
 		clearGlobalDrafts(WORKSPACE)
 		vi.clearAllMocks()
+		// `clearAllMocks` keeps implementations, so a test that says "this item is deployed"
+		// would answer for every later test too, making them order-dependent.
+		vi.mocked(ScriptService.existsScriptByPath).mockImplementation(async () => false)
+		vi.mocked(FlowService.existsFlowByPath).mockImplementation(async () => false)
+		vi.mocked(AppService.existsApp).mockImplementation(async () => false)
 	})
 
 	it('defaults the datatable instruction subject to the TypeScript SQL SDK', async () => {
@@ -3245,7 +3250,9 @@ describe('global AI tools', () => {
 
 		const draft = getBackendDraft<any>('flow', 'u/admin/draft_f1', { workspace: WORKSPACE })
 		expect(draft?.draft_path).toBe('f/team/new_flow')
-		expect(draft?.path).toBe('f/team/new_flow')
+		// `path` stays the storage key: the flow editor compares a typed rename against it
+		// and drops `draft_path` when they agree, which would lose the name entirely.
+		expect(draft?.path).toBe('u/admin/draft_f1')
 	})
 
 	// Same private-owner read path as schedules, for the trigger drawer kinds.

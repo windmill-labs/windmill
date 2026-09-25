@@ -375,21 +375,7 @@ async function storagePathForChosenName(
 		if (staged.some((s) => s.storagePath === storagePath)) return
 		staged.push({ storagePath, summary })
 	}
-	// A deployed item keeps its own path: drafts staged under that name belong to other
-	// items and are reached by their storage path. Settled before the listing, which is
-	// workspace-wide — an indexed single-row check answers the common case, where the path
-	// is simply where something is deployed, and a path that is unambiguous by this rule is
-	// then never refused because the listing failed.
-	//
-	// A failed probe falls through to the listing rather than out of the call: the listing
-	// below degrades on the same class of transient failure, and a read that addressed a
-	// deployed path made no such request at all before.
 	const exists = deployedExists[itemKind]
-	try {
-		if (exists && (await exists(workspace, path))) return path
-	} catch {
-		// fall through to the listing
-	}
 	let rows: Awaited<ReturnType<typeof DraftService.listDrafts>>
 	try {
 		rows = await DraftService.listDrafts({ workspace })
@@ -402,6 +388,9 @@ async function storagePathForChosenName(
 		// nothing the listing would have told a write either — refusing it would fail a
 		// write that has no ambiguity to resolve.
 		if (!opts.forWrite || !NAMEABLE_DRAFT_KINDS.has(itemKind)) return path
+		// A deployed item keeps its own path whatever is staged, so the listing was not
+		// needed after all. Only refuse when that cannot be established either.
+		if (exists && (await exists(workspace, path).catch(() => false))) return path
 		throw new Error(
 			`Could not load this workspace's drafts, so "${path}" cannot be matched to the draft ` +
 				`it may name: ${e instanceof Error ? e.message : String(e)}. Try again.`
@@ -417,6 +406,11 @@ async function storagePathForChosenName(
 		}
 	}
 	if (staged.length === 0) return path
+	// A deployed item keeps its own path: drafts staged under that name belong to other
+	// items and are reached by their storage path. Consulted only once something is staged,
+	// so the common path costs no request and a failure here — which would leave a delete or
+	// a deploy pointing at a namesake draft — stops the call rather than being guessed past.
+	if (exists && (await exists(workspace, path))) return path
 	if (staged.length > 1) {
 		// Refused rather than guessed: nothing checks a name for uniqueness before deploy.
 		const listed = staged
