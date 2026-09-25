@@ -4772,13 +4772,17 @@ pub async fn handle_queued_job(
         };
 
         // Skip verbose job header for WAC v2 replays (checkpoint has completed steps)
-        let is_wac_replay = if let Connection::Sql(db) = conn {
-            crate::wac_executor::load_checkpoint(db, &job.id)
-                .await
-                .map(|c| !c.completed_steps.is_empty())
-                .unwrap_or(false)
-        } else {
-            false
+        let is_wac_replay = match conn {
+            Connection::Sql(db)
+                if crate::wac_executor::lang_supports_wac_v2(job.script_lang)
+                    && !job.kind.is_dependency() =>
+            {
+                crate::wac_executor::load_checkpoint(db, &job.id)
+                    .await
+                    .map(|c| !c.completed_steps.is_empty())
+                    .unwrap_or(false)
+            }
+            _ => false,
         };
 
         if !is_wac_replay {

@@ -22,6 +22,7 @@
 	import Toggle from './Toggle.svelte'
 	import { Trash } from 'lucide-svelte'
 	import { DEMO_RESTRICTION_HINT, isDemoWorkspaceRestricted } from '$lib/cloud'
+	import { scheduleLock, triggerLock } from '$lib/operatorWriteRights'
 	import {
 		useOperatingWorkspace,
 		useOperatingUser
@@ -61,7 +62,18 @@
 		| 'amqp_trigger'
 		| 'email_trigger'
 		| 'volume'
-	let kind: Kind
+	// $state so the write lock below tracks whichever object the drawer was last opened on. The
+	// cast keeps TS from narrowing it to the initial value, which openDrawer always replaces.
+	let kind: Kind = $state('script' as Kind)
+
+	// Sharing a schedule or trigger is a write operators can lose. Gated here rather than at the
+	// dozen menu entries opening this drawer, so a new entry point is covered; reading stays open.
+	// Matched on the suffix, unlike the server (the real boundary, which lists kinds), so a
+	// trigger kind added later greys out here without a second edit.
+	let writeLock = $derived(
+		kind === 'schedule' ? $scheduleLock : kind.endsWith('_trigger') ? $triggerLock : undefined
+	)
+	let sharingDisabled = $derived(restricted || !!writeLock)
 
 	let path: string = $state('')
 
@@ -283,8 +295,10 @@
 					>
 				{/if}
 				<div>
-					{#if own && restricted}
-						<Alert type="info" title="Sharing disabled">{DEMO_RESTRICTION_HINT}</Alert>
+					{#if own && sharingDisabled}
+						<Alert type="info" title="Sharing disabled">
+							{writeLock ?? DEMO_RESTRICTION_HINT}
+						</Alert>
 					{:else if own}
 						<div class="flex flex-row flex-wrap gap-2 items-center">
 							<div>
@@ -327,7 +341,7 @@
 										<tr>
 											<td>{owner}</td>
 											<td
-												>{#if own && !restricted}
+												>{#if own && !sharingDisabled}
 													<div>
 														<ToggleButtonGroup
 															selected={write ? 'writer' : 'viewer'}
@@ -350,7 +364,7 @@
 												{:else}{write ? 'Writer' : 'Viewer'}{/if}</td
 											>
 											<td>
-												{#if own}
+												{#if own && !writeLock}
 													<Button
 														variant="default"
 														destructive

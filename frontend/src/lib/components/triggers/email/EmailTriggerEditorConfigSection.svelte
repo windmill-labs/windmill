@@ -14,6 +14,7 @@
 		useOperatingUser,
 		useOperatingWorkspace
 	} from '$lib/components/operatingWorkspace.svelte'
+	import { triggerLock } from '$lib/operatorWriteRights'
 	interface Props {
 		initialTriggerPath?: string | undefined
 		dirtyLocalPart?: boolean
@@ -56,7 +57,11 @@
 			if (!localPart || !/^[a-z0-9._]{1,64}$/.test(localPart)) {
 				addressError =
 					'Local part not valid, only accepts lowercase alphanumeric characters, dots and underscores, and must be between 1 and 64 characters'
-			} else if (await emailTriggerExists(localPart, workspaced_local_part)) {
+			} else if (
+				// A POST read the write gate refuses, fired on open: see RouteEditorConfigSection.
+				!$triggerLock &&
+				(await emailTriggerExists(localPart, workspaced_local_part))
+			) {
 				addressError = 'Email address already taken'
 			} else {
 				addressError = ''

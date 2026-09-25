@@ -15,13 +15,21 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import crypto from 'node:crypto'
 import { setTimeout as delay } from 'node:timers/promises'
-import { WebSocket } from 'ws'
 import * as Y from 'yjs'
 import * as syncProtocol from 'y-protocols/sync'
 import * as encoding from 'lib0/encoding'
 import * as decoding from 'lib0/decoding'
 
 import { mintToken, startJwksServer, startMultiplayerServer, waitFor } from './helpers.mjs'
+import {
+  hasSyncType,
+  messageKind,
+  openClient,
+  syncStep1Message,
+  syncStep2,
+  syncUpdate,
+  updateMessage
+} from './protocol.mjs'
 
 const WORKSPACE = 'test_workspace'
 const DOC_PATH = `${WORKSPACE}/f/foo/bar`
@@ -32,53 +40,6 @@ const FLIGHT_MARGIN_MS = 250
 // Logged by server.mjs once the JWKS fetch resolves. While it is absent the
 // server demonstrably has no key, so anything it receives is in the pre-auth window.
 const KEY_LOADED = 'Successfully loaded Ed25519 public key'
-
-const messageSync = 0
-const syncStep2 = 1
-
-/** `messageSync` + sync step 1 for an empty document, as y-websocket sends on open. */
-function syncStep1Message() {
-  const encoder = encoding.createEncoder()
-  encoding.writeVarUint(encoder, messageSync)
-  syncProtocol.writeSyncStep1(encoder, new Y.Doc())
-  return encoding.toUint8Array(encoder)
-}
-
-/** `messageSync` + a Yjs update inserting `text` into the 'content' text type. */
-function updateMessage(text) {
-  const doc = new Y.Doc()
-  doc.getText('content').insert(0, text)
-  const encoder = encoding.createEncoder()
-  encoding.writeVarUint(encoder, messageSync)
-  syncProtocol.writeUpdate(encoder, Y.encodeStateAsUpdate(doc))
-  return encoding.toUint8Array(encoder)
-}
-
-/** Read the (messageType, syncType) pair that prefixes a sync message. */
-function messageKind(data) {
-  const decoder = decoding.createDecoder(data)
-  const messageType = decoding.readVarUint(decoder)
-  if (messageType !== messageSync) return { messageType }
-  return { messageType, syncType: decoding.readVarUint(decoder) }
-}
-
-/** Open a socket and collect every frame it receives, plus its close code. */
-function openClient(url, { onOpen } = {}) {
-  const ws = new WebSocket(url)
-  const received = []
-  const client = { ws, received, closeCode: undefined }
-  ws.on('message', (data) => received.push(new Uint8Array(data)))
-  ws.on('close', (code) => {
-    client.closeCode = code
-  })
-  ws.on('error', () => {})
-  if (onOpen) ws.on('open', () => onOpen(ws))
-  return client
-}
-
-function hasKind(client, syncType) {
-  return client.received.some((data) => messageKind(data).syncType === syncType)
-}
 
 test('cold start: a sync step 1 sent while the key is still being fetched is answered', { timeout: 60000 }, async (t) => {
   const jwks = await startJwksServer({ hold: true })
@@ -112,11 +73,11 @@ test('cold start: a sync step 1 sent while the key is still being fetched is ans
   await delay(FLIGHT_MARGIN_MS)
   jwks.release()
 
-  await waitFor(() => hasKind(cold, syncStep2), {
+  await waitFor(() => hasSyncType(cold, syncStep2), {
     message: 'the server to answer the cold client with sync step 2'
   })
   // The echo of our own update proves it was applied to the server-side doc.
-  await waitFor(() => hasKind(cold, 2), {
+  await waitFor(() => hasSyncType(cold, syncUpdate), {
     message: 'the server to broadcast back the update sent during the cold window'
   })
   cold.ws.close()
@@ -127,7 +88,7 @@ test('cold start: a sync step 1 sent while the key is still being fetched is ans
   })
   t.after(() => warm.ws.close())
 
-  await waitFor(() => hasKind(warm, syncStep2), {
+  await waitFor(() => hasSyncType(warm, syncStep2), {
     message: 'the server to answer the second client with sync step 2'
   })
 
@@ -196,7 +157,7 @@ test('cold start: a peer that floods before authenticating is closed and the ser
   })
   t.after(() => healthy.ws.close())
 
-  await waitFor(() => hasKind(healthy, syncStep2), {
+  await waitFor(() => hasSyncType(healthy, syncStep2), {
     message: 'the server to still answer a well-behaved client with sync step 2'
   })
 })

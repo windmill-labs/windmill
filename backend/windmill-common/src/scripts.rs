@@ -24,6 +24,22 @@ use regex::Regex;
 
 use crate::utils::StripPath;
 
+/// The tag a script's dependency job runs on, given the script's own tag; `None` leaves it to
+/// `push`'s default (the language tag). Every relock of a script must use this, or a relock
+/// lands on a worker pool other than the one its deploy locked on and resolves packages
+/// differently.
+/// Dedicated workers are handled by `push`, which gives `dedicated_worker` precedence.
+pub fn dependency_job_tag(tag: Option<String>, language: &ScriptLang) -> Option<String> {
+    if tag.as_ref().is_some_and(|x| x.contains("$args[")) {
+        None
+    } else if *language == ScriptLang::Bunnative {
+        // the bundle must be built on a worker with the bun tag, whatever the script's tag
+        None
+    } else {
+        tag
+    }
+}
+
 pub fn extract_workspace_dependencies_annotated_refs(
     lang: &ScriptLang,
     code: &str,

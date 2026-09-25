@@ -171,6 +171,7 @@ mod db_connect;
 pub mod ee;
 mod ee_oss;
 mod monitor;
+mod stranded_jobs;
 
 // Windows service support - EE feature
 #[cfg(all(windows, feature = "enterprise", feature = "private"))]
@@ -1834,6 +1835,13 @@ async fn process_notify_event(
                 payload
             );
             windmill_common::variables::CUSTOM_ENVS_CACHE.remove(payload);
+        }
+        "notify_operator_settings_change" => {
+            tracing::info!(
+                "Operator settings change detected, invalidating operator rights cache: {}",
+                payload
+            );
+            windmill_common::workspaces::invalidate_operator_rights_cache(payload);
         }
         "notify_asset_producer_change" => {
             tracing::debug!(

@@ -48,6 +48,11 @@ jobs:
           npm ci --omit=dev
           npm test
 
+      # Runs the real entrypoint-extra.sh with stub services, so the supervision
+      # behaviour is checked without building the image first.
+      - name: Run entrypoint supervision tests
+        run: bash docker/test_entrypoint_extra.sh
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.817.0
+  version: 1.818.0
   title: Windmill API
 
   contact:
@@ -37259,6 +37259,12 @@ components:
         workers:
           type: boolean
           description: Whether operators can view workers page
+        manage_schedules:
+          type: boolean
+          description: Whether operators can create, edit and delete schedules. Granted unless withdrawn; omitting the field leaves the stored value unchanged.
+        manage_triggers:
+          type: boolean
+          description: Whether operators can create, edit and delete triggers. Granted unless withdrawn; omitting the field leaves the stored value unchanged.
 
     WorkspaceComparison:
       type: object
