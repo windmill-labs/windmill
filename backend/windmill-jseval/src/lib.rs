@@ -62,9 +62,10 @@ lazy_static! {
     // rewriting accesses to `await` breaks inside non-async inner functions.
     // Over-matching (e.g. inside a string literal) only costs a spurious fetch.
     // Bracket keys are captured as the whole JS string literal so QuickJS, not
-    // us, decodes their escapes.
+    // us, decodes their escapes; it is spliced into code, so it must not span a
+    // line. The boundary must allow `.`, or `...results.a` is never prefetched.
     static ref RE: Regex = Regex::new(
-        r#"(?:^|[^a-zA-Z0-9_$])results(?:\??\.([a-zA-Z_0-9]+)|(?:\?\.)?\[("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')\])"#
+        r#"(?:^|[^a-zA-Z0-9_$])results(?:\??\.([a-zA-Z_0-9]+)|(?:\?\.)?\[("(?:[^"\\\r\n]|\\.)*"|'(?:[^'\\\r\n]|\\.)*')\])"#
     )
     .unwrap();
     // SQL fast-path: simple `results.X.Y[i]...` accesses are dispatched to
@@ -1157,6 +1158,7 @@ mod tests {
             referenced_step_ids(r#"results.b + results?.["a"] + results['c'] + my_results.e"#),
             vec![r#""a""#, r#""b""#, "'c'"]
         );
+        assert!(referenced_step_ids("// results[\"\n\"]").is_empty());
         assert!(referenced_step_ids("no_results_here").is_empty());
     }
 
