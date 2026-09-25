@@ -1,0 +1,6 @@
+{
+  "competitors": ["windmill", "temporal", "inngest", "restate", "kestra"],
+  "latency_samples": 50,
+  "throughput_batch": 100,
+  "warmup_count": 5
+}

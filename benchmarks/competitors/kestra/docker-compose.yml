@@ -1,0 +1,41 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: kestra
+      POSTGRES_PASSWORD: kestra
+      POSTGRES_DB: kestra
+    ports:
+      - "5434:5432"
+
+  kestra:
+    image: kestra/kestra:latest
+    depends_on:
+      - postgres
+    command: server standalone
+    environment:
+      KESTRA_CONFIGURATION: |
+        datasources:
+          postgres:
+            url: jdbc:postgresql://postgres:5432/kestra
+            driverClassName: org.postgresql.Driver
+            username: kestra
+            password: kestra
+        kestra:
+          repository:
+            type: postgres
+          queue:
+            type: postgres
+          storage:
+            type: local
+            local:
+              base-path: /app/storage
+          security:
+            basic-auth:
+              enabled: false
+            api-tokens:
+              - token: benchtoken12345678901234567890
+                description: Benchmark token
+                extended: true
+    ports:
+      - "8081:8080"
