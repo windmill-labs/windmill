@@ -489,6 +489,16 @@ pub fn is_wac_v2(lang: Option<ScriptLang>, content: &str) -> bool {
     }
 }
 
+/// Whether a job in `lang` can be a workflow-as-code v2 entrypoint at all, before its
+/// content is known. Must cover every language `is_wac_v2` accepts: a missing one
+/// repeats the job header in the logs on every replay.
+pub fn lang_supports_wac_v2(lang: Option<ScriptLang>) -> bool {
+    matches!(
+        lang,
+        Some(ScriptLang::Bun) | Some(ScriptLang::Bunnative) | Some(ScriptLang::Python3)
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -512,5 +522,12 @@ export default workflow(async function main(x: number) { return x; });"#;
             Some(ScriptLang::Bun),
             "export async function main() {}"
         ));
+
+        for lang in [ScriptLang::Bun, ScriptLang::Bunnative, ScriptLang::Python3] {
+            assert!(lang_supports_wac_v2(Some(lang)));
+        }
+        assert!(!lang_supports_wac_v2(Some(ScriptLang::Deno)));
+        assert!(!lang_supports_wac_v2(Some(ScriptLang::Bash)));
+        assert!(!lang_supports_wac_v2(None));
     }
 }
