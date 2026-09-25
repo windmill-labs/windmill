@@ -1419,7 +1419,7 @@ Rules:${when(
 	)}
 - Use list_workspace_items to find items and read_workspace_item before changing an existing item. For triggers, pass trigger_kind.
 - If the user message includes an ACTIVE EDITOR section, treat it as the currently open item and use it for references like "this", "current", or "open editor".${activePreviewRule}
-- A draft's \`draft_path\` is the name it deploys under and what to call it when talking to the user. Tools accept it or the draft's \`path\`; prefer \`path\`, which stays unambiguous when two drafts share a name. After a deploy the item lives at its \`draft_path\`.${when(
+- A draft's \`draftPath\` (spelled \`draft_path\` in the ACTIVE EDITOR and SELECTED WORKSPACE ITEMS blocks) is the name it deploys under and what to call it when talking to the user. Tools accept it or the draft's \`path\`; prefer \`path\`, which stays unambiguous when two drafts share a name. After a deploy the item lives at that name.${when(
 		canWriteDraft,
 		`
 - Use deploy_workspace_item only after the user explicitly asks to deploy. It persists a draft to the workspace.
@@ -5302,13 +5302,15 @@ function maybeAttachPreviewCard(
 function finishAppDraftWrite(
 	result: DraftPersistResult,
 	ctx: WriteDraftCtx,
-	onSaved: () => { content: string; message: string; warning?: string }
+	/** Takes the name the app deploys under: a draft addressed by its storage key must
+	 * still be reported as the item the user named. */
+	onSaved: (appPath: string) => { content: string; message: string; warning?: string }
 ): string {
 	const failure = draftWriteFailure(result, ctx)
 	if (failure) return failure
 	ctx.toolCallbacks.onItemModified?.(result.itemKind, result.storagePath)
 	maybeAttachPreviewCard(ctx, result.itemKind, result.item.path)
-	const { content, message, warning } = onSaved()
+	const { content, message, warning } = onSaved(result.item.draftPath ?? result.item.path)
 	ctx.toolCallbacks.setToolStatus(ctx.toolId, { content, result: 'Saved as draft' })
 	return JSON.stringify({ success: true, message, warning }, null, 2)
 }
@@ -5326,6 +5328,10 @@ function finishDraftWrite(
 	maybeAttachPreviewCard(ctx, result.itemKind, result.item.path)
 	const stored = result.item
 	const verb = existed ? 'Updated' : 'Created'
+	// The name it deploys under, as the deploy card does: a draft addressed by its
+	// storage key would otherwise be reported as `draft_<uuid>` to both the user and
+	// the model, though the item has a name.
+	const displayPath = stored.draftPath ?? stored.path
 	// Don't echo the flow value back: the model just sent it in the write call,
 	// so reflecting the (large) compact flow JSON only burns tokens. Variables
 	// echo a redacted item; everything else round-trips its small payload.
@@ -5337,13 +5343,13 @@ function finishDraftWrite(
 				: stored
 
 	ctx.toolCallbacks.setToolStatus(ctx.toolId, {
-		content: `${verb} ${stored.type} "${stored.path}" as a draft`,
+		content: `${verb} ${stored.type} "${displayPath}" as a draft`,
 		result: `Saved as draft`
 	})
 	return JSON.stringify(
 		{
 			success: true,
-			message: `${verb} ${stored.type} "${stored.path}" as a per-user draft (saved server-side, visible only to this user — not a deployed workspace item). It was not deployed.`,
+			message: `${verb} ${stored.type} "${displayPath}" as a per-user draft (saved server-side, visible only to this user — not a deployed workspace item). It was not deployed.`,
 			item: serializedItem
 		},
 		null,
@@ -6549,9 +6555,9 @@ async function initApp(
 	}
 	await recomputeAppPolicy(value)
 	const result = await saveAppDraft(workspace, target, value)
-	return finishAppDraftWrite(result, ctx, () => ({
-		content: `Saved app "${path}" draft (${framework})`,
-		message: `Initialized a per-user draft app "${path}" from the ${framework} template with a starter runnable "${STARTER_RUNNABLE_KEY}" (saved server-side, not a deployed workspace item). Use write_app_file / write_app_runnable to evolve it.`
+	return finishAppDraftWrite(result, ctx, (appPath) => ({
+		content: `Saved app "${appPath}" draft (${framework})`,
+		message: `Initialized a per-user draft app "${appPath}" from the ${framework} template with a starter runnable "${STARTER_RUNNABLE_KEY}" (saved server-side, not a deployed workspace item). Use write_app_file / write_app_runnable to evolve it.`
 	}))
 }
 
@@ -6855,9 +6861,9 @@ async function writeAppFile(
 	const value = await loadAppDraftValue(draft, workspace)
 	value.files = { ...value.files, [target.filePath]: args.content }
 	const result = await saveAppDraft(workspace, draft, value)
-	return finishAppDraftWrite(result, ctx, () => ({
-		content: `Updated ${target.filePath} in app "${args.path}"`,
-		message: `Updated draft app "${args.path}" with frontend file "${target.filePath}".`
+	return finishAppDraftWrite(result, ctx, (appPath) => ({
+		content: `Updated ${target.filePath} in app "${appPath}"`,
+		message: `Updated draft app "${appPath}" with frontend file "${target.filePath}".`
 	}))
 }
 
@@ -6886,9 +6892,9 @@ async function deleteAppFile(
 	const { [target.filePath]: _removed, ...remaining } = value.files
 	value.files = remaining
 	const result = await saveAppDraft(workspace, draft, value)
-	return finishAppDraftWrite(result, ctx, () => ({
-		content: `Removed ${target.filePath} from app "${args.path}"`,
-		message: `Removed "${target.filePath}" from draft app "${args.path}".`
+	return finishAppDraftWrite(result, ctx, (appPath) => ({
+		content: `Removed ${target.filePath} from app "${appPath}"`,
+		message: `Removed "${target.filePath}" from draft app "${appPath}".`
 	}))
 }
 
@@ -6961,9 +6967,9 @@ async function patchAppFile(
 	}
 
 	const result = await saveAppDraft(workspace, draft, value)
-	return finishAppDraftWrite(result, ctx, () => ({
-		content: `Patched ${target.filePath} in app "${path}"`,
-		message: `Patched "${target.filePath}" in draft app "${path}".`
+	return finishAppDraftWrite(result, ctx, (appPath) => ({
+		content: `Patched ${target.filePath} in app "${appPath}"`,
+		message: `Patched "${target.filePath}" in draft app "${appPath}".`
 	}))
 }
 
@@ -6996,9 +7002,9 @@ async function writeAppRunnable(
 	await recomputeAppPolicy(value)
 	const undeployed = await undeployedRunnableTargets(workspace, { [key]: persisted })
 	const result = await saveAppDraft(workspace, target, value)
-	return finishAppDraftWrite(result, ctx, () => ({
-		content: `Updated runnable "${key}" in app "${path}"`,
-		message: `Updated draft app "${path}" with runnable "${key}".`,
+	return finishAppDraftWrite(result, ctx, (appPath) => ({
+		content: `Updated runnable "${key}" in app "${appPath}"`,
+		message: `Updated draft app "${appPath}" with runnable "${key}".`,
 		warning: undeployed.length
 			? `This runnable points at an item that is NOT deployed (${undeployed[0]}), so it fails at runtime — ` +
 				`a path runnable runs the deployed item, never a draft. Offer to deploy just that item with ` +
@@ -7109,9 +7115,9 @@ async function deleteAppRunnable(
 	value.runnables = remaining
 	await recomputeAppPolicy(value)
 	const result = await saveAppDraft(workspace, target, value)
-	return finishAppDraftWrite(result, ctx, () => ({
-		content: `Removed runnable "${key}" from app "${path}"`,
-		message: `Removed runnable "${key}" from draft app "${path}".`
+	return finishAppDraftWrite(result, ctx, (appPath) => ({
+		content: `Removed runnable "${key}" from app "${appPath}"`,
+		message: `Removed runnable "${key}" from draft app "${appPath}".`
 	}))
 }
 
