@@ -909,7 +909,7 @@
 			await WorkspaceService.editErrorHandler({
 				workspace: $workspaceStore!,
 				requestBody: {
-					path: handlerFullPath(errorHandlerItemKind, errorHandlerScriptPath),
+					path: handlerFullPath(errorHandlerSelected, errorHandlerItemKind, errorHandlerScriptPath),
 					extra_args: errorHandlerExtraArgs,
 					muted_on_cancel: errorHandlerMutedOnCancel,
 					muted_on_user_path: errorHandlerMutedOnUserPath,

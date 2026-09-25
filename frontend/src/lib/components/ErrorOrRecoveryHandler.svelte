@@ -1,4 +1,6 @@
 <script lang="ts" module>
+	import type { ErrorHandler } from '$lib/gen/types.gen'
+
 	export const errorHandlerArgs = [
 		'path',
 		'workspace_id',
@@ -19,10 +21,14 @@
 	export const slackErrorHandlerHubPathEnding = '/workspace-or-schedule-error-handler-slack'
 
 	/** The stored `<script|flow>/<path>` form of a handler. `kind` is the Custom tab's Script/Flow
-	 * choice and survives switching to a built-in tab, but every hub handler is a script: stored
-	 * as `flow/hub/...` it never runs. */
-	export function handlerFullPath(kind: 'flow' | 'script', path: string): string {
-		return `${path.startsWith('hub/') ? 'script' : kind}/${path}`
+	 * choice and survives switching to a built-in tab, whose handlers are all scripts: stored as
+	 * `flow/...` they never run. */
+	export function handlerFullPath(
+		selected: ErrorHandler,
+		kind: 'flow' | 'script',
+		path: string
+	): string {
+		return `${selected === 'custom' ? kind : 'script'}/${path}`
 	}
 </script>
 
@@ -50,7 +56,6 @@
 		WorkspaceService,
 		type Flow
 	} from '$lib/gen'
-	import type { ErrorHandler } from '$lib/gen/types.gen'
 	import { inferArgs } from '$lib/infer'
 	import { hubBaseUrlStore } from '$lib/stores'
 

@@ -441,7 +441,7 @@
 					path:
 						errorHandlerPath == undefined
 							? undefined
-							: handlerFullPath(errorHandleritemKind, errorHandlerPath),
+							: handlerFullPath(errorHandlerSelected, errorHandleritemKind, errorHandlerPath),
 					extra_args: errorHandlerExtraArgs,
 					number_of_occurence: failedTimes,
 					number_of_occurence_exact: failedExact,
@@ -470,7 +470,11 @@
 					path:
 						recoveryHandlerPath === undefined
 							? undefined
-							: handlerFullPath(recoveryHandlerItemKind, recoveryHandlerPath),
+							: handlerFullPath(
+									recoveryHandlerSelected,
+									recoveryHandlerItemKind,
+									recoveryHandlerPath
+								),
 					extra_args: recoveryHandlerExtraArgs,
 					number_of_occurence: recoveredTimes
 				}
@@ -497,7 +501,7 @@
 					path:
 						successHandlerPath === undefined
 							? undefined
-							: handlerFullPath(successHandlerItemKind, successHandlerPath),
+							: handlerFullPath(successHandlerSelected, successHandlerItemKind, successHandlerPath),
 					extra_args: successHandlerExtraArgs,
 					number_of_occurence: recoveredTimes
 				}
@@ -639,7 +643,8 @@
 		const handlerMap = {
 			error: {
 				teams: '/workspace-or-schedule-error-handler-teams',
-				slack: '/workspace-or-schedule-error-handler-slack'
+				slack: '/workspace-or-schedule-error-handler-slack',
+				email: '/workspace-or-error-handler-email'
 			},
 			recovery: {
 				teams: '/schedule-recovery-handler-teams',
@@ -694,18 +699,18 @@
 			args: args,
 			enabled: enabled,
 			on_failure: errorHandlerPath
-				? handlerFullPath(errorHandleritemKind, errorHandlerPath)
+				? handlerFullPath(errorHandlerSelected, errorHandleritemKind, errorHandlerPath)
 				: undefined,
 			on_failure_times: failedTimes,
 			on_failure_exact: failedExact,
 			on_failure_extra_args: errorHandlerPath ? errorHandlerExtraArgs : undefined,
 			on_recovery: recoveryHandlerPath
-				? handlerFullPath(recoveryHandlerItemKind, recoveryHandlerPath)
+				? handlerFullPath(recoveryHandlerSelected, recoveryHandlerItemKind, recoveryHandlerPath)
 				: undefined,
 			on_recovery_times: recoveredTimes,
 			on_recovery_extra_args: recoveryHandlerPath ? recoveryHandlerExtraArgs : {},
 			on_success: successHandlerPath
-				? handlerFullPath(successHandlerItemKind, successHandlerPath)
+				? handlerFullPath(successHandlerSelected, successHandlerItemKind, successHandlerPath)
 				: undefined,
 			on_success_extra_args: successHandlerPath ? successHandlerExtraArgs : {},
 			ws_error_handler_muted: wsErrorHandlerMuted,
