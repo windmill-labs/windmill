@@ -40,6 +40,7 @@
 		ArrowUp,
 		ClipboardCopy,
 		Columns3,
+		EyeOff,
 		Download,
 		KeyRound,
 		Link,
@@ -736,7 +737,14 @@
 		if (menuTarget.kind === 'header') {
 			const { column } = menuTarget
 			const pin = pinned[column]
-			const items: ContextMenuItem[] = []
+			const items: ContextMenuItem[] = [
+				{
+					id: 'hide',
+					label: 'Hide',
+					icon: EyeOff,
+					onClick: () => setHidden(column, true)
+				}
+			]
 			if (pin !== 'left')
 				items.push({
 					id: 'pin-left',
