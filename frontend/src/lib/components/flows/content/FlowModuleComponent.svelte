@@ -39,6 +39,7 @@
 	import type { ButtonProp } from '$lib/components/diffEditorTypes'
 	import { loadSchemaFromModule } from '../flowInfers'
 	import { type Job } from '$lib/gen'
+	import { operatorBuilderFlows } from '$lib/stores'
 	import { checkIfParentLoop } from '../utils.svelte'
 	import { useWorkspaceScriptSettings } from '../useWorkspaceScriptSettings.svelte'
 	import ScriptSettingsBadges from '$lib/components/ScriptSettingsBadges.svelte'
@@ -232,8 +233,11 @@
 			!flowModule.value.path?.startsWith('hub/') &&
 			flowModule.value.hash == undefined &&
 			customUi?.scriptEdit != false &&
+			!$operatorBuilderFlows &&
 			$workspaceScriptSettingsDrawer != undefined
 	)
+	// Same rule as the graph node's Run button (FlowModuleSchemaItem).
+	let builderCannotTestStep = $derived($operatorBuilderFlows && flowModule.value.type === 'script')
 	let workspaceScriptNoEditReason = $derived(
 		flowModule.value.type !== 'script' || canEditWorkspaceScriptSettings
 			? undefined
@@ -285,7 +289,7 @@
 	}
 
 	function onKeyDown(event: KeyboardEvent) {
-		if ((event.ctrlKey || event.metaKey) && event.key == 'Enter') {
+		if ((event.ctrlKey || event.metaKey) && event.key == 'Enter' && !builderCannotTestStep) {
 			event.preventDefault()
 			selected = 'test'
 			modulePreview?.runTestWithStepArgs()
@@ -1118,7 +1122,9 @@
 										{#if !preprocessorModule}
 											<Tab value="inputs" label={isAgentTool ? 'Tool input' : 'Step Input'} />
 										{/if}
-										<Tab value="test" label={isAgentTool ? 'Test this tool' : 'Test this step'} />
+										{#if !builderCannotTestStep}
+											<Tab value="test" label={isAgentTool ? 'Test this tool' : 'Test this step'} />
+										{/if}
 										{#if canShowChatTab && flowModule.value.type === 'aiagent'}
 											<Tab
 												value="chat"
@@ -1317,7 +1323,7 @@
 												{/if}
 											</PropPickerWrapper>
 										</div>
-									{:else if visibleSelected === 'test'}
+									{:else if visibleSelected === 'test' && !builderCannotTestStep}
 										{#if debugMode && isDebuggableScript}
 											<div transition:slide={{ duration: 200 }}>
 												<DebugToolbar

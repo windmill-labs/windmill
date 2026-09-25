@@ -28,7 +28,13 @@
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
-	import { enterpriseLicense, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import {
+		enterpriseLicense,
+		operatorBuilderFlows,
+		userStore,
+		userWorkspaces,
+		workspaceStore
+	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import SavedInputsV2 from '$lib/components/SavedInputsV2.svelte'
@@ -292,6 +298,10 @@
 		}
 	}
 
+	// Operators with the builder right author flows out of deployed runnables; every other
+	// operator is read-only here.
+	let canAuthorFlow = $derived(!$userStore?.operator || $operatorBuilderFlows)
+
 	let moveDrawer: MoveDrawer | undefined = $state()
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state()
 	let runForm: RunForm | undefined = $state()
@@ -299,7 +309,7 @@
 	function getMainButtons(flow: Flow | undefined, args: object | undefined) {
 		const buttons: any = []
 
-		if (flow && !$userStore?.operator) {
+		if (flow && canAuthorFlow) {
 			buttons.push({
 				label: 'Fork',
 				description: `Start a new flow from a copy of this one`,
@@ -360,10 +370,11 @@
 			}
 		})
 
-		if (!flow || $userStore?.operator || !can_write) {
+		if (!flow || !canAuthorFlow || !can_write) {
 			return buttons
 		}
 
+		// The builder right covers flows only; building an app is still refused to operators.
 		if (!$userStore?.operator) {
 			buttons.push({
 				label: 'Build app',
@@ -382,18 +393,18 @@
 					startIcon: LayoutDashboard
 				}
 			})
-
-			buttons.push({
-				label: 'Edit',
-				buttonProps: {
-					href: `${base}/flows/edit/${path}`,
-					variant: 'accent',
-					unifiedSize: 'md',
-					disabled: !can_write || !showEditButtons,
-					startIcon: Pen
-				}
-			})
 		}
+
+		buttons.push({
+			label: 'Edit',
+			buttonProps: {
+				href: `${base}/flows/edit/${path}`,
+				variant: 'accent',
+				unifiedSize: 'md',
+				disabled: !can_write || !showEditButtons,
+				startIcon: Pen
+			}
+		})
 		return buttons
 	}
 
@@ -413,7 +424,7 @@
 		flow: Flow | undefined,
 		deployUiSettings: WorkspaceDeployUISettings | undefined
 	) {
-		if (!flow || $userStore?.operator) return []
+		if (!flow || !canAuthorFlow) return []
 
 		const menuItems: any = []
 
@@ -440,7 +451,7 @@
 			}
 		})
 
-		if (isDeployable('flow', flow?.path ?? '', deployUiSettings)) {
+		if (isDeployable('flow', flow?.path ?? '', deployUiSettings) && !$userStore?.operator) {
 			menuItems.push({
 				label: 'Deploy to staging/prod',
 				onclick: () => deploymentDrawer?.openDrawer(flow?.path ?? '', 'flow'),

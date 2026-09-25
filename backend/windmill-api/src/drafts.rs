@@ -21,6 +21,7 @@ use windmill_common::{
     users::resolve_username_to_email,
     utils::{check_proper_path, strip_json_nul},
     variables::{build_crypt, encrypt},
+    workspaces::operator_can_build_flows,
 };
 
 pub fn workspaced_service() -> Router {
@@ -101,10 +102,10 @@ async fn list_drafts(
     Path(w_id): Path<String>,
     Query(query): Query<ListDraftsQuery>,
 ) -> Result<Json<Vec<DraftListItem>>> {
-    // Operators have no drafts of their own (they can't write any, see
-    // `require_can_write_path`), so this list is always empty for them. They
-    // can still READ some collaborators' drafts via `/drafts/get`.
-    if authed.is_operator {
+    // Without builder rights an operator has no drafts of their own (they can't write any, see
+    // `require_can_write_path`), so this list is always empty for them. They can still READ some
+    // collaborators' drafts via `/drafts/get`.
+    if authed.is_operator && !operator_can_build_flows(&db, &w_id).await? {
         return Ok(Json(vec![]));
     }
     let all_users = query.all_users.unwrap_or(false);
@@ -154,10 +155,13 @@ async fn list_drafts(
                 {
                     Ok(()) => true,
                     // A stored draft can sit at an unwritable path — unauthorized,
-                    // or malformed (`BadRequest`; the `draft` table has no path
-                    // constraint). Either way it's not writable, and one bad row
-                    // must not 400 the whole listing.
-                    Err(Error::NotAuthorized(_)) | Err(Error::BadRequest(_)) => false,
+                    // refused to an operator (`PermissionDenied`), or malformed
+                    // (`BadRequest`; the `draft` table has no path constraint).
+                    // Either way it's not writable, and one bad row must not fail
+                    // the whole listing.
+                    Err(Error::NotAuthorized(_))
+                    | Err(Error::PermissionDenied(_))
+                    | Err(Error::BadRequest(_)) => false,
                     Err(e) => return Err(e),
                 };
             out.push(row);
@@ -1111,13 +1115,14 @@ fn table_for_kind(kind: UserDraftItemKind) -> Option<&'static str> {
 }
 
 /// Resolves to `Ok(())` if `authed` may SAVE a draft at `path`. Operators are
-/// rejected outright. Two layers:
+/// rejected, except for flow drafts in a workspace that granted them builder
+/// rights. Two layers:
 ///   1. Claim-based namespace rules (admin, own `u/`, member `g/`, writable
 ///      `f/`) — mirror what RLS reads from the same JWT claims, and are the
 ///      ENTIRE check for draft-only paths (no deployed row for RLS to use).
 ///   2. An RLS write-probe on the deployed row (`SELECT ... FOR UPDATE`) for
 ///      what the path can't answer, above all item-level extra_perms grants.
-async fn require_can_write_path(
+pub(crate) async fn require_can_write_path(
     authed: &ApiAuthed,
     db: &DB,
     user_db: &UserDB,
@@ -1128,14 +1133,19 @@ async fn require_can_write_path(
     if authed.is_admin {
         return Ok(());
     }
-    // Operators are read-only and never WRITE drafts. Read access is
-    // deliberately asymmetric: `require_can_read_path` has no operator block,
-    // so an operator can still READ a draft they can read via `/drafts/get`,
-    // mirroring their read access to deployed content. Intended.
+    // Operators are read-only and never WRITE drafts, except a flow draft where the workspace
+    // granted the builder right: the kind has to be checked, or the right would open drafts of
+    // kinds it says nothing about. Read access is deliberately asymmetric:
+    // `require_can_read_path` has no operator block, so an operator can still READ a draft they
+    // can read via `/drafts/get`, mirroring their read access to deployed content. Intended.
     if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "operators cannot save drafts".to_string(),
-        ));
+        let granted =
+            matches!(kind, UserDraftItemKind::Flow) && operator_can_build_flows(db, w_id).await?;
+        if !granted {
+            return Err(Error::PermissionDenied(
+                "operators cannot save drafts".to_string(),
+            ));
+        }
     }
     // Cheap claim-based namespace checks first: they evaluate the same JWT
     // claims RLS reads, so the outcome matches the policies while sparing the

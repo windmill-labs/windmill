@@ -19,7 +19,7 @@
 	import FlowPanelChrome from './FlowPanelChrome.svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import { hubBaseUrlStore } from '$lib/stores'
+	import { hubBaseUrlStore, operatorBuilderFlows } from '$lib/stores'
 	import { DEFAULT_HUB_BASE_URL, PRIVATE_HUB_MIN_VERSION } from '$lib/hub'
 	import { getLatestHashForScript } from '$lib/scripts'
 	import { sendUserToast, type Item } from '$lib/utils'
@@ -98,7 +98,7 @@
 	const scriptItems: Item[] = $derived.by(() => {
 		if (flowModuleValue?.type !== 'script') return []
 		const items: Item[] = []
-		if (!isHub && customUi?.scriptEdit != false) {
+		if (!isHub && customUi?.scriptEdit != false && !$operatorBuilderFlows) {
 			items.push({
 				displayName: "Edit the script's code",
 				icon: Pen,
@@ -142,7 +142,7 @@
 				})
 			}
 		}
-		if (customUi?.scriptFork != false) {
+		if (customUi?.scriptFork != false && !$operatorBuilderFlows) {
 			items.push({
 				displayName: 'Fork into an inline script',
 				icon: GitFork,

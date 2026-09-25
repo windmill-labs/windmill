@@ -18,7 +18,13 @@
 		linkedAgentToolsVersion,
 		migrateLinkedAgentToolsScope
 	} from '$lib/components/flows/linkedAgentToolsStore.svelte'
-	import { enterpriseLicense, userStore, userWorkspaces, usedTriggerKinds } from '$lib/stores'
+	import {
+		enterpriseLicense,
+		operatorBuilderFlows,
+		userStore,
+		userWorkspaces,
+		usedTriggerKinds
+	} from '$lib/stores'
 	import {
 		generateRandomString,
 		orderedJsonStringify,
@@ -1518,7 +1524,7 @@
 <AIChangesWarningModal bind:open={aiChangesWarningOpen} onConfirm={aiChangesConfirmCallback} />
 
 {#key renderCount}
-	{#if !actingUser?.operator}
+	{#if !actingUser?.operator || $operatorBuilderFlows}
 		{#if $pathStore}
 			<FlowHistory bind:this={flowHistory} path={$pathStore} {onHistoryRestore} />
 		{/if}
@@ -1672,7 +1678,9 @@
 					{forceTestTab}
 					{highlightArg}
 					aiChatOpen={aiChatManager.open}
-					showFlowAiButton={!disableAi && customUi?.topBar?.aiBuilder != false}
+					showFlowAiButton={!disableAi &&
+						customUi?.topBar?.aiBuilder != false &&
+						!$operatorBuilderFlows}
 					toggleAiChat={() => aiChatManager.toggleOpen()}
 					{sessionOpen}
 					onOpenPreview={flowPreviewButtons?.openPreview}
@@ -1701,7 +1709,9 @@
 			{/if}
 		</div>
 	{:else}
-		Flow Builder not available to operators
+		<div class="h-full w-full center-center text-sm text-secondary">
+			Flow builder not available to operators
+		</div>
 	{/if}
 {/key}
 

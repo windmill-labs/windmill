@@ -88,7 +88,7 @@ import {
 import type { FlowModuleState, FlowState } from '$lib/components/flows/flowState'
 import type { CurrentEditor, ExtendedOpenFlow } from '$lib/components/flows/types'
 import { untrack } from 'svelte'
-import { get } from 'svelte/store'
+import { fromStore, get } from 'svelte/store'
 import { BROWSER } from 'esm-env'
 import { workspaceStore, type DBSchemas } from '$lib/stores'
 import { copilotInfo } from '$lib/aiStore'
@@ -161,6 +161,7 @@ import type { ArtifactVersionTarget } from '$lib/components/sessions/previewRout
 import { appendAttachedFilesRoster } from './files/fileTools'
 import { ENTER_PLAN_MODE_TOOL, EXIT_PLAN_MODE_TOOL } from './planMode'
 import { PlanModeController, type PlanModeHost } from './planModeController.svelte'
+import { operatorBuilderFlows } from '$lib/stores'
 
 // Compaction of the stored history: once the projected request size
 // (contextTokens — the provider's report when current, a fresh chars/4
@@ -289,6 +290,8 @@ export function supportsAutoAcceptToolConfirmations(mode: AIMode): boolean {
 export function supportsPlanMode(mode: AIMode): boolean {
 	return PLAN_MODES.has(mode)
 }
+
+const isOperatorBuilderFlows = fromStore(operatorBuilderFlows)
 
 export function isAIModeVisible(mode: AIMode): boolean {
 	return mode !== AIMode.GLOBAL || isGlobalAiEnabled()
@@ -1403,12 +1406,19 @@ export class AIChatManager implements ChatViewHost {
 			.map((s) => ({ ...s, kind: 'skill' as const }))
 	])
 
+	// The flow and script builders both write code, which the backend refuses from an operator
+	// with the builder right: leaving them reachable would only produce work that cannot be
+	// deployed.
 	allowedModes: Record<AIMode, boolean> = $derived({
 		script:
 			this.flowAiChatHelpers === undefined &&
 			this.scriptEditorOptions !== undefined &&
-			!this.disabledModes.script,
-		flow: this.flowAiChatHelpers !== undefined && !this.disabledModes.flow,
+			!this.disabledModes.script &&
+			!isOperatorBuilderFlows.current,
+		flow:
+			this.flowAiChatHelpers !== undefined &&
+			!this.disabledModes.flow &&
+			!isOperatorBuilderFlows.current,
 		app: this.appAiChatHelpers !== undefined && !this.disabledModes.app,
 		navigator: !this.disabledModes.navigator,
 		ask: !this.disabledModes.ask,

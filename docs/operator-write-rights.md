@@ -77,7 +77,7 @@ authorizing writes on every other replica until its own entry expires.
 These name capabilities operators already hold, so absence has to mean "never configured", not a
 value. That is easy to get wrong in two places, and the obvious implementation gets both wrong:
 
-- The read coalesces to **true** (`operator_manage_rights`), including for a workspace with no
+- The read coalesces to **true** (`operator_rights`), including for a workspace with no
   `workspace_settings` row, which is what `OperatorManageRights::default` is for. Coalescing to
   false instead revokes the right on upgrade for every workspace that ever saved operator settings,
   since those rows carry explicit keys and none of them is this one.

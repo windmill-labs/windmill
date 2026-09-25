@@ -8,7 +8,7 @@
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 	import { FlowService, type Flow } from '$lib/gen'
-	import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import { operatorBuilderFlows, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Badge from '../badge/Badge.svelte'
@@ -217,6 +217,7 @@
 				let { draft_only, path, archived } = flow
 				let owner = isOwner(path, $userStore, $workspaceStore)
 				const canEdit = flow.canWrite && showEditButton
+				const hideForOperator = $userStore?.operator && !$operatorBuilderFlows
 				if (draft_only) {
 					return [
 						...selectMenuItems(rowSelection),
@@ -251,7 +252,7 @@
 							// list endpoint only surfaces own/legacy draft-only rows), so
 							// discarding it never requires write permission on the path.
 							disabled: !showEditButton,
-							hide: $userStore?.operator
+							hide: hideForOperator
 						}
 					]
 				}
@@ -267,7 +268,7 @@
 						icon: GitFork,
 						href: `${base}/flows/add?template=${path}`,
 						disabled: !showEditButton,
-						hide: $userStore?.operator
+						hide: hideForOperator
 					},
 					{
 						displayName: editInForkLabel($workspaceStore, $userWorkspaces),
@@ -293,7 +294,7 @@
 							moveDrawer.openDrawer(path, flow.summary, 'flow')
 						},
 						disabled: !owner || archived || !canEdit,
-						hide: $userStore?.operator
+						hide: hideForOperator
 					},
 					{
 						displayName: 'Copy path',
@@ -321,7 +322,7 @@
 						action: () => {
 							flowHistory?.open()
 						},
-						hide: $userStore?.operator
+						hide: hideForOperator
 					},
 					{
 						displayName: 'Schedule',
@@ -330,7 +331,7 @@
 							scheduleEditor?.openNew(true, path)
 						},
 						disabled: archived,
-						hide: $userStore?.operator
+						hide: hideForOperator
 					},
 					{
 						displayName: 'Permissions',
@@ -338,7 +339,7 @@
 						action: () => {
 							shareModal.openDrawer && shareModal.openDrawer(path, 'flow')
 						},
-						hide: $userStore?.operator
+						hide: hideForOperator
 					},
 					{
 						displayName: archived ? 'Unarchive' : 'Archive',
@@ -348,7 +349,7 @@
 						},
 						type: 'delete',
 						disabled: !owner || !canEdit,
-						hide: $userStore?.operator
+						hide: hideForOperator
 					},
 					{
 						displayName: 'Delete',
@@ -365,7 +366,7 @@
 						},
 						type: 'delete',
 						disabled: !owner || !canEdit,
-						hide: $userStore?.operator
+						hide: hideForOperator
 					}
 				]
 			}}
