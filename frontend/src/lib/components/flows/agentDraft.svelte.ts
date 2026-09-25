@@ -182,6 +182,21 @@ async function writeAgentResource(
 	return { ok: true }
 }
 
+/** A `u/<user>/<adjective>_agent` no resource holds yet, as the path field picks one for a new
+ *  script or flow. Gives up on availability after a few draws rather than hold the editor. */
+async function freeAgentPath(workspace: string): Promise<string> {
+	const mint = () => `u/${getUsernameForNamespace()}/${random_adj()}_agent`
+	let candidate = mint()
+	for (let i = 0; i < 10; i++) {
+		const taken = await ResourceService.existsResource({ workspace, path: candidate }).catch(
+			() => false
+		)
+		if (!taken) break
+		candidate = mint()
+	}
+	return candidate
+}
+
 export interface AgentDraftOptions {
 	/** The `ai_agent` resource being edited. */
 	path: () => string | undefined
@@ -354,19 +369,22 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 						loading = false
 						await sync.maybeRestore()
 					},
-					(err) => {
+					async (err) => {
 						if (loadedFor !== key) return
 						// Nothing is written until the first edit: the sync saves only on user input, and
 						// the first deploy creates the resource at whatever path the form then holds. The
 						// draft stays at the minted `draft_<uuid>` storage path, and the form starts on the
-						// name a new script or flow gets. Named here rather than by the path field: a name
-						// minted after the seed below would differ from it, and the first click would save it.
+						// free name a new script or flow gets. Named here rather than by the path field: a
+						// name minted after the seed below would differ from it, and the first click would
+						// save it.
 						if (opts.isNew?.() && (err as { status?: number })?.status === 404) {
+							const name = await freeAgentPath(ws)
+							if (loadedFor !== key) return
 							noDeployed = true
 							deployed = undefined
 							canWriteResource = true
 							state = {
-								path: `u/${getUsernameForNamespace()}/${random_adj()}_agent`,
+								path: name,
 								description: '',
 								// Opens on a working chat, the way a new agent is first tried. The editor says
 								// what memory is for, and how to turn it off, while it is on.
