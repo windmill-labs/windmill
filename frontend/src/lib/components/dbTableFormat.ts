@@ -1,4 +1,4 @@
-import { matchesColumnFilter } from './dbTableFilters'
+import { dbColumnKind, matchesColumnFilter } from './dbTableFilters'
 
 /** How a column's values are displayed. Display only: filters, sorting, edits and copies keep
  * the raw value. */
@@ -10,7 +10,7 @@ export type ColumnFormat = {
 	notation?: 'thousands' | 'compact'
 	/** Undefined aligns numbers right and anything else left. */
 	align?: 'left' | 'right'
-	/** The first rule whose condition matches styles the cell. */
+	/** Every rule whose condition matches styles the cell, a later one overriding an earlier one. */
 	rules?: ColorRule[]
 }
 
@@ -75,19 +75,39 @@ export function formatValue(value: unknown, format: ColumnFormat | undefined): s
 	// A unit on text would read as a quantity: `N/A` must not become `$N/A`.
 	if (n === undefined) return undefined
 	if (!formatsNumbers(format)) return undefined
+	// A string keeps the digits a float would lose: numeric columns are read as text.
+	const source = typeof value === 'string' ? value.trim() : String(n)
+	const compact = format.notation === 'compact'
+	// Auto keeps the value's own scale, trailing zeros included: numeric(10,2) shows 1234.50.
+	const scale = /e/i.test(source) ? 0 : Math.min(source.split('.')[1]?.length ?? 0, 100)
 	const text = new Intl.NumberFormat('en-US', {
 		useGrouping: format.notation === 'thousands',
-		notation: format.notation === 'compact' ? 'compact' : 'standard',
-		minimumFractionDigits: format.decimals,
+		notation: compact ? 'compact' : 'standard',
+		minimumFractionDigits: format.decimals ?? (compact ? undefined : scale),
 		// Left to the value, or to the compact notation's own rounding.
-		maximumFractionDigits: format.decimals ?? (format.notation === 'compact' ? undefined : 100)
-		// A string keeps the digits a float would lose: numeric columns are read as text.
-	}).format(typeof value === 'string' ? (value.trim() as Intl.StringNumericLiteral) : n)
+		maximumFractionDigits: format.decimals ?? (compact ? undefined : 100)
+	}).format(typeof value === 'string' ? (source as Intl.StringNumericLiteral) : n)
 	if (!format.unit?.symbol) return text
 	const { symbol, position } = format.unit
 	if (position === 'after') return `${text}${symbol}`
 	// A sign reads before a leading unit: -$5, not $-5.
 	return text.startsWith('-') ? `-${symbol}${text.slice(1)}` : `${symbol}${text}`
+}
+
+const TRUE_TEXT = ['true', 't', '1', 'yes', 'y']
+const FALSE_TEXT = ['false', 'f', '0', 'no', 'n']
+function asBoolean(value: unknown): boolean | undefined {
+	if (typeof value === 'boolean') return value
+	const text = String(value).trim().toLowerCase()
+	return TRUE_TEXT.includes(text) ? true : FALSE_TEXT.includes(text) ? false : undefined
+}
+
+/** The search bar filters a boolean column with a toggle, but a rule's condition is typed:
+ * `true`, `=false`, `t`… are read as the boolean they name. */
+function matchesCondition(value: unknown, datatype: string | undefined, condition: string) {
+	if (dbColumnKind(datatype) !== 'boolean') return matchesColumnFilter(value, datatype, condition)
+	const expected = asBoolean(condition.replace(/^=/, ''))
+	return expected !== undefined && value !== null && asBoolean(value) === expected
 }
 
 export type CellStyle = Pick<ColorRule, 'bg' | 'text' | 'bold' | 'italic'>
@@ -102,7 +122,7 @@ export function cellStyle(
 	for (const rule of format?.rules ?? []) {
 		const condition = rule.condition.trim()
 		// No condition styles every cell.
-		if (condition && !matchesColumnFilter(value, datatype, condition)) continue
+		if (condition && !matchesCondition(value, datatype, condition)) continue
 		style = { ...style }
 		if (rule.bg) style.bg = rule.bg
 		if (rule.text) style.text = rule.text

@@ -699,7 +699,7 @@
 		if (
 			!formatting ||
 			formatEl?.contains(target) ||
-			target?.closest('.dropdown-portal, [data-popover]')
+			target?.closest('.dropdown-portal, [data-db-format-popover]')
 		)
 			return
 		formatting = undefined
@@ -1338,7 +1338,11 @@
 											{:else if fkByColumn[col.field] && hasForeignKeyValue(value)}
 												{@const fk = fkByColumn[col.field]}
 												<button
-													class="text-accent hover:underline underline-offset-2 max-w-full truncate"
+													class={[
+														'hover:underline underline-offset-2 max-w-full truncate',
+														// A rule's text color replaces the link color.
+														!style?.text && 'text-accent'
+													]}
 													title="Go to {fk.table} where {fk.column} = {formatCell(value)}"
 													data-testid="db-fk-link"
 													onclick={() => followForeignKey(col.field, value)}

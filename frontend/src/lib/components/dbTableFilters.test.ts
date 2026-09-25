@@ -44,6 +44,15 @@ describe('renderColumnFilter', () => {
 		)
 	})
 
+	it('serializes BigQuery complex columns, which have no cast to STRING', () => {
+		expect(renderColumnFilter('tags', 'ARRAY<STRING>', 'Ab', 'bigquery')).toBe(
+			"STRPOS(LOWER(TO_JSON_STRING(`tags`)), 'ab') > 0"
+		)
+		expect(renderColumnFilter('doc', 'JSON', '={"a":1}', 'bigquery')).toBe(
+			`TO_JSON_STRING(\`doc\`) = '{"a":1}'`
+		)
+	})
+
 	it('compares numbers and never passes a malformed one through', () => {
 		expect(renderColumnFilter('id', 'int4', '>= 10', 'postgresql')).toBe('"id" >= 10')
 		expect(renderColumnFilter('id', 'int4', '!=3', 'postgresql')).toBe('"id" <> 3')

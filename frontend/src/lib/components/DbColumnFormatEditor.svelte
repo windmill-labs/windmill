@@ -309,6 +309,7 @@
 				/>
 				<Popover
 					contentClasses="z-[10001]"
+					extraProps={{ 'data-db-format-popover': true }}
 					floatingConfig={{ strategy: 'fixed', placement: 'bottom-end' }}
 					bind:isOpen={() => restyling === i, (open) => (restyling = open ? i : undefined)}
 				>
@@ -335,6 +336,7 @@
 		<div class="flex items-center gap-1.5">
 			<Popover
 				contentClasses="z-[10001]"
+				extraProps={{ 'data-db-format-popover': true }}
 				floatingConfig={{ strategy: 'fixed', placement: 'bottom-start' }}
 				bind:isOpen={addRuleOpen}
 			>

@@ -113,6 +113,13 @@ export function renderColumnFilter(
 		}
 		case 'text': {
 			const text = String(value)
+			// BigQuery can neither cast these to STRING nor compare them to a string literal.
+			if (dbType === 'bigquery' && /^(json|array|struct|geography)\b/i.test(datatype ?? '')) {
+				const serialized = `TO_JSON_STRING(${renderDbQuotedIdentifier(column, dbType)})`
+				return text.startsWith('=')
+					? `${serialized} = ${renderDbLiteral(text.slice(1), dbType)}`
+					: `STRPOS(LOWER(${serialized}), ${renderDbLiteral(text.toLowerCase(), dbType)}) > 0`
+			}
 			if (!text.startsWith('=')) return renderDbContainsFilter(column, text, dbType)
 			// PostgreSQL `json` has no `=`: compare as the text the grid shows.
 			if (dbType === 'postgresql' && /^jsonb?$/i.test((datatype ?? '').trim())) {
