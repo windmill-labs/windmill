@@ -6,7 +6,7 @@
 		type WorkspaceDeployUISettings,
 		WorkspaceService
 	} from '$lib/gen'
-	import { canWrite, displayDate, getLocalSetting, storeLocalSetting } from '$lib/utils'
+	import { canWrite, displayDate, getLocalSetting, pluralize, storeLocalSetting } from '$lib/utils'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import { base } from '$app/paths'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -33,7 +33,8 @@
 		Plus,
 		SearchX,
 		Shield,
-		Trash
+		Trash,
+		TriangleAlert
 	} from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
@@ -69,6 +70,8 @@
 	}
 
 	type ScheduleW = ScheduleWJobs & { canWrite: boolean }
+
+	const MISSED_VISIBLE_MS = 7 * 24 * 60 * 60 * 1000
 
 	let schedules: ScheduleW[] = $state([])
 	let shareModal: ShareModal | undefined = $state()
@@ -163,6 +166,9 @@
 		for (let schedule of schedules) {
 			if (schedulesWithJobsByPath[schedule.path]) {
 				schedule.jobs = schedulesWithJobsByPath[schedule.path].jobs
+				schedule.late_run_streak = schedulesWithJobsByPath[schedule.path].late_run_streak
+				schedule.missed_occurrences = schedulesWithJobsByPath[schedule.path].missed_occurrences
+				schedule.last_missed_at = schedulesWithJobsByPath[schedule.path].last_missed_at
 			}
 		}
 		loadingSchedulesWithJobStats = false
@@ -434,7 +440,7 @@
 				{/if}
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
-					{#each items.slice(0, nbDisplayed) as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, jobs, paused_until, labels, inherited_labels, draft_only, is_draft } (path)}
+					{#each items.slice(0, nbDisplayed) as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, jobs, late_run_streak, missed_occurrences, last_missed_at, paused_until, labels, inherited_labels, draft_only, is_draft } (path)}
 						{@const hasDraft =
 							getLocalDraftHint($operatingWorkspace, 'trigger_schedule', path) ?? is_draft}
 						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
@@ -520,6 +526,27 @@
 												<div>
 													The schedule disabled itself because there was an error scheduling the
 													next job: {error}
+												</div>
+											{/snippet}
+										</Popover>
+									{:else if late_run_streak}
+										<Popover notClickable>
+											<TriangleAlert size={16} class="text-yellow-600" />
+											{#snippet text()}
+												<div>
+													Missed {pluralize(missed_occurrences ?? 0, 'occurrence')}: the last
+													{late_run_streak === 1 ? 'run' : `${late_run_streak} runs in a row`} started
+													or finished too late.
+												</div>
+											{/snippet}
+										</Popover>
+									{:else if last_missed_at && Date.now() - new Date(last_missed_at).getTime() < MISSED_VISIBLE_MS}
+										<Popover notClickable>
+											<TriangleAlert size={16} class="text-secondary" />
+											{#snippet text()}
+												<div>
+													Missed {pluralize(missed_occurrences ?? 0, 'occurrence')}, the last on
+													{displayDate(last_missed_at)}. On schedule since.
 												</div>
 											{/snippet}
 										</Popover>
