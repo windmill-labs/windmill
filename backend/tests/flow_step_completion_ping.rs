@@ -114,15 +114,17 @@ async fn ping_age(db: &Pool<Postgres>, id: Uuid) -> anyhow::Result<f64> {
     .await?)
 }
 
-/// Waits for another connection to be stuck on the queue row of `id`.
+/// Waits for the completion to be stuck on the queue row of `id`.
 async fn wait_until_blocked_on(db: &Pool<Postgres>, id: Uuid) -> anyhow::Result<()> {
     for _ in 0..100 {
         let blocked: bool = sqlx::query_scalar(
             "SELECT EXISTS (SELECT 1 FROM pg_locks l JOIN v2_job_queue q \
                ON q.ctid = ('(' || l.page || ',' || l.tuple || ')')::tid \
-             WHERE NOT l.granted AND l.locktype = 'tuple' AND q.id = $1) \
+             WHERE NOT l.granted AND l.locktype = 'tuple' AND q.id = $1 \
+               AND l.database = (SELECT oid FROM pg_database WHERE datname = current_database())) \
              OR EXISTS (SELECT 1 FROM pg_stat_activity \
-             WHERE wait_event_type = 'Lock' AND query LIKE '%v2_job_queue%')",
+             WHERE datname = current_database() AND wait_event_type = 'Lock' \
+               AND query LIKE '%DELETE FROM v2_job_queue WHERE id = $1%')",
         )
         .bind(id)
         .fetch_one(db)
@@ -185,6 +187,9 @@ async fn a_flow_cancel_landing_during_a_step_completion_keeps_the_flow_ping(
             .await?;
     assert_eq!(status, "canceled");
     let age = ping_age(&db, parent).await?;
-    assert!(age > 3000.0, "the canceled flow's ping is left alone: {age}s old");
+    assert!(
+        age > 3000.0,
+        "the canceled flow's ping is left alone: {age}s old"
+    );
     Ok(())
 }
