@@ -2338,9 +2338,10 @@ async fn advance_flow_status(
     leaf_job: Option<&(String, Value)>,
     remove_retry: bool,
 ) -> error::Result<Option<MiniPulledJob>> {
-    // An edit that does not apply gets an empty path, which JSONB_SET treats as a no-op. Each
-    // edit stays a JSONB_SET on its own path so that a malformed `flow_status` fails exactly as
-    // the equivalent separate UPDATEs would.
+    // An edit that does not apply gets an empty path, which JSONB_SET treats as a no-op. Its
+    // value must stay JSON `null`, never SQL NULL: JSONB_SET is strict and would null the whole
+    // `flow_status`. Each edit stays a JSONB_SET on its own path so that a malformed
+    // `flow_status` fails exactly as the equivalent separate UPDATEs would.
     let (step_path, step) = match step {
         Some(step) => (vec!["step"], json!(step)),
         None => (vec![], Value::Null),
