@@ -61,9 +61,10 @@ lazy_static! {
     // prefetched before the expression runs so `results` reads synchronously:
     // rewriting accesses to `await` breaks inside non-async inner functions.
     // Over-matching (e.g. inside a string literal) only costs a spurious fetch.
-    // Bracket keys are captured as the whole JS string literal so QuickJS, not
-    // us, decodes their escapes; it is spliced into code, so it must not span a
-    // line. The boundary must allow `.`, or `...results.a` is never prefetched.
+    // Bracket keys are captured as the whole JS string literal and decoded by
+    // QuickJS (`__loadResults`), dropping any that fail to parse: a match may
+    // come from a comment. The boundary must allow `.`, or `...results.a` is
+    // never prefetched.
     static ref RE: Regex = Regex::new(
         r#"(?:^|[^a-zA-Z0-9_$])results(?:\??\.([a-zA-Z_0-9]+)|(?:\?\.)?\[("(?:[^"\\\r\n]|\\.)*"|'(?:[^'\\\r\n]|\\.)*')\])"#
     )
@@ -465,7 +466,10 @@ async fn eval_quickjs_inner(
     let prefetch = if step_ids.is_empty() {
         String::new()
     } else {
-        format!("await __loadResults([{}]);", step_ids.join(","))
+        format!(
+            "await __loadResults({});",
+            serde_json::to_string(&step_ids)?
+        )
     };
 
     async_with!(context => |ctx| {
@@ -832,8 +836,12 @@ fn setup_results_proxy<'js>(
             return __getResult(name);
         }
         const __loaded = new Map();
-        async function __loadResults(ids) {
-            await Promise.all(ids.map((id) => __resolveResult(id).then(
+        async function __loadResults(literals) {
+            const ids = new Set();
+            for (const lit of literals) {
+                try { ids.add((0, eval)(lit)); } catch {}
+            }
+            await Promise.all([...ids].map((id) => __resolveResult(id).then(
                 (v) => __loaded.set(id, { v }),
                 (e) => __loaded.set(id, { e }),
             )));
@@ -1160,6 +1168,7 @@ mod tests {
         );
         assert!(referenced_step_ids("// results[\"\n\"]").is_empty());
         assert!(referenced_step_ids("no_results_here").is_empty());
+        assert_eq!(referenced_step_ids("{...results.a}"), vec![r#""a""#]);
     }
 
     /// `results.a` resolves to `previous_result` (step `a` is the previous
@@ -1218,6 +1227,12 @@ mod tests {
             .await
             .unwrap(),
             json!([5])
+        );
+        assert_eq!(
+            eval_with_results(r#"results.a.x /* results["\xZZ"] */"#)
+                .await
+                .unwrap(),
+            json!(1)
         );
         // A failed prefetch only throws when that step is actually read.
         assert_eq!(
