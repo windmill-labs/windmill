@@ -4750,11 +4750,12 @@ function draftTarget(
 	}
 }
 
-/** The draft this call addresses. Absent means the tool did not declare `draftTarget`;
- * failing here beats writing to a path that was never resolved to a storage key. */
+/** The draft this call addresses. Failing here beats writing to a path that was never
+ * resolved to a storage key. Reachable when the call named an empty path, which the schemas
+ * accept — so the message names that rather than the declaration a reader cannot fix. */
 function draftTargetOf(ctx: WriteDraftCtx): ResolvedDraftTarget {
 	if (!ctx.target) {
-		throw new Error('Internal error: this tool did not declare the draft it addresses.')
+		throw new Error('This call named no item to act on. Pass the path of the item.')
 	}
 	return ctx.target
 }

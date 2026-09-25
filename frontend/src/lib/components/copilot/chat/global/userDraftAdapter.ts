@@ -368,6 +368,10 @@ async function storagePathForChosenName(
 	path: string,
 	opts: { forWrite?: boolean }
 ): Promise<string> {
+	// Nothing stages a name for this kind, so the path is already the key and there is no
+	// listing worth reading.
+	if (!NAMEABLE_DRAFT_KINDS.has(itemKind)) return path
+
 	const staged: StagedDraft[] = []
 	const add = (storagePath: string, summary: string | undefined) => {
 		// A new script or flow editor stores under '', which no tool call can address.
@@ -375,7 +379,19 @@ async function storagePathForChosenName(
 		if (staged.some((s) => s.storagePath === storagePath)) return
 		staged.push({ storagePath, summary })
 	}
+	// A deployed item keeps its own path: drafts staged under that name belong to other
+	// items and are reached by their storage path. Asked before the listing, which is
+	// workspace-wide and checks write access per row — one indexed lookup settles the common
+	// case, where the path is simply where something is deployed.
 	const exists = deployedExists[itemKind]
+	let probeUnknown = false
+	try {
+		if (exists && (await exists(workspace, path))) return path
+	} catch {
+		// Unknown, not "nothing deployed": remembered, so a staged name below is never taken
+		// for this path's draft on the strength of a question that went unanswered.
+		probeUnknown = true
+	}
 	let rows: Awaited<ReturnType<typeof DraftService.listDrafts>>
 	try {
 		rows = await DraftService.listDrafts({ workspace })
@@ -383,14 +399,7 @@ async function storagePathForChosenName(
 		// Nothing is stored at this path, so it may be a name. Without the listing that
 		// cannot be told, and a write that guessed the path itself would create a second
 		// draft; a read of whatever is deployed there is harmless.
-		//
-		// For a kind no editor stages a name for, the path cannot be one, so there is
-		// nothing the listing would have told a write either — refusing it would fail a
-		// write that has no ambiguity to resolve.
-		if (!opts.forWrite || !NAMEABLE_DRAFT_KINDS.has(itemKind)) return path
-		// A deployed item keeps its own path whatever is staged, so the listing was not
-		// needed after all. Only refuse when that cannot be established either.
-		if (exists && (await exists(workspace, path).catch(() => false))) return path
+		if (!opts.forWrite) return path
 		throw new Error(
 			`Could not load this workspace's drafts, so "${path}" cannot be matched to the draft ` +
 				`it may name: ${e instanceof Error ? e.message : String(e)}. Try again.`
@@ -406,11 +415,15 @@ async function storagePathForChosenName(
 		}
 	}
 	if (staged.length === 0) return path
-	// A deployed item keeps its own path: drafts staged under that name belong to other
-	// items and are reached by their storage path. Consulted only once something is staged,
-	// so the common path costs no request and a failure here — which would leave a delete or
-	// a deploy pointing at a namesake draft — stops the call rather than being guessed past.
-	if (exists && (await exists(workspace, path))) return path
+	if (probeUnknown) {
+		// Something is staged under this name, and whether the path is also a deployed item's
+		// own is what says which draft the call means. Answering it either way could delete or
+		// deploy an unrelated draft.
+		throw new Error(
+			`Could not tell whether something is already deployed at "${path}", so the draft staged ` +
+				`under that name cannot be identified. Try again.`
+		)
+	}
 	if (staged.length > 1) {
 		// Refused rather than guessed: nothing checks a name for uniqueness before deploy.
 		const listed = staged

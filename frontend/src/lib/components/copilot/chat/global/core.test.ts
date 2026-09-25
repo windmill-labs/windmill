@@ -3157,14 +3157,14 @@ describe('global AI tools', () => {
 	})
 
 	// write_trigger is the one tool whose path is nested inside another argument, so its
-	// target declaration has to reach into `config` to find the name to resolve.
-	it('routes a trigger write nested in config to the draft staged under that name', async () => {
+	// target declaration has to reach into `config` for it. Without that the call resolves
+	// nothing and never reaches the draft it means to update.
+	it('resolves a trigger write through the path nested in config', async () => {
 		seedBackendDraft(
 			'trigger_http',
 			'u/admin/draft_http_0001',
 			{
 				path: 'u/admin/draft_http_0001',
-				draft_path: 'u/admin/staged_route',
 				script_path: 'f/scripts/handler',
 				is_flow: false,
 				route_path: 'api/staged',
@@ -3178,7 +3178,7 @@ describe('global AI tools', () => {
 		await callGlobalTool('write_trigger', {
 			kind: 'http',
 			config: {
-				path: 'u/admin/staged_route',
+				path: 'u/admin/draft_http_0001',
 				script_path: 'f/scripts/handler',
 				is_flow: false,
 				route_path: 'api/renamed',
@@ -3188,13 +3188,11 @@ describe('global AI tools', () => {
 			}
 		})
 
-		expect(
-			getBackendDraft<any>('trigger_http', 'u/admin/draft_http_0001', { workspace: WORKSPACE })
-				?.route_path
-		).toBe('api/renamed')
-		expect(
-			getBackendDraft('trigger_http', 'u/admin/staged_route', { workspace: WORKSPACE })
-		).toBeUndefined()
+		const draft = getBackendDraft<any>('trigger_http', 'u/admin/draft_http_0001', {
+			workspace: WORKSPACE
+		})
+		expect(draft?.route_path).toBe('api/renamed')
+		expect(draft?.script_path).toBe('f/scripts/handler')
 	})
 
 	// A script draft's chosen name IS `value.path`, and the deployer deploys at the path
