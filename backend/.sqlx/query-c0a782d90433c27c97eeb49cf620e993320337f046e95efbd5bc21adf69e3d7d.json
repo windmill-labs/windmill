@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT external_id, connection_path FROM native_trigger\n         WHERE workspace_id = $1 AND service_name = $2 AND ($3::text IS NULL OR connection_path = $3)",
+  "query": "SELECT external_id, connection_path FROM native_trigger\n         WHERE workspace_id = $1 AND service_name = $2 AND ($3::text[] IS NULL OR external_id = ANY($3))",
   "describe": {
     "columns": [
       {
@@ -29,7 +29,7 @@
             }
           }
         },
-        "Text"
+        "TextArray"
       ]
     },
     "nullable": [
@@ -37,5 +37,5 @@
       true
     ]
   },
-  "hash": "1ecd50aa13f5d4babdfaaba6ff56940ac9e6d7a28a27e576b5dda4d7e709ad1a"
+  "hash": "c0a782d90433c27c97eeb49cf620e993320337f046e95efbd5bc21adf69e3d7d"
 }
