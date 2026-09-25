@@ -75,4 +75,7 @@ export type FlowBuilderProps = {
 	// EditorHeader's path/breadcrumb row dropped (summary only). Used by the
 	// session preview to save vertical room.
 	condensedHeader?: boolean
+	/** The editor's path/summary and actions go to the route's page header instead of a bar of
+	 *  its own. Only the full-page editor sets it; embedders keep their own bar. */
+	ownsPageHeader?: boolean
 }

@@ -37,6 +37,7 @@
 	import AIChangesWarningModal from '$lib/components/copilot/chat/flow/AIChangesWarningModal.svelte'
 
 	import { getContext, onDestroy, setContext, untrack } from 'svelte'
+	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import { writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
 	import { Button } from './common'
@@ -68,6 +69,7 @@
 	import FlowHistory from './flows/FlowHistory.svelte'
 	import EditorHeader from './EditorHeader.svelte'
 	import AutosaveIndicator from './AutosaveIndicator.svelte'
+	import EditableInput from './common/EditableInput.svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from './custom_ui'
 	import FlowYamlEditor from './flows/header/FlowYamlEditor.svelte'
 	import { type TriggerContext, type ScheduleTrigger } from './triggers'
@@ -155,12 +157,16 @@
 		othersDraftsCount = 0,
 		onOpenOthersDrafts,
 		onTestJob,
-		condensedHeader = false
+		condensedHeader = false,
+		/** True for the route's own editor: its top bar becomes the page header. */
+		ownsPageHeader = false
 	}: FlowBuilderProps = $props()
 
 	// Top-bar button size + bar height. Condensed (session preview) uses the
 	// smallest well-supported unified size (`sm`) so the bar is thinner.
-	const headerBtnSize = $derived(condensedHeader ? 'sm' : 'md')
+	// In the page header the buttons ride a 40px band, the same size the condensed session-pane
+	// header uses.
+	const headerBtnSize = $derived(condensedHeader || ownsPageHeader ? 'sm' : 'md')
 
 	// The workspace this editor operates on: deploy, save-draft, trigger loading
 	// and the AutosaveIndicator all target it. Falls back to the global store, so
@@ -1266,6 +1272,16 @@
 
 	setContext('FlowCopilotContext', flowCopilotContext)
 
+	// The header's action buttons render under the page header, not under this component, so the
+	// contexts they look up have to travel with them. Read back here, after every setContext above.
+	const headerContexts = new Map<any, any>([
+		['FlowEditorContext', getContext('FlowEditorContext')],
+		['TriggerContext', getContext('TriggerContext')],
+		['FlowGraphAssetContext', getContext('FlowGraphAssetContext')],
+		['FlowCopilotContext', flowCopilotContext],
+		['customUi', customUi]
+	])
+
 	let renderCount = $state(0)
 
 	let jsonViewerDrawer: Drawer | undefined = $state(undefined)
@@ -1525,78 +1541,155 @@
 		<FlowEditorDrawer bind:this={$flowEditorDrawer} />
 
 		<div bind:this={flowBuilderRoot} class="flex flex-col h-full">
-			<!-- Nav between steps-->
-			<div
-				bind:clientWidth={topbarWidth}
-				class="justify-between flex flex-row items-center pl-2 pr-4 space-x-4 scrollbar-hidden overflow-x-auto h-full relative {condensedHeader
-					? 'max-h-9'
-					: 'max-h-12'}"
-			>
-				<div class="flex flex-row items-center gap-2 min-w-0">
-					{#if customUi?.topBar?.path != false}
-						<div class="min-w-0 overflow-hidden">
-							<EditorHeader
-								bind:summary={flowStore.val.summary}
-								bind:path={$pathStore}
-								savedPath={initialPath}
-								onBehalfOfEmail={$savedOnBehalfOfEmail}
-								summaryEditable={customUi?.topBar?.editableSummary != false}
-								pathEditable={customUi?.topBar?.editablePath != false}
-								hidePath={condensedHeader}
-								workspaceId={autosaveWorkspace}
-								onNavigate={(item) => onNavigate?.(item)}
+			{#if ownsPageHeader}
+				<!-- The editor's own top bar is the page header on this route: its breadcrumb and
+				     summary are the header's, and its buttons are the header's actions. -->
+				<PageHeaderContent
+					item={{ kind: 'flow', path: $pathStore, summaryContent: flowSummary }}
+					actions={flowHeaderActions}
+					contexts={headerContexts}
+				/>
+			{:else}
+				<!-- Nav between steps-->
+				<div
+					bind:clientWidth={topbarWidth}
+					class="justify-between flex flex-row items-center pl-2 pr-4 space-x-4 scrollbar-hidden overflow-x-auto h-full relative {condensedHeader
+						? 'max-h-9'
+						: 'max-h-12'}"
+				>
+					<div class="flex flex-row items-center gap-2 min-w-0">
+						{#if customUi?.topBar?.path != false}
+							<div class="min-w-0 overflow-hidden">
+								<EditorHeader
+									bind:summary={flowStore.val.summary}
+									bind:path={$pathStore}
+									savedPath={initialPath}
+									onBehalfOfEmail={$savedOnBehalfOfEmail}
+									summaryEditable={customUi?.topBar?.editableSummary != false}
+									pathEditable={customUi?.topBar?.editablePath != false}
+									hidePath={condensedHeader}
+									workspaceId={autosaveWorkspace}
+									onNavigate={(item) => onNavigate?.(item)}
+								/>
+							</div>
+						{/if}
+						{#if opWorkspace && indicatorPath !== undefined}
+							<AutosaveIndicator
+								workspace={opWorkspace}
+								itemKind="flow"
+								path={indicatorPath}
+								draftOnly={newFlow}
+								{onResetToDeployed}
+								{loadedFromDraft}
+								{othersDraftsCount}
+								{onOpenOthersDrafts}
 							/>
-						</div>
-					{/if}
-					{#if opWorkspace && indicatorPath !== undefined}
-						<AutosaveIndicator
-							workspace={opWorkspace}
-							itemKind="flow"
-							path={indicatorPath}
-							draftOnly={newFlow}
-							{onResetToDeployed}
-							{loadedFromDraft}
-							{othersDraftsCount}
-							{onOpenOthersDrafts}
-						/>
-					{/if}
-				</div>
-				<div class="flex flex-row gap-2 items-center shrink-0">
-					{#if $enterpriseLicense && !newFlow && !inSessionPane}
-						<Awareness />
-					{/if}
-					<Dropdown items={getMoreItems} size={headerBtnSize} fixedHeight={!condensedHeader} />
-					{#if diffEnabled && !diffInMenu}
-						<!-- A disabled <button> fires no pointer events, so a title/tooltip on
+						{/if}
+					</div>
+					<div class="flex flex-row gap-2 items-center shrink-0">
+						{#if $enterpriseLicense && !newFlow && !inSessionPane}
+							<Awareness />
+						{/if}
+						<Dropdown items={getMoreItems} size={headerBtnSize} fixedHeight={!condensedHeader} />
+						{#if diffEnabled && !diffInMenu}
+							<!-- A disabled <button> fires no pointer events, so a title/tooltip on
 						     it never shows on hover. pointer-events-none on the button lets the
 						     hover reach this titled wrapper instead. -->
-						<div title={diffTitle} class={diffDisabled ? 'flex cursor-not-allowed' : 'flex'}>
-							<Button
-								variant="default"
-								unifiedSize={headerBtnSize}
-								on:click={() => openDiffDrawer()}
-								disabled={diffDisabled}
-								btnClasses={diffDisabled ? 'pointer-events-none' : undefined}
-								title={diffTitle}
-								startIcon={{ icon: DiffIcon }}
-							>
-								Diff
-							</Button>
-						</div>
-					{/if}
-					{#if !compactTopbar}
-						{@render previewButtons()}
-					{/if}
+							<div title={diffTitle} class={diffDisabled ? 'flex cursor-not-allowed' : 'flex'}>
+								<Button
+									variant="default"
+									unifiedSize={headerBtnSize}
+									on:click={() => openDiffDrawer()}
+									disabled={diffDisabled}
+									btnClasses={diffDisabled ? 'pointer-events-none' : undefined}
+									title={diffTitle}
+									startIcon={{ icon: DiffIcon }}
+								>
+									Diff
+								</Button>
+							</div>
+						{/if}
+						{#if !compactTopbar}
+							{@render previewButtons()}
+						{/if}
 
-					<DeployButton
-						on:save={async ({ detail }) => await handleSaveFlow(detail)}
-						{loading}
-						{loadingSave}
-						unifiedSize={headerBtnSize}
-						{dropdownItems}
-					/>
+						<DeployButton
+							on:save={async ({ detail }) => await handleSaveFlow(detail)}
+							{loading}
+							{loadingSave}
+							unifiedSize={headerBtnSize}
+							{dropdownItems}
+						/>
+					</div>
 				</div>
-			</div>
+			{/if}
+
+			{#snippet flowSummary()}
+				<!-- The summary stays editable where the editor's own bar had it: the breadcrumb
+				     beside it is the path, which this editor renames from its settings tab. -->
+				<EditableInput
+					value={flowStore.val.summary ?? ''}
+					placeholder="Add a summary..."
+					editable={customUi?.topBar?.editableSummary != false}
+					commitOnInput
+					size="sm"
+					onSave={(v) => (flowStore.val.summary = v)}
+					textClass="text-xs font-medium text-emphasis leading-tight"
+					class="max-w-full min-w-0"
+				/>
+			{/snippet}
+
+			{#snippet flowHeaderActions()}
+				<!-- Saving state, the autosave toggle and other people's drafts: the editor's own
+					     bar carries them beside the path, so the header has to carry them when it owns
+					     the bar — without them a full-page editor saves with no word either way. -->
+				{#if opWorkspace && indicatorPath !== undefined}
+					<AutosaveIndicator
+						workspace={opWorkspace}
+						itemKind="flow"
+						path={indicatorPath}
+						draftOnly={newFlow}
+						{onResetToDeployed}
+						{loadedFromDraft}
+						{othersDraftsCount}
+						{onOpenOthersDrafts}
+					/>
+				{/if}
+				{#if $enterpriseLicense && !newFlow && !inSessionPane}
+					<Awareness />
+				{/if}
+				<Dropdown items={getMoreItems} size={headerBtnSize} fixedHeight={!condensedHeader} />
+				{#if diffEnabled && !diffInMenu}
+					<!-- A disabled <button> fires no pointer events, so a title/tooltip on
+						     it never shows on hover. pointer-events-none on the button lets the
+						     hover reach this titled wrapper instead. -->
+					<div title={diffTitle} class={diffDisabled ? 'flex cursor-not-allowed' : 'flex'}>
+						<Button
+							variant="default"
+							unifiedSize={headerBtnSize}
+							on:click={() => openDiffDrawer()}
+							disabled={diffDisabled}
+							btnClasses={diffDisabled ? 'pointer-events-none' : undefined}
+							title={diffTitle}
+							startIcon={{ icon: DiffIcon }}
+						>
+							Diff
+						</Button>
+					</div>
+				{/if}
+				{#if !compactTopbar}
+					{@render previewButtons()}
+				{/if}
+
+				<DeployButton
+					on:save={async ({ detail }) => await handleSaveFlow(detail)}
+					{loading}
+					{loadingSave}
+					unifiedSize={headerBtnSize}
+					{dropdownItems}
+				/>
+			{/snippet}
+
 			<!-- Rendered either inline in the top bar (wide) or as a graph overlay
 			     (compactTopbar). Crossing the 720px threshold remounts
 			     FlowPreviewButtons; any open preview state will reset. -->

@@ -71,7 +71,9 @@
 	{#if useDesktopLayout}
 		<div class="h-full w-full flex flex-col">
 			{@render header?.()}
-			<div class="grow min-h-0 w-full">
+			<!-- The band draws no edge of its own, so the separation from it is this page's first
+			     line, above the run form and the detail panel. -->
+			<div class="grow min-h-0 w-full border-t">
 				<Splitpanes>
 					<Pane size={65} minSize={50}>
 						{@render form?.({ graphInline: true })}
@@ -102,7 +104,7 @@
 	{:else}
 		<div class="h-full w-full flex flex-col">
 			{@render header?.()}
-			<div class="grow min-h-0 w-full flex flex-col">
+			<div class="grow min-h-0 w-full flex flex-col border-t">
 				<!-- no-scrollbar: at phone widths the tabs overflow their strip, and a browser with
 				     classic scrollbars would spend a track under them, opening a band between the tabs
 				     and the content. Wheel, trackpad and drag still scroll the strip. -->

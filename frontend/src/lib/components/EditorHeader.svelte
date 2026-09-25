@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Pencil } from 'lucide-svelte'
+	import { ChevronRight, Pencil } from 'lucide-svelte'
 	import { Alert, Button } from '$lib/components/common'
 	import EditableInput from '$lib/components/common/EditableInput.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
@@ -14,6 +14,7 @@
 		type WorkspaceItemKind
 	} from '$lib/components/workspacePicker'
 	import BreadcrumbSegment from '$lib/components/BreadcrumbSegment.svelte'
+	import { splitItemPath } from '$lib/components/breadcrumbPath'
 	import { isOwner } from '$lib/utils'
 	import { userStore } from '$lib/stores'
 	import {
@@ -98,27 +99,7 @@
 	// follows the live `path` — coherent with the picker because we inject a
 	// virtual current-item entry at that same live path (see `currentItem`).
 	let displayPath = $derived(snapshotPath ?? path ?? '')
-	/** Breakdown for breadcrumb rendering. Top-level dirs (scopes) come first
-	 * — `f/<folder>` or `u/<user>` — then any number of subfolders, then the
-	 * item name. Each dir entry's `fullPath` is the cumulative path up to
-	 * that level, used to key the picker's `initialOpen` / `initialHighlight`. */
-	let segments = $derived.by(() => {
-		const parts = displayPath.split('/')
-		if (parts.length < 3) return null
-		const scope = parts.slice(0, 2).join('/')
-		const slug = parts.slice(2)
-		const dirs: { name: string; fullPath: string }[] = []
-		// Top-level scope is a dir.
-		dirs.push({ name: scope, fullPath: scope })
-		// Intermediate slug parts (everything except the last one).
-		let acc = scope
-		for (let i = 0; i < slug.length - 1; i++) {
-			acc = `${acc}/${slug[i]}`
-			dirs.push({ name: slug[i], fullPath: acc })
-		}
-		const leaf = { name: slug[slug.length - 1], fullPath: displayPath }
-		return { dirs, leaf }
-	})
+	let segments = $derived(splitItemPath(displayPath) ?? null)
 
 	// Treat an empty path as ownable so the pen popover lets a user pick the
 	// path for a brand-new item. `Path.reset()` then synthesizes a default
@@ -145,7 +126,7 @@
 	}
 </script>
 
-<div class="inline-block max-w-full align-top group px-2 py-0.5 leading-tight">
+<div class="max-w-full group px-2 py-0.5 leading-tight inline-block align-top">
 	<!-- Path row -->
 	{#if !hidePath}
 		<div class="flex items-center max-w-full text-2xs text-secondary font-mono">
@@ -162,9 +143,9 @@
 				{#if segments}
 					{#each segments.dirs as dir, i (dir.fullPath)}
 						{@const dKey = dirKey('all', dir.fullPath)}
+						<ChevronRight size={10} class="shrink-0" />
 						<BreadcrumbSegment
 							label={dir.name}
-							withChevron
 							extraClass={i === 0 ? 'gap-0.5 min-w-0 max-w-[40%]' : 'gap-0.5 min-w-0'}
 							initialScope={i === 0
 								? { kind: 'all' }
@@ -177,9 +158,9 @@
 					{/each}
 					{@const leafKey = leafKeyFor(kind, segments.leaf.fullPath)}
 					{@const leafParent = segments.dirs[segments.dirs.length - 1]?.fullPath}
+					<ChevronRight size={10} class="shrink-0" />
 					<BreadcrumbSegment
 						label={segments.leaf.name}
-						withChevron
 						extraClass="gap-0.5 min-w-0"
 						initialScope={leafParent ? { kind: 'all', dir: leafParent } : { kind: 'all' }}
 						initialHighlight={leafKey}

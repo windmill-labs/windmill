@@ -10,9 +10,16 @@
 		scriptOrFlowPath: string
 		errorHandlerMuted: boolean | undefined
 		iconOnly?: boolean
+		unifiedSize?: 'xs' | 'sm' | 'md' | 'lg'
 	}
 
-	let { kind, scriptOrFlowPath, errorHandlerMuted = $bindable(), iconOnly = true }: Props = $props()
+	let {
+		kind,
+		scriptOrFlowPath,
+		errorHandlerMuted = $bindable(),
+		iconOnly = true,
+		unifiedSize = 'md'
+	}: Props = $props()
 
 	async function toggleErrorHandler(): Promise<void> {
 		const next = await toggleWorkspaceErrorHandler(kind, scriptOrFlowPath, errorHandlerMuted)
@@ -24,7 +31,7 @@
 	title={errorHandlerMuted === undefined || !errorHandlerMuted
 		? 'Disable workspace error handler for this script'
 		: 'Enable workspace error handler for this script'}
-	unifiedSize="md"
+	{unifiedSize}
 	on:click={toggleErrorHandler}
 	variant="subtle"
 	startIcon={{

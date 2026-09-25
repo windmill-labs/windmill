@@ -13,8 +13,6 @@ export const TOUR_PARAM_VALUE = 'operator'
 
 /** Long enough for the home page's tabs to exist before the first step points at one. */
 export const TOUR_START_DELAY_MS = 500
-/** Time for the sidebar to open before the last step points into it. */
-export const MENU_OPEN_DELAY_MS = 300
 
 export async function hasSeenOperatorTour(): Promise<boolean> {
 	// A failure answers "seen": the tour interrupts the page, and interrupting someone who
