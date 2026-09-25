@@ -4,7 +4,7 @@
 //! shared `queue_sort_v2` index. This pass alerts superadmins about them and, when
 //! `cancel_stranded_jobs_after_days` is set, cancels them.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::HashSet;
 
 use chrono::{DateTime, Utc};
 use sqlx::{Pool, Postgres};
@@ -85,24 +85,28 @@ async fn cancel_after_days(db: &Pool<Postgres>) -> error::Result<Option<i64>> {
     )
 }
 
-struct StrandedJob {
-    id: Uuid,
+/// Stranded jobs of one tag in one workspace.
+struct StrandedGroup {
     workspace_id: String,
     tag: String,
-    scheduled_for: DateTime<Utc>,
+    count: i64,
+    oldest: DateTime<Utc>,
+    /// The oldest ones, at most `MAX_CANCELS_PER_PASS`.
+    ids: Vec<Uuid>,
 }
 
 /// Top-level pending jobs due for at least `window_secs` whose tag no worker that pinged within
-/// the same window serves, oldest first. Children are covered by their root.
+/// the same window serves, grouped by workspace and tag. Children are covered by their root.
 ///
 /// Jobs carry their resolved tag (per-workspace suffix, `$workspace`, dedicated-worker tag) and
 /// the pull matches it exactly, so exact comparison is the pull's own criterion. Agent workers
-/// ping `worker_ping` through the API, so they count too.
-async fn find_stranded(db: &Pool<Postgres>, window_secs: i64) -> error::Result<Vec<StrandedJob>> {
+/// ping `worker_ping` through the API, so they count too. `worker_ping` keeps a worker's current
+/// tags only: a tag removed from a group's config stops counting as served at the next ping.
+async fn find_stranded(db: &Pool<Postgres>, window_secs: i64) -> error::Result<Vec<StrandedGroup>> {
     // MATERIALIZED keeps the queue driving the plan: joined freely, the planner may instead walk
     // every root job of `v2_job`, which holds the whole job history.
     Ok(sqlx::query_as!(
-        StrandedJob,
+        StrandedGroup,
         r#"WITH served AS (
             SELECT unnest(custom_tags) AS tag FROM worker_ping
                 WHERE ping_at > now() - $1::bigint * interval '1 second'
@@ -118,12 +122,15 @@ async fn find_stranded(db: &Pool<Postgres>, window_secs: i64) -> error::Result<V
                 AND q.scheduled_for <= now() - $1::bigint * interval '1 second'
                 AND NOT EXISTS (SELECT 1 FROM served s WHERE s.tag = q.tag)
         )
-        SELECT p.id AS "id!", p.workspace_id AS "workspace_id!", p.tag AS "tag!",
-            p.scheduled_for AS "scheduled_for!"
+        SELECT p.workspace_id AS "workspace_id!", p.tag AS "tag!", count(*) AS "count!",
+            min(p.scheduled_for) AS "oldest!",
+            (array_agg(p.id ORDER BY p.scheduled_for))[1:$2] AS "ids!"
         FROM pending p JOIN v2_job j ON j.id = p.id
         WHERE j.parent_job IS NULL
-        ORDER BY p.scheduled_for"#,
+        GROUP BY p.workspace_id, p.tag
+        ORDER BY min(p.scheduled_for)"#,
         window_secs,
+        MAX_CANCELS_PER_PASS as i32,
     )
     .fetch_all(db)
     .await?)
@@ -133,8 +140,8 @@ async fn report_stranded_jobs(
     db: &Pool<Postgres>,
     cancel_after_days: Option<i64>,
 ) -> error::Result<()> {
-    let jobs = find_stranded(db, ALERT_WINDOW_SECS).await?;
-    if jobs.is_empty() {
+    let groups = find_stranded(db, ALERT_WINDOW_SECS).await?;
+    if groups.is_empty() {
         return Ok(());
     }
 
@@ -153,17 +160,8 @@ async fn report_stranded_jobs(
     .map(|r| (r.workspace_id, r.resource))
     .collect();
 
-    // (workspace, tag) -> (count, oldest scheduled_for); jobs arrive oldest first.
-    let mut groups: BTreeMap<(String, String), (usize, DateTime<Utc>)> = BTreeMap::new();
-    for job in jobs {
-        groups
-            .entry((job.workspace_id, job.tag))
-            .or_insert((0, job.scheduled_for))
-            .0 += 1;
-    }
-
     let now = Utc::now();
-    for ((workspace_id, tag), (count, oldest)) in groups {
+    for StrandedGroup { workspace_id, tag, count, oldest, .. } in groups {
         let resource = format!("{ALERT_RESOURCE_PREFIX}{tag}");
         if recently_alerted.contains(&(workspace_id.clone(), resource.clone())) {
             continue;
@@ -177,7 +175,7 @@ async fn report_stranded_jobs(
         };
         let message = format!(
             "Workspace {workspace_id} has {} with tag '{tag}', which no worker has served in the last {}. The oldest has waited {}.{cleanup}",
-            plural(count as i64, "pending job"),
+            plural(count, "pending job"),
             fmt_duration(ALERT_WINDOW_SECS),
             fmt_duration((now - oldest).num_seconds()),
         );
@@ -206,23 +204,31 @@ async fn cancel_stranded_jobs(db: &Pool<Postgres>, days: i64) -> error::Result<(
         return Ok(());
     }
 
-    let mut jobs = find_stranded(db, window_secs).await?;
-    if jobs.is_empty() {
-        return Ok(());
-    }
-    jobs.truncate(MAX_CANCELS_PER_PASS);
-    tracing::warn!(
-        "stranded jobs: cancelling {} pending job(s) on tags no worker served in the last {days} day(s)",
-        jobs.len()
-    );
-    for job in jobs {
+    let mut budget = MAX_CANCELS_PER_PASS;
+    for group in find_stranded(db, window_secs).await? {
+        if budget == 0 {
+            break;
+        }
+        let ids = &group.ids[..group.ids.len().min(budget)];
+        budget -= ids.len();
+        tracing::warn!(
+            workspace_id = group.workspace_id,
+            tag = group.tag,
+            "stranded jobs: cancelling {} of {} pending job(s) on a tag no worker served in the last {days} day(s)",
+            ids.len(),
+            group.count,
+        );
         let reason = format!(
             "no worker has served tag '{}' for {}",
-            job.tag,
+            group.tag,
             plural(days, "day")
         );
-        if let Err(e) = cancel_one(db, job.id, &job.workspace_id, reason).await {
-            tracing::error!("stranded jobs: could not cancel job {}: {e:#}", job.id);
+        for id in ids {
+            if let Err(e) =
+                cancel_one(db, *id, &group.workspace_id, reason.clone(), window_secs).await
+            {
+                tracing::error!("stranded jobs: could not cancel job {id}: {e:#}");
+            }
         }
     }
     Ok(())
@@ -233,8 +239,28 @@ async fn cancel_one(
     id: Uuid,
     workspace_id: &str,
     reason: String,
+    window_secs: i64,
 ) -> error::Result<()> {
-    let tx = db.begin().await?;
+    let mut tx = db.begin().await?;
+    // A worker for the tag may have come back since the job was selected. The row lock keeps
+    // the pull (which skips locked rows) off it until the cancel commits.
+    let still_stranded = sqlx::query_scalar!(
+        r#"SELECT q.id FROM v2_job_queue q
+        WHERE q.id = $1 AND q.running = false
+            AND NOT EXISTS (SELECT 1 FROM worker_ping w
+                WHERE w.ping_at > now() - $2::bigint * interval '1 second'
+                    AND (q.tag = ANY(w.custom_tags) OR q.tag = ANY(w.dedicated_workers)
+                        OR q.tag = w.dedicated_worker))
+        FOR UPDATE OF q"#,
+        id,
+        window_secs,
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .is_some();
+    if !still_stranded {
+        return Ok(());
+    }
     let (tx, _) = cancel_job(
         "monitor",
         Some(reason),
@@ -275,13 +301,15 @@ mod tests {
 
     async fn plant(db: &Pool<Postgres>, tag: &str, age: &str, parent: Option<Uuid>) -> Uuid {
         let id = Uuid::new_v4();
-        sqlx::query("INSERT INTO v2_job (id, workspace_id, tag, parent_job) VALUES ($1, 'admins', $2, $3)")
-            .bind(id)
-            .bind(tag)
-            .bind(parent)
-            .execute(db)
-            .await
-            .unwrap();
+        sqlx::query(
+            "INSERT INTO v2_job (id, workspace_id, tag, parent_job) VALUES ($1, 'admins', $2, $3)",
+        )
+        .bind(id)
+        .bind(tag)
+        .bind(parent)
+        .execute(db)
+        .await
+        .unwrap();
         sqlx::query(
             "INSERT INTO v2_job_queue (id, workspace_id, tag, scheduled_for)
             VALUES ($1, 'admins', $2, now() - $3::interval)",
@@ -315,7 +343,14 @@ mod tests {
         // A group scaled to zero within the window still serves its tags.
         ping(&db, "night", "10 hours", &["night"], &[]).await;
         ping(&db, "gone", "2 days", &["gone"], &[]).await;
-        ping(&db, "dedicated", "1 minute", &["other"], &["admins:f/dedicated"]).await;
+        ping(
+            &db,
+            "dedicated",
+            "1 minute",
+            &["other"],
+            &["admins:f/dedicated"],
+        )
+        .await;
 
         let nobody = plant(&db, "nobody", "3 days", None).await;
         let gone = plant(&db, "gone", "3 days", None).await;
@@ -332,15 +367,37 @@ mod tests {
             .await
             .unwrap();
 
-        let mut found: Vec<Uuid> = find_stranded(&db, ALERT_WINDOW_SECS)
+        let mut found: Vec<(String, i64, Vec<Uuid>)> = find_stranded(&db, ALERT_WINDOW_SECS)
             .await
             .unwrap()
             .into_iter()
-            .map(|j| j.id)
+            .map(|g| (g.tag, g.count, g.ids))
             .collect();
         found.sort();
-        let mut expected = vec![nobody, gone];
-        expected.sort();
-        assert_eq!(found, expected);
+        assert_eq!(
+            found,
+            vec![
+                ("gone".to_string(), 1, vec![gone]),
+                ("nobody".to_string(), 1, vec![nobody])
+            ]
+        );
+
+        // Picked up by a worker after selection: must not be interrupted.
+        cancel_one(
+            &db,
+            running,
+            "admins",
+            "test".to_string(),
+            ALERT_WINDOW_SECS,
+        )
+        .await
+        .unwrap();
+        let canceled_by: Option<String> =
+            sqlx::query_scalar("SELECT canceled_by FROM v2_job_queue WHERE id = $1")
+                .bind(running)
+                .fetch_one(&db)
+                .await
+                .unwrap();
+        assert_eq!(canceled_by, None);
     }
 }
