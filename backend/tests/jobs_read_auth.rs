@@ -456,6 +456,26 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
         );
     }
 
+    // An agent run and a chat turn of it belong to the agent, readable by the token scoped to
+    // it and by no flow-scoped one.
+    for (job, expected) in [
+        ("17171717-1717-1717-1717-171717171717", "AGENT_RESULT"),
+        ("18181818-1818-1818-1818-181818181818", "AGENT_CHAT_RESULT"),
+    ] {
+        let path = format!("completed/get_result/{job}");
+        let (status, body) = get(&base, &path, Some("RUN_SCOPED_AGENT_TOKEN")).await;
+        assert!(
+            status.is_success() && body.contains(expected),
+            "agent-scoped token must read its agent's run {job} (got {status}): {body}"
+        );
+        let (status, body) = get(&base, &path, Some("RUN_SCOPED_TOKEN")).await;
+        assert_eq!(
+            status,
+            reqwest::StatusCode::NOT_FOUND,
+            "a flow-scoped token must not read an agent run {job} (got {status}): {body}"
+        );
+    }
+
     // An `apps:run:<app>` scope is a start grant too: the inline-script component run it
     // launched — a kind no `jobs:run` scope can name — stays readable to a token scoped
     // to that app, and stays out of reach for one that is only scoped to run jobs.
@@ -516,10 +536,14 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
         Some("SECRET_TOKEN_2"),
     )
     .await;
-    assert!(status.is_success(), "owner must mint a resume secret: {secret}");
+    assert!(
+        status.is_success(),
+        "owner must mint a resume secret: {secret}"
+    );
     let secret = secret.trim().trim_matches('"').to_string();
-    let approval_result =
-        format!("completed/get_result/{STEP_JOB}?suspended_job={STEP_JOB}&resume_id=0&secret={secret}");
+    let approval_result = format!(
+        "completed/get_result/{STEP_JOB}?suspended_job={STEP_JOB}&resume_id=0&secret={secret}"
+    );
     let (status, body) = get(&base, &approval_result, None).await;
     assert!(
         status.is_success(),

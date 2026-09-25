@@ -28,7 +28,8 @@ use crate::ai_evals::subject::AgentDraft;
 use crate::db::{ApiAuthed, DB};
 use crate::jobs::{handle_chat_conversation_messages, set_flow_memory_id, RunJobQuery};
 
-/// The id the agent's step carries in the run, as the editor's chat names it.
+/// The id the agent's step carries in the run, as the editor's chat names it. A token scoped to
+/// `jobs:run:agents:<path>` reads its runs back by it (`require_job_within_run_scope`).
 const AGENT_NODE_ID: &str = "__wm_agent_root";
 
 /// A turn of the agent's chat when `memory_id` names a conversation, a single run otherwise.
@@ -41,6 +42,9 @@ pub(crate) async fn run_agent(
     Query(run_query): Query<RunJobQuery>,
     Json(args): Json<HashMap<String, Box<RawValue>>>,
 ) -> Result<(StatusCode, String)> {
+    #[cfg(feature = "enterprise")]
+    crate::jobs::check_license_key_valid().await?;
+
     let path = path.to_path();
     check_scopes(&authed, || format!("jobs:run:agents:{path}"))?;
 

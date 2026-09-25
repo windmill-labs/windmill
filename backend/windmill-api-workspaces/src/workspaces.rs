@@ -6672,7 +6672,7 @@ async fn clone_workspace_data(
     clone_resource_types(tx, source_workspace_id, target_workspace_id).await?;
 
     // Clone resources
-    clone_resources(tx, source_workspace_id, target_workspace_id).await?;
+    clone_resources(tx, source_workspace_id, target_workspace_id, authed).await?;
 
     // Clone variables (including external secret backend replication)
     clone_variables(tx, db, source_workspace_id, target_workspace_id).await?;
@@ -7205,18 +7205,30 @@ async fn clone_resource_types(
     Ok(())
 }
 
+/// An agent's value carries the identity it runs as, re-pointed at the fork's creator when they
+/// may not preserve someone else's, as `clone_apps` does an app's policy. The rest is swept by
+/// `repoint_unresolvable_cloned_identities` once the fork's membership is final.
 async fn clone_resources(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
     target_workspace_id: &str,
+    authed: &ApiAuthed,
 ) -> Result<()> {
+    let repoint = (!windmill_common::can_preserve_on_behalf_of(authed))
+        .then(|| username_to_permissioned_as(&authed.username));
     sqlx::query!(
         "INSERT INTO resource (workspace_id, path, value, description, resource_type, extra_perms, edited_at, created_by)
-         SELECT $2, path, value, description, resource_type, extra_perms, edited_at, created_by
+         SELECT $2, path,
+                CASE WHEN $3::text IS NOT NULL AND resource_type = 'ai_agent'
+                          AND jsonb_typeof(value) = 'object' AND value ? 'on_behalf_of'
+                     THEN jsonb_set(value, '{on_behalf_of}', to_jsonb($3::text))
+                     ELSE value END,
+                description, resource_type, extra_perms, edited_at, created_by
          FROM resource
          WHERE workspace_id = $1",
         source_workspace_id,
         target_workspace_id,
+        repoint,
     )
     .execute(&mut **tx)
     .await?;
@@ -7702,6 +7714,18 @@ async fn repoint_unresolvable_cloned_identities(
         .execute(&mut **tx)
         .await?;
     }
+
+    sqlx::query(&format!(
+        "UPDATE resource SET value = jsonb_set(value, '{{on_behalf_of}}', to_jsonb($2::text))
+         WHERE workspace_id = $1 AND resource_type = 'ai_agent'
+           AND jsonb_typeof(value) = 'object' AND value ? 'on_behalf_of'
+           AND NOT ({})",
+        principal_resolves_sql("(value->>'on_behalf_of')")
+    ))
+    .bind(target_workspace_id)
+    .bind(&principal)
+    .execute(&mut **tx)
+    .await?;
 
     // `email` is still written for workers that predate `permissioned_as`.
     sqlx::query(&format!(

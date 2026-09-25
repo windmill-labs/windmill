@@ -1784,7 +1784,10 @@ async fn require_job_within_run_scope(
     // NULL for a job no such scope reaches directly (previews, dependency jobs,
     // flow-inlined scripts) — those are still readable as a step of a matching flow,
     // through their ancestors. A `singlestepflow` wraps either a script or a flow, so it
-    // projects onto the wrapped runnable the same way the batch-rerun query does.
+    // projects onto the wrapped runnable the same way the batch-rerun query does. An agent
+    // run is a preview of the one-step flow `agent_runs::agent_flow` builds, filed under the
+    // agent's path (`<path>.chat` for a chat turn); the editor's own runs of it look the same,
+    // and are runs of that agent too.
     let chain = sqlx::query!(
         r#"WITH RECURSIVE chain(id, parent_job) AS (
                 SELECT id, parent_job FROM v2_job WHERE id = $1 AND workspace_id = $2
@@ -1792,8 +1795,11 @@ async fn require_job_within_run_scope(
                 SELECT j.id, j.parent_job FROM v2_job j
                     JOIN chain c ON j.id = c.parent_job AND j.workspace_id = $2
             )
-            SELECT j.runnable_path,
+            SELECT
+                CASE WHEN a.agent THEN regexp_replace(j.runnable_path, '\.chat$', '')
+                    ELSE j.runnable_path END AS runnable_path,
                 CASE
+                    WHEN a.agent THEN 'agents'
                     WHEN j.kind IN ('script', 'script_hub', 'unassigned_script') THEN 'scripts'
                     WHEN j.kind IN ('flow', 'unassigned_flow') THEN 'flows'
                     WHEN j.kind IN ('singlestepflow', 'unassigned_singlestepflow') THEN
@@ -1806,7 +1812,10 @@ async fn require_job_within_run_scope(
                             ) = 'flow' THEN 'flows' ELSE 'scripts' END
                 END AS scope_kind,
                 CASE WHEN j.trigger_kind = 'app' THEN j.trigger END AS launched_by_app
-            FROM v2_job j JOIN chain c ON c.id = j.id
+            FROM v2_job j JOIN chain c ON c.id = j.id,
+            LATERAL (SELECT j.kind = 'flowpreview'
+                AND j.raw_flow->'modules'->1 IS NULL
+                AND j.raw_flow->'modules'->0->>'id' = '__wm_agent_root' AS agent) a
             WHERE j.workspace_id = $2"#,
         job_id,
         w_id,
