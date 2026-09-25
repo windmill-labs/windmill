@@ -15,9 +15,9 @@ pub async fn update_flow_status_in_progress(
     let step = get_step_of_flow_status(db, flow).await?;
     match step {
         Step::Step { idx: step, .. } => {
-            // Children of a parallel module start concurrently and are tracked in `flow_jobs`, so
-            // its `job` is never read. Writing it anyway rewrites the parent's whole flow_status
-            // under its row lock once per child, which serializes large parallel loops.
+            // Children of a parallel module start concurrently and are tracked in `flow_jobs`, so its
+            // `job` would only hold whichever child started last. Writing it rewrites the parent's
+            // whole flow_status under its row lock once per child, serializing large parallel loops.
             sqlx::query!(
                 "UPDATE v2_job_status SET
                     flow_status = jsonb_set(
