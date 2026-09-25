@@ -956,9 +956,12 @@ where
 
     let conn = conn.clone();
     // No tick at t=0: a job that finishes within the first interval issues none of the
-    // ping/metric statements below. Cancels are picked up by the first ping, 500 ms in.
+    // ping/metric statements below. Cancels are picked up by the first job ping (500 ms in,
+    // 2 s on agent workers). Memory is still sampled at start, without SQL: it is the only
+    // `mem_peak` reading a short job gets, and the completed job row reports it.
     let mut interval = interval_at(Instant::now() + update_job_interval, update_job_interval);
     interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    *mem_peak = (*mem_peak).max(get_mem.next().await.unwrap_or(0));
 
     let mut i = 0;
 
@@ -1000,7 +1003,7 @@ where
                     if let Connection::Sql(ref db) = conn {
                         // Only track memory when it's non-zero (avoids storing all-zero timeseries for jobs that don't report memory)
                         if current_mem > 0 {
-                            // Register on first non-zero reading (deferred from i==2 to avoid metric for jobs with no memory reporting)
+                            // Register on first non-zero reading, so jobs with no memory reporting get no metric
                             if memory_metric_id.is_err() {
                                 memory_metric_id = job_metrics::register_metric_for_job(
                                     &db,
