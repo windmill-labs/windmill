@@ -583,6 +583,17 @@ export const settings: Record<string, Setting[]> = {
 			cloudonly: true,
 			ee_only: '',
 			hideInQuickSetup: true
+		},
+		{
+			label: 'Cancel jobs on unserved tags after (days)',
+			description:
+				'A job queued with a tag that no worker group serves waits forever. Superadmins get a critical alert once such jobs have waited a day with no worker serving their tag. When set, pending jobs whose tag no worker has served for this many days are also canceled, with a reason naming the tag. Only top-level jobs are checked: a step waiting inside a running flow is not. Leave empty or set 0 to only alert.',
+			key: 'cancel_stranded_jobs_after_days',
+			fieldType: 'number',
+			placeholder: 'off',
+			storage: 'setting',
+			hideInQuickSetup: true,
+			isValid: (v) => v == undefined || v === '' || (Number.isInteger(Number(v)) && Number(v) >= 0)
 		}
 	],
 	'Object Storage': [

@@ -4368,6 +4368,15 @@ pub async fn monitor_db(
         }
     };
 
+    // run every 30 iterations (~5min at the default LISTEN_NEW_EVENTS_INTERVAL_SEC).
+    let stranded_jobs_f = async {
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(30) {
+            if let Some(db) = conn.as_sql() {
+                crate::stranded_jobs::check_stranded_jobs(&db).await;
+            }
+        }
+    };
+
     // Poll git-sync repositories for new commits and pull them into the
     // workspace (repo → Windmill auto-pull). Runs every 2 iterations.
     let git_auto_pull_f = async {
@@ -4471,6 +4480,7 @@ pub async fn monitor_db(
         ai_session_retention_f,
         pipeline_freshness_watchdog_f,
         reconcile_unarmed_schedules_f,
+        stranded_jobs_f,
     );
 }
 

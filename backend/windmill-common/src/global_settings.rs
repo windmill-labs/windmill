@@ -399,6 +399,10 @@ pub const CONCURRENCY_KEY_MAX_QUEUED_SETTING: &str = "concurrency_key_max_queued
 // disables the cap. See `windmill-queue/src/jobs.rs`, `check_workspace_queue_cap`.
 pub const WORKSPACE_MAX_QUEUED_JOBS_SETTING: &str = "workspace_max_queued_jobs";
 
+// Days after which a pending top-level job whose tag no worker has served in that time is
+// canceled. Unset or `0` only alerts. Read by the server monitor on each pass.
+pub const CANCEL_STRANDED_JOBS_AFTER_DAYS_SETTING: &str = "cancel_stranded_jobs_after_days";
+
 /// Global settings an agent worker (a remote worker connected over HTTP instead
 /// of to the database) must NEVER read through
 /// `GET /api/agent_workers/get_global_setting/{key}`. Every other key is served.
