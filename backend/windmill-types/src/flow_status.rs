@@ -41,6 +41,11 @@ pub struct FlowStatus {
     pub chat_input_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub memory_id: Option<Uuid>,
+    /// Set at push on a branch/loop sub-flow whose enclosing flow had no `flow_env`, own or
+    /// inherited, so the worker can skip the ancestor walk for it. `false` only means unknown:
+    /// the worker then walks the ancestors as usual.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub no_inherited_flow_env: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -568,6 +573,7 @@ impl FlowStatus {
             stream_job: None,
             chat_input_enabled: f.chat_input_enabled,
             memory_id: None,
+            no_inherited_flow_env: false,
         }
     }
 

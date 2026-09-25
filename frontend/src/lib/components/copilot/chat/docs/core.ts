@@ -1,4 +1,4 @@
-import type { Tool } from '../shared'
+import { NONE, type SessionTool } from '../sessionCapabilities'
 import type { ChatCompletionTool } from 'openai/resources/index.mjs'
 import { DocumentationService } from '$lib/gen'
 
@@ -33,7 +33,8 @@ const READ_DOCS_PAGE_TOOL: ChatCompletionTool = {
 	}
 }
 
-export const readDocsPageTool: Tool<{}> = {
+export const readDocsPageTool: SessionTool<{}> = {
+	requires: NONE,
 	def: READ_DOCS_PAGE_TOOL,
 	planModeSafe: true,
 	fn: async ({ args, toolId, toolCallbacks }) => {
@@ -85,7 +86,8 @@ const SEARCH_DOCS_TOOL: ChatCompletionTool = {
 	}
 }
 
-export const searchDocsTool: Tool<{}> = {
+export const searchDocsTool: SessionTool<{}> = {
+	requires: NONE,
 	def: SEARCH_DOCS_TOOL,
 	planModeSafe: true,
 	fn: async ({ args, toolId, toolCallbacks }) => {

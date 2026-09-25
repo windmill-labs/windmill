@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use crate::jobs::HTTP_CLIENT;
 use crate::push;
 use crate::PushIsolationLevel;
 use anyhow::Context;
@@ -25,6 +26,7 @@ use windmill_common::jobs::OnBehalfOf;
 use windmill_common::runnable_settings::ConcurrencySettings;
 use windmill_common::runnable_settings::DebouncingSettings;
 use windmill_common::schedule::schedule_to_user;
+use windmill_common::scripts::get_full_hub_script_by_path;
 use windmill_common::scripts::ScriptHash;
 use windmill_common::triggers::TriggerMetadata;
 use windmill_common::utils::WarnAfterExt;
@@ -81,6 +83,8 @@ async fn get_schedule_metadata<'c>(
             Some(version),
             parsed_retry,
         ))
+    } else if schedule.script_path.starts_with("hub/") {
+        Ok((None, None, None, None, None, parsed_retry))
     } else {
         let (
             hash,
@@ -322,6 +326,48 @@ pub async fn push_scheduled_job<'c>(
             None,
             on_behalf_of,
         )
+    } else if schedule.script_path.starts_with("hub/") {
+        let tag = schedule.tag.clone().filter(|t| !t.is_empty());
+        let payload = match &schedule.retry {
+            // The language is what lets `push` materialize this as a native retry
+            // instead of a flow wrapper, which would queue the next tick at start.
+            Some(retry) => JobPayload::SingleStepFlow {
+                path: schedule.script_path.clone(),
+                hash: None,
+                flow_version: None,
+                language: Some(
+                    get_full_hub_script_by_path(
+                        StripPath(schedule.script_path.clone()),
+                        &HTTP_CLIENT,
+                        Some(db),
+                    )
+                    .await?
+                    .language,
+                ),
+                retry: Some(serde_json::from_value::<Retry>(retry.clone()).map_err(|e| {
+                    error::Error::internal_err(format!(
+                        "Unable to parse retry information from schedule: {e}"
+                    ))
+                })?),
+                error_handler_path: None,
+                error_handler_args: None,
+                skip_handler: None,
+                args: args.clone(),
+                cache_ttl: None,
+                cache_ignore_s3_path: None,
+                priority: None,
+                tag_override: tag.clone(),
+                trigger_path: None,
+                apply_preprocessor: false,
+                concurrency_settings: ConcurrencySettings::default(),
+                debouncing_settings: DebouncingSettings::default(),
+            },
+            None => JobPayload::ScriptHub {
+                path: schedule.script_path.clone(),
+                apply_preprocessor: false,
+            },
+        };
+        (payload, tag, None, None)
     } else {
         let (
             hash,

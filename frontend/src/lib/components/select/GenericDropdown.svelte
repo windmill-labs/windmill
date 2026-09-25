@@ -17,6 +17,7 @@
 		maxHeight = 256,
 		instantClose = false,
 		getInputRect,
+		portalName = 'dropdown-portal',
 		children
 	}: {
 		listAutoWidth?: boolean
@@ -31,6 +32,9 @@
 		// dropdown is toggled off as the user types, so the panel vanishes at once.
 		instantClose?: boolean
 		getInputRect?: () => DOMRect
+		/** Outside-click handlers ignore clicks in `.dropdown-portal`: a panel that holds Selects of
+		 * its own needs another name, or their lists would not close on clicks elsewhere in it. */
+		portalName?: string
 		children?: Snippet
 	} = $props()
 
@@ -125,7 +129,7 @@
 	)
 </script>
 
-<ConditionalPortal condition={!disablePortal} name="dropdown-portal">
+<ConditionalPortal condition={!disablePortal} name={portalName}>
 	{#if uiState.domExists}
 		<div
 			class={twMerge(

@@ -1762,6 +1762,26 @@ paths:
               schema:
                 type: string
 
+  /settings/instance_ui:
+    get:
+      summary: get the instance-wide announcement banner and accent color
+      description: |
+        Readable by any authenticated user; every page load reads it. Each value
+        is the raw stored setting, or null when unset.
+      operationId: getInstanceUi
+      tags:
+        - setting
+      responses:
+        "200":
+          description: the instance_banner and accent_color settings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  instance_banner: {}
+                  accent_color: {}
+
   /settings_u/ruff_config:
     get:
       summary: get instance ruff config (unauthenticated)
@@ -10665,6 +10685,9 @@ paths:
         - kind
         - tag
         - deployment_message
+        - schema
+      x-mcp-tool-opaque-fields:
+        - schema
       tags:
         - script
       parameters:
@@ -10704,6 +10727,9 @@ paths:
         - kind
         - tag
         - deployment_message
+        - schema
+      x-mcp-tool-opaque-fields:
+        - schema
       tags:
         - script
       parameters:
@@ -16283,6 +16309,29 @@ paths:
                 type: array
                 items:
                   type: string
+
+  /w/{workspace}/jobs/queue/run_now/{id}:
+    post:
+      summary: start a queued job scheduled for later now
+      description: |
+        Moves the start of a queued job that is waiting for a future time (scheduled, debounced,
+        re-scheduled by a concurrency limit, or a flow step waiting on a sleep or a retry delay)
+        to now, keeping the same job id. A job with a
+        concurrency limit is still checked against its limit when it is pulled. A schedule's
+        upcoming tick is refused, since the schedule would queue that tick again.
+      operationId: runQueuedJobNow
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: job id
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/jobs/queue/cancel_selection:
     post:
@@ -29722,6 +29771,15 @@ components:
           type: string
         schema:
           type: object
+          description: >-
+            JSON Schema of the arguments of `main`, which is what a run form and an
+            MCP tool offer. Omitted (or `{}`), it is inferred from `content` for
+            TypeScript, Python, Go, Bash, PowerShell, SQL, GraphQL and Ansible
+            scripts. For other languages, or code that does not parse, a new script
+            gets none. A new version of an existing script also keeps what the
+            previous version's schema says about each argument, or that whole schema
+            when nothing can be inferred. A dbt script always takes its schema from its
+            descriptor, whatever is sent.
         is_template:
           type: boolean
         lock:
@@ -31142,6 +31200,7 @@ components:
             - "jobs"
             - "jobs.cancel"
             - "jobs.force_cancel"
+            - "jobs.run_now"
             - "jobs.disapproval"
             - "jobs.delete"
             - "account.delete"

@@ -81,6 +81,7 @@
 	import { pruneMeaninglessDrafts } from '$lib/userDraftPrune'
 	import DraftMigrationErrorModal from '$lib/components/DraftMigrationErrorModal.svelte'
 	import InstanceBanner from '$lib/components/InstanceBanner.svelte'
+	import InstanceUiSync from '$lib/components/InstanceUiSync.svelte'
 	import { onDestroy, setContext, untrack } from 'svelte'
 	import { base } from '$app/paths'
 	import { Menubar } from '$lib/components/meltComponents'
@@ -90,7 +91,11 @@
 	import SessionModeSwitch from '$lib/components/sessions/SessionModeSwitch.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 	import { copilotInfo } from '$lib/aiStore'
-	import { parsePreviewItemRoute } from '$lib/components/sessions/previewPaths'
+	import {
+		isPageItemListPath,
+		parsePreviewItemRoute,
+		stripBase
+	} from '$lib/components/sessions/previewPaths'
 	import { rememberNavRoute } from '$lib/components/sessions/sessionSwitch.svelte'
 	import { sessionState } from '$lib/components/sessions/sessionState.svelte'
 	import { restoreSessionBackups } from '$lib/components/sessions/sessionMirror.svelte'
@@ -426,6 +431,21 @@
 				try {
 					window.parent.postMessage(
 						{ type: 'wm.session.openEditor', kind: target.kind, path: target.path },
+						window.location.origin
+					)
+				} catch {}
+				return
+			}
+			// A list page mounts in process too, where its rows open as tabs of their own.
+			const listUrl = navigation.to?.url
+			if (listUrl && isPageItemListPath(stripBase(listUrl.pathname))) {
+				navigation.cancel()
+				const u = new URL(listUrl.href)
+				u.searchParams.delete('nomenubar')
+				u.searchParams.delete('workspace')
+				try {
+					window.parent.postMessage(
+						{ type: 'wm.session.openList', href: u.pathname + u.search + u.hash },
 						window.location.origin
 					)
 				} catch {}
@@ -1418,11 +1438,13 @@
 			</div>
 		{/if}
 		<div class="flex flex-col h-full w-full">
+			<!-- Not gated on `$enterpriseLicense`: it paints the cached accent before the license
+			     resolves, and checks the license itself. -->
+			<InstanceUiSync />
 			{#if $enterpriseLicense && !menuHidden}
-				<!-- Announcements are an EE feature, so the component never mounts on CE: no
-				     fetch, no poll, no listener there. Also skipped when the menu is hidden —
-				     that is an embed or an OAuth callback, where the announcement would land
-				     inside someone else's page. -->
+				<!-- Announcements are an EE feature, so the component never mounts on CE. Also
+				     skipped when the menu is hidden — that is an embed or an OAuth callback,
+				     where the announcement would land inside someone else's page. -->
 				<InstanceBanner />
 			{/if}
 			{#if $userStore?.is_service_account}
