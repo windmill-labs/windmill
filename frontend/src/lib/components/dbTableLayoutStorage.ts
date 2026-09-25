@@ -10,6 +10,8 @@ export type DbTableLayout = {
 	widths?: Record<string, number>
 	pinned?: Record<string, 'left' | 'right'>
 	joins?: DbTableJoin[]
+	/** Columns left out of the grid. */
+	hidden?: string[]
 	lastUsed?: number
 }
 
@@ -24,7 +26,7 @@ export function readDbTableLayout(key: string): DbTableLayout {
 
 export function saveDbTableLayout(key: string, layout: DbTableLayout) {
 	try {
-		if (!layout.widths && !layout.pinned && !layout.joins) {
+		if (!layout.widths && !layout.pinned && !layout.joins && !layout.hidden) {
 			storeLocalSetting(key, undefined)
 			return
 		}

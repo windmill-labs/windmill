@@ -39,6 +39,7 @@
 		ArrowDown,
 		ArrowUp,
 		ClipboardCopy,
+		Columns3,
 		Download,
 		KeyRound,
 		Link,
@@ -72,6 +73,7 @@
 	import DropdownV2 from './DropdownV2.svelte'
 	import Popover from './meltComponents/Popover.svelte'
 	import Select from './select/Select.svelte'
+	import Checkbox from './common/checkbox/Checkbox.svelte'
 	import TextInput from './text_input/TextInput.svelte'
 	import { copyToClipboard, download } from '$lib/utils'
 	import { readDbTableLayout, saveDbTableLayout, type DbTableLayout } from './dbTableLayoutStorage'
@@ -119,6 +121,26 @@
 		...(dbTableOps.colDefs ?? []).filter((c) => c?.field && !c.ignored && !c.hide),
 		...joins.map(joinedColumnDef)
 	])
+	// ── Hidden columns ───────────────────────────────────────────────────────
+	// Only left out of the grid: filters and reads still cover them, and they keep their width
+	// and pin for when they are shown again.
+	let hidden: string[] = $state([...(storedLayout.hidden ?? [])])
+	let columnsPickerOpen = $state(false)
+	let visibleColumns = $derived(columns.filter((c) => !hidden.includes(c.field)))
+	function setHidden(field: string, hide: boolean) {
+		hidden = hide ? [...hidden, field] : hidden.filter((f) => f !== field)
+		saveLayout()
+	}
+	/** The shown columns, as the button that picks them names them. */
+	let columnsLabel = $derived(
+		visibleColumns.length > 2
+			? `${visibleColumns
+					.slice(0, 2)
+					.map((c) => c.field)
+					.join(', ')}, +${visibleColumns.length - 2}`
+			: visibleColumns.map((c) => c.field).join(', ') || 'No columns'
+	)
+
 	let joinedAliases = $derived(new Set(joins.map(joinAlias)))
 	/** A row as the table has it: joined columns belong to another table, so an update or
 	 * delete must not match on them. */
@@ -348,6 +370,7 @@
 		if (Object.keys(sizedWidths).length) layout.widths = sizedWidths
 		if (Object.keys(pinned).length) layout.pinned = $state.snapshot(pinned)
 		if (joins.length) layout.joins = $state.snapshot(joins)
+		if (hidden.length) layout.hidden = $state.snapshot(hidden)
 		saveDbTableLayout(layoutStorageKey, layout)
 	}
 
@@ -396,8 +419,12 @@
 
 	let colWidth = (field: string) => widths[field] ?? DEFAULT_COL_WIDTH
 	const ADD_COLUMN_WIDTH = 36
+	// A real cell rather than an overlay, so a horizontally scrolled grid can reach it.
+	const HIDDEN_NOTE_WIDTH = 190
 	let totalWidth = $derived(
-		columns.reduce((acc, c) => acc + colWidth(c.field), 0) + (canAddColumn ? ADD_COLUMN_WIDTH : 0)
+		visibleColumns.reduce((acc, c) => acc + colWidth(c.field), 0) +
+			(canAddColumn ? ADD_COLUMN_WIDTH : 0) +
+			(hidden.length ? HIDDEN_NOTE_WIDTH : 0)
 	)
 
 	// ── Pinning ──────────────────────────────────────────────────────────────
@@ -446,9 +473,9 @@
 	}
 
 	let displayColumns = $derived([
-		...columns.filter((c) => pinned[c.field] === 'left'),
-		...columns.filter((c) => !pinned[c.field]),
-		...columns.filter((c) => pinned[c.field] === 'right')
+		...visibleColumns.filter((c) => pinned[c.field] === 'left'),
+		...visibleColumns.filter((c) => !pinned[c.field]),
+		...visibleColumns.filter((c) => pinned[c.field] === 'right')
 	])
 	let firstRightPinned = $derived(displayColumns.find((c) => pinned[c.field] === 'right')?.field)
 	let lastLeftPinned = $derived(displayColumns.findLast((c) => pinned[c.field] === 'left')?.field)
@@ -470,7 +497,7 @@
 		return out
 	})
 	let pinnedWidth = (side: 'left' | 'right') =>
-		columns.reduce((acc, c) => (pinned[c.field] === side ? acc + colWidth(c.field) : acc), 0)
+		visibleColumns.reduce((acc, c) => (pinned[c.field] === side ? acc + colWidth(c.field) : acc), 0)
 
 	function setPin(column: string, side: 'left' | 'right' | undefined) {
 		const next = { ...pinned }
@@ -825,6 +852,17 @@
 	}
 </script>
 
+{#snippet hiddenColumnsNote()}
+	{#if hidden.length}
+		<div
+			class="flex shrink-0 items-center whitespace-nowrap px-2 text-xs font-normal text-hint"
+			style:width="{HIDDEN_NOTE_WIDTH}px"
+		>
+			{hidden.length} {hidden.length === 1 ? 'column' : 'columns'} hidden by filter
+		</div>
+	{/if}
+{/snippet}
+
 {#snippet addColumnHeader()}
 	{#if canAddColumn}
 		<div
@@ -908,11 +946,15 @@
 			</Popover>
 		</div>
 	{/if}
+	{@render hiddenColumnsNote()}
 {/snippet}
 
 {#snippet addColumnCell()}
 	{#if canAddColumn}
 		<div class="shrink-0 border-r" style:width="{ADD_COLUMN_WIDTH}px"></div>
+	{/if}
+	{#if hidden.length}
+		<div class="shrink-0" style:width="{HIDDEN_NOTE_WIDTH}px"></div>
 	{/if}
 {/snippet}
 
@@ -947,8 +989,74 @@
 				title="Download loaded rows as CSV"
 				onClick={downloadCsv}
 			/>
+			<Popover
+				floatingConfig={{ strategy: 'fixed', placement: 'bottom-end' }}
+				bind:isOpen={columnsPickerOpen}
+			>
+				{#snippet trigger()}
+					<Button
+						variant="default"
+						unifiedSize="sm"
+						startIcon={{ icon: Columns3 }}
+						selected={hidden.length > 0}
+						nonCaptureEvent
+						title="Choose the columns to show"
+						btnClasses="max-w-64"
+					>
+						<span class="truncate">{hidden.length ? columnsLabel : 'Columns'}</span>
+					</Button>
+				{/snippet}
+				{#snippet content()}
+					<div class="flex w-60 flex-col py-1" data-testid="db-columns-picker">
+						<div class="max-h-80 overflow-y-auto">
+							{#each columns as col (col.field)}
+								<label
+									class="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-xs text-primary hover:bg-surface-hover"
+								>
+									<!-- Toggled on click: the popover cancels the click's default, so no
+										 change event would follow. -->
+									<Checkbox
+										checked={!hidden.includes(col.field)}
+										onClick={() => setHidden(col.field, !hidden.includes(col.field))}
+									/>
+									<span class="truncate">{col.field}</span>
+								</label>
+							{/each}
+						</div>
+						{#if hidden.length}
+							<div class="px-1 pb-1">
+								<Button
+									variant="subtle"
+									unifiedSize="sm"
+									btnClasses="w-full justify-start"
+									onClick={() => ((hidden = []), saveLayout())}
+								>
+									Show all
+								</Button>
+							</div>
+						{/if}
+						{#if onNewColumn}
+							<div class="border-t px-1 pt-1">
+								<Button
+									variant="subtle"
+									unifiedSize="sm"
+									startIcon={{ icon: Plus }}
+									btnClasses="w-full justify-start"
+									onClick={() => {
+										columnsPickerOpen = false
+										onNewColumn?.()
+									}}
+								>
+									Add column
+								</Button>
+							</div>
+						{/if}
+					</div>
+				{/snippet}
+			</Popover>
 			{#if dbTableOps.onInsert}
 				<InsertRowDrawerButton
+					unifiedSize="sm"
 					columnDefs={dbTableOps.colDefs ?? []}
 					dbType={dbTableOps.dbType}
 					onInsert={(values) => {
