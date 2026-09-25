@@ -58,9 +58,9 @@ use windmill_common::{
     error::{self, pg_error_message, JsonResult, Result},
     get_database_url,
     global_settings::{
-        AI_CONFIG_SETTING, APP_WORKSPACED_ROUTE_SETTING, AUTOMATE_USERNAME_CREATION_SETTING,
-        CRITICAL_ALERT_MUTE_UI_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
-        DISABLE_HUB_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
+        ACCENT_COLOR_SETTING, AI_CONFIG_SETTING, APP_WORKSPACED_ROUTE_SETTING,
+        AUTOMATE_USERNAME_CREATION_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING, CUSTOM_TAGS_SETTING,
+        DEFAULT_TAGS_WORKSPACES_SETTING, DISABLE_HUB_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
         GITHUB_APP_WEBHOOK_BASE_URL_SETTING, HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING,
         HTTP_ROUTE_WORKSPACED_ROUTE_SETTING, HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING,
         INSTANCE_BANNER_SETTING, MAX_RETENTION_OVERRIDE_WORKSPACES,
@@ -115,6 +115,17 @@ async fn get_ruff_config_unauthed(Extension(db): Extension<DB>) -> error::Result
         .unwrap())
 }
 
+/// The announcement banner and accent color, which every signed-in session reads on each
+/// full page load.
+async fn get_instance_ui(
+    Extension(db): Extension<DB>,
+    _authed: ApiAuthed,
+) -> JsonResult<windmill_common::global_settings::InstanceUi> {
+    Ok(Json(
+        windmill_common::global_settings::get_instance_ui(&db).await?,
+    ))
+}
+
 pub fn global_service() -> Router {
     #[warn(unused_mut)]
     let r = Router::new()
@@ -126,6 +137,7 @@ pub fn global_service() -> Router {
             "/global/{key}",
             post(set_global_setting).get(get_global_setting),
         )
+        .route("/instance_ui", get(get_instance_ui))
         .route("/list_global", get(list_global_settings))
         .route("/github_app_stale_webhooks", get(github_app_stale_webhooks))
         .route(
@@ -1216,6 +1228,12 @@ async fn run_setting_pre_write_hook(
                 }
             }
         }
+        ACCENT_COLOR_SETTING => match value {
+            serde_json::Value::Null => {}
+            serde_json::Value::String(s) if s.trim().is_empty() => {}
+            v => windmill_common::global_settings::validate_accent_color(v)
+                .map_err(|e| error::Error::BadRequest(format!("{ACCENT_COLOR_SETTING}: {e}")))?,
+        },
         _ => {}
     }
     Ok(())
