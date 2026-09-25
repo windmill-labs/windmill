@@ -6,6 +6,17 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'Markdown artifacts in AI sessions',
+		href: 'https://www.windmill.dev/changelog/ai-session-artifacts',
+		date: '2026-07-16'
+	},
+	{
+		label: 'Version history for AI session artifacts',
+		href: 'https://www.windmill.dev/changelog/ai-artifact-version-history',
+		date: '2026-08-10'
+	},
+
+	{
 		label: 'AWS Bedrock support for Windmill AI',
 		href: 'https://www.windmill.dev/changelog/aws-bedrock',
 		date: '2025-11-19'
