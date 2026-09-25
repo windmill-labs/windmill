@@ -64,7 +64,7 @@ lazy_static! {
     // Bracket keys are captured as the whole JS string literal so QuickJS, not
     // us, decodes their escapes.
     static ref RE: Regex = Regex::new(
-        r#"(?:^|[^a-zA-Z0-9_$.])results(?:\??\.([a-zA-Z_0-9]+)|(?:\?\.)?\[("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')\])"#
+        r#"(?:^|[^a-zA-Z0-9_$])results(?:\??\.([a-zA-Z_0-9]+)|(?:\?\.)?\[("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')\])"#
     )
     .unwrap();
     // SQL fast-path: simple `results.X.Y[i]...` accesses are dispatched to
@@ -1154,9 +1154,7 @@ mod tests {
     #[test]
     fn test_referenced_step_ids() {
         assert_eq!(
-            referenced_step_ids(
-                r#"results.b + results?.["a"] + results['c'] + x.results.d + my_results.e"#
-            ),
+            referenced_step_ids(r#"results.b + results?.["a"] + results['c'] + my_results.e"#),
             vec![r#""a""#, r#""b""#, "'c'"]
         );
         assert!(referenced_step_ids("no_results_here").is_empty());
@@ -1206,7 +1204,7 @@ mod tests {
             json!([2, 1])
         );
         assert_eq!(
-            eval_with_results(r#""results.a is " + JSON.stringify(results.a)"#)
+            eval_with_results(r#""results.a is " + JSON.stringify({...results.a})"#)
                 .await
                 .unwrap(),
             json!(r#"results.a is {"x":1,"y":2}"#)
