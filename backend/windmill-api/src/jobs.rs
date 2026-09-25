@@ -4111,6 +4111,7 @@ async fn get_started_at_by_ids(
 struct ListableQueuedJob {
     pub id: Uuid,
     pub running: bool,
+    pub canceled: bool,
     pub created_by: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub started_at: Option<chrono::DateTime<chrono::Utc>>,
@@ -4156,6 +4157,9 @@ async fn list_queue_jobs(
         &[
             "v2_job.id",
             "v2_job_queue.running",
+            // A canceled row stays in the queue until a worker picks it up and completes it, and
+            // the `QueuedJob` schema this answers with declares the field either way.
+            "v2_job_queue.canceled_by IS NOT NULL as canceled",
             "v2_job.created_by",
             "v2_job.created_at",
             "v2_job_queue.started_at",
