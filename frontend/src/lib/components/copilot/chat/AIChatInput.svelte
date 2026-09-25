@@ -326,25 +326,25 @@
 		// decoding takes ~50-800ms, and a send during it would clear `images` while
 		// this closure still appends to it, landing the picture on the next message.
 		await reading.track(async () => {
-		pendingImages += batch.length
-		try {
-			// One at a time: a decoded bitmap costs ~4 bytes per pixel (a 12MP photo is
-			// ~48MB), so decoding the whole batch at once would hold every one of them
-			// live simultaneously.
-			const added: AttachedImage[] = []
-			let failed = 0
-			for (const file of batch) {
-				try {
-					added.push(await fileToAttachedImage(file))
-				} catch {
-					failed++
+			pendingImages += batch.length
+			try {
+				// One at a time: a decoded bitmap costs ~4 bytes per pixel (a 12MP photo is
+				// ~48MB), so decoding the whole batch at once would hold every one of them
+				// live simultaneously.
+				const added: AttachedImage[] = []
+				let failed = 0
+				for (const file of batch) {
+					try {
+						added.push(await fileToAttachedImage(file))
+					} catch {
+						failed++
+					}
 				}
+				if (added.length > 0) draft.addImages(added)
+				if (failed > 0) sendUserToast(`Could not attach ${failed} image(s).`, true)
+			} finally {
+				pendingImages -= batch.length
 			}
-			if (added.length > 0) draft.addImages(added)
-			if (failed > 0) sendUserToast(`Could not attach ${failed} image(s).`, true)
-		} finally {
-			pendingImages -= batch.length
-		}
 		})
 	}
 
@@ -458,44 +458,44 @@
 		if (batch.length === 0) return
 		const reservedBytes = batch.reduce((sum, f) => sum + f.size, 0)
 		await reading.track(async () => {
-		pendingFiles += batch.length
-		pendingFileBytes += reservedBytes
-		try {
-			const reads: { name: string; content: string }[] = []
-			let skipped = 0
-			for (const file of batch) {
-				try {
-					const attached = await fileToAttachedTextFile(file)
-					if (attached) reads.push(attached)
-					else skipped++
-				} catch {
-					skipped++
+			pendingFiles += batch.length
+			pendingFileBytes += reservedBytes
+			try {
+				const reads: { name: string; content: string }[] = []
+				let skipped = 0
+				for (const file of batch) {
+					try {
+						const attached = await fileToAttachedTextFile(file)
+						if (attached) reads.push(attached)
+						else skipped++
+					} catch {
+						skipped++
+					}
 				}
+				// Commit through the draft in one synchronous step — fold (dedupe,
+				// courtesy rename) and decoded-byte admission both run against the live
+				// list, so another batch landing between this one's file reads can't be
+				// missed, and malformed input that inflates on decode can't slip past the
+				// raw-size admission above. This batch's own raw reservation is excluded
+				// from the budget — the decoded sizes replace it.
+				const liveBudget =
+					MAX_CONVERSATION_FILE_BYTES -
+					chatHost.attachmentBytesExcluding(composerKey) -
+					draft.files.reduce((sum, f) => sum + textByteLength(f.content), 0) -
+					(pendingFileBytes - reservedBytes)
+				const { droppedAtBudget } = draft.addFiles(reads, liveBudget)
+				if (droppedAtBudget > 0) {
+					const mb = Math.round(MAX_CONVERSATION_FILE_BYTES / 1_000_000)
+					sendUserToast(
+						`${droppedAtBudget} file(s) skipped — this conversation reached its ${mb}MB attachment budget. Link a folder to read larger sets on demand.`,
+						true
+					)
+				}
+				if (skipped > 0) sendUserToast(`Skipped ${skipped} file(s) (non-text).`, true)
+			} finally {
+				pendingFiles -= batch.length
+				pendingFileBytes -= reservedBytes
 			}
-			// Commit through the draft in one synchronous step — fold (dedupe,
-			// courtesy rename) and decoded-byte admission both run against the live
-			// list, so another batch landing between this one's file reads can't be
-			// missed, and malformed input that inflates on decode can't slip past the
-			// raw-size admission above. This batch's own raw reservation is excluded
-			// from the budget — the decoded sizes replace it.
-			const liveBudget =
-				MAX_CONVERSATION_FILE_BYTES -
-				chatHost.attachmentBytesExcluding(composerKey) -
-				draft.files.reduce((sum, f) => sum + textByteLength(f.content), 0) -
-				(pendingFileBytes - reservedBytes)
-			const { droppedAtBudget } = draft.addFiles(reads, liveBudget)
-			if (droppedAtBudget > 0) {
-				const mb = Math.round(MAX_CONVERSATION_FILE_BYTES / 1_000_000)
-				sendUserToast(
-					`${droppedAtBudget} file(s) skipped — this conversation reached its ${mb}MB attachment budget. Link a folder to read larger sets on demand.`,
-					true
-				)
-			}
-			if (skipped > 0) sendUserToast(`Skipped ${skipped} file(s) (non-text).`, true)
-		} finally {
-			pendingFiles -= batch.length
-			pendingFileBytes -= reservedBytes
-		}
 		})
 	}
 
@@ -560,20 +560,20 @@
 			sendUserToast(skippedMessage(MAX_ATTACHED_BLOBS, 'files', usable.length - batch.length), true)
 		}
 		await reading.track(async () => {
-		pendingBlobs += batch.length
-		try {
-			const added: AttachedBlob[] = []
-			for (const file of batch) {
-				try {
-					added.push(await fileToAttachedBlob(file))
-				} catch (e) {
-					sendUserToast(`Could not read ${file.name}`, true)
+			pendingBlobs += batch.length
+			try {
+				const added: AttachedBlob[] = []
+				for (const file of batch) {
+					try {
+						added.push(await fileToAttachedBlob(file))
+					} catch (e) {
+						sendUserToast(`Could not read ${file.name}`, true)
+					}
 				}
+				if (added.length > 0) draft.addBlobs(added)
+			} finally {
+				pendingBlobs -= batch.length
 			}
-			if (added.length > 0) draft.addBlobs(added)
-		} finally {
-			pendingBlobs -= batch.length
-		}
 		})
 	}
 
@@ -737,16 +737,16 @@
 			files: taken.files,
 			blobs: taken.blobs,
 			rest: inFlight
-					? reading.settled().then(() => {
-							const late = draft.take()
-							return {
-								text: expanded(chatDraft(late.text, late.pastes)),
-								images: late.images,
-								files: late.files,
-								blobs: late.blobs
-							}
-						})
-					: undefined
+				? reading.settled().then(() => {
+						const late = draft.take()
+						return {
+							text: expanded(chatDraft(late.text, late.pastes)),
+							images: late.images,
+							files: late.files,
+							blobs: late.blobs
+						}
+					})
+				: undefined
 		}
 	}
 

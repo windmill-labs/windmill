@@ -32,8 +32,9 @@ export class ReadsInFlight {
 	}
 
 	/**
-	 * Settles once nothing is running. Waiting once is not enough: routing ends in a read
-	 * that starts only as the routing finishes, so each wait can uncover the next.
+	 * Settles once nothing is running. The loop is for a caller that starts its read after
+	 * releasing its hold: today's drop handler starts it before, so one round is enough, and
+	 * a wait that ended while work was still counted would hand over an empty draft.
 	 */
 	async settled(): Promise<void> {
 		while (this.#running.size > 0) {

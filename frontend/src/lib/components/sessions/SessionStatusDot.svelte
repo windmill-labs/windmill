@@ -49,9 +49,7 @@
 			: 'Root workspace session'
 	)
 
-	const title = $derived(
-		liveOverride ? statusTooltip[status] : (restingTitle ?? persistentTitle)
-	)
+	const title = $derived(liveOverride ? statusTooltip[status] : (restingTitle ?? persistentTitle))
 </script>
 
 <span class="inline-flex items-center justify-center w-4 h-3 shrink-0" {title}>

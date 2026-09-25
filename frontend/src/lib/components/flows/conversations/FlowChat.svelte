@@ -131,14 +131,12 @@
 			disposeHost: (host) => host.dispose(),
 			// Every kind: a conversation the reader follows keeps running whatever the filter lists.
 			listRecent: async (page) =>
-				(await api.listConversations(flowPath, { page, perPage: 50, kind: 'all' })).map(
-					(row) => ({
-						id: row.id,
-						runningTurn: row.running_turn
-							? { jobId: row.running_turn.job_id, userSeq: row.running_turn.user_seq }
-							: undefined
-					})
-				)
+				(await api.listConversations(flowPath, { page, perPage: 50, kind: 'all' })).map((row) => ({
+					id: row.id,
+					runningTurn: row.running_turn
+						? { jobId: row.running_turn.job_id, userSeq: row.running_turn.user_seq }
+						: undefined
+				}))
 		})
 		const unsubscribeList = createdList.subscribe((s) => (listState = s))
 		const unsubscribePool = createdPool.subscribe((s) => (poolState = s))

@@ -139,7 +139,8 @@ describe('FlowChatPool', () => {
 
 	it('reads past the first page for a running row that has written nothing for a while', async () => {
 		let running = true
-		const quiet = () => conversation('z', running ? { runningTurn: { jobId: 'job-z', userSeq: 3 } } : {})
+		const quiet = () =>
+			conversation('z', running ? { runningTurn: { jobId: 'job-z', userSeq: 3 } } : {})
 		const pagesRead: number[] = []
 		const { pool: p } = pool({
 			// Others were active since: the running row is on page 2.
@@ -164,7 +165,11 @@ describe('FlowChatPool', () => {
 			listRecent: async (page) => {
 				if (!answers) throw new Error('offline')
 				// Watching nothing, the recovery read must go past the first page to find it.
-				return page === 1 ? [conversation('x')] : page === 2 ? [conversation('a', { runningTurn: turn })] : []
+				return page === 1
+					? [conversation('x')]
+					: page === 2
+						? [conversation('a', { runningTurn: turn })]
+						: []
 			}
 		})
 		p.setListed([conversation('a', { runningTurn: turn })], p.listingStarted())
@@ -172,7 +177,9 @@ describe('FlowChatPool', () => {
 		// Three failed listings in a row: the row goes quiet rather than staying stuck.
 		await vi.waitFor(() => expect(p.getState().activity).toEqual({}))
 		answers = true
-		await vi.waitFor(() => expect(p.getState().activity).toEqual({ a: 'running' }), { timeout: 3000 })
+		await vi.waitFor(() => expect(p.getState().activity).toEqual({ a: 'running' }), {
+			timeout: 3000
+		})
 		p.destroy()
 	})
 
@@ -230,7 +237,7 @@ describe('FlowChatPool', () => {
 		p.destroy()
 	})
 
-	it("hands what a withdrawn chat held to the new chat that took its place", async () => {
+	it('hands what a withdrawn chat held to the new chat that took its place', async () => {
 		const { pool: p, fakeOf } = pool()
 		const withdrawn = p.selected
 		const { set } = fakeOf(withdrawn.chat)

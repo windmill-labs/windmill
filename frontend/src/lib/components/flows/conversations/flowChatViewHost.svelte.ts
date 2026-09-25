@@ -64,30 +64,43 @@ function isAbort(e: unknown): boolean {
 }
 
 /** What the composer attaches to a message, kept in the order it was attached. */
-export type ComposerAttachment = { image: AttachedImage } | { blob: AttachedBlob }
+export type ComposerAttachment =
+	| { image: AttachedImage }
+	| { blob: AttachedBlob }
+	| { file: AttachedTextFile }
 
 export function composerDraft(
 	text: string,
 	images: AttachedImage[] = [],
-	blobs: AttachedBlob[] = []
+	blobs: AttachedBlob[] = [],
+	files: AttachedTextFile[] = []
 ): Draft<ComposerAttachment> {
 	return {
 		text,
-		attachments: [...images.map((image) => ({ image })), ...blobs.map((blob) => ({ blob }))]
+		attachments: [
+			...images.map((image) => ({ image })),
+			...blobs.map((blob) => ({ blob })),
+			...files.map((file) => ({ file }))
+		]
 	}
 }
 
+/** This chat forwards files verbatim (`attachmentsAsBlobs`), so the text-file lane stays
+ * empty — it is carried anyway, so a chat that decodes them loses nothing. */
 function splitAttachments(attachments: readonly ComposerAttachment[]): {
 	images: AttachedImage[]
 	blobs: AttachedBlob[]
+	files: AttachedTextFile[]
 } {
 	const images: AttachedImage[] = []
 	const blobs: AttachedBlob[] = []
+	const files: AttachedTextFile[] = []
 	for (const attachment of attachments) {
 		if ('image' in attachment) images.push(attachment.image)
-		else blobs.push(attachment.blob)
+		else if ('blob' in attachment) blobs.push(attachment.blob)
+		else files.push(attachment.file)
 	}
-	return { images, blobs }
+	return { images, blobs, files }
 }
 
 /** A tool's arguments or result as the card shows them: parsed where the string is JSON. */
@@ -347,6 +360,7 @@ export class FlowChatViewHost implements ChatViewHost, DraftSender<ComposerAttac
 	#disposed = false
 	dispose() {
 		this.#disposed = true
+		this.#releaseReadingHold()
 		this.#unsubscribe()
 		for (const id of Object.keys(this.#reveals)) this.#dropReveal(id)
 	}
@@ -565,31 +579,70 @@ export class FlowChatViewHost implements ChatViewHost, DraftSender<ComposerAttac
 		untrack(() => {
 			const leaving = this.#aiChatInput
 			this.#aiChatInput = aiChatInput
+			// The hold belongs to the composer that took it; the one replacing it takes its own
+			// below, for as long as the read is still running.
+			if (leaving !== aiChatInput) this.#releaseReadingHold()
 			if (leaving && leaving !== aiChatInput && !this.#disposed) {
 				// The composer goes with its panel when the reader opens another conversation, and
 				// what they had written in it would go too: it waits with the conversation's turns
 				// for the next composer to show this conversation.
-				const { text, images, blobs, rest } = leaving.takeDraft()
-				this.#turns.adopt(composerDraft(text.trim() ? text : '', images, blobs))
+				const { text, images, files, blobs, rest } = leaving.takeDraft()
+				this.#turns.adopt(composerDraft(text.trim() ? text : '', images, blobs, files))
 				// A file still being read when the panel went belongs to that draft too, and
 				// lands in the conversation's turns when its read is done.
-				void rest?.then((late) => {
-					if (this.#disposed) return
-					this.#turns.adopt(
-						composerDraft(late.text.trim() ? late.text : '', late.images, late.blobs)
-					)
-				})
+				if (rest) {
+					this.#reading++
+					void rest
+						.then((late) => {
+							if (this.#disposed) return
+							this.#turns.adopt(
+								composerDraft(
+									late.text.trim() ? late.text : '',
+									late.images,
+									late.blobs,
+									late.files
+								)
+							)
+						})
+						// Counted, not a flag: a second drop can be reading while the first one still is,
+						// and the hold stands until the last of them has landed — including one that ends
+						// in a failure, which would otherwise hold this chat for good.
+						.catch(() => {})
+						.finally(() => {
+							this.#reading--
+							if (this.#reading === 0) this.#releaseReadingHold()
+						})
+				}
 			}
+			this.#holdWhileReading()
 			this.#takeReturned()
 		})
+	/** Files composers were still reading when they went, which this conversation is owed. */
+	#reading = 0
+	#releaseHold: (() => void) | undefined
+	/**
+	 * Holds sending in the composer showing this conversation until that file lands. The
+	 * composer that took the drop held sending the same way; a message sent from the one
+	 * that replaced it would otherwise go out without the file, which would then ride the
+	 * message after it.
+	 */
+	#holdWhileReading() {
+		if (this.#reading === 0 || !this.#aiChatInput || this.#releaseHold) return
+		this.#releaseHold = this.#aiChatInput.holdSendForIngestion()
+	}
+	#releaseReadingHold() {
+		this.#releaseHold?.()
+		this.#releaseHold = undefined
+	}
+
 	/** Puts what a turn handed back into the composer, when one shows this conversation;
 	 * until then the conversation's turns hold it. */
 	#takeReturned() {
 		if (!this.#aiChatInput || this.#disposed) return
 		const { text, attachments } = this.#turns.takeReturned()
 		if (!text && attachments.length === 0) return
-		const { images, blobs } = splitAttachments(attachments)
-		this.#aiChatInput.prependText(text, images, [], blobs)
+		const { images, blobs, files } = splitAttachments(attachments)
+		this.#aiChatInput.prependText(text, images, files, blobs)
 	}
 
 	get queuedMessage(): string {
@@ -599,7 +652,9 @@ export class FlowChatViewHost implements ChatViewHost, DraftSender<ComposerAttac
 	get queuedImages(): AttachedImage[] {
 		return this.#queuedLanes.images
 	}
-	queuedFiles: AttachedTextFile[] = []
+	get queuedFiles(): AttachedTextFile[] {
+		return this.#queuedLanes.files
+	}
 	get queuedBlobs(): AttachedBlob[] {
 		return this.#queuedLanes.blobs
 	}
@@ -607,10 +662,10 @@ export class FlowChatViewHost implements ChatViewHost, DraftSender<ComposerAttac
 		text: string,
 		images: AttachedImage[] = [],
 		_context?: unknown,
-		_files?: unknown,
+		files: AttachedTextFile[] = [],
 		blobs: AttachedBlob[] = []
 	) => {
-		this.#turns.queue(composerDraft(text, images, blobs))
+		this.#turns.queue(composerDraft(text, images, blobs, files))
 	}
 	/** Put the queued draft back in the composer, attachments included. */
 	dequeueMessage = () => {
