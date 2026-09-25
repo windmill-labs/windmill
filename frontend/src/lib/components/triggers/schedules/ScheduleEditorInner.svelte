@@ -13,8 +13,11 @@
 	import LabelsInput from '$lib/components/LabelsInput.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
+	import { loadSchema } from '$lib/infer'
 	import PipelineLockedRunnableInfo from '$lib/components/triggers/PipelineLockedRunnableInfo.svelte'
-	import ErrorOrRecoveryHandler from '$lib/components/ErrorOrRecoveryHandler.svelte'
+	import ErrorOrRecoveryHandler, {
+		handlerFullPath
+	} from '$lib/components/ErrorOrRecoveryHandler.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
@@ -110,7 +113,7 @@
 	// already-bound script. We swap the runnable ScriptPicker for a read-only
 	// viewer so the trigger can't be silently reassigned off the pipeline.
 	let fixedScriptPath = $state('')
-	let runnable: Script | Flow | undefined = $state()
+	let runnable: Pick<Script | Flow, 'schema'> | undefined = $state()
 	let args: Record<string, any> = $state({})
 	let loading = $state(false)
 	let drawerLoading = $state(true)
@@ -416,6 +419,8 @@
 			try {
 				if (is_flow) {
 					runnable = await FlowService.getFlowByPath({ workspace: wsId!, path: p })
+				} else if (p.startsWith('hub/')) {
+					runnable = await loadSchema(wsId!, p, 'hubscript')
 				} else {
 					runnable = await ScriptService.getScriptByPath({ workspace: wsId!, path: p })
 				}
@@ -439,7 +444,7 @@
 					path:
 						errorHandlerPath == undefined
 							? undefined
-							: `${errorHandleritemKind}/${errorHandlerPath}`,
+							: handlerFullPath(errorHandlerSelected, errorHandleritemKind, errorHandlerPath),
 					extra_args: errorHandlerExtraArgs,
 					number_of_occurence: failedTimes,
 					number_of_occurence_exact: failedExact,
@@ -468,7 +473,11 @@
 					path:
 						recoveryHandlerPath === undefined
 							? undefined
-							: `${recoveryHandlerItemKind}/${recoveryHandlerPath}`,
+							: handlerFullPath(
+									recoveryHandlerSelected,
+									recoveryHandlerItemKind,
+									recoveryHandlerPath
+								),
 					extra_args: recoveryHandlerExtraArgs,
 					number_of_occurence: recoveredTimes
 				}
@@ -495,7 +504,7 @@
 					path:
 						successHandlerPath === undefined
 							? undefined
-							: `${successHandlerItemKind}/${successHandlerPath}`,
+							: handlerFullPath(successHandlerSelected, successHandlerItemKind, successHandlerPath),
 					extra_args: successHandlerExtraArgs,
 					number_of_occurence: recoveredTimes
 				}
@@ -637,15 +646,18 @@
 		const handlerMap = {
 			error: {
 				teams: '/workspace-or-schedule-error-handler-teams',
-				slack: '/workspace-or-schedule-error-handler-slack'
+				slack: '/workspace-or-schedule-error-handler-slack',
+				email: '/workspace-or-error-handler-email'
 			},
 			recovery: {
 				teams: '/schedule-recovery-handler-teams',
-				slack: '/schedule-recovery-handler-slack'
+				slack: '/schedule-recovery-handler-slack',
+				email: '/workspace-or-error-handler-email'
 			},
 			success: {
 				teams: '/schedule-success-handler-teams',
-				slack: '/schedule-success-handler-slack'
+				slack: '/schedule-success-handler-slack',
+				email: '/workspace-or-error-handler-email'
 			}
 		}
 
@@ -691,17 +703,19 @@
 			is_flow: is_flow,
 			args: args,
 			enabled: enabled,
-			on_failure: errorHandlerPath ? `${errorHandleritemKind}/${errorHandlerPath}` : undefined,
+			on_failure: errorHandlerPath
+				? handlerFullPath(errorHandlerSelected, errorHandleritemKind, errorHandlerPath)
+				: undefined,
 			on_failure_times: failedTimes,
 			on_failure_exact: failedExact,
 			on_failure_extra_args: errorHandlerPath ? errorHandlerExtraArgs : undefined,
 			on_recovery: recoveryHandlerPath
-				? `${recoveryHandlerItemKind}/${recoveryHandlerPath}`
+				? handlerFullPath(recoveryHandlerSelected, recoveryHandlerItemKind, recoveryHandlerPath)
 				: undefined,
 			on_recovery_times: recoveredTimes,
 			on_recovery_extra_args: recoveryHandlerPath ? recoveryHandlerExtraArgs : {},
 			on_success: successHandlerPath
-				? `${successHandlerItemKind}/${successHandlerPath}`
+				? handlerFullPath(successHandlerSelected, successHandlerItemKind, successHandlerPath)
 				: undefined,
 			on_success_extra_args: successHandlerPath ? successHandlerExtraArgs : {},
 			ws_error_handler_muted: wsErrorHandlerMuted,
@@ -969,6 +983,7 @@
 							initialPath={initialScriptPath}
 							kinds={['script']}
 							allowFlow={true}
+							allowHub={true}
 							allowRefresh={can_write}
 							bind:itemKind
 							bind:scriptPath={script_path}
