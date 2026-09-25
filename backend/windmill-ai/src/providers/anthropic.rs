@@ -782,7 +782,7 @@ impl QueryBuilder for AnthropicQueryBuilder {
         // Convert Anthropic usage to TokenUsage
         let usage = anthropic_usage.map(|u| {
             TokenUsage::from_input_output(u.input_tokens, u.output_tokens)
-                .with_cache(u.cache_read_input_tokens, u.cache_creation_input_tokens)
+                .with_cache_beside_input(u.cache_read_input_tokens, u.cache_creation_input_tokens)
         });
 
         Ok(ParsedResponse::Text {

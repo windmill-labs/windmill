@@ -6,6 +6,7 @@ pub mod ai_providers;
 pub mod ai_types;
 pub mod credentials;
 pub mod image_handler;
+pub mod model_context;
 pub mod providers;
 pub mod proxy;
 pub mod query_builder;

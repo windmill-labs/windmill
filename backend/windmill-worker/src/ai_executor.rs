@@ -1,3 +1,6 @@
+use crate::ai::compaction::{
+    memory_within_capacity, persisted_bytes, AgentHistory, CompactionRequest, Compactor,
+};
 use crate::ai::tools::{execute_tool_calls, ToolAbortHandles, ToolExecutionContext};
 use crate::ai::utils::{
     add_message_to_conversation, any_tool_needs_previous_result, cleanup_mcp_clients,
@@ -6,7 +9,8 @@ use crate::ai::utils::{
     parse_raw_script_schema, update_flow_status_module_with_actions,
     update_flow_status_module_with_actions_success,
 };
-use crate::memory_oss::{read_from_memory, write_to_memory};
+use crate::memory_common::MAX_MEMORY_SIZE_BYTES;
+use crate::memory_oss::{memory_storage_capacity_bytes, read_from_memory, write_to_memory};
 use crate::worker_flow::{get_previous_job_result, get_transform_context};
 use async_recursion::async_recursion;
 use regex::Regex;
@@ -24,6 +28,7 @@ use crate::ai::tools::McpClientStub as McpClient;
 use windmill_ai::{
     ai_providers::AIProvider,
     image_handler::upload_image_to_s3,
+    model_context::model_context_window,
     providers::{
         create_chat_completions_query_builder, create_query_builder, is_chat_completions_only,
         openai::{
@@ -79,12 +84,10 @@ lazy_static::lazy_static! {
 const DEFAULT_MAX_AGENT_ITERATIONS: usize = 10;
 const HARD_MAX_AGENT_ITERATIONS: usize = 1000;
 
-/// What a run stopped by `max_iterations` reports back. `Message` rather than
-/// `OpenAIMessage` is load-bearing: `agent_action` is `skip_serializing` on the
-/// latter and reaches JSON only through this wrapper, so serializing these raw
-/// drops every tool name and job id and leaves the partial run unreadable.
+/// Partial failures retain action metadata through `Message`: serializing raw
+/// `OpenAIMessage` values would strip the tool names and IDs the viewer needs.
 #[derive(serde::Serialize)]
-struct MaxIterPartialResult<'a> {
+struct AgentPartialResult<'a> {
     messages: Vec<Message<'a>>,
 }
 
@@ -120,6 +123,62 @@ fn prepare_auto_memory_messages_for_persistence(
     non_system_messages[start_idx..].to_vec()
 }
 
+/// Provider request settings must follow any endpoint fallback learned during the run.
+struct CompactionContext<'a> {
+    compactor: Option<&'a mut Compactor>,
+    timeout: Option<std::time::Duration>,
+    credentials: &'a windmill_ai::credentials::ProviderCredentials,
+    args: &'a AIAgentArgs,
+    client: &'a AuthedClient,
+    job: &'a MiniPulledJob,
+    conn: &'a Connection,
+}
+
+/// Bills and logs successful checkpoints. Request and persistence policy stay with their callers.
+async fn compact_if_needed(
+    ctx: CompactionContext<'_>,
+    query_builder: &dyn windmill_ai::query_builder::QueryBuilder,
+    include_usage: bool,
+    messages: &mut AgentHistory,
+    force: bool,
+    final_usage: &mut Option<TokenUsage>,
+) -> bool {
+    let (Some(compactor), Some(timeout)) = (ctx.compactor, ctx.timeout) else {
+        return false;
+    };
+    let pass = compactor
+        .compact(
+            messages,
+            force,
+            &CompactionRequest {
+                query_builder,
+                credentials: ctx.credentials,
+                model: ctx.args.provider.get_model(),
+                timeout,
+                client: ctx.client,
+                workspace_id: &ctx.job.workspace_id,
+                include_usage,
+            },
+        )
+        .await;
+    if let Some(usage) = pass.usage {
+        match final_usage {
+            Some(existing) => existing.accumulate(&usage),
+            None => *final_usage = Some(usage),
+        }
+    }
+    if pass.changed {
+        append_logs(
+            &ctx.job.id,
+            &ctx.job.workspace_id,
+            "AI agent memory summarized; the run's action results are preserved.\n".to_string(),
+            ctx.conn,
+        )
+        .await;
+    }
+    pass.changed
+}
+
 /// The inputs a linked step supplies for itself; the resource holds the rest of the brain.
 const FLOW_LOCAL_AGENT_KEYS: [&str; 5] = [
     "user_message",
@@ -137,11 +196,32 @@ const STEP_HISTORY_KEYS: [&str; 2] = ["memory_id", "previous_messages"];
 enum HistorySource<'a> {
     /// Supplied by the flow and replayed as is: memory is neither read nor written.
     Messages(&'a [OpenAIMessage]),
-    Window {
+    Managed {
         memory_id: Uuid,
-        context_length: usize,
+        bound: MemoryBound,
     },
     Stateless,
+}
+
+/// What keeps a managed conversation inside the model's context.
+#[derive(Debug, Clone, Copy)]
+enum MemoryBound {
+    /// Only the most recent messages are sent and kept.
+    LastMessages(usize),
+    /// Everything is sent and kept; compaction summarizes what no longer fits.
+    Compaction,
+}
+
+impl MemoryBound {
+    /// How many of the memory's messages a run reads and writes back. Compaction keeps all of
+    /// them: the summary it writes is what bounds the conversation, so truncating on top of it
+    /// would drop the tail that summary was written to precede.
+    fn messages_to_keep(self) -> usize {
+        match self {
+            MemoryBound::LastMessages(context_length) => context_length,
+            MemoryBound::Compaction => usize::MAX,
+        }
+    }
 }
 
 /// A step's memory id counts only as the step authored it. A static empty value is a form
@@ -169,7 +249,12 @@ fn resolve_history_source<'a>(
     flow_path: &str,
 ) -> (HistorySource<'a>, Vec<&'static str>) {
     let mut notes = Vec::new();
-    let no_memory_id = "No memory id was passed to this run, so the agent runs without memory.";
+    let managed = |bound: MemoryBound, notes: &mut Vec<&'static str>| {
+        managed_memory_id(args, run_memory_id, workspace_id, flow_path, notes)
+            .map_or(HistorySource::Stateless, |memory_id| {
+                HistorySource::Managed { memory_id, bound }
+            })
+    };
     match &args.memory {
         // The step's own history inputs came after these, so a step that still holds one reads it
         // alone: what it did before the editor offered them is what it keeps doing.
@@ -182,43 +267,25 @@ fn resolve_history_source<'a>(
             // An id baked in at save time only ever applied when the run carried none.
             match run_memory_id.or(*memory_id) {
                 Some(memory_id) => (
-                    HistorySource::Window { memory_id, context_length: *context_length },
+                    HistorySource::Managed {
+                        memory_id,
+                        bound: MemoryBound::LastMessages(*context_length),
+                    },
                     notes,
                 ),
                 None => {
-                    notes.push(no_memory_id);
+                    notes.push(NO_RUN_MEMORY_ID);
                     (HistorySource::Stateless, notes)
                 }
             }
         }
         Some(Memory::Window { context_length }) => {
-            if args
-                .previous_messages
-                .as_ref()
-                .is_some_and(|messages| !messages.is_empty())
-            {
-                notes.push("Managed memory is on, so this step's previous messages are ignored.");
-            }
-            let memory_id = match args.memory_id.as_deref() {
-                Some("") => {
-                    notes.push(
-                        "This step's memory id evaluated to an empty value, so the agent runs without memory.",
-                    );
-                    return (HistorySource::Stateless, notes);
-                }
-                Some(step_memory_id) => memory_key(workspace_id, flow_path, step_memory_id),
-                None => match run_memory_id {
-                    Some(memory_id) => memory_id,
-                    None => {
-                        notes.push(no_memory_id);
-                        return (HistorySource::Stateless, notes);
-                    }
-                },
-            };
-            (
-                HistorySource::Window { memory_id, context_length: *context_length },
-                notes,
-            )
+            let source = managed(MemoryBound::LastMessages(*context_length), &mut notes);
+            (source, notes)
+        }
+        Some(Memory::Compaction { .. }) => {
+            let source = managed(MemoryBound::Compaction, &mut notes);
+            (source, notes)
         }
         Some(Memory::Off) | None => {
             if args.memory_id.as_deref().is_some_and(|id| !id.is_empty()) {
@@ -229,6 +296,40 @@ fn resolve_history_source<'a>(
                 None => (HistorySource::Stateless, notes),
             }
         }
+    }
+}
+
+const NO_RUN_MEMORY_ID: &str =
+    "No memory id was passed to this run, so the agent runs without memory.";
+
+/// The memory a step under a current setting reads and writes: its own id where it set one,
+/// otherwise the run's. `None` is a step that ends up stateless, with the reason noted.
+fn managed_memory_id(
+    args: &AIAgentArgs,
+    run_memory_id: Option<Uuid>,
+    workspace_id: &str,
+    flow_path: &str,
+    notes: &mut Vec<&'static str>,
+) -> Option<Uuid> {
+    if args
+        .previous_messages
+        .as_ref()
+        .is_some_and(|messages| !messages.is_empty())
+    {
+        notes.push("Managed memory is on, so this step's previous messages are ignored.");
+    }
+    match args.memory_id.as_deref() {
+        Some("") => {
+            notes.push(
+                "This step's memory id evaluated to an empty value, so the agent runs without memory.",
+            );
+            None
+        }
+        Some(step_memory_id) => Some(memory_key(workspace_id, flow_path, step_memory_id)),
+        None => run_memory_id.or_else(|| {
+            notes.push(NO_RUN_MEMORY_ID);
+            None
+        }),
     }
 }
 
@@ -1224,7 +1325,7 @@ pub async fn run_agent(
             "'user_message' must be provided for image output"
         } else if matches!(
             args.memory,
-            Some(Memory::Window { .. } | Memory::Auto { .. })
+            Some(Memory::Window { .. } | Memory::Compaction { .. } | Memory::Auto { .. })
         ) {
             "'user_message' must be provided while managed memory is on"
         } else {
@@ -1236,13 +1337,13 @@ pub async fn run_agent(
     if matches!(output_type, OutputType::Text) {
         match &history {
             HistorySource::Messages(provided) => messages.extend(provided.iter().cloned()),
-            HistorySource::Window { memory_id, context_length } => {
+            HistorySource::Managed { memory_id, bound } => {
                 if let Some(step_id) = effective_flow_step_id {
                     match read_from_memory(db, &job.workspace_id, *memory_id, step_id).await {
                         Ok(Some(loaded_messages)) => {
                             let messages_to_load = prepare_auto_memory_messages_for_request(
                                 &loaded_messages,
-                                *context_length,
+                                bound.messages_to_keep(),
                             );
                             messages.extend(messages_to_load);
                         }
@@ -1334,6 +1435,7 @@ pub async fn run_agent(
         }
     }
 
+    let mut messages = AgentHistory::new(messages);
     let mut actions = vec![];
     let mut content = None;
     let mut final_usage: Option<TokenUsage> = None;
@@ -1419,6 +1521,44 @@ pub async fn run_agent(
         .map(|m| m.clamp(1, HARD_MAX_AGENT_ITERATIONS))
         .unwrap_or(DEFAULT_MAX_AGENT_ITERATIONS);
 
+    let mut compactor = match &args.memory {
+        Some(Memory::Compaction { context_window }) if is_text_output => {
+            let tool_schema_tokens = tool_defs
+                .as_ref()
+                .and_then(|defs| serde_json::to_string(defs).ok())
+                .map(|schemas| schemas.len() / 4)
+                .unwrap_or(0);
+            // An unset window — the usual case — is looked up from the model. The field
+            // is the override for what the lookup cannot serve: a Custom AI deployment,
+            // or an id the table does not list.
+            let context_window = match context_window {
+                0 => model_context_window(args.provider.get_model()),
+                declared => *declared,
+            };
+            Some(Compactor::new(
+                context_window,
+                tool_schema_tokens,
+                args.max_completion_tokens,
+            ))
+        }
+        _ => None,
+    };
+    // The store otherwise evicts oldest messages, including the summary. Bound only
+    // persisted context here; the running agent can still use the full model window.
+    let persist_capacity = match (&compactor, &history, effective_flow_step_id) {
+        (Some(_), HistorySource::Managed { .. }, Some(_)) => memory_storage_capacity_bytes().await,
+        _ => None,
+    };
+    // The summarization call runs under the agent's own request timeout, which resolves
+    // from the job alone and so is the same for every iteration.
+    let compaction_timeout = match compactor {
+        Some(_) => Some(
+            resolve_job_timeout(conn, &job.workspace_id, job.id, job.timeout)
+                .await
+                .0,
+        ),
+        None => None,
+    };
     // Main agent loop
     for i in 0..max_iterations {
         // Check if parent was canceled — stop iterating but let current tool calls finish
@@ -1430,232 +1570,307 @@ pub async fn run_agent(
             break;
         }
 
-        // Handle AWS Bedrock provider specially using the official SDK
-        let parsed = if credentials.provider == AIProvider::AWSBedrock {
-            #[cfg(feature = "bedrock")]
-            {
-                let region = credentials
-                    .region
-                    .as_deref()
-                    .unwrap_or(windmill_ai::ai_providers::USE_ENV_REGION);
-                // Use Bedrock SDK via dedicated query builder
-                windmill_ai::providers::bedrock::BedrockQueryBuilder::default()
-                    .execute_request(
-                        &messages,
-                        tool_defs.as_deref(),
-                        args.provider.get_model(),
-                        args.temperature,
-                        args.provider.get_reasoning_effort(),
-                        args.max_completion_tokens,
-                        api_key,
-                        region,
-                        stream_event_processor.as_ref().map(|p| p.boxed_sink()),
-                        client,
-                        &job.workspace_id,
-                        structured_output_tool_name.as_deref(),
-                        credentials.aws_access_key_id.as_deref(),
-                        credentials.aws_secret_access_key.as_deref(),
-                        credentials.aws_session_token.as_deref(),
-                    )
-                    .await?
-            }
-            #[cfg(not(feature = "bedrock"))]
-            {
-                return Err(Error::internal_err(
-                    "AWS Bedrock support is not enabled. Build with 'bedrock' feature.".to_string(),
-                ));
-            }
-        } else {
-            // For all other providers, use the HTTP client approach
-            let mut build_args = BuildRequestArgs {
-                messages: &messages,
-                tools: tool_defs.as_deref(),
-                model: args.provider.get_model(),
-                temperature: args.temperature,
-                reasoning_effort: args.provider.get_reasoning_effort(),
-                max_tokens: args.max_completion_tokens,
-                output_schema: args.output_schema.as_ref(),
-                output_type,
-                system_prompt: args.system_prompt.as_deref(),
-                user_message: args.user_message.as_deref().unwrap_or(""),
-                attachments: args.user_attachments.as_deref(),
-                has_websearch,
-                prompt_cache_key: include_prompt_cache_key.then_some(prompt_cache_key.as_str()),
-                reasoning_summary: !is_reasoning_summary_unavailable(
-                    &credentials,
-                    args.provider.get_model(),
-                ),
-            };
+        compact_if_needed(
+            CompactionContext {
+                compactor: compactor.as_mut(),
+                timeout: compaction_timeout,
+                credentials: &credentials,
+                args,
+                client,
+                job,
+                conn,
+            },
+            query_builder.as_ref(),
+            include_usage,
+            &mut messages,
+            false,
+            &mut final_usage,
+        )
+        .await;
 
-            // A worker cannot run the client credentials exchange, so an OAuth resource
-            // has no token here: the request would carry an empty credential and come
-            // back 401.
-            if needs_unavailable_oauth_exchange(
-                &credentials,
-                args.provider.resource.token_url.as_deref(),
-                &query_builder.get_auth_headers(api_key, base_url, output_type),
-            ) {
-                return Err(Error::ExecutionErr(format!(
-                    "The {:?} resource authenticates with OAuth, which AI agent steps do not \
-                     support. Set an API key on the resource, or carry the provider's credential \
-                     header in its `headers`.",
-                    credentials.provider
-                )));
-            }
+        let mut retried_context = false;
+        let (parsed, request_message_count) = loop {
+            // How many messages this request carries, so the provider's prompt count can
+            // later be told apart from what the response and its tool results add.
+            let request_message_count = messages.context().len();
 
-            let timeout = resolve_job_timeout(conn, &job.workspace_id, job.id, job.timeout)
-                .await
-                .0;
-
-            let trailing_headers = common_outbound_headers(&credentials).collect::<Vec<_>>();
-
-            // `endpoint` derives from the user-controlled provider base_url, so pin
-            // DNS to the SSRF-validated address: the connect must not rebind to an
-            // internal IP between the check and the request (TOCTOU).
-            let pinned_ai_client = pinned_ai_client_for(base_url).await?;
-
-            // Helper to build HTTP request with headers
-            let build_http_request =
-                |endpoint: &str, auth_headers: &[(&'static str, String)], body: String| {
-                    let mut req = pinned_ai_client
-                        .post(endpoint)
-                        .timeout(timeout)
-                        .header("Content-Type", "application/json");
-
-                    for (header_name, header_value) in auth_headers {
-                        req = req.header(*header_name, header_value.clone());
-                    }
-
-                    for (header_name, header_value) in &trailing_headers {
-                        req = req.header(header_name.as_str(), header_value.as_str());
-                    }
-
-                    req.body(body)
-                };
-
-            // An endpoint can reject the request shape rather than the model:
-            // `stream_options` and `prompt_cache_key`, which not every OpenAI-compatible
-            // gateway accepts, a reasoning summary, which OpenAI refuses to unverified
-            // organizations, and the route itself, when an Azure resource is outside
-            // the Responses API's model/region matrix. Each is retried once with that
-            // part dropped.
-            // Set where the route is found to be absent, and read once the fallback has
-            // answered: a rejection it did not resolve says nothing about the deployment.
-            let mut rerouted_by_a_route_rejection = false;
-            let resp = loop {
-                let request_body = if include_usage {
-                    query_builder
-                        .build_request(&build_args, client, &job.workspace_id)
-                        .await?
-                } else {
-                    query_builder
-                        .build_request_without_usage(&build_args, client, &job.workspace_id)
-                        .await?
-                };
-                let endpoint =
-                    query_builder.get_endpoint(base_url, args.provider.get_model(), output_type);
-                let auth_headers = retain_effective_credentials(
-                    &credentials,
-                    query_builder.get_auth_headers(api_key, base_url, output_type),
-                );
-
-                let resp = build_http_request(&endpoint, &auth_headers, request_body)
-                    .send()
-                    .await
-                    .map_err(|e| Error::internal_err(format!("Failed to call API: {}", e)))?;
-
-                match resp.error_for_status_ref() {
-                    Ok(_) => {
-                        if rerouted_by_a_route_rejection {
-                            remember_chat_completions_only(base_url, args.provider.get_model());
-                        }
-                        break resp;
-                    }
-                    Err(e) => {
-                        let status = resp.status();
-                        let text = resp
-                            .text()
-                            .await
-                            .unwrap_or_else(|_| "<failed to read body>".to_string());
-
-                        // Common error patterns: 400 Bad Request with mentions of stream_options or include_usage
-                        let rejects_usage_tracking = include_usage
-                            && query_builder.supports_retry_without_usage()
-                            && status.as_u16() == 400
-                            && (text.contains("stream_options")
-                                || text.contains("include_usage")
-                                || text.contains("Additional properties are not allowed"));
-
-                        // An OpenAI-compatible gateway that validates the body strictly
-                        // names the offending field, whether it calls it an unrecognized
-                        // argument or an unexpected additional property.
-                        let rejects_prompt_cache_key = build_args.prompt_cache_key.is_some()
-                            && status.as_u16() == 400
-                            && text.contains("prompt_cache_key");
-
-                        let summary_refused = build_args.reasoning_summary
-                            && rejects_reasoning_summary(status.as_u16(), &text);
-
-                        // Only the first call of the step may re-route: an endpoint that
-                        // does not serve this API rejects that one already, whereas a
-                        // rejection once the conversation is under way is about the
-                        // conversation (context length, content filter, tool schema).
-                        let route_unserved = i == 0
-                            && query_builder.supports_chat_completions_fallback(base_url)
-                            && matches!(status.as_u16(), 400 | 404)
-                            && *output_type == OutputType::Text;
-
-                        if rejects_usage_tracking {
-                            tracing::info!(
-                                "Retrying request without stream_options due to provider incompatibility"
-                            );
-                            include_usage = false;
-                        } else if rejects_prompt_cache_key {
-                            // Checked before the route fallback: the endpoint serves this
-                            // route, it just refuses one optional field, and re-routing
-                            // the whole step over that would give up far more.
-                            tracing::info!(
-                                "Retrying request without prompt_cache_key due to provider incompatibility"
-                            );
-                            include_prompt_cache_key = false;
-                            build_args.prompt_cache_key = None;
-                        } else if summary_refused {
-                            tracing::info!(
-                                "Retrying request without the reasoning summary the endpoint refused"
-                            );
-                            remember_reasoning_summary_unavailable(
-                                &credentials,
+            // Handle AWS Bedrock provider specially using the official SDK
+            let attempt: error::Result<_> = async {
+                let parsed = if credentials.provider == AIProvider::AWSBedrock {
+                    #[cfg(feature = "bedrock")]
+                    {
+                        let region = credentials
+                            .region
+                            .as_deref()
+                            .unwrap_or(windmill_ai::ai_providers::USE_ENV_REGION);
+                        // Use Bedrock SDK via dedicated query builder
+                        windmill_ai::providers::bedrock::BedrockQueryBuilder::default()
+                            .execute_request(
+                                messages.context(),
+                                tool_defs.as_deref(),
                                 args.provider.get_model(),
-                            );
-                            build_args.reasoning_summary = false;
-                        } else if route_unserved {
-                            tracing::info!(
-                                "Endpoint rejected the request ({}), falling back to chat/completions",
-                                status
-                            );
-                            // Only a 404 says the route is absent. A 400 is ambiguous —
-                            // a deployment that does serve the route rejects tool
-                            // schemas, blocked hosted tools and filtered content the
-                            // same way — so it re-routes this step and nothing more.
-                            rerouted_by_a_route_rejection = status.as_u16() == 404;
-                            query_builder = create_chat_completions_query_builder(&credentials);
-                            include_usage = true;
+                                args.temperature,
+                                args.provider.get_reasoning_effort(),
+                                args.max_completion_tokens,
+                                api_key,
+                                region,
+                                stream_event_processor.as_ref().map(|p| p.boxed_sink()),
+                                client,
+                                &job.workspace_id,
+                                structured_output_tool_name.as_deref(),
+                                credentials.aws_access_key_id.as_deref(),
+                                credentials.aws_secret_access_key.as_deref(),
+                                credentials.aws_session_token.as_deref(),
+                            )
+                            .await?
+                    }
+                    #[cfg(not(feature = "bedrock"))]
+                    {
+                        return Err(Error::internal_err(
+                            "AWS Bedrock support is not enabled. Build with 'bedrock' feature.".to_string(),
+                        ));
+                    }
+                } else {
+                    // For all other providers, use the HTTP client approach
+                    let mut build_args = BuildRequestArgs {
+                        messages: messages.context(),
+                        tools: tool_defs.as_deref(),
+                        model: args.provider.get_model(),
+                        temperature: args.temperature,
+                        reasoning_effort: args.provider.get_reasoning_effort(),
+                        max_tokens: args.max_completion_tokens,
+                        output_schema: args.output_schema.as_ref(),
+                        output_type,
+                        system_prompt: args.system_prompt.as_deref(),
+                        user_message: args.user_message.as_deref().unwrap_or(""),
+                        attachments: args.user_attachments.as_deref(),
+                        has_websearch,
+                        prompt_cache_key: include_prompt_cache_key.then_some(prompt_cache_key.as_str()),
+                        reasoning_summary: !is_reasoning_summary_unavailable(
+                            &credentials,
+                            args.provider.get_model(),
+                        ),
+                    };
+
+                    // A worker cannot run the client credentials exchange, so an OAuth resource
+                    // has no token here: the request would carry an empty credential and come
+                    // back 401.
+                    if needs_unavailable_oauth_exchange(
+                        &credentials,
+                        args.provider.resource.token_url.as_deref(),
+                        &query_builder.get_auth_headers(api_key, base_url, output_type),
+                    ) {
+                        return Err(Error::ExecutionErr(format!(
+                            "The {:?} resource authenticates with OAuth, which AI agent steps do not \
+                             support. Set an API key on the resource, or carry the provider's credential \
+                             header in its `headers`.",
+                            credentials.provider
+                        )));
+                    }
+
+                    let timeout = resolve_job_timeout(conn, &job.workspace_id, job.id, job.timeout)
+                        .await
+                        .0;
+
+                    let trailing_headers = common_outbound_headers(&credentials).collect::<Vec<_>>();
+
+                    // `endpoint` derives from the user-controlled provider base_url, so pin
+                    // DNS to the SSRF-validated address: the connect must not rebind to an
+                    // internal IP between the check and the request (TOCTOU).
+                    let pinned_ai_client = pinned_ai_client_for(base_url).await?;
+
+                    // Helper to build HTTP request with headers
+                    let build_http_request =
+                        |endpoint: &str, auth_headers: &[(&'static str, String)], body: String| {
+                            let mut req = pinned_ai_client
+                                .post(endpoint)
+                                .timeout(timeout)
+                                .header("Content-Type", "application/json");
+
+                            for (header_name, header_value) in auth_headers {
+                                req = req.header(*header_name, header_value.clone());
+                            }
+
+                            for (header_name, header_value) in &trailing_headers {
+                                req = req.header(header_name.as_str(), header_value.as_str());
+                            }
+
+                            req.body(body)
+                        };
+
+                    // An endpoint can reject the request shape rather than the model:
+                    // `stream_options` and `prompt_cache_key`, which not every OpenAI-compatible
+                    // gateway accepts, a reasoning summary, which OpenAI refuses to unverified
+                    // organizations, and the route itself, when an Azure resource is outside
+                    // the Responses API's model/region matrix. Each is retried once with that
+                    // part dropped.
+                    // Set where the route is found to be absent, and read once the fallback has
+                    // answered: a rejection it did not resolve says nothing about the deployment.
+                    let mut rerouted_by_a_route_rejection = false;
+                    let resp = loop {
+                        let request_body = if include_usage {
+                            query_builder
+                                .build_request(&build_args, client, &job.workspace_id)
+                                .await?
                         } else {
-                            return Err(Error::internal_err(format!(
-                                "API error calling {}: {} - {}",
-                                endpoint, e, text
-                            )));
+                            query_builder
+                                .build_request_without_usage(&build_args, client, &job.workspace_id)
+                                .await?
+                        };
+                        let endpoint =
+                            query_builder.get_endpoint(base_url, args.provider.get_model(), output_type);
+                        let auth_headers = retain_effective_credentials(
+                            &credentials,
+                            query_builder.get_auth_headers(api_key, base_url, output_type),
+                        );
+
+                        let resp = build_http_request(&endpoint, &auth_headers, request_body)
+                            .send()
+                            .await
+                            .map_err(|e| Error::internal_err(format!("Failed to call API: {}", e)))?;
+
+                        match resp.error_for_status_ref() {
+                            Ok(_) => {
+                                if rerouted_by_a_route_rejection {
+                                    remember_chat_completions_only(base_url, args.provider.get_model());
+                                }
+                                break resp;
+                            }
+                            Err(e) => {
+                                let status = resp.status();
+                                let text = resp
+                                    .text()
+                                    .await
+                                    .unwrap_or_else(|_| "<failed to read body>".to_string());
+
+                                // Common error patterns: 400 Bad Request with mentions of stream_options or include_usage
+                                let rejects_usage_tracking = include_usage
+                                    && query_builder.supports_retry_without_usage()
+                                    && status.as_u16() == 400
+                                    && (text.contains("stream_options")
+                                        || text.contains("include_usage")
+                                        || text.contains("Additional properties are not allowed"));
+
+                                // An OpenAI-compatible gateway that validates the body strictly
+                                // names the offending field, whether it calls it an unrecognized
+                                // argument or an unexpected additional property.
+                                let rejects_prompt_cache_key = build_args.prompt_cache_key.is_some()
+                                    && status.as_u16() == 400
+                                    && text.contains("prompt_cache_key");
+
+                                let summary_refused = build_args.reasoning_summary
+                                    && rejects_reasoning_summary(status.as_u16(), &text);
+
+                                // Only the first call of the step may re-route: an endpoint that
+                                // does not serve this API rejects that one already, whereas a
+                                // rejection once the conversation is under way is about the
+                                // conversation (context length, content filter, tool schema).
+                                let route_unserved = i == 0
+                                    && !windmill_ai::query_builder::is_context_length_error(&text)
+                                    && query_builder.supports_chat_completions_fallback(base_url)
+                                    && matches!(status.as_u16(), 400 | 404)
+                                    && *output_type == OutputType::Text;
+
+                                if rejects_usage_tracking {
+                                    tracing::info!(
+                                        "Retrying request without stream_options due to provider incompatibility"
+                                    );
+                                    include_usage = false;
+                                } else if rejects_prompt_cache_key {
+                                    // Checked before the route fallback: the endpoint serves this
+                                    // route, it just refuses one optional field, and re-routing
+                                    // the whole step over that would give up far more.
+                                    tracing::info!(
+                                        "Retrying request without prompt_cache_key due to provider incompatibility"
+                                    );
+                                    include_prompt_cache_key = false;
+                                    build_args.prompt_cache_key = None;
+                                } else if summary_refused {
+                                    tracing::info!(
+                                        "Retrying request without the reasoning summary the endpoint refused"
+                                    );
+                                    remember_reasoning_summary_unavailable(
+                                        &credentials,
+                                        args.provider.get_model(),
+                                    );
+                                    build_args.reasoning_summary = false;
+                                } else if route_unserved {
+                                    tracing::info!(
+                                        "Endpoint rejected the request ({}), falling back to chat/completions",
+                                        status
+                                    );
+                                    // Only a 404 says the route is absent. A 400 is ambiguous —
+                                    // a deployment that does serve the route rejects tool
+                                    // schemas, blocked hosted tools and filtered content the
+                                    // same way — so it re-routes this step and nothing more.
+                                    rerouted_by_a_route_rejection = status.as_u16() == 404;
+                                    query_builder = create_chat_completions_query_builder(&credentials);
+                                    include_usage = true;
+                                } else {
+                                    return Err(Error::internal_err(format!(
+                                        "API error calling {}: {} - {}",
+                                        endpoint, e, text
+                                    )));
+                                }
+                            }
                         }
+                    };
+
+                    if let Some(ref stream_event_processor) = stream_event_processor {
+                        query_builder
+                            .parse_streaming_response(resp, stream_event_processor.boxed_sink())
+                            .await?
+                    } else {
+                        query_builder.parse_image_response(resp).await?
+                    }
+                };
+                Ok(parsed)
+            }.await;
+
+            match attempt {
+                Ok(parsed) => break (parsed, request_message_count),
+                Err(error)
+                    if !retried_context
+                        && compactor.is_some()
+                        && windmill_ai::query_builder::is_context_length_error(
+                            &error.to_string(),
+                        ) =>
+                {
+                    retried_context = true;
+                    append_logs(
+                        &job.id,
+                        &job.workspace_id,
+                        "Provider rejected the context size; attempting compaction before one retry.\n".to_string(),
+                        conn,
+                    ).await;
+                    let changed = compact_if_needed(
+                        CompactionContext {
+                            compactor: compactor.as_mut(),
+                            timeout: compaction_timeout,
+                            credentials: &credentials,
+                            args,
+                            client,
+                            job,
+                            conn,
+                        },
+                        query_builder.as_ref(),
+                        include_usage,
+                        &mut messages,
+                        true,
+                        &mut final_usage,
+                    )
+                    .await;
+                    if !changed {
+                        append_logs(
+                            &job.id,
+                            &job.workspace_id,
+                            "Context compaction could not produce a smaller usable request; returning the provider error without retry.\n".to_string(),
+                            conn,
+                        ).await;
+                        return Err(error);
                     }
                 }
-            };
-
-            if let Some(ref stream_event_processor) = stream_event_processor {
-                query_builder
-                    .parse_streaming_response(resp, stream_event_processor.boxed_sink())
-                    .await?
-            } else {
-                query_builder.parse_image_response(resp).await?
+                Err(error) => return Err(error),
             }
         };
 
@@ -1669,6 +1884,11 @@ pub async fn run_agent(
                 used_websearch,
                 usage,
             } => {
+                messages.record_usage(
+                    usage.as_ref().and_then(|u| u.input_tokens),
+                    request_message_count,
+                );
+
                 // Accumulate usage from this iteration
                 if let Some(u) = usage {
                     match &mut final_usage {
@@ -1792,7 +2012,7 @@ pub async fn run_agent(
                         name: &'static str,
                         #[serde(skip_serializing_if = "Option::is_none")]
                         step_id: Option<&'a str>,
-                        result: MaxIterPartialResult<'a>,
+                        result: AgentPartialResult<'a>,
                     }
                     return Err(Error::ExecutionRawError(
                         serde_json::value::to_raw_value(&MaxIterError {
@@ -1802,8 +2022,9 @@ pub async fn run_agent(
                             ),
                             name: "ExecutionErr",
                             step_id: effective_flow_step_id,
-                            result: MaxIterPartialResult {
+                            result: AgentPartialResult {
                                 messages: messages
+                                    .result()
                                     .iter()
                                     .map(|m| Message {
                                         message: m,
@@ -1966,8 +2187,40 @@ pub async fn run_agent(
         }
     }
 
+    if persist_capacity.is_some_and(|limit| persisted_bytes(messages.context()) > limit) {
+        compact_if_needed(
+            CompactionContext {
+                compactor: compactor.as_mut(),
+                timeout: compaction_timeout,
+                credentials: &credentials,
+                args,
+                client,
+                job,
+                conn,
+            },
+            query_builder.as_ref(),
+            include_usage,
+            &mut messages,
+            true,
+            &mut final_usage,
+        )
+        .await;
+    }
+    let memory_to_save = match persist_capacity {
+        Some(limit) => memory_within_capacity(messages.context(), limit),
+        None => Some(messages.context()),
+    };
+    if memory_to_save.is_some_and(|tail| tail.len() < messages.context().len()) {
+        append_logs(&job.id, &job.workspace_id,
+            "AI agent memory exceeds storage capacity after compaction; saving only the newest complete exchanges. Older memory was dropped; the answer and run action results are preserved.\n".to_string(), conn).await;
+    } else if memory_to_save.is_none() {
+        append_logs(&job.id, &job.workspace_id,
+            "AI agent memory has no complete user-starting conversation that fits storage capacity and memory was not saved. The answer is preserved; the next run will load the previous saved memory.\n".to_string(), conn).await;
+    }
+
     // Return the final result
     let final_messages: Vec<Message> = messages
+        .result()
         .iter()
         .map(|m| Message { message: m, agent_action: m.agent_action.as_ref() })
         .collect();
@@ -2009,34 +2262,56 @@ pub async fn run_agent(
         }
     }
 
-    // final_messages holds the complete history: what was loaded plus this run's messages
-    if matches!(output_type, OutputType::Text) {
-        if let HistorySource::Window { memory_id, context_length } = &history {
+    // Storage limits affect only the saved suffix, never the returned execution history.
+    if let Some(memory_to_save) = memory_to_save.filter(|_| matches!(output_type, OutputType::Text))
+    {
+        if let HistorySource::Managed { memory_id, bound } = &history {
             if let Some(step_id) = effective_flow_step_id {
-                let all_messages: Vec<OpenAIMessage> =
-                    final_messages.iter().map(|m| m.message.clone()).collect();
-
-                if !all_messages.is_empty() {
+                if !memory_to_save.is_empty() {
                     let messages_to_persist = prepare_auto_memory_messages_for_persistence(
-                        &all_messages,
-                        *context_length,
+                        memory_to_save,
+                        bound.messages_to_keep(),
                     );
 
-                    if let Err(e) = write_to_memory(
+                    match write_to_memory(
                         db,
                         &job.workspace_id,
                         *memory_id,
                         step_id,
                         &messages_to_persist,
+                        matches!(bound, MemoryBound::LastMessages(_)),
                     )
                     .await
                     {
-                        tracing::error!(
-                            "Failed to persist {} messages to memory for step {}: {}",
-                            messages_to_persist.len(),
-                            step_id,
-                            e
-                        );
+                        // The conversation outgrew what the database holds and was cut
+                        // from its oldest message. Only the worker's own log says so
+                        // otherwise, so from the flow's side the agent simply starts the
+                        // next run having forgotten how this one began.
+                        Ok(dropped) if dropped > 0 => {
+                            append_logs(
+                                &job.id,
+                                &job.workspace_id,
+                                format!(
+                                    "Memory does not fit the {}KB the database holds, so its \
+                                     {dropped} oldest messages were dropped. Configure instance \
+                                     object storage to keep the whole conversation.\n",
+                                    MAX_MEMORY_SIZE_BYTES / 1000
+                                ),
+                                conn,
+                            )
+                            .await;
+                        }
+                        Ok(_) => {}
+                        Err(e) => {
+                            tracing::error!(
+                                "Failed to persist {} messages to memory for step {}: {}",
+                                messages_to_persist.len(),
+                                step_id,
+                                e
+                            );
+                            append_logs(&job.id, &job.workspace_id,
+                                "Agent memory could not be saved. The answer is preserved; the next run may load older memory.\n".to_string(), conn).await;
+                        }
                     }
                 }
             }
@@ -2100,6 +2375,7 @@ mod tests {
     enum Resolved {
         Messages(usize),
         Window(Uuid, usize),
+        Compaction(Uuid, usize),
         Stateless { noted: bool },
     }
 
@@ -2185,6 +2461,18 @@ mod tests {
                 Resolved::Stateless { noted: true },
             ),
             (
+                "compaction keeps the run's memory",
+                json!({ "memory": { "kind": "compaction", "context_window": 32000 } }),
+                Some(run),
+                Resolved::Compaction(run, 32000),
+            ),
+            (
+                "a cleared context window is left for the model lookup to fill",
+                json!({ "memory": { "kind": "compaction", "context_window": null } }),
+                Some(run),
+                Resolved::Compaction(run, 0),
+            ),
+            (
                 "a step memory id overrides the run's",
                 json!({ "memory": window, "memory_id": "cust_1" }),
                 Some(run),
@@ -2247,8 +2535,20 @@ mod tests {
             let args: AIAgentArgs = serde_json::from_value(raw).unwrap();
             let resolved = match resolve_history_source(&args, run_memory_id, "ws", "f/flow") {
                 (HistorySource::Messages(m), _) => Resolved::Messages(m.len()),
-                (HistorySource::Window { memory_id, context_length }, _) => {
-                    Resolved::Window(memory_id, context_length)
+                (
+                    HistorySource::Managed {
+                        memory_id,
+                        bound: MemoryBound::LastMessages(context_length),
+                    },
+                    _,
+                ) => Resolved::Window(memory_id, context_length),
+                (HistorySource::Managed { memory_id, bound: MemoryBound::Compaction }, _) => {
+                    match args.memory {
+                        Some(Memory::Compaction { context_window }) => {
+                            Resolved::Compaction(memory_id, context_window)
+                        }
+                        _ => panic!("expected compaction settings"),
+                    }
                 }
                 (HistorySource::Stateless, notes) => {
                     Resolved::Stateless { noted: !notes.is_empty() }
@@ -2349,7 +2649,7 @@ mod tests {
             ..Default::default()
         }];
 
-        let partial = MaxIterPartialResult {
+        let partial = AgentPartialResult {
             messages: messages
                 .iter()
                 .map(|m| Message { message: m, agent_action: m.agent_action.as_ref() })
