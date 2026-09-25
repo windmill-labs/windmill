@@ -116,13 +116,14 @@ async fn get_ruff_config_unauthed(Extension(db): Extension<DB>) -> error::Result
 }
 
 /// The announcement banner and accent color, which every signed-in session reads on each
-/// full page load. Served from the in-memory copy (see `INSTANCE_UI_TTL`).
+/// full page load.
 async fn get_instance_ui(
     Extension(db): Extension<DB>,
     _authed: ApiAuthed,
 ) -> JsonResult<windmill_common::global_settings::InstanceUi> {
-    let ui = windmill_common::global_settings::get_instance_ui(&db).await?;
-    Ok(Json((*ui).clone()))
+    Ok(Json(
+        windmill_common::global_settings::get_instance_ui(&db).await?,
+    ))
 }
 
 pub fn global_service() -> Router {
@@ -938,9 +939,6 @@ pub async fn set_global_setting_internal(
             tracing::error!(error = %e, "Could not reload custom tags setting after write");
         }
     }
-    if windmill_common::global_settings::is_instance_ui_setting(&key) {
-        windmill_common::global_settings::invalidate_instance_ui();
-    }
 
     Ok(())
 }
@@ -1325,16 +1323,6 @@ async fn set_instance_config(
 
         if ai_config_changed {
             bump_instance_ai_config_revision();
-        }
-
-        let touches_instance_ui = settings_diff
-            .upserts
-            .iter()
-            .map(|(k, _)| k)
-            .chain(settings_diff.deletes.iter())
-            .any(|k| windmill_common::global_settings::is_instance_ui_setting(k));
-        if touches_instance_ui {
-            windmill_common::global_settings::invalidate_instance_ui();
         }
     }
 

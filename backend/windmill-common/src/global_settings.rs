@@ -301,42 +301,14 @@ pub fn validate_accent_color(value: &serde_json::Value) -> Result<(), String> {
     Ok(())
 }
 
-/// The settings every signed-in browser reads on each full page load, served
-/// together from memory: one query per server per [`INSTANCE_UI_TTL`], not one per session.
+/// The settings every signed-in browser reads on each full page load.
 #[derive(serde::Serialize, Clone, Debug, Default, PartialEq)]
 pub struct InstanceUi {
     pub instance_banner: Option<serde_json::Value>,
     pub accent_color: Option<serde_json::Value>,
 }
 
-/// How long a cached [`InstanceUi`] is served before the next request re-reads it. Changes
-/// also invalidate it through `notify_global_setting_change`; this bounds staleness when
-/// that notification is lost.
-const INSTANCE_UI_TTL: std::time::Duration = std::time::Duration::from_secs(30);
-
-lazy_static::lazy_static! {
-    /// `None` means "read the database on the next request". Changes invalidate rather than
-    /// reload, so a failed read can never leave a stale value behind.
-    static ref INSTANCE_UI: arc_swap::ArcSwapOption<(std::time::Instant, Arc<InstanceUi>)> =
-        arc_swap::ArcSwapOption::empty();
-}
-
-/// Bumped by every invalidation, so a read that started before one does not store the
-/// pre-change value it fetched.
-static INSTANCE_UI_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-
-pub fn invalidate_instance_ui() {
-    INSTANCE_UI_GENERATION.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    INSTANCE_UI.store(None);
-}
-
-pub async fn get_instance_ui(db: &Pool<Postgres>) -> error::Result<Arc<InstanceUi>> {
-    if let Some(cached) = INSTANCE_UI.load_full() {
-        if cached.0.elapsed() < INSTANCE_UI_TTL {
-            return Ok(cached.1.clone());
-        }
-    }
-    let generation = INSTANCE_UI_GENERATION.load(std::sync::atomic::Ordering::SeqCst);
+pub async fn get_instance_ui(db: &Pool<Postgres>) -> error::Result<InstanceUi> {
     let rows = sqlx::query!(
         "SELECT name, value FROM global_settings WHERE name = ANY($1)",
         &[INSTANCE_BANNER_SETTING, ACCENT_COLOR_SETTING] as &[&str]
@@ -351,15 +323,7 @@ pub async fn get_instance_ui(db: &Pool<Postgres>) -> error::Result<Arc<InstanceU
             _ => {}
         }
     }
-    let ui = Arc::new(ui);
-    if INSTANCE_UI_GENERATION.load(std::sync::atomic::Ordering::SeqCst) == generation {
-        INSTANCE_UI.store(Some(Arc::new((std::time::Instant::now(), ui.clone()))));
-    }
     Ok(ui)
-}
-
-pub fn is_instance_ui_setting(name: &str) -> bool {
-    name == INSTANCE_BANNER_SETTING || name == ACCENT_COLOR_SETTING
 }
 
 /// Validate a [`GITHUB_APP_WEBHOOK_BASE_URL_SETTING`] value.
@@ -488,7 +452,6 @@ pub fn is_setting_readable_by_agent_worker(name: &str) -> bool {
 }
 
 use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
 
 lazy_static::lazy_static! {
     pub static ref HTTP_ROUTE_WORKSPACED_ROUTE: AtomicBool = AtomicBool::new(false);
