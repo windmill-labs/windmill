@@ -2567,6 +2567,17 @@ describe('global AI tools', () => {
 			expect(getBackendDraft<any>('script', 'f/sales/stored', { workspace })?.content).toContain(
 				'return 2'
 			)
+
+			// No editor stages a name for a variable, so its path is already the key: the
+			// listing is never consulted and a broken one cannot refuse the write.
+			await call('write_variable', {
+				path: 'u/admin/unlistable_var',
+				value: 'v',
+				is_secret: false
+			})
+			expect(
+				getBackendDraft<any>('variable', 'u/admin/unlistable_var', { workspace })
+			).toBeDefined()
 		} finally {
 			vi.mocked(DraftService.listDrafts).mockImplementation(listing!)
 		}
@@ -3198,7 +3209,7 @@ describe('global AI tools', () => {
 			{ workspace: WORKSPACE }
 		)
 
-		await callGlobalTool('write_script', {
+		const res = await callGlobalTool('write_script', {
 			path: 'u/admin/draft_s1',
 			language: 'bun',
 			content: 'export async function main() { return 2 }'
@@ -3207,6 +3218,8 @@ describe('global AI tools', () => {
 		const draft = getBackendDraft<any>('script', 'u/admin/draft_s1', { workspace: WORKSPACE })
 		expect(draft?.path).toBe('f/team/new_script')
 		expect(draft?.content).toBe('export async function main() { return 2 }')
+		// Reported under the name, not the key it was addressed by.
+		expect(JSON.parse(res).message).toContain('f/team/new_script')
 	})
 
 	// Same rule, the other branch of `chosenDraftName`: a flow parks its name in

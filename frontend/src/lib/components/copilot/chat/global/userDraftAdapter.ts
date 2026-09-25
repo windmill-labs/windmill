@@ -313,6 +313,16 @@ export function chosenDraftName(itemKind: UserDraftItemKind, value: unknown): st
 	return (itemKind === 'script' ? v?.path : v?.draft_path) || undefined
 }
 
+/**
+ * The kinds an editor can stage a name for: a flow and a raw app write `draft_path`, a
+ * script renames the value's own `path`. A resource, variable, schedule or trigger draft
+ * is only ever stored at its own path, so a failed drafts listing withholds nothing a
+ * write of one needed.
+ */
+const NAMEABLE_DRAFT_KINDS: ReadonlySet<UserDraftItemKind> = new Set(['script', 'flow', 'raw_app'])
+
+/** Deployed-existence probe per nameable kind — the same three kinds, since only an item
+ * that can be deployed can leave a draft staged under its old name. */
 const deployedExists: Partial<
 	Record<UserDraftItemKind, (workspace: string, path: string) => Promise<boolean>>
 > = {
@@ -370,8 +380,16 @@ async function storagePathForChosenName(
 	// workspace-wide — an indexed single-row check answers the common case, where the path
 	// is simply where something is deployed, and a path that is unambiguous by this rule is
 	// then never refused because the listing failed.
+	//
+	// A failed probe falls through to the listing rather than out of the call: the listing
+	// below degrades on the same class of transient failure, and a read that addressed a
+	// deployed path made no such request at all before.
 	const exists = deployedExists[itemKind]
-	if (exists && (await exists(workspace, path))) return path
+	try {
+		if (exists && (await exists(workspace, path))) return path
+	} catch {
+		// fall through to the listing
+	}
 	let rows: Awaited<ReturnType<typeof DraftService.listDrafts>>
 	try {
 		rows = await DraftService.listDrafts({ workspace })
@@ -379,7 +397,11 @@ async function storagePathForChosenName(
 		// Nothing is stored at this path, so it may be a name. Without the listing that
 		// cannot be told, and a write that guessed the path itself would create a second
 		// draft; a read of whatever is deployed there is harmless.
-		if (!opts.forWrite) return path
+		//
+		// For a kind no editor stages a name for, the path cannot be one, so there is
+		// nothing the listing would have told a write either — refusing it would fail a
+		// write that has no ambiguity to resolve.
+		if (!opts.forWrite || !NAMEABLE_DRAFT_KINDS.has(itemKind)) return path
 		throw new Error(
 			`Could not load this workspace's drafts, so "${path}" cannot be matched to the draft ` +
 				`it may name: ${e instanceof Error ? e.message : String(e)}. Try again.`

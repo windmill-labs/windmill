@@ -3620,7 +3620,9 @@ export const globalTools: SessionTool<{}>[] = [
 			'Read one workspace item or draft. Prefers your draft when one exists; pass version: "deployed" to read the deployed state instead.'
 		),
 		draftTarget: draftTarget((args) =>
-			args.version === 'deployed' || isHubPath(args.path)
+			// `typeof`: a call with no path must reach the body's schema parse to be reported
+			// as the malformed call it is, not die here on `startsWith`.
+			args.version === 'deployed' || (typeof args.path === 'string' && isHubPath(args.path))
 				? undefined
 				: { type: args.type, path: args.path, triggerKind: args.trigger_kind }
 		),
