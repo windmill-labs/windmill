@@ -1,5 +1,14 @@
 <script lang="ts">
-	import { AlignLeft, AlignRight, Bold, GripVertical, Italic, Plus, X } from 'lucide-svelte'
+	import {
+		AlignLeft,
+		AlignRight,
+		Bold,
+		GripVertical,
+		Italic,
+		Plus,
+		RotateCcw,
+		X
+	} from 'lucide-svelte'
 	import { Button } from './common'
 	import Select from './select/Select.svelte'
 	import TextInput from './text_input/TextInput.svelte'
@@ -86,16 +95,30 @@
 {/snippet}
 
 <div class="flex w-96 flex-col gap-3 p-3 text-xs" data-testid="db-format-editor">
-	<div class="flex flex-col gap-0.5">
-		<span class="truncate font-semibold text-emphasis">Format {column}</span>
-		<span class="text-2xs text-secondary">Only changes how values show in this view.</span>
+	<div class="flex items-start gap-2">
+		<div class="flex min-w-0 grow flex-col gap-0.5">
+			<span class="truncate font-semibold text-emphasis">Format {column}</span>
+			<span class="text-2xs text-secondary">Only changes how values show in this view.</span>
+		</div>
+		<Button
+			variant="subtle"
+			unifiedSize="xs"
+			startIcon={{ icon: RotateCcw }}
+			disabled={!format}
+			onClick={() => {
+				customUnit = false
+				onChange({})
+			}}
+		>
+			Reset
+		</Button>
 	</div>
 
 	<div class="flex flex-col gap-1">
 		<span class="font-medium text-secondary">Unit</span>
-		<div class="flex gap-2">
+		<div class="flex items-center gap-2">
 			<Select
-				class="grow"
+				class="w-24 shrink-0"
 				size="sm"
 				items={[
 					{ label: 'None', value: '' },
@@ -115,7 +138,7 @@
 				}
 			/>
 			{#if unitChoice === CUSTOM}
-				<div class="w-20 shrink-0">
+				<div class="w-16 shrink-0">
 					<TextInput
 						size="sm"
 						inputProps={{ placeholder: 'kg' }}
@@ -125,28 +148,27 @@
 						}
 					/>
 				</div>
+				<ToggleButtonGroup
+					noWFull
+					bind:selected={
+						() => unit?.position ?? 'after',
+						(v) => update({ unit: { symbol: unit?.symbol ?? '', position: v } })
+					}
+				>
+					{#snippet children({ item })}
+						<ToggleButton value="before" label="Before" {item} small />
+						<ToggleButton value="after" label="After" {item} small />
+					{/snippet}
+				</ToggleButtonGroup>
 			{/if}
 		</div>
-		{#if unitChoice === CUSTOM}
-			<ToggleButtonGroup
-				bind:selected={
-					() => unit?.position ?? 'after',
-					(v) => update({ unit: { symbol: unit?.symbol ?? '', position: v } })
-				}
-			>
-				{#snippet children({ item })}
-					<ToggleButton value="before" label="Before" {item} small />
-					<ToggleButton value="after" label="After" {item} small />
-				{/snippet}
-			</ToggleButtonGroup>
-		{/if}
 	</div>
 
 	<div class="flex flex-col gap-1">
 		<span class="font-medium text-secondary">Decimals</span>
 		<div class="flex items-center gap-2">
 			<Select
-				class="grow"
+				class="w-24 shrink-0"
 				size="sm"
 				items={[
 					{ label: 'Auto', value: AUTO_DECIMALS },
@@ -157,24 +179,31 @@
 					(v) => update({ decimals: v === AUTO_DECIMALS ? undefined : v })
 				}
 			/>
-			<Button
-				variant="default"
-				unifiedSize="sm"
-				selected={!!format?.thousands}
-				title="Thousands separator"
-				onClick={() => update({ thousands: !format?.thousands || undefined, compact: undefined })}
+			<ToggleButtonGroup
+				noWFull
+				bind:selected={
+					() => format?.notation ?? 'plain',
+					(v) => update({ notation: v === 'plain' ? undefined : (v as 'thousands' | 'compact') })
+				}
 			>
-				1,000
-			</Button>
-			<Button
-				variant="default"
-				unifiedSize="sm"
-				selected={!!format?.compact}
-				title="Shorten large numbers: 35.4M"
-				onClick={() => update({ compact: !format?.compact || undefined, thousands: undefined })}
-			>
-				Compact
-			</Button>
+				{#snippet children({ item })}
+					<ToggleButton value="plain" label="1000" tooltip="No separator" {item} small />
+					<ToggleButton
+						value="thousands"
+						label="1,000"
+						tooltip="Thousands separator"
+						{item}
+						small
+					/>
+					<ToggleButton
+						value="compact"
+						label="Compact"
+						tooltip="Shorten large numbers: 35.4M"
+						{item}
+						small
+					/>
+				{/snippet}
+			</ToggleButtonGroup>
 		</div>
 		<span class="text-2xs text-hint">
 			1234567.891 shows as {formatValue(1234567.891, format) ?? '1234567.891'}

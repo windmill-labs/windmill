@@ -6,10 +6,8 @@ export type ColumnFormat = {
 	unit?: { symbol: string; position: 'before' | 'after' }
 	/** Digits after the decimal point; undefined keeps those of the value. */
 	decimals?: number
-	/** Grouped by thousands: 1,234,567. */
-	thousands?: boolean
-	/** 35.4M rather than 35,412,345. */
-	compact?: boolean
+	/** Grouped by thousands (1,234,567) or shortened (1.2M); undefined writes 1234567. */
+	notation?: 'thousands' | 'compact'
 	/** Undefined aligns numbers right and anything else left. */
 	align?: 'left' | 'right'
 	/** The first rule whose condition matches styles the cell. */
@@ -67,13 +65,7 @@ export function asNumber(value: unknown): number | undefined {
 
 /** Whether the numbers of the column are formatted at all. */
 export function formatsNumbers(format: ColumnFormat | undefined): boolean {
-	return (
-		!!format &&
-		(format.decimals !== undefined ||
-			!!format.compact ||
-			!!format.unit?.symbol ||
-			!!format.thousands)
-	)
+	return !!format && (format.decimals !== undefined || !!format.notation || !!format.unit?.symbol)
 }
 
 /** The text a cell shows for `value`, or undefined when the format leaves it as is. */
@@ -84,11 +76,11 @@ export function formatValue(value: unknown, format: ColumnFormat | undefined): s
 	if (n === undefined) return undefined
 	if (!formatsNumbers(format)) return undefined
 	const text = new Intl.NumberFormat('en-US', {
-		useGrouping: !!format.thousands,
-		notation: format.compact ? 'compact' : 'standard',
+		useGrouping: format.notation === 'thousands',
+		notation: format.notation === 'compact' ? 'compact' : 'standard',
 		minimumFractionDigits: format.decimals,
 		// Left to the value, or to the compact notation's own rounding.
-		maximumFractionDigits: format.decimals ?? (format.compact ? undefined : 100)
+		maximumFractionDigits: format.decimals ?? (format.notation === 'compact' ? undefined : 100)
 		// A string keeps the digits a float would lose: numeric columns are read as text.
 	}).format(typeof value === 'string' ? (value.trim() as Intl.StringNumericLiteral) : n)
 	if (!format.unit?.symbol) return text
@@ -124,8 +116,7 @@ export function isEmptyFormat(format: ColumnFormat): boolean {
 	return (
 		!format.unit?.symbol &&
 		format.decimals === undefined &&
-		!format.thousands &&
-		!format.compact &&
+		!format.notation &&
 		!format.align &&
 		!format.rules?.length
 	)

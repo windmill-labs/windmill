@@ -4,11 +4,11 @@ import { cellStyle, formatValue, UNIT_PRESETS } from './dbTableFormat'
 describe('formatValue', () => {
 	it('sets the decimals, groups thousands and compacts', () => {
 		expect(formatValue('1234567.891', { decimals: 2 })).toBe('1234567.89')
-		expect(formatValue('1234567.891', { decimals: 2, thousands: true })).toBe('1,234,567.89')
+		expect(formatValue('1234567.891', { decimals: 2, notation: 'thousands' })).toBe('1,234,567.89')
 		expect(formatValue(3, { decimals: 2 })).toBe('3.00')
-		expect(formatValue('35412345', { compact: true, decimals: 1 })).toBe('35.4M')
+		expect(formatValue('35412345', { notation: 'compact', decimals: 1 })).toBe('35.4M')
 		// Past what a float holds: numeric columns arrive as text and keep every digit.
-		expect(formatValue('12345678901234567890.5', { thousands: true })).toBe(
+		expect(formatValue('12345678901234567890.5', { notation: 'thousands' })).toBe(
 			'12,345,678,901,234,567,890.5'
 		)
 	})
@@ -16,9 +16,9 @@ describe('formatValue', () => {
 	it('places the unit on its side, the sign before a leading one', () => {
 		expect(formatValue('12.5', { unit: { symbol: '%', position: 'after' } })).toBe('12.5%')
 		expect(formatValue(-5000, { unit: { symbol: '$', position: 'before' } })).toBe('-$5000')
-		expect(formatValue('35412345', { compact: true, decimals: 1, unit: UNIT_PRESETS[2] })).toBe(
-			'35.4M\u00A0€'
-		)
+		expect(
+			formatValue('35412345', { notation: 'compact', decimals: 1, unit: UNIT_PRESETS[2] })
+		).toBe('35.4M\u00A0€')
 	})
 
 	it('leaves a value untouched when nothing applies to it', () => {
