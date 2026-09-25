@@ -121,6 +121,7 @@ pub mod storage_list_ee;
 mod storage_list_oss;
 mod workspace_dependencies;
 
+mod agent_runs;
 mod ai_evals;
 mod approvals;
 #[cfg(all(feature = "enterprise", feature = "private"))]

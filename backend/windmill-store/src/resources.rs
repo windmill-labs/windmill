@@ -204,6 +204,10 @@ pub struct ListableResource {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[sqlx(default)]
     pub is_draft: Option<bool>,
+    /// `ai_agent` only: the identity it runs as when run from its own page.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub on_behalf_of: Option<String>,
 }
 
 /// A row of the resource listing: the resource as a single read returns it, plus what only the
@@ -234,6 +238,12 @@ pub struct CreateResource {
     pub labels: Option<Vec<String>>,
     #[serde(default)]
     pub ws_specific: Option<bool>,
+    /// `ai_agent` only: the identity to keep, honoured with `preserve_on_behalf_of` for a caller
+    /// allowed to keep one (see `set_agent_on_behalf_of`).
+    #[serde(default)]
+    pub on_behalf_of: Option<String>,
+    #[serde(default)]
+    pub preserve_on_behalf_of: Option<bool>,
 }
 #[derive(Deserialize)]
 struct EditResource {
@@ -243,6 +253,8 @@ struct EditResource {
     resource_type: Option<String>,
     labels: Option<Vec<String>>,
     ws_specific: Option<bool>,
+    on_behalf_of: Option<String>,
+    preserve_on_behalf_of: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -557,6 +569,8 @@ async fn list_resources(
                 draft_only: Some(true),
                 // Synthesized rows are the authed user's draft.
                 is_draft: Some(true),
+                // Resolved on the first deploy; a draft runs nowhere but the editor's preview.
+                on_behalf_of: None,
             };
             rows.push(ListedResource { resource, agent_memory, draft_path });
         }
@@ -590,7 +604,8 @@ async fn get_resource(
         variable.account,
         ws_specific.path IS NOT NULL as ws_specific,
         null::bool as draft_only,
-        null::bool as is_draft
+        null::bool as is_draft,
+        resource.on_behalf_of
         FROM resource
         LEFT JOIN variable ON variable.path = resource.path AND variable.workspace_id = $2
         LEFT JOIN account ON variable.account = account.id AND account.workspace_id = $2
@@ -1284,6 +1299,20 @@ async fn create_resource(
                 resource.path
             )));
         }
+    }
+
+    if resource.resource_type == "ai_agent" {
+        set_agent_on_behalf_of(
+            &mut tx,
+            &authed,
+            &db,
+            &w_id,
+            &resource.path,
+            resource.on_behalf_of.as_deref(),
+            resource.preserve_on_behalf_of.unwrap_or(false),
+            true,
+        )
+        .await?;
     }
 
     // Mirror update_resource: Some(true) inserts, Some(false) clears (only
@@ -2172,6 +2201,33 @@ async fn update_resource(
 
     let npath = not_found_if_none(npath_o, "Resource", path)?;
 
+    // A description or label edit changes nothing the agent runs, so only a new value or an
+    // identity asked for re-resolves who it runs as.
+    if ns.value.is_some() || ns.on_behalf_of.is_some() {
+        let is_agent = sqlx::query_scalar!(
+            "SELECT resource_type = 'ai_agent' FROM resource WHERE workspace_id = $1 AND path = $2",
+            &w_id,
+            &npath
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .flatten()
+        .unwrap_or(false);
+        if is_agent {
+            set_agent_on_behalf_of(
+                &mut tx,
+                &authed,
+                &db,
+                &w_id,
+                &npath,
+                ns.on_behalf_of.as_deref(),
+                ns.preserve_on_behalf_of.unwrap_or(false),
+                false,
+            )
+            .await?;
+        }
+    }
+
     if let Some(nlabels) = &ns.labels {
         sqlx::query!(
             "UPDATE resource SET labels = $1 WHERE path = $2 AND workspace_id = $3",
@@ -2333,6 +2389,74 @@ async fn update_resource_value(
     Ok(format!("value of resource {} updated", path))
 }
 
+/// Records the identity an `ai_agent` runs as, resolved on every write of it as a flow's
+/// `on_behalf_of` is on every deploy: the writer's own, unless one allowed to keep another asks
+/// to, and a folder's default for a new agent. Called in the writer's transaction after the
+/// value lands, since a value change clears the column (`reset_agent_on_behalf_of`).
+async fn set_agent_on_behalf_of(
+    tx: &mut Transaction<'_, Postgres>,
+    authed: &ApiAuthed,
+    db: &DB,
+    w_id: &str,
+    path: &str,
+    requested: Option<&str>,
+    preserve: bool,
+    created: bool,
+) -> Result<()> {
+    let (mut requested, mut preserve) = (requested.map(str::to_string), preserve);
+    let explicit =
+        requested.is_some() && preserve && windmill_common::can_preserve_on_behalf_of(authed);
+    if created && !explicit && windmill_common::can_preserve_on_behalf_of(authed) {
+        if let Some((_, folder_default)) =
+            windmill_common::folders::resolve_folder_default_on_behalf_of(db, w_id, path).await?
+        {
+            requested = Some(folder_default);
+            preserve = true;
+        }
+    }
+    let own = windmill_common::users::username_to_permissioned_as(&authed.username);
+    // Always an identity: nothing requested is the writer's own.
+    let resolved = windmill_common::resolve_on_behalf_of(
+        None,
+        Some(requested.as_deref().unwrap_or(&own)),
+        preserve,
+        authed,
+        w_id,
+        db,
+    )
+    .await?;
+    sqlx::query!(
+        "UPDATE resource SET on_behalf_of = $1 WHERE workspace_id = $2 AND path = $3",
+        resolved,
+        w_id,
+        path
+    )
+    .execute(&mut **tx)
+    .await?;
+    if let Some(kept) = windmill_common::check_on_behalf_of_preservation(
+        resolved.as_deref(),
+        preserve,
+        authed,
+        &own,
+    ) {
+        audit_log(
+            &mut **tx,
+            authed,
+            "resources.on_behalf_of",
+            if created {
+                ActionKind::Create
+            } else {
+                ActionKind::Update
+            },
+            w_id,
+            Some(path),
+            Some([("on_behalf_of", kept.as_str())].into()),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
 /// Write a resource's value and run everything that has to follow it: a version row, the audit
 /// entry, deployment metadata, the webhook, and dependent CI tests. Shared with version restore
 /// so a restored value is indistinguishable downstream from any other edit.
@@ -2375,6 +2499,9 @@ async fn set_resource_value(
     let Some(resource_type) = updated else {
         return Err(Error::NotFound(format!("Resource {} not found", path)));
     };
+    if resource_type == "ai_agent" {
+        set_agent_on_behalf_of(&mut tx, authed, db, w_id, path, None, false, false).await?;
+    }
     audit_log(
         &mut *tx,
         authed,

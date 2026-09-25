@@ -621,12 +621,17 @@ const FLOW_JOBS: [&'static str; 6] = [
     "jobs/run_and_stream/f",
 ];
 
+/// Runs of a saved AI agent: the server builds the run from the stored agent, so the route is
+/// scoped by the agent's path like a deployed runnable's, as `jobs:run:agents:<path>`.
+const AGENT_JOBS: [&'static str; 1] = ["jobs/run/agent"];
+
 lazy_static::lazy_static! {
     static ref RUN_PATH_ACTIONS: Vec<&'static str> = {
         let mut v = vec!["jobs/resume/", "jobs/run/batch_rerun_jobs", "jobs/run/workflow_as_code", "jobs/run/dependencies","jobs/run/flow_dependencies", "apps_u/execute_component", "apps_u/upload_s3_file"];
 
         v.extend(SCRIPT_JOBS);
         v.extend(FLOW_JOBS);
+        v.extend(AGENT_JOBS);
         v
     };
 }
@@ -646,13 +651,13 @@ fn map_http_method_to_action(method: &str, route_path: &str) -> ScopeAction {
     }
 }
 
-/// Checks the route path to determine the runnable kind (either "flows" or "scripts").
+/// Checks the route path to determine the runnable kind ("agents", "flows" or "scripts").
 ///
 /// The order of checks is important:
 /// - Flow-related paths are checked first to avoid false positives, as some flow paths
 ///   (e.g., `/run_preview_flow`) share prefixes with script paths (e.g., `/run_preview`).
 ///
-/// Returns `"flows"` or `"scripts"` based on the match, or `None` if no match is found.
+/// Returns the kind based on the match, or `None` if no match is found.
 fn determine_kind_from_route(route_path: &str) -> Option<String> {
     if route_path.starts_with("jobs") {
         // Preview/bundle runs execute arbitrary code with no deployed path, so
@@ -665,6 +670,9 @@ fn determine_kind_from_route(route_path: &str) -> Option<String> {
             || route_path.starts_with("jobs/run_wait_result/preview")
         {
             return None;
+        }
+        if AGENT_JOBS.iter().any(|path| route_path.starts_with(path)) {
+            return Some("agents".to_string());
         }
         if FLOW_JOBS.iter().any(|path| route_path.starts_with(path)) {
             return Some("flows".to_string());
@@ -1724,6 +1732,10 @@ mod tests {
         assert_eq!(
             scope_for_route("POST", "/api/w/ws/jobs/run/f/u/x/y").as_deref(),
             Some("jobs:run:flows")
+        );
+        assert_eq!(
+            scope_for_route("POST", "/api/w/ws/jobs/run/agent/u/x/y").as_deref(),
+            Some("jobs:run:agents")
         );
 
         // Preview/bundle runs have no deployed path and their handlers require the

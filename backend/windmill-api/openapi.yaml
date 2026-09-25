@@ -15955,6 +15955,46 @@ paths:
                 type: string
                 format: uuid
 
+  /w/{workspace}/jobs/run/agent/{path}:
+    post:
+      summary: run a saved AI agent
+      description: |
+        Runs the `ai_agent` resource at `path` as stored, for any caller who can read it
+        (operators included), as the agent's `on_behalf_of`. With `memory_id`, the run is a turn
+        of the caller's conversation with the agent; without, a single run.
+      operationId: runAgent
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+        - name: memory_id
+          description: The conversation this turn belongs to. A uuid is used as is; any other string is hashed within the workspace and agent.
+          in: query
+          schema:
+            type: string
+      requestBody:
+        description: the run's inputs
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                user_message:
+                  type: string
+                user_attachments:
+                  type: array
+                  items: {}
+      responses:
+        "201":
+          description: job created
+          content:
+            text/plain:
+              schema:
+                type: string
+                format: uuid
+
   /w/{workspace}/jobs/run_wait_result/preview_flow:
     post:
       summary: run flow preview and wait for result
@@ -31566,6 +31606,12 @@ components:
             type: string
         ws_specific:
           type: boolean
+        on_behalf_of:
+          type: string
+          description: ai_agent only. The identity the agent runs as (`u/<username>`, `g/<group>`), kept only with preserve_on_behalf_of by a caller allowed to; otherwise the agent runs as the caller.
+        preserve_on_behalf_of:
+          type: boolean
+          description: ai_agent only. Keep on_behalf_of rather than running as the caller. Honoured for admins and members of wm_deployers.
       required:
         - path
         - value
@@ -31590,6 +31636,12 @@ components:
             type: string
         ws_specific:
           type: boolean
+        on_behalf_of:
+          type: string
+          description: ai_agent only. The identity the agent runs as (`u/<username>`, `g/<group>`), kept only with preserve_on_behalf_of by a caller allowed to; a new value otherwise makes the agent run as the caller.
+        preserve_on_behalf_of:
+          type: boolean
+          description: ai_agent only. Keep on_behalf_of rather than running as the caller. Honoured for admins and members of wm_deployers.
 
     Resource:
       type: object
@@ -31710,6 +31762,9 @@ components:
             (over a deployed row or a synthesized draft-only row).
             Frontend appends a `*` to the displayed name.
           type: boolean
+        on_behalf_of:
+          type: string
+          description: ai_agent only. The identity the agent runs as when run from its own page.
         agent_memory:
           description: |
             For an `ai_agent` resource only, its `memory` setting: the one part

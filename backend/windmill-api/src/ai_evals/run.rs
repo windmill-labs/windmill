@@ -348,7 +348,7 @@ pub(crate) async fn require_agent(
 /// transforms, its tools the module's tools. The same conversion for a draft and for what is
 /// deployed, so the two hash comparably — which is what lets a draft run be recognised as the
 /// version it became.
-fn config_to_draft(value: serde_json::Value) -> Result<AgentDraft> {
+pub(crate) fn config_to_draft(value: serde_json::Value) -> Result<AgentDraft> {
     let mut config = match value {
         serde_json::Value::Object(map) => map,
         _ => return Err(Error::BadRequest("The agent is not an object".to_string())),
