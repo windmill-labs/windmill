@@ -701,7 +701,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 },
                 "schema": {
                         "type": "object",
-                        "description": "JSON Schema of the arguments of `main`, which is what a run form and an MCP tool offer. Omitted (or `{}`), it is inferred from `content` for TypeScript, Python, Go, Bash, PowerShell, SQL, GraphQL and Ansible scripts, keeping what the superseded version's schema says about each argument. For other languages, or code that does not parse, the superseded version's schema is kept (a new script gets none)."
+                        "description": "JSON Schema of the arguments of `main`, which is what a run form and an MCP tool offer. Omitted (or `{}`), it is inferred from `content` for TypeScript, Python, Go, Bash, PowerShell, SQL, GraphQL and Ansible scripts. For other languages, or code that does not parse, a new script gets none. A new version of an existing script also keeps what the previous version's schema says about each argument, or that whole schema when nothing can be inferred."
                 },
                 "language": {
                         "type": "string",
@@ -763,7 +763,7 @@ is, a different one moves it there and archives the old path"),
                 },
                 "schema": {
                         "type": "object",
-                        "description": "JSON Schema of the arguments of `main`, which is what a run form and an MCP tool offer. Omitted (or `{}`), it is inferred from `content` for TypeScript, Python, Go, Bash, PowerShell, SQL, GraphQL and Ansible scripts, keeping what the superseded version's schema says about each argument. For other languages, or code that does not parse, the superseded version's schema is kept (a new script gets none)."
+                        "description": "JSON Schema of the arguments of `main`, which is what a run form and an MCP tool offer. Omitted (or `{}`), it is inferred from `content` for TypeScript, Python, Go, Bash, PowerShell, SQL, GraphQL and Ansible scripts. For other languages, or code that does not parse, a new script gets none. A new version of an existing script also keeps what the previous version's schema says about each argument, or that whole schema when nothing can be inferred."
                 },
                 "language": {
                         "type": "string",
