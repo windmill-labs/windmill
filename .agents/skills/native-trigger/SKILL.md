@@ -84,7 +84,7 @@ pub trait External: Send + Sync + 'static {
     async fn prepare_webhook(&self, db, w_id, headers, body, script_path, is_flow) -> Result<PushArgsOwned>;
     fn service_config_from_create_response(&self, data, resp) -> Option<serde_json::Value>;
     fn additional_routes(&self) -> axum::Router;
-    async fn http_client_request<T, B>(&self, url, method, workspace_id, tx, db, headers, body) -> Result<T>;
+    async fn http_client_request<T, B>(&self, url, method, workspace_id, connection_path, db, headers, body) -> Result<T>;
 }
 ```
 
@@ -115,28 +115,44 @@ Use this when the external_id is known before the create call (e.g., Google gene
 
 Use this when the external_id is assigned by the remote service and the webhook URL needs to be corrected after creation.
 
-### OAuth Token Storage (Three-Table Pattern)
+### OAuth App and Connections
 
-OAuth tokens are stored across three tables, NOT in `workspace_integrations.oauth_data` directly:
+The OAuth **app** (client) is configured per workspace and service; **connections** (connected
+accounts) are many per service. Each trigger acts through one connection, named by
+`native_trigger.connection_path`:
 
 | Table | What's Stored |
 |-------|---------------|
-| `workspace_integrations` | `oauth_data` JSON with `base_url`, `client_id`, `client_secret`, `instance_shared` flag; `resource_path` pointing to the variable |
-| `variable` | Encrypted `access_token` (at the path stored in `resource_path`), linked to `account` via `account` column |
-| `account` | `refresh_token`, keyed by `workspace_id` + `client` (service name) + `is_workspace_integration = true` |
+| `workspace_integrations` | `oauth_data` JSON with `base_url`, `client_id`, `client_secret`, `instance_shared` flag. One row per (workspace, service); it must exist for every connection, since token refresh reads the client from it |
+| `variable` | Encrypted `access_token` at the connection path, linked to `account` via its `account` column |
+| `account` | `refresh_token`, with `client` = service name and `is_workspace_integration = true` |
+| `resource` | The connection's resource at the same path, `{ "token": "$var:<path>" }` |
 
-The `decrypt_oauth_data()` function in `lib.rs` assembles these into a unified struct:
+A user may use a connection when they can read its variable (checked with a user transaction,
+so the variable's row-level security decides): `resolve_usable_connection` /
+`list_usable_connections` in `lib.rs`. Background work (sync, renewal, rename re-registration,
+webhook handling) uses the stored `connection_path` directly.
+
+`decrypt_oauth_data(db, w_id, service, connection_path)` assembles these into one struct, and
+every service's `OAuthData` carries `connection_path` so `http_client_request` can refresh and
+write back the right connection:
 ```rust
 pub struct OAuthConfig {
     pub base_url: String,
-    pub access_token: String,      // decrypted from variable
-    pub refresh_token: Option<String>, // from account table
+    pub access_token: String,      // decrypted from the connection's variable
+    pub refresh_token: Option<String>, // from its account
     pub client_id: String,         // from oauth_data or instance settings
     pub client_secret: String,     // from oauth_data or instance settings
+    pub connection_path: String,
 }
 ```
 
-Instance-level sharing: when `oauth_data.instance_shared == true`, `client_id` and `client_secret` are read from global settings instead of workspace_integrations.
+A refreshed token is written back by connection path and account id, never by service: providers
+like Nextcloud rotate refresh tokens, so writing one onto another account breaks its next refresh.
+
+Instance-level sharing: when the workspace has no OAuth app of its own and the instance admin
+shares one (`share_with_workspaces` in the `oauths` setting; not available for Nextcloud), the
+connect flow uses it and records `{"instance_shared": true}` in `workspace_integrations`.
 
 ### URL Resolution
 
@@ -311,7 +327,7 @@ impl External for NewService {
         });
 
         let response: CreateTriggerResponse = self
-            .http_client_request(&url, Method::POST, w_id, tx, db, None, Some(&payload))
+            .http_client_request(&url, Method::POST, w_id, &oauth_data.connection_path, db, None, Some(&payload))
             .await?;
 
         Ok(response)
@@ -343,7 +359,7 @@ impl External for NewService {
         });
 
         let _: serde_json::Value = self
-            .http_client_request(&url, Method::PUT, w_id, tx, db, None, Some(&payload))
+            .http_client_request(&url, Method::PUT, w_id, &oauth_data.connection_path, db, None, Some(&payload))
             .await?;
 
         // Fetch back the updated state to get the resolved config
@@ -361,7 +377,7 @@ impl External for NewService {
         tx: &mut PgConnection,
     ) -> Result<Self::TriggerData> {
         let url = format!("{}/api/webhooks/{}", oauth_data.base_url, external_id);
-        self.http_client_request::<_, ()>(&url, Method::GET, w_id, tx, db, None, None).await
+        self.http_client_request::<_, ()>(&url, Method::GET, w_id, &oauth_data.connection_path, db, None, None).await
     }
 
     async fn delete(
@@ -374,7 +390,7 @@ impl External for NewService {
     ) -> Result<()> {
         let url = format!("{}/api/webhooks/{}", oauth_data.base_url, external_id);
         let _: serde_json::Value = self
-            .http_client_request::<_, ()>(&url, Method::DELETE, w_id, tx, db, None, None)
+            .http_client_request::<_, ()>(&url, Method::DELETE, w_id, &oauth_data.connection_path, db, None, None)
             .await
             .or_else(|e| match &e {
                 Error::InternalErr(msg) if msg.contains("404") => Ok(serde_json::Value::Null),
@@ -749,7 +765,7 @@ pub async fn prepare_native_trigger_args(service_name, db, w_id, headers, body) 
 
 When `workspace_integrations.oauth_data.instance_shared == true`, `decrypt_oauth_data()` reads `client_id` and `client_secret` from instance-level global settings instead of workspace-level. This allows admins to share OAuth app credentials across workspaces.
 
-The frontend handles this via the `generate_instance_connect_url` endpoint in `workspace_integrations.rs`.
+`generate_connect_url` picks the client (`resolve_oauth_client`): the workspace's own app when configured, the instance's otherwise. A GitHub OAuth app only redirects below its single registered callback, so connections made with the instance GitHub app land on `/oauth/callback/github/native_trigger` instead of the workspace settings page.
 
 ---
 

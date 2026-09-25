@@ -672,7 +672,7 @@ async fn update_username_in_workpsace<'c>(
     .await?;
 
     sqlx::query!(
-        r#"UPDATE workspace_integrations SET resource_path = REGEXP_REPLACE(resource_path, 'u/' || $2 || '/(.*)', 'u/' || $1 || '/\1') WHERE resource_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
+        r#"UPDATE native_trigger SET connection_path = REGEXP_REPLACE(connection_path, 'u/' || $2 || '/(.*)', 'u/' || $1 || '/\1') WHERE connection_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
         new_username,
         old_username,
         w_id
