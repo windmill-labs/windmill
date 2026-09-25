@@ -253,6 +253,17 @@
 		}
 	}
 
+	// A schedule's upcoming tick sits on a whole second and the backend refuses it; a tick
+	// deferred by a concurrency limit lands on a sub-second instant and can still start now.
+	let canRunNow = $derived(
+		job?.type === 'QueuedJob' &&
+			!job.running &&
+			!job.suspend &&
+			!!job.scheduled_for &&
+			forLater(job.scheduled_for) &&
+			!(job.schedule_path && new Date(job.scheduled_for).getMilliseconds() === 0)
+	)
+
 	async function runJobNow(id: string) {
 		try {
 			await JobService.runQueuedJobNow({ workspace: $workspaceStore!, id })
@@ -839,13 +850,13 @@
 					Current runs
 				</Button>
 			{/if}
-			{#if job?.type === 'QueuedJob' && !job.running && !job.suspend && job.scheduled_for && forLater(job.scheduled_for)}
+			{#if canRunNow}
 				<Button
 					unifiedSize="md"
 					variant="default"
 					startIcon={{ icon: Play }}
 					on:click={() => job?.id && runJobNow(job.id)}
-					title="Start this job now instead of at its scheduled time. It keeps the same id, and a concurrency limit is still enforced."
+					title="Start this job now instead of at its scheduled time, skipping any remaining delay or sleep. It keeps the same id, and a concurrency limit is still enforced."
 				>
 					Run now
 				</Button>

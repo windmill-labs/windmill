@@ -1059,7 +1059,21 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
         reqwest::StatusCode::BAD_REQUEST,
         "an upcoming schedule tick must not be started early (got {status}): {body}"
     );
-    sqlx::query("UPDATE v2_job_queue SET scheduled_for = now() WHERE id = $1::uuid")
+    // A tick a concurrency limit pushed past its time is off the cron occurrences and
+    // may still be started early.
+    sqlx::query(
+        "UPDATE v2_job_queue SET scheduled_for = now() + interval '1 hour 37 seconds 123 milliseconds'
+         WHERE id = $1::uuid",
+    )
+    .bind(RUNNING_JOB)
+    .execute(&db)
+    .await?;
+    let (status, body) = post(&authed_base, &run_now, Some("SECRET_TOKEN_2")).await;
+    assert!(
+        status.is_success(),
+        "a deferred schedule tick must still start now (got {status}): {body}"
+    );
+    sqlx::query("UPDATE v2_job SET trigger_kind = NULL, trigger = NULL WHERE id = $1::uuid")
         .bind(RUNNING_JOB)
         .execute(&db)
         .await?;
