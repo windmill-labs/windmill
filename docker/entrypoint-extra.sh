@@ -9,11 +9,9 @@ set -e
 PIDS=()
 NAMES=()
 
-# How long a service gets to honour SIGTERM before it is killed outright. On the
-# `docker stop` path dockerd provides that deadline itself; the "a service died"
-# path at the end of this script signals itself, so without one a service that is
-# wedged or slow to exit would keep the container alive and half-dead forever —
-# the exact state that path exists to avoid.
+# How long a service gets to honour SIGTERM before it is killed outright. The
+# exit path below signals itself, so nothing else bounds it there; a wedged
+# service would otherwise hold the container open half-dead forever.
 SHUTDOWN_GRACE_SECS="${SHUTDOWN_GRACE_SECS:-10}"
 
 stop_services() {
@@ -209,13 +207,10 @@ echo "[entrypoint] All enabled services started. Waiting..."
 status=0
 wait -n "${PIDS[@]}" 2>/dev/null || status=$?
 
-# A dead service is not something this container can recover from: nothing here
-# restarts one, and the health checks in front of the container probe a single
-# service, so a dead sibling is invisible and stays dead until someone notices by
-# hand. Report which one went, stop the rest, and exit non-zero so the
-# orchestrator replaces the whole container (docker-compose `restart:
-# unless-stopped`, a Kubernetes pod's default `restartPolicy: Always`, an ECS
-# service replacing the stopped task).
+# Nothing here restarts a dead service, and the health checks in front of this
+# container probe a single one, so a dead sibling is invisible and stays dead.
+# Name it, stop the rest and exit non-zero, leaving the orchestrator to replace
+# the container.
 for i in "${!PIDS[@]}"; do
     if ! kill -0 "${PIDS[$i]}" 2>/dev/null; then
         echo "[entrypoint] ERROR: ${NAMES[$i]} (PID: ${PIDS[$i]}) has exited" >&2

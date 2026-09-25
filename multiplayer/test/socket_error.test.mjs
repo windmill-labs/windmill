@@ -29,6 +29,9 @@ const WORKSPACE = 'test_workspace'
 const DOC_PATH = `${WORKSPACE}/f/foo/bar`
 // Logged by server.mjs for every connection `ws` failed at the protocol level.
 const SOCKET_ERROR = 'SOCKET ERROR'
+// RFC 6455 "protocol error": what `ws` closes with when its Receiver rejects a
+// frame, carried on the Receiver's error as `Symbol(status-code)`.
+const PROTOCOL_ERROR = 1002
 
 /**
  * A FIN + text frame of 3 bytes with the MASK bit clear. RFC 6455 requires every
@@ -70,6 +73,7 @@ test('an illegal WebSocket frame from an authenticated client does not exit the 
   await waitFor(() => offender.closeCode !== undefined, {
     message: 'the offending connection to be closed'
   })
+  assert.equal(offender.closeCode, PROTOCOL_ERROR)
   assert.equal(server.exitStatus, null, `server died: ${server.output}`)
   assert.ok(server.output.includes(SOCKET_ERROR), `server did not log the socket error:\n${server.output}`)
 
@@ -95,6 +99,7 @@ test('an illegal WebSocket frame before authentication does not exit the server'
   await waitFor(() => offender.closeCode !== undefined, {
     message: 'the offending connection to be closed'
   })
+  assert.equal(offender.closeCode, PROTOCOL_ERROR)
   // server.mjs logs CONNECT only once a peer is past verification, so its absence
   // is what makes this the pre-auth case rather than a repeat of the test above.
   assert.ok(!server.output.includes('CONNECT:'), `a connection was accepted:\n${server.output}`)

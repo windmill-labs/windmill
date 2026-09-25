@@ -169,12 +169,9 @@ const getYDoc = (docname) => {
 }
 
 /**
- * One safe log field out of an error: printable ASCII only and bounded.
- * An error message is not always a fixed string — `applyAwarenessUpdate` runs
- * `JSON.parse` on the peer's bytes, and V8 quotes ~30 bytes of the offending
- * input back verbatim — so treat every message as peer-controlled. Stripping
- * everything outside \x20-\x7e removes newlines (forged log lines) and
- * terminal escapes alike; the cap keeps a long message from flooding the log.
+ * Every error message is peer-controlled: `applyAwarenessUpdate` runs
+ * `JSON.parse` on the peer's bytes and V8 quotes the offending input back. Only
+ * printable ASCII survives, so nothing in it can forge or flood a log line.
  */
 const describeError = (error) => String(error?.message ?? error).replace(/[^\x20-\x7e]+/g, ' ').slice(0, 200)
 
@@ -224,18 +221,10 @@ const setupWSConnection = (conn, req, docName, bufferedMessages = []) => {
           break
       }
     } catch (error) {
-      // The decoders above throw on anything they cannot parse, and `ws` re-emits
-      // a listener's exception on the process. Without this catch a single
-      // malformed frame from one authenticated peer would take the whole server
-      // down, disconnecting every other document and client. Drop the offender
-      // instead. 1007 is RFC 6455's "invalid frame payload data"; server.mjs
-      // already uses standard close codes for protocol faults (1009 for the
-      // pre-auth flood cap) and reserves the private 4xxx range for
-      // Windmill-specific auth outcomes (4401/4403).
-      // The frame itself is never logged: it is untrusted, can be hundreds of
-      // KiB, and may hold document contents. The error message can still quote a
-      // short fragment of it (see describeError), so it goes through the same
-      // sanitising.
+      // The decoders throw on unparseable input and `ws` re-emits a listener's
+      // exception on the process, so one bad frame from one peer would end the
+      // server for every document and client. Drop only the offender, with RFC
+      // 6455's 1007; the frame itself is untrusted and is never logged.
       console.warn(`[${new Date().toISOString()}] MALFORMED MESSAGE: doc="${docName}" from=${clientIp} error="${describeError(error)}"`)
       conn.close(1007, 'Invalid message')
     }
@@ -292,10 +281,9 @@ const setupWSConnection = (conn, req, docName, bufferedMessages = []) => {
   })
 
   // Replay, in order, the messages that arrived while the token was being
-  // verified, now that the handlers above are in place. Say so: this path only
-  // runs when a client beat the JWKS fetch, which is worth seeing in the log of
-  // a slow-starting instance — and it is the only way to tell from outside that
-  // a frame went through the buffer rather than straight to the handler.
+  // verified, now that the handlers above are in place. The log line is the only
+  // outside evidence that a frame took this path rather than the live handler,
+  // and marks a client that beat the JWKS fetch on a slow-starting instance.
   if (bufferedMessages.length > 0) {
     console.log(`[${new Date().toISOString()}] REPLAY: doc="${docName}" from=${clientIp} messages=${bufferedMessages.length}`)
   }
@@ -326,12 +314,9 @@ const server = http.createServer((req, res) => {
 
 const wss = new WebSocketServer({ server })
 
-// `ws` forwards the HTTP server's errors here, and a server-level error is fatal
-// — a failed listen leaves a process with nothing to serve. Without a listener
-// that was an unhandled 'error' and the process died with a stack trace, which
-// was at least honest; log it and still fail, so the entrypoint replaces the
-// container instead of seeing what looks like a clean shutdown. Set the exit
-// code rather than calling process.exit(), which can truncate this very line.
+// `ws` forwards the HTTP server's errors here, and those are fatal: a failed
+// listen leaves nothing to serve, and exiting 0 would read as a clean shutdown.
+// `process.exitCode` rather than `process.exit()`, which truncates this line.
 wss.on('error', (error) => {
   console.error(`[${new Date().toISOString()}] WEBSOCKET SERVER ERROR: ${describeError(error)}`)
   process.exitCode = 1
@@ -347,12 +332,10 @@ wss.on('connection', async (ws, req) => {
 
   const clientIp = req.socket.remoteAddress
 
-  // `ws` emits a WebSocket 'error' for a frame it cannot parse at the protocol
-  // level — an unmasked frame from a client, a reserved opcode, a bad RSV bit —
-  // and an unhandled 'error' on an EventEmitter ends the process. That is the
-  // same blast radius as the decode crash below (every document, every client)
-  // and reachable by the same peer, so take it here, before authentication:
-  // `ws` has already closed the offending connection by the time this runs.
+  // A frame `ws` cannot parse at the protocol level fails in its Receiver, never
+  // reaching the handler below, and an unhandled 'error' on an EventEmitter ends
+  // the process. Attached before authentication, since the pre-auth window is
+  // exposed too; `ws` has already closed the connection by the time this runs.
   ws.on('error', (error) => {
     console.warn(`[${new Date().toISOString()}] SOCKET ERROR: doc="${docName}" from=${clientIp} error="${describeError(error)}"`)
   })

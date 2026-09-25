@@ -14,11 +14,9 @@ import * as decoding from 'lib0/decoding'
 export const messageSync = 0
 export const messageAwareness = 1
 
-// y-protocols/sync sub-types. Note these overlap numerically with the message
-// types above (`syncStep1 === messageSync === 0`), which is a property of the
-// wire format, not a mistake — so no runtime check can tell a caller that passed
-// the wrong family apart from one that passed the right one. `hasSyncType` is
-// named for the family it takes; pass it only the three constants below.
+// y-protocols/sync sub-types. These overlap numerically with the message types
+// above (`syncStep1 === messageSync === 0`), so no runtime check can catch a
+// caller that passes the wrong family: `hasSyncType` takes only these three.
 export const syncStep1 = 0
 export const syncStep2 = 1
 export const syncUpdate = 2
@@ -74,11 +72,8 @@ export function openClient(url, { onOpen } = {}) {
   const ws = new WebSocket(url)
   const received = []
   const client = { ws, received, closeCode: undefined, lastError: undefined }
-  // `ws` hands every frame over as a Buffer under the default
-  // binaryType 'nodebuffer', text frames included (it delivered those as strings
-  // in ws 7, which is where `new Uint8Array(string)` would have been a silent
-  // zero-fill), so this is lossless for both. Verified against the server's own
-  // text frame: /__ping__ arrives here as 39 bytes that decode to its JSON.
+  // Under the default binaryType 'nodebuffer' `ws` hands every frame over as a
+  // Buffer, text frames included, so this is lossless for both.
   ws.on('message', (data) => received.push(new Uint8Array(data)))
   ws.on('close', (code) => {
     client.closeCode = code
