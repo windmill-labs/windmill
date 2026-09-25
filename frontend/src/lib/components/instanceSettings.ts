@@ -2,6 +2,7 @@ import type { ButtonType } from './common/button/model'
 import { allowedOriginsSettingError } from './triggers/http/utils'
 import { z } from 'zod'
 import { instanceBannerFormError } from './instanceBanner'
+import { ACCENT_COLOR_SETTING, parseAccentColor } from '$lib/accentColor'
 import { parseMaxTokenExpirationDays } from '$lib/tokenExpiration'
 import { writable } from 'svelte/store'
 
@@ -72,6 +73,7 @@ export interface Setting {
 		| 'ws_connectivity'
 		| 'retention_overrides'
 		| 'instance_banner'
+		| 'accent_color'
 	storage: SettingStorage
 	advancedToggle?: {
 		label: string
@@ -334,6 +336,22 @@ export const settings: Record<string, Setting[]> = {
 			hideInQuickSetup: true,
 			// Gates Save. The card renders the specific message itself, so no `error` here.
 			isValid: (value: any) => instanceBannerFormError(value) == undefined
+		},
+		{
+			label: 'Accent color',
+			description:
+				'Recolors buttons, selections and the sidebar for every user, so each environment (e.g. staging vs. production) is recognizable at a glance.',
+			key: ACCENT_COLOR_SETTING,
+			fieldType: 'accent_color',
+			storage: 'setting',
+			ee_only: '',
+			hideInQuickSetup: true,
+			error: 'Must be a hex color like #1f9d55',
+			isValid: (value: unknown) =>
+				value === undefined ||
+				value === null ||
+				value === '' ||
+				parseAccentColor(value) !== undefined
 		}
 	],
 	Jobs: [
