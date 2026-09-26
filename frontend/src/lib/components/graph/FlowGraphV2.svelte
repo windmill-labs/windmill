@@ -118,8 +118,8 @@
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 	let showAssets: Writable<boolean | undefined> = writable<boolean | undefined>(true)
-	// Read-only alternative layout; editing needs the insert/drag affordances of the full graph,
-	// and it draws no diff markers, so a diff would read as an unchanged flow.
+	// Alternative layout without insert/drag affordances or diff markers: editing goes back to the
+	// full graph, and a diff would read as an unchanged flow, so diffs never offer it.
 	let simplifiedView = $state(false)
 	let showNotes = $state(true)
 
@@ -344,7 +344,7 @@
 	// Selection manager - create one if not provided
 	let selectionManager = untrack(() => selectionManagerProp) || new SelectionManager()
 	const selectedId = $derived(selectionManager.getSelectedId())
-	let simplifiedAvailable = $derived(!editMode && !diffBeforeFlow && !moduleActions)
+	let simplifiedAvailable = $derived(!diffBeforeFlow && !moduleActions)
 
 	const noteEditorContext = getNoteEditorContext()
 
