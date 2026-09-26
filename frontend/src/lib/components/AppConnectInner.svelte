@@ -126,6 +126,14 @@
 	// types carry a username too.
 	let customResourceTypes: Set<string> = $state(new Set())
 
+	// Hub descriptions are markdown; a row shows one line of it, where fenced blocks and
+	// backticks read as noise.
+	const plainDescription = (d: string) =>
+		d
+			.replace(/```[\s\S]*?```/g, '')
+			.replace(/`/g, '')
+			.replace(/\s+/g, ' ')
+			.trim()
 	let args: any = $state({})
 	let renderDescription = $state(true)
 
@@ -1210,6 +1218,9 @@
 					<span class="truncate leading-5">{resourceTypeDisplayName(key)}</span>
 					<span class="shrink-0 font-mono text-2xs font-normal text-hint">{key}</span>
 				{/snippet}
+				{#snippet subtitle()}
+					{plainDescription(resourceTypeDescriptions[key])}
+				{/snippet}
 				<!-- `highlighted`: the pointer moves the same highlight the arrow keys move, so
 				     the row's own hover is off — two lit rows at once would be ambiguous. -->
 				<ListRow
@@ -1218,6 +1229,7 @@
 					aiDescription={`Connect to ${key}${oauth ? ' with the instance OAuth client' : ''}`}
 					{icon}
 					{title}
+					subtitle={resourceTypeDescriptions[key] ? subtitle : undefined}
 					highlighted={index === highlight.index}
 					class="py-2"
 					onMouseEnter={() => highlight.hovered(index)}
