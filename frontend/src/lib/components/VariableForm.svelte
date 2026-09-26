@@ -115,8 +115,10 @@
 			disabled={unsecureNeedsLoad ||
 				(edit && (!actingUser || actingUser.operator || isEncryptedDraftValue(variable.value)))}
 		/>
-		{#if unsecureNeedsLoad && !actingUser?.operator}
-			<span class="text-2xs text-secondary">Load the secret value to make it non-secret</span>
+		{#if unsecureNeedsLoad && can_write && !actingUser?.operator}
+			<span class="text-2xs text-secondary">
+				Load the secret value or enter a new one to make it non-secret
+			</span>
 		{/if}
 	</div>
 	{#if variable.is_secret}
