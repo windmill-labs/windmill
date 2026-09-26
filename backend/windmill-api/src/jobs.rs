@@ -6941,7 +6941,8 @@ async fn resolve_nested_restart(
     parent_step_id: &str,
     parent_branch_or_iteration_n: Option<usize>,
     nested_path: Vec<NestedRestartStep>,
-    parent_flow_version: Option<i64>,
+    // (flow path of the restarted job, version to restart on)
+    parent_flow_version: Option<(&str, i64)>,
 ) -> error::Result<(
     Option<windmill_common::flow_status::BranchChosen>,
     Option<Box<RestartedFrom>>,
@@ -6969,8 +6970,8 @@ async fn resolve_nested_restart(
         )
     })?;
 
-    let flow_data = if let Some(version) = parent_flow_version {
-        cache::flow::fetch_version(db, version).await?
+    let flow_data = if let Some((flow_path, version)) = parent_flow_version {
+        windmill_queue::fetch_restart_flow_version(db, workspace_id, flow_path, version).await?
     } else {
         cache::job::fetch_flow(db, &row.job_kind, row.runnable_id)
             .or_else(|_| cache::job::fetch_preview_flow(db, &parent_job_id, row.raw_flow))
@@ -7164,7 +7165,7 @@ pub async fn restart_flow(
         &step_id,
         branch_or_iteration_n,
         nested_path,
-        flow_version,
+        flow_version.map(|v| (flow_path.as_str(), v)),
     )
     .await?;
 

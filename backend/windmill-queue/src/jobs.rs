@@ -7689,6 +7689,31 @@ fn reuse_completed_zombie_module(module: FlowStatusModule) -> FlowStatusModule {
     }
 }
 
+/// Loads the flow version a restart switches to. The version id is caller-supplied and the
+/// restarted job keeps the original job's path, so it must be a version of that same flow in
+/// that same workspace: any other id would run foreign code under the original path.
+pub async fn fetch_restart_flow_version(
+    db: &Pool<Postgres>,
+    workspace_id: &str,
+    flow_path: &str,
+    version: i64,
+) -> Result<Arc<FlowData>, Error> {
+    let belongs = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM flow_version WHERE id = $1 AND workspace_id = $2 AND path = $3) AS \"exists!\"",
+        version,
+        workspace_id,
+        flow_path,
+    )
+    .fetch_one(db)
+    .await?;
+    if !belongs {
+        return Err(Error::BadRequest(format!(
+            "flow version {version} is not a version of flow {flow_path} in workspace {workspace_id}"
+        )));
+    }
+    cache::flow::fetch_version(db, version).await
+}
+
 async fn restarted_flows_resolution(
     db: &Pool<Postgres>,
     workspace_id: &str,
@@ -7750,9 +7775,12 @@ async fn restarted_flows_resolution(
         && row.job_kind == JobKind::Flow;
 
     let flow_data = if is_version_change {
-        // Fetch the new flow version
-        let new_version = flow_version.unwrap();
-        cache::flow::fetch_version(db, new_version).await?
+        let flow_path = row.script_path.as_deref().ok_or_else(|| {
+            Error::BadRequest(format!(
+                "completed flow {completed_flow_id} has no path to restart a version of"
+            ))
+        })?;
+        fetch_restart_flow_version(db, workspace_id, flow_path, flow_version.unwrap()).await?
     } else {
         cache::job::fetch_flow(db, &row.job_kind, row.script_hash)
             .or_else(|_| {
