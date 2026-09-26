@@ -778,20 +778,19 @@
 					class="flex flex-col rounded-md border border-light bg-surface-tertiary divide-y divide-border-light overflow-hidden"
 				>
 					{#each otherWorkspaces as workspace (workspace.id)}
-						<button
-							class="flex items-center gap-3 px-3 py-2 text-left hover:bg-surface-hover transition-colors group"
-							onclick={() => goto(`/run/${page.params.run}?workspace=${workspace.id}`)}
+						<Button
+							variant="subtle"
+							unifiedSize="md"
+							btnClasses="h-auto justify-start text-left gap-3 px-3 py-2 rounded-none"
+							endIcon={{ icon: ArrowRight, classes: 'text-hint' }}
+							onClick={() => goto(`/run/${page.params.run}?workspace=${workspace.id}`)}
 						>
 							<WorkspaceIcon workspaceColor={workspace.color} padding="p-1" size={12} />
 							<div class="flex flex-col min-w-0 grow">
 								<span class="text-xs font-semibold text-emphasis truncate">{workspace.name}</span>
 								<span class="text-2xs text-secondary truncate">{workspace.id}</span>
 							</div>
-							<ArrowRight
-								size={14}
-								class="text-hint group-hover:text-primary transition-colors shrink-0"
-							/>
-						</button>
+						</Button>
 					{/each}
 				</div>
 			</div>
