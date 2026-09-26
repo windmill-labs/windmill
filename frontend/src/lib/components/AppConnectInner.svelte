@@ -1219,7 +1219,7 @@
 					{icon}
 					{title}
 					highlighted={index === highlight.index}
-					class="py-2.5"
+					class="py-2"
 					onMouseEnter={() => highlight.hovered(index)}
 					onClick={() => (oauth ? connectOauth(key) : selectFromOthers(key))}
 				/>
