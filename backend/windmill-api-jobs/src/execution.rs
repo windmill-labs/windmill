@@ -95,6 +95,66 @@ pub async fn check_tag_as_written_available_for_workspace(
     }
 }
 
+/// `parent_job` and `root_job` become the lineage the pushed job is identified by: its
+/// `WM_FLOW_JOB_ID` / `WM_ROOT_FLOW_JOB_ID`, and the flow path of its OIDC identity token. Only
+/// code already running in that lineage may claim it: a job's `WM_TOKEN` may name that job or
+/// one of its ancestors, which is what the SDKs send from inside a job. Workspace admins may name
+/// any job of the workspace.
+pub async fn check_run_lineage_allowed(
+    db: &DB,
+    w_id: &str,
+    run_query: &RunJobQuery,
+    authed: &ApiAuthed,
+) -> error::Result<()> {
+    let mut referenced: Vec<Uuid> = [run_query.parent_job, run_query.root_job]
+        .into_iter()
+        .flatten()
+        .collect();
+    referenced.dedup();
+    if let Some(token_job) = authed.job_id {
+        referenced.retain(|id| *id != token_job);
+        if !referenced.is_empty() {
+            if let Some(lineage) = sqlx::query!(
+                "SELECT parent_job, root_job, flow_innermost_root_job FROM v2_job
+                WHERE id = $1 AND workspace_id = $2",
+                token_job,
+                w_id
+            )
+            .fetch_optional(db)
+            .await?
+            {
+                let ancestors = [
+                    lineage.parent_job,
+                    lineage.root_job,
+                    lineage.flow_innermost_root_job,
+                ];
+                referenced.retain(|id| !ancestors.contains(&Some(*id)));
+            }
+        }
+    }
+    if referenced.is_empty() {
+        return Ok(());
+    }
+    let in_workspace = if authed.is_admin {
+        sqlx::query_scalar!(
+            "SELECT id FROM v2_job WHERE id = ANY($1) AND workspace_id = $2",
+            &referenced,
+            w_id,
+        )
+        .fetch_all(db)
+        .await?
+    } else {
+        vec![]
+    };
+    match referenced.iter().find(|id| !in_workspace.contains(id)) {
+        Some(id) => Err(Error::PermissionDenied(format!(
+            "job {id} cannot be the parent_job or root_job of this run: only the job whose \
+             WM_TOKEN makes the request, or one of that job's ancestors, can be"
+        ))),
+        None => Ok(()),
+    }
+}
+
 #[cfg(feature = "enterprise")]
 pub async fn check_license_key_valid() -> error::Result<()> {
     use windmill_common::ee_oss::LICENSE_KEY_VALID;
@@ -776,6 +836,7 @@ pub async fn run_flow<'c>(
     bool,
     Option<sqlx::Transaction<'c, sqlx::Postgres>>,
 )> {
+    check_run_lineage_allowed(db, w_id, &run_query, authed).await?;
     let on_behalf_of = flow_version_info.on_behalf_of(w_id, &db).await?;
     let FlowVersionInfo {
         version,
@@ -1017,6 +1078,7 @@ pub async fn push_script_job_by_path_into_queue<'c>(
 
     let script_path = script_path.to_path();
     check_scopes(&authed, || format!("jobs:run:scripts:{script_path}"))?;
+    check_run_lineage_allowed(&db, &w_id, &run_query, &authed).await?;
 
     let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
     let (job_payload, tag, delete_after_use, delete_after_secs, timeout, on_behalf_of) =

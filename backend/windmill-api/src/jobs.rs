@@ -7147,6 +7147,7 @@ pub async fn restart_flow(
         .script_path
         .with_context(|| "No flow path set for completed flow job")?;
     check_scopes(&authed, || format!("jobs:run:flows:{flow_path}"))?;
+    check_run_lineage_allowed(&db, &w_id, &run_query, &authed).await?;
 
     let ehm = HashMap::new();
     let push_args = completed_job
@@ -7761,6 +7762,7 @@ pub async fn run_wait_result_job_by_path_get(
     let tag = run_query.tag.clone().or(tag);
     let push_args = PushArgs { args: &args.args, extra: args.extra };
     check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
+    check_run_lineage_allowed(&db, &w_id, &run_query, &authed).await?;
 
     let (email, permissioned_as, push_authed, tx) =
         if let Some(on_behalf_of) = on_behalf_authed.as_ref() {
@@ -7907,6 +7909,7 @@ pub async fn run_wait_result_script_by_path_internal(
     let tag = run_query.tag.clone().or(tag);
     let push_args = PushArgs { args: &args.args, extra: args.extra };
     check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
+    check_run_lineage_allowed(&db, &w_id, &run_query, &authed).await?;
 
     let (email, permissioned_as, push_authed, tx) =
         if let Some(on_behalf_of) = on_behalf_of.as_ref() {
@@ -8021,6 +8024,7 @@ pub async fn run_wait_result_script_by_hash(
     let tag = run_query.tag.clone().or(tag);
     let push_args = PushArgs { args: &args.args, extra: args.extra };
     check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
+    check_run_lineage_allowed(&db, &w_id, &run_query, &authed).await?;
 
     let (email, permissioned_as, push_authed, tx) = if let Some(obo) = on_behalf_of.as_ref() {
         (
@@ -10040,6 +10044,7 @@ pub async fn run_job_by_hash_inner(
     let push_args = PushArgs { args: &args.args, extra: args.extra };
 
     check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
+    check_run_lineage_allowed(&db, &w_id, &run_query, &authed).await?;
 
     let (email, permissioned_as, push_authed, tx) = if let Some(obo) = on_behalf_of.as_ref() {
         (
