@@ -1014,3 +1014,68 @@ async fn test_list_search_scope_filtering(db: Pool<Postgres>) -> anyhow::Result<
 
     Ok(())
 }
+
+/// The hash-addressed read routes resolve the path only after the route-level scope check, so
+/// each must check the token's path scope itself.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_hash_read_routes_enforce_path_scope(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/scripts");
+
+    let mut hashes = std::collections::HashMap::new();
+    for folder in ["allowed", "private"] {
+        let resp = authed(client().post(format!(
+            "http://localhost:{port}/api/w/test-workspace/folders/create"
+        )))
+        .json(&json!({ "name": folder }))
+        .send()
+        .await
+        .unwrap();
+        assert_eq!(resp.status(), 200, "create folder: {}", resp.text().await?);
+
+        let path = format!("f/{folder}/s");
+        let resp = authed(client().post(format!("{base}/create")))
+            .json(&new_script(
+                &path,
+                "summary",
+                "export async function main() { return 1; }",
+            ))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 201, "create {path}: {}", resp.text().await?);
+        hashes.insert(folder, resp.text().await?);
+    }
+
+    sqlx::query(
+        "INSERT INTO token (token_hash, token_prefix, token, email, label, super_admin, scopes) VALUES
+         (encode(sha256('SCOPED_TOKEN'::bytea), 'hex'), 'SCOPED_TOK', 'SCOPED_TOKEN', 'test@windmill.dev', 'scoped', true, ARRAY['scripts:read:f/allowed/*'])",
+    )
+    .execute(&db)
+    .await?;
+
+    for (token, folder, allowed) in [
+        ("SCOPED_TOKEN", "allowed", true),
+        ("SCOPED_TOKEN", "private", false),
+        ("SECRET_TOKEN", "private", true),
+    ] {
+        let hash = &hashes[folder];
+        for url in [
+            format!("{base}/raw/h/{hash}.ts"),
+            format!("{base}/deployment_status/h/{hash}"),
+        ] {
+            let status = client()
+                .get(&url)
+                .header("Authorization", format!("Bearer {token}"))
+                .send()
+                .await
+                .unwrap()
+                .status();
+            assert_eq!(status.is_success(), allowed, "{token} GET {url}: {status}");
+        }
+    }
+
+    Ok(())
+}
