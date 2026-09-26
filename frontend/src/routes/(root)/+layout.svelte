@@ -29,6 +29,14 @@
 
 	let { children }: Props = $props()
 
+	// A lazy chunk that failed to load: Chromium, Firefox, Safari, then Vite's CSS preload.
+	const chunkLoadErrors = [
+		'Failed to fetch dynamically imported',
+		'error loading dynamically imported module',
+		'Importing a module script failed',
+		'Unable to preload CSS'
+	]
+
 	const monacoEditorUnhandledErrors = [
 		'Model not found',
 		'Connection is disposed.',
@@ -207,7 +215,7 @@
 				}
 				// A chunk gone from the server, typically a tab left open across an upgrade:
 				// a component loaded on demand would otherwise silently never appear.
-				if (message.startsWith('Failed to fetch dynamically imported')) {
+				if (chunkLoadErrors.some((m) => message.startsWith(m))) {
 					console.warn(message)
 					sendUserToast(
 						'Part of the page failed to load, Windmill may have been updated',

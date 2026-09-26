@@ -96,8 +96,11 @@ function assertLeanPublicAppRoutes() {
 			monaco
 		],
 		'/src/routes/a/[...path]/': ['/src/lib/components/apps/editor/AppPreview.svelte', monaco],
-		'/src/routes/(root)/(logged)/+layout.svelte': [monaco],
-		'/src/routes/(root)/(logged)/+page.svelte': [monaco]
+		'/src/routes/(root)/(logged)/+layout.svelte': [
+			monaco,
+			'/node_modules/@codingame/monaco-vscode'
+		],
+		'/src/routes/(root)/(logged)/+page.svelte': [monaco, '/node_modules/@codingame/monaco-vscode']
 	}
 	return {
 		name: 'wm-assert-lean-public-app-routes',
