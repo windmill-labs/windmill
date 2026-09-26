@@ -30,3 +30,50 @@ export async function tickPainted(): Promise<void> {
 	await nextAnimationFrame()
 	await nextAnimationFrame()
 }
+
+const QUIET_MS = 300
+const MAX_WAIT_MS = 5000
+let pageIdle: Promise<void> | undefined
+
+/**
+ * Resolve once the first page has loaded and its network has gone quiet (no resource
+ * finished for `QUIET_MS`, capped at `MAX_WAIT_MS` after `load`), then the main thread
+ * is idle. Gate prefetches of chunks the page does not need yet on it: started any
+ * earlier they compete with the page's own chunks and API calls for connections and
+ * bandwidth, which delays its first content. Resolves once per tab.
+ */
+export function whenPageIdle(): Promise<void> {
+	return (pageIdle ??= new Promise((resolve) => {
+		if (typeof window === 'undefined') return resolve()
+		const settle = () => {
+			const loadedAt = performance.now()
+			let timer: ReturnType<typeof setTimeout> | undefined
+			let observer: PerformanceObserver | undefined
+			let finished = false
+			const done = () => {
+				if (finished) return
+				finished = true
+				observer?.disconnect()
+				clearTimeout(timer)
+				if (typeof requestIdleCallback === 'function') {
+					requestIdleCallback(() => resolve(), { timeout: 1000 })
+				} else {
+					resolve()
+				}
+			}
+			const arm = () => {
+				if (finished) return
+				clearTimeout(timer)
+				const left = MAX_WAIT_MS - (performance.now() - loadedAt)
+				timer = setTimeout(done, Math.max(0, Math.min(QUIET_MS, left)))
+			}
+			try {
+				observer = new PerformanceObserver(arm)
+				observer.observe({ type: 'resource' })
+			} catch {}
+			arm()
+		}
+		if (document.readyState === 'complete') settle()
+		else window.addEventListener('load', settle, { once: true })
+	}))
+}

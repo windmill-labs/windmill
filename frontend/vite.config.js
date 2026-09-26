@@ -83,21 +83,29 @@ function assertAcyclicChunks() {
  * These pages also serve raw apps, which only need a small shell around their bundle's
  * iframe. One static import of AppPreview (or of anything reaching monaco) makes every
  * public app page preload ~650 chunks instead of ~55. See loadAppPreview.ts.
+ *
+ * The workspace shell and home page must not reach monaco either: it is ~2 MB gzipped
+ * that every page would download whether or not it shows an editor.
  */
 function assertLeanPublicAppRoutes() {
+	const monaco = '/node_modules/monaco-editor/'
 	// Route directories, so +page.js counts as well as +page.svelte.
-	const routes = ['/src/routes/public/[workspace]/[...secret]/', '/src/routes/a/[...path]/']
-	const forbidden = [
-		'/src/lib/components/apps/editor/AppPreview.svelte',
-		'/node_modules/monaco-editor/'
-	]
+	const forbiddenByRoute = {
+		'/src/routes/public/[workspace]/[...secret]/': [
+			'/src/lib/components/apps/editor/AppPreview.svelte',
+			monaco
+		],
+		'/src/routes/a/[...path]/': ['/src/lib/components/apps/editor/AppPreview.svelte', monaco],
+		'/src/routes/(root)/(logged)/+layout.svelte': [monaco],
+		'/src/routes/(root)/(logged)/+page.svelte': [monaco]
+	}
 	return {
 		name: 'wm-assert-lean-public-app-routes',
 		generateBundle(_options, bundle) {
 			const chunks = Object.entries(bundle).filter(([, c]) => c.type === 'chunk')
 			if (!chunks.some(([file]) => file.startsWith('_app/immutable/'))) return
 			const idsOf = (c) => c.moduleIds ?? Object.keys(c.modules ?? {})
-			for (const route of routes) {
+			for (const [route, forbidden] of Object.entries(forbiddenByRoute)) {
 				const starts = chunks
 					.filter(([, c]) => idsOf(c).some((id) => id.includes(route)))
 					.map(([file]) => file)
@@ -110,7 +118,7 @@ function assertLeanPublicAppRoutes() {
 					if (!chunk) continue
 					const hit = idsOf(chunk).find((id) => forbidden.some((f) => id.includes(f)))
 					if (hit) {
-						this.error(`${route} statically loads ${hit}; import it lazily (see loadAppPreview.ts)`)
+						this.error(`${route} statically loads ${hit}; import it lazily`)
 					}
 					for (const dep of chunk.imports ?? []) {
 						if (seen.has(dep)) continue

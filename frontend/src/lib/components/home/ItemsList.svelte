@@ -1009,6 +1009,12 @@
 	// would put two of them on the page at once while the workspace is still empty.
 	let hubPick = $state<HubProjectPick | undefined>(undefined)
 	let hubPickerOpen = $state(false)
+	// Mounted on the first pick and kept, so its dismissal and in-flight run outlive `hubPick`.
+	let importModalMounted = $state(false)
+	function pickHubProject(project: HubProjectPick) {
+		importModalMounted = true
+		hubPick = project
+	}
 
 	/**
 	 * Whether a workspace the default listing found empty is empty at all, or just has nothing
@@ -1941,7 +1947,7 @@
 						<WorkspaceEmptyState
 							archivedOnly={archivedProbe?.hasArchived === true}
 							canCreate={canCreateHere}
-							onPick={(project) => (hubPick = project)}
+							onPick={pickHubProject}
 							onShowArchived={() => (filterValues.val = { ...filterValues.val, archived: true })}
 						/>
 					{:else}
@@ -2073,13 +2079,16 @@
 	onClose={() => (hubPickerOpen = false)}
 	onPick={(project) => {
 		hubPickerOpen = false
-		hubPick = project
+		pickHubProject(project)
 	}}
 />
-<!-- Dynamic: the import flow statically reaches ~400 modules (resource setup, SQL editor). -->
-{#await import('./ImportProjectModal.svelte') then ImportProjectModal}
-	<ImportProjectModal.default pick={hubPick} onClose={() => (hubPick = undefined)} {onImported} />
-{/await}
+<!-- Dynamic and on demand: the import flow statically reaches ~400 modules, Monaco among
+     them (SQL editor). -->
+{#if importModalMounted}
+	{#await import('./ImportProjectModal.svelte') then ImportProjectModal}
+		<ImportProjectModal.default pick={hubPick} onClose={() => (hubPick = undefined)} {onImported} />
+	{/await}
+{/if}
 
 <style>
 	/* Rows arriving after an import, one after another. The animation is declared on the

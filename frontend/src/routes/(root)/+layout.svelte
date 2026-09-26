@@ -205,10 +205,22 @@
 					location.reload()
 					return
 				}
+				// A chunk gone from the server, typically a tab left open across an upgrade:
+				// a component loaded on demand would otherwise silently never appear.
+				if (message.startsWith('Failed to fetch dynamically imported')) {
+					console.warn(message)
+					sendUserToast(
+						'Part of the page failed to load, Windmill may have been updated',
+						true,
+						[{ label: 'Reload', callback: () => location.reload() }],
+						undefined,
+						15000
+					)
+					return
+				}
 				// Unhandled errors from Monaco Editor don't logout the user
 				if (
 					monacoEditorUnhandledErrors.includes(message) ||
-					message.startsWith('Failed to fetch dynamically imported') ||
 					message.startsWith('Unable to figure out browser width and height') ||
 					message.startsWith('Unable to read file') ||
 					message.startsWith('Could not find source file')

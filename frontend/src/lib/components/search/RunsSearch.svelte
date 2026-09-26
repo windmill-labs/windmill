@@ -9,7 +9,6 @@
 	import QuickMenuItem from './QuickMenuItem.svelte'
 	import { goto } from '$app/navigation'
 	import { displayDateOnly } from '$lib/utils'
-	import JobPreview from '../runs/JobRunsPreview.svelte'
 
 	let debounceTimeout: any = undefined
 	const debouncePeriod: number = 1000
@@ -210,7 +209,11 @@
 				Select a result to preview
 			{:else}
 				<div class="h-[95%] overflow-y-scroll">
-					<JobPreview id={selectedItem?.document?.id[0]} workspace={selectedWorkspace} />
+					<!-- Dynamic: the global search modal is warmed on every page, and the preview
+					     reaches Monaco through the flow graph. -->
+					{#await import('../runs/JobRunsPreview.svelte') then JobPreview}
+						<JobPreview.default id={selectedItem?.document?.id[0]} workspace={selectedWorkspace} />
+					{/await}
 				</div>
 			{/if}
 			<div class="flex flex-row pt-3 pl-4 items-center text-xs text-secondary">
@@ -246,8 +249,9 @@
 				<div class="text-sm">
 					Note that new runs might take a while to become searchable (by default ~5min).
 					{#if indexMetadata?.max_index_time_window_secs}
-						Search only covers the last {Math.round(indexMetadata.max_index_time_window_secs / 86400)} day(s),
-						configurable in instance settings under Indexer.
+						Search only covers the last {Math.round(
+							indexMetadata.max_index_time_window_secs / 86400
+						)} day(s), configurable in instance settings under Indexer.
 					{/if}
 				</div>
 				{#if !$enterpriseLicense}

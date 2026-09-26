@@ -11,6 +11,7 @@
 	import { onDestroy } from 'svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { Menu } from 'lucide-svelte'
+	import { whenPageIdle } from '$lib/utils/paint'
 
 	interface Props {
 		noPadding?: boolean
@@ -102,7 +103,7 @@
 {#if !disableAi}
 	<!-- Dynamic imports here and for AIChat: this layout wraps every workspace page, so its
 	     static imports gate first paint. -->
-	{#await import('./CreatedResourceActionDrawers.svelte') then CreatedResourceActionDrawers}
+	{#await whenPageIdle().then(() => import('./CreatedResourceActionDrawers.svelte')) then CreatedResourceActionDrawers}
 		<CreatedResourceActionDrawers.default />
 	{/await}
 	<Splitpanes horizontal={false} class="flex-1 min-h-0">

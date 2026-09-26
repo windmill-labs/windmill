@@ -65,6 +65,7 @@
 		getFavoriteLabel
 	} from '$lib/components/sidebar/FavoriteMenu.svelte'
 	import { SUPERADMIN_SETTINGS_HASH, USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
+	import { whenPageIdle } from '$lib/utils/paint'
 	import { isCloudHosted } from '$lib/cloud'
 	import { PanelLeftClose, PanelLeftOpen, Home, Play, Search, WandSparkles } from 'lucide-svelte'
 	import { getUserExt } from '$lib/user'
@@ -254,6 +255,20 @@
 	})
 	let userSettings: UserSettings | undefined = $state()
 	let superadminSettings: SuperadminSettings | undefined = $state()
+
+	// The shell's drawers and modals mount on first request, or once the page is idle so
+	// they open instantly. Not before: their chunks would compete with the page's own.
+	// Superadmin settings only mounts on request, as it reaches Monaco.
+	let pageIdle = $state(false)
+	whenPageIdle().then(() => (pageIdle = true))
+	let userSettingsRequested = $state(false)
+	let superadminSettingsRequested = $state(false)
+	let searchModalRequested = $state(false)
+	$effect(() => {
+		const hash = page.url.hash
+		if (hash.startsWith(USER_SETTINGS_HASH)) userSettingsRequested = true
+		if (hash === SUPERADMIN_SETTINGS_HASH) superadminSettingsRequested = true
+	})
 	let menuHidden = $state(false)
 	let isDarkMode = useIsDarkMode()
 	let darkMode = $derived(isDarkMode.val)
@@ -695,7 +710,10 @@
 
 	function openSearchModal(text?: string, stack?: OverlayStack): void {
 		if (globalSearchModal) globalSearchModal.openSearchWithPrefilledText(text, stack)
-		else if (searchModalMounts) pendingSearchOpen = { text, stack }
+		else if (searchModalMounts) {
+			pendingSearchOpen = { text, stack }
+			searchModalRequested = true
+		}
 	}
 
 	$effect(() => {
@@ -932,6 +950,11 @@
 	})
 
 	globalDbManagerDrawer.val = useDbManagerUriState()
+	// Mounted on first open and kept for its close transition: it reaches Monaco.
+	let dbManagerRequested = $state(false)
+	$effect(() => {
+		if (globalDbManagerDrawer.val?.open) dbManagerRequested = true
+	})
 
 	let globalS3FilePicker: S3FilePicker | undefined = $state()
 	$effect(() => {
@@ -1018,9 +1041,11 @@
 
 <!-- The drawers and modals below are dynamic imports: this layout wraps every workspace
      page, so whatever it imports statically gates first paint. -->
-{#await import('$lib/components/UserSettings.svelte') then UserSettings}
-	<UserSettings.default bind:this={userSettings} showMcpMode={true} />
-{/await}
+{#if pageIdle || userSettingsRequested}
+	{#await import('$lib/components/UserSettings.svelte') then UserSettings}
+		<UserSettings.default bind:this={userSettings} showMcpMode={true} />
+	{/await}
+{/if}
 {#if accountSetup.pending}
 	<FinishAccountSetup
 		bind:open={accountSetup.open}
@@ -1032,10 +1057,12 @@
 {#if page.status == 404}
 	<CenteredModal title="Page not found, redirecting you to login" loading={true}></CenteredModal>
 {:else if $userStore}
-	{#await import('$lib/components/search/GlobalSearchModal.svelte') then GlobalSearchModal}
-		<GlobalSearchModal.default bind:this={globalSearchModal} />
-	{/await}
-	{#if $superadmin}
+	{#if pageIdle || searchModalRequested}
+		{#await import('$lib/components/search/GlobalSearchModal.svelte') then GlobalSearchModal}
+			<GlobalSearchModal.default bind:this={globalSearchModal} />
+		{/await}
+	{/if}
+	{#if $superadmin && superadminSettingsRequested}
 		{#await import('$lib/components/SuperadminSettings.svelte') then SuperadminSettings}
 			<SuperadminSettings.default bind:this={superadminSettings} />
 		{/await}
@@ -1536,7 +1563,7 @@
 	<CenteredModal title="Loading user..." loading={true}></CenteredModal>
 {/if}
 
-{#if $workspaceStore && globalDbManagerDrawer.val}
+{#if $workspaceStore && globalDbManagerDrawer.val && dbManagerRequested}
 	{#await import('$lib/components/DBManagerDrawer.svelte') then DBManagerDrawer}
 		<DBManagerDrawer.default uriState={globalDbManagerDrawer.val} />
 	{/await}
