@@ -122,9 +122,9 @@ use windmill_common::{
 #[cfg(feature = "parquet")]
 use windmill_object_store::reload_object_store_setting;
 use windmill_queue::{
-    cancel_job, get_queued_job_v2,
+    cancel_job, canceled_result, get_queued_job_v2,
     schedule::{find_unarmed_schedules, rearm_schedule, RearmOutcome},
-    SameWorkerPayload,
+    CanceledBy, QueuedJobV2, SameWorkerPayload,
 };
 use windmill_store::resources::MAX_RESOURCE_VERSIONS;
 use windmill_worker::{
@@ -4004,7 +4004,7 @@ pub async fn monitor_db(
         if server_mode && !initial_load && !*DISABLE_ZOMBIE_JOBS_MONITORING {
             if let Some(db) = conn.as_sql() {
                 handle_zombie_jobs(db, base_internal_url, "server").await;
-                match handle_zombie_flows(db).await {
+                match handle_zombie_flows(db, base_internal_url).await {
                     Err(err) => {
                         tracing::error!("Error handling zombie flows: {:?}", err);
                     }
@@ -6132,42 +6132,12 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
     otel_incr_zombie_delete_count(timeouts.len() as u64);
 
     for (job_id, error_kind) in timeouts {
-        // since the job is unrecoverable, the same worker queue should never be sent anything
-        let (same_worker_tx_never_used, _same_worker_rx_never_used) =
-            mpsc::channel::<SameWorkerPayload>(1);
-        let same_worker_tx_never_used =
-            SameWorkerSender(same_worker_tx_never_used, Arc::new(AtomicU16::new(0)));
-        let (send_result_never_used, _send_result_rx_never_used) =
-            JobCompletedSender::new_never_used();
-
         let job = get_queued_job_v2(db, &job_id).await;
         if let Err(e) = job {
             tracing::error!("Error getting queued job: {:?}", e);
             continue;
         }
         if let Some(job) = job.unwrap() {
-            let label = ephemeral_script_token_label(&job.permissioned_as, &job.created_by);
-            let token = create_token_for_owner(
-                &db,
-                &job.workspace_id,
-                &job.permissioned_as,
-                &label,
-                job_token_expiry_secs(&db, &job.workspace_id).await,
-                &job.permissioned_as_email,
-                &job.id,
-                None,
-                Some(format!("handle_zombie_jobs")),
-            )
-            .await
-            .expect("could not create job token");
-
-            let client = AuthedClient::new(
-                base_internal_url.to_string(),
-                job.workspace_id.to_string(),
-                token,
-                None,
-            );
-
             let error_message = format!(
                 "Job timed out after no ping from job since {} (ZOMBIE_JOB_TIMEOUT: {}, reason: {:?}).\nThis likely means that the job died on worker {}, OOM are a common reason for worker crashes.\nCheck the workers around the time of the last ping and the exit code if any.",
                 job.last_ping.unwrap_or_default(),
@@ -6175,13 +6145,11 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
                 error_kind.to_string(),
                 job.worker.clone().unwrap_or_default(),
             );
-            let memory_peak = job.memory_peak.unwrap_or(0);
-            let (_, killpill_rx_never_used) = KillpillSender::new(1);
-            let _ = handle_job_error(
+            complete_stranded_job(
                 db,
-                &client,
-                &windmill_queue::MiniCompletedJob::from(job),
-                memory_peak,
+                base_internal_url,
+                node_name,
+                job,
                 None,
                 error::Error::ExecutionErr(error_message.clone()),
                 // a same worker zombie means the worker itself is gone
@@ -6190,13 +6158,6 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
                 } else {
                     StepFailureKind::Normal
                 },
-                Some(&same_worker_tx_never_used),
-                "",
-                node_name,
-                send_result_never_used,
-                &killpill_rx_never_used,
-                #[cfg(feature = "benchmark")]
-                &mut windmill_common::bench::BenchmarkIter::new(),
             )
             .await;
 
@@ -6207,6 +6168,67 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
             }
         }
     }
+}
+
+/// Completes a job whose worker is gone the way that worker would have: through
+/// `handle_job_error`, so a flow step's parent flow goes on to process the outcome.
+async fn complete_stranded_job(
+    db: &Pool<Postgres>,
+    base_internal_url: &str,
+    node_name: &str,
+    job: QueuedJobV2,
+    canceled_by: Option<CanceledBy>,
+    err: error::Error,
+    step_failure: StepFailureKind,
+) {
+    // since the job is unrecoverable, the same worker queue should never be sent anything
+    let (same_worker_tx_never_used, _same_worker_rx_never_used) =
+        mpsc::channel::<SameWorkerPayload>(1);
+    let same_worker_tx_never_used =
+        SameWorkerSender(same_worker_tx_never_used, Arc::new(AtomicU16::new(0)));
+    let (send_result_never_used, _send_result_rx_never_used) = JobCompletedSender::new_never_used();
+
+    let label = ephemeral_script_token_label(&job.permissioned_as, &job.created_by);
+    let token = create_token_for_owner(
+        &db,
+        &job.workspace_id,
+        &job.permissioned_as,
+        &label,
+        job_token_expiry_secs(&db, &job.workspace_id).await,
+        &job.permissioned_as_email,
+        &job.id,
+        None,
+        Some(format!("handle_zombie_jobs")),
+    )
+    .await
+    .expect("could not create job token");
+
+    let client = AuthedClient::new(
+        base_internal_url.to_string(),
+        job.workspace_id.to_string(),
+        token,
+        None,
+    );
+
+    let memory_peak = job.memory_peak.unwrap_or(0);
+    let (_, killpill_rx_never_used) = KillpillSender::new(1);
+    handle_job_error(
+        db,
+        &client,
+        &windmill_queue::MiniCompletedJob::from(job),
+        memory_peak,
+        canceled_by,
+        err,
+        step_failure,
+        Some(&same_worker_tx_never_used),
+        "",
+        node_name,
+        send_result_never_used,
+        &killpill_rx_never_used,
+        #[cfg(feature = "benchmark")]
+        &mut windmill_common::bench::BenchmarkIter::new(),
+    )
+    .await;
 }
 
 /// Force-complete a zombie job that handle_job_error failed to complete.
@@ -6500,7 +6522,7 @@ async fn find_zombie_flow_culprit_worker(
     }
 }
 
-async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
+async fn handle_zombie_flows(db: &DB, base_internal_url: &str) -> error::Result<()> {
     // flow_status is cast ::text on purpose: decoding the jsonb column directly as Box<str>
     // yields its binary form (leading version byte) and fails serde_json parsing at column 1.
     let flows = sqlx::query!(
@@ -6532,27 +6554,29 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
 
     for flow in flows {
         // A canceled flow waits for its next transition to complete it. When the worker died
-        // before that, nothing else will: finish the cancel as the user asked for it.
-        if let Some(canceler) = flow.canceled_by.as_deref() {
-            tracing::warn!(
-                "flow {} in workspace {} was canceled by {canceler} but its worker stopped between two steps (last ping: {:?}), completing the cancel",
-                flow.id,
-                flow.workspace_id,
-                flow.last_ping,
+        // before that, nothing else will: complete this flow only, as the user's cancel, and let
+        // its parent process that like any step's cancel. A forced cancel would instead reach
+        // up to the root and cancel flows the user never canceled.
+        if let Some(canceler) = flow.canceled_by.clone() {
+            let message = format!(
+                "Flow {} in workspace {} was canceled by {canceler} but its worker stopped between two steps (last ping: {:?}), completing the cancel. This would happen if a worker was interrupted, killed or crashed while doing a state transition.",
+                flow.id, flow.workspace_id, flow.last_ping,
             );
-            let mut tx = db.begin().await?;
-            (tx, _) = cancel_job(
-                canceler,
-                flow.canceled_reason.clone(),
-                flow.id,
-                &flow.workspace_id,
-                tx,
-                db,
-                true,
-                false,
-            )
-            .await?;
-            tx.commit().await?;
+            tracing::error!(message);
+            report_critical_error(message, db.clone(), Some(&flow.workspace_id), None).await;
+            if let Some(job) = get_queued_job_v2(db, &flow.id).await? {
+                let reason = flow.canceled_reason.clone();
+                complete_stranded_job(
+                    db,
+                    base_internal_url,
+                    "server",
+                    job,
+                    Some(CanceledBy { username: Some(canceler.clone()), reason: reason.clone() }),
+                    error::Error::JsonErr(canceled_result(reason.as_deref(), Some(&canceler))),
+                    StepFailureKind::Normal,
+                )
+                .await;
+            }
             continue;
         }
 
@@ -7826,50 +7850,175 @@ mod log_file_listing_tests {
 #[cfg(test)]
 mod canceled_zombie_flow_tests {
     use super::{handle_zombie_flows, DB};
+    use serde_json::json;
     use uuid::Uuid;
+
+    /// A running flow; `stranded` gives it the stale ping of a lost transition, `canceled` a
+    /// user's soft cancel.
+    async fn insert_flow(
+        db: &DB,
+        parent: Option<(Uuid, &str)>,
+        raw_flow: serde_json::Value,
+        flow_status: serde_json::Value,
+        stranded: bool,
+        canceled: bool,
+    ) -> anyhow::Result<Uuid> {
+        let id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO v2_job (id, workspace_id, created_by, permissioned_as, permissioned_as_email,
+                kind, tag, raw_flow, parent_job, root_job, flow_step_id)
+             VALUES ($1, 'admins', 'admin', 'u/admin', 'admin@windmill.dev', 'flowpreview', 'flow',
+                $2, $3, $3, $4)",
+        )
+        .bind(id)
+        .bind(raw_flow)
+        .bind(parent.map(|p| p.0))
+        .bind(parent.map(|p| p.1))
+        .execute(db)
+        .await?;
+        sqlx::query(
+            "INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, running, started_at, tag,
+                canceled_by, canceled_reason)
+             VALUES ($1, 'admins', now(), true, now() - interval '1 hour', 'flow', $2, $3)",
+        )
+        .bind(id)
+        .bind(canceled.then_some("admin"))
+        .bind(canceled.then_some("stop it"))
+        .execute(db)
+        .await?;
+        sqlx::query(
+            "INSERT INTO v2_job_runtime (id, ping)
+             VALUES ($1, CASE WHEN $2 THEN now() - interval '1 hour' END)",
+        )
+        .bind(id)
+        .bind(stranded)
+        .execute(db)
+        .await?;
+        sqlx::query("INSERT INTO v2_job_status (id, flow_status) VALUES ($1, $2)")
+            .bind(id)
+            .bind(flow_status)
+            .execute(db)
+            .await?;
+        Ok(id)
+    }
+
+    fn identities(ids: &[&str]) -> serde_json::Value {
+        json!({ "modules": ids.iter().map(|id| json!({"id": id, "value": {"type": "identity"}})).collect::<Vec<_>>() })
+    }
+
+    /// All of a flow's steps are done: only its final transition is left.
+    fn finished_status(step_id: &str) -> serde_json::Value {
+        json!({"step": 1, "modules": [{"type": "Success", "id": step_id, "job": Uuid::nil()}],
+            "failure_module": {"type": "WaitingForPriorSteps", "id": "failure"}})
+    }
+
+    async fn completion(
+        db: &DB,
+        id: Uuid,
+    ) -> anyhow::Result<Option<(String, Option<String>, Option<String>)>> {
+        Ok(sqlx::query_as(
+            "SELECT status::text, canceled_by, canceled_reason FROM v2_job_completed WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_optional(db)
+        .await?)
+    }
 
     /// A flow canceled while its worker died between two steps is left `running` with a stale
     /// ping and no step to run. The sweep must complete it with the cancel the user asked for.
     #[sqlx::test(migrations = "./migrations")]
     async fn completes_a_canceled_flow_stranded_between_steps(db: DB) -> anyhow::Result<()> {
-        let flow = Uuid::new_v4();
-        for stmt in [
-            "INSERT INTO v2_job (id, workspace_id, created_by, permissioned_as, permissioned_as_email, kind, tag)
-             VALUES ($1, 'admins', 'admin', 'u/admin', 'admin@windmill.dev', 'flowpreview', 'flow')",
-            "INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, running, started_at, tag, canceled_by, canceled_reason)
-             VALUES ($1, 'admins', now(), true, now() - interval '1 hour', 'flow', 'admin', 'stop it')",
-            "INSERT INTO v2_job_runtime (id, ping) VALUES ($1, now() - interval '1 hour')",
-            r#"INSERT INTO v2_job_status (id, flow_status) VALUES ($1, '{"step": 1,
-                "modules": [{"type": "Success", "id": "a", "job": "00000000-0000-0000-0000-000000000000"}],
-                "failure_module": {"type": "WaitingForPriorSteps", "id": "failure"}}')"#,
-        ] {
-            sqlx::query(stmt).bind(flow).execute(&db).await?;
-        }
+        windmill_common::jwt::JWT_SECRET.store(std::sync::Arc::new("test".to_string()));
+        let flow = insert_flow(
+            &db,
+            None,
+            identities(&["a"]),
+            finished_status("a"),
+            true,
+            true,
+        )
+        .await?;
 
-        handle_zombie_flows(&db).await?;
+        handle_zombie_flows(&db, "http://localhost:8000").await?;
 
-        // the forced cancel completes the job from a spawned task
-        for _ in 0..100 {
-            let completed: Option<(String, Option<String>, Option<String>)> = sqlx::query_as(
-                "SELECT status::text, canceled_by, canceled_reason FROM v2_job_completed WHERE id = $1",
-            )
-            .bind(flow)
-            .fetch_optional(&db)
+        assert_eq!(
+            completion(&db, flow).await?,
+            Some((
+                "canceled".to_string(),
+                Some("admin".to_string()),
+                Some("stop it".to_string())
+            ))
+        );
+        Ok(())
+    }
+
+    /// A cancel of a subflow alone must stay scoped to it: the stranded subflow completes as
+    /// canceled and its parent takes that like any step's cancel, rather than being force-canceled
+    /// under the subflow's canceler.
+    #[sqlx::test(migrations = "./migrations")]
+    async fn a_stranded_canceled_subflow_leaves_its_parent_to_process_it(
+        db: DB,
+    ) -> anyhow::Result<()> {
+        windmill_common::jwt::JWT_SECRET.store(std::sync::Arc::new("test".to_string()));
+        let child_id = Uuid::new_v4();
+        let root = insert_flow(
+            &db,
+            None,
+            json!({"modules": [
+                {"id": "sf", "value": {"type": "flow", "path": "f/sub"}},
+                {"id": "after", "value": {"type": "identity"}}]}),
+            json!({"step": 0, "modules": [
+                {"type": "InProgress", "id": "sf", "job": child_id},
+                {"type": "WaitingForPriorSteps", "id": "after"}],
+                "failure_module": {"type": "WaitingForPriorSteps", "id": "failure"}}),
+            false,
+            false,
+        )
+        .await?;
+        let child = insert_flow(
+            &db,
+            Some((root, "sf")),
+            identities(&["a"]),
+            finished_status("a"),
+            true,
+            true,
+        )
+        .await?;
+        sqlx::query("UPDATE v2_job_status SET flow_status = jsonb_set(flow_status, '{modules,0,job}', to_jsonb($1::text)) WHERE id = $2")
+            .bind(child.to_string())
+            .bind(root)
+            .execute(&db)
             .await?;
-            if let Some((status, canceled_by, canceled_reason)) = completed {
-                assert_eq!(status, "canceled");
-                assert_eq!(canceled_by.as_deref(), Some("admin"));
-                assert_eq!(canceled_reason.as_deref(), Some("stop it"));
-                let queued: i64 =
-                    sqlx::query_scalar("SELECT count(*) FROM v2_job_queue WHERE id = $1")
-                        .bind(flow)
-                        .fetch_one(&db)
-                        .await?;
-                assert_eq!(queued, 0);
-                return Ok(());
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        }
-        anyhow::bail!("the canceled flow was never completed")
+
+        handle_zombie_flows(&db, "http://localhost:8000").await?;
+
+        assert_eq!(
+            completion(&db, child).await?,
+            Some((
+                "canceled".to_string(),
+                Some("admin".to_string()),
+                Some("stop it".to_string())
+            ))
+        );
+        let root_step: Option<serde_json::Value> = sqlx::query_scalar(
+            "SELECT flow_status->'modules'->0 FROM v2_job_completed WHERE id = $1",
+        )
+        .bind(root)
+        .fetch_optional(&db)
+        .await?;
+        // the parent recorded the step's outcome, which a forced cancel would leave InProgress
+        assert_eq!(
+            root_step,
+            Some(json!({"id": "sf", "type": "Failure", "job": child.to_string()}))
+        );
+        assert_eq!(
+            completion(&db, root).await?,
+            Some((
+                "canceled".to_string(),
+                Some("admin".to_string()),
+                Some("stop it".to_string())
+            ))
+        );
+        Ok(())
     }
 }

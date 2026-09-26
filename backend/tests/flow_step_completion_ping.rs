@@ -47,16 +47,17 @@ async fn insert_running(
 
 async fn complete_step_and_read_parent_ping_age(
     db: &Pool<Postgres>,
-    parent_canceled: bool,
+    canceled: bool,
 ) -> anyhow::Result<f64> {
     let parent = insert_running(db, "flow", None, None).await?;
-    if parent_canceled {
-        sqlx::query("UPDATE v2_job_queue SET canceled_by = 'test-user' WHERE id = $1")
-            .bind(parent)
+    let step = insert_running(db, "script", Some(parent), Some("a")).await?;
+    if canceled {
+        // a cancel of the flow marks the flow and each of its steps
+        sqlx::query("UPDATE v2_job_queue SET canceled_by = 'test-user' WHERE id = ANY($1)")
+            .bind(vec![parent, step])
             .execute(db)
             .await?;
     }
-    let step = insert_running(db, "script", Some(parent), Some("a")).await?;
     let job = get_mini_completed_job(&step, W_ID, db).await?.unwrap();
     add_completed_job(
         db,
@@ -80,7 +81,7 @@ async fn complete_step_and_read_parent_ping_age(
     .bind(step)
     .fetch_one(db)
     .await?;
-    assert_eq!(status, "success");
+    assert_eq!(status, if canceled { "canceled" } else { "success" });
     assert!(!queued, "the step left the queue");
 
     Ok(sqlx::query_scalar(
