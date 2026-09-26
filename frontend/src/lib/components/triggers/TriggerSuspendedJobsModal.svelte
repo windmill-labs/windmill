@@ -32,6 +32,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import Badge from '../common/badge/Badge.svelte'
 	import Tooltip from '../meltComponents/Tooltip.svelte'
+	import { triggerLock } from '$lib/operatorWriteRights'
 	import { deepEqual } from 'fast-equals'
 	import {
 		errorHandlerArgs,
@@ -475,13 +476,17 @@
 		</div>
 
 		<!-- Bottom right conditional buttons -->
+		<!-- Releasing or discarding a suspended trigger's parked jobs is a trigger write: whoever
+		     cannot leave suspended mode must not override it. Gated here, the one modal both entry
+		     points open. -->
 		<div class="flex justify-end gap-2">
 			{#if hasSelectedJobs}
 				<!-- Jobs selected - show Discard Selected and Run Selected -->
 				<Button
 					startIcon={{ icon: Trash2 }}
 					size="sm"
-					disabled={processingAction}
+					disabled={processingAction || !!$triggerLock}
+					title={$triggerLock}
 					on:click={discardSelectedJobs}
 				>
 					Discard Selected ({selectedJobs.size})
@@ -489,7 +494,8 @@
 				<Button
 					startIcon={{ icon: Play }}
 					size="sm"
-					disabled={processingAction || hasChanged}
+					disabled={processingAction || hasChanged || !!$triggerLock}
+					title={$triggerLock}
 					on:click={runSelectedJobs}
 				>
 					Resume selected ({selectedJobs.size})
@@ -498,7 +504,8 @@
 				<Button
 					startIcon={{ icon: Trash2 }}
 					size="sm"
-					disabled={processingAction || queuedJobs.length === 0}
+					disabled={processingAction || queuedJobs.length === 0 || !!$triggerLock}
+					title={$triggerLock}
 					on:click={discardAllJobs}
 				>
 					Discard all jobs{action === 'disable'
@@ -510,7 +517,8 @@
 				<Button
 					startIcon={{ icon: Play }}
 					size="sm"
-					disabled={processingAction || hasChanged || queuedJobs.length === 0}
+					disabled={processingAction || hasChanged || queuedJobs.length === 0 || !!$triggerLock}
+					title={$triggerLock}
 					on:click={runAllJobs}
 				>
 					Resume all jobs{action === 'disable'

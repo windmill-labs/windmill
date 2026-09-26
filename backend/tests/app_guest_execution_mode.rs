@@ -577,25 +577,13 @@ async fn guests_mode_needs_a_scopable_path(db: Pool<Postgres>) -> anyhow::Result
     .send()
     .await?;
     assert_eq!(resp.status(), 400, "renamed to a `,` path while in Guests");
-    let resp = authed(
-        client().post(format!("{ws}/apps/update/{APP_PATH}")),
-        ADMIN_TOKEN,
-    )
-    .json(&json!({ "path": "u/test-user/My App" }))
-    .send()
-    .await?;
-    assert_eq!(
-        resp.status(),
-        400,
-        "a space is no more a path character than `,` is"
-    );
 
-    // Set on update: an app that already sits on such a path cannot be switched. Path validation
-    // refuses to create one, and `app` carries no `proper_id` constraint, so the row is the only
-    // way to stand up an app that predates that validation.
+    // Set on update: an app that already sits on such a path cannot be switched. Path
+    // validation now refuses these paths on every write, so plant the kind of app saved
+    // before it did.
     let resp = authed(client().post(format!("{ws}/apps/create")), ADMIN_TOKEN)
         .json(&json!({
-            "path": "u/test-user/x_y",
+            "path": "u/test-user/legacy",
             "summary": "App",
             "value": {},
             "policy": { "execution_mode": "publisher", "triggerables_v2": {} }
@@ -603,9 +591,12 @@ async fn guests_mode_needs_a_scopable_path(db: Pool<Postgres>) -> anyhow::Result
         .send()
         .await?;
     assert_eq!(resp.status(), 201, "{}", resp.text().await?);
-    sqlx::query("UPDATE app SET path = 'u/test-user/x:y' WHERE path = 'u/test-user/x_y'")
-        .execute(&db)
-        .await?;
+    sqlx::query(
+        "UPDATE app SET path = 'u/test-user/x:y'
+         WHERE workspace_id = 'test-workspace' AND path = 'u/test-user/legacy'",
+    )
+    .execute(&db)
+    .await?;
     let resp = authed(
         client().post(format!("{ws}/apps/update/u/test-user/x:y")),
         ADMIN_TOKEN,
@@ -614,6 +605,8 @@ async fn guests_mode_needs_a_scopable_path(db: Pool<Postgres>) -> anyhow::Result
     .send()
     .await?;
     assert_eq!(resp.status(), 400, "switched to Guests on a `:` path");
+    let body = resp.text().await?;
+    assert!(body.contains("cannot be set to Guests"), "{body}");
 
     Ok(())
 }

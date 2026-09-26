@@ -68,6 +68,7 @@
 	import MqttIcon from '$lib/components/icons/MqttIcon.svelte'
 	import NatsIcon from '$lib/components/icons/NatsIcon.svelte'
 	import TriggerModeToggle from './TriggerModeToggle.svelte'
+	import { triggerLock } from '$lib/operatorWriteRights'
 	import { getHttpRoute } from './http/utils'
 	import { getEmailAddress, getEmailDomain } from './email/utils'
 	import { TRIGGER_LIST_CONFIG, type TriggerRow } from './triggerListConfig'
@@ -702,6 +703,8 @@
 						unifiedSize="md"
 						variant="default"
 						startIcon={{ icon: Plus }}
+						disabled={!!$triggerLock}
+						title={$triggerLock}
 						on:click={() => routesGenerator?.openDrawer()}
 					>
 						From OpenAPI spec
@@ -720,6 +723,8 @@
 						unifiedSize="md"
 						variant="accent"
 						startIcon={{ icon: Plus }}
+						disabled={!!$triggerLock}
+						title={$triggerLock}
 						on:click={() => editor?.openNew(false)}
 					>
 						New&nbsp;{config.newLabel}
@@ -779,6 +784,8 @@
 								label: config.empty.actionLabel,
 								icon: Plus,
 								onClick: () => editor?.openNew(false),
+								disabled: !!$triggerLock,
+								title: $triggerLock,
 								aiId: config.empty.aiId,
 								aiDescription: config.empty.aiDescription
 							}
@@ -809,6 +816,7 @@
 						{@const effectiveMode = draft_only ? 'disabled' : mode}
 						{@const live = isLive(row)}
 						{@const copy = copyUrl(row)}
+						{@const canEdit = canWrite && !$triggerLock}
 
 						<div
 							class="bg-surface-tertiary hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0
@@ -846,11 +854,12 @@
 									{#if live}
 										<TriggerModeToggle
 											disabled={draft_only}
-											title={draft_only
-												? 'Draft only: deploy the trigger to enable it'
-												: hasDraft
-													? 'Enables/disables the deployed trigger; the draft is not affected'
-													: undefined}
+											title={$triggerLock ??
+												(draft_only
+													? 'Draft only: deploy the trigger to enable it'
+													: hasDraft
+														? 'Enables/disables the deployed trigger; the draft is not affected'
+														: undefined)}
 											onToggleMode={(newMode) => onToggleMode(path, newMode)}
 											triggerMode={effectiveMode}
 											includeModalConfig={{
@@ -864,7 +873,7 @@
 													errorHandlerArgs: error_handler_args
 												}
 											}}
-											{canWrite}
+											canWrite={canEdit}
 											hideToggleLabels
 											hideDropdown
 										/>
@@ -885,10 +894,10 @@
 									<Button
 										on:click={() => openEdit(path, is_flow)}
 										unifiedSize="md"
-										startIcon={canWrite ? { icon: Pen } : { icon: Eye }}
+										startIcon={canEdit ? { icon: Pen } : { icon: Eye }}
 										variant="subtle"
 									>
-										{canWrite ? 'Edit' : 'View'}
+										{canEdit ? 'Edit' : 'View'}
 									</Button>
 									<Dropdown
 										items={[
@@ -897,7 +906,7 @@
 												icon: Eye,
 												action: () => openLink(href)
 											},
-											...(canWrite && !draft_only && mode !== 'suspended'
+											...(canEdit && !draft_only && mode !== 'suspended'
 												? [
 														{
 															displayName: 'Suspend job execution',
@@ -909,8 +918,8 @@
 													]
 												: []),
 											{
-												displayName: canWrite ? 'Edit' : 'View',
-												icon: canWrite ? Pen : Eye,
+												displayName: canEdit ? 'Edit' : 'View',
+												icon: canEdit ? Pen : Eye,
 												action: () => openEdit(path, is_flow)
 											},
 											...(isDeployable('trigger', path, deployUiSettings)
@@ -942,7 +951,8 @@
 												displayName: 'Delete',
 												type: 'delete',
 												icon: Trash,
-												disabled: !canWrite || (config.adminOnly && !isAdmin),
+												disabled: !canEdit || (config.adminOnly && !isAdmin),
+												tooltip: $triggerLock,
 												action: () => deleteTrigger(row)
 											}
 										]}

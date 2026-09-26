@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT q.scheduled_for, s.path, s.schedule, s.cron_version, s.timezone\n         FROM v2_job j\n         JOIN v2_job_queue q USING (id)\n         JOIN schedule s ON s.workspace_id = j.workspace_id AND s.path = j.trigger\n         WHERE j.id = $1 AND j.workspace_id = $2 AND j.trigger_kind = 'schedule'\n            AND j.parent_job IS NULL AND q.scheduled_for > now()",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "scheduled_for",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 1,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "schedule",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "cron_version",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "timezone",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "c703da3c3e133536dda9721644561af624ab6de67a5c82967f4df8117fe50bc7"
+}

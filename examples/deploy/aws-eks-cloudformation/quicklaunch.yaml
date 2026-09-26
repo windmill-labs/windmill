@@ -436,7 +436,7 @@ Resources:
             --set windmill.baseDomain=windmill.local \
             --set windmill.baseProtocol=http \
             --set windmill.appReplicas=${WorkerReplicas} \
-            --set windmill.lspReplicas=2 \
+            --set windmill.extraReplicas=2 \
             --set windmill.workerGroups[0].name=default \
             --set windmill.workerGroups[0].mode=worker \
             --set windmill.workerGroups[0].replicas=${WorkerReplicas} \

@@ -7,6 +7,7 @@
 		WorkspaceService
 	} from '$lib/gen'
 	import { canWrite, displayDate, getLocalSetting, storeLocalSetting } from '$lib/utils'
+	import { scheduleLock } from '$lib/operatorWriteRights'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import { base } from '$app/paths'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -384,6 +385,8 @@
 				unifiedSize="md"
 				variant="accent"
 				startIcon={{ icon: Plus }}
+				disabled={!!$scheduleLock}
+				title={$scheduleLock}
 				on:click={() => scheduleEditor?.openNew(false)}
 				aiId="schedules-add-schedule"
 				aiDescription="Add schedule"
@@ -427,6 +430,8 @@
 							label: 'Add a schedule',
 							icon: Plus,
 							onClick: () => scheduleEditor?.openNew(false),
+							disabled: !!$scheduleLock,
+							title: $scheduleLock,
 							aiId: 'schedules-empty-add',
 							aiDescription: 'Add schedule'
 						}}
@@ -437,6 +442,7 @@
 					{#each items.slice(0, nbDisplayed) as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, jobs, paused_until, labels, inherited_labels, draft_only, is_draft } (path)}
 						{@const hasDraft =
 							getLocalDraftHint($operatingWorkspace, 'trigger_schedule', path) ?? is_draft}
+						{@const canEdit = canWrite && !$scheduleLock}
 						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 						{@const avg_s = jobs
 							? jobs.reduce((acc, x) => acc + x.duration_ms, 0) / jobs.length
@@ -530,13 +536,14 @@
 									<DraftBadge {draft_only} is_draft={hasDraft} />
 									{#key toggleResetVersions[path] ?? 0}
 										<Toggle
-											disabled={draft_only}
+											disabled={draft_only || !!$scheduleLock}
 											options={{
 												title: draft_only
 													? 'Draft only: deploy the schedule to enable it'
-													: hasDraft
-														? 'Enables/disables the deployed schedule; the draft is not affected'
-														: undefined
+													: ($scheduleLock ??
+														(hasDraft
+															? 'Enables/disables the deployed schedule; the draft is not affected'
+															: undefined))
 											}}
 											checked={!draft_only && enabled}
 											on:change={(e) => {
@@ -568,10 +575,10 @@
 									<Button
 										on:click={() => editSchedule(path, is_flow)}
 										unifiedSize="md"
-										startIcon={{ icon: canWrite ? Pen : Eye }}
+										startIcon={{ icon: canEdit ? Pen : Eye }}
 										variant="subtle"
 									>
-										{canWrite ? 'Edit' : 'View'}
+										{canEdit ? 'Edit' : 'View'}
 									</Button>
 									<Dropdown
 										size="md"
@@ -587,6 +594,8 @@
 											{
 												displayName: `Duplicate schedule`,
 												icon: Copy,
+												disabled: !!$scheduleLock,
+												tooltip: $scheduleLock,
 												action: () => {
 													scheduleEditor?.openNew(is_flow, script_path, path)
 												}
@@ -595,7 +604,8 @@
 												displayName: 'Delete',
 												type: 'delete',
 												icon: Trash,
-												disabled: !canWrite,
+												disabled: !canEdit,
+												tooltip: $scheduleLock,
 												action: async () => {
 													await ScheduleService.deleteSchedule({
 														workspace: $operatingWorkspace ?? '',
@@ -605,8 +615,8 @@
 												}
 											},
 											{
-												displayName: canWrite ? 'Edit' : 'View',
-												icon: canWrite ? Pen : Eye,
+												displayName: canEdit ? 'Edit' : 'View',
+												icon: canEdit ? Pen : Eye,
 												action: () => {
 													editSchedule(path, is_flow)
 												}

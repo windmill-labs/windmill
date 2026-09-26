@@ -598,6 +598,17 @@ pub struct NewWorkspaceUser {
     pub operator: bool,
 }
 
+/// The role is one choice stored as two flags; both set would show as admin in the UI while the
+/// server refuses the user as an operator.
+fn reject_admin_and_operator(is_admin: bool, operator: bool) -> Result<()> {
+    if is_admin && operator {
+        return Err(Error::BadRequest(
+            "A user cannot be both admin and operator".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 // New format for error handler (grouped)
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -3414,6 +3425,9 @@ fn apply_pg_tls_env(
     if let Some(ref sslmode) = pg_db.sslmode {
         cmd.env("PGSSLMODE", sslmode);
     }
+    if let Some(options) = pg_db.non_empty_options() {
+        cmd.env("PGOPTIONS", options);
+    }
     if let Some(pem) = pg_db
         .root_certificate_pem
         .as_deref()
@@ -3462,6 +3476,7 @@ mod pg_tls_env_tests {
             accept_invalid_certs: Some(false),
             use_iam_auth: None,
             region: None,
+            options: None,
         };
         let mut cmd = tokio::process::Command::new("psql");
         apply_pg_tls_env(&mut cmd, &pg_db).unwrap();
@@ -10578,6 +10593,7 @@ async fn invite_user(
     Json(mut nu): Json<NewWorkspaceInvite>,
 ) -> Result<(StatusCode, String)> {
     require_admin(is_admin, &username)?;
+    reject_admin_and_operator(nu.is_admin, nu.operator)?;
 
     #[cfg(not(feature = "enterprise"))]
     if w_id == "admins" {
@@ -10725,6 +10741,8 @@ async fn add_user(
     Path(w_id): Path<String>,
     Json(mut nu): Json<NewWorkspaceUser>,
 ) -> Result<(StatusCode, String)> {
+    reject_admin_and_operator(nu.is_admin, nu.operator)?;
+
     #[cfg(not(feature = "enterprise"))]
     if w_id == "admins" {
         return Err(Error::BadRequest(
@@ -11305,6 +11323,14 @@ struct ChangeOperatorSettings {
     folders: bool,
     #[serde(default)]
     workers: bool,
+    /// Writes operators may perform unless withdrawn, so `None` (key absent) must mean "leave as
+    /// stored" rather than a value: the row is merged, not overwritten, and this endpoint takes
+    /// whole-object payloads from git-sync files that predate the key. Defaulting either way here
+    /// would make an older file silently withdraw or restore the right on every pull.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    manage_schedules: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    manage_triggers: Option<bool>,
 }
 
 async fn update_operator_settings(
@@ -11319,15 +11345,31 @@ async fn update_operator_settings(
 
     let settings_json = serde_json::json!(settings);
 
+    // Merged for the `Option` fields above; the visibility flags always serialize, so for them
+    // this is a plain overwrite.
     sqlx::query!(
-        "UPDATE workspace_settings SET operator_settings = $1 WHERE workspace_id = $2",
+        "UPDATE workspace_settings
+         SET operator_settings = COALESCE(operator_settings, '{}'::jsonb) || $1
+         WHERE workspace_id = $2",
         settings_json,
         &w_id
     )
     .execute(&mut *tx)
     .await?;
 
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.update_operator_settings",
+        ActionKind::Update,
+        &w_id,
+        None,
+        Some([("operator_settings", settings_json.to_string().as_str())].into()),
+    )
+    .await?;
     tx.commit().await?;
+
+    windmill_common::workspaces::invalidate_operator_rights_cache(&w_id);
 
     // Trigger git sync for operator settings changes
     handle_deployment_metadata(
