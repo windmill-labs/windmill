@@ -473,6 +473,8 @@ pub struct SmtpSettings {
     pub smtp_tls_implicit: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub smtp_disable_tls: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub smtp_clicktracking_off: Option<bool>,
 }
 
 // ---------------------------------------------------------------------------
@@ -2276,6 +2278,20 @@ mod tests {
             reconstructed.smtp_settings.as_ref().unwrap().smtp_port
         );
         assert_eq!(original.custom_tags, reconstructed.custom_tags);
+    }
+
+    #[test]
+    fn smtp_settings_keep_every_ui_field() {
+        let smtp = serde_json::json!({
+            "smtp_host": "smtp.example.com",
+            "smtp_port": 587,
+            "smtp_tls_implicit": false,
+            "smtp_disable_tls": false,
+            "smtp_clicktracking_off": true,
+        });
+        let settings: GlobalSettings =
+            serde_json::from_value(serde_json::json!({ "smtp_settings": smtp })).unwrap();
+        assert_eq!(settings.to_settings_map()["smtp_settings"], smtp);
     }
 
     // -----------------------------------------------------------------------
