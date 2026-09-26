@@ -23,9 +23,10 @@
 	} from '$lib/gen'
 	import { emptyString, truncateRev, urlize } from '$lib/utils'
 	import { registryEntryFor, registryCcCapableFor, stripSandboxSuffix } from './oauthRegistry'
+	import { RESOURCE_TYPE_CATEGORIES, resourceTypeCategory } from './resourceTypeCategories'
 	import { createEventDispatcher, onDestroy, tick } from 'svelte'
 	import Path from './Path.svelte'
-	import { ListRow, RadioCard, Skeleton } from './common'
+	import { Badge, Button, ListRow, RadioCard, Skeleton } from './common'
 	import { useListHighlight } from './common/listRow/listHighlight.svelte'
 	import ApiConnectForm from './ApiConnectForm.svelte'
 	import SearchItems from './SearchItems.svelte'
@@ -90,16 +91,6 @@
 	let effectiveWorkspace = $derived(workspace ?? $operatingWorkspace!)
 
 	let isValid = $state(true)
-
-	const nativeLanguagesCategory = [
-		'postgresql',
-		'mysql',
-		'bigquery',
-		'snowflake',
-		'mssql',
-		'graphql',
-		'oracledb'
-	]
 
 	const SEARCH_INPUT_ID = 'search-resource-type'
 	let searchInput: { focus: () => void } | undefined = $state(undefined)
@@ -531,18 +522,6 @@
 					})
 				}) as { key: string; img?: string; instructions: string[] }
 		)
-		const filteredNativeLanguages = filteredConnectsManual?.filter(
-			(o) => nativeLanguagesCategory?.includes(o[0]) ?? false
-		)
-
-		try {
-			filteredConnectsManual = [
-				...(filteredNativeLanguages ?? []),
-				...(filteredConnectsManual ?? []).filter(
-					({ key }) => !nativeLanguagesCategory.includes(key)
-				)
-			]
-		} catch (e) {}
 	}
 
 	function popupListener(event) {
@@ -1080,39 +1059,67 @@
 		rank(filteredConnectsManual) as typeof filteredConnectsManual | undefined
 	)
 
-	// Browsing, the "Others" list leads with the native database types. Searching, that
-	// grouping would outrank the search itself — `ms_sql_server` sorting under `mysql` on
-	// "sql" — so the ranked order stands on its own.
-	let manualOrderedKeys = $derived(
-		!searching
-			? [
-					...(rankedConnectsManual ?? [])
-						.filter((x) => nativeLanguagesCategory.includes(x.key))
-						.map((x) => x.key),
-					...(rankedConnectsManual ?? [])
-						.filter((x) => !nativeLanguagesCategory.includes(x.key))
-						.map((x) => x.key)
-				]
-			: (rankedConnectsManual ?? []).map((x) => x.key)
-	)
+	let manualOrderedKeys = $derived((rankedConnectsManual ?? []).map((x) => x.key))
 
 	let customKeys = $derived(manualOrderedKeys.filter((key) => customResourceTypes.has(key)))
 	let otherKeys = $derived(manualOrderedKeys.filter((key) => !customResourceTypes.has(key)))
+
+	// Browsing, the common types are grouped into categories ahead of "Others". Searching,
+	// that grouping would outrank the search itself — a weak Databases match sorting above
+	// the exact hit in Others — so the ranked order stands on its own.
+	let manualSections = $derived.by(() => {
+		type Section = { title: string; popular: boolean; keys: string[]; seeMore?: string }
+		const others: Section = {
+			title: 'Others',
+			popular: false,
+			keys: searching ? otherKeys : otherKeys.filter((key) => !resourceTypeCategory(key))
+		}
+		if (searching) return [others]
+		const keysIn = (title: string, popular: boolean) =>
+			otherKeys.filter((key) => {
+				const category = resourceTypeCategory(key)
+				return category?.title === title && category.popular === popular
+			})
+		const popular: Section[] = []
+		const rest: Section[] = []
+		for (const category of RESOURCE_TYPE_CATEGORIES) {
+			const restKeys = keysIn(category.title, false)
+			const popularKeys = keysIn(category.title, true)
+			if (restKeys.length > 0) rest.push({ title: category.title, popular: false, keys: restKeys })
+			if (popularKeys.length > 0)
+				popular.push({
+					title: category.title,
+					popular: true,
+					keys: popularKeys,
+					seeMore: restKeys.length > 0 ? `See ${category.others}` : undefined
+				})
+		}
+		return [...popular, ...rest, others]
+	})
 
 	// Every row in the order it is rendered, so arrow keys walk the sections as one list.
 	// A provider appears in more than one, so rows are addressed by index, not by name.
 	let navItems = $derived([
 		...customKeys.map((key) => ({ key, oauth: false })),
 		...(rankedConnects ?? []).map((x) => ({ key: x.key, oauth: true })),
-		...otherKeys.map((key) => ({ key, oauth: false }))
+		...manualSections.flatMap((section) => section.keys.map((key) => ({ key, oauth: false })))
 	])
 	// Both lists start undefined and render skeletons; "nothing found" only means something
 	// once they have landed.
 	let listsLoaded = $derived(rankedConnectsManual !== undefined && rankedConnects !== undefined)
 	const rowDomId = (index: number) => `resource-type-row-${index}`
+	const categorySectionId = (title: string) =>
+		`resource-type-category-${title.toLowerCase().replace(/[^a-z]+/g, '-')}`
 
 	const oauthRowOffset = $derived(customKeys.length)
-	const otherRowOffset = $derived(customKeys.length + (rankedConnects?.length ?? 0))
+	const manualRowOffsets = $derived.by(() => {
+		let offset = customKeys.length + (rankedConnects?.length ?? 0)
+		return manualSections.map((section) => {
+			const start = offset
+			offset += section.keys.length
+			return start
+		})
+	})
 
 	// Sections are rendered in a fixed order, so the best match is not necessarily the first
 	// row: rank the rows against the query to find it.
@@ -1191,9 +1198,10 @@
 				</div>
 			</div>
 
-			{#snippet sectionHeading(title: string, count: number)}
-				<h2 class="mb-3 text-2xs font-normal uppercase text-secondary">
-					{title}{#if searching}<span class="ml-2 text-hint">{count}</span>{/if}
+			{#snippet sectionHeading(title: string, count: number, popular: boolean = false)}
+				<h2 class="mb-3 flex items-center gap-2 text-2xs font-normal uppercase text-secondary">
+					{title}{#if popular}<Badge color="blue" small class="normal-case">Popular</Badge
+						>{/if}{#if searching}<span class="text-hint">{count}</span>{/if}
 				</h2>
 			{/snippet}
 
@@ -1218,6 +1226,7 @@
 					{title}
 					subtitle={resourceTypeDescriptions[key] ? subtitle : undefined}
 					highlighted={index === highlight.index}
+					class="py-2.5"
 					onMouseEnter={() => highlight.hovered(index)}
 					onClick={() => (oauth ? connectOauth(key) : selectFromOthers(key))}
 				/>
@@ -1235,7 +1244,7 @@
 				{:else}
 					<!-- One gap between sections, owned by the column: a section that a search empties
 					     out then takes its spacing with it. -->
-					<div class="flex flex-col gap-10">
+					<div class="flex flex-col gap-8">
 						{#if customKeys.length > 0}
 							<section>
 								{@render sectionHeading('Custom resource types', customKeys.length)}
@@ -1275,29 +1284,45 @@
 							</section>
 						{/if}
 
-						{#if !searching || otherKeys.length > 0}
-							<section>
-								{@render sectionHeading('Others', otherKeys.length)}
+						{#each manualSections as section, s (`${section.title}-${section.popular}`)}
+							{#if !searching || section.keys.length > 0}
+								<section id={section.popular ? undefined : categorySectionId(section.title)}>
+									{@render sectionHeading(section.title, section.keys.length, section.popular)}
 
-								{#if !searching && connectsManual && connectsManual?.length < 10}
-									<div class="text-secondary text-xs p-2">
-										Resource types have not been synced with the hub
-									</div>
-								{/if}
-
-								<div class="flex flex-col gap-0.5">
-									{#if rankedConnectsManual}
-										{#each otherKeys as key, i}
-											{@render resourceButton(key, otherRowOffset + i, false)}
-										{/each}
-									{:else}
-										{#each new Array(9) as _}
-											<Skeleton layout={[[2]]} />
-										{/each}
+									{#if section.title === 'Others' && !searching && connectsManual && connectsManual?.length < 10}
+										<div class="text-secondary text-xs p-2">
+											Resource types have not been synced with the hub
+										</div>
 									{/if}
-								</div>
-							</section>
-						{/if}
+
+									<div class="flex flex-col gap-0.5">
+										{#if rankedConnectsManual}
+											{#each section.keys as key, i}
+												{@render resourceButton(key, manualRowOffsets[s] + i, false)}
+											{/each}
+										{:else}
+											{#each new Array(9) as _}
+												<Skeleton layout={[[2]]} />
+											{/each}
+										{/if}
+									</div>
+									{#if section.seeMore}
+										<Button
+											variant="subtle"
+											unifiedSize="sm"
+											wrapperClasses="mt-1 w-fit"
+											btnClasses="text-secondary"
+											onClick={() =>
+												document
+													.getElementById(categorySectionId(section.title))
+													?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+										>
+											{section.seeMore}
+										</Button>
+									{/if}
+								</section>
+							{/if}
+						{/each}
 					</div>
 				{/if}
 			</div>
