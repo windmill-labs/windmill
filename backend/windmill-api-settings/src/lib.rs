@@ -1972,15 +1972,13 @@ async fn setup_custom_instance_pg_database(
     // Before anything is recorded: the status written below replaces the registry entry, and with it
     // the workspace a fork copy is reserved for.
     require_super_admin(&db, &authed).await?;
+    windmill_common::workspaces::ensure_instance_pg_available(&db).await?;
     // Fork cleanup checks and drops the database and its entry under this lock. Held from before
     // the setup creates the database to after its entry is written, neither lands on the other's
     // half-done state: a dropped database with its entry written back, or the reverse.
     let mut tx = db.begin().await?;
-    windmill_common::datatable_roles::lock_instance_databases_governance(
-        &mut tx,
-        [dbname.trim()],
-    )
-    .await?;
+    windmill_common::datatable_roles::lock_instance_databases_governance(&mut tx, [dbname.trim()])
+        .await?;
     let mut logs = CustomInstanceDbLogs::default();
     let result = setup_custom_instance_pg_database_inner(authed, &db, &dbname, &mut logs).await;
     let success = result.is_ok();

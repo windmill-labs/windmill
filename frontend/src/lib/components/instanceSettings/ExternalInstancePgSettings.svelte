@@ -18,6 +18,7 @@
 		CheckCircle2,
 		CirclePlus,
 		Database,
+		PowerOff,
 		RefreshCw,
 		Trash2,
 		TriangleAlert,
@@ -52,6 +53,8 @@
 	let rotatePasswords = $state(false)
 	let rotateModalOpen = $state(false)
 	let dropping = $state<string | undefined>(undefined)
+	let disabling = $state(false)
+	let disableModalOpen = $state(false)
 	let dropModalName = $state<string | undefined>(undefined)
 	let creating = $state(false)
 	let newDbName = $state('')
@@ -104,6 +107,24 @@
 		} finally {
 			settingUp = false
 			rotatePasswords = false
+		}
+	}
+
+	// Unsetting the cluster is refused while it still holds databases or a workspace still names
+	// one, so this is the last step of taking it out of use rather than a switch.
+	async function disableCluster() {
+		disabling = true
+		try {
+			await SettingService.setGlobal({ key: KEY, requestBody: { value: null } })
+			seededFrom = undefined
+			$values[KEY] = undefined
+			form = {}
+			await refresh()
+			sendUserToast('External instance cluster disabled')
+		} catch (e) {
+			sendUserToast(e?.body ?? e?.message ?? String(e), true)
+		} finally {
+			disabling = false
 		}
 	}
 
@@ -254,6 +275,16 @@
 			>
 				Rotate passwords
 			</Button>
+			<Button
+				variant="default"
+				unifiedSize="sm"
+				color="red"
+				disabled={disabled || disabling || !status?.configured}
+				startIcon={{ icon: PowerOff }}
+				onClick={() => (disableModalOpen = true)}
+			>
+				Disable
+			</Button>
 			{#if status}
 				<div class="text-xs text-secondary flex items-center gap-2">
 					{#if status.configured}
@@ -400,6 +431,23 @@
 	<span class="text-sm">
 		New passwords are generated for the roles Windmill manages on the cluster. Jobs running against
 		those databases while the rotation happens can fail and have to be retried.
+	</span>
+</ConfirmationModal>
+
+<ConfirmationModal
+	open={disableModalOpen}
+	title="Disable the external instance cluster"
+	confirmationText="Disable"
+	on:canceled={() => (disableModalOpen = false)}
+	on:confirmed={() => {
+		disableModalOpen = false
+		disableCluster()
+	}}
+>
+	<span class="text-sm">
+		Windmill forgets the cluster and the passwords it manages there. Nothing is dropped on the
+		cluster itself, and a data table or Ducklake catalog still pointing at one of its databases would
+		stop resolving — so this is refused while any database remains.
 	</span>
 </ConfirmationModal>
 

@@ -58,6 +58,9 @@ pub const SMTP_SETTING: &str = "smtp_settings";
 pub const TEAMS_SETTING: &str = "teams";
 pub const INDEXER_SETTING: &str = "indexer_settings";
 pub const EXTERNAL_INSTANCE_PG_SETTING: &str = "external_instance_pg";
+/// Turns off Windmill's own Postgres as a data table and Ducklake substrate. Absent means on,
+/// which is what every instance that predates the setting expects.
+pub const INSTANCE_PG_DISABLED_SETTING: &str = "instance_pg_disabled";
 pub const EXTERNAL_INSTANCE_PG_STATE_SETTING: &str = "external_instance_pg_state";
 pub const TIMEOUT_WAIT_RESULT_SETTING: &str = "timeout_wait_result";
 

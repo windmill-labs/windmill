@@ -1424,6 +1424,35 @@ impl DataTableCatalogResourceType {
     }
 }
 
+/// Refuse a new use of Windmill's own Postgres as a data table or Ducklake substrate where an
+/// operator turned it off, and on the managed cloud, which never had it. Entries already on it
+/// keep resolving: this gates what a save may newly name, not what runs.
+pub async fn ensure_instance_pg_available<'c>(executor: impl sqlx::PgExecutor<'c>) -> Result<()> {
+    if *crate::worker::CLOUD_HOSTED {
+        return Err(Error::BadRequest(
+            "Windmill's own database cannot back a data table or Ducklake catalog on Windmill Cloud"
+                .to_string(),
+        ));
+    }
+    let disabled = sqlx::query_scalar::<_, Option<serde_json::Value>>(
+        "SELECT value FROM global_settings WHERE name = $1",
+    )
+    .bind(crate::global_settings::INSTANCE_PG_DISABLED_SETTING)
+    .fetch_optional(executor)
+    .await?
+    .flatten()
+    .is_some_and(|v| v.as_bool().unwrap_or(false));
+    if disabled {
+        return Err(Error::BadRequest(
+            "Windmill's own database is disabled as a data table and Ducklake substrate on this \
+             instance. Use the external instance cluster, or turn it back on in the instance \
+             settings."
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
 /// Build a self-teaching error for an unresolved `datatable://<name>` reference.
 /// The raw "not found" gives the user no way forward — the datatable substrate has
 /// no auto-provisioning (unlike a DuckLake catalog), so the fix is always to create
@@ -1723,20 +1752,19 @@ pub async fn resolve_workspace_governing_datatables(
                     clone,
                 )),
                 (None, Some(governed_by)) => {
-                    let (governor_ws, governor_name) =
-                        (governed_by.workspace_id.clone(), governed_by.datatable.clone());
+                    let (governor_ws, governor_name) = (
+                        governed_by.workspace_id.clone(),
+                        governed_by.datatable.clone(),
+                    );
                     let clone = clone.or(Some((ws, name, datatable)));
                     next.push((i, governor_ws, governor_name, clone));
                 }
                 (None, None) => resolved.push((
                     i,
                     match clone {
-                        None => GoverningDatatable {
-                            workspace_id: ws,
-                            name,
-                            datatable,
-                            governor: None,
-                        },
+                        None => {
+                            GoverningDatatable { workspace_id: ws, name, datatable, governor: None }
+                        }
                         Some((clone_ws, clone_name, mut clone_datatable)) => {
                             clone_datatable.permissions = datatable.permissions;
                             GoverningDatatable {

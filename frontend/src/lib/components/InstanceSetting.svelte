@@ -24,6 +24,7 @@
 	import SmtpSettings from './instanceSettings/SmtpSettings.svelte'
 	import SecretBackendConfig from './instanceSettings/SecretBackendConfig.svelte'
 	import ExternalInstancePgSettings from './instanceSettings/ExternalInstancePgSettings.svelte'
+	import InstancePgSettings from './instanceSettings/InstancePgSettings.svelte'
 	import GhesAppSettings from './instanceSettings/GhesAppSettings.svelte'
 	import WebhookBaseUrlSetting from './instanceSettings/WebhookBaseUrlSetting.svelte'
 	import WsConnectivityTest from './instanceSettings/WsConnectivityTest.svelte'
@@ -867,6 +868,8 @@
 					<SecretBackendConfig {values} disabled={loading} />
 				{:else if setting.fieldType == 'external_instance_pg'}
 					<ExternalInstancePgSettings {values} disabled={loading || !$enterpriseLicense} />
+				{:else if setting.fieldType == 'instance_pg'}
+					<InstancePgSettings {values} disabled={loading} />
 				{:else if setting.fieldType == 'github_enterprise_app'}
 					<GhesAppSettings {values} disabled={loading || !$enterpriseLicense} />
 				{:else if setting.fieldType == 'webhook_base_url'}

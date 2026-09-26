@@ -105,8 +105,13 @@
 	import Popover from '../meltComponents/Popover.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 	import { slide } from 'svelte/transition'
-	import { isCustomInstanceDbEnabled, getUnusedInstanceDbName } from './utils.svelte'
+	import {
+		isCustomInstanceDbEnabled,
+		managedInstanceLabels,
+		getUnusedInstanceDbName
+	} from './utils.svelte'
 	import { resource } from 'runed'
+	import { isCloudHosted } from '$lib/cloud'
 	import CustomInstanceDbSelect from './CustomInstanceDbSelect.svelte'
 	import ExternalInstanceDbSelect from './ExternalInstanceDbSelect.svelte'
 	import Label from '../Label.svelte'
@@ -141,8 +146,14 @@
 		ducklakeSettings.ducklakes.push({
 			name,
 			catalog: {
-				resource_type: $isCustomInstanceDbEnabled ? 'instance' : 'postgresql',
-				resource_path: $isCustomInstanceDbEnabled ? defaultInstanceDbName() : undefined
+				// A new entry starts on a kind this instance actually offers, so it is never born
+				// on one the save would refuse.
+				resource_type: instanceAvailable
+					? 'instance'
+					: externalInstanceConfigured && $superadmin
+						? 'external_instance'
+						: 'postgresql',
+				resource_path: instanceAvailable ? defaultInstanceDbName() : undefined
 			},
 			storage: {
 				storage: undefined,
@@ -180,6 +191,53 @@
 		isSuperadmin ? SettingService.listExternalInstancePgDatabases() : Promise.resolve({})
 	)
 	let externalInstanceConfigured = $derived(externalInstanceStatus.current?.configured === true)
+	// Superadmin-only like the ones above, and absent means on.
+	const instancePgDisabled = resource([() => $superadmin], ([isSuperadmin]) =>
+		isSuperadmin
+			? SettingService.getGlobal({ key: 'instance_pg_disabled' }).catch(() => undefined)
+			: Promise.resolve(undefined)
+	)
+	// What the instance offers at all, and what this user may pick of it.
+	let instancePossible = $derived(!isCloudHosted() && !instancePgDisabled.current)
+	let instanceAvailable = $derived(instancePossible && !!$superadmin)
+
+	// A kind already saved stays listed whatever the instance offers now.
+	function catalogItems(current: string | undefined) {
+		const showInstance = instancePossible || current === 'instance'
+		const showExternal = externalInstanceConfigured || current === 'external_instance'
+		const labels = managedInstanceLabels(showInstance, showExternal)
+		const items: { value: string; label: string; disabled?: boolean; subtitle?: string }[] = [
+			{ value: 'postgresql', label: 'Postgres Resource' },
+			{ value: 'mysql', label: 'MySQL Resource' }
+		]
+		if (showInstance) {
+			items.push({
+				value: 'instance',
+				label: labels.instance,
+				disabled: !instanceAvailable,
+				subtitle: instanceAvailable
+					? undefined
+					: isCloudHosted()
+						? 'Not available on cloud'
+						: !$superadmin
+							? 'Superadmin only'
+							: "Windmill's database is disabled"
+			})
+		}
+		if (showExternal) {
+			items.push({
+				value: 'external_instance',
+				label: labels.external,
+				disabled: !externalInstanceConfigured || !$superadmin,
+				subtitle: !$superadmin
+					? 'Superadmin only'
+					: externalInstanceConfigured
+						? undefined
+						: 'No external cluster configured'
+			})
+		}
+		return items
+	}
 
 	async function onSave() {
 		try {
@@ -385,25 +443,7 @@
 								</Tooltip>
 							{/if}
 							<Select
-								items={[
-									{ value: 'postgresql', label: 'PostgreSQL' },
-									{ value: 'mysql', label: 'MySQL' },
-									{
-										value: 'instance',
-										label: 'Instance',
-										subtitle: $isCustomInstanceDbEnabled ? undefined : 'Superadmin only'
-									},
-									{
-										value: 'external_instance',
-										label: 'External instance',
-										disabled: !externalInstanceConfigured,
-										subtitle: !$superadmin
-											? 'Superadmin only'
-											: externalInstanceConfigured
-												? undefined
-												: 'No external cluster configured'
-									}
-								]}
+								items={catalogItems(ducklake.catalog.resource_type)}
 								bind:value={
 									() => ducklake.catalog.resource_type,
 									(resource_type) => {
@@ -415,7 +455,7 @@
 									}
 								}
 								id="ducklake-catalog-type-select"
-								class="w-36"
+								class="w-52"
 							/>
 						</div>
 						<div class="flex flex-1">

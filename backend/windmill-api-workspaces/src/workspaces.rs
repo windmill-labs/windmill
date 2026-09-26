@@ -3969,6 +3969,8 @@ async fn edit_ducklake_config(
                 &dl.catalog.resource_path,
             )
             .await?;
+        } else {
+            windmill_common::workspaces::ensure_instance_pg_available(&mut *tx).await?;
         }
     }
 
@@ -4287,6 +4289,8 @@ async fn edit_datatable_config(
                 &database.resource_path,
             )
             .await?;
+        } else {
+            windmill_common::workspaces::ensure_instance_pg_available(&mut *tx).await?;
         }
     }
 

@@ -47,3 +47,16 @@ export function getUnusedInstanceDbName(
 	} while (used.has(candidate))
 	return candidate
 }
+
+/**
+ * What to call the two substrates Windmill administers. They are one concept to a workspace admin
+ * — a database Windmill makes and manages — so each is only qualified while the other is also on
+ * offer; alone, either is just "Managed instance".
+ */
+export function managedInstanceLabels(instanceAvailable: boolean, externalAvailable: boolean) {
+	const both = instanceAvailable && externalAvailable
+	return {
+		instance: both ? 'Managed instance (Internal)' : 'Managed instance',
+		external: both ? 'Managed instance (External)' : 'Managed instance'
+	}
+}

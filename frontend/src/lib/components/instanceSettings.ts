@@ -68,6 +68,7 @@ export interface Setting {
 		| 'otel_tracing_proxy'
 		| 'secret_backend'
 		| 'external_instance_pg'
+		| 'instance_pg'
 		| 'github_enterprise_app'
 		| 'webhook_base_url'
 		| 'ws_connectivity'
@@ -568,15 +569,23 @@ export const settings: Record<string, Setting[]> = {
 			hideInQuickSetup: true
 		}
 	],
-	'External Postgres': [
+	'Managed Postgres': [
 		{
-			label: 'External instance cluster',
+			label: 'External instance',
 			description:
 				'A Postgres cluster Windmill administers for data tables and Ducklake catalogs, instead of its own database. It creates the databases there and manages the roles jobs connect as.',
 			key: 'external_instance_pg',
 			fieldType: 'external_instance_pg',
 			storage: 'setting',
 			ee_only: ''
+		},
+		{
+			label: 'Windmill instance',
+			description:
+				"Windmill's own database as a data table and Ducklake substrate. On unless turned off here, and never available on cloud.",
+			key: 'instance_pg_disabled',
+			fieldType: 'instance_pg',
+			storage: 'setting'
 		}
 	],
 	'Object Storage': [
@@ -1282,10 +1291,11 @@ export const instanceSettingsNavigationGroups = [
 				isEE: true
 			},
 			{
-				id: 'external_instance_pg',
-				label: 'External Postgres',
-				aiId: 'instance-settings-external-instance-pg',
-				aiDescription: 'External Postgres cluster for data tables and Ducklake catalogs',
+				id: 'managed_postgres',
+				label: 'Managed Postgres',
+				aiId: 'instance-settings-managed-postgres',
+				aiDescription:
+					'Postgres substrates Windmill administers for data tables and Ducklake catalogs: its own database and an external cluster',
 				isEE: true
 			}
 		]
@@ -1406,7 +1416,7 @@ export const tabToCategoryMap: Record<string, string> = {
 	telemetry: 'Telemetry',
 	secret_storage: 'Secret Storage',
 	object_storage: 'Object Storage',
-	external_instance_pg: 'External Postgres',
+	managed_postgres: 'Managed Postgres',
 	jobs: 'Jobs',
 	private_hub: 'Private Hub',
 	github_enterprise_app: 'GitHub App',
@@ -1443,7 +1453,7 @@ export const categoryToTabMap: Record<string, string> = {
 	Telemetry: 'telemetry',
 	'Secret Storage': 'secret_storage',
 	'Object Storage': 'object_storage',
-	'External Postgres': 'external_instance_pg',
+	'Managed Postgres': 'managed_postgres',
 	Jobs: 'jobs',
 	'Private Hub': 'private_hub',
 	'GitHub App': 'github_enterprise_app',

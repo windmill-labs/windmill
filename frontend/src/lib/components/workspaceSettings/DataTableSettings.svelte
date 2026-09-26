@@ -80,6 +80,7 @@
 	import Tooltip from '../Tooltip.svelte'
 	import {
 		isCustomInstanceDbEnabled,
+		managedInstanceLabels,
 		getUnusedInstanceDbName,
 		isDataTableWizardEnabled
 	} from './utils.svelte'
@@ -178,6 +179,54 @@
 		isSuperadmin ? SettingService.listExternalInstancePgDatabases() : Promise.resolve({})
 	)
 	let externalInstanceConfigured = $derived(externalInstanceStatus.current?.configured === true)
+	// Superadmin-only like the ones above, and absent means on.
+	const instancePgDisabled = resource([() => $superadmin], ([isSuperadmin]) =>
+		isSuperadmin
+			? SettingService.getGlobal({ key: 'instance_pg_disabled' }).catch(() => undefined)
+			: Promise.resolve(undefined)
+	)
+	// What the instance offers at all, and what this user may pick of it: a workspace admin sees
+	// the kinds their instance has, and why they cannot choose one, rather than a shorter list.
+	let instancePossible = $derived(!isCloudHosted() && !instancePgDisabled.current)
+	let instanceAvailable = $derived(instancePossible && !!$superadmin)
+
+	// A kind already saved stays listed whatever the instance offers now, or the entry would read
+	// as something it is not.
+	function kindItems(current: string | undefined) {
+		const showInstance = instancePossible || current === 'instance'
+		const showExternal = externalInstanceConfigured || current === 'external_instance'
+		const labels = managedInstanceLabels(showInstance, showExternal)
+		const items: { value: string; label: string; disabled?: boolean; subtitle?: string }[] = [
+			{ value: 'postgresql', label: 'Postgres Resource' }
+		]
+		if (showInstance) {
+			items.push({
+				value: 'instance',
+				label: labels.instance,
+				disabled: !instanceAvailable,
+				subtitle: instanceAvailable
+					? undefined
+					: isCloudHosted()
+						? 'Not available on cloud'
+						: !$superadmin
+							? 'Superadmin only'
+							: "Windmill's database is disabled"
+			})
+		}
+		if (showExternal) {
+			items.push({
+				value: 'external_instance',
+				label: labels.external,
+				disabled: !externalInstanceConfigured || !$superadmin,
+				subtitle: !$superadmin
+					? 'Superadmin only'
+					: externalInstanceConfigured
+						? undefined
+						: 'No external cluster configured'
+			})
+		}
+		return items
+	}
 
 	function defaultInstanceDbName(): string {
 		const usedNames = [
@@ -199,8 +248,14 @@
 			id: randomUUID(),
 			name,
 			database: {
-				resource_type: $isCustomInstanceDbEnabled ? 'instance' : 'postgresql',
-				resource_path: $isCustomInstanceDbEnabled ? defaultInstanceDbName() : undefined
+				// A new entry starts on a kind this instance actually offers, so it is never born
+				// on one the save would refuse.
+				resource_type: instanceAvailable
+					? 'instance'
+					: externalInstanceConfigured && $superadmin
+						? 'external_instance'
+						: 'postgresql',
+				resource_path: instanceAvailable ? defaultInstanceDbName() : undefined
 			}
 		})
 	}
@@ -433,29 +488,7 @@
 									</Tooltip>
 								{/if}
 								<Select
-									items={[
-										{ value: 'postgresql', label: 'PostgreSQL' },
-										{
-											value: 'instance',
-											label: 'Instance',
-											disabled: isCloudHosted(),
-											subtitle: $isCustomInstanceDbEnabled
-												? undefined
-												: isCloudHosted()
-													? 'Not available on cloud'
-													: 'Superadmin only'
-										},
-										{
-											value: 'external_instance',
-											label: 'External instance',
-											disabled: !externalInstanceConfigured,
-											subtitle: !$superadmin
-												? 'Superadmin only'
-												: externalInstanceConfigured
-													? undefined
-													: 'No external cluster configured'
-										}
-									]}
+									items={kindItems(dataTable.database.resource_type)}
 									bind:value={
 										() => dataTable.database.resource_type,
 										(resource_type) => {
@@ -467,7 +500,7 @@
 										}
 									}
 									id="database-type-select"
-									class="w-36"
+									class="w-52"
 								/>
 							</div>
 							<div class="flex items-center gap-1 w-80 relative">
