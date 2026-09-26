@@ -1014,3 +1014,58 @@ async fn test_list_search_scope_filtering(db: Pool<Postgres>) -> anyhow::Result<
 
     Ok(())
 }
+
+/// A hash alone must not read back a script the caller cannot see: RLS hides it from a
+/// non-owner, and a path-scoped token is refused outside its scope.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_by_hash_endpoints_enforce_rls_and_scopes(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let resp = authed(client().post(format!(
+        "http://localhost:{port}/api/w/test-workspace/scripts/create"
+    )))
+    .json(&new_script(
+        "u/test-user/secret",
+        "",
+        "export async function main() { return 'secret'; }",
+    ))
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(resp.status(), 201, "create: {}", resp.text().await?);
+    let hash = resp.text().await?;
+
+    sqlx::query(
+        "INSERT INTO token (token_hash, token_prefix, token, email, label, super_admin, scopes) VALUES
+         (encode(sha256('SCOPED_TOKEN'::bytea), 'hex'), 'SCOPED_TOK', 'SCOPED_TOKEN', 'test@windmill.dev', 'scoped', true, ARRAY['scripts:read:f/other/*'])",
+    )
+    .execute(&db)
+    .await?;
+
+    for (endpoint, path) in [
+        ("raw/h", format!("{hash}.ts")),
+        ("deployment_status/h", hash.clone()),
+    ] {
+        let get = |token: &'static str| {
+            client()
+                .get(script_url(port, endpoint, &path))
+                .header("Authorization", format!("Bearer {token}"))
+                .send()
+        };
+        assert_eq!(get("SECRET_TOKEN").await?.status(), 200, "{endpoint} owner");
+        assert_eq!(
+            get("SECRET_TOKEN_2").await?.status(),
+            404,
+            "{endpoint} non-owner"
+        );
+        assert_eq!(
+            get("SCOPED_TOKEN").await?.status(),
+            403,
+            "{endpoint} out of scope"
+        );
+    }
+
+    Ok(())
+}
