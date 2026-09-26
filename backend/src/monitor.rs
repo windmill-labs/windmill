@@ -6548,24 +6548,20 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
         {
             let mut tx = db.begin().await?;
 
-            // Only a flow that made no progress since it was read: the queue row, then the runtime
-            // row, in the order a transition takes them. A transition clearing the ping is waited
-            // for, and the progress it commits then fails the check.
+            // Claims the flow unless another sweep holds it or it visibly moved on since it was
+            // read. This does not tell a slow transition from a lost one: the ping is written when
+            // the step completes, at the start of the transition, and nothing is locked until its
+            // end, so the grace in the query above is what keeps a live transition safe.
             let claimed = sqlx::query_scalar!(
-                "SELECT id FROM v2_job_queue WHERE id = $1 AND running FOR UPDATE SKIP LOCKED",
-                flow.id
+                "SELECT q.id FROM v2_job_queue q JOIN v2_job_runtime r ON r.id = q.id
+                WHERE q.id = $1 AND q.running AND r.ping = $2
+                FOR UPDATE OF q SKIP LOCKED",
+                flow.id,
+                flow.last_ping,
             )
             .fetch_optional(&mut *tx)
             .await?
-            .is_some()
-                && sqlx::query_scalar!(
-                    "SELECT id FROM v2_job_runtime WHERE id = $1 AND ping = $2 FOR UPDATE",
-                    flow.id,
-                    flow.last_ping,
-                )
-                .fetch_optional(&mut *tx)
-                .await?
-                .is_some();
+            .is_some();
             if !claimed {
                 continue;
             }
@@ -8003,7 +7999,8 @@ mod canceled_zombie_flow_tests {
 
     /// A canceled flow that keeps coming back after its requeues is completed as canceled on its
     /// own instead of being requeued (and alerted on) forever, and that completion is retried by
-    /// the next sweep if a previous one did not land.
+    /// the next sweep if a previous one did not land. Its parent is not advanced, since the
+    /// transition that would do it is what kept failing.
     #[sqlx::test(migrations = "./migrations")]
     async fn completes_a_canceled_flow_requeued_too_often(db: DB) -> anyhow::Result<()> {
         let root = insert_flow(&db, None, 0, None, None).await?;
@@ -8031,7 +8028,16 @@ mod canceled_zombie_flow_tests {
                 Some(("canceled".to_string(), Some("admin".to_string())))
             );
         }
+        // the parent is not advanced, but the completion pings it: the sweep then reaps it as a
+        // flow hanging between two steps instead of leaving it waiting
         assert_eq!(queue_row(&db, root).await?, (true, None, Some(true)));
+        let parent_pinged: bool = sqlx::query_scalar(
+            "SELECT ping > now() - interval '1 minute' FROM v2_job_runtime WHERE id = $1",
+        )
+        .bind(root)
+        .fetch_one(&db)
+        .await?;
+        assert!(parent_pinged);
         Ok(())
     }
 }

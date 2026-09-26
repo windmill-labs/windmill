@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id FROM v2_job_runtime WHERE id = $1 AND ping = $2 FOR UPDATE",
+  "query": "SELECT q.id FROM v2_job_queue q JOIN v2_job_runtime r ON r.id = q.id\n                WHERE q.id = $1 AND q.running AND r.ping = $2\n                FOR UPDATE OF q SKIP LOCKED",
   "describe": {
     "columns": [
       {
@@ -19,5 +19,5 @@
       false
     ]
   },
-  "hash": "c53938d4f265b3cc56965ac85895d6be6cf00daca5eb093c959468edc8f2aed6"
+  "hash": "bf2a8883c3a9d57ac56b347dccd26eaa4d92e36965e7f069a0107647a2bfff8b"
 }
