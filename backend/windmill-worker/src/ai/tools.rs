@@ -610,6 +610,14 @@ async fn execute_windmill_tool(
         return Err(Error::internal_err("Tool job not found".to_string()));
     };
 
+    // The tool gets a token of its own, as it would on any worker: the agent's token would
+    // identify the tool as the agent job (its OIDC path and job id).
+    let tool_client = AuthedClient::new(
+        ctx.base_internal_url.to_string(),
+        tool_job.workspace_id.clone(),
+        windmill_queue::create_token(ctx.db, &tool_job, None).await,
+        None,
+    );
     let tool_job = Arc::new(tool_job);
 
     let (inner_job_completed_tx, inner_job_completed_rx) = JobCompletedSender::new(ctx.conn, 1);
@@ -622,7 +630,7 @@ async fn execute_windmill_tool(
     // Clone everything needed for the spawned task
     let tool_job_spawn = tool_job.clone();
     let conn_spawn = ctx.conn.clone();
-    let client_spawn = ctx.client.clone();
+    let client_spawn = tool_client;
     let hostname_spawn = ctx.hostname.to_string();
     let worker_name_spawn = ctx.worker_name.to_string();
     let worker_dir_spawn = ctx.worker_dir.to_string();
