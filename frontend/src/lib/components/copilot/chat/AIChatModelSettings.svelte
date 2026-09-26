@@ -23,7 +23,6 @@
 	import { WorkspaceService, type AIProvider, type AIProviderModel } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { base } from '$lib/base'
-	import AIPromptsModal from '$lib/components/settings/AIPromptsModal.svelte'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import { thinkingPreferences } from './thinkingPreferences.svelte'
 	import {
@@ -286,19 +285,22 @@
 <ChatModelSettings {config} />
 
 {#if promptSettings}
-	<AIPromptsModal
-		bind:open={modalOpen}
-		bind:customPrompts
-		scope={modalScope}
-		modes={[activeMode]}
-		readOnly={modalReadOnly}
-		{readOnlyReason}
-		onSave={modalReadOnly ? undefined : save}
-		onReset={reset}
-		{hasChanges}
-		title={modalScope === 'user' ? 'User AI prompt' : 'Workspace AI prompt'}
-		target="body"
-		fixedHeight="sm"
-		settingsHref={isAdmin ? AI_SETTINGS_HREF : undefined}
-	/>
+	<!-- Dynamic: statically, the prompts modal pulls the whole chat manager into the home page. -->
+	{#await import('$lib/components/settings/AIPromptsModal.svelte') then AIPromptsModal}
+		<AIPromptsModal.default
+			bind:open={modalOpen}
+			bind:customPrompts
+			scope={modalScope}
+			modes={[activeMode]}
+			readOnly={modalReadOnly}
+			{readOnlyReason}
+			onSave={modalReadOnly ? undefined : save}
+			onReset={reset}
+			{hasChanges}
+			title={modalScope === 'user' ? 'User AI prompt' : 'Workspace AI prompt'}
+			target="body"
+			fixedHeight="sm"
+			settingsHref={isAdmin ? AI_SETTINGS_HREF : undefined}
+		/>
+	{/await}
 {/if}

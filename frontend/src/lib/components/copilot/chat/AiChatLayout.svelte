@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import AiChat from './AIChat.svelte'
 	import SessionsBetaBanner from '$lib/components/sessions/SessionsBetaBanner.svelte'
 	import { zIndexes } from '$lib/zIndexes'
 	import { userStore, workspaceStore } from '$lib/stores'
@@ -12,7 +11,6 @@
 	import { onDestroy } from 'svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { Menu } from 'lucide-svelte'
-	import CreatedResourceActionDrawers from './CreatedResourceActionDrawers.svelte'
 
 	interface Props {
 		noPadding?: boolean
@@ -102,7 +100,11 @@
 {/snippet}
 
 {#if !disableAi}
-	<CreatedResourceActionDrawers />
+	<!-- Dynamic imports here and for AIChat: this layout wraps every workspace page, so its
+	     static imports gate first paint. -->
+	{#await import('./CreatedResourceActionDrawers.svelte') then CreatedResourceActionDrawers}
+		<CreatedResourceActionDrawers.default />
+	{/await}
 	<Splitpanes horizontal={false} class="flex-1 min-h-0">
 		<Pane size={100 - chatState.size} minSize={50} class="flex flex-col grow min-h-0 ">
 			<div
@@ -127,7 +129,9 @@
 				class={`flex flex-col min-h-0 z-[${zIndexes.aiChat}]`}
 			>
 				<div class="flex-1 min-h-0">
-					<AiChat />
+					{#await import('./AIChat.svelte') then AiChat}
+						<AiChat.default />
+					{/await}
 				</div>
 				{#if showSessionsBetaBanner}
 					<SessionsBetaBanner variant="legacy" />

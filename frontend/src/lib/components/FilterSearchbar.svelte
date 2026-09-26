@@ -307,7 +307,6 @@
 	import { MinusIcon, SearchIcon } from 'lucide-svelte'
 	import { assignObjInPlace, clone } from '$lib/utils'
 	import GenericDropdown from './select/GenericDropdown.svelte'
-	import SimpleEditor from './SimpleEditor.svelte'
 	import TaggedTextInput from './TaggedTextInput.svelte'
 	import { DebouncedTempValue, useTransformedSyncedValue } from '$lib/svelte5Utils.svelte'
 	import { untrack } from 'svelte'
@@ -863,20 +862,23 @@
 		</div>
 	{:else if filter.type === 'string' && filter.format === 'json'}
 		<div class="px-2 pb-2">
-			<SimpleEditor
-				autofocus={String(value[currentTag!] ?? '').length === 0}
-				lang="json"
-				autoHeight
-				small
-				bind:code={
-					() => String(value[currentTag!] ?? ''),
-					(v) => {
-						setValueForCurrentTag(v ?? '')
-						taggedTextInput?.preventCursorMoveOnNextSync()
+			<!-- Dynamic: monaco would otherwise load with every list page that has a searchbar. -->
+			{#await import('./SimpleEditor.svelte') then SimpleEditor}
+				<SimpleEditor.default
+					autofocus={String(value[currentTag!] ?? '').length === 0}
+					lang="json"
+					autoHeight
+					small
+					bind:code={
+						() => String(value[currentTag!] ?? ''),
+						(v) => {
+							setValueForCurrentTag(v ?? '')
+							taggedTextInput?.preventCursorMoveOnNextSync()
+						}
 					}
-				}
-				class="border border-border-light rounded min-h-[4rem]"
-			/>
+					class="border border-border-light rounded min-h-[4rem]"
+				/>
+			{/await}
 		</div>
 	{:else if filter.type === 'string'}
 		{#if menuItems.length}

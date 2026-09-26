@@ -2,7 +2,7 @@
 	import { Folder, User } from 'lucide-svelte'
 	import { Badge } from '../common'
 	import type { BadgeColor, BadgeIconProps } from '../common/badge/model'
-	import { appIconComponent } from '../icons'
+	import { appIconComponent } from '../icons/appIcon.svelte'
 	import { integrationDisplayName } from '../resourceTypeDisplay'
 	import { untrack } from 'svelte'
 	import { useHostedPage } from '../hostedPage'

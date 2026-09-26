@@ -41,7 +41,6 @@
 	import NoItemFound from './NoItemFound.svelte'
 	import WorkspaceEmptyState from './WorkspaceEmptyState.svelte'
 	import HubProjectPickerModal from './HubProjectPickerModal.svelte'
-	import ImportProjectModal from './ImportProjectModal.svelte'
 	import type { HubProjectPick } from '$lib/hubProject'
 	import ListFilters from './ListFilters.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -2077,7 +2076,10 @@
 		hubPick = project
 	}}
 />
-<ImportProjectModal pick={hubPick} onClose={() => (hubPick = undefined)} {onImported} />
+<!-- Dynamic: the import flow statically reaches ~400 modules (resource setup, SQL editor). -->
+{#await import('./ImportProjectModal.svelte') then ImportProjectModal}
+	<ImportProjectModal.default pick={hubPick} onClose={() => (hubPick = undefined)} {onImported} />
+{/await}
 
 <style>
 	/* Rows arriving after an import, one after another. The animation is declared on the

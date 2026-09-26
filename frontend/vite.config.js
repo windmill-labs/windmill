@@ -208,6 +208,18 @@ const config = {
 			'public.windmill.xyz'
 		],
 		port: parseInt(process.env.FRONTEND_PORT) || 3000,
+		// Transform the app shell's module graph at startup rather than on the first page
+		// load, which otherwise sits on the loading screen for ~15s (Tailwind's full content
+		// scan for app.css alone takes several seconds).
+		warmup: {
+			clientFiles: [
+				'./src/lib/assets/app.css',
+				'./src/routes/+layout.svelte',
+				'./src/routes/(root)/+layout.svelte',
+				'./src/routes/(root)/(logged)/+layout.svelte',
+				'./src/routes/(root)/(logged)/+page.svelte'
+			]
+		},
 		cors: { origin: '*' },
 		// `windmill-chat` (svelte.config.js alias) lives outside the frontend root.
 		fs: {
