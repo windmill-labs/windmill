@@ -585,6 +585,55 @@ fn validate_already_encrypted_secret(path: &str, value: &str) -> Result<()> {
     Ok(())
 }
 
+/// The OAuth account a variable may link, of the one requested. Reading a variable linked to an
+/// account refreshes through it and hands the fresh token to the reader, so only the account's
+/// creator may link it, or a caller who can already read a variable that does (checked in the
+/// caller's own transaction, so RLS decides).
+///
+/// Anything else is dropped rather than refused: account ids are local to a workspace, so a
+/// variable synced from another one carries an id that means nothing here, and must still land.
+async fn permitted_account_link(
+    db: &DB,
+    user_db: &UserDB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    account: Option<i32>,
+) -> Result<Option<i32>> {
+    let Some(account) = account else {
+        return Ok(None);
+    };
+    let created_by = sqlx::query_scalar!(
+        "SELECT created_by FROM account WHERE workspace_id = $1 AND id = $2",
+        w_id,
+        account
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten();
+    if created_by.as_deref() == Some(authed.username.as_str()) {
+        return Ok(Some(account));
+    }
+    let mut tx = user_db.clone().begin(authed).await?;
+    let readable = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM variable WHERE workspace_id = $1 AND account = $2)",
+        w_id,
+        account
+    )
+    .fetch_one(&mut *tx)
+    .await?
+    .unwrap_or(false);
+    tx.commit().await?;
+    if readable {
+        Ok(Some(account))
+    } else {
+        tracing::warn!(
+            "Not linking OAuth account {account} in {w_id}: {} neither connected it nor can read a variable linking it",
+            authed.username
+        );
+        Ok(None)
+    }
+}
+
 async fn create_variable(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -644,6 +693,8 @@ async fn create_variable(
         variable.value
     };
 
+    let account = permitted_account_link(&db, &user_db, &authed, &w_id, variable.account).await?;
+
     let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query!(
@@ -655,7 +706,7 @@ async fn create_variable(
         value,
         variable.is_secret,
         variable.description,
-        variable.account,
+        account,
         variable.is_oauth.unwrap_or(false),
         variable.expires_at,
         variable.labels.as_deref() as Option<&[String]>,
@@ -1156,11 +1207,6 @@ async fn update_variable(
         has_sql_updates = true;
     }
 
-    if let Some(account_id) = ns.account {
-        sqlb.set_str("account", account_id);
-        has_sql_updates = true;
-    }
-
     if let Some(nbool) = ns.is_secret {
         let old_secret = sqlx::query_scalar!(
             "SELECT is_secret from variable WHERE path = $1 AND workspace_id = $2",
@@ -1192,6 +1238,16 @@ async fn update_variable(
     } else {
         None
     };
+
+    let account = if ns.account.is_some() && ns.account != old_account_id {
+        permitted_account_link(&db, &user_db, &authed, &w_id, ns.account).await?
+    } else {
+        ns.account
+    };
+    if let Some(account_id) = account {
+        sqlb.set_str("account", account_id);
+        has_sql_updates = true;
+    }
 
     let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
 
@@ -1368,7 +1424,7 @@ async fn update_variable(
 
     // Clean up old account if it's no longer referenced and different from new account
     if let Some(old_acc_id) = old_account_id {
-        if ns.account.is_some() && ns.account != Some(old_acc_id) {
+        if account.is_some() && account != Some(old_acc_id) {
             // Check if old account is still referenced by other variables or resources
             let account_still_used = sqlx::query_scalar!(
                 "SELECT EXISTS(SELECT 1 FROM variable WHERE account = $1 AND workspace_id = $2)",
