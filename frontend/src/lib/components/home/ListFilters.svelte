@@ -115,7 +115,9 @@
 							<Icon class="mr-0.5" size={12} />
 						{:else if resourceType}
 							{@const SvelteComponent = appIconComponent(filter)}
-							<SvelteComponent height="14px" width="14px" />
+							{#if SvelteComponent}
+								<SvelteComponent height="14px" width="14px" />
+							{/if}
 						{:else if filter.startsWith('u/')}
 							<User class="mr-0.5" size={14} />
 						{:else if filter.startsWith('f/')}

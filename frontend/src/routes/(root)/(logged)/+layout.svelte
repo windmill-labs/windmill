@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { BROWSER } from 'esm-env'
+	import { isMac } from '$lib/utils'
 
 	import {
 		AppService,
@@ -685,11 +686,30 @@
 		}
 	}
 
-	function openSearchModal(
-		text?: string,
-		stack?: import('$lib/components/common/overlayHost.svelte').OverlayStack
-	): void {
-		globalSearchModal?.openSearchWithPrefilledText(text, stack)
+	type OverlayStack = import('$lib/components/common/overlayHost.svelte').OverlayStack
+	// The modal is a dynamic import, so a request can arrive before it is bound; it is
+	// held here and replayed on bind rather than dropped.
+	let pendingSearchOpen: { text?: string; stack?: OverlayStack } | undefined = $state()
+
+	function openSearchModal(text?: string, stack?: OverlayStack): void {
+		if (globalSearchModal) globalSearchModal.openSearchWithPrefilledText(text, stack)
+		else pendingSearchOpen = { text, stack }
+	}
+
+	$effect(() => {
+		if (globalSearchModal && pendingSearchOpen) {
+			const { text, stack } = pendingSearchOpen
+			pendingSearchOpen = undefined
+			untrack(() => globalSearchModal?.openSearchWithPrefilledText(text, stack))
+		}
+	})
+
+	// Until the modal is bound its own Ctrl/Cmd+K listener does not exist yet.
+	function onSearchShortcutBeforeLoad(e: KeyboardEvent) {
+		if (!globalSearchModal && (isMac() ? e.metaKey : e.ctrlKey) && e.key === 'k') {
+			e.preventDefault()
+			openSearchModal()
+		}
 	}
 
 	setContext('openSearchWithPrefilledText', openSearchModal)
@@ -920,7 +940,7 @@
 	})
 </script>
 
-<svelte:window bind:innerWidth />
+<svelte:window bind:innerWidth onkeydown={onSearchShortcutBeforeLoad} />
 
 <!-- Home + Runs lifted to the top of the workspace nav, sitting with Favorites
      and Search as the primary quick-access cluster. Excluded from SidebarContent

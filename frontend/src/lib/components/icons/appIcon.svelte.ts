@@ -8,11 +8,17 @@ let icons = $state.raw<typeof import('./index')>()
 let loading: Promise<unknown> | undefined
 
 function load() {
-	if (!icons) loading ??= import('./index').then((m) => (icons = m))
+	if (!icons)
+		loading ??= import('./index').then(
+			(m) => (icons = m),
+			// Cleared so the next read retries rather than keeping the tab icon-less.
+			() => (loading = undefined)
+		)
 	return icons
 }
 
 export function appIconComponent(name: string | undefined): Component | undefined {
+	if (!name) return undefined
 	return load()?.appIconComponent(name)
 }
 
