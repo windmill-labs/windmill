@@ -44,6 +44,7 @@
 	import EmptyEdge from './renderers/edges/EmptyEdge.svelte'
 	import { Expand, MousePointer, Hand } from 'lucide-svelte'
 	import Toggle from '../Toggle.svelte'
+	import SimplifiedFlowGraph from './simplified/SimplifiedFlowGraph.svelte'
 	import DataflowEdge from './renderers/edges/DataflowEdge.svelte'
 	import { encodeState, readFieldsRecursively, getModifierKey, isMac } from '$lib/utils'
 	import BranchOneStart from './renderers/nodes/BranchOneStart.svelte'
@@ -117,6 +118,8 @@
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 	let showAssets: Writable<boolean | undefined> = writable<boolean | undefined>(true)
+	// Read-only alternative layout; editing needs the insert/drag affordances of the full graph.
+	let simplifiedView = $state(false)
 	let showNotes = $state(true)
 
 	const triggerContext = getContext<TriggerContext>('TriggerContext')
@@ -1302,7 +1305,9 @@
 	<DiffDrawer bind:this={diffDrawer} />
 {/if}
 <div
-	style={`height: ${height}px; max-height: ${maxHeight}px;`}
+	style={simplifiedView && !editMode
+		? undefined
+		: `height: ${height}px; max-height: ${maxHeight}px;`}
 	class="overflow-clip relative {outerDivClass}"
 	bind:clientWidth={debouncedWidth}
 	bind:this={flowContainer}
@@ -1320,6 +1325,19 @@
 				>
 			</Alert>
 		</div>
+	{:else if simplifiedView && !editMode}
+		<SimplifiedFlowGraph
+			{modules}
+			{failureModule}
+			{preprocessorModule}
+			{minHeight}
+			{maxHeight}
+			onSelect={(id) => onSelect?.(id)}
+		>
+			{#snippet topLeftControls()}
+				{@render simplifiedViewToggle()}
+			{/snippet}
+		</SimplifiedFlowGraph>
 	{:else}
 		<SvelteFlowProvider>
 			<ViewportResizer {height} {width} {nodes} bind:this={viewportResizer} />
@@ -1508,12 +1526,19 @@
 						{#if showDataflow}
 							<Toggle bind:checked={$useDataflow} size="xs" options={{ right: 'Dataflow' }} />
 						{/if}
+						{#if !editMode}
+							{@render simplifiedViewToggle()}
+						{/if}
 					</Controls>
 				{/if}
 			</SvelteFlow>
 		</SvelteFlowProvider>
 	{/if}
 </div>
+
+{#snippet simplifiedViewToggle()}
+	<Toggle bind:checked={simplifiedView} size="xs" options={{ right: 'Simplified view' }} />
+{/snippet}
 
 <style lang="postcss">
 	:global(.svelte-flow__handle) {
