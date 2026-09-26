@@ -107,7 +107,7 @@
 
 	/** An instance entry with shared credentials (admin id+secret): connect with
 	 * no input. Shown under "Instance-configured"; bring-your-own-only providers
-	 * (no shared creds) are shown under "Others" instead. */
+	 * (no shared creds) are listed with the other resource types instead. */
 	function isSharedConnect(key: string): boolean {
 		return connectsInfo[key]?.has_shared_credentials ?? false
 	}
@@ -257,8 +257,9 @@
 	 * doesn't enter their own — the exchange runs server-side with those creds */
 	let ccInstanceConfigured = $state(false)
 
-	/** The user wants their own credentials (picked the provider from the "Others"
-	 * section) — overrides the shared instance credentials for this connection */
+	/** The user wants their own credentials (picked the provider from the resource
+	 * type list rather than the instance section) — overrides the shared instance
+	 * credentials for this connection */
 	let ccBringYourOwn = $state(false)
 
 	/** Connect with the shared instance credentials (no form) rather than the
@@ -324,7 +325,7 @@
 		return registryCcCapableFor(key)
 	}
 
-	/** Step-1 "Others" selection: CC-capable resource types open the client-
+	/** Step-1 resource type selection: CC-capable resource types open the client-
 	 * credentials form with the user's own credentials — even when the instance
 	 * has shared ones (the "Instance-configured OAuth APIs" section is the entry
 	 * point for those). Every other type opens the raw manual form. */
@@ -507,7 +508,7 @@
 			})
 			.catch(() => {})
 
-		// "Others" lists every resource type — including instance-configured OAuth
+		// The resource type list holds every type — including instance-configured OAuth
 		// providers — so any of them can also be connected with the user's own
 		// credentials or manually, not only via the shared instance setup (same as
 		// the authorization-code behavior).
@@ -1094,7 +1095,11 @@
 					seeMore: restKeys.length > 0 ? `See ${category.others}` : undefined
 				})
 		}
-		return [...popular, ...rest, others]
+		// An empty Others still renders while loading (its skeletons) and on an unsynced
+		// list (the sync hint).
+		const keepOthers =
+			others.keys.length > 0 || !rankedConnectsManual || (connectsManual?.length ?? 0) < 10
+		return keepOthers ? [...popular, ...rest, others] : [...popular, ...rest]
 	})
 
 	// Every row in the order it is rendered, so arrow keys walk the sections as one list.
