@@ -1572,10 +1572,10 @@ impl Completion<'_> {
             .await
             .map_err(err);
         };
-        // A cancel of the flow marks the flow and then its steps. When the delete waited on it,
-        // the parent row read by this statement's snapshot predates it, so the ping moves to a
-        // statement of its own that sees the cancel.
-        let completed = sqlx::query!(
+        // A canceled flow is pinged too: it is completed by its next transition like any other
+        // flow, and the zombie flow monitor needs the ping to finish the cancel if that
+        // transition is lost.
+        sqlx::query_scalar!(
         "WITH deleted AS (
             DELETE FROM v2_job_queue WHERE id = $1
             RETURNING id, workspace_id, started_at, worker, canceled_by, canceled_reason
@@ -1616,13 +1616,10 @@ impl Completion<'_> {
         ), parent_ping AS (
             UPDATE v2_job_runtime r SET ping = now()
             FROM v2_job_queue q
-            WHERE r.id = $11 AND q.id = r.id AND q.workspace_id = $12 AND q.canceled_by IS NULL
+            WHERE r.id = $11 AND q.id = r.id AND q.workspace_id = $12
                 AND EXISTS (SELECT 1 FROM completed)
-                AND NOT EXISTS (SELECT 1 FROM deleted WHERE canceled_by IS NOT NULL)
         )
-        SELECT c.duration_ms AS \"duration_ms!\",
-            EXISTS (SELECT 1 FROM deleted WHERE canceled_by IS NOT NULL) AS \"carried_cancel!\"
-        FROM completed c",
+        SELECT duration_ms AS \"duration_ms!\" FROM completed",
         /* $1 */ completed_job.id,
         /* $2 */ success,
         /* $3 */ result,
@@ -1639,26 +1636,7 @@ impl Completion<'_> {
     .fetch_optional(&mut *conn)
     .warn_after_seconds(10)
     .await
-    .map_err(err)?;
-        let Some(completed) = completed else {
-            return Ok(None);
-        };
-        if completed.carried_cancel {
-            sqlx::query!(
-                "UPDATE v2_job_runtime r SET
-                        ping = now()
-                    FROM v2_job_queue q
-                    WHERE r.id = $1 AND q.id = r.id
-                        AND q.workspace_id = $2
-                        AND canceled_by IS NULL",
-                parent_to_ping,
-                &completed_job.workspace_id
-            )
-            .execute(&mut *conn)
-            .warn_after_seconds(10)
-            .await?;
-        }
-        Ok(Some(completed.duration_ms))
+    .map_err(err)
     }
 }
 
