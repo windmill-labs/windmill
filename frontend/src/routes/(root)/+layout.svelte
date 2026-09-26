@@ -18,6 +18,7 @@
 	import { onDestroy, onMount } from 'svelte'
 
 	import { refreshSuperadmin } from '$lib/refreshUser'
+	import { isChunkLoadError, reloadForStaleChunk } from '$lib/utils/staleChunkReload'
 	// import EditorTheme from '$lib/components/EditorTheme.svelte'
 	import { computeDrift } from '$lib/forLater'
 	import { setLicense } from '$lib/enterpriseUtils'
@@ -200,6 +201,10 @@
 			if (event.reason?.message) {
 				const { message, body, status } = event.reason
 
+				if (isChunkLoadError(message)) {
+					if (!reloadForStaleChunk()) console.warn(message)
+					return
+				}
 				if (message === 'Missing service editorService') {
 					console.error('Reloading the page to fix a Monaco Editor bug')
 					location.reload()
@@ -208,7 +213,6 @@
 				// Unhandled errors from Monaco Editor don't logout the user
 				if (
 					monacoEditorUnhandledErrors.includes(message) ||
-					message.startsWith('Failed to fetch dynamically imported') ||
 					message.startsWith('Unable to figure out browser width and height') ||
 					message.startsWith('Unable to read file') ||
 					message.startsWith('Could not find source file')
@@ -294,8 +298,13 @@
 		}, 300000)
 	})
 
+	// Fired when a dynamic import's preloaded dependencies fail to load.
+	const onPreloadError = () => reloadForStaleChunk()
+	window.addEventListener('vite:preloadError', onPreloadError)
+
 	onDestroy(() => {
 		interval && clearInterval(interval)
+		window.removeEventListener('vite:preloadError', onPreloadError)
 	})
 
 	const darkMode =

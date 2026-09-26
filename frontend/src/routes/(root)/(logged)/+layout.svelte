@@ -686,16 +686,32 @@
 		}
 	}
 
+	// Sticky: once opened, a drawer stays mounted, so reopening it is instant.
+	let userSettingsRequested = $state(false)
+	let superadminSettingsRequested = $state(false)
+	$effect(() => {
+		if (page.url.hash.startsWith(USER_SETTINGS_HASH)) userSettingsRequested = true
+		if (page.url.hash === SUPERADMIN_SETTINGS_HASH) superadminSettingsRequested = true
+	})
+	let dbManagerRequested = $state(false)
+	$effect(() => {
+		if (globalDbManagerDrawer.val?.open) dbManagerRequested = true
+	})
+
 	type OverlayStack = import('$lib/components/common/overlayHost.svelte').OverlayStack
-	// The modal is a dynamic import, so a request can arrive before it is bound; it is
-	// held here and replayed on bind rather than dropped. Only where the modal mounts
-	// (the markup's `{:else if $userStore}`): elsewhere the request would replay much later.
+	// The modal is loaded on the first request, which is held here and replayed once it is
+	// bound. Only where the modal mounts (the markup's `{:else if $userStore}`): elsewhere
+	// the request would replay much later.
+	let searchModalRequested = $state(false)
 	let pendingSearchOpen: { text?: string; stack?: OverlayStack } | undefined = $state()
 	let searchModalMounts = $derived(page.status != 404 && !!$userStore)
 
 	function openSearchModal(text?: string, stack?: OverlayStack): void {
 		if (globalSearchModal) globalSearchModal.openSearchWithPrefilledText(text, stack)
-		else if (searchModalMounts) pendingSearchOpen = { text, stack }
+		else if (searchModalMounts) {
+			pendingSearchOpen = { text, stack }
+			searchModalRequested = true
+		}
 	}
 
 	$effect(() => {
@@ -706,7 +722,7 @@
 		}
 	})
 
-	// Until the modal is bound its own Ctrl/Cmd+K listener does not exist yet.
+	// Ctrl/Cmd+K is what first loads the modal; once bound, the modal's own listener takes over.
 	function onSearchShortcutBeforeLoad(e: KeyboardEvent) {
 		if (
 			!globalSearchModal &&
@@ -1016,11 +1032,14 @@
 	</div>
 {/snippet}
 
-<!-- The drawers and modals below are dynamic imports: this layout wraps every workspace
-     page, so whatever it imports statically gates first paint. -->
-{#await import('$lib/components/UserSettings.svelte') then UserSettings}
-	<UserSettings.default bind:this={userSettings} showMcpMode={true} />
-{/await}
+<!-- The drawers and modals below are dynamic imports mounted on first open: this layout
+     wraps every workspace page, so a static import gates first paint, and a load on mount
+     competes with the page for bandwidth (several of them reach monaco). -->
+{#if userSettingsRequested}
+	{#await import('$lib/components/UserSettings.svelte') then UserSettings}
+		<UserSettings.default bind:this={userSettings} showMcpMode={true} />
+	{/await}
+{/if}
 {#if accountSetup.pending}
 	<FinishAccountSetup
 		bind:open={accountSetup.open}
@@ -1032,10 +1051,12 @@
 {#if page.status == 404}
 	<CenteredModal title="Page not found, redirecting you to login" loading={true}></CenteredModal>
 {:else if $userStore}
-	{#await import('$lib/components/search/GlobalSearchModal.svelte') then GlobalSearchModal}
-		<GlobalSearchModal.default bind:this={globalSearchModal} />
-	{/await}
-	{#if $superadmin}
+	{#if searchModalRequested}
+		{#await import('$lib/components/search/GlobalSearchModal.svelte') then GlobalSearchModal}
+			<GlobalSearchModal.default bind:this={globalSearchModal} />
+		{/await}
+	{/if}
+	{#if $superadmin && superadminSettingsRequested}
 		{#await import('$lib/components/SuperadminSettings.svelte') then SuperadminSettings}
 			<SuperadminSettings.default bind:this={superadminSettings} />
 		{/await}
@@ -1536,7 +1557,7 @@
 	<CenteredModal title="Loading user..." loading={true}></CenteredModal>
 {/if}
 
-{#if $workspaceStore && globalDbManagerDrawer.val}
+{#if $workspaceStore && globalDbManagerDrawer.val && dbManagerRequested}
 	{#await import('$lib/components/DBManagerDrawer.svelte') then DBManagerDrawer}
 		<DBManagerDrawer.default uriState={globalDbManagerDrawer.val} />
 	{/await}

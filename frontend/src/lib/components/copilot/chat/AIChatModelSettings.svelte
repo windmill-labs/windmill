@@ -94,6 +94,11 @@
 	// ---- prompt parameters (User / Workspace custom prompts) ----
 	let mode = $derived(aiChatManager.mode)
 	let modalOpen = $state(false)
+	// Sticky, so the prompts modal mounts on first open and then stays for its close animation.
+	let promptsModalRequested = $state(false)
+	$effect(() => {
+		if (modalOpen) promptsModalRequested = true
+	})
 	let modalScope = $state<'user' | 'workspace'>('user')
 	let customPrompts = $state<Record<string, string>>({})
 	let initialPrompt = $state('')
@@ -284,8 +289,9 @@
 
 <ChatModelSettings {config} />
 
-{#if promptSettings}
-	<!-- Dynamic: statically, the prompts modal pulls the whole chat manager into the home page. -->
+{#if promptSettings && promptsModalRequested}
+	<!-- Dynamic, on first open: statically, the prompts modal pulls the whole chat manager into
+	     the home page. -->
 	{#await import('$lib/components/settings/AIPromptsModal.svelte') then AIPromptsModal}
 		<AIPromptsModal.default
 			bind:open={modalOpen}

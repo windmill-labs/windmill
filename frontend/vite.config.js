@@ -78,6 +78,36 @@ function assertAcyclicChunks() {
 }
 
 /**
+ * Fail the build if a chunk statically reachable from one containing `entry` contains a module
+ * whose id includes one of `forbidden`. Only static imports count: a dynamic import is the
+ * fix, not the problem.
+ */
+function assertStaticClosureExcludes(ctx, bundle, entry, forbidden, hint) {
+	const chunks = Object.entries(bundle).filter(([, c]) => c.type === 'chunk')
+	const idsOf = (c) => c.moduleIds ?? Object.keys(c.modules ?? {})
+	const starts = chunks
+		.filter(([, c]) => idsOf(c).some((id) => id.includes(entry)))
+		.map(([file]) => file)
+	if (!starts.length) ctx.error(`No chunk contains ${entry}; update ${hint}`)
+	const seen = new Set(starts)
+	const queue = [...starts]
+	while (queue.length) {
+		const chunk = bundle[queue.shift()]
+		if (!chunk) continue
+		const hit = idsOf(chunk).find((id) => forbidden.some((f) => id.includes(f)))
+		if (hit) ctx.error(`${entry} statically loads ${hit}; import it lazily (see ${hint})`)
+		for (const dep of chunk.imports ?? []) {
+			if (seen.has(dep)) continue
+			seen.add(dep)
+			queue.push(dep)
+		}
+	}
+}
+
+const isClientBuild = (bundle) =>
+	Object.keys(bundle).some((file) => file.startsWith('_app/immutable/'))
+
+/**
  * Fail the build if a public app URL statically loads the low-code runtime or monaco.
  *
  * These pages also serve raw apps, which only need a small shell around their bundle's
@@ -94,30 +124,34 @@ function assertLeanPublicAppRoutes() {
 	return {
 		name: 'wm-assert-lean-public-app-routes',
 		generateBundle(_options, bundle) {
-			const chunks = Object.entries(bundle).filter(([, c]) => c.type === 'chunk')
-			if (!chunks.some(([file]) => file.startsWith('_app/immutable/'))) return
-			const idsOf = (c) => c.moduleIds ?? Object.keys(c.modules ?? {})
+			if (!isClientBuild(bundle)) return
 			for (const route of routes) {
-				const starts = chunks
-					.filter(([, c]) => idsOf(c).some((id) => id.includes(route)))
-					.map(([file]) => file)
-				if (!starts.length)
-					this.error(`No chunk contains ${route}; update assertLeanPublicAppRoutes`)
-				const seen = new Set(starts)
-				const queue = [...starts]
-				while (queue.length) {
-					const chunk = bundle[queue.shift()]
-					if (!chunk) continue
-					const hit = idsOf(chunk).find((id) => forbidden.some((f) => id.includes(f)))
-					if (hit) {
-						this.error(`${route} statically loads ${hit}; import it lazily (see loadAppPreview.ts)`)
-					}
-					for (const dep of chunk.imports ?? []) {
-						if (seen.has(dep)) continue
-						seen.add(dep)
-						queue.push(dep)
-					}
-				}
+				assertStaticClosureExcludes(this, bundle, route, forbidden, 'loadAppPreview.ts')
+			}
+		}
+	}
+}
+
+/**
+ * Fail the build if the app shell statically loads monaco.
+ *
+ * The layouts below wrap every page, so what they import statically is downloaded before
+ * any page renders; monaco is several MB of it. Editors, drawers and modals that reach it
+ * are dynamic imports mounted on first use (see the `(logged)` layout).
+ */
+function assertMonacoFreeAppShell() {
+	const layouts = [
+		'/src/routes/+layout.svelte',
+		'/src/routes/(root)/+layout.svelte',
+		'/src/routes/(root)/(logged)/+layout.svelte'
+	]
+	const forbidden = ['/node_modules/monaco-editor/', '/node_modules/@codingame/monaco-vscode-']
+	return {
+		name: 'wm-assert-monaco-free-app-shell',
+		generateBundle(_options, bundle) {
+			if (!isClientBuild(bundle)) return
+			for (const layout of layouts) {
+				assertStaticClosureExcludes(this, bundle, layout, forbidden, 'the (logged) layout')
 			}
 		}
 	}
@@ -291,7 +325,8 @@ const config = {
 		...(process.env.HTTPS === 'true' ? [mkcert()] : []),
 		plugin,
 		assertAcyclicChunks(),
-		assertLeanPublicAppRoutes()
+		assertLeanPublicAppRoutes(),
+		assertMonacoFreeAppShell()
 	],
 	define: { '__pkg__.version': JSON.stringify(version) },
 	optimizeDeps: {
