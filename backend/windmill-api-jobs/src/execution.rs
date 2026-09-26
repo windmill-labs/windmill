@@ -95,6 +95,68 @@ pub async fn check_tag_as_written_available_for_workspace(
     }
 }
 
+/// Clears a `parent_job` / `root_job` the caller cannot claim. They identify the pushed job
+/// (`WM_FLOW_JOB_ID`, `WM_ROOT_FLOW_JOB_ID`, the OIDC token's flow path), so only a job's own
+/// `WM_TOKEN` may name that job or its ancestors, and a workspace admin any job of the workspace.
+/// Cleared rather than refused: the SDKs send them from inside a job whatever token they hold.
+pub async fn drop_unclaimable_run_lineage(
+    db: &DB,
+    w_id: &str,
+    run_query: &mut RunJobQuery,
+    authed: &ApiAuthed,
+) -> error::Result<()> {
+    let mut referenced: Vec<Uuid> = [run_query.parent_job, run_query.root_job]
+        .into_iter()
+        .flatten()
+        .collect();
+    referenced.dedup();
+    if let Some(token_job) = authed.job_id {
+        referenced.retain(|id| *id != token_job);
+        if !referenced.is_empty() {
+            if let Some(lineage) = sqlx::query!(
+                "SELECT parent_job, root_job, flow_innermost_root_job FROM v2_job
+                WHERE id = $1 AND workspace_id = $2",
+                token_job,
+                w_id
+            )
+            .fetch_optional(db)
+            .await?
+            {
+                let ancestors = [
+                    lineage.parent_job,
+                    lineage.root_job,
+                    lineage.flow_innermost_root_job,
+                ];
+                referenced.retain(|id| !ancestors.contains(&Some(*id)));
+            }
+        }
+    }
+    if referenced.is_empty() {
+        return Ok(());
+    }
+    let in_workspace = if authed.is_admin {
+        sqlx::query_scalar!(
+            "SELECT id FROM v2_job WHERE id = ANY($1) AND workspace_id = $2",
+            &referenced,
+            w_id,
+        )
+        .fetch_all(db)
+        .await?
+    } else {
+        vec![]
+    };
+    for field in [&mut run_query.parent_job, &mut run_query.root_job] {
+        if field.is_some_and(|id| referenced.contains(&id) && !in_workspace.contains(&id)) {
+            tracing::warn!(
+                "ignoring parent_job/root_job {field:?} that {} cannot claim in {w_id}",
+                authed.username
+            );
+            *field = None;
+        }
+    }
+    Ok(())
+}
+
 #[cfg(feature = "enterprise")]
 pub async fn check_license_key_valid() -> error::Result<()> {
     use windmill_common::ee_oss::LICENSE_KEY_VALID;
@@ -776,6 +838,8 @@ pub async fn run_flow<'c>(
     bool,
     Option<sqlx::Transaction<'c, sqlx::Postgres>>,
 )> {
+    let mut run_query = run_query;
+    drop_unclaimable_run_lineage(db, w_id, &mut run_query, authed).await?;
     let on_behalf_of = flow_version_info.on_behalf_of(w_id, &db).await?;
     let FlowVersionInfo {
         version,
@@ -1017,6 +1081,8 @@ pub async fn push_script_job_by_path_into_queue<'c>(
 
     let script_path = script_path.to_path();
     check_scopes(&authed, || format!("jobs:run:scripts:{script_path}"))?;
+    let mut run_query = run_query;
+    drop_unclaimable_run_lineage(&db, &w_id, &mut run_query, &authed).await?;
 
     let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
     let (job_payload, tag, delete_after_use, delete_after_secs, timeout, on_behalf_of) =
