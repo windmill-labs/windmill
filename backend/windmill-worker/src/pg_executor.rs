@@ -45,7 +45,7 @@ use crate::common::{
     s3_stream_and_upload_with_logs, sizeof_val, OccupancyMetrics, S3ModeWorkerData,
 };
 use crate::handle_child::run_future_with_polling_update_job_poller;
-use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
+use crate::sanitized_sql_params::{sanitize_and_interpolate_unsafe_sql_args, SqlStringEscaping};
 use crate::sql_s3_input::fetch_s3object_as_json_text;
 use crate::sql_utils::remove_comments;
 use crate::{max_sql_result_size, sql_result_too_large_error, to_raw_value_within};
@@ -898,8 +898,13 @@ pub async fn do_postgresql(
     let reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
 
-    let (query, _) =
-        &sanitize_and_interpolate_unsafe_sql_args(query, &sig.args, &pg_args, &reserved_variables)?;
+    let (query, _) = &sanitize_and_interpolate_unsafe_sql_args(
+        query,
+        &sig.args,
+        &pg_args,
+        &reserved_variables,
+        SqlStringEscaping::QuoteAndBackslash,
+    )?;
 
     let queries = parse_sql_blocks(query, true);
 
