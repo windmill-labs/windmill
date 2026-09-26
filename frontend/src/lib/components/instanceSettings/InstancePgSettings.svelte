@@ -9,9 +9,10 @@
 	interface Props {
 		values: Writable<Record<string, any>>
 		disabled?: boolean
+		markSettingSaved?: (key: string) => void
 	}
 
-	let { values, disabled = false }: Props = $props()
+	let { values, disabled = false, markSettingSaved }: Props = $props()
 
 	const KEY = 'instance_pg_disabled'
 
@@ -24,6 +25,7 @@
 		try {
 			await SettingService.setGlobal({ key: KEY, requestBody: { value: next ? null : true } })
 			$values[KEY] = next ? undefined : true
+			markSettingSaved?.(KEY)
 			sendUserToast(
 				next
 					? "Windmill's database can back data tables and Ducklake catalogs again"

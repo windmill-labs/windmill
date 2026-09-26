@@ -30,9 +30,10 @@
 	interface Props {
 		values: Writable<Record<string, any>>
 		disabled?: boolean
+		markSettingSaved?: (key: string) => void
 	}
 
-	let { values, disabled = false }: Props = $props()
+	let { values, disabled = false, markSettingSaved }: Props = $props()
 
 	const KEY = 'external_instance_pg'
 
@@ -94,6 +95,7 @@
 			// at load in place would let a later save of an unrelated setting revert this one.
 			seededFrom = value
 			$values[KEY] = value
+			markSettingSaved?.(KEY)
 			const report = await SettingService.setupExternalInstancePg({
 				requestBody: { rotate_passwords: rotate }
 			})
@@ -118,6 +120,7 @@
 			await SettingService.setGlobal({ key: KEY, requestBody: { value: null } })
 			seededFrom = undefined
 			$values[KEY] = undefined
+			markSettingSaved?.(KEY)
 			form = {}
 			await refresh()
 			sendUserToast('External instance cluster disabled')

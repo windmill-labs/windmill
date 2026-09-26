@@ -26,7 +26,7 @@
 		VariableService,
 		WorkspaceService
 	} from '$lib/gen'
-	import type { ListCustomInstanceDbsResponse } from '$lib/gen'
+	import type { ListExternalInstancePgDatabasesResponse, ListCustomInstanceDbsResponse } from '$lib/gen'
 	import { resource, type ResourceReturn } from 'runed'
 	import type { ConfirmationModalHandle } from '../common/confirmationModal/asyncConfirmationModal.svelte'
 	import SetupChecklist, { type SetupStep } from '../wizards/SetupChecklist.svelte'
@@ -86,6 +86,10 @@
 		/** The instance database pool and its confirmation host are owned by the settings page,
 		 * which already loads them for the rows; sharing them keeps one source of truth. */
 		customInstanceDbs: ResourceReturn<ListCustomInstanceDbsResponse>
+		/** The external cluster's databases, and whether it is on offer at all. Owned by the
+		 * settings page for the same reason as `customInstanceDbs`. */
+		externalInstanceDbs?: ResourceReturn<ListExternalInstancePgDatabasesResponse> | undefined
+		externalInstanceAvailable?: boolean
 		confirmationModal: ConfirmationModalHandle
 		defaultInstanceDbName: () => string
 		/** Name to open with, when the caller needs a table of a particular name rather
@@ -129,6 +133,8 @@
 		resume,
 		onDone,
 		customInstanceDbs,
+		externalInstanceDbs,
+		externalInstanceAvailable = false,
 		confirmationModal,
 		defaultInstanceDbName,
 		initialName,
@@ -304,6 +310,16 @@
 					// for. Counting it as taken would refuse the retry, on the step the user cannot
 					// see it from.
 					Object.keys(customInstanceDbs.current ?? {}).filter((n) => n !== claimedInstanceDb)
+				)
+			: undefined
+	)
+	// The cluster refuses a name it already holds, whoever made it, so the registry is the list
+	// to check against — same shape as the instance one.
+	let externalNameError = $derived(
+		wiz.provider === 'external_instance' && wiz.external.mode === 'create'
+			? instanceDbNameError(
+					wiz.external.dbName ?? '',
+					Object.keys(externalInstanceDbs?.current ?? {})
 				)
 			: undefined
 	)
@@ -536,6 +552,7 @@
 		logDatatableWizard({ step: 'picked', provider: key })
 		invalidate()
 		if (key === 'instance') wiz.instance.dbName ??= defaultInstanceDbName()
+		if (key === 'external_instance') wiz.external.dbName ??= defaultInstanceDbName()
 	}
 
 	function suggestedResourceName(): string {
@@ -984,7 +1001,7 @@
 				}
 			return {
 				label: 'Continue',
-				disabled: !intentComplete(wiz) || !!instanceNameError,
+				disabled: !intentComplete(wiz) || !!instanceNameError || !!externalNameError,
 				act: enterReview
 			}
 		}
@@ -1003,7 +1020,8 @@
 				!wiz.review.resourceName.trim() ||
 				!!resourcePathError ||
 				!!pathTakenError ||
-				!!instanceNameError,
+				!!instanceNameError ||
+				!!externalNameError,
 			act: finish
 		}
 	})
@@ -1073,6 +1091,17 @@
 								'Windmill creates and manages a database on this instance.'
 							)}
 						{/if}
+						{#if externalInstanceAvailable}
+							{#snippet externalIcon()}
+								<Database size={18} class="text-secondary" />
+							{/snippet}
+							{@render providerCard(
+								'external_instance',
+								externalIcon,
+								'Managed instance (External)',
+								'Windmill creates and manages a database on the external Postgres cluster.'
+							)}
+						{/if}
 						{#if supabaseAvailable}
 							{#snippet supabaseIcon()}
 								<SupabaseIcon height="18px" width="18px" />
@@ -1113,6 +1142,8 @@
 						{/if}
 					{:else if wiz.provider === 'instance'}
 						{@render instanceStep()}
+					{:else if wiz.provider === 'external_instance'}
+						{@render externalStep()}
 					{:else}
 						{@render ownStep()}
 					{/if}
@@ -1260,6 +1291,80 @@
 			{#if !instanceNameError}
 				<p class="text-2xs text-secondary mt-1">
 					Created in the Windmill PostgreSQL instance when you finish. Windmill manages its
+					credentials.
+				</p>
+			{/if}
+		</div>
+	{/if}
+{/snippet}
+
+{#snippet externalStep()}
+	{@const externalDbs = Object.entries(externalInstanceDbs?.current ?? {})
+		.filter(([_, db]) => db.tag === 'datatable')
+		.map(([name, db]) => ({ name, db }))}
+	{#if externalDbs.length}
+		<ToggleButtonGroup
+			bind:selected={
+				() => wiz.external.mode,
+				(v) => {
+					wiz.external.mode = v
+					wiz.external.dbName = v === 'create' ? defaultInstanceDbName() : undefined
+				}
+			}
+		>
+			{#snippet children({ item })}
+				<ToggleButton value="existing" label="Use an existing one" {item} small />
+				<ToggleButton value="create" label="Create a new one" {item} small />
+			{/snippet}
+		</ToggleButtonGroup>
+	{/if}
+	{#if wiz.external.mode === 'existing'}
+		{@const shared = (
+			externalInstanceDbs?.current?.[wiz.external.dbName ?? '']?.used_by_workspaces ?? []
+		).filter((w) => w !== targetWorkspace)}
+		{#if shared.length}
+			<Alert type="warning" size="xs" bgClass="border-0" title="">
+				This database is also used by workspace{shared.length > 1 ? 's' : ''}
+				<span class="font-semibold">{shared.join(', ')}</span>. Any data written here will be shared
+				with {shared.length > 1 ? 'them' : 'it'}.
+			</Alert>
+		{/if}
+		<div class="flex flex-col gap-2 overflow-y-auto flex-1 min-h-24 pr-1">
+			{#each externalDbs as { name, db } (name)}
+				{@const selected = wiz.external.dbName === name}
+				{@const others = (db.used_by_workspaces ?? []).filter((w) => w !== targetWorkspace)}
+				<button
+					class="text-left border rounded-md p-3 flex gap-3 items-start transition-colors {selected
+						? 'border-border-selected/50 bg-surface-accent-selected'
+						: 'border-border-light hover:bg-surface-hover'}"
+					onclick={() => (wiz.external.dbName = name)}
+				>
+					<span class="mt-0.5 shrink-0"><Database size={18} class="text-secondary" /></span>
+					<span class="flex flex-col gap-0.5 min-w-0">
+						<span class="text-xs font-medium {selected ? 'text-accent' : 'text-emphasis'}"
+							>{name}</span
+						>
+						<span class="text-xs text-secondary font-normal">
+							On the external cluster{others.length
+								? ` · shared with ${others.length} other workspace${others.length > 1 ? 's' : ''}`
+								: ''}
+						</span>
+					</span>
+				</button>
+			{/each}
+		</div>
+	{:else}
+		<div>
+			<span class="text-xs font-semibold text-emphasis">Database name</span>
+			<TextInput
+				bind:value={() => wiz.external.dbName ?? '', (v) => (wiz.external.dbName = v)}
+				error={!!externalNameError}
+				inputProps={{ placeholder: defaultInstanceDbName() }}
+			/>
+			<InputError error={externalNameError} />
+			{#if !externalNameError}
+				<p class="text-2xs text-secondary mt-1">
+					Created on the external PostgreSQL cluster when you finish. Windmill manages its
 					credentials.
 				</p>
 			{/if}

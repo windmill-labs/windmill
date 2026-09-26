@@ -74,7 +74,6 @@
 		GitFork,
 		Plus,
 		SettingsIcon,
-		Wrench
 	} from 'lucide-svelte'
 
 	import Button from '../common/button/Button.svelte'
@@ -197,14 +196,18 @@
 			? SettingService.getGlobal({ key: 'instance_pg_disabled' }).catch(() => undefined)
 			: Promise.resolve(undefined)
 	)
-	// What the instance offers at all, and what this user may pick of it.
-	let instancePossible = $derived(!isCloudHosted() && !instancePgDisabled.current)
-	let instanceAvailable = $derived(instancePossible && !!$superadmin)
+	// Both substrates answer only to a superadmin, so nobody else can be told whether one is on
+	// offer: they see a managed kind only where an entry already sits on it.
+	let instancePossible = $derived(
+		!!$superadmin && !isCloudHosted() && !instancePgDisabled.current
+	)
+	let instanceAvailable = $derived(instancePossible)
 
 	// A kind already saved stays listed whatever the instance offers now.
 	function catalogItems(current: string | undefined) {
 		const showInstance = instancePossible || current === 'instance'
-		const showExternal = externalInstanceConfigured || current === 'external_instance'
+		const showExternal =
+			(externalInstanceConfigured && !!$superadmin) || current === 'external_instance'
 		const labels = managedInstanceLabels(showInstance, showExternal)
 		const items: { value: string; label: string; disabled?: boolean; subtitle?: string }[] = [
 			{ value: 'postgresql', label: 'Postgres Resource' },
@@ -217,10 +220,10 @@
 				disabled: !instanceAvailable,
 				subtitle: instanceAvailable
 					? undefined
-					: isCloudHosted()
-						? 'Not available on cloud'
-						: !$superadmin
-							? 'Superadmin only'
+					: !$superadmin
+						? 'Superadmin only'
+						: isCloudHosted()
+							? 'Not available on cloud'
 							: "Windmill's database is disabled"
 			})
 		}
@@ -314,15 +317,13 @@
 		secondaryStorageNames.refresh()
 	})
 
-	let tableHeadNames = ['Name', 'Catalog', 'Workspace storage', 'Maintenance', '', ''] as const
+	let tableHeadNames = ['Name', 'Catalog', 'Workspace storage', '', ''] as const
 
 	let tableHeadTooltips: Partial<Record<(typeof tableHeadNames)[number], string | undefined>> = {
 		Name: "Ducklakes are referenced in DuckDB scripts with the <code class='px-1 py-0.5 border rounded-md'>ATTACH 'ducklake://name' AS dl;</code> syntax",
 		Catalog: 'Ducklake needs an SQL database to store metadata about the data',
 		'Workspace storage':
-			'Where the data is actually stored, in parquet format. You need to configure a workspace storage first',
-		Maintenance:
-			'Scheduled snapshot expiry, small-file compaction and orphaned-file cleanup, run as jobs on a managed per-lake schedule (EE)'
+			'Where the data is actually stored, in parquet format. You need to configure a workspace storage first'
 	}
 
 	let confirmationModal = createAsyncConfirmationModal()
@@ -455,7 +456,7 @@
 									}
 								}
 								id="ducklake-catalog-type-select"
-								class="w-52"
+								class="w-36"
 							/>
 						</div>
 						<div class="flex flex-1">
@@ -515,140 +516,18 @@
 						/>
 					</div>
 				</Cell>
-				<Cell class="w-32">
-					<Popover contentClasses="p-4" enableFlyTransition closeOnOtherPopoverOpen>
-						{#snippet trigger()}
-							<div class="relative">
-								<Button
-									variant="default"
-									size="sm"
-									startIcon={{ icon: Wrench }}
-									btnClasses="whitespace-nowrap ducklake-maintenance-btn"
-								>
-									{ducklake.maintenance?.enabled
-										? `${ducklake.maintenance?.retention_days ?? 7}d retention`
-										: 'Off'}
-								</Button>
-								{#if maintenanceHealth.current?.[ducklake.name] && (maintenanceHealth.current[ducklake.name].error || !maintenanceHealth.current[ducklake.name].enabled)}
-									<AlertTriangle
-										size={14}
-										class="absolute -top-1.5 -right-1.5 text-yellow-500 bg-surface rounded-full"
-									/>
-								{/if}
-							</div>
-						{/snippet}
-						{#snippet content()}
-							<div class="flex flex-col gap-3 w-96">
-								<Toggle
-									size="sm"
-									disabled={!$enterpriseLicense && !ducklake.maintenance?.enabled}
-									eeOnly
-									options={{
-										right: 'Scheduled maintenance',
-										rightTooltip:
-											'Expire old snapshots, merge adjacent small parquet files and delete orphaned files on a schedule. Runs appear as jobs — run history is the audit trail.'
-									}}
-									bind:checked={
-										() => ducklake.maintenance?.enabled ?? false,
-										(v) => (editableMaintenance(ducklake).enabled = v)
-									}
-								/>
-								{#if ducklake.maintenance?.enabled}
-									<Label
-										label="Snapshot retention (days)"
-										tooltip="Snapshots older than this window are expired on each maintenance run. 0 keeps only the current snapshot."
-									>
-										<TextInput
-											inputProps={{ type: 'number', min: 0, step: 1 }}
-											bind:value={
-												() => ducklake.maintenance?.retention_days ?? 7,
-												(v) => {
-													const n = typeof v === 'number' ? v : parseInt(v ?? '')
-													editableMaintenance(ducklake).retention_days = isNaN(n)
-														? undefined
-														: Math.max(0, n)
-												}
-											}
-										/>
-									</Label>
-									{#if (ducklake.maintenance?.retention_days ?? 7) === 0}
-										<p class="text-2xs text-yellow-600 dark:text-yellow-500">
-											Retention 0 expires every snapshot but the current one on each run —
-											time-travel is effectively disabled for this lake.
-										</p>
-									{/if}
-									<Label
-										label="Cadence (cron, UTC)"
-										tooltip="v2 cron expression evaluated in UTC. Leave empty for the default: daily at 03h with a per-lake minute offset."
-									>
-										<TextInput
-											inputProps={{ placeholder: 'daily at 03h (default)' }}
-											bind:value={
-												() => ducklake.maintenance?.schedule ?? '',
-												(v) => (editableMaintenance(ducklake).schedule = v ? String(v) : undefined)
-											}
-										/>
-									</Label>
-									<Toggle
-										size="xs"
-										options={{
-											right: 'Compaction',
-											rightTooltip:
-												'Merge adjacent small parquet files (ducklake_merge_adjacent_files)'
-										}}
-										bind:checked={
-											() => ducklake.maintenance?.compaction ?? true,
-											(v) => (editableMaintenance(ducklake).compaction = v)
-										}
-									/>
-									<Toggle
-										size="xs"
-										options={{
-											right: 'Orphaned file cleanup',
-											rightTooltip:
-												'Delete files present in storage but unknown to the catalog, older than max(retention, 1 day)'
-										}}
-										bind:checked={
-											() => ducklake.maintenance?.orphan_cleanup ?? true,
-											(v) => (editableMaintenance(ducklake).orphan_cleanup = v)
-										}
-									/>
-									<p class="text-2xs text-secondary">
-										Expired snapshots are gone for good: time-travel reads (<code
-											>AT (VERSION => n)</code
-										>) and recorded snapshot references older than the retention window become
-										non-queryable. Freed files are physically deleted with a ~1 day lag.
-									</p>
-									{#if maintenanceHealth.current?.[ducklake.name]?.error || maintenanceHealth.current?.[ducklake.name]?.enabled === false}
-										<Alert title="Maintenance schedule needs attention" type="warning" size="xs">
-											{maintenanceHealth.current?.[ducklake.name]?.error ??
-												'The managed schedule is disabled.'}
-											Re-save the ducklake settings to retry.
-										</Alert>
-									{/if}
-									{#if ducklakeSavedSettings.ducklakes.find((d) => d.name === ducklake.name)?.maintenance?.enabled}
-										<a
-											href={`${base}/runs/?schedule_path=${encodeURIComponent(
-												`f/ducklake_maintenance/${ducklake.name}`
-											)}&job_kinds=previews`}
-											target="_blank"
-											class="text-2xs inline-flex items-center gap-1"
-										>
-											View maintenance runs <ExternalLink size={12} />
-										</a>
-									{/if}
-								{/if}
-							</div>
-						{/snippet}
-					</Popover>
-				</Cell>
 				<Cell class="w-12">
 					<div class="flex gap-1">
 						<Popover contentClasses="p-4" enableFlyTransition closeOnOtherPopoverOpen>
 							{#snippet trigger()}
 								<div class="relative">
 									<Button variant="default" iconOnly size="sm" endIcon={{ icon: SettingsIcon }} />
-									{#if ducklake.extra_args}
+									{#if maintenanceHealth.current?.[ducklake.name] && (maintenanceHealth.current[ducklake.name].error || !maintenanceHealth.current[ducklake.name].enabled)}
+										<AlertTriangle
+											size={14}
+											class="absolute -top-1.5 -right-1.5 text-yellow-500 bg-surface rounded-full"
+										/>
+									{:else if ducklake.extra_args || ducklake.maintenance?.enabled}
 										<div
 											class="absolute -top-0.5 -right-0.5 w-2 h-2 bg-accent rounded-full border border-surface"
 										></div>
@@ -656,17 +535,121 @@
 								</div>
 							{/snippet}
 							{#snippet content()}
-								<Label
-									label="Extra args"
-									tooltip="Additional arguments to pass in the ATTACH command. The argument list is substituted as-is. Separate them with commas."
-								>
-									<TextInput
-										bind:value={ducklake.extra_args}
-										class="min-w-96"
-										underlyingInputEl="textarea"
-										inputProps={{ placeholder: "METADATA_SCHEMA 'schema', ENCRYPTED true" }}
-									/>
-								</Label>
+								<div class="flex flex-col gap-4 w-96">
+									<Label
+										label="Extra args"
+										tooltip="Additional arguments to pass in the ATTACH command. The argument list is substituted as-is. Separate them with commas."
+									>
+										<TextInput
+											bind:value={ducklake.extra_args}
+												underlyingInputEl="textarea"
+											inputProps={{ placeholder: "METADATA_SCHEMA 'schema', ENCRYPTED true" }}
+										/>
+									</Label>
+									<div class="border-t"></div>
+									<div class="flex flex-col gap-3">
+										<Toggle
+											size="sm"
+											disabled={!$enterpriseLicense && !ducklake.maintenance?.enabled}
+											eeOnly
+											options={{
+												right: 'Scheduled maintenance',
+												rightTooltip:
+													'Expire old snapshots, merge adjacent small parquet files and delete orphaned files on a schedule. Runs appear as jobs — run history is the audit trail.'
+											}}
+											bind:checked={
+												() => ducklake.maintenance?.enabled ?? false,
+												(v) => (editableMaintenance(ducklake).enabled = v)
+											}
+										/>
+										{#if ducklake.maintenance?.enabled}
+											<Label
+												label="Snapshot retention (days)"
+												tooltip="Snapshots older than this window are expired on each maintenance run. 0 keeps only the current snapshot."
+											>
+												<TextInput
+													inputProps={{ type: 'number', min: 0, step: 1 }}
+													bind:value={
+														() => ducklake.maintenance?.retention_days ?? 7,
+														(v) => {
+															const n = typeof v === 'number' ? v : parseInt(v ?? '')
+															editableMaintenance(ducklake).retention_days = isNaN(n)
+																? undefined
+																: Math.max(0, n)
+														}
+													}
+												/>
+											</Label>
+											{#if (ducklake.maintenance?.retention_days ?? 7) === 0}
+												<p class="text-2xs text-yellow-600 dark:text-yellow-500">
+													Retention 0 expires every snapshot but the current one on each run —
+													time-travel is effectively disabled for this lake.
+												</p>
+											{/if}
+											<Label
+												label="Cadence (cron, UTC)"
+												tooltip="v2 cron expression evaluated in UTC. Leave empty for the default: daily at 03h with a per-lake minute offset."
+											>
+												<TextInput
+													inputProps={{ placeholder: 'daily at 03h (default)' }}
+													bind:value={
+														() => ducklake.maintenance?.schedule ?? '',
+														(v) => (editableMaintenance(ducklake).schedule = v ? String(v) : undefined)
+													}
+												/>
+											</Label>
+											<Toggle
+												size="xs"
+												options={{
+													right: 'Compaction',
+													rightTooltip:
+														'Merge adjacent small parquet files (ducklake_merge_adjacent_files)'
+												}}
+												bind:checked={
+													() => ducklake.maintenance?.compaction ?? true,
+													(v) => (editableMaintenance(ducklake).compaction = v)
+												}
+											/>
+											<Toggle
+												size="xs"
+												options={{
+													right: 'Orphaned file cleanup',
+													rightTooltip:
+														'Delete files present in storage but unknown to the catalog, older than max(retention, 1 day)'
+												}}
+												bind:checked={
+													() => ducklake.maintenance?.orphan_cleanup ?? true,
+													(v) => (editableMaintenance(ducklake).orphan_cleanup = v)
+												}
+											/>
+											<p class="text-2xs text-secondary">
+												Expired snapshots are gone for good: time-travel reads (<code
+													>AT (VERSION => n)</code
+												>) and recorded snapshot references older than the retention window become
+												non-queryable. Freed files are physically deleted with a ~1 day lag.
+											</p>
+											{#if maintenanceHealth.current?.[ducklake.name]?.error || maintenanceHealth.current?.[ducklake.name]?.enabled === false}
+												<Alert title="Maintenance schedule needs attention" type="warning" size="xs">
+													{maintenanceHealth.current?.[ducklake.name]?.error ??
+														'The managed schedule is disabled.'}
+													Re-save the ducklake settings to retry.
+												</Alert>
+											{/if}
+											{#if ducklakeSavedSettings.ducklakes.find((d) => d.name === ducklake.name)?.maintenance?.enabled}
+												<a
+													href={`${base}/runs/?schedule_path=${encodeURIComponent(
+														`f/ducklake_maintenance/${ducklake.name}`
+													)}&job_kinds=previews`}
+													target="_blank"
+													class="text-2xs inline-flex items-center gap-1"
+												>
+													View maintenance runs <ExternalLink size={12} />
+												</a>
+											{/if}
+										{/if}
+									</div>
+						
+								</div>
 							{/snippet}
 						</Popover>
 						{#if ducklakeIsDirty[ducklake.name]}

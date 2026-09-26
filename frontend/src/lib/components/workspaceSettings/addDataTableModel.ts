@@ -42,7 +42,7 @@ import {
 	type SupabaseProject
 } from './supabaseProvisioning'
 
-export type Provider = 'supabase' | 'instance' | 'resource'
+export type Provider = 'supabase' | 'instance' | 'external_instance' | 'resource'
 
 export type WizardState = {
 	step: 1 | 2 | 3
@@ -61,6 +61,8 @@ export type WizardState = {
 		connectionMode: SupabaseConnectionMode
 	}
 	instance: { mode: 'existing' | 'create'; dbName: string | undefined }
+	/** Same shape as `instance`, on the Postgres cluster Windmill administers elsewhere. */
+	external: { mode: 'existing' | 'create'; dbName: string | undefined }
 	/**
 	 * One list: the workspace's Postgres resources, plus the one about to exist. A
 	 * connection string is not an alternative to a resource, it is how one is written --
@@ -107,6 +109,7 @@ export function newWizardState(defaults: {
 			connectionMode: 'session'
 		},
 		instance: { mode: 'create', dbName: undefined },
+		external: { mode: 'create', dbName: undefined },
 		own: {
 			resourcePath: undefined,
 			creating: false,
@@ -137,6 +140,7 @@ export function intentComplete(state: WizardState): boolean {
 			: !!state.supabase.project && !!state.supabase.password
 	}
 	if (state.provider === 'instance') return !!state.instance.dbName?.trim()
+	if (state.provider === 'external_instance') return !!state.external.dbName?.trim()
 	if (!state.own.creating) return !!state.own.resourcePath
 	// Text that will not parse leaves the fields on their last good values, which is what makes
 	// it correctable -- but the connection on screen is then not the one they describe, and
@@ -307,6 +311,7 @@ export type RunStepKey =
 	| 'create_project'
 	| 'wait_healthy'
 	| 'save_credentials'
+	| 'create_external'
 	| 'setup_instance'
 	| 'check'
 
@@ -331,6 +336,13 @@ export function plan(state: WizardState): { key: RunStepKey; title: string }[] {
 			key: 'setup_instance',
 			title: `Setting up ${state.instance.dbName} in the Windmill database`
 		})
+	} else if (state.provider === 'external_instance') {
+		if (state.external.mode === 'create') {
+			steps.push({
+				key: 'create_external',
+				title: `Creating ${state.external.dbName} on the external cluster`
+			})
+		}
 	} else if (state.own.creating) {
 		steps.push({ key: 'save_credentials', title: `Saving the connection to ${path}` })
 	}
@@ -419,7 +431,10 @@ async function writeRow(
 	deps: RunDeps,
 	claims: Claims,
 	name: string,
-	database: { resource_type: 'postgresql' | 'instance'; resource_path: string }
+	database: {
+		resource_type: 'postgresql' | 'instance' | 'external_instance'
+		resource_path: string
+	}
 ): Promise<Claims> {
 	const settings = await WorkspaceService.getSettings({ workspace: deps.workspace })
 	const datatables: Record<string, any> = { ...(settings.datatable?.datatables ?? {}) }
@@ -608,6 +623,7 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 	 */
 	const guardedHere = deps.createdProjects.find((p) => p.path === path)
 	const instanceName = state.instance.dbName?.trim() ?? ''
+	const externalName = state.external.dbName?.trim() ?? ''
 
 	let project = state.supabase.project
 	let resourcePath =
@@ -740,6 +756,16 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 						`Database for the ${name} data table`
 					)
 				}
+			} else if (planned[index].key === 'create_external') {
+				// Try again lands here with the database already made: the endpoint refuses a name the
+				// cluster holds, whoever made it, so only a name Windmill has not registered is created.
+				const registered = await SettingService.listExternalInstancePgDatabases()
+				if (registered[externalName] === undefined) {
+					await SettingService.createExternalInstancePgDatabase({
+						name: externalName,
+						requestBody: { tag: 'datatable' }
+					})
+				}
 			} else if (planned[index].key === 'setup_instance') {
 				// The call reports nothing until it returns, so name the checks it is about to run
 				// with the first one marked in flight; its answer replaces them when it lands.
@@ -763,12 +789,15 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 					}
 				}
 				advance('running', undefined, checks)
-			} else if (state.provider === 'instance') {
-				// An instance data table is probed by name, through the very entry being written
-				// here, so this is the one branch that cannot check first. A database Windmill
-				// cannot store data in must not stay in the config, so a refusal takes the row
-				// back out -- leaving it would also block retrying under the same name.
-				const database = { resource_type: 'instance' as const, resource_path: instanceName }
+			} else if (state.provider === 'instance' || state.provider === 'external_instance') {
+				// A data table on a database Windmill administers is probed by name, through the
+				// very entry being written here, so this is the one branch that cannot check first.
+				// A database Windmill cannot store data in must not stay in the config, so a refusal
+				// takes the row back out -- leaving it would also block retrying under the same name.
+				const database =
+					state.provider === 'instance'
+						? { resource_type: 'instance' as const, resource_path: instanceName }
+						: { resource_type: 'external_instance' as const, resource_path: externalName }
 				claims = await writeRow(deps, claims, name, database)
 				rowWritten = true
 				const report = await WorkspaceService.testDataTableConnection({

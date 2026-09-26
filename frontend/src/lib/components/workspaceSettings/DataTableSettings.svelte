@@ -185,16 +185,19 @@
 			? SettingService.getGlobal({ key: 'instance_pg_disabled' }).catch(() => undefined)
 			: Promise.resolve(undefined)
 	)
-	// What the instance offers at all, and what this user may pick of it: a workspace admin sees
-	// the kinds their instance has, and why they cannot choose one, rather than a shorter list.
-	let instancePossible = $derived(!isCloudHosted() && !instancePgDisabled.current)
-	let instanceAvailable = $derived(instancePossible && !!$superadmin)
+	// Both substrates answer only to a superadmin, so nobody else can be told whether one is on
+	// offer: they see a managed kind only where an entry already sits on it.
+	let instancePossible = $derived(
+		!!$superadmin && !isCloudHosted() && !instancePgDisabled.current
+	)
+	let instanceAvailable = $derived(instancePossible)
 
 	// A kind already saved stays listed whatever the instance offers now, or the entry would read
 	// as something it is not.
 	function kindItems(current: string | undefined) {
 		const showInstance = instancePossible || current === 'instance'
-		const showExternal = externalInstanceConfigured || current === 'external_instance'
+		const showExternal =
+			(externalInstanceConfigured && !!$superadmin) || current === 'external_instance'
 		const labels = managedInstanceLabels(showInstance, showExternal)
 		const items: { value: string; label: string; disabled?: boolean; subtitle?: string }[] = [
 			{ value: 'postgresql', label: 'Postgres Resource' }
@@ -206,10 +209,10 @@
 				disabled: !instanceAvailable,
 				subtitle: instanceAvailable
 					? undefined
-					: isCloudHosted()
-						? 'Not available on cloud'
-						: !$superadmin
-							? 'Superadmin only'
+					: !$superadmin
+						? 'Superadmin only'
+						: isCloudHosted()
+							? 'Not available on cloud'
 							: "Windmill's database is disabled"
 			})
 		}
@@ -506,7 +509,7 @@
 										}
 									}
 									id="database-type-select"
-									class="w-52"
+									class="w-36"
 								/>
 							</div>
 							<div class="flex items-center gap-1 w-80 relative">
@@ -745,6 +748,8 @@
 		resume={wizardResume}
 		onDone={reloadAfterWizard}
 		{customInstanceDbs}
+		{externalInstanceDbs}
+		externalInstanceAvailable={externalInstanceConfigured && !!$superadmin}
 		{confirmationModal}
 		{defaultInstanceDbName}
 	/>
