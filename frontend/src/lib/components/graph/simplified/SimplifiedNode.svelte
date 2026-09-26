@@ -54,12 +54,12 @@
 			colors.bg,
 			colors.outline
 		)}
-		style="width: {data.width}px; height: {data.height}px; padding: 0 {SIMPLIFIED.paddingX}px; gap: {SIMPLIFIED.iconWidth - 16}px;"
+		style="width: {data.width}px; height: {data.height}px; padding: 0 {SIMPLIFIED.paddingX}px; gap: {SIMPLIFIED.badgeGap}px;"
 		title={data.title}
 	>
 		<div
-			class="shrink-0 flex items-center justify-center text-secondary self-start"
-			style="width: 16px; margin-top: {SIMPLIFIED.paddingY}px; {rowStyle}"
+			class="shrink-0 flex items-center justify-center rounded-md bg-surface-tertiary border border-border-light text-secondary"
+			style="width: {SIMPLIFIED.badgeSize}px; height: {SIMPLIFIED.badgeSize}px;"
 		>
 			{#if data.module}
 				<FlowModuleIcon module={data.module} size={14} />

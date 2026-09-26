@@ -12,7 +12,9 @@ export const SIMPLIFIED = {
 	minWidth: 150,
 	maxWidth: 340,
 	paddingX: 12,
-	iconWidth: 24,
+	/** The icon's badge, and the space between it and the text */
+	badgeSize: 24,
+	badgeGap: 10,
 	rowHeight: 16,
 	paddingY: 10,
 	colGap: 56,
@@ -195,7 +197,7 @@ function sized(
 	const width = Math.round(
 		Math.min(
 			SIMPLIFIED.maxWidth,
-			Math.max(SIMPLIFIED.minWidth, content + SIMPLIFIED.iconWidth + 2 * SIMPLIFIED.paddingX + 4)
+			Math.max(SIMPLIFIED.minWidth, content + SIMPLIFIED.badgeSize + SIMPLIFIED.badgeGap + 2 * SIMPLIFIED.paddingX + 4)
 		)
 	)
 	const rows = 1 + (meta ? 1 : 0) + (data.detail ? 1 : 0)
