@@ -189,9 +189,11 @@ function sized(
 	measure: TextMeasurer
 ): SimplifiedNodeData {
 	const meta = [data.stepId, data.typeLabel].filter(Boolean).join('  ·  ')
+	// The error handler and the preprocessor prefix their meta row with an 11px icon and its gap
+	const metaIcon = data.kind === 'failure' || data.kind === 'preprocessor' ? 18 : 0
 	const content = Math.max(
 		measure(data.title, 'title'),
-		meta ? measure(meta, 'meta') : 0,
+		meta ? measure(meta, 'meta') + metaIcon : 0,
 		data.detail ? measure(data.detail, 'meta') : 0
 	)
 	const width = Math.round(
@@ -216,7 +218,8 @@ export function moduleNodeData(
 			module: mod,
 			title,
 			stepId: mod.id,
-			typeLabel: typeLabel(mod) === title ? undefined : typeLabel(mod),
+			typeLabel:
+				typeLabel(mod).toLowerCase() === title.toLowerCase() ? undefined : typeLabel(mod),
 			detail: moduleDetail(mod, title)
 		},
 		measure

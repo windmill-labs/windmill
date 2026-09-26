@@ -85,4 +85,26 @@ describe('layoutSimplifiedFlow', () => {
 			'one:empty-1->Result'
 		])
 	})
+
+	it('joins two branch groups in a row through one junction instead of every exit-entry pair', () => {
+		const group = (id: string, steps: string[]): FlowModule => ({
+			id,
+			value: { type: 'branchall', branches: steps.map((s) => ({ modules: [step(s, s)] })) }
+		})
+		const { nodes, edges } = layoutSimplifiedFlow(
+			{ modules: [group('g1', ['a', 'b']), group('g2', ['c', 'd', 'e'])] },
+			measure
+		)
+		const junction = nodes.find((n) => (n.data as { kind?: string }).kind === 'junction')!
+		const pairs = edges.map((e) => `${e.source}->${e.target}`)
+		expect(pairs).toEqual(expect.arrayContaining(['a', 'b'].map((s) => `${s}->${junction.id}`)))
+		expect(pairs).toEqual(
+			expect.arrayContaining(['c', 'd', 'e'].map((t) => `${junction.id}->${t}`))
+		)
+		expect(pairs.filter((p) => /^[ab]->[cde]$/.test(p))).toEqual([])
+		// It sits in the gap between the two groups
+		const byId = Object.fromEntries(nodes.map((n) => [n.id, n]))
+		expect(junction.position.x).toBeGreaterThan(byId.a.position.x + byId.a.width!)
+		expect(junction.position.x + junction.width!).toBeLessThan(byId.c.position.x)
+	})
 })

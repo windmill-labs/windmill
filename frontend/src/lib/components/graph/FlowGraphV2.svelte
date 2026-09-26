@@ -1336,8 +1336,9 @@
 			{maxHeight}
 			{selectedId}
 			onSelect={(id) => {
+				if (notSelectable) return
 				selectionManager.selectId(id)
-				if (!notSelectable) onSelect?.(id)
+				onSelect?.(id)
 			}}
 		>
 			{#snippet topLeftControls()}

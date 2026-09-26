@@ -37,7 +37,16 @@
 	let layout = $derived(
 		layoutSimplifiedFlow({ modules: modules ?? [], failureModule, preprocessorModule })
 	)
-	let nodes = $derived(layout.nodes.map((n) => ({ ...n, selected: n.id === selectedId })))
+	// The full graph selects a branch lane as `<module id>-branch-<n|default>`; here the lane
+	// belongs to its group, which is keyed by the module id.
+	let nodes = $derived(
+		layout.nodes.map((n) => ({
+			...n,
+			selected:
+				n.id === selectedId ||
+				(n.type === 'simplifiedBox' && !!selectedId?.startsWith(`${n.id}-branch-`))
+		}))
+	)
 
 	const PAD = 72
 	const MIN_READABLE_ZOOM = 0.7
