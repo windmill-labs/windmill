@@ -122,9 +122,9 @@ use windmill_common::{
 #[cfg(feature = "parquet")]
 use windmill_object_store::reload_object_store_setting;
 use windmill_queue::{
-    cancel_job, cancel_single_job, get_queued_job_v2,
+    add_completed_job_error, cancel_job, canceled_result, get_queued_job_v2,
     schedule::{find_unarmed_schedules, rearm_schedule, RearmOutcome},
-    SameWorkerPayload,
+    CanceledBy, MiniCompletedJob, SameWorkerPayload,
 };
 use windmill_store::resources::MAX_RESOURCE_VERSIONS;
 use windmill_worker::{
@@ -6571,9 +6571,9 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
             }
 
             let error_message = if let Some(canceler) = flow.canceled_by.as_deref() {
-                // Bounds the requeues of a canceled flow whose completion keeps failing. Exactly
-                // one sweep gives up (the count is taken under the row claim) and completes the
-                // flow on its own; later ones leave it to that completion.
+                // Bounds the requeues of a canceled flow whose completion keeps failing: past the
+                // limit it is completed on its own instead, on every sweep until that succeeds.
+                // The count is taken under the row claim, so the alert goes out once.
                 let attempt = sqlx::query_scalar!(
                     "INSERT INTO zombie_job_counter (job_id, counter) VALUES ($1, 1)
                     ON CONFLICT (job_id) DO UPDATE SET counter = zombie_job_counter.counter + 1
@@ -6597,19 +6597,31 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
                             None,
                         )
                         .await;
-                        if let Some(job) = get_queued_job_v2(db, &flow.id).await? {
-                            let (tx, _) = cancel_single_job(
-                                canceler,
-                                flow.canceled_reason.clone(),
-                                job,
-                                &flow.workspace_id,
-                                db.begin().await?,
-                                db,
-                                true,
-                            )
-                            .await?;
-                            tx.commit().await?;
-                        }
+                    }
+                    let completed = match get_queued_job_v2(db, &flow.id).await {
+                        Ok(Some(job)) => add_completed_job_error(
+                            db,
+                            &MiniCompletedJob::from(job),
+                            0,
+                            Some(CanceledBy {
+                                username: Some(canceler.to_string()),
+                                reason: flow.canceled_reason.clone(),
+                            }),
+                            canceled_result(flow.canceled_reason.as_deref(), Some(canceler)),
+                            "monitor",
+                            false,
+                            None,
+                        )
+                        .await
+                        .map(|_| ()),
+                        Ok(None) => Ok(()),
+                        Err(e) => Err(e),
+                    };
+                    if let Err(e) = completed {
+                        tracing::error!(
+                            "could not complete canceled zombie flow {}, retrying on the next sweep: {e:#}",
+                            flow.id
+                        );
                     }
                     continue;
                 }
@@ -7990,13 +8002,14 @@ mod canceled_zombie_flow_tests {
     }
 
     /// A canceled flow that keeps coming back after its requeues is completed as canceled on its
-    /// own, once, instead of being requeued (and alerted on) forever.
+    /// own instead of being requeued (and alerted on) forever, and that completion is retried by
+    /// the next sweep if a previous one did not land.
     #[sqlx::test(migrations = "./migrations")]
     async fn completes_a_canceled_flow_requeued_too_often(db: DB) -> anyhow::Result<()> {
         let root = insert_flow(&db, None, 0, None, None).await?;
         let child = insert_flow(&db, Some(root), 1, Some("1 hour"), Some("admin")).await?;
-        let given_up = insert_flow(&db, None, 1, Some("1 hour"), Some("admin")).await?;
-        for (id, counter) in [(child, RESTART_LIMIT), (given_up, RESTART_LIMIT + 1)] {
+        let retried = insert_flow(&db, None, 1, Some("1 hour"), Some("admin")).await?;
+        for (id, counter) in [(child, RESTART_LIMIT), (retried, RESTART_LIMIT + 1)] {
             sqlx::query("INSERT INTO zombie_job_counter (job_id, counter) VALUES ($1, $2)")
                 .bind(id)
                 .bind(counter)
@@ -8006,29 +8019,19 @@ mod canceled_zombie_flow_tests {
 
         handle_zombie_flows(&db).await?;
 
-        assert!(
-            queue_row(&db, given_up).await?.0,
-            "a flow another sweep already gave up on is left to that sweep's completion"
-        );
-
-        // the forced cancel of the one flow completes it from a spawned task
-        for _ in 0..100 {
+        for id in [child, retried] {
             let completed: Option<(String, Option<String>)> = sqlx::query_as(
                 "SELECT status::text, canceled_by FROM v2_job_completed WHERE id = $1",
             )
-            .bind(child)
+            .bind(id)
             .fetch_optional(&db)
             .await?;
-            if let Some(completed) = completed {
-                assert_eq!(
-                    completed,
-                    ("canceled".to_string(), Some("admin".to_string()))
-                );
-                assert_eq!(queue_row(&db, root).await?, (true, None, Some(true)));
-                return Ok(());
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            assert_eq!(
+                completed,
+                Some(("canceled".to_string(), Some("admin".to_string())))
+            );
         }
-        anyhow::bail!("the canceled flow was never completed")
+        assert_eq!(queue_row(&db, root).await?, (true, None, Some(true)));
+        Ok(())
     }
 }
