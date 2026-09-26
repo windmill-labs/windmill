@@ -13,6 +13,7 @@
 	} from '$lib/gen'
 	import { capitalize, classNames, getModifierKey, sendUserToast } from '$lib/utils'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
+	import { switchWorkspace } from '$lib/storeUtils'
 	import { isSessionPreviewFrame } from '$lib/components/sessions/sessionMode.svelte'
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
@@ -304,8 +305,8 @@
 
 	function onQueryChange() {
 		let queryWorkspace = page.url.searchParams.get('workspace')
-		if (queryWorkspace) {
-			$workspaceStore = queryWorkspace
+		if (queryWorkspace && queryWorkspace !== $workspaceStore) {
+			switchWorkspace(queryWorkspace)
 		}
 
 		// When this window is an iframe (e.g. the sessions preview), keep the menu

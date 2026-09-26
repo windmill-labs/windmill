@@ -35,6 +35,16 @@
 
 	let aRef: HTMLAnchorElement | undefined = $state(undefined)
 	let buttonRef: HTMLButtonElement | undefined = $state(undefined)
+
+	// Svelte delegates `onclick` to the app root, where SvelteKit's link handler runs first
+	// and follows `href` regardless. Listening on the anchor itself lets `preventDefault()`
+	// in `onClick` cancel the navigation.
+	function anchorClick(node: HTMLAnchorElement) {
+		const handler = onClick
+		if (!handler) return
+		node.addEventListener('click', handler)
+		return () => node.removeEventListener('click', handler)
+	}
 </script>
 
 {#if href}
@@ -57,7 +67,7 @@
 		{target}
 		onfocusin={onFocusIn}
 		onfocusout={onFocusOut}
-		onclick={onClick}
+		{@attach anchorClick}
 	>
 		{@render children?.()}
 	</a>

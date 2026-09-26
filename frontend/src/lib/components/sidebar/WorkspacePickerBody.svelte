@@ -22,14 +22,12 @@
 	import { MenuItem, Tooltip } from '$lib/components/meltComponents'
 	import { EXECUTIONS_HINT } from './executionsHint'
 	import WorkspaceIcon from '$lib/components/workspace/WorkspaceIcon.svelte'
-	import { fixupUrlAfterWorkspaceSwitch } from './workspaceSwitchUrl'
+	import { switchWorkspaceAndPage } from './workspaceSwitchUrl'
 	import { goto } from '$lib/navigation'
 	import { base } from '$lib/base'
 	import { page } from '$app/state'
-	import { switchWorkspace } from '$lib/storeUtils'
 	import MultiplayerMenu from './MultiplayerMenu.svelte'
 	import { isCloudHosted } from '$lib/cloud'
-	import { workspaceAIClients } from '../copilot/lib'
 	import { twMerge } from 'tailwind-merge'
 	import {
 		ambiguousWorkspaceNames,
@@ -61,14 +59,12 @@
 		if ($workspaceStore === id) {
 			return
 		}
-		// Read before switchWorkspace: it swaps the stores this reads out from under us.
+		// Read before switching: the switch swaps the stores these read out from under us.
 		const landOnHome = landsOnHome(id)
-		workspaceAIClients.init(id)
-		switchWorkspace(id)
-		// The sessions page needs no navigation here: the item's link navigation
-		// (workspaceHref) keeps the route, and the page's family reconcile swaps
-		// out a chat that doesn't belong to the new workspace's family.
-		await fixupUrlAfterWorkspaceSwitch(id, { landOnHome })
+		const href = workspaceHref(id)
+		// On the sessions page, the page's family reconcile swaps out a chat that
+		// doesn't belong to the new workspace's family.
+		await switchWorkspaceAndPage(id, { landOnHome, href })
 	}
 
 	// Operator page access is granted per workspace, so a switch lands on home rather than
@@ -345,11 +341,7 @@
 				</MenuItem>
 			{/if}
 			{#if canForkHere}
-				<MenuItem
-					class={itemClass}
-					onClick={() => (globalForkModal.val = { opened: true })}
-					{item}
-				>
+				<MenuItem class={itemClass} onClick={() => (globalForkModal.val = { opened: true })} {item}>
 					<Plus size={16} />
 					Workspace fork
 				</MenuItem>
