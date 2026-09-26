@@ -101,14 +101,16 @@
 	/>
 	<LabelsInput bind:labels />
 </div>
-<!-- Not a <label>: it would stretch the toggle's hit area over the whole row and the alert. -->
+<!-- Not a wrapping <label>: it would stretch the toggle's hit area over the whole row and the
+alert. The heading names the checkbox through `for` instead, kept to its own width. -->
 <div class="flex flex-col gap-1">
-	<span class="text-xs font-semibold text-emphasis">Secret</span>
+	<label for="variable-secret" class="w-fit text-xs font-semibold text-emphasis">Secret</label>
 	<div class="flex flex-row items-center gap-2">
 		<!-- An `$encrypted:` value is only redeemable while the variable stays secret — the
 		deploy endpoints decrypt the marker inside their `is_secret` branch and store it
 		verbatim otherwise — so un-securing one has to be unreachable until it is Reset. -->
 		<Toggle
+			id="variable-secret"
 			class="w-fit"
 			on:change={(e) => onSecretChange?.(e.detail)}
 			bind:checked={variable.is_secret}

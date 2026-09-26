@@ -562,7 +562,9 @@
 						{edit}
 						onLoadSecret={loadSecret}
 						{onSecretChange}
-						deployedSecret={!!selected && !!initialStates[selected]?.variable.is_secret}
+						deployedSecret={!!selected &&
+							!!existedInitially[selected] &&
+							!!initialStates[selected]?.variable.is_secret}
 						workspace={selected}
 						actingUser={acting.in(selected) ?? null}
 					/>
