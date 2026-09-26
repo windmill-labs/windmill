@@ -1,5 +1,4 @@
 import type { Component } from 'svelte'
-import { isChunkLoadError, reloadForStaleChunk } from '$lib/utils/staleChunkReload'
 
 // The ~300 icon modules load on first use rather than up front: statically reached from
 // the app shell, they gate every page load in dev, and started at module evaluation they
@@ -13,10 +12,11 @@ function load() {
 	if (!icons)
 		loading ??= import('./index').then(
 			(m) => (icons = m),
-			// Cleared so the next read retries rather than keeping the tab icon-less.
+			// Cleared so the next read retries rather than keeping the tab icon-less; rethrown
+			// so the root layout reports a chunk that failed to load.
 			(e) => {
 				loading = undefined
-				if (isChunkLoadError(String(e?.message))) reloadForStaleChunk()
+				throw e
 			}
 		)
 	return icons

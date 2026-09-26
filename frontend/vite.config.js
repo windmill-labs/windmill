@@ -133,25 +133,27 @@ function assertLeanPublicAppRoutes() {
 }
 
 /**
- * Fail the build if the app shell statically loads monaco.
+ * Fail the build if the app shell or the home page statically loads monaco.
  *
  * The layouts below wrap every page, so what they import statically is downloaded before
- * any page renders; monaco is several MB of it. Editors, drawers and modals that reach it
- * are dynamic imports mounted on first use (see the `(logged)` layout).
+ * any page renders, and the home page is where most sessions land; monaco is several MB.
+ * Editors, drawers and modals that reach it are dynamic imports mounted on first use (see
+ * the `(logged)` layout).
  */
 function assertMonacoFreeAppShell() {
-	const layouts = [
+	const entries = [
 		'/src/routes/+layout.svelte',
 		'/src/routes/(root)/+layout.svelte',
-		'/src/routes/(root)/(logged)/+layout.svelte'
+		'/src/routes/(root)/(logged)/+layout.svelte',
+		'/src/routes/(root)/(logged)/+page.svelte'
 	]
 	const forbidden = ['/node_modules/monaco-editor/', '/node_modules/@codingame/monaco-vscode-']
 	return {
 		name: 'wm-assert-monaco-free-app-shell',
 		generateBundle(_options, bundle) {
 			if (!isClientBuild(bundle)) return
-			for (const layout of layouts) {
-				assertStaticClosureExcludes(this, bundle, layout, forbidden, 'the (logged) layout')
+			for (const entry of entries) {
+				assertStaticClosureExcludes(this, bundle, entry, forbidden, 'the (logged) layout')
 			}
 		}
 	}
