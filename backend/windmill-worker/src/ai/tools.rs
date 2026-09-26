@@ -502,15 +502,18 @@ async fn execute_windmill_tool(
 
     let push_args = PushArgs { args: &tool_call_args, extra: None };
 
-    // A tool with a tag of its own that names another queue than this agent's is dispatched
-    // there and awaited: running it inline would run it on a worker its tag does not select.
-    // Like any tag the caller chose, it must pass the workspace's custom tag restrictions.
-    let dispatch_tag = match job_payload.tag.as_deref() {
-        Some(tag)
-            if resolve_push_tag(tag, &push_args, &ctx.job.workspace_id, ctx.db)
-                .await
-                .is_some_and(|resolved| resolved != ctx.job.tag) =>
-        {
+    // A tool with a tag of its own naming another queue than this agent's must run on a worker
+    // that tag selects, and like any tag the caller chose it must pass the workspace's custom tag
+    // restrictions. It runs inline when this worker serves that queue: the agent holds this
+    // worker while it waits, so dispatching to a queue it serves could wait on itself.
+    let mut resolved_tool_tag = None;
+    if let Some(tag) = job_payload.tag.as_deref() {
+        resolved_tool_tag = resolve_push_tag(tag, &push_args, &ctx.job.workspace_id, ctx.db)
+            .await
+            .filter(|resolved| *resolved != ctx.job.tag);
+    }
+    let tool_tag = match (job_payload.tag.as_deref(), resolved_tool_tag.as_ref()) {
+        (Some(tag), Some(_)) => {
             let is_super_admin = windmill_common::auth::is_super_admin_email(ctx.db, email).await?;
             check_tag_available_for_push(
                 ctx.db,
@@ -532,7 +535,12 @@ async fn execute_windmill_tool(
         }
         _ => None,
     };
-    let run_inline = dispatch_tag.is_none();
+    let run_inline = resolved_tool_tag.is_none_or(|resolved| {
+        windmill_common::worker::WORKER_CONFIG
+            .load()
+            .worker_tags
+            .contains(&resolved)
+    });
 
     let mut tx = ctx.db.begin().await?;
 
@@ -565,7 +573,7 @@ async fn execute_windmill_tool(
         false,
         None,
         ctx.job.visible_to_owner,
-        Some(dispatch_tag.unwrap_or_else(|| ctx.job.tag.clone())),
+        Some(tool_tag.unwrap_or_else(|| ctx.job.tag.clone())),
         job_payload.timeout,
         None,
         job_priority,
@@ -866,21 +874,31 @@ async fn wait_for_dispatched_tool_job(
 ) -> Result<(Box<RawValue>, bool), Error> {
     let mut interval = std::time::Duration::from_millis(50);
     loop {
-        let completed = sqlx::query!(
-            "SELECT result AS \"result: sqlx::types::Json<Box<RawValue>>\",
-                status = 'success' AS \"success!\"
-            FROM v2_job_completed WHERE id = $1 AND workspace_id = $2",
+        // One statement reads both tables from one snapshot, so a job completing between two
+        // reads cannot look like one that vanished.
+        let state = sqlx::query!(
+            "SELECT c.id IS NOT NULL AS \"completed!\",
+                c.result AS \"result: sqlx::types::Json<Box<RawValue>>\",
+                c.status = 'success' AS \"success\",
+                EXISTS(SELECT 1 FROM v2_job_queue WHERE id = $1) AS \"queued!\"
+            FROM (SELECT 1) one
+            LEFT JOIN v2_job_completed c ON c.id = $1 AND c.workspace_id = $2",
             id,
             w_id
         )
-        .fetch_optional(db)
+        .fetch_one(db)
         .await?;
-        if let Some(completed) = completed {
-            let result = completed
+        if state.completed {
+            let result = state
                 .result
                 .map(|r| r.0)
                 .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null));
-            return Ok((result, completed.success));
+            return Ok((result, state.success.unwrap_or(false)));
+        }
+        if !state.queued {
+            return Err(Error::internal_err(format!(
+                "tool job {id} is neither queued nor completed"
+            )));
         }
         tokio::time::sleep(interval).await;
         interval = std::cmp::min(interval * 2, std::time::Duration::from_secs(1));
