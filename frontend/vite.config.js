@@ -89,18 +89,17 @@ function assertAcyclicChunks() {
  */
 function assertLeanPublicAppRoutes() {
 	const monaco = '/node_modules/monaco-editor/'
-	// Route directories, so +page.js counts as well as +page.svelte.
+	const appPreview = '/src/lib/components/apps/editor/AppPreview.svelte'
+	const anyMonaco = [monaco, '/node_modules/@codingame/monaco-vscode']
+	// Public app routes are directories, so +page.js counts as well as +page.svelte. A
+	// layout chunk does not import its parent layouts, so each shell layout is listed.
 	const forbiddenByRoute = {
-		'/src/routes/public/[workspace]/[...secret]/': [
-			'/src/lib/components/apps/editor/AppPreview.svelte',
-			monaco
-		],
-		'/src/routes/a/[...path]/': ['/src/lib/components/apps/editor/AppPreview.svelte', monaco],
-		'/src/routes/(root)/(logged)/+layout.svelte': [
-			monaco,
-			'/node_modules/@codingame/monaco-vscode'
-		],
-		'/src/routes/(root)/(logged)/+page.svelte': [monaco, '/node_modules/@codingame/monaco-vscode']
+		'/src/routes/public/[workspace]/[...secret]/': [appPreview, monaco],
+		'/src/routes/a/[...path]/': [appPreview, monaco],
+		'/src/routes/+layout.svelte': anyMonaco,
+		'/src/routes/(root)/+layout.svelte': anyMonaco,
+		'/src/routes/(root)/(logged)/+layout.svelte': anyMonaco,
+		'/src/routes/(root)/(logged)/+page.svelte': anyMonaco
 	}
 	return {
 		name: 'wm-assert-lean-public-app-routes',

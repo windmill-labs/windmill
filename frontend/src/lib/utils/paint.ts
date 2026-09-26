@@ -41,7 +41,8 @@ let pageIdle: Promise<void> | undefined
  * is idle. Gate prefetches of chunks the page does not need yet on it: started any
  * earlier they compete with the page's own chunks and API calls for connections and
  * bandwidth, which delays its first content. Resolves once per tab. A `load` that never
- * fires (a hanging image or iframe) starts the wait anyway after `MAX_WAIT_MS`.
+ * fires (a hanging image or iframe) starts the wait anyway after `MAX_WAIT_MS`, so the
+ * worst case is twice that.
  */
 export function whenPageIdle(): Promise<void> {
 	return (pageIdle ??= new Promise((resolve) => {

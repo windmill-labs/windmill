@@ -36,8 +36,9 @@
 		'Importing a module script failed',
 		'Unable to preload CSS'
 	]
-	// One failed component rejects once per chunk and stylesheet it needed.
-	let chunkLoadToastShown = false
+	// One failed component rejects once per chunk and stylesheet it needed: one toast per
+	// page, keyed on the path since this layout outlives client-side navigation.
+	let chunkLoadToastPath: string | undefined = undefined
 
 	const monacoEditorUnhandledErrors = [
 		'Model not found',
@@ -219,8 +220,8 @@
 				// a component loaded on demand would otherwise silently never appear.
 				if (chunkLoadErrors.some((m) => message.startsWith(m))) {
 					console.warn(message)
-					if (chunkLoadToastShown) return
-					chunkLoadToastShown = true
+					if (chunkLoadToastPath === location.pathname) return
+					chunkLoadToastPath = location.pathname
 					sendUserToast(
 						'Part of the page failed to load, Windmill may have been updated',
 						true,

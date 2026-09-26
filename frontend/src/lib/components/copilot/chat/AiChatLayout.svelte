@@ -46,6 +46,9 @@
 		showSessionsBetaBanner = false
 	}: Props = $props()
 
+	let pageIdle = $state(false)
+	whenPageIdle().then(() => (pageIdle = true))
+
 	// The desktop rail is fixed-positioned, so the content is offset by a matching
 	// left padding (in rem, matching the rail). Mobile/operator/borderless: no rail.
 	let contentPadLeft = $derived(noBorder || $userStore?.operator || isMobile ? 0 : sidebarWidth)
@@ -103,9 +106,13 @@
 {#if !disableAi}
 	<!-- Dynamic imports here and for AIChat: this layout wraps every workspace page, so its
 	     static imports gate first paint. -->
-	{#await whenPageIdle().then(() => import('./CreatedResourceActionDrawers.svelte')) then CreatedResourceActionDrawers}
-		<CreatedResourceActionDrawers.default />
-	{/await}
+	<!-- Also mounted with the chat pane: it registers the handlers that decide whether a
+	     message's "open created resource" chip renders at all. -->
+	{#if pageIdle || chatState.size > 1}
+		{#await import('./CreatedResourceActionDrawers.svelte') then CreatedResourceActionDrawers}
+			<CreatedResourceActionDrawers.default />
+		{/await}
+	{/if}
 	<Splitpanes horizontal={false} class="flex-1 min-h-0">
 		<Pane size={100 - chatState.size} minSize={50} class="flex flex-col grow min-h-0 ">
 			<div

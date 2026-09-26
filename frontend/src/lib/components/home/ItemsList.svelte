@@ -1009,8 +1009,13 @@
 	// would put two of them on the page at once while the workspace is still empty.
 	let hubPick = $state<HubProjectPick | undefined>(undefined)
 	let hubPickerOpen = $state(false)
-	// Mounted on the first pick and kept, so its dismissal and in-flight run outlive `hubPick`.
+	// Mounted once the picker opens, so its chunk loads while a project is chosen, or on a
+	// direct pick; then kept, so its dismissal and in-flight run outlive `hubPick`.
 	let importModalMounted = $state(false)
+	function openHubPicker() {
+		importModalMounted = true
+		hubPickerOpen = true
+	}
 	function pickHubProject(project: HubProjectPick) {
 		importModalMounted = true
 		hubPick = project
@@ -1878,9 +1883,7 @@
 			{#if canCreateHere}
 				<!-- No hub entry where the instance has the hub turned off: the same setting the
 				     script and flow hub pickers observe. -->
-				<CreateActionsMenu
-					onImportHubProject={$disableHubStore ? undefined : () => (hubPickerOpen = true)}
-				/>
+				<CreateActionsMenu onImportHubProject={$disableHubStore ? undefined : openHubPicker} />
 			{/if}
 		</div>
 	</div>

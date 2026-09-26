@@ -178,8 +178,8 @@
 				: undefined)
 	)
 
-	// Asked for on the first pick, not at init: this dialog is mounted by the home list for
-	// every user on every arrival, and the host is a string only the project card renders.
+	// Asked for on the first pick, not at init: the home list mounts this dialog as soon as
+	// the hub picker opens, and the host is a string only the project card renders.
 	let hubHost = $state('hub.windmill.dev')
 	let hubHostAsked = false
 	$effect(() => {
