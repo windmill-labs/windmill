@@ -28,9 +28,11 @@ pub struct ProviderCredentials {
     ///
     /// The two paths therefore present different tokens to AWS: the proxy a
     /// workspace claim with `sub = "<email>::<workspace>"`, the worker the job
-    /// claim `/oidc/token` issues, `sub = "<email>::<path>::<flow_path>::<workspace>"`.
-    /// A role trust policy that conditions on `sub` has to admit both, or only
-    /// one of the copilot and the AI agent step will be able to assume the role.
+    /// claim `/oidc/token` issues, `sub = "<email>::<path>::<flow_path>::<workspace>"`,
+    /// whose path segments are prefixed `preview:` when the step runs outside a
+    /// deployed flow (e.g. tested from the editor). A role trust policy that
+    /// conditions on `sub` has to admit every form it should, or only some of the
+    /// copilot and the AI agent step runs will be able to assume the role.
     pub oidc_role_arn: Option<String>,
     pub platform: AIPlatform,
     pub custom_headers: HashMap<String, String>,
