@@ -688,12 +688,14 @@
 
 	type OverlayStack = import('$lib/components/common/overlayHost.svelte').OverlayStack
 	// The modal is a dynamic import, so a request can arrive before it is bound; it is
-	// held here and replayed on bind rather than dropped.
+	// held here and replayed on bind rather than dropped. Only where the modal mounts
+	// (the markup's `{:else if $userStore}`): elsewhere the request would replay much later.
 	let pendingSearchOpen: { text?: string; stack?: OverlayStack } | undefined = $state()
+	let searchModalMounts = $derived(page.status != 404 && !!$userStore)
 
 	function openSearchModal(text?: string, stack?: OverlayStack): void {
 		if (globalSearchModal) globalSearchModal.openSearchWithPrefilledText(text, stack)
-		else pendingSearchOpen = { text, stack }
+		else if (searchModalMounts) pendingSearchOpen = { text, stack }
 	}
 
 	$effect(() => {
@@ -706,7 +708,12 @@
 
 	// Until the modal is bound its own Ctrl/Cmd+K listener does not exist yet.
 	function onSearchShortcutBeforeLoad(e: KeyboardEvent) {
-		if (!globalSearchModal && (isMac() ? e.metaKey : e.ctrlKey) && e.key === 'k') {
+		if (
+			!globalSearchModal &&
+			searchModalMounts &&
+			(isMac() ? e.metaKey : e.ctrlKey) &&
+			e.key === 'k'
+		) {
 			e.preventDefault()
 			openSearchModal()
 		}
