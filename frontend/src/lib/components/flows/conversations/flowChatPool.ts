@@ -8,6 +8,13 @@ const POLL_PAGES = 5
 /** How much slower the listing is read once it has stopped answering. */
 const RECOVERY_SLOWDOWN = 10
 
+/**
+ * Names panels across every pool on the page, not just within one: a pool is rebuilt when the
+ * reader opens another flow, and a key reused there would have Svelte keep the panel of the
+ * flow just left — composer, host and all — for a chat that is gone.
+ */
+let panelKeys = 0
+
 /** What a conversation's row says about it. */
 export type ConversationActivity = 'running' | 'error' | 'idle'
 
@@ -88,7 +95,6 @@ export class FlowChatPool<H extends DraftSender<A>, A> {
 	readonly #entries = new Map<string, Entry<H, A>>()
 	/** Every chat held, by panel key, so a panel can be found without knowing its conversation. */
 	readonly #byKey = new Map<string, Entry<H, A>>()
-	#keys = 0
 	/** The chat a new conversation starts on; it joins `#entries` once its first turn names it. */
 	#draft: Entry<H, A> | undefined
 	/** Turns running in conversations this pool is not following, as a listing reported them. */
@@ -231,7 +237,7 @@ export class FlowChatPool<H extends DraftSender<A>, A> {
 		if (conversationId !== undefined) void chat.selectConversation(conversationId)
 		const turns = new ConversationTurns<A>(chat, () => entry.host)
 		const entry: Entry<H, A> = {
-			key: `chat-${++this.#keys}`,
+			key: `chat-${++panelKeys}`,
 			chat,
 			turns,
 			host: this.#options.createHost(turns),

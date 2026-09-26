@@ -368,6 +368,18 @@ describe('FlowChatPool', () => {
 		p.destroy()
 	})
 
+	it('names its panels apart from another pool\'s, so a rebuilt chat cannot reuse one', () => {
+		// The reader opens another flow: that pool is destroyed and a new one takes its place,
+		// in the same `{#each}`. A key reused there would keep the old flow's panel alive —
+		// composer, host and all — for a chat that no longer exists.
+		const first = pool()
+		const second = pool()
+		const keys = [...first.pool.getState().mounted, ...second.pool.getState().mounted]
+		expect(new Set(keys).size).toBe(keys.length)
+		first.pool.destroy()
+		second.pool.destroy()
+	})
+
 	it('keeps one panel key per chat, across the first turn naming its conversation', () => {
 		const { pool: p, fakeOf, held, shown } = pool()
 		const startedOn = p.getState().shownKey

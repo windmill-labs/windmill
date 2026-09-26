@@ -11,8 +11,7 @@
 	} from 'windmill-chat'
 	import FlowConversationsSidebar from './FlowConversationsSidebar.svelte'
 	import FlowChatInterface from './FlowChatInterface.svelte'
-	import { getContext } from 'svelte'
-	import { SvelteMap } from 'svelte/reactivity'
+	import { getContext, untrack } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import { ApiError, type FlowModule } from '$lib/gen'
 	import { FlowChatPool, type FlowChatPoolState } from './flowChatPool'
@@ -91,12 +90,22 @@
 	let poolState = $state<FlowChatPoolState | undefined>(undefined)
 	let sidebar = $state<FlowConversationsSidebar | undefined>(undefined)
 	/** Each conversation's kind as a listing gave it, kept past a filter that stops listing it. */
-	const conversationKinds = new SvelteMap<string, boolean>()
+	const conversationKinds = new Map<string, boolean>()
+
+	// What the reader chose for this flow — the model among them — held here rather than in
+	// each panel, so every conversation's composer sends and shows the same values. Read again
+	// wherever the chat is rebuilt below, since this component is reused from one flow to the
+	// next and would otherwise send one flow's settings with another's messages.
+	let inputValues = $state<Record<string, any>>({})
 
 	$effect(() => {
 		const ws = workspace
 		const flowPath = path
 		if (!ws || !flowPath) return
+		// Untracked: the identity only names what the path already changed, and reading it here
+		// would rebuild every chat of a flow whose identity merely arrived late.
+		inputValues = loadFlowChatInputs({ path: flowPath, identity: untrack(() => identity) })
+		conversationKinds.clear()
 		const baseUrl = window.location.origin
 		const options: ChatOptions = {
 			flowPath,
@@ -165,10 +174,6 @@
 	// The panel on screen. Every other panel the pool holds stays mounted behind it.
 	const shownKey = $derived(poolState?.shownKey)
 
-	// What the reader chose for this flow — the model among them — held here rather than in
-	// each panel, so every conversation's composer sends and shows the same values.
-	let inputValues = $state(loadFlowChatInputs({ path, identity }))
-
 	// Derive additional inputs schema (excluding user_message) for chat mode
 	const additionalInputsSchema = $derived.by(() => {
 		const props = inputSchema?.properties ?? {}
@@ -221,7 +226,9 @@
 							chat={panel.chat}
 							chatHost={panel.host}
 							bind:inputValues
-							isTestOf={(id) => conversationKinds.get(id)}
+							isTestOf={(id) =>
+								listState?.conversations.find((c) => c.id === id)?.isTest ??
+								conversationKinds.get(id)}
 							{deploymentInProgress}
 							{additionalInputsSchema}
 							{flowModules}
