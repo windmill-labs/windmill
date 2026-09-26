@@ -588,8 +588,16 @@ async fn execute_windmill_tool(
     tx.commit().await?;
 
     if !run_inline {
+        // Like an inline tool's failure, a lost wait reaches the model rather than failing the
+        // agent.
         let (result, success) =
-            wait_for_dispatched_tool_job(ctx.db, &uuid, &ctx.job.workspace_id).await?;
+            match wait_for_dispatched_tool_job(ctx.db, &uuid, &ctx.job.workspace_id).await {
+                Ok(outcome) => outcome,
+                Err(e) => (
+                    to_raw_value(&serde_json::json!({ "error": { "message": e.to_string() } })),
+                    false,
+                ),
+            };
         return report_tool_result(
             ctx,
             tool_call,
@@ -880,11 +888,13 @@ async fn wait_for_dispatched_tool_job(
     id: &Uuid,
     w_id: &str,
 ) -> Result<(Box<RawValue>, bool), Error> {
+    const MAX_CONSECUTIVE_POLL_ERRORS: u32 = 10;
     let mut interval = std::time::Duration::from_millis(50);
+    let mut poll_errors = 0;
     loop {
         // One statement reads both tables from one snapshot, so a job completing between two
         // reads cannot look like one that vanished.
-        let state = sqlx::query!(
+        let state = match sqlx::query!(
             "SELECT c.id IS NOT NULL AS \"completed!\",
                 c.result AS \"result: sqlx::types::Json<Box<RawValue>>\",
                 c.status = 'success' AS \"success\",
@@ -895,7 +905,20 @@ async fn wait_for_dispatched_tool_job(
             w_id
         )
         .fetch_one(db)
-        .await?;
+        .await
+        {
+            Ok(state) => {
+                poll_errors = 0;
+                state
+            }
+            Err(e) if poll_errors < MAX_CONSECUTIVE_POLL_ERRORS => {
+                poll_errors += 1;
+                tracing::warn!("polling tool job {id} failed, retrying: {e}");
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                continue;
+            }
+            Err(e) => return Err(e.into()),
+        };
         if state.completed {
             let result = state
                 .result
