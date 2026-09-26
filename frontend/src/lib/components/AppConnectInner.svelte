@@ -1311,7 +1311,6 @@
 											variant="subtle"
 											unifiedSize="sm"
 											wrapperClasses="mt-1 w-fit"
-											btnClasses="text-secondary"
 											onClick={() =>
 												document
 													.getElementById(categorySectionId(section.title))
