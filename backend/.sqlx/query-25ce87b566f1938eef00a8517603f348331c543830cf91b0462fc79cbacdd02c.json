@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job_queue q SET running = false,\n                    started_at = CASE WHEN q.canceled_by IS NULL THEN NULL ELSE q.started_at END\n                FROM v2_job_runtime r\n                WHERE q.id = $1 AND r.id = q.id AND q.running AND r.ping = $2\n                RETURNING q.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "25ce87b566f1938eef00a8517603f348331c543830cf91b0462fc79cbacdd02c"
+}
