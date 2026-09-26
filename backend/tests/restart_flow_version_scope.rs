@@ -94,6 +94,33 @@ async fn test_restart_rejects_flow_version_of_another_path(
         .expect_err("a version of another flow must be rejected");
     assert!(matches!(err, Error::BadRequest(_)), "{err:?}");
 
+    // A version at the same path in another workspace.
+    sqlx::query(
+        "INSERT INTO workspace (id, name, owner) VALUES ('other-workspace', 'other-workspace', 'test-user')",
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO flow (workspace_id, path, summary, description, value, edited_by)
+         SELECT 'other-workspace', path, summary, description, value, edited_by FROM flow
+         WHERE workspace_id = $1 AND path = 'f/system/hello_flow'",
+    )
+    .bind(WS)
+    .execute(&db)
+    .await?;
+    let other_ws_version: i64 = sqlx::query_scalar(
+        "INSERT INTO flow_version (workspace_id, path, schema, value, created_by)
+         SELECT 'other-workspace', path, schema, value, created_by FROM flow_version WHERE id = $1
+         RETURNING id",
+    )
+    .bind(version)
+    .fetch_one(&db)
+    .await?;
+    let err = push_restart(&db, completed_job_id, other_ws_version)
+        .await
+        .expect_err("a version from another workspace must be rejected");
+    assert!(matches!(err, Error::BadRequest(_)), "{err:?}");
+
     // Another version of the restarted flow itself stays allowed.
     let same_path_version: i64 = sqlx::query_scalar(
         "INSERT INTO flow_version (workspace_id, path, schema, value, created_by)

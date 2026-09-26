@@ -7692,6 +7692,9 @@ fn reuse_completed_zombie_module(module: FlowStatusModule) -> FlowStatusModule {
 /// Loads the flow version a restart switches to. The version id is caller-supplied and the
 /// restarted job keeps the original job's path, so it must be a version of that same flow in
 /// that same workspace: any other id would run foreign code under the original path.
+/// This only ties the version to the flow; it does not authorize the caller. `workspace_id`
+/// and `flow_path` must come from the original job, which the caller is already allowed to
+/// restart.
 pub async fn fetch_restart_flow_version(
     db: &Pool<Postgres>,
     workspace_id: &str,
