@@ -118,7 +118,8 @@
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 	let showAssets: Writable<boolean | undefined> = writable<boolean | undefined>(true)
-	// Read-only alternative layout; editing needs the insert/drag affordances of the full graph.
+	// Read-only alternative layout; editing needs the insert/drag affordances of the full graph,
+	// and it draws no diff markers, so a diff would read as an unchanged flow.
 	let simplifiedView = $state(false)
 	let showNotes = $state(true)
 
@@ -343,6 +344,7 @@
 	// Selection manager - create one if not provided
 	let selectionManager = untrack(() => selectionManagerProp) || new SelectionManager()
 	const selectedId = $derived(selectionManager.getSelectedId())
+	let simplifiedAvailable = $derived(!editMode && !diffBeforeFlow && !moduleActions)
 
 	const noteEditorContext = getNoteEditorContext()
 
@@ -1305,7 +1307,7 @@
 	<DiffDrawer bind:this={diffDrawer} />
 {/if}
 <div
-	style={simplifiedView && !editMode
+	style={simplifiedView && simplifiedAvailable
 		? undefined
 		: `height: ${height}px; max-height: ${maxHeight}px;`}
 	class="overflow-clip relative {outerDivClass}"
@@ -1325,14 +1327,18 @@
 				>
 			</Alert>
 		</div>
-	{:else if simplifiedView && !editMode}
+	{:else if simplifiedView && simplifiedAvailable}
 		<SimplifiedFlowGraph
 			{modules}
 			{failureModule}
 			{preprocessorModule}
 			{minHeight}
 			{maxHeight}
-			onSelect={(id) => onSelect?.(id)}
+			{selectedId}
+			onSelect={(id) => {
+				selectionManager.selectId(id)
+				if (!notSelectable) onSelect?.(id)
+			}}
 		>
 			{#snippet topLeftControls()}
 				{@render simplifiedViewToggle()}
@@ -1526,7 +1532,7 @@
 						{#if showDataflow}
 							<Toggle bind:checked={$useDataflow} size="xs" options={{ right: 'Dataflow' }} />
 						{/if}
-						{#if !editMode}
+						{#if simplifiedAvailable}
 							{@render simplifiedViewToggle()}
 						{/if}
 					</Controls>

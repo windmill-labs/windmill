@@ -1,11 +1,24 @@
 <script lang="ts">
 	import { twMerge } from 'tailwind-merge'
 	import FlowModuleIcon from '$lib/components/flows/FlowModuleIcon.svelte'
+	import { getFlowRunStatusContext } from '../flowRunStatus.svelte'
 	import { SIMPLIFIED, type SimplifiedBoxData } from './simplifiedLayout'
 
-	let { data, selected }: { data: SimplifiedBoxData; selected?: boolean } = $props()
+	let { id, data, selected }: { id: string; data: SimplifiedBoxData; selected?: boolean } = $props()
 
 	let header = $derived(data.header)
+
+	// The loop or branch step has no node of its own here, so a run that fails or waits at the
+	// step itself (an iterator or predicate throwing) is shown on its bracket. Success stays
+	// neutral: the steps inside already carry it.
+	const flowRunStatus = getFlowRunStatusContext()
+	const STATUS_BRACKET: Record<string, string> = {
+		Failure: 'border-red-500',
+		InProgress: 'border-orange-400',
+		WaitingForExecutor: 'border-orange-400',
+		WaitingForEvents: 'border-purple-400'
+	}
+	let statusBracket = $derived(STATUS_BRACKET[flowRunStatus?.getModuleState(id)?.type ?? ''])
 
 	const headerTop = SIMPLIFIED.loopPad / 2
 </script>
@@ -16,7 +29,9 @@
 	<div
 		class={twMerge(
 			'absolute inset-x-0 h-2.5 rounded-t-lg border-t border-x',
-			selected ? 'border-border-selected' : 'border-gray-300 dark:border-gray-600'
+			selected
+				? 'border-border-selected'
+				: (statusBracket ?? 'border-gray-300 dark:border-gray-600')
 		)}
 		style="top: {headerTop + SIMPLIFIED.loopHeader + 1}px;"
 	></div>

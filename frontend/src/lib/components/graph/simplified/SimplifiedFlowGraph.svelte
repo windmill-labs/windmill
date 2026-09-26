@@ -17,6 +17,8 @@
 		maxHeight?: number
 		/** Called with a module id, or `Input` / `Result` / `failure` / `preprocessor` */
 		onSelect?: (nodeId: string) => void
+		/** The graph's selection, owned by the caller so it survives switching views */
+		selectedId?: string
 		/** Rendered in the top-left control stack, e.g. the toggle leading back to the full graph */
 		topLeftControls?: Snippet
 	}
@@ -28,12 +30,14 @@
 		minHeight = 0,
 		maxHeight,
 		onSelect,
+		selectedId,
 		topLeftControls
 	}: Props = $props()
 
 	let layout = $derived(
 		layoutSimplifiedFlow({ modules: modules ?? [], failureModule, preprocessorModule })
 	)
+	let nodes = $derived(layout.nodes.map((n) => ({ ...n, selected: n.id === selectedId })))
 
 	const PAD = 72
 	const MIN_READABLE_ZOOM = 0.7
@@ -75,7 +79,7 @@
 	{#if width > 0}
 		<SvelteFlowProvider>
 			<SvelteFlow
-				nodes={layout.nodes}
+				{nodes}
 				edges={layout.edges}
 				{nodeTypes}
 				{edgeTypes}
@@ -84,7 +88,7 @@
 				maxZoom={1.6}
 				nodesDraggable={false}
 				nodesConnectable={false}
-				elementsSelectable={true}
+				elementsSelectable={false}
 				zoomOnDoubleClick={false}
 				deleteKey={null}
 				onnodeclick={({ node }) => {
