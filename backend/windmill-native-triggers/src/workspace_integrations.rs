@@ -222,6 +222,14 @@ async fn resolve_oauth_client(
     }
 }
 
+/// Connecting writes the connection's variable and resource at `path`, so a path-scoped token must
+/// cover both, whatever the user behind it may write.
+#[cfg(feature = "native_trigger")]
+fn check_connection_scopes(authed: &ApiAuthed, path: &str) -> Result<()> {
+    check_scopes(authed, || format!("variables:write:{path}"))?;
+    check_scopes(authed, || format!("resources:write:{path}"))
+}
+
 #[cfg(feature = "native_trigger")]
 fn default_connection_path(authed: &ApiAuthed, service_name: ServiceName) -> String {
     format!(
@@ -247,6 +255,7 @@ async fn generate_connect_url(
         .resource_path
         .filter(|p| !p.is_empty())
         .unwrap_or_else(|| default_connection_path(&authed, service_name));
+    check_connection_scopes(&authed, &connection_path)?;
 
     // A GitHub OAuth app only redirects under its one registered callback, and the instance app's
     // is the resource connect callback, so its connections land on a page below that one.
@@ -619,6 +628,7 @@ async fn oauth_callback(
         &authed.username,
     )
     .await?;
+    check_connection_scopes(&authed, &resource_path)?;
 
     let (oauth_config, is_instance_shared) =
         resolve_oauth_client(&db, &workspace_id, service_name).await?;
@@ -1070,7 +1080,7 @@ async fn delete_connection(
     Path((workspace_id, service_name)): Path<(String, ServiceName)>,
     Query(ConnectionPathQuery { path }): Query<ConnectionPathQuery>,
 ) -> JsonResult<String> {
-    check_scopes(&authed, || format!("variables:write:{path}"))?;
+    check_connection_scopes(&authed, &path)?;
     require_is_writer(
         &authed,
         &path,
@@ -1120,6 +1130,25 @@ async fn delete_connection(
         Some((&external_ids, &script_paths)),
     )
     .await;
+
+    // A trigger moved or created meanwhile was skipped above and still acts through this
+    // connection, so removing the connection would strand it.
+    let still_used = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM native_trigger
+         WHERE workspace_id = $1 AND service_name = $2 AND connection_path = $3)",
+        workspace_id,
+        service_name as ServiceName,
+        path,
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(false);
+    if still_used {
+        return Err(Error::BadRequest(format!(
+            "A trigger using {path} changed while disconnecting, so the connection was kept. \
+             Disconnect again to remove it."
+        )));
+    }
 
     let mut tx = user_db.begin(&authed).await?;
     let account = cleanup_connection(&mut *tx, &workspace_id, &path).await?;
