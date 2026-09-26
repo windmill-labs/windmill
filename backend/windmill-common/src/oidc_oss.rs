@@ -64,6 +64,12 @@ pub struct JobClaim {
     pub fork_parent_workspace: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_user_email: Option<String>,
+    pub job_kind: String,
+    pub deployed: bool,
+    pub root_job_id: String,
+    pub root_path: Option<String>,
+    pub root_job_kind: String,
+    pub trigger_kind: Option<String>,
 }
 
 #[cfg(not(feature = "private"))]
