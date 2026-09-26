@@ -1,8 +1,13 @@
 use std::{collections::HashMap, sync::Arc};
 
-use axum::{extract::Path, routing::get, Extension, Json, Router};
+use axum::{
+    extract::{Path, Query},
+    routing::get,
+    Extension, Json, Router,
+};
 use http::Method;
 use windmill_common::{
+    db::UserDB,
     error::{Error, JsonResult},
     DB,
 };
@@ -12,16 +17,25 @@ use windmill_api_auth::ApiAuthed;
 use crate::{
     get_workspace_integration, map_external_error,
     nextcloud::{NextCloudEventType, OcsResponse},
-    require_native_integration_use, External, ServiceName,
+    picker_connection, ConnectionQuery, External, ServiceName,
 };
 
 async fn list_available_events<T: External>(
     authed: ApiAuthed,
     Extension(handler): Extension<Arc<T>>,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path(workspace_id): Path<String>,
+    Query(query): Query<ConnectionQuery>,
 ) -> JsonResult<Vec<NextCloudEventType>> {
-    require_native_integration_use(&authed)?;
+    let connection_path = picker_connection(
+        &authed,
+        user_db,
+        &workspace_id,
+        ServiceName::Nextcloud,
+        query.connection_path.as_deref(),
+    )
+    .await?;
     let integration = get_workspace_integration(&db, &workspace_id, ServiceName::Nextcloud).await?;
 
     let base_url = integration
@@ -43,6 +57,7 @@ async fn list_available_events<T: External>(
             &url,
             Method::GET,
             &workspace_id,
+            &connection_path,
             &db,
             Some(headers),
             None,

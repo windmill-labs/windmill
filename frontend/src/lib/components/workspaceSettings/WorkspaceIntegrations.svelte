@@ -4,21 +4,26 @@
 	import { Button, Alert } from '$lib/components/common'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import SettingsPageHeader from '$lib/components/settings/SettingsPageHeader.svelte'
-	import { Check, X, ExternalLink, Cog, Plug } from 'lucide-svelte'
+	import { X, ExternalLink, Cog, Plug } from 'lucide-svelte'
 	import { NextcloudIcon, GithubIcon } from '$lib/components/icons'
 	import GoogleIcon from '$lib/components/icons/GoogleIcon.svelte'
-	import { WorkspaceIntegrationService, type NativeServiceName } from '$lib/gen'
+	import {
+		WorkspaceIntegrationService,
+		type NativeServiceName,
+		type NativeTriggerConnection
+	} from '$lib/gen'
 	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
 	import OAuthClientConfig from './OAuthClientConfig.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { createAsyncConfirmationModal } from '../common/confirmationModal/asyncConfirmationModal.svelte'
 	import Path from '$lib/components/Path.svelte'
-	import { page } from '$app/state'
-	import { goto } from '$app/navigation'
+	import {
+		connectNativeAccount,
+		nativeOAuthRedirectUri
+	} from '$lib/components/triggers/native/utils'
 
 	interface WorkspaceIntegration {
 		service_name: string
-		resource_path?: string
 		oauth_data: {
 			client_id: string
 			client_secret: string
@@ -88,16 +93,13 @@
 	}
 
 	let integrations = $state<WorkspaceIntegration[]>([])
+	let connections = $state<Record<string, NativeTriggerConnection[]>>({})
 	let loading = $state(false)
 	let connecting = $state<string | null>(null)
 	let showingConfig = $state<string | null>(null)
 	let instanceSharingAvailable = $state<Record<string, boolean>>({})
-	let pendingCallback = $state<{
-		serviceName: NativeServiceName
-		code: string
-		state: string
-		workspace: string
-	} | null>(null)
+	// The service whose "where to save the connection" form is open.
+	let choosingPathFor = $state<string | null>(null)
 	let resourcePath = $state<string | undefined>(undefined)
 	let pathError = $state<string | undefined>(undefined)
 	let confirmationModal = createAsyncConfirmationModal()
@@ -112,9 +114,9 @@
 			})
 			integrations = response.map((item) => ({
 				service_name: item.service_name,
-				resource_path: item.resource_path ?? undefined,
 				oauth_data: item.oauth_data || null
 			}))
+			await Promise.all(Object.keys(supportedServices).map(loadConnections))
 		} catch (err: any) {
 			console.error('Failed to load workspace integrations:', err)
 			sendUserToast(`Failed to load integrations: ${err.message}`, true)
@@ -123,48 +125,84 @@
 		}
 	}
 
+	async function loadConnections(serviceName: string) {
+		if (!$workspaceStore) return
+		try {
+			connections[serviceName] = await WorkspaceIntegrationService.listNativeTriggerConnections({
+				workspace: $workspaceStore,
+				serviceName: serviceName as NativeServiceName
+			})
+		} catch {
+			connections[serviceName] = []
+		}
+	}
+
 	async function deleteIntegration(serviceName: string) {
 		if (!$workspaceStore) return
 
 		const displayName = supportedServices[serviceName]?.displayName ?? serviceName
 		const confirmed = await confirmationModal.ask({
-			title: `Disconnect ${displayName}?`,
-			confirmationText: 'Disconnect',
-			children: `This will delete all ${displayName} triggers associated with this integration. This action cannot be undone.`
+			title: `Remove the ${displayName} integration?`,
+			confirmationText: 'Remove',
+			children: `This removes the OAuth app configuration, every connected ${displayName} account and all ${displayName} triggers. This action cannot be undone.`
 		})
 		if (!confirmed) return
 
 		try {
 			await WorkspaceIntegrationService.deleteNativeTriggerService({
 				workspace: $workspaceStore,
-				serviceName: serviceName as any
+				serviceName: serviceName as NativeServiceName
 			})
-			sendUserToast(`${displayName} disconnected successfully`)
+			sendUserToast(`${displayName} integration removed`)
 			loadIntegrations()
 		} catch (err: any) {
-			sendUserToast(`Failed to disconnect ${displayName}: ${err.message}`, true)
+			sendUserToast(`Failed to remove ${displayName}: ${err.body ?? err.message}`, true)
 		}
 	}
 
-	async function connectService(serviceName: string, redirectUri: string) {
+	async function disconnect(serviceName: string, path: string) {
+		if (!$workspaceStore) return
+
+		const displayName = supportedServices[serviceName]?.displayName ?? serviceName
+		const confirmed = await confirmationModal.ask({
+			title: `Disconnect ${path}?`,
+			confirmationText: 'Disconnect',
+			children: `This deletes the ${displayName} triggers created with this account. This action cannot be undone.`
+		})
+		if (!confirmed) return
+
+		try {
+			await WorkspaceIntegrationService.deleteNativeTriggerConnection({
+				workspace: $workspaceStore,
+				serviceName: serviceName as NativeServiceName,
+				path
+			})
+			sendUserToast(`${path} disconnected`)
+			loadConnections(serviceName)
+		} catch (err: any) {
+			sendUserToast(`Failed to disconnect ${path}: ${err.body ?? err.message}`, true)
+		}
+	}
+
+	async function connect(serviceName: string) {
 		if (!$workspaceStore) return
 
 		connecting = serviceName
 		try {
-			const auth_url = await WorkspaceIntegrationService.generateNativeTriggerServiceConnectUrl({
-				workspace: $workspaceStore,
-				serviceName: serviceName as any,
-				requestBody: { redirect_uri: redirectUri }
-			})
-
-			if (auth_url) {
-				window.location.href = auth_url
-			}
+			const path = await connectNativeAccount(
+				$workspaceStore,
+				serviceName as NativeServiceName,
+				resourcePath
+			)
+			sendUserToast(`${supportedServices[serviceName]?.displayName} account connected as ${path}`)
+			choosingPathFor = null
+			await loadConnections(serviceName)
 		} catch (err: any) {
 			sendUserToast(
-				`Failed to connect ${supportedServices[serviceName]?.displayName}: ${err.message}`,
+				`Failed to connect ${supportedServices[serviceName]?.displayName}: ${err.body ?? err.message}`,
 				true
 			)
+		} finally {
 			connecting = null
 		}
 	}
@@ -172,10 +210,24 @@
 	async function createOrUpdateIntegration(serviceName: string, oauthData: any) {
 		if (!$workspaceStore) return
 
+		const displayName = supportedServices[serviceName]?.displayName ?? serviceName
+		const current = getIntegrationByService(serviceName)?.oauth_data
+		const clientChanges =
+			current?.instance_shared || (current?.client_id ?? '') !== (oauthData.client_id ?? '')
+		// A refresh token only works with the OAuth app that issued it.
+		if (clientChanges && (connections[serviceName]?.length ?? 0) > 0) {
+			const confirmed = await confirmationModal.ask({
+				title: `Change the ${displayName} OAuth app?`,
+				confirmationText: 'Change',
+				children: `Accounts connected with the current app must be connected again, at the same path, before their triggers work again.`
+			})
+			if (!confirmed) return
+		}
+
 		try {
 			await WorkspaceIntegrationService.createNativeTriggerService({
 				workspace: $workspaceStore,
-				serviceName: serviceName as any,
+				serviceName: serviceName as NativeServiceName,
 				requestBody: oauthData
 			})
 			sendUserToast(
@@ -206,33 +258,9 @@
 		}
 	}
 
-	async function connectWithInstanceCredentials(serviceName: string) {
-		if (!$workspaceStore) return
-
-		connecting = serviceName
-		try {
-			const redirectUri = getRedirectUri(serviceName)
-			const auth_url = await WorkspaceIntegrationService.generateInstanceConnectUrl({
-				workspace: $workspaceStore,
-				serviceName: serviceName as NativeServiceName,
-				requestBody: { redirect_uri: redirectUri }
-			})
-
-			if (auth_url) {
-				window.location.href = auth_url
-			}
-		} catch (err: any) {
-			sendUserToast(
-				`Failed to connect ${supportedServices[serviceName]?.displayName}: ${err.message}`,
-				true
-			)
-			connecting = null
-		}
-	}
-
-	function isConfigured(integration: WorkspaceIntegration): boolean {
-		if (integration.oauth_data === null) return false
-		if (integration.oauth_data.instance_shared) return true
+	/** Whether the workspace has its own OAuth app for the service. */
+	function hasWorkspaceApp(integration: WorkspaceIntegration | null): boolean {
+		if (!integration?.oauth_data || integration.oauth_data.instance_shared) return false
 		const serviceConfig = supportedServices[integration.service_name]
 		const needsBaseUrl = serviceConfig?.requiresBaseUrl !== false
 		return (
@@ -242,80 +270,8 @@
 		)
 	}
 
-	function isConnected(integration: WorkspaceIntegration): boolean {
-		if (integration.oauth_data?.instance_shared) {
-			return !!integration.resource_path
-		}
-		return isConfigured(integration) && !!integration.resource_path
-	}
-
 	function getIntegrationByService(serviceName: string): WorkspaceIntegration | null {
 		return integrations.find((integration) => integration.service_name === serviceName) || null
-	}
-
-	function handleOAuthCallback(
-		workspace: string,
-		serviceName: NativeServiceName,
-		code: string,
-		state: string
-	) {
-		// Phase 1: store callback params and clean URL — don't call backend yet
-		pendingCallback = { serviceName, code, state, workspace }
-
-		// Pre-populate resource path from existing integration (for reconnect)
-		const integration = getIntegrationByService(serviceName)
-		resourcePath = integration?.resource_path ?? undefined
-
-		const url = new URL(page.url)
-		url.searchParams.delete('code')
-		url.searchParams.delete('state')
-		url.searchParams.delete('service')
-		goto(url.toString(), { replaceState: true, noScroll: true, keepFocus: true })
-	}
-
-	async function finalizePendingCallback() {
-		if (!pendingCallback) return
-
-		const { serviceName, code, state, workspace } = pendingCallback
-		try {
-			const redirectUri = getRedirectUri(serviceName)
-			await WorkspaceIntegrationService.nativeTriggerServiceCallback({
-				serviceName,
-				workspace,
-				requestBody: {
-					code,
-					state,
-					redirect_uri: redirectUri,
-					resource_path: resourcePath
-				}
-			})
-			sendUserToast(`${supportedServices[serviceName]?.displayName} connected successfully!`)
-			await loadIntegrations()
-		} catch (err: any) {
-			sendUserToast(`Failed to complete OAuth connection: ${err.message}`, true)
-		} finally {
-			pendingCallback = null
-			resourcePath = undefined
-			pathError = undefined
-		}
-	}
-
-	$effect(() => {
-		if (
-			page.url.searchParams.has('code') &&
-			page.url.searchParams.has('state') &&
-			page.url.searchParams.has('service') &&
-			$workspaceStore
-		) {
-			const service = page.url.searchParams.get('service')! as NativeServiceName
-			const code = page.url.searchParams.get('code')!
-			const state = page.url.searchParams.get('state')!
-			handleOAuthCallback($workspaceStore, service, code, state)
-		}
-	})
-
-	function getRedirectUri(serviceName: string): string {
-		return `${window.location.origin}/workspace_settings?tab=native_triggers&service=${serviceName}`
 	}
 
 	$effect(() => {
@@ -329,48 +285,11 @@
 <div class="flex flex-col">
 	<SettingsPageHeader
 		title="Native Triggers"
-		description="Connect your workspace to external services for native triggers and enhanced functionality. These connections are shared across all workspace members and are required for native triggers to work."
+		description="Configure the OAuth app of each service. Members then connect their own account, or one shared through a folder, and each trigger acts as the account it was created with."
 		link="https://www.windmill.dev/docs/core_concepts/native_triggers"
 	/>
 
-	{#if pendingCallback}
-		{@const serviceName = pendingCallback.serviceName}
-		{@const config = supportedServices[serviceName]}
-		<div class="border border-gray-200 dark:border-gray-700 rounded-md p-4 bg-surface-tertiary">
-			<div class="text-sm font-semibold text-emphasis mb-2">
-				Save {config?.displayName ?? serviceName} credentials as resource
-			</div>
-			<div class="text-xs text-secondary mb-3">
-				Choose where to save the OAuth resource. This resource will store the access token for the
-				integration.
-			</div>
-			<Path
-				kind="resource"
-				initialPath={resourcePath ?? ''}
-				namePlaceholder={'native_' + serviceName}
-				bind:path={resourcePath}
-				bind:error={pathError}
-			/>
-			<div class="flex gap-2 mt-3">
-				<Button
-					variant="accent"
-					disabled={!resourcePath || !!pathError}
-					onclick={finalizePendingCallback}
-				>
-					Save
-				</Button>
-				<Button
-					onclick={() => {
-						pendingCallback = null
-						resourcePath = undefined
-						pathError = undefined
-					}}
-				>
-					Cancel
-				</Button>
-			</div>
-		</div>
-	{:else if loading}
+	{#if loading}
 		<div class="space-y-4">
 			{#each new Array(3) as _}
 				<Skeleton layout={[[6], 0.4]} />
@@ -381,12 +300,12 @@
 			{#each Object.entries(supportedServices) as [serviceName, config]}
 				{@const integration = getIntegrationByService(serviceName)}
 				{@const isConnecting = connecting === serviceName}
-				{@const isOAuthConfigured = integration && isConfigured(integration)}
-				{@const isServiceConnected = integration && isConnected(integration)}
-				{@const isShowingConfig = showingConfig === serviceName}
+				{@const workspaceApp = hasWorkspaceApp(integration)}
+				{@const usesInstanceApp = !workspaceApp && instanceSharingAvailable[serviceName]}
+				{@const serviceConnections = connections[serviceName] ?? []}
 
 				<div class="border border-gray-200 dark:border-gray-700 rounded-md p-4 bg-surface-tertiary">
-					<div class="flex items-center justify-between">
+					<div class="flex items-center justify-between gap-4">
 						<div class="flex items-center gap-3">
 							<div class="w-8 h-8 flex items-center justify-center">
 								<config.icon class="w-6 h-6" />
@@ -397,65 +316,37 @@
 							</div>
 						</div>
 
-						<div class="flex items-center gap-2">
-							{#if isServiceConnected}
-								<div class="flex items-center gap-1 text-green-600 text-xs">
-									<Check size={16} />
-									<span class="font-semibold">Connected</span>
-								</div>
+						<div class="flex flex-wrap items-center justify-end gap-2">
+							{#if workspaceApp || usesInstanceApp}
 								<Button
-									onclick={() =>
-										integration?.oauth_data?.instance_shared
-											? connectWithInstanceCredentials(serviceName)
-											: connectService(serviceName, getRedirectUri(serviceName))}
+									variant="default"
+									onclick={() => {
+										choosingPathFor = serviceName
+										resourcePath = undefined
+									}}
 									disabled={isConnecting}
 									startIcon={{ icon: Plug }}
 								>
-									{isConnecting ? 'Reconnecting...' : 'Reconnect'}
-								</Button>
-								<Button
-									destructive
-									onclick={() => deleteIntegration(serviceName)}
-									startIcon={{ icon: X }}
-								>
-									Delete
-								</Button>
-							{:else if isOAuthConfigured}
-								<Button
-									variant="accent"
-									onclick={() => connectService(serviceName, getRedirectUri(serviceName))}
-									disabled={isConnecting}
-									startIcon={{ icon: Plug }}
-								>
-									{isConnecting ? 'Connecting...' : 'Connect'}
-								</Button>
-								<Button
-									destructive
-									onclick={() => deleteIntegration(serviceName)}
-									startIcon={{ icon: X }}
-								>
-									Delete
-								</Button>
-							{:else if instanceSharingAvailable[serviceName]}
-								<Button
-									variant="accent"
-									onclick={() => connectWithInstanceCredentials(serviceName)}
-									disabled={isConnecting}
-									startIcon={{ icon: Plug }}
-								>
-									{isConnecting ? 'Connecting...' : 'Connect'}
-								</Button>
-							{:else}
-								<Button
-									variant="accent"
-									onclick={() =>
-										(showingConfig = showingConfig === serviceName ? null : serviceName)}
-									startIcon={{ icon: Cog }}
-								>
-									Configure OAuth
+									Connect account
 								</Button>
 							{/if}
-
+							<Button
+								variant="default"
+								onclick={() => (showingConfig = showingConfig === serviceName ? null : serviceName)}
+								startIcon={{ icon: Cog }}
+							>
+								Configure OAuth
+							</Button>
+							{#if integration?.oauth_data}
+								<Button
+									variant="default"
+									destructive
+									onclick={() => deleteIntegration(serviceName)}
+									startIcon={{ icon: X }}
+								>
+									Remove
+								</Button>
+							{/if}
 							{#if config.docsUrl}
 								<Button href={config.docsUrl} target="_blank" startIcon={{ icon: ExternalLink }}>
 									Docs
@@ -464,25 +355,85 @@
 						</div>
 					</div>
 
-					{#if instanceSharingAvailable[serviceName] && !isOAuthConfigured}
+					{#if usesInstanceApp}
 						<div class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
-							<Alert type="info" title="Redirect URI required">
-								<p class="text-sm mb-2">
-									Your instance admin has configured Google OAuth for native triggers. Before
-									connecting, ensure the following redirect URI has been added to the
-									<a
-										href="https://console.cloud.google.com/apis/credentials"
-										target="_blank"
-										rel="noopener noreferrer"
-										class="underline">Google Cloud Console</a
-									> by the instance admin:
-								</p>
-								<ClipboardPanel content={getRedirectUri(serviceName)} size="sm" />
-							</Alert>
+							{#if serviceName === 'google'}
+								<Alert type="info" title="Uses the instance OAuth app">
+									<p class="text-sm mb-2">
+										Your instance admin shares a Google OAuth app. Before connecting, ensure the
+										following redirect URI has been added to it in the
+										<a
+											href="https://console.cloud.google.com/apis/credentials"
+											target="_blank"
+											rel="noopener noreferrer"
+											class="underline">Google Cloud Console</a
+										>:
+									</p>
+									<ClipboardPanel content={nativeOAuthRedirectUri('google')} size="sm" />
+								</Alert>
+							{:else}
+								<Alert type="info" title="Uses the instance OAuth app">
+									Your instance admin shares a {config.displayName} OAuth app, so members can connect
+									their accounts without further setup.
+								</Alert>
+							{/if}
 						</div>
 					{/if}
 
-					{#if isShowingConfig}
+					{#if choosingPathFor === serviceName}
+						<div class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+							<div class="text-xs text-secondary mb-2">
+								Choose where to save the connection. Save it in a folder to let the folder's members
+								create triggers with this account.
+							</div>
+							<Path
+								kind="resource"
+								initialPath=""
+								namePlaceholder={'native_' + serviceName}
+								bind:path={resourcePath}
+								bind:error={pathError}
+							/>
+							<div class="flex gap-2 mt-3">
+								<Button
+									variant="accent"
+									disabled={!resourcePath || !!pathError || isConnecting}
+									loading={isConnecting}
+									onclick={() => connect(serviceName)}
+								>
+									Connect
+								</Button>
+								<Button variant="default" onclick={() => (choosingPathFor = null)}>Cancel</Button>
+							</div>
+						</div>
+					{/if}
+
+					{#if serviceConnections.length > 0}
+						<div
+							class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 flex flex-col gap-1"
+						>
+							<div class="text-xs font-semibold text-emphasis mb-1">Connected accounts</div>
+							{#each serviceConnections as connection (connection.path)}
+								<div class="flex items-center justify-between gap-2 text-xs">
+									<span class="font-mono truncate">{connection.path}</span>
+									<div class="flex items-center gap-2 shrink-0">
+										{#if connection.owner}
+											<span class="text-secondary">connected by {connection.owner}</span>
+										{/if}
+										<Button
+											unifiedSize="xs"
+											variant="subtle"
+											destructive
+											onclick={() => disconnect(serviceName, connection.path)}
+										>
+											Disconnect
+										</Button>
+									</div>
+								</div>
+							{/each}
+						</div>
+					{/if}
+
+					{#if showingConfig === serviceName}
 						<div class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
 							{#if serviceName === 'nextcloud'}
 								<Alert type="info" title="Requirements" class="mb-4">
@@ -515,9 +466,9 @@
 							{/if}
 							<OAuthClientConfig
 								{serviceName}
-								redirectUri={getRedirectUri(serviceName)}
+								redirectUri={nativeOAuthRedirectUri(serviceName as NativeServiceName)}
 								serviceDisplayName={config.displayName}
-								existingConfig={integration?.oauth_data}
+								existingConfig={workspaceApp ? integration?.oauth_data : null}
 								requiresBaseUrl={config.requiresBaseUrl !== false}
 								clientIdPlaceholder={config.clientIdPlaceholder}
 								clientSecretPlaceholder={config.clientSecretPlaceholder}
@@ -532,12 +483,6 @@
 				</div>
 			{/each}
 		</div>
-
-		{#if integrations.length === 0}
-			<Alert type="warning" title="No Integrations Connected">
-				Connect to external services above to enable native triggers for your workspace.
-			</Alert>
-		{/if}
 	{/if}
 </div>
 

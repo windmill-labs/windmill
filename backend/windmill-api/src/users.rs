@@ -281,8 +281,7 @@ async fn rename_user(
     // keeps a like-named member of some other workspace out of it.
     if let Some(old_username) = old_instance_username.filter(|u| *u != ru.new_username) {
         let old_principal = windmill_common::users::username_to_permissioned_as(&old_username);
-        let new_principal =
-            windmill_common::users::username_to_permissioned_as(&ru.new_username);
+        let new_principal = windmill_common::users::username_to_permissioned_as(&ru.new_username);
         sqlx::query!(
             "UPDATE app SET policy = jsonb_set(policy, ARRAY['on_behalf_of'], to_jsonb($1::text))
              WHERE policy->>'on_behalf_of' = $2 AND policy->>'on_behalf_of_email' = $3",
@@ -602,7 +601,7 @@ async fn update_username_in_workpsace<'c>(
     .await?;
 
     sqlx::query!(
-        r#"UPDATE workspace_integrations SET resource_path = REGEXP_REPLACE(resource_path, 'u/' || $2 || '/(.*)', 'u/' || $1 || '/\1') WHERE resource_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
+        r#"UPDATE native_trigger SET connection_path = REGEXP_REPLACE(connection_path, 'u/' || $2 || '/(.*)', 'u/' || $1 || '/\1') WHERE connection_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
         new_username,
         old_username,
         w_id

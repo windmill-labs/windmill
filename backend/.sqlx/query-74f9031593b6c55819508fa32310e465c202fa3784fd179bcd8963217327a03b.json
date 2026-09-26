@@ -1,12 +1,12 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT resource_path FROM workspace_integrations WHERE workspace_id = $1 AND service_name = $2",
+  "query": "SELECT EXISTS(SELECT 1 FROM native_trigger\n         WHERE workspace_id = $1 AND service_name = $2 AND connection_path = $3)",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "resource_path",
-        "type_info": "Text"
+        "name": "exists",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -23,12 +23,13 @@
               ]
             }
           }
-        }
+        },
+        "Text"
       ]
     },
     "nullable": [
-      true
+      null
     ]
   },
-  "hash": "993e514229a1d508a44ef07b4399f9697cdefaa1f45ca665f72bc6fcf2797c7e"
+  "hash": "74f9031593b6c55819508fa32310e465c202fa3784fd179bcd8963217327a03b"
 }

@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT v.value, a.refresh_token\n         FROM variable v\n         JOIN account a ON a.workspace_id = v.workspace_id AND a.id = v.account\n         WHERE v.workspace_id = $1 AND v.path = $2\n           AND a.client = $3 AND a.is_workspace_integration = true",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "value",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "refresh_token",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "5cb209fe91eeccdc4c208db7655b6349376f09dad74380302cb815fc2626c69c"
+}
