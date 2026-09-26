@@ -86,6 +86,7 @@ pub mod workspace_dependencies;
 #[cfg(feature = "private")]
 pub mod git_sync_ee;
 pub mod git_sync_oss;
+pub mod job_provenance;
 pub mod jobs;
 pub mod jwt;
 pub mod login_rate_limit;

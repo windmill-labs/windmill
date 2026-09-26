@@ -4444,8 +4444,15 @@ async fn execute_component(
                 (JobPayload::Code(raw_code), tag, None)
             }
             // inline script: run mode (deployed app) with an entry in `app_script`.
-            (None, Some(RawCode { language, path, cache_ttl, tag, .. }), Some(id)) => (
-                JobPayload::AppScript { id: AppScriptId(id), cache_ttl, language, path },
+            // The path is derived like the legacy arm's: job identity (e.g. OIDC `sub`)
+            // reads it, so a caller must not choose it.
+            (None, Some(RawCode { language, cache_ttl, tag, .. }), Some(id)) => (
+                JobPayload::AppScript {
+                    id: AppScriptId(id),
+                    cache_ttl,
+                    language,
+                    path: Some(inline_run_path(path, &component)?),
+                },
                 resolved_inline_tag(tag),
                 None,
             ),

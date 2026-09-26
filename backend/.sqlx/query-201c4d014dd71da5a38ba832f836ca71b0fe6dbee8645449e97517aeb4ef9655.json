@@ -1,0 +1,83 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE lineage AS (\n            SELECT id, parent_job, kind, runnable_path, runnable_id, trigger_kind, trigger,\n                0 AS depth\n            FROM v2_job WHERE id = $1 AND workspace_id = $2\n          UNION ALL\n            SELECT p.id, p.parent_job, p.kind, p.runnable_path, p.runnable_id, p.trigger_kind,\n                p.trigger, l.depth + 1\n            FROM v2_job p JOIN lineage l ON p.id = l.parent_job\n            WHERE p.workspace_id = $2 AND l.depth < 100\n        )\n        SELECT id AS \"id!\", parent_job, kind AS \"kind!: JobKind\", runnable_path,\n            trigger_kind::text AS trigger_kind,\n            -- A restart takes its flow version from the request, so a trusted flow path\n            -- can carry another flow's code: the version must belong to that path.\n            CASE kind\n                WHEN 'flow' THEN EXISTS (SELECT 1 FROM flow_version fv\n                    WHERE fv.id = runnable_id AND fv.path = runnable_path AND fv.workspace_id = $2)\n                WHEN 'script' THEN EXISTS (SELECT 1 FROM script s\n                    WHERE s.hash = runnable_id AND s.path = runnable_path AND s.workspace_id = $2)\n                -- An app editor preview also runs an app script, at an app path it does not\n                -- have to own; only deployed-app runs are stamped with their app.\n                WHEN 'appscript' THEN COALESCE(trigger_kind = 'app'\n                    AND starts_with(runnable_path, trigger || '/'), false)\n                ELSE true\n            END AS \"origin_verified!\"\n        FROM lineage ORDER BY depth",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "parent_job",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "kind!: JobKind",
+        "type_info": {
+          "Custom": {
+            "name": "job_kind",
+            "kind": {
+              "Enum": [
+                "script",
+                "preview",
+                "flow",
+                "dependencies",
+                "flowpreview",
+                "script_hub",
+                "identity",
+                "flowdependencies",
+                "http",
+                "graphql",
+                "postgresql",
+                "noop",
+                "appdependencies",
+                "deploymentcallback",
+                "singlestepflow",
+                "flowscript",
+                "flownode",
+                "appscript",
+                "aiagent",
+                "unassigned_script",
+                "unassigned_flow",
+                "unassigned_singlestepflow"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "runnable_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "trigger_kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "origin_verified!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "201c4d014dd71da5a38ba832f836ca71b0fe6dbee8645449e97517aeb4ef9655"
+}
