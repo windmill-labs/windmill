@@ -50,6 +50,8 @@
 	import { getChatViewHost } from './chatViewHost'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import ChatTypingIndicator from './ChatTypingIndicator.svelte'
+	import ToolGroupDisplay from './ToolGroupDisplay.svelte'
+	import { groupToolRuns } from './toolGroups'
 	import AIChatInput from './AIChatInput.svelte'
 	import AttachedFilesBar from './files/AttachedFilesBar.svelte'
 	import QueuedMessageChip from './QueuedMessageChip.svelte'
@@ -237,6 +239,7 @@
 	const mcpMenu = new McpMenu(aiChatManager, () => assistantSettings?.open('mcp'))
 	let plusMenuOpen = $state(false)
 	let editingMessageIndex = $state<number | null>(null)
+	const chatItems = $derived(groupToolRuns(messages))
 
 	// Escape stops the generation when focus is on the chat (or parked on
 	// body), but stays with other widgets (e.g. the session's Monaco editor).
@@ -851,15 +854,45 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 				onscroll={onScroll}
 			>
 				<div class="{columnClass} flex flex-col pb-2" bind:clientHeight={height}>
-					{#each messages as message, messageIndex (messageIndex)}
+					{#snippet messageRow(
+						message: DisplayMessage,
+						messageIndex: number,
+						isLast: boolean,
+						inGroup: boolean
+					)}
 						<AIChatMessage
 							{message}
 							{messageIndex}
 							{availableContext}
 							bind:editingMessageIndex
-							isLast={messageIndex === messages.length - 1}
+							{isLast}
+							{inGroup}
 							showAnswerActions={showsAnswerActions[messageIndex]}
 						/>
+					{/snippet}
+					{#snippet groupRow(message: DisplayMessage, messageIndex: number)}
+						{@render messageRow(message, messageIndex, false, true)}
+					{/snippet}
+					{#each chatItems as item (item.kind === 'group' ? `g:${item.key}` : `m:${item.index}`)}
+						{#if item.kind === 'group'}
+							<div
+								class={twMerge(
+									'mb-1 min-w-0 text-sm px-2 text-primary',
+									item.entries.at(-1)?.index === messages.length - 1 && '!mb-12'
+								)}
+							>
+								<div class="px-[1px]">
+									<ToolGroupDisplay group={item} entry={groupRow} />
+								</div>
+							</div>
+						{:else}
+							{@render messageRow(
+								item.message,
+								item.index,
+								item.index === messages.length - 1,
+								false
+							)}
+						{/if}
 					{/each}
 					{#if freeTierExhausted}
 						{@render freeTierExhaustedBanner()}
