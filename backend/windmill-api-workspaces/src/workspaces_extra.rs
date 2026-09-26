@@ -1430,6 +1430,23 @@ pub async fn drop_forked_datatable_databases(
             _ => continue,
         };
 
+        match forked_database_uses(&db, &w_id, dt_name, database).await {
+            Ok(uses) if uses.is_empty() => {}
+            Ok(uses) => {
+                errors.push(format!(
+                    "Refusing to drop the database of datatable://{dt_name}: still used by {}",
+                    uses.join(", ")
+                ));
+                continue;
+            }
+            Err(e) => {
+                errors.push(format!(
+                    "Could not check what still uses the database of datatable://{dt_name}: {e}"
+                ));
+                continue;
+            }
+        }
+
         if database.resource_type
             == windmill_common::workspaces::DataTableCatalogResourceType::Instance
         {
@@ -1529,6 +1546,45 @@ pub async fn drop_forked_datatable_databases(
     }
 
     Ok(Json(errors))
+}
+
+/// What besides data table `dt_name` of `w_id` still uses its database: a data table anywhere
+/// pointing at that entry (a child fork keeping it), and for an instance database, any other data
+/// table entry or Ducklake catalog naming it. Instance databases share one connection user, so
+/// nothing but these settings tells a copy still in use from one that is not.
+async fn forked_database_uses(
+    db: &DB,
+    w_id: &str,
+    dt_name: &str,
+    database: &windmill_common::workspaces::DataTableDatabase,
+) -> Result<Vec<String>> {
+    let instance_db = (database.resource_type
+        == windmill_common::workspaces::DataTableCatalogResourceType::Instance)
+        .then_some(database.resource_path.as_str());
+    let uses = sqlx::query_scalar!(
+        r#"SELECT format('data table ''%s'' of ''%s''', d.key, ws.workspace_id) AS "use!"
+           FROM workspace_settings ws,
+                jsonb_each(COALESCE(ws.datatable->'datatables', '{}'::jsonb)) d
+           WHERE jsonb_typeof(d.value) = 'object'
+             AND NOT (ws.workspace_id = $1 AND d.key = $2)
+             AND ((d.value->'reference'->>'workspace_id' = $1
+                   AND d.value->'reference'->>'datatable' = $2)
+                  OR (d.value->'database'->>'resource_type' = 'instance'
+                      AND d.value->'database'->>'resource_path' = $3))
+           UNION ALL
+           SELECT format('Ducklake ''%s'' of ''%s''', l.key, ws.workspace_id)
+           FROM workspace_settings ws,
+                jsonb_each(COALESCE(ws.ducklake->'ducklakes', '{}'::jsonb)) l
+           WHERE jsonb_typeof(l.value) = 'object'
+             AND l.value->'catalog'->>'resource_type' = 'instance'
+             AND l.value->'catalog'->>'resource_path' = $3"#,
+        w_id,
+        dt_name,
+        instance_db,
+    )
+    .fetch_all(db)
+    .await?;
+    Ok(uses)
 }
 
 /// Drop this fork workspace's ducklake namespaces: the `wm_fork_*` metadata schema in each

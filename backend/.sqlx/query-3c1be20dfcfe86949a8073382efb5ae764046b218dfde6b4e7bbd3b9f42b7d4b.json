@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT format('data table ''%s'' of ''%s''', d.key, ws.workspace_id) AS \"use!\"\n           FROM workspace_settings ws,\n                jsonb_each(COALESCE(ws.datatable->'datatables', '{}'::jsonb)) d\n           WHERE jsonb_typeof(d.value) = 'object'\n             AND NOT (ws.workspace_id = $1 AND d.key = $2)\n             AND ((d.value->'reference'->>'workspace_id' = $1\n                   AND d.value->'reference'->>'datatable' = $2)\n                  OR (d.value->'database'->>'resource_type' = 'instance'\n                      AND d.value->'database'->>'resource_path' = $3))\n           UNION ALL\n           SELECT format('Ducklake ''%s'' of ''%s''', l.key, ws.workspace_id)\n           FROM workspace_settings ws,\n                jsonb_each(COALESCE(ws.ducklake->'ducklakes', '{}'::jsonb)) l\n           WHERE jsonb_typeof(l.value) = 'object'\n             AND l.value->'catalog'->>'resource_type' = 'instance'\n             AND l.value->'catalog'->>'resource_path' = $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "use!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "3c1be20dfcfe86949a8073382efb5ae764046b218dfde6b4e7bbd3b9f42b7d4b"
+}

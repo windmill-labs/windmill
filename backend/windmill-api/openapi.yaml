@@ -6159,7 +6159,7 @@ paths:
                   description: "Target database: 'datatable://name' or '$res:path'"
                 target_dbname_override:
                   type: string
-                  description: "Override the target database name"
+                  description: "Override the target database name (superadmins only)"
                 fork_behavior:
                   type: string
                   enum:

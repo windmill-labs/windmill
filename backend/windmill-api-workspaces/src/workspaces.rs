@@ -3647,13 +3647,15 @@ async fn import_pg_database(
         resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.target).await?;
 
     if let Some(ref override_dbname) = req.target_dbname_override {
+        // A `wm_fork_` name does not say whose copy it is: every instance database answers to the
+        // same connection user, so an override would reach another workspace's fork copy. Forks
+        // make their own copies, so nothing but a superadmin needs one.
         if !windmill_api_auth::is_super_admin_authed(&db, &authed).await? {
-            if !override_dbname.starts_with("wm_fork_") {
-                return Err(Error::BadRequest(
-                    "Non-superadmin users can only override target dbname with names starting with 'wm_fork_'"
-                        .to_string(),
-                ));
-            }
+            return Err(Error::BadRequest(
+                "Only superadmins can override the target database: create forks through the \
+                 fork wizard or `wmill workspace fork`, which copy each data table themselves"
+                    .to_string(),
+            ));
         }
         target_pg.dbname = override_dbname.clone();
     }
