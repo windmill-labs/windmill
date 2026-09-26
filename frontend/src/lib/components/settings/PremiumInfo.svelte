@@ -31,6 +31,7 @@
 				status?: string
 				developerNb: number
 				operatorNb: number
+				serviceAccountNb: number
 				seatsFromUsers: number
 				seatsFromExtraComps: number
 				usedSeats: number
@@ -48,7 +49,7 @@
 		Team: [
 			`<b>$10/mo</b> per seat`,
 			`Every seat includes <b>10 000</b> executions`,
-			`Every seat includes either 1 developer OR 2 operators`
+			`Every seat includes either 1 developer OR 2 operators or service accounts`
 		],
 		Enterprise: [
 			`Dedicated and isolated database and workers available (EU/US/Asia)`,
@@ -80,6 +81,7 @@
 			// which is exactly when the endpoint returns the breakdown.
 			developerNb: billable.developers ?? 0,
 			operatorNb: billable.operators ?? 0,
+			serviceAccountNb: billable.service_accounts ?? 0,
 			seatsFromUsers,
 			seatsFromExtraComps,
 			usedSeats: seatsFromUsers + seatsFromExtraComps
@@ -277,17 +279,34 @@
 									</div>
 								</Cell>
 							</tr>
+							<tr>
+								<Cell first>
+									<div class="flex flex-col gap-0.5">
+										<div class="font-medium">Service accounts</div>
+										<p class="text-xs text-secondary">
+											Enabled service accounts, half a seat each like operators, whatever their role.
+										</p>
+									</div>
+								</Cell>
+								<Cell last numeric>
+									<div class="text-sm text-secondary">
+										{formatNumber(premiumInfo.serviceAccountNb)}
+									</div>
+								</Cell>
+							</tr>
 							<tr class="bg-slate-50 dark:bg-slate-900/40">
 								<Cell first>
 									<div class="flex flex-col gap-0.5">
 										<div class="font-semibold text-sm">Seats from users</div>
 										<p class="text-xs text-secondary">
-											1 developer = 1 seat, 2 operators = 1 seat.
+											1 developer = 1 seat, 2 operators or service accounts = 1 seat.
 										</p>
 										<p class="text-[11px] text-secondary font-mono">
-											u = ceil({formatNumber(premiumInfo.developerNb)} + {formatNumber(
+											u = ceil({formatNumber(premiumInfo.developerNb)} + ({formatNumber(
 												premiumInfo.operatorNb
-											)}/2) = {formatNumber(premiumInfo.seatsFromUsers)}
+											)} + {formatNumber(premiumInfo.serviceAccountNb)})/2) = {formatNumber(
+												premiumInfo.seatsFromUsers
+											)}
 										</p>
 									</div>
 								</Cell>

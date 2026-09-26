@@ -740,13 +740,15 @@ async fn is_premium(
 
 #[derive(Serialize)]
 struct BillableSeatsResponse {
-    /// Both omitted when the seats counted are another workspace's: a fork member need not be a
+    /// All three omitted when the seats counted are another workspace's: a fork member need not be a
     /// member of the billing root, so the root's headcount is not theirs to read. The total is,
     /// since it is the divisor of the quota their own executions draw on.
     #[serde(skip_serializing_if = "Option::is_none")]
     developers: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     operators: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    service_accounts: Option<i64>,
     seats: i64,
 }
 
@@ -776,6 +778,7 @@ async fn get_billable_seats(
     Ok(Json(BillableSeatsResponse {
         developers: own.then_some(counted.developers),
         operators: own.then_some(counted.operators),
+        service_accounts: own.then_some(counted.service_accounts),
         seats: counted.seats,
     }))
 }

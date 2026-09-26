@@ -4345,6 +4345,12 @@ paths:
                     description: >-
                       Omitted when the seats counted are another workspace's, as they are for a
                       fork resolving to its billing root.
+                  service_accounts:
+                    type: integer
+                    description: >-
+                      Enabled service accounts, half a seat each like operators. Omitted when the
+                      seats counted are another workspace's, as they are for a fork resolving to
+                      its billing root.
                   seats:
                     type: integer
                 required:
