@@ -1,4 +1,19 @@
-import type { AttachmentUpload, Chat, ChatMessage, ChatState } from 'windmill-chat'
+import { untrack } from 'svelte'
+import type {
+	AttachmentUpload,
+	Chat,
+	ChatMessage,
+	ChatState,
+	SendMessageOptions
+} from 'windmill-chat'
+import {
+	emptyDraft,
+	isBusy,
+	turnFailed,
+	type ConversationTurns,
+	type Draft,
+	type DraftSender
+} from './conversationTurns'
 import type {
 	ChatSendRequestOptions,
 	ChatViewHost
@@ -43,19 +58,49 @@ export type FlowChatViewHostOptions = {
 	revealOptions?: Pick<TypewriterRevealOptions, 'instant' | 'now' | 'schedule' | 'cancel'>
 }
 
-function isBusy(status: ChatState['status']): boolean {
-	return status === 'submitted' || status === 'streaming'
-}
-
 /** The chat's own signal for a send stopped before it ran; nothing to tell the reader. */
 function isAbort(e: unknown): boolean {
 	return e instanceof Error && e.name === 'AbortError'
 }
 
-type Queue = { text: string; images: AttachedImage[]; blobs: AttachedBlob[] }
+/** What the composer attaches to a message, kept in the order it was attached. */
+export type ComposerAttachment =
+	| { image: AttachedImage }
+	| { blob: AttachedBlob }
+	| { file: AttachedTextFile }
 
-function emptyQueue(): Queue {
-	return { text: '', images: [], blobs: [] }
+export function composerDraft(
+	text: string,
+	images: AttachedImage[] = [],
+	blobs: AttachedBlob[] = [],
+	files: AttachedTextFile[] = []
+): Draft<ComposerAttachment> {
+	return {
+		text,
+		attachments: [
+			...images.map((image) => ({ image })),
+			...blobs.map((blob) => ({ blob })),
+			...files.map((file) => ({ file }))
+		]
+	}
+}
+
+/** This chat forwards files verbatim (`attachmentsAsBlobs`), so the text-file lane stays
+ * empty — it is carried anyway, so a chat that decodes them loses nothing. */
+function splitAttachments(attachments: readonly ComposerAttachment[]): {
+	images: AttachedImage[]
+	blobs: AttachedBlob[]
+	files: AttachedTextFile[]
+} {
+	const images: AttachedImage[] = []
+	const blobs: AttachedBlob[] = []
+	const files: AttachedTextFile[] = []
+	for (const attachment of attachments) {
+		if ('image' in attachment) images.push(attachment.image)
+		else if ('blob' in attachment) blobs.push(attachment.blob)
+		else files.push(attachment.file)
+	}
+	return { images, blobs, files }
 }
 
 /** A tool's arguments or result as the card shows them: parsed where the string is JSON. */
@@ -66,29 +111,6 @@ function parseToolPayload(raw: string | undefined): unknown {
 	} catch {
 		return raw
 	}
-}
-
-/**
- * Whether the turn the user message at `index` started failed: its last row before the
- * next user message reports `success: false`. The last row, not any row: a tool call can
- * fail and the agent still answer, and that turn completed.
- */
-export function turnFailed(messages: readonly ChatMessage[], index: number): boolean {
-	let last: ChatMessage | undefined
-	for (let i = index + 1; i < messages.length; i++) {
-		const message = messages[i]
-		if (message.role === 'user') break
-		last = message
-	}
-	return last?.success === false
-}
-
-/** Whether the latest turn failed, per `turnFailed`. False before any turn. */
-function lastTurnFailed(messages: readonly ChatMessage[]): boolean {
-	for (let i = messages.length - 1; i >= 0; i--) {
-		if (messages[i].role === 'user') return turnFailed(messages, i)
-	}
-	return false
 }
 
 /**
@@ -300,29 +322,44 @@ type RevealLanes = {
  * makes, so what it can offer is what the SDK's `Chat` can: a message in, an answer
  * streamed back, Stop. Every copilot-only field is answered with "no" (see ChatViewHost).
  *
- * The host owns its subscription to the chat, so a panel swapping chats mounts a new one.
+ * One host per conversation, living as long as its chat. Its sends go through the
+ * conversation's turns, which hold what waits for the running turn; the host builds each
+ * send and puts what a turn hands back into the composer showing it.
  */
-export class FlowChatViewHost implements ChatViewHost {
+export class FlowChatViewHost implements ChatViewHost, DraftSender<ComposerAttachment> {
 	#chat: Chat
+	#turns: ConversationTurns<ComposerAttachment>
 	#options: FlowChatViewHostOptions
 	#state = $state.raw<ChatState>() as ChatState
+	#queued = $state.raw<Draft<ComposerAttachment>>(emptyDraft())
+	#queuedLanes = $derived(splitAttachments(this.#queued.attachments))
 	#unsubscribe: () => void
 
-	constructor(chat: Chat, options: FlowChatViewHostOptions = {}) {
-		this.#chat = chat
+	constructor(turns: ConversationTurns<ComposerAttachment>, options: FlowChatViewHostOptions = {}) {
+		this.#turns = turns
+		this.#chat = turns.chat
 		this.#options = options
-		this.#state = chat.getState()
-		this.#unsubscribe = chat.subscribe((state) => this.#onState(state))
+		this.#state = this.#chat.getState()
+		const unsubscribeChat = this.#chat.subscribe((state) => this.#onState(state))
+		const unsubscribeTurns = turns.subscribe(() => {
+			this.#queued = turns.queued
+			this.#takeReturned()
+		})
+		this.#unsubscribe = () => {
+			unsubscribeChat()
+			unsubscribeTurns()
+		}
+	}
+
+	/** Set by the panel showing this conversation; a message queued here is sent with what
+	 * the last panel to show it read. */
+	setOptions(options: FlowChatViewHostOptions) {
+		this.#options = options
 	}
 
 	#disposed = false
-	/** Stops following the chat, and drops what was queued: a flush still waiting on the
-	 * turn's release would otherwise start a run from a panel that is gone. A send still
-	 * uploading its attachments stops with the chat, which is the caller's to destroy; its
-	 * draft is not handed back, since the composer it came from is gone too. */
 	dispose() {
 		this.#disposed = true
-		this.#queue = emptyQueue()
 		this.#unsubscribe()
 		for (const id of Object.keys(this.#reveals)) this.#dropReveal(id)
 	}
@@ -345,23 +382,9 @@ export class FlowChatViewHost implements ChatViewHost {
 		if (previous.conversationId !== state.conversationId) {
 			// A conversation opens at its end, whatever the reader was doing in the last one.
 			this.#automaticScroll = true
-			// The queue was typed into the conversation that just went away; a message sent
-			// after the switch would ride out of the wrong one, so it goes back to the composer.
-			this.dequeueMessage()
 			return
 		}
 		if (!isBusy(previous.status) && isBusy(state.status)) this.#turnsStarted++
-		if (isBusy(previous.status) && !isBusy(state.status)) {
-			// The turn settled. What was typed during it goes out once the turn is released,
-			// not now: the chat publishes `idle` from inside its own `sendMessage`, which still
-			// counts the turn as open until it returns, and a send made before that would be
-			// refused as a second turn. After a failure it goes back to the composer instead,
-			// where the reader would rather look at the error than pile on. A failed flow
-			// settles as `idle` too, with its error as the answer, so the messages decide.
-			const succeeded = state.status === 'idle' && !lastTurnFailed(state.messages)
-			if (succeeded) void this.#turnDone.then(this.flushQueuedMessage)
-			else this.dequeueMessage()
-		}
 	}
 
 	// Smooth streaming. The chat appends each delta to the pending assistant message as it
@@ -469,37 +492,27 @@ export class FlowChatViewHost implements ChatViewHost {
 	instructions = ''
 	// The user message lands in the transcript before `sendMessage` awaits anything.
 	sendInFlight = false
+	sendRequest = async (options: ChatSendRequestOptions = {}): Promise<boolean> =>
+		this.#turns.send(composerDraft(options.instructions ?? '', options.images, options.blobs))
+
 	/**
 	 * `replayInputs` are a failed turn's own run arguments, read back from its job. They
 	 * stand in for the composer's current inputs, so a retry runs the turn that failed
 	 * rather than a new one wearing its text.
 	 */
-	sendRequest = async (
-		options: ChatSendRequestOptions = {},
-		replayInputs?: Record<string, any>
-	): Promise<boolean> => {
-		const text = options.instructions?.trim() ?? ''
-		let images = options.images ?? []
-		let blobs = options.blobs ?? []
-		// The composer refuses an attachment-only send (requiresMessageText), so this is
-		// the same rule at the other end: nothing runs without a message.
-		if (!text) return false
-		if (this.loading) {
-			this.queueMessage(text, images, undefined, undefined, blobs)
-			return true
-		}
-		if (this.#options.sendDisabled?.()) {
-			// Refused, not dropped: the draft waits in the composer for sending to reopen.
-			this.#aiChatInput?.prependText(text, images, [], blobs)
-			return false
-		}
+	prepareSend(
+		draft: Draft<ComposerAttachment>,
+		replayInputs?: Record<string, unknown>
+	): SendMessageOptions | undefined {
+		// Refused, not dropped: the draft waits in the composer for sending to reopen.
+		if (this.#options.sendDisabled?.()) return undefined
+		let { images, blobs } = splitAttachments(draft.attachments)
 		const target = this.#options.attachmentsTarget?.()
 		// The inputs modal does not ask for this input, so a required one is enforced here. A
 		// replay carries the files its run already has, in `replayInputs`, and attaches none.
 		if (!replayInputs && target?.required && images.length === 0 && blobs.length === 0) {
 			sendUserToast('This chat needs a file with each message. Attach one to send.', true)
-			this.#aiChatInput?.prependText(text, images, [], blobs)
-			return false
+			return undefined
 		}
 		// A replay sends the arguments its run had, attachment references included.
 		const inputs = replayInputs ?? { ...(this.#options.additionalInputs?.() ?? {}) }
@@ -528,41 +541,24 @@ export class FlowChatViewHost implements ChatViewHost {
 				}))
 			: []
 		this.#automaticScroll = true
-		// A run that fails is reported through the chat's `onError` and as a failed message;
-		// the promise itself only rejects when the chat refuses the turn outright — a turn
-		// already running, an upload that failed, Stop pressed while it ran — and the draft
-		// is then handed back rather than dropped. The composer took it before calling, so
-		// nothing else would.
-		const turn = this.#chat
-			.sendMessage(text, {
-				inputs: replayInputs ?? (this.#options.additionalInputs?.() ? inputs : undefined),
-				attachments,
-				attachmentsInput: target
-			})
-			.catch((e) => {
-				if (this.#disposed) return
-				if (attachments.length > 0 && !isAbort(e)) {
-					sendUserToast(
-						`Could not upload the attachments: ${e instanceof Error ? e.message : String(e)}`,
-						true
-					)
-				}
-				// What was queued behind it comes back too, after it: the chat publishes `idle`
-				// when it withdraws the turn, and a queue left in place would be flushed as if
-				// the turn had run.
-				this.dequeueMessage()
-				this.#aiChatInput?.prependText(text, images, [], blobs)
-			})
-		this.#turnDone = turn
-		await turn
-		return true
+		return {
+			inputs: replayInputs ?? (this.#options.additionalInputs?.() ? inputs : undefined),
+			attachments,
+			attachmentsInput: target
+		}
 	}
-	/** Settles when the chat has released the last turn this host started. */
-	#turnDone: Promise<unknown> = Promise.resolve()
+
+	sendFailed(error: unknown, draft: Draft<ComposerAttachment>): void {
+		const uploaded = draft.attachments.length > 0 && this.#options.attachmentsTarget?.()
+		if (uploaded && !isAbort(error)) {
+			sendUserToast(
+				`Could not upload the attachments: ${error instanceof Error ? error.message : String(error)}`,
+				true
+			)
+		}
+	}
+
 	cancel = () => {
-		// Stop means stop: what was typed during the run goes back to the composer rather
-		// than waiting there to go out after some later turn settles.
-		this.dequeueMessage()
 		const { messages, status } = this.#state
 		const turn = isBusy(status) ? [...messages].reverse().find((m) => m.role === 'user') : undefined
 		if (turn) {
@@ -570,66 +566,72 @@ export class FlowChatViewHost implements ChatViewHost {
 				[...this.#stoppedTurns, turn.id, turn.serverId].filter((id) => id !== undefined)
 			)
 		}
-		void this.#chat.stop()
+		this.#turns.stop()
 	}
 	// Typed off the interface: a Svelte component's own type resolves differently
 	// across import specifiers, and the two would then not be assignable.
 	#aiChatInput: Parameters<ChatViewHost['setAiChatInput']>[0] = null
-	setAiChatInput: ChatViewHost['setAiChatInput'] = (aiChatInput) => {
-		this.#aiChatInput = aiChatInput
+	setAiChatInput: ChatViewHost['setAiChatInput'] = (aiChatInput) =>
+		// Called from the composer's mount effect, and taking what a turn handed back reads the
+		// draft it writes: tracked, that would rerun the effect and hand it back again.
+		untrack(() => {
+			this.#aiChatInput = aiChatInput
+			this.#takeReturned()
+		})
+
+	/** Whether a composer showing this conversation holds something not sent — text, an
+	 * attachment, a file still being read. Its panel stays mounted for as long as one does:
+	 * nothing else holds that draft. */
+	holdsDraft(): boolean {
+		return this.#composersWithDraft.size > 0
 	}
 
-	// One message typed while the turn runs, sent whole with its attachments once the turn
-	// settles. Enter again appends a line rather than replacing what waits.
-	#queue = $state<Queue>(emptyQueue())
+	/** Puts what a turn handed back into the composer, when one shows this conversation;
+	 * until then the conversation's turns hold it. */
+	#takeReturned() {
+		if (!this.#aiChatInput || this.#disposed) return
+		const { text, attachments } = this.#turns.takeReturned()
+		if (!text && attachments.length === 0) return
+		const { images, blobs, files } = splitAttachments(attachments)
+		this.#aiChatInput.prependText(text, images, files, blobs)
+	}
+
 	get queuedMessage(): string {
-		return this.#queue.text
+		return this.#queued.text
 	}
 	queuedContext = undefined
 	get queuedImages(): AttachedImage[] {
-		return this.#queue.images
+		return this.#queuedLanes.images
 	}
-	queuedFiles: AttachedTextFile[] = []
+	get queuedFiles(): AttachedTextFile[] {
+		return this.#queuedLanes.files
+	}
 	get queuedBlobs(): AttachedBlob[] {
-		return this.#queue.blobs
+		return this.#queuedLanes.blobs
 	}
 	queueMessage = (
 		text: string,
 		images: AttachedImage[] = [],
 		_context?: unknown,
-		_files?: unknown,
+		files: AttachedTextFile[] = [],
 		blobs: AttachedBlob[] = []
 	) => {
-		const trimmed = text.trim()
-		if (!trimmed && images.length === 0 && blobs.length === 0) return
-		const queue = this.#queue
-		this.#queue = {
-			text: !trimmed ? queue.text : queue.text ? `${queue.text}\n${trimmed}` : trimmed,
-			images: [...queue.images, ...images],
-			blobs: [...queue.blobs, ...blobs]
-		}
+		this.#turns.queue(composerDraft(text, images, blobs, files))
 	}
 	/** Put the queued draft back in the composer, attachments included. */
 	dequeueMessage = () => {
-		const { text, images, blobs } = this.#takeQueue()
-		if (!text && images.length === 0 && blobs.length === 0) return
-		this.#aiChatInput?.prependText(text, images, [], blobs)
-	}
-	flushQueuedMessage = () => {
-		// Same rule as sendRequest, read before the queue is drained: a turn with no message
-		// cannot run, and taking the queue for it would drop the attachments on the floor.
-		if (!this.#queue.text || this.#disposed) return
-		const { text, images, blobs } = this.#takeQueue()
-		void this.sendRequest({ instructions: text, images, blobs })
-	}
-	#takeQueue(): Queue {
-		const taken = this.#queue
-		this.#queue = emptyQueue()
-		return taken
+		this.#turns.dequeue()
 	}
 	setComposerStaged = () => {}
-	setComposerHasDraft = () => {}
-	clearComposerStaged = () => {}
+	/** Plain, not `$state`: read by the pool deciding what to release, never rendered. */
+	readonly #composersWithDraft = new Set<string>()
+	setComposerHasDraft = (key: string, hasDraft: boolean) => {
+		if (hasDraft) this.#composersWithDraft.add(key)
+		else this.#composersWithDraft.delete(key)
+	}
+	clearComposerStaged = (key: string) => {
+		this.#composersWithDraft.delete(key)
+	}
 	attachmentBytesExcluding = () => 0
 
 	// Per-message actions
@@ -689,7 +691,7 @@ export class FlowChatViewHost implements ChatViewHost {
 			sendUserToast('That chat started another turn. Retry once it finishes.', true)
 			return
 		}
-		void this.sendRequest({ instructions: message.content }, replayInputs)
+		void this.#turns.send(composerDraft(message.content), replayInputs)
 	}
 	restartGeneration = () => {}
 	handleUserQuestionAnswer = () => false

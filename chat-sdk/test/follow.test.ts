@@ -23,3 +23,20 @@ test('a retried streaming step reports its offset as lost before the new sub-job
   }
   expect(offsets).toEqual([3, undefined, 1])
 })
+
+test('a 200 carrying no stream is reconnected like any other failed connection', async () => {
+  let streams = 0
+  const { fetch } = fetchMock((c) => {
+    if (!c.url.pathname.endsWith('/jobs_u/getupdate_sse/job-1')) return undefined
+    // Something in front of Windmill answers 200 with nothing in it.
+    if (++streams === 1) return new Response(null, { status: 200 })
+    return sse([{ type: 'update', completed: true, only_result: 'ok' }])
+  })
+  const api = new WindmillChatApi({ baseUrl: 'http://wm.test', workspace: 'ws', token: 'tok', fetch })
+  let result: unknown
+  for await (const event of followJob(api, 'job-1')) {
+    if (event.type === 'completed') result = event.result
+  }
+  expect(streams).toBe(2)
+  expect(result).toBe('ok')
+})
