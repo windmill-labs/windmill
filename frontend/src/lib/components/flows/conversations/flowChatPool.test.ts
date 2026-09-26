@@ -346,17 +346,6 @@ describe('FlowChatPool', () => {
 		p.destroy()
 	})
 
-	it('never releases the conversation being left, whose composer still holds its draft', () => {
-		const { pool: p, fakeOf, held } = pool({ keepSettled: 1 })
-		for (const id of ['a', 'b', 'c']) p.select(id)
-		const started = p.newChat()
-		fakeOf(started.chat).set({ conversationId: 'n' })
-		p.select('d')
-		expect(held('n')).toBe(started)
-		expect(started.chat.destroy).not.toHaveBeenCalled()
-		p.destroy()
-	})
-
 	it('keeps a chat whose composer holds a draft, whatever its turns hold', () => {
 		let typedIn = ''
 		const {

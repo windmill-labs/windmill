@@ -1082,6 +1082,8 @@ describe('createChat with server history', () => {
       ['row-53', 'second answer']
     ])
     expect(chat.getState().status).toBe('idle')
+    // Vacuous without this: with no 'submitted' at all, both lookups are -1 and the slice empty.
+    expect(statuses).toContain('submitted')
     expect(statuses.slice(statuses.indexOf('submitted'), statuses.lastIndexOf('submitted') + 1)).not.toContain('idle')
   })
 

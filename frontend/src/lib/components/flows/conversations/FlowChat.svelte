@@ -12,6 +12,7 @@
 	import FlowConversationsSidebar from './FlowConversationsSidebar.svelte'
 	import FlowChatInterface from './FlowChatInterface.svelte'
 	import { getContext } from 'svelte'
+	import { SvelteMap } from 'svelte/reactivity'
 	import type { FlowEditorContext } from '../types'
 	import { ApiError, type FlowModule } from '$lib/gen'
 	import { FlowChatPool, type FlowChatPoolState } from './flowChatPool'
@@ -89,6 +90,8 @@
 	let pool = $state<FlowChatPool<FlowChatViewHost, ComposerAttachment> | undefined>(undefined)
 	let poolState = $state<FlowChatPoolState | undefined>(undefined)
 	let sidebar = $state<FlowConversationsSidebar | undefined>(undefined)
+	/** Each conversation's kind as a listing gave it, kept past a filter that stops listing it. */
+	const conversationKinds = new SvelteMap<string, boolean>()
 
 	$effect(() => {
 		const ws = workspace
@@ -139,7 +142,15 @@
 						: undefined
 				}))
 		})
-		const unsubscribeList = createdList.subscribe((s) => (listState = s))
+		const unsubscribeList = createdList.subscribe((s) => {
+			listState = s
+			// The kind filter narrows what the listing holds, while a conversation of the other
+			// kind keeps its panel mounted behind it. Remembered as each row is seen, so that
+			// panel's composer keeps saying why it cannot be written to.
+			for (const row of s.conversations) {
+				if (row.isTest !== undefined) conversationKinds.set(row.id, row.isTest)
+			}
+		})
 		const unsubscribePool = createdPool.subscribe((s) => (poolState = s))
 		listChat = createdList
 		pool = createdPool
@@ -210,7 +221,7 @@
 							chat={panel.chat}
 							chatHost={panel.host}
 							bind:inputValues
-							isTestOf={(id) => listState?.conversations.find((c) => c.id === id)?.isTest}
+							isTestOf={(id) => conversationKinds.get(id)}
 							{deploymentInProgress}
 							{additionalInputsSchema}
 							{flowModules}

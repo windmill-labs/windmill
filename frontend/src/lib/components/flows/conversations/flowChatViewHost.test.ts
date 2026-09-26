@@ -512,6 +512,8 @@ describe('FlowChatViewHost', () => {
 		set({ status: 'idle' })
 		releaseResumed()
 		await new Promise((resolve) => setTimeout(resolve, 0))
+		// The refused send is the first call; the flush after the resumed turn is the second.
+		expect(chat.sendMessage).toHaveBeenCalledTimes(2)
 		expect(chat.sendMessage).toHaveBeenLastCalledWith('after it', {
 			inputs: undefined,
 			attachments: [],
@@ -876,6 +878,42 @@ describe('FlowChatViewHost', () => {
 			expect(chat.sendMessage).toHaveBeenCalledWith(
 				'go',
 				expect.objectContaining({ inputs: { tone: 'terse', model: 'new' } })
+			)
+			host.dispose()
+		})
+
+		it('keeps the replayed inputs when a turn elsewhere refuses the retry', async () => {
+			const { chat, set } = fakeChat(failedTurn())
+			getJobArgs.mockResolvedValueOnce({ user_message: 'go', tone: 'terse' } as any)
+			const turn = { jobId: 'job-elsewhere', userSeq: 12 }
+			chat.sendMessage.mockRejectedValueOnce(new TurnRunningError('still answering', turn))
+			let releaseResumed = () => {}
+			chat.resumeTurn.mockImplementationOnce(
+				() => new Promise<void>((resolve) => (releaseResumed = resolve))
+			)
+			const host = hostOn(chat, {
+				workspace: () => 'ws',
+				additionalInputs: () => ({ tone: 'brief' })
+			})
+			await host.retryRequest(0)
+			expect(chat.resumeTurn).toHaveBeenCalledWith(turn)
+			// That turn answers, and the retry goes out behind it.
+			set({ status: 'streaming' })
+			set({
+				status: 'idle',
+				messages: [
+					...failedTurn().messages,
+					message({ role: 'user', content: 'from the other tab' }),
+					message({ role: 'assistant', content: 'done' })
+				]
+			})
+			releaseResumed()
+			await new Promise((resolve) => setTimeout(resolve, 0))
+			// On the arguments of the turn it replays, not on what the composer holds now.
+			expect(chat.sendMessage).toHaveBeenCalledTimes(2)
+			expect(chat.sendMessage).toHaveBeenLastCalledWith(
+				'go',
+				expect.objectContaining({ inputs: { tone: 'terse' } })
 			)
 			host.dispose()
 		})

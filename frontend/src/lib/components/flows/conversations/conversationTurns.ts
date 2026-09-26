@@ -81,6 +81,9 @@ export class ConversationTurns<A> {
 	readonly chat: Chat
 	readonly #sender: () => DraftSender<A>
 	#queued: Draft<A> = emptyDraft()
+	/** A retry's own run arguments, kept only while that retry is all there is to send: merged
+	 * with anything else it is no longer that turn's replay, and goes out on current inputs. */
+	#queuedReplay: Record<string, unknown> | undefined
 	#returned: Draft<A> = emptyDraft()
 	/** Settles when the chat has released the last turn sent or followed here. */
 	#turnDone: Promise<unknown> = Promise.resolve()
@@ -135,7 +138,7 @@ export class ConversationTurns<A> {
 		if (!text) return false
 		const message = { text, attachments: draft.attachments }
 		if (isBusy(this.chat.getState().status)) {
-			this.queue(message)
+			this.queue(message, replayInputs)
 			return true
 		}
 		const options = this.#sender().prepareSend(message, replayInputs)
@@ -159,7 +162,9 @@ export class ConversationTurns<A> {
 				const followable = this.chat.getState().history === 'server'
 				if (e instanceof TurnRunningError && !stopped && followable) {
 					// Ahead of what was typed while it waited for the refusal: it was written first.
+					const alone = isEmptyDraft(this.#queued)
 					this.#queued = mergeDrafts(message, this.#queued)
+					this.#queuedReplay = alone ? replayInputs : undefined
 					this.#notify()
 					this.resume(e.turn)
 					return
@@ -183,10 +188,12 @@ export class ConversationTurns<A> {
 		this.#turnDone = this.chat.resumeTurn(turn)
 	}
 
-	queue(draft: Draft<A>): void {
+	queue(draft: Draft<A>, replayInputs?: Record<string, unknown>): void {
 		const text = draft.text.trim()
 		if (!text && draft.attachments.length === 0) return
+		const alone = isEmptyDraft(this.#queued)
 		this.#queued = mergeDrafts(this.#queued, { text, attachments: draft.attachments })
+		this.#queuedReplay = alone ? replayInputs : undefined
 		this.#notify()
 	}
 
@@ -217,6 +224,7 @@ export class ConversationTurns<A> {
 		const held = mergeDrafts(this.#returned, this.#queued)
 		this.#returned = emptyDraft()
 		this.#queued = emptyDraft()
+		this.#queuedReplay = undefined
 		this.#notify()
 		return held
 	}
@@ -230,6 +238,7 @@ export class ConversationTurns<A> {
 	dispose(): void {
 		this.#disposed = true
 		this.#queued = emptyDraft()
+		this.#queuedReplay = undefined
 		this.#unsubscribe()
 		this.#listeners.clear()
 	}
@@ -255,13 +264,15 @@ export class ConversationTurns<A> {
 		// Same rule as `send`, read before the queue is drained: a turn with no message cannot
 		// run, and taking the queue for it would drop the attachments on the floor.
 		if (!this.#queued.text || this.#disposed) return
-		void this.send(this.#takeQueued())
+		const replayInputs = this.#queuedReplay
+		void this.send(this.#takeQueued(), replayInputs)
 	}
 
 	#takeQueued(): Draft<A> {
 		const queued = this.#queued
 		if (isEmptyDraft(queued)) return queued
 		this.#queued = emptyDraft()
+		this.#queuedReplay = undefined
 		this.#notify()
 		return queued
 	}
