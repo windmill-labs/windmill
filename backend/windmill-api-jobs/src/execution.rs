@@ -95,15 +95,14 @@ pub async fn check_tag_as_written_available_for_workspace(
     }
 }
 
-/// `parent_job` and `root_job` become the lineage the pushed job is identified by: its
-/// `WM_FLOW_JOB_ID` / `WM_ROOT_FLOW_JOB_ID`, and the flow path of its OIDC identity token. Only
-/// code already running in that lineage may claim it: a job's `WM_TOKEN` may name that job or
-/// one of its ancestors, which is what the SDKs send from inside a job. Workspace admins may name
-/// any job of the workspace.
-pub async fn check_run_lineage_allowed(
+/// Clears a `parent_job` / `root_job` the caller cannot claim. They identify the pushed job
+/// (`WM_FLOW_JOB_ID`, `WM_ROOT_FLOW_JOB_ID`, the OIDC token's flow path), so only a job's own
+/// `WM_TOKEN` may name that job or its ancestors, and a workspace admin any job of the workspace.
+/// Cleared rather than refused: the SDKs send them from inside a job whatever token they hold.
+pub async fn drop_unclaimable_run_lineage(
     db: &DB,
     w_id: &str,
-    run_query: &RunJobQuery,
+    run_query: &mut RunJobQuery,
     authed: &ApiAuthed,
 ) -> error::Result<()> {
     let mut referenced: Vec<Uuid> = [run_query.parent_job, run_query.root_job]
@@ -146,13 +145,16 @@ pub async fn check_run_lineage_allowed(
     } else {
         vec![]
     };
-    match referenced.iter().find(|id| !in_workspace.contains(id)) {
-        Some(id) => Err(Error::PermissionDenied(format!(
-            "job {id} cannot be the parent_job or root_job of this run: only the job whose \
-             WM_TOKEN makes the request, or one of that job's ancestors, can be"
-        ))),
-        None => Ok(()),
+    for field in [&mut run_query.parent_job, &mut run_query.root_job] {
+        if field.is_some_and(|id| referenced.contains(&id) && !in_workspace.contains(&id)) {
+            tracing::debug!(
+                "ignoring lineage job {field:?} that {} cannot claim",
+                authed.username
+            );
+            *field = None;
+        }
     }
+    Ok(())
 }
 
 #[cfg(feature = "enterprise")]
@@ -836,7 +838,8 @@ pub async fn run_flow<'c>(
     bool,
     Option<sqlx::Transaction<'c, sqlx::Postgres>>,
 )> {
-    check_run_lineage_allowed(db, w_id, &run_query, authed).await?;
+    let mut run_query = run_query;
+    drop_unclaimable_run_lineage(db, w_id, &mut run_query, authed).await?;
     let on_behalf_of = flow_version_info.on_behalf_of(w_id, &db).await?;
     let FlowVersionInfo {
         version,
@@ -1078,7 +1081,8 @@ pub async fn push_script_job_by_path_into_queue<'c>(
 
     let script_path = script_path.to_path();
     check_scopes(&authed, || format!("jobs:run:scripts:{script_path}"))?;
-    check_run_lineage_allowed(&db, &w_id, &run_query, &authed).await?;
+    let mut run_query = run_query;
+    drop_unclaimable_run_lineage(&db, &w_id, &mut run_query, &authed).await?;
 
     let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
     let (job_payload, tag, delete_after_use, delete_after_secs, timeout, on_behalf_of) =
