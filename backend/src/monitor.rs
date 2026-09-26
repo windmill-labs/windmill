@@ -6580,8 +6580,12 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
                 }
             }
 
+            // A canceled flow keeps its start: the pull only sets a missing one, and the canceled
+            // run's duration is measured from it.
             sqlx::query!(
-                "UPDATE v2_job_queue SET running = false, started_at = null WHERE id = $1",
+                "UPDATE v2_job_queue SET running = false,
+                    started_at = CASE WHEN canceled_by IS NULL THEN NULL ELSE started_at END
+                WHERE id = $1",
                 flow.id
             )
             .execute(&mut *tx)
@@ -7859,18 +7863,20 @@ mod canceled_zombie_flow_tests {
         Ok(id)
     }
 
-    async fn queue_row(db: &DB, id: Uuid) -> anyhow::Result<(bool, Option<String>)> {
-        Ok(
-            sqlx::query_as("SELECT running, canceled_by FROM v2_job_queue WHERE id = $1")
-                .bind(id)
-                .fetch_one(db)
-                .await?,
+    /// `(running, canceled_by, still started an hour ago)`
+    async fn queue_row(db: &DB, id: Uuid) -> anyhow::Result<(bool, Option<String>, bool)> {
+        Ok(sqlx::query_as(
+            "SELECT running, canceled_by, started_at < now() - interval '30 minutes'
+             FROM v2_job_queue WHERE id = $1",
         )
+        .bind(id)
+        .fetch_one(db)
+        .await?)
     }
 
     /// A subflow canceled on its own whose worker died between two steps goes back to the queue
-    /// with its cancel, for a worker to complete it and hand it to its parent. The parent is left
-    /// alone: the cancel must not reach flows the user never canceled.
+    /// with its cancel and its start, for a worker to complete it and hand it to its parent. The
+    /// parent is left alone: the cancel must not reach flows the user never canceled.
     #[sqlx::test(migrations = "./migrations")]
     async fn requeues_a_stranded_canceled_flow_and_nothing_else(db: DB) -> anyhow::Result<()> {
         let root = insert_flow(&db, None, 0, false, None).await?;
@@ -7880,9 +7886,9 @@ mod canceled_zombie_flow_tests {
 
         assert_eq!(
             queue_row(&db, child).await?,
-            (false, Some("admin".to_string()))
+            (false, Some("admin".to_string()), true)
         );
-        assert_eq!(queue_row(&db, root).await?, (true, None));
+        assert_eq!(queue_row(&db, root).await?, (true, None, true));
         Ok(())
     }
 }
