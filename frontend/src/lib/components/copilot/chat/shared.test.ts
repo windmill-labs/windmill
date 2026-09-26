@@ -38,6 +38,7 @@ vi.mock('$lib/components/flows/flowTree', () => ({
 vi.mock('$lib/gen', () => ({
 	ScriptService: {},
 	FlowService: {},
+	IntegrationService: {},
 	JobService: { getJob: vi.fn(), getJobUpdates: vi.fn() },
 	ScheduleService: {
 		previewSchedule: vi.fn(),
@@ -1890,7 +1891,7 @@ describe('createSearchHubScriptsTool', () => {
 			toolId: 't1',
 			toolCallbacks: { setToolStatus: vi.fn() }
 		} as any)
-		return JSON.parse(raw)
+		return JSON.parse(raw).results
 	}
 
 	it('reports each script language alongside its content', async () => {
@@ -1905,12 +1906,14 @@ describe('createSearchHubScriptsTool', () => {
 			{
 				path: 'hub/1/discord/send_a_message',
 				summary: 'Send a message',
+				integration: 'discord',
 				language: 'bunnative',
 				content: '// hub/1/discord/send_a_message'
 			},
 			{
 				path: 'hub/2/slack/post_a_message',
 				summary: 'Post a message',
+				integration: 'slack',
 				language: 'python3',
 				content: '// hub/2/slack/post_a_message'
 			}
@@ -1928,6 +1931,334 @@ describe('createSearchHubScriptsTool', () => {
 		expect(results[0].error).toContain('hub unreachable')
 		expect(results[0].content).toBeUndefined()
 		expect(results[1].content).toBe('ok')
+	})
+
+	// Browsing by app is what surfaces an integration's other scripts as examples,
+	// and only the top-scripts endpoint takes no query and applies no similarity
+	// floor, so the near-misses worth reading survive instead of being cut.
+	it('lists an integration through the top-scripts endpoint, with descriptions', async () => {
+		const { ScriptService } = await import('$lib/gen')
+		const getTopHubScripts = vi.fn(async () => ({
+			asks: [{ ...hit(3, 'stripe', 'Create a Payout'), description: 'Send funds to your bank' }]
+		}))
+		Object.assign(ScriptService, { queryHubScripts: vi.fn(async () => []), getTopHubScripts })
+
+		const { createSearchHubScriptsTool } = await import('./shared')
+		const raw = await createSearchHubScriptsTool().fn({
+			args: { integration: 'stripe' },
+			toolId: 't1',
+			toolCallbacks: { setToolStatus: vi.fn() }
+		} as any)
+
+		expect(getTopHubScripts).toHaveBeenCalledWith({ app: 'stripe', kind: 'script', limit: 20 })
+		expect(ScriptService.queryHubScripts).not.toHaveBeenCalled()
+		expect(JSON.parse(raw).results).toEqual([
+			{
+				path: 'hub/3/stripe/create_a_payout',
+				summary: 'Create a Payout',
+				integration: 'stripe',
+				description: 'Send funds to your bank'
+			}
+		])
+	})
+
+	// A search below the similarity floor otherwise dead-ends; the slug is what
+	// lets the model fall back to browsing the integration.
+	it('suggests matching integrations when the search finds nothing', async () => {
+		const { ScriptService, IntegrationService } = await import('$lib/gen')
+		Object.assign(ScriptService, { queryHubScripts: vi.fn(async () => []) })
+		Object.assign(IntegrationService, {
+			listHubIntegrations: vi.fn(async () => [{ name: 'stripe' }, { name: 'slack' }])
+		})
+
+		const { createSearchHubScriptsTool, clearHubIntegrationsCache } = await import('./shared')
+		clearHubIntegrationsCache()
+		const raw = await createSearchHubScriptsTool().fn({
+			args: { query: 'refund a stripe charge' },
+			toolId: 't1',
+			toolCallbacks: { setToolStatus: vi.fn() }
+		} as any)
+
+		expect(JSON.parse(raw)).toEqual({ results: [], suggested_integrations: ['stripe'] })
+	})
+
+	// Matching a query word anywhere inside a slug turns every short English word into
+	// a hit — `for` in salesforce, `the` in basis_theory — so a task that names no
+	// integration came back with a confident-looking list of them.
+	it('suggests nothing for a request that names no integration', async () => {
+		const { ScriptService, IntegrationService } = await import('$lib/gen')
+		Object.assign(ScriptService, { queryHubScripts: vi.fn(async () => []) })
+		Object.assign(IntegrationService, {
+			listHubIntegrations: vi.fn(async () => [
+				{ name: 'salesforce' },
+				{ name: 'basis_theory' },
+				{ name: 'hackernews' },
+				{ name: 's3' }
+			])
+		})
+
+		const { createSearchHubScriptsTool, clearHubIntegrationsCache } = await import('./shared')
+		clearHubIntegrationsCache()
+		const raw = await createSearchHubScriptsTool().fn({
+			args: { query: 'list all the invoices for the new month' },
+			toolId: 't1',
+			toolCallbacks: { setToolStatus: vi.fn() }
+		} as any)
+
+		expect(JSON.parse(raw).suggested_integrations).toEqual([])
+	})
+
+	// Google's integrations are all a compressed `g` plus the product word, so the
+	// word a user actually says starts one character into the slug.
+	it('reaches an integration whose slug compresses the vendor name', async () => {
+		const { ScriptService, IntegrationService } = await import('$lib/gen')
+		Object.assign(ScriptService, { queryHubScripts: vi.fn(async () => []) })
+		Object.assign(IntegrationService, {
+			listHubIntegrations: vi.fn(async () => [
+				{ name: 'gsheets' },
+				{ name: 'gdrive' },
+				{ name: 'smartsheet' }
+			])
+		})
+
+		const { createSearchHubScriptsTool, clearHubIntegrationsCache } = await import('./shared')
+		clearHubIntegrationsCache()
+		const raw = await createSearchHubScriptsTool().fn({
+			args: { query: 'add a row to a google sheet' },
+			toolId: 't1',
+			toolCallbacks: { setToolStatus: vi.fn() }
+		} as any)
+
+		expect(JSON.parse(raw).suggested_integrations).toEqual(['gsheets'])
+	})
+
+	// A slug shorter than the token floor is only reachable by an exact match.
+	it('still reaches a two-character integration slug', async () => {
+		const { ScriptService, IntegrationService } = await import('$lib/gen')
+		Object.assign(ScriptService, { queryHubScripts: vi.fn(async () => []) })
+		Object.assign(IntegrationService, {
+			listHubIntegrations: vi.fn(async () => [{ name: 's3' }, { name: 'salesforce' }])
+		})
+
+		const { createSearchHubScriptsTool, clearHubIntegrationsCache } = await import('./shared')
+		clearHubIntegrationsCache()
+		const raw = await createSearchHubScriptsTool().fn({
+			args: { query: 'upload a file to s3' },
+			toolId: 't1',
+			toolCallbacks: { setToolStatus: vi.fn() }
+		} as any)
+
+		expect(JSON.parse(raw).suggested_integrations).toEqual(['s3'])
+	})
+
+	// Only about one hub integration in twelve carries authored provider knowledge,
+	// and a search result is where the model first sees a slug — so the mark has to
+	// ride along, or nothing tells it which integrations have verified notes to read.
+	it('marks the integrations get_hub_integration has knowledge for', async () => {
+		const { ScriptService, IntegrationService } = await import('$lib/gen')
+		Object.assign(ScriptService, {
+			queryHubScripts: vi.fn(async () => [
+				hit(1, 'confluence', 'Create page'),
+				hit(2, 'notion', 'Create page')
+			])
+		})
+		Object.assign(IntegrationService, {
+			listHubIntegrations: vi.fn(async () => [
+				{ name: 'Confluence', documented: true },
+				{ name: 'notion', documented: false }
+			])
+		})
+
+		const { createSearchHubScriptsTool, clearHubIntegrationsCache } = await import('./shared')
+		clearHubIntegrationsCache()
+		const raw = await createSearchHubScriptsTool().fn({
+			args: { query: 'create a wiki page' },
+			toolId: 't1',
+			toolCallbacks: { setToolStatus: vi.fn() }
+		} as any)
+
+		const results = JSON.parse(raw).results
+		// the hub's slugs are case-sensitive, so the two casings are one integration
+		expect(results.find((r: any) => r.integration === 'confluence').documented).toBe(true)
+		expect(results.find((r: any) => r.integration === 'notion').documented).toBeUndefined()
+	})
+
+	// A hub predating the flag sends no `documented` at all; reading that as "yes"
+	// would send the model after notes that are not coming.
+	it('claims no knowledge when the hub does not report any', async () => {
+		const { ScriptService, IntegrationService } = await import('$lib/gen')
+		Object.assign(ScriptService, {
+			queryHubScripts: vi.fn(async () => [hit(1, 'confluence', 'Create page')])
+		})
+		Object.assign(IntegrationService, {
+			listHubIntegrations: vi.fn(async () => [{ name: 'confluence' }])
+		})
+
+		const { createSearchHubScriptsTool, clearHubIntegrationsCache } = await import('./shared')
+		clearHubIntegrationsCache()
+		const raw = await createSearchHubScriptsTool().fn({
+			args: { query: 'create a wiki page' },
+			toolId: 't1',
+			toolCallbacks: { setToolStatus: vi.fn() }
+		} as any)
+
+		expect(JSON.parse(raw).results[0].documented).toBeUndefined()
+	})
+})
+
+describe('getHubIntegrationTool', () => {
+	// The plan-mode gate fails closed, so a read-only tool that is not tagged is
+	// silently unusable while planning.
+	it('is usable while planning, like the hub search beside it', async () => {
+		const { getHubIntegrationTool, createSearchHubScriptsTool } = await import('./shared')
+		expect(getHubIntegrationTool.planModeSafe).toBe(true)
+		expect(createSearchHubScriptsTool().planModeSafe).toBe(true)
+	})
+
+	const doc = {
+		app: 'confluence',
+		display_name: 'Confluence',
+		// Authored knowledge, but nobody has asserted whether the script set was pruned.
+		curated: null,
+		metadata_source: 'curated',
+		meta: { gotchas: ['Auth is Basic with an API token, not the password'] },
+		derived: {
+			api_hosts: [{ host: 'api.atlassian.com', count: 12 }],
+			style: 'fetch',
+			languages: { bun: 14 },
+			script_counts: { total: 14, by_kind: { script: 13 } },
+			top_scripts: [
+				{ path: 'hub/1/confluence/create_page', summary: 'Create page', language: 'bun' }
+			]
+		},
+		resource_types: [{ name: 'confluence', schema: { type: 'object' } }]
+	}
+
+	// Hand-validated provider knowledge and facts inferred from script bodies must
+	// stay under separate keys, or the model will report guesses as verified.
+	it('keeps authored notes apart from what was inferred from the scripts', async () => {
+		const { IntegrationService } = await import('$lib/gen')
+		Object.assign(IntegrationService, { getHubIntegrationMeta: vi.fn(async () => doc) })
+
+		const { getHubIntegrationTool } = await import('./shared')
+		const parsed = JSON.parse(
+			await getHubIntegrationTool.fn({
+				args: { integration: 'confluence' },
+				toolId: 't1',
+				toolCallbacks: { setToolStatus: vi.fn() }
+			} as any)
+		)
+
+		expect(parsed.verified_provider_notes).toEqual(doc.meta)
+		expect(parsed.scripts_note).toBeUndefined()
+		expect(parsed.observed_from_scripts).toEqual({
+			api_hosts: ['api.atlassian.com'],
+			style: 'fetch',
+			languages: ['bun'],
+			script_counts: { total: 14, by_kind: { script: 13 } }
+		})
+	})
+
+	// The hub repo owns this payload, so a hub older than this client can send a
+	// subset. Reading it must degrade to less content, never to a tool error.
+	it('returns what an older hub sent instead of failing on the missing sections', async () => {
+		const { IntegrationService } = await import('$lib/gen')
+		Object.assign(IntegrationService, {
+			getHubIntegrationMeta: vi.fn(async () => ({
+				app: 'stripe',
+				display_name: 'Stripe',
+				curated: false
+			}))
+		})
+
+		const { getHubIntegrationTool } = await import('./shared')
+		const parsed = JSON.parse(
+			await getHubIntegrationTool.fn({
+				args: { integration: 'stripe' },
+				toolId: 't1',
+				toolCallbacks: { setToolStatus: vi.fn() }
+			} as any)
+		)
+
+		expect(parsed.integration).toBe('stripe')
+		expect(parsed.observed_from_scripts).toBeUndefined()
+		expect(parsed.resource_types).toEqual([])
+		expect(parsed.example_scripts).toEqual([])
+	})
+
+	// `curated` has three states and only `true` is a licence to call the scripts good
+	// examples. `false` and the unassessed `null` must both stay silent, or the 212
+	// integrations nobody has looked at get characterised anyway.
+	it.each([
+		[true, true],
+		[false, false],
+		[null, false]
+	])('speaks about the script set only when curated is true (%s)', async (curated, expected) => {
+		const { IntegrationService } = await import('$lib/gen')
+		Object.assign(IntegrationService, {
+			getHubIntegrationMeta: vi.fn(async () => ({ ...doc, curated }))
+		})
+
+		const { getHubIntegrationTool } = await import('./shared')
+		const parsed = JSON.parse(
+			await getHubIntegrationTool.fn({
+				args: { integration: 'confluence' },
+				toolId: 't1',
+				toolCallbacks: { setToolStatus: vi.fn() }
+			} as any)
+		)
+
+		expect(!!parsed.scripts_note).toBe(expected)
+	})
+
+	// A hub that times out has said nothing about whether the integration exists, and
+	// reporting it as absent would stick for the rest of the conversation.
+	it('does not report a transient hub failure as a missing integration', async () => {
+		const { IntegrationService } = await import('$lib/gen')
+		Object.assign(IntegrationService, {
+			getHubIntegrationMeta: vi.fn(async () => {
+				throw Object.assign(new Error('Service Unavailable'), { status: 503 })
+			}),
+			listHubIntegrations: vi.fn(async () => [{ name: 'confluence' }])
+		})
+
+		const { getHubIntegrationTool, clearHubIntegrationsCache } = await import('./shared')
+		clearHubIntegrationsCache()
+		const parsed = JSON.parse(
+			await getHubIntegrationTool.fn({
+				args: { integration: 'confluence' },
+				toolId: 't1',
+				toolCallbacks: { setToolStatus: vi.fn() }
+			} as any)
+		)
+
+		expect(parsed.error).toContain('Could not reach the hub')
+		expect(parsed.error).not.toContain('No hub metadata')
+	})
+
+	// A hub with no such integration and one too old to serve the endpoint both 404;
+	// neither may surface as a tool error, since the model can still read scripts.
+	it('suggests real slugs instead of failing when the integration is unknown', async () => {
+		const { IntegrationService } = await import('$lib/gen')
+		Object.assign(IntegrationService, {
+			getHubIntegrationMeta: vi.fn(async () => {
+				throw Object.assign(new Error('Not Found'), { status: 404 })
+			}),
+			listHubIntegrations: vi.fn(async () => [{ name: 'stripe' }, { name: 'slack' }])
+		})
+
+		const { getHubIntegrationTool, clearHubIntegrationsCache } = await import('./shared')
+		clearHubIntegrationsCache()
+		const parsed = JSON.parse(
+			await getHubIntegrationTool.fn({
+				args: { integration: 'stripe_billing' },
+				toolId: 't1',
+				toolCallbacks: { setToolStatus: vi.fn() }
+			} as any)
+		)
+
+		expect(parsed.error).toContain('stripe_billing')
+		expect(parsed.suggested_integrations).toEqual(['stripe'])
 	})
 })
 
