@@ -15,15 +15,22 @@ export const RESOURCE_TYPE_CATEGORIES: {
 	{
 		title: 'Databases',
 		others: 'other databases',
-		popular: ['postgresql', 'mysql', 'ms_sql_server', 'bigquery', 'snowflake', 'mongodb'],
+		popular: [
+			'postgresql',
+			'mysql',
+			'ms_sql_server',
+			'bigquery',
+			'snowflake',
+			'mongodb',
+			'supabase',
+			'neondb'
+		],
 		keys: [
 			'snowflake_oauth',
 			'oracledb',
 			'redshift',
 			'clickhouse',
 			'databricks',
-			'supabase',
-			'neondb',
 			'cockroachdb',
 			'planetscale',
 			'turso',
@@ -34,11 +41,11 @@ export const RESOURCE_TYPE_CATEGORIES: {
 	{
 		title: 'AI',
 		others: 'other AI providers',
-		popular: ['openai', 'anthropic', 'googleai', 'mistral', 'azure_openai', 'aws_bedrock'],
+		popular: ['openai', 'anthropic', 'googleai', 'mistral', 'deepseek', 'groq'],
 		keys: [
+			'azure_openai',
+			'aws_bedrock',
 			'azure_foundry',
-			'deepseek',
-			'groq',
 			'openrouter',
 			'togetherai',
 			'cohere',
