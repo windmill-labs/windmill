@@ -23,3 +23,10 @@ VALUES
     ('3bb0c0de-0000-4000-8000-000000000004', 'test-workspace', 'script', 'f/t/tool', 1111111111, '3bb0c0de-0000-4000-8000-000000000003', 'test-user', 'u/test-user', 'test@windmill.dev'),
     ('3bb0c0de-0000-4000-8000-000000000005', 'test-workspace', 'flow', 'f/t/agent', 3333333333, NULL, 'test-user', 'u/test-user', 'test@windmill.dev'),
     ('3bb0c0de-0000-4000-8000-000000000006', 'test-workspace', 'script', 'f/t/tool', 1111111111, '3bb0c0de-0000-4000-8000-000000000005', 'test-user', 'u/test-user', 'test@windmill.dev');
+
+-- An app script run of f/t/app stamped by a deployed-app run, and one that is not
+-- (an app editor preview).
+INSERT INTO v2_job (id, workspace_id, kind, runnable_path, trigger_kind, trigger, created_by, permissioned_as, permissioned_as_email)
+VALUES
+    ('3bb0c0de-0000-4000-8000-000000000007', 'test-workspace', 'appscript', 'f/t/app/comp', 'app', 'f/t/app', 'test-user', 'u/test-user', 'test@windmill.dev'),
+    ('3bb0c0de-0000-4000-8000-000000000008', 'test-workspace', 'appscript', 'f/t/app/comp', NULL, NULL, 'test-user', 'u/test-user', 'test@windmill.dev');

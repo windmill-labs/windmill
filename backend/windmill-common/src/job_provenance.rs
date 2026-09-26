@@ -20,18 +20,20 @@ struct LineageJob {
     kind: JobKind,
     runnable_path: Option<String>,
     trigger_kind: Option<String>,
-    version_matches_path: bool,
+    origin_verified: bool,
 }
 
+/// Reads any job of `w_id` regardless of the caller: authorize access to `job_id` first.
 pub async fn job_provenance(db: &DB, job_id: &Uuid, w_id: &str) -> Result<Option<JobProvenance>> {
     let lineage = sqlx::query_as!(
         LineageJob,
         r#"WITH RECURSIVE lineage AS (
-            SELECT id, parent_job, kind, runnable_path, runnable_id, trigger_kind, 0 AS depth
+            SELECT id, parent_job, kind, runnable_path, runnable_id, trigger_kind, trigger,
+                0 AS depth
             FROM v2_job WHERE id = $1 AND workspace_id = $2
           UNION ALL
             SELECT p.id, p.parent_job, p.kind, p.runnable_path, p.runnable_id, p.trigger_kind,
-                l.depth + 1
+                p.trigger, l.depth + 1
             FROM v2_job p JOIN lineage l ON p.id = l.parent_job
             WHERE p.workspace_id = $2 AND l.depth < 100
         )
@@ -44,8 +46,12 @@ pub async fn job_provenance(db: &DB, job_id: &Uuid, w_id: &str) -> Result<Option
                     WHERE fv.id = runnable_id AND fv.path = runnable_path AND fv.workspace_id = $2)
                 WHEN 'script' THEN EXISTS (SELECT 1 FROM script s
                     WHERE s.hash = runnable_id AND s.path = runnable_path AND s.workspace_id = $2)
+                -- An app editor preview also runs an app script, at an app path it does not
+                -- have to own; only deployed-app runs are stamped with their app.
+                WHEN 'appscript' THEN COALESCE(trigger_kind = 'app'
+                    AND starts_with(runnable_path, trigger || '/'), false)
                 ELSE true
-            END AS "version_matches_path!"
+            END AS "origin_verified!"
         FROM lineage ORDER BY depth"#,
         job_id,
         w_id
@@ -60,7 +66,7 @@ pub async fn job_provenance(db: &DB, job_id: &Uuid, w_id: &str) -> Result<Option
     let deployed = root.parent_job.is_none()
         && lineage
             .iter()
-            .all(|j| runs_stored_code(j.kind) && j.version_matches_path);
+            .all(|j| runs_stored_code(j.kind) && j.origin_verified);
     Ok(Some(JobProvenance {
         deployed,
         parent_path: lineage.get(1).and_then(|j| j.runnable_path.clone()),

@@ -36,3 +36,9 @@ async fn step_under_flow_preview_is_not_deployed(db: Pool<Postgres>) {
 async fn flow_running_another_flows_version_is_not_deployed(db: Pool<Postgres>) {
     assert!(!deployed(&db, "3bb0c0de-0000-4000-8000-000000000006").await);
 }
+
+#[sqlx::test(fixtures("base", "job_provenance"))]
+async fn app_script_is_deployed_only_from_a_deployed_app_run(db: Pool<Postgres>) {
+    assert!(deployed(&db, "3bb0c0de-0000-4000-8000-000000000007").await);
+    assert!(!deployed(&db, "3bb0c0de-0000-4000-8000-000000000008").await);
+}
