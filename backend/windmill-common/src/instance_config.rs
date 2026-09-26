@@ -2281,7 +2281,7 @@ mod tests {
     }
 
     #[test]
-    fn smtp_settings_keep_every_ui_field() {
+    fn smtp_settings_keep_clicktracking_off() {
         let smtp = serde_json::json!({
             "smtp_host": "smtp.example.com",
             "smtp_port": 587,
