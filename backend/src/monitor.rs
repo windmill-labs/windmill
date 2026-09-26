@@ -6516,13 +6516,13 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
             wp.worker_group AS "worker_group?",
             wp.wm_version AS "worker_version?",
             wp.current_job_id AS "worker_current_job_id?",
-            wp.worker_instance AS "worker_instance?"
+            wp.worker_instance AS "worker_instance?",
+            q.canceled_by AS "canceled_by?", q.canceled_reason AS "canceled_reason?"
         FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_runtime r USING (id) LEFT JOIN v2_job_status s USING (id)
             LEFT JOIN worker_ping wp ON wp.worker = q.worker
         WHERE q.running = true AND q.suspend = 0 AND q.suspend_until IS null AND q.scheduled_for <= now()
             AND (j.kind = 'flow' OR j.kind = 'flowpreview' OR j.kind = 'flownode' OR j.kind = 'singlestepflow')
             AND r.ping IS NOT NULL AND r.ping < NOW() - ($1 || ' seconds')::interval
-            AND q.canceled_by IS NULL
 
         "#,
         FLOW_ZOMBIE_TRANSITION_TIMEOUT.as_str()
@@ -6531,6 +6531,31 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
     .await?;
 
     for flow in flows {
+        // A canceled flow waits for its next transition to complete it. When the worker died
+        // before that, nothing else will: finish the cancel as the user asked for it.
+        if let Some(canceler) = flow.canceled_by.as_deref() {
+            tracing::warn!(
+                "flow {} in workspace {} was canceled by {canceler} but its worker stopped between two steps (last ping: {:?}), completing the cancel",
+                flow.id,
+                flow.workspace_id,
+                flow.last_ping,
+            );
+            let mut tx = db.begin().await?;
+            (tx, _) = cancel_job(
+                canceler,
+                flow.canceled_reason.clone(),
+                flow.id,
+                &flow.workspace_id,
+                tx,
+                db,
+                true,
+                false,
+            )
+            .await?;
+            tx.commit().await?;
+            continue;
+        }
+
         let status = flow
             .flow_status
             .as_deref()
@@ -7795,5 +7820,56 @@ mod log_file_listing_tests {
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].1, "h.log.2026-08-29-06-46");
         assert_eq!(files[0].0.to_string(), "2026-08-29 06:46:00");
+    }
+}
+
+#[cfg(test)]
+mod canceled_zombie_flow_tests {
+    use super::{handle_zombie_flows, DB};
+    use uuid::Uuid;
+
+    /// A flow canceled while its worker died between two steps is left `running` with a stale
+    /// ping and no step to run. The sweep must complete it with the cancel the user asked for.
+    #[sqlx::test(migrations = "./migrations")]
+    async fn completes_a_canceled_flow_stranded_between_steps(db: DB) -> anyhow::Result<()> {
+        let flow = Uuid::new_v4();
+        for stmt in [
+            "INSERT INTO v2_job (id, workspace_id, created_by, permissioned_as, permissioned_as_email, kind, tag)
+             VALUES ($1, 'admins', 'admin', 'u/admin', 'admin@windmill.dev', 'flowpreview', 'flow')",
+            "INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, running, started_at, tag, canceled_by, canceled_reason)
+             VALUES ($1, 'admins', now(), true, now() - interval '1 hour', 'flow', 'admin', 'stop it')",
+            "INSERT INTO v2_job_runtime (id, ping) VALUES ($1, now() - interval '1 hour')",
+            r#"INSERT INTO v2_job_status (id, flow_status) VALUES ($1, '{"step": 1,
+                "modules": [{"type": "Success", "id": "a", "job": "00000000-0000-0000-0000-000000000000"}],
+                "failure_module": {"type": "WaitingForPriorSteps", "id": "failure"}}')"#,
+        ] {
+            sqlx::query(stmt).bind(flow).execute(&db).await?;
+        }
+
+        handle_zombie_flows(&db).await?;
+
+        // the forced cancel completes the job from a spawned task
+        for _ in 0..100 {
+            let completed: Option<(String, Option<String>, Option<String>)> = sqlx::query_as(
+                "SELECT status::text, canceled_by, canceled_reason FROM v2_job_completed WHERE id = $1",
+            )
+            .bind(flow)
+            .fetch_optional(&db)
+            .await?;
+            if let Some((status, canceled_by, canceled_reason)) = completed {
+                assert_eq!(status, "canceled");
+                assert_eq!(canceled_by.as_deref(), Some("admin"));
+                assert_eq!(canceled_reason.as_deref(), Some("stop it"));
+                let queued: i64 =
+                    sqlx::query_scalar("SELECT count(*) FROM v2_job_queue WHERE id = $1")
+                        .bind(flow)
+                        .fetch_one(&db)
+                        .await?;
+                assert_eq!(queued, 0);
+                return Ok(());
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        anyhow::bail!("the canceled flow was never completed")
     }
 }
