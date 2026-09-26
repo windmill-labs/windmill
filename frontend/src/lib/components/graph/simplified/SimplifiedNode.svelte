@@ -58,15 +58,15 @@
 		title={data.title}
 	>
 		<div
-			class="shrink-0 flex items-center justify-center rounded-md bg-surface-tertiary border border-border-light text-secondary"
+			class="shrink-0 flex items-center justify-center text-secondary"
 			style="width: {SIMPLIFIED.badgeSize}px; height: {SIMPLIFIED.badgeSize}px;"
 		>
 			{#if data.module}
-				<FlowModuleIcon module={data.module} size={14} />
+				<FlowModuleIcon module={data.module} size={16} />
 			{:else if data.kind === 'input'}
-				<ArrowRightToLine size={14} />
+				<ArrowRightToLine size={16} />
 			{:else if data.kind === 'result'}
-				<Flag size={14} />
+				<Flag size={16} />
 			{/if}
 		</div>
 		<div class="flex flex-col min-w-0 flex-1">

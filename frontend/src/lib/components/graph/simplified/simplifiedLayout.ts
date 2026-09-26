@@ -12,8 +12,8 @@ export const SIMPLIFIED = {
 	minWidth: 150,
 	maxWidth: 340,
 	paddingX: 12,
-	/** The icon's badge, and the space between it and the text */
-	badgeSize: 24,
+	/** The icon's slot, and the space between it and the text */
+	badgeSize: 18,
 	badgeGap: 10,
 	rowHeight: 16,
 	paddingY: 10,
