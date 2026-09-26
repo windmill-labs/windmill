@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "WITH RECURSIVE lineage AS (\n            SELECT id, parent_job, kind, runnable_path, trigger_kind, 0 AS depth\n            FROM v2_job WHERE id = $1 AND workspace_id = $2\n          UNION ALL\n            SELECT p.id, p.parent_job, p.kind, p.runnable_path, p.trigger_kind, l.depth + 1\n            FROM v2_job p JOIN lineage l ON p.id = l.parent_job\n            WHERE p.workspace_id = $2 AND l.depth < 100\n        )\n        SELECT id AS \"id!\", parent_job, kind AS \"kind!: windmill_common::jobs::JobKind\",\n            runnable_path, trigger_kind::text AS trigger_kind\n        FROM lineage ORDER BY depth",
+  "query": "WITH RECURSIVE lineage AS (\n            SELECT id, parent_job, kind, runnable_path, trigger_kind, 0 AS depth\n            FROM v2_job WHERE id = $1 AND workspace_id = $2\n          UNION ALL\n            SELECT p.id, p.parent_job, p.kind, p.runnable_path, p.trigger_kind, l.depth + 1\n            FROM v2_job p JOIN lineage l ON p.id = l.parent_job\n            WHERE p.workspace_id = $2 AND l.depth < 100\n        )\n        SELECT l.id AS \"id!\", l.parent_job, l.kind AS \"kind!: windmill_common::jobs::JobKind\",\n            l.runnable_path, l.trigger_kind::text AS trigger_kind,\n            -- A restart takes its flow version from the request, so a trusted flow path\n            -- can carry another flow's code: the version must belong to that path.\n            CASE l.kind\n                WHEN 'flow' THEN EXISTS (SELECT 1 FROM flow_version fv\n                    WHERE fv.id = j.runnable_id AND fv.path = l.runnable_path AND fv.workspace_id = $2)\n                WHEN 'script' THEN EXISTS (SELECT 1 FROM script s\n                    WHERE s.hash = j.runnable_id AND s.path = l.runnable_path AND s.workspace_id = $2)\n                ELSE true\n            END AS \"version_matches_path!\"\n        FROM lineage l JOIN v2_job j ON j.id = l.id ORDER BY l.depth",
   "describe": {
     "columns": [
       {
@@ -57,6 +57,11 @@
         "ordinal": 4,
         "name": "trigger_kind",
         "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "version_matches_path!",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -70,8 +75,9 @@
       null,
       null,
       null,
+      null,
       null
     ]
   },
-  "hash": "756cb98ab6f0e1da5402aaffcbe18fe7af4e80fe52cd977e9d323610fc7d0373"
+  "hash": "6312fd3b4591e9dc5c8c083c43ed2d1052a268dd0ae78b19f87bf3c4120ae52b"
 }
