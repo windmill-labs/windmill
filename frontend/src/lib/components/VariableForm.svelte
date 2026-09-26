@@ -35,6 +35,10 @@
 		can_write: boolean
 		edit: boolean
 		onLoadSecret?: () => void
+		/** Fires after the user flips the Secret toggle, with its new state. */
+		onSecretChange?: (isSecret: boolean) => void
+		/** Whether the deployed variable being edited is secret. */
+		deployedSecret?: boolean
 		/** Workspace the path is validated against; defaults to the nav workspace. */
 		workspace?: string | undefined
 		/** The user acting in `workspace`, resolved by the editor above. `undefined` while
@@ -55,6 +59,8 @@
 		can_write,
 		edit,
 		onLoadSecret,
+		onSecretChange,
+		deployedSecret = false,
 		workspace = undefined,
 		actingUser
 	}: Props = $props()
@@ -66,6 +72,10 @@
 	// value — otherwise the staged one is replaced and the next deploy carries the old one.
 	// '' is the sentinel for "stages nothing", matching the deploy bodies.
 	let hasStagedValue = $derived(variable.value !== '')
+
+	// Un-securing has to send the plaintext, and fetching it silently on the toggle would
+	// reveal the secret without the explicit, audited "Load secret value" action.
+	let unsecureNeedsLoad = $derived(edit && deployedSecret && variable.is_secret && !hasStagedValue)
 
 	const MAX_VARIABLE_LENGTH = 10000
 
@@ -91,16 +101,24 @@
 	/>
 	<LabelsInput bind:labels />
 </div>
-<label class="flex flex-col gap-1">
+<!-- Not a <label>: it would stretch the toggle's hit area over the whole row and the alert. -->
+<div class="flex flex-col gap-1">
 	<span class="text-xs font-semibold text-emphasis">Secret</span>
-	<!-- An `$encrypted:` value is only redeemable while the variable stays secret — the
-	deploy endpoints decrypt the marker inside their `is_secret` branch and store it
-	verbatim otherwise — so un-securing one has to be unreachable until it is Reset. -->
-	<Toggle
-		on:change={() => edit && !hasStagedValue && onLoadSecret?.()}
-		bind:checked={variable.is_secret}
-		disabled={edit && (!actingUser || actingUser.operator || isEncryptedDraftValue(variable.value))}
-	/>
+	<div class="flex flex-row items-center gap-2">
+		<!-- An `$encrypted:` value is only redeemable while the variable stays secret — the
+		deploy endpoints decrypt the marker inside their `is_secret` branch and store it
+		verbatim otherwise — so un-securing one has to be unreachable until it is Reset. -->
+		<Toggle
+			class="w-fit"
+			on:change={(e) => onSecretChange?.(e.detail)}
+			bind:checked={variable.is_secret}
+			disabled={unsecureNeedsLoad ||
+				(edit && (!actingUser || actingUser.operator || isEncryptedDraftValue(variable.value)))}
+		/>
+		{#if unsecureNeedsLoad && !actingUser?.operator}
+			<span class="text-2xs text-secondary">Load the secret value to make it non-secret</span>
+		{/if}
+	</div>
 	{#if variable.is_secret}
 		<Alert type="info" title="Audit log for each access">
 			Every secret is encrypted at rest and in transit with a key specific to this workspace. In
@@ -108,7 +126,7 @@
 			variables.decrypt_secret
 		</Alert>
 	{/if}
-</label>
+</div>
 
 {#if deployTo}
 	<Label
