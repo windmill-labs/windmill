@@ -398,6 +398,20 @@ async fn test_oauth_account_link_requires_ownership(db: Pool<Postgres>) -> anyho
     );
     assert_eq!(linked("u/bob/alias").await, None, "not bob's account");
 
+    let status = client()
+        .post(format!("{base}/update/u/bob/alias"))
+        .header("Authorization", "Bearer BOB_TOKEN_TEST12")
+        .json(&json!({ "account": alice_account }))
+        .send()
+        .await?
+        .status();
+    assert_eq!(status, 200);
+    assert_eq!(
+        linked("u/bob/alias").await,
+        None,
+        "nor by relinking an existing variable"
+    );
+
     assert_eq!(
         create("BOB_TOKEN_TEST12", "u/bob/preclaim", missing_account).await,
         201
