@@ -1091,7 +1091,13 @@
 	label="Fork members"
 	description="Choose who a new fork of this workspace starts with, besides the person who creates it."
 	wrapperClass="pb-12"
+	collapsable
 >
+	{#snippet badge()}
+		{#if addAdminsAndDevelopersToForks}
+			<Badge color="gray" wrapperClass="ml-2 mr-auto">Admins and developers</Badge>
+		{/if}
+	{/snippet}
 	<Toggle
 		bind:checked={addAdminsAndDevelopersToForks}
 		on:change={(e) => updateAddAdminsAndDevelopersToForks(e.detail)}

@@ -2414,6 +2414,18 @@ pub async fn update_workspace_user_internal(
     tx: &mut Transaction<'_, Postgres>,
     authed: Option<&ApiAuthed>, // None for system operations
 ) -> Result<()> {
+    // The role is one choice stored as two flags. Granting one clears the other, or a request
+    // setting only `is_admin` leaves a user shown as admin but refused as an operator.
+    let (is_admin, operator) = match (is_admin, operator) {
+        (Some(true), Some(true)) => {
+            return Err(Error::BadRequest(
+                "A user cannot be both admin and operator".to_string(),
+            ))
+        }
+        (Some(true), _) => (Some(true), Some(false)),
+        (_, Some(true)) => (Some(false), Some(true)),
+        flags => flags,
+    };
     if let Some(a) = is_admin {
         sqlx::query_scalar!(
             "UPDATE usr SET is_admin = $1 WHERE username = $2 AND workspace_id = $3",

@@ -40,8 +40,10 @@
 		EllipsisVertical,
 		Share2,
 		Globe,
-		Users
+		Users,
+		Play
 	} from 'lucide-svelte'
+	import { forLater } from '$lib/forLater'
 
 	import { isJobResolvable } from '$lib/utils'
 	import {
@@ -277,6 +279,27 @@
 			sendUserToast(`job ${id} canceled`)
 		} catch (err) {
 			sendUserToast('could not cancel job', true)
+		}
+	}
+
+	// A schedule's upcoming tick sits on a whole second and the backend refuses it; a tick
+	// deferred by a concurrency limit lands on a sub-second instant and can still start now.
+	let canRunNow = $derived(
+		job?.type === 'QueuedJob' &&
+			!job.running &&
+			!job.suspend &&
+			!!job.scheduled_for &&
+			forLater(job.scheduled_for) &&
+			!(job.schedule_path && new Date(job.scheduled_for).getMilliseconds() === 0)
+	)
+
+	async function runJobNow(id: string) {
+		try {
+			await JobService.runQueuedJobNow({ workspace: $workspaceStore!, id })
+			sendUserToast(`job ${id} will start as soon as a worker is available`)
+			getJob()
+		} catch (err) {
+			sendUserToast(`could not start job now: ${err?.body ?? err}`, true)
 		}
 	}
 
@@ -884,6 +907,17 @@
 					}}
 				>
 					Current runs
+				</Button>
+			{/if}
+			{#if canRunNow}
+				<Button
+					unifiedSize="md"
+					variant="default"
+					startIcon={{ icon: Play }}
+					on:click={() => job?.id && runJobNow(job.id)}
+					title="Start this job now instead of at its scheduled time, skipping any remaining delay or sleep. It keeps the same id, and a concurrency limit is still enforced."
+				>
+					Run now
 				</Button>
 			{/if}
 			{#if job && job?.type != 'CompletedJob' && (!job?.schedule_path || job?.['running'] == true)}

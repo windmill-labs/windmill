@@ -386,6 +386,31 @@ export function renderDbEqualityFilter(
 	return `${renderDbQuotedIdentifier(column, dbType)} = ${literal}`
 }
 
+/** Case-insensitive "column contains `term`" predicate. The column is cast to
+ * text first so it applies to any type (uuid, dates, json…). The term is
+ * matched with a position function rather than LIKE so `%` and `_` in it stay
+ * literal. */
+export function renderDbContainsFilter(column: string, term: string, dbType: DbType): string {
+	const quoted = renderDbQuotedIdentifier(column, dbType)
+	const literal = renderDbLiteral(term.toLowerCase(), dbType)!
+	switch (dbType) {
+		case 'postgresql':
+			return `strpos(lower(CAST(${quoted} AS TEXT)), ${literal}) > 0`
+		case 'mysql':
+			return `LOCATE(${literal}, LOWER(CAST(${quoted} AS CHAR))) > 0`
+		case 'ms_sql_server':
+			return `CHARINDEX(${literal}, LOWER(CAST(${quoted} AS NVARCHAR(MAX)))) > 0`
+		case 'snowflake':
+			return `CONTAINS(LOWER(TO_VARCHAR(${quoted})), ${literal})`
+		case 'duckdb':
+			return `contains(lower(CAST(${quoted} AS VARCHAR)), ${literal})`
+		case 'bigquery':
+			return `STRPOS(LOWER(CAST(${quoted} AS STRING)), ${literal}) > 0`
+		default:
+			throw new Error('Unsupported database type: ' + dbType)
+	}
+}
+
 export function getLanguageByResourceType(name: string): ScriptLang {
 	const language = {
 		postgresql: 'postgresql',

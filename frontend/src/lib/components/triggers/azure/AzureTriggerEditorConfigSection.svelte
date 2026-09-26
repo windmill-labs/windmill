@@ -12,6 +12,7 @@
 	import { emptyStringTrimmed } from '$lib/utils'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import { RefreshCw } from 'lucide-svelte'
+	import { triggerLock } from '$lib/operatorWriteRights'
 
 	interface Props {
 		can_write?: boolean
@@ -92,7 +93,8 @@
 	let scopeError = $state<string | undefined>(undefined)
 
 	async function loadScopeResources() {
-		if (!wsId || emptyStringTrimmed(azure_resource_path)) {
+		// POST reads the write gate refuses, fired on open: see RouteEditorConfigSection.
+		if ($triggerLock || !wsId || emptyStringTrimmed(azure_resource_path)) {
 			scopeResources = []
 			return
 		}
@@ -144,6 +146,7 @@
 
 	async function loadTopics() {
 		if (
+			$triggerLock ||
 			!is_namespace ||
 			!wsId ||
 			emptyStringTrimmed(azure_resource_path) ||
@@ -273,7 +276,7 @@
 				</div>
 				{#if scopeError}
 					<p class="text-xs text-red-600 mt-1">{scopeError}</p>
-				{:else if !scopeLoading && scopeResources.length === 0}
+				{:else if can_write && !scopeLoading && scopeResources.length === 0}
 					<p class="text-xs text-tertiary mt-1">
 						No {scopeLabel.toLowerCase()} found. Create one in Azure and click refresh.
 					</p>

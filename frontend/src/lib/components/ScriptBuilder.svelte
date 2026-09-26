@@ -118,6 +118,7 @@
 	import WacExportDrawer from './scripts/WacExportDrawer.svelte'
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+	import { triggerLock } from '$lib/operatorWriteRights'
 
 	let {
 		script = $bindable(),
@@ -751,7 +752,8 @@
 			// content just deployed. Fire-and-forget — must never gate the deploy.
 			notifyContractWarnings(opWorkspace!, script.language, script.content)
 
-			if (!initialPath) {
+			// Gated for operators without `manage_triggers`, who cannot have captures to move.
+			if (!initialPath && !$triggerLock) {
 				await CaptureService.moveCapturesAndConfigs({
 					workspace: opWorkspace!,
 					path: fakeInitialPath,
