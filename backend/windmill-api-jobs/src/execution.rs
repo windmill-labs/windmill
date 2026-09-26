@@ -147,8 +147,8 @@ pub async fn drop_unclaimable_run_lineage(
     };
     for field in [&mut run_query.parent_job, &mut run_query.root_job] {
         if field.is_some_and(|id| referenced.contains(&id) && !in_workspace.contains(&id)) {
-            tracing::debug!(
-                "ignoring lineage job {field:?} that {} cannot claim",
+            tracing::warn!(
+                "ignoring parent_job/root_job {field:?} that {} cannot claim in {w_id}",
                 authed.username
             );
             *field = None;
