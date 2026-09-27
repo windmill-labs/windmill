@@ -75,14 +75,14 @@ describe('layoutSimplifiedFlow', () => {
 		expect(byId.loop.type).toBe('simplifiedBox')
 		expect(byId.one.type).toBe('simplifiedBox')
 		expect(inside(byId.one, byId.loop)).toBe(true)
-		for (const id of ['inner', 'one:empty-1']) expect(inside(byId[id], byId.one)).toBe(true)
-		expect(byId['one:caption-1'].data.title).toBe('Default')
+		for (const id of ['inner', 'one:empty-0']) expect(inside(byId[id], byId.one)).toBe(true)
+		expect(byId['one:caption-0'].data.title).toBe('Default')
 
 		expect(edges.map((e) => `${e.source}->${e.target}`).sort()).toEqual([
 			'Input->inner',
-			'Input->one:empty-1',
+			'Input->one:empty-0',
 			'inner->Result',
-			'one:empty-1->Result'
+			'one:empty-0->Result'
 		])
 	})
 

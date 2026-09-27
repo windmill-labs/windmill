@@ -4,6 +4,9 @@
 	import type { FlowModule } from '$lib/gen'
 	import type { Snippet } from 'svelte'
 	import { layoutSimplifiedFlow } from './simplifiedLayout'
+	import { setSimplifiedEditContext } from './simplifiedContext'
+	import type { FlowStructureNode } from '../flowStructure'
+	import type { GraphEventHandlers } from '../graphBuilder.svelte'
 	import SimplifiedNode from './SimplifiedNode.svelte'
 	import SimplifiedBox from './SimplifiedBox.svelte'
 	import SimplifiedEdge from './SimplifiedEdge.svelte'
@@ -21,6 +24,14 @@
 		selectedId?: string
 		/** Rendered in the top-left control stack, e.g. the toggle leading back to the full graph */
 		topLeftControls?: Snippet
+		/** The step tree with groups resolved, as the full graph builds it */
+		structure?: FlowStructureNode[]
+		/** Enables the step menus */
+		editMode?: boolean
+		/** Enables the "+" slots, on top of `editMode` */
+		insertable?: boolean
+		eventHandlers?: GraphEventHandlers
+		disableAi?: boolean
 	}
 
 	let {
@@ -31,11 +42,34 @@
 		maxHeight,
 		onSelect,
 		selectedId,
-		topLeftControls
+		topLeftControls,
+		structure,
+		editMode = false,
+		insertable = false,
+		eventHandlers,
+		disableAi = false
 	}: Props = $props()
 
+	setSimplifiedEditContext({
+		get eventHandlers() {
+			return eventHandlers
+		},
+		get editMode() {
+			return editMode
+		},
+		get disableAi() {
+			return disableAi
+		}
+	})
+
 	let layout = $derived(
-		layoutSimplifiedFlow({ modules: modules ?? [], failureModule, preprocessorModule })
+		layoutSimplifiedFlow({
+			modules: modules ?? [],
+			structure,
+			failureModule,
+			preprocessorModule,
+			editable: editMode && insertable && !!eventHandlers
+		})
 	)
 	// The full graph selects a branch lane as `<module id>-branch-<n|default>`; here the lane
 	// belongs to its group, which is keyed by the module id.

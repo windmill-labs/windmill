@@ -1335,6 +1335,11 @@
 			{minHeight}
 			{maxHeight}
 			{selectedId}
+			structure={'structureTree' in graph ? graph.structureTree : undefined}
+			{editMode}
+			{insertable}
+			eventHandlers={eventHandler}
+			{disableAi}
 			onSelect={(id) => {
 				if (notSelectable) return
 				selectionManager.selectId(id)

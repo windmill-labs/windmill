@@ -1,6 +1,9 @@
 <script lang="ts">
 	import { twMerge } from 'tailwind-merge'
+	import { GitBranchPlus } from 'lucide-svelte'
 	import FlowModuleIcon from '$lib/components/flows/FlowModuleIcon.svelte'
+	import StepContextMenu from './StepContextMenu.svelte'
+	import { getSimplifiedEditContext, useStepMenu } from './simplifiedContext'
 	import { getFlowRunStatusContext } from '../flowRunStatus.svelte'
 	import { SIMPLIFIED, type SimplifiedBoxData } from './simplifiedLayout'
 
@@ -21,6 +24,11 @@
 	let statusBracket = $derived(STATUS_BRACKET[flowRunStatus?.getModuleState(id)?.type ?? ''])
 
 	const headerTop = SIMPLIFIED.loopPad / 2
+
+	const edit = getSimplifiedEditContext()
+	const stepMenu = useStepMenu()
+	let menuItems = $derived(data.kind === 'group' ? [] : stepMenu(id, header.module))
+	let canAddBranch = $derived(data.kind === 'branch' && !!edit?.editMode && !!edit.eventHandlers)
 </script>
 
 <!-- A bracket over the group rather than a box around it: only the label takes clicks, so the
@@ -35,25 +43,40 @@
 		)}
 		style="top: {headerTop + SIMPLIFIED.loopHeader + 1}px;"
 	></div>
-	<div
-		class="absolute left-1 max-w-[calc(100%-8px)] inline-flex items-center gap-1.5 px-1.5 text-2xs text-secondary min-w-0 cursor-pointer pointer-events-auto"
-		style="top: {headerTop}px; height: {SIMPLIFIED.loopHeader}px;"
-		title={[header.title, header.detail].filter(Boolean).join(' · ')}
-	>
-		{#if header.module}
-			<span class="shrink-0"><FlowModuleIcon module={header.module} size={12} /></span>
-		{/if}
-		<span
-			class={twMerge(
-				'font-medium truncate shrink-0 max-w-[75%]',
-				selected ? 'text-accent' : 'text-emphasis'
-			)}
+	<StepContextMenu items={menuItems}>
+		<div
+			class="absolute left-1 max-w-[calc(100%-8px)] inline-flex items-center gap-1.5 px-1.5 text-2xs text-secondary min-w-0 cursor-pointer pointer-events-auto"
+			style="top: {headerTop}px; height: {SIMPLIFIED.loopHeader}px;"
+			title={[header.title, header.detail].filter(Boolean).join(' · ')}
 		>
-			{header.title}
-		</span>
-		<span class="font-mono text-primary shrink-0">{header.stepId}</span>
-		{#if header.detail}
-			<span class="font-mono text-hint truncate min-w-0">{header.detail}</span>
-		{/if}
-	</div>
+			{#if header.module}
+				<span class="shrink-0"><FlowModuleIcon module={header.module} size={12} /></span>
+			{/if}
+			<span
+				class={twMerge(
+					'font-medium truncate shrink-0 max-w-[75%]',
+					selected ? 'text-accent' : 'text-emphasis'
+				)}
+			>
+				{header.title}
+			</span>
+			<span class="font-mono text-primary shrink-0">{header.stepId}</span>
+			{#if header.detail}
+				<span class="font-mono text-hint truncate min-w-0">{header.detail}</span>
+			{/if}
+			{#if canAddBranch}
+				<button
+					type="button"
+					title="Add branch"
+					class="nodrag shrink-0 rounded p-0.5 text-secondary hover:text-primary hover:bg-surface-hover"
+					onclick={(e) => {
+						e.stopPropagation()
+						edit?.eventHandlers?.newBranch(id)
+					}}
+				>
+					<GitBranchPlus size={12} />
+				</button>
+			{/if}
+		</div>
+	</StepContextMenu>
 </div>
