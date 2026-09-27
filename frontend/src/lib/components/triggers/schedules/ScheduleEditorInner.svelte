@@ -737,19 +737,29 @@
 
 	async function handleToggleEnabled(nEnabled: boolean) {
 		const previousEnabled = enabled
-		enabled = nEnabled
+		const setEnabled = (v: boolean) => {
+			enabled = v
+			draftSync.patchBaseline({ enabled: v })
+		}
+		setEnabled(nEnabled)
 		if (!trigger?.draftConfig) {
-			const ok = await withForkConflictRetry(
-				(force) =>
-					ScheduleService.setScheduleEnabled({
-						path: initialPath,
-						workspace: wsId ?? '',
-						requestBody: { enabled: nEnabled, force }
-					}),
-				'schedule'
-			)
+			let ok: boolean
+			try {
+				ok = await withForkConflictRetry(
+					(force) =>
+						ScheduleService.setScheduleEnabled({
+							path: initialPath,
+							workspace: wsId ?? '',
+							requestBody: { enabled: nEnabled, force }
+						}),
+					'schedule'
+				)
+			} catch (err) {
+				setEnabled(previousEnabled)
+				throw err
+			}
 			if (!ok) {
-				enabled = previousEnabled
+				setEnabled(previousEnabled)
 				return
 			}
 			sendUserToast(`${nEnabled ? 'enabled' : 'disabled'} schedule ${initialPath}`)
