@@ -375,6 +375,16 @@ export type RunDeps = {
 	 */
 	createdProjects: CreatedProject[]
 	/**
+	 * The databases earlier attempts in this session created on the external cluster. Only these
+	 * make a retry skip the create: any other registered name is somebody else's database, and
+	 * attaching to it silently would share their data without the warning the existing-database
+	 * branch shows.
+	 */
+	createdExternalDbs: string[]
+	/** Called once a database lands on the external cluster, so the caller's registry — which
+	 *  names the next run's default and validates it — is not a page-load-old view. */
+	onExternalDbsChanged?: () => Promise<void>
+	/**
 	 * What earlier attempts in this session wrote, and this one may therefore write over again.
 	 * The pre-flight checks the names are free, but the Supabase branch then spends minutes
 	 * provisioning, and every wizard suggests the same `main` -- so a second admin can take the
@@ -403,6 +413,8 @@ export type RunResult = {
 	 * later attempt may write over it.
 	 */
 	createdProjects: CreatedProject[]
+	/** The external-cluster databases this session created, kept for the same reason. */
+	createdExternalDbs: string[]
 	/** What this run holds now, for the next attempt to be given back. */
 	claims: Claims
 }
@@ -427,6 +439,17 @@ async function exists(kind: 'variable' | 'resource', workspace: string, path: st
  * `edit_datatable_config` replaces the whole map, so the rest is read back and sent with
  * it. Re-runnable: a second attempt overwrites the entry it wrote.
  */
+/**
+ * What identifies the database a row points at. The kind belongs in it: `instance` and
+ * `external_instance` are different databases that may carry the same name, so a row repointed
+ * from one to the other while this run probes must not read as the row this run wrote.
+ */
+function rowMark(database: { resource_type?: string; resource_path?: string } | undefined) {
+	return database?.resource_path === undefined
+		? undefined
+		: `${database.resource_type ?? ''}:${database.resource_path}`
+}
+
 async function writeRow(
 	deps: RunDeps,
 	claims: Claims,
@@ -440,10 +463,7 @@ async function writeRow(
 	const datatables: Record<string, any> = { ...(settings.datatable?.datatables ?? {}) }
 	// Free when the pre-flight looked, taken by the time we write: repointing it here would
 	// silently hand another admin's data table a database they never chose.
-	if (
-		datatables[name] &&
-		!stillOurs(claims, 'row', name, datatables[name]?.database?.resource_path)
-	) {
+	if (datatables[name] && !stillOurs(claims, 'row', name, rowMark(datatables[name]?.database))) {
 		throw new Error(
 			`A data table called ${name} was created while this setup was running. Choose another name and try again.`
 		)
@@ -453,7 +473,7 @@ async function writeRow(
 		workspace: deps.workspace,
 		requestBody: { settings: { datatables }, renames: [], deleted_datatables: [] }
 	})
-	return claim(claims, 'row', name, database.resource_path)
+	return claim(claims, 'row', name, rowMark(database)!)
 }
 
 /**
@@ -470,7 +490,7 @@ async function removeRow(deps: RunDeps, claims: Claims, name: string): Promise<R
 		// Only take back the row this run put there. Between writing it and probing it, another
 		// admin can have pointed the same name somewhere else, and deleting that is worse than
 		// leaving ours behind.
-		if (!stillOurs(claims, 'row', name, datatables[name]?.database?.resource_path)) return 'foreign'
+		if (!stillOurs(claims, 'row', name, rowMark(datatables[name]?.database))) return 'foreign'
 		delete datatables[name]
 		// Not `deleted_datatables`: that exists to cascade migration bookkeeping and deployment
 		// records for a data table that was really in use, and this one never got that far.
@@ -597,6 +617,7 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 	let rowRolledBack = false
 	let claims = deps.claims
 	let createdProjects: CreatedProject[] = [...deps.createdProjects]
+	let createdExternalDbs: string[] = [...deps.createdExternalDbs]
 	/** Records a created project once, so a second attempt cannot displace the first one's guard. */
 	const rememberProject = (name: string, at: string) => {
 		if (!createdProjects.some((p) => p.path === at))
@@ -610,7 +631,8 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 			rowWritten,
 			rowRolledBack,
 			claims,
-			createdProjects
+			createdProjects,
+			createdExternalDbs
 		}
 	}
 
@@ -757,14 +779,16 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 					)
 				}
 			} else if (planned[index].key === 'create_external') {
-				// Try again lands here with the database already made: the endpoint refuses a name the
-				// cluster holds, whoever made it, so only a name Windmill has not registered is created.
-				const registered = await SettingService.listExternalInstancePgDatabases()
-				if (registered[externalName] === undefined) {
+				// Only a database this session created is skipped on a retry. Anything else under
+				// that name belongs to whoever made it, and the endpoint refusing the name is the
+				// answer a first attempt should get rather than quietly sharing their data.
+				if (!createdExternalDbs.includes(externalName)) {
 					await SettingService.createExternalInstancePgDatabase({
 						name: externalName,
 						requestBody: { tag: 'datatable' }
 					})
+					createdExternalDbs = [...createdExternalDbs, externalName]
+					await deps.onExternalDbsChanged?.()
 				}
 			} else if (planned[index].key === 'setup_instance') {
 				// The call reports nothing until it returns, so name the checks it is about to run
@@ -785,7 +809,8 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 						rowWritten,
 						rowRolledBack,
 						claims,
-						createdProjects
+						createdProjects,
+						createdExternalDbs
 					}
 				}
 				advance('running', undefined, checks)
@@ -825,7 +850,8 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 						rowWritten,
 						rowRolledBack,
 						claims,
-						createdProjects
+						createdProjects,
+						createdExternalDbs
 					}
 				}
 				advance('done')
@@ -835,7 +861,8 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 					rowWritten,
 					rowRolledBack,
 					claims,
-					createdProjects
+					createdProjects,
+					createdExternalDbs
 				}
 			} else {
 				// Checked through the resource, so nothing is written until the database has proved
@@ -849,7 +876,8 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 						rowWritten,
 						rowRolledBack,
 						claims,
-						createdProjects
+						createdProjects,
+						createdExternalDbs
 					}
 				}
 				claims = await writeRow(deps, claims, name, {
@@ -864,7 +892,8 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 					rowWritten,
 					rowRolledBack,
 					claims,
-					createdProjects
+					createdProjects,
+					createdExternalDbs
 				}
 			}
 			advance('done')
@@ -877,6 +906,7 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 		ok: true,
 		rowWritten,
 		rowRolledBack,
+		createdExternalDbs,
 		claims,
 		createdProjects
 	}

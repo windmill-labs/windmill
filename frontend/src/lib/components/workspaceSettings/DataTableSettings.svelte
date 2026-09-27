@@ -194,11 +194,22 @@
 
 	// A kind already saved stays listed whatever the instance offers now, or the entry would read
 	// as something it is not.
+	// Qualified per form, not per row: two rows, one on each substrate, would otherwise both
+	// read `Managed instance` and the label would say nothing.
+	let anyInstanceRow = $derived(
+		tempSettings.dataTables.some((d) => d.database.resource_type === 'instance')
+	)
+	let anyExternalRow = $derived(
+		tempSettings.dataTables.some((d) => d.database.resource_type === 'external_instance')
+	)
 	function kindItems(current: string | undefined) {
 		const showInstance = instancePossible || current === 'instance'
 		const showExternal =
 			(externalInstanceConfigured && !!$superadmin) || current === 'external_instance'
-		const labels = managedInstanceLabels(showInstance, showExternal)
+		const labels = managedInstanceLabels(
+			instancePossible || anyInstanceRow,
+			(externalInstanceConfigured && !!$superadmin) || anyExternalRow
+		)
 		const items: { value: string; label: string; disabled?: boolean; subtitle?: string }[] = [
 			{ value: 'postgresql', label: 'Postgres Resource' }
 		]
@@ -229,6 +240,16 @@
 			})
 		}
 		return items
+	}
+
+	function defaultExternalDbName(): string {
+		const usedNames = [
+			...Object.keys(externalInstanceDbs.current ?? {}),
+			...tempSettings.dataTables
+				.filter((d) => d.database.resource_type === 'external_instance' && d.database.resource_path)
+				.map((d) => d.database.resource_path!)
+		]
+		return getUnusedInstanceDbName('dt', $workspaceStore ?? '', usedNames)
 	}
 
 	function defaultInstanceDbName(): string {
@@ -750,6 +771,7 @@
 		{customInstanceDbs}
 		{externalInstanceDbs}
 		externalInstanceAvailable={externalInstanceConfigured && !!$superadmin}
+		{defaultExternalDbName}
 		{confirmationModal}
 		{defaultInstanceDbName}
 	/>

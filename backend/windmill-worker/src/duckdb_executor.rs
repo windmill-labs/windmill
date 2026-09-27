@@ -2935,6 +2935,7 @@ mod tests {
             accept_invalid_certs,
             use_iam_auth: None,
             region: None,
+            options: None,
         };
         let uri = pg_attach_uri(&pg("verify-full", Some(false)), &job_dir).unwrap();
         assert!(uri.contains("?sslmode=verify-full&sslrootcert="), "{uri}");
@@ -4178,7 +4179,7 @@ mod tests {
     #[test]
     fn test_pg_secret_attach_statements_options() {
         let db_resource = json!({ "host": "h", "dbname": "d", "options": r"-c search_path='a\b'" });
-        let stmts = pg_secret_attach_statements(db_resource, "dt").unwrap();
+        let stmts = pg_secret_attach_statements(db_resource, "dt", "/tmp").unwrap();
         let secret_name = datatable_secret_name("dt");
         assert_eq!(
             stmts[3],

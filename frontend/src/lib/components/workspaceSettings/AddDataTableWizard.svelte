@@ -90,6 +90,9 @@
 		 * settings page for the same reason as `customInstanceDbs`. */
 		externalInstanceDbs?: ResourceReturn<ListExternalInstancePgDatabasesResponse> | undefined
 		externalInstanceAvailable?: boolean
+		/** A free name on the external cluster. Its registry and the workspace's entries there are
+		 *  a different set from the instance's, so the two defaults cannot be the same helper. */
+		defaultExternalDbName?: () => string
 		confirmationModal: ConfirmationModalHandle
 		defaultInstanceDbName: () => string
 		/** Name to open with, when the caller needs a table of a particular name rather
@@ -135,6 +138,7 @@
 		customInstanceDbs,
 		externalInstanceDbs,
 		externalInstanceAvailable = false,
+		defaultExternalDbName,
 		confirmationModal,
 		defaultInstanceDbName,
 		initialName,
@@ -315,6 +319,7 @@
 	)
 	// The cluster refuses a name it already holds, whoever made it, so the registry is the list
 	// to check against — same shape as the instance one.
+	const externalDbName = () => defaultExternalDbName?.() ?? defaultInstanceDbName()
 	let externalNameError = $derived(
 		wiz.provider === 'external_instance' && wiz.external.mode === 'create'
 			? instanceDbNameError(
@@ -500,6 +505,7 @@
 		claimedInstanceDb = undefined
 		leftBehind = false
 		createdProjects = []
+		createdExternalDbs = []
 		nameConflictFor = undefined
 		lastFailure = ''
 		finishAlsoFailed = false
@@ -511,6 +517,7 @@
 			// redirect, so what it had already created is still its own to write over.
 			claims = claimsFromJSON(from.claims)
 			createdProjects = from.createdProjects ?? []
+			createdExternalDbs = from.createdExternalDbs ?? []
 			leftBehind = anythingClaimed(claims) || createdProjects.length > 0
 			// Which side of the toggle it was on, and the organization it was pointed at. Left to
 			// default, a run that died mid-create comes back asking for the password it generated.
@@ -552,7 +559,7 @@
 		logDatatableWizard({ step: 'picked', provider: key })
 		invalidate()
 		if (key === 'instance') wiz.instance.dbName ??= defaultInstanceDbName()
-		if (key === 'external_instance') wiz.external.dbName ??= defaultInstanceDbName()
+		if (key === 'external_instance') wiz.external.dbName ??= externalDbName()
 	}
 
 	function suggestedResourceName(): string {
@@ -677,6 +684,9 @@
 	 * leave a password nothing later may write over.
 	 */
 	let createdProjects = $state<CreatedProject[]>([])
+	/** Databases this session created on the external cluster, so a retry does not create twice
+	 * and Discard can say one was left behind. */
+	let createdExternalDbs = $state<string[]>([])
 	/** The instance database this session asked for, which is registered even when it failed. */
 	let claimedInstanceDb = $state<string | undefined>(undefined)
 	/**
@@ -809,9 +819,13 @@
 				onInstanceDbsChanged: async () => {
 					await customInstanceDbs.refetch()
 				},
+				onExternalDbsChanged: async () => {
+					await externalInstanceDbs?.refetch()
+				},
 				onProgress: (steps) => (run.steps = steps),
 				onPoolerUnavailable: (reason) => (poolerUnavailable = reason),
 				createdProjects,
+				createdExternalDbs,
 				claims,
 				username: targetUsername
 			})
@@ -839,10 +853,15 @@
 			// Kept, not replaced: what an earlier attempt wrote is still out there, so a later
 			// one failing sooner must not hand its own objects back to the collision checks.
 			createdProjects = result?.createdProjects ?? createdProjects
+			createdExternalDbs = result?.createdExternalDbs ?? createdExternalDbs
 			claims = result?.claims ?? claims
 			// A row taken back out frees its name again, and free is somebody else's to take.
 			if (result?.rowRolledBack) claims = release(claims, 'row', name)
-			leftBehind = anythingClaimed(claims) || createdProjects.length > 0 || !!claimedInstanceDb
+			leftBehind =
+				anythingClaimed(claims) ||
+				createdProjects.length > 0 ||
+				createdExternalDbs.length > 0 ||
+				!!claimedInstanceDb
 			run = {
 				...run,
 				running: false,
@@ -850,6 +869,7 @@
 					ok: false,
 					error: 'The setup stopped unexpectedly.',
 					claims,
+					createdExternalDbs,
 					createdProjects
 				}
 			}
@@ -1308,7 +1328,7 @@
 				() => wiz.external.mode,
 				(v) => {
 					wiz.external.mode = v
-					wiz.external.dbName = v === 'create' ? defaultInstanceDbName() : undefined
+					wiz.external.dbName = v === 'create' ? externalDbName() : undefined
 				}
 			}
 		>
@@ -1359,7 +1379,7 @@
 			<TextInput
 				bind:value={() => wiz.external.dbName ?? '', (v) => (wiz.external.dbName = v)}
 				error={!!externalNameError}
-				inputProps={{ placeholder: defaultInstanceDbName() }}
+				inputProps={{ placeholder: externalDbName() }}
 			/>
 			<InputError error={externalNameError} />
 			{#if !externalNameError}

@@ -204,11 +204,21 @@
 	let instanceAvailable = $derived(instancePossible)
 
 	// A kind already saved stays listed whatever the instance offers now.
+	// Qualified per form, not per row: see DataTableSettings.
+	let anyInstanceLake = $derived(
+		ducklakeSettings.ducklakes.some((d) => d.catalog.resource_type === 'instance')
+	)
+	let anyExternalLake = $derived(
+		ducklakeSettings.ducklakes.some((d) => d.catalog.resource_type === 'external_instance')
+	)
 	function catalogItems(current: string | undefined) {
 		const showInstance = instancePossible || current === 'instance'
 		const showExternal =
 			(externalInstanceConfigured && !!$superadmin) || current === 'external_instance'
-		const labels = managedInstanceLabels(showInstance, showExternal)
+		const labels = managedInstanceLabels(
+			instancePossible || anyInstanceLake,
+			(externalInstanceConfigured && !!$superadmin) || anyExternalLake
+		)
 		const items: { value: string; label: string; disabled?: boolean; subtitle?: string }[] = [
 			{ value: 'postgresql', label: 'Postgres Resource' },
 			{ value: 'mysql', label: 'MySQL Resource' }
