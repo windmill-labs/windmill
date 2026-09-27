@@ -839,6 +839,8 @@ export function layoutSimplifiedFlow(
 			position: { x: left, y: b.y },
 			data,
 			draggable: false,
+			// A rectangle drawn over the steps inside would otherwise also select the loop or branch
+			selectable: false,
 			zIndex: -1,
 			// Only the group's label is interactive; SimplifiedBox re-enables pointer events on it.
 			style: 'pointer-events: none;',

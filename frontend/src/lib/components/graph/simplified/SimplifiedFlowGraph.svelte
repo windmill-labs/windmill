@@ -1,5 +1,11 @@
 <script lang="ts">
-	import { SvelteFlow, SvelteFlowProvider, Controls } from '@xyflow/svelte'
+	import {
+		SvelteFlow,
+		SvelteFlowProvider,
+		Controls,
+		SelectionMode,
+		type Node
+	} from '@xyflow/svelte'
 	import '@xyflow/svelte/dist/base.css'
 	import type { FlowModule } from '$lib/gen'
 	import type { Snippet } from 'svelte'
@@ -7,6 +13,8 @@
 	import { setSimplifiedEditContext } from './simplifiedContext'
 	import type { FlowStructureNode } from '../flowStructure'
 	import type { GraphEventHandlers } from '../graphBuilder.svelte'
+	import type { SelectionManager } from '../selectionUtils.svelte'
+	import SelectionTool from '../SelectionTool.svelte'
 	import SimplifiedNode from './SimplifiedNode.svelte'
 	import SimplifiedBox from './SimplifiedBox.svelte'
 	import SimplifiedEdge from './SimplifiedEdge.svelte'
@@ -32,6 +40,12 @@
 		insertable?: boolean
 		eventHandlers?: GraphEventHandlers
 		disableAi?: boolean
+		/** The graph's selection manager; with `selectionOverlay`, several steps can be selected */
+		selectionManager?: SelectionManager
+		/** Drawn over a multi-step selection (its bulk actions), given the laid-out nodes */
+		selectionOverlay?: Snippet<[Node[]]>
+		/** Held while dragging on the canvas to select a rectangle of steps */
+		selectionKey?: string
 	}
 
 	let {
@@ -47,7 +61,10 @@
 		editMode = false,
 		insertable = false,
 		eventHandlers,
-		disableAi = false
+		disableAi = false,
+		selectionManager,
+		selectionOverlay,
+		selectionKey
 	}: Props = $props()
 
 	setSimplifiedEditContext({
@@ -76,8 +93,11 @@
 	let nodes = $derived(
 		layout.nodes.map((n) => ({
 			...n,
+			// The selection box measures nodes by their `measured` size
+			measured: { width: n.width, height: n.height },
 			selected:
 				n.id === selectedId ||
+				!!selectionManager?.selectedIds.includes(n.id) ||
 				(n.type === 'simplifiedBox' && !!selectedId?.startsWith(`${n.id}-branch-`))
 		}))
 	)
@@ -131,17 +151,27 @@
 				maxZoom={1.6}
 				nodesDraggable={false}
 				nodesConnectable={false}
-				elementsSelectable={false}
+				elementsSelectable={!!selectionOverlay}
+				multiSelectionKey="Shift"
+				selectionKey={selectionOverlay ? (selectionKey ?? null) : null}
+				selectionMode={SelectionMode.Partial}
 				zoomOnDoubleClick={false}
 				deleteKey={null}
-				onnodeclick={({ node }) => {
+				onnodeclick={({ node, event }) => {
+					// Adding to a multi-selection is xyflow's, synced by SelectionTool
+					if (event.shiftKey) return
 					// Boxes stand for their loop or branch step; placeholders are not selectable
 					if (node.type === 'simplifiedBox' || node.selectable) onSelect?.(node.id)
 				}}
+				onpaneclick={() => selectionManager?.clearSelection()}
 				{proOptions}
 				--background-color={false}
 			>
 				<div class="absolute inset-0 !bg-surface-secondary h-full"></div>
+				{#if selectionOverlay && selectionManager}
+					<SelectionTool {selectionManager} />
+					{@render selectionOverlay(nodes)}
+				{/if}
 				<Controls position="top-right" orientation="horizontal" showLock={false} />
 				{#if topLeftControls}
 					<Controls

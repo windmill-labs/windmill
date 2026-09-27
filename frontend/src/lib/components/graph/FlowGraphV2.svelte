@@ -1335,6 +1335,9 @@
 			{minHeight}
 			{maxHeight}
 			{selectedId}
+			{selectionManager}
+			selectionOverlay={multiSelectEnabled ? selectionBox : undefined}
+			selectionKey={editMode ? modifierKey : undefined}
 			structure={'structureTree' in graph ? graph.structureTree : undefined}
 			{editMode}
 			{insertable}
@@ -1422,19 +1425,7 @@
 				{/if}
 
 				{#if multiSelectEnabled}
-					<SelectionBoundingBox
-						selectedNodes={selectionManager.selectedIds.filter((id) =>
-							nodesWithOffset.some((n) => n.id === id)
-						)}
-						allNodes={nodesWithOffset as (Node & { type: string })[]}
-						onDeleteSelected={() => onDeleteMultiple?.(resolvedModuleIds)}
-						onDuplicateSelected={() => onDuplicateMultiple?.(resolvedModuleIds)}
-						onMoveSelected={() => onMoveMultiple?.(resolvedModuleIds)}
-						onCancelMove={() => onMoveMultiple?.(movingIds ?? [])}
-						{canMoveSelected}
-						isMoving={movingIds != null && movingIds.length > 0}
-						{resolvedModuleIds}
-					/>
+					{@render selectionBox(nodesWithOffset)}
 				{/if}
 
 				<GroupOverlay
@@ -1547,6 +1538,20 @@
 		</SvelteFlowProvider>
 	{/if}
 </div>
+
+{#snippet selectionBox(allNodes: Node[])}
+	<SelectionBoundingBox
+		selectedNodes={selectionManager.selectedIds.filter((id) => allNodes.some((n) => n.id === id))}
+		allNodes={allNodes as (Node & { type: string })[]}
+		onDeleteSelected={() => onDeleteMultiple?.(resolvedModuleIds)}
+		onDuplicateSelected={() => onDuplicateMultiple?.(resolvedModuleIds)}
+		onMoveSelected={() => onMoveMultiple?.(resolvedModuleIds)}
+		onCancelMove={() => onMoveMultiple?.(movingIds ?? [])}
+		{canMoveSelected}
+		isMoving={movingIds != null && movingIds.length > 0}
+		{resolvedModuleIds}
+	/>
+{/snippet}
 
 {#snippet simplifiedViewToggle()}
 	<Toggle bind:checked={simplifiedView} size="xs" options={{ right: 'Simplified view' }} />
