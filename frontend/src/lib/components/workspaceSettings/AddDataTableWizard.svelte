@@ -324,7 +324,11 @@
 		wiz.provider === 'external_instance' && wiz.external.mode === 'create'
 			? instanceDbNameError(
 					wiz.external.dbName ?? '',
-					Object.keys(externalInstanceDbs?.current ?? {})
+					// A database this run already created is not a collision: after a failed probe,
+					// Back returns here under the same name, and the retry reuses what it made.
+					Object.keys(externalInstanceDbs?.current ?? {}).filter(
+						(n) => !createdExternalDbs.includes(n)
+					)
 				)
 			: undefined
 	)

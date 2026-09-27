@@ -2,14 +2,18 @@
 	import { Badge, Button, Drawer, DrawerContent } from '../common'
 	import { Users } from 'lucide-svelte'
 	import DataTableRolesSection from './DataTableRolesSection.svelte'
+	import type { DatatableRoleCluster } from '$lib/gen'
 
 	let {
 		hideTrigger = false,
+		cluster,
 		onChanged,
 		unavailable
 	}: {
 		/** Mount the drawer without its button, for a caller that opens it with `open()`. */
 		hideTrigger?: boolean
+		/** Whose catalog to manage. A role is a login on one cluster. */
+		cluster?: DatatableRoleCluster
 		/** Called after every change to the instance roles. */
 		onChanged?: () => void
 		/** Why the roles cannot be managed here: the button stays, disabled with this reason, so the
@@ -55,7 +59,7 @@
 			<Badge color="blue" small>Beta</Badge>
 		{/snippet}
 		{#key openCount}
-			<DataTableRolesSection initialName={prefill} {onChanged} />
+			<DataTableRolesSection initialName={prefill} {cluster} {onChanged} />
 		{/key}
 	</DrawerContent>
 </Drawer>

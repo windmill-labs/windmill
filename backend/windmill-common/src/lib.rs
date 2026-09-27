@@ -1910,20 +1910,6 @@ async fn finish_custom_instance_database(
     .execute(db)
     .await?;
 
-    // A data table role can only reach a database it may CONNECT to, and PUBLIC's default CONNECT
-    // would otherwise let every role in regardless of what this instance defines. Best-effort: a
-    // failure here leaves the database usable as `admin`, and the next role change repairs it.
-    if let Err(e) = crate::datatable_roles::converge_connect_grants(
-        db,
-        crate::datatable_roles::DatatableRoleCluster::Instance,
-        dbname,
-    )
-    .await
-    {
-        tracing::warn!("Could not set CONNECT grants on instance database '{dbname}': {e}");
-    }
-
-    tracing::info!("Created custom instance database '{}'", dbname);
     Ok(())
 }
 

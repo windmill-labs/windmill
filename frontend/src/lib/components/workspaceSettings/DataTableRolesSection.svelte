@@ -10,15 +10,19 @@
 	import Head from '../table/Head.svelte'
 	import Row from '../table/Row.svelte'
 	import { Pencil, Plus } from 'lucide-svelte'
-	import { SettingService, type InstanceDatatableRole } from '$lib/gen'
+	import { SettingService, type DatatableRoleCluster, type InstanceDatatableRole } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 
 	let {
 		initialName = '',
+		cluster,
 		onChanged
 	}: {
 		/** Prefills the name of the role to add. */
 		initialName?: string
+		/** Whose catalog this is. A role is a login on one cluster: created, listed and dropped
+		 *  there, and a data table can only grant the roles of the cluster it sits on. */
+		cluster?: DatatableRoleCluster
 		/** Called after every change to the catalog, whether or not it went through. */
 		onChanged?: () => void
 	} = $props()
@@ -38,7 +42,7 @@
 		loading = true
 		loadError = undefined
 		try {
-			roles = await SettingService.listInstanceDatatableRoles()
+			roles = await SettingService.listInstanceDatatableRoles({ cluster })
 		} catch (e) {
 			loadError = e?.body ?? e?.message ?? String(e)
 		} finally {
@@ -69,7 +73,7 @@
 		await run(
 			() =>
 				SettingService.createInstanceDatatableRole({
-					requestBody: { name }
+					requestBody: { name, cluster }
 				}),
 			`Created the data table role ${name}`
 		)

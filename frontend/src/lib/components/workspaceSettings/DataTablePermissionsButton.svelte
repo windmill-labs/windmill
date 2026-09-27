@@ -174,7 +174,7 @@
 	async function refreshCatalog() {
 		let fresh: InstanceDatatableRole[]
 		try {
-			fresh = await SettingService.listInstanceDatatableRoles()
+			fresh = await SettingService.listInstanceDatatableRoles({ cluster: info?.cluster })
 		} catch (e) {
 			sendUserToast(e?.body ?? e?.message ?? String(e), true)
 			return
@@ -437,5 +437,10 @@
 </Drawer>
 
 {#if $superadmin}
-	<InstanceRolesButton bind:this={instanceRoles} hideTrigger onChanged={refreshCatalog} />
+	<InstanceRolesButton
+		bind:this={instanceRoles}
+		hideTrigger
+		cluster={info?.cluster}
+		onChanged={refreshCatalog}
+	/>
 {/if}
