@@ -17,22 +17,23 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
-use windmill_common::error::JsonResult;
+use windmill_common::{db::UserDB, error::JsonResult};
+use windmill_store::var_resource_cache::auth_identity;
 
-use crate::db::{ApiAuthed, DB};
+use crate::db::ApiAuthed;
 
 // Per-table row cap is inlined into the SQL as `LIMIT 5000`.
 // With 6 tables, the absolute ceiling is ~30k paths pre-dedup.
 /// Final cap applied after dedup/sort.
 const MAX_PATHS: usize = 20_000;
-/// TTL for the per-workspace path list cache.
+/// TTL for the path list cache.
 const CACHE_TTL: Duration = Duration::from_secs(60);
 
-/// Workspace-wide path list cache keyed by workspace_id only.
-/// One entry per workspace shared across all users — autocomplete is a
-/// navigation hint, not an access gate. Saves memory and warms faster.
-static PATHS_CACHE: LazyLock<quick_cache::sync::Cache<String, (Arc<Vec<String>>, Instant)>> =
-    LazyLock::new(|| quick_cache::sync::Cache::new(500));
+/// Keyed by (workspace_id, [`auth_identity`]): the list is read under the caller's RLS,
+/// so an entry must only ever be served back to the same authorization context.
+static PATHS_CACHE: LazyLock<
+    quick_cache::sync::Cache<(String, String), (Arc<Vec<String>>, Instant)>,
+> = LazyLock::new(|| quick_cache::sync::Cache::new(1000));
 
 pub fn workspaced_service() -> Router {
     Router::new().route("/list_paths", get(list_paths))
@@ -53,20 +54,22 @@ struct ListPathsQuery {
 }
 
 async fn list_paths(
-    _authed: ApiAuthed,
-    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Query(ListPathsQuery { force }): Query<ListPathsQuery>,
 ) -> JsonResult<ListPathsResponse> {
+    let cache_key = (w_id, auth_identity(&authed));
     if !force {
-        if let Some((cached, cached_at)) = PATHS_CACHE.get(&w_id) {
+        if let Some((cached, cached_at)) = PATHS_CACHE.get(&cache_key) {
             if cached_at.elapsed() < CACHE_TTL {
                 return Ok(Json(ListPathsResponse { paths: cached }));
             }
-            PATHS_CACHE.remove(&w_id);
+            PATHS_CACHE.remove(&cache_key);
         }
     }
 
+    let mut tx = user_db.begin(&authed).await?;
     let mut paths: Vec<String> = sqlx::query_scalar!(
         r#"
         SELECT path AS "path!" FROM (
@@ -83,16 +86,17 @@ async fn list_paths(
             (SELECT path FROM resource WHERE workspace_id = $1 LIMIT 5000)
         ) t
         "#,
-        &w_id,
+        &cache_key.0,
     )
-    .fetch_all(&db)
+    .fetch_all(&mut *tx)
     .await?;
+    tx.commit().await?;
 
     paths.sort_unstable();
     paths.truncate(MAX_PATHS);
     let paths = Arc::new(paths);
 
-    PATHS_CACHE.insert(w_id, (paths.clone(), Instant::now()));
+    PATHS_CACHE.insert(cache_key, (paths.clone(), Instant::now()));
 
     Ok(Json(ListPathsResponse { paths }))
 }
