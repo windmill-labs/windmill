@@ -626,6 +626,7 @@ async fn batch_rerun_denies_invisible_source_job(db: Pool<Postgres>) -> anyhow::
         &format!("http://localhost:{}", server.addr.port()),
         "SECRET_TOKEN_2".to_string(),
     );
+    // `false` is a read (run) grant, not a denial: test-user-2 can run the script.
     sqlx::query("UPDATE script SET extra_perms = '{\"u/test-user-2\": false}' WHERE hash = $1")
         .bind(SCRIPT_HASH)
         .execute(&db)
@@ -643,7 +644,13 @@ async fn batch_rerun_denies_invisible_source_job(db: Pool<Postgres>) -> anyhow::
     )
     .await?;
     assert_eq!(results.len(), 1, "the denied job must be reported");
-    assert!(results[0].is_err(), "rerun must be denied: {:?}", results[0]);
+    assert!(
+        results[0]
+            .as_ref()
+            .is_err_and(|e| e.starts_with("Permission denied")),
+        "rerun must be denied by the read gate: {:?}",
+        results[0]
+    );
     let pushed: i64 =
         sqlx::query_scalar("SELECT count(*) FROM v2_job WHERE created_by = 'test-user-2'")
             .fetch_one(&db)
