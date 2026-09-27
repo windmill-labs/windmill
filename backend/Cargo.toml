@@ -512,7 +512,7 @@ url = { version = "^2" , features = ["serde"]}
 async-oauth2 = "0.5.1"
 reqwest = { version = "^0.13", features = ["json", "stream", "gzip", "multipart", "query", "form"] }
 # The reqwest object_store builds its HTTP clients with, for a custom `HttpConnector`.
-reqwest_object_store = { package = "reqwest", version = "0.12", default-features = false }
+reqwest_object_store = { package = "reqwest", version = "0.12", default-features = false, features = ["rustls-tls-native-roots"] }
 eventsource-stream = "0.2.3"
 time = "^0"
 serde_urlencoded = "^0"

@@ -588,13 +588,14 @@ pub async fn ambient_aws_credentials(
 /// Validating a caller-supplied endpoint up front does not bind the connection: object_store
 /// resolves the host again when it connects, so a name can answer a public address to the check
 /// and an internal one to the connect. This client resolves every host through
-/// [`PublicOnlyResolver`], which judges the very addresses it hands to the connect, and follows no
-/// redirect (a redirect to an IP literal would skip the resolver). IP-literal endpoints never reach
-/// the resolver, so callers must still validate those themselves.
+/// [`PublicOnlyResolver`], which judges the very addresses it hands to the connect, refuses IP-literal
+/// hosts that are not public (they never reach a resolver), and follows no redirect.
 ///
 /// The environment's egress proxy (`HTTP(S)_PROXY`/`ALL_PROXY`) is still used, and its own host is
-/// exempt from the check: it is operator configuration and typically internal. A proxied request's
-/// target is resolved by the proxy, out of this client's reach (see `ssrf::ValidatedTarget`).
+/// exempt from the resolver check: it is operator configuration and typically internal. A request
+/// whose target is the proxy host itself is refused, so the exemption only ever serves the proxy
+/// hop. A proxied request's target is resolved by the proxy, out of this client's reach (see
+/// `ssrf::ValidatedTarget`).
 #[cfg(feature = "parquet")]
 #[derive(Debug, Clone, Copy)]
 pub struct PublicOnlyConnector;
@@ -608,9 +609,10 @@ impl object_store::client::HttpConnector for PublicOnlyConnector {
         let allow_http = options
             .get_config_value(&object_store::ClientConfigKey::AllowHttp)
             .is_some_and(|v| v == "true");
+        let proxy_hosts: Arc<[String]> = system_proxy_hosts().into();
         let client = reqwest_object_store::Client::builder()
             .dns_resolver(Arc::new(PublicOnlyResolver {
-                proxy_hosts: system_proxy_hosts(),
+                proxy_hosts: proxy_hosts.clone(),
             }))
             .redirect(reqwest_object_store::redirect::Policy::none())
             .connect_timeout(std::time::Duration::from_secs(5))
@@ -628,13 +630,59 @@ impl object_store::client::HttpConnector for PublicOnlyConnector {
                 store: "HTTP client",
                 source: Box::new(e),
             })?;
-        Ok(object_store::client::HttpClient::new(client))
+        Ok(object_store::client::HttpClient::new(PublicOnlyClient {
+            client,
+            proxy_hosts,
+        }))
+    }
+}
+
+#[cfg(feature = "parquet")]
+#[derive(Debug)]
+struct PublicOnlyClient {
+    client: reqwest_object_store::Client,
+    proxy_hosts: Arc<[String]>,
+}
+
+#[cfg(feature = "parquet")]
+#[async_trait]
+impl object_store::client::HttpService for PublicOnlyClient {
+    async fn call(
+        &self,
+        req: object_store::client::HttpRequest,
+    ) -> Result<object_store::client::HttpResponse, object_store::client::HttpError> {
+        let host = req.uri().host().unwrap_or_default();
+        let literal = host
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .parse::<std::net::IpAddr>()
+            .ok();
+        let refused = match literal {
+            Some(ip) if windmill_common::ssrf::is_private_ip(&ip) => {
+                Some("a private, loopback, or link-local address")
+            }
+            None if self
+                .proxy_hosts
+                .iter()
+                .any(|p| p.eq_ignore_ascii_case(host)) =>
+            {
+                Some("the egress proxy")
+            }
+            _ => None,
+        };
+        if let Some(what) = refused {
+            return Err(object_store::client::HttpError::new(
+                object_store::client::HttpErrorKind::Unknown,
+                std::io::Error::other(format!("'{host}' is {what}")),
+            ));
+        }
+        object_store::client::HttpService::call(&self.client, req).await
     }
 }
 
 #[cfg(feature = "parquet")]
 struct PublicOnlyResolver {
-    proxy_hosts: Vec<String>,
+    proxy_hosts: Arc<[String]>,
 }
 
 /// The hosts of the proxies reqwest picks up from the environment.
@@ -2881,37 +2929,43 @@ mod tests {
     }
 
     /// The restricted store judges the addresses it connects to, not only what an earlier check
-    /// resolved: a hostname that resolves to loopback never gets a connection.
+    /// resolved: neither a hostname that resolves to loopback nor a loopback literal gets a
+    /// connection.
     #[cfg(feature = "parquet")]
     #[tokio::test]
     async fn test_public_store_refuses_to_connect_to_private_address() {
         use futures::StreamExt;
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let settings = ObjectSettings::S3(S3Settings {
-            bucket: Some("windmill".to_string()),
-            region: Some("us-east-1".to_string()),
-            access_key: Some("key".to_string()),
-            secret_key: Some("secret".to_string()),
-            endpoint: Some("localhost".to_string()),
-            allow_http: Some(true),
-            path_style: Some(true),
-            store_logs: None,
-            port: Some(listener.local_addr().unwrap().port()),
-        });
-        let store = build_public_object_store_from_settings(settings)
+        for endpoint in ["localhost", "127.0.0.1"] {
+            let settings = ObjectSettings::S3(S3Settings {
+                bucket: Some("windmill".to_string()),
+                region: Some("us-east-1".to_string()),
+                access_key: Some("key".to_string()),
+                secret_key: Some("secret".to_string()),
+                endpoint: Some(endpoint.to_string()),
+                allow_http: Some(true),
+                path_style: Some(true),
+                store_logs: None,
+                port: Some(listener.local_addr().unwrap().port()),
+            });
+            let store = build_public_object_store_from_settings(settings)
+                .await
+                .unwrap();
+            // The listener never answers, so a store that connects waits forever: bound it.
+            let err = tokio::time::timeout(
+                std::time::Duration::from_secs(30),
+                store.list(None).next(),
+            )
             .await
-            .unwrap();
-        // The listener never answers, so a store that connects waits forever: bound it.
-        let err = tokio::time::timeout(std::time::Duration::from_secs(30), store.list(None).next())
-            .await
-            .expect("the store connected to a loopback address")
+            .unwrap_or_else(|_| panic!("the store connected to {endpoint}"))
             .unwrap()
             .unwrap_err();
-        assert!(
-            format!("{err:?}").contains("private, loopback, or link-local"),
-            "{err:?}"
-        );
+            assert!(
+                format!("{err:?}").contains("private, loopback, or link-local"),
+                "{endpoint}: {err:?}"
+            );
+        }
     }
 
     // --- get_logs_from_store test ---

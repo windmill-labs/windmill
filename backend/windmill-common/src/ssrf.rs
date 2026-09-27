@@ -441,7 +441,7 @@ fn is_private_ipv6(ip: &Ipv6Addr) -> bool {
 /// which a dual-stack host or a translator on the path will deliver to. Guards
 /// must judge that address too, else e.g. `64:ff9b::a9fe:a9fe` reaches
 /// 169.254.169.254 through a NAT64 gateway.
-pub fn embedded_ipv4(ip: &Ipv6Addr) -> Option<Ipv4Addr> {
+fn embedded_ipv4(ip: &Ipv6Addr) -> Option<Ipv4Addr> {
     let seg = ip.segments();
     let low32 = || {
         Ipv4Addr::new(
@@ -454,6 +454,8 @@ pub fn embedded_ipv4(ip: &Ipv6Addr) -> Option<Ipv4Addr> {
     match seg {
         // IPv4-mapped ::ffff:0:0/96
         [0, 0, 0, 0, 0, 0xffff, _, _] => Some(low32()),
+        // IPv4-translated ::ffff:0:0:0/96 (SIIT)
+        [0, 0, 0, 0, 0xffff, 0, _, _] => Some(low32()),
         // IPv4-compatible ::/96 (deprecated, still routed by some stacks)
         [0, 0, 0, 0, 0, 0, _, _] => Some(low32()),
         // NAT64 well-known prefix 64:ff9b::/96
@@ -551,6 +553,7 @@ mod tests {
             // IPv4 carried inside IPv6 by a transition mechanism.
             "::ffff:127.0.0.1",         // IPv4-mapped
             "::169.254.169.254",        // IPv4-compatible
+            "::ffff:0:a9fe:a9fe",       // IPv4-translated (SIIT)
             "64:ff9b::a9fe:a9fe",       // NAT64 well-known prefix
             "64:ff9b:1::a9fe:a9fe",     // NAT64 local-use prefix
             "64:ff9b:1:ffff::1",        // any address in the local-use prefix
