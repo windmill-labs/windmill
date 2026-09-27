@@ -31,6 +31,10 @@
 	} = $props()
 
 	let cluster = $state<DatatableRoleCluster>(pinnedCluster ?? 'instance')
+	/** The databases a role here reaches, for the copy: a drop is explained by what it undoes. */
+	let clusterName = $derived(
+		cluster === 'external_instance' ? 'the external cluster' : "Windmill's database"
+	)
 	/** Whether the external cluster is configured, so its catalog is worth offering. Only a
 	 *  superadmin can read that, and only a superadmin manages roles. */
 	let externalConfigured = $state(false)
@@ -45,15 +49,24 @@
 
 	const confirmationModal = createAsyncConfirmationModal()
 
+	/** Identifies the load in flight. A switch back and forth leaves two requests racing, and the
+	 *  slower one must not seat another cluster's roles under the selected one: a name exists on
+	 *  both clusters, so the rows would look right while every control acted on the wrong id. */
+	let loadSeq = 0
+
 	async function load() {
+		const seq = ++loadSeq
 		loading = true
 		loadError = undefined
 		try {
-			roles = await SettingService.listInstanceDatatableRoles({ cluster })
+			const fresh = await SettingService.listInstanceDatatableRoles({ cluster })
+			if (seq !== loadSeq) return
+			roles = fresh
 		} catch (e) {
+			if (seq !== loadSeq) return
 			loadError = e?.body ?? e?.message ?? String(e)
 		} finally {
-			loading = false
+			if (seq === loadSeq) loading = false
 		}
 	}
 	load()
@@ -67,6 +80,9 @@
 	async function switchCluster(next: DatatableRoleCluster) {
 		if (next === cluster) return
 		cluster = next
+		// The old cluster's rows go with it: leaving them on screen offers controls that would act
+		// on the catalog no longer selected.
+		roles = []
 		renaming = undefined
 		await load()
 	}
@@ -103,8 +119,7 @@
 	async function remove(role: InstanceDatatableRole) {
 		const confirmed = await confirmationModal.ask({
 			title: `Delete the role ${role.name}?`,
-			children:
-				'Everything it owns in every instance database is handed back to the admin connection, its grants are dropped, and it is removed from every data table that named it. This cannot be undone.',
+			children: `Everything it owns in every database Windmill manages on ${clusterName} is handed back to the admin connection, its grants are dropped, and it is removed from every data table that named it. This cannot be undone.`,
 			confirmationText: 'Delete role'
 		})
 		if (!confirmed) return
@@ -133,7 +148,7 @@
 		</ToggleButtonGroup>
 	{/if}
 	{#if loadError}
-		<Alert type="error" title="Could not load the instance roles" size="xs">{loadError}</Alert>
+		<Alert type="error" title="Could not load the data table roles" size="xs">{loadError}</Alert>
 	{:else}
 		<DataTable>
 			<Head>
@@ -165,7 +180,7 @@
 									<Button
 										unifiedSize="xs"
 										variant="accent"
-										disabled={busy}
+										disabled={busy || loading}
 										on:click={async () => {
 											const name = renaming?.name?.trim()
 											renaming = undefined
@@ -203,7 +218,7 @@
 							<div class="flex items-center gap-2">
 								<Toggle
 									checked={role.enabled}
-									disabled={busy}
+									disabled={busy || loading}
 									on:change={(e) =>
 										run(
 											() =>
