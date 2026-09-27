@@ -1704,6 +1704,18 @@
 			</p>
 			<TextInput value={wiz.instance.dbName ?? ''} inputProps={{ disabled: true }} />
 		</Label>
+	{:else if wiz.provider === 'external_instance'}
+		<Label label="External cluster database" class="gap-1">
+			<p class="text-2xs text-secondary">
+				{#if wiz.external.mode === 'create'}
+					It does not exist yet — Windmill creates it on the external PostgreSQL cluster when you
+					finish, and manages its credentials.
+				{:else}
+					A database already on the external PostgreSQL cluster, managed by Windmill.
+				{/if}
+			</p>
+			<TextInput value={wiz.external.dbName ?? ''} inputProps={{ disabled: true }} />
+		</Label>
 	{:else if !wiz.own.creating}
 		<Label label="Postgres resource" class="gap-1">
 			<p class="text-2xs text-secondary">
