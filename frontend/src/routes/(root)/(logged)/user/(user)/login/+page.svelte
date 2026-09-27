@@ -14,7 +14,7 @@
 	import { emptyString, parseQueryParams } from '$lib/utils'
 	import { getUserExt } from '$lib/user'
 	import LoginPageHeader from '$lib/components/LoginPageHeader.svelte'
-	import { WindmillIcon } from '$lib/components/icons'
+	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
 	import { clearStores } from '$lib/storeUtils'
 	import { setLicense } from '$lib/enterpriseUtils'
 	import Login from '$lib/components/Login.svelte'

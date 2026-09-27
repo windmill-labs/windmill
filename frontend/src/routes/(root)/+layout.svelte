@@ -29,6 +29,17 @@
 
 	let { children }: Props = $props()
 
+	// A lazy chunk that failed to load: Chromium, Firefox, Safari, then Vite's CSS preload.
+	const chunkLoadErrors = [
+		'Failed to fetch dynamically imported',
+		'error loading dynamically imported module',
+		'Importing a module script failed',
+		'Unable to preload CSS'
+	]
+	// One failed component rejects once per chunk and stylesheet it needed: one toast per
+	// page, keyed on the path since this layout outlives client-side navigation.
+	let chunkLoadToastPath: string | undefined = undefined
+
 	const monacoEditorUnhandledErrors = [
 		'Model not found',
 		'Connection is disposed.',
@@ -200,6 +211,22 @@
 			if (event.reason?.message) {
 				const { message, body, status } = event.reason
 
+				// A chunk gone from the server, typically a tab left open across an upgrade: a
+				// component loaded on demand would otherwise silently never appear.
+				if (chunkLoadErrors.some((m) => message.startsWith(m))) {
+					console.warn(message)
+					// In dev nothing is ever stale: this is a compile error, already on Vite's overlay.
+					if (!import.meta.env.PROD || chunkLoadToastPath === location.pathname) return
+					chunkLoadToastPath = location.pathname
+					sendUserToast(
+						'Part of the page failed to load, Windmill may have been updated',
+						true,
+						[{ label: 'Reload', callback: () => location.reload() }],
+						undefined,
+						15000
+					)
+					return
+				}
 				if (message === 'Missing service editorService') {
 					console.error('Reloading the page to fix a Monaco Editor bug')
 					location.reload()
@@ -208,7 +235,6 @@
 				// Unhandled errors from Monaco Editor don't logout the user
 				if (
 					monacoEditorUnhandledErrors.includes(message) ||
-					message.startsWith('Failed to fetch dynamically imported') ||
 					message.startsWith('Unable to figure out browser width and height') ||
 					message.startsWith('Unable to read file') ||
 					message.startsWith('Could not find source file')

@@ -3,7 +3,7 @@
 	// lucide glyphs, where a coloured brand mark reads as a different kind of thing.
 	import { triggerIconMapMono as triggerIconMap, type TriggerType } from './utils'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import { SchedulePollIcon } from '$lib/components/icons'
+	import SchedulePollIcon from '$lib/components/icons/SchedulePollIcon.svelte'
 	import type { Placement } from '@floating-ui/core'
 	import { isCloudHosted } from '$lib/cloud'
 	import { CloudOff } from 'lucide-svelte'

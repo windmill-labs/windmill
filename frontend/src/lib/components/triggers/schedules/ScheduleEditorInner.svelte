@@ -737,19 +737,34 @@
 
 	async function handleToggleEnabled(nEnabled: boolean) {
 		const previousEnabled = enabled
-		enabled = nEnabled
-		if (!trigger?.draftConfig) {
-			const ok = await withForkConflictRetry(
-				(force) =>
-					ScheduleService.setScheduleEnabled({
-						path: initialPath,
-						workspace: wsId ?? '',
-						requestBody: { enabled: nEnabled, force }
-					}),
-				'schedule'
-			)
+		const writesBackend = !trigger?.draftConfig
+		const togglePath = initialPath
+		const setEnabled = (v: boolean) => {
+			// The drawer is reused: a revert landing after it moved to another
+			// schedule would fold this one's value into that one's baseline.
+			if (initialPath !== togglePath) return
+			enabled = v
+			if (writesBackend) draftSync.patchBaseline({ enabled: v })
+		}
+		setEnabled(nEnabled)
+		if (writesBackend) {
+			let ok: boolean
+			try {
+				ok = await withForkConflictRetry(
+					(force) =>
+						ScheduleService.setScheduleEnabled({
+							path: initialPath,
+							workspace: wsId ?? '',
+							requestBody: { enabled: nEnabled, force }
+						}),
+					'schedule'
+				)
+			} catch (err) {
+				setEnabled(previousEnabled)
+				throw err
+			}
 			if (!ok) {
-				enabled = previousEnabled
+				setEnabled(previousEnabled)
 				return
 			}
 			sendUserToast(`${nEnabled ? 'enabled' : 'disabled'} schedule ${initialPath}`)

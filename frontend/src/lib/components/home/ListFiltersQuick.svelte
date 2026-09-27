@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Folder, User, Circle } from 'lucide-svelte'
-	import { appIconComponent } from '../icons'
+	import { appIconComponent } from '../icons/appIcon.svelte'
 	import { integrationDisplayName } from '../resourceTypeDisplay'
 	import { createEventDispatcher } from 'svelte'
 	import { Button } from '../common'
