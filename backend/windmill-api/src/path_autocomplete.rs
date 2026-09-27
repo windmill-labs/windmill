@@ -16,6 +16,7 @@ use axum::{
     routing::get,
     Json, Router,
 };
+use quick_cache::{sync::Cache, Weighter};
 use serde::{Deserialize, Serialize};
 use windmill_common::{db::UserDB, error::JsonResult};
 use windmill_store::var_resource_cache::auth_identity;
@@ -29,11 +30,41 @@ const MAX_PATHS: usize = 20_000;
 /// TTL for the path list cache.
 const CACHE_TTL: Duration = Duration::from_secs(60);
 
+/// Total paths held across all cache entries.
+const CACHE_MAX_PATHS: u64 = 2_000_000;
+
+type CacheKey = (String, String);
+type CacheValue = (Arc<Vec<String>>, Instant);
+
+#[derive(Clone)]
+struct PathCountWeighter;
+
+impl Weighter<CacheKey, CacheValue> for PathCountWeighter {
+    fn weight(&self, _key: &CacheKey, (paths, _): &CacheValue) -> u64 {
+        (paths.len() as u64).max(1)
+    }
+}
+
 /// Keyed by (workspace_id, [`auth_identity`]): the list is read under the caller's RLS,
 /// so an entry must only ever be served back to the same authorization context.
-static PATHS_CACHE: LazyLock<
-    quick_cache::sync::Cache<(String, String), (Arc<Vec<String>>, Instant)>,
-> = LazyLock::new(|| quick_cache::sync::Cache::new(1000));
+/// Weighted by path count because the key space grows with callers, not workspaces.
+/// Single-sharded: quick_cache splits the weight budget across shards and refuses an
+/// entry heavier than one shard's share, which would drop the largest workspaces.
+static PATHS_CACHE: LazyLock<Cache<CacheKey, CacheValue, PathCountWeighter>> =
+    LazyLock::new(|| {
+        let options = quick_cache::OptionsBuilder::new()
+            .shards(1)
+            .estimated_items_capacity(1000)
+            .weight_capacity(CACHE_MAX_PATHS)
+            .build()
+            .expect("every cache option is set");
+        Cache::with_options(
+            options,
+            PathCountWeighter,
+            Default::default(),
+            Default::default(),
+        )
+    });
 
 pub fn workspaced_service() -> Router {
     Router::new().route("/list_paths", get(list_paths))
