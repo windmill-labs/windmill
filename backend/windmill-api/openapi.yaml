@@ -10872,6 +10872,8 @@ paths:
             text/plain:
               schema:
                 type: string
+        "400":
+          description: the body's workspace_id does not match the workspace in the path
 
   /w/{workspace}/workspace_dependencies/archive/{language}:
     post:
@@ -29504,6 +29506,7 @@ components:
       properties:
         workspace_id:
           type: string
+          description: must equal the workspace in the request path
         language:
           $ref: "#/components/schemas/ScriptLang"
         name:

@@ -40,6 +40,10 @@ async fn test_create_rejects_body_workspace_other_than_path(
         status, 400,
         "expected the mismatched body to be rejected, got {body}"
     );
+    assert!(
+        body.contains("does not match"),
+        "expected the workspace mismatch rejection, got {body}"
+    );
 
     let written: i64 = sqlx::query_scalar("SELECT count(*) FROM workspace_dependencies")
         .fetch_one(&db)
