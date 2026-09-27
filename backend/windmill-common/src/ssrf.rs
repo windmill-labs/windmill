@@ -396,7 +396,10 @@ pub fn webhook_ssrf_error_message(e: &SsrfValidationError) -> String {
     }
 }
 
-fn is_private_ip(ip: &IpAddr) -> bool {
+/// Whether `ip` is loopback, private, link-local, or otherwise not a public
+/// internet destination. The one predicate every server-side outbound-URL guard
+/// (SSRF checks, git remotes, object storage tests) judges addresses with.
+pub fn is_private_ip(ip: &IpAddr) -> bool {
     match ip {
         IpAddr::V4(ipv4) => is_private_ipv4(ipv4),
         IpAddr::V6(ipv6) => is_private_ipv6(ipv6),
@@ -408,6 +411,7 @@ fn is_private_ipv4(ip: &Ipv4Addr) -> bool {
         || ip.is_private()        // 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
         || ip.is_link_local()     // 169.254.0.0/16 (AWS IMDS lives here)
         || ip.is_broadcast()      // 255.255.255.255
+        || ip.is_multicast()      // 224.0.0.0/4
         // RFC 1122 "this network": the whole /8, not just the unspecified
         // address `is_unspecified()` matches — stacks that map 0.x.y.z onto the
         // local host make `0.0.0.1` a bypass.
@@ -418,17 +422,58 @@ fn is_private_ipv4(ip: &Ipv4Addr) -> bool {
 }
 
 fn is_private_ipv6(ip: &Ipv6Addr) -> bool {
+    let seg = ip.segments();
     ip.is_loopback()           // ::1
         || ip.is_unspecified() // ::
+        || ip.is_multicast()   // ff00::/8
         // Unique local addresses (fc00::/7)
-        || (ip.segments()[0] & 0xfe00) == 0xfc00
-        // Link-local (fe80::/10)
-        || (ip.segments()[0] & 0xffc0) == 0xfe80
-        // IPv4-mapped addresses — check the embedded IPv4
-        || match ip.to_ipv4_mapped() {
-            Some(ipv4) => is_private_ipv4(&ipv4),
-            None => false,
-        }
+        || (seg[0] & 0xfe00) == 0xfc00
+        // Link-local (fe80::/10) and deprecated site-local (fec0::/10)
+        || (seg[0] & 0xffc0) == 0xfe80
+        || (seg[0] & 0xffc0) == 0xfec0
+        // NAT64 local-use prefix (64:ff9b:1::/48, RFC 8215): a site's own
+        // translator, whose IPv4 placement depends on the prefix length it uses.
+        || (seg[0] == 0x0064 && seg[1] == 0xff9b && seg[2] == 0x0001)
+        || embedded_ipv4(ip).is_some_and(|v4| is_private_ipv4(&v4))
+}
+
+/// The IPv4 address an IPv6 address carries through a transition mechanism,
+/// which a dual-stack host or a translator on the path will deliver to. Guards
+/// must judge that address too, else e.g. `64:ff9b::a9fe:a9fe` reaches
+/// 169.254.169.254 through a NAT64 gateway.
+pub fn embedded_ipv4(ip: &Ipv6Addr) -> Option<Ipv4Addr> {
+    let seg = ip.segments();
+    let low32 = || {
+        Ipv4Addr::new(
+            (seg[6] >> 8) as u8,
+            seg[6] as u8,
+            (seg[7] >> 8) as u8,
+            seg[7] as u8,
+        )
+    };
+    match seg {
+        // IPv4-mapped ::ffff:0:0/96
+        [0, 0, 0, 0, 0, 0xffff, _, _] => Some(low32()),
+        // IPv4-compatible ::/96 (deprecated, still routed by some stacks)
+        [0, 0, 0, 0, 0, 0, _, _] => Some(low32()),
+        // NAT64 well-known prefix 64:ff9b::/96
+        [0x0064, 0xff9b, 0, 0, 0, 0, _, _] => Some(low32()),
+        // 6to4 2002::/16: the site router's IPv4 sits right after the prefix
+        [0x2002, hi, lo, ..] => Some(Ipv4Addr::new(
+            (hi >> 8) as u8,
+            hi as u8,
+            (lo >> 8) as u8,
+            lo as u8,
+        )),
+        // Teredo 2001::/32: the client's IPv4 is stored bit-inverted
+        [0x2001, 0, ..] => Some(Ipv4Addr::new(
+            !(seg[6] >> 8) as u8,
+            !seg[6] as u8,
+            !(seg[7] >> 8) as u8,
+            !seg[7] as u8,
+        )),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -486,31 +531,49 @@ mod tests {
     }
 
     #[test]
-    fn test_private_ipv4() {
-        assert!(is_private_ipv4(&"127.0.0.1".parse().unwrap()));
-        assert!(is_private_ipv4(&"10.0.0.1".parse().unwrap()));
-        assert!(is_private_ipv4(&"172.16.0.1".parse().unwrap()));
-        assert!(is_private_ipv4(&"192.168.1.1".parse().unwrap()));
-        assert!(is_private_ipv4(&"169.254.169.254".parse().unwrap()));
-        assert!(is_private_ipv4(&"0.0.0.0".parse().unwrap()));
-        // The whole 0.0.0.0/8 block, not just the unspecified address.
-        assert!(is_private_ipv4(&"0.0.0.1".parse().unwrap()));
-        assert!(is_private_ipv4(&"0.255.255.255".parse().unwrap()));
-        assert!(is_private_ipv4(&"100.64.0.1".parse().unwrap()));
-        assert!(!is_private_ipv4(&"8.8.8.8".parse().unwrap()));
-        assert!(!is_private_ipv4(&"1.1.1.1".parse().unwrap()));
-    }
-
-    #[test]
-    fn test_private_ipv6() {
-        assert!(is_private_ipv6(&"::1".parse().unwrap()));
-        assert!(is_private_ipv6(&"::".parse().unwrap()));
-        assert!(is_private_ipv6(&"fc00::1".parse().unwrap()));
-        assert!(is_private_ipv6(&"fd00::1".parse().unwrap()));
-        assert!(is_private_ipv6(&"fe80::1".parse().unwrap()));
-        // IPv4-mapped loopback
-        assert!(is_private_ipv6(&"::ffff:127.0.0.1".parse().unwrap()));
-        assert!(!is_private_ipv6(&"2001:4860:4860::8888".parse().unwrap()));
+    fn test_private_ip() {
+        for s in [
+            "127.0.0.1",
+            "10.0.0.1",
+            "172.16.0.1",
+            "192.168.1.1",
+            "169.254.169.254",
+            "100.64.0.1",
+            // The whole 0.0.0.0/8 block, not just the unspecified address.
+            "0.0.0.0",
+            "0.0.0.1",
+            "0.255.255.255",
+            "::1",
+            "::",
+            "fc00::1",
+            "fd00::1",
+            "fe80::1",
+            // IPv4 carried inside IPv6 by a transition mechanism.
+            "::ffff:127.0.0.1",         // IPv4-mapped
+            "::169.254.169.254",        // IPv4-compatible
+            "64:ff9b::a9fe:a9fe",       // NAT64 well-known prefix
+            "64:ff9b:1::a9fe:a9fe",     // NAT64 local-use prefix
+            "64:ff9b:1:ffff::1",        // any address in the local-use prefix
+            "2002:a9fe:a9fe::1",        // 6to4
+            "2002:7f00:1::",            // 6to4
+            "2001:0:1:2:0:0:80ff:fffe", // Teredo, client 127.0.0.1 bit-inverted
+            "2001:0:1:2::5601:5601",    // Teredo, client 169.254.169.254 bit-inverted
+        ] {
+            let ip: IpAddr = s.parse().unwrap();
+            assert!(is_private_ip(&ip), "{s} should be private");
+        }
+        for s in [
+            "8.8.8.8",
+            "1.1.1.1",
+            "2001:4860:4860::8888",
+            "2606:4700:4700::1111",
+            "64:ff9b::808:808",      // NAT64 of 8.8.8.8
+            "2002:808:808::1",       // 6to4 of 8.8.8.8
+            "2001:0:1:2::f7f7:f7f7", // Teredo, client 8.8.8.8
+        ] {
+            let ip: IpAddr = s.parse().unwrap();
+            assert!(!is_private_ip(&ip), "{s} should be public");
+        }
     }
 
     #[tokio::test]

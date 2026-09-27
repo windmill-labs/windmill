@@ -583,8 +583,86 @@ pub async fn ambient_aws_credentials(
     ambient_aws_credentials_provider(region).await.get().await
 }
 
+/// An object-store HTTP connector whose client cannot reach a non-public address.
+///
+/// Validating a caller-supplied endpoint up front does not bind the connection: object_store
+/// resolves the host again when it connects, so a name can answer a public address to the check
+/// and an internal one to the connect. This client resolves every host through
+/// [`PublicOnlyResolver`], which judges the very addresses it hands to the connect, and follows no
+/// redirect (a redirect to an IP literal would skip the resolver). IP-literal endpoints never reach
+/// the resolver, so callers must still validate those themselves.
+#[cfg(feature = "parquet")]
+#[derive(Debug, Clone, Copy)]
+pub struct PublicOnlyConnector;
+
+#[cfg(feature = "parquet")]
+impl object_store::client::HttpConnector for PublicOnlyConnector {
+    fn connect(
+        &self,
+        options: &ClientOptions,
+    ) -> object_store::Result<object_store::client::HttpClient> {
+        let allow_http = options
+            .get_config_value(&object_store::ClientConfigKey::AllowHttp)
+            .is_some_and(|v| v == "true");
+        let client = reqwest_object_store::Client::builder()
+            .dns_resolver(Arc::new(PublicOnlyResolver))
+            .redirect(reqwest_object_store::redirect::Policy::none())
+            .connect_timeout(std::time::Duration::from_secs(5))
+            .default_headers(HeaderMap::from_iter([(
+                reqwest::header::ACCEPT_ENCODING,
+                reqwest::header::HeaderValue::from_static(""),
+            )]))
+            .no_gzip()
+            .no_brotli()
+            .no_deflate()
+            .no_zstd()
+            .https_only(!allow_http)
+            .build()
+            .map_err(|e| object_store::Error::Generic {
+                store: "HTTP client",
+                source: Box::new(e),
+            })?;
+        Ok(object_store::client::HttpClient::new(client))
+    }
+}
+
+#[cfg(feature = "parquet")]
+struct PublicOnlyResolver;
+
+#[cfg(feature = "parquet")]
+impl reqwest_object_store::dns::Resolve for PublicOnlyResolver {
+    fn resolve(
+        &self,
+        name: reqwest_object_store::dns::Name,
+    ) -> reqwest_object_store::dns::Resolving {
+        Box::pin(async move {
+            let host = name.as_str();
+            let addrs: Vec<std::net::SocketAddr> =
+                tokio::net::lookup_host((host, 0)).await?.collect();
+            if addrs
+                .iter()
+                .any(|a| windmill_common::ssrf::is_private_ip(&a.ip()))
+            {
+                return Err(format!(
+                    "'{host}' resolves to a private, loopback, or link-local address"
+                )
+                .into());
+            }
+            Ok(Box::new(addrs.into_iter()) as reqwest_object_store::dns::Addrs)
+        })
+    }
+}
+
 #[cfg(feature = "parquet")]
 pub async fn build_s3_client(s3_resource_ref: &S3Resource) -> error::Result<Arc<dyn ObjectStore>> {
+    build_s3_client_with(s3_resource_ref, None).await
+}
+
+#[cfg(feature = "parquet")]
+async fn build_s3_client_with(
+    s3_resource_ref: &S3Resource,
+    connector: Option<PublicOnlyConnector>,
+) -> error::Result<Arc<dyn ObjectStore>> {
     let static_creds = s3_resource_has_static_credentials(s3_resource_ref);
 
     let credentials_provider = if !static_creds {
@@ -623,6 +701,9 @@ pub async fn build_s3_client(s3_resource_ref: &S3Resource) -> error::Result<Arc<
     if !s3_resource.use_ssl {
         store_builder = store_builder.with_allow_http(true)
     }
+    if let Some(connector) = connector {
+        store_builder = store_builder.with_http_connector(connector);
+    }
 
     if let Some(key) = s3_resource.access_key {
         if key != "" {
@@ -655,6 +736,14 @@ pub async fn build_s3_client(s3_resource_ref: &S3Resource) -> error::Result<Arc<
 #[cfg(feature = "parquet")]
 fn build_azure_blob_client(
     azure_blob_resource_ref: &AzureBlobResource,
+) -> error::Result<Arc<dyn ObjectStore>> {
+    build_azure_blob_client_with(azure_blob_resource_ref, None)
+}
+
+#[cfg(feature = "parquet")]
+fn build_azure_blob_client_with(
+    azure_blob_resource_ref: &AzureBlobResource,
+    connector: Option<PublicOnlyConnector>,
 ) -> error::Result<Arc<dyn ObjectStore>> {
     let blob_resource = azure_blob_resource_ref.clone();
 
@@ -701,6 +790,9 @@ fn build_azure_blob_client(
     if !blob_resource.use_ssl.unwrap_or(false) {
         store_builder = store_builder.with_allow_http(true)
     }
+    if let Some(connector) = connector {
+        store_builder = store_builder.with_http_connector(connector);
+    }
 
     if let Some(key) = blob_resource.access_key {
         if key != "" {
@@ -735,6 +827,14 @@ pub fn gcs_service_account_key_is_blank(service_account_key: &str) -> bool {
 
 #[cfg(feature = "parquet")]
 async fn build_gcs_client(gcs_resource_ref: &GcsResource) -> error::Result<Arc<dyn ObjectStore>> {
+    build_gcs_client_with(gcs_resource_ref, None).await
+}
+
+#[cfg(feature = "parquet")]
+async fn build_gcs_client_with(
+    gcs_resource_ref: &GcsResource,
+    connector: Option<PublicOnlyConnector>,
+) -> error::Result<Arc<dyn ObjectStore>> {
     let gcs_resource = gcs_resource_ref.clone();
 
     let mut store_builder = GoogleCloudStorageBuilder::new()
@@ -753,6 +853,9 @@ async fn build_gcs_client(gcs_resource_ref: &GcsResource) -> error::Result<Arc<d
     // blank/`{}` key to `with_service_account_key` would instead fail to parse.
     if !gcs_service_account_key_is_blank(&gcs_resource.service_account_key) {
         store_builder = store_builder.with_service_account_key(gcs_resource.service_account_key);
+    }
+    if let Some(connector) = connector {
+        store_builder = store_builder.with_http_connector(connector);
     }
 
     let store = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| store_builder.build()))
@@ -937,6 +1040,36 @@ pub async fn build_object_store_from_settings(
     settings: ObjectSettings,
     init_private_key: Option<&windmill_common::DB>,
 ) -> error::Result<ExpirableObjectStore> {
+    build_object_store_from_settings_with(settings, init_private_key, None).await
+}
+
+/// [`build_object_store_from_settings`] for a caller-supplied endpoint: the client refuses to
+/// connect to any non-public address (see [`PublicOnlyConnector`]). Only the backends that reach
+/// the network with explicit credentials are accepted.
+#[cfg(feature = "parquet")]
+pub async fn build_public_object_store_from_settings(
+    settings: ObjectSettings,
+) -> error::Result<Arc<dyn ObjectStore>> {
+    match settings {
+        ObjectSettings::S3(_) | ObjectSettings::Azure(_) | ObjectSettings::Gcs(_) => {
+            build_object_store_from_settings_with(settings, None, Some(PublicOnlyConnector))
+                .await
+                .map(|x| x.store)
+        }
+        ObjectSettings::AwsOidc(_) | ObjectSettings::Filesystem(_) => {
+            Err(error::Error::BadRequest(
+                "This object storage backend cannot be restricted to public endpoints".to_string(),
+            ))
+        }
+    }
+}
+
+#[cfg(feature = "parquet")]
+async fn build_object_store_from_settings_with(
+    settings: ObjectSettings,
+    init_private_key: Option<&windmill_common::DB>,
+    connector: Option<PublicOnlyConnector>,
+) -> error::Result<ExpirableObjectStore> {
     let located =
         |store: Arc<dyn ObjectStore>, resource: ObjectStoreResource| ExpirableObjectStore {
             store,
@@ -946,12 +1079,14 @@ pub async fn build_object_store_from_settings(
     match settings {
         ObjectSettings::S3(s3_settings) => {
             let s3_resource = s3_resource_from_settings(s3_settings);
-            build_s3_client(&s3_resource)
+            build_s3_client_with(&s3_resource, connector)
                 .await
                 .map(|x| located(x, ObjectStoreResource::S3(s3_resource)))
         }
-        ObjectSettings::Azure(azure_settings) => build_azure_blob_client(&azure_settings)
-            .map(|x| located(x, ObjectStoreResource::Azure(azure_settings))),
+        ObjectSettings::Azure(azure_settings) => {
+            build_azure_blob_client_with(&azure_settings, connector)
+                .map(|x| located(x, ObjectStoreResource::Azure(azure_settings)))
+        }
         ObjectSettings::AwsOidc(ref s3_aws_oidc_settings) => {
             let token_generator = crate::job_s3_helpers_oss::TokenGenerator::AsServerInstance();
             let res = crate::job_s3_helpers_oss::generate_s3_aws_oidc_resource(
@@ -969,7 +1104,7 @@ pub async fn build_object_store_from_settings(
                     location: Some(object_store_location(&res)),
                 })
         }
-        ObjectSettings::Gcs(gcs_settings) => build_gcs_client(&gcs_settings)
+        ObjectSettings::Gcs(gcs_settings) => build_gcs_client_with(&gcs_settings, connector)
             .await
             .map(|x| located(x, ObjectStoreResource::Gcs(gcs_settings))),
         ObjectSettings::Filesystem(fs) => build_filesystem_client(&fs.root_path)
