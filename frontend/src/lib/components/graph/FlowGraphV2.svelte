@@ -1338,6 +1338,7 @@
 			{selectionManager}
 			selectionOverlay={multiSelectEnabled ? selectionBox : undefined}
 			selectionKey={editMode ? modifierKey : undefined}
+			{showNotes}
 			structure={'structureTree' in graph ? graph.structureTree : undefined}
 			{editMode}
 			{insertable}

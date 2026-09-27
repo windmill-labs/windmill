@@ -14,6 +14,8 @@ export type SimplifiedEditContext = {
 	readonly eventHandlers: GraphEventHandlers | undefined
 	readonly editMode: boolean
 	readonly disableAi: boolean
+	/** Whether group notes are shown, as the full graph's Notes toggle sets it */
+	readonly showNotes: boolean
 }
 
 const KEY = 'SimplifiedFlowGraphEdit'

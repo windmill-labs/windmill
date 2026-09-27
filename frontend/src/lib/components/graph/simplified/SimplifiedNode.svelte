@@ -10,6 +10,9 @@
 	import { SIMPLIFIED, type SimplifiedNodeData } from './simplifiedLayout'
 	import { getSimplifiedEditContext, useStepMenu } from './simplifiedContext'
 	import SimplifiedSlot from './SimplifiedSlot.svelte'
+	import GroupHeaderBlock from '../GroupHeaderBlock.svelte'
+	import GroupModuleIcons from '../GroupModuleIcons.svelte'
+	import { NOTE_COLORS, NoteColor } from '../noteColors'
 
 	let { id, data, selected }: { id: string; data: SimplifiedNodeData; selected?: boolean } =
 		$props()
@@ -87,6 +90,30 @@
 			{/if}
 		</div>
 	</StepContextMenu>
+{:else if data.kind === 'collapsedGroup' && data.group}
+	{@const groupColors =
+		NOTE_COLORS[(data.group.value.color as NoteColor) ?? NoteColor.BLUE] ??
+		NOTE_COLORS[NoteColor.BLUE]}
+	<div
+		class="rounded-lg outline outline-1 -outline-offset-1 {groupColors.outline} {groupColors.backgroundLight}"
+		style="width: {data.width}px; height: {data.height}px;"
+	>
+		<GroupHeaderBlock
+			groupId={data.group.key}
+			summary={data.group.value.summary}
+			note={data.group.value.note}
+			color={data.group.value.color}
+			collapsed={true}
+			autocollapse={data.group.value.autocollapse ?? false}
+			editMode={!!edit?.editMode}
+			showNotes={edit?.showNotes ?? true}
+		/>
+		{#if data.group.modules.length}
+			<div class="flex items-center justify-center w-full gap-1.5 px-2 h-[34px] overflow-hidden">
+				<GroupModuleIcons modules={data.group.modules} eventHandlers={edit?.eventHandlers} />
+			</div>
+		{/if}
+	</div>
 {:else if data.kind === 'junction'}
 	<div
 		class="rounded-full bg-gray-400 dark:bg-gray-500"

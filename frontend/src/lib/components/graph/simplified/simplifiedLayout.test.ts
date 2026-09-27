@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { FlowModule } from '$lib/gen'
-import { layoutSimplifiedFlow, SIMPLIFIED, type SimplifiedEdgeData } from './simplifiedLayout'
+import {
+	layoutSimplifiedFlow,
+	SIMPLIFIED,
+	type SimplifiedEdgeData,
+	type SimplifiedNodeData
+} from './simplifiedLayout'
 
 const measure = (text: string) => text.length * 7
 
@@ -106,5 +111,40 @@ describe('layoutSimplifiedFlow', () => {
 		const byId = Object.fromEntries(nodes.map((n) => [n.id, n]))
 		expect(junction.position.x).toBeGreaterThan(byId.a.position.x + byId.a.width!)
 		expect(junction.position.x + junction.width!).toBeLessThan(byId.c.position.x)
+	})
+
+	it('gives every "+" the insert payload the editor resolves, branch-one default being branch 0', () => {
+		const modules: FlowModule[] = [
+			step('a', 'A'),
+			{
+				id: 'b',
+				value: {
+					type: 'branchone',
+					branches: [{ expr: 'x', modules: [step('c', 'C')] }],
+					default: []
+				}
+			}
+		]
+		const { nodes } = layoutSimplifiedFlow({ modules, editable: true }, measure)
+		const inserts = nodes.flatMap((n) => {
+			const { insert } = n.data as SimplifiedNodeData
+			return insert ? [{ id: n.id, ...insert }] : []
+		})
+		const at = (index: number, rootId?: string, branch?: number) =>
+			inserts.find(
+				(i) => i.index === index && i.branch?.rootId === rootId && i.branch?.branch === branch
+			)
+
+		// Top level: between Input and a (the only place a trigger may go), and before Result
+		expect(at(0)).toMatchObject({ sourceId: 'Input', targetId: 'a', allowTrigger: true })
+		expect(at(2)).toMatchObject({ sourceId: 'b', targetId: 'Result', allowTrigger: false })
+		// Inside the condition's lane, which the step tree numbers after the default
+		expect(at(0, 'b', 1)).toMatchObject({ targetId: 'c', ancestors: ['b'] })
+		expect(at(1, 'b', 1)).toMatchObject({ sourceId: 'c' })
+		// The empty default lane's dot is its own "+"
+		expect(inserts.find((i) => i.id === 'b:empty-0')).toMatchObject({
+			index: 0,
+			branch: { rootId: 'b', branch: 0 }
+		})
 	})
 })

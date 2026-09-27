@@ -3,7 +3,7 @@ import type { FlowModule } from '$lib/gen'
 import { prettyLanguage } from '$lib/common'
 import { getAllModules } from '$lib/components/flows/flowExplorer'
 import { buildStructureTree, type FlowStructureNode } from '../flowStructure'
-import type { FlowGroup } from '../groupEditor.svelte'
+import { GROUP_HEADER_HEIGHT, type FlowGroup } from '../groupEditor.svelte'
 
 /**
  * Left-to-right layout for the simplified flow view. Each layer is a column whose width is its
@@ -28,6 +28,7 @@ export const SIMPLIFIED = {
 	trunkGap: 88,
 	/** Column gap holding a junction, with a trunk on each side of it */
 	junctionGap: 120,
+	collapsedGroupWidth: 240,
 	/** Extra box side padding and column gap in the editor, where "+" buttons sit there */
 	editRing: 12,
 	editGap: 32
@@ -46,6 +47,8 @@ export type SimplifiedNodeKind =
 	| 'caption'
 	/** A "+" between two steps, only laid out when the graph is editable */
 	| 'slot'
+	/** A collapsed group, drawn as one card in place of its steps */
+	| 'collapsedGroup'
 
 export type SimplifiedNodeData = {
 	kind: SimplifiedNodeKind
@@ -61,6 +64,8 @@ export type SimplifiedNodeData = {
 	insert?: InsertTarget
 	/** On a branch caption, when that branch can be deleted */
 	deleteBranch?: { id: string; index: number }
+	/** On a collapsed group: the group, keyed by `groupKey`, and the steps it hides */
+	group?: { key: string; value: FlowGroup; modules: FlowModule[] }
 }
 
 /**
@@ -86,8 +91,10 @@ export type SimplifiedBoxData = {
 	width: number
 	height: number
 	header: SimplifiedNodeData
-	/** Only for groups */
-	group?: FlowGroup
+	/** Height reserved above the contents for the header (and a group's note) */
+	headerHeight: number
+	/** Only for groups, keyed by `groupKey` */
+	group?: { key: string; value: FlowGroup }
 }
 
 export type SimplifiedEdgeData = {
@@ -272,7 +279,8 @@ type Box = {
 	id: string
 	kind: SimplifiedBoxKind
 	header: SimplifiedNodeData
-	group?: FlowGroup
+	headerHeight: number
+	group?: { key: string; value: FlowGroup }
 	startLayer: number
 	endLayer: number
 	y: number
@@ -307,7 +315,13 @@ type Block = {
 	endLayer: number
 }
 
-type Ctx = { measure: TextMeasurer; modules: Map<string, FlowModule>; editable: boolean }
+type Ctx = {
+	measure: TextMeasurer
+	modules: Map<string, FlowModule>
+	editable: boolean
+	collapsedGroups: Set<string>
+	groupNoteHeights: Record<string, number>
+}
 
 /** Where a sequence of steps lives in the step tree, as the insert payload names it */
 type Container = { rootRef?: string; branch: number; ancestors: string[] }
@@ -524,10 +538,11 @@ function layoutLane(
 function boxed(
 	box: Pick<Box, 'id' | 'kind' | 'header' | 'group'>,
 	layer: number,
-	inner: Block
+	inner: Block,
+	headerHeight: number = SIMPLIFIED.loopHeader
 ): Block {
 	const pad = SIMPLIFIED.loopPad
-	const top = pad + SIMPLIFIED.loopHeader
+	const top = pad + headerHeight
 	const height = top + inner.height + pad
 	const b = shift(inner, top)
 	return {
@@ -536,6 +551,7 @@ function boxed(
 		boxes: [
 			{
 				...box,
+				headerHeight,
 				startLayer: layer,
 				endLayer: inner.endLayer,
 				y: 0,
@@ -583,9 +599,23 @@ function groupHeader(group: FlowGroup | undefined, stepCount: number): Simplifie
 }
 
 function layoutNode(node: FlowStructureNode, layer: number, ancestors: string[], ctx: Ctx): Block {
-	if (node.kind === 'group') {
+	if (node.kind === 'group' && node.group) {
+		const group = { key: node.id, value: node.group }
+		const noteHeight = ctx.groupNoteHeights[node.id] ?? 0
+		if (ctx.collapsedGroups.has(node.id)) {
+			const modules = (node.moduleIds ?? []).flatMap((id) => ctx.modules.get(id) ?? [])
+			const data: SimplifiedNodeData = {
+				kind: 'collapsedGroup',
+				title: node.group.summary || 'Group',
+				group: { ...group, modules },
+				width: SIMPLIFIED.collapsedGroupWidth,
+				// Header, then a row of the hidden steps' icons, as the full graph's collapsed card
+				height: GROUP_HEADER_HEIGHT + 34 + 8 + noteHeight
+			}
+			return leaf(`collapsed-group:${node.id}`, data, layer)
+		}
 		const rootRef = ref(node)
-		const container = { rootRef, branch: 0, ancestors }
+		const container = { rootRef, branch: 0, ancestors: [...ancestors, rootRef] }
 		const lane = layoutLane(
 			node.branches[0]?.children ?? [],
 			layer,
@@ -595,7 +625,8 @@ function layoutNode(node: FlowStructureNode, layer: number, ancestors: string[],
 			ctx
 		)
 		const header = groupHeader(node.group, node.moduleIds?.length ?? 0)
-		return boxed({ id: rootRef, kind: 'group', header, group: node.group }, layer, lane)
+		const headerHeight = GROUP_HEADER_HEIGHT + 6 + noteHeight
+		return boxed({ id: rootRef, kind: 'group', header, group }, layer, lane, headerHeight)
 	}
 
 	const mod = ctx.modules.get(node.id)
@@ -684,13 +715,19 @@ export function layoutSimplifiedFlow(
 		preprocessorModule?: FlowModule
 		/** Lays out the "+" slots, and a lane for empty loop bodies to insert into */
 		editable?: boolean
+		/** Keys of the groups currently collapsed, each drawn as one card */
+		collapsedGroups?: Set<string>
+		/** Rendered height of each group's note, reserved under its header */
+		groupNoteHeights?: Record<string, number>
 	},
 	measure: TextMeasurer = measureTextWidth
 ): SimplifiedLayout {
 	const ctx: Ctx = {
 		measure,
 		modules: new Map(getAllModules(opts.modules ?? []).map((m) => [m.id, m])),
-		editable: opts.editable ?? false
+		editable: opts.editable ?? false,
+		collapsedGroups: opts.collapsedGroups ?? new Set(),
+		groupNoteHeights: opts.groupNoteHeights ?? {}
 	}
 	const structure = opts.structure ?? buildStructureTree(opts.modules ?? [], [])
 
@@ -828,6 +865,7 @@ export function layoutSimplifiedFlow(
 		boxBounds.set(b.id, { left, right })
 		const data: SimplifiedBoxData = {
 			kind: b.kind,
+			headerHeight: b.headerHeight,
 			width: right - left,
 			height: b.height,
 			header: b.header,

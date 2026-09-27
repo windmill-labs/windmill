@@ -15,6 +15,7 @@
 	import type { GraphEventHandlers } from '../graphBuilder.svelte'
 	import type { SelectionManager } from '../selectionUtils.svelte'
 	import SelectionTool from '../SelectionTool.svelte'
+	import { getGraphContext } from '../graphContext'
 	import SimplifiedNode from './SimplifiedNode.svelte'
 	import SimplifiedBox from './SimplifiedBox.svelte'
 	import SimplifiedEdge from './SimplifiedEdge.svelte'
@@ -46,6 +47,8 @@
 		selectionOverlay?: Snippet<[Node[]]>
 		/** Held while dragging on the canvas to select a rectangle of steps */
 		selectionKey?: string
+		/** Whether group notes are shown */
+		showNotes?: boolean
 	}
 
 	let {
@@ -64,7 +67,8 @@
 		disableAi = false,
 		selectionManager,
 		selectionOverlay,
-		selectionKey
+		selectionKey,
+		showNotes = true
 	}: Props = $props()
 
 	setSimplifiedEditContext({
@@ -76,8 +80,27 @@
 		},
 		get disableAi() {
 			return disableAi
+		},
+		get showNotes() {
+			return showNotes
 		}
 	})
+
+	// Collapse and note heights live on the full graph's display state, so both views share them
+	const groupDisplayState = getGraphContext()?.groupDisplayState
+	let collapsedGroups = $derived(
+		new Set(
+			(structure ?? [])
+				.flatMap(function keys(n): string[] {
+					return [
+						...(n.kind === 'group' ? [n.id] : []),
+						...n.branches.flatMap((b) => b.children.flatMap(keys))
+					]
+				})
+				.filter((key) => groupDisplayState?.isRuntimeCollapsed(key))
+		)
+	)
+	let groupNoteHeights = $derived(showNotes ? (groupDisplayState?.getNoteHeights() ?? {}) : {})
 
 	let layout = $derived(
 		layoutSimplifiedFlow({
@@ -85,7 +108,9 @@
 			structure,
 			failureModule,
 			preprocessorModule,
-			editable: editMode && insertable && !!eventHandlers
+			editable: editMode && insertable && !!eventHandlers,
+			collapsedGroups,
+			groupNoteHeights
 		})
 	)
 	// The full graph selects a branch lane as `<module id>-branch-<n|default>`; here the lane
