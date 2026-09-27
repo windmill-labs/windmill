@@ -615,3 +615,39 @@ async fn list_groups_ssf_flow_has_schema_via_path(db: Pool<Postgres>) -> anyhow:
     );
     Ok(())
 }
+
+/// A member who may run the script but cannot see another user's run of it must not
+/// be able to rerun that run: the rerun would hand them a job carrying its args.
+#[sqlx::test(fixtures("base", "batch_rerun"))]
+async fn batch_rerun_denies_invisible_source_job(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let member = windmill_api_client::create_client(
+        &format!("http://localhost:{}", server.addr.port()),
+        "SECRET_TOKEN_2".to_string(),
+    );
+    sqlx::query("UPDATE script SET extra_perms = '{\"u/test-user-2\": false}' WHERE hash = $1")
+        .bind(SCRIPT_HASH)
+        .execute(&db)
+        .await?;
+
+    let original = push_completed(&db, script_payload(), vec![("name", json!("secret"))]).await?;
+
+    let results = batch_rerun(
+        &member,
+        json!({
+            "job_ids": [original],
+            "script_options_by_path": {},
+            "flow_options_by_path": {},
+        }),
+    )
+    .await?;
+    assert_eq!(results.len(), 1, "the denied job must be reported");
+    assert!(results[0].is_err(), "rerun must be denied: {:?}", results[0]);
+    let pushed: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM v2_job WHERE created_by = 'test-user-2'")
+            .fetch_one(&db)
+            .await?;
+    assert_eq!(pushed, 0);
+    Ok(())
+}

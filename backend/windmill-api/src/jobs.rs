@@ -4197,13 +4197,15 @@ async fn get_args(
 
 async fn get_started_at_by_ids(
     Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
     Json(mut ids): Json<Vec<Uuid>>,
 ) -> JsonResult<Vec<Option<chrono::DateTime<chrono::Utc>>>> {
     ids.truncate(100);
 
     let started_at = sqlx::query!(
-        "SELECT id, started_at FROM v2_job_queue WHERE id = ANY($1)",
-        ids.as_slice()
+        "SELECT id, started_at FROM v2_job_queue WHERE id = ANY($1) AND workspace_id = $2",
+        ids.as_slice(),
+        &w_id
     )
     .fetch_all(&db)
     .await?;
@@ -6499,6 +6501,8 @@ struct BatchReRunQueryReturnType {
     scheduled_for: chrono::DateTime<Utc>,
     #[serde(skip_serializing_if = "Option::is_none")]
     schema: Option<serde_json::Value>,
+    #[serde(skip)]
+    created_by: String,
 }
 
 async fn batch_rerun_compute_js_expression(
@@ -6548,7 +6552,7 @@ fn batch_rerun_jobs_inner(
                 BatchReRunQueryReturnType,
                 r#"WITH norm AS (
                         SELECT
-                            j.id, j.workspace_id, j.runnable_path, j.runnable_id, j.kind, j.args,
+                            j.id, j.workspace_id, j.runnable_path, j.runnable_id, j.kind, j.args, j.created_by,
                             -- Project effective kind for dispatch: pass script/flow through;
                             -- for singlestepflow, read the wrapped runnable's type from
                             -- raw_flow.modules[id='a'].value.type (always 'script' or 'flow').
@@ -6587,6 +6591,7 @@ fn batch_rerun_jobs_inner(
                         COALESCE(s.hash, f.id, n.ssf_hash, 0::bigint) AS "script_hash!: _",
                         COALESCE(jc.started_at, jq.scheduled_for, make_date(1970, 1, 1)) AS "scheduled_for!: _",
                         n.args AS input,
+                        n.created_by,
                         -- Pinned schema for script/flow; latest-by-path fallback for
                         -- singlestepflow so input_transforms still resolve at rerun time.
                         COALESCE(
@@ -6643,6 +6648,10 @@ async fn batch_rerun_handle_job(
     w_id: &String,
     body: &BatchReRunJobsBodyArgs,
 ) -> error::Result<String> {
+    // The source jobs are selected on the root pool, and a rerun copies their args into a
+    // job the caller owns, so each one must pass the same read gate as `jobs_u/get`.
+    require_job_read_access(db, user_db, authed, w_id, &job.id, &job.created_by, None).await?;
+
     let options = if matches!(job.kind, JobKind::Script) {
         &body.script_options_by_path
     } else {
