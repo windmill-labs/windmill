@@ -105,7 +105,7 @@
 	import DataTablePermissionsButton from './DataTablePermissionsButton.svelte'
 	import InstanceRolesButton from './InstanceRolesButton.svelte'
 	import { deepEqual } from 'fast-equals'
-	import { clone, onlyAlphaNumAndUnderscore } from '$lib/utils'
+	import { apiErrorMessage, clone, onlyAlphaNumAndUnderscore } from '$lib/utils'
 	import SettingsFooter from './SettingsFooter.svelte'
 	import Alert from '../common/alert/Alert.svelte'
 	import MissingWorkerTagAlert from '../jobs/MissingWorkerTagAlert.svelte'
@@ -336,7 +336,7 @@
 				sendUserToast('Data table settings saved successfully')
 			}
 		} catch (e) {
-			sendUserToast(e, true)
+			sendUserToast(apiErrorMessage(e), true)
 			console.error('Error saving data table settings', e)
 			throw e
 		}
