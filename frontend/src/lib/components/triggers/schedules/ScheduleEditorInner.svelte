@@ -737,12 +737,13 @@
 
 	async function handleToggleEnabled(nEnabled: boolean) {
 		const previousEnabled = enabled
+		const writesBackend = !trigger?.draftConfig
 		const setEnabled = (v: boolean) => {
 			enabled = v
-			draftSync.patchBaseline({ enabled: v })
+			if (writesBackend) draftSync.patchBaseline({ enabled: v })
 		}
 		setEnabled(nEnabled)
-		if (!trigger?.draftConfig) {
+		if (writesBackend) {
 			let ok: boolean
 			try {
 				ok = await withForkConflictRetry(
