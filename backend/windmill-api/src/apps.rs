@@ -5799,8 +5799,12 @@ async fn build_args(
                 key.and_then(|x| x.clone().strip_prefix("$res:").map(|x| x.to_string()))
             {
                 if let Some(authed) = authed {
+                    // The app policy, not the token, grants the viewer's resources here: app
+                    // tokens are minted with a fixed scope set that never names variables, so
+                    // the references inside the resource resolve on the viewer's RLS alone.
+                    let viewer = ApiAuthed { scopes: None, ..authed.clone() };
                     let db_with_opt_authed =
-                        DbWithOptAuthed::from_authed(authed, db.clone(), Some(user_db.clone()));
+                        DbWithOptAuthed::from_authed(&viewer, db.clone(), Some(user_db.clone()));
                     let res = get_resource_value_interpolated_internal(
                         &db_with_opt_authed,
                         w_id,

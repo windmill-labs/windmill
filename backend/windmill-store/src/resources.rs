@@ -853,6 +853,20 @@ pub async fn transform_json_value(
     .await
 }
 
+/// RLS resolves a reference as the token's user, not as the token: a token scoped to one
+/// resource would otherwise read, through that resource, every variable or resource its
+/// user can. Job tokens carry no scopes, so what a runnable resolves is unaffected.
+fn check_interpolation_scope(
+    db_with_opt_authed: &DbWithOptAuthed<'_, ApiAuthed>,
+    domain: &str,
+    path: &str,
+) -> Result<()> {
+    match db_with_opt_authed.authed() {
+        Some(authed) => check_scopes(authed, || format!("{domain}:read:{path}")),
+        None => Ok(()),
+    }
+}
+
 /// Like [`transform_json_value`], but records into `used_job_context` whether the value
 /// contains a `$WM_*` contextual variable (resolved from `job_id`/`token`). A value that did
 /// not is job-independent and safe to cache; one that did must not be cached or shared across
@@ -875,6 +889,7 @@ pub async fn transform_json_value_tracked(
     match v {
         Value::String(y) if y.starts_with("$var:") => {
             let path = y.strip_prefix("$var:").unwrap();
+            check_interpolation_scope(db_with_opt_authed, "variables", path)?;
 
             let v =
                 crate::variables::get_value_internal(&db_with_opt_authed, workspace, path, false)
@@ -883,6 +898,7 @@ pub async fn transform_json_value_tracked(
         }
         Value::String(y) if y.starts_with("$jsonvar:") => {
             let path = y.strip_prefix("$jsonvar:").unwrap();
+            check_interpolation_scope(db_with_opt_authed, "variables", path)?;
 
             let v =
                 crate::variables::get_value_internal(&db_with_opt_authed, workspace, path, false)
@@ -898,6 +914,7 @@ pub async fn transform_json_value_tracked(
                     "Invalid resource path: {path}"
                 )));
             }
+            check_interpolation_scope(db_with_opt_authed, "resources", path)?;
             let mut tx: Transaction<'_, Postgres> = db_with_opt_authed.begin().await?;
             let v = sqlx::query_scalar!(
                 "SELECT value from resource WHERE path = $1 AND workspace_id = $2",
