@@ -648,15 +648,27 @@ async fn test_interpolated_references_need_the_token_scopes(
         read_probe(json!({"v": "$var:u/test-user/secret"}), with_var.clone()).await;
     assert_eq!((status, body.as_str()), (200, r#"{"v":"CANARY"}"#));
 
-    // The resource's own linked secret, at its own path, is part of reading the resource.
-    let resp = authed(client().post(format!("{base}/variables/create")))
-        .json(&json!({"path": "u/test-user/probe", "value": "LINKED", "is_secret": true, "description": ""}))
-        .send()
-        .await?;
-    assert_eq!(resp.status(), 201);
-    let (status, body) =
-        read_probe(json!({"pw": "$var:u/test-user/probe"}), probe_only.clone()).await;
-    assert_eq!((status, body.as_str()), (200, r#"{"pw":"LINKED"}"#));
+    // The resource's own linked secrets (at its path, or `<path>_<field>`) are part of it.
+    for (path, value) in [
+        ("u/test-user/probe", "LINKED"),
+        ("u/test-user/probe_key", "KEY"),
+    ] {
+        let resp = authed(client().post(format!("{base}/variables/create")))
+            .json(&json!({"path": path, "value": value, "is_secret": true, "description": ""}))
+            .send()
+            .await?;
+        assert_eq!(resp.status(), 201);
+    }
+    let (status, body) = read_probe(
+        json!({"pw": "$var:u/test-user/probe", "key": "$var:u/test-user/probe_key"}),
+        probe_only.clone(),
+    )
+    .await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&body)?,
+        json!({"pw": "LINKED", "key": "KEY"})
+    );
 
     Ok(())
 }

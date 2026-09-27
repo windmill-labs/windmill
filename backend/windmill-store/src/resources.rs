@@ -858,8 +858,8 @@ pub async fn transform_json_value(
 /// RLS resolves a reference as the token's user, not as the token: a token scoped to one
 /// resource would otherwise read, through that resource, every variable or resource its
 /// user can. Job tokens carry no scopes, so what a runnable resolves is unaffected.
-/// `resource_path` is the resource being expanded: its own linked secret (`$var:` at the
-/// same path, how the resource editor stores secret fields) is covered by the read of it.
+/// `resource_path` is the resource being expanded: its own linked secrets
+/// ([`is_owned_linked_var`]) are covered by the read of it.
 fn check_interpolation_scope(
     db_with_opt_authed: &DbWithOptAuthed<'_, ApiAuthed>,
     domain: &str,
@@ -867,7 +867,7 @@ fn check_interpolation_scope(
     resource_path: Option<&str>,
 ) -> Result<()> {
     match db_with_opt_authed.authed() {
-        Some(_) if resource_path == Some(path) => Ok(()),
+        Some(_) if resource_path.is_some_and(|r| is_owned_linked_var(r, path)) => Ok(()),
         Some(authed) => check_scopes(authed, || format!("{domain}:read:{path}")),
         None => Ok(()),
     }

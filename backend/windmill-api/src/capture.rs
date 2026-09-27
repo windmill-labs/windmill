@@ -720,7 +720,8 @@ async fn list_captures(
 
 /// A capture addressed by id carries no path in the route, so its path scope can only be
 /// checked against the row. Looked up under the caller's RLS so the check never reveals
-/// whether an id the caller cannot see exists.
+/// whether an id the caller cannot see exists, and the refusal omits the path, which the
+/// caller named only by id.
 async fn check_capture_id_scope(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     authed: &ApiAuthed,
@@ -739,7 +740,11 @@ async fn check_capture_id_scope(
     .fetch_optional(&mut **tx)
     .await?;
     if let Some(path) = path {
-        check_scopes(authed, || format!("capture:{action}:{path}"))?;
+        check_scopes(authed, || format!("capture:{action}:{path}")).map_err(|_| {
+            windmill_common::error::Error::PermissionDenied(format!(
+                "This token's capture:{action} scope does not cover capture {id}"
+            ))
+        })?;
     }
     Ok(())
 }
