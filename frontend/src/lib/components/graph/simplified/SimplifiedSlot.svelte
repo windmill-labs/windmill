@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { CircleDot } from 'lucide-svelte'
+	import { Button } from '$lib/components/common'
 	import InsertModulePopover from '$lib/components/flows/map/InsertModulePopover.svelte'
 	import InsertModuleButton from '$lib/components/flows/map/InsertModuleButton.svelte'
 	import { getGraphContext } from '../graphContext'
@@ -28,14 +29,14 @@
 <div class="nodrag nopan w-full h-full flex items-center justify-center">
 	{#if moving}
 		{#if !pasteBlocked}
-			<button
+			<Button
+				variant="default"
+				unifiedSize="2xs"
+				iconOnly
+				startIcon={{ icon: CircleDot }}
 				title="Paste module"
-				type="button"
-				class="w-5 h-5 flex items-center justify-center rounded-md bg-surface-secondary text-primary hover:text-accent"
-				onclick={() => edit?.eventHandlers?.insert(position)}
-			>
-				<CircleDot size={12} />
-			</button>
+				onClick={() => edit?.eventHandlers?.insert(position)}
+			/>
 		{/if}
 	{:else}
 		<InsertModulePopover

@@ -9,7 +9,7 @@
 	import '@xyflow/svelte/dist/base.css'
 	import type { FlowModule } from '$lib/gen'
 	import type { Snippet } from 'svelte'
-	import { layoutSimplifiedFlow } from './simplifiedLayout'
+	import { layoutSimplifiedFlow, type SimplifiedBoxData } from './simplifiedLayout'
 	import { setSimplifiedEditContext } from './simplifiedContext'
 	import type { FlowStructureNode } from '../flowStructure'
 	import type { GraphEventHandlers } from '../graphBuilder.svelte'
@@ -183,10 +183,22 @@
 				zoomOnDoubleClick={false}
 				deleteKey={null}
 				onnodeclick={({ node, event }) => {
-					// Adding to a multi-selection is xyflow's, synced by SelectionTool
-					if (event.shiftKey) return
-					// Boxes stand for their loop or branch step; placeholders are not selectable
-					if (node.type === 'simplifiedBox' || node.selectable) onSelect?.(node.id)
+					// A loop or branch box stands for its step, keyed by the module id; a user group's
+					// box (`group:<key>`) is no step, and its header handles its own clicks.
+					const isStepBox =
+						node.type === 'simplifiedBox' && (node.data as SimplifiedBoxData).kind !== 'group'
+					if (event.shiftKey) {
+						// Steps are added by xyflow and synced by SelectionTool. Boxes stay unselectable
+						// there, so a rectangle over a loop's steps does not grab the loop, and toggle here.
+						if (isStepBox && selectionOverlay && selectionManager) {
+							const ids = selectionManager.selectedIds
+							selectionManager.selectByIds(
+								ids.includes(node.id) ? ids.filter((i) => i !== node.id) : [...ids, node.id]
+							)
+						}
+						return
+					}
+					if (isStepBox || node.selectable) onSelect?.(node.id)
 				}}
 				onpaneclick={() => selectionManager?.clearSelection()}
 				{proOptions}

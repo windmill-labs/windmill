@@ -2,6 +2,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { GitBranchPlus } from 'lucide-svelte'
 	import FlowModuleIcon from '$lib/components/flows/FlowModuleIcon.svelte'
+	import { Button } from '$lib/components/common'
 	import StepContextMenu from './StepContextMenu.svelte'
 	import { getSimplifiedEditContext, useStepMenu } from './simplifiedContext'
 	import { getFlowRunStatusContext } from '../flowRunStatus.svelte'
@@ -96,17 +97,18 @@
 					<span class="font-mono text-hint truncate min-w-0">{header.detail}</span>
 				{/if}
 				{#if canAddBranch}
-					<button
-						type="button"
+					<Button
+						variant="subtle"
+						unifiedSize="2xs"
+						iconOnly
+						startIcon={{ icon: GitBranchPlus }}
 						title="Add branch"
-						class="nodrag shrink-0 rounded p-0.5 text-secondary hover:text-primary hover:bg-surface-hover"
-						onclick={(e) => {
-							e.stopPropagation()
+						btnClasses="nodrag shrink-0"
+						onClick={(e) => {
+							e?.stopPropagation()
 							edit?.eventHandlers?.newBranch(id)
 						}}
-					>
-						<GitBranchPlus size={12} />
-					</button>
+					/>
 				{/if}
 			</div>
 		</StepContextMenu>

@@ -28,7 +28,8 @@ export const SIMPLIFIED = {
 	trunkGap: 88,
 	/** Column gap holding a junction, with a trunk on each side of it */
 	junctionGap: 120,
-	collapsedGroupWidth: 240,
+	/** The full graph's card width, which the step-icon row inside it is sized for */
+	collapsedGroupWidth: 275,
 	/** Extra box side padding and column gap in the editor, where "+" buttons sit there */
 	editRing: 12,
 	editGap: 32
@@ -603,7 +604,15 @@ function layoutNode(node: FlowStructureNode, layer: number, ancestors: string[],
 		const group = { key: node.id, value: node.group }
 		const noteHeight = ctx.groupNoteHeights[node.id] ?? 0
 		if (ctx.collapsedGroups.has(node.id)) {
-			const modules = (node.moduleIds ?? []).flatMap((id) => ctx.modules.get(id) ?? [])
+			// Its top-level steps, as the full graph's card takes them: containers carry their nested
+			// steps, and a nested group's steps stand in for it.
+			const topLevel = (items: FlowStructureNode[]): FlowModule[] =>
+				items.flatMap((c) =>
+					c.kind === 'group'
+						? topLevel(c.branches[0]?.children ?? [])
+						: (ctx.modules.get(c.id) ?? [])
+				)
+			const modules = topLevel(node.branches[0]?.children ?? [])
 			const data: SimplifiedNodeData = {
 				kind: 'collapsedGroup',
 				title: node.group.summary || 'Group',

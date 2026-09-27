@@ -3,6 +3,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { AlertTriangle, ArrowRightToLine, Filter, Flag, Trash2, X } from 'lucide-svelte'
 	import FlowModuleIcon from '$lib/components/flows/FlowModuleIcon.svelte'
+	import { Button } from '$lib/components/common'
 	import type { ContextMenuItem } from '$lib/components/common/contextmenu/ContextMenu.svelte'
 	import StepContextMenu from './StepContextMenu.svelte'
 	import { getNodeColorClasses } from '../util'
@@ -79,14 +80,15 @@
 		>
 			<span class="truncate">{data.title}</span>
 			{#if deleteBranch}
-				<button
-					type="button"
+				<Button
+					variant="subtle"
+					unifiedSize="2xs"
+					iconOnly
+					startIcon={{ icon: X }}
 					title="Delete branch"
-					class="nodrag shrink-0 opacity-0 group-hover/caption:opacity-100 text-secondary hover:text-red-500"
-					onclick={deleteBranch}
-				>
-					<X size={11} />
-				</button>
+					btnClasses="nodrag shrink-0 opacity-0 group-hover/caption:opacity-100 hover:text-red-500"
+					onClick={deleteBranch}
+				/>
 			{/if}
 		</div>
 	</StepContextMenu>
