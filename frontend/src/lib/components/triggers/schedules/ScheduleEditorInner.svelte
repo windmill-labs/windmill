@@ -738,7 +738,11 @@
 	async function handleToggleEnabled(nEnabled: boolean) {
 		const previousEnabled = enabled
 		const writesBackend = !trigger?.draftConfig
+		const togglePath = initialPath
 		const setEnabled = (v: boolean) => {
+			// The drawer is reused: a revert landing after it moved to another
+			// schedule would fold this one's value into that one's baseline.
+			if (initialPath !== togglePath) return
 			enabled = v
 			if (writesBackend) draftSync.patchBaseline({ enabled: v })
 		}
