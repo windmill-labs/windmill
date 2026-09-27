@@ -648,6 +648,16 @@ async fn test_interpolated_references_need_the_token_scopes(
         read_probe(json!({"v": "$var:u/test-user/secret"}), with_var.clone()).await;
     assert_eq!((status, body.as_str()), (200, r#"{"v":"CANARY"}"#));
 
+    // The resource's own linked secret, at its own path, is part of reading the resource.
+    let resp = authed(client().post(format!("{base}/variables/create")))
+        .json(&json!({"path": "u/test-user/probe", "value": "LINKED", "is_secret": true, "description": ""}))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 201);
+    let (status, body) =
+        read_probe(json!({"pw": "$var:u/test-user/probe"}), probe_only.clone()).await;
+    assert_eq!((status, body.as_str()), (200, r#"{"pw":"LINKED"}"#));
+
     Ok(())
 }
 

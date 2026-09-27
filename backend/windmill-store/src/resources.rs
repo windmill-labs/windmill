@@ -810,6 +810,7 @@ pub async fn get_resource_value_interpolated_internal<'a>(
             token_for_context,
             0,
             &used_job_context,
+            Some(path),
         )
         .await?;
         if let Some(identity) = cache_identity.as_deref() {
@@ -849,6 +850,7 @@ pub async fn transform_json_value(
         token,
         depth,
         &used_job_context,
+        None,
     )
     .await
 }
@@ -856,12 +858,16 @@ pub async fn transform_json_value(
 /// RLS resolves a reference as the token's user, not as the token: a token scoped to one
 /// resource would otherwise read, through that resource, every variable or resource its
 /// user can. Job tokens carry no scopes, so what a runnable resolves is unaffected.
+/// `resource_path` is the resource being expanded: its own linked secret (`$var:` at the
+/// same path, how the resource editor stores secret fields) is covered by the read of it.
 fn check_interpolation_scope(
     db_with_opt_authed: &DbWithOptAuthed<'_, ApiAuthed>,
     domain: &str,
     path: &str,
+    resource_path: Option<&str>,
 ) -> Result<()> {
     match db_with_opt_authed.authed() {
+        Some(_) if resource_path == Some(path) => Ok(()),
         Some(authed) => check_scopes(authed, || format!("{domain}:read:{path}")),
         None => Ok(()),
     }
@@ -880,6 +886,7 @@ pub async fn transform_json_value_tracked(
     token: Option<&str>,
     depth: u8,
     used_job_context: &std::sync::atomic::AtomicBool,
+    resource_path: Option<&str>,
 ) -> Result<Value> {
     if depth >= MAX_RESOURCE_INTERPOLATION_DEPTH {
         return Err(Error::internal_err(format!(
@@ -889,7 +896,7 @@ pub async fn transform_json_value_tracked(
     match v {
         Value::String(y) if y.starts_with("$var:") => {
             let path = y.strip_prefix("$var:").unwrap();
-            check_interpolation_scope(db_with_opt_authed, "variables", path)?;
+            check_interpolation_scope(db_with_opt_authed, "variables", path, resource_path)?;
 
             let v =
                 crate::variables::get_value_internal(&db_with_opt_authed, workspace, path, false)
@@ -898,7 +905,7 @@ pub async fn transform_json_value_tracked(
         }
         Value::String(y) if y.starts_with("$jsonvar:") => {
             let path = y.strip_prefix("$jsonvar:").unwrap();
-            check_interpolation_scope(db_with_opt_authed, "variables", path)?;
+            check_interpolation_scope(db_with_opt_authed, "variables", path, resource_path)?;
 
             let v =
                 crate::variables::get_value_internal(&db_with_opt_authed, workspace, path, false)
@@ -914,7 +921,7 @@ pub async fn transform_json_value_tracked(
                     "Invalid resource path: {path}"
                 )));
             }
-            check_interpolation_scope(db_with_opt_authed, "resources", path)?;
+            check_interpolation_scope(db_with_opt_authed, "resources", path, None)?;
             let mut tx: Transaction<'_, Postgres> = db_with_opt_authed.begin().await?;
             let v = sqlx::query_scalar!(
                 "SELECT value from resource WHERE path = $1 AND workspace_id = $2",
@@ -934,6 +941,7 @@ pub async fn transform_json_value_tracked(
                     token,
                     depth + 1,
                     used_job_context,
+                    Some(path),
                 )
                 .await
             } else {
@@ -1033,6 +1041,7 @@ pub async fn transform_json_value_tracked(
                     token,
                     depth + 1,
                     used_job_context,
+                    resource_path,
                 )
                 .await?;
             }
@@ -1057,6 +1066,7 @@ pub async fn transform_json_value_tracked(
                     token,
                     depth + 1,
                     used_job_context,
+                    resource_path,
                 )
                 .await?;
                 m.insert(a.clone(), v);
