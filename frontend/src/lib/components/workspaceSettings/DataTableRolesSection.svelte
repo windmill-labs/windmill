@@ -3,6 +3,8 @@
 	import CloseButton from '../common/CloseButton.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 	import Toggle from '../Toggle.svelte'
+	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { createAsyncConfirmationModal } from '../common/confirmationModal/asyncConfirmationModal.svelte'
 	import Cell from '../table/Cell.svelte'
@@ -15,18 +17,23 @@
 
 	let {
 		initialName = '',
-		cluster,
+		pinnedCluster,
 		onChanged
 	}: {
 		/** Prefills the name of the role to add. */
 		initialName?: string
-		/** Whose catalog this is. A role is a login on one cluster: created, listed and dropped
-		 *  there, and a data table can only grant the roles of the cluster it sits on. */
-		cluster?: DatatableRoleCluster
+		/** The one catalog to manage, when the caller has a cluster of its own: a data table can
+		 *  only grant the roles of the cluster it sits on, so its drawer pins that one. Left out,
+		 *  the section offers whichever clusters this instance has. */
+		pinnedCluster?: DatatableRoleCluster
 		/** Called after every change to the catalog, whether or not it went through. */
 		onChanged?: () => void
 	} = $props()
 
+	let cluster = $state<DatatableRoleCluster>(pinnedCluster ?? 'instance')
+	/** Whether the external cluster is configured, so its catalog is worth offering. Only a
+	 *  superadmin can read that, and only a superadmin manages roles. */
+	let externalConfigured = $state(false)
 	let roles = $state<InstanceDatatableRole[]>([])
 	let loading = $state(true)
 	let loadError = $state<string | undefined>(undefined)
@@ -50,6 +57,19 @@
 		}
 	}
 	load()
+
+	if (pinnedCluster === undefined) {
+		SettingService.getExternalInstancePgStatus()
+			.then((s) => (externalConfigured = s.configured))
+			.catch(() => (externalConfigured = false))
+	}
+
+	async function switchCluster(next: DatatableRoleCluster) {
+		if (next === cluster) return
+		cluster = next
+		renaming = undefined
+		await load()
+	}
 
 	async function run(fn: () => Promise<unknown>, success: string) {
 		busy = true
@@ -98,6 +118,20 @@
 <ConfirmationModal {...confirmationModal.props} />
 
 <div class="flex flex-col gap-2">
+	{#if pinnedCluster === undefined && externalConfigured}
+		<!-- Each cluster keeps its own logins, so the catalogs are separate lists, not one
+		filtered view. Offered only where a caller has not pinned one. -->
+		<ToggleButtonGroup
+			bind:selected={() => cluster, (v) => switchCluster(v)}
+			class="w-fit"
+			disabled={busy}
+		>
+			{#snippet children({ item })}
+				<ToggleButton value="instance" label="Windmill's database" {item} small />
+				<ToggleButton value="external_instance" label="External cluster" {item} small />
+			{/snippet}
+		</ToggleButtonGroup>
+	{/if}
 	{#if loadError}
 		<Alert type="error" title="Could not load the instance roles" size="xs">{loadError}</Alert>
 	{:else}

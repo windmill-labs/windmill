@@ -2267,9 +2267,9 @@ fn pg_attach_verification<'a>(
     job_dir: &str,
 ) -> Result<Option<(&'a str, std::path::PathBuf)>> {
     let mode = match res.sslmode.as_deref() {
-        Some(mode @ ("verify-ca" | "verify-full")) if res.accept_invalid_certs == Some(false) => {
-            mode
-        }
+        // The rule every other Postgres connection uses, so a resource that verifies elsewhere is
+        // not quietly downgraded here.
+        Some(mode @ ("verify-ca" | "verify-full")) if !res.verify_mode_skips_verification() => mode,
         _ => return Ok(None),
     };
     let bundle = windmill_common::system_ca_bundle()
@@ -2973,8 +2973,14 @@ mod tests {
             )),
             "{attach}"
         );
-        // A resource that never opted in keeps the historical downgrade.
+        // A resource carrying a root certificate verifies without opting in, as it does on every
+        // other Postgres path; one carrying neither keeps the historical downgrade.
         assert!(pg_attach_uri(&pg("verify-full", None), &job_dir)
+            .unwrap()
+            .contains("?sslmode=verify-full&sslrootcert="));
+        let mut bare = pg("verify-full", None);
+        bare.root_certificate_pem = None;
+        assert!(pg_attach_uri(&bare, &job_dir)
             .unwrap()
             .ends_with("?sslmode=require"));
         assert!(pg_attach_uri(&pg("require", Some(false)), &job_dir)

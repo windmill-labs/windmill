@@ -53,13 +53,13 @@
 	<DrawerContent
 		title="Instance roles"
 		on:close={() => drawer?.closeDrawer()}
-		tooltip="A data table role is a real Postgres login on this instance, shared by every instance database. A job that names one connects as it, and Postgres decides what it may touch. Which people may use a role on a given data table, and what it may do there, is set per data table, in its roles drawer."
+		tooltip="A data table role is a real Postgres login on the cluster it belongs to, shared by every database Windmill manages there. A job that names one connects as it, and Postgres decides what it may touch. Which people may use a role on a given data table, and what it may do there, is set per data table, in its roles drawer."
 	>
 		{#snippet titleExtra()}
 			<Badge color="blue" small>Beta</Badge>
 		{/snippet}
 		{#key openCount}
-			<DataTableRolesSection initialName={prefill} {cluster} {onChanged} />
+			<DataTableRolesSection initialName={prefill} pinnedCluster={cluster} {onChanged} />
 		{/key}
 	</DrawerContent>
 </Drawer>
