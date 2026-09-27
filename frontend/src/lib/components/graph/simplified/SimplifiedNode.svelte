@@ -86,7 +86,7 @@
 					iconOnly
 					startIcon={{ icon: X }}
 					title="Delete branch"
-					btnClasses="nodrag shrink-0 opacity-0 group-hover/caption:opacity-100 hover:text-red-500"
+					btnClasses="nodrag shrink-0 !h-[14px] !w-[14px] !min-w-0 !p-0 opacity-0 group-hover/caption:opacity-100 hover:text-red-500"
 					onClick={deleteBranch}
 				/>
 			{/if}

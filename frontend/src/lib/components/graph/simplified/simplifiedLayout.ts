@@ -2,7 +2,7 @@ import type { Edge, Node } from '@xyflow/svelte'
 import type { FlowModule } from '$lib/gen'
 import { prettyLanguage } from '$lib/common'
 import { getAllModules } from '$lib/components/flows/flowExplorer'
-import { buildStructureTree, type FlowStructureNode } from '../flowStructure'
+import { buildStructureTree, collectLeafIds, type FlowStructureNode } from '../flowStructure'
 import { GROUP_HEADER_HEIGHT, type FlowGroup } from '../groupEditor.svelte'
 
 /**
@@ -604,15 +604,10 @@ function layoutNode(node: FlowStructureNode, layer: number, ancestors: string[],
 		const group = { key: node.id, value: node.group }
 		const noteHeight = ctx.groupNoteHeights[node.id] ?? 0
 		if (ctx.collapsedGroups.has(node.id)) {
-			// Its top-level steps, as the full graph's card takes them: containers carry their nested
-			// steps, and a nested group's steps stand in for it.
-			const topLevel = (items: FlowStructureNode[]): FlowModule[] =>
-				items.flatMap((c) =>
-					c.kind === 'group'
-						? topLevel(c.branches[0]?.children ?? [])
-						: (ctx.modules.get(c.id) ?? [])
-				)
-			const modules = topLevel(node.branches[0]?.children ?? [])
+			// Every step it hides, nested ones included, as the full graph's card lists them
+			const modules = collectLeafIds(node.branches[0]?.children ?? []).flatMap(
+				(id) => ctx.modules.get(id) ?? []
+			)
 			const data: SimplifiedNodeData = {
 				kind: 'collapsedGroup',
 				title: node.group.summary || 'Group',

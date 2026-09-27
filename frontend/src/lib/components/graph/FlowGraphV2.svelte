@@ -118,8 +118,8 @@
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 	let showAssets: Writable<boolean | undefined> = writable<boolean | undefined>(true)
-	// Alternative layout without insert/drag affordances or diff markers: editing goes back to the
-	// full graph, and a diff would read as an unchanged flow, so diffs never offer it.
+	// Alternative layout that draws no diff markers: a diff would read as an unchanged flow, so
+	// diff views never offer it.
 	let simplifiedView = $state(false)
 	let showNotes = $state(true)
 

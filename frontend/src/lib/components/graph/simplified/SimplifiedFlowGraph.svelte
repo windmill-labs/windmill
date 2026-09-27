@@ -191,7 +191,8 @@
 						// Steps are added by xyflow and synced by SelectionTool. Boxes stay unselectable
 						// there, so a rectangle over a loop's steps does not grab the loop, and toggle here.
 						if (isStepBox && selectionOverlay && selectionManager) {
-							const ids = selectionManager.selectedIds
+							// With nothing selected the manager reports its `settings` placeholder
+							const ids = selectionManager.selectedIds.filter((i) => i !== 'settings')
 							selectionManager.selectByIds(
 								ids.includes(node.id) ? ids.filter((i) => i !== node.id) : [...ids, node.id]
 							)
