@@ -566,6 +566,39 @@ async fn test_resource_value_cache_is_identity_scoped(db: Pool<Postgres>) -> any
     Ok(())
 }
 
+/// A denial confirms the resource exists but must not reveal who holds grants on it or on
+/// its folder: test-user-2's grants must never appear in test-user-3's error.
+#[sqlx::test(migrations = "../migrations", fixtures("base", "resource_cache_rls"))]
+async fn test_resource_denial_hides_grants(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    sqlx::query(
+        "UPDATE resource SET extra_perms = '{\"u/test-user-2\": true}'
+         WHERE workspace_id = 'test-workspace' AND path = 'f/secret/cache_target'",
+    )
+    .execute(&db)
+    .await?;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    for endpoint in ["get_value", "get_value_interpolated"] {
+        let resp = client()
+            .get(resource_url(port, endpoint, "f/secret/cache_target"))
+            .header("Authorization", "Bearer SECRET_TOKEN_3")
+            .send()
+            .await?;
+        assert_eq!(resp.status(), 401);
+        let body = resp.text().await?;
+        assert!(
+            !body.contains("test-user-2"),
+            "{endpoint} leaked grants: {body}"
+        );
+        assert!(body.contains("exists but you don't have access"), "{body}");
+        assert!(body.contains("folder secret"), "{body}");
+    }
+
+    Ok(())
+}
+
 /// A resource whose value contains a `$WM_*` contextual variable (e.g. `$WM_TOKEN`) is
 /// job-dependent and must NEVER be cached — even when first read WITHOUT a `job_id`, where the
 /// placeholder is left unresolved (caching that would serve a stale placeholder to a later job
