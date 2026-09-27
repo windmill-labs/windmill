@@ -117,7 +117,8 @@ use windmill_common::{
     scripts::{ScriptHash, ScriptLang},
     users::username_to_permissioned_as,
     utils::{
-        not_found_if_none, now_from_db, paginate, require_admin, Pagination, ScheduleType, StripPath,
+        not_found_if_none, now_from_db, paginate, require_admin, Pagination, ScheduleType,
+        StripPath,
     },
 };
 
@@ -2762,7 +2763,7 @@ async fn send_email_with_instance_smtp(
     Json(send_email): Json<SendEmail>,
 ) -> error::Result<Json<String>> {
     use windmill_common::jobs::EMAIL_ERROR_HANDLER_USER_EMAIL;
-    use windmill_queue::SCHEDULE_ERROR_HANDLER_USER_EMAIL;
+    use windmill_queue::{ERROR_HANDLER_USER_EMAIL, SCHEDULE_ERROR_HANDLER_USER_EMAIL};
 
     if *CLOUD_HOSTED {
         tracing::warn!(
@@ -2771,12 +2772,15 @@ async fn send_email_with_instance_smtp(
         return Err(anyhow::anyhow!("Feature not supported in cloud hosted windmill").into());
     }
 
+    // Any code pushed as a workspace or schedule error handler, custom ones included, runs as
+    // one of these identities: this keeps out ad-hoc job tokens, not who authors handler code.
     let is_handler_job = authed.email == EMAIL_ERROR_HANDLER_USER_EMAIL
+        || authed.email == ERROR_HANDLER_USER_EMAIL
         || authed.email == SCHEDULE_ERROR_HANDLER_USER_EMAIL;
 
     if !is_handler_job && !windmill_api_auth::is_super_admin_authed(&db, &authed).await? {
         return Err(Error::NotAuthorized(
-            "Only super admin or whitelisted token can access email workspace error handler feature"
+            "Only super admin or a workspace/schedule error handler job can send emails with the instance SMTP"
                 .to_string(),
         ));
     }
@@ -6937,7 +6941,8 @@ async fn resolve_nested_restart(
     parent_step_id: &str,
     parent_branch_or_iteration_n: Option<usize>,
     nested_path: Vec<NestedRestartStep>,
-    parent_flow_version: Option<i64>,
+    // (flow path of the restarted job, version to restart on)
+    parent_flow_version: Option<(&str, i64)>,
 ) -> error::Result<(
     Option<windmill_common::flow_status::BranchChosen>,
     Option<Box<RestartedFrom>>,
@@ -6965,8 +6970,8 @@ async fn resolve_nested_restart(
         )
     })?;
 
-    let flow_data = if let Some(version) = parent_flow_version {
-        cache::flow::fetch_version(db, version).await?
+    let flow_data = if let Some((flow_path, version)) = parent_flow_version {
+        windmill_queue::fetch_restart_flow_version(db, workspace_id, flow_path, version).await?
     } else {
         cache::job::fetch_flow(db, &row.job_kind, row.runnable_id)
             .or_else(|_| cache::job::fetch_preview_flow(db, &parent_job_id, row.raw_flow))
@@ -7143,6 +7148,8 @@ pub async fn restart_flow(
         .script_path
         .with_context(|| "No flow path set for completed flow job")?;
     check_scopes(&authed, || format!("jobs:run:flows:{flow_path}"))?;
+    let mut run_query = run_query;
+    drop_unclaimable_run_lineage(&db, &w_id, &mut run_query, &authed).await?;
 
     let ehm = HashMap::new();
     let push_args = completed_job
@@ -7160,7 +7167,7 @@ pub async fn restart_flow(
         &step_id,
         branch_or_iteration_n,
         nested_path,
-        flow_version,
+        flow_version.map(|v| (flow_path.as_str(), v)),
     )
     .await?;
 
@@ -7341,6 +7348,13 @@ pub async fn run_workflow_as_code(
     let args = PushArgs { args: &task.args.unwrap_or_else(HashMap::new), extra: Some(extra) };
     check_tag_available_for_workspace(&db, &w_id, &run_query.tag, &args, &authed).await?;
     check_scopes(&authed, || format!("jobs:run"))?;
+    // The task becomes a child of `job_id`, runs its code and writes into its flow status, so
+    // only that job itself (the SDK's `task` wrapper, on its `WM_TOKEN`) or an admin may push it.
+    if authed.job_id != Some(job_id) && !authed.is_admin {
+        return Err(error::Error::PermissionDenied(format!(
+            "only job {job_id}'s own WM_TOKEN can run its workflow tasks"
+        )));
+    }
 
     if !is_valid_entrypoint_name(&entrypoint) {
         return Err(error::Error::BadRequest(format!(
@@ -7757,6 +7771,8 @@ pub async fn run_wait_result_job_by_path_get(
     let tag = run_query.tag.clone().or(tag);
     let push_args = PushArgs { args: &args.args, extra: args.extra };
     check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
+    let mut run_query = run_query;
+    drop_unclaimable_run_lineage(&db, &w_id, &mut run_query, &authed).await?;
 
     let (email, permissioned_as, push_authed, tx) =
         if let Some(on_behalf_of) = on_behalf_authed.as_ref() {
@@ -7903,6 +7919,8 @@ pub async fn run_wait_result_script_by_path_internal(
     let tag = run_query.tag.clone().or(tag);
     let push_args = PushArgs { args: &args.args, extra: args.extra };
     check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
+    let mut run_query = run_query;
+    drop_unclaimable_run_lineage(&db, &w_id, &mut run_query, &authed).await?;
 
     let (email, permissioned_as, push_authed, tx) =
         if let Some(on_behalf_of) = on_behalf_of.as_ref() {
@@ -8017,6 +8035,8 @@ pub async fn run_wait_result_script_by_hash(
     let tag = run_query.tag.clone().or(tag);
     let push_args = PushArgs { args: &args.args, extra: args.extra };
     check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
+    let mut run_query = run_query;
+    drop_unclaimable_run_lineage(&db, &w_id, &mut run_query, &authed).await?;
 
     let (email, permissioned_as, push_authed, tx) = if let Some(obo) = on_behalf_of.as_ref() {
         (
@@ -10036,6 +10056,8 @@ pub async fn run_job_by_hash_inner(
     let push_args = PushArgs { args: &args.args, extra: args.extra };
 
     check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
+    let mut run_query = run_query;
+    drop_unclaimable_run_lineage(&db, &w_id, &mut run_query, &authed).await?;
 
     let (email, permissioned_as, push_authed, tx) = if let Some(obo) = on_behalf_of.as_ref() {
         (

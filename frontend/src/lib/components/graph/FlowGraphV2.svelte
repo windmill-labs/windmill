@@ -52,7 +52,6 @@
 	import TriggersNode from './renderers/nodes/TriggersNode.svelte'
 	import { Alert, Drawer } from '../common'
 	import Button from '../common/button/Button.svelte'
-	import FlowYamlEditor from '../flows/header/FlowYamlEditor.svelte'
 	import BranchOneEndNode from './renderers/nodes/branchOneEndNode.svelte'
 	import type { TriggerContext } from '../triggers'
 	import SubflowBound from './renderers/nodes/SubflowBound.svelte'
@@ -1296,7 +1295,10 @@
 </script>
 
 {#if insertable}
-	<FlowYamlEditor bind:drawer={yamlEditorDrawer} />
+	<!-- Dynamic: the YAML editor is monaco, which read-only graphs (run previews) never need. -->
+	{#await import('../flows/header/FlowYamlEditor.svelte') then FlowYamlEditor}
+		<FlowYamlEditor.default bind:drawer={yamlEditorDrawer} />
+	{/await}
 {/if}
 {#if canUseDiffDrawer}
 	<DiffDrawer bind:this={diffDrawer} />
