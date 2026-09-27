@@ -60,3 +60,14 @@ export function managedInstanceLabels(instanceAvailable: boolean, externalAvaila
 		external: both ? 'Managed instance (External)' : 'Managed instance'
 	}
 }
+
+/**
+ * What the closed select shows for a managed kind. The list needs the whole name to tell the
+ * two substrates apart, but once one is picked the row is narrow and the qualifier alone
+ * carries the distinction.
+ */
+export function shortManagedInstanceLabel(text: string): string {
+	return text.startsWith('Managed instance (')
+		? text.replace('Managed instance (', 'Managed (')
+		: text
+}

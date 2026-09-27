@@ -107,6 +107,7 @@
 	import {
 		isCustomInstanceDbEnabled,
 		managedInstanceLabels,
+		shortManagedInstanceLabel,
 		getUnusedInstanceDbName
 	} from './utils.svelte'
 	import { resource } from 'runed'
@@ -452,6 +453,10 @@
 								<Tooltip wrapperClass="absolute mt-[0.6rem] right-2 z-20" placement="bottom-start">
 									Use Windmill's PostgreSQL instance as a catalog
 								</Tooltip>
+							{:else if ducklake.catalog.resource_type === 'external_instance'}
+								<Tooltip wrapperClass="absolute mt-[0.6rem] right-2 z-20" placement="bottom-start">
+									Use a database Windmill manages on the external PostgreSQL cluster as a catalog
+								</Tooltip>
 							{/if}
 							<Select
 								items={catalogItems(ducklake.catalog.resource_type)}
@@ -465,7 +470,8 @@
 										}
 									}
 								}
-								id="ducklake-catalog-type-select"
+								transformInputSelectedText={shortManagedInstanceLabel}
+									id="ducklake-catalog-type-select"
 								class="w-36"
 							/>
 						</div>

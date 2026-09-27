@@ -71,6 +71,7 @@
 		{items}
 		id="external-instance-db-select"
 		disabled={!$superadmin}
+		noItemsMsg="Start typing to create a new database"
 	>
 		{#snippet endSnippet({ item })}
 			{@render sharedWorkspacesWarning(item.value)}

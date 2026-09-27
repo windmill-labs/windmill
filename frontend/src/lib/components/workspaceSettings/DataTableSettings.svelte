@@ -81,6 +81,7 @@
 	import {
 		isCustomInstanceDbEnabled,
 		managedInstanceLabels,
+		shortManagedInstanceLabel,
 		getUnusedInstanceDbName,
 		isDataTableWizardEnabled
 	} from './utils.svelte'
@@ -516,6 +517,13 @@
 									>
 										Use Windmill's PostgreSQL instance
 									</Tooltip>
+								{:else if dataTable.database.resource_type === 'external_instance'}
+									<Tooltip
+										wrapperClass="absolute mt-[0.6rem] right-2 z-20"
+										placement="bottom-start"
+									>
+										Use a database Windmill manages on the external PostgreSQL cluster
+									</Tooltip>
 								{/if}
 								<Select
 									items={kindItems(dataTable.database.resource_type)}
@@ -529,6 +537,7 @@
 											}
 										}
 									}
+									transformInputSelectedText={shortManagedInstanceLabel}
 									id="database-type-select"
 									class="w-36"
 								/>
