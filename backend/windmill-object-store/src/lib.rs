@@ -591,6 +591,10 @@ pub async fn ambient_aws_credentials(
 /// [`PublicOnlyResolver`], which judges the very addresses it hands to the connect, and follows no
 /// redirect (a redirect to an IP literal would skip the resolver). IP-literal endpoints never reach
 /// the resolver, so callers must still validate those themselves.
+///
+/// The environment's egress proxy (`HTTP(S)_PROXY`/`ALL_PROXY`) is still used, and its own host is
+/// exempt from the check: it is operator configuration and typically internal. A proxied request's
+/// target is resolved by the proxy, out of this client's reach (see `ssrf::ValidatedTarget`).
 #[cfg(feature = "parquet")]
 #[derive(Debug, Clone, Copy)]
 pub struct PublicOnlyConnector;
@@ -605,7 +609,9 @@ impl object_store::client::HttpConnector for PublicOnlyConnector {
             .get_config_value(&object_store::ClientConfigKey::AllowHttp)
             .is_some_and(|v| v == "true");
         let client = reqwest_object_store::Client::builder()
-            .dns_resolver(Arc::new(PublicOnlyResolver))
+            .dns_resolver(Arc::new(PublicOnlyResolver {
+                proxy_hosts: system_proxy_hosts(),
+            }))
             .redirect(reqwest_object_store::redirect::Policy::none())
             .connect_timeout(std::time::Duration::from_secs(5))
             .default_headers(HeaderMap::from_iter([(
@@ -627,7 +633,39 @@ impl object_store::client::HttpConnector for PublicOnlyConnector {
 }
 
 #[cfg(feature = "parquet")]
-struct PublicOnlyResolver;
+struct PublicOnlyResolver {
+    proxy_hosts: Vec<String>,
+}
+
+/// The hosts of the proxies reqwest picks up from the environment.
+#[cfg(feature = "parquet")]
+fn system_proxy_hosts() -> Vec<String> {
+    [
+        "HTTP_PROXY",
+        "http_proxy",
+        "HTTPS_PROXY",
+        "https_proxy",
+        "ALL_PROXY",
+        "all_proxy",
+    ]
+    .into_iter()
+    .filter_map(|k| std::env::var(k).ok())
+    .filter_map(|v| {
+        let v = v.trim();
+        let url = if v.contains("://") {
+            v.to_string()
+        } else {
+            format!("http://{v}")
+        };
+        Some(
+            reqwest::Url::parse(&url)
+                .ok()?
+                .host_str()?
+                .to_ascii_lowercase(),
+        )
+    })
+    .collect()
+}
 
 #[cfg(feature = "parquet")]
 impl reqwest_object_store::dns::Resolve for PublicOnlyResolver {
@@ -635,13 +673,18 @@ impl reqwest_object_store::dns::Resolve for PublicOnlyResolver {
         &self,
         name: reqwest_object_store::dns::Name,
     ) -> reqwest_object_store::dns::Resolving {
+        let is_proxy = self
+            .proxy_hosts
+            .iter()
+            .any(|p| p.eq_ignore_ascii_case(name.as_str()));
         Box::pin(async move {
             let host = name.as_str();
             let addrs: Vec<std::net::SocketAddr> =
                 tokio::net::lookup_host((host, 0)).await?.collect();
-            if addrs
-                .iter()
-                .any(|a| windmill_common::ssrf::is_private_ip(&a.ip()))
+            if !is_proxy
+                && addrs
+                    .iter()
+                    .any(|a| windmill_common::ssrf::is_private_ip(&a.ip()))
             {
                 return Err(format!(
                     "'{host}' resolves to a private, loopback, or link-local address"
@@ -1044,8 +1087,9 @@ pub async fn build_object_store_from_settings(
 }
 
 /// [`build_object_store_from_settings`] for a caller-supplied endpoint: the client refuses to
-/// connect to any non-public address (see [`PublicOnlyConnector`]). Only the backends that reach
-/// the network with explicit credentials are accepted.
+/// connect to any non-public address (see [`PublicOnlyConnector`]). Filesystem and OIDC settings
+/// are refused; whether S3, Azure or GCS settings carry explicit credentials (rather than falling
+/// back to the server's ambient ones) is still the caller's to check.
 #[cfg(feature = "parquet")]
 pub async fn build_public_object_store_from_settings(
     settings: ObjectSettings,
@@ -2834,6 +2878,40 @@ mod tests {
         assert_eq!(a.store.to_string(), b.store.to_string());
         assert!(a.location.is_some());
         assert_ne!(a.location, b.location);
+    }
+
+    /// The restricted store judges the addresses it connects to, not only what an earlier check
+    /// resolved: a hostname that resolves to loopback never gets a connection.
+    #[cfg(feature = "parquet")]
+    #[tokio::test]
+    async fn test_public_store_refuses_to_connect_to_private_address() {
+        use futures::StreamExt;
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let settings = ObjectSettings::S3(S3Settings {
+            bucket: Some("windmill".to_string()),
+            region: Some("us-east-1".to_string()),
+            access_key: Some("key".to_string()),
+            secret_key: Some("secret".to_string()),
+            endpoint: Some("localhost".to_string()),
+            allow_http: Some(true),
+            path_style: Some(true),
+            store_logs: None,
+            port: Some(listener.local_addr().unwrap().port()),
+        });
+        let store = build_public_object_store_from_settings(settings)
+            .await
+            .unwrap();
+        // The listener never answers, so a store that connects waits forever: bound it.
+        let err = tokio::time::timeout(std::time::Duration::from_secs(30), store.list(None).next())
+            .await
+            .expect("the store connected to a loopback address")
+            .unwrap()
+            .unwrap_err();
+        assert!(
+            format!("{err:?}").contains("private, loopback, or link-local"),
+            "{err:?}"
+        );
     }
 
     // --- get_logs_from_store test ---
