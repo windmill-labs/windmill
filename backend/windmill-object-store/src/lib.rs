@@ -657,18 +657,16 @@ impl object_store::client::HttpService for PublicOnlyClient {
             .trim_end_matches(']')
             .parse::<std::net::IpAddr>()
             .ok();
-        let refused = match literal {
-            Some(ip) if windmill_common::ssrf::is_private_ip(&ip) => {
-                Some("a private, loopback, or link-local address")
-            }
-            None if self
-                .proxy_hosts
-                .iter()
-                .any(|p| p.eq_ignore_ascii_case(host)) =>
-            {
-                Some("the egress proxy")
-            }
-            _ => None,
+        let refused = if literal.is_some_and(|ip| windmill_common::ssrf::is_private_ip(&ip)) {
+            Some("a private, loopback, or link-local address")
+        } else if self
+            .proxy_hosts
+            .iter()
+            .any(|p| p.eq_ignore_ascii_case(host))
+        {
+            Some("the egress proxy")
+        } else {
+            None
         };
         if let Some(what) = refused {
             return Err(object_store::client::HttpError::new(
@@ -2953,14 +2951,12 @@ mod tests {
                 .await
                 .unwrap();
             // The listener never answers, so a store that connects waits forever: bound it.
-            let err = tokio::time::timeout(
-                std::time::Duration::from_secs(30),
-                store.list(None).next(),
-            )
-            .await
-            .unwrap_or_else(|_| panic!("the store connected to {endpoint}"))
-            .unwrap()
-            .unwrap_err();
+            let err =
+                tokio::time::timeout(std::time::Duration::from_secs(30), store.list(None).next())
+                    .await
+                    .unwrap_or_else(|_| panic!("the store connected to {endpoint}"))
+                    .unwrap()
+                    .unwrap_err();
             assert!(
                 format!("{err:?}").contains("private, loopback, or link-local"),
                 "{endpoint}: {err:?}"
