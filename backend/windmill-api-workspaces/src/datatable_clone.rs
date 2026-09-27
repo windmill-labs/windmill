@@ -420,6 +420,7 @@ async fn make_copy(
         DataTableCatalogResourceType::ExternalInstance => {
             let mut tx = db.begin().await?;
             windmill_common::external_instance_pg::create_external_instance_database_unchecked(
+                db,
                 &mut tx,
                 request.dbname,
                 "datatable",
@@ -513,11 +514,16 @@ async fn fill(
     let replayed = now.datatable.permissions.is_some();
     if replayed {
         crate::datatable_replay_oss::ensure_replay()?;
-        let catalog = read_role_catalog_tx(&mut tx).await?;
+        // The copy is on the source's cluster, so its roles come from that cluster's catalog.
+        let cluster = governing
+            .role_cluster()
+            .ok_or_else(|| Error::internal_err("a replayed clone is on a managed database"))?;
+        let catalog = read_role_catalog_tx(&mut tx, cluster).await?;
         // The replay leaves `CONNECT` to the catalog, and creating the database only tried to set
         // it: a copy `PUBLIC` could still connect to would admit logins the source turns away.
         windmill_common::datatable_roles::converge_connect_grants_with(
             db,
+            cluster,
             &target.dbname,
             &catalog,
         )

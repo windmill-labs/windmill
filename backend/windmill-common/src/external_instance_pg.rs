@@ -193,37 +193,51 @@ pub async fn external_instance_database_usages<'c>(
     Ok(usages)
 }
 
-/// Refuse to unset the cluster while Windmill still has databases on it, or a workspace still
-/// points at one: every data table there would stop resolving. Allowed on every edition, so a
+/// Refuse to unset the cluster while Windmill still has databases or data table roles on it, or a
+/// workspace still points at one: every data table there would stop resolving, and every role
+/// would be a login nothing can drop any more. Allowed on every edition, so a
 /// downgraded instance can still clear a setting it no longer uses.
 async fn ensure_external_instance_pg_removable(conn: &mut sqlx::PgConnection) -> Result<()> {
-    let state = read_external_instance_pg_state(&mut *conn).await?;
-    let usages = external_instance_database_usages(&mut *conn).await?;
-    if state.databases.is_empty() && usages.is_empty() {
-        return Ok(());
-    }
-    Err(Error::BadRequest(format!(
-        "The external instance cluster still holds databases in use ({}). Drop them and \
-         repoint the data tables and Ducklake catalogs using them before removing \
-         {EXTERNAL_INSTANCE_PG_SETTING}.",
-        databases_in_use(&state, &usages)
-    )))
+    ensure_external_instance_pg_unused(conn, &format!("removing {EXTERNAL_INSTANCE_PG_SETTING}")).await
 }
 
-/// The databases on the cluster, whether Windmill created them or a data table names them.
-fn databases_in_use(
-    state: &ExternalInstancePgState,
-    usages: &BTreeMap<String, BTreeSet<String>>,
-) -> String {
-    state
-        .databases
-        .keys()
-        .chain(usages.keys())
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .cloned()
-        .collect::<Vec<_>>()
-        .join(", ")
+/// Refuse while Windmill has databases or data table roles on the cluster, or a workspace points
+/// at one of its databases. `before` finishes the sentence saying what to do first.
+async fn ensure_external_instance_pg_unused(
+    conn: &mut sqlx::PgConnection,
+    before: &str,
+) -> Result<()> {
+    let state = read_external_instance_pg_state(&mut *conn).await?;
+    let usages = external_instance_database_usages(&mut *conn).await?;
+    let roles = sqlx::query_scalar::<_, String>(
+        "SELECT name FROM datatable_role WHERE cluster = 'external_instance' ORDER BY name",
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    if state.databases.is_empty() && usages.is_empty() && roles.is_empty() {
+        return Ok(());
+    }
+    let mut held = vec![];
+    if !(state.databases.is_empty() && usages.is_empty()) {
+        let names = state
+            .databases
+            .keys()
+            .chain(usages.keys())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(", ");
+        held.push(format!("databases in use ({names})"));
+    }
+    if !roles.is_empty() {
+        held.push(format!("data table roles ({})", roles.join(", ")));
+    }
+    Err(Error::BadRequest(format!(
+        "The external instance cluster still holds {}. Drop them and repoint the data tables and \
+         Ducklake catalogs using them before {before}.",
+        held.join(" and ")
+    )))
 }
 
 /// Refuse a workspace setting that newly names an `external_instance` database on an edition
@@ -255,12 +269,14 @@ pub async fn external_instance_connection_unchecked(
 /// Authorization: checks nothing. Callers MUST be superadmin, or be cloning a data table they may
 /// fork into a `wm_fork_` database.
 pub async fn create_external_instance_database_unchecked(
+    db: &DB,
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     dbname: &str,
     tag: &str,
     for_workspace: Option<&str>,
 ) -> Result<()> {
     crate::external_instance_pg_oss::create_external_instance_database_unchecked(
+        db,
         tx,
         dbname,
         tag,
@@ -400,9 +416,10 @@ pub async fn write_external_instance_pg_from_diff(
     Ok(())
 }
 
-/// Refuse pointing the setting at another host or port while databases live on the current one.
-/// Data tables name databases, not clusters, so they would silently resolve to whatever the new
-/// cluster holds under the same names. Other fields (admin login, sslmode) may change freely.
+/// Refuse pointing the setting at another host or port while databases or data table roles live on
+/// the current one. Data tables name databases, and the role catalog names logins, not clusters, so
+/// both would silently resolve to whatever the new cluster holds under the same names. Other fields
+/// (admin login, sslmode) may change freely.
 async fn ensure_external_instance_pg_not_repointed(
     conn: &mut sqlx::PgConnection,
     value: &serde_json::Value,
@@ -416,18 +433,11 @@ async fn ensure_external_instance_pg_not_repointed(
     if external_instance_pg_address(&current) == external_instance_pg_address(&desired) {
         return Ok(());
     }
-    let state = read_external_instance_pg_state(&mut *conn).await?;
-    let usages = external_instance_database_usages(&mut *conn).await?;
-    if state.databases.is_empty() && usages.is_empty() {
-        return Ok(());
-    }
-    Err(Error::BadRequest(format!(
-        "The external instance cluster at {}:{} still holds databases in use ({}). Drop them and \
-         repoint what uses them before pointing {EXTERNAL_INSTANCE_PG_SETTING} at another cluster.",
-        current.host.trim(),
-        current.port.unwrap_or(5432),
-        databases_in_use(&state, &usages)
-    )))
+    ensure_external_instance_pg_unused(
+        conn,
+        &format!("pointing {EXTERNAL_INSTANCE_PG_SETTING} at another cluster"),
+    )
+    .await
 }
 
 /// Converge the external cluster on the configured login: check what it can do, create or update

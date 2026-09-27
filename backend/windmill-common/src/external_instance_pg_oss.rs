@@ -63,6 +63,7 @@ mod ce {
     }
 
     pub(crate) async fn create_external_instance_database_unchecked(
+        _db: &DB,
         _tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         _dbname: &str,
         _tag: &str,

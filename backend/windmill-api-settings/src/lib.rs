@@ -1934,7 +1934,7 @@ async fn create_external_instance_pg_database(
     let tag = body.tag.as_deref().unwrap_or("datatable");
     let mut tx = db.begin().await?;
     windmill_common::external_instance_pg::create_external_instance_database_unchecked(
-        &mut tx, &dbname, tag, None,
+        &db, &mut tx, &dbname, tag, None,
     )
     .await?;
     tx.commit().await?;
