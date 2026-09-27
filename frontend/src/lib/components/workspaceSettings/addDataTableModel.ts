@@ -380,7 +380,7 @@ export type RunDeps = {
 	 * attaching to it silently would share their data without the warning the existing-database
 	 * branch shows.
 	 */
-	createdExternalDbs: string[]
+	createdExternalDbs?: string[]
 	/** Called once a database lands on the external cluster, so the caller's registry — which
 	 *  names the next run's default and validates it — is not a page-load-old view. */
 	onExternalDbsChanged?: () => Promise<void>
@@ -435,11 +435,6 @@ async function exists(kind: 'variable' | 'resource', workspace: string, path: st
 }
 
 /**
- * Adds the data table to the workspace config, once everything it points at exists.
- * `edit_datatable_config` replaces the whole map, so the rest is read back and sent with
- * it. Re-runnable: a second attempt overwrites the entry it wrote.
- */
-/**
  * What identifies the database a row points at. The kind belongs in it: `instance` and
  * `external_instance` are different databases that may carry the same name, so a row repointed
  * from one to the other while this run probes must not read as the row this run wrote.
@@ -450,6 +445,11 @@ function rowMark(database: { resource_type?: string; resource_path?: string } | 
 		: `${database.resource_type ?? ''}:${database.resource_path}`
 }
 
+/**
+ * Adds the data table to the workspace config, once everything it points at exists.
+ * `edit_datatable_config` replaces the whole map, so the rest is read back and sent with
+ * it. Re-runnable: a second attempt overwrites the entry it wrote.
+ */
 async function writeRow(
 	deps: RunDeps,
 	claims: Claims,
@@ -617,7 +617,7 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 	let rowRolledBack = false
 	let claims = deps.claims
 	let createdProjects: CreatedProject[] = [...deps.createdProjects]
-	let createdExternalDbs: string[] = [...deps.createdExternalDbs]
+	let createdExternalDbs: string[] = [...(deps.createdExternalDbs ?? [])]
 	/** Records a created project once, so a second attempt cannot displace the first one's guard. */
 	const rememberProject = (name: string, at: string) => {
 		if (!createdProjects.some((p) => p.path === at))

@@ -472,6 +472,7 @@
 				resourcePath,
 				claims: claimsToJSON(claims),
 				createdProjects,
+				createdExternalDbs,
 				mode: wiz.supabase.mode,
 				org: wiz.supabase.org,
 				project: wiz.supabase.project,
@@ -518,7 +519,8 @@
 			claims = claimsFromJSON(from.claims)
 			createdProjects = from.createdProjects ?? []
 			createdExternalDbs = from.createdExternalDbs ?? []
-			leftBehind = anythingClaimed(claims) || createdProjects.length > 0
+			leftBehind =
+				anythingClaimed(claims) || createdProjects.length > 0 || createdExternalDbs.length > 0
 			// Which side of the toggle it was on, and the organization it was pointed at. Left to
 			// default, a run that died mid-create comes back asking for the password it generated.
 			if (from.mode) wiz.supabase.mode = from.mode
