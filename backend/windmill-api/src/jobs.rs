@@ -6309,9 +6309,10 @@ pub async fn get_resume_urls_internal(
 }
 
 /// A resume signature is full approval authority: `jobs_u/resume|cancel` skip the step's
-/// approval_conditions and accept any resume_id. So only the suspended job's own run (its
-/// `WM_TOKEN` or a descendant's) or a workspace admin may mint one, and a scoped token also
-/// needs run scope on the flow. The job must be in `w_id`, whose key signs the result.
+/// approval_conditions and accept any resume_id. So only a workspace admin, or a job token
+/// whose run lineage claims the suspended job ([`unclaimable_run_lineage`]), may mint one, and
+/// a scoped token also needs run scope on the flow. The job must be in `w_id`, whose key signs
+/// the result.
 async fn require_resume_mint_authority(
     db: &DB,
     w_id: &str,
@@ -6325,7 +6326,7 @@ async fn require_resume_mint_authority(
         .is_empty()
     {
         return Err(Error::PermissionDenied(format!(
-            "only job {job_id}'s own run or a workspace admin can create its resume urls"
+            "only job {job_id}'s own run or a workspace admin can sign resume or approval urls for it"
         )));
     }
     Ok(())

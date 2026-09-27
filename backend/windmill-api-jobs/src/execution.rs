@@ -123,7 +123,8 @@ pub async fn drop_unclaimable_run_lineage(
 }
 
 /// The jobs of `referenced` that `authed` cannot claim as its own run lineage: anything but the
-/// token's own job and its ancestors, or for a workspace admin anything outside the workspace.
+/// token's own job and that job's `parent_job`, `root_job` and `flow_innermost_root_job`, or for
+/// a workspace admin anything outside the workspace.
 pub async fn unclaimable_run_lineage(
     db: &DB,
     w_id: &str,
