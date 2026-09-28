@@ -158,8 +158,9 @@ fn now_ms() -> i64 {
 async fn test_connections_are_isolated(db: Pool<Postgres>) -> anyhow::Result<()> {
     let path_a = "u/test-user/native_nextcloud";
     let path_b = "u/other-user/native_nextcloud";
+    let mut account_a = 0;
     for (path, token) in [(path_a, "a"), (path_b, "b")] {
-        setup_oauth_integration(
+        let account = setup_oauth_integration(
             &db,
             ServiceName::Nextcloud,
             path,
@@ -168,12 +169,15 @@ async fn test_connections_are_isolated(db: Pool<Postgres>) -> anyhow::Result<()>
             None,
         )
         .await?;
+        if path == path_a {
+            account_a = account;
+        }
     }
 
     update_oauth_token_resource(
         &db,
         "test-workspace",
-        path_a,
+        account_a,
         "access-a2",
         Some("refresh-a2"),
     )

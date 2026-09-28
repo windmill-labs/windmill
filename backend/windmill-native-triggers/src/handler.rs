@@ -1,11 +1,12 @@
 use crate::{
     classify_read_failure, decrypt_oauth_data, delete_native_trigger, delete_token_by_hash,
     get_native_trigger, list_native_triggers, list_usable_connections, lock::TriggerLock,
-    map_external_error, map_external_error_with, resolve_usable_connection, rotate_webhook_token,
-    set_native_trigger_enabled, store_native_trigger, sync::EXTERNAL_TRIGGER_MISSING_ERROR,
-    update_native_trigger_error, update_native_trigger_if_runnable_unchanged, webhook_token_label,
-    webhook_token_scopes, External, ExternalReadFailure, NativeTrigger, NativeTriggerConfig,
-    NativeTriggerData, ServiceName,
+    lock_connection, map_external_error, map_external_error_with, resolve_usable_connection,
+    rotate_webhook_token, set_native_trigger_enabled, store_native_trigger,
+    sync::EXTERNAL_TRIGGER_MISSING_ERROR, update_native_trigger_error,
+    update_native_trigger_if_runnable_unchanged, webhook_token_label, webhook_token_scopes,
+    External, ExternalReadFailure, NativeTrigger, NativeTriggerConfig, NativeTriggerData,
+    ServiceName,
 };
 use axum::{
     extract::{Path, Query},
@@ -242,6 +243,22 @@ async fn create_native_trigger<T: External>(
         is_flow: data.is_flow,
         webhook_token,
     };
+
+    lock_connection(&mut tx, &workspace_id, &connection_path).await?;
+    let still_connected = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM variable WHERE workspace_id = $1 AND path = $2)",
+        workspace_id,
+        connection_path,
+    )
+    .fetch_one(&mut *tx)
+    .await?
+    .unwrap_or(false);
+    if !still_connected {
+        return Err(Error::BadRequest(format!(
+            "{connection_path} was disconnected while this trigger was being created. Its \
+             registration on {service_name} may remain; connect an account and create it again."
+        )));
+    }
 
     store_native_trigger(
         &mut *tx,

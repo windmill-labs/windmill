@@ -35,8 +35,8 @@ use windmill_api_auth::{check_scopes, require_is_writer, ApiAuthed};
 #[cfg(feature = "native_trigger")]
 use crate::{
     decrypt_oauth_data, delete_token_by_hash, delete_workspace_integration,
-    list_usable_connections, nextcloud::OcsResponse, require_native_integration_use,
-    resolve_endpoint, Connection, ServiceName,
+    list_usable_connections, lock_connection, nextcloud::OcsResponse,
+    require_native_integration_use, resolve_endpoint, Connection, ServiceName,
 };
 
 #[cfg(feature = "native_trigger")]
@@ -1131,8 +1131,14 @@ async fn delete_connection(
     )
     .await;
 
+    let mut tx = user_db.begin(&authed).await?;
+    lock_connection(&mut tx, &workspace_id, &path).await?;
+    let account = cleanup_connection(&mut *tx, &workspace_id, &path).await?;
+
     // A trigger moved or created meanwhile was skipped above and still acts through this
-    // connection, so removing the connection would strand it.
+    // connection, so removing the connection would strand it. Checked after the delete: a create
+    // holds the connection's variable until it commits, so the delete waits for it and this
+    // check then sees its trigger.
     let still_used = sqlx::query_scalar!(
         "SELECT EXISTS(SELECT 1 FROM native_trigger
          WHERE workspace_id = $1 AND service_name = $2 AND connection_path = $3)",
@@ -1140,18 +1146,16 @@ async fn delete_connection(
         service_name as ServiceName,
         path,
     )
-    .fetch_one(&db)
+    .fetch_one(&mut *tx)
     .await?
     .unwrap_or(false);
     if still_used {
+        tx.rollback().await?;
         return Err(Error::BadRequest(format!(
             "A trigger using {path} changed while disconnecting, so the connection was kept. \
              Disconnect again to remove it."
         )));
     }
-
-    let mut tx = user_db.begin(&authed).await?;
-    let account = cleanup_connection(&mut *tx, &workspace_id, &path).await?;
 
     audit_log(
         &mut *tx,
