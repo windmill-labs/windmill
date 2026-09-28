@@ -127,6 +127,7 @@ vi.mock('$lib/aiStore', () => ({
 	// `sendRequest` reads it before anything else, so a test that goes through a real turn
 	// rather than driving the manager directly needs it present and enabled.
 	copilotInfo: writable({ enabled: true, workspaceDisabled: false, aiModels: [] }),
+	copilotSessionModel: writable(undefined),
 	getCurrentModel: mocks.getCurrentModel,
 	tryGetCurrentModel: mocks.tryGetCurrentModel,
 	getCombinedCustomPrompt: () => '',
@@ -142,7 +143,8 @@ vi.mock('../lib', () => ({
 		getOpenaiClient: mocks.getOpenaiClient,
 		getAnthropicClient: mocks.getAnthropicClient
 	},
-	getNonStreamingCompletion: mocks.getNonStreamingCompletion
+	getNonStreamingCompletion: mocks.getNonStreamingCompletion,
+	providerSupportsWebSearch: (provider: string) => provider === 'openai' || provider === 'anthropic'
 }))
 
 vi.mock('./api/apiTools', () => ({
@@ -587,6 +589,25 @@ describe('AIChatManager request errors', () => {
 			'Failed to send request: provider quota exceeded',
 			true
 		)
+	})
+
+	it('lists web search as a provider tool exactly when a turn would attach it', async () => {
+		const manager = new AIChatManager()
+		const withModel = (provider: string) =>
+			mocks.tryGetCurrentModel.mockReturnValue({ provider, model: 'm' })
+
+		withModel('anthropic')
+		mocks.isWebSearchEnabledForProvider.mockReturnValue(true)
+		expect(manager.providerTools.map((t) => t.name)).toEqual(['Web search'])
+		// Never mixed into what the request path dispatches.
+		expect(manager.availableTools.map((t) => t.def.function.name)).not.toContain('web_search')
+
+		mocks.isWebSearchEnabledForProvider.mockReturnValue(false)
+		expect(manager.providerTools).toEqual([])
+
+		mocks.isWebSearchEnabledForProvider.mockReturnValue(true)
+		withModel('mistral')
+		expect(manager.providerTools).toEqual([])
 	})
 })
 
