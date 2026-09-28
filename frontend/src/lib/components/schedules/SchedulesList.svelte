@@ -315,6 +315,9 @@
 	let treeView = $state(getLocalSetting(TREE_VIEW_SETTING_NAME) == 'true')
 	let collapseAll = $state(true)
 	let filterEnabledDisabled: 'all' | 'enabled' | 'disabled' = $state('all')
+	// A filter opens every folder so no match hides behind a closed one; Expand/Collapse all
+	// has no effect then.
+	let treeForceExpanded = $derived(activeFilters || filterEnabledDisabled !== 'all')
 
 	const SCHEDULE_PATH_KIND_FILTER_SETTING = 'schedulePathKindFilter'
 	let selectedFilterKind = $state(
@@ -625,7 +628,7 @@
 					{#each jobs ?? [] as job}
 						{@const h = (avg_s ? job.duration_ms / avg_s : 1) * 7 + 3}
 						<a href="{base}/run/{job.id}?workspace={$operatingWorkspace}">
-							<JobPreview id={job.id} class="p-4">
+							<JobPreview id={job.id} class="p-4" portal>
 								<div>
 									<div
 										class="{job.success ? 'bg-green-300' : 'bg-red-300'} mx-auto w-1.5"
@@ -690,7 +693,7 @@
 							storeLocalSetting(TREE_VIEW_SETTING_NAME, e.detail ? 'true' : undefined)}
 						options={{ right: 'Tree view' }}
 					/>
-					{#if treeView}
+					{#if treeView && !treeForceExpanded}
 						<Button
 							unifiedSize="sm"
 							variant="subtle"
@@ -745,7 +748,7 @@
 					<TreeViewRoot
 						items={items as unknown as ItemType[]}
 						{collapseAll}
-						isSearching={activeFilters || filterEnabledDisabled !== 'all'}
+						isSearching={treeForceExpanded}
 						showCode={() => {}}
 						leaf={treeLeaf}
 					/>

@@ -17,6 +17,7 @@
 	import DurationMs from '../DurationMs.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import Portal from '../Portal.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -26,9 +27,12 @@
 		id: string
 		children?: import('svelte').Snippet<[any]>
 		class?: string
+		// Render the popup in <body> at fixed coordinates, for a trigger inside an ancestor
+		// that clips overflow (e.g. a collapsible tree node), where the inline popup is cut off.
+		portal?: boolean
 	}
 
-	let { id, children, class: clazz }: Props = $props()
+	let { id, children, class: clazz, portal = false }: Props = $props()
 
 	let job: Job | undefined = $state(undefined)
 	let hovered = $state(false)
@@ -38,13 +42,15 @@
 	let loaded = false
 	let wrapper: HTMLElement | undefined = $state()
 	let popupOnTop = $state(true)
+	let anchor: DOMRect | undefined = $state()
 
 	let open = $derived($openStore === id)
 
 	async function instantOpen() {
 		if (!open) {
 			hovered = true
-			popupOnTop = (wrapper?.getBoundingClientRect()?.top ?? 0) > POPUP_HEIGHT
+			anchor = wrapper?.getBoundingClientRect()
+			popupOnTop = (anchor?.top ?? 0) > POPUP_HEIGHT
 			openStore.set(id)
 			if (!loaded) {
 				await tick()
@@ -104,72 +110,89 @@
 <div onmouseenter={instantOpen} onmouseleave={staggeredClose} bind:this={wrapper} class="relative">
 	{@render children?.({ open })}
 	{#if open}
-		<div
-			transition:fade|local={{ duration: 50 }}
-			class={twMerge(
-				'absolute z-50  -left-10 bg-surface rounded border shadow-md flex flex-col gap-4 items-start w-[600px] h-80 overflow-hidden',
-				popupOnTop ? 'bottom-[35px]' : 'top-[35px]',
-				clazz
-			)}
-		>
-			<div class="w-full flex flex-row grow min-h-0 gap-2">
-				<div class="w-1/2 h-full overflow-auto space-y-1">
-					<span class="text-xs font-normal text-secondary">Arguments</span>
-					<JobArgs
-						id={job?.id}
-						workspace={job?.workspace_id ?? $operatingWorkspace ?? 'no_w'}
-						args={job?.args}
-					/>
-				</div>
-				<div class="w-1/2 h-full overflow-auto space-y-1">
-					{#if job && 'scheduled_for' in job && !job.running && job.scheduled_for && forLater(job.scheduled_for)}
-						<div class="text-xs font-semibold text-emphasis mb-1">
-							<div>Job is scheduled for</div>
-							<div>{new Date(job?.['scheduled_for']).toLocaleString()}</div>
-						</div>
-					{/if}
-					{#if job?.type === 'CompletedJob'}
-						<span class="text-xs font-normal text-secondary mb-1">Result</span>
-						<DisplayResult
-							workspaceId={job?.workspace_id}
-							jobId={job?.id}
-							{result}
-							disableExpand
-							language={job?.language}
-						/>
-					{:else if job && `running` in job ? job.running : false}
-						<div class="text-sm font-semibold text-primary mb-1"> Job is still running </div>
-						<LogViewer
-							jobId={job?.id}
-							duration={job?.['duration_ms']}
-							mem={job?.['mem_peak']}
-							content={job?.logs}
-							isLoading={job?.['running'] == false}
-							tag={job?.tag}
-						/>
-					{/if}
-				</div>
+		{#if portal}
+			<Portal>{@render popup()}</Portal>
+		{:else}
+			{@render popup()}
+		{/if}
+	{/if}
+</div>
+
+{#snippet popup()}
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div
+		transition:fade|local={{ duration: 50 }}
+		onmouseenter={portal ? instantOpen : undefined}
+		onmouseleave={portal ? staggeredClose : undefined}
+		class={twMerge(
+			'z-50 bg-surface rounded border shadow-md flex flex-col gap-4 items-start w-[600px] h-80 overflow-hidden',
+			portal ? 'fixed' : `absolute -left-10 ${popupOnTop ? 'bottom-[35px]' : 'top-[35px]'}`,
+			clazz
+		)}
+		style={portal && anchor
+			? `left: ${anchor.left - 40}px; ` +
+				(popupOnTop
+					? `bottom: ${window.innerHeight - anchor.bottom + 35}px;`
+					: `top: ${anchor.top + 35}px;`)
+			: undefined}
+	>
+		<div class="w-full flex flex-row grow min-h-0 gap-2">
+			<div class="w-1/2 h-full overflow-auto space-y-1">
+				<span class="text-xs font-normal text-secondary">Arguments</span>
+				<JobArgs
+					id={job?.id}
+					workspace={job?.workspace_id ?? $operatingWorkspace ?? 'no_w'}
+					args={job?.args}
+				/>
 			</div>
-			<div class="flex justify-end gap-2 pb-0.5 z-50 bg-surface-primary">
-				{#if job?.started_at}
-					<Badge>{new Date(job?.['started_at']).toLocaleString()}</Badge>
+			<div class="w-1/2 h-full overflow-auto space-y-1">
+				{#if job && 'scheduled_for' in job && !job.running && job.scheduled_for && forLater(job.scheduled_for)}
+					<div class="text-xs font-semibold text-emphasis mb-1">
+						<div>Job is scheduled for</div>
+						<div>{new Date(job?.['scheduled_for']).toLocaleString()}</div>
+					</div>
 				{/if}
-				<Badge>
-					Mem: {job?.['mem_peak'] ? `${(job['mem_peak'] / 1024).toPrecision(4)}MB` : 'N/A'}
-				</Badge>
-				{#if job?.['duration_ms']}
-					<DurationMs
-						duration_ms={job?.['duration_ms']}
-						self_wait_time_ms={job?.self_wait_time_ms}
-						aggregate_wait_time_ms={job?.aggregate_wait_time_ms}
+				{#if job?.type === 'CompletedJob'}
+					<span class="text-xs font-normal text-secondary mb-1">Result</span>
+					<DisplayResult
+						workspaceId={job?.workspace_id}
+						jobId={job?.id}
+						{result}
+						disableExpand
+						language={job?.language}
 					/>
-				{/if}
-				{#if job?.['labels'] && Array.isArray(job?.['labels']) && job?.['labels'].length > 0}
-					{#each job?.['labels'] as label}
-						<Badge>Label: {label}</Badge>
-					{/each}
+				{:else if job && `running` in job ? job.running : false}
+					<div class="text-sm font-semibold text-primary mb-1"> Job is still running </div>
+					<LogViewer
+						jobId={job?.id}
+						duration={job?.['duration_ms']}
+						mem={job?.['mem_peak']}
+						content={job?.logs}
+						isLoading={job?.['running'] == false}
+						tag={job?.tag}
+					/>
 				{/if}
 			</div>
 		</div>
-	{/if}
-</div>
+		<div class="flex justify-end gap-2 pb-0.5 z-50 bg-surface-primary">
+			{#if job?.started_at}
+				<Badge>{new Date(job?.['started_at']).toLocaleString()}</Badge>
+			{/if}
+			<Badge>
+				Mem: {job?.['mem_peak'] ? `${(job['mem_peak'] / 1024).toPrecision(4)}MB` : 'N/A'}
+			</Badge>
+			{#if job?.['duration_ms']}
+				<DurationMs
+					duration_ms={job?.['duration_ms']}
+					self_wait_time_ms={job?.self_wait_time_ms}
+					aggregate_wait_time_ms={job?.aggregate_wait_time_ms}
+				/>
+			{/if}
+			{#if job?.['labels'] && Array.isArray(job?.['labels']) && job?.['labels'].length > 0}
+				{#each job?.['labels'] as label}
+					<Badge>Label: {label}</Badge>
+				{/each}
+			{/if}
+		</div>
+	</div>
+{/snippet}
