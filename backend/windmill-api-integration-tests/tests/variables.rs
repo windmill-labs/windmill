@@ -438,5 +438,19 @@ async fn test_oauth_account_link_requires_ownership(db: Pool<Postgres>) -> anyho
         "bob can read a variable linking it"
     );
 
+    let status = client()
+        .post(format!("{base}/update/u/bob/alias"))
+        .header("Authorization", "Bearer BOB_TOKEN_TEST12")
+        .json(&json!({ "account": alice_account }))
+        .send()
+        .await?
+        .status();
+    assert_eq!(status, 200);
+    assert_eq!(
+        linked("u/bob/alias").await,
+        Some(alice_account),
+        "and a permitted relink through an update lands"
+    );
+
     Ok(())
 }
