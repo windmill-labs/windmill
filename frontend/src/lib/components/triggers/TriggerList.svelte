@@ -68,7 +68,7 @@
 	import MqttIcon from '$lib/components/icons/MqttIcon.svelte'
 	import NatsIcon from '$lib/components/icons/NatsIcon.svelte'
 	import TriggerModeToggle from './TriggerModeToggle.svelte'
-	import { triggerLock } from '$lib/operatorWriteRights'
+	import { useTriggerLock } from '$lib/operatorWriteRights'
 	import { getHttpRoute } from './http/utils'
 	import { getEmailAddress, getEmailDomain } from './email/utils'
 	import { TRIGGER_LIST_CONFIG, type TriggerRow } from './triggerListConfig'
@@ -78,6 +78,7 @@
 		useOperatingUser,
 		useOperatingWorkspace
 	} from '$lib/components/operatingWorkspace.svelte'
+	const triggerLock = useTriggerLock()
 
 	let { triggerKind }: { triggerKind: TriggerKind } = $props()
 

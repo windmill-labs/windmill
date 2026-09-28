@@ -12,7 +12,8 @@
 	import { emptyStringTrimmed } from '$lib/utils'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import { RefreshCw } from 'lucide-svelte'
-	import { triggerLock } from '$lib/operatorWriteRights'
+	import { useTriggerLock } from '$lib/operatorWriteRights'
+	const triggerLock = useTriggerLock()
 
 	interface Props {
 		can_write?: boolean
