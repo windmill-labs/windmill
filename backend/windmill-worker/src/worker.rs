@@ -2321,6 +2321,7 @@ fn start_interactive_worker_shell(
     job_completed_tx: JobCompletedSender,
     base_internal_url: String,
     worker_dir: String,
+    unreported_job: Arc<std::sync::Mutex<Option<(Uuid, String)>>>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         let started_at = Instant::now();
@@ -2406,6 +2407,8 @@ fn start_interactive_worker_shell(
                         precomputed_agent_info: precomputed_bundle,
                         flow_runners,
                     } = extract_job_and_perms(job, &conn).await;
+
+                    *unreported_job.lock().unwrap() = Some((job.id, job.workspace_id.clone()));
 
                     let authed_client = AuthedClient::new(
                         base_internal_url.to_owned(),
@@ -2900,9 +2903,10 @@ pub async fn run_worker(
     // the environment, not the lifetime total.
     let mut jobs_executed_in_env: u64 = 0;
     // The job poller only records a job in `worker_ping` once it has run for a poll interval, so
-    // the main-loop ping reports the last pulled job for shorter ones. It runs between jobs, so
-    // this is never older than what the poller wrote; it is sent once, then left to the poller.
-    let mut unreported_job: Option<(Uuid, String)> = None;
+    // the main-loop ping reports the last pulled job for shorter ones. The interactive shell runs
+    // jobs under this worker's name too and must set the same slot, or the ping would overwrite a
+    // shell job its poller recorded with an older main-loop job. Sent once, then left to the poller.
+    let unreported_job: Arc<std::sync::Mutex<Option<(Uuid, String)>>> = Default::default();
 
     let is_dedicated_worker: bool = {
         let config = WORKER_CONFIG.load();
@@ -3020,6 +3024,7 @@ pub async fn run_worker(
             job_completed_tx.clone(),
             base_internal_url.to_owned(),
             worker_dir.clone(),
+            unreported_job.clone(),
         );
 
         Some(it_shell)
@@ -3223,7 +3228,7 @@ pub async fn run_worker(
 
             let read_cgroups =
                 *REFRESH_CGROUP_READINGS && last_reading.elapsed().as_secs() > NUM_SECS_READINGS;
-            let last_job = unreported_job.take();
+            let last_job = unreported_job.lock().unwrap().take();
             update_worker_ping_full(
                 &conn,
                 read_cgroups,
@@ -3568,7 +3573,7 @@ pub async fn run_worker(
 
                 last_executed_job = None;
                 jobs_executed += 1;
-                unreported_job = Some((job.id, job.workspace_id.clone()));
+                *unreported_job.lock().unwrap() = Some((job.id, job.workspace_id.clone()));
                 let mut dirties_env = dirties_worker_env(
                     job.kind,
                     &job.tag,
