@@ -2296,6 +2296,9 @@ async function listWorkspaceItems(
 	return items
 }
 
+// The get_instructions builders below add global mode's tools and draft rules on top of the shared
+// reference each ends with. Windmill domain guidance belongs in that reference
+// (system_prompts/base, shared with the other chat modes and the CLI's skills), not here.
 function getScriptInstructions(language: ScriptLang | undefined): string {
 	const selected = language ?? 'bun'
 	const note = language

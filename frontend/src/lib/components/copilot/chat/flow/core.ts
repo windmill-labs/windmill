@@ -854,7 +854,9 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 ]
 
 export function prepareFlowSystemMessage(customPrompt?: string): ChatCompletionSystemMessageParam {
-	// Get base flow documentation from centralized prompts (includes FLOW_BASE, OPENFLOW_SCHEMA, RESOURCE_TYPES)
+	// Flow domain guidance (module shapes, loops, groups, AI agent tools…) is FLOW_BASE, shared with
+	// global mode and the CLI's write-flow skill: it belongs in system_prompts/base/flow-base.md.
+	// This prompt adds only the flow editor's tools.
 	const flowBaseContext = getFlowPrompt()
 
 	// Chat-specific tool instructions
