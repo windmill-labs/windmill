@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import type { DisplayMessage, ToolDisplayMessage } from './shared'
-import { openItemPreviewAction } from './shared'
+import { openItemPreviewAction, webSearchResultOf } from './shared'
 
 vi.mock('monaco-editor', () => ({
 	editor: {}
@@ -54,7 +54,10 @@ vi.mock('$lib/gen', () => ({
 	AzureTriggerService: { createAzureTrigger: vi.fn() },
 	AmqpTriggerService: { createAmqpTrigger: vi.fn() },
 	EmailTriggerService: { createEmailTrigger: vi.fn() },
-	SettingService: { getGlobal: vi.fn() }
+	SettingService: { getGlobal: vi.fn() },
+	ResourceService: {
+		getResourceValue: vi.fn(async ({ path }: { path: string }) => ({ content: `body of ${path}` }))
+	}
 }))
 
 vi.mock('$lib/utils', () => ({
@@ -205,6 +208,106 @@ describe('buildContextString', () => {
 })
 
 describe('processToolCall', () => {
+	it('delivers folder instructions once, holding back a change until they are read', async () => {
+		const { createToolDef, processToolCall } = await import('./shared')
+		const read = vi.fn(async () => 'read ok')
+		const write = vi.fn(async () => 'write ok')
+		const tools = [
+			{ def: createToolDef(z.object({}), 'read_item', 'Read'), planModeSafe: true, fn: read },
+			{ def: createToolDef(z.object({}), 'write_item', 'Write'), fn: write }
+		]
+		const folderInstructions = {
+			list: () => [
+				{ path: 'f/billing/AGENTS', scope: 'f/billing/' },
+				{ path: 'f/billing/eu/AGENTS', scope: 'f/billing/eu/' },
+				{ path: 'f/other/AGENTS', scope: 'f/other/' },
+				{ path: 'g/ops/AGENTS', scope: 'g/ops/' }
+			],
+			deliveredBy: new Map<string, { workspace: string; paths: readonly string[] }>()
+		}
+		const messages: any[] = []
+		const call = async (
+			id: string,
+			name: string,
+			path: string | object,
+			workspace = 'test-workspace'
+		) => {
+			const message = await processToolCall({
+				tools,
+				toolCall: {
+					id,
+					type: 'function',
+					function: {
+						name,
+						arguments: JSON.stringify(typeof path === 'string' ? { path } : path)
+					}
+				},
+				helpers: {},
+				workspace,
+				messages,
+				toolCallbacks: { setToolStatus: vi.fn(), removeToolStatus: vi.fn(), folderInstructions }
+			})
+			messages.push(message)
+			return message.content as string
+		}
+		const turn = () => messages.push({ role: 'assistant', content: '' })
+
+		turn()
+		const readResult = await call('c1', 'read_item', 'f/billing/eu/invoice')
+		expect(read).toHaveBeenCalledTimes(1)
+		expect(readResult.startsWith('read ok')).toBe(true)
+		// Outermost first, so the nested folder's instructions read as the specific ones.
+		expect(readResult.indexOf('body of f/billing/AGENTS')).toBeLessThan(
+			readResult.indexOf('body of f/billing/eu/AGENTS')
+		)
+		// Same batch: the model has not read c1's result yet, so the write still waits,
+		// pointed at that result rather than handed the bodies twice.
+		const sameBatch = await call('c2', 'write_item', 'f/billing/eu/invoice')
+		expect(write).not.toHaveBeenCalled()
+		expect(sameBatch).not.toContain('body of f/billing/AGENTS')
+		expect(sameBatch).toContain('earlier result of this same batch')
+
+		turn()
+		expect(await call('c3', 'write_item', 'f/billing/eu/invoice')).toBe('write ok')
+
+		const held = await call('c4', 'write_item', 'f/other/x')
+		expect(write).toHaveBeenCalledTimes(1)
+		expect(held).toContain('body of f/other/AGENTS')
+		expect(held).not.toContain('body of f/billing/AGENTS')
+
+		turn()
+		expect(await call('c5', 'write_item', 'f/other/x')).toBe('write ok')
+
+		expect(await call('g1', 'read_item', 'g/ops/runbook')).toContain('body of g/ops/AGENTS')
+
+		// The same path in another workspace is another resource, delivered afresh.
+		expect(await call('w1', 'read_item', 'f/other/x', 'other-workspace')).toContain(
+			'body of f/other/AGENTS'
+		)
+
+		// A delivery lost from the conversation (compaction) is made again.
+		messages.splice(0)
+		turn()
+		expect(await call('c6', 'read_item', 'f/billing/y')).toContain('body of f/billing/AGENTS')
+
+		// A trigger names its target inside its config.
+		messages.splice(0)
+		turn()
+		const nested = await call('t1', 'write_item', { kind: 'http', config: { path: 'f/other/t' } })
+		expect(nested).toContain('body of f/other/AGENTS')
+		expect(write).toHaveBeenCalledTimes(2)
+
+		// A call stopped mid-run is answered with a placeholder under its id: no delivery.
+		messages.splice(0)
+		folderInstructions.deliveredBy.set('stopped', {
+			workspace: 'test-workspace',
+			paths: ['f/billing/AGENTS']
+		})
+		messages.push({ role: 'tool', tool_call_id: 'stopped', content: 'Interrupted' })
+		turn()
+		expect(await call('c7', 'read_item', 'f/billing/y')).toContain('body of f/billing/AGENTS')
+	})
+
 	it('returns pre-confirmation validation errors without asking for confirmation', async () => {
 		const { createToolDef, processToolCall } = await import('./shared')
 		const error = 'the script needs to be deployed before doing this action'
@@ -1510,6 +1613,50 @@ describe('pollJobCompletion detach', () => {
 	})
 })
 
+describe('executeTestRun result note', () => {
+	// A failed run's card lands on the error, with the logs a tab away: the model must stay
+	// free to quote them, so only a success says the user already sees the run.
+	it('tells the model not to repeat a successful result, and not a failed one', async () => {
+		vi.useFakeTimers()
+		try {
+			const { executeTestRun } = await import('./shared')
+			const { JobService } = await import('$lib/gen')
+			const getJobUpdates = vi.mocked(JobService.getJobUpdates)
+			getJobUpdates.mockReset()
+			getJobUpdates.mockResolvedValue({ completed: true, running: false } as any)
+			const run = async (success: boolean) => {
+				vi.mocked(JobService.getJob).mockReset()
+				vi.mocked(JobService.getJob).mockResolvedValue({
+					type: 'CompletedJob',
+					success,
+					result: [1, 2],
+					logs: 'ran'
+				} as any)
+				const promise = executeTestRun({
+					jobStarter: async () => 'job1',
+					workspace: 'w',
+					toolId: 'tool1',
+					startMessage: 'Starting...',
+					contextName: 'script',
+					// The job hooks are what mark the global/sessions chat.
+					toolCallbacks: {
+						setToolStatus: vi.fn(),
+						removeToolStatus: vi.fn(),
+						onJobStatus: vi.fn(),
+						onJobStarted: vi.fn()
+					} as any
+				})
+				await vi.advanceTimersByTimeAsync(1000)
+				return promise
+			}
+			expect(await run(true)).toContain('Do not repeat')
+			expect(await run(false)).not.toContain('Do not repeat')
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+})
+
 describe('deriveChatJobStatus', () => {
 	// CompletedJob is discriminated by the presence of a `success` key; the branch
 	// order deliberately mirrors JobStatusIcon so the badge and scalar never drift.
@@ -1823,5 +1970,40 @@ describe('processToolCall confirmation hooks', () => {
 
 		expect(tool.onConfirmationRequested).not.toHaveBeenCalled()
 		expect(tool.fn).toHaveBeenCalled()
+	})
+})
+
+// Any tool gets the web search card by returning this shape. The card renders urls and
+// titles only, so a result carrying anything more must keep its JSON pane.
+describe('webSearchResultOf', () => {
+	it('reads the shape, from the value or its JSON text', () => {
+		const result = { sources: [{ url: 'https://a.dev', title: 'A' }], query: 'a' }
+		expect(webSearchResultOf(result)).toEqual(result)
+		expect(webSearchResultOf(JSON.stringify(result))).toEqual(result)
+	})
+
+	// A Python tool serializes an absent optional as null, and the card has nothing to tell
+	// its author why an almost-right result fell back to JSON.
+	it('reads null on an optional field as absent', () => {
+		expect(
+			webSearchResultOf({ sources: [{ url: 'https://a.dev', title: null }], query: null })
+		).toEqual({
+			sources: [{ url: 'https://a.dev', title: undefined }],
+			query: undefined
+		})
+	})
+
+	it.each([
+		['an extra key', { sources: [{ url: 'https://a.dev' }], summary: 'x' }],
+		['an extra source field', { sources: [{ url: 'https://a.dev', snippet: 'x' }] }],
+		['a source without url', { sources: [{ title: 'A' }] }],
+		// The card renders no relative or javascript: link, so a result whose urls it would
+		// drop keeps its own JSON rather than showing an empty source list.
+		['a relative url', { sources: [{ url: '/docs/pg17', title: 'PG 17' }] }],
+		['a javascript: url', { sources: [{ url: 'javascript:alert(1)' }] }],
+		['no sources', { sources: [] }],
+		['a bare list of links', [{ url: 'https://a.dev' }]]
+	])('rejects %s', (_, result) => {
+		expect(webSearchResultOf(result)).toBeUndefined()
 	})
 })

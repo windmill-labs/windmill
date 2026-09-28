@@ -14,7 +14,6 @@ import type {
 	DataMetric,
 	DataTableTables,
 	DataTableTableSchema,
-	EndpointTool,
 	GetDraftForUserResponse,
 	GetOwnDraftResponse,
 	ListDraftsResponse,
@@ -1020,119 +1019,6 @@ function buildBenchmarkApp(app: BenchmarkWorkspaceApp): AppWithLastVersion {
 	}
 }
 
-// ============= API endpoint catalog (McpService.listMcpTools + raw fetch) =============
-// The global chat's API catalog tools list endpoints via McpService and execute
-// them with a plain relative fetch('/api/...'), which has no meaning in the
-// vitest environment. A representative slice of the real catalog is served here,
-// and `handleBenchmarkApiFetch` answers the executed calls.
-
-const BENCHMARK_MCP_TOOLS: EndpointTool[] = [
-	{
-		name: 'listWorkers',
-		description: 'List workers',
-		instructions: 'List all workers with their last ping and job counts.',
-		path: '/workers/list',
-		method: 'GET',
-		query_params_schema: {
-			type: 'object',
-			properties: { page: { type: 'integer' }, per_page: { type: 'integer' } }
-		}
-	},
-	{
-		name: 'listQueue',
-		description: 'List queued jobs',
-		instructions: '',
-		path: '/w/{workspace}/jobs/queue/list',
-		method: 'GET',
-		path_params_schema: {
-			type: 'object',
-			properties: { workspace: { type: 'string' } },
-			required: ['workspace']
-		}
-	},
-	{
-		name: 'getJob',
-		description: 'get job',
-		instructions: '',
-		path: '/w/{workspace}/jobs_u/get/{id}',
-		method: 'GET',
-		path_params_schema: {
-			type: 'object',
-			properties: { workspace: { type: 'string' }, id: { type: 'string', format: 'uuid' } },
-			required: ['workspace', 'id']
-		},
-		query_params_schema: {
-			type: 'object',
-			properties: {
-				no_logs: { type: 'boolean' },
-				no_code: { type: 'boolean' },
-				approval_token: { type: 'string' }
-			},
-			required: []
-		}
-	},
-	{
-		name: 'runScriptByPath',
-		description: 'Run the deployed version of a script by path',
-		instructions: '',
-		path: '/w/{workspace}/jobs/run/p/{path}',
-		method: 'POST',
-		path_params_schema: {
-			type: 'object',
-			properties: { workspace: { type: 'string' }, path: { type: 'string' } },
-			required: ['workspace', 'path']
-		},
-		body_schema: { type: 'object', properties: {} }
-	},
-	{
-		name: 'runFlowByPath',
-		description: 'Run the deployed version of a flow by path',
-		instructions: '',
-		path: '/w/{workspace}/jobs/run/f/{path}',
-		method: 'POST',
-		path_params_schema: {
-			type: 'object',
-			properties: { workspace: { type: 'string' }, path: { type: 'string' } },
-			required: ['workspace', 'path']
-		},
-		body_schema: { type: 'object', properties: {} }
-	},
-	// Draft-covered endpoints, present so steering cases exercise the guard the
-	// way production does (hidden from search, refused at call time).
-	{
-		name: 'getScriptByPath',
-		description: 'Get a script by path',
-		instructions: '',
-		path: '/w/{workspace}/scripts/get/p/{path}',
-		method: 'GET'
-	},
-	{
-		name: 'createFlow',
-		description: 'Create a flow',
-		instructions: '',
-		path: '/w/{workspace}/flows/create',
-		method: 'POST'
-	},
-	{
-		name: 'deleteSchedule',
-		description: 'Delete a schedule',
-		instructions: '',
-		path: '/w/{workspace}/schedules/delete/{path}',
-		method: 'DELETE'
-	},
-	{
-		name: 'getVariable',
-		description: 'Get a variable',
-		instructions: '',
-		path: '/w/{workspace}/variables/get/{path}',
-		method: 'GET'
-	}
-]
-
-export function listBenchmarkMcpTools(): EndpointTool[] {
-	return BENCHMARK_MCP_TOOLS
-}
-
 /** A stand-in Windmill hub. `search_hub_scripts` and a `hub/` read go out over
  * relative `/api/...` fetches, which have no origin here, so without these the
  * hub tools throw and no case can exercise hub reuse. Serving fixtures rather
@@ -1292,26 +1178,6 @@ const BENCHMARK_WORKERS = [
 	}
 ]
 
-const BENCHMARK_JOB_GET_PATH = /^\/api\/w\/([^/]+)\/jobs_u\/get\/([^/]+)$/
-const BENCHMARK_RUN_BY_PATH = /^\/api\/w\/([^/]+)\/jobs\/run\/(p|f)\/([^/]+)$/
-
-/** `executeEndpoint` sends a JSON string; anything else means no args were supplied. */
-function parseBenchmarkRequestBody(
-	body: BodyInit | null | undefined
-): Record<string, unknown> | undefined {
-	if (typeof body !== 'string') {
-		return undefined
-	}
-	try {
-		const parsed = JSON.parse(body)
-		return typeof parsed === 'object' && parsed !== null
-			? (parsed as Record<string, unknown>)
-			: undefined
-	} catch {
-		return undefined
-	}
-}
-
 /** True when `handleBenchmarkApiFetch` has an answer for this `/api/...` url.
  * Any other relative fetch must keep its normal (non-benchmark) behavior —
  * intercepting it with a synthetic 404 sends the model into retry loops. */
@@ -1323,17 +1189,13 @@ export function hasBenchmarkApiHandler(url: string): boolean {
 	const path = url.split('?')[0]
 	return (
 		path === '/api/workers/list' ||
-		BENCHMARK_JOB_GET_PATH.test(path) ||
-		BENCHMARK_RUN_BY_PATH.test(path) ||
-		/^\/api\/w\/[^/]+\/jobs\/queue\/list$/.test(path) ||
 		path === '/api/embeddings/query_hub_scripts' ||
 		path.startsWith('/api/scripts/hub/get_full/') ||
 		BENCHMARK_AI_MODELS_PATH.test(path)
 	)
 }
 
-/** Answer a relative `/api/...` fetch — from the API catalog executor, or from the
- * chat's hub tools. */
+/** Answer the relative `/api/...` fetches no mocked service covers. */
 export function handleBenchmarkApiFetch(url: string, init?: RequestInit): Response {
 	const path = url.split('?')[0]
 	if (path === '/api/workers/list') {
@@ -1349,39 +1211,6 @@ export function handleBenchmarkApiFetch(url: string, init?: RequestInit): Respon
 			.get(decodeURIComponent(aiModels[1]))
 			?.aiProviders?.find((entry) => entry.path === resourcePath)
 		return Response.json({ data: (seed?.models ?? []).map((id) => ({ id })) })
-	}
-	if (/^\/api\/w\/[^/]+\/jobs\/queue\/list$/.test(path)) {
-		return Response.json([])
-	}
-	const jobGet = BENCHMARK_JOB_GET_PATH.exec(path)
-	if (jobGet) {
-		const id = decodeURIComponent(jobGet[2])
-		const job = getBenchmarkCompletedJob(decodeURIComponent(jobGet[1]), id)
-		if (!job) {
-			return Response.json({ error: `Job not found for "${id}"` }, { status: 404 })
-		}
-		// The real endpoint lets a caller drop the bulky fields. Ignoring that here would
-		// size the model's context off a payload it explicitly asked to shrink.
-		const query = new URLSearchParams(url.split('?')[1] ?? '')
-		if (query.get('no_logs') === 'true') {
-			delete job.logs
-		}
-		if (query.get('no_code') === 'true') {
-			delete job.raw_code
-		}
-		return Response.json(job)
-	}
-	const runByPath = BENCHMARK_RUN_BY_PATH.exec(path)
-	if (runByPath) {
-		const workspace = decodeURIComponent(runByPath[1])
-		const runnablePath = decodeURIComponent(runByPath[3])
-		const args = parseBenchmarkRequestBody(init?.body)
-		// The real endpoint answers with the bare job id as text, not JSON.
-		return new Response(
-			runByPath[2] === 'f'
-				? runBenchmarkFlowByPath({ workspace, path: runnablePath, args })
-				: runBenchmarkScriptByPath({ workspace, path: runnablePath, args })
-		)
 	}
 	if (path === '/api/embeddings/query_hub_scripts') {
 		const text = new URLSearchParams(url.split('?')[1] ?? '').get('text') ?? ''

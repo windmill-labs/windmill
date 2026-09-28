@@ -1,11 +1,13 @@
 <script lang="ts">
 	import { VariableService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { watch } from 'runed'
 	import { Plus } from 'lucide-svelte'
 	import { Button } from './common'
 	import ItemPicker from './ItemPicker.svelte'
 	import VariableEditor from './VariableEditor.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		/** The transforms being edited. A picked variable is written into `pickForField`'s. */
@@ -26,7 +28,7 @@
 		variableEditor = $bindable()
 	}: Props = $props()
 
-	let ws = $derived(workspace ?? $workspaceStore)
+	let ws = $derived(workspace ?? $operatingWorkspace)
 
 	watch(
 		() => ws,

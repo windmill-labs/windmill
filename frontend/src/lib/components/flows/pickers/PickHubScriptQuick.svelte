@@ -36,13 +36,13 @@
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import { Skeleton } from '$lib/components/common'
 	import { classNames, createCache } from '$lib/utils'
-	import { APP_TO_ICON_COMPONENT } from '$lib/components/icons'
+	import { appIconMap } from '$lib/components/icons/appIcon.svelte'
 	import { listHubIntegrationsShared } from '$lib/components/displayNameLoaders'
 	import { ScriptService, type HubScriptKind } from '$lib/gen'
 	import { Circle, ExternalLink } from 'lucide-svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
-	import { disableHubStore, hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
+	import { disableHubStore, hubBaseUrlStore, userStore } from '$lib/stores'
 	import { get } from 'svelte/store'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { Alert } from '$lib/components/common'
@@ -53,6 +53,9 @@
 		byPopularity,
 		localCountsByIntegration
 	} from '$lib/components/pickerPopularity'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
 
@@ -113,7 +116,7 @@
 			// Independent reads, so they share one round trip before first paint.
 			const [integrations, local] = await Promise.all([
 				listHubIntegrationsShared(filterKind, refreshCount),
-				$workspaceStore ? localCountsByIntegration($workspaceStore) : {}
+				$operatingWorkspace ? localCountsByIntegration($operatingWorkspace) : {}
 			])
 			const hubPicks = Object.fromEntries(integrations.map((x) => [x.name, x.picks ?? 0]))
 			popularity = byPopularity(hubPicks, local)
@@ -250,8 +253,8 @@
 						onClick={() => handlePickScript(item)}
 					>
 						<div class={classNames('flex justify-center items-center')}>
-							{#if item['app'] in APP_TO_ICON_COMPONENT}
-								{@const SvelteComponent = APP_TO_ICON_COMPONENT[item['app']]}
+							{#if appIconMap()?.[item['app']]}
+								{@const SvelteComponent = appIconMap()![item['app']]}
 								<SvelteComponent height={13} width={13} />
 							{:else}
 								<div class="text-gray-400 flex flex-row items-center justify-center">

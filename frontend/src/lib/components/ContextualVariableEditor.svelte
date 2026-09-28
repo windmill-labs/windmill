@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { WorkspaceService } from '$lib/gen'
 	import { createEventDispatcher } from 'svelte'
-	import { workspaceStore } from '$lib/stores'
 	import { Button } from './common'
 	import Drawer from './common/drawer/Drawer.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
@@ -10,6 +9,9 @@
 	import autosize from '$lib/autosize'
 	import Label from './Label.svelte'
 	import TextInput from './text_input/TextInput.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	const dispatch = createEventDispatcher()
 
@@ -35,7 +37,7 @@
 
 	async function updateVariable(): Promise<void> {
 		await WorkspaceService.setEnvironmentVariable({
-			workspace: $workspaceStore!,
+			workspace: $operatingWorkspace!,
 			requestBody: {
 				value: value,
 				name: name

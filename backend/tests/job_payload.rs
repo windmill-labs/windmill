@@ -239,6 +239,7 @@ mod job_payload {
             let result = RunJob::from(JobPayload::FlowNode {
                 id,
                 path: "f/system/hello_with_nodes_flow/forloop-0".into(),
+                no_inherited_flow_env: false,
             })
             .arg("iter", json!({ "value": "tests", "index": 0 }))
             .run_until_complete(&db, false, port)

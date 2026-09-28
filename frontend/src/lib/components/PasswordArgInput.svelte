@@ -1,11 +1,14 @@
 <script lang="ts">
 	import { VariableService } from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { userStore } from '$lib/stores'
 	import { ephemeralSecretPrefix, mintEphemeralSecret } from './secretArgUtils'
 	import { sendUserToast } from '$lib/toast'
 	import { Button } from './common'
 	import Password from './Password.svelte'
 	import { untrack } from 'svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		value?: string | undefined
@@ -18,7 +21,7 @@
 
 	let { value = $bindable(undefined), disabled, minRows, workspace }: Props = $props()
 
-	let ws = $derived(workspace ?? $workspaceStore)
+	let ws = $derived(workspace ?? $operatingWorkspace)
 
 	let path = $state('')
 	// Workspace the variable at `path` actually lives in; `ws` can move away from it.

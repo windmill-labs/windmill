@@ -2,6 +2,7 @@ import type { ButtonType } from './common/button/model'
 import { allowedOriginsSettingError } from './triggers/http/utils'
 import { z } from 'zod'
 import { instanceBannerFormError } from './instanceBanner'
+import { ACCENT_COLOR_SETTING, parseAccentColor } from '$lib/accentColor'
 import { parseMaxTokenExpirationDays } from '$lib/tokenExpiration'
 import { writable } from 'svelte/store'
 
@@ -72,6 +73,7 @@ export interface Setting {
 		| 'ws_connectivity'
 		| 'retention_overrides'
 		| 'instance_banner'
+		| 'accent_color'
 	storage: SettingStorage
 	advancedToggle?: {
 		label: string
@@ -241,19 +243,6 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting'
 		},
 		{
-			label: 'Announcement banner',
-			description:
-				'Message shown above every page of the instance, for maintenance windows and incidents.',
-			key: 'instance_banner',
-			fieldType: 'instance_banner',
-			storage: 'setting',
-			// The banner only renders on the managed cloud, so only offer it there.
-			cloudonly: true,
-			hideInQuickSetup: true,
-			// Gates Save. The card renders the specific message itself, so no `error` here.
-			isValid: (value: any) => instanceBannerFormError(value) == undefined
-		},
-		{
 			label: 'Non-prod instance',
 			description:
 				'Whether we should consider the reported usage of this instance as non-prod. <a href="https://www.windmill.dev/docs/advanced/instance_settings#non-prod-instance">Learn more</a>',
@@ -334,6 +323,35 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'boolean',
 			storage: 'setting',
 			hideInQuickSetup: true
+		},
+		{
+			label: 'Announcement banner',
+			description:
+				'Message shown above every page of the instance, for maintenance windows and incidents.',
+			key: 'instance_banner',
+			fieldType: 'instance_banner',
+			storage: 'setting',
+			// The banner only renders on EE, so the card is disabled without a license.
+			ee_only: '',
+			hideInQuickSetup: true,
+			// Gates Save. The card renders the specific message itself, so no `error` here.
+			isValid: (value: any) => instanceBannerFormError(value) == undefined
+		},
+		{
+			label: 'Accent color',
+			description:
+				'Recolors buttons, selections and the sidebar for every user, so each environment (e.g. staging vs. production) is recognizable at a glance.',
+			key: ACCENT_COLOR_SETTING,
+			fieldType: 'accent_color',
+			storage: 'setting',
+			ee_only: '',
+			hideInQuickSetup: true,
+			error: 'Must be a hex color like #1f9d55',
+			isValid: (value: unknown) =>
+				value === undefined ||
+				value === null ||
+				value === '' ||
+				parseAccentColor(value) !== undefined
 		}
 	],
 	Jobs: [
@@ -565,6 +583,20 @@ export const settings: Record<string, Setting[]> = {
 			cloudonly: true,
 			ee_only: '',
 			hideInQuickSetup: true
+		},
+		{
+			label: 'Cancel jobs on unserved tags after (days)',
+			description:
+				"A job queued with a tag that no worker group serves waits forever. Superadmins get a daily critical alert listing such jobs once they have waited a day with no worker serving their tag (it can be muted under Alerts). When set, pending jobs whose tag no worker has served for this many days are also canceled, with a reason naming the tag. Only top-level jobs are checked: a step waiting inside a running flow is not. A canceled schedule tick is followed by the schedule's next one, on the same tag. At most 3650. Leave empty or set 0 to only alert.",
+			key: 'cancel_stranded_jobs_after_days',
+			fieldType: 'number',
+			placeholder: 'off',
+			storage: 'setting',
+			hideInQuickSetup: true,
+			isValid: (v) =>
+				v == undefined ||
+				v === '' ||
+				(Number.isInteger(Number(v)) && Number(v) >= 0 && Number(v) <= 3650)
 		}
 	],
 	'Object Storage': [
@@ -1005,6 +1037,15 @@ export const settings: Record<string, Setting[]> = {
 			description:
 				'Stop sending critical alerts when a zombie job or flow is detected and automatically restarted. Jobs that exhaust all their restart attempts, and flows cancelled after hanging between steps, keep alerting.',
 			key: 'critical_alert_mute_zombie_job_restart',
+			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
+			label: 'Mute stranded job alerts',
+			description:
+				'Stop the daily critical alert listing pending jobs whose tag no worker has served for a day. Cancelling those jobs automatically is configured separately, under Jobs.',
+			key: 'critical_alert_mute_stranded_jobs',
 			fieldType: 'boolean',
 			storage: 'setting',
 			ee_only: ''

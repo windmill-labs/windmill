@@ -3,7 +3,6 @@
 	import Label from '$lib/components/Label.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { AlertTriangle } from 'lucide-svelte'
-	import { workspaceStore } from '$lib/stores'
 	import { SCRIPT_VIEW_SHOW_CREATE_TOKEN_BUTTON } from '$lib/consts'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -13,12 +12,16 @@
 	import { emptyString } from '$lib/utils'
 	import UserSettings from '$lib/components/UserSettings.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	let requestType: 'runnableVersion' | 'path' = $state('path')
 
 	function emailAddress() {
-		const pathOrHash = requestType === 'runnableVersion' ? runnableVersion : path.replaceAll('/', '.')
-		const plainPrefix = `${$workspaceStore}+${
+		const pathOrHash =
+			requestType === 'runnableVersion' ? runnableVersion : path.replaceAll('/', '.')
+		const plainPrefix = `${$operatingWorkspace}+${
 			(requestType === 'runnableVersion' ? 'hash.' : isFlow ? 'flow.' : '') + pathOrHash
 		}+${token}`
 		const encodedPrefix = base32

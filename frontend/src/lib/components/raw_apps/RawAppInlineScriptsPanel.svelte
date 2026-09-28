@@ -1,11 +1,10 @@
 <script lang="ts">
-	import { workspaceStore } from '$lib/stores'
 	import RawAppInlineScripRunnable, { type Runnable } from './RawAppInlineScriptRunnable.svelte'
 	import { createScriptFromInlineScript } from '../apps/editor/inlineScriptsPanel/utils'
-	import { getRawAppOperatingWorkspace } from './rawAppWorkspace'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
-	const getOpWs = getRawAppOperatingWorkspace()
-	let opWs = $derived(getOpWs?.() ?? $workspaceStore)
+	const operatingWorkspace = useOperatingWorkspace()
+	let opWs = $derived($operatingWorkspace)
 
 	interface Props {
 		runnables: Record<string, Runnable>

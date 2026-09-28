@@ -3,9 +3,11 @@
 	import { createEventDispatcher, untrack } from 'svelte'
 	import PopoverV2 from '$lib/components/meltComponents/Popover.svelte'
 	import HistoricInputs from './HistoricInputs.svelte'
-	import { workspaceStore } from '$lib/stores'
 	import { JobService } from '$lib/gen'
 	import { Button } from './common'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		path: string
@@ -27,7 +29,7 @@
 	async function loadInitial() {
 		loading = true
 		let jobs = await JobService.listJobs({
-			workspace: $workspaceStore!,
+			workspace: $operatingWorkspace!,
 			scriptPathExact: path,
 			jobKinds: ['flow', 'flowpreview'].join(','),
 			perPage: 1
@@ -43,7 +45,7 @@
 	}
 
 	$effect(() => {
-		if ($workspaceStore && !newFlow) {
+		if ($operatingWorkspace && !newFlow) {
 			untrack(() => loadInitial())
 		}
 	})

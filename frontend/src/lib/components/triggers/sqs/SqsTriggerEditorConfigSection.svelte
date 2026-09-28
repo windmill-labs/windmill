@@ -13,11 +13,10 @@
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
 	import { Button } from '$lib/components/common'
 	import { VariableService, type AwsAuthResourceType } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
-	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	import TestingBadge from '../testingBadge.svelte'
 	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
 	import { safeSelectItems } from '$lib/components/select/utils.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	interface Props {
 		can_write?: boolean
@@ -40,8 +39,8 @@
 		message_attributes = $bindable([]),
 		showTestingBadge = false
 	}: Props = $props()
-	const triggerWs = getTriggerWorkspace()
-	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
+	const operatingWorkspace = useOperatingWorkspace()
+	const wsId = $derived($operatingWorkspace)
 
 	async function loadVariables() {
 		return await VariableService.listVariable({ workspace: wsId ?? '' })

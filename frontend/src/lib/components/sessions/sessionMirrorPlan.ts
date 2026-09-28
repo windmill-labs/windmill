@@ -78,7 +78,7 @@ export function isFallbackStorage(name: string): boolean {
 
 /**
  * The part of a session record the backup keeps. Left out on purpose: `name` (a
- * per-browser counter), the unsent-draft fields (`pending_*`, `draftPrompt`,
+ * per-browser legacy label), the unsent-draft fields (`pending_*`, `draftPrompt`,
  * `autoSendDraftAt`), `workspace_root_id` (derived on import), `transient`, `restoredAt`
  * (this browser's clock), and the two fields reading a session bumps (`lastSeenCount`,
  * `lastActivityAt`) — so opening a session and reading its new messages never costs a push.

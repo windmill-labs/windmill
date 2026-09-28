@@ -33,6 +33,7 @@
 		reconcileAfterWorkspaceChange,
 		renameSession,
 		selectSession,
+		sessionPageHref,
 		sessionLastActivityAt,
 		sessionState,
 		setNewSessionWorkspace,
@@ -44,8 +45,9 @@
 	import { unreadCountFor } from './sessionUnread.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import {
-		getOrCreateRuntime,
+		ensureSessionChatPeek,
 		getRuntime,
+		getSessionChatPeek,
 		getSessionChatStatus,
 		removeSession,
 		resetSessionPreviewTabs
@@ -87,7 +89,7 @@
 	// displayMessages array vs. the localStorage-backed lastSeen map;
 	// both are reactive so the badge updates without polling.
 	function unreadFor(session: Session): number {
-		return unreadCountFor(session.id, getRuntime(session.id))
+		return unreadCountFor(session.id, getRuntime(session.id), getSessionChatPeek(session.id))
 	}
 
 	// Whether the composer for a session holds non-whitespace text. We
@@ -378,14 +380,12 @@
 		}
 	})
 
-	// Eagerly create a runtime per VISIBLE session so the status dot reflects
-	// the persisted chat (last message, pending confirmation, etc.) without
-	// requiring the user to open the session first. Sessions outside the
-	// current workspace scope are left cold to avoid opening IDB connections
-	// for unrelated work.
+	// Read each VISIBLE session's stored chat so the status dot and unread count
+	// reflect it without the user opening the session. A runtime per listed
+	// session would hold every listed chat in memory for as long as the page lives.
 	$effect(() => {
 		for (const session of visibleSessions) {
-			getOrCreateRuntime(session)
+			if (!getRuntime(session.id)) void ensureSessionChatPeek(session)
 		}
 	})
 
@@ -402,7 +402,7 @@
 		// so opening one must not change the user's active (navigation) workspace.
 		// Open the dedicated sessions page; its preview panel iframes the
 		// session's view (captured page / editor target).
-		await goto(`/sessions?session_name=${encodeURIComponent(session.name)}`)
+		await goto(sessionPageHref(session.id))
 		if (restoreFocus) {
 			// goto() resets focus to <body> — put it back on the active session button
 			// so subsequent arrow keys keep navigating the list.
@@ -609,14 +609,14 @@
 
 	// After deleting the open session, land somewhere usable: the newest remaining
 	// session, else a fresh one. The page derives the visible session from the
-	// `session_name` query, so leaving the URL on a deleted session would fall
+	// `session` query, so leaving the URL on a deleted session would fall
 	// through to recovery and open a blank one rather than their recent work.
 	async function openReplacementSession() {
 		const next = sessionState.sessions[0]
 		if (next) await activate(next)
 		else {
 			const fresh = createSession()
-			await goto(`/sessions?session_name=${encodeURIComponent(fresh.name)}`)
+			await goto(sessionPageHref(fresh.id))
 		}
 	}
 
@@ -768,7 +768,9 @@
 									{/if}
 									{#each group.sessions as session (session.id)}
 										{@const runtime = getRuntime(session.id)}
-										{@const status = runtime ? getSessionChatStatus(runtime) : 'idle'}
+										{@const status = runtime
+											? getSessionChatStatus(runtime)
+											: (getSessionChatPeek(session.id)?.status ?? 'idle')}
 										{@const isSelected =
 											sessionActive && session.id === sessionState.currentSessionId}
 										{@const unread = unreadFor(session)}
@@ -986,7 +988,9 @@
 				{/snippet}
 				{#snippet sessionRow(session, indented, treeDepth)}
 					{@const runtime = getRuntime(session.id)}
-					{@const status = runtime ? getSessionChatStatus(runtime) : 'idle'}
+					{@const status = runtime
+						? getSessionChatStatus(runtime)
+						: (getSessionChatPeek(session.id)?.status ?? 'idle')}
 					{@const isSelected = sessionActive && session.id === sessionState.currentSessionId}
 					{@const isEditing = editingId === session.id}
 					{@const unread = unreadFor(session)}
@@ -1294,7 +1298,7 @@
 	<div class="flex flex-col gap-3">
 		<p>
 			Delete session <span class="font-medium text-primary"
-				>{pendingDelete?.summary ?? pendingDelete?.name}</span
+				>{pendingDelete?.summary ?? 'Untitled session'}</span
 			>? This cannot be undone.
 		</p>
 		{#if pendingDeleteForkId}

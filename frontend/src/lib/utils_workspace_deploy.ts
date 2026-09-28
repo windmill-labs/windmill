@@ -228,6 +228,18 @@ function makeProvider(
 		if (conflict) conflict.hit = true
 		throw new Error('item already exists in the target workspace')
 	}
+	// The published package builds variable, resource and folder bodies field by field without
+	// `labels`, so carry the source item's across from the read `deployItem` does just before the
+	// write. One provider serves one deploy, so the read always belongs to the write that follows.
+	let sourceLabels: string[] | undefined
+	const readLabels = <T extends { labels?: string[] }>(item: T): T => {
+		sourceLabels = item.labels
+		return item
+	}
+	const withLabels = <T extends Record<string, any>>(requestBody: T): T => ({
+		...requestBody,
+		labels: sourceLabels
+	})
 	return {
 		existsFlowByPath: (p) => FlowService.existsFlowByPath(p),
 		existsScriptByPath: (p) => ScriptService.existsScriptByPath(p),
@@ -272,21 +284,31 @@ function makeProvider(
 		getPublicSecretOfLatestVersionOfApp: (p) => AppService.getPublicSecretOfLatestVersionOfApp(p),
 		getRawAppData: (p) => AppService.getRawAppData(p),
 		deleteApp: (p) => AppService.deleteApp(p),
-		getVariable: (p) => VariableService.getVariable(p),
-		createVariable: (p) => VariableService.createVariable(p),
-		updateVariable: (p) => VariableService.updateVariable(p),
+		getVariable: (p) => VariableService.getVariable(p).then(readLabels),
+		createVariable: (p) =>
+			VariableService.createVariable({ ...p, requestBody: withLabels(p.requestBody) }),
+		updateVariable: (p) =>
+			VariableService.updateVariable({ ...p, requestBody: withLabels(p.requestBody) }),
 		deleteVariable: (p) => VariableService.deleteVariable(p),
-		getResource: (p) => ResourceService.getResource(p),
-		createResource: (p) => ResourceService.createResource(p),
-		updateResource: (p) => ResourceService.updateResource(p),
+		getResource: (p) => ResourceService.getResource(p).then(readLabels),
+		createResource: (p) =>
+			ResourceService.createResource({ ...p, requestBody: withLabels(p.requestBody) }),
+		updateResource: (p) =>
+			ResourceService.updateResource({ ...p, requestBody: withLabels(p.requestBody) }),
 		deleteResource: (p) => ResourceService.deleteResource(p),
 		getResourceType: (p) => ResourceService.getResourceType(p),
 		createResourceType: (p) => ResourceService.createResourceType(p),
 		updateResourceType: (p) => ResourceService.updateResourceType(p),
 		deleteResourceType: (p) => ResourceService.deleteResourceType(p),
-		getFolder: (p) => FolderService.getFolder(p),
-		createFolder: (p) => FolderService.createFolder(p),
-		updateFolder: (p) => FolderService.updateFolder(p),
+		getFolder: (p) => FolderService.getFolder(p).then(readLabels),
+		createFolder: (p) =>
+			FolderService.createFolder({ ...p, requestBody: withLabels(p.requestBody) }),
+		// A folder with no labels reads back without the field, so clearing them needs an explicit [].
+		updateFolder: (p) =>
+			FolderService.updateFolder({
+				...p,
+				requestBody: { ...p.requestBody, labels: sourceLabels ?? [] }
+			}),
 		deleteFolder: (p) => FolderService.deleteFolder(p),
 		// Triggers
 		existsTriggerByKind: (kind, p) => triggerServiceFor(kind).exists(p),
@@ -362,6 +384,11 @@ export interface DeployItemParams {
 	 * between the two probes. The result then carries `conflict`.
 	 */
 	createOnly?: boolean
+	/**
+	 * Root URL of the instance `workspaceTo` lives on, when the deploy crosses instances. Only what
+	 * a payload must state about where it landed needs it — a GCP or Azure push trigger's endpoint.
+	 */
+	targetBaseUrl?: string
 }
 
 /**
@@ -380,7 +407,8 @@ export async function deployItem(
 		additionalInformation,
 		onBehalfOf,
 		onBehalfOfPrincipal,
-		createOnly
+		createOnly,
+		targetBaseUrl
 	} = params
 
 	if (kind === 'trigger') {
@@ -399,7 +427,8 @@ export async function deployItem(
 				additionalInformation.triggers.kind,
 				path,
 				workspaceFrom,
-				onBehalfOf
+				onBehalfOf,
+				targetBaseUrl
 			)
 			if (alreadyExists) {
 				// Strip operational state so the update doesn't flip the target's
@@ -663,7 +692,7 @@ export type CreateFolderResult = DeployResult & {
  *    principal's existence at item-create time, so the folder would be created and then reject
  *    every deploy into it, including the retry.
  *
- * `default_permissioned_as` and `labels` are carried at all, which the shared folder deploy drops.
+ * `default_permissioned_as` is carried at all, which the shared folder deploy drops.
  */
 export async function createFolderIfAbsent(
 	name: string,
@@ -796,33 +825,25 @@ export function deployPermissionForKinds(
 }
 
 /**
- * Whether the current user may deploy into `workspace`. Mirrors `check_deploy_rules` in
+ * The workspace's deploy-protection rules alone. Mirrors `check_deploy_rules` in
  * windmill-common so the UI can disable the action with a reason instead of letting the
  * click 403: `DisableDirectDeployment` is evaluated before `RestrictDeployToDeployers`, so
  * the same message wins here as on the server when both block; admins and superadmins bypass
  * both rules, while `wm_deployers` members bypass only the latter.
  *
- * The operator refusal is not part of that mirror. The server refuses operators in the item
- * handlers instead, and for fewer kinds, so refusing them for everything here is deliberately
- * stricter than the server rather than a faithful copy of it.
+ * Separate from `checkDeployPermission`, which adds a blanket operator refusal: the server
+ * refuses operators per kind, in the item handlers, not in these rules.
  *
  * Fails open on any error — the server still enforces on the actual deploy.
- * Shared by the session dock and the compare page so both gate identically.
  */
-export async function checkDeployPermission(
+export async function checkDeployRules(
 	workspace: string,
-	/** Pre-fetched `whoami` for `workspace`, to save a round trip when the caller already has one. */
-	whoami?: User
+	/** Pre-fetched identity for `workspace`, to save a round trip. Narrowed to the fields
+	 * read so a caller holding a `UserExt` can pass it without a cast. */
+	whoami?: Pick<User, 'is_admin' | 'is_super_admin' | 'username' | 'groups'>
 ): Promise<DeployPermission> {
 	try {
 		const me = whoami ?? (await UserService.whoami({ workspace }))
-		if (me.operator) {
-			return {
-				ok: false,
-				reason: "You're an operator in this workspace — operators can't deploy",
-				refusedBy: 'operator'
-			}
-		}
 		const userInfo = {
 			is_admin: !!me.is_admin,
 			is_super_admin: !!me.is_super_admin,
@@ -865,6 +886,36 @@ export async function checkDeployPermission(
 			}
 		}
 		return { ok: true }
+	} catch {
+		return { ok: true }
+	}
+}
+
+/**
+ * Whether the current user may deploy into `workspace` at all: the protection rules above,
+ * plus a refusal of every operator.
+ *
+ * That refusal is not part of the `check_deploy_rules` mirror. The server refuses operators
+ * in the item handlers instead, and for fewer kinds, so refusing them for everything here is
+ * deliberately stricter than the server rather than a faithful copy of it. A caller mirroring
+ * one handler wants `checkDeployRules`.
+ *
+ * Shared by the session dock and the compare page so both gate identically.
+ */
+export async function checkDeployPermission(
+	workspace: string,
+	whoami?: Pick<User, 'operator' | 'is_admin' | 'is_super_admin' | 'username' | 'groups'>
+): Promise<DeployPermission> {
+	try {
+		const me = whoami ?? (await UserService.whoami({ workspace }))
+		if (me.operator) {
+			return {
+				ok: false,
+				reason: "You're an operator in this workspace — operators can't deploy",
+				refusedBy: 'operator'
+			}
+		}
+		return await checkDeployRules(workspace, me)
 	} catch {
 		return { ok: true }
 	}

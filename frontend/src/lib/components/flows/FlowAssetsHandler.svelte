@@ -43,11 +43,13 @@
 		type RawScript
 	} from '$lib/gen'
 	import { deepEqual } from 'fast-equals'
-	import { workspaceStore } from '$lib/stores'
 	import S3FilePicker from '../S3FilePicker.svelte'
 	import ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
 	import { watch } from 'runed'
 	import { sendUserToast } from '$lib/toast'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	let {
 		modules,
@@ -63,7 +65,7 @@
 
 	const flowGraphAssetsCtx = getContext<FlowGraphAssetContext | undefined>('FlowGraphAssetContext')
 	const { selectionManager, opWorkspace } = getContext<FlowEditorContext>('FlowEditorContext') || {}
-	let opWs = $derived(opWorkspace?.() ?? $workspaceStore)
+	let opWs = $derived(opWorkspace?.() ?? $operatingWorkspace)
 	// Expose the acting workspace to the asset explore controls (ExploreAssetButton
 	// reads it from this context; the DB manager / S3 picker act on it).
 	$effect(() => {

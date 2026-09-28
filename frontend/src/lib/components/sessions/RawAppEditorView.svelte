@@ -172,9 +172,10 @@
 
 	// The inline mini-composer over a selected element sends a chat turn; the
 	// element is already an app_dom_selector chip, so it rides along as context.
-	// Mirror the composer: while a turn is streaming, queue it (a second concurrent
-	// sendRequest would race the shared abortController / streaming buffers) — it
-	// auto-sends when the current turn completes.
+	// Mirror the composer: while another send holds the chat — streaming, in
+	// preflight, or waiting for the transcript to be restored — queue it (a second
+	// concurrent sendRequest would race the shared abortController / streaming
+	// buffers) — it auto-sends when the current turn completes.
 	function onInlinePrompt(selector: string, prompt: string) {
 		// Snapshot the selection synchronously at submit time so a re-selection
 		// during the async send preflight (immediate path) or before the queue
@@ -190,7 +191,7 @@
 			.filter(
 				(c) => c.type !== 'app_dom_selector' || (c.selector === selector && c.appPath === path)
 			)
-		if (runtime.manager.loading) {
+		if (runtime.manager.loading || runtime.manager.sendInFlight || runtime.manager.sendPending) {
 			runtime.manager.queueMessage(prompt, [], snapshot)
 		} else {
 			void runtime.manager.sendRequest({ instructions: prompt, contextOverride: snapshot })
@@ -240,6 +241,9 @@
 			     cell.saved.val), reactive state owned by the SessionRuntime class (via
 			     rawAppCell), not by a component ancestor — so Svelte's ownership check
 			     flags a false positive here. -->
+			<!-- version / draftBaseVersion: the pair the session's draft carries, so the
+			     deploy guard and the drawer compare what the full-page editor does;
+			     without them every deploy from a session tab reads as up to date. -->
 			<!-- svelte-ignore ownership_invalid_binding -->
 			<RawAppEditor
 				bind:files={cell.store.val.files}
@@ -253,6 +257,10 @@
 				autosavePath={path}
 				policy={cell.store.val.policy}
 				bind:savedApp={cell.saved.val}
+				version={cell.store.val?.parent_version ?? cell.saved.val?.deployed_version}
+				draftBaseVersion={cell.store.val?.parent_version != null
+					? String(cell.store.val.parent_version)
+					: undefined}
 				newApp={!cell.saved.val || cell.saved.val.no_deployed === true}
 				{diffDrawer}
 				{onNavigate}

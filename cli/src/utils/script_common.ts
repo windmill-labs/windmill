@@ -45,7 +45,9 @@ export const workspaceDependenciesLanguages: WorkspaceDependenciesLanguage[] = [
 ] as const;
 
 export function workspaceDependenciesPathToLanguageAndFilename(path: string): { name: string | undefined, language: ScriptLanguage } | undefined {
-  const relativePath = path.replace("dependencies/", "");
+  // Sync paths carry the platform separator, while a set's name is always
+  // forward-slashed.
+  const relativePath = path.replaceAll("\\", "/").replace("dependencies/", "");
   for (const { filename, language } of workspaceDependenciesLanguages) {
     if (relativePath.endsWith(filename)) {
       return {

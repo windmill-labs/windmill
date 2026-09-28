@@ -37,8 +37,8 @@ use windmill_common::{
     worker::{make_tool_job_pull_query, to_raw_value, Connection, WORKER_CONFIG},
 };
 use windmill_queue::{
-    get_mini_pulled_job, pull, push, try_admit_owned_job, MiniCompletedJob, MiniPulledJob,
-    PushArgs, PushIsolationLevel,
+    check_tag_available_for_push, get_mini_pulled_job, pull, push, resolve_push_tag,
+    try_admit_owned_job, MiniCompletedJob, MiniPulledJob, PushArgs, PushIsolationLevel,
 };
 
 /// Shared collection of abort handles for spawned tool tasks.
@@ -496,13 +496,6 @@ async fn enqueue_windmill_tool(
         }
     };
 
-    let mut tx = ctx.db.begin().await?;
-
-    let job_perms =
-        windmill_common::auth::get_job_perms(&mut *tx, &ctx.job.id, &ctx.job.workspace_id)
-            .await?
-            .map(|x| x.into());
-
     let (email, permissioned_as) = if let Some(on_behalf_of) = job_payload.on_behalf_of.as_ref() {
         (&on_behalf_of.email, on_behalf_of.permissioned_as.clone())
     } else {
@@ -512,6 +505,42 @@ async fn enqueue_windmill_tool(
         )
     };
 
+    let push_args = PushArgs { args: &tool_call_args, extra: None };
+
+    // A tool's own tag routes its job, so like any tag the caller chose it must pass the
+    // workspace's custom tag restrictions. The agent's tag was already checked when it was pushed.
+    if let Some(tag) = job_payload.tag.as_deref() {
+        if resolve_push_tag(tag, &push_args, &ctx.job.workspace_id, ctx.db)
+            .await
+            .is_some_and(|resolved| resolved != ctx.job.tag)
+        {
+            let is_super_admin = windmill_common::auth::is_super_admin_email(ctx.db, email).await?;
+            check_tag_available_for_push(
+                ctx.db,
+                &ctx.job.workspace_id,
+                tag,
+                &push_args,
+                is_super_admin,
+                None,
+            )
+            .await
+            .map_err(|e| match e {
+                Error::BadRequest(msg) => Error::BadRequest(format!(
+                    "tool '{}' cannot run on tag '{tag}': {msg}",
+                    tool_call.function.name
+                )),
+                e => e,
+            })?;
+        }
+    }
+
+    let mut tx = ctx.db.begin().await?;
+
+    let job_perms =
+        windmill_common::auth::get_job_perms(&mut *tx, &ctx.job.id, &ctx.job.workspace_id)
+            .await?
+            .map(|x| x.into());
+
     let job_priority = tool_module.priority.or(ctx.job.priority);
 
     let tx = PushIsolationLevel::Transaction(tx);
@@ -520,7 +549,7 @@ async fn enqueue_windmill_tool(
         tx,
         &ctx.job.workspace_id,
         job_payload.payload,
-        PushArgs { args: &tool_call_args, extra: None },
+        push_args,
         &ctx.job.created_by,
         email,
         permissioned_as,

@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { ResourceService, type ResourceVersion } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { Skeleton } from '$lib/components/common'
 	import Button from './common/button/Button.svelte'
 	import HighlightCode from './HighlightCode.svelte'
@@ -12,6 +11,9 @@
 	import VersionListItem from './VersionListItem.svelte'
 	import { displayDate } from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	let {
 		path,
@@ -27,7 +29,7 @@
 		onRestore?: () => void
 	} = $props()
 
-	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
+	let effectiveWorkspace = $derived(workspace ?? $operatingWorkspace!)
 
 	let versions = $state<ResourceVersion[] | undefined>(undefined)
 	// Which row is highlighted, updated on click. `loaded` is dropped the moment the selection

@@ -66,9 +66,9 @@ export function requiresMaxCompletionTokens(model: string) {
 // ids (anthropic.claude-sonnet-4-6-...-v1:0, gpt-5.2-2026-01-01) still resolve.
 // Conservative family fallbacks sit below the explicit entries; models not
 // listed at all resolve to undefined. Consumers that need a number regardless
-// (trim/compaction, the usage indicator) go through getModelContextWindow,
-// whose conservative 128K fallback keeps a limit enforced and is surfaced to
-// the user as an assumed window.
+// (trim/compaction, the usage indicator) go through
+// getEffectiveModelContextWindow, whose conservative 128K fallback keeps a
+// limit enforced and is surfaced to the user as an assumed window.
 const MODEL_CONTEXT_WINDOWS: [name: string, contextWindow: number][] = [
 	// Anthropic — Sonnet/Opus 4.6+ ship a 1M window at standard pricing (GA);
 	// Haiku, older Claude models (3.x, 4.0, 4.1, 4.5) and date-suffixed Claude 4
@@ -96,10 +96,12 @@ const MODEL_CONTEXT_WINDOWS: [name: string, contextWindow: number][] = [
 	['gemini-3.1', 1_000_000],
 	['gemini-3', 1_000_000],
 	['gemini-2.5', 1_000_000],
-	// DeepSeek — the V4 family (pro / flash) is 1M. The deepseek-chat /
-	// deepseek-reasoner aliases were retired 2026-07-24 but can still sit in a
-	// saved selection, so they keep resolving to the window they had.
+	// DeepSeek — the V4 family (pro / flash) is 1M; V4.1 Flash is served as
+	// `deepseek-flash`. The deepseek-chat / deepseek-reasoner aliases were retired
+	// 2026-07-24 but can still sit in a saved selection, so they keep resolving to
+	// the window they had.
 	['deepseek-v4', 1_000_000],
+	['deepseek-flash', 1_000_000],
 	['deepseek-chat', 1_000_000],
 	['deepseek-reasoner', 1_000_000],
 	['deepseek', 128_000],
@@ -113,6 +115,58 @@ const MODEL_CONTEXT_WINDOWS: [name: string, contextWindow: number][] = [
 	['mistral-medium-latest', 256_000],
 	['llama', 128_000],
 	['codestral', 32_000]
+]
+
+// Output token budgets, matched like the context windows above so one row covers
+// every host of a model: native API, Azure AI Foundry, OpenRouter, Together, Bedrock.
+// A host rejects any request above its own limit, so each value is one every host of
+// the model accepts, not the vendor's maximum. Models not listed fall back in
+// `getModelMaxTokens`.
+const MODEL_MAX_OUTPUT_TOKENS: [name: string, maxOutputTokens: number][] = [
+	// Anthropic — the Anthropic SDK refuses a non-streaming request whose max_tokens
+	// implies more than ~10 minutes, so these stay below the models' own maximum.
+	// Opus caps at 32K before 4.5.
+	['claude-opus-4.5', 64_000],
+	['claude-opus-4.6', 64_000],
+	['claude-opus-4.7', 64_000],
+	['claude-opus-4.8', 64_000],
+	['claude-opus-5', 64_000],
+	['claude-opus', 32_000],
+	['claude-sonnet', 64_000],
+	['claude-haiku', 64_000],
+	['claude-fable', 64_000],
+	['claude-mythos', 64_000],
+	// OpenAI
+	['gpt-5', 128_000],
+	['gpt-4.1', 32_768],
+	['gpt-4o', 16_384],
+	['gpt-4-turbo', 4_096],
+	['gpt-3.5', 4_096],
+	['o1', 100_000],
+	['o3', 100_000],
+	['o4-mini', 100_000],
+	// Google
+	['gemini-3', 64_000],
+	['gemini-2.5', 64_000]
+]
+
+// Open-weight models, which a self-hosted server (Custom AI) caps at whatever context
+// length its operator set, often below these: vLLM rejects a request whose prompt plus
+// max_tokens exceeds it. So these rows only apply to the providers that host them.
+const OPEN_WEIGHT_MAX_OUTPUT_TOKENS: [name: string, maxOutputTokens: number][] = [
+	// gpt-oss reasons on every request. Bedrock documents 16K, where Groq takes 65536
+	['gpt-oss', 16_000],
+	// DeepSeek — thinks by default and counts the thinking toward max_tokens. 131072
+	// is DeepSeek's own default at the highest effort. R1 is capped by its OpenRouter
+	// host.
+	['deepseek-v4', 131_072],
+	['deepseek-flash', 131_072],
+	['deepseek-r1', 16_000],
+	// Mistral
+	['codestral', 16_384],
+	// Models named for thinking reason on every request, whether or not the chat sends
+	// an effort. Every one OpenRouter lists takes at least this much.
+	['thinking', 32_768]
 ]
 
 // Version separators differ by route to the same model: Anthropic writes
@@ -162,9 +216,7 @@ export function buildModelMatchers<T>(
 			// separator is normalized. Only a short segment: a date is digits as well
 			// (`-20251101`) and stays a decoration.
 			strictVariants ? '(?!-\\d{1,3}(?:$|-))' : '',
-			strictVariants
-				? `(?!-(?!(?:v\\d|${DECORATIVE_SUFFIXES.join('|')})$)[a-z])`
-				: ''
+			strictVariants ? `(?!-(?!(?:v\\d|${DECORATIVE_SUFFIXES.join('|')})$)[a-z])` : ''
 		].join('')
 		return [new RegExp(pattern + guards), value]
 	})
@@ -172,8 +224,9 @@ export function buildModelMatchers<T>(
 
 /**
  * The `provider:model` key the workspace AI settings use for their per-model maps
- * (`max_tokens_per_model`, `model_pricing`). A bare model id is not enough: the
- * same id can be served by more than one provider at different rates.
+ * (`max_tokens_per_model`, `model_pricing`, `context_window_per_model`). A bare
+ * model id is not enough: the same id can be served by more than one provider at
+ * different rates.
  *
  * Matched exactly, unlike the fuzzy tables above. Those tables generalize across
  * every route to one model on purpose; a per-model *setting* must not, or an
@@ -196,9 +249,54 @@ export function getKnownModelContextWindow(model: string): number | undefined {
 	return matchModel(MODEL_CONTEXT_WINDOW_MATCHERS, model)
 }
 
-export function getModelContextWindow(model: string) {
-	// Trim/compaction logic needs a number; assume a conservative window when unknown.
-	return getKnownModelContextWindow(model) ?? 128000
+const MODEL_MAX_OUTPUT_TOKEN_MATCHERS = buildModelMatchers(MODEL_MAX_OUTPUT_TOKENS)
+const OPEN_WEIGHT_MAX_OUTPUT_TOKEN_MATCHERS = buildModelMatchers(OPEN_WEIGHT_MAX_OUTPUT_TOKENS)
+
+export function getKnownModelMaxOutputTokens(
+	provider: AIProvider,
+	model: string
+): number | undefined {
+	return (
+		matchModel(MODEL_MAX_OUTPUT_TOKEN_MATCHERS, model) ??
+		(provider === 'customai' ? undefined : matchModel(OPEN_WEIGHT_MAX_OUTPUT_TOKEN_MATCHERS, model))
+	)
+}
+
+/** Trim/compaction logic needs a number; assume a conservative window when unknown. */
+export const ASSUMED_CONTEXT_WINDOW = 128000
+
+/**
+ * What the built-in table states for a model, assuming a conservative window for one
+ * it does not list. Table only, so it ignores the workspace's `context_window_per_model`
+ * — deciding how much context to send goes through `getEffectiveModelContextWindow`
+ * instead. Named for the table because a plain `getModelContextWindow` is the obvious
+ * thing to reach for, and reaching for it here would silently skip the override.
+ */
+export function getModelContextWindowFromTable(model: string) {
+	return getKnownModelContextWindow(model) ?? ASSUMED_CONTEXT_WINDOW
+}
+
+/**
+ * The context window stated for a model: the workspace's override
+ * (`context_window_per_model`, passed in so this module stays free of stores)
+ * when one is set, otherwise the built-in table. Undefined only when neither
+ * knows the model, which is when a consumer falls back to an assumed window.
+ */
+export function getConfiguredModelContextWindow(
+	provider: AIProvider,
+	model: string,
+	overrides: Record<string, number> | undefined
+): number | undefined {
+	return overrides?.[modelKey(provider, model)] ?? getKnownModelContextWindow(model)
+}
+
+/** The window to budget against: the override, then the table, then the assumption. */
+export function getEffectiveModelContextWindow(
+	provider: AIProvider,
+	model: string,
+	overrides: Record<string, number> | undefined
+): number {
+	return getConfiguredModelContextWindow(provider, model, overrides) ?? ASSUMED_CONTEXT_WINDOW
 }
 
 /**

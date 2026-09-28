@@ -1,13 +1,12 @@
 <script lang="ts">
 	import Section from '$lib/components/Section.svelte'
 	import Subsection from '$lib/components/Subsection.svelte'
-	import { workspaceStore } from '$lib/stores'
-	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import TestTriggerConnection from '../TestTriggerConnection.svelte'
 	import TestingBadge from '../testingBadge.svelte'
 	import { createEventDispatcher, untrack } from 'svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	interface Props {
 		defaultValues?: Record<string, any> | undefined
@@ -35,8 +34,8 @@
 		can_write = true,
 		showTestingBadge = false
 	}: Props = $props()
-	const triggerWs = getTriggerWorkspace()
-	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
+	const operatingWorkspace = useOperatingWorkspace()
+	const wsId = $derived($operatingWorkspace)
 
 	let otherArgsValid = $state(false)
 	let globalError = $derived(

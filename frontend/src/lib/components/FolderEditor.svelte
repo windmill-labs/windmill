@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { userStore, workspaceStore } from '$lib/stores'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import {
 		type Folder,
 		type FolderDefaultPermissionedAs,
@@ -89,8 +90,12 @@
 		workspace
 	}: Props = $props()
 
-	const targetWorkspace = $derived(workspace ?? $workspaceStore ?? '')
-	const aimedElsewhere = $derived(!!workspace && workspace !== $workspaceStore)
+	const operatingWorkspace = useOperatingWorkspace()
+	const targetWorkspace = $derived(workspace ?? $operatingWorkspace ?? '')
+	const aimedElsewhere = $derived(!!targetWorkspace && targetWorkspace !== $workspaceStore)
+	// The group editor and permission history act on the operating workspace and take no
+	// workspace of their own, so they can only follow a drawer aimed at that one.
+	const offOperating = $derived(!!targetWorkspace && targetWorkspace !== $operatingWorkspace)
 
 	// `$userStore` describes the workspace the app is *in*. Aimed at another one it answers
 	// the wrong question — a folder admin there would get read-only controls, and a
@@ -121,9 +126,9 @@
 	})
 
 	async function loadTargetUser(): Promise<void> {
-		if (!aimedElsewhere || !workspace) return
+		if (!aimedElsewhere) return
 		try {
-			targetUser = await UserService.whoami({ workspace })
+			targetUser = await UserService.whoami({ workspace: targetWorkspace })
 		} catch {
 			// Not a member, or the call failed: no membership means read-only controls,
 			// which is the safe reading — the write would be refused anyway.
@@ -551,7 +556,7 @@
 	let loadStarted = false
 	$effect.pre(() => {
 		if (loadStarted) return
-		if ($workspaceStore && $userStore) {
+		if (targetWorkspace && $userStore) {
 			loadStarted = true
 			untrack(() => {
 				load()
@@ -675,10 +680,7 @@
 											class="grow min-w-0"
 										>
 											{#snippet endSnippet({ item, close: closeSelect })}
-												<!-- GroupEditor reads and writes `$workspaceStore` and takes no workspace of its
-												     own, so it cannot follow a drawer aimed at another one: viewing a group
-												     there would edit the same-named group in the active workspace. -->
-												{#if ownerKind == 'group' && !aimedElsewhere}
+												{#if ownerKind == 'group' && !offOperating}
 													<Button
 														title="View group"
 														variant="subtle"
@@ -696,7 +698,7 @@
 												{/if}
 											{/snippet}
 											{#snippet bottomSnippet({ close: closeSelect })}
-												{#if ownerKind == 'group' && !aimedElsewhere}
+												{#if ownerKind == 'group' && !offOperating}
 													<Button
 														variant="subtle"
 														unifiedSize="sm"
@@ -838,11 +840,9 @@
 								</Cell>
 								<Cell last actions>
 									<div class="flex items-center justify-end">
-										<!-- The group editor reads `$workspaceStore`, so it can only be opened for the
-										     workspace the app is in — see the picker's own buttons. It decides on its
-										     own whether the group is editable here; a member with no write on it still
-										     gets to see who is in it. -->
-										{#if ownerKindOf(perm.owner_name) === 'group' && !aimedElsewhere}
+										<!-- The group editor decides on its own whether the group is editable here; a
+										     member with no write on it still gets to see who is in it. -->
+										{#if ownerKindOf(perm.owner_name) === 'group' && !offOperating}
 											<Button
 												title="Manage group"
 												variant="subtle"
@@ -1001,9 +1001,7 @@
 		</CollapseLink>
 	{/if}
 
-	<!-- PermissionHistory fetches against `$workspaceStore`; aimed elsewhere it would show
-	     another folder's history entirely. -->
-	{#if !isNew && !aimedElsewhere && reloadHistory > 0}
+	{#if !isNew && !offOperating && reloadHistory > 0}
 		{#key reloadHistory}
 			<PermissionHistory
 				{name}

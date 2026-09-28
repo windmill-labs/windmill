@@ -18,11 +18,11 @@
 	// import { page } from '$app/state'
 	import { base } from '$lib/base'
 	import TriggerTokens from '../TriggerTokens.svelte'
-	import { workspaceStore, userStore } from '$lib/stores'
-	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
+	import { userStore } from '$lib/stores'
 	import UserSettings from '../../UserSettings.svelte'
 	import { generateRandomString } from '$lib/utils'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	interface Props {
 		isFlow?: boolean
@@ -43,8 +43,8 @@
 		triggerTokens = $bindable(undefined),
 		scopes = []
 	}: Props = $props()
-	const triggerWs = getTriggerWorkspace()
-	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
+	const operatingWorkspace = useOperatingWorkspace()
+	const wsId = $derived($operatingWorkspace)
 
 	const WEBHOOK_BASE_URL = $derived(`${location.origin}${base}/api/w/${wsId}/jobs`)
 

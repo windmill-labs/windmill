@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { InputService, type RunnableType } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { onDestroy, untrack } from 'svelte'
 	import InfiniteList from './InfiniteList.svelte'
 	import JobSchemaPicker from './schema/JobSchemaPicker.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		runnableId: string | undefined
@@ -52,7 +54,7 @@
 		refreshInterval()
 		loadInputsPageFn = async (page: number, perPage: number) => {
 			const inputs = await InputService.getInputHistory({
-				workspace: $workspaceStore!,
+				workspace: $operatingWorkspace!,
 				runnableId,
 				runnableType,
 				page,
@@ -109,7 +111,7 @@
 		if (!id) return
 		const payloadData = await InputService.getArgsFromHistoryOrSavedInput({
 			jobOrInputId: id,
-			workspace: $workspaceStore!,
+			workspace: $operatingWorkspace!,
 			input,
 			allowLarge
 		})
@@ -122,7 +124,11 @@
 	}
 
 	$effect(() => {
-		$workspaceStore && runnableId && runnableType && infiniteList && untrack(() => initLoadInputs())
+		$operatingWorkspace &&
+			runnableId &&
+			runnableType &&
+			infiniteList &&
+			untrack(() => initLoadInputs())
 	})
 </script>
 

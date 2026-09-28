@@ -8,7 +8,6 @@
 	// need to hand it a `fileKey`. CSV separator/header are local state so
 	// the user can re-preview the same file with different parsing flags.
 	import { FileX2, Loader2 } from 'lucide-svelte'
-	import { workspaceStore } from '$lib/stores'
 	import {
 		HelpersService,
 		type CancelablePromise,
@@ -20,6 +19,9 @@
 	import { displayDate, displaySize, emptyString } from '$lib/utils'
 	import { twMerge } from 'tailwind-merge'
 	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		fileKey: string | undefined
@@ -115,7 +117,7 @@
 	// existence after an upstream run completes — moving from the
 	// "not yet materialized" empty state to the actual preview without
 	// requiring the user to re-click the asset.
-	let ws = $derived(workspace ?? $workspaceStore)
+	let ws = $derived(workspace ?? $operatingWorkspace)
 
 	$effect(() => {
 		const key = fileKey

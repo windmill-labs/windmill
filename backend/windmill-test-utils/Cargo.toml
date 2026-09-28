@@ -19,6 +19,7 @@ agent_worker_server = ["dep:windmill-api-agent-workers"]
 run_inline = ["windmill-api/run_inline"]
 duckdb = ["windmill-worker/duckdb"]
 postgres_trigger = ["windmill-api/postgres_trigger"]
+http_trigger = ["windmill-api/http_trigger"]
 
 [dependencies]
 windmill-api = { workspace = true, default-features = false }

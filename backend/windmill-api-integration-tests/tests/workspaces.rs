@@ -319,6 +319,14 @@ async fn test_workspace_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
         .unwrap();
     assert_eq!(resp.status(), 200);
 
+    let resp = authed(client().post(format!("{base}/edit_webhook")))
+        .json(&json!({"webhook": "http://127.0.0.1/hook"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400);
+    assert!(resp.text().await?.contains("ALLOW_PRIVATE_WEBHOOK_URLS"));
+
     // --- edit_auto_invite (EE-gated) ---
     let resp = authed(client().post(format!("{base}/edit_auto_invite")))
         .json(&json!({"operator": false, "invite_all": false, "auto_add": false}))
@@ -1207,6 +1215,52 @@ async fn test_edit_auto_invite_preserves_instance_groups(db: Pool<Postgres>) -> 
             "{body}"
         );
     }
+
+    Ok(())
+}
+
+/// Admin and operator are one role stored as two flags: granting one must clear the other, and a
+/// request asking for both is refused, on update and on add.
+#[sqlx::test(migrations = "../migrations", fixtures("base", "permissions_test"))]
+async fn test_admin_and_operator_are_exclusive(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let api = format!("http://localhost:{port}/api/w/test-workspace");
+    let flags = async || -> anyhow::Result<(bool, bool)> {
+        Ok(sqlx::query_as(
+            "SELECT is_admin, operator FROM usr WHERE workspace_id = 'test-workspace' AND username = 'operator'",
+        )
+        .fetch_one(&db)
+        .await?)
+    };
+
+    let resp = authed(client().post(format!("{api}/users/update/operator")))
+        .json(&json!({"is_admin": true}))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    assert_eq!(flags().await?, (true, false));
+
+    let resp = authed(client().post(format!("{api}/users/update/operator")))
+        .json(&json!({"operator": true}))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    assert_eq!(flags().await?, (false, true));
+
+    let resp = authed(client().post(format!("{api}/users/update/operator")))
+        .json(&json!({"is_admin": true, "operator": true}))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 400, "{}", resp.text().await?);
+    assert_eq!(flags().await?, (false, true));
+
+    let resp = authed(client().post(format!("{api}/workspaces/add_user")))
+        .json(&json!({"email": "both@windmill.dev", "is_admin": true, "operator": true}))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 400, "{}", resp.text().await?);
 
     Ok(())
 }

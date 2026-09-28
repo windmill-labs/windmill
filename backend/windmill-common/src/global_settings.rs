@@ -158,6 +158,7 @@ pub const CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING: &str = "critical_alerts_on_db_
 pub const CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING: &str = "critical_alerts_on_token_expiry";
 pub const CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART_SETTING: &str =
     "critical_alert_mute_zombie_job_restart";
+pub const CRITICAL_ALERT_MUTE_STRANDED_JOBS_SETTING: &str = "critical_alert_mute_stranded_jobs";
 pub const DEV_INSTANCE_SETTING: &str = "dev_instance";
 pub const JWT_SECRET_SETTING: &str = "jwt_secret";
 pub const EMAIL_DOMAIN_SETTING: &str = "email_domain";
@@ -281,6 +282,51 @@ pub fn validate_instance_banner(value: &serde_json::Value) -> Result<(), String>
     Ok(())
 }
 
+/// Instance-wide accent color (`#rrggbb`) that recolors the UI's accent tokens and
+/// tints the sidebar, so each environment of a deployment is recognizable at a glance.
+/// Readable by any authenticated user, like [`INSTANCE_BANNER_SETTING`].
+pub const ACCENT_COLOR_SETTING: &str = "accent_color";
+
+/// Validate an [`ACCENT_COLOR_SETTING`] value.
+///
+/// Only `#rrggbb` is accepted: the value is interpolated into a stylesheet every user
+/// loads, so anything looser is CSS injection into every session of the instance.
+pub fn validate_accent_color(value: &serde_json::Value) -> Result<(), String> {
+    let s = value
+        .as_str()
+        .ok_or_else(|| "must be a string".to_string())?;
+    let hex = s.strip_prefix('#').unwrap_or("");
+    if hex.len() != 6 || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err("must be a hex color of the form #rrggbb".to_string());
+    }
+    Ok(())
+}
+
+/// The settings every signed-in browser reads on each full page load.
+#[derive(serde::Serialize, Clone, Debug, Default, PartialEq)]
+pub struct InstanceUi {
+    pub instance_banner: Option<serde_json::Value>,
+    pub accent_color: Option<serde_json::Value>,
+}
+
+pub async fn get_instance_ui(db: &Pool<Postgres>) -> error::Result<InstanceUi> {
+    let rows = sqlx::query!(
+        "SELECT name, value FROM global_settings WHERE name = ANY($1)",
+        &[INSTANCE_BANNER_SETTING, ACCENT_COLOR_SETTING] as &[&str]
+    )
+    .fetch_all(db)
+    .await?;
+    let mut ui = InstanceUi::default();
+    for row in rows {
+        match row.name.as_str() {
+            INSTANCE_BANNER_SETTING => ui.instance_banner = Some(row.value),
+            ACCENT_COLOR_SETTING => ui.accent_color = Some(row.value),
+            _ => {}
+        }
+    }
+    Ok(ui)
+}
+
 /// Validate a [`GITHUB_APP_WEBHOOK_BASE_URL_SETTING`] value.
 ///
 /// The receiver path is appended to it verbatim, so anything that doesn't
@@ -353,6 +399,10 @@ pub const CONCURRENCY_KEY_MAX_QUEUED_SETTING: &str = "concurrency_key_max_queued
 // total, across every key and script. Applies even to premium workspaces. `0`
 // disables the cap. See `windmill-queue/src/jobs.rs`, `check_workspace_queue_cap`.
 pub const WORKSPACE_MAX_QUEUED_JOBS_SETTING: &str = "workspace_max_queued_jobs";
+
+// Days after which a pending top-level job whose tag no worker has served in that time is
+// canceled. Unset or `0` only alerts. Read by the server monitor on each pass.
+pub const CANCEL_STRANDED_JOBS_AFTER_DAYS_SETTING: &str = "cancel_stranded_jobs_after_days";
 
 /// Global settings an agent worker (a remote worker connected over HTTP instead
 /// of to the database) must NEVER read through
@@ -936,6 +986,26 @@ mod tests {
                 !err.contains(SECRET),
                 "'{bad}' leaked its credential into: {err}"
             );
+        }
+    }
+
+    #[test]
+    fn accent_color_accepts_only_hex_rgb() {
+        for ok in ["#1f9d55", "#ABCDEF"] {
+            assert!(
+                validate_accent_color(&serde_json::json!(ok)).is_ok(),
+                "{ok}"
+            );
+        }
+        for bad in [
+            serde_json::json!("1f9d55"),
+            serde_json::json!("#fff"),
+            serde_json::json!("red"),
+            serde_json::json!("#000000;} body{display:none"),
+            serde_json::json!("#12345g"),
+            serde_json::json!(123),
+        ] {
+            assert!(validate_accent_color(&bad).is_err(), "{bad}");
         }
     }
 

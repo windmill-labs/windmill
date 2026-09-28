@@ -1,13 +1,15 @@
 <script lang="ts">
 	import { NativeTriggerService } from '$lib/gen/services.gen'
 	import type { NextCloudEventType } from '$lib/gen/types.gen'
-	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/utils'
 	import { Button } from '$lib/components/common'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import { getNextcloudSchema } from '../../utils'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		serviceConfig: Record<string, any>
@@ -38,7 +40,7 @@
 	let eventsError = $state<string | undefined>(undefined)
 
 	async function loadAvailableEvents() {
-		if (!$workspaceStore) {
+		if (!$operatingWorkspace) {
 			availableEvents = []
 			return
 		}
@@ -47,7 +49,7 @@
 		eventsError = undefined
 		try {
 			const events = await NativeTriggerService.listNextCloudEvents({
-				workspace: $workspaceStore!
+				workspace: $operatingWorkspace!
 			})
 			availableEvents = events
 			serviceSchema = getNextcloudSchema(events)
@@ -84,7 +86,7 @@
 	let externalDataApplied = $state(false)
 
 	$effect(() => {
-		if ($workspaceStore) {
+		if ($operatingWorkspace) {
 			loadAvailableEvents()
 		}
 	})

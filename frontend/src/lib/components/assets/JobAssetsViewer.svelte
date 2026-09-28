@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { JobService, ResourceService, ScriptService, type Job } from '$lib/gen'
 	import { inferAssets } from '$lib/infer'
-	import { workspaceStore } from '$lib/stores'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
 	import { pruneNullishArray, uniqueBy } from '$lib/utils'
 	import { Skeleton } from '../common'
@@ -15,6 +14,9 @@
 		parseInputArgsAssets,
 		type AssetWithAccessType
 	} from './lib'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	type Props = {
 		job: Job
@@ -56,9 +58,9 @@
 	async function fetchRuntimeAssets(
 		job: Job
 	): Promise<{ assets: AssetWithAccessType[]; truncated: boolean }> {
-		if (!$workspaceStore) return { assets: [], truncated: false }
+		if (!$operatingWorkspace) return { assets: [], truncated: false }
 		return await JobService.listRunAssets({
-			workspace: $workspaceStore,
+			workspace: $operatingWorkspace,
 			id: job.id
 		}).catch((err) => {
 			console.error("Couldn't fetch runtime assets of job", job.id, err)
@@ -83,9 +85,9 @@
 
 		if (job.job_kind === 'script') {
 			let code = job.raw_code
-			if (!code && job.script_hash && $workspaceStore) {
+			if (!code && job.script_hash && $operatingWorkspace) {
 				const script = await ScriptService.getScriptByHash({
-					workspace: $workspaceStore,
+					workspace: $operatingWorkspace,
 					hash: job.script_hash
 				})
 				code = script.content
@@ -100,7 +102,7 @@
 	let assets = usePromise(() => extractAssets(job), { loadInit: false })
 	$effect(() => {
 		job.id
-		$workspaceStore
+		$operatingWorkspace
 		assets.refresh()
 	})
 
@@ -111,7 +113,7 @@
 				let truncatedPath = asset.path.split('?table=')[0]
 				if (truncatedPath in resourceDataCache) continue
 				resourceDataCache[truncatedPath] = undefined // avoid fetching multiple times because of async
-				ResourceService.getResource({ path: truncatedPath, workspace: $workspaceStore! })
+				ResourceService.getResource({ path: truncatedPath, workspace: $operatingWorkspace! })
 					.then((r) => (resourceDataCache[truncatedPath] = r.resource_type))
 					.catch((err) => console.error("Couldn't fetch resource", truncatedPath, err))
 			}

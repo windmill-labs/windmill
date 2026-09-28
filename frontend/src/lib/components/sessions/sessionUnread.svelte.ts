@@ -1,4 +1,4 @@
-import type { SessionRuntime } from './sessionRuntime.svelte'
+import type { SessionChatPeek, SessionRuntime } from './sessionRuntime.svelte'
 import { sessionState, putSession } from './sessionState.svelte'
 
 // Per-session "last seen" watermark — the displayMessages count the last time
@@ -20,11 +20,16 @@ export function markSessionSeen(sessionId: string, count: number) {
 	void putSession(s)
 }
 
-// Number of unread messages for a session. Undefined / unloaded runtime
-// returns 0 — until messages are hydrated we don't know what's new.
-export function unreadCountFor(sessionId: string, runtime: SessionRuntime | undefined): number {
-	if (!runtime) return 0
+// Number of unread messages for a session, from its runtime when it has one, else
+// from the sidebar's read of its stored chat. Neither loaded returns 0 — until
+// messages are read we don't know what's new.
+export function unreadCountFor(
+	sessionId: string,
+	runtime: SessionRuntime | undefined,
+	peek: SessionChatPeek | undefined
+): number {
+	const total = runtime ? runtime.manager.displayMessages.length : peek?.messageCount
+	if (total === undefined) return 0
 	const seen = sessionState.sessions.find((x) => x.id === sessionId)?.lastSeenCount ?? 0
-	const total = runtime.manager.displayMessages.length
 	return Math.max(0, total - seen)
 }

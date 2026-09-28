@@ -12,8 +12,9 @@
 
 #[cfg(all(feature = "private", feature = "enterprise"))]
 pub(crate) use crate::datatable_permissions_ee::{
-    ensure_governs_datatable, ensure_reaches_datatable, get_datatable_permissions,
-    list_usable_datatable_roles, set_datatable_permissions,
+    ensure_governs_datatable, ensure_reaches_datatable, ensure_reaches_governing_datatable,
+    get_datatable_permissions, list_usable_datatable_roles, set_datatable_permissions,
+    usable_datatable_roles,
 };
 
 #[cfg(not(all(feature = "private", feature = "enterprise")))]
@@ -56,6 +57,20 @@ mod ce {
         }
     }
 
+    pub(crate) async fn ensure_reaches_governing_datatable(
+        _db: &DB,
+        _w_id: &str,
+        _datatable_name: &str,
+        governing: &GoverningDatatable,
+        _authed: &ApiAuthed,
+    ) -> Result<()> {
+        if governing.datatable.permissions.is_none() {
+            Ok(())
+        } else {
+            Err(unavailable())
+        }
+    }
+
     // The routes stay registered so the API has one shape; each answers after authentication,
     // before anything is read.
 
@@ -69,5 +84,29 @@ mod ce {
 
     pub(crate) async fn list_usable_datatable_roles(_authed: ApiAuthed) -> Result<String> {
         Err(unavailable())
+    }
+
+    pub(crate) struct UsableDatatableRoles {
+        pub(crate) permissioned: bool,
+        pub(crate) roles: Vec<String>,
+        pub(crate) default_role: String,
+    }
+
+    /// A data table not under roles is used as `admin`, as before roles existed. One under roles
+    /// is refused: no role of it can be connected as.
+    pub(crate) async fn usable_datatable_roles(
+        _db: &DB,
+        _authed: &ApiAuthed,
+        _w_id: &str,
+        governing: &GoverningDatatable,
+    ) -> Result<UsableDatatableRoles> {
+        if governing.datatable.permissions.is_some() {
+            return Err(unavailable());
+        }
+        Ok(UsableDatatableRoles {
+            permissioned: false,
+            roles: vec![],
+            default_role: windmill_common::datatable_roles::ADMIN_DATATABLE_ROLE.to_string(),
+        })
     }
 }

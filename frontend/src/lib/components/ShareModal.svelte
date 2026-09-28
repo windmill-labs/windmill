@@ -10,7 +10,7 @@
 	} from '$lib/gen'
 	import type { Folder } from '$lib/gen/types.gen'
 	import { createEventDispatcher } from 'svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
+
 	import { Alert, Button, Drawer } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -22,11 +22,23 @@
 	import Toggle from './Toggle.svelte'
 	import { Trash } from 'lucide-svelte'
 	import { DEMO_RESTRICTION_HINT, isDemoWorkspaceRestricted } from '$lib/cloud'
+	import { scheduleLock, triggerLock } from '$lib/operatorWriteRights'
+	import {
+		useOperatingWorkspace,
+		useOperatingUser
+	} from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
 
 	const dispatch = createEventDispatcher()
 
 	let restricted = $derived(
-		isDemoWorkspaceRestricted($workspaceStore, $userStore?.is_admin, $userStore?.is_super_admin)
+		isDemoWorkspaceRestricted(
+			$operatingWorkspace,
+			operatingUser.current?.is_admin,
+			operatingUser.current?.is_super_admin
+		)
 	)
 
 	type Kind =
@@ -50,7 +62,18 @@
 		| 'amqp_trigger'
 		| 'email_trigger'
 		| 'volume'
-	let kind: Kind
+	// $state so the write lock below tracks whichever object the drawer was last opened on. The
+	// cast keeps TS from narrowing it to the initial value, which openDrawer always replaces.
+	let kind: Kind = $state('script' as Kind)
+
+	// Sharing a schedule or trigger is a write operators can lose. Gated here rather than at the
+	// dozen menu entries opening this drawer, so a new entry point is covered; reading stays open.
+	// Matched on the suffix, unlike the server (the real boundary, which lists kinds), so a
+	// trigger kind added later greys out here without a second edit.
+	let writeLock = $derived(
+		kind === 'schedule' ? $scheduleLock : kind.endsWith('_trigger') ? $triggerLock : undefined
+	)
+	let sharingDisabled = $derived(restricted || !!writeLock)
 
 	let path: string = $state('')
 
@@ -81,7 +104,7 @@
 			defaultPermsLabel = `Folder f/${folderName} permissions`
 			try {
 				const folder: Folder = await FolderService.getFolder({
-					workspace: $workspaceStore!,
+					workspace: $operatingWorkspace!,
 					name: folderName
 				})
 				if (path !== currentPath) return
@@ -134,7 +157,7 @@
 		const currentPath = path
 		try {
 			const resource = await ResourceService.getResource({
-				workspace: $workspaceStore!,
+				workspace: $operatingWorkspace!,
 				path: currentPath
 			})
 			if (path !== currentPath) return
@@ -164,27 +187,27 @@
 	}
 
 	async function loadOwner() {
-		own = isOwner(path, $userStore!, $workspaceStore!)
+		own = isOwner(path, operatingUser.current!, $operatingWorkspace!)
 	}
 
 	async function loadAcls() {
 		acls = Object.entries(
-			await GranularAclService.getGranularAcls({ workspace: $workspaceStore!, path, kind })
+			await GranularAclService.getGranularAcls({ workspace: $operatingWorkspace!, path, kind })
 		)
 	}
 
 	async function loadGroups(): Promise<void> {
-		groups = await GroupService.listGroupNames({ workspace: $workspaceStore! })
+		groups = await GroupService.listGroupNames({ workspace: $operatingWorkspace! })
 	}
 
 	async function loadUsernames(): Promise<void> {
-		usernames = await UserService.listUsernames({ workspace: $workspaceStore! })
+		usernames = await UserService.listUsernames({ workspace: $operatingWorkspace! })
 	}
 
 	async function deleteAcl(owner: string) {
 		try {
 			await GranularAclService.removeGranularAcls({
-				workspace: $workspaceStore!,
+				workspace: $operatingWorkspace!,
 				path,
 				kind,
 				requestBody: { owner }
@@ -193,7 +216,7 @@
 				for (const varPath of linkedVarPaths) {
 					try {
 						await GranularAclService.removeGranularAcls({
-							workspace: $workspaceStore!,
+							workspace: $operatingWorkspace!,
 							path: varPath,
 							kind: 'variable',
 							requestBody: { owner }
@@ -212,7 +235,7 @@
 
 	async function addAcl(owner: string, write: boolean) {
 		await GranularAclService.addGranularAcls({
-			workspace: $workspaceStore!,
+			workspace: $operatingWorkspace!,
 			path,
 			kind,
 			requestBody: { owner, write }
@@ -221,7 +244,7 @@
 			for (const varPath of linkedVarPaths) {
 				try {
 					await GranularAclService.addGranularAcls({
-						workspace: $workspaceStore!,
+						workspace: $operatingWorkspace!,
 						path: varPath,
 						kind: 'variable',
 						requestBody: { owner, write }
@@ -251,9 +274,7 @@
 				</div>
 			{/if}
 			<div class="flex flex-col gap-2">
-				<span class="text-sm font-semibold text-emphasis"
-					>Extra members ({acls?.length ?? 0})</span
-				>
+				<span class="text-sm font-semibold text-emphasis">Extra members ({acls?.length ?? 0})</span>
 				{#if linkedVarPaths.length > 0}
 					<div class="flex flex-col gap-1.5 p-3 border rounded bg-surface-secondary text-xs">
 						<Toggle
@@ -274,8 +295,10 @@
 					>
 				{/if}
 				<div>
-					{#if own && restricted}
-						<Alert type="info" title="Sharing disabled">{DEMO_RESTRICTION_HINT}</Alert>
+					{#if own && sharingDisabled}
+						<Alert type="info" title="Sharing disabled">
+							{writeLock ?? DEMO_RESTRICTION_HINT}
+						</Alert>
 					{:else if own}
 						<div class="flex flex-row flex-wrap gap-2 items-center">
 							<div>
@@ -318,7 +341,7 @@
 										<tr>
 											<td>{owner}</td>
 											<td
-												>{#if own && !restricted}
+												>{#if own && !sharingDisabled}
 													<div>
 														<ToggleButtonGroup
 															selected={write ? 'writer' : 'viewer'}
@@ -341,7 +364,7 @@
 												{:else}{write ? 'Writer' : 'Viewer'}{/if}</td
 											>
 											<td>
-												{#if own}
+												{#if own && !writeLock}
 													<Button
 														variant="default"
 														destructive

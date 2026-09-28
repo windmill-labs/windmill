@@ -20,7 +20,6 @@
 	import type uFuzzy from '@leeoniya/ufuzzy'
 	import {
 		ArrowDownUp,
-		CheckSquare,
 		ChevronsDownUp,
 		ChevronsUpDown,
 		Code2,
@@ -42,7 +41,6 @@
 	import NoItemFound from './NoItemFound.svelte'
 	import WorkspaceEmptyState from './WorkspaceEmptyState.svelte'
 	import HubProjectPickerModal from './HubProjectPickerModal.svelte'
-	import ImportProjectModal from './ImportProjectModal.svelte'
 	import type { HubProjectPick } from '$lib/hubProject'
 	import ListFilters from './ListFilters.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -1010,6 +1008,11 @@
 	// the create menu's Import section open the same dialog, and mounting one per entry point
 	// would put two of them on the page at once while the workspace is still empty.
 	let hubPick = $state<HubProjectPick | undefined>(undefined)
+	// Sticky, so the import modal mounts on the first pick and then stays for its close animation.
+	let hubImportRequested = $state(false)
+	$effect(() => {
+		if (hubPick) hubImportRequested = true
+	})
 	let hubPickerOpen = $state(false)
 
 	/**
@@ -1805,20 +1808,10 @@
 		{/if}
 
 		{#if !loading && !contentActive && !workspaceEmpty}
-			<!-- List controls, between the kind toggle and the searchbar: select mode, tree
-			     view, expand/collapse (tree only), sort. Nothing to select, group or order on
-			     an empty workspace, so the whole row goes. -->
+			<!-- List controls, between the kind toggle and the searchbar: tree view,
+			     expand/collapse (tree only), sort. Nothing to group or order on an empty
+			     workspace, so the whole row goes. -->
 			<div class="flex items-center gap-2">
-				{#if homeSelection.available && !homeSelection.active}
-					<Button
-						startIcon={{ icon: CheckSquare }}
-						iconOnly
-						unifiedSize="xs"
-						variant="default"
-						title="Select items — move, archive, delete or discard several at once"
-						on:click={() => homeSelection.enter()}
-					/>
-				{/if}
 				<Toggle size="xs" bind:checked={treeView} options={{ right: 'Tree view' }} />
 				{#if treeView}
 					<Button
@@ -2088,7 +2081,13 @@
 		hubPick = project
 	}}
 />
-<ImportProjectModal pick={hubPick} onClose={() => (hubPick = undefined)} {onImported} />
+<!-- Dynamic, on the first pick: the import flow statically reaches ~400 modules (resource
+     setup, SQL editor). -->
+{#if hubImportRequested}
+	{#await import('./ImportProjectModal.svelte') then ImportProjectModal}
+		<ImportProjectModal.default pick={hubPick} onClose={() => (hubPick = undefined)} {onImported} />
+	{/await}
+{/if}
 
 <style>
 	/* Rows arriving after an import, one after another. The animation is declared on the

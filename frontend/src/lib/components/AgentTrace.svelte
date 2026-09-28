@@ -2,14 +2,17 @@
 	import { ExternalLink, Globe } from 'lucide-svelte'
 	import { JobService, type Job } from '$lib/gen'
 	import { base } from '$lib/base'
-	import { workspaceStore } from '$lib/stores'
 	import { msToReadableTimeShort } from '$lib/utils'
 	import ChatCollapsibleCard from './copilot/chat/ChatCollapsibleCard.svelte'
 	import ToolContentDisplay from './copilot/chat/ToolContentDisplay.svelte'
 	import WebSearchSourcesDisplay from './copilot/chat/WebSearchSourcesDisplay.svelte'
+	import { webSearchResultOf, type WebSearchResult } from './copilot/chat/shared'
 	import GfmMarkdown from './GfmMarkdown.svelte'
 	import type { AgentTraceEntry } from './agentTrace'
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		entries: AgentTraceEntry[]
@@ -19,11 +22,14 @@
 	let { entries, workspaceId }: Props = $props()
 
 	let expanded = new SvelteSet<number>()
+	// A search opens on its sources, so for it the reader's toggle records a close.
+	let collapsedSearches = new SvelteSet<number>()
 	// Row state is keyed by position, which means nothing once the viewer is handed
 	// another run: row 0 would stay open showing the previous run's job.
 	$effect(() => {
 		entries
 		expanded.clear()
+		collapsedSearches.clear()
 		jobs.clear()
 	})
 	// A tool's own job holds what the envelope does not: its logs, how long it
@@ -40,7 +46,7 @@
 		try {
 			jobs.set(
 				jobId,
-				await JobService.getJob({ id: jobId, workspace: workspaceId ?? $workspaceStore! })
+				await JobService.getJob({ id: jobId, workspace: workspaceId ?? $operatingWorkspace! })
 			)
 		} catch {
 			// A tool job can be gone (retention) or unreadable. The row still has its
@@ -65,12 +71,18 @@
 		return typeof job === 'object' ? job : undefined
 	}
 
-	function toolLabel(entry: Extract<AgentTraceEntry, { kind: 'tool' }>): string {
-		const job = jobOf(entry.jobId)
-		const duration = job?.['duration_ms']
-		return duration === undefined
-			? entry.name
-			: `${entry.name} · ${msToReadableTimeShort(duration)}`
+	function toolLabel(
+		entry: Extract<AgentTraceEntry, { kind: 'tool' }>,
+		search: WebSearchResult | undefined
+	): string {
+		const duration = jobOf(entry.jobId)?.['duration_ms']
+		return [
+			entry.name,
+			search?.query !== undefined ? `"${search.query}"` : undefined,
+			duration !== undefined ? msToReadableTimeShort(duration) : undefined
+		]
+			.filter((part) => part !== undefined)
+			.join(' · ')
 	}
 </script>
 
@@ -79,25 +91,29 @@
 		{#if entry.kind === 'assistant'}
 			<div class="min-w-0">
 				<GfmMarkdown md={entry.content} noPadding />
-				{#if entry.sources}
-					<div class="mt-2">
-						<WebSearchSourcesDisplay sources={entry.sources} />
-					</div>
-				{/if}
 			</div>
 		{:else if entry.kind === 'search'}
-			<!-- Nothing to reveal: the worker records only that a search ran, and its
-			     citations render under the assistant turn that follows. -->
+			<!-- Open on its sources, as the session chat shows a search. A tool that returns the
+			     same shape stays closed like every other tool row: the agent may call it twenty
+			     times, and the reader came for the run, not for its bibliography. -->
 			<ChatCollapsibleCard
-				label="Web search"
-				expanded={false}
-				toggleable={false}
-				onToggle={() => {}}
-			/>
+				label="Searched the web"
+				expanded={Boolean(entry.sources) && !collapsedSearches.has(index)}
+				toggleable={Boolean(entry.sources)}
+				onToggle={() => {
+					if (!collapsedSearches.delete(index)) collapsedSearches.add(index)
+				}}
+			>
+				{#if entry.sources}
+					<WebSearchSourcesDisplay sources={entry.sources} />
+				{/if}
+			</ChatCollapsibleCard>
 		{:else}
 			{@const job = jobOf(entry.jobId)}
+			{@const failed = job?.type === 'CompletedJob' && !job.success}
+			{@const search = webSearchResultOf(entry.result)}
 			<ChatCollapsibleCard
-				label={toolLabel(entry)}
+				label={toolLabel(entry, search)}
 				expanded={expanded.has(index)}
 				onToggle={() => toggle(index, entry)}
 				contentClass="space-y-3"
@@ -108,11 +124,15 @@
 				{#if job?.logs}
 					<ToolContentDisplay title="Logs" content={job.logs} />
 				{/if}
-				<ToolContentDisplay
-					title="Result"
-					content={entry.result}
-					error={job?.type === 'CompletedJob' && !job.success ? entry.result : undefined}
-				/>
+				{#if search && !failed}
+					<WebSearchSourcesDisplay sources={search.sources} favicons={false} />
+				{:else}
+					<ToolContentDisplay
+						title="Result"
+						content={entry.result}
+						error={failed ? entry.result : undefined}
+					/>
+				{/if}
 				{#if entry.resourcePath}
 					<div class="text-2xs text-hint flex items-center gap-1">
 						<Globe size={11} />
@@ -121,7 +141,7 @@
 				{:else if entry.jobId}
 					<a
 						class="text-2xs text-accent inline-flex items-center gap-1 w-fit hover:underline"
-						href="{base}/run/{entry.jobId}?workspace={workspaceId ?? $workspaceStore}"
+						href="{base}/run/{entry.jobId}?workspace={workspaceId ?? $operatingWorkspace}"
 						target="_blank"
 						rel="noreferrer"
 					>

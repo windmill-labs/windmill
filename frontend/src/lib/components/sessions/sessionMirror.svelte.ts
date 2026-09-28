@@ -1169,7 +1169,6 @@ function unpackBackup(
 	const active = chats.find((c) => c.id === head.chatId)
 	const session: Session = {
 		...(head as unknown as Session),
-		name: '',
 		// Everything in the backup has been read here: no unread badge, and the last
 		// activity is the backup's own time.
 		lastSeenCount: active?.displayMessages.length ?? 0,

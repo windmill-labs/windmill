@@ -47,7 +47,9 @@
 	// Advisory: the value saves either way, so this only points out an entry
 	// that could never match rather than deciding what a browser may send.
 	let warning = $derived(
-		restricted ? origins.map(allowedOriginWarning).find((message) => message !== undefined) : undefined
+		restricted
+			? origins.map(allowedOriginWarning).find((message) => message !== undefined)
+			: undefined
 	)
 
 	// While the toggle is on, whatever is typed is what gets saved. A rejected

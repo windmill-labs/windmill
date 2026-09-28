@@ -10,9 +10,7 @@
 	import {
 		COPILOT_SESSION_MODEL_SETTING_NAME,
 		COPILOT_SESSION_PROVIDER_SETTING_NAME,
-		COPILOT_SESSION_REASONING_SETTING_NAME,
-		userStore,
-		workspaceStore
+		COPILOT_SESSION_REASONING_SETTING_NAME
 	} from '$lib/stores'
 	import { storeLocalSetting, type Item } from '$lib/utils'
 	import {
@@ -25,7 +23,6 @@
 	import { WorkspaceService, type AIProvider, type AIProviderModel } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { base } from '$lib/base'
-	import AIPromptsModal from '$lib/components/settings/AIPromptsModal.svelte'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import { thinkingPreferences } from './thinkingPreferences.svelte'
 	import {
@@ -33,6 +30,14 @@
 		REASONING_OFF,
 		type ReasoningProviderModel
 	} from '../reasoningRegistry'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	let {
 		/** Whether this dropdown carries the custom-prompt entries. Off where the surface
@@ -89,6 +94,11 @@
 	// ---- prompt parameters (User / Workspace custom prompts) ----
 	let mode = $derived(aiChatManager.mode)
 	let modalOpen = $state(false)
+	// Sticky, so the prompts modal mounts on first open and then stays for its close animation.
+	let promptsModalRequested = $state(false)
+	$effect(() => {
+		if (modalOpen) promptsModalRequested = true
+	})
 	let modalScope = $state<'user' | 'workspace'>('user')
 	let customPrompts = $state<Record<string, string>>({})
 	let initialPrompt = $state('')
@@ -97,7 +107,7 @@
 	// operations must key off this snapshot, not the reactive `mode`.
 	let activeMode = $state(aiChatManager.mode)
 
-	let isAdmin = $derived(Boolean($userStore?.is_admin || $userStore?.is_super_admin))
+	let isAdmin = $derived(Boolean(actingUser?.is_admin || actingUser?.is_super_admin))
 	// True when the workspace has no AI providers of its own (it uses instance defaults).
 	// In that case the backend never makes workspace custom_prompts effective, so a saved
 	// workspace prompt would be dead config — mirror the settings page and surface it read-only.
@@ -130,7 +140,7 @@
 		if (!isAdmin) {
 			initialPrompt = $copilotInfo.customPrompts?.[activeMode] ?? ''
 		} else {
-			const workspace = $workspaceStore
+			const workspace = $operatingWorkspace
 			try {
 				const settings = workspace ? await WorkspaceService.getSettings({ workspace }) : undefined
 				const providers = settings?.ai_config?.providers ?? {}
@@ -165,7 +175,7 @@
 			return
 		}
 
-		const workspace = $workspaceStore
+		const workspace = $operatingWorkspace
 		if (!workspace) return
 		try {
 			// Saving prompts requires a full ai_config round-trip; fetch the current
@@ -279,20 +289,24 @@
 
 <ChatModelSettings {config} />
 
-{#if promptSettings}
-	<AIPromptsModal
-		bind:open={modalOpen}
-		bind:customPrompts
-		scope={modalScope}
-		modes={[activeMode]}
-		readOnly={modalReadOnly}
-		{readOnlyReason}
-		onSave={modalReadOnly ? undefined : save}
-		onReset={reset}
-		{hasChanges}
-		title={modalScope === 'user' ? 'User AI prompt' : 'Workspace AI prompt'}
-		target="body"
-		fixedHeight="sm"
-		settingsHref={isAdmin ? AI_SETTINGS_HREF : undefined}
-	/>
+{#if promptSettings && promptsModalRequested}
+	<!-- Dynamic, on first open: statically, the prompts modal pulls the whole chat manager into
+	     the home page. -->
+	{#await import('$lib/components/settings/AIPromptsModal.svelte') then AIPromptsModal}
+		<AIPromptsModal.default
+			bind:open={modalOpen}
+			bind:customPrompts
+			scope={modalScope}
+			modes={[activeMode]}
+			readOnly={modalReadOnly}
+			{readOnlyReason}
+			onSave={modalReadOnly ? undefined : save}
+			onReset={reset}
+			{hasChanges}
+			title={modalScope === 'user' ? 'User AI prompt' : 'Workspace AI prompt'}
+			target="body"
+			fixedHeight="sm"
+			settingsHref={isAdmin ? AI_SETTINGS_HREF : undefined}
+		/>
+	{/await}
 {/if}

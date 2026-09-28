@@ -8,9 +8,9 @@
 	import { sendUserToast } from '$lib/utils'
 	import type { Schema } from '$lib/common'
 	import { FlowService, ScriptService, type Flow, type Script } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import TestTriggerConnection from '../TestTriggerConnection.svelte'
 	import TestingBadge from '$lib/components/triggers/testingBadge.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	interface Props {
 		url: string | undefined
@@ -31,6 +31,8 @@
 		isValid = $bindable(false),
 		showTestingBadge = false
 	}: Props = $props()
+	const operatingWorkspace = useOperatingWorkspace()
+	const wsId = $derived($operatingWorkspace)
 
 	let areRunnableArgsValid: boolean = $state(true)
 
@@ -42,11 +44,11 @@
 				try {
 					let scriptOrFlow: Script | Flow = url.startsWith('$flow:')
 						? await FlowService.getFlowByPath({
-								workspace: $workspaceStore!,
+								workspace: wsId!,
 								path: url.split(':')[1]
 							})
 						: await ScriptService.getScriptByPath({
-								workspace: $workspaceStore!,
+								workspace: wsId!,
 								path: url.split(':')[1]
 							})
 					urlRunnableSchema = scriptOrFlow.schema as Schema

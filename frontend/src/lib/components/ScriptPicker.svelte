@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { ScriptService, FlowService, type Script, AppService } from '$lib/gen'
 
-	import { workspaceStore } from '$lib/stores'
 	import { base } from '$lib/base'
 	import { createEventDispatcher, untrack } from 'svelte'
 
@@ -13,11 +12,16 @@
 	import FlowPathViewer from './flows/content/FlowPathViewer.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import { Code, Code2, ExternalLink, Pen, RefreshCw } from 'lucide-svelte'
+	import { Code, Code2, ExternalLink, Globe2, Pen, RefreshCw } from 'lucide-svelte'
+	import PickHubScript from './flows/pickers/PickHubScript.svelte'
+	import { disableHubStore } from '$lib/stores'
 	import type { SupportedLanguage } from '$lib/common'
 	import FlowIcon from './home/FlowIcon.svelte'
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import { truncate } from '$lib/utils'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		initialPath?: string | undefined
@@ -30,9 +34,11 @@
 		allowEdit?: boolean
 		allowView?: boolean
 		clearable?: boolean
-		/** Workspace to list runnables from. Defaults to the navigation
-		 * `$workspaceStore`; pass the session's acting workspace so a forked
-		 * session lists its own scripts/flows/apps rather than the parent's. */
+		/** Offer picking a script from the Hub; the picked path is `hub/...`. Browses plain
+		 * scripts only, whatever `kinds` is. */
+		allowHub?: boolean
+		/** Workspace to list runnables from. Defaults to the operating workspace (see
+		 * `useOperatingWorkspace`). */
 		workspace?: string
 	}
 
@@ -47,13 +53,20 @@
 		allowEdit = true,
 		allowView = true,
 		clearable = false,
+		allowHub = false,
 		workspace = undefined
 	}: Props = $props()
 
-	let effectiveWorkspace = $derived(workspace ?? $workspaceStore)
-	// Only carry the workspace onto Edit/View routes when an explicit override
-	// was passed, so existing callers' links are unchanged.
-	let wsParam = $derived(workspace ? `?workspace=${encodeURIComponent(workspace)}` : '')
+	let isHubPath = $derived(itemKind == 'script' && !!scriptPath?.startsWith('hub/'))
+	let drawerHub: Drawer | undefined = $state()
+	let filterText = $state('')
+	let hubFilter = $state('')
+
+	let effectiveWorkspace = $derived(workspace ?? $operatingWorkspace)
+	// Edit/View routes open in the workspace listed here, not wherever the tab lands.
+	let wsParam = $derived(
+		effectiveWorkspace ? `?workspace=${encodeURIComponent(effectiveWorkspace)}` : ''
+	)
 
 	let items: { value: string; label: string }[] = $state([])
 	let drawerViewer: Drawer | undefined = $state()
@@ -113,6 +126,21 @@
 	</DrawerContent>
 </Drawer>
 
+{#if allowHub}
+	<Drawer bind:this={drawerHub} size="900px">
+		<DrawerContent title="Pick a Hub script" on:close={drawerHub.closeDrawer}>
+			<PickHubScript
+				bind:filter={hubFilter}
+				on:pick={(e) => {
+					scriptPath = e.detail.path
+					dispatch('select', { path: e.detail.path, itemKind })
+					drawerHub?.closeDrawer()
+				}}
+			/>
+		</DrawerContent>
+	</Drawer>
+{/if}
+
 <div class="flex flex-row items-center gap-1 w-full">
 	{#if options.length > 1}
 		<div>
@@ -143,9 +171,11 @@
 				}
 			}
 			class="grow shrink max-w-full"
-			{items}
+			items={isHubPath ? [{ value: scriptPath!, label: scriptPath! }, ...items] : items}
 			{clearable}
+			bind:filterText
 			placeholder="Pick {itemKind === 'app' ? 'an' : 'a'} {itemKind}"
+			bottomSnippet={allowHub && itemKind == 'script' && !$disableHubStore ? hubHint : undefined}
 		/>
 	{/if}
 
@@ -210,7 +240,7 @@
 			</div>
 		{:else}
 			<div class="flex gap-2">
-				{#if allowEdit}
+				{#if allowEdit && !isHubPath}
 					<Button
 						startIcon={{ icon: Pen }}
 						target="_blank"
@@ -243,3 +273,21 @@
 		{/if}
 	{/if}
 </div>
+
+{#snippet hubHint({ close }: { close: () => void })}
+	<Button
+		variant="subtle"
+		size="xs2"
+		startIcon={{ icon: Globe2 }}
+		wrapperClasses="w-full border-t border-border-light"
+		btnClasses="w-full rounded-none font-normal"
+		onClick={() => {
+			// Read before close(): Select clears its filter text when the list closes.
+			hubFilter = filterText
+			close()
+			drawerHub?.openDrawer()
+		}}
+	>
+		Browse Hub scripts
+	</Button>
+{/snippet}

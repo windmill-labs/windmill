@@ -30,7 +30,6 @@
 	import type { Schema } from '$lib/common'
 	import { deepEqual } from 'fast-equals'
 	import { type InputTransform } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { allTrue, type DynamicInput as DynamicInputTypes } from '$lib/utils'
 	import { getContext, untrack, type Snippet } from 'svelte'
 	import { SvelteSet } from 'svelte/reactivity'
@@ -49,7 +48,7 @@
 	import { AlertTriangle, Plus, X } from 'lucide-svelte'
 	import type { PickableProperties } from '../previousResults'
 	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
-	import { toolEnabledName, type AgentTool } from '../agentToolUtils'
+	import { enabledToolNames, type AgentTool } from '../agentToolUtils'
 	import {
 		AGENT_FIELDS,
 		AGENT_FIELD_BY_KEY,
@@ -69,6 +68,9 @@
 	import AgentToolRoster from './AgentToolRoster.svelte'
 	import AgentMemoryNotes from './AgentMemoryNotes.svelte'
 	import { memoryOptionLabel, memoryPropertyFor } from '../flowInfers'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		schema: Schema | { properties?: Record<string, any> }
@@ -115,6 +117,9 @@
 		/** A linked agent's memory, once its config has loaded: whether it keeps managed memory decides
 		 *  which history inputs the step offers. */
 		linkedMemory?: { memory: unknown } | undefined
+		/** Set when this agent's config lives in a resource, so `tools` arrives with it rather than
+		 *  with the step. */
+		agentLinked?: boolean
 	}
 
 	let {
@@ -145,10 +150,11 @@
 		onAddTool = undefined,
 		onDeleteTool = undefined,
 		toolPickerPortal = undefined,
-		linkedMemory = undefined
+		linkedMemory = undefined,
+		agentLinked = false
 	}: Props = $props()
 
-	let ws = $derived(workspace ?? $workspaceStore)
+	let ws = $derived(workspace ?? $operatingWorkspace)
 
 	let inputCheck: { [id: string]: boolean } = $state({})
 
@@ -214,9 +220,7 @@
 		// By what each tool is named, not the summary alone: an MCP entry is added without one and is
 		// named by its resource path, so keying on `summary` would leave a whole server with no name
 		// to pick. `narrow_roster` matches that path for the same reason.
-		const names = tools
-			.map((tool) => toolEnabledName(tool))
-			.filter((name): name is string => !!name)
+		const names = enabledToolNames(tools)
 		const properties = schemaProperties
 		untrack(() => {
 			const list = properties['enabled_tools']
@@ -226,10 +230,16 @@
 		})
 	})
 
+	// No editor adds tools to an agent used as a tool, so an empty roster is all an inline one will
+	// ever have. Not a linked one: its tools arrive with the resource, so empty here means "not
+	// loaded" as often as "none", and `enabled_tools` is the step's to set either way.
+	let toolsHidden = $derived(isAgentTool && !agentLinked && tools.length === 0)
 	let scopedFields = $derived(
 		AGENT_FIELDS.filter(
 			(spec) =>
-				agentFieldAppliesTo(spec, schemaProperties) && (!filter || filter.includes(spec.key))
+				agentFieldAppliesTo(spec, schemaProperties) &&
+				(!filter || filter.includes(spec.key)) &&
+				!(toolsHidden && spec.group === 'tools')
 		)
 	)
 

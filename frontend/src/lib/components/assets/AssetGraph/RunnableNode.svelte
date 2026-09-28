@@ -28,7 +28,9 @@
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import type { Item } from '$lib/utils'
-	import { workspaceStore } from '$lib/stores'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 	import { sendUserToast, msToReadableTimeShort } from '$lib/utils'
 
 	interface Props {
@@ -129,7 +131,7 @@
 
 	async function runSelf(e: MouseEvent, cascade?: boolean) {
 		e.stopPropagation()
-		if (!$workspaceStore || running || !data.onRunSelf) return
+		if (!$operatingWorkspace || running || !data.onRunSelf) return
 		running = true
 		try {
 			await data.onRunSelf(cascade != undefined ? { cascade } : undefined)

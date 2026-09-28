@@ -29,6 +29,17 @@
 
 	let { children }: Props = $props()
 
+	// A lazy chunk that failed to load: Chromium, Firefox, Safari, then Vite's CSS preload.
+	const chunkLoadErrors = [
+		'Failed to fetch dynamically imported',
+		'error loading dynamically imported module',
+		'Importing a module script failed',
+		'Unable to preload CSS'
+	]
+	// One failed component rejects once per chunk and stylesheet it needed: one toast per
+	// page, keyed on the path since this layout outlives client-side navigation.
+	let chunkLoadToastPath: string | undefined = undefined
+
 	const monacoEditorUnhandledErrors = [
 		'Model not found',
 		'Connection is disposed.',
@@ -107,18 +118,46 @@
 			}
 		}
 
-		try {
-			clearWorkspaceFromStorage()
-		} catch (e) {
-			console.error('Could not clear workspace storage during deleted-workspace recovery', e)
-		}
-		workspaceStore.set(undefined)
+		forgetWorkspace()
 		sendUserToast(
 			`Workspace ${workspaceId} is no longer available, please pick a workspace.`,
 			'warning'
 		)
 		await goto('/user/workspaces')
 		return true
+	}
+
+	// Storage is what a reload reads the workspace back from, so dropping only the store
+	// leaves the same dead id waiting for the next load (see getWorkspaceFromStorage).
+	function forgetWorkspace() {
+		try {
+			clearWorkspaceFromStorage()
+		} catch (e) {
+			console.error('Could not clear workspace storage', e)
+		}
+		workspaceStore.set(undefined)
+	}
+
+	// Throws on any `globalWhoami` rejection, which is the caller's cue to log out. The picker
+	// redirect waits on that answer: navigating first leaves the logout's `rd` pointing at the
+	// picker rather than at where the user was headed.
+	async function loadWithoutWorkspace() {
+		let user = await UserService.globalWhoami()
+		noteSessionEmail(user.email)
+		console.log(`Welcome back ${user.email}`)
+		if (
+			(!page.url.pathname.startsWith('/user/') || page.url.pathname.startsWith('/user/cli')) &&
+			// The MCP consent page carries its own workspace picker, so it is left to
+			// run without one. Nothing sets `$userStore` on this branch, which is why
+			// that page must stay outside the (logged) layout — see its `@(root)` name.
+			!page.url.pathname.startsWith(`${base}/oauth/mcp_authorize`) &&
+			// The hub import wizard asks for the destination itself, and may end in a
+			// workspace that does not exist yet — bouncing it to the picker would
+			// force the very choice it exists to make.
+			!page.url.pathname.startsWith(`${base}/projects/import`)
+		) {
+			goto(`/user/workspaces?rd=${encodeURIComponent(page.url.href.replace(page.url.origin, ''))}`)
+		}
 	}
 
 	async function loadUser() {
@@ -141,29 +180,18 @@
 						return
 					}
 					if (!user) {
-						throw Error('Not logged in')
+						// The persisted workspace outlives the session that chose it: a login link
+						// signs a different account in while storage still names a workspace that
+						// account is not a member of. This lookup answers about the workspace, never
+						// about the session, so throwing here would log the new session out blind.
+						forgetWorkspace()
+						await loadWithoutWorkspace()
+						return
 					}
 					$userStore = user
 				}
 			} else {
-				if (
-					(!page.url.pathname.startsWith('/user/') || page.url.pathname.startsWith('/user/cli')) &&
-					// The MCP consent page carries its own workspace picker, so it is left to
-					// run without one. Nothing sets `$userStore` on this branch, which is why
-					// that page must stay outside the (logged) layout — see its `@(root)` name.
-					!page.url.pathname.startsWith(`${base}/oauth/mcp_authorize`) &&
-					// The hub import wizard asks for the destination itself, and may end in a
-					// workspace that does not exist yet — bouncing it to the picker would
-					// force the very choice it exists to make.
-					!page.url.pathname.startsWith(`${base}/projects/import`)
-				) {
-					goto(
-						`/user/workspaces?rd=${encodeURIComponent(page.url.href.replace(page.url.origin, ''))}`
-					)
-				}
-				let user = await UserService.globalWhoami()
-				noteSessionEmail(user.email)
-				console.log(`Welcome back ${user.email}`)
+				await loadWithoutWorkspace()
 			}
 		} catch (e) {
 			console.error(e)
@@ -183,6 +211,22 @@
 			if (event.reason?.message) {
 				const { message, body, status } = event.reason
 
+				// A chunk gone from the server, typically a tab left open across an upgrade: a
+				// component loaded on demand would otherwise silently never appear.
+				if (chunkLoadErrors.some((m) => message.startsWith(m))) {
+					console.warn(message)
+					// In dev nothing is ever stale: this is a compile error, already on Vite's overlay.
+					if (!import.meta.env.PROD || chunkLoadToastPath === location.pathname) return
+					chunkLoadToastPath = location.pathname
+					sendUserToast(
+						'Part of the page failed to load, Windmill may have been updated',
+						true,
+						[{ label: 'Reload', callback: () => location.reload() }],
+						undefined,
+						15000
+					)
+					return
+				}
 				if (message === 'Missing service editorService') {
 					console.error('Reloading the page to fix a Monaco Editor bug')
 					location.reload()
@@ -191,7 +235,6 @@
 				// Unhandled errors from Monaco Editor don't logout the user
 				if (
 					monacoEditorUnhandledErrors.includes(message) ||
-					message.startsWith('Failed to fetch dynamically imported') ||
 					message.startsWith('Unable to figure out browser width and height') ||
 					message.startsWith('Unable to read file') ||
 					message.startsWith('Could not find source file')

@@ -1,8 +1,10 @@
 <script lang="ts">
 	import { JobService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { forLater, getDbClockNow } from '$lib/forLater'
 	import { displayDate } from '$lib/utils'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	let {
 		jobId,
@@ -15,7 +17,7 @@
 
 	let fetchingQueuePosition = false
 
-	let workspace = $derived(workspaceId ?? $workspaceStore)
+	let workspace = $derived(workspaceId ?? $operatingWorkspace)
 
 	let scheduledFor = $state(undefined) as undefined | number
 

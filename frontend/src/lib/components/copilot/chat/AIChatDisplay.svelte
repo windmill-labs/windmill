@@ -3,6 +3,7 @@
 	import AIChatMessage from './AIChatMessage.svelte'
 	import AppAvailableContextList from './AppAvailableContextList.svelte'
 	import ChatContextPicker from './ChatContextPicker.svelte'
+	import WorkspaceMentionPicker from './WorkspaceMentionPicker.svelte'
 	import { type Snippet } from 'svelte'
 	import {
 		AlertTriangle,
@@ -270,6 +271,33 @@
 	// Shared with the agent run viewer, which needs the same programmatic-scroll
 	// guard for the same reason.
 	const sticker = createBottomSticker()
+
+	// Per message: whether it is the last answer of its turn — per flow step run, since each
+	// run's last answer carries the only link to that run. Keyed on the answer's own job (a step
+	// label repeats when a step runs in a loop), and on answers rather than the next row: a
+	// flow's tool rows have their own job, and a stopped turn can end on a tool row.
+	// None in a turn still running, paused on the user included (their reply lands as a tool
+	// result, so a row shown during the pause would vanish again): which answer ends the turn is
+	// unknown until it does, and one followed by a tool call would leave the row's blank gap above
+	// it. A manual compaction loads without a turn of its own, so the last turn keeps its row.
+	const showsAnswerActions = $derived.by(() => {
+		const shows: boolean[] = new Array(messages.length).fill(false)
+		const answeredLater = new Set<string | undefined>()
+		let inRunningTurn = chatHost.loading && !chatHost.compacting
+		for (let i = messages.length - 1; i >= 0; i--) {
+			const message = messages[i]
+			if (message.role === 'user' || message.role === 'summary') {
+				answeredLater.clear()
+				inRunningTurn = false
+			} else if (message.role === 'assistant' && message.content) {
+				const run = message.jobId ?? message.stepName
+				shows[i] = !inRunningTurn && !answeredLater.has(run)
+				answeredLater.add(run)
+			}
+		}
+		return shows
+	})
+
 	function scrollDown() {
 		sticker.scrollToEnd(scrollElement)
 	}
@@ -546,6 +574,11 @@
 		const imageWork = imageFiles.length > 0 ? aiChatInput?.addImages(imageFiles) : undefined
 		await attachNonImageFiles(others)
 		await imageWork
+	}
+
+	function mentionWorkspaceItem(element: ContextElement) {
+		void aiChatInput?.addContextToSelection(element)
+		aiChatInput?.insertMention(element.title)
 	}
 
 	function onFolderInputChange(e: Event) {
@@ -825,6 +858,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 							{availableContext}
 							bind:editingMessageIndex
 							isLast={messageIndex === messages.length - 1}
+							showAnswerActions={showsAnswerActions[messageIndex]}
 						/>
 					{/each}
 					{#if freeTierExhausted}
@@ -1051,6 +1085,19 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 														action: () => {
 															plusMenuOpen = false
 															linkFolder()
+														}
+													}
+												]
+											: []),
+										...(inGlobal
+											? [
+													{
+														displayName: 'Mention file',
+														icon: AtSign,
+														customSubmenu: WorkspaceMentionPicker,
+														customSubmenuProps: {
+															onSelect: mentionWorkspaceItem,
+															onAfterClose: () => aiChatInput?.focusInput()
 														}
 													}
 												]

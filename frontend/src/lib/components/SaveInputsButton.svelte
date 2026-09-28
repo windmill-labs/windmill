@@ -1,12 +1,14 @@
 <script lang="ts">
 	import { displayDate } from '$lib/utils.js'
 	import { InputService, type CreateInput, type RunnableType } from '$lib/gen/index.js'
-	import { workspaceStore } from '$lib/stores.js'
 	import { Button } from '$lib/components/common'
 	import { Save } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/utils.js'
 	import { createEventDispatcher } from 'svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	const dispatch = createEventDispatcher()
 
@@ -30,7 +32,7 @@
 		workspace = undefined
 	}: Props = $props()
 
-	let ws = $derived(workspace ?? $workspaceStore)
+	let ws = $derived(workspace ?? $operatingWorkspace)
 
 	let savingInputs = $state(false)
 

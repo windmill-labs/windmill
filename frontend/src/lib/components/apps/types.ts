@@ -183,6 +183,11 @@ export interface AppEditorProps {
 	// AppEditorHeader as a callback prop rather than `on:restore` forwarding,
 	// which does not propagate through these runes-mode components.
 	onRestore?: (restoredApp: any) => void
+	// Fired after a successful deploy, which keeps this editor open: `version` is what
+	// the deploy wrote, for the next draft's fork base, and `head` what is deployed now,
+	// with its author and time. `version` and `head` differ when another deploy landed
+	// beside this one, which is when the out-of-date prompt has something to say.
+	onDeploy?: (e: { version?: number; head?: number; headBy?: string; headAt?: string }) => void
 }
 
 export type App = {

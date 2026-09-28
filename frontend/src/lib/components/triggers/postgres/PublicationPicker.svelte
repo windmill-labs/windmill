@@ -1,25 +1,24 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
+	import { run } from 'svelte/legacy'
 
 	import { Button } from '$lib/components/common'
 	import Select from '$lib/components/select/Select.svelte'
 	import { safeSelectItems } from '$lib/components/select/utils.svelte'
 	import type { Relations } from '$lib/gen'
 	import { PostgresTriggerService } from '$lib/gen/services.gen'
-	import { workspaceStore } from '$lib/stores'
-	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	import { sendUserToast } from '$lib/toast'
 	import { emptyString } from '$lib/utils'
 	import { RefreshCw } from 'lucide-svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	interface Props {
-		items?: string[];
-		can_write?: boolean;
-		publication_name?: string;
-		postgres_resource_path?: string;
-		relations?: Relations[] | undefined;
-		transaction_to_track?: string[];
-		disabled?: boolean;
+		items?: string[]
+		can_write?: boolean
+		publication_name?: string
+		postgres_resource_path?: string
+		relations?: Relations[] | undefined
+		transaction_to_track?: string[]
+		disabled?: boolean
 	}
 
 	let {
@@ -30,9 +29,9 @@
 		relations = $bindable(undefined),
 		transaction_to_track = $bindable([]),
 		disabled = false
-	}: Props = $props();
-	const triggerWs = getTriggerWorkspace()
-	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
+	}: Props = $props()
+	const operatingWorkspace = useOperatingWorkspace()
+	const wsId = $derived($operatingWorkspace)
 
 	let loadingPublication: boolean = $state(false)
 	let deletingPublication: boolean = $state(false)
@@ -113,7 +112,7 @@
 	listDatabasePublication()
 	run(() => {
 		publication_name && getAllRelations()
-	});
+	})
 </script>
 
 <div class="flex gap-1">

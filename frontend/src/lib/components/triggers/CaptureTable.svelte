@@ -10,15 +10,19 @@
 	import { createEventDispatcher, onDestroy, untrack } from 'svelte'
 	import { type TriggerKind } from '../triggers'
 	import { CaptureService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { type CaptureTriggerKind } from '$lib/gen'
 	import CaptureButton from '$lib/components/triggers/CaptureButton.svelte'
 	import InfiniteList from '../InfiniteList.svelte'
 	import { isObject, sendUserToast } from '$lib/utils'
 	import SchemaPickerRow from '$lib/components/schema/SchemaPickerRow.svelte'
 	import type { Capture } from '$lib/gen'
-	import { AwsIcon, MqttIcon, AmqpIcon } from '../icons'
+	import AwsIcon from '../icons/AwsIcon.svelte'
+	import MqttIcon from '../icons/MqttIcon.svelte'
+	import AmqpIcon from '../icons/AmqpIcon.svelte'
 	import GoogleCloudIcon from '../icons/GoogleCloudIcon.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		path: string
@@ -33,9 +37,8 @@
 		limitPayloadSize?: boolean
 		noBorder?: boolean
 		captureActiveIndicator?: boolean | undefined
-		// Workspace to scope capture list/get/delete calls to. Defaults to the nav
-		// `$workspaceStore`; an AI-session live editor passes the session's acting
-		// workspace (a fork) so captures hit the right workspace.
+		// Workspace to scope capture list/get/delete calls to. Defaults to the operating
+		// workspace (see `useOperatingWorkspace`).
 		workspace?: string
 	}
 
@@ -55,7 +58,7 @@
 		workspace = undefined
 	}: Props = $props()
 
-	let ws = $derived(workspace ?? $workspaceStore)
+	let ws = $derived(workspace ?? $operatingWorkspace)
 
 	let selected: number | undefined = $state(undefined)
 	let testKind: 'preprocessor' | 'main' = $state('main')

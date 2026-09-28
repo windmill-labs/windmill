@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { ResourceService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { getContext, untrack } from 'svelte'
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import { Button, Drawer, DrawerContent } from './common'
@@ -11,6 +10,9 @@
 	import IconedResourceType from './IconedResourceType.svelte'
 	import { addResourceTitle } from './resourceTypeDisplay'
 	import { loadResourceTypeDisplayName } from './displayNameLoaders'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		value: string | undefined
@@ -35,7 +37,7 @@
 	let open = $state(false)
 	let refreshCount = $state(0)
 	const appViewerContext = getContext<AppViewerContext>('AppViewerContext')
-	let ws = $derived(workspace ?? appViewerContext?.workspace ?? $workspaceStore)
+	let ws = $derived(workspace ?? appViewerContext?.workspace ?? $operatingWorkspace)
 
 	let collection = $state(value ? [{ value, label: value }] : [])
 
@@ -139,7 +141,7 @@
 				title="App connection"
 				class="w-full h-full"
 				src="{base}/embed_connect?resource_type={resourceType}&workspace={appViewerContext?.workspace ??
-					$workspaceStore}&express=false"
+					$operatingWorkspace}&express=false"
 			/> -->
 		</DrawerContent>
 	</Drawer>

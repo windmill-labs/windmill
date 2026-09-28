@@ -16,6 +16,9 @@ export type RawAppDraft = {
 	// friendly name (they read `value->>'draft_path'`) — and so editing the path
 	// in the editor changes the persisted draft and triggers an autosave.
 	draft_path?: string
+	// The app_version the draft forked from. The server derives `draft.base` from
+	// it, which is what tells a draft that is behind the deployed head.
+	parent_version?: number
 }
 
 // The shape a raw-app cell's store (`RawAppRuntimeValue` in
@@ -30,6 +33,7 @@ export type RuntimeRawApp = {
 	policy: any
 	custom_path?: string
 	draft_path?: string
+	parent_version?: number
 }
 
 // Strip runtime-only metadata (just `path`, the storage key) when persisting
@@ -43,7 +47,8 @@ export function runtimeRawAppToDraft(raw: RuntimeRawApp): RawAppDraft {
 		data: raw.data,
 		policy: raw.policy,
 		custom_path: raw.custom_path,
-		draft_path: raw.draft_path
+		draft_path: raw.draft_path,
+		parent_version: raw.parent_version
 	}
 }
 
@@ -58,6 +63,10 @@ export function applyDraftToRuntimeRawApp(raw: RuntimeRawApp, dv: RawAppDraft): 
 		data: dv.data,
 		policy: dv.policy ?? raw.policy,
 		custom_path: dv.custom_path ?? raw.custom_path,
-		draft_path: dv.draft_path ?? raw.draft_path
+		draft_path: dv.draft_path ?? raw.draft_path,
+		// The incoming draft's own fork base, absence included: this round-trips into the
+		// next save, so falling back to the runtime's version would give that content a
+		// base it never forked from and hide that it is behind.
+		parent_version: dv.parent_version
 	}
 }

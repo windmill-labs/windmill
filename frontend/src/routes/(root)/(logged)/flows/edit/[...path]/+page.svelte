@@ -58,7 +58,8 @@
 	let deployedAt = $state<string | undefined>(undefined)
 	// The flow_version the draft was forked from (pinned, doesn't drift), for the
 	// precise staleness check in DraftEditorModals + FlowBuilder's deploy guard.
-	let draftBaseVersion = $state<number | undefined>(undefined)
+	let draftBaseVersion = $state<string | undefined>(undefined)
+	let deployedBy = $state<string | undefined>(undefined)
 	// Editor-displayed path; defaults to the URL path. Cleared to '' in the
 	// `new_draft` branch so the Path widget's `initPath` seeds the friendly name.
 	let flowInitialPath = $state(page.params.path ?? '')
@@ -163,6 +164,7 @@
 			// bleed across the reused route and falsely trip the stale-draft modal.
 			version = undefined
 			draftBaseVersion = undefined
+			deployedBy = undefined
 			// Brand-new flow: no deployed baseline, so never discard-on-equal.
 			deployedBaseline = undefined
 			// Suspend autosave around the bootstrap cascade: the Path widget's
@@ -355,15 +357,23 @@
 		// is the deploy time (from `flow_version.created_at`), `draft_saved_at` the draft's.
 		draftSavedAt = backendFlow.draft_saved_at as string | undefined
 		deployedAt = backendFlow.edited_at as string | undefined
+		deployedBy = backendFlow.edited_by as string | undefined
 		// Layer the draft (`.draft`, if any) over the deployed payload at the field
 		// level. See /scripts/edit's loader for the rationale.
 		const { draft: draftFromBackend, ...deployedFlow } = backendFlow as any
-		// `version_id` rides on the persisted draft (pinned at fork); undefined for a
-		// pre-feature draft or when editing the deployed flow directly (no draft).
-		draftBaseVersion = draftFromBackend?.version_id as number | undefined
+		// The flow_version the draft forked from; undefined when editing the deployed
+		// flow directly (no draft) or for a draft never forked from a deploy.
+		draftBaseVersion = backendFlow.draft_base
 		const effectiveFlow: Flow = draftFromBackend
 			? ({ ...deployedFlow, ...draftFromBackend } as Flow)
 			: (deployedFlow as Flow)
+		// The merge above would hand a draft with no base the deployed one, and the next
+		// autosave would persist it as `draft.base`: a draft behind the deploy would read
+		// as up to date after one open. A draft keeps the base it has, unknown included
+		// (staleness then falls back to the timestamps).
+		if (draftFromBackend && (draftFromBackend as any).version_id == null) {
+			delete (effectiveFlow as any).version_id
+		}
 		savedFlow = structuredClone($state.snapshot(effectiveFlow)) as Flow
 		// Baseline for the autosave `discardIf`: the deployed flow WITHOUT the
 		// draft overlay (matches the unedited seed when no draft exists).
@@ -373,8 +383,11 @@
 		// Surface the saved `draft_path` to the Path widget so the topbar shows the
 		// pending name, not the `draft_{uuid}` URL. Else the widget seeds from the
 		// URL, the first edit clobbers `draft_path`, and the friendly name is lost.
+		// Otherwise the URL, set on every load: this route instance is reused when the
+		// editor follows its draft to a moved item, and the path it opened on is where
+		// deploy would look for the flow.
 		const renderedDraftPath = (effectiveFlow as any).draft_path as string | undefined
-		if (renderedDraftPath) flowInitialPath = renderedDraftPath
+		flowInitialPath = renderedDraftPath || (page.params.path ?? '')
 
 		// "Load another user's draft" handoff: render their value over the deployed
 		// metadata. Overlay mode (we have our own draft) never saves until the user
@@ -391,6 +404,14 @@
 			? ({ ...deployedFlow, ...(pendingLoad.value as object) } as Flow)
 			: effectiveFlow
 		flow = flowToRender
+		if (pendingLoad) {
+			// Their draft's base, not ours; see /scripts/edit. With none, the merge above
+			// would hand it the deployed one and the next save would persist that as its
+			// base, so it is dropped rather than inherited.
+			const theirs = (pendingLoad.value as { version_id?: number })?.version_id
+			draftBaseVersion = theirs != null ? String(theirs) : undefined
+			if (theirs == null) delete (flowToRender as any).version_id
+		}
 		if (pendingLoad && hasOwnDraft) {
 			OtherUserDraftLoad.beginOverlay({
 				workspace: $workspaceStore!,
@@ -506,7 +527,10 @@
 	{draftSavedAt}
 	{deployedAt}
 	{draftBaseVersion}
-	deployedHeadVersion={version}
+	deployedHeadVersion={version != null ? String(version) : undefined}
+	{deployedBy}
+	onViewDiff={() => flowBuilder?.openDiffDrawer()}
+	onBeforeRelocate={() => flowBuilder?.saveDraft()}
 	onLoadLatestDeploy={async () => {
 		// stopSync-bracketed; see /scripts/edit's restoreDeployed for the race.
 		if (!$workspaceStore) return
@@ -528,6 +552,18 @@
 	</div>
 {:else if renderEditor}
 	<FlowBuilder
+		onTakeLatest={draftBaseVersion
+			? async (shown?: string) => {
+					// The version the drawer showed as head; see /scripts/edit.
+					const head = shown != null ? Number(shown) : version
+					if (!draftSync.draft || head == null || !$workspaceStore) return
+					draftSync.draft = { ...draftSync.draft, version_id: head }
+					draftBaseVersion = String(head)
+					// See /scripts/edit: the head this page knows moves with the base.
+					version = head
+					await UserDraft.forcePersist('flow', flowDraftPath, { workspace: $workspaceStore })
+				}
+			: undefined}
 		onDeploy={(e) => {
 			// stopSync-bracketed immediate delete; see /scripts/edit's restoreDeployed.
 			if ($workspaceStore) {
@@ -557,6 +593,7 @@
 		{flowStore}
 		{flowStateStore}
 		bind:initialPath={flowInitialPath}
+		userDraftPath={page.params.path ?? ''}
 		liveEditorDraftStoragePath={flowDraftPath}
 		newFlow={isNewFlow}
 		{selectedId}

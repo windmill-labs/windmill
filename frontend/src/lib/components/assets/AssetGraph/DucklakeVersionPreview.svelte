@@ -7,7 +7,6 @@
 	// hand is shown above the grid so the affordance is self-documenting.
 	import DBTable from '$lib/components/DBTable.svelte'
 	import { resource } from 'runed'
-	import { workspaceStore } from '$lib/stores'
 	import {
 		fetchDucklakeColumnsAtVersion,
 		dbTableOpsWithPreviewScripts
@@ -17,6 +16,9 @@
 	import { AlertTriangle, Loader2, ClipboardCopy } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import { twMerge } from 'tailwind-merge'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		// Full asset URI, e.g. `ducklake://main/orders_daily`.
@@ -56,9 +58,10 @@
 	let columns = resource(
 		() => [ducklake, tableKey, version] as const,
 		async ([_ducklake, _tableKey, _version]) => {
-			if (!_ducklake || !_tableKey || _version == undefined || !$workspaceStore) return undefined
+			if (!_ducklake || !_tableKey || _version == undefined || !$operatingWorkspace)
+				return undefined
 			const colDefs = await fetchDucklakeColumnsAtVersion({
-				workspace: $workspaceStore,
+				workspace: $operatingWorkspace,
 				ducklake: _ducklake,
 				tableKey: _tableKey,
 				version: _version
@@ -73,13 +76,13 @@
 	let tableColDefs = $derived(ready ? columns.current!.colDefs : undefined)
 
 	let dbTableOps = $derived.by(() => {
-		if (!(input && tableColDefs && tableKey && $workspaceStore && version != undefined))
+		if (!(input && tableColDefs && tableKey && $operatingWorkspace && version != undefined))
 			return undefined
 		const ops = dbTableOpsWithPreviewScripts({
 			input,
 			tableKey,
 			colDefs: tableColDefs,
-			workspace: $workspaceStore,
+			workspace: $operatingWorkspace,
 			version
 		})
 		// Historical reads are immutable: drop every mutation handler so DBTable

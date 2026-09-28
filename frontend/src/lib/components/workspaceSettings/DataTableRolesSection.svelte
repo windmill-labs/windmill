@@ -3,7 +3,6 @@
 	import CloseButton from '../common/CloseButton.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 	import Toggle from '../Toggle.svelte'
-	import Tooltip from '../Tooltip.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { createAsyncConfirmationModal } from '../common/confirmationModal/asyncConfirmationModal.svelte'
 	import Cell from '../table/Cell.svelte'
@@ -14,11 +13,22 @@
 	import { SettingService, type InstanceDatatableRole } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 
+	let {
+		initialName = '',
+		onChanged
+	}: {
+		/** Prefills the name of the role to add. */
+		initialName?: string
+		/** Called after every change to the catalog, whether or not it went through. */
+		onChanged?: () => void
+	} = $props()
+
 	let roles = $state<InstanceDatatableRole[]>([])
 	let loading = $state(true)
 	let loadError = $state<string | undefined>(undefined)
 	let busy = $state(false)
-	let newName = $state('')
+	// svelte-ignore state_referenced_locally
+	let newName = $state(initialName)
 	/** Which role's name is being edited, and to what. */
 	let renaming = $state<{ id: string; name: string } | undefined>(undefined)
 
@@ -49,6 +59,7 @@
 			// holds, so a failed flip has to snap back rather than sit there claiming it landed.
 			await load()
 			busy = false
+			onChanged?.()
 		}
 	}
 
@@ -83,16 +94,6 @@
 <ConfirmationModal {...confirmationModal.props} />
 
 <div class="flex flex-col gap-2">
-	<div class="flex items-baseline gap-1">
-		<h3 class="font-semibold text-sm">Instance roles</h3>
-		<Tooltip>
-			A data table role is a real Postgres login on this instance, shared by every instance
-			database. A job that names one connects as it, and Postgres decides what it may touch — grant
-			it privileges with SQL. Which people may use a role on a given data table is set per data
-			table, in its roles drawer.
-		</Tooltip>
-	</div>
-
 	{#if loadError}
 		<Alert type="error" title="Could not load the instance roles" size="xs">{loadError}</Alert>
 	{:else}

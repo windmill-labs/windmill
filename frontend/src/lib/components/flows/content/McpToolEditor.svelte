@@ -30,6 +30,9 @@
 	import { getContext, untrack } from 'svelte'
 	import McpConnect from '$lib/components/mcp/McpConnect.svelte'
 	import type { FlowEditorContext } from '../types'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		tool: McpTool
@@ -39,7 +42,7 @@
 	let { tool = $bindable(), noEditor = false }: Props = $props()
 
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
-	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
+	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $operatingWorkspace)
 
 	let refreshCount = $state(0)
 	let resourcePicker: ResourcePicker | undefined = $state()

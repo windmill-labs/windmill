@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO remote_deploy_token\n             (workspace_id, email, base_url, remote_workspace_id, token, remote_email, proxy_key,\n              connected_at, member_since, target_changed_at)\n         SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10\n         WHERE $9::timestamptz IS NOT NULL\n            OR EXISTS (SELECT 1 FROM token WHERE token_hash = $11)\n         ON CONFLICT (workspace_id, email) DO UPDATE SET\n             base_url = EXCLUDED.base_url, remote_workspace_id = EXCLUDED.remote_workspace_id,\n             token = EXCLUDED.token, remote_email = EXCLUDED.remote_email,\n             proxy_key = EXCLUDED.proxy_key, connected_at = EXCLUDED.connected_at,\n             member_since = EXCLUDED.member_since, target_changed_at = EXCLUDED.target_changed_at\n         WHERE remote_deploy_token.connected_at < EXCLUDED.connected_at\n         RETURNING connected_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "connected_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Text",
+        "Varchar",
+        "Varchar",
+        "Timestamptz",
+        "Timestamptz",
+        "Timestamptz",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "132bab72036874c33805ff194fce6641817d09528f9d1b7210abe9881b817710"
+}

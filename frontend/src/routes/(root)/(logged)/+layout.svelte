@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { BROWSER } from 'esm-env'
+	import { isMac } from '$lib/utils'
 
 	import {
 		AppService,
@@ -13,6 +14,7 @@
 	} from '$lib/gen'
 	import { capitalize, classNames, getModifierKey, sendUserToast } from '$lib/utils'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
+	import { isSessionPreviewFrame } from '$lib/components/sessions/sessionMode.svelte'
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
 	import SettingsMenu from '$lib/components/sidebar/SettingsMenu.svelte'
@@ -53,8 +55,8 @@
 	import { afterNavigate, beforeNavigate } from '$app/navigation'
 	import { goto } from '$lib/navigation'
 	import { registerToolDisplayActionHandler } from '$lib/components/copilot/chat/createdResourceActions.svelte'
-	import UserSettings from '$lib/components/UserSettings.svelte'
-	import SuperadminSettings from '$lib/components/SuperadminSettings.svelte'
+	import type UserSettings from '$lib/components/UserSettings.svelte'
+	import type SuperadminSettings from '$lib/components/SuperadminSettings.svelte'
 	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
 	import { page } from '$app/state'
 	import FavoriteMenu, {
@@ -70,7 +72,7 @@
 	import { deepEqual } from 'fast-equals'
 	import { twMerge } from 'tailwind-merge'
 	import OperatorMenu from '$lib/components/sidebar/OperatorMenu.svelte'
-	import GlobalSearchModal from '$lib/components/search/GlobalSearchModal.svelte'
+	import type GlobalSearchModal from '$lib/components/search/GlobalSearchModal.svelte'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import MenuLink from '$lib/components/sidebar/MenuLink.svelte'
 	import { loadProtectionRules } from '$lib/workspaceProtectionRules.svelte'
@@ -80,6 +82,7 @@
 	import { pruneMeaninglessDrafts } from '$lib/userDraftPrune'
 	import DraftMigrationErrorModal from '$lib/components/DraftMigrationErrorModal.svelte'
 	import InstanceBanner from '$lib/components/InstanceBanner.svelte'
+	import InstanceUiSync from '$lib/components/InstanceUiSync.svelte'
 	import { onDestroy, setContext, untrack } from 'svelte'
 	import { base } from '$app/paths'
 	import { Menubar } from '$lib/components/meltComponents'
@@ -89,14 +92,17 @@
 	import SessionModeSwitch from '$lib/components/sessions/SessionModeSwitch.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 	import { copilotInfo } from '$lib/aiStore'
-	import { parsePreviewItemRoute } from '$lib/components/sessions/previewPaths'
+	import {
+		isPageItemListPath,
+		parsePreviewItemRoute,
+		stripBase
+	} from '$lib/components/sessions/previewPaths'
 	import { rememberNavRoute } from '$lib/components/sessions/sessionSwitch.svelte'
 	import { sessionState } from '$lib/components/sessions/sessionState.svelte'
 	import { restoreSessionBackups } from '$lib/components/sessions/sessionMirror.svelte'
 	import { currentWorkspaceRootId } from '$lib/components/sessions/sessionScope.svelte'
 	import WorkspaceScopeHeader from '$lib/components/sidebar/WorkspaceScopeHeader.svelte'
 	import { DEFAULT_HUB_BASE_URL } from '$lib/hub'
-	import DBManagerDrawer from '$lib/components/DBManagerDrawer.svelte'
 	import S3FilePicker from '$lib/components/S3FilePicker.svelte'
 	import { useIsDarkMode } from '$lib/components/DarkModeObserver.svelte'
 	import { useDbManagerUriState } from '$lib/components/dbManagerDrawerModel.svelte'
@@ -142,10 +148,11 @@
 	// same way the old `w-52`/`w-12` classes did — `:root` jumps to 18px on screens
 	// ≥1760px (app.css), which grows the rem-based button content; a fixed-px rail would
 	// not grow with it and the content would overflow. SIDEBAR_MIN_REM is the default
-	// expanded width (the old w-52); the handle only resizes when expanded and only
-	// widens from there — collapsing is the toggle button's job, not the drag's.
+	// expanded width (the old w-52); the handle only widens from there. Dragging the
+	// pointer into the snap zone at the screen's left edge collapses the rail.
 	const SIDEBAR_MIN_REM = 13
 	const SIDEBAR_COLLAPSED_REM = 3
+	const SIDEBAR_SNAP_COLLAPSE_REM = 6
 	// Root font-size in px, used to convert the pointer's clientX (px) into rem.
 	function rootFontPx(): number {
 		if (!BROWSER) return 16
@@ -168,11 +175,14 @@
 	// Width (in rem) the content offset must track: the icon strip when collapsed,
 	// the user-chosen width otherwise.
 	let railWidth = $derived(isCollapsed ? SIDEBAR_COLLAPSED_REM : sidebarWidth)
-	// Width transition shared by the rail and the content offset: none for the whole
-	// drag (the rail tracks the pointer 1:1 and hits the min as a hard wall, no
-	// friction), a plain ease only for the collapse/expand toggle.
+	// True for one transition's length after a drag crosses the snap zone's edge, so
+	// the collapse/expand eases before the rail goes back to tracking the pointer.
+	let sidebarSnapping = $state(false)
+	let sidebarSnapTimer: ReturnType<typeof setTimeout> | undefined
+	// Width transition shared by the rail and the content offset: none while a drag
+	// tracks the pointer 1:1, a plain ease for the toggle and the snap.
 	let sidebarTransitionClass = $derived(
-		resizingSidebar ? '' : 'transition-all duration-200 ease-in-out'
+		resizingSidebar && !sidebarSnapping ? '' : 'transition-all duration-200 ease-in-out'
 	)
 	// Set while a drag is live so it can be torn down if the layout unmounts
 	// mid-drag (otherwise the window listeners would leak).
@@ -191,12 +201,22 @@
 			handle.setPointerCapture(e.pointerId)
 		} catch {}
 		resizingSidebar = true
+		// Re-expanding a snap-collapsed rail restores the width it had before the drag.
+		const widthAtStart = sidebarWidth
+		const collapsedAtStart = isCollapsed
 		// The rail is fixed at left:0, so the pointer's clientX is the width — in px.
-		// Convert to rem (the unit the rail is sized in) via the root font-size. Pure
-		// resize: clamp at the min so the rail stops there like a wall (dragging left
-		// never collapses — that's the toggle button's job).
+		// Convert to rem (the unit the rail is sized in) via the root font-size. The
+		// rail clamps at the min like a wall, until the pointer reaches the snap zone.
 		const onMove = (ev: PointerEvent) => {
-			sidebarWidth = Math.max(SIDEBAR_MIN_REM, ev.clientX / rootFontPx())
+			const x = ev.clientX / rootFontPx()
+			const collapse = x < SIDEBAR_SNAP_COLLAPSE_REM
+			if (collapse !== isCollapsed) {
+				isCollapsed = collapse
+				sidebarSnapping = true
+				clearTimeout(sidebarSnapTimer)
+				sidebarSnapTimer = setTimeout(() => (sidebarSnapping = false), 200)
+			}
+			sidebarWidth = collapse ? widthAtStart : Math.max(SIDEBAR_MIN_REM, x)
 		}
 		// pointercancel (and unmount, via onDestroy) must clear the state too, or
 		// `resizingSidebar` sticks true — the overlay and handle highlight stay up
@@ -204,7 +224,10 @@
 		const stop = () => {
 			if (!resizingSidebar) return
 			resizingSidebar = false
+			clearTimeout(sidebarSnapTimer)
+			sidebarSnapping = false
 			widthPref.val = sidebarWidth
+			if (isCollapsed !== collapsedAtStart) collapsePref.val = isCollapsed
 			window.removeEventListener('pointermove', onMove)
 			window.removeEventListener('pointerup', stop)
 			window.removeEventListener('pointercancel', stop)
@@ -355,17 +378,6 @@
 		}
 	}
 
-	// True when this window is a sessions-preview iframe (embedded + nomenubar,
-	// which the preview always sets and stickies — see the menu-hide block above).
-	function isSessionPreviewEmbed(): boolean {
-		if (!embedded) return false
-		try {
-			return sessionStorage.getItem('nomenubar_embedded') === 'true'
-		} catch {
-			return false
-		}
-	}
-
 	// A job-detail navigation (/run/<id>) inside a preview tab should open the job in
 	// a NEW tab rather than navigate the current tab away from its page (e.g. clicking
 	// a job in the Runs tab keeps Runs put and opens the run beside it). Returns the
@@ -412,13 +424,28 @@
 		// instead of booting a second, disconnected editor in this frame. Cancel so
 		// the heavy editor never mounts here at all. Runs before the apps_raw reload
 		// below so a raw-app editor promotes rather than full-reloading the iframe.
-		if (isSessionPreviewEmbed()) {
+		if (isSessionPreviewFrame()) {
 			const target = previewEditorTarget(navigation.to?.url)
 			if (target) {
 				navigation.cancel()
 				try {
 					window.parent.postMessage(
 						{ type: 'wm.session.openEditor', kind: target.kind, path: target.path },
+						window.location.origin
+					)
+				} catch {}
+				return
+			}
+			// A list page mounts in process too, where its rows open as tabs of their own.
+			const listUrl = navigation.to?.url
+			if (listUrl && isPageItemListPath(stripBase(listUrl.pathname))) {
+				navigation.cancel()
+				const u = new URL(listUrl.href)
+				u.searchParams.delete('nomenubar')
+				u.searchParams.delete('workspace')
+				try {
+					window.parent.postMessage(
+						{ type: 'wm.session.openList', href: u.pathname + u.search + u.hash },
 						window.location.origin
 					)
 				} catch {}
@@ -659,11 +686,53 @@
 		}
 	}
 
-	function openSearchModal(
-		text?: string,
-		stack?: import('$lib/components/common/overlayHost.svelte').OverlayStack
-	): void {
-		globalSearchModal?.openSearchWithPrefilledText(text, stack)
+	// Sticky: once opened, a drawer stays mounted, so reopening it is instant.
+	let userSettingsRequested = $state(false)
+	let superadminSettingsRequested = $state(false)
+	$effect(() => {
+		if (page.url.hash.startsWith(USER_SETTINGS_HASH)) userSettingsRequested = true
+		if (page.url.hash === SUPERADMIN_SETTINGS_HASH) superadminSettingsRequested = true
+	})
+	let dbManagerRequested = $state(false)
+	$effect(() => {
+		if (globalDbManagerDrawer.val?.open) dbManagerRequested = true
+	})
+
+	type OverlayStack = import('$lib/components/common/overlayHost.svelte').OverlayStack
+	// The modal is loaded on the first request, which is held here and replayed once it is
+	// bound. Only where the modal mounts (the markup's `{:else if $userStore}`): elsewhere
+	// the request would replay much later.
+	let searchModalRequested = $state(false)
+	let pendingSearchOpen: { text?: string; stack?: OverlayStack } | undefined = $state()
+	let searchModalMounts = $derived(page.status != 404 && !!$userStore)
+
+	function openSearchModal(text?: string, stack?: OverlayStack): void {
+		if (globalSearchModal) globalSearchModal.openSearchWithPrefilledText(text, stack)
+		else if (searchModalMounts) {
+			pendingSearchOpen = { text, stack }
+			searchModalRequested = true
+		}
+	}
+
+	$effect(() => {
+		if (globalSearchModal && pendingSearchOpen) {
+			const { text, stack } = pendingSearchOpen
+			pendingSearchOpen = undefined
+			untrack(() => globalSearchModal?.openSearchWithPrefilledText(text, stack))
+		}
+	})
+
+	// Ctrl/Cmd+K is what first loads the modal; once bound, the modal's own listener takes over.
+	function onSearchShortcutBeforeLoad(e: KeyboardEvent) {
+		if (
+			!globalSearchModal &&
+			searchModalMounts &&
+			(isMac() ? e.metaKey : e.ctrlKey) &&
+			e.key === 'k'
+		) {
+			e.preventDefault()
+			openSearchModal()
+		}
 	}
 
 	setContext('openSearchWithPrefilledText', openSearchModal)
@@ -894,7 +963,7 @@
 	})
 </script>
 
-<svelte:window bind:innerWidth />
+<svelte:window bind:innerWidth onkeydown={onSearchShortcutBeforeLoad} />
 
 <!-- Home + Runs lifted to the top of the workspace nav, sitting with Favorites
      and Search as the primary quick-access cluster. Excluded from SidebarContent
@@ -963,7 +1032,14 @@
 	</div>
 {/snippet}
 
-<UserSettings bind:this={userSettings} showMcpMode={true} />
+<!-- The drawers and modals below are dynamic imports mounted on first open: this layout
+     wraps every workspace page, so a static import gates first paint, and a load on mount
+     competes with the page for bandwidth (several of them reach monaco). -->
+{#if userSettingsRequested}
+	{#await import('$lib/components/UserSettings.svelte') then UserSettings}
+		<UserSettings.default bind:this={userSettings} showMcpMode={true} />
+	{/await}
+{/if}
 {#if accountSetup.pending}
 	<FinishAccountSetup
 		bind:open={accountSetup.open}
@@ -975,9 +1051,15 @@
 {#if page.status == 404}
 	<CenteredModal title="Page not found, redirecting you to login" loading={true}></CenteredModal>
 {:else if $userStore}
-	<GlobalSearchModal bind:this={globalSearchModal} />
-	{#if $superadmin}
-		<SuperadminSettings bind:this={superadminSettings} />
+	{#if searchModalRequested}
+		{#await import('$lib/components/search/GlobalSearchModal.svelte') then GlobalSearchModal}
+			<GlobalSearchModal.default bind:this={globalSearchModal} />
+		{/await}
+	{/if}
+	{#if $superadmin && superadminSettingsRequested}
+		{#await import('$lib/components/SuperadminSettings.svelte') then SuperadminSettings}
+			<SuperadminSettings.default bind:this={superadminSettings} />
+		{/await}
 	{/if}
 	{#if mountModal}
 		<CriticalAlertModal bind:muteSettings bind:numUnacknowledgedCriticalAlerts />
@@ -1168,22 +1250,19 @@
 							class="flex-1 flex flex-col min-h-0 h-screen shadow-[inset_-1px_0_0_0_rgb(var(--color-border-light))] dark:shadow-[inset_-1px_0_0_0_#374151] [html.github-dark_&]:shadow-[inset_-1px_0_0_0_rgb(var(--color-border-light))]"
 							style:background-color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}
 						>
-							{#if !isCollapsed}
-								<!-- Resize handle straddling the right edge, only while expanded:
-								     drag to widen (clamped at the min). Collapsing is the toggle
-								     button's job. -->
-								<div
-									role="separator"
-									aria-orientation="vertical"
-									aria-label="Resize sidebar"
-									title="Drag to resize"
-									class={classNames(
-										'absolute inset-y-0 -right-0.5 w-1.5 cursor-col-resize z-50 transition-colors',
-										resizingSidebar ? '' : 'hover:bg-surface-hover'
-									)}
-									onpointerdown={startSidebarResize}
-								></div>
-							{/if}
+							<!-- Resize handle straddling the right edge: drag to resize, into the
+							     left snap zone to collapse, or out of it to expand. -->
+							<div
+								role="separator"
+								aria-orientation="vertical"
+								aria-label="Resize sidebar"
+								title="Drag to resize"
+								class={classNames(
+									'absolute inset-y-0 -right-0.5 w-1.5 cursor-col-resize z-50 transition-colors',
+									resizingSidebar ? '' : 'hover:bg-surface-hover'
+								)}
+								onpointerdown={startSidebarResize}
+							></div>
 							<!-- Workspace picker as the sidebar header (replaces the Windmill logo).
 							     Kept in both modes: it scopes which workspace family's sessions
 							     the sessions sidebar shows. -->
@@ -1414,11 +1493,13 @@
 			</div>
 		{/if}
 		<div class="flex flex-col h-full w-full">
-			{#if isCloudHosted() && !menuHidden}
-				<!-- Announcements are a managed-cloud operations tool, so the component never
-				     mounts elsewhere: no fetch, no poll, no listener on a self-hosted instance.
-				     Also skipped when the menu is hidden — that is an embed or an OAuth
-				     callback, where the announcement would land inside someone else's page. -->
+			<!-- Not gated on `$enterpriseLicense`: it paints the cached accent before the license
+			     resolves, and checks the license itself. -->
+			<InstanceUiSync />
+			{#if $enterpriseLicense && !menuHidden}
+				<!-- Announcements are an EE feature, so the component never mounts on CE. Also
+				     skipped when the menu is hidden — that is an embed or an OAuth callback,
+				     where the announcement would land inside someone else's page. -->
 				<InstanceBanner />
 			{/if}
 			{#if $userStore?.is_service_account}
@@ -1476,8 +1557,10 @@
 	<CenteredModal title="Loading user..." loading={true}></CenteredModal>
 {/if}
 
-{#if $workspaceStore && globalDbManagerDrawer.val}
-	<DBManagerDrawer uriState={globalDbManagerDrawer.val} />
+{#if $workspaceStore && globalDbManagerDrawer.val && dbManagerRequested}
+	{#await import('$lib/components/DBManagerDrawer.svelte') then DBManagerDrawer}
+		<DBManagerDrawer.default uriState={globalDbManagerDrawer.val} />
+	{/await}
 {/if}
 
 {#if $workspaceStore}

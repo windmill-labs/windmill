@@ -1,11 +1,15 @@
 <script lang="ts">
 	import EmailTriggerEditorInner from './EmailTriggerEditorInner.svelte'
 	import Description from '$lib/components/Description.svelte'
-	import { enterpriseLicense, userStore } from '$lib/stores'
+	import { enterpriseLicense } from '$lib/stores'
 	import { Alert } from '$lib/components/common'
 	import { onMount, type Snippet } from 'svelte'
 	import { getEmailDomain } from './utils'
 	import type { Trigger } from '../utils'
+	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	let emailTriggerEditor = $state<EmailTriggerEditorInner | null>(null)
 
@@ -73,7 +77,7 @@
 				trigger can be configured with a specific local part.
 			</Description>
 
-			{#if !$userStore?.is_admin && !$userStore?.is_super_admin && selectedTrigger.isDraft}
+			{#if !actingUser?.is_admin && !actingUser?.is_super_admin && selectedTrigger.isDraft}
 				<Alert title="Only workspace admins can create email triggers" type="info" size="xs" />
 			{/if}
 

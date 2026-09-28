@@ -816,3 +816,36 @@ describe('HistoryManager.reloadChat', () => {
 		expect(await hm.reloadChat(hm.getCurrentChatId())).toBe('unavailable')
 	})
 })
+
+describe('HistoryManager.init for a session', () => {
+	it("loads the session's chats and its current chat, not other sessions'", async () => {
+		const setup = new HistoryManager()
+		await setup.init()
+		setup.close()
+		const chat = (id: string, sessionId?: string) => ({
+			id,
+			actualMessages: [],
+			displayMessages: [],
+			title: id,
+			lastModified: 1,
+			...(sessionId ? { sessionId } : {})
+		})
+		const db = await openDB('copilot-chat-history::admin@test')
+		await db.put('chats' as never, chat('mine', 's1') as never)
+		await db.put('chats' as never, chat('other-session', 's2') as never)
+		await db.put('chats' as never, chat('untagged-current') as never)
+		await db.put('chats' as never, chat('untagged-other') as never)
+		db.close()
+
+		const hm = new HistoryManager()
+		await hm.init({ id: 's1', chatId: 'untagged-current' })
+
+		// The current chat can predate session tagging, so it is read by key.
+		expect(
+			hm
+				.getAllSavedChats()
+				.map((c) => c.id)
+				.sort()
+		).toEqual(['mine', 'untagged-current'])
+	})
+})
