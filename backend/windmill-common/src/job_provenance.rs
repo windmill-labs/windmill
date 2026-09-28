@@ -14,6 +14,8 @@ pub struct JobProvenance {
     /// them, its identity must be one that could have deployed there. A job whose code
     /// and path both derive from a claimed parent adds no claim of its own.
     pub claimed_paths: Vec<ClaimedPath>,
+    /// The identity the job runs as.
+    pub permissioned_as: String,
     pub parent_path: Option<String>,
     pub root_id: Uuid,
     pub root_path: Option<String>,
@@ -26,11 +28,17 @@ pub struct ClaimedPath {
     /// The deployable item the claim stands for: an app script's claim is its app.
     pub path: String,
     pub item: ClaimedItem,
+    /// The identity of the job that made the claim: a deployed child can run as another
+    /// identity (`on_behalf_of`) than the preview it runs under.
+    pub permissioned_as: String,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ClaimedItem {
     Script,
+    /// A preview without a parent at `<app>/<component>`: deploying the app runs its
+    /// inline script at that path with the same identity, so writing the app suffices.
+    ScriptOrAppComponent,
     Flow,
     App,
 }
@@ -41,6 +49,7 @@ struct LineageJob {
     kind: JobKind,
     runnable_path: Option<String>,
     trigger_kind: Option<String>,
+    permissioned_as: String,
     origin_verified: bool,
     app_stamped: bool,
 }
@@ -51,16 +60,16 @@ pub async fn job_provenance(db: &DB, job_id: &Uuid, w_id: &str) -> Result<Option
         LineageJob,
         r#"WITH RECURSIVE lineage AS (
             SELECT id, parent_job, kind, runnable_path, runnable_id, trigger_kind, trigger,
-                0 AS depth
+                permissioned_as, 0 AS depth
             FROM v2_job WHERE id = $1 AND workspace_id = $2
           UNION ALL
             SELECT p.id, p.parent_job, p.kind, p.runnable_path, p.runnable_id, p.trigger_kind,
-                p.trigger, l.depth + 1
+                p.trigger, p.permissioned_as, l.depth + 1
             FROM v2_job p JOIN lineage l ON p.id = l.parent_job
             WHERE p.workspace_id = $2 AND l.depth < 100
         )
         SELECT id AS "id!", parent_job, kind AS "kind!: JobKind", runnable_path,
-            trigger_kind::text AS trigger_kind,
+            trigger_kind::text AS trigger_kind, permissioned_as AS "permissioned_as!",
             -- A restart takes its flow version from the request, so a trusted flow path
             -- can carry another flow's code: the version must belong to that path.
             CASE kind
@@ -96,7 +105,7 @@ pub async fn job_provenance(db: &DB, job_id: &Uuid, w_id: &str) -> Result<Option
         if !stored {
             all_stored = false;
             if !derives_from_claimed_parent(job, parent) {
-                if let Some(claim) = claimed_path(job) {
+                if let Some(claim) = claimed_path(job, parent.is_none()) {
                     claimed_paths.push(claim);
                 }
             }
@@ -108,6 +117,7 @@ pub async fn job_provenance(db: &DB, job_id: &Uuid, w_id: &str) -> Result<Option
         deployed: !unproven_ancestry && all_stored,
         unproven_ancestry,
         claimed_paths,
+        permissioned_as: lineage[0].permissioned_as.clone(),
         parent_path: lineage.get(1).and_then(|j| j.runnable_path.clone()),
         root_id: root.id,
         root_path: root.runnable_path.clone(),
@@ -132,9 +142,10 @@ fn runs_stored_code(job: &LineageJob, parent: Option<(&LineageJob, bool)>) -> bo
         // A deployed app without `app_script` entries runs its inline scripts as previews
         // of the content its policy pins.
         JobKind::Preview if job.app_stamped => true,
-        // No API route takes a preview's code together with a parent: a preview with a
-        // parent runs its parent's own definition (a flow step, loop or branch body, agent
-        // tool or workflow-as-code task). A flow deployed before flow nodes, or run with
+        // No API route takes a preview's code together with a parent (`restart_flow` drops
+        // the parent of a restarted flow preview): a preview with a parent runs its parent's
+        // own definition (a flow step, loop or branch body, agent tool, workflow-as-code
+        // task or module). A flow deployed before flow nodes, or run with
         // `DISABLE_FLOW_SCRIPT`, runs its inline steps this way.
         JobKind::Preview | JobKind::FlowPreview => {
             parent.is_some_and(|(p, p_stored)| p_stored && path_within(job, p))
@@ -172,7 +183,7 @@ fn path_within(job: &LineageJob, parent: &LineageJob) -> bool {
     }
 }
 
-fn claimed_path(job: &LineageJob) -> Option<ClaimedPath> {
+fn claimed_path(job: &LineageJob, top_level: bool) -> Option<ClaimedPath> {
     let path = job.runnable_path.as_deref().filter(|p| !p.is_empty())?;
     let (path, item) = match job.kind {
         // The server derives an app script's path as `<app path>/<component>`, with the
@@ -182,6 +193,7 @@ fn claimed_path(job: &LineageJob) -> Option<ClaimedPath> {
             ClaimedItem::App,
         ),
         JobKind::AppDependencies => (path, ClaimedItem::App),
+        JobKind::Preview if top_level => (path, ClaimedItem::ScriptOrAppComponent),
         JobKind::Flow
         | JobKind::FlowPreview
         | JobKind::FlowDependencies
@@ -200,5 +212,9 @@ fn claimed_path(job: &LineageJob) -> Option<ClaimedPath> {
         | JobKind::DeploymentCallback
         | JobKind::UnassignedScript => (path, ClaimedItem::Script),
     };
-    Some(ClaimedPath { path: path.to_string(), item })
+    Some(ClaimedPath {
+        path: path.to_string(),
+        item,
+        permissioned_as: job.permissioned_as.clone(),
+    })
 }

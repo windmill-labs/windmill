@@ -23,7 +23,7 @@ async fn claims(db: &Pool<Postgres>, job: &str) -> Vec<(String, ClaimedItem)> {
         .await
         .claimed_paths
         .into_iter()
-        .map(|ClaimedPath { path, item }| (path, item))
+        .map(|ClaimedPath { path, item, .. }| (path, item))
         .collect()
 }
 

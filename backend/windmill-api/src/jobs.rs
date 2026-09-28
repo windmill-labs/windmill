@@ -7132,7 +7132,7 @@ pub async fn restart_flow(
     let completed_job = sqlx::query!(
             "SELECT
                 j.runnable_path as script_path, j.args AS \"args: sqlx::types::Json<HashMap<String, Box<RawValue>>>\",
-                j.tag AS \"tag!\", j.priority
+                j.tag AS \"tag!\", j.priority, j.kind AS \"kind!: JobKind\"
             FROM v2_job j
             WHERE j.id = $1 and j.workspace_id = $2",
             job_id,
@@ -7142,6 +7142,14 @@ pub async fn restart_flow(
         .await?
         .with_context(|| "Unable to find completed job with the given job UUID")?;
     drop(tx);
+
+    // A restarted flow preview reruns the value its request supplied, while a flow preview
+    // under a parent is read (by job provenance) as that parent's own definition.
+    let (parent_job, root_job) = if completed_job.kind == JobKind::FlowPreview {
+        (None, None)
+    } else {
+        (run_query.parent_job, run_query.root_job)
+    };
 
     let flow_path = completed_job
         .script_path
@@ -7190,9 +7198,9 @@ pub async fn restart_flow(
         authed.username_override.as_deref(),
         scheduled_for,
         None,
-        run_query.parent_job,
+        parent_job,
         None,
-        run_query.root_job,
+        root_job,
         run_query.job_id,
         false,
         false,
