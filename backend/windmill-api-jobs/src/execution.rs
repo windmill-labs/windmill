@@ -105,10 +105,33 @@ pub async fn drop_unclaimable_run_lineage(
     run_query: &mut RunJobQuery,
     authed: &ApiAuthed,
 ) -> error::Result<()> {
-    let mut referenced: Vec<Uuid> = [run_query.parent_job, run_query.root_job]
+    let referenced: Vec<Uuid> = [run_query.parent_job, run_query.root_job]
         .into_iter()
         .flatten()
         .collect();
+    let unclaimable = unclaimable_run_lineage(db, w_id, referenced, authed).await?;
+    for field in [&mut run_query.parent_job, &mut run_query.root_job] {
+        if field.is_some_and(|id| unclaimable.contains(&id)) {
+            tracing::warn!(
+                "ignoring parent_job/root_job {field:?} that {} cannot claim in {w_id}",
+                authed.username
+            );
+            *field = None;
+        }
+    }
+    Ok(())
+}
+
+/// The jobs of `referenced` that `authed` cannot claim as its own run lineage: anything but the
+/// token's own job and that job's `parent_job`, `root_job` and `flow_innermost_root_job`, or for
+/// a workspace admin anything outside the workspace.
+pub async fn unclaimable_run_lineage(
+    db: &DB,
+    w_id: &str,
+    mut referenced: Vec<Uuid>,
+    authed: &ApiAuthed,
+) -> error::Result<Vec<Uuid>> {
+    referenced.sort();
     referenced.dedup();
     if let Some(token_job) = authed.job_id {
         referenced.retain(|id| *id != token_job);
@@ -132,7 +155,7 @@ pub async fn drop_unclaimable_run_lineage(
         }
     }
     if referenced.is_empty() {
-        return Ok(());
+        return Ok(referenced);
     }
     let in_workspace = if authed.is_admin {
         sqlx::query_scalar!(
@@ -145,16 +168,8 @@ pub async fn drop_unclaimable_run_lineage(
     } else {
         vec![]
     };
-    for field in [&mut run_query.parent_job, &mut run_query.root_job] {
-        if field.is_some_and(|id| referenced.contains(&id) && !in_workspace.contains(&id)) {
-            tracing::warn!(
-                "ignoring parent_job/root_job {field:?} that {} cannot claim in {w_id}",
-                authed.username
-            );
-            *field = None;
-        }
-    }
-    Ok(())
+    referenced.retain(|id| !in_workspace.contains(id));
+    Ok(referenced)
 }
 
 #[cfg(feature = "enterprise")]
