@@ -60,6 +60,13 @@ interface ModuleList {
   modules: any[];
 }
 
+// These checks also run on a flow that failed schema validation, so any
+// collection may have the wrong type; treating it as empty leaves reporting it
+// to the schema errors instead of aborting the whole lint run.
+function asArray(value: unknown): any[] {
+  return Array.isArray(value) ? value : [];
+}
+
 /**
  * Every module list a group can span, and every aiagent module, anywhere in the
  * tree. The lists match `getContainerInnerArrays` in
@@ -84,12 +91,12 @@ function walkModules(
         break;
       case "branchone":
         walkModules(value.default, `${at}/default`, lists, agents);
-        (value.branches ?? []).forEach((b: any, bi: number) =>
+        asArray(value.branches).forEach((b: any, bi: number) =>
           walkModules(b?.modules, `${at}/branches/${bi}/modules`, lists, agents)
         );
         break;
       case "branchall":
-        (value.branches ?? []).forEach((b: any, bi: number) =>
+        asArray(value.branches).forEach((b: any, bi: number) =>
           walkModules(b?.modules, `${at}/branches/${bi}/modules`, lists, agents)
         );
         break;
@@ -107,7 +114,7 @@ function collectAgents(
   agents: { pointer: string; module: any }[],
 ) {
   agents.push({ pointer, module });
-  (module?.value?.tools ?? []).forEach((tool: any, i: number) => {
+  asArray(module?.value?.tools).forEach((tool: any, i: number) => {
     if (tool?.value?.type === "aiagent") {
       collectAgents(tool, `${pointer}/value/tools/${i}`, agents);
     }

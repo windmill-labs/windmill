@@ -514,3 +514,31 @@ test("lint: accepts nested groups and flags notes the editor renders wrong", asy
     expect(report.exitCode).toEqual(0);
   });
 });
+
+test("lint: reports a flow with malformed collections instead of aborting the run", async () => {
+  await withTempDir(async (tempDir) => {
+    await mkdir(`${tempDir}/f/sem/other.flow`, { recursive: true });
+    await writeFile(
+      `${tempDir}/f/sem/other.flow/flow.yaml`,
+      `summary: Other\nvalue:\n  modules: {}\n`,
+      "utf-8",
+    );
+    const report = await lintFlow(
+      tempDir,
+      `  modules:
+    - id: route
+      value: { type: branchall, branches: {} }
+    - id: agent
+      value: { type: aiagent, agent: f/sem/a, input_transforms: {}, tools: {} }
+  groups: {}
+  notes: {}
+`,
+    );
+
+    expect(report.issues.map((i) => i.path).sort()).toEqual([
+      "f/sem/check.flow/flow.yaml",
+      "f/sem/other.flow/flow.yaml",
+    ]);
+    expect(report.exitCode).toEqual(1);
+  });
+});
