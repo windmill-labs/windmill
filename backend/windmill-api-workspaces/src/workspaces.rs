@@ -1666,7 +1666,9 @@ async fn run_slack_message_test_job(
     Json(req): Json<RunSlackMessageTestJobRequest>,
 ) -> JsonResult<RunSlackMessageTestJobResponse> {
     // Runs as the error handler identity, handed the Slack bot token.
-    if !windmill_queue::is_preset_handler_path(&req.hub_script_path) {
+    if !(windmill_queue::is_preset_handler_path(&req.hub_script_path)
+        && req.hub_script_path.ends_with("-slack"))
+    {
         return Err(Error::BadRequest(
             "Only a preset Slack handler from the hub can be tested".to_string(),
         ));

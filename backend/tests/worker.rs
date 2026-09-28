@@ -4875,7 +4875,8 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) -> anyhow::Result<()>
             let (handler_permissioned_as, schedule_permissioned_as): (String, String) =
                 sqlx::query_as(
                     "SELECT j.permissioned_as, s.permissioned_as FROM v2_job j, schedule s
-                    WHERE j.id = $1 AND s.path = 'f/system/failing_script_schedule'",
+                    WHERE j.id = $1 AND s.workspace_id = j.workspace_id
+                    AND s.path = 'f/system/failing_script_schedule'",
                 )
                 .bind(uuid)
                 .fetch_one(&db2)

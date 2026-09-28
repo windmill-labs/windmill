@@ -2781,7 +2781,7 @@ async fn send_email_with_instance_smtp(
 
     if !is_handler_job && !windmill_api_auth::is_super_admin_authed(&db, &authed).await? {
         return Err(Error::NotAuthorized(
-            "Only super admin or a workspace/schedule error handler job can send emails with the instance SMTP"
+            "Only super admin, a workspace error handler or a preset schedule handler can send emails with the instance SMTP"
                 .to_string(),
         ));
     }

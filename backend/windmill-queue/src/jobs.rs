@@ -2930,34 +2930,47 @@ pub async fn try_schedule_next_job<'c>(
     (tx, push_err)
 }
 
-pub const ERROR_HANDLER_PATH_TEAMS: &str = "/workspace-or-schedule-error-handler-teams";
-pub const ERROR_HANDLER_PATH_SLACK: &str = "/workspace-or-schedule-error-handler-slack";
-pub const ERROR_HANDLER_PATH_EMAIL: &str = "/workspace-or-error-handler-email";
+const ERROR_HANDLER_PATH_EMAIL: &str = "/workspace-or-error-handler-email";
 
-const PRESET_HANDLER_PATH_SUFFIXES: [&str; 7] = [
-    ERROR_HANDLER_PATH_TEAMS,
-    ERROR_HANDLER_PATH_SLACK,
-    ERROR_HANDLER_PATH_EMAIL,
-    "/schedule-recovery-handler-teams",
-    "/schedule-recovery-handler-slack",
-    "/schedule-success-handler-teams",
-    "/schedule-success-handler-slack",
+/// Every handler version the frontend has offered as a preset (`frontend/src/lib/hubPaths.json`
+/// and its history, which stored schedules still point at). Matched whole: a hub script is
+/// resolved by its numeric id alone, so the name after it proves nothing about its code.
+const PRESET_HANDLER_PATHS: [&str; 23] = [
+    "hub/6512/workspace-or-schedule-error-handler-slack",
+    "hub/5792/workspace-or-schedule-error-handler-slack",
+    "hub/9079/workspace-or-schedule-error-handler-slack",
+    "hub/9206/workspace-or-schedule-error-handler-slack",
+    "hub/19741/workspace-or-schedule-error-handler-slack",
+    "hub/28241/workspace-or-schedule-error-handler-slack",
+    "hub/28794/workspace-or-schedule-error-handler-slack",
+    "hub/2431/slack/schedule-error-handler-slack",
+    "hub/2430/slack/schedule-recovery-handler-slack",
+    "hub/9067/slack/schedule-recovery-handler-slack",
+    "hub/9080/slack/schedule-recovery-handler-slack",
+    "hub/28239/slack/schedule-recovery-handler-slack",
+    "hub/28791/slack/schedule-recovery-handler-slack",
+    "hub/9069/slack/schedule-success-handler-slack",
+    "hub/9072/slack/schedule-success-handler-slack",
+    "hub/28220/slack/schedule-success-handler-slack",
+    "hub/28240/slack/schedule-success-handler-slack",
+    "hub/28793/slack/schedule-success-handler-slack",
+    "hub/11598/workspace-or-schedule-error-handler-teams",
+    "hub/19742/workspace-or-schedule-error-handler-teams",
+    "hub/11593/schedule-recovery-handler-teams",
+    "hub/11596/schedule-success-handler-teams",
+    "hub/19795/workspace-or-error-handler-email",
 ];
 
-/// The suffix of a preset handler Windmill ships on the hub, `None` for user code.
-fn preset_handler_suffix(handler_path: &str) -> Option<&'static str> {
-    let path = handler_path
-        .strip_prefix("script/")
-        .or_else(|| handler_path.strip_prefix("flow/"))
-        .unwrap_or(handler_path);
-    let from_hub = path.strip_prefix("hub/")?;
-    PRESET_HANDLER_PATH_SUFFIXES
-        .into_iter()
-        .find(|suffix| from_hub.ends_with(suffix))
+/// The preset handler Windmill ships on the hub that `handler_path` names, `None` for user code.
+fn preset_handler(handler_path: &str) -> Option<&'static str> {
+    let path = handler_path.strip_prefix("script/").unwrap_or(handler_path);
+    PRESET_HANDLER_PATHS.into_iter().find(|p| *p == path)
 }
 
+/// Whether `handler_path` is a preset hub handler, which runs as the shared handler identity
+/// (Slack bot token, instance SMTP) instead of as the schedule or user that set it.
 pub fn is_preset_handler_path(handler_path: &str) -> bool {
-    preset_handler_suffix(handler_path).is_some()
+    preset_handler(handler_path).is_some()
 }
 
 /// `(email, permissioned_as)` a schedule handler runs as. The handler identity reads the
@@ -3006,7 +3019,9 @@ async fn error_handler_identity(
         )
         .await;
     }
-    let email = if preset_handler_suffix(error_handler_path) == Some(ERROR_HANDLER_PATH_EMAIL) {
+    let email = if preset_handler(error_handler_path)
+        .is_some_and(|p| p.ends_with(ERROR_HANDLER_PATH_EMAIL))
+    {
         EMAIL_ERROR_HANDLER_USER_EMAIL
     } else {
         ERROR_HANDLER_USER_EMAIL
@@ -8160,19 +8175,33 @@ mod preset_handler_path_tests {
     use super::is_preset_handler_path;
 
     #[test]
-    fn only_hub_scripts_are_presets() {
-        assert!(is_preset_handler_path(
-            "hub/28794/workspace-or-schedule-error-handler-slack"
-        ));
+    fn only_pinned_hub_scripts_are_presets() {
         assert!(is_preset_handler_path(
             "script/hub/28791/slack/schedule-recovery-handler-slack"
+        ));
+        // The hub resolves by id: any other id is arbitrary hub code whatever its name.
+        assert!(!is_preset_handler_path(
+            "hub/13968/workspace-or-schedule-error-handler-slack"
         ));
         assert!(!is_preset_handler_path(
             "script/u/me/workspace-or-schedule-error-handler-slack"
         ));
-        assert!(!is_preset_handler_path(
-            "f/hub/workspace-or-schedule-error-handler-slack"
-        ));
+    }
+
+    /// A preset version bumped in the frontend without being pinned here would silently run as
+    /// the schedule's owner and lose access to the Slack bot token.
+    #[test]
+    fn frontend_presets_are_pinned() {
+        let hub_paths: std::collections::HashMap<String, String> =
+            serde_json::from_str(include_str!("../../../frontend/src/lib/hubPaths.json")).unwrap();
+        for (name, path) in hub_paths {
+            if name.ends_with("Handler") {
+                assert!(
+                    is_preset_handler_path(&path),
+                    "{name}: {path} is not pinned"
+                );
+            }
+        }
     }
 }
 
