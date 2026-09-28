@@ -1,6 +1,6 @@
 ---
 name: write-pipeline
-description: MUST use when creating or modifying a data pipeline: scripts marked `pipeline` and wired together by `on` / `materialize` annotations.
+description: MUST use when creating or modifying a data pipeline, a set of scripts marked `pipeline` and wired together by `on` / `materialize` annotations.
 ---
 
 # Data pipeline authoring

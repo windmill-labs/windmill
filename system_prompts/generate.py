@@ -1622,7 +1622,16 @@ def extract_wac_py_sdk(py_content: str) -> str:
 
 def generate_skill_content(skill_name: str, description: str, body: str) -> str:
     """Generate a skill file with YAML frontmatter."""
-    return f"---\nname: {skill_name}\ndescription: {description}\n---\n\n{body}"
+    frontmatter = f"name: {skill_name}\ndescription: {description}\n"
+    # Agents find a skill by parsing this frontmatter, so a description YAML reads
+    # differently (a `: `, a leading quote or bracket) must fail here, not at load time.
+    try:
+        parsed = yaml.safe_load(frontmatter)
+    except yaml.YAMLError as e:
+        raise ValueError(f"Skill '{skill_name}' frontmatter is not valid YAML: {e}") from e
+    if parsed != {'name': skill_name, 'description': description}:
+        raise ValueError(f"Skill '{skill_name}' description does not read back as plain YAML text")
+    return f"---\n{frontmatter}---\n\n{body}"
 
 
 # How each topic's guidance is assembled, for the chat and the CLI alike.
@@ -1683,7 +1692,7 @@ TOPICS: dict[str, dict] = {
     },
     'pipeline': {
         'skill': 'write-pipeline',
-        'description': 'MUST use when creating or modifying a data pipeline: scripts marked `pipeline` and wired together by `on` / `materialize` annotations.',
+        'description': 'MUST use when creating or modifying a data pipeline, a set of scripts marked `pipeline` and wired together by `on` / `materialize` annotations.',
         'chat_helper': 'getPipelinePrompt',
         'parts': ['pipeline-base.md'],
     },

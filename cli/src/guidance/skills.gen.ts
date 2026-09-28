@@ -33,7 +33,7 @@ export const SKILLS: SkillMetadata[] = [
   { name: "schedules", description: "MUST use when configuring schedules." },
   { name: "resources", description: "MUST use when managing resources." },
   { name: "write-workflow-as-code", description: "MUST use when writing or modifying Windmill Workflow-as-Code scripts using workflow, task, step, sleep, approvals, taskScript, taskFlow, task_script, or task_flow." },
-  { name: "write-pipeline", description: "MUST use when creating or modifying a data pipeline: scripts marked `pipeline` and wired together by `on` / `materialize` annotations." },
+  { name: "write-pipeline", description: "MUST use when creating or modifying a data pipeline, a set of scripts marked `pipeline` and wired together by `on` / `materialize` annotations." },
   { name: "cli-commands", description: "MUST use when using the CLI, including debugging job failures and inspecting run history via `wmill job`." },
   { name: "preview", description: "MUST use when opening the Windmill dev page / visual preview of a flow, script, or app. Triggers on words like preview, open, navigate to, visualize, see the flow/app/script, and after writing a flow/script/app for visual verification." },
 ];
@@ -7785,7 +7785,7 @@ async def parallel(items, fn, *, concurrency: Optional[int] = None)
 `,
   "write-pipeline": `---
 name: write-pipeline
-description: MUST use when creating or modifying a data pipeline: scripts marked \`pipeline\` and wired together by \`on\` / \`materialize\` annotations.
+description: MUST use when creating or modifying a data pipeline, a set of scripts marked \`pipeline\` and wired together by \`on\` / \`materialize\` annotations.
 ---
 
 # Data pipeline authoring
