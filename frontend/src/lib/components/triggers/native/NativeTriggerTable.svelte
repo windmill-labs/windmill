@@ -4,7 +4,7 @@
 	import type { ExtendedNativeTrigger } from './utils'
 	import { getServiceConfig } from './utils'
 	import { canWrite, sendUserToast } from '$lib/utils'
-	import { triggerLock } from '$lib/operatorWriteRights'
+	import { useTriggerLock } from '$lib/operatorWriteRights'
 	import { userStore } from '$lib/stores'
 	import TriggerModeToggle from '$lib/components/triggers/TriggerModeToggle.svelte'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
@@ -18,6 +18,7 @@
 	import GoogleDriveIcon from '$lib/components/icons/GoogleDriveIcon.svelte'
 	import GoogleCalendarIcon from '$lib/components/icons/GoogleCalendarIcon.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	const triggerLock = useTriggerLock()
 
 	const operatingWorkspace = useOperatingWorkspace()
 

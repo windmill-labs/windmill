@@ -7,7 +7,7 @@
 		WorkspaceService
 	} from '$lib/gen'
 	import { canWrite, displayDate, getLocalSetting, storeLocalSetting } from '$lib/utils'
-	import { scheduleLock } from '$lib/operatorWriteRights'
+	import { useScheduleLock } from '$lib/operatorWriteRights'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import { base } from '$app/paths'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -59,6 +59,7 @@
 		useOperatingWorkspace,
 		useOperatingUser
 	} from '$lib/components/operatingWorkspace.svelte'
+	const scheduleLock = useScheduleLock()
 
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
