@@ -2990,6 +2990,12 @@ pub async fn schedule_handler_identity(
             ERROR_HANDLER_USER_GROUP.to_string(),
         ));
     }
+    if handler_path.contains("hub/") && handler_path.contains("-handler-") {
+        tracing::warn!(
+            "schedule handler {handler_path} in {w_id} is named like a preset but is not a pinned \
+             preset version: it runs as the schedule ({schedule_permissioned_as})"
+        );
+    }
     let email =
         windmill_common::users::get_email_from_permissioned_as(schedule_permissioned_as, w_id, db)
             .await?;
@@ -8195,7 +8201,7 @@ mod preset_handler_path_tests {
         let hub_paths: std::collections::HashMap<String, String> =
             serde_json::from_str(include_str!("../../../frontend/src/lib/hubPaths.json")).unwrap();
         for (name, path) in hub_paths {
-            if name.ends_with("Handler") {
+            if path.contains("-handler-") {
                 assert!(
                     is_preset_handler_path(&path),
                     "{name}: {path} is not pinned"
