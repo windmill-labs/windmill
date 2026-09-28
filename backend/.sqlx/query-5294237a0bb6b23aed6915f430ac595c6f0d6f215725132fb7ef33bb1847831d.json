@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO workspace_integrations (workspace_id, service_name, oauth_data, created_by)\n             VALUES ($1, $2, $3, $4)\n             ON CONFLICT (workspace_id, service_name) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        {
+          "Custom": {
+            "name": "native_trigger_service",
+            "kind": {
+              "Enum": [
+                "nextcloud",
+                "google",
+                "github"
+              ]
+            }
+          }
+        },
+        "Jsonb",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5294237a0bb6b23aed6915f430ac595c6f0d6f215725132fb7ef33bb1847831d"
+}

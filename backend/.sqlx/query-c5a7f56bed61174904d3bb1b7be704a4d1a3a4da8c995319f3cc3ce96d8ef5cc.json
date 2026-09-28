@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT\n            external_id,\n            workspace_id,\n            service_name AS \"service_name!: ServiceName\",\n            script_path,\n            is_flow,\n            webhook_token_hash,\n            service_config,\n            error,\n            created_at,\n            updated_at,\n            summary,\n            enabled\n        FROM\n            native_trigger\n        WHERE\n            workspace_id = $1\n            AND service_name = $2\n            AND external_id = $3\n        ",
+  "query": "\n        SELECT\n            nt.external_id,\n            nt.workspace_id,\n            nt.service_name AS \"service_name!: ServiceName\",\n            nt.script_path,\n            nt.is_flow,\n            nt.webhook_token_hash,\n            nt.service_config,\n            nt.error,\n            nt.created_at,\n            nt.updated_at,\n            nt.summary,\n            nt.enabled,\n            nt.connection_path\n        FROM\n            native_trigger nt\n        WHERE\n            nt.workspace_id = $1 AND\n            nt.service_name = $2 AND\n            ($5::text IS NULL OR nt.script_path = $5) AND\n            ($6::bool IS NULL OR nt.is_flow = $6) AND\n            (\n                (nt.is_flow = false AND EXISTS (\n                    SELECT 1 FROM script s\n                    WHERE s.workspace_id = nt.workspace_id\n                    AND s.path = nt.script_path\n                ))\n                OR\n                (nt.is_flow = true AND EXISTS (\n                    SELECT 1 FROM flow f\n                    WHERE f.workspace_id = nt.workspace_id\n                    AND f.path = nt.script_path\n                ))\n            ) AND\n            ( $7\n              OR nt.script_path = ANY($8)\n              OR EXISTS ( SELECT 1 FROM unnest($9::text[]) AS pfx\n                          WHERE nt.script_path = pfx\n                             OR left(nt.script_path, length(pfx) + 1) = pfx || '/' ) )\n        LIMIT $3\n        OFFSET $4\n        ",
   "describe": {
     "columns": [
       {
@@ -73,6 +73,11 @@
         "ordinal": 11,
         "name": "enabled",
         "type_info": "Bool"
+      },
+      {
+        "ordinal": 12,
+        "name": "connection_path",
+        "type_info": "Varchar"
       }
     ],
     "parameters": {
@@ -90,7 +95,13 @@
             }
           }
         },
-        "Text"
+        "Int8",
+        "Int8",
+        "Text",
+        "Bool",
+        "Bool",
+        "TextArray",
+        "TextArray"
       ]
     },
     "nullable": [
@@ -105,8 +116,9 @@
       false,
       false,
       true,
-      false
+      false,
+      true
     ]
   },
-  "hash": "c7766afaea3e187824698cae2b090af9f49ded98cd1824f1ac91cc5dbe709bc1"
+  "hash": "c5a7f56bed61174904d3bb1b7be704a4d1a3a4da8c995319f3cc3ce96d8ef5cc"
 }

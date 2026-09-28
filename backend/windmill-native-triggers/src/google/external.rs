@@ -42,7 +42,7 @@ impl External for Google {
     async fn create(
         &self,
         w_id: &str,
-        _oauth_data: &Self::OAuthData,
+        oauth_data: &Self::OAuthData,
         webhook_token: &str,
         data: &NativeTriggerData<Self::ServiceConfig>,
         db: &DB,
@@ -51,8 +51,16 @@ impl External for Google {
         // At creation time, channel_id also becomes the trigger's external_id
         // (see external_id_and_metadata_from_response).
         let channel_id = uuid::Uuid::new_v4().to_string();
-        self.create_watch_channel(w_id, &channel_id, &channel_id, webhook_token, data, db)
-            .await
+        self.create_watch_channel(
+            w_id,
+            &oauth_data.connection_path,
+            &channel_id,
+            &channel_id,
+            webhook_token,
+            data,
+            db,
+        )
+        .await
     }
 
     async fn update(
@@ -72,7 +80,15 @@ impl External for Google {
         // external_id stays the stable routing key used in the webhook URL.
         let channel_id = uuid::Uuid::new_v4().to_string();
         let resp = self
-            .create_watch_channel(w_id, external_id, &channel_id, webhook_token, data, db)
+            .create_watch_channel(
+                w_id,
+                &oauth_data.connection_path,
+                external_id,
+                &channel_id,
+                webhook_token,
+                data,
+                db,
+            )
             .await?;
 
         self.service_config_from_create_response(data, &resp)
@@ -86,7 +102,7 @@ impl External for Google {
     async fn delete(
         &self,
         w_id: &str,
-        _oauth_data: &Self::OAuthData,
+        oauth_data: &Self::OAuthData,
         external_id: &str,
         db: &DB,
         tx: &mut PgConnection,
@@ -122,7 +138,15 @@ impl External for Google {
 
             // Stop the channel (ignore errors - channel may have already expired)
             let result: std::result::Result<serde_json::Value, _> = self
-                .http_client_request(&url, Method::POST, w_id, db, None, Some(&stop_request))
+                .http_client_request(
+                    &url,
+                    Method::POST,
+                    w_id,
+                    &oauth_data.connection_path,
+                    db,
+                    None,
+                    Some(&stop_request),
+                )
                 .await;
 
             if let Err(e) = result {
@@ -231,6 +255,7 @@ impl Google {
     async fn create_watch_channel(
         &self,
         w_id: &str,
+        connection_path: &str,
         external_id: &str,
         channel_id: &str,
         webhook_token: &str,
@@ -263,12 +288,24 @@ impl Google {
 
         match data.service_config.trigger_type {
             GoogleTriggerType::Drive => {
-                self.create_drive_watch(w_id, &data.service_config, &watch_request, db)
-                    .await
+                self.create_drive_watch(
+                    w_id,
+                    connection_path,
+                    &data.service_config,
+                    &watch_request,
+                    db,
+                )
+                .await
             }
             GoogleTriggerType::Calendar => {
-                self.create_calendar_watch(w_id, &data.service_config, &watch_request, db)
-                    .await
+                self.create_calendar_watch(
+                    w_id,
+                    connection_path,
+                    &data.service_config,
+                    &watch_request,
+                    db,
+                )
+                .await
             }
         }
     }
@@ -276,6 +313,7 @@ impl Google {
     async fn create_drive_watch(
         &self,
         w_id: &str,
+        connection_path: &str,
         config: &GoogleServiceConfig,
         watch_request: &WatchRequest,
         db: &DB,
@@ -285,14 +323,30 @@ impl Google {
                 // Specific file: use files.watch
                 let url = format!("{}/files/{}/watch", endpoints::DRIVE_API_BASE, resource_id);
 
-                self.http_client_request(&url, Method::POST, w_id, db, None, Some(watch_request))
-                    .await
+                self.http_client_request(
+                    &url,
+                    Method::POST,
+                    w_id,
+                    connection_path,
+                    db,
+                    None,
+                    Some(watch_request),
+                )
+                .await
             }
             None => {
                 // All changes: use changes.watch
                 let token_url = format!("{}/changes/startPageToken", endpoints::DRIVE_API_BASE);
                 let token_response: serde_json::Value = self
-                    .http_client_request::<_, ()>(&token_url, Method::GET, w_id, db, None, None)
+                    .http_client_request::<_, ()>(
+                        &token_url,
+                        Method::GET,
+                        w_id,
+                        connection_path,
+                        db,
+                        None,
+                        None,
+                    )
                     .await?;
 
                 let start_page_token = token_response
@@ -313,6 +367,7 @@ impl Google {
                     &watch_url,
                     Method::POST,
                     w_id,
+                    connection_path,
                     db,
                     None,
                     Some(&watch_body),
@@ -325,6 +380,7 @@ impl Google {
     async fn create_calendar_watch(
         &self,
         w_id: &str,
+        connection_path: &str,
         config: &GoogleServiceConfig,
         watch_request: &WatchRequest,
         db: &DB,
@@ -339,8 +395,16 @@ impl Google {
             urlencoding::encode(calendar_id)
         );
 
-        self.http_client_request(&url, Method::POST, w_id, db, None, Some(watch_request))
-            .await
+        self.http_client_request(
+            &url,
+            Method::POST,
+            w_id,
+            connection_path,
+            db,
+            None,
+            Some(watch_request),
+        )
+        .await
     }
 
     /// Renew an expiring Google watch channel.
@@ -362,6 +426,12 @@ impl Google {
             .map(|v| serde_json::from_value(v.clone()))
             .transpose()?
             .ok_or_else(|| Error::InternalErr("Missing service config".to_string()))?;
+        let connection_path = trigger.connection_path.as_deref().ok_or_else(|| {
+            Error::BadRequest(format!(
+                "Cannot renew channel {}: the trigger has no Google connection",
+                trigger.external_id
+            ))
+        })?;
 
         let rotated = match crate::rotate_webhook_token(
             db,
@@ -430,7 +500,15 @@ impl Google {
                 }
             };
             let result: std::result::Result<serde_json::Value, _> = self
-                .http_client_request(&url, Method::POST, w_id, db, None, Some(&stop_request))
+                .http_client_request(
+                    &url,
+                    Method::POST,
+                    w_id,
+                    connection_path,
+                    db,
+                    None,
+                    Some(&stop_request),
+                )
                 .await;
             if let Err(e) = result {
                 tracing::warn!(
@@ -444,11 +522,11 @@ impl Google {
         // Create new watch channel with a fresh channel ID
         let resp = match config.trigger_type {
             GoogleTriggerType::Drive => {
-                self.create_drive_watch(w_id, &config, &watch_request, db)
+                self.create_drive_watch(w_id, connection_path, &config, &watch_request, db)
                     .await?
             }
             GoogleTriggerType::Calendar => {
-                self.create_calendar_watch(w_id, &config, &watch_request, db)
+                self.create_calendar_watch(w_id, connection_path, &config, &watch_request, db)
                     .await?
             }
         };

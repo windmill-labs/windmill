@@ -9,8 +9,10 @@
 	import { Debounced, watch } from 'runed'
 	import { untrack } from 'svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { useNativeConnection } from '../../utils'
 
 	const operatingWorkspace = useOperatingWorkspace()
+	const connectionPath = useNativeConnection()
 
 	interface Props {
 		resourceId: string
@@ -53,6 +55,7 @@
 		try {
 			const params: Parameters<typeof NativeTriggerService.listGoogleDriveFiles>[0] = {
 				workspace: $operatingWorkspace,
+				connectionPath: connectionPath(),
 				pageToken
 			}
 
@@ -98,7 +101,8 @@
 
 		try {
 			sharedDrives = await NativeTriggerService.listGoogleSharedDrives({
-				workspace: $operatingWorkspace
+				workspace: $operatingWorkspace,
+				connectionPath: connectionPath()
 			})
 		} catch (err: any) {
 			sendUserToast(`Failed to load shared drives: ${err.body || err.message}`, true)
