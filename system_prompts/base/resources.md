@@ -2,11 +2,13 @@
 
 Resources store credentials and configuration for external services.
 
+<!-- cli-only -->
 ## File Format
 
 Resource files use the pattern: `{path}.resource.json`
 
 Example: `f/databases/postgres_prod.resource.json`
+<!-- /cli-only -->
 
 ## Resource Structure
 
@@ -260,6 +262,7 @@ def main(db: postgresql):
     pass
 ```
 
+<!-- cli-only -->
 ## CLI Commands
 
 ```bash
@@ -277,3 +280,4 @@ wmill resource-type get postgresql
 # deploy via `git push` or `wmill sync push` (see the Deploying section in AGENTS.wmill.md).
 wmill sync push
 ```
+<!-- /cli-only -->

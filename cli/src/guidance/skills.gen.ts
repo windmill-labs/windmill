@@ -111,7 +111,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 
 ## Preprocessor Scripts
 
-Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
 
 The returned object determines the parameter values passed to the flow.
 e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
@@ -279,7 +279,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 
 ## Preprocessor Scripts
 
-Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
 
 The returned object determines the parameter values passed to the flow.
 e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
@@ -407,7 +407,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 
 ## Preprocessor Scripts
 
-Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
 
 The returned object determines the parameter values passed to the flow.
 e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
@@ -528,7 +528,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 
 ## Preprocessor Scripts
 
-Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
 
 The returned object determines the parameter values passed to the flow.
 e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
@@ -589,7 +589,7 @@ import * as wmill from "windmill-client";
 
 **Prefer \`windmill-client\` over raw \`fetch\` for anything that talks to Windmill** — reading resources/variables/states, running scripts and flows, S3 object operations, etc. It handles auth, the workspace, and the base URL for you, so you don't hand-roll URLs or tokens. Reserve \`fetch\` for calling *external* HTTP APIs that aren't Windmill.
 
-The full \`windmill-client\` API reference (every exported function and its signature) is included in this skill below — consult it for the exact method to use instead of guessing or falling back to \`fetch\`.
+The full \`windmill-client\` API reference (every exported function and its signature) is included below — consult it for the exact method to use instead of guessing or falling back to \`fetch\`.
 
 ## Preprocessor Scripts
 
@@ -607,7 +607,9 @@ type Event = {
     | "postgres"
     | "sqs"
     | "mqtt"
-    | "gcp";
+    | "amqp"
+    | "gcp"
+    | "azure";
   body: any;
   headers: Record<string, string>;
   query: Record<string, string>;
@@ -1351,7 +1353,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 
 ## Preprocessor Scripts
 
-Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
 
 The returned object determines the parameter values passed to the flow.
 e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
@@ -1409,7 +1411,7 @@ export async function main(url: string) {
 
 \`windmill-client\` works on the native worker (its calls go over \`fetch\`), so use it as the **preferred way to talk to Windmill** — reading resources/variables/states, running scripts and flows, and the S3 helpers below (\`loadS3File\`, \`loadS3FileStream\`, \`writeS3File\`, \`S3Object\`). It handles auth, the workspace, and the base URL for you. Reserve raw \`fetch\` for calling *external* HTTP APIs that aren't Windmill.
 
-The full \`windmill-client\` API reference (every exported function and its signature) is included in this skill below — consult it for the exact method instead of hand-rolling a \`fetch\` against the Windmill API.
+The full \`windmill-client\` API reference (every exported function and its signature) is included below — consult it for the exact method instead of hand-rolling a \`fetch\` against the Windmill API.
 
 ## Preprocessor Scripts
 
@@ -1428,7 +1430,9 @@ type Event = {
     | "postgres"
     | "sqs"
     | "mqtt"
-    | "gcp";
+    | "amqp"
+    | "gcp"
+    | "azure";
   body: any;
   headers: Record<string, string>;
   query: Record<string, string>;
@@ -2174,7 +2178,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 
 ## Preprocessor Scripts
 
-Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
 
 The returned object determines the parameter values passed to the flow.
 e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
@@ -2294,7 +2298,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 
 ## Preprocessor Scripts
 
-Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
 
 The returned object determines the parameter values passed to the flow.
 e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
@@ -2357,7 +2361,7 @@ import * as wmill from "windmill-client";
 
 **Prefer \`windmill-client\` over raw \`fetch\` for anything that talks to Windmill** — reading resources/variables/states, running scripts and flows, S3 object operations, etc. It handles auth, the workspace, and the base URL for you. Reserve \`fetch\` for calling *external* HTTP APIs that aren't Windmill.
 
-The full \`windmill-client\` API reference (every exported function and its signature) is included in this skill below — consult it for the exact method instead of guessing or falling back to \`fetch\`.
+The full \`windmill-client\` API reference (every exported function and its signature) is included below — consult it for the exact method instead of guessing or falling back to \`fetch\`.
 
 ## Preprocessor Scripts
 
@@ -2375,7 +2379,9 @@ type Event = {
     | "postgres"
     | "sqs"
     | "mqtt"
-    | "gcp";
+    | "amqp"
+    | "gcp"
+    | "azure";
   body: any;
   headers: Record<string, string>;
   query: Record<string, string>;
@@ -3119,7 +3125,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 
 ## Preprocessor Scripts
 
-Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
 
 The returned object determines the parameter values passed to the flow.
 e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
@@ -3273,7 +3279,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 
 ## Preprocessor Scripts
 
-Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
 
 The returned object determines the parameter values passed to the flow.
 e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
@@ -3410,7 +3416,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 
 ## Preprocessor Scripts
 
-Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
 
 The returned object determines the parameter values passed to the flow.
 e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
@@ -3534,7 +3540,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 
 ## Preprocessor Scripts
 
-Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
 
 The returned object determines the parameter values passed to the flow.
 e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
@@ -3651,7 +3657,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 
 ## Preprocessor Scripts
 
-Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
 
 The returned object determines the parameter values passed to the flow.
 e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
@@ -3771,7 +3777,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 
 ## Preprocessor Scripts
 
-Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
 
 The returned object determines the parameter values passed to the flow.
 e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
@@ -3892,7 +3898,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 
 ## Preprocessor Scripts
 
-Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
 
 The returned object determines the parameter values passed to the flow.
 e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
@@ -4028,7 +4034,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 
 ## Preprocessor Scripts
 
-Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
 
 The returned object determines the parameter values passed to the flow.
 e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
@@ -4147,7 +4153,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 
 ## Preprocessor Scripts
 
-Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
 
 The returned object determines the parameter values passed to the flow.
 e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
@@ -4281,7 +4287,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 
 ## Preprocessor Scripts
 
-Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
 
 The returned object determines the parameter values passed to the flow.
 e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
@@ -4371,7 +4377,7 @@ For preprocessor scripts, the function should be named \`preprocessor\` and rece
 from typing import TypedDict, Literal, Any
 
 class Event(TypedDict):
-    kind: Literal["webhook", "http", "websocket", "kafka", "email", "nats", "postgres", "sqs", "mqtt", "gcp"]
+    kind: Literal["webhook", "http", "websocket", "kafka", "email", "nats", "postgres", "sqs", "mqtt", "amqp", "gcp", "azure"]
     body: Any
     headers: dict[str, str]
     query: dict[str, str]
@@ -5290,7 +5296,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 
 ## Preprocessor Scripts
 
-Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
 
 The returned object determines the parameter values passed to the flow.
 e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
@@ -5454,7 +5460,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 
 ## Preprocessor Scripts
 
-Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
 
 The returned object determines the parameter values passed to the flow.
 e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
@@ -5608,7 +5614,7 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 
 ## Preprocessor Scripts
 
-Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
 
 The returned object determines the parameter values passed to the flow.
 e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
@@ -5917,8 +5923,8 @@ names, so neither is name-checked at all — leave those summaries as they are.
 - Always set \`summary\`. It must be unique among that agent's tools, and must not be one of the
   reserved ids (\`do\`, \`bg\`, \`ctx\`, \`state\`, \`if\`, \`else\`, \`for\`, \`delete\`, \`while\`, \`new\`, \`in\`,
   \`failure\`, \`preprocessor\`, \`as\`, \`Input\`, \`Result\`, \`Trigger\`)
-- A tool name outside that character set is rejected: flow write tools refuse it, and a flow that
-  reaches the worker with one fails every run with \`Invalid tool name\`
+- A tool name outside that character set fails every run of the flow with \`Invalid tool name\`.
+  \`wmill lint <flow folder>\` reports it before anything runs.
 - Tool \`id\` follows the same rules as any module ID — unique across the flow, underscores not spaces
 - \`description\` is optional free text telling the agent when and how to call the tool. Set it
   whenever the name alone does not make that obvious; it overrides the description derived from the
@@ -5941,9 +5947,11 @@ names, so neither is name-checked at all — leave those summaries as they are.
 
 ## Loop Structure Rules
 
+- A \`forloopflow\` runs its \`modules\` once per element of \`iterator\`, a javascript expression returning an array (e.g. \`results.get_items\`); \`parallel: true\` runs the iterations concurrently, and \`skip_failures: true\` carries on past a failed iteration
 - For \`whileloopflow\`, break the loop with a module-level \`stop_after_if\`: on the loop module itself, or on an inner step (required when that step carries state via its own \`results\` — see below)
 - \`stop_after_if\` is always a sibling of \`id\` and \`value\` on a flow module — never a direct key of the loop's \`value\` object
 - \`stop_after_all_iters_if\` is for checks after the whole loop finishes, not the normal per-iteration break condition
+- \`stop_after_if\` is evaluated after each iteration: on the loop module, \`result\` is that iteration's result (what its last step returned); on an inner step, it is that step's result
 - \`flow_input.iter.value\` in a \`whileloopflow\` is just the iteration index (same number as \`flow_input.iter.index\`) — it never carries state, so \`flow_input.iter.value.<field>\` is always undefined and a loop whose stop condition depends on it never terminates
 - To carry state across iterations, a step reads its own previous-iteration result via \`results.<its_own_id>\` with a first-iteration fallback (e.g. \`results.b ?? flow_input.start\`) — but then the loop's \`stop_after_if\` MUST sit on that inner step, not on the loop module: a body that is exactly one plain step with the stop condition on the loop module runs on a fast path where \`results.<step_id>\` is null on every iteration and the loop never terminates (bodies with 2+ steps, or whose single step has its own \`stop_after_if\`, retry or similar, resolve \`results\` across iterations regardless of stop placement)
 - For state that is just a counter, derive it from the index instead (e.g. \`flow_input.iter.index + 1\`) — that works in every configuration, including with \`stop_after_if\` on the loop module
@@ -6081,6 +6089,7 @@ Incorrect shape (identity has no resume URLs — not a real approval):
 
 ## Branch Result Scope Rules
 
+- A \`branchone\` runs the first of its \`branches\` whose \`expr\` is true, in order, and its \`default\` modules when none is; a \`branchall\` runs every branch (concurrently with \`parallel: true\`)
 - Inside a branch, you may reference earlier outer steps and earlier steps in the same branch
 - Outside a \`branchone\`, do NOT reference ids of steps that only exist inside its branches or default branch. Use \`results.<branchone_module_id>\` instead
 - Outside a \`branchall\`, do NOT reference ids of steps inside its branches. Use \`results.<branchall_module_id>\` instead
@@ -6140,6 +6149,41 @@ JavaScript transform (dynamic expression):
 - For flow inputs: Use type \`"object"\` with format \`"resource-{type}"\` (e.g., \`"resource-postgresql"\`)
 - For step inputs: Use static value \`"$res:path/to/resource"\`
 
+## Reusing Existing Scripts and Flows
+
+Unless the user asked for new code, look for a workspace script or flow that already does a step's job before writing it, and reuse it by path instead of copying its logic into a rawscript:
+
+- a workspace script: \`type: script\` with \`path\` (e.g. \`f/folder/send_email\`)
+- a workspace flow, run as a subflow: \`type: flow\` with \`path\`
+- a Hub script: \`type: script\` with a \`hub/<version>/<app>/<name>\` path
+
+The step's \`input_transforms\` must cover the reused item's inputs, so read its input schema first.
+Find candidates in the local tree (a \`.script.yaml\` sits next to each script and holds its input schema, a \`flow.yaml\` in each flow folder) and on the workspace with \`wmill script list\` / \`wmill flow list\`; \`wmill script get <path>\` and \`wmill flow get <path>\` show an item's details.
+
+## Organizing Flows: Groups and Notes
+
+Groups and notes shape how a flow reads in the editor; neither changes what it does.
+
+**Segment every non-trivial flow into groups without waiting to be asked.** Whenever a flow has more than a couple of steps, or consecutive steps form a stage ("fetch", "transform", "notify"), put them in a group, and aim for every meaningful step to belong to one. Use notes sparingly, for flow-wide information that belongs to no span of steps: the flow's purpose, key assumptions, warnings, TODOs. One note is usually enough; never label a run of steps with a note, which is what a group is for.
+
+\`value.groups\` lists the groups, each spanning the steps from \`start_id\` to \`end_id\`:
+
+- \`start_id\`, \`end_id\` (required): ids of the group's first and last step; the same id for both makes a one-step group
+- \`summary\`: the group's title
+- \`note\`: markdown shown under the title
+- \`color\`: one of \`yellow\`, \`blue\`, \`green\`, \`purple\`, \`pink\`, \`orange\`, \`red\`, \`cyan\`, \`lime\`, \`gray\`, never a hex code or CSS color; leave it out and the editor picks one
+- \`autocollapse\`: \`true\` shows the group collapsed by default
+
+The editor refuses to draw a flow whose groups break any of these rules:
+
+- \`start_id\` and \`end_id\` are steps of the same list: both top-level, or both in the same loop body or branch. A group can hold a loop or branch step whole, but cannot start outside one and end inside it
+- \`start_id\` does not come after \`end_id\` in that list
+- groups nest (one entirely inside another) but never partly overlap, and no two groups share both \`start_id\` and \`end_id\`
+- groups hold ordinary steps only: never \`preprocessor\`, \`failure\`, \`Input\`, \`Result\`, \`Trigger\`, or an AI agent's tools
+
+\`value.notes\` lists sticky notes, each with a unique \`id\`, markdown \`text\`, a \`color\` from the same list, and \`type: free\`. The \`group\` note type is deprecated; use \`value.groups\` instead.
+Give each note a \`position\` (\`{ x, y }\`) and a \`size\` (\`{ width, height }\`): the editor draws a note without them at the origin and cannot resize it. \`x: -400\` with \`width: 275\` places it beside the graph.
+
 ## Final Structural Self-Check
 
 Before finalizing a flow, verify:
@@ -6149,6 +6193,8 @@ Before finalizing a flow, verify:
 - any approval step has module-level \`suspend\`
 - no downstream step references inner branch step ids from outside the branch
 - every AI agent flowmodule tool has a unique \`summary\` made only of letters, numbers and underscores
+- every group starts and ends on steps of the same list, start before end, nesting without partial overlap
+- \`wmill lint <flow folder>\` reports no error
 
 ## S3 Object Operations
 
@@ -7727,7 +7773,9 @@ Do not spread a pipeline across postgres, S3, and DuckLake when one DuckLake lak
 
 ## Storage prerequisites
 
-A DuckLake pipeline only runs once the workspace has **object storage** (S3 / Azure Blob / GCS) **and a DuckLake catalog** configured — DuckLake tables and \`s3://\` assets can't be materialized or read without it. Check with the \`list_ducklakes\` tool before you build (it returns the configured DuckLake catalogs, or none). Drafting the annotated scripts does not require storage, but the pipeline can't ingest, materialize, or read its assets until it exists. So if \`list_ducklakes\` returns none (or the user hits "storage not configured" errors), say so and give the right next step **by role**:
+A DuckLake pipeline only runs once the workspace has **object storage** (S3 / Azure Blob / GCS) **and a DuckLake catalog** configured — DuckLake tables and \`s3://\` assets can't be materialized or read without it. Check which DuckLake catalogs the workspace has before you build.
+\`wmill ducklake list\` lists them.
+Drafting the annotated scripts does not require storage, but the pipeline can't ingest, materialize, or read its assets until it exists. So if there is none (or the user hits "storage not configured" errors), say so and give the right next step **by role**:
 
 - a workspace **admin** sets it up in Workspace settings → Object Storage (add an S3/Azure/GCS storage), then adds a DuckLake catalog on top of it;
 - anyone **without admin rights** should ask a workspace admin to configure object storage + a DuckLake catalog.
@@ -7751,7 +7799,7 @@ A script joins the pipeline when its source begins with the \`pipeline\` annotat
       SELECT * FROM read_csv($file)
       \`\`\`
 - **Outputs** are inferred from what the body writes — a \`CREATE TABLE\`, a \`wmill.writeS3File(...)\`, a DuckLake/datatable write. To declare a managed output explicitly, use \`// materialize <asset-uri>\`.
-- Optional badges: \`// partitioned <daily|hourly|weekly|monthly|dynamic>\`, \`// freshness <duration>\` (e.g. \`1h\`), \`// tag <worker-tag>\`, \`// retry <count> [delay]\`, \`// data_test <kind> ...\` (managed DuckLake targets only — deploy rejects it beside a \`dbt://\` one).
+- Optional badges: \`// partitioned <daily|hourly|weekly|monthly|dynamic>\`, \`// freshness <duration>\` (e.g. \`1h\`), \`// tag <worker-tag>\`, \`// retry <count> [delay]\`, \`// data_test <kind> ...\` (managed DuckLake targets only — deploy rejects it beside a \`dbt://\` one), \`// measure <name> = <agg> [where <pred>]\` and \`// dimension <name> = <expr>\` (see "Declared metrics" below).
 
 ## S3 object wiring (storage form matters)
 
@@ -7778,19 +7826,37 @@ A managed \`// materialize ducklake://<name>/<table>\` tells the runtime to writ
 
 \`// materialize manual <uri>\` opts **out** of managed writes — the script writes its own DDL and the annotation only records the output asset for lineage.
 
-\`materialize\` pairs with partitioning for incremental pipelines: a \`// partitioned <daily|hourly|weekly|monthly|dynamic>\` node runs **once per partition** (append/merge into a fixed-schema table), and the \`{partition}\` token inside any asset URI is substituted with the current partition value at run time.
+\`materialize\` pairs with partitioning for incremental pipelines: a \`// partitioned <daily|hourly|weekly|monthly|dynamic>\` node runs **once per partition** (append/merge into a fixed-schema table). The \`{partition}\` token, usable in any asset URI **and** in the body SQL, is replaced at run time by the current partition's **identity string**:
+
+- To filter the source to the active slice on a time grain, use the runtime-injected macro: \`WHERE wm_partition(<ts_col>) = {partition}\`. \`wm_partition(ts)\` buckets a timestamp in exactly the identity format the runtime uses for daily/hourly/weekly/monthly, so it always matches; never hand-write a \`strftime\` format.
+- Do NOT write \`= TIMESTAMP {partition}\`: the identity string is not a valid timestamp literal for hourly/weekly/monthly and errors at run time.
+- For \`dynamic\` partitioning the identity is the caller-supplied key (not a timestamp, no macro), so filter on it directly: \`WHERE <your_key_col> = {partition}\`.
 
 \`materialize\` is an output **declaration** on a node — not a command. There is no "materialize run".
 
-## How to build one in chat
+## Declared metrics (\`measure\` / \`dimension\`)
+
+On a node that materializes a DuckLake table, \`// measure <name> = <aggregate> [where <predicate>]\` names the canonical way to aggregate that table (e.g. \`// measure revenue = sum(amount) where not is_refund\`), and \`// dimension <name> = <expr>\` names a way to slice it (e.g. \`// dimension region = region\`, \`// dimension month = date_trunc('month', ordered_at)\`). They execute nothing: they are catalogued at deploy so the editor and other agents reuse the definition instead of re-deriving it and silently disagreeing.
+
+- Keep the predicate in the \`where\` clause rather than folding it into the aggregate: it is rendered as \`<agg> FILTER (WHERE <pred>)\`, which is what lets two measures with different predicates share one GROUP BY.
+- DuckLake-only, and only meaningful next to \`// materialize\`.
+- Declare one when a number carries a judgement call someone else would get wrong (refunds excluded, test rows dropped, which column is the amount); do NOT blanket every table with measures — an obvious \`count(*)\` earns nothing.
+- To use a metric another node declares, read that node and reuse its exact expression rather than guessing it.
+
+## How to build one
 
 1. Put every node in the **same folder**: \`f/<folder>/<name>\`. The folder is the pipeline.
-2. Author each node as a **script draft** with \`write_script\` (or \`edit_script\`). Default to \`duckdb\` materializing into DuckLake (see "Default to DuckDB + DuckLake" above); pick \`postgresql\`, \`bun\`, or \`python3\` only when that section says the work calls for it.
+2. Write each node as its own script. Default to \`duckdb\` materializing into DuckLake (see "Default to DuckDB + DuckLake" above); pick \`postgresql\`, \`bun\`, or \`python3\` only when that section says the work calls for it.
 3. Start each body with \`// pipeline\`, then the \`// on\` input declarations, then the transform that writes the output.
 4. **Chain nodes by asset URI**: read an upstream node's output asset, then \`// on <that-same-uri>\` in the downstream node so the edge forms. Reuse exact asset paths from existing nodes rather than inventing parallel ones.
-5. Leave nodes as drafts unless the user asks to deploy. A pipeline only "runs" once its scripts are deployed and their triggers exist.
+5. Don't deploy nodes unless the user asks to. A pipeline only "runs" once its scripts are deployed and their triggers exist.
 
-When the user already has the \`/pipeline/<folder>\` editor open, prefer the dedicated \`build_pipeline_node\` / \`edit_pipeline_node\` tools (they stage reviewable, canvas-highlighted proposals). Outside the editor, use the standard script-draft tools with the annotations above.
+Locally:
+
+- create each node with \`wmill script new f/<folder>/<name> <language>\`, then write its body;
+- \`wmill pipeline show <folder> --local\` draws the graph from your working tree — check that every edge you meant to form is there;
+- \`wmill pipeline dev <folder>\` live-previews the pipeline, and \`wmill pipeline run <folder> --local\` runs the cascade from local files without deploying (\`--dry-run\` prints the plan first);
+- a trigger such as \`// on schedule\` only declares the binding: the schedule or trigger itself is created separately (see the \`schedules\` and \`triggers\` skills).
 
 ## Example (DuckDB → DuckLake, scheduled ingest + downstream transform)
 

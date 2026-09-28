@@ -170,8 +170,13 @@ names, so neither is name-checked at all — leave those summaries as they are.
 - Always set `summary`. It must be unique among that agent's tools, and must not be one of the
   reserved ids (`do`, `bg`, `ctx`, `state`, `if`, `else`, `for`, `delete`, `while`, `new`, `in`,
   `failure`, `preprocessor`, `as`, `Input`, `Result`, `Trigger`)
-- A tool name outside that character set is rejected: flow write tools refuse it, and a flow that
-  reaches the worker with one fails every run with `Invalid tool name`
+- A tool name outside that character set fails every run of the flow with `Invalid tool name`.
+<!-- chat-only -->
+  The flow write tools refuse such a name.
+<!-- /chat-only -->
+<!-- cli-only -->
+  `wmill lint <flow folder>` reports it before anything runs.
+<!-- /cli-only -->
 - Tool `id` follows the same rules as any module ID — unique across the flow, underscores not spaces
 - `description` is optional free text telling the agent when and how to call the tool. Set it
   whenever the name alone does not make that obvious; it overrides the description derived from the
@@ -194,9 +199,11 @@ names, so neither is name-checked at all — leave those summaries as they are.
 
 ## Loop Structure Rules
 
+- A `forloopflow` runs its `modules` once per element of `iterator`, a javascript expression returning an array (e.g. `results.get_items`); `parallel: true` runs the iterations concurrently, and `skip_failures: true` carries on past a failed iteration
 - For `whileloopflow`, break the loop with a module-level `stop_after_if`: on the loop module itself, or on an inner step (required when that step carries state via its own `results` — see below)
 - `stop_after_if` is always a sibling of `id` and `value` on a flow module — never a direct key of the loop's `value` object
 - `stop_after_all_iters_if` is for checks after the whole loop finishes, not the normal per-iteration break condition
+- `stop_after_if` is evaluated after each iteration: on the loop module, `result` is that iteration's result (what its last step returned); on an inner step, it is that step's result
 - `flow_input.iter.value` in a `whileloopflow` is just the iteration index (same number as `flow_input.iter.index`) — it never carries state, so `flow_input.iter.value.<field>` is always undefined and a loop whose stop condition depends on it never terminates
 - To carry state across iterations, a step reads its own previous-iteration result via `results.<its_own_id>` with a first-iteration fallback (e.g. `results.b ?? flow_input.start`) — but then the loop's `stop_after_if` MUST sit on that inner step, not on the loop module: a body that is exactly one plain step with the stop condition on the loop module runs on a fast path where `results.<step_id>` is null on every iteration and the loop never terminates (bodies with 2+ steps, or whose single step has its own `stop_after_if`, retry or similar, resolve `results` across iterations regardless of stop placement)
 - For state that is just a counter, derive it from the index instead (e.g. `flow_input.iter.index + 1`) — that works in every configuration, including with `stop_after_if` on the loop module
@@ -334,6 +341,7 @@ Incorrect shape (identity has no resume URLs — not a real approval):
 
 ## Branch Result Scope Rules
 
+- A `branchone` runs the first of its `branches` whose `expr` is true, in order, and its `default` modules when none is; a `branchall` runs every branch (concurrently with `parallel: true`)
 - Inside a branch, you may reference earlier outer steps and earlier steps in the same branch
 - Outside a `branchone`, do NOT reference ids of steps that only exist inside its branches or default branch. Use `results.<branchone_module_id>` instead
 - Outside a `branchall`, do NOT reference ids of steps inside its branches. Use `results.<branchall_module_id>` instead
@@ -393,6 +401,48 @@ JavaScript transform (dynamic expression):
 - For flow inputs: Use type `"object"` with format `"resource-{type}"` (e.g., `"resource-postgresql"`)
 - For step inputs: Use static value `"$res:path/to/resource"`
 
+## Reusing Existing Scripts and Flows
+
+Unless the user asked for new code, look for a workspace script or flow that already does a step's job before writing it, and reuse it by path instead of copying its logic into a rawscript:
+
+- a workspace script: `type: script` with `path` (e.g. `f/folder/send_email`)
+- a workspace flow, run as a subflow: `type: flow` with `path`
+- a Hub script: `type: script` with a `hub/<version>/<app>/<name>` path
+
+The step's `input_transforms` must cover the reused item's inputs, so read its input schema first.
+<!-- cli-only -->
+Find candidates in the local tree (a `.script.yaml` sits next to each script and holds its input schema, a `flow.yaml` in each flow folder) and on the workspace with `wmill script list` / `wmill flow list`; `wmill script get <path>` and `wmill flow get <path>` show an item's details.
+<!-- /cli-only -->
+
+## Organizing Flows: Groups and Notes
+
+Groups and notes shape how a flow reads in the editor; neither changes what it does.
+
+**Segment every non-trivial flow into groups without waiting to be asked.** Whenever a flow has more than a couple of steps, or consecutive steps form a stage ("fetch", "transform", "notify"), put them in a group, and aim for every meaningful step to belong to one. Use notes sparingly, for flow-wide information that belongs to no span of steps: the flow's purpose, key assumptions, warnings, TODOs. One note is usually enough; never label a run of steps with a note, which is what a group is for.
+
+`value.groups` lists the groups, each spanning the steps from `start_id` to `end_id`:
+
+- `start_id`, `end_id` (required): ids of the group's first and last step; the same id for both makes a one-step group
+- `summary`: the group's title
+- `note`: markdown shown under the title
+- `color`: one of `yellow`, `blue`, `green`, `purple`, `pink`, `orange`, `red`, `cyan`, `lime`, `gray`, never a hex code or CSS color; leave it out and the editor picks one
+- `autocollapse`: `true` shows the group collapsed by default
+
+The editor refuses to draw a flow whose groups break any of these rules:
+
+- `start_id` and `end_id` are steps of the same list: both top-level, or both in the same loop body or branch. A group can hold a loop or branch step whole, but cannot start outside one and end inside it
+- `start_id` does not come after `end_id` in that list
+- groups nest (one entirely inside another) but never partly overlap, and no two groups share both `start_id` and `end_id`
+- groups hold ordinary steps only: never `preprocessor`, `failure`, `Input`, `Result`, `Trigger`, or an AI agent's tools
+
+`value.notes` lists sticky notes, each with a unique `id`, markdown `text`, a `color` from the same list, and `type: free`. The `group` note type is deprecated; use `value.groups` instead.
+<!-- cli-only -->
+Give each note a `position` (`{ x, y }`) and a `size` (`{ width, height }`): the editor draws a note without them at the origin and cannot resize it. `x: -400` with `width: 275` places it beside the graph.
+<!-- /cli-only -->
+<!-- chat-only -->
+Leave a note's `position` and `size` out and they are filled in for you.
+<!-- /chat-only -->
+
 ## Final Structural Self-Check
 
 Before finalizing a flow, verify:
@@ -402,6 +452,10 @@ Before finalizing a flow, verify:
 - any approval step has module-level `suspend`
 - no downstream step references inner branch step ids from outside the branch
 - every AI agent flowmodule tool has a unique `summary` made only of letters, numbers and underscores
+- every group starts and ends on steps of the same list, start before end, nesting without partial overlap
+<!-- cli-only -->
+- `wmill lint <flow folder>` reports no error
+<!-- /cli-only -->
 
 ## S3 Object Operations
 

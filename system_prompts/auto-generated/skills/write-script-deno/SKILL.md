@@ -69,7 +69,7 @@ Use `wmill resource-type list --schema` to discover available resource types.
 
 ## Preprocessor Scripts
 
-Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
 
 The returned object determines the parameter values passed to the flow.
 e.g., `{ b: 1, a: 2 }` calls the flow with `a = 2` and `b = 1`, assuming the flow has two inputs called `a` and `b`.
@@ -132,7 +132,7 @@ import * as wmill from "windmill-client";
 
 **Prefer `windmill-client` over raw `fetch` for anything that talks to Windmill** — reading resources/variables/states, running scripts and flows, S3 object operations, etc. It handles auth, the workspace, and the base URL for you. Reserve `fetch` for calling *external* HTTP APIs that aren't Windmill.
 
-The full `windmill-client` API reference (every exported function and its signature) is included in this skill below — consult it for the exact method instead of guessing or falling back to `fetch`.
+The full `windmill-client` API reference (every exported function and its signature) is included below — consult it for the exact method instead of guessing or falling back to `fetch`.
 
 ## Preprocessor Scripts
 
@@ -150,7 +150,9 @@ type Event = {
     | "postgres"
     | "sqs"
     | "mqtt"
-    | "gcp";
+    | "amqp"
+    | "gcp"
+    | "azure";
   body: any;
   headers: Record<string, string>;
   query: Record<string, string>;
