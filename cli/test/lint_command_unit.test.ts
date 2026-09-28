@@ -405,7 +405,6 @@ test("lint: rejects AI agent tool names the worker refuses", async () => {
     - id: agent
       value:
         type: aiagent
-        agent: f/sem/support_agent
         input_transforms: {}
         tools:
           - id: t_spaced
@@ -428,12 +427,21 @@ test("lint: rejects AI agent tool names the worker refuses", async () => {
           - id: t_web
             summary: Web Search
             value: { tool_type: websearch }
+    - id: linked
+      value:
+        type: aiagent
+        agent: f/sem/support_agent
+        input_transforms: {}
+        tools:
+          - id: t_ignored
+            summary: Stale name
+            value: { tool_type: flowmodule, type: script, path: f/sem/search, input_transforms: {} }
 `,
     );
 
     const errors = report.issues.flatMap((i) => i.errors);
     expect(errors).toEqual([
-      "/value/modules/0/value/tools/0 tool name 'Search docs' may only contain letters, numbers and underscores (every run fails with 'Invalid tool name')",
+      "/value/modules/0/value/tools/0 tool name 'Search docs' may only contain letters, numbers and underscores (a run that offers this tool fails with 'Invalid tool name')",
       "/value/modules/0/value/tools/1 has no summary: a tool's summary is the name the agent calls it by",
       "/value/modules/0/value/tools/3 tool name 'get_user' is already used by tool 2 of this agent",
     ]);
@@ -529,7 +537,7 @@ test("lint: reports a flow with malformed collections instead of aborting the ru
     - id: route
       value: { type: branchall, branches: {} }
     - id: agent
-      value: { type: aiagent, agent: f/sem/a, input_transforms: {}, tools: {} }
+      value: { type: aiagent, input_transforms: {}, tools: {} }
   groups: {}
   notes: {}
 `,

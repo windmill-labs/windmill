@@ -1,6 +1,6 @@
 /**
  * Flow checks the OpenFlow JSON schema cannot express. Errors are what fails
- * every run of the flow or stops the flow editor from drawing it; warnings are
+ * a run of the flow or stops the flow editor from drawing it; warnings are
  * what the editor tolerates but renders wrong.
  */
 
@@ -113,6 +113,11 @@ function collectAgents(
   pointer: string,
   agents: { pointer: string; module: any }[],
 ) {
+  // A step linked to an `ai_agent` resource runs the resource's tools and ignores
+  // its own (`ai_executor.rs`), so those are left unchecked.
+  if (typeof module?.value?.agent === "string" && module.value.agent !== "") {
+    return;
+  }
   agents.push({ pointer, module });
   asArray(module?.value?.tools).forEach((tool: any, i: number) => {
     if (tool?.value?.type === "aiagent") {
@@ -143,7 +148,7 @@ function checkAgentTools(
     }
     if (!TOOL_NAME_REGEX.test(name)) {
       report.errors.push(
-        `${at} tool name '${name}' may only contain letters, numbers and underscores (every run fails with 'Invalid tool name')`,
+        `${at} tool name '${name}' may only contain letters, numbers and underscores (a run that offers this tool fails with 'Invalid tool name')`,
       );
       return;
     }
