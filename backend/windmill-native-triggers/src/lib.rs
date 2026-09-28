@@ -460,14 +460,14 @@ pub trait External: Send + Sync + 'static {
                 task::spawn({
                     let db_clone = db.clone();
                     let workspace_id_clone = workspace_id.to_string();
-                    let connection_path = connection_path.to_string();
+                    let account_id = refreshed_oauth_config.account_id;
                     let new_access_token = refreshed_oauth_config.access_token.clone();
                     let new_refresh_token = refreshed_oauth_config.refresh_token.clone();
                     async move {
                         update_oauth_token_resource(
                             &db_clone,
                             &workspace_id_clone,
-                            &connection_path,
+                            account_id,
                             &new_access_token,
                             new_refresh_token.as_deref(),
                         )
@@ -609,6 +609,7 @@ pub struct OAuthConfig {
     pub client_id: String,
     pub client_secret: String,
     pub connection_path: String,
+    pub account_id: i32,
 }
 
 pub async fn make_http_request<T: DeserializeOwned + Send, B: Serialize>(
@@ -814,7 +815,7 @@ pub async fn decrypt_oauth_data<T: DeserializeOwned>(
     let mc = build_crypt(db, workspace_id).await?;
 
     let row = sqlx::query!(
-        "SELECT v.value, a.refresh_token
+        "SELECT v.value, a.id AS account_id, a.refresh_token
          FROM variable v
          JOIN account a ON a.workspace_id = v.workspace_id AND a.id = v.account
          WHERE v.workspace_id = $1 AND v.path = $2
@@ -868,6 +869,7 @@ pub async fn decrypt_oauth_data<T: DeserializeOwned>(
         "client_id": client_id,
         "client_secret": client_secret,
         "connection_path": connection_path,
+        "account_id": row.account_id,
     });
 
     serde_json::from_value(assembled)
@@ -994,6 +996,7 @@ pub async fn refresh_oauth_tokens(
         client_id: oauth_config.client_id.clone(),
         client_secret: oauth_config.client_secret.clone(),
         connection_path: oauth_config.connection_path.clone(),
+        account_id: oauth_config.account_id,
     })
 }
 
@@ -1010,17 +1013,18 @@ pub async fn refresh_oauth_tokens(
     })
 }
 
-/// Write a refreshed token back to the one connection it was refreshed for. The account is found
-/// through that connection's variable, never by service: several connections share a service, and
-/// a provider that rotates refresh tokens invalidates the old one, so writing it onto another
-/// account would break that account's next refresh.
+/// Write a refreshed token back to the account it was refreshed from, by that account's id, never
+/// by service or path: several connections share a service, and a connection's path can be
+/// reconnected or renamed while the refresh is in flight. A provider that rotates refresh tokens
+/// invalidates the old one, so writing it onto another account would break that account's next
+/// refresh.
 ///
-/// No authorization happens here: it overwrites the connection's secret as the server. Call it
-/// only with tokens just refreshed from that connection's own refresh token.
+/// No authorization happens here: it overwrites the account's secrets as the server. Call it only
+/// with tokens just refreshed from that account's own refresh token.
 pub async fn update_oauth_token_resource(
     db: &DB,
     workspace_id: &str,
-    connection_path: &str,
+    account_id: i32,
     new_access_token: &str,
     new_refresh_token: Option<&str>,
 ) {
@@ -1028,19 +1032,14 @@ pub async fn update_oauth_token_resource(
         let mc = build_crypt(db, workspace_id).await?;
         let encrypted_token = encrypt(&mc, new_access_token);
 
-        let account_id = sqlx::query_scalar!(
-            "UPDATE variable SET value = $1 WHERE workspace_id = $2 AND path = $3 RETURNING account",
+        sqlx::query!(
+            "UPDATE variable SET value = $1 WHERE workspace_id = $2 AND account = $3",
             encrypted_token,
             workspace_id,
-            connection_path,
+            account_id,
         )
-        .fetch_optional(db)
-        .await?
-        .flatten();
-
-        let Some(account_id) = account_id else {
-            return Ok(());
-        };
+        .execute(db)
+        .await?;
 
         // Even without a new refresh token, expires_at moves so the background refresh does not
         // re-refresh immediately.
@@ -1063,8 +1062,8 @@ pub async fn update_oauth_token_resource(
 
     if let Err(e) = result {
         tracing::error!(
-            "Failed to update OAuth tokens of connection {} in workspace {}: {}",
-            connection_path,
+            "Failed to update OAuth tokens of account {} in workspace {}: {}",
+            account_id,
             workspace_id,
             e
         );
@@ -1811,6 +1810,23 @@ pub async fn resolve_usable_connection(
             ))),
         },
     }
+}
+
+/// Serialize, until `tx` ends, the operations that must agree on whether a connection exists:
+/// storing a trigger that uses it and disconnecting it. Whichever comes second waits and then
+/// sees the other's outcome.
+pub async fn lock_connection(
+    tx: &mut PgConnection,
+    workspace_id: &str,
+    connection_path: &str,
+) -> Result<()> {
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+        .bind(format!(
+            "native_connection:{workspace_id}:{connection_path}"
+        ))
+        .execute(&mut *tx)
+        .await?;
+    Ok(())
 }
 
 #[derive(Debug, Deserialize)]
