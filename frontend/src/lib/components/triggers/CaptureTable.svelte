@@ -16,7 +16,9 @@
 	import { isObject, sendUserToast } from '$lib/utils'
 	import SchemaPickerRow from '$lib/components/schema/SchemaPickerRow.svelte'
 	import type { Capture } from '$lib/gen'
-	import { AwsIcon, MqttIcon, AmqpIcon } from '../icons'
+	import AwsIcon from '../icons/AwsIcon.svelte'
+	import MqttIcon from '../icons/MqttIcon.svelte'
+	import AmqpIcon from '../icons/AmqpIcon.svelte'
 	import GoogleCloudIcon from '../icons/GoogleCloudIcon.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 

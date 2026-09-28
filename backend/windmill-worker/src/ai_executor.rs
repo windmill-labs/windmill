@@ -1049,6 +1049,11 @@ pub async fn handle_ai_agent_job(
         GracefulPollOutcome::Ok(result) => Ok(result),
         GracefulPollOutcome::Timeout(ms) => {
             tracing::error!("AI agent timeout after {}s", ms / 1000);
+            // A tool dispatched to another worker group would otherwise still run later, after
+            // the agent that wanted its result is gone.
+            let reason = format!("parent AI agent {} timed out", job.id);
+            let cb = CanceledBy { username: None, reason: Some(reason) };
+            cleanup_orphaned_tool_jobs(db, &job.id, &job.workspace_id, Some(cb)).await;
             Err(Error::ExecutionErr(format!(
                 "AI agent timeout after (>{}s)",
                 ms / 1000

@@ -32,7 +32,6 @@
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
-	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import SupabaseConnect from '$lib/components/SupabaseConnect.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
 	import DataTable from '$lib/components/table/DataTable.svelte'
@@ -76,7 +75,6 @@
 	} from 'lucide-svelte'
 	import { onMount, untrack } from 'svelte'
 	import autosize from '$lib/autosize'
-	import EditableSchemaWrapper from '$lib/components/schema/EditableSchemaWrapper.svelte'
 	import ResourceEditorDrawer from '$lib/components/ResourceEditorDrawer.svelte'
 	import {
 		agentEditorTarget,
@@ -820,12 +818,14 @@
 
 <Drawer bind:this={inferrer} size="800px">
 	<DrawerContent title="Infer type from JSON" on:close={() => inferrer?.toggleDrawer?.()}>
-		<SimpleEditor
-			bind:code={inferrerJson}
-			lang="json"
-			class="h-full"
-			fixedOverflowWidgets={false}
-		/>
+		{#await import('$lib/components/SimpleEditor.svelte') then SimpleEditor}
+			<SimpleEditor.default
+				bind:code={inferrerJson}
+				lang="json"
+				class="h-full"
+				fixedOverflowWidgets={false}
+			/>
+		{/await}
 		{#snippet actions()}
 			<Button unifiedSize="sm" on:click={inferJson}>Infer</Button>
 		{/snippet}
@@ -920,7 +920,10 @@
 				{:else}
 					<div class="mb-1 font-semibold text-emphasis text-xs">Schema</div>
 					<div class="flex flex-col gap-2">
-						<EditableSchemaWrapper bind:schema={editResourceType.schema} noPreview />
+						<!-- Dynamic, like the one below: the schema editor reaches monaco. -->
+						{#await import('$lib/components/schema/EditableSchemaWrapper.svelte') then EditableSchemaWrapper}
+							<EditableSchemaWrapper.default bind:schema={editResourceType.schema} noPreview />
+						{/await}
 					</div>
 				{/if}
 			</div>
@@ -1008,12 +1011,14 @@
 				</div>
 
 				<div class="flex flex-col gap-2">
-					<EditableSchemaWrapper
-						bind:schema={newResourceType.schema}
-						bind:formatExtension={newResourceType.formatExtension}
-						bind:isFileset={newResourceType.isFileset}
-						fullHeight
-					/>
+					{#await import('$lib/components/schema/EditableSchemaWrapper.svelte') then EditableSchemaWrapper}
+						<EditableSchemaWrapper.default
+							bind:schema={newResourceType.schema}
+							bind:formatExtension={newResourceType.formatExtension}
+							bind:isFileset={newResourceType.isFileset}
+							fullHeight
+						/>
+					{/await}
 				</div>
 			</div>
 		</div>
