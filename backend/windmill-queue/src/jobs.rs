@@ -8156,6 +8156,27 @@ mod git_sync_concurrency_key_tests {
 }
 
 #[cfg(test)]
+mod preset_handler_path_tests {
+    use super::is_preset_handler_path;
+
+    #[test]
+    fn only_hub_scripts_are_presets() {
+        assert!(is_preset_handler_path(
+            "hub/28794/workspace-or-schedule-error-handler-slack"
+        ));
+        assert!(is_preset_handler_path(
+            "script/hub/28791/slack/schedule-recovery-handler-slack"
+        ));
+        assert!(!is_preset_handler_path(
+            "script/u/me/workspace-or-schedule-error-handler-slack"
+        ));
+        assert!(!is_preset_handler_path(
+            "f/hub/workspace-or-schedule-error-handler-slack"
+        ));
+    }
+}
+
+#[cfg(test)]
 mod result_metadata_tests {
     use super::{ResultMetadata, ValidableJson};
     use serde_json::value::RawValue;
