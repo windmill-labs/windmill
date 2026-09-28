@@ -132,11 +132,10 @@ fn runs_stored_code(job: &LineageJob, parent: Option<(&LineageJob, bool)>) -> bo
         // A deployed app without `app_script` entries runs its inline scripts as previews
         // of the content its policy pins.
         JobKind::Preview if job.app_stamped => true,
-        // Every API route pushes previews without a parent, so a preview with one was
-        // pushed by a worker running its parent (a flow step, a loop or branch body, an
-        // agent tool, a workflow-as-code module) from that parent's own definition. A
-        // flow deployed before flow nodes, or run with `DISABLE_FLOW_SCRIPT`, runs its
-        // inline steps this way.
+        // No API route takes a preview's code together with a parent: a preview with a
+        // parent runs its parent's own definition (a flow step, loop or branch body, agent
+        // tool or workflow-as-code task). A flow deployed before flow nodes, or run with
+        // `DISABLE_FLOW_SCRIPT`, runs its inline steps this way.
         JobKind::Preview | JobKind::FlowPreview => {
             parent.is_some_and(|(p, p_stored)| p_stored && path_within(job, p))
         }
