@@ -235,8 +235,6 @@ For the rest, tell the user which command fits their intent and let them run it 
 | `wmill sync push` | Deploy app to Windmill |
 | `wmill sync pull` | Pull latest from Windmill |
 
-
-
 # Windmill Raw Apps
 
 Raw apps let you build custom frontends with React, Svelte, or Vue that connect to Windmill backend runnables and datatables.

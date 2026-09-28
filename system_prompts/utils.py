@@ -243,6 +243,55 @@ def read_markdown_file(path: Path) -> str:
     return ''
 
 
+CONSUMERS = ('cli', 'chat')
+_FENCE_RE = re.compile(r'^<!-- (/?)(cli|chat)-only -->$')
+_FENCE_LIKE_RE = re.compile(r'<!--\s*/?\s*(cli|chat)\W*only\s*-->', re.IGNORECASE)
+
+
+def render_for(md: str, consumer: str, source: str = '<markdown>') -> str:
+    """Render shared markdown for one consumer ('cli' or 'chat').
+
+    A block between `<!-- cli-only -->` and `<!-- /cli-only -->` (or the
+    `chat-only` pair) is kept for that consumer and dropped for the other; the
+    fence lines themselves never reach either. Fences must sit on their own
+    line and cannot nest. A malformed fence raises rather than leaking a
+    sentence meant for one consumer into the other's prompt.
+    """
+    if consumer not in CONSUMERS:
+        raise ValueError(f"Unknown consumer '{consumer}'")
+    out: list[str] = []
+    open_block: str | None = None
+    # Dropping a block would otherwise leave the blank lines around it doubled.
+    swallow_blank = False
+    for n, line in enumerate(md.splitlines(keepends=True), 1):
+        stripped = line.strip()
+        fence = _FENCE_RE.match(stripped)
+        if fence is None and _FENCE_LIKE_RE.search(stripped):
+            raise ValueError(f"{source}:{n}: malformed fence '{stripped}'")
+        if fence:
+            closing, who = fence.group(1) == '/', fence.group(2)
+            if closing:
+                if open_block != who:
+                    raise ValueError(f"{source}:{n}: '{stripped}' closes no open {who}-only block")
+                swallow_blank = open_block != consumer
+                open_block = None
+            else:
+                if open_block is not None:
+                    raise ValueError(f"{source}:{n}: {who}-only block opened inside a {open_block}-only block")
+                open_block = who
+            continue
+        if open_block is not None and open_block != consumer:
+            continue
+        if swallow_blank and stripped == '' and (not out or out[-1].strip() == ''):
+            swallow_blank = False
+            continue
+        swallow_blank = False
+        out.append(line)
+    if open_block is not None:
+        raise ValueError(f"{source}: {open_block}-only block is never closed")
+    return ''.join(out)
+
+
 # =============================================================================
 # Parsing Utilities
 # =============================================================================
