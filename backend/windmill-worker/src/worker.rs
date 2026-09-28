@@ -2899,6 +2899,10 @@ pub async fn run_worker(
     // Only jobs run by this process count towards EXIT_AFTER_N_JOBS: the point is the age of
     // the environment, not the lifetime total.
     let mut jobs_executed_in_env: u64 = 0;
+    // The job poller only records a job in `worker_ping` once it has run for a poll interval, so
+    // the main-loop ping reports the last pulled job for shorter ones. It runs between jobs, so
+    // this is never older than what the poller wrote; it is sent once, then left to the poller.
+    let mut unreported_job: Option<(Uuid, String)> = None;
 
     let is_dedicated_worker: bool = {
         let config = WORKER_CONFIG.load();
@@ -3219,6 +3223,7 @@ pub async fn run_worker(
 
             let read_cgroups =
                 *REFRESH_CGROUP_READINGS && last_reading.elapsed().as_secs() > NUM_SECS_READINGS;
+            let last_job = unreported_job.take();
             update_worker_ping_full(
                 &conn,
                 read_cgroups,
@@ -3228,6 +3233,7 @@ pub async fn run_worker(
                 &mut occupancy_metrics,
                 &killpill_tx,
                 ip,
+                last_job.as_ref().map(|(id, w_id)| (*id, w_id.as_str())),
             )
             .await;
 
@@ -3562,6 +3568,7 @@ pub async fn run_worker(
 
                 last_executed_job = None;
                 jobs_executed += 1;
+                unreported_job = Some((job.id, job.workspace_id.clone()));
                 let mut dirties_env = dirties_worker_env(
                     job.kind,
                     &job.tag,
