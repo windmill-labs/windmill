@@ -94,29 +94,24 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 
 ## General Principles
 
-- Scripts must export a main function (do not call it)
+- A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
 - Libraries are installed automatically - do not show installation instructions
-- Credentials and configuration are stored in resources and passed as parameters
-- The windmill client (\`wmill\`) provides APIs for interacting with the platform
-
-## Function Naming
-
-- Main function: \`main\` (or \`preprocessor\` for preprocessor scripts)
-- Must be async for TypeScript variants
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash and PowerShell scripts have no \`main\`: their language section shows how they take arguments
+- Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
 
 ## Return Values
 
-- Scripts can return any JSON-serializable value
+- A script can return any JSON-serializable value; a SQL script returns the rows its query produces
 - Return values become available to subsequent flow steps via \`results.step_id\`
 
 ## Preprocessor Scripts
 
 Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
 
+A preprocessor is written in TypeScript or Python: its function is named \`preprocessor\` instead of \`main\`, and it receives a single parameter called \`event\` (the language section gives its type).
+
 The returned object determines the parameter values passed to the flow.
 e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
-
-The preprocessor receives a single parameter called \`event\`.
 
 # Ansible
 
@@ -262,29 +257,24 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 
 ## General Principles
 
-- Scripts must export a main function (do not call it)
+- A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
 - Libraries are installed automatically - do not show installation instructions
-- Credentials and configuration are stored in resources and passed as parameters
-- The windmill client (\`wmill\`) provides APIs for interacting with the platform
-
-## Function Naming
-
-- Main function: \`main\` (or \`preprocessor\` for preprocessor scripts)
-- Must be async for TypeScript variants
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash and PowerShell scripts have no \`main\`: their language section shows how they take arguments
+- Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
 
 ## Return Values
 
-- Scripts can return any JSON-serializable value
+- A script can return any JSON-serializable value; a SQL script returns the rows its query produces
 - Return values become available to subsequent flow steps via \`results.step_id\`
 
 ## Preprocessor Scripts
 
 Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
 
+A preprocessor is written in TypeScript or Python: its function is named \`preprocessor\` instead of \`main\`, and it receives a single parameter called \`event\` (the language section gives its type).
+
 The returned object determines the parameter values passed to the flow.
 e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
-
-The preprocessor receives a single parameter called \`event\`.
 
 # Bash
 
@@ -390,29 +380,24 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 
 ## General Principles
 
-- Scripts must export a main function (do not call it)
+- A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
 - Libraries are installed automatically - do not show installation instructions
-- Credentials and configuration are stored in resources and passed as parameters
-- The windmill client (\`wmill\`) provides APIs for interacting with the platform
-
-## Function Naming
-
-- Main function: \`main\` (or \`preprocessor\` for preprocessor scripts)
-- Must be async for TypeScript variants
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash and PowerShell scripts have no \`main\`: their language section shows how they take arguments
+- Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
 
 ## Return Values
 
-- Scripts can return any JSON-serializable value
+- A script can return any JSON-serializable value; a SQL script returns the rows its query produces
 - Return values become available to subsequent flow steps via \`results.step_id\`
 
 ## Preprocessor Scripts
 
 Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
 
+A preprocessor is written in TypeScript or Python: its function is named \`preprocessor\` instead of \`main\`, and it receives a single parameter called \`event\` (the language section gives its type).
+
 The returned object determines the parameter values passed to the flow.
 e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
-
-The preprocessor receives a single parameter called \`event\`.
 
 # BigQuery
 
@@ -511,29 +496,24 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 
 ## General Principles
 
-- Scripts must export a main function (do not call it)
+- A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
 - Libraries are installed automatically - do not show installation instructions
-- Credentials and configuration are stored in resources and passed as parameters
-- The windmill client (\`wmill\`) provides APIs for interacting with the platform
-
-## Function Naming
-
-- Main function: \`main\` (or \`preprocessor\` for preprocessor scripts)
-- Must be async for TypeScript variants
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash and PowerShell scripts have no \`main\`: their language section shows how they take arguments
+- Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
 
 ## Return Values
 
-- Scripts can return any JSON-serializable value
+- A script can return any JSON-serializable value; a SQL script returns the rows its query produces
 - Return values become available to subsequent flow steps via \`results.step_id\`
 
 ## Preprocessor Scripts
 
 Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
 
+A preprocessor is written in TypeScript or Python: its function is named \`preprocessor\` instead of \`main\`, and it receives a single parameter called \`event\` (the language section gives its type).
+
 The returned object determines the parameter values passed to the flow.
 e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
-
-The preprocessor receives a single parameter called \`event\`.
 
 # TypeScript (Bun)
 
@@ -1336,29 +1316,24 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 
 ## General Principles
 
-- Scripts must export a main function (do not call it)
+- A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
 - Libraries are installed automatically - do not show installation instructions
-- Credentials and configuration are stored in resources and passed as parameters
-- The windmill client (\`wmill\`) provides APIs for interacting with the platform
-
-## Function Naming
-
-- Main function: \`main\` (or \`preprocessor\` for preprocessor scripts)
-- Must be async for TypeScript variants
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash and PowerShell scripts have no \`main\`: their language section shows how they take arguments
+- Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
 
 ## Return Values
 
-- Scripts can return any JSON-serializable value
+- A script can return any JSON-serializable value; a SQL script returns the rows its query produces
 - Return values become available to subsequent flow steps via \`results.step_id\`
 
 ## Preprocessor Scripts
 
 Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
 
+A preprocessor is written in TypeScript or Python: its function is named \`preprocessor\` instead of \`main\`, and it receives a single parameter called \`event\` (the language section gives its type).
+
 The returned object determines the parameter values passed to the flow.
 e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
-
-The preprocessor receives a single parameter called \`event\`.
 
 # TypeScript (Bun Native)
 
@@ -2161,29 +2136,24 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 
 ## General Principles
 
-- Scripts must export a main function (do not call it)
+- A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
 - Libraries are installed automatically - do not show installation instructions
-- Credentials and configuration are stored in resources and passed as parameters
-- The windmill client (\`wmill\`) provides APIs for interacting with the platform
-
-## Function Naming
-
-- Main function: \`main\` (or \`preprocessor\` for preprocessor scripts)
-- Must be async for TypeScript variants
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash and PowerShell scripts have no \`main\`: their language section shows how they take arguments
+- Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
 
 ## Return Values
 
-- Scripts can return any JSON-serializable value
+- A script can return any JSON-serializable value; a SQL script returns the rows its query produces
 - Return values become available to subsequent flow steps via \`results.step_id\`
 
 ## Preprocessor Scripts
 
 Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
 
+A preprocessor is written in TypeScript or Python: its function is named \`preprocessor\` instead of \`main\`, and it receives a single parameter called \`event\` (the language section gives its type).
+
 The returned object determines the parameter values passed to the flow.
 e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
-
-The preprocessor receives a single parameter called \`event\`.
 
 # C#
 
@@ -2281,29 +2251,24 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 
 ## General Principles
 
-- Scripts must export a main function (do not call it)
+- A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
 - Libraries are installed automatically - do not show installation instructions
-- Credentials and configuration are stored in resources and passed as parameters
-- The windmill client (\`wmill\`) provides APIs for interacting with the platform
-
-## Function Naming
-
-- Main function: \`main\` (or \`preprocessor\` for preprocessor scripts)
-- Must be async for TypeScript variants
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash and PowerShell scripts have no \`main\`: their language section shows how they take arguments
+- Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
 
 ## Return Values
 
-- Scripts can return any JSON-serializable value
+- A script can return any JSON-serializable value; a SQL script returns the rows its query produces
 - Return values become available to subsequent flow steps via \`results.step_id\`
 
 ## Preprocessor Scripts
 
 Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
 
+A preprocessor is written in TypeScript or Python: its function is named \`preprocessor\` instead of \`main\`, and it receives a single parameter called \`event\` (the language section gives its type).
+
 The returned object determines the parameter values passed to the flow.
 e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
-
-The preprocessor receives a single parameter called \`event\`.
 
 # TypeScript (Deno)
 
@@ -3108,29 +3073,24 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 
 ## General Principles
 
-- Scripts must export a main function (do not call it)
+- A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
 - Libraries are installed automatically - do not show installation instructions
-- Credentials and configuration are stored in resources and passed as parameters
-- The windmill client (\`wmill\`) provides APIs for interacting with the platform
-
-## Function Naming
-
-- Main function: \`main\` (or \`preprocessor\` for preprocessor scripts)
-- Must be async for TypeScript variants
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash and PowerShell scripts have no \`main\`: their language section shows how they take arguments
+- Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
 
 ## Return Values
 
-- Scripts can return any JSON-serializable value
+- A script can return any JSON-serializable value; a SQL script returns the rows its query produces
 - Return values become available to subsequent flow steps via \`results.step_id\`
 
 ## Preprocessor Scripts
 
 Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
 
+A preprocessor is written in TypeScript or Python: its function is named \`preprocessor\` instead of \`main\`, and it receives a single parameter called \`event\` (the language section gives its type).
+
 The returned object determines the parameter values passed to the flow.
 e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
-
-The preprocessor receives a single parameter called \`event\`.
 
 # DuckDB
 
@@ -3262,29 +3222,24 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 
 ## General Principles
 
-- Scripts must export a main function (do not call it)
+- A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
 - Libraries are installed automatically - do not show installation instructions
-- Credentials and configuration are stored in resources and passed as parameters
-- The windmill client (\`wmill\`) provides APIs for interacting with the platform
-
-## Function Naming
-
-- Main function: \`main\` (or \`preprocessor\` for preprocessor scripts)
-- Must be async for TypeScript variants
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash and PowerShell scripts have no \`main\`: their language section shows how they take arguments
+- Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
 
 ## Return Values
 
-- Scripts can return any JSON-serializable value
+- A script can return any JSON-serializable value; a SQL script returns the rows its query produces
 - Return values become available to subsequent flow steps via \`results.step_id\`
 
 ## Preprocessor Scripts
 
 Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
 
+A preprocessor is written in TypeScript or Python: its function is named \`preprocessor\` instead of \`main\`, and it receives a single parameter called \`event\` (the language section gives its type).
+
 The returned object determines the parameter values passed to the flow.
 e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
-
-The preprocessor receives a single parameter called \`event\`.
 
 # Go
 
@@ -3399,29 +3354,24 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 
 ## General Principles
 
-- Scripts must export a main function (do not call it)
+- A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
 - Libraries are installed automatically - do not show installation instructions
-- Credentials and configuration are stored in resources and passed as parameters
-- The windmill client (\`wmill\`) provides APIs for interacting with the platform
-
-## Function Naming
-
-- Main function: \`main\` (or \`preprocessor\` for preprocessor scripts)
-- Must be async for TypeScript variants
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash and PowerShell scripts have no \`main\`: their language section shows how they take arguments
+- Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
 
 ## Return Values
 
-- Scripts can return any JSON-serializable value
+- A script can return any JSON-serializable value; a SQL script returns the rows its query produces
 - Return values become available to subsequent flow steps via \`results.step_id\`
 
 ## Preprocessor Scripts
 
 Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
 
+A preprocessor is written in TypeScript or Python: its function is named \`preprocessor\` instead of \`main\`, and it receives a single parameter called \`event\` (the language section gives its type).
+
 The returned object determines the parameter values passed to the flow.
 e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
-
-The preprocessor receives a single parameter called \`event\`.
 
 # GraphQL
 
@@ -3523,29 +3473,24 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 
 ## General Principles
 
-- Scripts must export a main function (do not call it)
+- A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
 - Libraries are installed automatically - do not show installation instructions
-- Credentials and configuration are stored in resources and passed as parameters
-- The windmill client (\`wmill\`) provides APIs for interacting with the platform
-
-## Function Naming
-
-- Main function: \`main\` (or \`preprocessor\` for preprocessor scripts)
-- Must be async for TypeScript variants
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash and PowerShell scripts have no \`main\`: their language section shows how they take arguments
+- Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
 
 ## Return Values
 
-- Scripts can return any JSON-serializable value
+- A script can return any JSON-serializable value; a SQL script returns the rows its query produces
 - Return values become available to subsequent flow steps via \`results.step_id\`
 
 ## Preprocessor Scripts
 
 Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
 
+A preprocessor is written in TypeScript or Python: its function is named \`preprocessor\` instead of \`main\`, and it receives a single parameter called \`event\` (the language section gives its type).
+
 The returned object determines the parameter values passed to the flow.
 e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
-
-The preprocessor receives a single parameter called \`event\`.
 
 # Java
 
@@ -3640,29 +3585,24 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 
 ## General Principles
 
-- Scripts must export a main function (do not call it)
+- A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
 - Libraries are installed automatically - do not show installation instructions
-- Credentials and configuration are stored in resources and passed as parameters
-- The windmill client (\`wmill\`) provides APIs for interacting with the platform
-
-## Function Naming
-
-- Main function: \`main\` (or \`preprocessor\` for preprocessor scripts)
-- Must be async for TypeScript variants
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash and PowerShell scripts have no \`main\`: their language section shows how they take arguments
+- Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
 
 ## Return Values
 
-- Scripts can return any JSON-serializable value
+- A script can return any JSON-serializable value; a SQL script returns the rows its query produces
 - Return values become available to subsequent flow steps via \`results.step_id\`
 
 ## Preprocessor Scripts
 
 Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
 
+A preprocessor is written in TypeScript or Python: its function is named \`preprocessor\` instead of \`main\`, and it receives a single parameter called \`event\` (the language section gives its type).
+
 The returned object determines the parameter values passed to the flow.
 e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
-
-The preprocessor receives a single parameter called \`event\`.
 
 # Microsoft SQL Server (MSSQL)
 
@@ -3760,29 +3700,24 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 
 ## General Principles
 
-- Scripts must export a main function (do not call it)
+- A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
 - Libraries are installed automatically - do not show installation instructions
-- Credentials and configuration are stored in resources and passed as parameters
-- The windmill client (\`wmill\`) provides APIs for interacting with the platform
-
-## Function Naming
-
-- Main function: \`main\` (or \`preprocessor\` for preprocessor scripts)
-- Must be async for TypeScript variants
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash and PowerShell scripts have no \`main\`: their language section shows how they take arguments
+- Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
 
 ## Return Values
 
-- Scripts can return any JSON-serializable value
+- A script can return any JSON-serializable value; a SQL script returns the rows its query produces
 - Return values become available to subsequent flow steps via \`results.step_id\`
 
 ## Preprocessor Scripts
 
 Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
 
+A preprocessor is written in TypeScript or Python: its function is named \`preprocessor\` instead of \`main\`, and it receives a single parameter called \`event\` (the language section gives its type).
+
 The returned object determines the parameter values passed to the flow.
 e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
-
-The preprocessor receives a single parameter called \`event\`.
 
 # MySQL
 
@@ -3881,29 +3816,24 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 
 ## General Principles
 
-- Scripts must export a main function (do not call it)
+- A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
 - Libraries are installed automatically - do not show installation instructions
-- Credentials and configuration are stored in resources and passed as parameters
-- The windmill client (\`wmill\`) provides APIs for interacting with the platform
-
-## Function Naming
-
-- Main function: \`main\` (or \`preprocessor\` for preprocessor scripts)
-- Must be async for TypeScript variants
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash and PowerShell scripts have no \`main\`: their language section shows how they take arguments
+- Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
 
 ## Return Values
 
-- Scripts can return any JSON-serializable value
+- A script can return any JSON-serializable value; a SQL script returns the rows its query produces
 - Return values become available to subsequent flow steps via \`results.step_id\`
 
 ## Preprocessor Scripts
 
 Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
 
+A preprocessor is written in TypeScript or Python: its function is named \`preprocessor\` instead of \`main\`, and it receives a single parameter called \`event\` (the language section gives its type).
+
 The returned object determines the parameter values passed to the flow.
 e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
-
-The preprocessor receives a single parameter called \`event\`.
 
 # PHP
 
@@ -4017,29 +3947,24 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 
 ## General Principles
 
-- Scripts must export a main function (do not call it)
+- A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
 - Libraries are installed automatically - do not show installation instructions
-- Credentials and configuration are stored in resources and passed as parameters
-- The windmill client (\`wmill\`) provides APIs for interacting with the platform
-
-## Function Naming
-
-- Main function: \`main\` (or \`preprocessor\` for preprocessor scripts)
-- Must be async for TypeScript variants
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash and PowerShell scripts have no \`main\`: their language section shows how they take arguments
+- Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
 
 ## Return Values
 
-- Scripts can return any JSON-serializable value
+- A script can return any JSON-serializable value; a SQL script returns the rows its query produces
 - Return values become available to subsequent flow steps via \`results.step_id\`
 
 ## Preprocessor Scripts
 
 Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
 
+A preprocessor is written in TypeScript or Python: its function is named \`preprocessor\` instead of \`main\`, and it receives a single parameter called \`event\` (the language section gives its type).
+
 The returned object determines the parameter values passed to the flow.
 e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
-
-The preprocessor receives a single parameter called \`event\`.
 
 # PostgreSQL
 
@@ -4136,29 +4061,24 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 
 ## General Principles
 
-- Scripts must export a main function (do not call it)
+- A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
 - Libraries are installed automatically - do not show installation instructions
-- Credentials and configuration are stored in resources and passed as parameters
-- The windmill client (\`wmill\`) provides APIs for interacting with the platform
-
-## Function Naming
-
-- Main function: \`main\` (or \`preprocessor\` for preprocessor scripts)
-- Must be async for TypeScript variants
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash and PowerShell scripts have no \`main\`: their language section shows how they take arguments
+- Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
 
 ## Return Values
 
-- Scripts can return any JSON-serializable value
+- A script can return any JSON-serializable value; a SQL script returns the rows its query produces
 - Return values become available to subsequent flow steps via \`results.step_id\`
 
 ## Preprocessor Scripts
 
 Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
 
+A preprocessor is written in TypeScript or Python: its function is named \`preprocessor\` instead of \`main\`, and it receives a single parameter called \`event\` (the language section gives its type).
+
 The returned object determines the parameter values passed to the flow.
 e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
-
-The preprocessor receives a single parameter called \`event\`.
 
 # PowerShell
 
@@ -4270,29 +4190,24 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 
 ## General Principles
 
-- Scripts must export a main function (do not call it)
+- A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
 - Libraries are installed automatically - do not show installation instructions
-- Credentials and configuration are stored in resources and passed as parameters
-- The windmill client (\`wmill\`) provides APIs for interacting with the platform
-
-## Function Naming
-
-- Main function: \`main\` (or \`preprocessor\` for preprocessor scripts)
-- Must be async for TypeScript variants
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash and PowerShell scripts have no \`main\`: their language section shows how they take arguments
+- Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
 
 ## Return Values
 
-- Scripts can return any JSON-serializable value
+- A script can return any JSON-serializable value; a SQL script returns the rows its query produces
 - Return values become available to subsequent flow steps via \`results.step_id\`
 
 ## Preprocessor Scripts
 
 Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
 
+A preprocessor is written in TypeScript or Python: its function is named \`preprocessor\` instead of \`main\`, and it receives a single parameter called \`event\` (the language section gives its type).
+
 The returned object determines the parameter values passed to the flow.
 e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
-
-The preprocessor receives a single parameter called \`event\`.
 
 # Python
 
@@ -5279,29 +5194,24 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 
 ## General Principles
 
-- Scripts must export a main function (do not call it)
+- A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
 - Libraries are installed automatically - do not show installation instructions
-- Credentials and configuration are stored in resources and passed as parameters
-- The windmill client (\`wmill\`) provides APIs for interacting with the platform
-
-## Function Naming
-
-- Main function: \`main\` (or \`preprocessor\` for preprocessor scripts)
-- Must be async for TypeScript variants
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash and PowerShell scripts have no \`main\`: their language section shows how they take arguments
+- Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
 
 ## Return Values
 
-- Scripts can return any JSON-serializable value
+- A script can return any JSON-serializable value; a SQL script returns the rows its query produces
 - Return values become available to subsequent flow steps via \`results.step_id\`
 
 ## Preprocessor Scripts
 
 Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
 
+A preprocessor is written in TypeScript or Python: its function is named \`preprocessor\` instead of \`main\`, and it receives a single parameter called \`event\` (the language section gives its type).
+
 The returned object determines the parameter values passed to the flow.
 e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
-
-The preprocessor receives a single parameter called \`event\`.
 
 # R
 
@@ -5443,29 +5353,24 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 
 ## General Principles
 
-- Scripts must export a main function (do not call it)
+- A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
 - Libraries are installed automatically - do not show installation instructions
-- Credentials and configuration are stored in resources and passed as parameters
-- The windmill client (\`wmill\`) provides APIs for interacting with the platform
-
-## Function Naming
-
-- Main function: \`main\` (or \`preprocessor\` for preprocessor scripts)
-- Must be async for TypeScript variants
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash and PowerShell scripts have no \`main\`: their language section shows how they take arguments
+- Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
 
 ## Return Values
 
-- Scripts can return any JSON-serializable value
+- A script can return any JSON-serializable value; a SQL script returns the rows its query produces
 - Return values become available to subsequent flow steps via \`results.step_id\`
 
 ## Preprocessor Scripts
 
 Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
 
+A preprocessor is written in TypeScript or Python: its function is named \`preprocessor\` instead of \`main\`, and it receives a single parameter called \`event\` (the language section gives its type).
+
 The returned object determines the parameter values passed to the flow.
 e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
-
-The preprocessor receives a single parameter called \`event\`.
 
 # Rust
 
@@ -5597,29 +5502,24 @@ Use \`wmill resource-type list --schema\` to discover available resource types.
 
 ## General Principles
 
-- Scripts must export a main function (do not call it)
+- A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
 - Libraries are installed automatically - do not show installation instructions
-- Credentials and configuration are stored in resources and passed as parameters
-- The windmill client (\`wmill\`) provides APIs for interacting with the platform
-
-## Function Naming
-
-- Main function: \`main\` (or \`preprocessor\` for preprocessor scripts)
-- Must be async for TypeScript variants
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash and PowerShell scripts have no \`main\`: their language section shows how they take arguments
+- Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
 
 ## Return Values
 
-- Scripts can return any JSON-serializable value
+- A script can return any JSON-serializable value; a SQL script returns the rows its query produces
 - Return values become available to subsequent flow steps via \`results.step_id\`
 
 ## Preprocessor Scripts
 
 Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
 
+A preprocessor is written in TypeScript or Python: its function is named \`preprocessor\` instead of \`main\`, and it receives a single parameter called \`event\` (the language section gives its type).
+
 The returned object determines the parameter values passed to the flow.
 e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
-
-The preprocessor receives a single parameter called \`event\`.
 
 # Snowflake
 
@@ -6650,7 +6550,7 @@ An inline runnable runs as an ordinary Windmill job. \`import * as wmill from 'w
 
 **Don't read \`WM_TOKEN\` or \`BASE_INTERNAL_URL\` and build an API URL to \`fetch\`.** The client's own \`setClient\` already reads exactly those, and it also sets the credentials mode a raw app needs (\`WM_RAW_APP\` suppresses credentials, because a sandboxed bundle calls the API from an opaque origin that can never pair with \`Access-Control-Allow-Origin: *\`). Rebuilding that by hand drops the parts you can't see. Use \`wmill.*\` for everything Windmill, and \`fetch\` only for third-party APIs.
 
-Prefer the \`wmill\` functions that appear in the SDK reference; for an endpoint none of them covers, the generated service classes (\`JobService\`, \`ScriptService\`, ...) are importable from \`windmill-client\`. What is not available is a name you guessed at: \`getBaseUrl\` and \`getWorkspaceToken\` are inventions, not API.
+Use only \`wmill\` functions the SDK actually exports; for an endpoint none of them covers, the generated service classes (\`JobService\`, \`ScriptService\`, ...) are importable from \`windmill-client\`. What is not available is a name you guessed at: \`getBaseUrl\` and \`getWorkspaceToken\` are inventions, not API.
 
 ### Path runnables (script / flow / hubscript)
 

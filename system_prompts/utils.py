@@ -245,7 +245,7 @@ def read_markdown_file(path: Path) -> str:
 
 CONSUMERS = ('cli', 'chat')
 _FENCE_RE = re.compile(r'^<!-- (/?)(cli|chat)-only -->$')
-_FENCE_LIKE_RE = re.compile(r'<!--\s*/?\s*(cli|chat)\W*only\s*-->', re.IGNORECASE)
+_FENCE_LIKE_RE = re.compile(r'<!--\s*/?\s*(cli|chat)[\W_]*only\s*-->', re.IGNORECASE)
 
 
 def render_for(md: str, consumer: str, source: str = '<markdown>') -> str:

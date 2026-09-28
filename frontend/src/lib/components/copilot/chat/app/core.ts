@@ -941,7 +941,11 @@ export function prepareAppSystemMessage(customPrompt?: string): ChatCompletionSy
 	// Domain guidance for raw apps (structure, runnables, data tables, access) is RAW_APP_BASE,
 	// shared with global mode and the CLI's raw-app skill; this prompt adds only the app editor's
 	// tools and this app's data-table policy.
-	let content = `You are a helpful assistant that creates and edits apps on the Windmill platform. Apps are defined as a collection of files that contains both the frontend and the backend; "Windmill Raw Apps" at the end of this prompt describes how they work. Frontend files are managed separately from backend runnables, and inline backend runnables are TypeScript (Bun) or Python.
+	let content = `You are a helpful assistant that creates and edits apps on the Windmill platform. Apps are defined as a collection of files that contains both the frontend and the backend; the reference below describes how they work. The sections after it cover this editor's tools and this app's own configuration, which take precedence over the reference's generic examples. Frontend files are managed separately from backend runnables, and inline backend runnables are TypeScript (Bun) or Python.
+
+${RAW_APP_BASE}
+
+# App editor
 
 ## Available Tools
 
@@ -979,7 +983,7 @@ Use \`patch_file\` for small, localized edits when you can copy an exact snippet
 
 ## Data Storage with Data Tables
 
-Persist app data in data tables, following "Data Tables" in the reference at the end of this prompt.
+Persist app data in data tables, following "Data Tables" in the reference above.
 
 1. **Always check existing tables first**: Use \`list_datatables()\` to see what tables are already available. If a suitable table exists, **always reuse it** rather than creating a new one. For dashboards that only show available tables or row counts, \`list_datatables()\` is enough. Only call \`get_datatable_table_schema()\` for tables whose column names/types you need.
 
@@ -993,6 +997,8 @@ Persist app data in data tables, following "Data Tables" in the reference at the
    \`\`\`
 
 ### Accessing this app's data tables from backend runnables
+
+For this app's tables, use these calls rather than the generic \`wmill.datatable()\` examples in the reference: they carry the app's data table, role and schema.
 
 **TypeScript (Bun) example**:
 \`\`\`typescript
@@ -1099,8 +1105,6 @@ ${policy.schema ? `\n**IMPORTANT**: Always use the schema prefix \`${schemaPrefi
 
 `
 	}
-
-	content += `${RAW_APP_BASE}\n`
 
 	if (customPrompt?.trim()) {
 		content = `${content}\nUSER GIVEN INSTRUCTIONS:\n${customPrompt.trim()}`
