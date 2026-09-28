@@ -50,6 +50,7 @@
 	import TreeViewRoot from '$lib/components/home/TreeViewRoot.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import TreeViewControls from '$lib/components/home/TreeViewControls.svelte'
+	import { TreeViewState } from '$lib/components/home/treeViewState.svelte'
 	import type { ItemType } from '$lib/components/home/treeViewUtils'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -372,9 +373,7 @@
 	let ownerFilter: string | undefined = $state(undefined)
 	let nbDisplayed = $state(15)
 
-	const TREE_VIEW_SETTING_NAME = 'triggersTreeView'
-	let treeView = $state(getLocalSetting(TREE_VIEW_SETTING_NAME) == 'true')
-	let collapseAll = $state(true)
+	const tree = new TreeViewState('triggersTreeView')
 	// A search or an owner filter opens every folder so no match hides behind a closed one.
 	let treeForceExpanded = $derived(filter !== '' || ownerFilter != undefined)
 
@@ -946,13 +945,7 @@
 				<ListFilters syncQuery bind:selectedFilter={ownerFilter} filters={owners} />
 
 				<div class="flex flex-row items-center justify-end gap-4">
-					<TreeViewControls
-						bind:treeView
-						bind:collapseAll
-						settingName={TREE_VIEW_SETTING_NAME}
-						forceExpanded={treeForceExpanded}
-						class="mr-auto"
-					/>
+					<TreeViewControls {tree} forceExpanded={treeForceExpanded} class="mr-auto" />
 					{#if operatingUser.current?.is_super_admin && operatingUser.current.username.includes('@')}
 						<Toggle size="xs" bind:checked={filterUserFolders} options={{ right: 'Only f/*' }} />
 					{:else if isAdmin}
@@ -984,10 +977,10 @@
 						: undefined}
 				/>
 			{:else if items?.length}
-				{#if treeView}
+				{#if tree.treeView}
 					<TreeViewRoot
 						items={items as unknown as ItemType[]}
-						{collapseAll}
+						collapseAll={tree.collapseAll}
 						isSearching={treeForceExpanded}
 						showCode={() => {}}
 						leaf={treeLeaf}
@@ -1003,7 +996,7 @@
 				<NoItemFound />
 			{/if}
 		</div>
-		{#if !treeView && items && items?.length > 15 && nbDisplayed < items.length}
+		{#if !tree.treeView && items && items?.length > 15 && nbDisplayed < items.length}
 			<span class="text-xs font-normal text-primary"
 				>{nbDisplayed} items out of {items.length}
 				<button class="ml-4 font-semibold text-emphasis" onclick={() => (nbDisplayed += 30)}
