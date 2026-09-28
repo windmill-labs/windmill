@@ -148,6 +148,7 @@
 					const dir = groupDesc ? -1 : 1
 					const users = grouped.filter((g) => 'username' in g) as { username: string }[]
 					const folders = grouped.filter((g) => 'folderName' in g) as { folderName: string }[]
+					const leaves = grouped.filter((g) => !('username' in g) && !('folderName' in g))
 					users.push(...missingUsers)
 					folders.push(...missingFolders)
 					users.sort((a, b) => dir * a.username.localeCompare(b.username))
@@ -155,7 +156,8 @@
 					grouped.length = 0
 					grouped.push(
 						...(users as unknown as typeof grouped),
-						...(folders as unknown as typeof grouped)
+						...(folders as unknown as typeof grouped),
+						...leaves
 					)
 				}
 			}
