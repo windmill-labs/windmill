@@ -10,7 +10,7 @@ pub struct JobProvenance {
     /// The chain reached a parent it cannot read (other workspace, depth cap), so
     /// nothing above that point is known.
     pub unproven_ancestry: bool,
-    /// The paths the chain took from a request, top-most first: for the job to act as
+    /// The item paths the chain took from a request, top-most first: for the job to act as
     /// them, its identity must be one that could have deployed there. A job whose code
     /// and path both derive from a claimed parent adds no claim of its own.
     pub claimed_paths: Vec<ClaimedPath>,
@@ -163,9 +163,20 @@ fn runs_stored_code(job: &LineageJob, parent: Option<(&LineageJob, bool)>) -> bo
 }
 
 /// A job pushed by a worker running a request-supplied parent, at or under that
-/// parent's path, claims nothing the parent did not already claim.
+/// parent's path, claims nothing the parent did not already claim. The parent's claim
+/// covers it only if the parent's path names an item, so that its claim is checked.
 fn derives_from_claimed_parent(job: &LineageJob, parent: Option<(&LineageJob, bool)>) -> bool {
-    parent.is_some_and(|(p, p_stored)| !p_stored && path_within(job, p))
+    parent.is_some_and(|(p, p_stored)| {
+        !p_stored && p.runnable_path.as_deref().is_some_and(names_an_item) && path_within(job, p)
+    })
+}
+
+/// Items only live under these namespaces (a preview without a path runs at `tmp/main`):
+/// a path outside them cannot be an item's path in a `sub`, so claiming it claims nothing.
+fn names_an_item(path: &str) -> bool {
+    ["u/", "f/", "g/", "hub/"]
+        .iter()
+        .any(|ns| path.starts_with(ns))
 }
 
 fn path_within(job: &LineageJob, parent: &LineageJob) -> bool {
@@ -184,7 +195,7 @@ fn path_within(job: &LineageJob, parent: &LineageJob) -> bool {
 }
 
 fn claimed_path(job: &LineageJob, top_level: bool) -> Option<ClaimedPath> {
-    let path = job.runnable_path.as_deref().filter(|p| !p.is_empty())?;
+    let path = job.runnable_path.as_deref().filter(|p| names_an_item(p))?;
     let (path, item) = match job.kind {
         // The server derives an app script's path as `<app path>/<component>`, with the
         // component a single segment.
