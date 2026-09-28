@@ -47,6 +47,10 @@
 	import { Alert, Badge, Button, EmptyState, Skeleton } from '$lib/components/common'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
+	import TreeViewRoot from '$lib/components/home/TreeViewRoot.svelte'
+	import { twMerge } from 'tailwind-merge'
+	import TreeViewControls from '$lib/components/home/TreeViewControls.svelte'
+	import type { ItemType } from '$lib/components/home/treeViewUtils'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
@@ -368,6 +372,12 @@
 	let ownerFilter: string | undefined = $state(undefined)
 	let nbDisplayed = $state(15)
 
+	const TREE_VIEW_SETTING_NAME = 'triggersTreeView'
+	let treeView = $state(getLocalSetting(TREE_VIEW_SETTING_NAME) == 'true')
+	let collapseAll = $state(true)
+	// A search or an owner filter opens every folder so no match hides behind a closed one.
+	let treeForceExpanded = $derived(filter !== '' || ownerFilter != undefined)
+
 	const TRIGGER_PATH_KIND_FILTER_SETTING = 'filter_path_of'
 	const FILTER_USER_FOLDER_SETTING_NAME = 'user_and_folders_only'
 	let selectedFilterKind = $state(
@@ -664,6 +674,188 @@
 	</div>
 </ConfirmationModal>
 
+{#snippet triggerRow(row: TriggerW & { marked?: any }, inTree: boolean, depth: number)}
+	{@const {
+		path,
+		edited_by,
+		edited_at,
+		script_path,
+		is_flow,
+		extra_perms,
+		canWrite,
+		mode,
+		retry,
+		error_handler_path,
+		error_handler_args,
+		labels,
+		draft_only,
+		is_draft
+	} = row}
+	{@const hasDraft = getLocalDraftHint($operatingWorkspace, config.draftKind, path) ?? is_draft}
+	{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
+	{@const effectiveMode = draft_only ? 'disabled' : mode}
+	{@const live = isLive(row)}
+	{@const copy = copyUrl(row)}
+
+	<div
+		class={twMerge(
+			'bg-surface-tertiary hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 flex flex-col',
+			inTree
+				? 'border-b'
+				: 'first-of-type:!border-t-0 first-of-type:rounded-t-md last-of-type:rounded-b-md'
+		)}
+		style={depth > 0 ? `padding-left: ${(depth + 1) * 16}px;` : ''}
+	>
+		<div class="w-full flex gap-5 items-center">
+			<RowIcon kind={is_flow ? 'flow' : 'script'} />
+
+			<a
+				href="#{path}"
+				onclick={(e) => {
+					if (hosted) e.preventDefault()
+					openEdit(path, is_flow)
+				}}
+				class="min-w-0 grow hover:underline decoration-gray-400"
+			>
+				{@render rowTitle(row, hasDraft)}
+			</a>
+
+			<div class="hidden lg:flex flex-row gap-1 items-center">
+				<SharedBadge {canWrite} extraPerms={extra_perms} />
+				{#if triggerKind !== 'http' && triggerKind !== 'azure' && labels?.length}
+					{#each labels as label}
+						<Badge color="blue" small class="px-1" title="Label: {label}">{label}</Badge>
+					{/each}
+				{/if}
+			</div>
+
+			{#if live}
+				{@render statusDot(row)}
+			{/if}
+
+			<div class="flex items-center justify-end gap-2 shrink-0 min-w-[8rem]">
+				<DraftBadge {draft_only} is_draft={hasDraft} />
+				{#if live}
+					<TriggerModeToggle
+						disabled={draft_only}
+						title={draft_only
+							? 'Draft only: deploy the trigger to enable it'
+							: hasDraft
+								? 'Enables/disables the deployed trigger; the draft is not affected'
+								: undefined}
+						onToggleMode={(newMode) => onToggleMode(path, newMode)}
+						triggerMode={effectiveMode}
+						includeModalConfig={{
+							triggerPath: path,
+							triggerKind,
+							runnableConfig: {
+								path: script_path,
+								kind: is_flow ? 'flow' : 'script',
+								retry,
+								errorHandlerPath: error_handler_path,
+								errorHandlerArgs: error_handler_args
+							}
+						}}
+						{canWrite}
+						hideToggleLabels
+						hideDropdown
+					/>
+				{/if}
+			</div>
+
+			<div class="flex gap-2 items-center justify-end">
+				{#if copy}
+					<Button
+						on:click={() => copyToClipboard(copy.value)}
+						variant="subtle"
+						unifiedSize="md"
+						startIcon={{ icon: ClipboardCopy }}
+					>
+						{copy.label}
+					</Button>
+				{/if}
+				<Button
+					on:click={() => openEdit(path, is_flow)}
+					unifiedSize="md"
+					startIcon={canWrite ? { icon: Pen } : { icon: Eye }}
+					variant="subtle"
+				>
+					{canWrite ? 'Edit' : 'View'}
+				</Button>
+				<Dropdown
+					items={[
+						{
+							displayName: `View ${is_flow ? 'Flow' : 'Script'}`,
+							icon: Eye,
+							action: () => openLink(href)
+						},
+						...(canWrite && !draft_only && mode !== 'suspended'
+							? [
+									{
+										displayName: 'Suspend job execution',
+										icon: Pause,
+										action: () => {
+											onToggleMode(path, 'suspended')
+										}
+									}
+								]
+							: []),
+						{
+							displayName: canWrite ? 'Edit' : 'View',
+							icon: canWrite ? Pen : Eye,
+							action: () => openEdit(path, is_flow)
+						},
+						...(isDeployable('trigger', path, deployUiSettings)
+							? [
+									{
+										displayName: 'Deploy to prod/staging',
+										icon: FileUp,
+										action: () => {
+											deploymentDrawer?.openDrawer(path, 'trigger', {
+												triggers: { kind: config.deployKind }
+											})
+										}
+									}
+								]
+							: []),
+						{
+							displayName: 'Audit logs',
+							icon: Eye,
+							href: `${base}/audit_logs?resource=${path}`
+						},
+						{
+							displayName: 'Permissions',
+							icon: Shield,
+							action: () => {
+								shareModal?.openDrawer(path, config.shareKind as any)
+							}
+						},
+						{
+							displayName: 'Delete',
+							type: 'delete',
+							icon: Trash,
+							disabled: !canWrite || (config.adminOnly && !isAdmin),
+							action: () => deleteTrigger(row)
+						}
+					]}
+				/>
+			</div>
+		</div>
+		<div class="w-full flex justify-end items-baseline">
+			<div
+				class="flex flex-wrap text-2xs font-normal text-secondary gap-1 items-center justify-end truncate pr-2"
+			>
+				{#if edited_by}<div class="truncate">edited by {edited_by}</div>{/if}
+				<div class="truncate">{edited_by ? 'at ' : ''}{displayDate(edited_at)}</div>
+			</div>
+		</div>
+	</div>
+{/snippet}
+
+{#snippet treeLeaf(item: ItemType, depth: number)}
+	{@render triggerRow(item as unknown as TriggerW & { marked?: any }, true, depth)}
+{/snippet}
+
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 {#await EDITORS[triggerKind]() then Editor}
 	<Editor.default onUpdate={loadTriggers} bind:this={editor} />
@@ -754,6 +946,13 @@
 				<ListFilters syncQuery bind:selectedFilter={ownerFilter} filters={owners} />
 
 				<div class="flex flex-row items-center justify-end gap-4">
+					<TreeViewControls
+						bind:treeView
+						bind:collapseAll
+						settingName={TREE_VIEW_SETTING_NAME}
+						forceExpanded={treeForceExpanded}
+						class="mr-auto"
+					/>
 					{#if operatingUser.current?.is_super_admin && operatingUser.current.username.includes('@')}
 						<Toggle size="xs" bind:checked={filterUserFolders} options={{ right: 'Only f/*' }} />
 					{:else if isAdmin}
@@ -785,186 +984,26 @@
 						: undefined}
 				/>
 			{:else if items?.length}
-				<div class="border rounded-md divide-y">
-					{#each items.slice(0, nbDisplayed) as row (row.path)}
-						{@const {
-							path,
-							edited_by,
-							edited_at,
-							script_path,
-							is_flow,
-							extra_perms,
-							canWrite,
-							mode,
-							retry,
-							error_handler_path,
-							error_handler_args,
-							labels,
-							draft_only,
-							is_draft
-						} = row}
-						{@const hasDraft =
-							getLocalDraftHint($operatingWorkspace, config.draftKind, path) ?? is_draft}
-						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
-						{@const effectiveMode = draft_only ? 'disabled' : mode}
-						{@const live = isLive(row)}
-						{@const copy = copyUrl(row)}
-
-						<div
-							class="bg-surface-tertiary hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0
-				first-of-type:rounded-t-md last-of-type:rounded-b-md flex flex-col"
-						>
-							<div class="w-full flex gap-5 items-center">
-								<RowIcon kind={is_flow ? 'flow' : 'script'} />
-
-								<a
-									href="#{path}"
-									onclick={(e) => {
-										if (hosted) e.preventDefault()
-										openEdit(path, is_flow)
-									}}
-									class="min-w-0 grow hover:underline decoration-gray-400"
-								>
-									{@render rowTitle(row, hasDraft)}
-								</a>
-
-								<div class="hidden lg:flex flex-row gap-1 items-center">
-									<SharedBadge {canWrite} extraPerms={extra_perms} />
-									{#if triggerKind !== 'http' && triggerKind !== 'azure' && labels?.length}
-										{#each labels as label}
-											<Badge color="blue" small class="px-1" title="Label: {label}">{label}</Badge>
-										{/each}
-									{/if}
-								</div>
-
-								{#if live}
-									{@render statusDot(row)}
-								{/if}
-
-								<div class="flex items-center justify-end gap-2 shrink-0 min-w-[8rem]">
-									<DraftBadge {draft_only} is_draft={hasDraft} />
-									{#if live}
-										<TriggerModeToggle
-											disabled={draft_only}
-											title={draft_only
-												? 'Draft only: deploy the trigger to enable it'
-												: hasDraft
-													? 'Enables/disables the deployed trigger; the draft is not affected'
-													: undefined}
-											onToggleMode={(newMode) => onToggleMode(path, newMode)}
-											triggerMode={effectiveMode}
-											includeModalConfig={{
-												triggerPath: path,
-												triggerKind,
-												runnableConfig: {
-													path: script_path,
-													kind: is_flow ? 'flow' : 'script',
-													retry,
-													errorHandlerPath: error_handler_path,
-													errorHandlerArgs: error_handler_args
-												}
-											}}
-											{canWrite}
-											hideToggleLabels
-											hideDropdown
-										/>
-									{/if}
-								</div>
-
-								<div class="flex gap-2 items-center justify-end">
-									{#if copy}
-										<Button
-											on:click={() => copyToClipboard(copy.value)}
-											variant="subtle"
-											unifiedSize="md"
-											startIcon={{ icon: ClipboardCopy }}
-										>
-											{copy.label}
-										</Button>
-									{/if}
-									<Button
-										on:click={() => openEdit(path, is_flow)}
-										unifiedSize="md"
-										startIcon={canWrite ? { icon: Pen } : { icon: Eye }}
-										variant="subtle"
-									>
-										{canWrite ? 'Edit' : 'View'}
-									</Button>
-									<Dropdown
-										items={[
-											{
-												displayName: `View ${is_flow ? 'Flow' : 'Script'}`,
-												icon: Eye,
-												action: () => openLink(href)
-											},
-											...(canWrite && !draft_only && mode !== 'suspended'
-												? [
-														{
-															displayName: 'Suspend job execution',
-															icon: Pause,
-															action: () => {
-																onToggleMode(path, 'suspended')
-															}
-														}
-													]
-												: []),
-											{
-												displayName: canWrite ? 'Edit' : 'View',
-												icon: canWrite ? Pen : Eye,
-												action: () => openEdit(path, is_flow)
-											},
-											...(isDeployable('trigger', path, deployUiSettings)
-												? [
-														{
-															displayName: 'Deploy to prod/staging',
-															icon: FileUp,
-															action: () => {
-																deploymentDrawer?.openDrawer(path, 'trigger', {
-																	triggers: { kind: config.deployKind }
-																})
-															}
-														}
-													]
-												: []),
-											{
-												displayName: 'Audit logs',
-												icon: Eye,
-												href: `${base}/audit_logs?resource=${path}`
-											},
-											{
-												displayName: 'Permissions',
-												icon: Shield,
-												action: () => {
-													shareModal?.openDrawer(path, config.shareKind as any)
-												}
-											},
-											{
-												displayName: 'Delete',
-												type: 'delete',
-												icon: Trash,
-												disabled: !canWrite || (config.adminOnly && !isAdmin),
-												action: () => deleteTrigger(row)
-											}
-										]}
-									/>
-								</div>
-							</div>
-							<div class="w-full flex justify-end items-baseline">
-								<div
-									class="flex flex-wrap text-2xs font-normal text-secondary gap-1 items-center justify-end truncate pr-2"
-								>
-									{#if edited_by}<div class="truncate">edited by {edited_by}</div>{/if}
-									<div class="truncate">{edited_by ? 'at ' : ''}{displayDate(edited_at)}</div>
-								</div>
-							</div>
-						</div>
-					{/each}
-				</div>
+				{#if treeView}
+					<TreeViewRoot
+						items={items as unknown as ItemType[]}
+						{collapseAll}
+						isSearching={treeForceExpanded}
+						showCode={() => {}}
+						leaf={treeLeaf}
+					/>
+				{:else}
+					<div class="border rounded-md divide-y">
+						{#each items.slice(0, nbDisplayed) as row (row.path)}
+							{@render triggerRow(row, false, 0)}
+						{/each}
+					</div>
+				{/if}
 			{:else}
 				<NoItemFound />
 			{/if}
 		</div>
-		{#if items && items?.length > 15 && nbDisplayed < items.length}
+		{#if !treeView && items && items?.length > 15 && nbDisplayed < items.length}
 			<span class="text-xs font-normal text-primary"
 				>{nbDisplayed} items out of {items.length}
 				<button class="ml-4 font-semibold text-emphasis" onclick={() => (nbDisplayed += 30)}

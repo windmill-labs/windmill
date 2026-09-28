@@ -22,8 +22,6 @@
 	import { userWorkspaces, enterpriseLicense } from '$lib/stores'
 	import {
 		Calendar,
-		ChevronsDownUp,
-		ChevronsUpDown,
 		Circle,
 		Copy,
 		Eye,
@@ -46,6 +44,7 @@
 	import { buildSchedulesFilterSchema } from '$lib/components/schedules/schedulesFilter'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
 	import TreeViewRoot from '$lib/components/home/TreeViewRoot.svelte'
+	import TreeViewControls from '$lib/components/home/TreeViewControls.svelte'
 	import type { ItemType } from '$lib/components/home/treeViewUtils'
 	import { twMerge } from 'tailwind-merge'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
@@ -685,25 +684,13 @@
 		</PageHeader>
 		<div class="w-full h-full flex flex-col">
 			<div class="flex flex-row items-center justify-end gap-4 pb-4">
-				<div class="flex items-center gap-2 mr-auto">
-					<Toggle
-						size="xs"
-						bind:checked={treeView}
-						on:change={(e) =>
-							storeLocalSetting(TREE_VIEW_SETTING_NAME, e.detail ? 'true' : undefined)}
-						options={{ right: 'Tree view' }}
-					/>
-					{#if treeView && !treeForceExpanded}
-						<Button
-							unifiedSize="sm"
-							variant="subtle"
-							on:click={() => (collapseAll = !collapseAll)}
-							startIcon={{ icon: collapseAll ? ChevronsUpDown : ChevronsDownUp }}
-						>
-							{collapseAll ? 'Expand all' : 'Collapse all'}
-						</Button>
-					{/if}
-				</div>
+				<TreeViewControls
+					bind:treeView
+					bind:collapseAll
+					settingName={TREE_VIEW_SETTING_NAME}
+					forceExpanded={treeForceExpanded}
+					class="mr-auto"
+				/>
 				<ToggleButtonGroup bind:selected={filterEnabledDisabled} class="w-fit">
 					{#snippet children({ item })}
 						<ToggleButton value="all" label="All" {item} />
