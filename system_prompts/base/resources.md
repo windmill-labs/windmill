@@ -49,6 +49,16 @@ Reference variables in resource values:
 - `$var:u/username/name` - User variable
 - `$var:f/folder/name` - Folder variable
 
+## Secrets
+
+Never put a secret (password, API key, token) inline in a resource value. Store it in a secret variable and reference that variable as `$var:<path>`.
+
+- `$var:<path>` is a reference, not a value: it resolves to the variable's value at run time. Never invent a value for a variable.
+- A resource that references a variable needs the variable to exist first, so create or deploy the variable before the resource.
+<!-- cli-only -->
+- A secret's plaintext never goes in a file of the repo: a `.variable.yaml` holding it would be committed. Ask the user to create the secret on the workspace instead, e.g. `wmill variable add '<value>' <path>` (a secret by default), then reference it by path.
+<!-- /cli-only -->
+
 ## Resource References
 
 Reference other resources:

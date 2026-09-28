@@ -168,7 +168,7 @@ The `data` block in `raw_app.yaml` controls which tables the app can query.
 ```yaml
 data:
   datatable: main           # Default datatable
-  schema: app_schema        # Default schema (optional)
+  schema: app_schema        # Schema the app's tables go in (optional); still write them as app_schema.<table>
   tables:
     - main/users            # Table in public schema
     - main/app_schema:items # Table in specific schema
@@ -213,6 +213,8 @@ data:
     - main/users
 ```
 
+A migration runs with no default schema, so a table outside `public` is created with its schema, `CREATE TABLE IF NOT EXISTS app_schema.items (...)`, listed as `main/app_schema:items`, and queried as `app_schema.items`.
+
 ### Migration best practices
 
 - **Use idempotent SQL**: `CREATE TABLE IF NOT EXISTS`, etc.
@@ -222,8 +224,9 @@ data:
 
 ## CLI Commands
 
-Two commands you run yourself, not the user:
+Commands you run yourself, not the user:
 - `wmill app new` — run it with flags, per the "Creating a Raw App" section above.
+- `wmill app lint <app_folder>` — checks the app's structure and that it builds. Run it after editing, before offering a preview or a deploy; a bundle that compiles still says nothing about behavior, so a preview is what checks that.
 - `wmill generate-metadata` — (re)generates local lock files and refreshes `wmill-lock.yaml` content hashes; writes local files only (not a deploy). After adding or editing a runnable, offer it and run it on agreement — or automatically if the project's `AGENTS.md` opts into that (see "After creating a runnable" above).
 
 For the rest, tell the user which command fits their intent and let them run it — these deploy to the workspace, overwrite local files, or launch a long-running server, so the user should consent each time:
@@ -284,6 +287,8 @@ Import the generated bindings and call the runnable like a function. `./wmill` i
 | `waitJob(jobId)` | the job's **result** (rejects if the job failed) | awaiting a `backendAsync` job |
 | `getJob(jobId)` | a `Job` (`{ type, success, result, duration_ms, ... }`) | polling status without blocking |
 | `streamJob(jobId, onUpdate?)` | the final result, calling `onUpdate` per chunk | showing output as it is produced |
+
+A runnable is always called with **one object** whose keys are its `main` parameters — `main(user_id: string, limit: number)` is called as `backend.get_users({ user_id, limit })`, never with positional arguments. A runnable without parameters is called with no argument. Resource and variable ids handed to the `wmill` client are paths (`u/<user>/<name>` or `f/<folder>/<name>`).
 
 Run and wait — the common case:
 
@@ -358,9 +363,10 @@ Each runnable has a unique key (used to call it from the frontend) and one of fo
 
 ### Inline runnables
 
-Inline runnables carry their own source code. For file-based raw apps, the runnable language is determined by the backend file extension. The script must expose a `main` function as its entrypoint.
+Inline runnables carry their own source code, and must expose a `main` function as their entrypoint.
+On disk, a runnable's language is determined by its backend file extension.
 
-**TypeScript example** (`backend/get_user.ts`):
+**TypeScript example** (runnable `get_user`):
 
 ```typescript
 import * as wmill from 'windmill-client';
@@ -372,7 +378,7 @@ export async function main(user_id: string) {
 }
 ```
 
-**Python example** (`backend/get_user.py`):
+**Python example** (runnable `get_user`):
 
 ```python
 import wmill
@@ -395,6 +401,8 @@ Prefer the `wmill` functions that appear in the SDK reference; for an endpoint n
 
 When `type` is `script`, `flow`, or `hubscript`, the runnable just stores a `path` to an existing workspace or hub item — no inline code. The referenced item's input/output schema becomes the runnable's surface.
 
+Before writing an inline runnable, look for a workspace script or flow that already does the job, or a Hub script (a prebuilt integration at `hub/<version>/<app>/<name>`) for a third-party service, and reference it instead of copying its logic.
+
 ### Draft code vs deployed code
 
 This decides whether an app works before anything is deployed:
@@ -414,15 +422,29 @@ Prefer a **path runnable of type `flow`** over an inline runnable that calls `wm
 
 `staticInputs` is an optional `Record<string, any>` for arguments not overridable from the frontend. Useful with path runnables to pre-fill some args while leaving the rest to the frontend caller.
 
+## Who can open a deployed app
+
+A draft app is reachable by nobody; deploying is what exposes it, and its backend runnables with it. Otherwise only users with access to the app can open it, unless the app is opened to:
+
+- **anonymous** users: anyone with the URL, without logging in;
+- **guests**: anyone the instance's identity provider authenticates, whether or not they belong to the workspace.
+
+Either one lets those people run the app's backend runnables, so never open an app up unless the user asks.
+`public: true` in `raw_app.yaml` deploys the app for anonymous users, and `guests: true` for guests. Remove the line and the next push closes the app again.
+
 ## Data Tables
 
-Data tables are PostgreSQL databases managed by Windmill. Backend runnables query them via the `wmill` client; the frontend never queries them directly.
+Data tables are PostgreSQL databases managed by Windmill. Backend runnables query them via the `wmill` client; the frontend never queries them directly. **When the app needs to store or persist data** (user data, settings, application state, records, logs), use a data table.
 
 ### Critical rules
 
-1. **Whitelisted tables only**: a runnable can only query tables listed in the app's `data.tables` config. Tables not in this list are not accessible.
-2. **Add tables before using**: queries against unlisted tables fail at runtime. When you introduce a new table, register it in `data.tables` first.
-3. **Use the configured datatable/schema**: the app's `data` config sets the default datatable and schema; reference them consistently across runnables.
+1. **Check what exists first**: look up the workspace's data tables and their tables before designing storage, and reuse a suitable table rather than creating another. Never assume a `main` data table exists.
+2. **Whitelisted tables only**: a runnable can only query tables listed in the app's `data.tables` config. Queries against unlisted tables fail at runtime, so register a new table there before using it.
+3. **No DDL inside runnables**: runnables only read and write rows (SELECT, INSERT, UPDATE, DELETE) on existing tables. Never CREATE, ALTER or DROP a table from a runnable.
+4. **Qualify table names**: an unqualified name means the `public` schema, so write every other table as `schema.table`, in table creation and queries alike. The app's `data` config sets the default datatable and schema its tables go in; use them consistently across runnables.
+5. **Pass the role**: when the app's `data.roles` gives a data table a role, every `wmill.datatable` call on it passes that role (`wmill.datatable('main', { role: 'analyst' })` in TypeScript, `wmill.datatable('main', role='analyst')` in Python). The role only reaches what it was granted, so a query outside it fails with `permission denied`.
+
+`wmill datatable list` lists the workspace's data tables. Create or change tables with a migration in `sql_to_apply/` (see "SQL Migrations" above), then add them to `data.tables` in `raw_app.yaml`.
 
 ### Querying in TypeScript (Bun/Deno)
 
