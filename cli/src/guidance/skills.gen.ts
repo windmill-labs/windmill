@@ -5823,7 +5823,7 @@ names, so neither is name-checked at all — leave those summaries as they are.
 - Always set \`summary\`. It must be unique among that agent's tools, and must not be one of the
   reserved ids (\`do\`, \`bg\`, \`ctx\`, \`state\`, \`if\`, \`else\`, \`for\`, \`delete\`, \`while\`, \`new\`, \`in\`,
   \`failure\`, \`preprocessor\`, \`as\`, \`Input\`, \`Result\`, \`Trigger\`)
-- A tool name outside that character set fails every run of the flow with \`Invalid tool name\`.
+- A tool name outside that character set fails any run that offers the tool to the agent, with \`Invalid tool name\`.
   \`wmill lint <flow folder>\` reports it before anything runs.
 - Tool \`id\` follows the same rules as any module ID — unique across the flow, underscores not spaces
 - \`description\` is optional free text telling the agent when and how to call the tool. Set it

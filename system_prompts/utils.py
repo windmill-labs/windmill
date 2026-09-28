@@ -245,7 +245,11 @@ def read_markdown_file(path: Path) -> str:
 
 CONSUMERS = ('cli', 'chat')
 _FENCE_RE = re.compile(r'^<!-- (/?)(cli|chat)-only -->$')
-_FENCE_LIKE_RE = re.compile(r'<!--\s*/?\s*(cli|chat)[\W_]*only\s*-->', re.IGNORECASE)
+# Any comment opening with `cli`/`chat`, or closing on `only`, is taken as a fence
+# attempt: a misspelled one would otherwise pass through with the text it guards.
+_FENCE_LIKE_RE = re.compile(
+    r'<!--\s*/?\s*(?:(?:cli|chat)(?![a-z])|[\w-]*only\s*-->)', re.IGNORECASE
+)
 
 
 def render_for(md: str, consumer: str, source: str = '<markdown>') -> str:

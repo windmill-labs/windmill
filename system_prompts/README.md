@@ -66,7 +66,8 @@ The flow write tools refuse such a name.
 
 `render_for` (`utils.py`) renders every file once per consumer: `prompts.ts` gets the chat render,
 the skills get the cli render, and the fence lines reach neither. Fences sit on their own lines and
-cannot nest; an unbalanced or misspelled fence fails generation.
+cannot nest; an unbalanced or misspelled fence fails generation (an HTML comment opening with `cli`
+or `chat`, or ending in `only`, is read as a fence attempt).
 
 Use a fence for a sentence or a section. When most of a topic differs per consumer, a CLI-only
 file used as `cli_intro` reads better than a file that is mostly fences.

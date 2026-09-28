@@ -170,7 +170,7 @@ names, so neither is name-checked at all — leave those summaries as they are.
 - Always set `summary`. It must be unique among that agent's tools, and must not be one of the
   reserved ids (`do`, `bg`, `ctx`, `state`, `if`, `else`, `for`, `delete`, `while`, `new`, `in`,
   `failure`, `preprocessor`, `as`, `Input`, `Result`, `Trigger`)
-- A tool name outside that character set fails every run of the flow with `Invalid tool name`.
+- A tool name outside that character set fails any run that offers the tool to the agent, with `Invalid tool name`.
 <!-- chat-only -->
   The flow write tools refuse such a name.
 <!-- /chat-only -->
