@@ -79,6 +79,32 @@ export const EVAL_MODELS: EvalModelSpec[] = [
     },
   },
   {
+    id: "sonnet-5.5",
+    label: "Claude Sonnet 5.5",
+    aliases: ["sonnet-5.5", "claude-sonnet-5.5", "claude-sonnet-5-5"],
+    frontend: {
+      provider: "anthropic",
+      model: "claude-sonnet-5-5",
+    },
+    cli: {
+      provider: "anthropic",
+      model: "claude-sonnet-5-5",
+    },
+  },
+  {
+    id: "opus-5.5",
+    label: "Claude Opus 5.5",
+    aliases: ["opus-5.5", "claude-opus-5.5", "claude-opus-5-5"],
+    frontend: {
+      provider: "anthropic",
+      model: "claude-opus-5-5",
+    },
+    cli: {
+      provider: "anthropic",
+      model: "claude-opus-5-5",
+    },
+  },
+  {
     id: "4o",
     label: "GPT-4o",
     aliases: ["4o", "gpt-4o"],

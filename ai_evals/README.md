@@ -101,7 +101,7 @@ Notes:
 - the command also prints accepted alias spellings such as `gpt-4o`, `gpt-55`, `claude-opus-4.6`, and `claude-haiku-4.5`
 - frontend modes (`flow`, `script`, `app`, `global`) can use Anthropic, OpenAI, Gemini, and DeepSeek-backed aliases
 - `cli` mode always uses the Anthropic agent SDK, so only Anthropic aliases are valid there
-- the judge model is separate and currently defaults to `claude-sonnet-4-6`; use `--skip-judge` for deterministic-only runs
+- the judge model is separate and currently defaults to `claude-sonnet-5-5`; use `--skip-judge` for deterministic-only runs
 
 ## Case Format
 
