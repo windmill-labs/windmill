@@ -89,10 +89,11 @@ import {
 import type { FlowModuleState, FlowState } from '$lib/components/flows/flowState'
 import type { CurrentEditor, ExtendedOpenFlow } from '$lib/components/flows/types'
 import { untrack } from 'svelte'
-import { get } from 'svelte/store'
+import { fromStore, get } from 'svelte/store'
+import type { ProviderToolSummary } from './agentContext'
 import { BROWSER } from 'esm-env'
 import { workspaceStore, type DBSchemas } from '$lib/stores'
-import { copilotInfo } from '$lib/aiStore'
+import { copilotInfo, copilotSessionModel } from '$lib/aiStore'
 import { copilotWorkspaceRequested, loadCopilot } from '$lib/components/copilot/loadCopilot'
 import { askTools, prepareAskSystemMessage, prepareAskUserMessage } from './ask/core'
 import { readDocsPageTool, searchDocsTool } from './docs/core'
@@ -110,7 +111,12 @@ import {
 import type { Selection } from 'monaco-editor'
 import type AIChatInput from './AIChatInput.svelte'
 import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
-import { closeInterruptedToolBatch, runChatLoop, truncateToToolPairedPrefix } from './chatLoop'
+import {
+	closeInterruptedToolBatch,
+	runChatLoop,
+	sendsWebSearch,
+	truncateToToolPairedPrefix
+} from './chatLoop'
 import { FREE_TIER_OUTPUT_TOKEN_LIMIT_MESSAGE, OutputTokenLimitError } from './outputTokenLimit'
 import { sanitizeToolCallArguments } from './toolCallArguments'
 import { billedTokens, normalizeContextUsage, type ChatTokenUsage } from './tokenUsage'
@@ -489,7 +495,7 @@ export class AIChatManager implements ChatViewHost {
 	abortController: AbortController | undefined = undefined
 	inlineAbortController: AbortController | undefined = undefined
 	// Flag to skip Responses API if it's not available (e.g., Azure region doesn't support it)
-	skipResponsesApi = false
+	skipResponsesApi = $state(false)
 
 	mode = $state<AIMode>(AIMode.NAVIGATOR)
 	pipelineAiChatHelpers = $state<PipelineAIChatHelpers | undefined>(undefined)
@@ -750,6 +756,28 @@ export class AIChatManager implements ChatViewHost {
 	 * transitions, whichever one is offered right now. A reference answer, so flipping the
 	 * autonomy picker must not change it. */
 	availableTools: Tool<any>[] = $derived(this.#shipped(this.planMode.availableTools))
+	#copilotInfo = fromStore(copilotInfo)
+	#sessionModel = fromStore(copilotSessionModel)
+	/** Capabilities the provider runs on its own servers, attached by the adapter at send
+	 * time. Never part of `tools`: the request path would try to dispatch them. The two
+	 * `void` reads only subscribe: the model helpers read through `get()`, which tracks
+	 * nothing, so a change of model or of the workspace's AI config would otherwise not
+	 * re-derive. A workspace switch re-derives through the AI config it loads. */
+	get providerTools(): ProviderToolSummary[] {
+		void this.#copilotInfo.current
+		void this.#sessionModel.current
+		const model = tryGetCurrentModel()
+		if (!model || (model.provider === 'openai' && this.skipResponsesApi)) return []
+		const enabled = isWebSearchEnabledForProvider(model.provider)
+		return sendsWebSearch(this.operatingWorkspace ?? '', model, enabled)
+			? [
+					{
+						name: 'Web search',
+						description: "Runs on the provider's servers, no confirmation."
+					}
+				]
+			: []
+	}
 	helpers = $state<any | undefined>(undefined)
 
 	scriptEditorOptions = $state<ScriptOptions | undefined>(undefined)

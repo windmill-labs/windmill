@@ -110,11 +110,12 @@ callers that already know which section they mean, such as the "+" menu's Manage
 	// The session's capability surface, not this turn's: the heading answers what the
 	// assistant can call here, so it must not shift when the autonomy picker does.
 	let tools = $derived(summarizeTools(aiChatManager.availableTools))
+	let providerTools = $derived(aiChatManager.providerTools)
 
 	// `SidebarNavigation`'s item shape, which is what the instance and workspace settings
 	// navs are built from too.
 	let sections = $derived([
-		{ id: 'tools', label: 'Tools', icon: Boxes, count: tools.length },
+		{ id: 'tools', label: 'Tools', icon: Boxes, count: tools.length + providerTools.length },
 		{ id: 'skills', label: 'Skills', icon: BookOpen, count: skillCount },
 		{ id: 'instructions', label: 'Instructions', icon: ScrollText },
 		{ id: 'mcp', label: 'MCP connections', icon: Plug, count: mcpCount },
@@ -227,7 +228,12 @@ callers that already know which section they mean, such as the "+" menu's Manage
 			     own their own scrolling — each is a list and a detail page laid over each
 			     other — so only Instructions scrolls here. -->
 			<div class="{section === 'tools' ? 'flex' : 'hidden'} grow min-h-0 flex-col overflow-hidden">
-				<AssistantToolsSection {tools} active={section === 'tools'} bind:blocksClose={toolsBusy} />
+				<AssistantToolsSection
+					{tools}
+					{providerTools}
+					active={section === 'tools'}
+					bind:blocksClose={toolsBusy}
+				/>
 			</div>
 			<!-- Skills owns its own scrolling: its list and its editor are PagedContent pages
 			     laid over each other, and each keeps a scroll position of its own. -->
