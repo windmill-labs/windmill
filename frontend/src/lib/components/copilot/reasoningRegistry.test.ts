@@ -394,8 +394,9 @@ describe('Azure AI Foundry reasoning follows the model family', () => {
 })
 
 describe('backend parity', () => {
-	// windmill-ai's `providers/mod.rs` test reads the same file, so the two rule lists
-	// can't drift.
+	// windmill-ai's `providers/mod.rs` test reads the same file. The backend rules see the
+	// model id alone, so the file holds only rows whose answer doesn't depend on the
+	// provider: a Bedrock- or Gemini-Pro-specific row belongs in the tests above.
 	it.each(parity)(
 		'$provider $model',
 		({ provider, model, canDisable, completionsToolsNeedOff }) => {

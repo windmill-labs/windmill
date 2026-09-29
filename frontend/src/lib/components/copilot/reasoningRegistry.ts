@@ -159,6 +159,15 @@ const OPENAI_RULES: ReasoningRule[] = [
 		offToken: 'none',
 		completionsToolsNeedOff: true
 	},
+	// A later gpt-5 minor keeps the tools limit, which holds for every version from 5.5,
+	// but only the levels every gpt-5.x takes until it has a row of its own.
+	{
+		match: /(?:^|\/)gpt-5\.(?:[5-9]|\d{2,})/,
+		levels: LOW_TO_HIGH,
+		canDisable: true,
+		offToken: 'none',
+		completionsToolsNeedOff: true
+	},
 	// gpt-5.1+ are off only through `none`: omitted, they reason at medium.
 	{ match: /(?:^|\/)gpt-5\./, levels: LOW_TO_HIGH, canDisable: true, offToken: 'none' },
 	// gpt-5 and the o-series reject `none` and reason when it is omitted.

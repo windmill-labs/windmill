@@ -66,6 +66,7 @@
 		"completionsToolsNeedOff": true
 	},
 	{ "provider": "openai", "model": "gpt-5.5", "canDisable": true, "completionsToolsNeedOff": true },
+	{ "provider": "openai", "model": "gpt-5.7", "canDisable": true, "completionsToolsNeedOff": true },
 	{
 		"provider": "openai",
 		"model": "gpt-5.1",

@@ -74,7 +74,7 @@ const REASONING_RULES: &[ReasoningRule] = &[
         completions_tools_need_off: true,
     },
     ReasoningRule {
-        matches: |m| matches!(gpt_version(m), Some((5, Some(5 | 6)))),
+        matches: |m| matches!(gpt_version(m), Some((5, Some(minor))) if minor >= 5),
         can_disable: true,
         completions_tools_need_off: true,
     },
@@ -247,7 +247,8 @@ pub fn remember_chat_completions_only(base_url: &str, model: &str) {
 mod reasoning_rule_tests {
     use super::*;
 
-    /// The frontend registry's test reads the same file, so the two rule lists can't drift.
+    /// The frontend registry's test reads the same file. These rules see the model id
+    /// alone, so it holds only rows whose answer doesn't depend on the provider.
     #[test]
     fn agrees_with_the_frontend_registry() {
         let rows: Vec<serde_json::Value> = serde_json::from_str(include_str!(
