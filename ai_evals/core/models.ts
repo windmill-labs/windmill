@@ -123,6 +123,51 @@ export const EVAL_MODELS: EvalModelSpec[] = [
     },
   },
   {
+    id: "gpt-5.6-sol",
+    label: "GPT-5.6 Sol",
+    aliases: ["gpt-5.6-sol"],
+    frontend: {
+      provider: "openai",
+      model: "gpt-5.6-sol",
+    },
+  },
+  {
+    id: "gpt-6-astra",
+    label: "GPT-6 Astra",
+    aliases: ["gpt-6-astra", "gpt-6"],
+    frontend: {
+      provider: "openai",
+      model: "gpt-6-astra",
+    },
+  },
+  {
+    id: "gpt-6-sol",
+    label: "GPT-6 Sol",
+    aliases: ["gpt-6-sol"],
+    frontend: {
+      provider: "openai",
+      model: "gpt-6-sol",
+    },
+  },
+  {
+    id: "gpt-6-luna",
+    label: "GPT-6 Luna",
+    aliases: ["gpt-6-luna"],
+    frontend: {
+      provider: "openai",
+      model: "gpt-6-luna",
+    },
+  },
+  {
+    id: "gemini-3.8-flash",
+    label: "Gemini 3.8 Flash",
+    aliases: ["gemini-3.8-flash"],
+    frontend: {
+      provider: "googleai",
+      model: "gemini-3.8-flash",
+    },
+  },
+  {
     id: "gemini-3-flash-preview",
     label: "Gemini 3 Flash Preview",
     aliases: ["gemini-3-flash-preview", "gemini-3-flash"],

@@ -3,7 +3,9 @@ name: AI Evals (scheduled)
 # Full ai_evals suites on current models, posted to the AI evals dashboard in
 # the windmill-prod workspace (f/ai/ai_evals_dashboard) so quality is tracked
 # over time. Weekly, since one pass of every suite at --runs 3 costs about 50M
-# tokens per model; run it by hand to measure a branch against main.
+# tokens per model: every suite runs on MODELS, and global (the mode users get)
+# also runs on GLOBAL_EXTRA_MODELS, one flagship per other provider. Run it by
+# hand to measure a branch against main.
 on:
   schedule:
     - cron: "0 3 * * 1"
@@ -15,16 +17,24 @@ on:
       models:
         description: "Space-separated model aliases (bun run cli -- models)"
         default: "sonnet-5.5"
+      global_extra_models:
+        description: "Extra model aliases for global mode only"
+        default: "gpt-6-astra gemini-3.8-flash"
       runs:
         description: "Runs per case"
         default: "3"
+      reasoning:
+        description: "Reasoning effort for frontend modes (empty: the product default)"
+        default: ""
 
 concurrency:
   group: ai-evals-scheduled-${{ github.ref }}
 
 env:
   MODELS: ${{ inputs.models || 'sonnet-5.5' }}
+  GLOBAL_EXTRA_MODELS: ${{ inputs.global_extra_models || 'gpt-6-astra gemini-3.8-flash' }}
   RUNS: ${{ inputs.runs || '3' }}
+  REASONING: ${{ inputs.reasoning }}
   INGEST_URL: https://app.windmill.dev/api/r/f/ai/ingest_ai_eval_run
 
 jobs:
@@ -120,8 +130,12 @@ jobs:
         run: |
           bun install
           mkdir -p results
-          for m in $MODELS; do
-            bun run cli -- run "$MODE" --model "$m" --runs "$RUNS" \
+          models="$MODELS"
+          [ "$MODE" = global ] && models="$models $GLOBAL_EXTRA_MODELS"
+          reasoning=()
+          [ -n "$REASONING" ] && [ "$MODE" != cli ] && reasoning=(--reasoning "$REASONING")
+          for m in $models; do
+            bun run cli -- run "$MODE" --model "$m" --runs "$RUNS" "${reasoning[@]}" \
               --output "$PWD/results/$MODE-$m.json" || echo "::warning::$MODE on $m errored"
           done
 

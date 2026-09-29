@@ -77,6 +77,7 @@ Public CLI surface:
 - `--verbose`: stream assistant output for frontend runs
 - `--skip-judge`: skip LLM judge scoring for the run
 - `--execution-only`: only require the model/proxy/frontend loop to complete; skip validators, tool expectations, backend artifact validation, and judge scoring
+- `--reasoning <effort>`: reasoning effort for frontend modes (`off`, `low`, `medium`, `high`, `max`, …); without it the product's default applies (`high` on models that can reason). The effort is appended to the recorded model label (`anthropic:claude-sonnet-5-5@max`)
 - `--record`: append a compact tracked summary line to `ai_evals/history/<mode>.jsonl` for full-suite runs only
 - `--backend-validation <mode>`: optional backend smoke validation (`off` or `preview`) for `script` and `flow` evals
 

@@ -87,7 +87,14 @@ export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
 	},
 	anthropic: {
 		label: 'Anthropic',
-		defaultModels: ['claude-sonnet-5', 'claude-opus-5', 'claude-opus-4-8', 'claude-haiku-4-5']
+		defaultModels: [
+			'claude-sonnet-5-5',
+			'claude-opus-5-5',
+			'claude-sonnet-5',
+			'claude-opus-5',
+			'claude-opus-4-8',
+			'claude-haiku-4-5'
+		]
 	},
 	googleai: {
 		label: 'Google AI',
