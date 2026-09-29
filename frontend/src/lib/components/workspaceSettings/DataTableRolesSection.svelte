@@ -14,6 +14,7 @@
 	import { Pencil, Plus } from 'lucide-svelte'
 	import { SettingService, type DatatableRoleCluster, type InstanceDatatableRole } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
+	import { isCloudHosted } from '$lib/cloud'
 
 	let {
 		initialName = '',
@@ -38,6 +39,12 @@
 	/** Whether the external cluster is configured, so its catalog is worth offering. Only a
 	 *  superadmin can read that, and only a superadmin manages roles. */
 	let externalConfigured = $state(false)
+	/** Windmill's database turned off for new data tables, and whether roles are still defined on
+	 *  it. Turning it off leaves existing data tables running there, so while any role remains its
+	 *  catalog stays reachable: those data tables still grant them. */
+	let internalTurnedOff = $state(false)
+	let internalHasRoles = $state(false)
+	let internalAvailable = $derived(!isCloudHosted() && (!internalTurnedOff || internalHasRoles))
 	let roles = $state<InstanceDatatableRole[]>([])
 	let loading = $state(true)
 	let loadError = $state<string | undefined>(undefined)
@@ -72,9 +79,23 @@
 	load()
 
 	if (pinnedCluster === undefined) {
-		SettingService.getExternalInstancePgStatus()
-			.then((s) => (externalConfigured = s.configured))
-			.catch(() => (externalConfigured = false))
+		Promise.all([
+			SettingService.getExternalInstancePgStatus()
+				.then((s) => s.configured)
+				.catch(() => false),
+			SettingService.getGlobal({ key: 'instance_pg_disabled' })
+				.then((v) => !!v)
+				.catch(() => false),
+			SettingService.listInstanceDatatableRoles({ cluster: 'instance' })
+				.then((r) => r.length > 0)
+				.catch(() => true)
+		]).then(([external, turnedOff, hasRoles]) => {
+			externalConfigured = external
+			internalTurnedOff = turnedOff
+			internalHasRoles = hasRoles
+			// Opened on Windmill's database by default; land on the cluster that is actually in use.
+			if (!internalAvailable && externalConfigured) switchCluster('external_instance')
+		})
 	}
 
 	async function switchCluster(next: DatatableRoleCluster) {
@@ -133,7 +154,7 @@
 <ConfirmationModal {...confirmationModal.props} />
 
 <div class="flex flex-col gap-2">
-	{#if pinnedCluster === undefined && externalConfigured}
+	{#if pinnedCluster === undefined}
 		<!-- Each cluster keeps its own logins, so the catalogs are separate lists, not one
 		filtered view. Offered only where a caller has not pinned one. -->
 		<ToggleButtonGroup
@@ -142,8 +163,28 @@
 			disabled={busy}
 		>
 			{#snippet children({ item })}
-				<ToggleButton value="instance" label="Windmill's database" {item} small />
-				<ToggleButton value="external_instance" label="External cluster" {item} small />
+				<ToggleButton
+					value="instance"
+					label="Windmill's database"
+					disabled={!internalAvailable}
+					tooltip={internalAvailable
+						? undefined
+						: isCloudHosted()
+							? "Windmill's database is not available on cloud."
+							: "Windmill's database is turned off for data tables, and has no roles left."}
+					{item}
+					small
+				/>
+				<ToggleButton
+					value="external_instance"
+					label="External cluster"
+					disabled={!externalConfigured}
+					tooltip={externalConfigured
+						? undefined
+						: 'No external cluster is set up. Configure one under Managed Postgres.'}
+					{item}
+					small
+				/>
 			{/snippet}
 		</ToggleButtonGroup>
 	{/if}
