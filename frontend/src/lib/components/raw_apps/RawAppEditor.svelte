@@ -20,6 +20,7 @@
 		WMILL_TS_PATH,
 		genWmillTs,
 		normalizeRawAppRuntimeLogs,
+		createRawAppBuildTracker,
 		type Runnable,
 		type RawAppRuntimeLogEntry,
 		type RawAppRuntimeLogRequester,
@@ -406,6 +407,9 @@
 
 	// Latest UI Builder error; cleared on next successful build.
 	let buildError = $state<string | undefined>(undefined)
+	const buildTracker = createRawAppBuildTracker()
+	const PREVIEW_SETTLE_MS = 1000
+	let editorDestroyed = false
 	// Latest uncaught runtime error thrown by the rendered app; cleared on next build.
 	let runtimeError = $state<string | undefined>(undefined)
 	// Set when a build ran cleanly but never mounted anything into #root — the
@@ -909,6 +913,7 @@
 		if (!target) return
 		iframeFiles = { ...newFiles }
 		iframeFocusPending = undefined
+		buildTracker.start()
 		const files = Object.fromEntries(
 			Object.entries(newFiles).filter(([path, _]) => !path.endsWith('/'))
 		)
@@ -928,6 +933,7 @@
 		iframeFiles = { ...newFiles }
 		const focus = iframeFocusPending === pathToSelect
 		iframeFocusPending = undefined
+		buildTracker.start()
 		const files = Object.fromEntries(
 			Object.entries(newFiles).filter(([path, _]) => !path.endsWith('/'))
 		)
@@ -1356,6 +1362,9 @@
 			lastBuild = { css: e.data.css, js: e.data.js }
 			feedPreviewIframe(lastBuild)
 			syncExternalPreview()
+			// Give the fed app a moment to run, so a console read after the wait sees its output.
+			const gen = buildTracker.generation
+			setTimeout(() => buildTracker.settle(gen), PREVIEW_SETTLE_MS)
 			return
 		}
 
@@ -1376,6 +1385,8 @@
 		// `message: undefined` arrives on the next successful build and clears the banner.
 		if (fromUiBuilder && e.data.type === 'buildError') {
 			buildError = typeof e.data.message === 'string' ? e.data.message : undefined
+			// A successful build settles once the preview has it (see `preview` above).
+			if (buildError !== undefined) buildTracker.settle()
 			return
 		}
 
@@ -1713,7 +1724,20 @@
 		pending.resolve(entries)
 	}
 
-	const requestRuntimeLogs: RawAppRuntimeLogRequester = (limit) => {
+	const requestRuntimeLogs: RawAppRuntimeLogRequester = async (limit) => {
+		await buildTracker.wait()
+		if (editorDestroyed) {
+			return { entries: undefined, buildError: undefined, buildPending: false, buildLogs: '' }
+		}
+		return {
+			entries: await requestPreviewConsoleLogs(limit),
+			buildError,
+			buildPending: buildTracker.pending,
+			buildLogs: logs
+		}
+	}
+
+	function requestPreviewConsoleLogs(limit: number) {
 		const win = previewIframe?.contentWindow
 		if (!win || !previewIframeLoaded) return Promise.resolve(undefined)
 		const requestId = randomUUID()
@@ -2029,6 +2053,8 @@
 			onScreenshotRequester?.(undefined)
 			for (const requestId of Array.from(pendingRuntimeLogReqs.keys()))
 				resolvePendingRuntimeLogRequest(requestId, undefined)
+			editorDestroyed = true
+			buildTracker.release()
 		}
 	})
 

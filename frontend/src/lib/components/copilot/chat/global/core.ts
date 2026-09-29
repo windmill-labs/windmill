@@ -1189,7 +1189,13 @@ const getRuntimeLogsSchema = z.object({
 		.min(1)
 		.max(100)
 		.optional()
-		.describe('How many of the most recent runtime log lines to return. Defaults to 10.')
+		.describe('How many of the most recent runtime log lines to return. Defaults to 10.'),
+	app_path: z
+		.string()
+		.optional()
+		.describe(
+			'Path of the raw app whose preview to read. Pass it when several raw app previews are open; defaults to the visible one.'
+		)
 })
 
 const listAppRunsSchema = z.object({
@@ -1466,6 +1472,7 @@ ${pipelineBullet}`
 - Building a data pipeline: call open_preview(kind="pipeline", path="<folder>") as the FIRST step, before creating any node — this opens the pipeline editor the user reviews in. path is the folder, not an item; an empty ${when(canCreateFolder, 'or not-yet-created ')}folder is fine${when(canCreateFolder, ' (create_folder first if needed, then open it)')}. Opening it registers build_pipeline_node / edit_pipeline_node — use ONLY those to add or change pipeline nodes, never write_script for a pipeline node — they apply directly as unsaved drafts on the canvas (no separate accept/reject step) that the user reviews and deploys. Do not write pipeline scripts without first opening the editor.`
 				)}
 - When debugging a running raw app, call get_app_runtime_logs to read the live preview's browser console output. It needs the raw app preview open (open_preview kind="raw_app").
+- Writing an app file does not compile it: the open preview rebuilds it afterwards. After editing a raw app's frontend files with its preview open, call get_app_runtime_logs to check the build — when it failed, it returns the build errors (e.g. syntax or import errors) and bundler logs to fix.
 - To inspect what actually rendered in a running raw app (verify an edit landed on screen, diagnose a blank/empty or wrong view, answer "what's showing"), use search_dom (regex over the live HTML) and read_dom (a line-numbered window). Pass a \`selector\` to scope to an element — prefer the selector from a DOM element chip the user attached — or omit it for the whole page. When a chip lists an \`app_path\`, pass it too so the RIGHT app is read (several previews can be open; a query without \`app_path\` hits the visible one). The DOM is read live and is never in context; no match means the element isn't rendered. Both need the raw app preview open.
 - get_app_runtime_logs only shows the app's browser console. For the server-side logs of a backend runnable the app invoked (a backend.<id> call), call list_app_runs to get that run's job_id from the live preview, then get_run with it. Use this when a backend call errors or returns something unexpected.
 ${
@@ -4438,7 +4445,7 @@ export const globalTools: SessionTool<{}>[] = [
 		def: createToolDef(
 			getRuntimeLogsSchema,
 			'get_app_runtime_logs',
-			'Fetch the most recent browser console logs (and uncaught errors) from the raw app preview currently open in this AI session.'
+			'Fetch the most recent browser console logs (and uncaught errors) from the raw app preview currently open in this AI session. Also reports the build: right after an edit it waits (up to 20s) for the rebuild, and when the build failed it returns the build error and bundler logs first.'
 		),
 		planModeSafe: true,
 		showDetails: true,
@@ -4446,7 +4453,11 @@ export const globalTools: SessionTool<{}>[] = [
 		fn: async (ctx) => {
 			const parsed = getRuntimeLogsSchema.parse(ctx.args)
 			ctx.toolCallbacks.setToolStatus(ctx.toolId, { content: 'Reading app runtime logs...' })
-			const result = await getSessionRuntimeLogs(parsed.limit ?? 10, sessionIdFromCtx(ctx))
+			const result = await getSessionRuntimeLogs(
+				parsed.limit ?? 10,
+				sessionIdFromCtx(ctx),
+				parsed.app_path
+			)
 			ctx.toolCallbacks.setToolStatus(ctx.toolId, {
 				content: result.uiMessage,
 				result: result.toolResult
@@ -4810,6 +4821,7 @@ function closeSessionPreviewTabs(
 export type GetRuntimeLogsHandler = (req: {
 	sessionId: string | undefined
 	limit: number
+	appPath?: string
 }) => Promise<SessionToolResult>
 
 let getRuntimeLogsHandler: GetRuntimeLogsHandler | undefined
@@ -4820,7 +4832,8 @@ export function setGetRuntimeLogsHandler(handler: GetRuntimeLogsHandler | undefi
 
 function getSessionRuntimeLogs(
 	limit: number,
-	sessionId: string | undefined
+	sessionId: string | undefined,
+	appPath: string | undefined
 ): Promise<SessionToolResult> {
 	if (!getRuntimeLogsHandler) {
 		return Promise.resolve({
@@ -4830,7 +4843,7 @@ function getSessionRuntimeLogs(
 			toolResult: 'Runtime logs unavailable'
 		})
 	}
-	return getRuntimeLogsHandler({ sessionId, limit })
+	return getRuntimeLogsHandler({ sessionId, limit, appPath })
 }
 
 export type ListAppRunsHandler = (req: {
