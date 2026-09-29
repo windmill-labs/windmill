@@ -540,10 +540,13 @@
 							<ChevronRight size={14} class="shrink-0 text-tertiary" />
 						</button>
 						{#if $wacSubOpen}
+							<!-- The invisible `before:` margin bridges the gutter to the trigger row: when
+							     the submenu falls below its row, that gutter lies over the next row, and
+							     crossing it highlights that item, which closes the submenu. -->
 							<div
 								use:melt={$wacSubMenu}
 								use:hugViewportRight
-								class="pointer-events-auto z-[6001] flex flex-col gap-0.5 p-1 w-52 rounded-lg border border-gray-200 dark:border-gray-700 bg-surface shadow-xl focus:outline-none"
+								class="pointer-events-auto z-[6001] flex flex-col gap-0.5 p-1 w-52 rounded-lg border border-gray-200 dark:border-gray-700 bg-surface shadow-xl focus:outline-none before:absolute before:-inset-2 before:-z-10 before:content-['']"
 							>
 								{#each option.variants ?? [] as variant (variant.label)}
 									{@const VariantIcon = variant.icon}
@@ -593,7 +596,7 @@
 					<div
 						use:melt={$importSubMenu}
 						use:hugViewportRight
-						class="pointer-events-auto z-[6001] flex flex-col gap-0.5 p-1 w-52 rounded-lg border border-gray-200 dark:border-gray-700 bg-surface shadow-xl focus:outline-none"
+						class="pointer-events-auto z-[6001] flex flex-col gap-0.5 p-1 w-52 rounded-lg border border-gray-200 dark:border-gray-700 bg-surface shadow-xl focus:outline-none before:absolute before:-inset-2 before:-z-10 before:content-['']"
 					>
 						{#each importActions as action, i (action.label)}
 							<button
