@@ -14,7 +14,7 @@ const svc = vi.mocked(WorkspaceService)
 const fork = { id: 'wm-fork-x', name: 'x' }
 
 async function run(onStep?: (step: string) => void) {
-	const p = createWorkspaceForkAndWait('ws', fork, onStep)
+	const p = createWorkspaceForkAndWait('ws', fork, { onStep })
 	const settled = p.then(
 		() => 'completed',
 		(e) => `failed: ${e.message}`

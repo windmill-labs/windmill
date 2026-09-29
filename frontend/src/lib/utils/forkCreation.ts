@@ -9,12 +9,13 @@ const MAX_FAILING_POLLS_MS = 3 * 60 * 1000
  *
  * The copy runs on the server after the request returns: a large workspace takes longer to copy
  * than the timeout of many proxies in front of Windmill, which would otherwise cut the request.
- * `onStep` receives the part of the copy the server reports it is in.
+ * `onCreationStarted` receives the id `waitForForkCreation` resumes the wait by, and `onStep` the
+ * part of the copy the server reports it is in.
  */
 export async function createWorkspaceForkAndWait(
 	parentWorkspace: string,
 	fork: CreateWorkspaceFork,
-	onStep?: (step: string) => void
+	opts: { onCreationStarted?: (creationId: string) => void; onStep?: (step: string) => void } = {}
 ): Promise<void> {
 	const response = await WorkspaceService.createWorkspaceFork({
 		workspace: parentWorkspace,
@@ -23,7 +24,16 @@ export async function createWorkspaceForkAndWait(
 	})
 	// A server without background forks ignores the flag and answers once the fork is created.
 	if (response.startsWith('Created forked workspace')) return
-	const creationId = response
+	opts.onCreationStarted?.(response)
+	await waitForForkCreation(parentWorkspace, response, opts.onStep)
+}
+
+/** Wait for a fork creation started in the background, by the id its request answered with. */
+export async function waitForForkCreation(
+	parentWorkspace: string,
+	creationId: string,
+	onStep?: (step: string) => void
+): Promise<void> {
 	let failingSince: number | undefined
 	while (true) {
 		let result: Awaited<ReturnType<typeof WorkspaceService.getForkCreationStatus>> | undefined

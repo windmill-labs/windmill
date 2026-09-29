@@ -9127,7 +9127,7 @@ async fn create_workspace_fork(
             parent_workspace_id,
             nw,
             dev_workspace_label,
-            ForkProgress(Some(progress_tx)),
+            ForkProgress { creation_id: Some(creation_id), steps: Some(progress_tx) },
         ))
         .await
         .map_err(|e| Error::internal_err(format!("Creating the fork stopped unexpectedly: {e}")))
@@ -9137,9 +9137,11 @@ async fn create_workspace_fork(
             tracing::error!("Creating fork '{fork_id}' failed: {e}");
             e.to_string()
         });
+        // A fork that committed is already recorded complete, even when its commit's
+        // acknowledgement was lost and the attempt reads as an error here.
         if let Err(e) = sqlx::query(
             "UPDATE workspace_fork_creation SET finished_at = now(), error = $3
-             WHERE fork_workspace_id = $1 AND creation_id = $2",
+             WHERE fork_workspace_id = $1 AND creation_id = $2 AND finished_at IS NULL",
         )
         .bind(&fork_id)
         .bind(creation_id)
@@ -9172,13 +9174,17 @@ struct CreateWorkspaceForkQuery {
     background: Option<bool>,
 }
 
-/// Where the copy of a fork created in the background is, for its status to report.
+/// The attempt a fork created in the background belongs to, and where its copy is, for its status
+/// to report.
 #[derive(Default)]
-struct ForkProgress(Option<tokio::sync::watch::Sender<&'static str>>);
+struct ForkProgress {
+    creation_id: Option<Uuid>,
+    steps: Option<tokio::sync::watch::Sender<&'static str>>,
+}
 
 impl ForkProgress {
     fn step(&self, step: &'static str) {
-        if let Some(tx) = &self.0 {
+        if let Some(tx) = &self.steps {
             tx.send_replace(step);
         }
     }
@@ -9202,10 +9208,7 @@ async fn get_fork_creation_status(
 ) -> JsonResult<ForkCreationStatus> {
     let row = sqlx::query(
         "SELECT c.created_by, c.finished_at IS NOT NULL AS finished, c.error, c.step,
-                c.heartbeat_at < now() - $3 * interval '1 second' AS stale,
-                EXISTS(SELECT 1 FROM workspace w
-                       WHERE w.id = c.fork_workspace_id
-                         AND w.parent_workspace_id = c.parent_workspace_id) AS fork_exists
+                c.heartbeat_at < now() - $3 * interval '1 second' AS stale
          FROM workspace_fork_creation c
          WHERE c.creation_id = $1 AND c.parent_workspace_id = $2",
     )
@@ -9221,11 +9224,7 @@ async fn get_fork_creation_status(
         )));
     };
     let error: Option<String> = row.get("error");
-    // The fork commits whole, so once it exists it is complete: the run's own record can lag behind
-    // it when the server stopped between the commit and that record.
-    let status = if error.is_none() && row.get::<bool, _>("fork_exists") {
-        ForkCreationStatus { status: "completed", step: None, error: None }
-    } else if row.get::<bool, _>("finished") {
+    let status = if row.get::<bool, _>("finished") {
         match error {
             Some(error) => ForkCreationStatus { status: "failed", step: None, error: Some(error) },
             None => ForkCreationStatus { status: "completed", step: None, error: None },
@@ -9664,6 +9663,16 @@ async fn write_workspace_fork(
         (!copied.is_empty()).then(|| [("copied_datatables", copied.as_str())].into()),
     )
     .await?;
+    // Committed with the fork, so its attempt reads complete exactly when the fork exists.
+    if let Some(creation_id) = progress.creation_id {
+        sqlx::query(
+            "UPDATE workspace_fork_creation SET finished_at = now(), error = NULL
+             WHERE creation_id = $1",
+        )
+        .bind(creation_id)
+        .execute(&mut *tx)
+        .await?;
+    }
     tx.commit().await?;
 
     // A pre-creation lookup could have cached an EMPTY ancestor chain for this id, which

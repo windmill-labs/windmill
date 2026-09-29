@@ -488,7 +488,7 @@
 					lock_prod_forking: createAsDevWorkspace && effectiveLockProdForking,
 					copy_members: copyMembers
 				},
-				(step) => (forkCreationStep = step)
+				{ onStep: (step) => (forkCreationStep = step) }
 			)
 		} catch (e) {
 			const msg = e?.body ?? e?.message ?? e ?? 'Unknown error'

@@ -103,5 +103,18 @@ async fn test_fork_created_in_background(db: Pool<Postgres>) -> anyhow::Result<(
         .await?;
     assert_eq!(resp.status(), 404);
 
+    // Without the flag the fork is created before the answer, which clients asking for a
+    // background fork recognise a server without it by.
+    sqlx::query("UPDATE workspace SET deleted = true WHERE id = 'wm-fork-bg-err'")
+        .execute(&db)
+        .await?;
+    let resp = client
+        .post(format!("{base_url}/create_fork"))
+        .header("Authorization", "Bearer SECRET_TOKEN")
+        .json(&json!({ "id": "wm-fork-sync", "name": "wm-fork-sync" }))
+        .send()
+        .await?;
+    assert_eq!(resp.text().await?, "Created forked workspace wm-fork-sync");
+
     Ok(())
 }
