@@ -404,6 +404,7 @@
 													}
 												}
 												onCreateItem={addRoleByName}
+												noItemsMsg={$superadmin ? 'Start typing to create a role' : undefined}
 												class="w-64"
 											/>
 										</div>
