@@ -26,11 +26,17 @@ pub fn effective_reasoning_effort<'a>(model: &str, effort: Option<&'a str>) -> O
 }
 
 /// Live-verified: Claude Fable, Mythos and the 5.x point releases (Sonnet 5.5, Opus 5.5)
-/// reject `thinking: {type: "disabled"}`, and `gpt-6-astra` rejects effort `none` (its
-/// sol and luna tiers take it). The Claude version match stops at one digit so a dated id
-/// (`claude-sonnet-5-20260101`) stays Sonnet 5.
+/// reject `thinking: {type: "disabled"}`; `gpt-6-astra`, gpt-5 and the o-series reject
+/// effort `none` (gpt-5.1+ and the other gpt-6 tiers take it). The Claude version match
+/// stops at one digit so a dated id (`claude-sonnet-5-20260101`) stays Sonnet 5.
 pub(crate) fn model_always_reasons(model: &str) -> bool {
-    let model = model.to_lowercase().replace('.', "-");
+    let lower = model.to_lowercase();
+    let base = lower.rsplit('/').next().unwrap_or(&lower);
+    let gpt_5_or_o_series = base
+        .strip_prefix("gpt-5")
+        .is_some_and(|rest| !rest.starts_with(|c: char| c == '.' || c.is_ascii_digit()))
+        || (base.starts_with('o') && base[1..].starts_with(|c: char| c.is_ascii_digit()));
+    let model = lower.replace('.', "-");
     let claude_5_point_release = ["claude-opus-5-", "claude-sonnet-5-"].iter().any(|prefix| {
         model.split(prefix).skip(1).any(|rest| {
             let mut chars = rest.chars();
@@ -38,6 +44,7 @@ pub(crate) fn model_always_reasons(model: &str) -> bool {
         })
     });
     claude_5_point_release
+        || gpt_5_or_o_series
         || model.contains("claude-fable")
         || model.contains("claude-mythos")
         || model.contains("gpt-6-astra")
@@ -203,6 +210,9 @@ mod effective_reasoning_effort_tests {
             "claude-opus-5.5",
             "global.anthropic.claude-opus-5-5-v1:0",
             "gpt-6-astra",
+            "gpt-5",
+            "gpt-5-mini",
+            "o3",
         ] {
             assert_eq!(
                 effective_reasoning_effort(model, Some("none")),
