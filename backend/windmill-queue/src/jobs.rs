@@ -813,6 +813,8 @@ async fn restart_perpetual_run(
                 db,
                 w_id,
                 tag,
+                None,
+                crate::tags::tag_workspace_id(w_id, db),
                 is_super_admin,
                 None,
             )
