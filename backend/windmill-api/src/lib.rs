@@ -1279,6 +1279,15 @@ pub async fn run_server(
     });
 
     server.await?;
+    let forks = &windmill_api_workspaces::workspaces::BACKGROUND_FORKS;
+    forks.close();
+    if !forks.is_empty() {
+        tracing::info!(
+            "server off. waiting for {} fork(s) being created",
+            forks.len()
+        );
+        forks.wait().await;
+    }
     #[cfg(feature = "agent_worker_server")]
     for (i, bg_processor) in agent_workers_bg_processor.into_iter().enumerate() {
         tracing::info!("server off. shutting down agent worker bg processor {i}");

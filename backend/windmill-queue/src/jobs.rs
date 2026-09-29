@@ -6869,9 +6869,19 @@ async fn push_inner<'c, 'd>(
     // `schedule_path` (see `FlowJob::schedule_path`), so counting per push would
     // score one run as a fire per step job — a loop pushes two of those per
     // iteration — burying every other kind, and would sit on the per-step path.
+    //
+    // A job a suspended trigger parks is not a fire: it counts as `fired` only
+    // when `resume_suspended_trigger_jobs` releases it, or never if discarded.
+    // Both are counted before the queue caps below and the caller's commit, so a
+    // rejected push still counts; accepted for a telemetry counter.
     if flow_step_id.is_none() {
         if let Some(kind) = trigger_kind.as_ref() {
-            windmill_common::feature_usage::log_feature_usage("trigger", "fired", kind.as_str());
+            let action = if suspended_mode.unwrap_or(false) {
+                "suspended"
+            } else {
+                "fired"
+            };
+            windmill_common::feature_usage::log_feature_usage("trigger", action, kind.as_str());
         }
     }
 
@@ -7689,6 +7699,34 @@ fn reuse_completed_zombie_module(module: FlowStatusModule) -> FlowStatusModule {
     }
 }
 
+/// Loads the flow version a restart switches to. The version id is caller-supplied and the
+/// restarted job keeps the original job's path, so it must be a version of that same flow in
+/// that same workspace: any other id would run foreign code under the original path.
+/// This only ties the version to the flow; it does not authorize the caller. `workspace_id`
+/// and `flow_path` must come from the original job, which the caller is already allowed to
+/// restart.
+pub async fn fetch_restart_flow_version(
+    db: &Pool<Postgres>,
+    workspace_id: &str,
+    flow_path: &str,
+    version: i64,
+) -> Result<Arc<FlowData>, Error> {
+    let belongs = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM flow_version WHERE id = $1 AND workspace_id = $2 AND path = $3) AS \"exists!\"",
+        version,
+        workspace_id,
+        flow_path,
+    )
+    .fetch_one(db)
+    .await?;
+    if !belongs {
+        return Err(Error::BadRequest(format!(
+            "flow version {version} is not a version of flow {flow_path} in workspace {workspace_id}"
+        )));
+    }
+    cache::flow::fetch_version(db, version).await
+}
+
 async fn restarted_flows_resolution(
     db: &Pool<Postgres>,
     workspace_id: &str,
@@ -7750,9 +7788,12 @@ async fn restarted_flows_resolution(
         && row.job_kind == JobKind::Flow;
 
     let flow_data = if is_version_change {
-        // Fetch the new flow version
-        let new_version = flow_version.unwrap();
-        cache::flow::fetch_version(db, new_version).await?
+        let flow_path = row.script_path.as_deref().ok_or_else(|| {
+            Error::BadRequest(format!(
+                "completed flow {completed_flow_id} has no path to restart a version of"
+            ))
+        })?;
+        fetch_restart_flow_version(db, workspace_id, flow_path, flow_version.unwrap()).await?
     } else {
         cache::job::fetch_flow(db, &row.job_kind, row.script_hash)
             .or_else(|_| {

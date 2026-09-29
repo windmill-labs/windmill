@@ -46,7 +46,9 @@ export function getFlowPrompt(): string {
 
 // Helper for resource & variable authoring
 export function getResourcePrompt(): string {
-  return prompts.RESOURCES_BASE;
+  return [
+    prompts.RESOURCES_BASE
+  ].filter(Boolean).join('\n\n');
 }
 
 // Helper for raw app authoring (chat consumers). Inline backend runnables are
@@ -66,7 +68,9 @@ export function getRawAppPrompt(language?: string): string {
 
 // Helper for data pipeline authoring (chat consumers)
 export function getPipelinePrompt(): string {
-  return prompts.PIPELINE_BASE;
+  return [
+    prompts.PIPELINE_BASE
+  ].filter(Boolean).join('\n\n');
 }
 
 // Helper to get the datatable SQL SDK reference (wmill.datatable()).

@@ -29,7 +29,6 @@
 	} from './utils'
 	import { runDomQueryOnHtml, type RawAppDomQuery, type RawAppDomRequester } from './rawAppDom'
 	import InlineElementPrompt from './InlineElementPrompt.svelte'
-	import RawAppCoepWarning from './RawAppCoepWarning.svelte'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import { getAppliedDarkModeVariant, type DarkModeVariant } from '$lib/darkModeVariant'
 	import RawAppSidebar from './RawAppSidebar.svelte'
@@ -383,7 +382,6 @@
 	let iframe: HTMLIFrameElement | undefined = $state(undefined)
 	const PREVIEW_SHELL_URL = '/ui_builder/app-preview.html'
 	let previewIframe: HTMLIFrameElement | undefined = $state(undefined)
-	let coepWarning: RawAppCoepWarning | undefined = $state(undefined)
 	let previewIframeLoaded = $state(false)
 	let lastBuild: { css: string; js: string } | undefined = undefined
 	// Detached preview tab/window rendering the same app-preview bundle as the
@@ -396,6 +394,10 @@
 	let externalPreviewReady = $state(false)
 	let inspectorEnabled = $state(false)
 	let bundlerType: 'esbuild' | 'rolldown' = $state('esbuild')
+	// rolldown's wasm build uses shared memory, which only exists in a cross-origin
+	// isolated document. Windmill never serves the editor isolated, so the switch
+	// only shows behind a reverse proxy that adds COOP/COEP to the whole site.
+	const rolldownAvailable = globalThis.crossOriginIsolated === true
 
 	// Build/bundler logs forwarded from the UI Builder iframe. We render
 	// them as an overlay inside the preview pane (right side) so they're
@@ -1338,9 +1340,6 @@
 		) {
 			externalPreviewReady = true
 			feedExternalPreview()
-			// The detached window is cross-origin isolated like the inline preview,
-			// so blocked external resources warrant the same COEP warning.
-			coepWarning?.attachTo(externalPreviewWindow)
 			return
 		}
 
@@ -1677,9 +1676,6 @@
 		win.addEventListener('load', () => {
 			externalPreviewReady = true
 			feedExternalPreview()
-			// Attach here too: against an artifact that predates the handshake, this
-			// is the only place the freshly opened window is ever seen loaded.
-			coepWarning?.attachTo(win)
 		})
 	}
 
@@ -2620,21 +2616,23 @@
 								>
 									{#snippet trailing()}
 										<div class="flex items-center gap-1 px-2">
-											<Button
-												variant="subtle"
-												unifiedSize="sm"
-												title="Switch bundler"
-												onClick={() => {
-													const next = bundlerType === 'esbuild' ? 'rolldown' : 'esbuild'
-													bundlerType = next
-													iframe?.contentWindow?.postMessage(
-														{ type: 'setBundlerType', bundlerType: next },
-														'*'
-													)
-												}}
-											>
-												{bundlerType}
-											</Button>
+											{#if rolldownAvailable}
+												<Button
+													variant="subtle"
+													unifiedSize="sm"
+													title="Switch bundler"
+													onClick={() => {
+														const next = bundlerType === 'esbuild' ? 'rolldown' : 'esbuild'
+														bundlerType = next
+														iframe?.contentWindow?.postMessage(
+															{ type: 'setBundlerType', bundlerType: next },
+															'*'
+														)
+													}}
+												>
+													{bundlerType}
+												</Button>
+											{/if}
 											<Button
 												variant="subtle"
 												unifiedSize="sm"
@@ -2704,7 +2702,6 @@
 									src={PREVIEW_SHELL_URL}
 									class="w-full flex-1 block"
 								></iframe>
-								<RawAppCoepWarning bind:this={coepWarning} iframe={previewIframe} />
 								{#if buildError}
 									<!-- top-12 clears the tab bar; `before:bg-surface` backs the
 									     Alert's translucent red; `isolate` pins the pseudo's stacking context. -->

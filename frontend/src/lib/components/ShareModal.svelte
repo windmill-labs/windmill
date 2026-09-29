@@ -22,11 +22,13 @@
 	import Toggle from './Toggle.svelte'
 	import { Trash } from 'lucide-svelte'
 	import { DEMO_RESTRICTION_HINT, isDemoWorkspaceRestricted } from '$lib/cloud'
-	import { scheduleLock, triggerLock } from '$lib/operatorWriteRights'
+	import { useScheduleLock, useTriggerLock } from '$lib/operatorWriteRights'
 	import {
 		useOperatingWorkspace,
 		useOperatingUser
 	} from '$lib/components/operatingWorkspace.svelte'
+	const scheduleLock = useScheduleLock()
+	const triggerLock = useTriggerLock()
 
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()

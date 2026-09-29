@@ -1,5 +1,5 @@
 import { createLongHash } from '$lib/editorLangUtils'
-import { type editor as meditor } from 'monaco-editor'
+import type { editor as meditor } from 'monaco-editor'
 
 export type VisualChange =
 	| {

@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE schedule SET late_run_streak = late_run_streak + 1,\n                    missed_occurrences = CASE WHEN late_run_streak = 0 THEN $3\n                        ELSE missed_occurrences + $3 END,\n                    last_missed_at = $4\n                WHERE workspace_id = $1 AND path = $2\n                RETURNING late_run_streak, missed_occurrences",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "late_run_streak",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "missed_occurrences",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int4",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "640482b37fe2aa63a5082250170406bcbe888ddece7dec3330778591573031fb"
+}
