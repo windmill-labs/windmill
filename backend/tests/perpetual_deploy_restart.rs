@@ -230,6 +230,48 @@ async fn a_run_stays_on_its_version_when_it_may_not_use_the_deployed_tag(
     Ok(())
 }
 
+/// A `$args[...]` tag names a worker group only once the run's arguments fill it in, so it is
+/// checked the way a push checks one rather than as the literal the version carries.
+#[sqlx::test(fixtures("base"))]
+async fn a_deployed_dynamic_tag_is_checked_against_what_it_resolves_to(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    use windmill_common::worker::{CustomTags, CUSTOM_TAGS_PER_WORKSPACE};
+
+    let path = "u/test-user/dynamic-tag";
+    insert_version(&db, path, 701, 60.0, true).await?;
+    // Runs as the fixture's user who is no superadmin, so only an allowed tag moves it.
+    let running = start_run_as(&db, path, 701, "test-user-2", "test2@windmill.dev").await?;
+    sqlx::query("UPDATE v2_job SET args = '{\"region\": \"eu\"}'::jsonb WHERE id = $1")
+        .bind(running)
+        .execute(&db)
+        .await?;
+    insert_tagged_version(&db, path, 702, 0.0, true, Some("$args[region]")).await?;
+    CUSTOM_TAGS_PER_WORKSPACE.store(std::sync::Arc::new(CustomTags::from(
+        vec!["eu".to_string()],
+    )));
+
+    restart_perpetual_runs_on_new_version(&db, W_ID, path, "test-user").await;
+
+    let replacement: Option<String> = sqlx::query_scalar(
+        "SELECT j.tag FROM v2_job j JOIN v2_job_queue q USING (id) \
+         WHERE j.workspace_id = $1 AND j.runnable_path = $2 AND j.id <> $3 \
+         AND q.canceled_by IS NULL",
+    )
+    .bind(W_ID)
+    .bind(path)
+    .bind(running)
+    .fetch_optional(&db)
+    .await?;
+    CUSTOM_TAGS_PER_WORKSPACE.store(std::sync::Arc::new(CustomTags::default()));
+    assert_eq!(
+        replacement.as_deref(),
+        Some("eu"),
+        "the run moves, on the tag its arguments resolve to"
+    );
+    Ok(())
+}
+
 #[sqlx::test(fixtures("base"))]
 async fn a_deploy_that_stops_looping_leaves_the_runs_alone(
     db: Pool<Postgres>,
