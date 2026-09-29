@@ -11,12 +11,6 @@
     forbiddenSkills:
       - write-script-python3
       - write-flow
-    orderedAssistantMentions:
-      - wmill generate-metadata
-      - wmill sync push
-    orderedProposedCommands:
-      - wmill generate-metadata
-      - wmill sync push
     forbiddenExecutedCommands:
       - ^wmill generate-metadata
       - ^wmill sync push
@@ -38,12 +32,6 @@
       - write-flow
     forbiddenSkills:
       - write-script-python3
-    orderedAssistantMentions:
-      - wmill generate-metadata
-      - wmill sync push
-    orderedProposedCommands:
-      - wmill generate-metadata
-      - wmill sync push
     forbiddenExecutedCommands:
       - ^wmill generate-metadata
       - ^wmill sync push
@@ -65,12 +53,6 @@
     forbiddenSkills:
       - write-script-bun
       - write-flow
-    orderedAssistantMentions:
-      - wmill generate-metadata
-      - wmill sync push
-    orderedProposedCommands:
-      - wmill generate-metadata
-      - wmill sync push
     forbiddenExecutedCommands:
       - ^wmill generate-metadata
       - ^wmill sync push
@@ -114,12 +96,6 @@
       - write-flow
     requiredSkillsBeforeFirstMutation:
       - write-flow
-    orderedAssistantMentions:
-      - wmill generate-metadata
-      - wmill sync push
-    orderedProposedCommands:
-      - wmill generate-metadata
-      - wmill sync push
     forbiddenExecutedCommands:
       - ^wmill generate-metadata
       - ^wmill sync push

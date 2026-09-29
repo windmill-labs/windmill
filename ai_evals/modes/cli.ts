@@ -17,8 +17,12 @@ import type { BenchmarkArtifactFile, CliTrace, ModeRunner } from "../core/types"
 
 const IGNORE_WORKSPACE_FILES = new Set([
   ".claude",
+  ".agents",
   "AGENTS.md",
+  "AGENTS.wmill.md",
   "CLAUDE.md",
+  // the guidance has the agent create one for every new folder
+  "folder.meta.yaml",
   "rt.d.ts",
   ".wmill-benchmark-bin",
   ".wmill-benchmark-wmill-invocations.log",
@@ -89,7 +93,7 @@ export function createCliModeRunner(
         const run = await runPromptAndCapture(
           renderedPrompt,
           workspaceDir,
-          context.evalCase?.runtime?.maxTurns ?? 6,
+          context.evalCase?.runtime?.maxTurns ?? 12,
           modelConfig
         );
         const workspaceFiles = await readDirectoryFiles(workspaceDir, { ignore: IGNORE_WORKSPACE_FILES });

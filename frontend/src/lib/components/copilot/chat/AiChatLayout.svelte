@@ -132,7 +132,7 @@
 					{/await}
 				</div>
 				{#if showSessionsBetaBanner}
-					<SessionsBetaBanner variant="legacy" />
+					<SessionsBetaBanner />
 				{/if}
 			</Pane>
 		{/if}
