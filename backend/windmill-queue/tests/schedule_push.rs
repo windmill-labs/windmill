@@ -49,6 +49,7 @@ mod schedule_push {
             cron_version: None,
             dynamic_skip: None,
             labels: None,
+            late_run_streak: 0,
         };
         overrides(&mut s);
         s
@@ -508,6 +509,63 @@ mod schedule_push {
         .fetch_one(&db)
         .await?;
         assert!(scheduled_for > future_cutoff);
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // push_scheduled_job: late run streak
+    // -----------------------------------------------------------------------
+
+    #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
+    async fn test_push_tracks_late_run_streak(db: Pool<Postgres>) -> anyhow::Result<()> {
+        let mut schedule = make_schedule(|s| s.schedule = "0 0 0 * * *".to_string());
+        sqlx::query(
+            "INSERT INTO schedule (workspace_id, path, edited_by, schedule, script_path, permissioned_as)
+            VALUES ($1, $2, 'test-user', $3, $4, 'u/test-user')",
+        )
+        .bind(&schedule.workspace_id)
+        .bind(&schedule.path)
+        .bind(&schedule.schedule)
+        .bind(&schedule.script_path)
+        .execute(&db)
+        .await?;
+        let authed = make_authed();
+        let streak = || {
+            sqlx::query_as::<_, (i32, i32, Option<chrono::DateTime<Utc>>)>(
+                "SELECT late_run_streak, missed_occurrences, last_missed_at FROM schedule WHERE path = $1",
+            )
+            .bind(&schedule.path)
+            .fetch_one(&db)
+        };
+        let push = |schedule: Schedule, prev: chrono::DateTime<Utc>| {
+            let db = db.clone();
+            let authed = authed.clone();
+            async move {
+                sqlx::query("DELETE FROM v2_job_queue").execute(&db).await?;
+                let tx = db.begin().await?;
+                push_scheduled_job(&db, tx, &schedule, Some(&authed), Some(prev))
+                    .await?
+                    .commit()
+                    .await?;
+                anyhow::Ok(())
+            }
+        };
+
+        let midnight = Utc::now()
+            .date_naive()
+            .and_hms_opt(0, 0, 0)
+            .unwrap()
+            .and_utc();
+
+        // The daily run due 3 days ago finished just now: the 3 midnights since were missed.
+        push(schedule.clone(), midnight - chrono::Duration::days(3)).await?;
+        let (runs, missed, at) = streak().await?;
+        assert_eq!((runs, missed, at), (1, 3, Some(midnight)));
+
+        // Today's run on time ends the streak but keeps what it missed, for the badge.
+        schedule.late_run_streak = runs;
+        push(schedule.clone(), midnight).await?;
+        assert_eq!(streak().await?, (0, 3, at));
         Ok(())
     }
 

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.818.0
+  version: 1.820.0
   title: Windmill API
 
   contact:
@@ -1398,6 +1398,14 @@ paths:
         - workspace
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: background
+          description: |
+            return once the request is validated and create the fork in the background, answering
+            with the creation id getForkCreationStatus reads
+          in: query
+          required: false
+          schema:
+            type: boolean
       requestBody:
         description: new forked workspace
         required: true
@@ -1407,11 +1415,44 @@ paths:
               $ref: "#/components/schemas/CreateWorkspaceFork"
       responses:
         "201":
-          description: forked workspace created
+          description: forked workspace created, or with background set, the id of its creation
           content:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/workspaces/fork_creation_status/{creation_id}:
+    get:
+      summary: get the status of a fork created in the background
+      operationId: getForkCreationStatus
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: creation_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: fork creation status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [running, completed, failed]
+                  step:
+                    type: string
+                    description: the part of the copy a running fork is in
+                  error:
+                    type: string
+                required:
+                  - status
 
   /w/{workspace}/workspaces/attach_dev_workspace:
     post:
@@ -1572,6 +1613,104 @@ paths:
               schema:
                 type: object
 
+  /settings/external_instance_pg/status:
+    get:
+      summary: Returns whether the external instance cluster is configured and how its last setup went
+      operationId: getExternalInstancePgStatus
+      tags:
+        - setting
+      responses:
+        "200":
+          description: external instance cluster status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExternalInstancePgStatus"
+
+  /settings/external_instance_pg/setup:
+    post:
+      summary: Sets up the external instance cluster with its saved admin login, optionally rotating the passwords Windmill manages on it (enterprise edition only)
+      operationId: setupExternalInstancePg
+      tags:
+        - setting
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                rotate_passwords:
+                  type: boolean
+      responses:
+        "200":
+          description: the setup report, also stored as the last setup
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExternalInstancePgSetupReport"
+
+  /settings/external_instance_pg/databases:
+    get:
+      summary: Lists the databases Windmill created on the external instance cluster, with the workspaces whose data tables, Ducklake catalogs or pending fork cleanups use each
+      operationId: listExternalInstancePgDatabases
+      tags:
+        - setting
+      responses:
+        "200":
+          description: databases by name
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  $ref: "#/components/schemas/CustomInstanceDb"
+
+  /settings/external_instance_pg/databases/{name}:
+    post:
+      summary: Creates a database on the external instance cluster (enterprise edition only)
+      operationId: createExternalInstancePgDatabase
+      tags:
+        - setting
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tag:
+                  $ref: "#/components/schemas/CustomInstanceDbTag"
+      responses:
+        "200":
+          description: database created
+          content:
+            application/json:
+              schema: {}
+    delete:
+      summary: Drops a database Windmill created on the external instance cluster, refused while a data table, Ducklake catalog or pending fork cleanup uses it
+      operationId: dropExternalInstancePgDatabase
+      tags:
+        - setting
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: database dropped
+          content:
+            application/json:
+              schema: {}
+
   /settings/list_custom_instance_pg_databases:
     post:
       summary: Returns the set-up statuses of custom instance pg databases
@@ -1590,13 +1729,19 @@ paths:
 
   /settings/datatable_roles:
     get:
-      summary: list the instance's data table roles
+      summary: list the data table roles of one Windmill-managed Postgres cluster
       operationId: listInstanceDatatableRoles
       tags:
         - setting
+      parameters:
+        - in: query
+          name: cluster
+          required: false
+          schema:
+            $ref: "#/components/schemas/DatatableRoleCluster"
       responses:
         "200":
-          description: the instance role catalog
+          description: the cluster's role catalog
           content:
             application/json:
               schema:
@@ -1604,7 +1749,7 @@ paths:
                 items:
                   $ref: "#/components/schemas/InstanceDatatableRole"
     post:
-      summary: create a data table role on the instance's Postgres cluster
+      summary: create a data table role on a Windmill-managed Postgres cluster
       operationId: createInstanceDatatableRole
       tags:
         - setting
@@ -1618,6 +1763,8 @@ paths:
               properties:
                 name:
                   type: string
+                cluster:
+                  $ref: "#/components/schemas/DatatableRoleCluster"
       responses:
         "200":
           description: the created role
@@ -5351,7 +5498,7 @@ paths:
                       type: string
                     resource_type:
                       type: string
-                      enum: [postgres, instance]
+                      enum: [postgres, instance, external_instance]
                     resource_path:
                       type: string
                     governing_workspace_id:
@@ -11791,6 +11938,11 @@ paths:
           content:
             application/json:
               schema: {}
+        "409":
+          description: >-
+            Chat-enabled flow only: the conversation named by `memory_id` is still answering
+            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
+            "user_seq" } }`.
 
   /w/{workspace}/jobs/run_wait_result/fv/{version}:
     post:
@@ -11831,6 +11983,11 @@ paths:
           content:
             application/json:
               schema: {}
+        "409":
+          description: >-
+            Chat-enabled flow only: the conversation named by `memory_id` is still answering
+            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
+            "user_seq" } }`.
 
     get:
       summary: run flow by version with GET and wait until completion
@@ -11863,6 +12020,11 @@ paths:
           content:
             application/json:
               schema: {}
+        "409":
+          description: >-
+            Chat-enabled flow only: the conversation named by `memory_id` is still answering
+            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
+            "user_seq" } }`.
 
   /w/{workspace}/jobs/run_and_stream/f/{path}:
     post:
@@ -11904,6 +12066,11 @@ paths:
             text/event-stream:
               schema:
                 type: string
+        "409":
+          description: >-
+            Chat-enabled flow only: the conversation named by `memory_id` is still answering
+            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
+            "user_seq" } }`.
 
     get:
       summary: run flow by path with GET and stream updates via SSE
@@ -11937,6 +12104,11 @@ paths:
             text/event-stream:
               schema:
                 type: string
+        "409":
+          description: >-
+            Chat-enabled flow only: the conversation named by `memory_id` is still answering
+            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
+            "user_seq" } }`.
 
   /w/{workspace}/jobs/run_and_stream/fv/{version}:
     post:
@@ -11984,6 +12156,11 @@ paths:
             text/event-stream:
               schema:
                 type: string
+        "409":
+          description: >-
+            Chat-enabled flow only: the conversation named by `memory_id` is still answering
+            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
+            "user_seq" } }`.
 
     get:
       summary: run flow by version with GET and stream updates via SSE
@@ -12023,6 +12200,11 @@ paths:
             text/event-stream:
               schema:
                 type: string
+        "409":
+          description: >-
+            Chat-enabled flow only: the conversation named by `memory_id` is still answering
+            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
+            "user_seq" } }`.
 
   /w/{workspace}/jobs/run_and_stream/p/{path}:
     post:
@@ -15432,6 +15614,11 @@ paths:
               schema:
                 type: string
                 format: uuid
+        "409":
+          description: >-
+            Chat-enabled flow only: the conversation named by `memory_id` is still answering
+            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
+            "user_seq" } }`.
 
   /w/{workspace}/jobs/run/fv/{version}:
     post:
@@ -15489,6 +15676,11 @@ paths:
               schema:
                 type: string
                 format: uuid
+        "409":
+          description: >-
+            Chat-enabled flow only: the conversation named by `memory_id` is still answering
+            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
+            "user_seq" } }`.
 
   /w/{workspace}/jobs/run/batch_rerun_jobs:
     post:
@@ -15982,6 +16174,11 @@ paths:
               schema:
                 type: string
                 format: uuid
+        "409":
+          description: >-
+            Chat-enabled flow only: the conversation named by `memory_id` is still answering
+            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
+            "user_seq" } }`.
 
   /w/{workspace}/jobs/run_wait_result/preview_flow:
     post:
@@ -16011,6 +16208,11 @@ paths:
           content:
             application/json:
               schema: {}
+        "409":
+          description: >-
+            Chat-enabled flow only: the conversation named by `memory_id` is still answering
+            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
+            "user_seq" } }`.
 
   /w/{workspace}/jobs/run/dynamic_select:
     post:
@@ -28902,6 +29104,23 @@ components:
         is_test:
           type: boolean
           description: Started from the flow editor's test panel rather than a deployed run
+        running_turn:
+          type: object
+          nullable: true
+          description: >-
+            The turn the conversation is still answering, set by the list endpoint: its
+            newest user message, while the flow run it started is queued or running. A
+            run into this conversation is refused with 409 until the turn ends.
+          required: [job_id, user_seq]
+          properties:
+            job_id:
+              type: string
+              format: uuid
+              description: The flow run of the turn
+            user_seq:
+              type: integer
+              format: int64
+              description: created_seq of the user message that started the turn
 
     FlowConversationMessage:
       type: object
@@ -32035,6 +32254,16 @@ components:
                   - id
                   - success
                   - duration_ms
+            late_run_streak:
+              type: integer
+              description: runs in a row, up to the latest, that started or finished after the next occurrence was due, so that occurrence was missed
+            missed_occurrences:
+              type: integer
+              description: occurrences missed by the latest streak of late runs, kept after it ends; a lower bound once a single late run misses 1000
+            last_missed_at:
+              type: string
+              format: date-time
+              description: latest missed occurrence, kept after the schedule runs on time again; past 1000 misses in one late run, when the miss was detected, at most one period later
 
     ErrorHandler:
       type: string
@@ -33966,9 +34195,55 @@ components:
         - ducklake
         - datatable
 
+    ExternalInstancePgSetupStep:
+      type: object
+      required: [name, status, message]
+      properties:
+        name:
+          type: string
+        status:
+          type: string
+          enum: [ok, warning, error]
+        message:
+          type: string
+
+    ExternalInstancePgSetupReport:
+      type: object
+      required: [success, finished_at, steps]
+      properties:
+        success:
+          type: boolean
+          description: no step failed; warnings leave it true
+        finished_at:
+          type: string
+          format: date-time
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExternalInstancePgSetupStep"
+
+    ExternalInstancePgStatus:
+      type: object
+      required: [configured, database_count]
+      properties:
+        configured:
+          type: boolean
+        database_count:
+          type: integer
+        last_setup:
+          $ref: "#/components/schemas/ExternalInstancePgSetupReport"
+
+    DatatableRoleCluster:
+      type: string
+      description: >-
+        The Windmill-managed Postgres cluster a data table role is a login on: Windmill's own
+        (behind `instance` data tables) or the external instance cluster (behind
+        `external_instance` ones). Defaults to `instance`.
+      enum: [instance, external_instance]
+
     InstanceDatatableRole:
       type: object
-      required: [id, name, enabled]
+      required: [id, name, enabled, cluster]
       properties:
         id:
           type: string
@@ -33976,6 +34251,8 @@ components:
           type: string
         enabled:
           type: boolean
+        cluster:
+          $ref: "#/components/schemas/DatatableRoleCluster"
 
     DatatableRoleTenants:
       type: object
@@ -33997,8 +34274,10 @@ components:
         supported:
           type: boolean
           description: >-
-            Whether this data table can be put under roles at all. Only one backed by the
-            instance database can: a role is a login on that cluster.
+            Whether this data table can be put under roles at all. Only one on a database Windmill
+            manages can: a role is a login on that database's cluster.
+        cluster:
+          $ref: "#/components/schemas/DatatableRoleCluster"
         permissioned:
           type: boolean
         default_role:
@@ -34310,7 +34589,10 @@ components:
           type: array
           items:
             type: string
-          description: Workspaces that reference this database via a ducklake catalog or datatable database with resource_type 'instance'. Computed at request time, not persisted.
+          description: Workspaces that reference this database through a ducklake catalog or a datatable database of the kind being listed — 'instance' for the instance databases endpoint, 'external_instance' for the external cluster one. Computed at request time, not persisted, and only returned to superadmins.
+        workspace_id:
+          type: string
+          description: The workspace a member created this database for as a fork copy. Only that workspace can import into it or point a fork at it.
 
     NewSqsTrigger:
       type: object
@@ -36318,6 +36600,7 @@ components:
                       - postgresql
                       - mysql
                       - instance
+                      - external_instance
                   resource_path:
                     type: string
                 required:
@@ -36381,6 +36664,7 @@ components:
                     enum:
                       - postgresql
                       - instance
+                      - external_instance
                   resource_path:
                     type: string
                 required:

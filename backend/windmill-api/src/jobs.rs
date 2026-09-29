@@ -2772,15 +2772,16 @@ async fn send_email_with_instance_smtp(
         return Err(anyhow::anyhow!("Feature not supported in cloud hosted windmill").into());
     }
 
-    // Any code pushed as a workspace or schedule error handler, custom ones included, runs as
-    // one of these identities: this keeps out ad-hoc job tokens, not who authors handler code.
+    // Workspace error handlers (admin-configured, custom ones included) and the preset hub
+    // handlers of a schedule run as one of these identities. A custom schedule handler runs as
+    // the schedule and is set by any schedule writer, so it must stay out of this list.
     let is_handler_job = authed.email == EMAIL_ERROR_HANDLER_USER_EMAIL
         || authed.email == ERROR_HANDLER_USER_EMAIL
         || authed.email == SCHEDULE_ERROR_HANDLER_USER_EMAIL;
 
     if !is_handler_job && !windmill_api_auth::is_super_admin_authed(&db, &authed).await? {
         return Err(Error::NotAuthorized(
-            "Only super admin or a workspace/schedule error handler job can send emails with the instance SMTP"
+            "Only super admin, a workspace error handler or a preset schedule handler can send emails with the instance SMTP"
                 .to_string(),
         ));
     }
@@ -4227,6 +4228,7 @@ async fn get_started_at_by_ids(
 struct ListableQueuedJob {
     pub id: Uuid,
     pub running: bool,
+    pub canceled: bool,
     pub created_by: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub started_at: Option<chrono::DateTime<chrono::Utc>>,
@@ -4272,6 +4274,9 @@ async fn list_queue_jobs(
         &[
             "v2_job.id",
             "v2_job_queue.running",
+            // A canceled row stays in the queue until a worker picks it up and completes it, and
+            // the `QueuedJob` schema this answers with declares the field either way.
+            "v2_job_queue.canceled_by IS NOT NULL as canceled",
             "v2_job.created_by",
             "v2_job.created_at",
             "v2_job_queue.started_at",
@@ -7147,7 +7152,7 @@ pub async fn restart_flow(
     let completed_job = sqlx::query!(
             "SELECT
                 j.runnable_path as script_path, j.args AS \"args: sqlx::types::Json<HashMap<String, Box<RawValue>>>\",
-                j.tag AS \"tag!\", j.priority
+                j.tag AS \"tag!\", j.priority, j.kind AS \"kind!: JobKind\"
             FROM v2_job j
             WHERE j.id = $1 and j.workspace_id = $2",
             job_id,
@@ -7164,6 +7169,13 @@ pub async fn restart_flow(
     check_scopes(&authed, || format!("jobs:run:flows:{flow_path}"))?;
     let mut run_query = run_query;
     drop_unclaimable_run_lineage(&db, &w_id, &mut run_query, &authed).await?;
+    // A restarted flow preview reruns the value its request supplied, while a flow preview
+    // under a parent is read (by job provenance) as that parent's own definition.
+    let (parent_job, root_job) = if completed_job.kind == JobKind::FlowPreview {
+        (None, None)
+    } else {
+        (run_query.parent_job, run_query.root_job)
+    };
 
     let ehm = HashMap::new();
     let push_args = completed_job
@@ -7207,9 +7219,9 @@ pub async fn restart_flow(
         authed.username_override.as_deref(),
         scheduled_for,
         None,
-        run_query.parent_job,
+        parent_job,
         None,
-        run_query.root_job,
+        root_job,
         run_query.job_id,
         false,
         false,
@@ -7409,6 +7421,20 @@ pub async fn run_workflow_as_code(
         )
         .await?;
 
+    // A task re-runs a preview with the preview's modules: the ones `push` stored for it, never
+    // the task's args. Read on their own, as `fetch_queued` swaps oversized args for a placeholder.
+    let preview_modules = if job.job_kind == JobKind::Preview {
+        sqlx::query_scalar::<_, Option<sqlx::types::Json<HashMap<String, ScriptModule>>>>(
+            "SELECT args->'_MODULES' FROM v2_job WHERE id = $1",
+        )
+        .bind(job.id)
+        .fetch_one(&db)
+        .await?
+        .map(|modules| modules.0)
+    } else {
+        None
+    };
+
     let (job_payload, tag, _delete_after_use, _delete_after_secs, timeout, on_behalf_of) =
         match job.job_kind {
             JobKind::Preview => (
@@ -7432,7 +7458,7 @@ pub async fn run_workflow_as_code(
                     dedicated_worker: None,
                     // TODO(debouncing): enable for this mode
                     debouncing_settings: DebouncingSettings::default(),
-                    modules: None,
+                    modules: preview_modules,
                     tag: None,
                 }),
                 Some(job.tag.clone()),
@@ -8618,9 +8644,6 @@ async fn run_preview_script(
     if let Some(fp) = &preview.flow_path {
         extra.insert("_FLOW_PATH".to_string(), to_raw_value(fp));
     }
-    if let Some(ref modules) = preview.modules {
-        extra.insert("_MODULES".to_string(), to_raw_value(modules));
-    }
     if let Some(ref temp_script_refs) = preview.temp_script_refs {
         extra.insert(
             "_TEMP_SCRIPT_REFS".to_string(),
@@ -9655,6 +9678,13 @@ async fn run_preview_flow_job(
     // jobs:run scope so a narrowly-scoped token cannot escape its scope. See run_preview_script.
     check_scopes(&authed, || format!("jobs:run"))?;
     require_path_read_access_for_preview(&authed, &raw_flow.path)?;
+    // Restarting copies the source runs' step results into the new run, and the queue resolves
+    // them with the service pool, so every run the request names must be readable as the caller.
+    let mut level = raw_flow.restarted_from.as_ref();
+    while let Some(r) = level {
+        require_job_update_read_access(&db, &user_db, &authed, &w_id, &r.flow_job_id, None).await?;
+        level = r.nested.as_deref();
+    }
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tag = run_query.tag.clone().or(raw_flow.tag.clone());
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());

@@ -2,8 +2,10 @@
 @component
 The Tools section of the assistant settings modal: every tool definition this chat
 sends with each turn. The list carries the model-facing name and description; opening
-one shows the description in full and the arguments it takes. Read-only — tools are not
-individually switchable, they follow the mode and the connected servers.
+one shows the description in full and the arguments it takes. Below them, apart, the
+capabilities the provider runs itself (native web search): they carry no definition of
+ours, so they have no detail page. Read-only — tools are not individually switchable,
+they follow the mode, the connected servers and the workspace's AI settings.
 -->
 <script lang="ts">
 	import { Button, ListRow, Section } from '$lib/components/common'
@@ -13,14 +15,16 @@ individually switchable, they follow the mode and the connected servers.
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { ArrowLeft } from 'lucide-svelte'
-	import type { ToolSummary } from './agentContext'
+	import type { ProviderToolSummary, ToolSummary } from './agentContext'
 
 	let {
 		tools,
+		providerTools,
 		active,
 		blocksClose = $bindable()
 	}: {
 		tools: ToolSummary[]
+		providerTools: ProviderToolSummary[]
 		/** Whether this is the panel on screen. Gates the detail page's build, which pulls
 		 * in the schema table and its syntax highlighter. */
 		active: boolean
@@ -45,6 +49,11 @@ individually switchable, they follow the mode and the connected servers.
 	const rowDomId = (index: number) => `assistant-tool-row-${index}`
 
 	let searching = $derived(filter.trim().length > 0)
+	// Too few to rank: a plain substring match over what the row shows.
+	let providerRows = $derived.by(() => {
+		const needle = filter.trim().toLowerCase()
+		return providerTools.filter((t) => `${t.name} ${t.description}`.toLowerCase().includes(needle))
+	})
 	// Name matches first, then the tools that only matched on what they do. Within each
 	// half the order is the one uFuzzy ranked.
 	let rows: { tool: ToolSummary; name?: string; description?: string }[] = $derived.by(() => {
@@ -138,7 +147,7 @@ individually switchable, they follow the mode and the connected servers.
 	>
 		<Section
 			label="Tools"
-			description="What the assistant can call in this session: the built-in tools, plus whatever the connected MCP servers expose."
+			description="What the assistant can call in this session: the built-in tools, whatever the connected MCP servers expose, and what the model's provider runs itself."
 		>
 			<!-- Sticks to the top of the scrolling panel so a 70-row list stays searchable. -->
 			<div class="sticky top-0 z-10 bg-surface pb-2">
@@ -148,9 +157,11 @@ individually switchable, they follow the mode and the connected servers.
 					inputProps={{ placeholder: 'Search tools', id: SEARCH_INPUT_ID }}
 				/>
 			</div>
-			{#if rows.length === 0}
+			{#if rows.length === 0 && providerRows.length === 0}
 				<div class="py-2 text-xs text-hint">
-					{tools.length === 0 ? 'This chat carries no tools.' : 'No tool matches this search.'}
+					{tools.length === 0 && providerTools.length === 0
+						? 'This chat carries no tools.'
+						: 'No tool matches this search.'}
 				</div>
 			{:else}
 				<!-- Borderless rows on their own hover, the shape the resource-type picker uses:
@@ -175,6 +186,20 @@ individually switchable, they follow the mode and the connected servers.
 						/>
 					{/each}
 				</div>
+				{#if providerRows.length > 0}
+					<div
+						class="{rows.length > 0 ? 'mt-4' : ''} px-3 pb-1 text-xs font-semibold text-emphasis"
+					>
+						Provided by the model
+					</div>
+					<div class="flex flex-col gap-0.5">
+						{#each providerRows as tool (tool.name)}
+							{#snippet title()}<span class="truncate leading-5">{tool.name}</span>{/snippet}
+							{#snippet subtitle()}{tool.description}{/snippet}
+							<ListRow {title} {subtitle} />
+						{/each}
+					</div>
+				{/if}
 			{/if}
 		</Section>
 	</div>

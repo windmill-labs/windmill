@@ -41,7 +41,10 @@ use windmill_common::audit::AuditAuthor;
 use windmill_common::auth::JobPerms;
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
-use windmill_common::jobs::{JobTriggerKind, TriggerKindLabel, EMAIL_ERROR_HANDLER_USER_EMAIL};
+use windmill_common::jobs::{
+    script_path_to_payload, JobTriggerKind, TriggerKindLabel, EMAIL_ERROR_HANDLER_USER_EMAIL,
+    MODULES_ARG,
+};
 use windmill_common::min_version::{
     MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
 };
@@ -163,7 +166,7 @@ const MAX_FREE_EXECS: i32 = 1000;
 const MAX_FREE_CONCURRENT_RUNS: i32 = 30;
 
 const ERROR_HANDLER_USERNAME: &str = "error_handler";
-const SCHEDULE_ERROR_HANDLER_USERNAME: &str = "schedule_error_handler";
+pub const SCHEDULE_ERROR_HANDLER_USERNAME: &str = "schedule_error_handler";
 const GLOBAL_ERROR_HANDLER_USERNAME: &str = "global";
 const SUCCESS_HANDLER_USERNAME: &str = "success_handler";
 
@@ -598,8 +601,13 @@ async fn cancel_persistent_script_jobs_internal<'c>(
     let mut tx = db.begin().await?;
 
     // we could have retrieved the job IDs in the first query where we retrieve the hashes, but just in case a job was inserted in the queue right in-between the two above query, we re-do the fetch here
+    // Only the loops: a dependency job of this script shares its path, and a run of a version that
+    // does not restart itself ends on its own.
     let jobs_to_cancel = sqlx::query_scalar::<_, Uuid>(
-        "SELECT j.id FROM v2_job_queue q JOIN v2_job j USING (id) WHERE j.workspace_id = $1 AND j.runnable_path = $2 AND q.canceled_by IS NULL",
+        "SELECT j.id FROM v2_job_queue q JOIN v2_job j USING (id) \
+         JOIN script s ON s.workspace_id = j.workspace_id AND s.hash = j.runnable_id \
+         WHERE j.workspace_id = $1 AND j.runnable_path = $2 AND j.kind = 'script' \
+         AND j.flow_step_id IS NULL AND q.canceled_by IS NULL AND s.restart_unless_cancelled",
     )
     .bind(w_id)
     .bind(script_path)
@@ -624,6 +632,284 @@ async fn cancel_persistent_script_jobs_internal<'c>(
     tx.commit().await?;
 
     return Ok(jobs_to_cancel);
+}
+
+/// Moves the perpetual runs at `script_path` to the version a deploy just made runnable: each one
+/// is canceled and pushed again on that version with the arguments it ran with. A deploy that
+/// leaves the script non-perpetual moves nothing, so turning perpetual off keeps the runs going as
+/// it does today.
+///
+/// Carries the authority of the deploy, which every caller has authorized: it cancels and pushes
+/// runs at `script_path` without an `Authed` of its own. A replacement runs as the deployed
+/// version's identity when it names one and otherwise as the identity of the run it replaces, and
+/// a run only moves to a tag that identity may use.
+///
+/// Errors are logged, never returned: a deploy stands whatever happens to the runs of its earlier
+/// versions.
+pub async fn restart_perpetual_runs_on_new_version(
+    db: &Pool<Postgres>,
+    w_id: &str,
+    script_path: &str,
+    deployed_by: &str,
+) {
+    let loops = match restart_perpetual_runs_at_path(db, w_id, script_path, deployed_by).await {
+        Ok(loops) => loops,
+        Err(e) => {
+            tracing::error!(
+                "Could not restart the perpetual runs of {script_path} on the deployed version: {e:#}"
+            );
+            // The second pass is the retry.
+            true
+        }
+    };
+    if !loops {
+        return;
+    }
+    // A run that ended just before its cancel restarts itself on its own version, and only a
+    // cancel this won is replaced, so that run is still on the earlier version. It is queued
+    // again within the 10s a perpetual restart is throttled to, which this second pass then
+    // catches.
+    let (db, w_id, script_path, deployed_by) = (
+        db.clone(),
+        w_id.to_string(),
+        script_path.to_string(),
+        deployed_by.to_string(),
+    );
+    tokio::spawn(async move {
+        sleep(std::time::Duration::from_secs(5)).await;
+        if let Err(e) = restart_perpetual_runs_at_path(&db, &w_id, &script_path, &deployed_by).await
+        {
+            tracing::error!(
+                "Could not restart the perpetual runs of {script_path} on the deployed version: {e:#}"
+            );
+        }
+    });
+}
+
+/// Whether the deployed version loops, which is what the second pass is for.
+async fn restart_perpetual_runs_at_path(
+    db: &Pool<Postgres>,
+    w_id: &str,
+    script_path: &str,
+    deployed_by: &str,
+) -> error::Result<bool> {
+    // Built the way a run of this path is built anywhere else, so the next run takes the deployed
+    // version's tag, timeout, language and identity. Whether its preprocessor runs is decided per
+    // run, below.
+    let (mut payload, tag, _, _, timeout, on_behalf_of) =
+        script_path_to_payload(script_path, None, db.clone(), w_id, None).await?;
+    // A replacement continues a loop rather than answering a trigger, and every perpetual restart
+    // is pushed without debouncing for that reason. Deployed settings here would debounce the
+    // loops at this path against each other and collapse those that share arguments into one.
+    if let JobPayload::ScriptHash { debouncing_settings, .. } = &mut payload {
+        *debouncing_settings = DebouncingSettings::default();
+    }
+    let JobPayload::ScriptHash { hash, dedicated_worker, .. } = &payload else {
+        return Ok(false);
+    };
+    let (hash, dedicated_worker) = (*hash, *dedicated_worker);
+    let perpetual = sqlx::query_scalar!(
+        "SELECT restart_unless_cancelled FROM script WHERE hash = $1 AND workspace_id = $2",
+        hash.0,
+        w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten()
+    .unwrap_or(false);
+    if !perpetual {
+        return Ok(false);
+    }
+
+    let runs = sqlx::query_as!(
+        PerpetualRunToRestart,
+        "SELECT q.id AS \"id!\", j.created_by, j.permissioned_as, j.permissioned_as_email, \
+         j.trigger, j.trigger_kind AS \"trigger_kind: TriggerKindLabel\", j.preprocessed, \
+         j.args AS \"args: sqlx::types::Json<HashMap<String, Box<RawValue>>>\" \
+         FROM v2_job_queue q JOIN v2_job j USING (id) \
+         JOIN script s ON s.workspace_id = j.workspace_id AND s.hash = j.runnable_id \
+         WHERE j.workspace_id = $1 AND j.runnable_path = $2 AND j.kind = 'script' \
+         AND j.flow_step_id IS NULL AND j.runnable_id != $3 AND q.canceled_by IS NULL \
+         AND s.restart_unless_cancelled",
+        w_id,
+        script_path,
+        hash.0
+    )
+    .fetch_all(db)
+    .await?;
+
+    for run in runs {
+        let id = run.id;
+        // Per run, so that a run this fails on leaves the others to move.
+        if let Err(e) = restart_perpetual_run(
+            db,
+            w_id,
+            script_path,
+            deployed_by,
+            RestartOnVersion {
+                payload: &payload,
+                tag: tag.as_deref(),
+                timeout,
+                dedicated_worker,
+                on_behalf_of: on_behalf_of.as_ref(),
+            },
+            run,
+        )
+        .await
+        {
+            tracing::error!(
+                "Could not restart perpetual run {id} on the version deployed at {script_path}: {e:#}"
+            );
+        }
+    }
+    Ok(true)
+}
+
+/// A run of an earlier version at the path, and what its replacement inherits from it.
+struct PerpetualRunToRestart {
+    id: Uuid,
+    created_by: String,
+    permissioned_as: String,
+    permissioned_as_email: String,
+    trigger: Option<String>,
+    trigger_kind: Option<TriggerKindLabel>,
+    /// `Some(false)` while the run still carries the arguments it was started with: only its own
+    /// completion swaps in what a preprocessor returned.
+    preprocessed: Option<bool>,
+    args: Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
+}
+
+/// What every run at the path moves to.
+struct RestartOnVersion<'a> {
+    payload: &'a JobPayload,
+    tag: Option<&'a str>,
+    timeout: Option<i32>,
+    dedicated_worker: Option<bool>,
+    on_behalf_of: Option<&'a windmill_common::jobs::OnBehalfOf>,
+}
+
+async fn restart_perpetual_run(
+    db: &Pool<Postgres>,
+    w_id: &str,
+    script_path: &str,
+    deployed_by: &str,
+    version: RestartOnVersion<'_>,
+    run: PerpetualRunToRestart,
+) -> error::Result<()> {
+    let RestartOnVersion { payload, tag, timeout, dedicated_worker, on_behalf_of } = version;
+    let (email, permissioned_as) = match on_behalf_of {
+        Some(obo) => (obo.email.clone(), obo.permissioned_as.clone()),
+        None => (
+            run.permissioned_as_email.clone(),
+            run.permissioned_as.clone(),
+        ),
+    };
+    let args = run.args.clone().map(|args| args.0).unwrap_or_default();
+    // The run's own tag was checked when the loop started; the deployed version's has not
+    // been checked against the identity that would run it. Checked the way a push checks one,
+    // so a `$args[...]` tag resolves from the arguments this run carries. A dedicated worker's
+    // tag is the script's own and names no worker group to gain access to.
+    if dedicated_worker != Some(true) {
+        if let Some(tag) = tag.filter(|tag| !tag.is_empty()) {
+            let is_super_admin = windmill_common::auth::is_super_admin_email(db, &email).await?;
+            if let Err(e) = check_tag_available_for_push(
+                db,
+                w_id,
+                tag,
+                &PushArgs::from(&args),
+                is_super_admin,
+                None,
+            )
+            .await
+            {
+                tracing::warn!(
+                    "Perpetual run {} stays on its version: the deployed version of \
+                     {script_path} has tag {tag}: {e}",
+                    run.id
+                );
+                return Ok(());
+            }
+        }
+    }
+    // A run whose own preprocessor has not run yet carries what started it, so the replacement has
+    // to run one: pushed without, those arguments reach `main` and every iteration after it.
+    let mut payload = payload.clone();
+    if let JobPayload::ScriptHash { apply_preprocessor, .. } = &mut payload {
+        *apply_preprocessor = *apply_preprocessor && run.preprocessed == Some(false);
+    }
+    let mut tx = db.begin().await?;
+    // Claiming the run and queueing its replacement in one transaction: a push that fails
+    // leaves the run looping on its own version rather than canceled with nothing to follow
+    // it, and a concurrent deploy cannot claim a run this one already has. A worker completes
+    // a run canceled this way when it next pulls it.
+    let claimed = sqlx::query_scalar!(
+        "UPDATE v2_job_queue SET canceled_by = $1, canceled_reason = $2, scheduled_for = now(), \
+         suspend = 0 WHERE id = $3 AND workspace_id = $4 AND canceled_by IS NULL RETURNING id",
+        deployed_by,
+        format!("a new version of {script_path} was deployed"),
+        run.id,
+        w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    if claimed.is_none() {
+        // It ended or was canceled since the scan. Its own restart, if it had one, is a run of
+        // an earlier version the next pass picks up.
+        return Ok(());
+    }
+    let (_, tx) = push(
+        db,
+        PushIsolationLevel::Transaction(tx),
+        w_id,
+        payload,
+        PushArgs::from(&args),
+        &run.created_by,
+        &email,
+        permissioned_as,
+        Some(&format!("deploy.restart.{}", run.id)),
+        None,
+        None,
+        schedule_path(&run.trigger_kind, &run.trigger),
+        None,
+        None,
+        None,
+        None,
+        false,
+        false,
+        None,
+        true,
+        tag.map(str::to_string),
+        timeout,
+        None,
+        None,
+        None,
+        false,
+        None,
+        None,
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+    // Now that the replacement is queued: the children the run left behind, and, for a run no
+    // worker would pull, its completion.
+    match cancel_job(
+        deployed_by,
+        Some(format!("a new version of {script_path} was deployed")),
+        run.id,
+        w_id,
+        db.begin().await?,
+        db,
+        false,
+        false,
+    )
+    .await
+    {
+        Ok((tx, _)) => tx.commit().await?,
+        Err(e) => {
+            tracing::error!("Could not finish canceling perpetual run {}: {e:#}", run.id)
+        }
+    }
+    Ok(())
 }
 
 #[derive(Serialize, Debug)]
@@ -2339,7 +2625,7 @@ pub async fn send_error_to_global_handler<'a, T: Serialize + Send + Sync>(
             queued_job.started_at,
             None,
             &queued_job.permissioned_as_email,
-            false,
+            None,
             true,
             None,
         )
@@ -2393,7 +2679,7 @@ pub async fn report_error_to_workspace_handler_or_critical_side_channel(
             queued_job.started_at,
             error_handler_extra_args,
             &queued_job.permissioned_as_email,
-            false,
+            None,
             false,
             None,
         )
@@ -2568,7 +2854,7 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
             queued_job.started_at,
             error_handler_extra_args,
             &queued_job.permissioned_as_email,
-            false,
+            None,
             false,
             None,
         )
@@ -2930,69 +3216,109 @@ pub async fn try_schedule_next_job<'c>(
     (tx, push_err)
 }
 
-pub const ERROR_HANDLER_PATH_TEAMS: &str = "/workspace-or-schedule-error-handler-teams";
-pub const ERROR_HANDLER_PATH_SLACK: &str = "/workspace-or-schedule-error-handler-slack";
-pub const ERROR_HANDLER_PATH_EMAIL: &str = "/workspace-or-error-handler-email";
+const ERROR_HANDLER_PATH_EMAIL: &str = "/workspace-or-error-handler-email";
 
-enum ErrorHandlerType {
-    Custom,
-    Teams,
-    Slack,
-    Email,
+/// Every handler version the frontend has offered as a preset (`frontend/src/lib/hubPaths.json`
+/// and its history, which stored schedules still point at). Matched whole: a hub script is
+/// resolved by its numeric id alone, so the name after it proves nothing about its code.
+const PRESET_HANDLER_PATHS: [&str; 23] = [
+    "hub/6512/workspace-or-schedule-error-handler-slack",
+    "hub/5792/workspace-or-schedule-error-handler-slack",
+    "hub/9079/workspace-or-schedule-error-handler-slack",
+    "hub/9206/workspace-or-schedule-error-handler-slack",
+    "hub/19741/workspace-or-schedule-error-handler-slack",
+    "hub/28241/workspace-or-schedule-error-handler-slack",
+    "hub/28794/workspace-or-schedule-error-handler-slack",
+    "hub/2431/slack/schedule-error-handler-slack",
+    "hub/2430/slack/schedule-recovery-handler-slack",
+    "hub/9067/slack/schedule-recovery-handler-slack",
+    "hub/9080/slack/schedule-recovery-handler-slack",
+    "hub/28239/slack/schedule-recovery-handler-slack",
+    "hub/28791/slack/schedule-recovery-handler-slack",
+    "hub/9069/slack/schedule-success-handler-slack",
+    "hub/9072/slack/schedule-success-handler-slack",
+    "hub/28220/slack/schedule-success-handler-slack",
+    "hub/28240/slack/schedule-success-handler-slack",
+    "hub/28793/slack/schedule-success-handler-slack",
+    "hub/11598/workspace-or-schedule-error-handler-teams",
+    "hub/19742/workspace-or-schedule-error-handler-teams",
+    "hub/11593/schedule-recovery-handler-teams",
+    "hub/11596/schedule-success-handler-teams",
+    "hub/19795/workspace-or-error-handler-email",
+];
+
+/// The preset handler Windmill ships on the hub that `handler_path` names, `None` for user code.
+fn preset_handler(handler_path: &str) -> Option<&'static str> {
+    let path = handler_path.strip_prefix("script/").unwrap_or(handler_path);
+    PRESET_HANDLER_PATHS.into_iter().find(|p| *p == path)
 }
 
-impl ErrorHandlerType {
-    fn from_error_handler_path(error_handler_path: &str) -> Option<ErrorHandlerType> {
-        let error_handler_path = if error_handler_path.starts_with("script/") {
-            error_handler_path.strip_prefix("script/").unwrap()
-        } else if error_handler_path.starts_with("flow/") {
-            error_handler_path.strip_prefix("flow/").unwrap()
-        } else {
-            error_handler_path
-        };
+/// Whether `handler_path` is a preset hub handler, which runs as the shared handler identity
+/// (Slack bot token, instance SMTP) instead of as the schedule or user that set it.
+pub fn is_preset_handler_path(handler_path: &str) -> bool {
+    preset_handler(handler_path).is_some()
+}
 
-        if let Some(from_hub) = error_handler_path.strip_prefix("hub/") {
-            let handler_type = if from_hub.ends_with(ERROR_HANDLER_PATH_TEAMS) {
-                ErrorHandlerType::Teams
-            } else if from_hub.ends_with(ERROR_HANDLER_PATH_SLACK) {
-                ErrorHandlerType::Slack
-            } else if from_hub.ends_with(ERROR_HANDLER_PATH_EMAIL) {
-                ErrorHandlerType::Email
-            } else {
-                return None;
-            };
-
-            return Some(handler_type);
-        }
-
-        Some(ErrorHandlerType::Custom)
+/// `(email, permissioned_as)` a schedule handler runs as. The handler identity reads the
+/// workspace Slack bot token and may send through the instance SMTP, and a schedule's handlers
+/// are set by anyone who can write the schedule: only the preset hub handlers get it, custom
+/// code runs as the schedule itself.
+pub async fn schedule_handler_identity(
+    db: &Pool<Postgres>,
+    w_id: &str,
+    handler_path: &str,
+    schedule_permissioned_as: &str,
+    preset_email: &str,
+) -> error::Result<(String, String)> {
+    if is_preset_handler_path(handler_path) {
+        return Ok((
+            preset_email.to_string(),
+            ERROR_HANDLER_USER_GROUP.to_string(),
+        ));
     }
+    if handler_path.contains("hub/") && handler_path.contains("-handler-") {
+        tracing::warn!(
+            "schedule handler {handler_path} in {w_id} is named like a preset but is not a pinned \
+             preset version: it runs as the schedule ({schedule_permissioned_as})"
+        );
+    }
+    let email =
+        windmill_common::users::get_email_from_permissioned_as(schedule_permissioned_as, w_id, db)
+            .await?;
+    Ok((email, schedule_permissioned_as.to_string()))
 }
 
-fn get_email_and_permissioned_as(
+async fn error_handler_identity(
+    db: &Pool<Postgres>,
+    w_id: &str,
     error_handler_path: &str,
     is_global_error_handler: bool,
-    is_schedule_error_handler: bool,
-) -> (&'static str, String) {
-    let res = if is_global_error_handler {
-        (SUPERADMIN_SECRET_EMAIL, SUPERADMIN_SECRET_EMAIL.to_string())
-    } else if is_schedule_error_handler {
-        (
+    schedule_permissioned_as: Option<&str>,
+) -> error::Result<(String, String)> {
+    if is_global_error_handler {
+        return Ok((
+            SUPERADMIN_SECRET_EMAIL.to_string(),
+            SUPERADMIN_SECRET_EMAIL.to_string(),
+        ));
+    }
+    if let Some(schedule_permissioned_as) = schedule_permissioned_as {
+        return schedule_handler_identity(
+            db,
+            w_id,
+            error_handler_path,
+            schedule_permissioned_as,
             SCHEDULE_ERROR_HANDLER_USER_EMAIL,
-            ERROR_HANDLER_USER_GROUP.to_string(),
         )
+        .await;
+    }
+    let email = if preset_handler(error_handler_path)
+        .is_some_and(|p| p.ends_with(ERROR_HANDLER_PATH_EMAIL))
+    {
+        EMAIL_ERROR_HANDLER_USER_EMAIL
     } else {
-        let handler_type = ErrorHandlerType::from_error_handler_path(error_handler_path);
-
-        let email = match handler_type {
-            Some(ErrorHandlerType::Email) => EMAIL_ERROR_HANDLER_USER_EMAIL,
-            _ => ERROR_HANDLER_USER_EMAIL,
-        };
-
-        (email, ERROR_HANDLER_USER_GROUP.to_string())
+        ERROR_HANDLER_USER_EMAIL
     };
-
-    res
+    Ok((email.to_string(), ERROR_HANDLER_USER_GROUP.to_string()))
 }
 
 pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
@@ -3008,7 +3334,8 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
     started_at: Option<DateTime<Utc>>,
     extra_args: Option<Json<Box<RawValue>>>,
     email: &str,
-    is_schedule_error_handler: bool,
+    // The schedule's `permissioned_as` when this is a schedule's own error handler.
+    schedule_permissioned_as: Option<&str>,
     is_global_error_handler: bool,
     priority: Option<i16>,
 ) -> windmill_common::error::Result<Uuid> {
@@ -3047,17 +3374,17 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
 
     let result = sanitize_result(result);
 
-    let (email, permissioned_as) = if let Some(on_behalf_of) = on_behalf_of.as_ref() {
-        (
-            on_behalf_of.email.as_str(),
-            on_behalf_of.permissioned_as.clone(),
-        )
+    let (email, permissioned_as) = if let Some(on_behalf_of) = on_behalf_of {
+        (on_behalf_of.email, on_behalf_of.permissioned_as)
     } else {
-        get_email_and_permissioned_as(
+        error_handler_identity(
+            db,
+            w_id,
             on_failure_path,
             is_global_error_handler,
-            is_schedule_error_handler,
+            schedule_permissioned_as,
         )
+        .await?
     };
 
     let tx = PushIsolationLevel::IsolatedRoot(db.clone());
@@ -3069,12 +3396,12 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
         PushArgs { extra: Some(extra), args: &result },
         if is_global_error_handler {
             GLOBAL_ERROR_HANDLER_USERNAME
-        } else if is_schedule_error_handler {
+        } else if schedule_permissioned_as.is_some() {
             SCHEDULE_ERROR_HANDLER_USERNAME
         } else {
             ERROR_HANDLER_USERNAME
         },
-        email,
+        &email,
         permissioned_as,
         Some(&format!("error.handler.{job_id}")),
         None,
@@ -4865,10 +5192,15 @@ pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> Strin
         for cap in RE_ARG_TAG.captures_iter(&workspaced) {
             let arg_name = cap.get(1).unwrap().as_str();
             let (root, rest) = arg_name.split_once('.').unwrap_or((arg_name, ""));
-            let root_value = args
-                .args
-                .get(root)
-                .or(args.extra.as_ref().and_then(|x| x.get(root)));
+            // `push` strips a caller's `_MODULES` only after a run handler has authorized the
+            // tag, so reading it here would let the authorized tag and the queued one differ.
+            let root_value = (root != MODULES_ARG)
+                .then(|| {
+                    args.args
+                        .get(root)
+                        .or(args.extra.as_ref().and_then(|x| x.get(root)))
+                })
+                .flatten();
             let arg_value = render_tag_path(root_value.map(|x| &**x), rest);
             interpolated =
                 interpolated.replace(format!("$args[{}]", arg_name).as_str(), &arg_value);
@@ -5651,7 +5983,7 @@ async fn push_inner<'c, 'd>(
     mut tx: PushIsolationLevel<'c>,
     workspace_id: &str,
     job_payload: JobPayload,
-    mut args: PushArgs<'d>,
+    args: PushArgs<'d>,
     user: &str,
     mut email: &str,
     mut permissioned_as: String,
@@ -5677,6 +6009,27 @@ async fn push_inner<'c, 'd>(
     trigger: Option<TriggerMetadata>,
     suspended_mode: Option<bool>,
 ) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
+    // The worker builds a preview's `_MODULES` arg into the job as its module code. Every
+    // caller-reachable value lands in `args` or `extra` (webhook query and headers go to
+    // `extra`, WAC children copy their parent's args), so it is dropped from both and only
+    // the `JobPayload::Code` arm below sets it, from the server-side `RawCode::modules`.
+    let args_without_modules;
+    let mut args = {
+        let mut extra = args.extra;
+        if let Some(extra) = extra.as_mut() {
+            extra.remove(MODULES_ARG);
+        }
+        let args = if args.args.contains_key(MODULES_ARG) {
+            let mut stripped = args.args.clone();
+            stripped.remove(MODULES_ARG);
+            args_without_modules = stripped;
+            &args_without_modules
+        } else {
+            args.args
+        };
+        PushArgs { extra, args }
+    };
+
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
         // A fork/dev workspace draws its plan and usage from the root (billing) workspace, so its
@@ -6049,12 +6402,11 @@ async fn push_inner<'c, 'd>(
                     language = ScriptLang::Bun;
                 }
             }
-            // Inject modules into job args as _MODULES so the worker can extract them
             if let Some(ref modules) = modules {
                 match serde_json::to_string(modules).and_then(|s| RawValue::from_string(s)) {
                     Ok(raw) => {
                         let extra = args.extra.get_or_insert_with(HashMap::new);
-                        extra.insert("_MODULES".to_string(), raw);
+                        extra.insert(MODULES_ARG.to_string(), raw);
                     }
                     Err(e) => {
                         tracing::warn!("Failed to serialize modules for preview job: {e}");
@@ -6869,9 +7221,19 @@ async fn push_inner<'c, 'd>(
     // `schedule_path` (see `FlowJob::schedule_path`), so counting per push would
     // score one run as a fire per step job — a loop pushes two of those per
     // iteration — burying every other kind, and would sit on the per-step path.
+    //
+    // A job a suspended trigger parks is not a fire: it counts as `fired` only
+    // when `resume_suspended_trigger_jobs` releases it, or never if discarded.
+    // Both are counted before the queue caps below and the caller's commit, so a
+    // rejected push still counts; accepted for a telemetry counter.
     if flow_step_id.is_none() {
         if let Some(kind) = trigger_kind.as_ref() {
-            windmill_common::feature_usage::log_feature_usage("trigger", "fired", kind.as_str());
+            let action = if suspended_mode.unwrap_or(false) {
+                "suspended"
+            } else {
+                "fired"
+            };
+            windmill_common::feature_usage::log_feature_usage("trigger", action, kind.as_str());
         }
     }
 
@@ -8136,6 +8498,41 @@ mod git_sync_concurrency_key_tests {
 }
 
 #[cfg(test)]
+mod preset_handler_path_tests {
+    use super::is_preset_handler_path;
+
+    #[test]
+    fn only_pinned_hub_scripts_are_presets() {
+        assert!(is_preset_handler_path(
+            "script/hub/28791/slack/schedule-recovery-handler-slack"
+        ));
+        // The hub resolves by id: any other id is arbitrary hub code whatever its name.
+        assert!(!is_preset_handler_path(
+            "hub/13968/workspace-or-schedule-error-handler-slack"
+        ));
+        assert!(!is_preset_handler_path(
+            "script/u/me/workspace-or-schedule-error-handler-slack"
+        ));
+    }
+
+    /// A preset version bumped in the frontend without being pinned here would silently run as
+    /// the schedule's owner and lose access to the Slack bot token.
+    #[test]
+    fn frontend_presets_are_pinned() {
+        let hub_paths: std::collections::HashMap<String, String> =
+            serde_json::from_str(include_str!("../../../frontend/src/lib/hubPaths.json")).unwrap();
+        for (name, path) in hub_paths {
+            if path.contains("-handler-") {
+                assert!(
+                    is_preset_handler_path(&path),
+                    "{name}: {path} is not pinned"
+                );
+            }
+        }
+    }
+}
+
+#[cfg(test)]
 mod result_metadata_tests {
     use super::{ResultMetadata, ValidableJson};
     use serde_json::value::RawValue;
@@ -8200,6 +8597,13 @@ mod render_tag_path_tests {
         assert_eq!(
             interpolate_args("w-$args[cfg.lang]-$args[e]".to_string(), &push_args, "ws"),
             "w-eu-x"
+        );
+
+        let args = HashMap::from([("_MODULES".to_string(), raw(r#""allowed-""#))]);
+        let push_args = PushArgs { args: &args, extra: None };
+        assert_eq!(
+            interpolate_args("$args[_MODULES]private".to_string(), &push_args, "ws"),
+            "private"
         );
     }
 

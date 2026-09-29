@@ -20,6 +20,7 @@
 		WMILL_TS_PATH,
 		genWmillTs,
 		normalizeRawAppRuntimeLogs,
+		createRawAppBuildTracker,
 		type Runnable,
 		type RawAppRuntimeLogEntry,
 		type RawAppRuntimeLogRequester,
@@ -29,7 +30,6 @@
 	} from './utils'
 	import { runDomQueryOnHtml, type RawAppDomQuery, type RawAppDomRequester } from './rawAppDom'
 	import InlineElementPrompt from './InlineElementPrompt.svelte'
-	import RawAppCoepWarning from './RawAppCoepWarning.svelte'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import { getAppliedDarkModeVariant, type DarkModeVariant } from '$lib/darkModeVariant'
 	import RawAppSidebar from './RawAppSidebar.svelte'
@@ -383,7 +383,6 @@
 	let iframe: HTMLIFrameElement | undefined = $state(undefined)
 	const PREVIEW_SHELL_URL = '/ui_builder/app-preview.html'
 	let previewIframe: HTMLIFrameElement | undefined = $state(undefined)
-	let coepWarning: RawAppCoepWarning | undefined = $state(undefined)
 	let previewIframeLoaded = $state(false)
 	let lastBuild: { css: string; js: string } | undefined = undefined
 	// Detached preview tab/window rendering the same app-preview bundle as the
@@ -396,6 +395,10 @@
 	let externalPreviewReady = $state(false)
 	let inspectorEnabled = $state(false)
 	let bundlerType: 'esbuild' | 'rolldown' = $state('esbuild')
+	// rolldown's wasm build uses shared memory, which only exists in a cross-origin
+	// isolated document. Windmill never serves the editor isolated, so the switch
+	// only shows behind a reverse proxy that adds COOP/COEP to the whole site.
+	const rolldownAvailable = globalThis.crossOriginIsolated === true
 
 	// Build/bundler logs forwarded from the UI Builder iframe. We render
 	// them as an overlay inside the preview pane (right side) so they're
@@ -404,6 +407,9 @@
 
 	// Latest UI Builder error; cleared on next successful build.
 	let buildError = $state<string | undefined>(undefined)
+	const buildTracker = createRawAppBuildTracker()
+	const PREVIEW_SETTLE_MS = 1000
+	let editorDestroyed = false
 	// Latest uncaught runtime error thrown by the rendered app; cleared on next build.
 	let runtimeError = $state<string | undefined>(undefined)
 	// Set when a build ran cleanly but never mounted anything into #root — the
@@ -907,6 +913,7 @@
 		if (!target) return
 		iframeFiles = { ...newFiles }
 		iframeFocusPending = undefined
+		buildTracker.start()
 		const files = Object.fromEntries(
 			Object.entries(newFiles).filter(([path, _]) => !path.endsWith('/'))
 		)
@@ -926,6 +933,7 @@
 		iframeFiles = { ...newFiles }
 		const focus = iframeFocusPending === pathToSelect
 		iframeFocusPending = undefined
+		buildTracker.start()
 		const files = Object.fromEntries(
 			Object.entries(newFiles).filter(([path, _]) => !path.endsWith('/'))
 		)
@@ -1338,9 +1346,6 @@
 		) {
 			externalPreviewReady = true
 			feedExternalPreview()
-			// The detached window is cross-origin isolated like the inline preview,
-			// so blocked external resources warrant the same COEP warning.
-			coepWarning?.attachTo(externalPreviewWindow)
 			return
 		}
 
@@ -1357,6 +1362,9 @@
 			lastBuild = { css: e.data.css, js: e.data.js }
 			feedPreviewIframe(lastBuild)
 			syncExternalPreview()
+			// Give the fed app a moment to run, so a console read after the wait sees its output.
+			const gen = buildTracker.generation
+			setTimeout(() => buildTracker.settle(gen), PREVIEW_SETTLE_MS)
 			return
 		}
 
@@ -1377,6 +1385,8 @@
 		// `message: undefined` arrives on the next successful build and clears the banner.
 		if (fromUiBuilder && e.data.type === 'buildError') {
 			buildError = typeof e.data.message === 'string' ? e.data.message : undefined
+			// A successful build settles once the preview has it (see `preview` above).
+			if (buildError !== undefined) buildTracker.settle()
 			return
 		}
 
@@ -1677,9 +1687,6 @@
 		win.addEventListener('load', () => {
 			externalPreviewReady = true
 			feedExternalPreview()
-			// Attach here too: against an artifact that predates the handshake, this
-			// is the only place the freshly opened window is ever seen loaded.
-			coepWarning?.attachTo(win)
 		})
 	}
 
@@ -1717,7 +1724,20 @@
 		pending.resolve(entries)
 	}
 
-	const requestRuntimeLogs: RawAppRuntimeLogRequester = (limit) => {
+	const requestRuntimeLogs: RawAppRuntimeLogRequester = async (limit) => {
+		await buildTracker.wait()
+		if (editorDestroyed) {
+			return { entries: undefined, buildError: undefined, buildPending: false, buildLogs: '' }
+		}
+		return {
+			entries: await requestPreviewConsoleLogs(limit),
+			buildError,
+			buildPending: buildTracker.pending,
+			buildLogs: logs
+		}
+	}
+
+	function requestPreviewConsoleLogs(limit: number) {
 		const win = previewIframe?.contentWindow
 		if (!win || !previewIframeLoaded) return Promise.resolve(undefined)
 		const requestId = randomUUID()
@@ -2033,6 +2053,8 @@
 			onScreenshotRequester?.(undefined)
 			for (const requestId of Array.from(pendingRuntimeLogReqs.keys()))
 				resolvePendingRuntimeLogRequest(requestId, undefined)
+			editorDestroyed = true
+			buildTracker.release()
 		}
 	})
 
@@ -2620,21 +2642,23 @@
 								>
 									{#snippet trailing()}
 										<div class="flex items-center gap-1 px-2">
-											<Button
-												variant="subtle"
-												unifiedSize="sm"
-												title="Switch bundler"
-												onClick={() => {
-													const next = bundlerType === 'esbuild' ? 'rolldown' : 'esbuild'
-													bundlerType = next
-													iframe?.contentWindow?.postMessage(
-														{ type: 'setBundlerType', bundlerType: next },
-														'*'
-													)
-												}}
-											>
-												{bundlerType}
-											</Button>
+											{#if rolldownAvailable}
+												<Button
+													variant="subtle"
+													unifiedSize="sm"
+													title="Switch bundler"
+													onClick={() => {
+														const next = bundlerType === 'esbuild' ? 'rolldown' : 'esbuild'
+														bundlerType = next
+														iframe?.contentWindow?.postMessage(
+															{ type: 'setBundlerType', bundlerType: next },
+															'*'
+														)
+													}}
+												>
+													{bundlerType}
+												</Button>
+											{/if}
 											<Button
 												variant="subtle"
 												unifiedSize="sm"
@@ -2704,7 +2728,6 @@
 									src={PREVIEW_SHELL_URL}
 									class="w-full flex-1 block"
 								></iframe>
-								<RawAppCoepWarning bind:this={coepWarning} iframe={previewIframe} />
 								{#if buildError}
 									<!-- top-12 clears the tab bar; `before:bg-surface` backs the
 									     Alert's translucent red; `isolate` pins the pseudo's stacking context. -->
