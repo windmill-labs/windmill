@@ -551,6 +551,7 @@ async fn create_snapshot_script(
     let mut handle_deployment_metadata = None;
     let mut moved_native_triggers = Vec::new();
     let mut deployed_path = None;
+    let mut deployed_perpetual = false;
     while let Some(field) = multipart.next_field().await.unwrap() {
         let name = field.name().unwrap().to_string();
         let data = field.bytes().await.unwrap();
@@ -559,6 +560,7 @@ async fn create_snapshot_script(
             let is_tar = ns.codebase.as_ref().is_some_and(|x| x.ends_with(".tar"));
             let use_esm = ns.codebase.as_ref().is_some_and(|x| x.contains(".esm"));
             deployed_path = Some(ns.path.clone());
+            deployed_perpetual = ns.restart_unless_cancelled == Some(true);
             let (new_hash, ntx, hdm, moved) = create_script_internal(
                 ns,
                 w_id.clone(),
@@ -616,6 +618,19 @@ async fn create_snapshot_script(
     }
     reregister_moved_native_triggers(&db, &authed, &w_id, moved_native_triggers);
     if let Some(hdm) = handle_deployment_metadata {
+        let runnable_now = matches!(hdm, PostCommitDeploy::Full { .. });
+        if let Some(script_path) = deployed_path
+            .as_deref()
+            .filter(|_| runnable_now && deployed_perpetual)
+        {
+            windmill_queue::restart_perpetual_runs_on_new_version(
+                &db,
+                &w_id,
+                script_path,
+                &authed.username,
+            )
+            .await;
+        }
         hdm.handle(&db).await?;
     }
     return Ok((StatusCode::CREATED, format!("{}", script_hash.unwrap())));
@@ -734,6 +749,9 @@ async fn deploy_script(
         return Err(Error::PermissionDenied(msg));
     }
     let script_path = ns.path.clone();
+    // Only a perpetual deploy can have runs to move, so every other one skips the lookups that
+    // would find that out.
+    let perpetual = ns.restart_unless_cancelled == Some(true);
     let email = authed.email.clone();
     let username = authed.username.clone();
     let authed_for_triggers = authed.clone();
@@ -757,6 +775,19 @@ async fn deploy_script(
         // they don't run against a version whose lock does not exist yet — and
         // don't run twice.
         let ready_to_test = matches!(hdm, PostCommitDeploy::Full { .. });
+        // The version is runnable, so the perpetual runs of earlier ones move to it here, before
+        // anything that can fail this deploy after its commit: a version nothing moved to would
+        // leave those runs on the old code with nothing left to notice. A deploy that needed lock
+        // generation hands this to its dependency job instead.
+        if ready_to_test && perpetual {
+            windmill_queue::restart_perpetual_runs_on_new_version(
+                &db,
+                &w_id,
+                &script_path,
+                &username,
+            )
+            .await;
+        }
         hdm.handle(&db).await?;
         let db2 = db.clone();
         if ready_to_test {
@@ -1132,6 +1163,96 @@ async fn validate_dbt_relation(
         })
 }
 
+/// The schema the editor would have derived from `content`, for a deploy that sends
+/// none (MCP, a bare API call). `None` for a language whose parser this build lacks,
+/// or code that does not parse.
+fn infer_main_schema(
+    language: &ScriptLang,
+    kind: Option<&ScriptKind>,
+    content: &str,
+    previous: Option<&serde_json::Value>,
+) -> Option<Schema> {
+    let entrypoint =
+        matches!(kind, Some(ScriptKind::Preprocessor)).then(|| "preprocessor".to_string());
+    // The database a SQL script runs against is an argument unless the code names
+    // it (`-- database f/...`), as in the editor.
+    let with_db = |sig: anyhow::Result<windmill_parser::MainArgSignature>, resource: &str| {
+        sig.map(|mut sig| {
+            if windmill_parser_sql::parse_db_resource(content).is_none() {
+                sig.args.insert(
+                    0,
+                    windmill_parser::Arg {
+                        name: "database".to_string(),
+                        typ: windmill_parser::Typ::Resource(resource.to_string()),
+                        ..Default::default()
+                    },
+                );
+            }
+            sig
+        })
+    };
+    let sig = match language {
+        ScriptLang::Bun | ScriptLang::Bunnative | ScriptLang::Deno | ScriptLang::Nativets => {
+            windmill_parser_ts::parse_deno_signature(content, false, false, entrypoint)
+        }
+        #[cfg(feature = "python")]
+        ScriptLang::Python3 => {
+            windmill_parser_py::parse_python_signature(content, entrypoint, false)
+        }
+        ScriptLang::Go => windmill_parser_go::parse_go_sig(content),
+        ScriptLang::Bash => windmill_parser_bash::parse_bash_sig(content),
+        ScriptLang::Powershell => windmill_parser_bash::parse_powershell_sig(content),
+        ScriptLang::Postgresql => {
+            with_db(windmill_parser_sql::parse_pgsql_sig(content), "postgresql")
+        }
+        ScriptLang::Mysql => with_db(windmill_parser_sql::parse_mysql_sig(content), "mysql"),
+        ScriptLang::Bigquery => {
+            with_db(windmill_parser_sql::parse_bigquery_sig(content), "bigquery")
+        }
+        ScriptLang::Snowflake => with_db(
+            windmill_parser_sql::parse_snowflake_sig(content),
+            "snowflake",
+        ),
+        ScriptLang::Mssql => with_db(
+            windmill_parser_sql::parse_mssql_sig(content),
+            "ms_sql_server",
+        ),
+        ScriptLang::OracleDB => {
+            with_db(windmill_parser_sql::parse_oracledb_sig(content), "oracledb")
+        }
+        ScriptLang::DuckDb => windmill_parser_sql::parse_duckdb_sig(content),
+        ScriptLang::Graphql => {
+            windmill_parser_graphql::parse_graphql_sig(content).map(|mut sig| {
+                sig.args.insert(
+                    0,
+                    windmill_parser::Arg {
+                        name: "api".to_string(),
+                        typ: windmill_parser::Typ::Resource("graphql".to_string()),
+                        ..Default::default()
+                    },
+                );
+                sig
+            })
+        }
+        ScriptLang::Ansible => windmill_parser_yaml::parse_ansible_sig(content),
+        _ => return None,
+    };
+    match sig {
+        Ok(sig) => serde_json::value::to_raw_value(&windmill_parser::json_schema::main_arg_schema(
+            &sig, previous,
+        ))
+        .ok()
+        .map(|v| Schema(sqlx::types::Json(v))),
+        Err(e) => {
+            tracing::warn!(
+                "could not infer the schema of a {} script: {e:#}",
+                language.as_str()
+            );
+            None
+        }
+    }
+}
+
 async fn create_script_internal<'c>(
     mut ns: NewScript,
     w_id: String,
@@ -1357,6 +1478,40 @@ async fn create_script_internal<'c>(
             None => None,
         };
         parent_adopted_from_retired_path = ns.parent_hash.is_some();
+    }
+
+    // Before hashing, so the hash and the no-op check see the schema that gets stored.
+    // `{}` counts as absent: an agent filling every tool argument sends it for "none".
+    let schema_absent = ns.schema.as_ref().is_none_or(|s| {
+        serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(s.0.get())
+            .is_ok_and(|m| m.is_empty())
+    });
+    if schema_absent && !matches!(ns.language, ScriptLang::Dbt) {
+        let previous = match &ns.parent_hash {
+            Some(p_hash) => sqlx::query_scalar::<_, Option<sqlx::types::Json<serde_json::Value>>>(
+                "SELECT schema FROM script WHERE hash = $1 AND workspace_id = $2",
+            )
+            .bind(p_hash.0)
+            .bind(&w_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .flatten()
+            .map(|s| s.0),
+            None => None,
+        };
+        // Code the server cannot parse keeps the previous version's schema, as it
+        // does in the editor, rather than losing it for good.
+        ns.schema = infer_main_schema(
+            &ns.language,
+            ns.kind.as_ref(),
+            &ns.content,
+            previous.as_ref(),
+        )
+        .or_else(|| {
+            previous
+                .and_then(|p| serde_json::value::to_raw_value(&p).ok())
+                .map(|v| Schema(sqlx::types::Json(v)))
+        });
     }
 
     // Must stay below the parent resolution above: an auto_parent deploy hashed before
@@ -2734,23 +2889,17 @@ async fn create_script_internal<'c>(
         tracing::info!("creating script {hash:?} at path {script_path} on workspace {w_id}",);
     }
     if needs_lock_gen {
-        let tag = if ns.dedicated_worker.is_some_and(|x| x) {
-            Some(windmill_common::worker::dedicated_worker_tag(
-                &w_id, &ns.path,
-            ))
-        } else if ns.tag.as_ref().is_some_and(|x| x.contains("$args[")) {
-            None
-        } else if lang == ScriptLang::Bunnative {
-            // if a custom tag is set for a bunnative script, this prevents the custom tag to be used for the dependency job
-            // forcing the bundling to run on a worker with the bun tag
-            None
-        } else {
-            ns.tag
-        };
+        let tag = windmill_common::scripts::dependency_job_tag(ns.tag, &lang);
 
         let mut args: HashMap<String, Box<serde_json::value::RawValue>> = HashMap::new();
         if let Some(dm) = ns.deployment_message {
             args.insert("deployment_message".to_string(), to_raw_value(&dm));
+        }
+        // The version becomes runnable when this job writes its lock, which is where the
+        // perpetual runs of earlier versions can move to it. Only a deploy someone made carries
+        // this, so a relock triggered by an imported script changing leaves those runs alone.
+        if ns.restart_unless_cancelled.is_some_and(|x| x) {
+            args.insert("restart_perpetual_runs".to_string(), to_raw_value(&true));
         }
         if let Some(ref p_path) = p_path_opt {
             args.insert("parent_path".to_string(), to_raw_value(&p_path));

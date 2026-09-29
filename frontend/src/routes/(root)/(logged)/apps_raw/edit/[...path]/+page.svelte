@@ -30,11 +30,7 @@
 	import RawAppTemplatePicker, {
 		type RawAppTemplatePickerResult
 	} from '$lib/components/raw_apps/RawAppTemplatePicker.svelte'
-	import {
-		react19Template,
-		STARTER_RUNNABLE,
-		STARTER_RUNNABLE_KEY
-	} from '$lib/components/raw_apps/templates'
+	import { react19Template, STARTER_RUNNABLES } from '$lib/components/raw_apps/templates'
 	import { aiChatManager, AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
 
 	type RawAppDraft = {
@@ -233,9 +229,8 @@
 			// Explicit path seed: the fork-a-draft handoff re-homes the source
 			// path into the forker's namespace and passes it here.
 			const pathParam = page.url.searchParams.get('seed_path')
-			// One-shot YAML/JSON import handoff. Carried via $importStore, or
-			// sessionStorage when /apps_raw's full page reload would drop in-memory
-			// state. Wrapped exports carry { summary, value, policy }; bare ones the value.
+			// One-shot YAML/JSON import handoff, carried via $importStore or
+			// sessionStorage. Wrapped exports carry { summary, value, policy }; bare ones the value.
 			let importRaw: any = $importStore
 			if ($importStore) {
 				$importStore = undefined
@@ -274,7 +269,7 @@
 			// Seed the React 19 template so the editor has a usable state even if the
 			// user dismisses the picker without selecting.
 			const seedFiles = { ...react19Template }
-			const seedRunnables = { [STARTER_RUNNABLE_KEY]: STARTER_RUNNABLE }
+			const seedRunnables = structuredClone(STARTER_RUNNABLES)
 			savedApp = {
 				summary: '',
 				value: { files: seedFiles as any, runnables: seedRunnables as any },
@@ -525,7 +520,7 @@
 
 	function onTemplatePickerStart(result: RawAppTemplatePickerResult, withPrompt: boolean) {
 		files = { ...result.files }
-		runnables = { ...result.runnables, [STARTER_RUNNABLE_KEY]: STARTER_RUNNABLE }
+		runnables = { ...result.runnables, ...structuredClone(STARTER_RUNNABLES) }
 		data = result.data
 		summary = result.summary
 		policy = result.policy

@@ -13,6 +13,7 @@ import {
   renameCurrentGitBranch,
 } from "../../utils/git.ts";
 import process from "node:process";
+import { apiErrorMessage } from "../../utils/utils.ts";
 import { WM_FORK_PREFIX } from "../../core/constants.ts";
 import { tryResolveBranchWorkspace } from "../../core/context.ts";
 import {
@@ -21,6 +22,38 @@ import {
   getWorkspaceNames,
   readConfigFile,
 } from "../../core/conf.ts";
+
+/** Wait for a fork creation started in the background, by the id its request answered with. */
+async function waitForForkCreation(parentWorkspace: string, creationId: string) {
+  let failingSince: number | undefined;
+  let lastStep: string | undefined;
+  while (true) {
+    let result:
+      | Awaited<ReturnType<typeof wmill.getForkCreationStatus>>
+      | undefined;
+    try {
+      result = await wmill.getForkCreationStatus({
+        workspace: parentWorkspace,
+        creationId,
+      });
+      failingSince = undefined;
+    } catch (e) {
+      // A failed poll says nothing about the fork: it can be lost to a proxy, or reach a replica
+      // that has no status route yet during a rolling deploy.
+      failingSince ??= Date.now();
+      if (Date.now() - failingSince >= 3 * 60 * 1000) throw e;
+    }
+    if (result?.status === "running" && result.step && result.step !== lastStep) {
+      lastStep = result.step;
+      log.info(colors.gray(`${lastStep}...`));
+    }
+    if (result?.status === "completed") return;
+    if (result?.status === "failed") {
+      throw new Error(result.error ?? "Unknown error");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+  }
+}
 
 async function createWorkspaceFork(
   opts: GlobalOptions & {
@@ -376,8 +409,9 @@ async function createWorkspaceFork(
 
   // --- Create the fork workspace ---
   try {
-    const result = await wmill.createWorkspaceFork({
+    const response = await wmill.createWorkspaceFork({
       workspace: workspace.workspaceId,
+      background: true,
       requestBody: {
         id: trueWorkspaceId,
         name: opts.createWorkspaceName ?? workspaceName ?? trueWorkspaceId,
@@ -385,11 +419,17 @@ async function createWorkspaceFork(
         forked_datatables: forkedDatatables,
       },
     });
+    // A server without background forks ignores the flag and answers once the fork is created.
+    if (!response.startsWith("Created forked workspace")) {
+      await waitForForkCreation(workspace.workspaceId, response);
+    }
 
-    log.info(colors.green(`✅ ${result}`));
+    log.info(colors.green(`✅ Created forked workspace ${trueWorkspaceId}`));
   } catch (error) {
     log.error(
-      colors.red(`Failed to create forked workspace: ${(error as Error).message}`),
+      colors.red(
+        `Failed to create forked workspace: ${apiErrorMessage(error) ?? (error as Error).message}`,
+      ),
     );
     throw error;
   }

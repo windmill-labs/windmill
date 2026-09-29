@@ -69,6 +69,9 @@ resource "aws_nat_gateway" "windmill_cluster_nat_gateway_public1" {
   tags = {
     "Name" = "windmill-cluster-nat-gateway-public1"
   }
+
+  # Created after, and deleted before, the internet gateway it routes through.
+  depends_on = [aws_internet_gateway.windmill_cluster_internet_gateway]
 }
 
 resource "aws_eip" "windmill_cluster_nat_gateway_public2_eip" {
@@ -81,6 +84,9 @@ resource "aws_nat_gateway" "windmill_cluster_nat_gateway_public2" {
   tags = {
     "Name" = "windmill-cluster-nat-gateway-public2"
   }
+
+  # Created after, and deleted before, the internet gateway it routes through.
+  depends_on = [aws_internet_gateway.windmill_cluster_internet_gateway]
 }
 
 resource "aws_route_table" "windmill_cluster_rtb_public" {

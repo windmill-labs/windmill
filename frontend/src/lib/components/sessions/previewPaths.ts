@@ -79,6 +79,11 @@ export function pageItemListPath(ref: PageItemRef): string {
 	}
 }
 
+/** Whether a (base-stripped) path is the list page of a page item kind. */
+export function isPageItemListPath(path: string): boolean {
+	return pageItemForListPath(path, '') !== undefined
+}
+
 /** The page item a list page's row names, or undefined for a page that lists none. */
 export function pageItemForListPath(pagePath: string, path: string): PageItemRef | undefined {
 	const clean = stripBase(pagePath)

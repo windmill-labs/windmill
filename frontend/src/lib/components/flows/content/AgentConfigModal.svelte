@@ -140,6 +140,7 @@ is that one, since both answer the same question about what an assistant can see
 			<div class="{section === 'tools' ? 'flex' : 'hidden'} grow min-h-0 flex-col overflow-hidden">
 				<AssistantToolsSection
 					{tools}
+					providerTools={[]}
 					description="What the agent can call: scripts, flows, other agents, MCP servers and web search."
 					active={section === 'tools'}
 					bind:blocksClose={toolsBusy}

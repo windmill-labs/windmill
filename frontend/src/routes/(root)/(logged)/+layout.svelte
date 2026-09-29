@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { BROWSER } from 'esm-env'
+	import { isMac } from '$lib/utils'
 
 	import {
 		AppService,
@@ -43,6 +44,7 @@
 		devopsRole,
 		whitelabelNameStore,
 		globalDbManagerDrawer,
+		instanceSettingsSelectedTab,
 		globalForkModal,
 		globalS3FilePickerExplorer,
 		nonMemberWorkspaces,
@@ -54,8 +56,8 @@
 	import { afterNavigate, beforeNavigate } from '$app/navigation'
 	import { goto } from '$lib/navigation'
 	import { registerToolDisplayActionHandler } from '$lib/components/copilot/chat/createdResourceActions.svelte'
-	import UserSettings from '$lib/components/UserSettings.svelte'
-	import SuperadminSettings from '$lib/components/SuperadminSettings.svelte'
+	import type UserSettings from '$lib/components/UserSettings.svelte'
+	import type SuperadminSettings from '$lib/components/SuperadminSettings.svelte'
 	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
 	import { page } from '$app/state'
 	import FavoriteMenu, {
@@ -63,7 +65,10 @@
 		getFavoriteHref,
 		getFavoriteLabel
 	} from '$lib/components/sidebar/FavoriteMenu.svelte'
-	import { SUPERADMIN_SETTINGS_HASH, USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
+	import {
+		parseSuperadminSettingsHash,
+		USER_SETTINGS_HASH
+	} from '$lib/components/sidebar/settings'
 	import { isCloudHosted } from '$lib/cloud'
 	import { PanelLeftClose, PanelLeftOpen, Home, Play, Search, WandSparkles } from 'lucide-svelte'
 	import { getUserExt } from '$lib/user'
@@ -71,7 +76,7 @@
 	import { deepEqual } from 'fast-equals'
 	import { twMerge } from 'tailwind-merge'
 	import OperatorMenu from '$lib/components/sidebar/OperatorMenu.svelte'
-	import GlobalSearchModal from '$lib/components/search/GlobalSearchModal.svelte'
+	import type GlobalSearchModal from '$lib/components/search/GlobalSearchModal.svelte'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import MenuLink from '$lib/components/sidebar/MenuLink.svelte'
 	import { loadProtectionRules } from '$lib/workspaceProtectionRules.svelte'
@@ -81,6 +86,7 @@
 	import { pruneMeaninglessDrafts } from '$lib/userDraftPrune'
 	import DraftMigrationErrorModal from '$lib/components/DraftMigrationErrorModal.svelte'
 	import InstanceBanner from '$lib/components/InstanceBanner.svelte'
+	import InstanceUiSync from '$lib/components/InstanceUiSync.svelte'
 	import { onDestroy, setContext, untrack } from 'svelte'
 	import { base } from '$app/paths'
 	import { Menubar } from '$lib/components/meltComponents'
@@ -90,14 +96,17 @@
 	import SessionModeSwitch from '$lib/components/sessions/SessionModeSwitch.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 	import { copilotInfo } from '$lib/aiStore'
-	import { parsePreviewItemRoute } from '$lib/components/sessions/previewPaths'
+	import {
+		isPageItemListPath,
+		parsePreviewItemRoute,
+		stripBase
+	} from '$lib/components/sessions/previewPaths'
 	import { rememberNavRoute } from '$lib/components/sessions/sessionSwitch.svelte'
 	import { sessionState } from '$lib/components/sessions/sessionState.svelte'
 	import { restoreSessionBackups } from '$lib/components/sessions/sessionMirror.svelte'
 	import { currentWorkspaceRootId } from '$lib/components/sessions/sessionScope.svelte'
 	import WorkspaceScopeHeader from '$lib/components/sidebar/WorkspaceScopeHeader.svelte'
 	import { DEFAULT_HUB_BASE_URL } from '$lib/hub'
-	import DBManagerDrawer from '$lib/components/DBManagerDrawer.svelte'
 	import S3FilePicker from '$lib/components/S3FilePicker.svelte'
 	import { useIsDarkMode } from '$lib/components/DarkModeObserver.svelte'
 	import { useDbManagerUriState } from '$lib/components/dbManagerDrawerModel.svelte'
@@ -270,8 +279,8 @@
 	// nest the whole experience. Hide it when embedded.
 	const embedded = BROWSER && window.self !== window.top
 
-	// AI sessions (beta) are on unless the user opted out from the banner under
-	// the session chat. The Workspace ⇄ Sessions switch is the only entry point,
+	// AI sessions (beta) are on unless this browser opted out earlier (see
+	// `global/gate.ts`). The Workspace ⇄ Sessions switch is the only entry point,
 	// so it follows the gate; opted-out users get the legacy Ask-AI pane instead.
 	// The /sessions page has its own gate for direct navigation.
 	const globalAiEnabled = isGlobalAiEnabled()
@@ -292,7 +301,9 @@
 	}
 
 	function onQueryChangeAdminSettings() {
-		if (superadminSettings && page.url.hash === SUPERADMIN_SETTINGS_HASH) {
+		const target = parseSuperadminSettingsHash(page.url.hash)
+		if (superadminSettings && target) {
+			if (target.tab) instanceSettingsSelectedTab.set(target.tab)
 			superadminSettings.openDrawer()
 		}
 	}
@@ -417,8 +428,7 @@
 		// Inside a sessions-preview iframe, hand an editor-route navigation up to the
 		// parent so it mounts the in-process editor (sharing the session runtime)
 		// instead of booting a second, disconnected editor in this frame. Cancel so
-		// the heavy editor never mounts here at all. Runs before the apps_raw reload
-		// below so a raw-app editor promotes rather than full-reloading the iframe.
+		// the heavy editor never mounts here at all.
 		if (isSessionPreviewFrame()) {
 			const target = previewEditorTarget(navigation.to?.url)
 			if (target) {
@@ -426,6 +436,21 @@
 				try {
 					window.parent.postMessage(
 						{ type: 'wm.session.openEditor', kind: target.kind, path: target.path },
+						window.location.origin
+					)
+				} catch {}
+				return
+			}
+			// A list page mounts in process too, where its rows open as tabs of their own.
+			const listUrl = navigation.to?.url
+			if (listUrl && isPageItemListPath(stripBase(listUrl.pathname))) {
+				navigation.cancel()
+				const u = new URL(listUrl.href)
+				u.searchParams.delete('nomenubar')
+				u.searchParams.delete('workspace')
+				try {
+					window.parent.postMessage(
+						{ type: 'wm.session.openList', href: u.pathname + u.search + u.hash },
 						window.location.origin
 					)
 				} catch {}
@@ -442,37 +467,6 @@
 				} catch {}
 				return
 			}
-		}
-
-		// Force page reload when navigating to /apps_raw/add or /apps_raw/edit
-		// This ensures the cross-origin isolation headers are fetched from the server
-		// which are required for SharedArrayBuffer and TypeScript workers to work correctly
-		const toPath = navigation.to?.url.pathname
-		const currentPath = navigation.from?.url.pathname
-		const isEditorPath = (p: string | undefined) =>
-			!!p && (p.startsWith('/apps_raw/add') || p.startsWith('/apps_raw/edit'))
-		if (isEditorPath(toPath)) {
-			// Reload if we're not on an apps_raw path, or if we're on the raw app viewer
-			// (/apps_raw/get/): the viewer doesn't have cross-origin isolation headers, so
-			// we need a full reload to fetch them for the editor.
-			if (!currentPath?.startsWith('/apps_raw/') || currentPath?.startsWith('/apps_raw/get/')) {
-				navigation.cancel()
-				window.location.href = navigation.to!.url.href
-			}
-		} else if (toPath && isEditorPath(currentPath)) {
-			// Reverse of the guard above: leaving the isolated editor document must
-			// also fully reload, or its COEP header sticks for the rest of the SPA
-			// session and blocks CORP-less cross-origin subresources (e.g. images in
-			// a viewed app — see needs_cross_origin_isolation in static_assets.rs).
-			// Key off the path, never `window.crossOriginIsolated`: a deployment may
-			// isolate the whole site (frontend/static/_headers does, for Cloudflare
-			// Pages), and there the flag is true on every page — turning every
-			// navigation into a full page load, while the reload it forces cannot
-			// clear an isolation the next document asserts too. Among the routes this
-			// layout governs, only the editor is served the headers, so entering it is
-			// the only way into an isolated document here.
-			navigation.cancel()
-			window.location.href = navigation.to!.url.href
 		}
 	})
 
@@ -666,11 +660,53 @@
 		}
 	}
 
-	function openSearchModal(
-		text?: string,
-		stack?: import('$lib/components/common/overlayHost.svelte').OverlayStack
-	): void {
-		globalSearchModal?.openSearchWithPrefilledText(text, stack)
+	// Sticky: once opened, a drawer stays mounted, so reopening it is instant.
+	let userSettingsRequested = $state(false)
+	let superadminSettingsRequested = $state(false)
+	$effect(() => {
+		if (page.url.hash.startsWith(USER_SETTINGS_HASH)) userSettingsRequested = true
+		if (parseSuperadminSettingsHash(page.url.hash)) superadminSettingsRequested = true
+	})
+	let dbManagerRequested = $state(false)
+	$effect(() => {
+		if (globalDbManagerDrawer.val?.open) dbManagerRequested = true
+	})
+
+	type OverlayStack = import('$lib/components/common/overlayHost.svelte').OverlayStack
+	// The modal is loaded on the first request, which is held here and replayed once it is
+	// bound. Only where the modal mounts (the markup's `{:else if $userStore}`): elsewhere
+	// the request would replay much later.
+	let searchModalRequested = $state(false)
+	let pendingSearchOpen: { text?: string; stack?: OverlayStack } | undefined = $state()
+	let searchModalMounts = $derived(page.status != 404 && !!$userStore)
+
+	function openSearchModal(text?: string, stack?: OverlayStack): void {
+		if (globalSearchModal) globalSearchModal.openSearchWithPrefilledText(text, stack)
+		else if (searchModalMounts) {
+			pendingSearchOpen = { text, stack }
+			searchModalRequested = true
+		}
+	}
+
+	$effect(() => {
+		if (globalSearchModal && pendingSearchOpen) {
+			const { text, stack } = pendingSearchOpen
+			pendingSearchOpen = undefined
+			untrack(() => globalSearchModal?.openSearchWithPrefilledText(text, stack))
+		}
+	})
+
+	// Ctrl/Cmd+K is what first loads the modal; once bound, the modal's own listener takes over.
+	function onSearchShortcutBeforeLoad(e: KeyboardEvent) {
+		if (
+			!globalSearchModal &&
+			searchModalMounts &&
+			(isMac() ? e.metaKey : e.ctrlKey) &&
+			e.key === 'k'
+		) {
+			e.preventDefault()
+			openSearchModal()
+		}
 	}
 
 	setContext('openSearchWithPrefilledText', openSearchModal)
@@ -901,7 +937,7 @@
 	})
 </script>
 
-<svelte:window bind:innerWidth />
+<svelte:window bind:innerWidth onkeydown={onSearchShortcutBeforeLoad} />
 
 <!-- Home + Runs lifted to the top of the workspace nav, sitting with Favorites
      and Search as the primary quick-access cluster. Excluded from SidebarContent
@@ -970,7 +1006,14 @@
 	</div>
 {/snippet}
 
-<UserSettings bind:this={userSettings} showMcpMode={true} />
+<!-- The drawers and modals below are dynamic imports mounted on first open: this layout
+     wraps every workspace page, so a static import gates first paint, and a load on mount
+     competes with the page for bandwidth (several of them reach monaco). -->
+{#if userSettingsRequested}
+	{#await import('$lib/components/UserSettings.svelte') then UserSettings}
+		<UserSettings.default bind:this={userSettings} showMcpMode={true} />
+	{/await}
+{/if}
 {#if accountSetup.pending}
 	<FinishAccountSetup
 		bind:open={accountSetup.open}
@@ -982,9 +1025,15 @@
 {#if page.status == 404}
 	<CenteredModal title="Page not found, redirecting you to login" loading={true}></CenteredModal>
 {:else if $userStore}
-	<GlobalSearchModal bind:this={globalSearchModal} />
-	{#if $superadmin}
-		<SuperadminSettings bind:this={superadminSettings} />
+	{#if searchModalRequested}
+		{#await import('$lib/components/search/GlobalSearchModal.svelte') then GlobalSearchModal}
+			<GlobalSearchModal.default bind:this={globalSearchModal} />
+		{/await}
+	{/if}
+	{#if $superadmin && superadminSettingsRequested}
+		{#await import('$lib/components/SuperadminSettings.svelte') then SuperadminSettings}
+			<SuperadminSettings.default bind:this={superadminSettings} />
+		{/await}
 	{/if}
 	{#if mountModal}
 		<CriticalAlertModal bind:muteSettings bind:numUnacknowledgedCriticalAlerts />
@@ -1418,11 +1467,13 @@
 			</div>
 		{/if}
 		<div class="flex flex-col h-full w-full">
+			<!-- Not gated on `$enterpriseLicense`: it paints the cached accent before the license
+			     resolves, and checks the license itself. -->
+			<InstanceUiSync />
 			{#if $enterpriseLicense && !menuHidden}
-				<!-- Announcements are an EE feature, so the component never mounts on CE: no
-				     fetch, no poll, no listener there. Also skipped when the menu is hidden —
-				     that is an embed or an OAuth callback, where the announcement would land
-				     inside someone else's page. -->
+				<!-- Announcements are an EE feature, so the component never mounts on CE. Also
+				     skipped when the menu is hidden — that is an embed or an OAuth callback,
+				     where the announcement would land inside someone else's page. -->
 				<InstanceBanner />
 			{/if}
 			{#if $userStore?.is_service_account}
@@ -1480,8 +1531,10 @@
 	<CenteredModal title="Loading user..." loading={true}></CenteredModal>
 {/if}
 
-{#if $workspaceStore && globalDbManagerDrawer.val}
-	<DBManagerDrawer uriState={globalDbManagerDrawer.val} />
+{#if $workspaceStore && globalDbManagerDrawer.val && dbManagerRequested}
+	{#await import('$lib/components/DBManagerDrawer.svelte') then DBManagerDrawer}
+		<DBManagerDrawer.default uriState={globalDbManagerDrawer.val} />
+	{/await}
 {/if}
 
 {#if $workspaceStore}

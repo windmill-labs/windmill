@@ -6,7 +6,7 @@
 		collectTransformRefs
 	} from './deployDependencies'
 	import { base } from '$lib/base'
-	import { enterpriseLicense, superadmin, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, superadmin } from '$lib/stores'
 	import {
 		AppService,
 		FlowService,
@@ -50,6 +50,9 @@
 		type OnBehalfOfDetails
 	} from './OnBehalfOfSelector.svelte'
 	import ParentWorkspaceProtectionAlert from './ParentWorkspaceProtectionAlert.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	const dispatch = createEventDispatcher()
 
@@ -209,7 +212,12 @@
 			let source: string | undefined
 			let targetValue: string | undefined
 			try {
-				source = await getOnBehalfOf(dep.kind, dep.path, $workspaceStore!, additionalInformation)
+				source = await getOnBehalfOf(
+					dep.kind,
+					dep.path,
+					$operatingWorkspace!,
+					additionalInformation
+				)
 			} catch {}
 			try {
 				targetValue = await getOnBehalfOf(dep.kind, dep.path, target!, additionalInformation)
@@ -226,7 +234,10 @@
 	): Promise<{ kind: Kind; path: string }[]> {
 		async function rec(kind: Kind, path: string): Promise<{ kind: Kind; path: string }[]> {
 			if (kind == 'schedule') {
-				const schedule = await ScheduleService.getSchedule({ workspace: $workspaceStore!, path })
+				const schedule = await ScheduleService.getSchedule({
+					workspace: $operatingWorkspace!,
+					path
+				})
 				if (schedule.script_path && schedule.script_path != '') {
 					if (schedule.script_path) {
 						return [{ kind: 'script', path: schedule.script_path }]
@@ -237,7 +248,7 @@
 					return []
 				}
 			} else if (kind == 'flow') {
-				const flow = await FlowService.getFlowByPath({ workspace: $workspaceStore!, path })
+				const flow = await FlowService.getFlowByPath({ workspace: $operatingWorkspace!, path })
 				return getAllModules(flow.value.modules, flow.value.failure_module).flatMap((x) => {
 					let result: { kind: Kind; path: string }[] = []
 					if (x.value.type == 'script' || x.value.type == 'rawscript' || x.value.type == 'flow') {
@@ -257,7 +268,7 @@
 					return result
 				})
 			} else if (kind == 'app') {
-				const app = await AppService.getAppByPath({ workspace: $workspaceStore!, path })
+				const app = await AppService.getAppByPath({ workspace: $operatingWorkspace!, path })
 				let result: { kind: Kind; path: string }[] = []
 				if (app.raw_app) {
 					const rawAppValue = app.value as { runnables?: Record<string, Runnable> }
@@ -285,7 +296,7 @@
 				}
 				return result
 			} else if (kind == 'resource') {
-				const res = await ResourceService.getResource({ workspace: $workspaceStore!, path })
+				const res = await ResourceService.getResource({ workspace: $operatingWorkspace!, path })
 				function recObj(obj: any): { kind: Kind; path: string }[] {
 					if (typeof obj == 'string') {
 						if (obj.startsWith('$var:')) {
@@ -310,12 +321,16 @@
 				]
 			} else if (kind == 'trigger') {
 				if (additionalInformation?.triggers) {
-					return getTriggerDependency(additionalInformation.triggers.kind, path, $workspaceStore!)
+					return getTriggerDependency(
+						additionalInformation.triggers.kind,
+						path,
+						$operatingWorkspace!
+					)
 				}
 				throw new Error('Missing trigger information')
 			} else if (kind == 'script') {
 				const imports = await WorkspaceService.getImports({
-					workspace: $workspaceStore!,
+					workspace: $operatingWorkspace!,
 					importerPath: path
 				})
 				return imports.map((importedPath) => ({ kind: 'script' as Kind, path: importedPath }))
@@ -363,7 +378,7 @@
 		const result = await deployItem({
 			kind,
 			path,
-			workspaceFrom: $workspaceStore!,
+			workspaceFrom: $operatingWorkspace!,
 			workspaceTo: target!,
 			additionalInformation,
 			onBehalfOf: getOnBehalfOfForDeploy(statusPath, kind),
@@ -398,7 +413,7 @@
 		diffDrawer?.openDrawer()
 		let values = await Promise.all([
 			getItemValue(kind, path, workspaceToDeployTo!, additionalInformation),
-			getItemValue(kind, path, $workspaceStore!, additionalInformation)
+			getItemValue(kind, path, $operatingWorkspace!, additionalInformation)
 		])
 		diffDrawer?.setDiff({
 			mode: 'simple',
@@ -409,12 +424,12 @@
 	}
 
 	async function loadDestinations() {
-		const workspace = $workspaceStore!
+		const workspace = $operatingWorkspace!
 		const [deployTo, remote] = await Promise.all([
 			WorkspaceService.getDeployTo({ workspace }),
 			WorkspaceService.getRemoteDeployTarget({ workspace }).catch(() => undefined)
 		])
-		if (workspace !== $workspaceStore) return
+		if (workspace !== $operatingWorkspace) return
 		parentWorkspace = deployTo.deploy_to
 		remoteStatus = remote
 		// Keep the user's pick across a reload, but only while this workspace still has it: the
@@ -430,7 +445,7 @@
 	}
 
 	$effect(() => {
-		$workspaceStore && untrack(() => loadDestinations())
+		$operatingWorkspace && untrack(() => loadDestinations())
 	})
 
 	// Until the caller has a token for the remote instance there is nothing to deploy against, so
@@ -439,7 +454,7 @@
 		destination === 'parent'
 			? parentWorkspace
 			: isRemote && remoteStatus?.connection
-				? remoteDeployWorkspace($workspaceStore!, remoteStatus.connection)
+				? remoteDeployWorkspace($operatingWorkspace!, remoteStatus.connection)
 				: undefined
 	)
 	let destinationLabel = $derived(
@@ -560,12 +575,12 @@
 	{#if isRemote && remoteTarget}
 		<div class="mt-3">
 			<RemoteDeployConnect
-				workspace={$workspaceStore!}
+				workspace={$operatingWorkspace!}
 				target={remoteTarget}
 				connection={remoteStatus?.connection}
 				returnTo={kind === 'trigger'
 					? undefined
-					: `${base}/deploy/${kind}/${initialPath}?workspace=${encodeURIComponent($workspaceStore!)}`}
+					: `${base}/deploy/${kind}/${initialPath}?workspace=${encodeURIComponent($operatingWorkspace!)}`}
 				onChange={loadDestinations}
 			/>
 		</div>

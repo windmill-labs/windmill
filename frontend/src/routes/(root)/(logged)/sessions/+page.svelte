@@ -50,7 +50,7 @@
 	import { markSessionRecovered } from '$lib/components/sessions/sessionRecoveryNotice.svelte'
 	import {
 		isGlobalAiEnabled,
-		setSessionsBetaOptOut
+		clearSessionsBetaOptOut
 	} from '$lib/components/copilot/chat/global/gate'
 	import { setToolCompletionListener } from '$lib/components/copilot/chat/shared'
 	import { registerToolDisplayActionHandler } from '$lib/components/copilot/chat/createdResourceActions.svelte'
@@ -71,7 +71,7 @@
 		type PreviewTarget
 	} from '$lib/components/sessions/previewRouter'
 	import { toolReloadEffect, tabsToReload } from '$lib/components/sessions/previewReload'
-	import { pageItemForListPath } from '$lib/components/sessions/previewPaths'
+	import { isPageItemListPath, stripBase } from '$lib/components/sessions/previewPaths'
 	import {
 		leafKeyFor,
 		loadKind,
@@ -834,12 +834,11 @@
 				owner?.navigate({ type: 'item', item })
 				return
 			}
-			// A row opened on a list page inside a preview tab: its editor opens as a tab of its
-			// own, leaving the list where it is.
-			if (d.type === 'wm.session.openPageItem') {
-				if (typeof d.pagePath !== 'string' || typeof d.path !== 'string') return
-				const ref = pageItemForListPath(d.pagePath, d.path)
-				if (ref) owner?.open({ type: 'pageitem', ref })
+			// A preview frame navigating to a list page: re-point the active tab to the list
+			// mounted in process, whose rows open as tabs of their own.
+			if (d.type === 'wm.session.openList') {
+				if (typeof d.href !== 'string' || !isPageItemListPath(stripBase(d.href))) return
+				owner?.navigate({ type: 'page', href: d.href, label: previewLocationLabel(d.href) })
 				return
 			}
 			// A job clicked inside a preview tab: open the run detail in a NEW tab so the
@@ -909,7 +908,7 @@
 		<div class="p-8 flex flex-col items-start gap-3 text-secondary text-sm">
 			<p class="text-primary font-medium">AI Sessions are deactivated</p>
 			<p>You switched back to the legacy chat. Activate AI Sessions (beta) to open this page.</p>
-			<Button size="xs" onclick={() => setSessionsBetaOptOut(false, `${base}/sessions`)}>
+			<Button unifiedSize="sm" onclick={() => clearSessionsBetaOptOut(`${base}/sessions`)}>
 				Activate AI Sessions
 			</Button>
 		</div>

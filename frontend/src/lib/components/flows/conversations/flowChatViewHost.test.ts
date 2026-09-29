@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Chat, ChatMessage, ChatState } from 'windmill-chat'
-import { FlowChatViewHost, toDisplayMessages } from './flowChatViewHost.svelte'
+import { TurnRunningError, type Chat, type ChatMessage, type ChatState } from 'windmill-chat'
+import {
+	FlowChatViewHost,
+	toDisplayMessages,
+	type ComposerAttachment,
+	type FlowChatViewHostOptions
+} from './flowChatViewHost.svelte'
+import { ConversationTurns } from './conversationTurns'
 
 vi.mock('$lib/gen', () => ({
 	JobService: { getJobArgs: vi.fn() }
@@ -59,19 +65,29 @@ function fakeChat(initial: ChatState = idleState()) {
 			return () => listeners.delete(listener)
 		},
 		sendMessage: vi.fn(async () => {}),
+		resumeTurn: vi.fn(async () => {}),
 		stop: vi.fn(async () => {}),
 		newConversation: vi.fn(),
 		selectConversation: vi.fn(async () => {}),
 		loadConversations: vi.fn(async () => []),
 		deleteConversation: vi.fn(async () => {}),
-		loadOlderMessages: vi.fn(async () => {}),
 		renameConversation: vi.fn(async () => {}),
+		loadOlderMessages: vi.fn(async () => {}),
+		refreshMessages: vi.fn(async () => {}),
 		destroy: vi.fn()
 	} satisfies Chat
 	return { chat, set }
 }
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+/** A host on its conversation's turns, the way the pool pairs them. */
+function hostOn(chat: Chat, options?: FlowChatViewHostOptions) {
+	let host!: FlowChatViewHost
+	const turns = new ConversationTurns<ComposerAttachment>(chat, () => host)
+	host = new FlowChatViewHost(turns, options)
+	return Object.assign(host, { turns })
+}
 
 describe('toDisplayMessages', () => {
 	it('maps user, assistant and tool rows, marking the user message of a failed turn', () => {
@@ -206,7 +222,7 @@ describe('toDisplayMessages', () => {
 		expect(display[1]).not.toHaveProperty('streaming')
 
 		const { chat } = fakeChat(idleState({ messages: rows }))
-		const host = new FlowChatViewHost(chat)
+		const host = hostOn(chat)
 		host.retryRequest(4)
 		await vi.waitFor(() =>
 			expect(chat.sendMessage).toHaveBeenCalledWith('second', expect.anything())
@@ -370,7 +386,7 @@ describe('toDisplayMessages', () => {
 describe('FlowChatViewHost', () => {
 	it('sends the text with the additional inputs and reports loading from the status', async () => {
 		const { chat, set } = fakeChat()
-		const host = new FlowChatViewHost(chat, { additionalInputs: () => ({ tone: 'brief' }) })
+		const host = hostOn(chat, { additionalInputs: () => ({ tone: 'brief' }) })
 		expect(host.loading).toBe(false)
 		expect(await host.sendRequest({ instructions: '  hello ' })).toBe(true)
 		expect(chat.sendMessage).toHaveBeenCalledWith('hello', {
@@ -394,7 +410,7 @@ describe('FlowChatViewHost', () => {
 		chat.sendMessage.mockImplementationOnce(
 			() => new Promise<void>((resolve) => (releaseTurn = resolve))
 		)
-		const host = new FlowChatViewHost(chat)
+		const host = hostOn(chat)
 		void host.sendRequest({ instructions: 'start' })
 		set({ status: 'streaming' })
 		host.queueMessage('first')
@@ -418,7 +434,7 @@ describe('FlowChatViewHost', () => {
 		const { chat, set } = fakeChat(
 			idleState({ status: 'streaming', messages: [message({ role: 'user', content: 'go' })] })
 		)
-		const host = new FlowChatViewHost(chat)
+		const host = hostOn(chat)
 		const prependText = vi.fn()
 		host.setAiChatInput({ prependText } as any)
 		host.queueMessage('later')
@@ -438,7 +454,7 @@ describe('FlowChatViewHost', () => {
 	it('hands the queue back instead of sending while sending is disabled', async () => {
 		const { chat, set } = fakeChat(idleState({ status: 'streaming' }))
 		let deploying = false
-		const host = new FlowChatViewHost(chat, { sendDisabled: () => deploying })
+		const host = hostOn(chat, { sendDisabled: () => deploying })
 		const prependText = vi.fn()
 		host.setAiChatInput({ prependText } as any)
 		host.queueMessage('after deploy')
@@ -458,12 +474,12 @@ describe('FlowChatViewHost', () => {
 		chat.sendMessage.mockImplementationOnce(
 			() => new Promise<void>((resolve) => (releaseTurn = resolve))
 		)
-		const host = new FlowChatViewHost(chat)
+		const host = hostOn(chat)
 		void host.sendRequest({ instructions: 'start' })
 		set({ status: 'streaming' })
 		host.queueMessage('never')
 		set({ status: 'idle' })
-		host.dispose()
+		host.turns.dispose()
 		releaseTurn()
 		await flush()
 		expect(chat.sendMessage).toHaveBeenCalledTimes(1)
@@ -472,7 +488,7 @@ describe('FlowChatViewHost', () => {
 	it('hands the text back when the chat refuses the turn', async () => {
 		const { chat } = fakeChat()
 		chat.sendMessage.mockRejectedValueOnce(new Error('a message is already being answered'))
-		const host = new FlowChatViewHost(chat)
+		const host = hostOn(chat)
 		const prependText = vi.fn()
 		host.setAiChatInput({ prependText } as any)
 		await host.sendRequest({ instructions: 'kept' })
@@ -480,9 +496,139 @@ describe('FlowChatViewHost', () => {
 		host.dispose()
 	})
 
+	it('follows the turn a conversation is still answering and sends the refused message after it', async () => {
+		const { chat, set } = fakeChat()
+		const turn = { jobId: 'job-9', userSeq: 41 }
+		chat.sendMessage.mockRejectedValueOnce(new TurnRunningError('still answering', turn))
+		let releaseResumed = () => {}
+		chat.resumeTurn.mockImplementationOnce(
+			() => new Promise<void>((resolve) => (releaseResumed = resolve))
+		)
+		const host = hostOn(chat)
+		await host.sendRequest({ instructions: 'after it' })
+		expect(chat.resumeTurn).toHaveBeenCalledWith(turn)
+		expect(host.queuedMessage).toBe('after it')
+		set({ status: 'streaming' })
+		set({ status: 'idle' })
+		releaseResumed()
+		await new Promise((resolve) => setTimeout(resolve, 0))
+		// The refused send is the first call; the flush after the resumed turn is the second.
+		expect(chat.sendMessage).toHaveBeenCalledTimes(2)
+		expect(chat.sendMessage).toHaveBeenLastCalledWith('after it', {
+			inputs: undefined,
+			attachments: [],
+			attachmentsInput: undefined
+		})
+		host.dispose()
+	})
+
+	it('hands back a refused message ahead of its queued correction when no composer shows it', async () => {
+		const { chat, set } = fakeChat()
+		let refuse = (_e: Error) => {}
+		chat.sendMessage.mockImplementationOnce(
+			() => new Promise<void>((_, reject) => (refuse = reject))
+		)
+		const host = hostOn(chat)
+		const sent = host.sendRequest({ instructions: 'first' })
+		set({ status: 'submitted' })
+		host.queueMessage('correction')
+		set({ status: 'idle' })
+		refuse(new Error('upload failed (500)'))
+		await sent
+		const prependText = vi.fn()
+		host.setAiChatInput({ prependText } as any)
+		expect(prependText).toHaveBeenCalledWith('first\ncorrection', [], [], [])
+		host.dispose()
+	})
+
+	it('hands a refused message back when the chat cannot follow the running turn', async () => {
+		const { chat } = fakeChat(idleState({ history: 'local' }))
+		chat.sendMessage.mockRejectedValueOnce(
+			new TurnRunningError('still answering', { jobId: 'job-9', userSeq: 41 })
+		)
+		const host = hostOn(chat)
+		const prependText = vi.fn()
+		host.setAiChatInput({ prependText } as any)
+		await host.sendRequest({ instructions: 'again' })
+		await flush()
+		expect(chat.resumeTurn).not.toHaveBeenCalled()
+		expect(chat.sendMessage).toHaveBeenCalledTimes(1)
+		expect(prependText).toHaveBeenCalledWith('again', [], [], [])
+		host.dispose()
+	})
+
+	it('keeps a refused message ahead of what was queued while it waited', async () => {
+		const { chat, set } = fakeChat()
+		let refuse = (_e: Error) => {}
+		chat.sendMessage.mockImplementationOnce(
+			() => new Promise<void>((_, reject) => (refuse = reject))
+		)
+		// Like the chat, following a turn holds it at once.
+		chat.resumeTurn.mockImplementationOnce(async () => set({ status: 'submitted' }))
+		const host = hostOn(chat)
+		const sent = host.sendRequest({ instructions: 'first' })
+		set({ status: 'submitted' })
+		host.queueMessage('correction')
+		set({ status: 'idle' })
+		refuse(new TurnRunningError('still answering', { jobId: 'job-9', userSeq: 41 }))
+		await sent
+		expect(host.queuedMessage).toBe('first\ncorrection')
+		host.dispose()
+	})
+
+	it('hands back a message stopped before the chat refused it, rather than queueing it', async () => {
+		const { chat } = fakeChat()
+		let refuse = (_e: Error) => {}
+		chat.sendMessage.mockImplementationOnce(
+			() => new Promise<void>((_, reject) => (refuse = reject))
+		)
+		const host = hostOn(chat)
+		const prependText = vi.fn()
+		host.setAiChatInput({ prependText } as any)
+		const sent = host.sendRequest({ instructions: 'never mind' })
+		host.cancel()
+		refuse(new TurnRunningError('still answering', { jobId: 'job-9', userSeq: 41 }))
+		await sent
+		expect(chat.resumeTurn).not.toHaveBeenCalled()
+		expect(host.queuedMessage).toBe('')
+		expect(prependText).toHaveBeenCalledWith('never mind', [], [], [])
+		host.dispose()
+	})
+
+	it('keeps text handed back while no composer is mounted for the next one', () => {
+		const { chat } = fakeChat(idleState({ status: 'streaming' }))
+		const host = hostOn(chat)
+		host.queueMessage('typed before leaving')
+		host.cancel()
+		// Held by the conversation's turns alone until a composer takes it, so the pool must
+		// not release it.
+		expect(host.turns.holdsText).toBe(true)
+		const prependText = vi.fn()
+		host.setAiChatInput({ prependText } as any)
+		expect(prependText).toHaveBeenCalledWith('typed before leaving', [], [], [])
+		expect(host.turns.holdsText).toBe(false)
+		host.dispose()
+	})
+
+	it('reports a composer holding a draft, so its conversation keeps its panel', () => {
+		const { chat } = fakeChat()
+		const host = hostOn(chat)
+		expect(host.holdsDraft()).toBe(false)
+		// Two composers can show one conversation at once: the message being edited and the
+		// one being written. The panel stays for as long as either holds something.
+		host.setComposerHasDraft('composer', true)
+		host.setComposerHasDraft('edit-box', true)
+		expect(host.holdsDraft()).toBe(true)
+		host.setComposerHasDraft('composer', false)
+		expect(host.holdsDraft()).toBe(true)
+		host.clearComposerStaged('edit-box')
+		expect(host.holdsDraft()).toBe(false)
+		host.dispose()
+	})
+
 	it('hands the queue back to the composer on Stop and on a failed turn', async () => {
 		const { chat, set } = fakeChat(idleState({ status: 'streaming' }))
-		const host = new FlowChatViewHost(chat)
+		const host = hostOn(chat)
 		const prependText = vi.fn()
 		host.setAiChatInput({ prependText } as any)
 		host.queueMessage('later')
@@ -510,12 +656,12 @@ describe('FlowChatViewHost', () => {
 
 	it('takes attachments only where the flow has an input for them', () => {
 		const { chat } = fakeChat()
-		const none = new FlowChatViewHost(chat)
+		const none = hostOn(chat)
 		expect(none.supportsMessageAttachments).toBe(false)
-		const list = new FlowChatViewHost(chat, { attachmentsTarget: () => listInput })
+		const list = hostOn(chat, { attachmentsTarget: () => listInput })
 		expect(list.supportsMessageAttachments).toBe(true)
 		expect(list.maxMessageAttachments).toBeUndefined()
-		const single = new FlowChatViewHost(chat, {
+		const single = hostOn(chat, {
 			attachmentsTarget: () => ({ name: 'file', multiple: false }),
 			attachmentsUnavailable: () => 'no storage'
 		})
@@ -525,7 +671,7 @@ describe('FlowChatViewHost', () => {
 
 	it('hands the attachments to the chat, and drops a stored value for their input', async () => {
 		const { chat } = fakeChat()
-		const host = new FlowChatViewHost(chat, {
+		const host = hostOn(chat, {
 			additionalInputs: () => ({ tone: 'brief', files: [{ s3: 'stale' }] }),
 			attachmentsTarget: () => listInput
 		})
@@ -542,7 +688,7 @@ describe('FlowChatViewHost', () => {
 	// A queue merged over several turns reaches the host as one send.
 	it('re-applies a single-file cap to a merged queue', async () => {
 		const { chat } = fakeChat()
-		const host = new FlowChatViewHost(chat, {
+		const host = hostOn(chat, {
 			attachmentsTarget: () => ({ name: 'file', multiple: false })
 		})
 		await host.sendRequest({ instructions: 'read', images: [image], blobs: [pdf] })
@@ -552,7 +698,7 @@ describe('FlowChatViewHost', () => {
 
 	it('hands the draft back with its attachments when the upload is refused or stopped', async () => {
 		const { chat } = fakeChat()
-		const host = new FlowChatViewHost(chat, { attachmentsTarget: () => listInput })
+		const host = hostOn(chat, { attachmentsTarget: () => listInput })
 		const prependText = vi.fn()
 		host.setAiChatInput({ prependText } as any)
 		chat.sendMessage.mockRejectedValueOnce(new Error('POST upload failed (500)'))
@@ -574,7 +720,7 @@ describe('FlowChatViewHost', () => {
 		chat.sendMessage.mockImplementationOnce(
 			() => new Promise<void>((_, reject) => (refuse = reject))
 		)
-		const host = new FlowChatViewHost(chat, { attachmentsTarget: () => listInput })
+		const host = hostOn(chat, { attachmentsTarget: () => listInput })
 		const prependText = vi.fn()
 		host.setAiChatInput({ prependText } as any)
 		void host.sendRequest({ instructions: 'A', blobs: [pdf] })
@@ -603,7 +749,7 @@ describe('FlowChatViewHost', () => {
 			user_message: 'read',
 			user_attachments: [{ s3: 'chat/u1/contract.pdf', filename: 'contract.pdf' }]
 		} as any)
-		const host = new FlowChatViewHost(chat, {
+		const host = hostOn(chat, {
 			workspace: () => 'ws',
 			attachmentsTarget: () => listInput
 		})
@@ -620,7 +766,7 @@ describe('FlowChatViewHost', () => {
 
 	it('refuses a message without a file when the flow requires one', async () => {
 		const { chat } = fakeChat()
-		const host = new FlowChatViewHost(chat, {
+		const host = hostOn(chat, {
 			attachmentsTarget: () => ({ ...listInput, required: true })
 		})
 		const prependText = vi.fn()
@@ -635,7 +781,7 @@ describe('FlowChatViewHost', () => {
 
 	it('queues attachments with the text and sends them together', async () => {
 		const { chat, set } = fakeChat(idleState({ status: 'streaming' }))
-		const host = new FlowChatViewHost(chat, { attachmentsTarget: () => listInput })
+		const host = hostOn(chat, { attachmentsTarget: () => listInput })
 		host.queueMessage('look', [image], undefined, undefined, [pdf])
 		expect(host.queuedImages).toEqual([image])
 		expect(host.queuedBlobs).toEqual([pdf])
@@ -661,7 +807,7 @@ describe('FlowChatViewHost', () => {
 				messages: [message({ id: 'live', role: 'user', content: 'go' }), failedTool]
 			})
 		)
-		const host = new FlowChatViewHost(chat)
+		const host = hostOn(chat)
 		host.cancel()
 		expect(chat.stop).toHaveBeenCalled()
 		set({ status: 'idle' })
@@ -703,7 +849,7 @@ describe('FlowChatViewHost', () => {
 
 	it('stops following the chat once disposed', () => {
 		const { chat, set } = fakeChat()
-		const host = new FlowChatViewHost(chat)
+		const host = hostOn(chat)
 		host.dispose()
 		set({ status: 'streaming' })
 		expect(host.loading).toBe(false)
@@ -721,7 +867,7 @@ describe('FlowChatViewHost', () => {
 		it("replays the turn with the inputs its run had, not the composer's", async () => {
 			const { chat } = fakeChat(failedTurn())
 			getJobArgs.mockResolvedValueOnce({ user_message: 'go', tone: 'terse', model: 'old' } as any)
-			const host = new FlowChatViewHost(chat, {
+			const host = hostOn(chat, {
 				workspace: () => 'ws',
 				additionalInputs: () => ({ tone: 'brief', model: 'new' }),
 				inputsShownInComposer: () => ['model']
@@ -736,10 +882,46 @@ describe('FlowChatViewHost', () => {
 			host.dispose()
 		})
 
+		it('keeps the replayed inputs when a turn elsewhere refuses the retry', async () => {
+			const { chat, set } = fakeChat(failedTurn())
+			getJobArgs.mockResolvedValueOnce({ user_message: 'go', tone: 'terse' } as any)
+			const turn = { jobId: 'job-elsewhere', userSeq: 12 }
+			chat.sendMessage.mockRejectedValueOnce(new TurnRunningError('still answering', turn))
+			let releaseResumed = () => {}
+			chat.resumeTurn.mockImplementationOnce(
+				() => new Promise<void>((resolve) => (releaseResumed = resolve))
+			)
+			const host = hostOn(chat, {
+				workspace: () => 'ws',
+				additionalInputs: () => ({ tone: 'brief' })
+			})
+			await host.retryRequest(0)
+			expect(chat.resumeTurn).toHaveBeenCalledWith(turn)
+			// That turn answers, and the retry goes out behind it.
+			set({ status: 'streaming' })
+			set({
+				status: 'idle',
+				messages: [
+					...failedTurn().messages,
+					message({ role: 'user', content: 'from the other tab' }),
+					message({ role: 'assistant', content: 'done' })
+				]
+			})
+			releaseResumed()
+			await new Promise((resolve) => setTimeout(resolve, 0))
+			// On the arguments of the turn it replays, not on what the composer holds now.
+			expect(chat.sendMessage).toHaveBeenCalledTimes(2)
+			expect(chat.sendMessage).toHaveBeenLastCalledWith(
+				'go',
+				expect.objectContaining({ inputs: { tone: 'terse' } })
+			)
+			host.dispose()
+		})
+
 		it('falls back to a plain resend once the job is purged', async () => {
 			const { chat } = fakeChat(failedTurn())
 			getJobArgs.mockRejectedValueOnce(Object.assign(new Error('gone'), { status: 404 }))
-			const host = new FlowChatViewHost(chat, {
+			const host = hostOn(chat, {
 				workspace: () => 'ws',
 				additionalInputs: () => ({ tone: 'brief' })
 			})
@@ -755,7 +937,7 @@ describe('FlowChatViewHost', () => {
 		it('does nothing but say so when the run cannot be read', async () => {
 			const { chat } = fakeChat(failedTurn())
 			getJobArgs.mockRejectedValueOnce(Object.assign(new Error('down'), { status: 500 }))
-			const host = new FlowChatViewHost(chat, { workspace: () => 'ws' })
+			const host = hostOn(chat, { workspace: () => 'ws' })
 			await host.retryRequest(0)
 			expect(chat.sendMessage).not.toHaveBeenCalled()
 			expect(toast).toHaveBeenCalledWith('Could not read what that turn ran with. Try again.', true)
@@ -766,7 +948,7 @@ describe('FlowChatViewHost', () => {
 			const { chat, set } = fakeChat(failedTurn())
 			let answer = (_: unknown) => {}
 			getJobArgs.mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)) as any)
-			const host = new FlowChatViewHost(chat, { workspace: () => 'ws' })
+			const host = hostOn(chat, { workspace: () => 'ws' })
 			const retried = host.retryRequest(0)
 			set({ status: 'streaming' })
 			answer({ user_message: 'go' })
@@ -785,7 +967,7 @@ describe('FlowChatViewHost', () => {
 			const { chat, set } = fakeChat(failedTurn())
 			let answer = (_: unknown) => {}
 			getJobArgs.mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)) as any)
-			const host = new FlowChatViewHost(chat, { workspace: () => 'ws' })
+			const host = hostOn(chat, { workspace: () => 'ws' })
 			const retried = host.retryRequest(0)
 			set({ status: 'streaming' })
 			set({ status: 'idle' })
@@ -826,7 +1008,7 @@ describe('FlowChatViewHost', () => {
 		it('paces a streaming answer and shows it whole once it settles', () => {
 			const { chat, set } = fakeChat(idleState({ status: 'streaming' }))
 			const reveal = manualReveal()
-			const host = new FlowChatViewHost(chat, { revealOptions: reveal.options })
+			const host = hostOn(chat, { revealOptions: reveal.options })
 			const streaming = message({ role: 'assistant', id: 'a1', content: '', pending: true })
 			set({ messages: [{ ...streaming, content: 'The answer, in one burst of text.' }] })
 			const shown = () => (host.displayMessages[0] as { content: string }).content
@@ -848,7 +1030,7 @@ describe('FlowChatViewHost', () => {
 		it('shows a paced row whole once a tool card follows it', () => {
 			const { chat, set } = fakeChat(idleState({ status: 'streaming' }))
 			const reveal = manualReveal()
-			const host = new FlowChatViewHost(chat, { revealOptions: reveal.options })
+			const host = hostOn(chat, { revealOptions: reveal.options })
 			const answer = message({
 				role: 'assistant',
 				id: 'a1',

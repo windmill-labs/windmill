@@ -122,9 +122,9 @@ use windmill_common::{
 #[cfg(feature = "parquet")]
 use windmill_object_store::reload_object_store_setting;
 use windmill_queue::{
-    cancel_job, get_queued_job_v2,
+    add_completed_job_error, cancel_job, canceled_result, get_queued_job_v2,
     schedule::{find_unarmed_schedules, rearm_schedule, RearmOutcome},
-    SameWorkerPayload,
+    CanceledBy, MiniCompletedJob, SameWorkerPayload,
 };
 use windmill_store::resources::MAX_RESOURCE_VERSIONS;
 use windmill_worker::{
@@ -4368,6 +4368,15 @@ pub async fn monitor_db(
         }
     };
 
+    // run every 30 iterations (~5min at the default LISTEN_NEW_EVENTS_INTERVAL_SEC).
+    let stranded_jobs_f = async {
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(30) {
+            if let Some(db) = conn.as_sql() {
+                crate::stranded_jobs::check_stranded_jobs(&db).await;
+            }
+        }
+    };
+
     // Poll git-sync repositories for new commits and pull them into the
     // workspace (repo → Windmill auto-pull). Runs every 2 iterations.
     let git_auto_pull_f = async {
@@ -4471,6 +4480,7 @@ pub async fn monitor_db(
         ai_session_retention_f,
         pipeline_freshness_watchdog_f,
         reconcile_unarmed_schedules_f,
+        stranded_jobs_f,
     );
 }
 
@@ -6200,8 +6210,8 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
 }
 
 /// Force-complete a zombie job that handle_job_error failed to complete.
-/// This is a minimal fallback: it inserts a failed completed job and deletes
-/// from the queue in a single transaction, without schedule pushing or
+/// This is a minimal fallback: it moves the job from the queue to a failed
+/// completed job in a single transaction, without schedule pushing or
 /// error handler logic. The one thing it keeps is the WAC parent notification,
 /// deliberately inside the transaction: if that fails, the whole completion
 /// rolls back and the job waits for the next sweep, which is cheaper than a
@@ -6238,52 +6248,67 @@ async fn force_complete_zombie_job(
 
     let mut tx = db.begin().await?;
 
+    // Locks in the order of every other completion: a WAC parent's rows, then this job's queue
+    // row, then its completed row (see `record_child_completion`). A worker completing the same
+    // job concurrently would otherwise deadlock against this.
     let duration_ms = sqlx::query_scalar!(
-        "INSERT INTO v2_job_completed
-            (workspace_id, id, started_at, duration_ms, result, memory_peak, status, worker)
-        SELECT q.workspace_id, q.id, q.started_at,
-            COALESCE((EXTRACT('epoch' FROM now()) - EXTRACT('epoch' FROM COALESCE(q.started_at, now()))) * 1000, 0)::bigint,
-            $2::jsonb, r.memory_peak, 'failure'::job_status, q.worker
-        FROM v2_job_queue q
-        LEFT JOIN v2_job_runtime r ON r.id = q.id
-        WHERE q.id = $1
-        ON CONFLICT (id) DO UPDATE SET status = 'failure', result = $2::jsonb
-        RETURNING duration_ms AS \"duration_ms!\"",
+        "SELECT COALESCE(c.duration_ms, COALESCE((EXTRACT('epoch' FROM now()) - EXTRACT('epoch' FROM COALESCE(q.started_at, now()))) * 1000, 0)::bigint) AS \"duration_ms!\"
+        FROM v2_job_queue q LEFT JOIN v2_job_completed c ON c.id = q.id WHERE q.id = $1",
         job_id,
-        error_value,
     )
     .fetch_optional(&mut *tx)
     .await?;
+    let Some(duration_ms) = duration_ms else {
+        return Ok(());
+    };
 
     // A WAC parent parked on this job must learn of the failure here too, or it
     // waits out its whole suspend window and runs the task again.
     let mut wac_parent_ready = false;
-    if let Some(duration_ms) = duration_ms {
-        let parent = sqlx::query!(
-            "SELECT parent_job, flow_step_id FROM v2_job WHERE id = $1",
-            job_id
+    let parent = sqlx::query!(
+        "SELECT parent_job, flow_step_id FROM v2_job WHERE id = $1",
+        job_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    if let Some(parent_job) = parent
+        .filter(|j| j.flow_step_id.is_none())
+        .and_then(|j| j.parent_job)
+    {
+        wac_parent_ready = windmill_common::wac::record_child_completion(
+            &mut tx,
+            &parent_job,
+            job_id,
+            false,
+            duration_ms,
+            &error_value.to_string(),
         )
-        .fetch_optional(&mut *tx)
         .await?;
-        if let Some(parent_job) = parent
-            .filter(|j| j.flow_step_id.is_none())
-            .and_then(|j| j.parent_job)
-        {
-            wac_parent_ready = windmill_common::wac::record_child_completion(
-                &mut tx,
-                &parent_job,
-                job_id,
-                false,
-                duration_ms,
-                &error_value.to_string(),
-            )
-            .await?;
-        }
     }
 
-    sqlx::query!("DELETE FROM v2_job_queue WHERE id = $1", job_id)
-        .execute(&mut *tx)
-        .await?;
+    let completed = sqlx::query_scalar!(
+        "WITH deleted AS (
+            DELETE FROM v2_job_queue WHERE id = $1 RETURNING id, workspace_id, started_at, worker
+        )
+        INSERT INTO v2_job_completed
+            (workspace_id, id, started_at, duration_ms, result, memory_peak, status, worker)
+        SELECT d.workspace_id, d.id, d.started_at, $3, $2::jsonb, r.memory_peak,
+            'failure'::job_status, d.worker
+        FROM deleted d
+        LEFT JOIN v2_job_runtime r ON r.id = d.id
+        ON CONFLICT (id) DO UPDATE SET status = 'failure', result = $2::jsonb
+        RETURNING id",
+        job_id,
+        error_value,
+        duration_ms,
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    // Completed by someone else while this waited on the WAC parent: roll back, so the parent
+    // keeps what the winning completion recorded.
+    if completed.is_none() {
+        return Ok(());
+    }
 
     tx.commit().await?;
 
@@ -6476,6 +6501,9 @@ async fn find_zombie_flow_culprit_worker(
 }
 
 async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
+    // A canceled flow gets ten times the transition timeout: requeuing it while its worker is
+    // still in a slow transition lets a second worker complete it under that transition, and
+    // which worker runs a transition is not recorded anywhere to tell a slow one from a dead one.
     // flow_status is cast ::text on purpose: decoding the jsonb column directly as Box<str>
     // yields its binary form (leading version byte) and fails serde_json parsing at column 1.
     let flows = sqlx::query!(
@@ -6491,13 +6519,14 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
             wp.worker_group AS "worker_group?",
             wp.wm_version AS "worker_version?",
             wp.current_job_id AS "worker_current_job_id?",
-            wp.worker_instance AS "worker_instance?"
+            wp.worker_instance AS "worker_instance?",
+            q.canceled_by AS "canceled_by?", q.canceled_reason AS "canceled_reason?"
         FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_runtime r USING (id) LEFT JOIN v2_job_status s USING (id)
             LEFT JOIN worker_ping wp ON wp.worker = q.worker
         WHERE q.running = true AND q.suspend = 0 AND q.suspend_until IS null AND q.scheduled_for <= now()
             AND (j.kind = 'flow' OR j.kind = 'flowpreview' OR j.kind = 'flownode' OR j.kind = 'singlestepflow')
             AND r.ping IS NOT NULL AND r.ping < NOW() - ($1 || ' seconds')::interval
-            AND q.canceled_by IS NULL
+            AND (q.canceled_by IS NULL OR r.ping < NOW() - ($1 || ' seconds')::interval * 10)
 
         "#,
         FLOW_ZOMBIE_TRANSITION_TIMEOUT.as_str()
@@ -6510,20 +6539,98 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
             .flow_status
             .as_deref()
             .and_then(|x| serde_json::from_str::<FlowStatus>(x).ok());
-        if !flow.same_worker.unwrap_or(false)
-            && status.as_ref().is_some_and(|s| s.is_not_yet_started())
+        // A worker that pulls a canceled flow completes it as canceled, and hands that to its
+        // parent like any step's cancel, so a canceled flow whose transition was lost goes back
+        // to the queue exactly like a flow that never started.
+        if flow.canceled_by.is_some()
+            || (!flow.same_worker.unwrap_or(false)
+                && status.as_ref().is_some_and(|s| s.is_not_yet_started()))
         {
-            let error_message = format!(
-                "Zombie flow detected: {} in workspace {}. It hasn't started yet, restarting it.",
-                flow.id, flow.workspace_id
-            );
-            tracing::error!(error_message);
-            if !CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART.load(Ordering::Relaxed) {
-                report_critical_error(error_message, db.clone(), Some(&flow.workspace_id), None)
-                    .await;
-            }
-            // if the flow hasn't started and is a zombie, we can simply restart it
             let mut tx = db.begin().await?;
+
+            // Claims the flow unless another sweep holds it or it visibly moved on since it was
+            // read. This does not tell a slow transition from a lost one: the ping is written when
+            // the step completes, at the start of the transition, and nothing is locked until its
+            // end, so the grace in the query above is what keeps a live transition safe.
+            let claimed = sqlx::query_scalar!(
+                "SELECT q.id FROM v2_job_queue q JOIN v2_job_runtime r ON r.id = q.id
+                WHERE q.id = $1 AND q.running AND r.ping = $2
+                FOR UPDATE OF q SKIP LOCKED",
+                flow.id,
+                flow.last_ping,
+            )
+            .fetch_optional(&mut *tx)
+            .await?
+            .is_some();
+            if !claimed {
+                continue;
+            }
+
+            let error_message = if let Some(canceler) = flow.canceled_by.as_deref() {
+                // Bounds the requeues of a canceled flow whose completion keeps failing: past the
+                // limit it is completed on its own instead, on every sweep until that succeeds.
+                // The count is taken under the row claim, so the alert goes out once.
+                let attempt = sqlx::query_scalar!(
+                    "INSERT INTO zombie_job_counter (job_id, counter) VALUES ($1, 1)
+                    ON CONFLICT (job_id) DO UPDATE SET counter = zombie_job_counter.counter + 1
+                    RETURNING counter",
+                    flow.id
+                )
+                .fetch_one(&mut *tx)
+                .await?;
+                if attempt > RESTART_LIMIT {
+                    tx.commit().await?;
+                    if attempt == RESTART_LIMIT + 1 {
+                        let error_message = format!(
+                            "Zombie flow detected: {} in workspace {}. It was canceled by {canceler} but could not be completed after {RESTART_LIMIT} attempts, completing it as canceled without handing it to its parent.",
+                            flow.id, flow.workspace_id
+                        );
+                        tracing::error!(error_message);
+                        report_critical_error(
+                            error_message,
+                            db.clone(),
+                            Some(&flow.workspace_id),
+                            None,
+                        )
+                        .await;
+                    }
+                    let completed = match get_queued_job_v2(db, &flow.id).await {
+                        Ok(Some(job)) => add_completed_job_error(
+                            db,
+                            &MiniCompletedJob::from(job),
+                            0,
+                            Some(CanceledBy {
+                                username: Some(canceler.to_string()),
+                                reason: flow.canceled_reason.clone(),
+                            }),
+                            canceled_result(flow.canceled_reason.as_deref(), Some(canceler)),
+                            "monitor",
+                            false,
+                            None,
+                        )
+                        .await
+                        .map(|_| ()),
+                        Ok(None) => Ok(()),
+                        Err(e) => Err(e),
+                    };
+                    if let Err(e) = completed {
+                        tracing::error!(
+                            "could not complete canceled zombie flow {}, retrying on the next sweep: {e:#}",
+                            flow.id
+                        );
+                    }
+                    continue;
+                }
+                format!(
+                    "Zombie flow detected: {} in workspace {}. It was canceled by {canceler} but its worker stopped between two steps, queuing it again to complete the cancel ({attempt}/{RESTART_LIMIT}).",
+                    flow.id, flow.workspace_id
+                )
+            } else {
+                format!(
+                    "Zombie flow detected: {} in workspace {}. It hasn't started yet, restarting it.",
+                    flow.id, flow.workspace_id
+                )
+            };
 
             let concurrency_key =
                 sqlx::query_scalar!("SELECT key FROM concurrency_key WHERE job_id = $1", flow.id)
@@ -6544,15 +6651,26 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
                 }
             }
 
+            // A canceled flow keeps its start: the pull only sets a missing one, and the canceled
+            // run's duration is measured from it.
             sqlx::query!(
-                "UPDATE v2_job_queue SET running = false, started_at = null
-                WHERE id = $1 AND canceled_by IS NULL",
+                "UPDATE v2_job_queue SET running = false,
+                    started_at = CASE WHEN canceled_by IS NULL THEN NULL ELSE started_at END
+                WHERE id = $1",
                 flow.id
             )
             .execute(&mut *tx)
             .await?;
 
             tx.commit().await?;
+
+            tracing::error!(error_message);
+            if flow.canceled_by.is_some()
+                || !CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART.load(Ordering::Relaxed)
+            {
+                report_critical_error(error_message, db.clone(), Some(&flow.workspace_id), None)
+                    .await;
+            }
         } else {
             let id = flow.id.clone();
             let last_ping = flow.last_ping.clone();
@@ -7770,5 +7888,156 @@ mod log_file_listing_tests {
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].1, "h.log.2026-08-29-06-46");
         assert_eq!(files[0].0.to_string(), "2026-08-29 06:46:00");
+    }
+}
+
+#[cfg(test)]
+mod canceled_zombie_flow_tests {
+    use super::{handle_zombie_flows, DB, RESTART_LIMIT};
+    use serde_json::json;
+    use uuid::Uuid;
+
+    /// A running flow at `step` (0: not started yet), last pinged `ping_age` ago (`None`: mid-step, no ping).
+    async fn insert_flow(
+        db: &DB,
+        parent: Option<Uuid>,
+        step: i32,
+        ping_age: Option<&str>,
+        canceled_by: Option<&str>,
+    ) -> anyhow::Result<Uuid> {
+        let id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO v2_job (id, workspace_id, created_by, permissioned_as, permissioned_as_email,
+                kind, tag, parent_job, flow_step_id)
+             VALUES ($1, 'admins', 'admin', 'u/admin', 'admin@windmill.dev', 'flowpreview', 'flow',
+                $2, CASE WHEN $2 IS NOT NULL THEN 'sf' END)",
+        )
+        .bind(id)
+        .bind(parent)
+        .execute(db)
+        .await?;
+        sqlx::query(
+            "INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, running, started_at, tag,
+                canceled_by, canceled_reason)
+             VALUES ($1, 'admins', now(), true, now() - interval '1 hour', 'flow', $2, $2)",
+        )
+        .bind(id)
+        .bind(canceled_by)
+        .execute(db)
+        .await?;
+        sqlx::query("INSERT INTO v2_job_runtime (id, ping) VALUES ($1, now() - $2::interval)")
+            .bind(id)
+            .bind(ping_age)
+            .execute(db)
+            .await?;
+        sqlx::query("INSERT INTO v2_job_status (id, flow_status) VALUES ($1, $2)")
+            .bind(id)
+            .bind(json!({"step": step, "modules": [if step == 0 {
+                json!({"type": "WaitingForPriorSteps", "id": "a"})
+            } else {
+                json!({"type": "InProgress", "id": "a", "job": Uuid::nil()})
+            }],
+                "failure_module": {"type": "WaitingForPriorSteps", "id": "failure"}}))
+            .execute(db)
+            .await?;
+        Ok(id)
+    }
+
+    /// `(running, canceled_by, still started an hour ago)`
+    async fn queue_row(db: &DB, id: Uuid) -> anyhow::Result<(bool, Option<String>, Option<bool>)> {
+        Ok(sqlx::query_as(
+            "SELECT running, canceled_by, started_at < now() - interval '30 minutes'
+             FROM v2_job_queue WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_one(db)
+        .await?)
+    }
+
+    /// A subflow canceled on its own whose worker died between two steps goes back to the queue
+    /// with its cancel and its start, for a worker to complete it and hand it to its parent. The
+    /// parent is left alone: the cancel must not reach flows the user never canceled.
+    #[sqlx::test(migrations = "./migrations")]
+    async fn requeues_a_stranded_canceled_flow_and_nothing_else(db: DB) -> anyhow::Result<()> {
+        let root = insert_flow(&db, None, 0, None, None).await?;
+        let child = insert_flow(&db, Some(root), 1, Some("1 hour"), Some("admin")).await?;
+
+        handle_zombie_flows(&db).await?;
+
+        assert_eq!(
+            queue_row(&db, child).await?,
+            (false, Some("admin".to_string()), Some(true))
+        );
+        assert_eq!(queue_row(&db, root).await?, (true, None, Some(true)));
+        Ok(())
+    }
+
+    /// A canceled flow is left to a transition that may just be slow for ten times the timeout
+    /// a flow that never started gets.
+    #[sqlx::test(migrations = "./migrations")]
+    async fn gives_a_canceled_flow_a_longer_grace(db: DB) -> anyhow::Result<()> {
+        let slow = insert_flow(&db, None, 1, Some("2 minutes"), Some("admin")).await?;
+        let stuck = insert_flow(&db, None, 1, Some("1 hour"), Some("admin")).await?;
+        let not_started = insert_flow(&db, None, 0, Some("2 minutes"), None).await?;
+
+        handle_zombie_flows(&db).await?;
+
+        assert!(
+            queue_row(&db, slow).await?.0,
+            "a recent canceled flow is left running"
+        );
+        assert!(
+            !queue_row(&db, stuck).await?.0,
+            "past the grace, it is requeued"
+        );
+        assert!(
+            !queue_row(&db, not_started).await?.0,
+            "a flow that never started is not held back"
+        );
+        Ok(())
+    }
+
+    /// A canceled flow that keeps coming back after its requeues is completed as canceled on its
+    /// own instead of being requeued (and alerted on) forever, and that completion is retried by
+    /// the next sweep if a previous one did not land. Its parent is not advanced, since the
+    /// transition that would do it is what kept failing.
+    #[sqlx::test(migrations = "./migrations")]
+    async fn completes_a_canceled_flow_requeued_too_often(db: DB) -> anyhow::Result<()> {
+        let root = insert_flow(&db, None, 0, None, None).await?;
+        let child = insert_flow(&db, Some(root), 1, Some("1 hour"), Some("admin")).await?;
+        let retried = insert_flow(&db, None, 1, Some("1 hour"), Some("admin")).await?;
+        for (id, counter) in [(child, RESTART_LIMIT), (retried, RESTART_LIMIT + 1)] {
+            sqlx::query("INSERT INTO zombie_job_counter (job_id, counter) VALUES ($1, $2)")
+                .bind(id)
+                .bind(counter)
+                .execute(&db)
+                .await?;
+        }
+
+        handle_zombie_flows(&db).await?;
+
+        for id in [child, retried] {
+            let completed: Option<(String, Option<String>)> = sqlx::query_as(
+                "SELECT status::text, canceled_by FROM v2_job_completed WHERE id = $1",
+            )
+            .bind(id)
+            .fetch_optional(&db)
+            .await?;
+            assert_eq!(
+                completed,
+                Some(("canceled".to_string(), Some("admin".to_string())))
+            );
+        }
+        // the parent is not advanced, but the completion pings it: the sweep then reaps it as a
+        // flow hanging between two steps instead of leaving it waiting
+        assert_eq!(queue_row(&db, root).await?, (true, None, Some(true)));
+        let parent_pinged: bool = sqlx::query_scalar(
+            "SELECT ping > now() - interval '1 minute' FROM v2_job_runtime WHERE id = $1",
+        )
+        .bind(root)
+        .fetch_one(&db)
+        .await?;
+        assert!(parent_pinged);
+        Ok(())
     }
 }

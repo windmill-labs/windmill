@@ -108,6 +108,12 @@
 	import DeployButton from './DeployButton.svelte'
 	import { type Trigger, deployTriggers, handleSelectTriggerFromKind } from './triggers/utils'
 	import DraftChangesConfirmationModal from './common/confirmationModal/DraftChangesConfirmationModal.svelte'
+	import PerpetualRunsDeployModal from './scripts/PerpetualRunsDeployModal.svelte'
+	import {
+		loadPerpetualRunsAtPath,
+		stopPerpetualRuns,
+		type PerpetualRunsAtPath
+	} from './scripts/perpetualRuns'
 	import { Triggers } from './triggers/triggers.svelte'
 	import type { ScriptBuilderProps } from './script_builder'
 	import WorkerTagSelect from './WorkerTagSelect.svelte'
@@ -118,6 +124,8 @@
 	import WacExportDrawer from './scripts/WacExportDrawer.svelte'
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+	import { useTriggerLock } from '$lib/operatorWriteRights'
+	const triggerLock = useTriggerLock()
 
 	let {
 		script = $bindable(),
@@ -284,6 +292,19 @@
 	// Draft triggers confirmation modal
 	let draftTriggersModalOpen = $state(false)
 	let confirmDeploymentCallback: (triggersToDeploy: Trigger[]) => void = () => {}
+
+	let perpetualRunsToConfirm: PerpetualRunsAtPath | undefined = $state(undefined)
+	let confirmPerpetualRunsCallback: () => void = () => {}
+
+	async function stopPerpetualRunsFromModal(): Promise<boolean> {
+		try {
+			await stopPerpetualRuns(opWorkspace!, initialPath)
+			return true
+		} catch (error) {
+			sendUserToast(`Could not stop the runs of this script: ${error.body ?? error.message}`, true)
+			return false
+		}
+	}
 
 	async function handleDraftTriggersConfirmed(event: CustomEvent<{ selectedTriggers: Trigger[] }>) {
 		const { selectedTriggers } = event.detail
@@ -656,7 +677,8 @@
 		stay: boolean,
 		parentHash: string,
 		deploymentMsg?: string,
-		triggersToDeploy?: Trigger[]
+		triggersToDeploy?: Trigger[],
+		perpetualRunsConfirmed?: boolean
 	): Promise<void> {
 		if (!triggersToDeploy) {
 			// Check if there are draft triggers that need confirmation
@@ -664,8 +686,35 @@
 			if (draftTriggers.length > 0) {
 				draftTriggersModalOpen = true
 				confirmDeploymentCallback = async (triggersToDeploy: Trigger[]) => {
-					await editScript(stay, parentHash, deploymentMsg, triggersToDeploy)
+					await editScript(
+						stay,
+						parentHash,
+						deploymentMsg,
+						triggersToDeploy,
+						perpetualRunsConfirmed
+					)
 				}
+				return
+			}
+		}
+
+		// Runs are restarted on a newer version at their own path, so a deploy that renames the
+		// script leaves them running the version they have.
+		if (
+			!perpetualRunsConfirmed &&
+			script.restart_unless_cancelled &&
+			initialPath &&
+			script.path === initialPath
+		) {
+			loadingSave = true
+			const runs = await loadPerpetualRunsAtPath(opWorkspace!, initialPath, script.schema)
+			loadingSave = false
+			if (runs) {
+				confirmPerpetualRunsCallback = () => {
+					perpetualRunsToConfirm = undefined
+					editScript(stay, parentHash, deploymentMsg, triggersToDeploy, true)
+				}
+				perpetualRunsToConfirm = runs
 				return
 			}
 		}
@@ -751,7 +800,8 @@
 			// content just deployed. Fire-and-forget — must never gate the deploy.
 			notifyContractWarnings(opWorkspace!, script.language, script.content)
 
-			if (!initialPath) {
+			// Gated for operators without `manage_triggers`, who cannot have captures to move.
+			if (!initialPath && !$triggerLock) {
 				await CaptureService.moveCapturesAndConfigs({
 					workspace: opWorkspace!,
 					path: fakeInitialPath,
@@ -1289,6 +1339,13 @@
 		draftTriggersModalOpen = false
 	}}
 	on:confirmed={handleDraftTriggersConfirmed}
+/>
+
+<PerpetualRunsDeployModal
+	runs={perpetualRunsToConfirm}
+	onStop={stopPerpetualRunsFromModal}
+	onConfirmed={() => confirmPerpetualRunsCallback()}
+	onCanceled={() => (perpetualRunsToConfirm = undefined)}
 />
 
 {#if !actingUser?.operator}

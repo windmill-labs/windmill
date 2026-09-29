@@ -4,6 +4,9 @@
 
 Use this guide when writing or modifying Windmill Workflow-as-Code (WAC) scripts.
 WAC is authored as a Windmill script and deployed with the normal script workflow. It is not an OpenFlow YAML flow.
+<!-- cli-only -->
+Workflow-as-Code files use the normal script CLI workflow. There are no separate WAC deploy commands.
+<!-- /cli-only -->
 
 Supported WAC authoring targets:
 - Bun TypeScript scripts that import from `windmill-client`

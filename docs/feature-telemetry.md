@@ -4,7 +4,7 @@
 anonymous usage-stats payload. It answers "does anyone use this, and which variant do they pick"
 without any identifying data leaving the instance.
 
-It currently carries 58 registered actions across twenty features (`ai_session`, `ai_chat`,
+It currently carries 61 registered actions across twenty features (`ai_session`, `ai_chat`,
 `ai_fix`, `ai_agent`, `ai_agent_eval`, `app_sandbox`, `datatable`, `db_manager`, `flow_editor`,
 `flow_run`, `flow_step`, `home`, `run_form`, `debugger`, `trigger`, `command_script`,
 `hub_script`, `usage_meter`, `sso_groups_claim`, `cloud_trial_offer`). Nearly all of the
@@ -48,7 +48,7 @@ vocabulary closed and small — enumerate the values in a TS union next to the c
 
 ## The recipe
 
-Four steps. Skipping step 1 or 3 fails quietly.
+Four steps. Skipping step 1 fails quietly.
 
 **1. Register the pair** in `FEATURE_USAGE_KINDS`
 (`backend/windmill-common/src/feature_usage_ee.rs`, tracked in `windmill-ee-private`). An
@@ -68,9 +68,10 @@ Fire-and-forget. Events sum locally per `(workspace, feature, kind, key, entityI
 every 30s, on `visibilitychange` → hidden, and on `pagehide`; 50 events per request, and a failed
 batch is dropped rather than retried.
 
-**3. Update the disclosure.** `InstanceSettings.svelte` lists what a non-minimal payload contains
-(two places — the copy appears twice). A new counter that isn't named there means the instance
-under-discloses what it sends. This has already drifted once.
+**3. Check the disclosure.** `InstanceSettings.svelte` describes a non-minimal payload by
+category, not counter by counter (two places — the copy appears twice); keep it short. A plain
+counter needs no edit. Only a key that sends a new kind of value beyond a count — a name or an
+identifier, like the AI model and hub names it already lists — must be added there.
 
 **4. Verify a row lands.** The silent-drop path means "no error" proves nothing:
 

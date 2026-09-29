@@ -1,31 +1,103 @@
 # System Prompts
 
-This directory contains the single source of truth for AI system prompts used by both the frontend copilot and CLI guidance.
+The single source of the AI guidance Windmill ships: what an agent needs to know about Windmill
+itself to write flows, scripts, apps, pipelines, resources, triggers and schedules. Two consumers
+are built from it:
+
+- **the chat** (the frontend AI chat: flow, script, app and global modes), through the
+  `$system_prompts` alias to `auto-generated/`;
+- **the CLI** (`wmill init` / `wmill refresh prompts`), as the skills embedded in
+  `cli/src/guidance/skills.gen.ts`, next to the `AGENTS.wmill.md` template in
+  `cli/src/guidance/core.ts`.
+
+Guidance written in one consumer only is guidance the other never gets. Write it here.
 
 ## Structure
 
 ```
 system_prompts/
-├── base/              # Core instruction templates (manually written)
-│   ├── flow-base.md   # Shared OpenFlow structure guidance
-│   └── flow-cli.md    # CLI/local-agent workflow guidance for write-flow skill
-├── languages/         # Language-specific instructions (manually written)
-└── auto-generated/    # Auto-generated files (DO NOT EDIT)
-    ├── sdks/          # SDK documentation
-    ├── cli/           # CLI command documentation
-    ├── prompts.ts     # TypeScript exports
-    └── index.ts       # Helper functions
+├── base/              # Hand-written guidance, one file per topic (flow-base.md, raw-app.md, …)
+│                      # plus CLI-only intros (flow-cli.md, script-cli.md, raw-app-cli.md, …)
+├── languages/         # Hand-written per-language guidance (bun.md, python3.md, …)
+├── generate.py        # Builds everything under auto-generated/ and cli/src/guidance/skills.gen.ts
+├── utils.py           # Shared helpers, including the fence renderer
+└── auto-generated/    # Generated — never edit
+    ├── prompts.ts     # One export per base/ and languages/ file (chat render), SDK docs, schema
+    ├── index.ts       # Chat helpers (getFlowPrompt, getScriptPrompt, …)
+    ├── skills/        # One SKILL.md per CLI skill (cli render)
+    ├── sdks/          # SDK reference extracted from the TypeScript and Python clients
+    └── cli/           # CLI command reference extracted from cli/src/commands/
 ```
 
-## Usage
+## How a topic is assembled
 
-### Regenerating Prompts
+`TOPICS` in `generate.py` lists, for each topic, the parts both consumers concatenate in order:
+a file under `base/` or `languages/`, or a token filled per consumer (`{lang}`, `{sdk}`,
+`{wac_sdk}`, `{openflow_schema}`, `{cli_commands}`). The same entry produces the topic's chat
+helper in `index.ts` and its CLI skill, so a part added there reaches both. A part tagged
+`('chat', …)` or `('cli', …)` goes to that consumer only, and `cli_intro` heads the CLI skill with
+a CLI-only workflow file (`flow-cli.md`, `script-cli.md`, `raw-app-cli.md`).
 
-When SDK methods or the OpenFlow schema change, run:
+| Topic | Chat helper | CLI skill | Shared parts |
+|---|---|---|---|
+| script | `getScriptPrompt(lang)` | `write-script-<lang>` | `script-base.md`, the language file, its SDK |
+| flow | `getFlowPrompt()` | `write-flow` | `flow-base.md`, the OpenFlow schema |
+| raw app | `getRawAppPrompt(lang)` | `raw-app` | `raw-app.md` (chat adds the SDK) |
+| resources | `getResourcePrompt()` | `resources` | `resources.md` |
+| workflow-as-code | `getWorkflowAsCodePrompt(lang)` | `write-workflow-as-code` | `workflow-as-code.md`, the WAC SDK |
+| pipeline | `getPipelinePrompt()` | `write-pipeline` | `pipeline-base.md` |
+| triggers, schedules, preview, CLI commands | — | same names | CLI only |
+
+The app chat embeds `RAW_APP_BASE` directly (`chat/app/core.ts`).
+
+## Consumer fences
+
+A sentence that only one consumer should see stays in the shared file, fenced:
+
+```md
+A tool name outside that character set fails every run of the flow.
+<!-- chat-only -->
+The flow write tools refuse such a name.
+<!-- /chat-only -->
+<!-- cli-only -->
+`wmill lint <flow folder>` reports it before anything runs.
+<!-- /cli-only -->
+```
+
+`render_for` (`utils.py`) renders every file once per consumer: `prompts.ts` gets the chat render,
+the skills get the cli render, and the fence lines reach neither. Fences sit on their own lines and
+cannot nest; an unbalanced or misspelled fence fails generation (an HTML comment opening with `cli`
+or `chat`, or ending in `only`, is read as a fence attempt).
+
+Use a fence for a sentence or a section. When most of a topic differs per consumer, a CLI-only
+file used as `cli_intro` reads better than a file that is mostly fences.
+
+## What goes where
+
+- **Here:** anything true of Windmill regardless of who is asking — module shapes, data flow
+  rules, what the editor accepts, how data tables, secrets or app access work.
+- **In the chat's TypeScript prompt builders** (`frontend/src/lib/components/copilot/chat/*/core.ts`):
+  only tool plumbing (which tool to call, its arguments) and values known at run time (the user's
+  name, this app's data-table policy, session capabilities).
+- **In `cli/src/guidance/core.ts`** (`AGENTS.wmill.md`): project-level CLI workflow — which skill
+  to use, deploying, debugging jobs.
+
+A file in `TOPICS` names no chat tool, not even inside a `chat-only` fence: it reaches every chat
+mode (flow mode's system prompt, global mode's `get_instructions`), each with its own tool names,
+and `global/sessionToolset.test.ts` fails a prompt that names a tool its session lacks. Describe the
+action instead ("the flow write tools refuse such a name") and name the tool in TypeScript. The one
+exception is `flow-chat-special-modules.md`, which only flow mode reads.
+
+## Regenerating
+
+After editing anything here, or when SDK methods, the OpenFlow schema or CLI commands change:
 
 ```bash
 python system_prompts/generate.py
 ```
+
+CI (`.github/workflows/check-system-prompts.yml`) runs `system_prompts/check-freshness.sh`, which
+fails when the committed output is stale.
 
 To also refresh the standalone skills in a Claude plugin checkout:
 
@@ -52,53 +124,3 @@ suitable for ingestion by docs aggregators. In CI this runs from
 generator refuses to wipe the target directory unless it's empty or has
 a context7 marker (`context7.json`, `manifest.json`, or a
 `windmill-cli-docs` git remote), so a typo can't delete unrelated files.
-
-This will:
-
-1. Parse TypeScript and Python SDK files to extract function signatures
-2. Parse the OpenFlow YAML schema
-3. Parse the CLI commands
-4. Assemble complete prompts from markdown files
-5. Generate TypeScript exports in `auto-generated/`
-6. Optionally refresh plugin-ready standalone `SKILL.md` files in the target directory
-
-### Scope
-
-These system prompts contain ONLY:
-
-- How to write Windmill scripts (language syntax, conventions, SDK usage)
-- How to structure Windmill flows (OpenFlow schema, module types, data flow)
-- Resource type handling, S3 operations
-
-They DO NOT contain:
-
-- Tool usage instructions (edit_code, set_flow_json, etc.)
-- IDE/editor specific commands
-- Testing tool invocations
-
-Tool instructions are added separately by the frontend and CLI.
-
-CLI-only workflow instructions live in `base/flow-cli.md` and are included in the
-generated `write-flow` skill for `wmill init`. They are intentionally excluded
-from the frontend flow chat prompt.
-
-## Integration
-
-### Frontend
-
-Uses Vite path alias `$system_prompts` pointing to `auto-generated/`:
-
-```typescript
-import { FLOW_GUIDANCE } from "$system_prompts/flow";
-import { getLangContext } from "$system_prompts/languages";
-```
-
-### CLI
-
-Generates `/cli/src/guidance/skills.gen.ts` with embedded skill content for `wmill init`.
-
-## Editing Guidelines
-
-- Edit markdown files in `base/`, `languages/`
-- Never edit files in `auto-generated/` directly
-- After editing, run `generate.py` to update exports

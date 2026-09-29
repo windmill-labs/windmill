@@ -111,6 +111,8 @@ const migrateCommand = new Command()
   )
   .action(migrateDown as any);
 
+type DataTableResourceType = "postgresql" | "instance" | "external_instance";
+
 async function create(
   opts: GlobalOptions & { resource?: string; force?: boolean },
   name?: string,
@@ -139,12 +141,12 @@ async function create(
 
   const datatables: Record<
     string,
-    { database: { resource_type: "postgresql" | "instance"; resource_path?: string } }
+    { database: { resource_type: DataTableResourceType; resource_path?: string } }
   > = {};
   for (const d of existing) {
     datatables[d.name] = {
       database: {
-        resource_type: d.resource_type as "postgresql" | "instance",
+        resource_type: d.resource_type as DataTableResourceType,
         resource_path: d.resource_path ?? undefined,
       },
     };

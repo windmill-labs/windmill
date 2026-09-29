@@ -2005,7 +2005,8 @@
 						</div>
 					{:else}
 						{#if previewLayout !== 'bottom'}
-							<div class="flex justify-center pt-1 relative">
+							<!-- min-h keeps room for the absolute controls when debug mode hides the run buttons -->
+							<div class="flex justify-center pt-1 relative min-h-9">
 								<div class="absolute top-2 left-2">
 									<HideButton
 										hidden={false}

@@ -105,6 +105,7 @@
 
 	// A page item's editor reads its draft only when it loads, so a reload remounts it.
 	let pageItemReloadNonce = $state(0)
+	let pageListReloadNonce = $state(0)
 
 	export function reload() {
 		// A live editor shares the runtime store the chat mutates, so generic chat
@@ -114,6 +115,10 @@
 		if (slot.kind === 'editor') return
 		if (slot.kind === 'pageitem') {
 			pageItemReloadNonce++
+			return
+		}
+		if (slot.kind === 'pagelist') {
+			pageListReloadNonce++
 			return
 		}
 		try {
@@ -331,6 +336,27 @@
 				{@render editorLoading()}
 			{:then Module}
 				<Module.default {runtime} item={slot.ref} {workspaceId} reloadNonce={pageItemReloadNonce} />
+			{/await}
+		{/if}
+	</div>
+{:else if slot.kind === 'pagelist' && mounted && runtime}
+	<div
+		bind:this={overlayHostEl}
+		class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}"
+		aria-hidden={!active}
+	>
+		{#if overlayHostEl}
+			{#await import('./PageListView.svelte')}
+				{@render editorLoading()}
+			{:then Module}
+				<Module.default
+					{runtime}
+					{tab}
+					path={slot.path}
+					{workspaceId}
+					container={overlayHostEl}
+					reloadNonce={pageListReloadNonce}
+				/>
 			{/await}
 		{/if}
 	</div>
