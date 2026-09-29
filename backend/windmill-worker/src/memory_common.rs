@@ -30,16 +30,21 @@ pub async fn read_from_db(
     }
 }
 
-/// Write AI agent memory to database with size checking and truncation
+/// Write AI agent memory to database with size checking and truncation.
+///
+/// Returns how many of the oldest messages were dropped to fit, so the step can say so
+/// on the run: from the flow's side a truncation is invisible, the agent simply having
+/// forgotten the start of its conversation by the next one.
 pub async fn write_to_db(
     db: &DB,
     workspace_id: &str,
     conversation_id: Uuid,
     step_id: &str,
     messages: &[OpenAIMessage],
-) -> Result<(), Error> {
+    allow_truncation: bool,
+) -> Result<usize, Error> {
     if messages.is_empty() {
-        return Ok(());
+        return Ok(0);
     }
 
     // Serialize messages and check size
@@ -49,6 +54,13 @@ pub async fn write_to_db(
 
     // Truncate if necessary
     if size_bytes > MAX_MEMORY_SIZE_BYTES {
+        // Compaction owns its exchange boundaries, including after an object-store failure.
+        if !allow_truncation {
+            return Err(Error::ExecutionErr(format!(
+                "Memory exceeds database capacity ({} > {} bytes); existing memory was not updated",
+                size_bytes, MAX_MEMORY_SIZE_BYTES
+            )));
+        }
         tracing::warn!(
             "Memory size ({} bytes) exceeds limit ({} bytes) for workspace={} conversation={} step={}. Truncating messages. Use S3 storage in workspace settings to store full conversation history.",
             size_bytes,
@@ -78,7 +90,7 @@ pub async fn write_to_db(
     .execute(db)
     .await?;
 
-    Ok(())
+    Ok(messages.len() - messages_to_store.len())
 }
 
 /// Delete all memory for a conversation from database

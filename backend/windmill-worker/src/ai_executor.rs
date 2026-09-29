@@ -2059,6 +2059,7 @@ pub async fn run_agent(
                         *memory_id,
                         step_id,
                         &messages_to_persist,
+                        true,
                     )
                     .await
                     {
