@@ -1556,9 +1556,21 @@ impl DataTableCatalogResourceType {
     }
 }
 
+/// Whether an operator turned Windmill's own Postgres off as a data table and Ducklake substrate.
+pub async fn instance_pg_disabled<'c>(executor: impl sqlx::PgExecutor<'c>) -> Result<bool> {
+    Ok(sqlx::query_scalar::<_, Option<serde_json::Value>>(
+        "SELECT value FROM global_settings WHERE name = $1",
+    )
+    .bind(crate::global_settings::INSTANCE_PG_DISABLED_SETTING)
+    .fetch_optional(executor)
+    .await?
+    .flatten()
+    .is_some_and(|v| v.as_bool().unwrap_or(false)))
+}
+
 /// Refuse a new use of Windmill's own Postgres as a data table or Ducklake substrate where an
-/// operator turned it off, and on the managed cloud, which never had it. Entries already on it
-/// keep resolving: this gates what a save may newly name, not what runs.
+/// operator turned it off, and on the managed cloud, which never had it. Data tables already on
+/// it are refused at resolution instead ([`resolve_datatable_connection_unchecked`]).
 pub async fn ensure_instance_pg_available<'c>(executor: impl sqlx::PgExecutor<'c>) -> Result<()> {
     if *crate::worker::CLOUD_HOSTED {
         return Err(Error::BadRequest(
@@ -1566,15 +1578,7 @@ pub async fn ensure_instance_pg_available<'c>(executor: impl sqlx::PgExecutor<'c
                 .to_string(),
         ));
     }
-    let disabled = sqlx::query_scalar::<_, Option<serde_json::Value>>(
-        "SELECT value FROM global_settings WHERE name = $1",
-    )
-    .bind(crate::global_settings::INSTANCE_PG_DISABLED_SETTING)
-    .fetch_optional(executor)
-    .await?
-    .flatten()
-    .is_some_and(|v| v.as_bool().unwrap_or(false));
-    if disabled {
+    if instance_pg_disabled(executor).await? {
         return Err(Error::BadRequest(
             "Windmill's own database is disabled as a data table and Ducklake substrate on this \
              instance. Use the external instance cluster, or turn it back on in the instance \
@@ -1960,6 +1964,16 @@ async fn resolve_datatable_connection_unchecked(
         serde_json::to_value(&pg_creds)
             .map_err(|e| Error::internal_err(format!("Error serializing pg creds: {}", e)))
     } else if database.resource_type == DataTableCatalogResourceType::Instance {
+        // Turning Windmill's database off takes the data tables on it out of use, not only new
+        // ones: every job, API call and trigger reaches a data table through here.
+        if instance_pg_disabled(db).await? {
+            return Err(Error::BadRequest(format!(
+                "data table {} is on Windmill's own database, which is disabled on this instance. \
+                 Move it to the external instance cluster or a Postgres resource, or turn Windmill's \
+                 database back on in the instance settings.",
+                governing.name
+            )));
+        }
         let mut pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
         pg_creds.dbname = database.resource_path.clone();
         if replication {

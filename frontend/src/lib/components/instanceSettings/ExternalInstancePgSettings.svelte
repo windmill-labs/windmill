@@ -166,7 +166,7 @@
 			$values[INSTANCE_PG_DISABLED_KEY] = true
 			markSettingSaved?.(INSTANCE_PG_DISABLED_KEY)
 			sendUserToast(
-				"Windmill's database is no longer offered for new data tables and Ducklake catalogs"
+				"Windmill's database is off: its data tables no longer resolve, and it is not offered for new ones"
 			)
 		} catch (e) {
 			sendUserToast(e?.body ?? e?.message ?? String(e), true)
@@ -520,15 +520,15 @@
 >
 	<span class="text-sm">
 		Do you want to disable the internal one, which uses the Windmill database instance? We recommend
-		having either the external or the internal one, not both. Existing data tables and Ducklake
-		catalogs on Windmill's database keep working; only new ones can no longer be created there. You
+		having either the external or the internal one, not both. Data tables on Windmill's database stop
+		working until they are moved, and no new data table or Ducklake catalog can be created there. You
 		can turn it back on under Windmill instance below.
 	</span>
 	{#if internalInUse.length > 0}
 		<Alert type="warning" title="Data is still on Windmill's database" size="xs" class="mt-3">
 			{internalInUse.length === 1 ? 'This database is' : 'These databases are'} still used by a data
-			table or Ducklake catalog. {internalInUse.length === 1 ? 'It keeps' : 'They keep'} working if you
-			disable it, but stay on Windmill's database until moved.
+			table or Ducklake catalog. Data tables on {internalInUse.length === 1 ? 'it' : 'them'} stop working
+			as soon as you disable the internal instance; move them to the external cluster first.
 			<ul class="list-disc list-inside mt-1">
 				{#each internalInUse as db (db.name)}
 					<li>
