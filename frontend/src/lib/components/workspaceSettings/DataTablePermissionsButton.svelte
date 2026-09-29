@@ -75,6 +75,11 @@
 	// The instance catalog, read again after the instance roles drawer changes it.
 	let catalog = $state<InstanceDatatableRole[] | undefined>(undefined)
 	const availableRoles: InstanceDatatableRole[] = $derived(catalog ?? info?.available_roles ?? [])
+	// A role is a login on one cluster, and this drawer's is the data table's: name it, or the
+	// copy would send someone to the wrong catalog.
+	const clusterName = $derived(
+		info?.cluster === 'external_instance' ? 'the external cluster' : "Windmill's database"
+	)
 	const unusedRoles = $derived(availableRoles.filter((r) => !roles.some((row) => row.id === r.id)))
 	const pendingRoles = $derived(roles.filter((r) => r.id === undefined))
 	let instanceRoles: InstanceRolesButton | undefined = $state(undefined)
@@ -174,7 +179,7 @@
 	async function refreshCatalog() {
 		let fresh: InstanceDatatableRole[]
 		try {
-			fresh = await SettingService.listInstanceDatatableRoles()
+			fresh = await SettingService.listInstanceDatatableRoles({ cluster: info?.cluster })
 		} catch (e) {
 			sendUserToast(e?.body ?? e?.message ?? String(e), true)
 			return
@@ -332,13 +337,13 @@
 											<span class="font-mono text-xs text-emphasis">{role.name ?? role.id}</span>
 											{#if !role.name}
 												<span class="text-2xs text-secondary italic">
-													no longer defined on this instance
+													no longer defined on {clusterName}
 												</span>
 											{:else if role.id === undefined}
 												<Alert type="warning" title="This role does not exist yet" size="xs">
 													{#if $superadmin}
 														<div class="flex flex-col items-start gap-1">
-															<span>Create it on the instance to use it here.</span>
+															<span>Create it on {clusterName} to use it here.</span>
 															<Button
 																unifiedSize="xs"
 																variant="default"
@@ -348,7 +353,7 @@
 															</Button>
 														</div>
 													{:else}
-														Only a superadmin can create it on the instance.
+														Only a superadmin can create it on {clusterName}.
 													{/if}
 												</Alert>
 											{/if}
@@ -437,5 +442,10 @@
 </Drawer>
 
 {#if $superadmin}
-	<InstanceRolesButton bind:this={instanceRoles} hideTrigger onChanged={refreshCatalog} />
+	<InstanceRolesButton
+		bind:this={instanceRoles}
+		hideTrigger
+		cluster={info?.cluster}
+		onChanged={refreshCatalog}
+	/>
 {/if}

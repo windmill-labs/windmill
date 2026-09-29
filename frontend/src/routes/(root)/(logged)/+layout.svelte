@@ -275,8 +275,8 @@
 	// nest the whole experience. Hide it when embedded.
 	const embedded = BROWSER && window.self !== window.top
 
-	// AI sessions (beta) are on unless the user opted out from the banner under
-	// the session chat. The Workspace ⇄ Sessions switch is the only entry point,
+	// AI sessions (beta) are on unless this browser opted out earlier (see
+	// `global/gate.ts`). The Workspace ⇄ Sessions switch is the only entry point,
 	// so it follows the gate; opted-out users get the legacy Ask-AI pane instead.
 	// The /sessions page has its own gate for direct navigation.
 	const globalAiEnabled = isGlobalAiEnabled()

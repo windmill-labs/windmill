@@ -60,6 +60,14 @@
 	let requirePreexistingUserForOauth: boolean = $state(false)
 
 	let initialValues: Record<string, any> = $state({})
+
+	/// A setting its own component writes (it has to persist before acting on the cluster) is
+	/// already saved, so the baseline must move with it: otherwise Discard restores the value it
+	/// replaced, and a later bulk save sends that stale one back.
+	function markSettingSaved(key: string) {
+		initialValues[key] =
+			$values[key] === undefined ? undefined : JSON.parse(JSON.stringify($values[key]))
+	}
 	let baseUrlIsFallback = $state(false)
 	// Per-instance OAuth providers (Snowflake, ServiceNow, …): instance name
 	// keyed by provider, used to build their per-instance connect_config URLs.
@@ -730,6 +738,7 @@
 		secret_backend: ['token', 'client_secret', 'secret_access_key'],
 		object_store_cache_config: ['secret_key', 'serviceAccountKey', 'accessKey'],
 		custom_instance_pg_databases: ['user_pwd'],
+		external_instance_pg: ['password'],
 		rsa_keys: ['private_key'],
 		github_enterprise_app: ['private_key']
 	}
@@ -1194,6 +1203,7 @@
 								{loading}
 								{setting}
 								{values}
+								{markSettingSaved}
 								{version}
 								{oauths}
 							/>
@@ -1213,6 +1223,7 @@
 						{loading}
 						{setting}
 						{values}
+						{markSettingSaved}
 						{version}
 						{oauths}
 						warning={setting.key === 'base_url' && baseUrlIsFallback
@@ -1228,6 +1239,7 @@
 					{@const licenseKeySetting = settings['Core'].find((s) => s.key === 'license_key')}
 					{#if licenseKeySetting}
 						<InstanceSetting
+							{markSettingSaved}
 							{openSmtpSettings}
 							on:closeDrawer={() => closeDrawer?.()}
 							{loading}
@@ -1253,6 +1265,7 @@
 						{loading}
 						{setting}
 						{values}
+						{markSettingSaved}
 						{version}
 						{oauths}
 					/>
