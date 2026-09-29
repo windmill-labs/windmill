@@ -4871,6 +4871,18 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) -> anyhow::Result<()>
                     "a script was run after main job execution but was not schedule error handler"
                 );
             }
+
+            let (handler_permissioned_as, schedule_permissioned_as): (String, String) =
+                sqlx::query_as(
+                    "SELECT j.permissioned_as, s.permissioned_as FROM v2_job j, schedule s
+                    WHERE j.id = $1 AND s.workspace_id = j.workspace_id
+                    AND s.path = 'f/system/failing_script_schedule'",
+                )
+                .bind(uuid)
+                .fetch_one(&db2)
+                .await
+                .unwrap();
+            assert_eq!(handler_permissioned_as, schedule_permissioned_as);
         },
         port,
     )
@@ -5786,7 +5798,10 @@ async fn test_scoped_custom_tag_pattern_admission(db: Pool<Postgres>) -> anyhow:
             "scoped pattern refused elsewhere",
             !allowed(&db, "other", "cpu-secret", "").await,
         ),
-        ("confined tag refused past the patterns it fits", confined.is_err()),
+        (
+            "confined tag refused past the patterns it fits",
+            confined.is_err(),
+        ),
         (
             "global pattern for the tags nothing confines",
             allowed(&db, "test-workspace", "gpu-large", "").await,

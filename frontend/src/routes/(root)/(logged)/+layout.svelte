@@ -279,8 +279,8 @@
 	// nest the whole experience. Hide it when embedded.
 	const embedded = BROWSER && window.self !== window.top
 
-	// AI sessions (beta) are on unless the user opted out from the banner under
-	// the session chat. The Workspace ⇄ Sessions switch is the only entry point,
+	// AI sessions (beta) are on unless this browser opted out earlier (see
+	// `global/gate.ts`). The Workspace ⇄ Sessions switch is the only entry point,
 	// so it follows the gate; opted-out users get the legacy Ask-AI pane instead.
 	// The /sessions page has its own gate for direct navigation.
 	const globalAiEnabled = isGlobalAiEnabled()
@@ -428,8 +428,7 @@
 		// Inside a sessions-preview iframe, hand an editor-route navigation up to the
 		// parent so it mounts the in-process editor (sharing the session runtime)
 		// instead of booting a second, disconnected editor in this frame. Cancel so
-		// the heavy editor never mounts here at all. Runs before the apps_raw reload
-		// below so a raw-app editor promotes rather than full-reloading the iframe.
+		// the heavy editor never mounts here at all.
 		if (isSessionPreviewFrame()) {
 			const target = previewEditorTarget(navigation.to?.url)
 			if (target) {
@@ -468,37 +467,6 @@
 				} catch {}
 				return
 			}
-		}
-
-		// Force page reload when navigating to /apps_raw/add or /apps_raw/edit
-		// This ensures the cross-origin isolation headers are fetched from the server
-		// which are required for SharedArrayBuffer and TypeScript workers to work correctly
-		const toPath = navigation.to?.url.pathname
-		const currentPath = navigation.from?.url.pathname
-		const isEditorPath = (p: string | undefined) =>
-			!!p && (p.startsWith('/apps_raw/add') || p.startsWith('/apps_raw/edit'))
-		if (isEditorPath(toPath)) {
-			// Reload if we're not on an apps_raw path, or if we're on the raw app viewer
-			// (/apps_raw/get/): the viewer doesn't have cross-origin isolation headers, so
-			// we need a full reload to fetch them for the editor.
-			if (!currentPath?.startsWith('/apps_raw/') || currentPath?.startsWith('/apps_raw/get/')) {
-				navigation.cancel()
-				window.location.href = navigation.to!.url.href
-			}
-		} else if (toPath && isEditorPath(currentPath)) {
-			// Reverse of the guard above: leaving the isolated editor document must
-			// also fully reload, or its COEP header sticks for the rest of the SPA
-			// session and blocks CORP-less cross-origin subresources (e.g. images in
-			// a viewed app — see needs_cross_origin_isolation in static_assets.rs).
-			// Key off the path, never `window.crossOriginIsolated`: a deployment may
-			// isolate the whole site (frontend/static/_headers does, for Cloudflare
-			// Pages), and there the flag is true on every page — turning every
-			// navigation into a full page load, while the reload it forces cannot
-			// clear an isolation the next document asserts too. Among the routes this
-			// layout governs, only the editor is served the headers, so entering it is
-			// the only way into an isolated document here.
-			navigation.cancel()
-			window.location.href = navigation.to!.url.href
 		}
 	})
 

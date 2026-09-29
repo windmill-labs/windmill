@@ -12,11 +12,12 @@
 	import TestingBadge from '../testingBadge.svelte'
 	import { untrack } from 'svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import { triggerLock } from '$lib/operatorWriteRights'
+	import { useTriggerLock } from '$lib/operatorWriteRights'
 	import {
 		useOperatingUser,
 		useOperatingWorkspace
 	} from '$lib/components/operatingWorkspace.svelte'
+	const triggerLock = useTriggerLock()
 
 	interface Props {
 		initialTriggerPath?: string | undefined

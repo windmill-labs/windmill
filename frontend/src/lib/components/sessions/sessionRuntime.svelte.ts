@@ -86,8 +86,11 @@ import {
 } from '$lib/components/copilot/chat/global/core'
 import {
 	formatRuntimeLogsForChat,
+	formatBuildFailureForChat,
+	formatBuildLogTailForChat,
+	RAW_APP_BUILD_WAIT_MS,
 	formatAppRunsForChat,
-	type RawAppRuntimeLogEntry,
+	type RawAppPreviewLogs,
 	type RawAppRuntimeLogRequester,
 	type RawAppRunSummary,
 	type RawAppRunsProvider,
@@ -209,8 +212,16 @@ export interface SessionRuntime {
 		force?: boolean,
 		deployedOnly?: boolean
 	): Promise<void>
-	setRuntimeLogRequester(requester: RawAppRuntimeLogRequester | undefined): void
-	requestRuntimeLogs(limit: number): Promise<RawAppRuntimeLogEntry[] | undefined>
+	/** Register a mounted raw-app preview's log requester, keyed by app path, like
+	 * `registerDomRequester`: build state is per editor, so reads route to the app edited. */
+	registerRuntimeLogRequester(appPath: string, requester: RawAppRuntimeLogRequester): void
+	unregisterRuntimeLogRequester(appPath: string, requester: RawAppRuntimeLogRequester): void
+	requestRuntimeLogs(
+		limit: number,
+		appPath?: string
+	): Promise<
+		RawAppPreviewLogs | { closedAppPath: string } | { ambiguousAppPaths: string[] } | undefined
+	>
 	/** Register a mounted raw-app preview's DOM requester, keyed by app path.
 	 * ALL mounted preview tabs register (hidden ones stay mounted), so a
 	 * DOM-scoped turn can read its own app even when another tab is visible. */
@@ -571,7 +582,7 @@ function createRuntime(session: Session): SessionRuntime {
 	// the pane unmounts on hide, and a component-local store would be discarded.
 	const pipelineEditorState = new PipelineEditorState()
 
-	let runtimeLogRequester: RawAppRuntimeLogRequester | undefined = undefined
+	const runtimeLogRequesters = new Map<string, RawAppRuntimeLogRequester>()
 	// appPath → requester, one entry per mounted raw-app preview tab.
 	const domRequesters = new Map<string, RawAppDomRequester>()
 	let activeDomAppPath: string | undefined = undefined
@@ -925,11 +936,24 @@ function createRuntime(session: Session): SessionRuntime {
 			armRestartOnFirstInteraction(workspace, kind, path)
 		},
 
-		setRuntimeLogRequester(requester) {
-			runtimeLogRequester = requester
+		registerRuntimeLogRequester(appPath, requester) {
+			runtimeLogRequesters.set(appPath, requester)
 		},
-		async requestRuntimeLogs(limit) {
-			return runtimeLogRequester ? runtimeLogRequester(limit) : undefined
+		unregisterRuntimeLogRequester(appPath, requester) {
+			if (runtimeLogRequesters.get(appPath) === requester) runtimeLogRequesters.delete(appPath)
+		},
+		async requestRuntimeLogs(limit, appPath) {
+			const path =
+				appPath ??
+				activeDomAppPath ??
+				(runtimeLogRequesters.size === 1 ? [...runtimeLogRequesters.keys()][0] : undefined)
+			if (path === undefined) {
+				return runtimeLogRequesters.size > 1
+					? { ambiguousAppPaths: [...runtimeLogRequesters.keys()] }
+					: undefined
+			}
+			const requester = runtimeLogRequesters.get(path)
+			return requester ? requester(limit) : { closedAppPath: path }
 		},
 		registerDomRequester(appPath, requester) {
 			domRequesters.set(appPath, requester)
@@ -1286,7 +1310,7 @@ setDeployedInSessionHandler(({ sessionId: callerSessionId, kind, path }) => {
 	runtime.syncPreviewWithDeployed(session.workspace_id, kind, path)
 })
 
-setGetRuntimeLogsHandler(async ({ sessionId: callerSessionId, limit }) => {
+setGetRuntimeLogsHandler(async ({ sessionId: callerSessionId, limit, appPath }) => {
 	const sessionId = callerSessionId ?? sessionState.currentSessionId
 	const runtime = sessionId ? runtimes.get(sessionId) : undefined
 	if (!runtime) {
@@ -1297,7 +1321,46 @@ setGetRuntimeLogsHandler(async ({ sessionId: callerSessionId, limit }) => {
 			toolResult: 'Runtime logs unavailable'
 		}
 	}
-	const entries = await runtime.requestRuntimeLogs(limit)
+	const previewLogs = await runtime.requestRuntimeLogs(limit, appPath)
+	if (previewLogs && 'closedAppPath' in previewLogs) {
+		return {
+			aiResult: `The preview for "${previewLogs.closedAppPath}" is not open, so its logs can't be read. Call open_preview with kind="raw_app" and that path, then call get_app_runtime_logs again.`,
+			uiMessage: 'Runtime logs unavailable',
+			toolResult: 'Runtime logs unavailable'
+		}
+	}
+	if (previewLogs && 'ambiguousAppPaths' in previewLogs) {
+		return {
+			aiResult: `Several raw app previews are open (${previewLogs.ambiguousAppPaths.join(', ')}) and none is visible. Call get_app_runtime_logs again with app_path set to the app you want.`,
+			uiMessage: 'Runtime logs unavailable',
+			toolResult: 'Runtime logs unavailable'
+		}
+	}
+	// Checked before `buildError`: while a build is pending, that error belongs to the previous build.
+	if (previewLogs?.buildPending) {
+		const previous = previewLogs.buildError
+			? `\n\nThe PREVIOUS build failed with:\n${previewLogs.buildError}`
+			: ''
+		return {
+			aiResult:
+				`The app is still building (or its build never started, e.g. no index entrypoint file) — no build result arrived within ${RAW_APP_BUILD_WAIT_MS / 1000} seconds, so the preview may still run an older build. Check the bundler logs below, wait, then call get_app_runtime_logs again.${previous}\n\n` +
+				formatBuildLogTailForChat(previewLogs.buildLogs),
+			uiMessage: 'App build still running',
+			toolResult: 'App build still running'
+		}
+	}
+	if (previewLogs?.buildError !== undefined) {
+		const report = formatBuildFailureForChat(previewLogs.buildError, previewLogs.buildLogs)
+		const consoleLogs = previewLogs.entries?.length
+			? `\n\nConsole output of the last successful build still shown in the preview (stale until the build is fixed):\n${formatRuntimeLogsForChat(previewLogs.entries.slice(-limit))}`
+			: ''
+		return {
+			aiResult: `${report}${consoleLogs}`,
+			uiMessage: 'App build failed',
+			toolResult: report
+		}
+	}
+	const entries = previewLogs?.entries
 	if (entries === undefined) {
 		return {
 			aiResult:

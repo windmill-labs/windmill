@@ -3,7 +3,10 @@ export { detectRawApp, type RawAppContext } from './config'
 export {
   WindmillChatApi,
   WindmillApiError,
+  TurnRunningError,
+  turnRunningError,
   readServerSentEvents,
+  type RunningTurn,
   type WindmillChatApiOptions,
   type ConversationKind,
   type FlowConversation,

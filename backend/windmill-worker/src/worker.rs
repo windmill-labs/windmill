@@ -2321,6 +2321,7 @@ fn start_interactive_worker_shell(
     job_completed_tx: JobCompletedSender,
     base_internal_url: String,
     worker_dir: String,
+    unreported_job: Arc<std::sync::Mutex<Option<(Uuid, String)>>>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         let started_at = Instant::now();
@@ -2406,6 +2407,8 @@ fn start_interactive_worker_shell(
                         precomputed_agent_info: precomputed_bundle,
                         flow_runners,
                     } = extract_job_and_perms(job, &conn).await;
+
+                    *unreported_job.lock().unwrap() = Some((job.id, job.workspace_id.clone()));
 
                     let authed_client = AuthedClient::new(
                         base_internal_url.to_owned(),
@@ -2899,6 +2902,11 @@ pub async fn run_worker(
     // Only jobs run by this process count towards EXIT_AFTER_N_JOBS: the point is the age of
     // the environment, not the lifetime total.
     let mut jobs_executed_in_env: u64 = 0;
+    // The job poller only records a job in `worker_ping` once it has run for a poll interval, so
+    // the main-loop ping reports the last pulled job for shorter ones. The interactive shell runs
+    // jobs under this worker's name too and must set the same slot, or the ping would overwrite a
+    // shell job its poller recorded with an older main-loop job. Sent once, then left to the poller.
+    let unreported_job: Arc<std::sync::Mutex<Option<(Uuid, String)>>> = Default::default();
 
     let is_dedicated_worker: bool = {
         let config = WORKER_CONFIG.load();
@@ -3016,6 +3024,7 @@ pub async fn run_worker(
             job_completed_tx.clone(),
             base_internal_url.to_owned(),
             worker_dir.clone(),
+            unreported_job.clone(),
         );
 
         Some(it_shell)
@@ -3219,6 +3228,7 @@ pub async fn run_worker(
 
             let read_cgroups =
                 *REFRESH_CGROUP_READINGS && last_reading.elapsed().as_secs() > NUM_SECS_READINGS;
+            let last_job = unreported_job.lock().unwrap().take();
             update_worker_ping_full(
                 &conn,
                 read_cgroups,
@@ -3228,6 +3238,7 @@ pub async fn run_worker(
                 &mut occupancy_metrics,
                 &killpill_tx,
                 ip,
+                last_job.as_ref().map(|(id, w_id)| (*id, w_id.as_str())),
             )
             .await;
 
@@ -3562,6 +3573,7 @@ pub async fn run_worker(
 
                 last_executed_job = None;
                 jobs_executed += 1;
+                *unreported_job.lock().unwrap() = Some((job.id, job.workspace_id.clone()));
                 let mut dirties_env = dirties_worker_env(
                     job.kind,
                     &job.tag,
@@ -5531,11 +5543,14 @@ async fn handle_code_execution_job(
         None => job,
     };
 
-    // Any job kind, not just previews: whatever is here is what gets written to the job dir
-    // and built in, so the agent-worker server precomputing a cache name has to resolve
-    // modules the same way (`windmill-api-agent-workers`, `get_code_and_lock`).
+    // Whatever is here is what gets written to the job dir and built in, so the agent-worker
+    // server precomputing a cache name has to resolve modules the same way
+    // (`windmill-api-agent-workers`, `get_code_and_lock`). Only a preview carries its modules
+    // in its args: a deployed runnable's args are the caller's, so honoring `_MODULES` there
+    // would run caller code as that runnable (and as its `on_behalf_of` identity).
     let modules = modules_from_data.clone().or_else(|| {
-        job.args.as_ref().and_then(|args| {
+        let args = job.args.as_ref().filter(|_| job.kind == JobKind::Preview);
+        args.and_then(|args| {
             args.get("_MODULES").and_then(|raw| {
                 serde_json::from_str::<std::collections::HashMap<String, ScriptModule>>(raw.get())
                     .ok()

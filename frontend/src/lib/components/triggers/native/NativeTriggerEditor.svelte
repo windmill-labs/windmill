@@ -10,7 +10,7 @@
 	} from './utils'
 	import { usedTriggerKinds } from '$lib/stores'
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
-	import { triggerLock } from '$lib/operatorWriteRights'
+	import { useTriggerLock } from '$lib/operatorWriteRights'
 	import { Button } from '$lib/components/common'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
@@ -32,6 +32,7 @@
 		useOperatingUser,
 		useOperatingWorkspace
 	} from '$lib/components/operatingWorkspace.svelte'
+	const triggerLock = useTriggerLock()
 
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()

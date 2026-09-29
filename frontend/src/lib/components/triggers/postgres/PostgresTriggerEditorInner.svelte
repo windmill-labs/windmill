@@ -20,7 +20,7 @@
 	} from '$lib/gen'
 	import { usedTriggerKinds } from '$lib/stores'
 	import { canWrite, emptyString, emptyStringTrimmed, sendUserToast } from '$lib/utils'
-	import { triggerLock } from '$lib/operatorWriteRights'
+	import { useTriggerLock } from '$lib/operatorWriteRights'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2 } from 'lucide-svelte'
@@ -59,6 +59,7 @@
 		useOperatingWorkspace,
 		useOperatingWorkspaceHref
 	} from '$lib/components/operatingWorkspace.svelte'
+	const triggerLock = useTriggerLock()
 
 	interface Props {
 		useDrawer?: boolean

@@ -303,7 +303,7 @@ pub struct GeminiUsageMetadata {
 /// 60 tool-use + 17 candidates + 52 thoughts against a `totalTokenCount` of 146, so
 /// leaving them out under-reports the input of every tool-using turn. Cached tokens
 /// are not added here, being already part of `promptTokenCount`.
-fn gemini_prompt_tokens(usage: &GeminiUsageMetadata) -> i32 {
+pub(crate) fn gemini_prompt_tokens(usage: &GeminiUsageMetadata) -> i32 {
     usage
         .prompt_token_count
         .unwrap_or(0)
@@ -313,7 +313,7 @@ fn gemini_prompt_tokens(usage: &GeminiUsageMetadata) -> i32 {
 /// Output tokens as billed: Gemini counts thinking apart from `candidatesTokenCount`
 /// but charges it at the output rate, so a reply that thought would otherwise be
 /// reported as far cheaper than it was.
-fn gemini_completion_tokens(usage: &GeminiUsageMetadata) -> i32 {
+pub(crate) fn gemini_completion_tokens(usage: &GeminiUsageMetadata) -> i32 {
     usage
         .candidates_token_count
         .unwrap_or(0)
@@ -1041,7 +1041,10 @@ mod tests {
         // through unchanged and the cached share is reported alongside it; thinking
         // is billed as output but counted apart from the candidates.
         assert_eq!(usage_chunk["usage"]["prompt_tokens"], 1000);
-        assert_eq!(usage_chunk["usage"]["prompt_tokens_details"]["cached_tokens"], 900);
+        assert_eq!(
+            usage_chunk["usage"]["prompt_tokens_details"]["cached_tokens"],
+            900
+        );
         assert_eq!(usage_chunk["usage"]["completion_tokens"], 120);
     }
 

@@ -106,11 +106,12 @@
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { setOpenInSessionHandoff } from './sessions/openInSessionContext'
 	import { getEditorStoragePath, setEditorStoragePath } from './editorStoragePathContext'
-	import { triggerLock } from '$lib/operatorWriteRights'
+	import { useTriggerLock } from '$lib/operatorWriteRights'
 	import {
 		useOperatingUser,
 		useOperatingWorkspace
 	} from '$lib/components/operatingWorkspace.svelte'
+	const triggerLock = useTriggerLock()
 
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
