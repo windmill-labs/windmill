@@ -349,8 +349,8 @@
 		inputs?: Record<string, any>
 	): Promise<string | undefined> {
 		if (!agentModule) return undefined
-		// A view runs the deployed agent as its on-behalf-of identity, which anyone who can read it
-		// may do; the editor previews the draft as the one editing it.
+		// A view runs the deployed agent, which anyone who can read it may do; the editor previews
+		// the draft. Both run as the caller.
 		if (view && workspace) {
 			return await JobService.runAgent({
 				workspace,
@@ -442,8 +442,6 @@
 	/** The path field's own verdict (a taken path, an invalid name), which the server would otherwise
 	 *  only report after the request. */
 	let pathError = $state('')
-
-	/** Who the next deploy makes the agent run as, as the "Permissioned as" line picked it. */
 
 	export function deploy(): Promise<boolean> {
 		if (pathError) {
