@@ -33,6 +33,7 @@
 	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import SupabaseConnect from '$lib/components/SupabaseConnect.svelte'
+	import SyncResourceTypes from '$lib/components/SyncResourceTypes.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Head from '$lib/components/table/Head.svelte'
@@ -1583,6 +1584,14 @@
 						</DataTable>
 					</div>
 				{/if}
+				<div class="flex flex-wrap items-center gap-2 mt-4">
+					<SyncResourceTypes
+						onSynced={async () => {
+							$resourceTypesStore = undefined
+							await loadResourceTypes()
+						}}
+					/>
+				</div>
 			{/if}
 		</TabFade>
 	</CenteredPage>

@@ -4444,8 +4444,15 @@ async fn execute_component(
                 (JobPayload::Code(raw_code), tag, None)
             }
             // inline script: run mode (deployed app) with an entry in `app_script`.
-            (None, Some(RawCode { language, path, cache_ttl, tag, .. }), Some(id)) => (
-                JobPayload::AppScript { id: AppScriptId(id), cache_ttl, language, path },
+            // The path is derived like the legacy arm's: job identity (e.g. OIDC `sub`)
+            // reads it, so a caller must not choose it.
+            (None, Some(RawCode { language, cache_ttl, tag, .. }), Some(id)) => (
+                JobPayload::AppScript {
+                    id: AppScriptId(id),
+                    cache_ttl,
+                    language,
+                    path: Some(inline_run_path(path, &component)?),
+                },
                 resolved_inline_tag(tag),
                 None,
             ),
@@ -4805,8 +4812,9 @@ async fn upload_s3_file_from_app(
                 if let Some(ref s3_resource_path) = query.s3_resource_path {
                     if matched_input.allow_user_resources {
                         if let Some(authed) = opt_authed {
+                            let viewer = policy_granted_viewer(&authed);
                             let db_with_opt_authed = DbWithOptAuthed::from_authed(
-                                &authed,
+                                &viewer,
                                 db.clone(),
                                 Some(user_db.clone()),
                             );
@@ -5773,6 +5781,14 @@ async fn exists_app(
     Ok(Json(exists))
 }
 
+/// The viewer as whom a resource an app policy lets the viewer pick (`allow_user_resources`)
+/// is resolved. The policy, not the token, grants that resource, and app tokens are minted
+/// with a fixed scope set that never names variables, so the references inside it resolve on
+/// the viewer's RLS alone.
+fn policy_granted_viewer(authed: &ApiAuthed) -> ApiAuthed {
+    ApiAuthed { scopes: None, ..authed.clone() }
+}
+
 async fn build_args(
     policy: &Policy,
     PolicyTriggerableInputs {
@@ -5799,8 +5815,9 @@ async fn build_args(
                 key.and_then(|x| x.clone().strip_prefix("$res:").map(|x| x.to_string()))
             {
                 if let Some(authed) = authed {
+                    let viewer = policy_granted_viewer(authed);
                     let db_with_opt_authed =
-                        DbWithOptAuthed::from_authed(authed, db.clone(), Some(user_db.clone()));
+                        DbWithOptAuthed::from_authed(&viewer, db.clone(), Some(user_db.clone()));
                     let res = get_resource_value_interpolated_internal(
                         &db_with_opt_authed,
                         w_id,

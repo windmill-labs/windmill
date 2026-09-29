@@ -9,7 +9,7 @@
 	} from '$lib/components/triggers/native/utils'
 	import NativeTriggerTable from '$lib/components/triggers/native/NativeTriggerTable.svelte'
 	import NativeTriggerEditor from '$lib/components/triggers/native/NativeTriggerEditor.svelte'
-	import { triggerLock } from '$lib/operatorWriteRights'
+	import { useTriggerLock } from '$lib/operatorWriteRights'
 	import {
 		sendUserToast,
 		removeTriggerKindIfUnused,
@@ -29,6 +29,7 @@
 	import { page } from '$app/state'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ListFilters from '$lib/components/home/ListFilters.svelte'
+	const triggerLock = useTriggerLock()
 
 	type TriggerW = ExtendedNativeTrigger & { marked?: any }
 
