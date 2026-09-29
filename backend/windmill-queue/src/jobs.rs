@@ -803,18 +803,19 @@ async fn restart_perpetual_run(
             run.permissioned_as.clone(),
         ),
     };
+    let args = run.args.clone().map(|args| args.0).unwrap_or_default();
     // The run's own tag was checked when the loop started; the deployed version's has not
-    // been checked against the identity that would run it. A dedicated worker's tag is the
-    // script's own and names no worker group to gain access to.
+    // been checked against the identity that would run it. Checked the way a push checks one,
+    // so a `$args[...]` tag resolves from the arguments this run carries. A dedicated worker's
+    // tag is the script's own and names no worker group to gain access to.
     if dedicated_worker != Some(true) {
         if let Some(tag) = tag.filter(|tag| !tag.is_empty()) {
             let is_super_admin = windmill_common::auth::is_super_admin_email(db, &email).await?;
-            if let Err(e) = windmill_common::jobs::check_tag_available_for_workspace_internal(
+            if let Err(e) = check_tag_available_for_push(
                 db,
                 w_id,
                 tag,
-                None,
-                crate::tags::tag_workspace_id(w_id, db),
+                &PushArgs::from(&args),
                 is_super_admin,
                 None,
             )
@@ -829,7 +830,6 @@ async fn restart_perpetual_run(
             }
         }
     }
-    let args = run.args.clone().map(|args| args.0).unwrap_or_default();
     // A run whose own preprocessor has not run yet carries what started it, so the replacement has
     // to run one: pushed without, those arguments reach `main` and every iteration after it.
     let mut payload = payload.clone();
