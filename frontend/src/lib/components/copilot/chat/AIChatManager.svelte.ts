@@ -756,11 +756,12 @@ export class AIChatManager implements ChatViewHost {
 	#sessionModel = fromStore(copilotSessionModel)
 	/** Capabilities the provider runs on its own servers, attached by the adapter at send
 	 * time. Never part of `tools`: the request path would try to dispatch them. The two
-	 * store reads only subscribe: the model helpers read through `get()`, which tracks
-	 * nothing, so a model or workspace change would otherwise not re-derive. */
+	 * `void` reads only subscribe: the model helpers read through `get()`, which tracks
+	 * nothing, so a change of model or of the workspace's AI config would otherwise not
+	 * re-derive. A workspace switch re-derives through the AI config it loads. */
 	get providerTools(): ProviderToolSummary[] {
-		this.#copilotInfo.current
-		this.#sessionModel.current
+		void this.#copilotInfo.current
+		void this.#sessionModel.current
 		const model = tryGetCurrentModel()
 		if (!model || (model.provider === 'openai' && this.skipResponsesApi)) return []
 		const enabled = isWebSearchEnabledForProvider(model.provider)

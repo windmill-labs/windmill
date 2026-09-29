@@ -590,8 +590,10 @@ describe('AIChatManager request errors', () => {
 			true
 		)
 	})
+})
 
-	it('lists web search as a provider tool exactly when a turn would attach it', async () => {
+describe('AIChatManager provider tools', () => {
+	it('lists web search exactly when a turn would attach it', () => {
 		const manager = new AIChatManager()
 		const withModel = (provider: string) =>
 			mocks.tryGetCurrentModel.mockReturnValue({ provider, model: 'm' })
