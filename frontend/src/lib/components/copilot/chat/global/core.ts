@@ -53,8 +53,7 @@ import { evalValue } from '$lib/components/flows/utils.svelte'
 import { updateRawAppPolicy } from '$lib/components/raw_apps/rawAppPolicy'
 import {
 	FRAMEWORK_TEMPLATES,
-	STARTER_RUNNABLE,
-	STARTER_RUNNABLE_KEY,
+	STARTER_RUNNABLES,
 	type FrameworkKey
 } from '$lib/components/raw_apps/templates'
 import {
@@ -6411,13 +6410,13 @@ async function initApp(
 	const value: AppDraftValue = {
 		summary,
 		files: { ...template },
-		runnables: { [STARTER_RUNNABLE_KEY]: { ...STARTER_RUNNABLE } }
+		runnables: structuredClone(STARTER_RUNNABLES)
 	}
 	await recomputeAppPolicy(value)
 	const result = await saveAppDraft(workspace, path, value)
 	return finishAppDraftWrite(result, ctx, () => ({
 		content: `Saved app "${path}" draft (${framework})`,
-		message: `Initialized a per-user draft app "${path}" from the ${framework} template with a starter runnable "${STARTER_RUNNABLE_KEY}" (saved server-side, not a deployed workspace item). Use write_app_file / write_app_runnable to evolve it.`
+		message: `Initialized a per-user draft app "${path}" from the ${framework} template (saved server-side, not a deployed workspace item). The template is a demo tour with starter runnables ${Object.keys(STARTER_RUNNABLES).join(', ')}: replace its UI and delete the runnables the app does not need (delete_app_runnable). Use write_app_file / write_app_runnable to evolve it.`
 	}))
 }
 
