@@ -1263,7 +1263,7 @@
 							{@render providerCard(
 								managedProvider ? wiz.provider! : preferredManagedProvider(),
 								managedIcon,
-								'Windmill managed database',
+								'Windmill managed database (Recommended)',
 								'Windmill manages the databases and roles for you.'
 							)}
 						{/if}
