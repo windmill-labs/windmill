@@ -390,6 +390,8 @@ pub(crate) struct CompactionRequest<'a> {
     pub timeout: std::time::Duration,
     pub client: &'a AuthedClient,
     pub workspace_id: &'a str,
+    #[cfg_attr(not(feature = "bedrock"), allow(dead_code))]
+    pub job_id: &'a uuid::Uuid,
     /// Whether the endpoint accepts the usage-tracking request shape. The agent loop
     /// learns this from a rejection; sending it again here would make every
     /// summarization fail on an endpoint the agent itself runs fine against.
@@ -522,6 +524,29 @@ async fn summarize_prefix(
     let parsed = if request.credentials.provider == AIProvider::AWSBedrock {
         #[cfg(feature = "bedrock")]
         {
+            // A resource that authenticates through an OIDC role carries no keys of its
+            // own. Summaries are rare enough that assuming the role afresh here costs
+            // less than threading the agent loop's cached credentials through.
+            let mut assumed_role = None;
+            let assumed = windmill_ai::ai_bedrock::refresh_bedrock_oidc_credentials(
+                request.credentials,
+                &mut assumed_role,
+                request.client,
+                request.job_id,
+            )
+            .await?;
+            let (access_key_id, secret_access_key, session_token) = match assumed {
+                Some(assumed) => (
+                    Some(assumed.access_key_id.as_str()),
+                    Some(assumed.secret_access_key.as_str()),
+                    Some(assumed.session_token.as_str()),
+                ),
+                None => (
+                    request.credentials.aws_access_key_id.as_deref(),
+                    request.credentials.aws_secret_access_key.as_deref(),
+                    request.credentials.aws_session_token.as_deref(),
+                ),
+            };
             windmill_ai::providers::bedrock::BedrockQueryBuilder::default()
                 .execute_request(
                     &summary_messages,
@@ -541,9 +566,9 @@ async fn summarize_prefix(
                     request.client,
                     request.workspace_id,
                     None,
-                    request.credentials.aws_access_key_id.as_deref(),
-                    request.credentials.aws_secret_access_key.as_deref(),
-                    request.credentials.aws_session_token.as_deref(),
+                    access_key_id,
+                    secret_access_key,
+                    session_token,
                 )
                 .await?
         }

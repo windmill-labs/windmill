@@ -6,7 +6,7 @@
 	// always fails with the credentials error, and the provider buttons don't navigate.
 	import Login, { type LoginPreview } from '$lib/components/Login.svelte'
 	import LoginHeading from '$lib/components/LoginHeading.svelte'
-	import { WindmillIcon } from '$lib/components/icons'
+	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
 	import DarkModeToggle from '$lib/components/sidebar/DarkModeToggle.svelte'
 	import Select from '$lib/components/select/Select.svelte'
 	import { goto } from '$lib/navigation'

@@ -26,6 +26,7 @@
 	} from '$lib/gen'
 	import { usedTriggerKinds } from '$lib/stores'
 	import { canWrite, emptySchema, emptyString, sendUserToast } from '$lib/utils'
+	import { useTriggerLock } from '$lib/operatorWriteRights'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2, X, Plus } from 'lucide-svelte'
@@ -58,6 +59,7 @@
 		useOperatingWorkspace,
 		useOperatingWorkspaceHref
 	} from '$lib/components/operatingWorkspace.svelte'
+	const triggerLock = useTriggerLock()
 
 	interface Props {
 		useDrawer?: boolean
@@ -135,7 +137,8 @@
 	// The acting user in the operating workspace arrives asynchronously, and an unknown user
 	// refuses — so the editor stays read-only until the lookup lands, which is the safe answer.
 	const can_write = $derived(
-		permsPath === undefined ? true : canWrite(permsPath, permsForWrite ?? {}, actingUser)
+		(permsPath === undefined || canWrite(permsPath, permsForWrite ?? {}, actingUser)) &&
+			!$triggerLock
 	)
 	let drawerLoading = $state(true)
 	let showLoading = $state(false)

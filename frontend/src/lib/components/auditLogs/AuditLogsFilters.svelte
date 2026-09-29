@@ -149,6 +149,7 @@
 		JOBS: 'jobs',
 		JOBS_CANCEL: 'jobs.cancel',
 		JOBS_FORCE_CANCEL: 'jobs.force_cancel',
+		JOBS_RUN_NOW: 'jobs.run_now',
 		JOBS_DISAPPROVAL: 'jobs.disapproval',
 		JOBS_DELETE: 'jobs.delete',
 		JOBS_SHARE_PUBLICLY: 'jobs.share_publicly',

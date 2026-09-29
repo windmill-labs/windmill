@@ -5,12 +5,16 @@
 
 	let {
 		hideTrigger = false,
-		onChanged
+		onChanged,
+		unavailable
 	}: {
 		/** Mount the drawer without its button, for a caller that opens it with `open()`. */
 		hideTrigger?: boolean
 		/** Called after every change to the instance roles. */
 		onChanged?: () => void
+		/** Why the roles cannot be managed here: the button stays, disabled with this reason, so the
+		 * feature can be found. `ee` marks the reason that is the edition. */
+		unavailable?: { reason: string; ee: boolean }
 	} = $props()
 
 	let drawer: Drawer | undefined = $state(undefined)
@@ -27,9 +31,18 @@
 </script>
 
 {#if !hideTrigger}
-	<Button unifiedSize="sm" variant="default" startIcon={{ icon: Users }} on:click={() => open()}>
-		Instance roles
-	</Button>
+	{#if unavailable}
+		<!-- A disabled button shows no title of its own: the wrapper carries the reason. -->
+		<span title={unavailable.reason} class="inline-flex cursor-not-allowed">
+			<Button unifiedSize="sm" variant="default" startIcon={{ icon: Users }} disabled>
+				Instance roles{unavailable.ee ? ' (EE)' : ''}
+			</Button>
+		</span>
+	{:else}
+		<Button unifiedSize="sm" variant="default" startIcon={{ icon: Users }} on:click={() => open()}>
+			Instance roles
+		</Button>
+	{/if}
 {/if}
 
 <Drawer bind:this={drawer} size="700px">
