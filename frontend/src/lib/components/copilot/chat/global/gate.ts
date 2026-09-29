@@ -1,11 +1,11 @@
 /**
  * Beta opt-out gate for AI Sessions (and the Global AI chat mode).
  *
- * Sessions ship enabled by default. Users can switch back to the legacy
- * docked chat from the beta banner under the session chat, which stores an
- * opt-out in this browser's localStorage; the mirror banner in the legacy
- * chat switches back. Both toggles do a full page reload: every call site
- * reads the gate once at init, so a live flip would leave the UI half-switched.
+ * Sessions ship enabled by default. The opt-out lives in this browser's
+ * localStorage; nothing in the UI sets it any more, so only browsers that
+ * opted out earlier keep the legacy docked chat, whose banner switches them
+ * back. The toggle does a full page reload: every call site reads the gate
+ * once at init, so a live flip would leave the UI half-switched.
  *
  * When the beta ends, replace every call to `isGlobalAiEnabled()` with `true`
  * and delete this file. The references are intentionally narrow (chat mode

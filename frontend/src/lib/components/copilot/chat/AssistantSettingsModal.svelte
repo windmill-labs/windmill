@@ -17,13 +17,12 @@ callers that already know which section they mean, such as the "+" menu's Manage
 	import {
 		BookOpen,
 		Boxes,
-		History,
+		ExternalLink,
 		Paperclip,
 		Plug,
 		ScrollText,
 		SlidersHorizontal
 	} from 'lucide-svelte'
-	import { base } from '$lib/base'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
 	import SidebarNavigation from '$lib/components/common/sidebar/SidebarNavigation.svelte'
@@ -37,8 +36,11 @@ callers that already know which section they mean, such as the "+" menu's Manage
 	import AssistantMcpSection from './AssistantMcpSection.svelte'
 	import AssistantFilesSection from './AssistantFilesSection.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
-	import { setSessionsBetaOptOut } from './global/gate'
-	import AssistantSettingsHintTarget from '$lib/components/sessions/AssistantSettingsHintTarget.svelte'
+
+	// Prefilled title marks the issue as AI Sessions feedback for triage.
+	const FEEDBACK_ISSUE_URL =
+		'https://github.com/windmill-labs/windmill/issues/new?title=' +
+		encodeURIComponent('AI Sessions feedback: ')
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -168,16 +170,14 @@ callers that already know which section they mean, such as the "+" menu's Manage
 <svelte:window onkeydown={onKeydown} />
 
 <Tooltip small placement="top">
-	<AssistantSettingsHintTarget>
-		<Button
-			unifiedSize="2xs"
-			variant="subtle"
-			iconOnly
-			startIcon={{ icon: SlidersHorizontal }}
-			aria-label="Assistant settings"
-			onClick={() => open()}
-		/>
-	</AssistantSettingsHintTarget>
+	<Button
+		unifiedSize="2xs"
+		variant="subtle"
+		iconOnly
+		startIcon={{ icon: SlidersHorizontal }}
+		aria-label="Assistant settings"
+		onClick={() => open()}
+	/>
 	{#snippet text()}
 		<div class="max-w-64 text-xs">
 			<p class="font-semibold">Assistant settings</p>
@@ -207,17 +207,16 @@ callers that already know which section they mean, such as the "+" menu's Manage
 				selectedId={section}
 				onNavigate={(id) => select(id as AssistantSettingsSection)}
 			/>
-			<!-- The beta banner under the session chat can be dismissed, so the way back
-			     to the legacy docked chat also lives here. -->
-			<div class="mt-auto pt-3 border-t border-border-light">
+			<div class="mt-auto">
 				<Button
 					variant="subtle"
 					unifiedSize="sm"
-					startIcon={{ icon: History }}
+					endIcon={{ icon: ExternalLink }}
 					btnClasses="!justify-start !w-full"
-					onClick={() => setSessionsBetaOptOut(true, `${base}/`)}
+					href={FEEDBACK_ISSUE_URL}
+					target="_blank"
 				>
-					Switch back to legacy chat
+					Give feedback
 				</Button>
 			</div>
 		</div>

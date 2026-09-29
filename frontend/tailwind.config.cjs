@@ -552,8 +552,7 @@ const config = {
 				'spin-counter-clockwise': 'spin-counter-clockwise 1s linear infinite',
 				'zoom-in': 'zoom-in 0.25s ease-in-out',
 				'fade-out': 'fade-out 1s ease-in-out',
-				shake: 'shake 0.2s linear both',
-				'ping-once': 'ping 1s cubic-bezier(0, 0, 0.2, 1) 1 forwards'
+				shake: 'shake 0.2s linear both'
 			},
 			keyframes: {
 				'spin-counter-clockwise': {
