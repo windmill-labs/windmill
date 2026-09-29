@@ -457,6 +457,8 @@ schema:
 
 // Pinned: a release commit runs these tests while the same release publishes a new
 // windmill-client, and the worker resolving that version before npm serves it fails the job.
+// These are the only CLI tests running task/taskScript/workflow on a real client: bump the pin
+// to a published release whenever the WAC client surface changes.
 const WINDMILL_CLIENT = "windmill-client@1.819.0";
 
 test("script preview: script with modules (taskScript pattern)", async () => {
