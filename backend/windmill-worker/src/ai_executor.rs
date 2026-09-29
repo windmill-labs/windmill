@@ -1,5 +1,6 @@
 use crate::ai::compaction::{
-    memory_within_capacity, persisted_bytes, AgentHistory, CompactionRequest, Compactor,
+    memory_within_capacity, persisted_bytes, AgentHistory, CompactionRequest, CompactionTrigger,
+    Compactor,
 };
 use crate::ai::tools::{execute_tool_calls, ToolAbortHandles, ToolExecutionContext};
 use crate::ai::utils::{
@@ -140,7 +141,7 @@ async fn compact_if_needed(
     query_builder: &dyn windmill_ai::query_builder::QueryBuilder,
     include_usage: bool,
     messages: &mut AgentHistory,
-    force: bool,
+    trigger: CompactionTrigger,
     final_usage: &mut Option<TokenUsage>,
 ) -> bool {
     let (Some(compactor), Some(timeout)) = (ctx.compactor, ctx.timeout) else {
@@ -149,7 +150,7 @@ async fn compact_if_needed(
     let pass = compactor
         .compact(
             messages,
-            force,
+            trigger,
             &CompactionRequest {
                 query_builder,
                 credentials: ctx.credentials,
@@ -1594,7 +1595,7 @@ pub async fn run_agent(
             query_builder.as_ref(),
             include_usage,
             &mut messages,
-            false,
+            CompactionTrigger::Threshold,
             &mut final_usage,
         )
         .await;
@@ -1888,7 +1889,7 @@ pub async fn run_agent(
                         query_builder.as_ref(),
                         include_usage,
                         &mut messages,
-                        true,
+                        CompactionTrigger::ContextRejected,
                         &mut final_usage,
                     )
                     .await;
@@ -2219,7 +2220,9 @@ pub async fn run_agent(
         }
     }
 
-    if persist_capacity.is_some_and(|limit| persisted_bytes(messages.context()) > limit) {
+    if let Some(capacity_bytes) =
+        persist_capacity.filter(|limit| persisted_bytes(messages.context()) > *limit)
+    {
         compact_if_needed(
             CompactionContext {
                 compactor: compactor.as_mut(),
@@ -2233,7 +2236,7 @@ pub async fn run_agent(
             query_builder.as_ref(),
             include_usage,
             &mut messages,
-            true,
+            CompactionTrigger::Storage { capacity_bytes },
             &mut final_usage,
         )
         .await;

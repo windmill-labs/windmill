@@ -180,6 +180,15 @@ pub(crate) struct Compactor {
     consecutive_failures: usize,
 }
 
+pub(crate) enum CompactionTrigger {
+    /// Before a request: compacts only once the prompt nears the input budget.
+    Threshold,
+    /// The provider refused the prompt: everything but the newest exchange is summarized.
+    ContextRejected,
+    /// The memory to save outgrows its store.
+    Storage { capacity_bytes: usize },
+}
+
 pub(crate) struct CompactionPass {
     pub changed: bool,
     pub usage: Option<TokenUsage>,
@@ -205,7 +214,7 @@ impl Compactor {
         history.projected_tokens(self.tool_schema_tokens) >= self.input_budget
     }
 
-    fn plan(&self, history: &AgentHistory, force: bool) -> Option<usize> {
+    fn plan(&self, history: &AgentHistory, trigger: &CompactionTrigger) -> Option<usize> {
         let messages = history.context();
         let starts = exchange_starts(messages);
         let newest = *starts.last()?;
@@ -225,14 +234,19 @@ impl Compactor {
             );
             return None;
         }
-        if force {
-            return Some(newest);
-        }
         let fixed =
             self.tool_schema_tokens + estimate_tokens(&messages[..start]) + self.summary_tokens;
         let tail_budget = 20_000
             .min(self.input_budget / 2)
             .min(self.input_budget.saturating_sub(fixed));
+        let tail_budget = match trigger {
+            CompactionTrigger::ContextRejected => return Some(newest),
+            CompactionTrigger::Threshold => tail_budget,
+            // Half the store for the verbatim tail at ~4 bytes a token, the rest for the
+            // summary. Splitting at the newest exchange instead would keep only the final
+            // answer, summarizing away the question it answers.
+            CompactionTrigger::Storage { capacity_bytes } => tail_budget.min(capacity_bytes / 8),
+        };
         Some(
             starts
                 .into_iter()
@@ -265,16 +279,16 @@ impl Compactor {
     pub(crate) async fn compact(
         &mut self,
         history: &mut AgentHistory,
-        force: bool,
+        trigger: CompactionTrigger,
         request: &CompactionRequest<'_>,
     ) -> CompactionPass {
         let unchanged = CompactionPass { changed: false, usage: None };
         if self.consecutive_failures >= MAX_CONSECUTIVE_COMPACTION_FAILURES
-            || (!force && !self.needs_compaction(history))
+            || (matches!(trigger, CompactionTrigger::Threshold) && !self.needs_compaction(history))
         {
             return unchanged;
         }
-        let Some(split) = self.plan(history, force) else {
+        let Some(split) = self.plan(history, &trigger) else {
             return unchanged;
         };
         let start = conversation_start(history.context());
@@ -681,7 +695,10 @@ mod tests {
         let compactor = Compactor::new(10000, 0, Some(4000));
         assert_eq!(compactor.input_budget, 6000);
         assert!(!compactor.needs_compaction(&history));
-        assert_eq!(compactor.plan(&history, true), Some(4));
+        assert_eq!(
+            compactor.plan(&history, &CompactionTrigger::ContextRejected),
+            Some(4)
+        );
     }
 
     #[test]
@@ -698,11 +715,17 @@ mod tests {
             Compactor::new(2000, 0, None),
             Compactor::new(10000, 7000, None),
         ] {
-            assert_eq!(compactor.plan(&history, false), None);
-            assert_eq!(compactor.plan(&history, true), None);
+            assert_eq!(
+                compactor.plan(&history, &CompactionTrigger::Threshold),
+                None
+            );
+            assert_eq!(
+                compactor.plan(&history, &CompactionTrigger::ContextRejected),
+                None
+            );
         }
         assert!(Compactor::new(10000, 0, None)
-            .plan(&history, true)
+            .plan(&history, &CompactionTrigger::ContextRejected)
             .is_some());
     }
 
@@ -858,7 +881,9 @@ mod tests {
         history.extend(tool_round("second", "new result"));
         history.record_usage(Some(9000), history.context().len());
         let compactor = Compactor::new(10000, 0, None);
-        let split = compactor.plan(&history, false).unwrap();
+        let split = compactor
+            .plan(&history, &CompactionTrigger::Threshold)
+            .unwrap();
         assert_eq!(split, 3);
         let before = serde_json::to_value(
             history
@@ -991,10 +1016,31 @@ mod tests {
         }
         let compactor = Compactor::new(20000, 100, None);
         history.record_usage(Some(16500), history.context().len());
-        let split = compactor.plan(&history, false).unwrap();
+        let split = compactor
+            .plan(&history, &CompactionTrigger::Threshold)
+            .unwrap();
         assert!(exchange_starts(history.context()).contains(&split));
         assert!(estimate_tokens(&history.context()[split..]) <= 8000);
         assert!(split <= history.context().len() - 2);
+    }
+
+    #[test]
+    fn storage_compaction_keeps_the_latest_turn_verbatim() {
+        let mut history = AgentHistory::new(vec![message("system", "prompt")]);
+        for turn in ["one", "two", "three", "four", "latest"] {
+            history.push(message("user", &format!("question {turn}")));
+            history.extend(tool_round(turn, &"x".repeat(30000)));
+            history.push(message("assistant", "answer"));
+        }
+        let compactor = Compactor::new(1_000_000, 0, None);
+        let trigger = CompactionTrigger::Storage { capacity_bytes: 100_000 };
+        let split = compactor.plan(&history, &trigger).unwrap();
+        let tail = &history.context()[split..];
+        assert!(persisted_bytes(tail) <= 50_000);
+        assert!(tail.iter().any(|m| matches!(
+            &m.content,
+            Some(OpenAIContent::Text(text)) if text == "question latest"
+        )));
     }
 
     #[test]
@@ -1003,7 +1049,9 @@ mod tests {
         history.extend(tool_round("one", &"large ".repeat(10000)));
         let compactor = Compactor::new(10000, 0, None);
         assert!(compactor.needs_compaction(&history));
-        assert!(compactor.plan(&history, false).is_none());
+        assert!(compactor
+            .plan(&history, &CompactionTrigger::Threshold)
+            .is_none());
     }
     #[test]
     fn summarization_instructions_are_separate_from_the_transcript_and_media() {
