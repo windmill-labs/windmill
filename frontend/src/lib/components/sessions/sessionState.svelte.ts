@@ -1184,16 +1184,10 @@ export async function commitSessionWorkspace(
 				`Community edition is limited to ${CE_MAX_NON_ADMIN_WORKSPACES + 1} workspaces — archive a workspace or pick one to run in`
 			)
 		}
-		let stillCreating = false
-		const newId = await materializeFork(fork, {
-			onCreationStarted: (creation_id) => {
-				s.pending_fork = { ...fork, creation_id }
-				void putSession(s)
-			},
-			onStillCreating: () => (stillCreating = true)
+		const newId = await materializeFork(fork, (creation_id) => {
+			s.pending_fork = { ...fork, creation_id }
+			void putSession(s)
 		})
-		// The fork is on its way: keep the intent so the next send adopts it.
-		if (!newId && stillCreating) return undefined
 		if (!newId) {
 			// Real failure (not a recovered duplicate). Drop the pending
 			// fork so the session falls through to the workspace-pick
@@ -1299,7 +1293,12 @@ export function setGeneratedSessionSummary(
 	return true
 }
 
+// A resumed attempt's polls fail for good once it is gone, so they are not waited out as long as a
+// fresh creation's, whose failures a rolling deploy clears; a resume cut short by such a deploy
+// falls back to requesting the fork, which then waits for it below.
 const RESUMED_FORK_MAX_FAILING_MS = 10_000
+// How long a fork another request is still creating is waited for.
+const IN_FLIGHT_FORK_WAIT_MS = 3 * 60 * 1000
 
 // Make sure the fork exists, refresh the user-workspaces store, and return
 // the fork id. Used by both the first-send commit path
@@ -1309,21 +1308,20 @@ const RESUMED_FORK_MAX_FAILING_MS = 10_000
 //
 // Self-heal: a fork already present in the user-workspaces store was
 // created by an earlier request whose response was lost, and is adopted
-// without requesting it again; so is one the API reports as a duplicate
-// key. A fork whose `creation_id` is set waits for that creation (started
-// before a reload). `onCreationStarted` receives the id of a new creation;
-// `onStillCreating` is called instead of failing when the server reports
-// this fork is being created by a creation the client lost track of.
+// without requesting it again; so is one the API reports as existing. A
+// fork whose `creation_id` is set waits for that creation (started before a
+// reload), and one the API reports as still being created, by a creation
+// whose id was lost, is waited for until it shows up among the user's
+// workspaces. `onCreationStarted` receives the id of a new creation.
 export async function materializeFork(
 	fork: PendingFork,
-	opts: { onCreationStarted?: (creationId: string) => void; onStillCreating?: () => void } = {}
+	onCreationStarted?: (creationId: string) => void
 ): Promise<string | undefined> {
 	if (get(userWorkspaces).some((w) => w.id === fork.id)) return fork.id
 	try {
 		let resumed = false
 		if (fork.creation_id) {
-			// An attempt that failed or is gone is requested again below. Its polls fail only when
-			// it is gone, so they are not waited out as a fresh creation's are.
+			// An attempt that failed or is gone is requested again below.
 			resumed = await waitForForkCreation(
 				fork.parent_workspace_id,
 				fork.creation_id,
@@ -1338,7 +1336,7 @@ export async function materializeFork(
 			await createWorkspaceForkAndWait(
 				fork.parent_workspace_id,
 				{ id: fork.id, name: fork.name },
-				{ onCreationStarted: opts.onCreationStarted }
+				{ onCreationStarted }
 			)
 		}
 		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
@@ -1346,12 +1344,11 @@ export async function materializeFork(
 		return fork.id
 	} catch (e: any) {
 		const msg = String(e?.body ?? e?.message ?? e)
-		if (opts.onStillCreating && msg.includes('is already being created')) {
-			sendUserToast(`Fork ${fork.name} is still being created, send again in a moment`)
-			opts.onStillCreating()
-			return undefined
+		if (msg.includes('is already being created') && (await forkJoinedWorkspaces(fork.id))) {
+			sendUserToast(`Created fork ${fork.name}`)
+			return fork.id
 		}
-		if (/workspace_pkey|duplicate key/i.test(msg)) {
+		if (/workspace_pkey|duplicate key|already exists/i.test(msg)) {
 			// Self-heal: the create likely already succeeded. Refresh + adopt the
 			// existing row. Guard this refresh — a second network failure here must
 			// NOT rethrow out of materializeFork (callers rely on the
@@ -1367,6 +1364,20 @@ export async function materializeFork(
 		sendUserToast(`Could not create fork: ${msg}`, true)
 		return undefined
 	}
+}
+
+// Whether the fork shows up among the user's workspaces within IN_FLIGHT_FORK_WAIT_MS.
+async function forkJoinedWorkspaces(forkId: string): Promise<boolean> {
+	const deadline = Date.now() + IN_FLIGHT_FORK_WAIT_MS
+	while (Date.now() < deadline) {
+		await new Promise((resolve) => setTimeout(resolve, 1500))
+		const listed = await WorkspaceService.listUserWorkspaces().catch(() => undefined)
+		if (listed?.workspaces?.some((w) => w.id === forkId)) {
+			usersWorkspaceStore.set(listed)
+			return true
+		}
+	}
+	return false
 }
 
 // Re-assign a committed session to a different workspace. Used to rescue
