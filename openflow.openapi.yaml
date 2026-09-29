@@ -571,6 +571,25 @@ components:
       required:
         - kind
 
+    MemoryCompaction:
+      type: object
+      description: |
+        Keeps the whole memory named by the run's memory id (or the step's `memory_id`), replacing
+        its older part with a summary as the conversation approaches the model's context window.
+        Without a memory id the agent runs without memory, and compaction bounds the run's own loop.
+      properties:
+        kind:
+          type: string
+          enum:
+            - compaction
+        context_window:
+          type: integer
+          description: |
+            Overrides the context window looked up from the model, in tokens. Only a model
+            Windmill does not know needs one; those fall back to 128000.
+      required:
+        - kind
+
     MemoryMessage:
       type: object
       description: A single message in conversation history
@@ -609,6 +628,7 @@ components:
       oneOf:
         - $ref: '#/components/schemas/MemoryOff'
         - $ref: '#/components/schemas/MemoryWindow'
+        - $ref: '#/components/schemas/MemoryCompaction'
         - $ref: '#/components/schemas/MemoryAuto'
         - $ref: '#/components/schemas/MemoryManual'
       discriminator:
@@ -616,6 +636,7 @@ components:
         mapping:
           'off': '#/components/schemas/MemoryOff'
           window: '#/components/schemas/MemoryWindow'
+          compaction: '#/components/schemas/MemoryCompaction'
           auto: '#/components/schemas/MemoryAuto'
           manual: '#/components/schemas/MemoryManual'
 
@@ -1090,8 +1111,8 @@ components:
                 parameter). Leave unset to use the run's memory id. A fixed value shares one memory
                 across every run; an expression such as `flow_input.customer_id` keeps one memory per
                 key. When it evaluates to an empty value the agent runs without memory. Read only
-                while `memory` is `window`: it is ignored when memory is off, and an older `auto` or
-                `manual` memory reads neither history input.
+                while `memory` is `window` or `compaction`: it is ignored when memory is off, and an
+                older `auto` or `manual` memory reads neither history input.
             previous_messages:
               allOf:
                 - $ref: '#/components/schemas/InputTransform'
