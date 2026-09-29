@@ -653,6 +653,7 @@
 	{externalInstanceDbs}
 	externalInstanceAvailable={externalInstanceConfigured && !!$superadmin}
 	{instanceAvailable}
+	offerExternalSetup
 	refreshManagedInstances={() => {
 		externalInstanceStatus.refetch()
 		externalInstanceDbs.refetch()

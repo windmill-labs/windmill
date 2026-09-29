@@ -50,7 +50,14 @@
 	} from './setupClaims'
 	import { enterpriseLicense, superadmin, userStore, workspaceStore } from '$lib/stores'
 	import { isCloudHosted } from '$lib/cloud'
-	import { base } from '$lib/base'
+	import { goto } from '$lib/navigation'
+	import { sendUserToast } from '$lib/toast'
+	import { apiErrorMessage, escapeHtml } from '$lib/utils'
+	import {
+		externalInstancePgPrefill,
+		prefillFromResourceValue,
+		type ExternalInstancePgPrefill
+	} from '../instanceSettings/externalInstancePgPrefill'
 	import { superadminSettingsHref } from '../sidebar/settings'
 	import { isCustomInstanceDbEnabled } from './utils.svelte'
 	import {
@@ -66,6 +73,7 @@
 		intentComplete,
 		newResourceParts,
 		newWizardState,
+		postgresResourceValue,
 		supabaseSummary,
 		planSteps,
 		probeValue,
@@ -100,9 +108,12 @@
 		/** Whether Windmill's own database can take a new data table. Defaults to the superadmin
 		 *  check alone, for callers that do not load `instance_pg_disabled`. */
 		instanceAvailable?: boolean
-		/** Reloads what decides the two flags above, once a superadmin may have changed them in
-		 *  the instance settings the wizard sends them to. */
+		/** Reloads what decides the two flags above, which a superadmin may have changed in the
+		 *  instance settings since the wizard last opened. */
 		refreshManagedInstances?: () => void
+		/** Whether to point a superadmin at the instance settings drawer to set up an external
+		 *  cluster. Only pages under the app layout have that drawer to open. */
+		offerExternalSetup?: boolean
 		/** A free name on the external cluster. Its registry and the workspace's entries there are
 		 *  a different set from the instance's, so the two defaults cannot be the same helper. */
 		defaultExternalDbName?: () => string
@@ -153,6 +164,7 @@
 		externalInstanceAvailable = false,
 		instanceAvailable: instanceAvailableProp,
 		refreshManagedInstances,
+		offerExternalSetup = false,
 		defaultExternalDbName,
 		confirmationModal,
 		defaultInstanceDbName,
@@ -231,7 +243,7 @@
 	let managedOffered = $derived(
 		instanceAvailable || externalInstanceAvailable || (!!$superadmin && !isCloudHosted())
 	)
-	let canSetUpExternal = $derived(!!$superadmin && !!$enterpriseLicense)
+	let canSetUpExternal = $derived(offerExternalSetup && !!$superadmin && !!$enterpriseLicense)
 
 	function preferredManagedProvider(): Provider {
 		return instanceAvailable || !externalInstanceAvailable ? 'instance' : 'external_instance'
@@ -246,15 +258,48 @@
 		if (preferred !== wiz.provider) untrack(() => selectProvider(preferred))
 	})
 
-	$effect(() => {
-		if (!opened || !refreshManagedInstances) return
-		const onFocus = () => refreshManagedInstances?.()
-		window.addEventListener('focus', onFocus)
-		return () => window.removeEventListener('focus', onFocus)
-	})
+	/** Leaves the wizard for the instance settings drawer, on the tab that sets a cluster up. */
+	async function openManagedPostgresSettings() {
+		close()
+		const { pathname, search } = window.location
+		await goto(pathname + search + superadminSettingsHref('managed_postgres'))
+	}
+
+	/**
+	 * The connection on screen in the resource step, to seed the external cluster form: a
+	 * resource that already reaches a Postgres is usually the cluster someone means to hand over.
+	 */
+	function prefillSourceLabel(): string | undefined {
+		if (wiz.provider !== 'resource') return undefined
+		if (wiz.own.creating) return newResourceParts(wiz) ? 'the connection you entered' : undefined
+		return wiz.own.resourcePath
+	}
+
+	async function prefillFromResourceStep(): Promise<ExternalInstancePgPrefill | undefined> {
+		if (wiz.provider !== 'resource') return undefined
+		if (wiz.own.creating) {
+			const parts = newResourceParts(wiz)
+			if (!parts) return undefined
+			return prefillFromResourceValue(
+				'the connection you entered',
+				postgresResourceValue(parts, parts.password ?? '', wiz.own.advanced)
+			)
+		}
+		const path = wiz.own.resourcePath
+		if (!path) return undefined
+		// Interpolated: the stored password is a `$var:` reference the setting cannot follow.
+		const value = await ResourceService.getResourceValueInterpolated({
+			workspace: targetWorkspace,
+			path
+		})
+		return value && typeof value === 'object'
+			? prefillFromResourceValue(path, value as Record<string, any>)
+			: undefined
+	}
 
 	async function explainExternalInstance() {
 		const useIt = externalInstanceAvailable
+		const source = useIt ? undefined : prefillSourceLabel()
 		// The explainer sits outside this dialog, so the click that answers it reads as a click
 		// outside and would ask to discard the run. Released a task later: that click is still
 		// being dispatched when `ask` resolves.
@@ -271,13 +316,29 @@
 					useIt
 						? 'An external cluster is already set up on this instance.'
 						: 'A superadmin sets it up once for the whole instance, under Instance settings &rarr; Managed Postgres. It is an Enterprise Edition feature.'
-				}</p>
+				}</p>${
+					source
+						? `<p>The form opens filled in with the connection of <span class="font-mono">${escapeHtml(source)}</span>, for you to review before saving.</p>`
+						: ''
+				}
 			</div>`
 			})
 			.finally(() => setTimeout(() => (dismissing = false)))
 		if (!confirmed) return
-		if (useIt) selectProvider('external_instance')
-		else window.open(`${base}/${superadminSettingsHref('managed_postgres')}`, '_blank')
+		if (useIt) {
+			selectProvider('external_instance')
+			return
+		}
+		// Closed before reading the resource, not after: the guard against the explainer's click
+		// is released a task later, and the read takes longer than that.
+		close()
+		try {
+			externalInstancePgPrefill.set(await prefillFromResourceStep())
+		} catch (e) {
+			// The settings are still worth opening; the form just starts empty.
+			sendUserToast(`Could not read the resource to fill the form in: ${apiErrorMessage(e)}`, true)
+		}
+		await openManagedPostgresSettings()
 	}
 	let preventClose = $state(false)
 	/** A dismissal dialog is up, so a second one must not stack on it. */
@@ -632,6 +693,8 @@
 		// needs the destination's username. Seeding first and correcting later loses whenever
 		// the folder list resolves first, and never corrects at all if `whoami` fails.
 		await loadTargetUser()
+		// A superadmin may have set a cluster up in the instance settings since the last open.
+		refreshManagedInstances?.()
 		reset(parked ?? resume)
 		opened = true
 		logDatatableWizard({ step: 'opened' })

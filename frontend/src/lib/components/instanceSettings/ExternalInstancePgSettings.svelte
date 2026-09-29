@@ -27,6 +27,8 @@
 	import type { Writable } from 'svelte/store'
 	import EEOnly from '../EEOnly.svelte'
 	import { isCloudHosted } from '$lib/cloud'
+	import { untrack } from 'svelte'
+	import { externalInstancePgPrefill } from './externalInstancePgPrefill'
 
 	interface Props {
 		values: Writable<Record<string, any>>
@@ -43,12 +45,29 @@
 	// the setting's validator — failing an admin's unrelated edit in the same save.
 	let form = $state<Record<string, any>>({})
 	let seededFrom: unknown = undefined
+	/** Fields the data table wizard handed over from a resource. Kept apart from `form` until a
+	 *  save, so the settings loading after them cannot reseed them away. */
+	let prefill = $state<{ source: string; fields: Record<string, any> } | undefined>(undefined)
 	$effect(() => {
 		const stored = $values[KEY]
 		if (stored !== seededFrom) {
 			seededFrom = stored
-			form = stored ? { ...$state.snapshot(stored) } : {}
+			form = {
+				...(stored ? $state.snapshot(stored) : {}),
+				...untrack(() => prefill?.fields ?? {})
+			}
 		}
+	})
+	$effect(() => {
+		const handed = $externalInstancePgPrefill
+		if (!handed) return
+		untrack(() => {
+			const { source, ...rest } = handed
+			const fields = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined))
+			prefill = { source, fields }
+			form = { ...form, ...fields }
+			externalInstancePgPrefill.set(undefined)
+		})
 	})
 
 	let settingUp = $state(false)
@@ -99,6 +118,7 @@
 			// The page keeps its own copy of every setting and bulk-saves it: leaving the one it read
 			// at load in place would let a later save of an unrelated setting revert this one.
 			seededFrom = value
+			prefill = undefined
 			$values[KEY] = value
 			markSettingSaved?.(KEY)
 			const report = await SettingService.setupExternalInstancePg({
@@ -144,6 +164,7 @@
 		try {
 			await SettingService.setGlobal({ key: KEY, requestBody: { value: null } })
 			seededFrom = undefined
+			prefill = undefined
 			$values[KEY] = undefined
 			markSettingSaved?.(KEY)
 			form = {}
@@ -194,6 +215,14 @@
 <div class="flex flex-col gap-6">
 		{#if !$enterpriseLicense}
 			<EEOnly />
+		{/if}
+
+		{#if prefill}
+			<Alert type="warning" title="Filled in from {prefill.source}" size="xs">
+				Review the connection below, then save and run setup. Nothing is saved until you do. Its
+				user needs <span class="font-mono">CREATEDB</span> and
+				<span class="font-mono">CREATEROLE</span>: setup reports it if it lacks either.
+			</Alert>
 		{/if}
 
 		<Alert type="info" title="A Postgres cluster Windmill administers" size="xs">
