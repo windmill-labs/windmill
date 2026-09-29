@@ -39,9 +39,9 @@
 	/** Whether the external cluster is configured, so its catalog is worth offering. Only a
 	 *  superadmin can read that, and only a superadmin manages roles. */
 	let externalConfigured = $state(false)
-	/** Windmill's database turned off for new data tables, and whether roles are still defined on
-	 *  it. Turning it off leaves existing data tables running there, so while any role remains its
-	 *  catalog stays reachable: those data tables still grant them. */
+	/** Windmill's database turned off as a data table substrate, and whether roles are still defined
+	 *  on it. Its data tables stop resolving while it is off, but their databases and grants remain,
+	 *  so while any role is left its catalog stays reachable to clean it up or to turn it back on. */
 	let internalTurnedOff = $state(false)
 	let internalHasRoles = $state(false)
 	let internalAvailable = $derived(!isCloudHosted() && (!internalTurnedOff || internalHasRoles))
