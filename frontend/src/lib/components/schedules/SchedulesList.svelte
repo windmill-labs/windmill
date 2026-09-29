@@ -23,8 +23,6 @@
 	import { userWorkspaces, enterpriseLicense } from '$lib/stores'
 	import {
 		Calendar,
-		ChevronsDownUp,
-		ChevronsUpDown,
 		Circle,
 		Copy,
 		Eye,
@@ -47,6 +45,8 @@
 	import { buildSchedulesFilterSchema } from '$lib/components/schedules/schedulesFilter'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
 	import TreeViewRoot from '$lib/components/home/TreeViewRoot.svelte'
+	import TreeViewControls from '$lib/components/home/TreeViewControls.svelte'
+	import { TreeViewState } from '$lib/components/home/treeViewState.svelte'
 	import type { ItemType } from '$lib/components/home/treeViewUtils'
 	import { twMerge } from 'tailwind-merge'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
@@ -313,9 +313,7 @@
 
 	let nbDisplayed = $state(15)
 
-	const TREE_VIEW_SETTING_NAME = 'schedulesTreeView'
-	let treeView = $state(getLocalSetting(TREE_VIEW_SETTING_NAME) == 'true')
-	let collapseAll = $state(true)
+	const tree = new TreeViewState('schedulesTreeView')
 	let filterEnabledDisabled: 'all' | 'enabled' | 'disabled' = $state('all')
 	// A filter opens every folder so no match hides behind a closed one; Expand/Collapse all
 	// has no effect then.
@@ -694,25 +692,7 @@
 		</PageHeader>
 		<div class="w-full h-full flex flex-col">
 			<div class="flex flex-row items-center justify-end gap-4 pb-4">
-				<div class="flex items-center gap-2 mr-auto">
-					<Toggle
-						size="xs"
-						bind:checked={treeView}
-						on:change={(e) =>
-							storeLocalSetting(TREE_VIEW_SETTING_NAME, e.detail ? 'true' : undefined)}
-						options={{ right: 'Tree view' }}
-					/>
-					{#if treeView && !treeForceExpanded}
-						<Button
-							unifiedSize="sm"
-							variant="subtle"
-							on:click={() => (collapseAll = !collapseAll)}
-							startIcon={{ icon: collapseAll ? ChevronsUpDown : ChevronsDownUp }}
-						>
-							{collapseAll ? 'Expand all' : 'Collapse all'}
-						</Button>
-					{/if}
-				</div>
+				<TreeViewControls {tree} forceExpanded={treeForceExpanded} class="mr-auto" />
 				<ToggleButtonGroup bind:selected={filterEnabledDisabled} class="w-fit">
 					{#snippet children({ item })}
 						<ToggleButton value="all" label="All" {item} />
@@ -755,10 +735,10 @@
 					/>
 				{/if}
 			{:else if items?.length}
-				{#if treeView}
+				{#if tree.treeView}
 					<TreeViewRoot
 						items={items as unknown as ItemType[]}
-						{collapseAll}
+						collapseAll={tree.collapseAll}
 						isSearching={treeForceExpanded}
 						showCode={() => {}}
 						leaf={treeLeaf}
@@ -774,7 +754,7 @@
 				<NoItemFound />
 			{/if}
 		</div>
-		{#if !treeView && items && items?.length > 15 && nbDisplayed < items.length}
+		{#if !tree.treeView && items && items?.length > 15 && nbDisplayed < items.length}
 			<div class="flex items-center gap-4 text-xs font-semibold text-emphasis">
 				<span>{nbDisplayed} items out of {items.length}</span>
 				<Button unifiedSize="sm" variant="subtle" on:click={() => (nbDisplayed += 30)}>
