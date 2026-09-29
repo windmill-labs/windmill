@@ -164,7 +164,7 @@ async fn get_log_file(
     let s3_client = windmill_object_store::get_object_store().await;
     #[cfg(feature = "parquet")]
     if let Some(s3_client) = s3_client {
-        use windmill_object_store::object_store_reexports::ObjectStoreError;
+        use windmill_object_store::object_store_reexports::{ObjectStoreError, ObjectStoreExt};
 
         // The raw file, for as long as it is there. It outlives its ingestion by
         // one indexer pass at most, so this covers the most recent minutes of a

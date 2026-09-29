@@ -5,6 +5,11 @@
  * Please see the included NOTICE for copyright information and
  * LICENSE-AGPL for a copy of the license.
  */
+
+// `sqlparser`'s AST (reached through datafusion) nests deeply enough that inferring
+// `Send`/`Sync` for the futures spawned in `main` exceeds the default 128-step limit.
+#![recursion_limit = "256"]
+
 use anyhow::Context;
 use monitor::{
     flush_pending_log_files_to_object_store, load_base_url, load_otel,

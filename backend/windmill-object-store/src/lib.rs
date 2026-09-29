@@ -38,6 +38,8 @@ use object_store::CredentialProvider;
 #[cfg(feature = "parquet")]
 use object_store::ObjectStore;
 #[cfg(feature = "parquet")]
+use object_store::ObjectStoreExt;
+#[cfg(feature = "parquet")]
 use object_store::{aws::AmazonS3Builder, ClientOptions};
 #[cfg(feature = "parquet")]
 use reqwest::header::HeaderMap;
@@ -68,8 +70,8 @@ pub mod object_store_reexports {
     pub use object_store::path::Path;
     pub use object_store::{
         Attribute, Attributes, Error as ObjectStoreError, GetOptions, GetRange, GetResult,
-        ObjectMeta, ObjectStore, PutMode, PutMultipartOpts, PutOptions, PutPayload, PutResult,
-        Result as ObjectStoreResult, UpdateVersion, WriteMultipart,
+        ObjectMeta, ObjectStore, ObjectStoreExt, PutMode, PutMultipartOptions, PutOptions,
+        PutPayload, PutResult, Result as ObjectStoreResult, UpdateVersion, WriteMultipart,
     };
 }
 
@@ -96,7 +98,10 @@ pub fn object_store_error_to_error(err: object_store::Error) -> error::Error {
         NotModified { path, source } => {
             error::Error::ExecutionErr(format!("Not modified at {}: {}", path, source))
         }
-        NotImplemented => error::Error::BadRequest("Operation not yet implemented.".to_string()),
+        NotImplemented { operation, implementer } => error::Error::BadRequest(format!(
+            "Operation '{}' is not implemented by {}.",
+            operation, implementer
+        )),
         PermissionDenied { path, source } => {
             error::Error::PermissionDenied(format!("Permission denied at {}: {}", path, source))
         }
@@ -610,11 +615,11 @@ impl object_store::client::HttpConnector for PublicOnlyConnector {
             .get_config_value(&object_store::ClientConfigKey::AllowHttp)
             .is_some_and(|v| v == "true");
         let proxy_hosts: Arc<[String]> = system_proxy_hosts().into();
-        let client = reqwest_object_store::Client::builder()
+        let client = reqwest::Client::builder()
             .dns_resolver(Arc::new(PublicOnlyResolver {
                 proxy_hosts: proxy_hosts.clone(),
             }))
-            .redirect(reqwest_object_store::redirect::Policy::none())
+            .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(std::time::Duration::from_secs(5))
             .default_headers(HeaderMap::from_iter([(
                 reqwest::header::ACCEPT_ENCODING,
@@ -640,7 +645,7 @@ impl object_store::client::HttpConnector for PublicOnlyConnector {
 #[cfg(feature = "parquet")]
 #[derive(Debug)]
 struct PublicOnlyClient {
-    client: reqwest_object_store::Client,
+    client: reqwest::Client,
     proxy_hosts: Arc<[String]>,
 }
 
@@ -714,11 +719,8 @@ fn system_proxy_hosts() -> Vec<String> {
 }
 
 #[cfg(feature = "parquet")]
-impl reqwest_object_store::dns::Resolve for PublicOnlyResolver {
-    fn resolve(
-        &self,
-        name: reqwest_object_store::dns::Name,
-    ) -> reqwest_object_store::dns::Resolving {
+impl reqwest::dns::Resolve for PublicOnlyResolver {
+    fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
         let is_proxy = self
             .proxy_hosts
             .iter()
@@ -737,7 +739,7 @@ impl reqwest_object_store::dns::Resolve for PublicOnlyResolver {
                 )
                 .into());
             }
-            Ok(Box::new(addrs.into_iter()) as reqwest_object_store::dns::Addrs)
+            Ok(Box::new(addrs.into_iter()) as reqwest::dns::Addrs)
         })
     }
 }
@@ -1005,7 +1007,7 @@ impl ObjectStore for FilesystemStoreIgnoringAttributes {
     async fn put_multipart_opts(
         &self,
         location: &object_store::path::Path,
-        mut opts: object_store::PutMultipartOpts,
+        mut opts: object_store::PutMultipartOptions,
     ) -> object_store::Result<Box<dyn object_store::MultipartUpload>> {
         opts.attributes = Default::default();
         self.0.put_multipart_opts(location, opts).await
@@ -1019,14 +1021,6 @@ impl ObjectStore for FilesystemStoreIgnoringAttributes {
         self.0.get_opts(location, options).await
     }
 
-    async fn get_range(
-        &self,
-        location: &object_store::path::Path,
-        range: std::ops::Range<u64>,
-    ) -> object_store::Result<Bytes> {
-        self.0.get_range(location, range).await
-    }
-
     async fn get_ranges(
         &self,
         location: &object_store::path::Path,
@@ -1035,15 +1029,14 @@ impl ObjectStore for FilesystemStoreIgnoringAttributes {
         self.0.get_ranges(location, ranges).await
     }
 
-    async fn head(
+    fn delete_stream(
         &self,
-        location: &object_store::path::Path,
-    ) -> object_store::Result<object_store::ObjectMeta> {
-        self.0.head(location).await
-    }
-
-    async fn delete(&self, location: &object_store::path::Path) -> object_store::Result<()> {
-        self.0.delete(location).await
+        locations: futures::stream::BoxStream<
+            'static,
+            object_store::Result<object_store::path::Path>,
+        >,
+    ) -> futures::stream::BoxStream<'static, object_store::Result<object_store::path::Path>> {
+        self.0.delete_stream(locations)
     }
 
     fn list(
@@ -1068,36 +1061,22 @@ impl ObjectStore for FilesystemStoreIgnoringAttributes {
         self.0.list_with_delimiter(prefix).await
     }
 
-    async fn copy(
+    async fn copy_opts(
         &self,
         from: &object_store::path::Path,
         to: &object_store::path::Path,
+        options: object_store::CopyOptions,
     ) -> object_store::Result<()> {
-        self.0.copy(from, to).await
+        self.0.copy_opts(from, to, options).await
     }
 
-    async fn rename(
+    async fn rename_opts(
         &self,
         from: &object_store::path::Path,
         to: &object_store::path::Path,
+        options: object_store::RenameOptions,
     ) -> object_store::Result<()> {
-        self.0.rename(from, to).await
-    }
-
-    async fn copy_if_not_exists(
-        &self,
-        from: &object_store::path::Path,
-        to: &object_store::path::Path,
-    ) -> object_store::Result<()> {
-        self.0.copy_if_not_exists(from, to).await
-    }
-
-    async fn rename_if_not_exists(
-        &self,
-        from: &object_store::path::Path,
-        to: &object_store::path::Path,
-    ) -> object_store::Result<()> {
-        self.0.rename_if_not_exists(from, to).await
+        self.0.rename_opts(from, to, options).await
     }
 }
 
@@ -1840,7 +1819,7 @@ where
     const WRITE_BUF_CAPACITY: usize = 256 * 1024;
     const PROGRESS_INTERVAL_SECS: u64 = 10;
 
-    use datafusion::{execution::context::SessionContext, prelude::NdJsonReadOptions};
+    use datafusion::{execution::context::SessionContext, prelude::JsonReadOptions};
     use futures::StreamExt;
     use std::path::PathBuf;
     use std::time::{Duration, Instant};
@@ -1935,20 +1914,20 @@ where
     ctx.register_json(
         "my_table",
         path_str,
-        NdJsonReadOptions::default().schema(&inferred_schema),
+        JsonReadOptions::default().schema(&inferred_schema),
     )
     .await
     .map_err(to_anyhow)?;
 
     let df = ctx.sql("SELECT * FROM my_table").await.map_err(to_anyhow)?;
-    let schema = df.schema().clone().into();
+    let schema = df.schema().inner().clone();
     let mut datafusion_stream = df.execute_stream().await.map_err(to_anyhow)?;
 
     let (tx, rx) = tokio::sync::mpsc::channel(MAX_MPSC_SIZE);
     let writer: Arc<Mutex<Option<RecordBatchWriterEnum>>> =
         Arc::new(Mutex::new(Some(match output_format {
             S3ModeFormat::Parquet => RecordBatchWriterEnum::Parquet(
-                ArrowWriter::try_new(ChannelWriter { sender: tx.clone() }, Arc::new(schema), None)
+                ArrowWriter::try_new(ChannelWriter { sender: tx.clone() }, schema, None)
                     .map_err(to_anyhow)?,
             ),
 
@@ -2503,7 +2482,10 @@ mod tests {
         assert!(matches!(mapped, Error::BadRequest(_)));
 
         // NotImplemented
-        let mapped = object_store_error_to_error(object_store::Error::NotImplemented);
+        let mapped = object_store_error_to_error(object_store::Error::NotImplemented {
+            operation: "put".to_string(),
+            implementer: "LocalFileSystem".to_string(),
+        });
         assert!(matches!(mapped, Error::BadRequest(_)));
 
         // Unauthenticated

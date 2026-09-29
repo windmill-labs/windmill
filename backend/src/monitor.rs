@@ -1471,6 +1471,8 @@ async fn send_log_file_to_object_store(
 ) -> bool {
     #[cfg(feature = "parquet")]
     if let Some(s3_client) = windmill_object_store::get_object_store().await {
+        use windmill_object_store::object_store_reexports::ObjectStoreExt;
+
         let path = std::path::Path::new(&*TMP_WINDMILL_LOGS_SERVICE)
             .join(hostname)
             .join(file_name);

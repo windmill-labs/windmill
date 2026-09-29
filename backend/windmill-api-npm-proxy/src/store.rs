@@ -284,6 +284,7 @@ pub(crate) async fn pull_from_object_store(_dir: &Path, _key: &str) -> Result<Op
     {
         use futures::StreamExt;
         use tokio::io::AsyncWriteExt;
+        use windmill_object_store::object_store_reexports::ObjectStoreExt;
 
         let Some(os) = windmill_object_store::get_object_store().await else {
             return Ok(None);
@@ -399,7 +400,7 @@ pub(crate) fn push_to_object_store(_dir: PathBuf, _key: String) {
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
 async fn push_inner(dir: &Path, key: &str) -> Result<()> {
     use tokio::io::AsyncReadExt;
-    use windmill_object_store::object_store_reexports::WriteMultipart;
+    use windmill_object_store::object_store_reexports::{ObjectStoreExt, WriteMultipart};
 
     let Some(os) = windmill_object_store::get_object_store().await else {
         return Ok(());

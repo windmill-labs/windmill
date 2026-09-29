@@ -11,7 +11,6 @@ enterprise = []
 parquet = [
     "windmill-common/parquet",
     "dep:object_store",
-    "dep:reqwest_object_store",
     "dep:aws-sdk-sts",
     "dep:aws-smithy-types-convert",
     "dep:datafusion",
@@ -49,7 +48,6 @@ globset.workspace = true
 axum.workspace = true
 
 object_store = { workspace = true, optional = true }
-reqwest_object_store = { workspace = true, optional = true }
 aws-sdk-sts = { workspace = true, optional = true }
 aws-smithy-types-convert = { workspace = true, optional = true }
 datafusion = { workspace = true, optional = true }

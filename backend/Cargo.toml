@@ -246,7 +246,6 @@ sqlx-macros-core = { git = "https://github.com/windmill-labs/sqlx", rev = "6bdae
 sqlx-postgres = { git = "https://github.com/windmill-labs/sqlx", rev = "6bdaee94fa62a01561125646da3f99eb341f2457" }
 sqlx-mysql = { git = "https://github.com/windmill-labs/sqlx", rev = "6bdaee94fa62a01561125646da3f99eb341f2457" }
 sqlx-sqlite = { git = "https://github.com/windmill-labs/sqlx", rev = "6bdaee94fa62a01561125646da3f99eb341f2457" }
-object_store = { git = "https://github.com/apache/arrow-rs-object-store", rev = "36752c975d4f29e20b57c91f81a10872dcd48ae7" }
 # Use tiberius main branch for libgssapi 0.8.1 fix (https://github.com/prisma/tiberius/issues/343)
 tiberius = { git = "https://github.com/prisma/tiberius", rev = "59db57960a14b422fb3a1309aa4aa47880896ff8" }
 # Pin tokio-postgres / postgres-types / postgres-protocol to the
@@ -462,7 +461,7 @@ headers = "^0"
 hyper = { version = "^1", features = ["full"] }
 hyper-tls = "^0.6"
 hyper-util = { version = "^0.1", features = ["client-legacy", "http1", "tokio"] }
-tokio = { version = "=1.46.1", features = ["full", "tracing", "time"] }
+tokio = { version = "=1.53.1", features = ["full", "tracing", "time"] }
 tokio-stream = { version = "0.1.17" }
 tower = "^0"
 tower-http = { version = "^0.6", features = ["trace", "cors", "catch-panic"] }
@@ -507,12 +506,10 @@ php-parser-rs = { git = "https://github.com/php-rust-tools/parser", rev = "ec4cb
 cron = "^0"
 mail-send = { version = "0.4.0", features = ["builder"], default-features=false }
 urlencoding = "^2"
-quick-xml = { version = "^0.37", features = ["serialize"] }
+quick-xml = { version = "^0.41", features = ["serialize"] }
 url = { version = "^2" , features = ["serde"]}
 async-oauth2 = "0.5.1"
 reqwest = { version = "^0.13", features = ["json", "stream", "gzip", "multipart", "query", "form"] }
-# The reqwest object_store builds its HTTP clients with, for a custom `HttpConnector`.
-reqwest_object_store = { package = "reqwest", version = "0.12", default-features = false, features = ["rustls-tls-native-roots"] }
 eventsource-stream = "0.2.3"
 time = "^0"
 serde_urlencoded = "^0"
@@ -636,7 +633,7 @@ native-tls = ">=0.2, <0.2.17"
 # samael will break compilation on MacOS. Use this fork instead to make it work
 # samael = { git="https://github.com/njaremko/samael", rev="464d015e3ae393e4b5dd00b4d6baa1b617de0dd6", features = ["xmlsec"] }
 libxml = { version = "=0.3.3" }
-samael = { git="https://github.com/njaremko/samael", rev="f879f1942ec1b34b6d3027ce7e4724ad95d15dfa", features = ["xmlsec"] }
+samael = { git="https://github.com/njaremko/samael", rev="2d27dfe4930c4632b202f32886a85b2d1f9226c2", features = ["xmlsec"] }
 gcp_auth = "0.9.0"
 rust_decimal = { version = "^1", features = ["db-postgres", "serde-float"]}
 # aws_lc_rs, not rust_crypto: the RustCrypto backend refuses RSA keys above 4096 bits, and
@@ -672,14 +669,17 @@ process-wrap = { version = "8.2.1", features = ["tokio1"] }
 
 systemstat = "0.2.4"
 
-datafusion = "47.0.0"
+# No datafusion release yet depends on `object_store` 0.14, and only `object_store` >= 0.14.1
+# carries `quick-xml` >= 0.41 (RUSTSEC-2026-0194, RUSTSEC-2026-0195). Drop the git pin for
+# `datafusion = "56"` once it is published.
+datafusion = { git = "https://github.com/apache/datafusion", rev = "2cac713274496ba8ee08e58655e80f0d464f6d48" }
 # The row API only: a dbt engine's parquet index is six string columns, so this
 # needs no arrow and no writer. `parquet` is already in the tree with `arrow` for
 # every shipped edition (`oss_core`), and cargo unifies the features there; this
 # set is what a build WITHOUT object storage compiles. ZSTD is what the engine
 # writes today, snap what parquet writers most often default to.
-parquet = { version = "55.2.0", default-features = false, features = ["snap", "zstd"] }
-object_store = { git = "https://github.com/apache/arrow-rs-object-store", rev = "36752c975d4f29e20b57c91f81a10872dcd48ae7", features = ["aws", "azure", "gcp"] }
+parquet = { version = "60.0.0", default-features = false, features = ["snap", "zstd"] }
+object_store = { version = "0.14.2", features = ["aws", "azure", "gcp"] }
 openidconnect = { version = "4.0.0-rc.1" }
 aws-config = "^1"
 aws-sdk-bedrock = "1.129.0"

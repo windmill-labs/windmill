@@ -613,6 +613,8 @@ async fn route_job(
     #[cfg(feature = "parquet")]
     if let Some(sqlx::types::Json(config)) = trigger.static_asset_config {
         let build_static_response_f = async {
+            use windmill_object_store::object_store_reexports::ObjectStoreExt;
+
             let (_, s3_resource_opt) = get_workspace_s3_resource(
                 &authed,
                 &db,

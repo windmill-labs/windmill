@@ -303,6 +303,9 @@ pub async fn test_email(
 use windmill_object_store::ObjectSettings;
 
 #[cfg(feature = "parquet")]
+use windmill_object_store::object_store_reexports::ObjectStoreExt;
+
+#[cfg(feature = "parquet")]
 use windmill_object_store::{
     build_object_store_from_settings, build_public_object_store_from_settings,
 };

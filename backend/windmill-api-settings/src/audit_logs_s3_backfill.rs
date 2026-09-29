@@ -42,7 +42,9 @@ use windmill_common::error::{self};
 use windmill_common::tracing_init::LOGS_AUDIT;
 use windmill_common::{DB, INSTANCE_NAME};
 
-use windmill_object_store::object_store_reexports::{ObjectStore, Path as ObjectPath};
+use windmill_object_store::object_store_reexports::{
+    ObjectStore, ObjectStoreExt, Path as ObjectPath,
+};
 
 pub const TASK_NAME: &str = "audit_logs_s3_backfill";
 
@@ -423,7 +425,9 @@ mod tests {
     use futures::stream::StreamExt;
     use std::sync::atomic::Ordering;
     use std::sync::Arc;
-    use windmill_object_store::object_store_reexports::{InMemory, ObjectStore, Path as OsPath};
+    use windmill_object_store::object_store_reexports::{
+        InMemory, ObjectStore, ObjectStoreExt, Path as OsPath,
+    };
 
     /// A private, per-test object store. `run_backfill` takes the store as a parameter,
     /// so tests use a local one and never touch the process-global `OBJECT_STORE_SETTINGS`
