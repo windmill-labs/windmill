@@ -394,8 +394,9 @@
 	let externalPreviewReady = $state(false)
 	let inspectorEnabled = $state(false)
 	let bundlerType: 'esbuild' | 'rolldown' = $state('esbuild')
-	// rolldown's wasm build uses shared memory, which only exists in a
-	// cross-origin isolated document; the editor is not one.
+	// rolldown's wasm build uses shared memory, which only exists in a cross-origin
+	// isolated document. Windmill never serves the editor isolated, so the switch
+	// only shows behind a reverse proxy that adds COOP/COEP to the whole site.
 	const rolldownAvailable = globalThis.crossOriginIsolated === true
 
 	// Build/bundler logs forwarded from the UI Builder iframe. We render
