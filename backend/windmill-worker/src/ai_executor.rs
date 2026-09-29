@@ -2790,9 +2790,12 @@ async fn cleanup_orphaned_tool_jobs(
         });
 
     let orphaned_ids: Vec<Uuid> = match sqlx::query_scalar!(
-        r#"SELECT j.id FROM v2_job j
-            JOIN v2_job_queue q ON q.id = j.id
-            WHERE j.parent_job = $1 AND j.workspace_id = $2"#,
+        r#"WITH RECURSIVE descendants AS (
+            SELECT id FROM v2_job WHERE parent_job = $1 AND workspace_id = $2
+            UNION ALL
+            SELECT j.id FROM v2_job j JOIN descendants d ON j.parent_job = d.id
+            WHERE j.workspace_id = $2
+        ) SELECT d.id AS "id!" FROM descendants d JOIN v2_job_queue q ON q.id = d.id"#,
         parent_job_id,
         w_id,
     )
