@@ -14,8 +14,8 @@ import { createWorkspaceForkAndWait } from './forkCreation'
 const svc = vi.mocked(WorkspaceService)
 const fork = { id: 'wm-fork-x', name: 'x' }
 
-async function run() {
-	const p = createWorkspaceForkAndWait('ws', fork)
+async function run(onStep?: (step: string) => void) {
+	const p = createWorkspaceForkAndWait('ws', fork, onStep)
 	const settled = p.then(
 		() => 'completed',
 		(e) => `failed: ${e.message}`
@@ -33,12 +33,14 @@ describe('createWorkspaceForkAndWait', () => {
 	})
 	afterEach(() => vi.useRealTimers())
 
-	it('waits while the fork is running and reports how it ended', async () => {
+	it('reports each step while the fork runs, then how it ended', async () => {
 		svc.getForkCreationStatus
 			.mockResolvedValueOnce({ status: 'running' })
+			.mockResolvedValueOnce({ status: 'running', step: 'Copying flows' })
 			.mockResolvedValueOnce({ status: 'failed', error: 'boom' })
-		expect(await run()).toBe('failed: boom')
-		expect(svc.getForkCreationStatus).toHaveBeenCalledTimes(2)
+		const steps: string[] = []
+		expect(await run((s) => steps.push(s))).toBe('failed: boom')
+		expect(steps).toEqual(['Copying flows'])
 	})
 
 	it('takes a failed poll for success once the fork exists', async () => {

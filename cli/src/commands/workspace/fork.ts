@@ -30,6 +30,7 @@ import {
  */
 async function waitForForkCreation(parentWorkspace: string, forkId: string) {
   let failedPolls = 0;
+  let lastStep: string | undefined;
   while (true) {
     let result:
       | Awaited<ReturnType<typeof wmill.getForkCreationStatus>>
@@ -46,6 +47,10 @@ async function waitForForkCreation(parentWorkspace: string, forkId: string) {
         .catch(() => false);
       if (exists) return;
       if (++failedPolls >= 10) throw e;
+    }
+    if (result?.status === "running" && result.step && result.step !== lastStep) {
+      lastStep = result.step;
+      log.info(colors.gray(`${lastStep}...`));
     }
     if (result?.status === "completed") return;
     if (result?.status === "failed") {

@@ -330,6 +330,7 @@
 	}
 
 	let forkCreationLoading = $state(false)
+	let forkCreationStep = $state('Creating branch')
 	let forkCreationError = $state('')
 	let errorMsgs: string[] = $state([])
 	let failedSyncJobs: string[] = $state([])
@@ -377,6 +378,7 @@
 	async function forkWorkspace(prefixed_id: string): Promise<void> {
 		if (baseWorkspaceId) {
 			forkCreationLoading = true
+			forkCreationStep = 'Creating branch'
 			errorMsgs = []
 			failedSyncJobs = []
 			forkCreationError = ''
@@ -471,18 +473,23 @@
 		}
 
 		try {
-			await createWorkspaceForkAndWait(baseWorkspaceId!, {
-				id: prefixed_id,
-				name,
-				color: colorEnabled && workspaceColor ? workspaceColor : undefined,
-				forked_datatables: forkedDatatables,
-				shared_ducklakes: forkDucklakeSection?.getSharedDucklakes() ?? [],
-				is_dev_workspace: createAsDevWorkspace,
-				dev_workspace_label: createAsDevWorkspace ? devWorkspaceLabel : undefined,
-				lock_prod_deploy: createAsDevWorkspace && effectiveLockProdDeploy,
-				lock_prod_forking: createAsDevWorkspace && effectiveLockProdForking,
-				copy_members: copyMembers
-			})
+			forkCreationStep = 'Creating fork'
+			await createWorkspaceForkAndWait(
+				baseWorkspaceId!,
+				{
+					id: prefixed_id,
+					name,
+					color: colorEnabled && workspaceColor ? workspaceColor : undefined,
+					forked_datatables: forkedDatatables,
+					shared_ducklakes: forkDucklakeSection?.getSharedDucklakes() ?? [],
+					is_dev_workspace: createAsDevWorkspace,
+					dev_workspace_label: createAsDevWorkspace ? devWorkspaceLabel : undefined,
+					lock_prod_deploy: createAsDevWorkspace && effectiveLockProdDeploy,
+					lock_prod_forking: createAsDevWorkspace && effectiveLockProdForking,
+					copy_members: copyMembers
+				},
+				(step) => (forkCreationStep = step)
+			)
 		} catch (e) {
 			const msg = e?.body ?? e?.message ?? e ?? 'Unknown error'
 			forkCreationError = `Failed to create fork '${prefixed_id}'`
@@ -1114,7 +1121,8 @@
 			</Button>
 		{:else}
 			<Button variant="accent" disabled={true}>
-				<LoaderCircle class="animate-spin" /> Creating branch
+				<LoaderCircle class="animate-spin" />
+				{forkCreationStep}
 			</Button>
 		{/if}
 	</div>

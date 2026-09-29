@@ -8,10 +8,12 @@ const MAX_FAILED_POLLS = 10
  *
  * The copy runs on the server after the request returns: a large workspace takes longer to copy
  * than the timeout of many proxies in front of Windmill, which would otherwise cut the request.
+ * `onStep` receives the part of the copy the server reports it is in.
  */
 export async function createWorkspaceForkAndWait(
 	parentWorkspace: string,
-	fork: CreateWorkspaceFork
+	fork: CreateWorkspaceFork,
+	onStep?: (step: string) => void
 ): Promise<void> {
 	try {
 		await WorkspaceService.createWorkspaceFork({
@@ -39,6 +41,7 @@ export async function createWorkspaceForkAndWait(
 			if (await forkExists(fork.id)) return
 			if (++failedPolls >= MAX_FAILED_POLLS) throw e
 		}
+		if (result?.status === 'running' && result.step) onStep?.(result.step)
 		if (result?.status === 'completed') return
 		if (result?.status === 'failed') throw new Error(result.error ?? 'Unknown error')
 		await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))

@@ -6667,7 +6667,9 @@ async fn clone_workspace_data(
     source_workspace_id: &str,
     target_workspace_id: &str,
     authed: &ApiAuthed,
+    progress: &ForkProgress,
 ) -> Result<()> {
+    progress.step("Copying settings, folders and groups");
     // Clone workspace settings (merge with existing basic settings)
     update_workspace_settings(tx, source_workspace_id, target_workspace_id).await?;
 
@@ -6689,6 +6691,7 @@ async fn clone_workspace_data(
     // Clone groups
     clone_groups(tx, source_workspace_id, target_workspace_id).await?;
 
+    progress.step("Copying resources and variables");
     // Clone resource types
     clone_resource_types(tx, source_workspace_id, target_workspace_id).await?;
 
@@ -6698,6 +6701,7 @@ async fn clone_workspace_data(
     // Clone variables (including external secret backend replication)
     clone_variables(tx, db, source_workspace_id, target_workspace_id).await?;
 
+    progress.step("Copying scripts");
     // Clone scripts with new hashes
     clone_scripts(tx, source_workspace_id, target_workspace_id).await?;
 
@@ -6715,18 +6719,21 @@ async fn clone_workspace_data(
     clone_metric_catalog(tx, source_workspace_id, target_workspace_id).await?;
     clone_asset_usages_and_triggers(tx, source_workspace_id, target_workspace_id).await?;
 
+    progress.step("Copying flows");
     // Clone flows with new versions
     clone_flows(tx, source_workspace_id, target_workspace_id).await?;
 
     // Clone flow nodes
     clone_flow_nodes(tx, source_workspace_id, target_workspace_id).await?;
 
+    progress.step("Copying apps");
     // Clone apps with new IDs and app scripts
     let _app_id_mapping = clone_apps(tx, source_workspace_id, target_workspace_id, authed).await?;
 
     // Clone raw apps
     clone_raw_apps(tx, source_workspace_id, target_workspace_id).await?;
 
+    progress.step("Copying drafts and dependencies");
     // Clone the forker's own per-user drafts (plus the legacy NULL-email
     // workspace draft, if any) so they keep their pending edits in the
     // fork. Other users' drafts are intentionally NOT cloned — they don't
@@ -9039,6 +9046,7 @@ async fn create_workspace_fork(
             parent_workspace_id,
             nw,
             dev_workspace_label,
+            ForkProgress::default(),
         ))
         .await
         .map_err(|e| {
@@ -9060,7 +9068,8 @@ async fn create_workspace_fork(
          ON CONFLICT (fork_workspace_id) DO UPDATE SET
              parent_workspace_id = EXCLUDED.parent_workspace_id,
              created_by = EXCLUDED.created_by,
-             started_at = now(), heartbeat_at = now(), finished_at = NULL, error = NULL
+             started_at = now(), heartbeat_at = now(), step = NULL, finished_at = NULL,
+             error = NULL
          WHERE workspace_fork_creation.finished_at IS NOT NULL
             OR workspace_fork_creation.heartbeat_at < now() - $4 * interval '1 second'
          RETURNING started_at",
@@ -9080,19 +9089,28 @@ async fn create_workspace_fork(
     };
 
     BACKGROUND_FORKS.spawn(async move {
+        let (progress_tx, mut progress_rx) = tokio::sync::watch::channel("");
+        // The one writer of the run's row while it copies: it records a new step as soon as the
+        // copy reports it, and refreshes the heartbeat in between.
         let heartbeat = {
             let (db, fork_id) = (db.clone(), fork_id.clone());
             tokio::spawn(async move {
                 let mut interval =
                     tokio::time::interval(std::time::Duration::from_secs(FORK_HEARTBEAT_SECS));
+                let mut reporting = true;
                 loop {
-                    interval.tick().await;
+                    tokio::select! {
+                        _ = interval.tick() => {}
+                        changed = progress_rx.changed(), if reporting => reporting = changed.is_ok(),
+                    }
+                    let step = *progress_rx.borrow_and_update();
                     if let Err(e) = sqlx::query(
-                        "UPDATE workspace_fork_creation SET heartbeat_at = now()
+                        "UPDATE workspace_fork_creation SET heartbeat_at = now(), step = $3
                          WHERE fork_workspace_id = $1 AND started_at = $2",
                     )
                     .bind(&fork_id)
                     .bind(started_at)
+                    .bind((!step.is_empty()).then_some(step))
                     .execute(&db)
                     .await
                     {
@@ -9107,6 +9125,7 @@ async fn create_workspace_fork(
             parent_workspace_id,
             nw,
             dev_workspace_label,
+            ForkProgress(Some(progress_tx)),
         ))
         .await
         .map_err(|e| Error::internal_err(format!("Creating the fork stopped unexpectedly: {e}")))
@@ -9152,10 +9171,25 @@ struct CreateWorkspaceForkQuery {
     background: Option<bool>,
 }
 
+/// Where the copy of a fork created in the background is, for its status to report.
+#[derive(Default)]
+struct ForkProgress(Option<tokio::sync::watch::Sender<&'static str>>);
+
+impl ForkProgress {
+    fn step(&self, step: &'static str) {
+        if let Some(tx) = &self.0 {
+            tx.send_replace(step);
+        }
+    }
+}
+
 #[derive(Serialize)]
 struct ForkCreationStatus {
     /// `running`, `completed` or `failed`.
     status: &'static str,
+    /// The part of the copy a running fork is in.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    step: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
 }
@@ -9166,7 +9200,7 @@ async fn get_fork_creation_status(
     Path((parent_workspace_id, fork_id)): Path<(String, String)>,
 ) -> JsonResult<ForkCreationStatus> {
     let row = sqlx::query(
-        "SELECT created_by, finished_at IS NOT NULL AS finished, error,
+        "SELECT created_by, finished_at IS NOT NULL AS finished, error, step,
                 heartbeat_at < now() - $3 * interval '1 second' AS stale
          FROM workspace_fork_creation
          WHERE fork_workspace_id = $1 AND parent_workspace_id = $2",
@@ -9190,12 +9224,13 @@ async fn get_fork_creation_status(
     let error: Option<String> = row.get("error");
     let status = if row.get::<bool, _>("finished") {
         match error {
-            Some(error) => ForkCreationStatus { status: "failed", error: Some(error) },
-            None => ForkCreationStatus { status: "completed", error: None },
+            Some(error) => ForkCreationStatus { status: "failed", step: None, error: Some(error) },
+            None => ForkCreationStatus { status: "completed", step: None, error: None },
         }
     } else if row.get::<bool, _>("stale") {
         ForkCreationStatus {
             status: "failed",
+            step: None,
             error: Some(
                 "the server creating the fork stopped before it finished; check the server logs \
                  and whether the fork exists before retrying"
@@ -9203,7 +9238,7 @@ async fn get_fork_creation_status(
             ),
         }
     } else {
-        ForkCreationStatus { status: "running", error: None }
+        ForkCreationStatus { status: "running", step: row.get("step"), error: None }
     };
     Ok(Json(status))
 }
@@ -9216,8 +9251,12 @@ async fn make_workspace_fork(
     parent_workspace_id: String,
     nw: CreateWorkspaceFork,
     dev_workspace_label: Option<String>,
+    progress: ForkProgress,
 ) -> Result<String> {
     let fork_id = nw.id.clone();
+    if !nw.forked_datatables.is_empty() {
+        progress.step("Copying data tables");
+    }
     let copies = crate::datatable_clone::make_copies(
         &db,
         &authed,
@@ -9237,6 +9276,7 @@ async fn make_workspace_fork(
         nw,
         dev_workspace_label,
         &copies,
+        &progress,
     )
     .await
     {
@@ -9362,6 +9402,7 @@ async fn write_workspace_fork(
     nw: CreateWorkspaceFork,
     dev_workspace_label: Option<String>,
     copies: &[crate::datatable_clone::MadeCopy],
+    progress: &ForkProgress,
 ) -> Result<String> {
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
     // Held until this transaction ends: after an error, the copies' cleanup waits on it, so it reads
@@ -9459,8 +9500,15 @@ async fn write_workspace_fork(
         .await?;
 
     // Clone all data from the parent workspace using Rust implementation
-    if let Err(e) =
-        clone_workspace_data(&mut tx, &db, &parent_workspace_id, &forked_id, &authed).await
+    if let Err(e) = clone_workspace_data(
+        &mut tx,
+        &db,
+        &parent_workspace_id,
+        &forked_id,
+        &authed,
+        progress,
+    )
+    .await
     {
         // A genuine `\u0000` in a source `json` value (`app_version.value` /
         // `flow_version.schema`) aborts the clone when it is re-encoded to jsonb:
@@ -9491,6 +9539,7 @@ async fn write_workspace_fork(
     // enabled=false. Disabled rows have no side effects (no listener
     // attaches, no cron fires) so this is safe by construction. The user
     // re-enables in the fork, with parent-conflict warnings on enable.
+    progress.step("Copying triggers and schedules");
     clone_triggers_and_schedules(&mut tx, &parent_workspace_id, &forked_id).await?;
 
     repoint_unresolvable_cloned_identities(&mut tx, &forked_id, &authed).await?;

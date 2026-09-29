@@ -1445,6 +1445,9 @@ paths:
                   status:
                     type: string
                     enum: [running, completed, failed]
+                  step:
+                    type: string
+                    description: the part of the copy a running fork is in
                   error:
                     type: string
                 required:
