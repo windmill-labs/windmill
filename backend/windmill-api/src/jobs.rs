@@ -7152,7 +7152,7 @@ pub async fn restart_flow(
     let completed_job = sqlx::query!(
             "SELECT
                 j.runnable_path as script_path, j.args AS \"args: sqlx::types::Json<HashMap<String, Box<RawValue>>>\",
-                j.tag AS \"tag!\", j.priority
+                j.tag AS \"tag!\", j.priority, j.kind AS \"kind!: JobKind\"
             FROM v2_job j
             WHERE j.id = $1 and j.workspace_id = $2",
             job_id,
@@ -7169,6 +7169,13 @@ pub async fn restart_flow(
     check_scopes(&authed, || format!("jobs:run:flows:{flow_path}"))?;
     let mut run_query = run_query;
     drop_unclaimable_run_lineage(&db, &w_id, &mut run_query, &authed).await?;
+    // A restarted flow preview reruns the value its request supplied, while a flow preview
+    // under a parent is read (by job provenance) as that parent's own definition.
+    let (parent_job, root_job) = if completed_job.kind == JobKind::FlowPreview {
+        (None, None)
+    } else {
+        (run_query.parent_job, run_query.root_job)
+    };
 
     let ehm = HashMap::new();
     let push_args = completed_job
@@ -7212,9 +7219,9 @@ pub async fn restart_flow(
         authed.username_override.as_deref(),
         scheduled_for,
         None,
-        run_query.parent_job,
+        parent_job,
         None,
-        run_query.root_job,
+        root_job,
         run_query.job_id,
         false,
         false,
