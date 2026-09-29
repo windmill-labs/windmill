@@ -21,8 +21,7 @@
 		<span>·</span>
 		<Button
 			variant="subtle"
-			size="xs"
-			btnClasses="!py-0.5"
+			unifiedSize="xs"
 			onclick={() => clearSessionsBetaOptOut(`${base}/sessions`)}
 		>
 			Activate

@@ -908,7 +908,7 @@
 		<div class="p-8 flex flex-col items-start gap-3 text-secondary text-sm">
 			<p class="text-primary font-medium">AI Sessions are deactivated</p>
 			<p>You switched back to the legacy chat. Activate AI Sessions (beta) to open this page.</p>
-			<Button size="xs" onclick={() => clearSessionsBetaOptOut(`${base}/sessions`)}>
+			<Button unifiedSize="xs" onclick={() => clearSessionsBetaOptOut(`${base}/sessions`)}>
 				Activate AI Sessions
 			</Button>
 		</div>
