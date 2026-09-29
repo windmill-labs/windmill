@@ -517,7 +517,7 @@ serde_urlencoded = "^0"
 astral-tokio-tar = "^0.6.2"
 tempfile = "^3"
 x509-parser = "^0.16"
-tokio-util = { version = "=0.7.17", features = ["io"] }
+tokio-util = { version = "=0.7.17", features = ["io", "rt"] }
 json-pointer = "^0"
 itertools = "^0.14.0"
 regex = "^1"

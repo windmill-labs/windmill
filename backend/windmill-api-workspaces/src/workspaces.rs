@@ -9079,7 +9079,7 @@ async fn create_workspace_fork(
         )));
     };
 
-    tokio::spawn(async move {
+    BACKGROUND_FORKS.spawn(async move {
         let heartbeat = {
             let (db, fork_id) = (db.clone(), fork_id.clone());
             tokio::spawn(async move {
@@ -9138,6 +9138,12 @@ async fn create_workspace_fork(
 /// without that record its creation counts as abandoned.
 const FORK_HEARTBEAT_SECS: u64 = 10;
 const FORK_HEARTBEAT_STALE_SECS: u64 = 60;
+
+/// Forks being created in the background. The server waits for them on shutdown: a copy cut short
+/// never drops the data table databases it already made, and a retry under the same id is refused
+/// while they exist.
+pub static BACKGROUND_FORKS: std::sync::LazyLock<tokio_util::task::TaskTracker> =
+    std::sync::LazyLock::new(tokio_util::task::TaskTracker::new);
 
 #[derive(Deserialize)]
 struct CreateWorkspaceForkQuery {

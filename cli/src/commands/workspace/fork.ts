@@ -22,6 +22,34 @@ import {
   readConfigFile,
 } from "../../core/conf.ts";
 
+/**
+ * Wait for a fork requested with `background: true`. A server without background forks ignores
+ * the flag and has already created the fork when the request returns; it has no status route.
+ */
+async function waitForForkCreation(parentWorkspace: string, forkId: string) {
+  let failedPolls = 0;
+  while (true) {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    let result: Awaited<ReturnType<typeof wmill.getForkCreationStatus>>;
+    try {
+      result = await wmill.getForkCreationStatus({
+        workspace: parentWorkspace,
+        forkWorkspaceId: forkId,
+      });
+      failedPolls = 0;
+    } catch (e) {
+      if ((e as { status?: number }).status === 404) return;
+      // A poll lost to a proxy says nothing about the fork, which is still being created.
+      if (++failedPolls >= 5) throw e;
+      continue;
+    }
+    if (result.status === "completed") return;
+    if (result.status === "failed") {
+      throw new Error(result.error ?? "Unknown error");
+    }
+  }
+}
+
 async function createWorkspaceFork(
   opts: GlobalOptions & {
     createWorkspaceName: string | undefined;
@@ -376,8 +404,9 @@ async function createWorkspaceFork(
 
   // --- Create the fork workspace ---
   try {
-    const result = await wmill.createWorkspaceFork({
+    await wmill.createWorkspaceFork({
       workspace: workspace.workspaceId,
+      background: true,
       requestBody: {
         id: trueWorkspaceId,
         name: opts.createWorkspaceName ?? workspaceName ?? trueWorkspaceId,
@@ -385,8 +414,9 @@ async function createWorkspaceFork(
         forked_datatables: forkedDatatables,
       },
     });
+    await waitForForkCreation(workspace.workspaceId, trueWorkspaceId);
 
-    log.info(colors.green(`✅ ${result}`));
+    log.info(colors.green(`✅ Created forked workspace ${trueWorkspaceId}`));
   } catch (error) {
     log.error(
       colors.red(`Failed to create forked workspace: ${(error as Error).message}`),
