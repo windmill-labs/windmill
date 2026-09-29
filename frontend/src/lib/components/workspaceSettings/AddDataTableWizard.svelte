@@ -241,10 +241,14 @@
 	)
 	// Both substrates are set up by a superadmin, so only they are shown the managed option while
 	// neither is on offer yet: it leads to the explainer on how to set one up.
+	// Cloud has no Postgres Windmill manages, internal or external: data tables there are always a
+	// resource.
 	let managedOffered = $derived(
-		instanceAvailable || externalInstanceAvailable || (!!$superadmin && !isCloudHosted())
+		!isCloudHosted() && (instanceAvailable || externalInstanceAvailable || !!$superadmin)
 	)
-	let canSetUpExternal = $derived(offerExternalSetup && !!$superadmin && !!$enterpriseLicense)
+	let canSetUpExternal = $derived(
+		offerExternalSetup && !isCloudHosted() && !!$superadmin && !!$enterpriseLicense
+	)
 
 	function preferredManagedProvider(): Provider {
 		return instanceAvailable || !externalInstanceAvailable ? 'instance' : 'external_instance'
@@ -589,6 +593,22 @@
 		(oauthConnects.current ?? []).some((c) => c.name === 'supabase_wizard')
 	)
 
+	/** A resource is the only thing step 1 would offer, so it is skipped: there is no choice to
+	 *  make. Decided once Supabase's availability is known, since that is the other option. */
+	let onlyResource = $derived(
+		!managedOffered &&
+			!oauthConnects.loading &&
+			oauthConnects.current !== undefined &&
+			!supabaseAvailable
+	)
+	$effect(() => {
+		if (!opened || !onlyResource || wiz.step !== 1 || wiz.provider) return
+		untrack(() => {
+			selectProvider('resource')
+			enterStep(2)
+		})
+	})
+
 	const folderNames = resource(
 		() => (opened ? targetWorkspace : ''),
 		async (workspace) => {
@@ -742,6 +762,7 @@
 	function goToStep(index: number) {
 		const target = index + 1
 		if (run.steps.length || target > maxStep || target === wiz.step) return
+		if (target === 1 && onlyResource) return
 		wiz.step = target as 1 | 2 | 3
 	}
 
@@ -1341,7 +1362,7 @@
 			<div class="flex flex-col gap-1 pt-3">
 				<div class="flex justify-between items-center gap-2">
 					<div>
-						{#if wiz.step > 1 && !run.steps.length}
+						{#if wiz.step > 1 && !run.steps.length && !(wiz.step === 2 && onlyResource)}
 							<Button
 								size="xs"
 								variant="default"
