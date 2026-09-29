@@ -98,7 +98,7 @@
 	import DataTablePermissionsButton from './DataTablePermissionsButton.svelte'
 	import InstanceRolesButton from './InstanceRolesButton.svelte'
 	import { deepEqual } from 'fast-equals'
-	import { apiErrorMessage, clone } from '$lib/utils'
+	import { apiErrorMessage, clone, escapeHtml } from '$lib/utils'
 	import SettingsFooter from './SettingsFooter.svelte'
 	import Alert from '../common/alert/Alert.svelte'
 	import EmptyState from '../common/emptyState/EmptyState.svelte'
@@ -265,7 +265,7 @@
 					children: 'Are you sure you want to save without setting them up ?',
 					confirmationText: 'Save anyway'
 				})
-				if (!confirm) return
+				if (!confirm) return false
 			}
 			const settings = convertDataTableSettingsToBackend(tempSettings)
 			// Track renames/deletions by stable id (against the saved baseline) so
@@ -278,6 +278,24 @@
 			const deleted_datatables = dataTableSettings.dataTables
 				.filter((d) => !tempIds.has(d.id))
 				.map((d) => d.name)
+			if (deleted_datatables.length > 0) {
+				const names = deleted_datatables
+					.map((n) => `<span class="font-mono">datatable://${escapeHtml(n)}</span>`)
+					.join(', ')
+				const one = deleted_datatables.length === 1
+				const confirmed = await confirmationModal.ask({
+					title: one
+						? `Delete the data table ${deleted_datatables[0]}?`
+						: `Delete ${deleted_datatables.length} data tables?`,
+					confirmationText: one
+						? 'Delete and save'
+						: `Delete ${deleted_datatables.length} and save`,
+					// One root element: the modal renders this as a raw snippet, which keeps only the
+					// first node.
+					children: `<span>Scripts, flows and apps using ${names} stop resolving, and ${one ? 'its' : 'their'} migration history is deleted. The database${one ? '' : 's'} behind ${one ? 'it is' : 'them are'} not dropped.</span>`
+				})
+				if (!confirmed) return false
+			}
 			const result = await WorkspaceService.editDataTableConfig({
 				workspace: $workspaceStore!,
 				requestBody: { settings, renames, deleted_datatables }
