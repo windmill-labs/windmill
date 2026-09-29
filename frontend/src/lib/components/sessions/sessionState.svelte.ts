@@ -1184,10 +1184,16 @@ export async function commitSessionWorkspace(
 				`Community edition is limited to ${CE_MAX_NON_ADMIN_WORKSPACES + 1} workspaces — archive a workspace or pick one to run in`
 			)
 		}
-		const newId = await materializeFork(fork, (creation_id) => {
-			s.pending_fork = { ...fork, creation_id }
-			void putSession(s)
+		let stillCreating = false
+		const newId = await materializeFork(fork, {
+			onCreationStarted: (creation_id) => {
+				s.pending_fork = { ...fork, creation_id }
+				void putSession(s)
+			},
+			onStillCreating: () => (stillCreating = true)
 		})
+		// The fork is on its way: keep the intent so the next send adopts it.
+		if (!newId && stillCreating) return undefined
 		if (!newId) {
 			// Real failure (not a recovered duplicate). Drop the pending
 			// fork so the session falls through to the workspace-pick
@@ -1293,27 +1299,37 @@ export function setGeneratedSessionSummary(
 	return true
 }
 
-// Create a new fork workspace via the API, refresh the user-workspaces
-// store, and return the new fork id. Used by both the first-send commit
-// path (commitSessionWorkspace) and the move-session-to-a-new-fork path
-// in the unavailable-session banner. Returns undefined on failure (a
-// user-facing toast is already emitted).
+const RESUMED_FORK_MAX_FAILING_MS = 10_000
+
+// Make sure the fork exists, refresh the user-workspaces store, and return
+// the fork id. Used by both the first-send commit path
+// (commitSessionWorkspace) and the move-session-to-a-new-fork path in the
+// unavailable-session banner. Returns undefined on failure (a user-facing
+// toast is already emitted).
 //
-// Self-heal: if `fork.id` is already present in the user-workspaces
-// store, the previous create succeeded (whose response we apparently
-// lost). Adopt it silently instead of re-POSTing — the API would
-// otherwise reject with workspace_pkey. Likewise, if the API returns a
-// duplicate-key error we refresh the store and adopt the existing row.
+// Self-heal: a fork already present in the user-workspaces store was
+// created by an earlier request whose response was lost, and is adopted
+// without requesting it again; so is one the API reports as a duplicate
+// key. A fork whose `creation_id` is set waits for that creation (started
+// before a reload). `onCreationStarted` receives the id of a new creation;
+// `onStillCreating` is called instead of failing when the server reports
+// this fork is being created by a creation the client lost track of.
 export async function materializeFork(
 	fork: PendingFork,
-	onCreationStarted?: (creationId: string) => void
+	opts: { onCreationStarted?: (creationId: string) => void; onStillCreating?: () => void } = {}
 ): Promise<string | undefined> {
 	if (get(userWorkspaces).some((w) => w.id === fork.id)) return fork.id
 	try {
 		let resumed = false
 		if (fork.creation_id) {
-			// An attempt that failed or is gone is requested again below.
-			resumed = await waitForForkCreation(fork.parent_workspace_id, fork.creation_id).then(
+			// An attempt that failed or is gone is requested again below. Its polls fail only when
+			// it is gone, so they are not waited out as a fresh creation's are.
+			resumed = await waitForForkCreation(
+				fork.parent_workspace_id,
+				fork.creation_id,
+				undefined,
+				RESUMED_FORK_MAX_FAILING_MS
+			).then(
 				() => true,
 				() => false
 			)
@@ -1322,7 +1338,7 @@ export async function materializeFork(
 			await createWorkspaceForkAndWait(
 				fork.parent_workspace_id,
 				{ id: fork.id, name: fork.name },
-				{ onCreationStarted }
+				{ onCreationStarted: opts.onCreationStarted }
 			)
 		}
 		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
@@ -1330,6 +1346,11 @@ export async function materializeFork(
 		return fork.id
 	} catch (e: any) {
 		const msg = String(e?.body ?? e?.message ?? e)
+		if (opts.onStillCreating && msg.includes('is already being created')) {
+			sendUserToast(`Fork ${fork.name} is still being created, send again in a moment`)
+			opts.onStillCreating()
+			return undefined
+		}
 		if (/workspace_pkey|duplicate key/i.test(msg)) {
 			// Self-heal: the create likely already succeeded. Refresh + adopt the
 			// existing row. Guard this refresh — a second network failure here must

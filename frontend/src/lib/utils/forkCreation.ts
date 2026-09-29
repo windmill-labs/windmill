@@ -28,11 +28,15 @@ export async function createWorkspaceForkAndWait(
 	await waitForForkCreation(parentWorkspace, response, opts.onStep)
 }
 
-/** Wait for a fork creation started in the background, by the id its request answered with. */
+/**
+ * Wait for a fork creation started in the background, by the id its request answered with.
+ * `maxFailingMs` bounds how long polls may keep failing before the wait gives up.
+ */
 export async function waitForForkCreation(
 	parentWorkspace: string,
 	creationId: string,
-	onStep?: (step: string) => void
+	onStep?: (step: string) => void,
+	maxFailingMs = MAX_FAILING_POLLS_MS
 ): Promise<void> {
 	let failingSince: number | undefined
 	while (true) {
@@ -47,7 +51,7 @@ export async function waitForForkCreation(
 			// A failed poll says nothing about the fork: it can be lost to the same proxy the fork
 			// runs in the background to avoid, or reach a replica that has no status route yet.
 			failingSince ??= Date.now()
-			if (Date.now() - failingSince >= MAX_FAILING_POLLS_MS) throw e
+			if (Date.now() - failingSince >= maxFailingMs) throw e
 		}
 		if (result?.status === 'running' && result.step) onStep?.(result.step)
 		if (result?.status === 'completed') return
