@@ -29,7 +29,7 @@ pub fn effective_reasoning_effort<'a>(model: &str, effort: Option<&'a str>) -> O
 /// reject `thinking: {type: "disabled"}`, and `gpt-6-astra` rejects effort `none` (its
 /// sol and luna tiers take it). The Claude version match stops at one digit so a dated id
 /// (`claude-sonnet-5-20260101`) stays Sonnet 5.
-fn model_always_reasons(model: &str) -> bool {
+pub(crate) fn model_always_reasons(model: &str) -> bool {
     let model = model.to_lowercase().replace('.', "-");
     let claude_5_point_release = ["claude-opus-5-", "claude-sonnet-5-"].iter().any(|prefix| {
         model.split(prefix).skip(1).any(|rest| {
@@ -148,9 +148,53 @@ pub fn remember_chat_completions_only(base_url: &str, model: &str) {
     CHAT_COMPLETIONS_ONLY.insert((base_url.to_string(), model.to_string()), Instant::now());
 }
 
+/// gpt-5.5 and later refuse function tools on Chat Completions while they reason, even
+/// with the effort omitted (live-verified); the Responses API has no such limit. The major
+/// is one digit then a separator or the end, since Azure names gpt-3.5 `gpt-35-turbo`.
+pub(crate) fn completions_rejects_tools_with_reasoning(model: &str) -> bool {
+    let model = model.to_lowercase();
+    let base = model.rsplit('/').next().unwrap_or(&model);
+    let Some(rest) = base.strip_prefix("gpt-") else {
+        return false;
+    };
+    let mut chars = rest.chars();
+    let Some(major) = chars.next().and_then(|c| c.to_digit(10)) else {
+        return false;
+    };
+    if !matches!(chars.next(), None | Some('.') | Some('-')) {
+        return false;
+    }
+    let minor = rest
+        .strip_prefix("5.")
+        .map(|r| {
+            r.chars()
+                .take_while(char::is_ascii_digit)
+                .collect::<String>()
+        })
+        .and_then(|m| m.parse::<u32>().ok());
+    major > 5 || (major == 5 && minor.is_some_and(|m| m >= 5))
+}
+
 #[cfg(test)]
 mod effective_reasoning_effort_tests {
     use super::*;
+
+    #[test]
+    fn finds_the_models_that_refuse_tools_with_reasoning_on_chat_completions() {
+        for model in ["gpt-5.5", "gpt-5.6-sol", "gpt-6-astra", "openai/gpt-6-luna"] {
+            assert!(completions_rejects_tools_with_reasoning(model), "{model}");
+        }
+        for model in [
+            "gpt-5",
+            "gpt-5.1",
+            "gpt-5-mini",
+            "gpt-35-turbo",
+            "o3",
+            "gpt-4o",
+        ] {
+            assert!(!completions_rejects_tools_with_reasoning(model), "{model}");
+        }
+    }
 
     #[test]
     fn drops_off_only_where_the_model_rejects_every_disable() {

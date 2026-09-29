@@ -1,3 +1,6 @@
+use super::{
+    completions_rejects_tools_with_reasoning, model_always_reasons, REASONING_OFF_SENTINEL,
+};
 use crate::{
     ai_providers::AIProvider,
     image_handler::prepare_messages_for_api,
@@ -143,6 +146,16 @@ impl OtherQueryBuilder {
 
         let (reasoning_effort, thinking, temperature) =
             provider_reasoning_fields(&self.provider_kind, args.reasoning_effort, args.temperature);
+        // With tools, gpt-5.5+ only run here with reasoning off: turn it off where the model
+        // can, rather than failing every turn.
+        let reasoning_effort = if args.tools.is_some_and(|tools| !tools.is_empty())
+            && completions_rejects_tools_with_reasoning(args.model)
+            && !model_always_reasons(args.model)
+        {
+            Some(REASONING_OFF_SENTINEL)
+        } else {
+            reasoning_effort
+        };
 
         // Build request with stream_options for usage tracking
         let request_with_usage = OpenAICompletionRequest {

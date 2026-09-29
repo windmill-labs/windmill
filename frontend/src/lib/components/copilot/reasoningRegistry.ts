@@ -38,9 +38,31 @@ function baseModelId(model: string): string {
 	return parseModelId(model).base
 }
 
+/**
+ * The GPT major version, or undefined. One digit, then a separator or the end: Azure
+ * names gpt-3.5 `gpt-35-turbo`, which is not major 35.
+ */
+function gptMajor(base: string): number | undefined {
+	const major = /^gpt-(\d)(?:[.-]|$)/.exec(base)?.[1]
+	return major === undefined ? undefined : Number(major)
+}
+
 /** gpt-5 and every later major version reason, including each gpt-6 tier. */
 function isGpt5OrLater(base: string): boolean {
-	return Number(/^gpt-(\d+)/.exec(base)?.[1]) >= 5
+	return (gptMajor(base) ?? 0) >= 5
+}
+
+/**
+ * gpt-5.5 and later refuse function tools on Chat Completions while they reason, even
+ * with the effort omitted (live-verified); the Responses API has no such limit. Earlier
+ * models (gpt-5.1, gpt-5, o-series) take both.
+ */
+export function completionsRejectsToolsWithReasoning(provider: AIProvider, model: string): boolean {
+	const family = reasoningProviderFamily(provider, model)
+	if (family !== 'openai' && family !== 'azure_openai') return false
+	const base = baseModelId(model)
+	const major = gptMajor(base) ?? 0
+	return major > 5 || (major === 5 && Number(/^gpt-5\.(\d+)/.exec(base)?.[1] ?? 0) >= 5)
 }
 
 /**
@@ -50,7 +72,7 @@ function isGpt5OrLater(base: string): boolean {
  */
 function openaiCanDisable(base: string): boolean {
 	if (/^gpt-5\./.test(base)) return true
-	return Number(/^gpt-(\d+)/.exec(base)?.[1]) >= 6 && !base.includes('astra')
+	return (gptMajor(base) ?? 0) >= 6 && !base.includes('astra')
 }
 
 /**
@@ -432,8 +454,9 @@ export function explicitOffToken(provider: AIProvider, model: string): Reasoning
 			// OpenRouter validates effort against xhigh..minimal|none and
 			// documents 'none' as disabling reasoning, translated per the
 			// underlying provider — more reliable than omission, which keeps
-			// reasoning-by-default models thinking.
-			return 'none'
+			// reasoning-by-default models thinking. None for a model that rejects every
+			// disable, which the gateway would still translate into one.
+			return ANTHROPIC_ALWAYS_THINKING.test(model.toLowerCase()) ? undefined : 'none'
 		default:
 			return undefined
 	}

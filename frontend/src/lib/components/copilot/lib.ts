@@ -22,6 +22,8 @@ import {
 } from './modelConfig'
 import {
 	applyReasoningToConfig,
+	completionsRejectsToolsWithReasoning,
+	explicitOffToken,
 	requestsReasoning,
 	stripLegacyThinkingSuffix,
 	type ReasoningEffort
@@ -69,8 +71,8 @@ interface AIProviderDetails {
 // the frontier model. The gpt-5 family is deprecated (retires 2026-12-11) but
 // still served, so it stays in the list below the 5.6 models.
 const OPENAI_MODELS = [
-	'gpt-6-astra',
 	'gpt-6-sol',
+	'gpt-6-astra',
 	'gpt-6-luna',
 	'gpt-5.6-terra',
 	'gpt-5.6-sol',
@@ -1170,6 +1172,12 @@ export async function getCompletion(
 
 	// Use Completions API for other providers
 	const client = options?.openaiClient ?? workspaceAIClients.getOpenaiClient()
+	// gpt-5.5+ refuse function tools here unless reasoning is off, so the Responses API
+	// fallback turns it off where the model can rather than failing the turn.
+	const reasoningEffort =
+		tools?.length && completionsRejectsToolsWithReasoning(provider, modelProvider.model)
+			? (explicitOffToken(provider, modelProvider.model) ?? options?.reasoningEffort)
+			: options?.reasoningEffort
 	const completionConfig = applyReasoningToConfig(
 		config.stream && STREAM_USAGE_PROVIDERS.has(provider)
 			? {
@@ -1185,7 +1193,7 @@ export async function getCompletion(
 				}
 			: config,
 		provider === 'deepseek' ? 'deepseek' : provider === 'mistral' ? 'mistral' : 'completions',
-		options?.reasoningEffort
+		reasoningEffort
 	)
 	const completion = client.chat.completions.create(completionConfig, {
 		signal: abortController.signal,

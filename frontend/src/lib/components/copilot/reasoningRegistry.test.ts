@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
 	applyReasoningToConfig,
+	completionsRejectsToolsWithReasoning,
 	explicitOffToken,
 	getReasoningCapability,
 	REASONING_OFF,
@@ -276,6 +277,7 @@ describe('supportsReasoning (static registry)', () => {
 		expect(getReasoningCapability('openrouter', 'anthropic/claude-sonnet-5.5').canDisable).toBe(
 			false
 		)
+		expect(explicitOffToken('openrouter', 'anthropic/claude-sonnet-5.5')).toBeUndefined()
 		// A dated Claude 5 id is not a point release.
 		expect(explicitOffToken('anthropic', 'claude-sonnet-5-20260101')).toBe('none')
 		expect(explicitOffToken('openai', 'gpt-6-sol')).toBe('none')
@@ -284,6 +286,18 @@ describe('supportsReasoning (static registry)', () => {
 			canDisable: true,
 			levels: ['low', 'medium', 'high', 'xhigh', 'max']
 		})
+	})
+	it("reads Azure's gpt-35-turbo as gpt-3.5, not a gpt-5+ reasoning model", () => {
+		expect(supportsReasoning('azure_openai', 'gpt-35-turbo')).toBe(false)
+		expect(supportsReasoning('openai', 'gpt-35-turbo-16k')).toBe(false)
+	})
+	it('finds the models that refuse function tools with reasoning on Chat Completions', () => {
+		for (const model of ['gpt-5.5', 'gpt-5.6-sol', 'gpt-6-astra']) {
+			expect(completionsRejectsToolsWithReasoning('openai', model), model).toBe(true)
+		}
+		for (const model of ['gpt-5', 'gpt-5.1', 'gpt-35-turbo', 'o3']) {
+			expect(completionsRejectsToolsWithReasoning('azure_openai', model), model).toBe(false)
+		}
 	})
 	it('forwards an explicit off as effort none through OpenRouter', () => {
 		expect(

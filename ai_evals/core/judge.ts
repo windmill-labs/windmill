@@ -70,7 +70,8 @@ export async function judgeOutput(input: {
   try {
     const response = await client.messages.create({
       model,
-      max_tokens: 1024,
+      // The judge thinks by default, and thinking shares this budget with the verdict.
+      max_tokens: 16000,
       system,
       messages: [{ role: "user", content: user }],
       tools: [
