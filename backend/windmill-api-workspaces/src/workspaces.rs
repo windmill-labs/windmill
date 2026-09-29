@@ -9050,7 +9050,7 @@ async fn create_workspace_fork(
     let response_fork_id = fork_id.clone();
     sqlx::query(
         "DELETE FROM workspace_fork_creation
-         WHERE finished_at < now() - interval '7 days'",
+         WHERE COALESCE(finished_at, heartbeat_at) < now() - interval '7 days'",
     )
     .execute(&db)
     .await?;

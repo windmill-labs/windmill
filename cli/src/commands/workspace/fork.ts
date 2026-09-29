@@ -23,14 +23,17 @@ import {
 } from "../../core/conf.ts";
 
 /**
- * Wait for a fork requested with `background: true`. A server without background forks ignores
- * the flag and has already created the fork when the request returns; it has no status route.
+ * Wait for a fork requested with `background: true`. A poll that fails says nothing about the
+ * fork: it can be lost to a proxy, or reach a server without background forks (an older version,
+ * possibly one replica during a rolling deploy), which ignored the flag and created the fork
+ * before answering.
  */
 async function waitForForkCreation(parentWorkspace: string, forkId: string) {
   let failedPolls = 0;
   while (true) {
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    let result: Awaited<ReturnType<typeof wmill.getForkCreationStatus>>;
+    let result:
+      | Awaited<ReturnType<typeof wmill.getForkCreationStatus>>
+      | undefined;
     try {
       result = await wmill.getForkCreationStatus({
         workspace: parentWorkspace,
@@ -38,15 +41,17 @@ async function waitForForkCreation(parentWorkspace: string, forkId: string) {
       });
       failedPolls = 0;
     } catch (e) {
-      if ((e as { status?: number }).status === 404) return;
-      // A poll lost to a proxy says nothing about the fork, which is still being created.
-      if (++failedPolls >= 5) throw e;
-      continue;
+      const exists = await wmill
+        .existsWorkspace({ requestBody: { id: forkId } })
+        .catch(() => false);
+      if (exists) return;
+      if (++failedPolls >= 10) throw e;
     }
-    if (result.status === "completed") return;
-    if (result.status === "failed") {
+    if (result?.status === "completed") return;
+    if (result?.status === "failed") {
       throw new Error(result.error ?? "Unknown error");
     }
+    await new Promise((resolve) => setTimeout(resolve, 1500));
   }
 }
 
@@ -404,16 +409,21 @@ async function createWorkspaceFork(
 
   // --- Create the fork workspace ---
   try {
-    await wmill.createWorkspaceFork({
-      workspace: workspace.workspaceId,
-      background: true,
-      requestBody: {
-        id: trueWorkspaceId,
-        name: opts.createWorkspaceName ?? workspaceName ?? trueWorkspaceId,
-        color: forkColor,
-        forked_datatables: forkedDatatables,
-      },
-    });
+    await wmill
+      .createWorkspaceFork({
+        workspace: workspace.workspaceId,
+        background: true,
+        requestBody: {
+          id: trueWorkspaceId,
+          name: opts.createWorkspaceName ?? workspaceName ?? trueWorkspaceId,
+          color: forkColor,
+          forked_datatables: forkedDatatables,
+        },
+      })
+      .catch((e) => {
+        // Started by an earlier run: wait for that creation instead.
+        if (!String((e as { body?: unknown })?.body ?? "").includes("is already being created")) throw e;
+      });
     await waitForForkCreation(workspace.workspaceId, trueWorkspaceId);
 
     log.info(colors.green(`✅ Created forked workspace ${trueWorkspaceId}`));

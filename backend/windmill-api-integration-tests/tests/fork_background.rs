@@ -45,6 +45,13 @@ async fn test_fork_created_in_background(db: Pool<Postgres>) -> anyhow::Result<(
     assert_eq!(resp.status(), 200, "{}", resp.text().await?);
     let status = wait_for_fork(&client, &base_url, "wm-fork-bg-ok").await;
     assert_eq!(status, json!({ "status": "completed" }));
+    // A member who neither started the fork nor administers the workspace cannot read its outcome.
+    let resp = client
+        .get(format!("{base_url}/fork_creation_status/wm-fork-bg-ok"))
+        .header("Authorization", "Bearer SECRET_TOKEN_2")
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 404);
     let exists: bool =
         sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workspace WHERE id = 'wm-fork-bg-ok')")
             .fetch_one(&db)
