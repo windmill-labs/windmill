@@ -175,7 +175,7 @@ pub async fn resume_suspended_trigger_jobs(
     let mut unsuspended_in_place = 0;
 
     for job in jobs {
-        // If job was created before trigger was edited, simply update it to unsuspend
+        // If job was created after trigger was edited, simply update it to unsuspend
         // instead of deleting and repushing
         if job.created_at > trigger.edited_at {
             unsuspended_in_place += 1;
@@ -212,7 +212,7 @@ pub async fn resume_suspended_trigger_jobs(
             .execute(&mut *tx)
             .await?;
         } else {
-            // Job was created after trigger edit - delete and repush with new configuration
+            // Job was created before trigger edit - delete and repush with new configuration
             // Pass the transaction to trigger_runnable_inner so everything is in the same transaction
             let (_uuid, _delete_after_use, _early_return, _has_failure_module, tx_o) =
                 trigger_runnable_inner(
@@ -277,8 +277,9 @@ pub async fn resume_suspended_trigger_jobs(
 
     tx.commit().await?;
 
-    // A repushed job already counted as `fired` in `push`; one unsuspended in
-    // place never goes through it, so it is counted here.
+    // A repushed job is counted as `fired` inside `push`, before this commit, so
+    // a resume that rolls back still counts it; accepted for a telemetry counter.
+    // One unsuspended in place never goes through `push`, so it is counted here.
     for _ in 0..unsuspended_in_place {
         log_feature_usage("trigger", "fired", trigger_kind.as_str());
     }
