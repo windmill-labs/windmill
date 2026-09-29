@@ -9655,6 +9655,13 @@ async fn run_preview_flow_job(
     // jobs:run scope so a narrowly-scoped token cannot escape its scope. See run_preview_script.
     check_scopes(&authed, || format!("jobs:run"))?;
     require_path_read_access_for_preview(&authed, &raw_flow.path)?;
+    // Restarting copies the source runs' step results into the new run, and the queue resolves
+    // them with the service pool, so every run the request names must be readable as the caller.
+    let mut level = raw_flow.restarted_from.as_ref();
+    while let Some(r) = level {
+        require_job_update_read_access(&db, &user_db, &authed, &w_id, &r.flow_job_id, None).await?;
+        level = r.nested.as_deref();
+    }
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tag = run_query.tag.clone().or(raw_flow.tag.clone());
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
