@@ -586,6 +586,7 @@
 								{#snippet trigger()}
 									<ExploreAssetButton
 										asset={{ kind: 'datatable', path: dataTable.name }}
+										buttonVariant="accent"
 										disabled
 									/>
 								{/snippet}
@@ -594,7 +595,10 @@
 								{/snippet}
 							</Popover>
 						{:else}
-							<ExploreAssetButton asset={{ kind: 'datatable', path: dataTable.name }} />
+							<ExploreAssetButton
+								asset={{ kind: 'datatable', path: dataTable.name }}
+								buttonVariant="accent"
+							/>
 						{/if}
 					</div>
 				</div>
