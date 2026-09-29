@@ -6910,9 +6910,19 @@ async fn push_inner<'c, 'd>(
     // `schedule_path` (see `FlowJob::schedule_path`), so counting per push would
     // score one run as a fire per step job — a loop pushes two of those per
     // iteration — burying every other kind, and would sit on the per-step path.
+    //
+    // A job a suspended trigger parks is not a fire: it counts as `fired` only
+    // when `resume_suspended_trigger_jobs` releases it, or never if discarded.
+    // Both are counted before the queue caps below and the caller's commit, so a
+    // rejected push still counts; accepted for a telemetry counter.
     if flow_step_id.is_none() {
         if let Some(kind) = trigger_kind.as_ref() {
-            windmill_common::feature_usage::log_feature_usage("trigger", "fired", kind.as_str());
+            let action = if suspended_mode.unwrap_or(false) {
+                "suspended"
+            } else {
+                "fired"
+            };
+            windmill_common::feature_usage::log_feature_usage("trigger", action, kind.as_str());
         }
     }
 

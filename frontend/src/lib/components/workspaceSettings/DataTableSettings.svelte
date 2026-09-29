@@ -9,7 +9,7 @@
 			id: string
 			name: string
 			database: {
-				resource_type: 'postgresql' | 'instance'
+				resource_type: 'postgresql' | 'instance' | 'external_instance'
 				resource_path?: string | undefined
 			}
 			/** Set on a fork's entry: it names the workspace whose data table governs this one, and
@@ -80,6 +80,8 @@
 	import Tooltip from '../Tooltip.svelte'
 	import {
 		isCustomInstanceDbEnabled,
+		managedInstanceLabels,
+		shortManagedInstanceLabel,
 		getUnusedInstanceDbName,
 		isDataTableWizardEnabled
 	} from './utils.svelte'
@@ -96,13 +98,14 @@
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { resource } from 'runed'
 	import CustomInstanceDbSelect from './CustomInstanceDbSelect.svelte'
+	import ExternalInstanceDbSelect from './ExternalInstanceDbSelect.svelte'
 	import { Popover } from '../meltComponents'
 	import ExploreAssetButton from '../ExploreAssetButton.svelte'
 	import DataTableMigrationsButton from './DataTableMigrationsButton.svelte'
 	import DataTablePermissionsButton from './DataTablePermissionsButton.svelte'
 	import InstanceRolesButton from './InstanceRolesButton.svelte'
 	import { deepEqual } from 'fast-equals'
-	import { clone, onlyAlphaNumAndUnderscore } from '$lib/utils'
+	import { apiErrorMessage, clone, onlyAlphaNumAndUnderscore } from '$lib/utils'
 	import SettingsFooter from './SettingsFooter.svelte'
 	import Alert from '../common/alert/Alert.svelte'
 	import MissingWorkerTagAlert from '../jobs/MissingWorkerTagAlert.svelte'
@@ -168,6 +171,88 @@
 
 	const customInstanceDbs = resource([() => $workspaceStore], SettingService.listCustomInstanceDbs)
 
+	// Both endpoints are superadmin-only, and the kind is theirs to pick, so a workspace admin
+	// never loads them — and sees the option disabled rather than an empty picker.
+	const externalInstanceStatus = resource([() => $superadmin], ([isSuperadmin]) =>
+		isSuperadmin ? SettingService.getExternalInstancePgStatus() : Promise.resolve(undefined)
+	)
+	const externalInstanceDbs = resource([() => $superadmin], ([isSuperadmin]) =>
+		isSuperadmin ? SettingService.listExternalInstancePgDatabases() : Promise.resolve({})
+	)
+	let externalInstanceConfigured = $derived(externalInstanceStatus.current?.configured === true)
+	// Superadmin-only like the ones above, and absent means on.
+	const instancePgDisabled = resource([() => $superadmin], ([isSuperadmin]) =>
+		isSuperadmin
+			? SettingService.getGlobal({ key: 'instance_pg_disabled' }).catch(() => undefined)
+			: Promise.resolve(undefined)
+	)
+	// Both substrates answer only to a superadmin, so nobody else can be told whether one is on
+	// offer: they see a managed kind only where an entry already sits on it.
+	let instancePossible = $derived(
+		!!$superadmin && !isCloudHosted() && !instancePgDisabled.current
+	)
+	let instanceAvailable = $derived(instancePossible)
+
+	// A kind already saved stays listed whatever the instance offers now, or the entry would read
+	// as something it is not.
+	// Qualified per form, not per row: two rows, one on each substrate, would otherwise both
+	// read `Managed instance` and the label would say nothing.
+	let anyInstanceRow = $derived(
+		tempSettings.dataTables.some((d) => d.database.resource_type === 'instance')
+	)
+	let anyExternalRow = $derived(
+		tempSettings.dataTables.some((d) => d.database.resource_type === 'external_instance')
+	)
+	function kindItems(current: string | undefined) {
+		const showInstance = instancePossible || current === 'instance'
+		const showExternal =
+			(externalInstanceConfigured && !!$superadmin) || current === 'external_instance'
+		const labels = managedInstanceLabels(
+			instancePossible || anyInstanceRow,
+			(externalInstanceConfigured && !!$superadmin) || anyExternalRow
+		)
+		const items: { value: string; label: string; disabled?: boolean; subtitle?: string }[] = [
+			{ value: 'postgresql', label: 'Postgres Resource' }
+		]
+		if (showInstance) {
+			items.push({
+				value: 'instance',
+				label: labels.instance,
+				disabled: !instanceAvailable,
+				subtitle: instanceAvailable
+					? undefined
+					: !$superadmin
+						? 'Superadmin only'
+						: isCloudHosted()
+							? 'Not available on cloud'
+							: "Windmill's database is disabled"
+			})
+		}
+		if (showExternal) {
+			items.push({
+				value: 'external_instance',
+				label: labels.external,
+				disabled: !externalInstanceConfigured || !$superadmin,
+				subtitle: !$superadmin
+					? 'Superadmin only'
+					: externalInstanceConfigured
+						? undefined
+						: 'No external cluster configured'
+			})
+		}
+		return items
+	}
+
+	function defaultExternalDbName(): string {
+		const usedNames = [
+			...Object.keys(externalInstanceDbs.current ?? {}),
+			...tempSettings.dataTables
+				.filter((d) => d.database.resource_type === 'external_instance' && d.database.resource_path)
+				.map((d) => d.database.resource_path!)
+		]
+		return getUnusedInstanceDbName('dt', $workspaceStore ?? '', usedNames)
+	}
+
 	function defaultInstanceDbName(): string {
 		const usedNames = [
 			...Object.keys(customInstanceDbs.current ?? {}),
@@ -188,8 +273,14 @@
 			id: randomUUID(),
 			name,
 			database: {
-				resource_type: $isCustomInstanceDbEnabled ? 'instance' : 'postgresql',
-				resource_path: $isCustomInstanceDbEnabled ? defaultInstanceDbName() : undefined
+				// A new entry starts on a kind this instance actually offers, so it is never born
+				// on one the save would refuse.
+				resource_type: instanceAvailable
+					? 'instance'
+					: externalInstanceConfigured && $superadmin
+						? 'external_instance'
+						: 'postgresql',
+				resource_path: instanceAvailable ? defaultInstanceDbName() : undefined
 			}
 		})
 	}
@@ -245,7 +336,7 @@
 				sendUserToast('Data table settings saved successfully')
 			}
 		} catch (e) {
-			sendUserToast(e, true)
+			sendUserToast(apiErrorMessage(e), true)
 			console.error('Error saving data table settings', e)
 			throw e
 		}
@@ -426,21 +517,16 @@
 									>
 										Use Windmill's PostgreSQL instance
 									</Tooltip>
+								{:else if dataTable.database.resource_type === 'external_instance'}
+									<Tooltip
+										wrapperClass="absolute mt-[0.6rem] right-2 z-20"
+										placement="bottom-start"
+									>
+										Use a database Windmill manages on the external PostgreSQL cluster
+									</Tooltip>
 								{/if}
 								<Select
-									items={[
-										{ value: 'postgresql', label: 'PostgreSQL' },
-										{
-											value: 'instance',
-											label: 'Instance',
-											disabled: isCloudHosted(),
-											subtitle: $isCustomInstanceDbEnabled
-												? undefined
-												: isCloudHosted()
-													? 'Not available on cloud'
-													: 'Superadmin only'
-										}
-									]}
+									items={kindItems(dataTable.database.resource_type)}
 									bind:value={
 										() => dataTable.database.resource_type,
 										(resource_type) => {
@@ -451,12 +537,20 @@
 											}
 										}
 									}
+									transformInputSelectedText={shortManagedInstanceLabel}
 									id="database-type-select"
-									class="w-28"
+									class="w-36"
 								/>
 							</div>
 							<div class="flex items-center gap-1 w-80 relative">
-								{#if dataTable.database.resource_type !== 'instance'}
+								{#if dataTable.database.resource_type === 'external_instance'}
+									<ExternalInstanceDbSelect
+										class="flex-1"
+										{externalInstanceDbs}
+										bind:value={dataTable.database.resource_path}
+										tag="datatable"
+									/>
+								{:else if dataTable.database.resource_type !== 'instance'}
 									<ResourcePicker
 										class="flex-1"
 										bind:value={dataTable.database.resource_path}
@@ -684,6 +778,9 @@
 		resume={wizardResume}
 		onDone={reloadAfterWizard}
 		{customInstanceDbs}
+		{externalInstanceDbs}
+		externalInstanceAvailable={externalInstanceConfigured && !!$superadmin}
+		{defaultExternalDbName}
 		{confirmationModal}
 		{defaultInstanceDbName}
 	/>

@@ -66,6 +66,7 @@ use crate::{
     args::RawWebhookArgs,
     db::{ApiAuthed, DB},
     users::fetch_api_authed,
+    utils::check_scopes,
 };
 
 use axum::{
@@ -319,6 +320,7 @@ async fn get_configs(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, runnable_kind, path)): Path<(String, RunnableKind, StripPath)>,
 ) -> JsonResult<Vec<CaptureConfig>> {
+    check_scopes(&authed, || format!("capture:read:{}", path.to_path()))?;
     let mut tx = user_db.begin(&authed).await?;
 
     let configs = sqlx::query_as!(
@@ -557,6 +559,7 @@ async fn set_config(
     Path(w_id): Path<String>,
     Json(nc): Json<NewCaptureConfig>,
 ) -> JsonResult<Option<TriggerConfig>> {
+    check_scopes(&authed, || format!("capture:write:{}", nc.path))?;
     let nc = match nc.trigger_kind {
         TriggerKind::Postgres => {
             set_postgres_trigger_config(&w_id, authed.clone(), &db, user_db.clone(), nc).await?
@@ -616,6 +619,7 @@ async fn ping_config(
         StripPath,
     )>,
 ) -> Result<()> {
+    check_scopes(&authed, || format!("capture:write:{}", path.to_path()))?;
     let mut tx = user_db.begin(&authed).await?;
     if matches!(trigger_kind, TriggerKind::Postgres) {
         windmill_common::datatable_roles::lock_datatable_streams(&mut *tx, false).await?;
@@ -667,6 +671,7 @@ async fn list_captures(
     Path((w_id, runnable_kind, path)): Path<(String, RunnableKind, StripPath)>,
     Query(query): Query<ListCapturesQuery>,
 ) -> JsonResult<Vec<Capture>> {
+    check_scopes(&authed, || format!("capture:read:{}", path.to_path()))?;
     let mut tx = user_db.begin(&authed).await?;
 
     let (per_page, offset) = paginate(Pagination { page: query.page, per_page: query.per_page });
@@ -713,12 +718,44 @@ async fn list_captures(
     Ok(Json(captures))
 }
 
+/// A capture addressed by id carries no path in the route, so its path scope can only be
+/// checked against the row. Looked up under the caller's RLS so the check never reveals
+/// whether an id the caller cannot see exists, and the refusal omits the path, which the
+/// caller named only by id.
+async fn check_capture_id_scope(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    authed: &ApiAuthed,
+    w_id: &str,
+    id: i64,
+    action: &str,
+) -> Result<()> {
+    if authed.scopes.is_none() {
+        return Ok(());
+    }
+    let path = sqlx::query_scalar!(
+        "SELECT path FROM capture WHERE id = $1 AND workspace_id = $2",
+        id,
+        w_id,
+    )
+    .fetch_optional(&mut **tx)
+    .await?;
+    if let Some(path) = path {
+        check_scopes(authed, || format!("capture:{action}:{path}")).map_err(|_| {
+            windmill_common::error::Error::PermissionDenied(format!(
+                "This token's capture:{action} scope does not cover capture {id}"
+            ))
+        })?;
+    }
+    Ok(())
+}
+
 async fn get_capture(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, id)): Path<(String, i64)>,
 ) -> JsonResult<Capture> {
     let mut tx = user_db.begin(&authed).await?;
+    check_capture_id_scope(&mut tx, &authed, &w_id, id, "read").await?;
 
     let capture = sqlx::query_as!(
         Capture,
@@ -751,6 +788,7 @@ async fn delete_capture(
     Path((w_id, id)): Path<(String, i64)>,
 ) -> Result<()> {
     let mut tx = user_db.begin(&authed).await?;
+    check_capture_id_scope(&mut tx, &authed, &w_id, id, "write").await?;
     // capture RLS only keys on the path segment, so without workspace_id an id from
     // another workspace whose path collides with the caller's grants would be deleted.
     sqlx::query!(
@@ -781,8 +819,10 @@ async fn move_captures_and_configs(
     Path((w_id, runnable_kind, old_path)): Path<(String, RunnableKind, StripPath)>,
     Json(body): Json<MoveCapturesAndConfigsBody>,
 ) -> Result<()> {
-    let mut tx = user_db.begin(&authed).await?;
     let old_path = old_path.to_path();
+    check_scopes(&authed, || format!("capture:write:{}", old_path))?;
+    check_scopes(&authed, || format!("capture:write:{}", body.new_path))?;
+    let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query!(
         r#"

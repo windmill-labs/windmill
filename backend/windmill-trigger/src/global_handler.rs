@@ -14,6 +14,7 @@ use windmill_api_jobs::execution::cancel_jobs;
 use windmill_common::{
     db::{UserDB, DB},
     error::{self, Error, Result},
+    feature_usage::log_feature_usage,
     jobs::{delete_jobs, JobTriggerKind},
     triggers::TriggerMetadata,
 };
@@ -168,14 +169,16 @@ pub async fn resume_suspended_trigger_jobs(
         .await?
     };
 
-    let trigger_metadata = TriggerMetadata::new(Some(trigger_path.clone()), trigger_kind);
+    let trigger_metadata = TriggerMetadata::new(Some(trigger_path.clone()), trigger_kind.clone());
 
     let l = jobs.len();
+    let mut unsuspended_in_place = 0;
 
     for job in jobs {
-        // If job was created before trigger was edited, simply update it to unsuspend
+        // If job was created after trigger was edited, simply update it to unsuspend
         // instead of deleting and repushing
         if job.created_at > trigger.edited_at {
+            unsuspended_in_place += 1;
             // Map the placeholder unassigned kind back to its assigned counterpart so
             // singlestepflow wrappers (retry/error_handler/skip_handler) keep their
             // flow-orchestrator identity.
@@ -209,7 +212,7 @@ pub async fn resume_suspended_trigger_jobs(
             .execute(&mut *tx)
             .await?;
         } else {
-            // Job was created after trigger edit - delete and repush with new configuration
+            // Job was created before trigger edit - delete and repush with new configuration
             // Pass the transaction to trigger_runnable_inner so everything is in the same transaction
             let (_uuid, _delete_after_use, _early_return, _has_failure_module, tx_o) =
                 trigger_runnable_inner(
@@ -274,6 +277,16 @@ pub async fn resume_suspended_trigger_jobs(
 
     tx.commit().await?;
 
+    // A repushed job is counted as `fired` inside `push`, before this commit, so
+    // a resume that rolls back still counts it; accepted for a telemetry counter.
+    // One unsuspended in place never goes through `push`, so it is counted here.
+    for _ in 0..unsuspended_in_place {
+        log_feature_usage("trigger", "fired", trigger_kind.as_str());
+    }
+    for _ in 0..l {
+        log_feature_usage("trigger", "resumed", trigger_kind.as_str());
+    }
+
     Ok(Json(format!("Reassigned {} jobs", l)))
 }
 
@@ -334,6 +347,9 @@ pub async fn cancel_suspended_trigger_jobs(
             true,
         )
         .await?;
+        for _ in 0..cancelled_jobs.0.len() {
+            log_feature_usage("trigger", "discarded", trigger_kind.as_str());
+        }
         Ok(Json(format!("Canceled {} jobs", cancelled_jobs.0.len())))
     } else {
         Ok(Json(format!("No jobs to cancel")))
