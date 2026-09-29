@@ -1400,8 +1400,8 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - name: background
           description: |
-            return once the request is validated and create the fork in the background;
-            poll getForkCreationStatus for how it ends
+            return once the request is validated and create the fork in the background, answering
+            with the creation id getForkCreationStatus reads
           in: query
           required: false
           schema:
@@ -1415,13 +1415,13 @@ paths:
               $ref: "#/components/schemas/CreateWorkspaceFork"
       responses:
         "201":
-          description: forked workspace created, or its creation started when background is set
+          description: forked workspace created, or with background set, the id of its creation
           content:
             text/plain:
               schema:
                 type: string
 
-  /w/{workspace}/workspaces/fork_creation_status/{fork_workspace_id}:
+  /w/{workspace}/workspaces/fork_creation_status/{creation_id}:
     get:
       summary: get the status of a fork created in the background
       operationId: getForkCreationStatus
@@ -1429,11 +1429,12 @@ paths:
         - workspace
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-        - name: fork_workspace_id
+        - name: creation_id
           in: path
           required: true
           schema:
             type: string
+            format: uuid
       responses:
         "200":
           description: fork creation status

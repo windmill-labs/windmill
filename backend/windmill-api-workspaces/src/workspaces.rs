@@ -177,7 +177,7 @@ pub fn workspaced_service() -> Router {
         .route("/get_workspace_name", get(get_workspace_name))
         .route("/create_fork", post(create_workspace_fork))
         .route(
-            "/fork_creation_status/{fork_workspace_id}",
+            "/fork_creation_status/{creation_id}",
             get(get_fork_creation_status),
         )
         .route("/attach_dev_workspace", post(attach_dev_workspace))
@@ -9055,7 +9055,6 @@ async fn create_workspace_fork(
     }
 
     let fork_id = nw.id.clone();
-    let response_fork_id = fork_id.clone();
     sqlx::query(
         "DELETE FROM workspace_fork_creation
          WHERE COALESCE(finished_at, heartbeat_at) < now() - interval '7 days'",
@@ -9063,26 +9062,29 @@ async fn create_workspace_fork(
     .execute(&db)
     .await?;
     let claimed = sqlx::query(
-        "INSERT INTO workspace_fork_creation (fork_workspace_id, parent_workspace_id, created_by)
-         VALUES ($1, $2, $3)
+        "INSERT INTO workspace_fork_creation
+             (fork_workspace_id, parent_workspace_id, created_by, creation_id)
+         VALUES ($1, $2, $3, $5)
          ON CONFLICT (fork_workspace_id) DO UPDATE SET
              parent_workspace_id = EXCLUDED.parent_workspace_id,
              created_by = EXCLUDED.created_by,
+             creation_id = EXCLUDED.creation_id,
              started_at = now(), heartbeat_at = now(), step = NULL, finished_at = NULL,
              error = NULL
          WHERE workspace_fork_creation.finished_at IS NOT NULL
             OR workspace_fork_creation.heartbeat_at < now() - $4 * interval '1 second'
-         RETURNING started_at",
+         RETURNING creation_id",
     )
     .bind(&fork_id)
     .bind(&parent_workspace_id)
     .bind(&authed.email)
     .bind(FORK_HEARTBEAT_STALE_SECS as f64)
+    .bind(Uuid::new_v4())
     .fetch_optional(&db)
     .await?;
-    // Every write of this run is scoped to its `started_at`: a run taken over as abandoned must
-    // not report over the run that took its place.
-    let Some(started_at) = claimed.map(|r| r.get::<chrono::DateTime<Utc>, _>("started_at")) else {
+    // Every write of this attempt is scoped to its `creation_id`: one taken over as abandoned must
+    // not report over the attempt that took its place.
+    let Some(creation_id) = claimed.map(|r| r.get::<Uuid, _>("creation_id")) else {
         return Err(Error::BadRequest(format!(
             "workspace '{fork_id}' is already being created"
         )));
@@ -9106,10 +9108,10 @@ async fn create_workspace_fork(
                     let step = *progress_rx.borrow_and_update();
                     if let Err(e) = sqlx::query(
                         "UPDATE workspace_fork_creation SET heartbeat_at = now(), step = $3
-                         WHERE fork_workspace_id = $1 AND started_at = $2",
+                         WHERE fork_workspace_id = $1 AND creation_id = $2",
                     )
                     .bind(&fork_id)
-                    .bind(started_at)
+                    .bind(creation_id)
                     .bind((!step.is_empty()).then_some(step))
                     .execute(&db)
                     .await
@@ -9137,10 +9139,10 @@ async fn create_workspace_fork(
         });
         if let Err(e) = sqlx::query(
             "UPDATE workspace_fork_creation SET finished_at = now(), error = $3
-             WHERE fork_workspace_id = $1 AND started_at = $2",
+             WHERE fork_workspace_id = $1 AND creation_id = $2",
         )
         .bind(&fork_id)
-        .bind(started_at)
+        .bind(creation_id)
         .bind(error)
         .execute(&db)
         .await
@@ -9148,9 +9150,7 @@ async fn create_workspace_fork(
             tracing::error!("fork '{fork_id}': could not record how its creation ended: {e}");
         }
     });
-    Ok(format!(
-        "Creating fork {response_fork_id} in the background"
-    ))
+    Ok(creation_id.to_string())
 }
 
 /// How often a fork created in the background records that its copy is still running, and how long
@@ -9166,8 +9166,9 @@ pub static BACKGROUND_FORKS: std::sync::LazyLock<tokio_util::task::TaskTracker> 
 
 #[derive(Deserialize)]
 struct CreateWorkspaceForkQuery {
-    /// Return once the request is validated and create the fork in the background; its progress
-    /// is read from `fork_creation_status`.
+    /// Return once the request is validated and create the fork in the background, answering with
+    /// the id `fork_creation_status` reads this attempt by. Without it the answer is
+    /// `Created forked workspace <id>`, which clients take as a server without background forks.
     background: Option<bool>,
 }
 
@@ -9197,7 +9198,7 @@ struct ForkCreationStatus {
 async fn get_fork_creation_status(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
-    Path((parent_workspace_id, fork_id)): Path<(String, String)>,
+    Path((parent_workspace_id, creation_id)): Path<(String, Uuid)>,
 ) -> JsonResult<ForkCreationStatus> {
     let row = sqlx::query(
         "SELECT c.created_by, c.finished_at IS NOT NULL AS finished, c.error, c.step,
@@ -9206,24 +9207,19 @@ async fn get_fork_creation_status(
                        WHERE w.id = c.fork_workspace_id
                          AND w.parent_workspace_id = c.parent_workspace_id) AS fork_exists
          FROM workspace_fork_creation c
-         WHERE c.fork_workspace_id = $1 AND c.parent_workspace_id = $2",
+         WHERE c.creation_id = $1 AND c.parent_workspace_id = $2",
     )
-    .bind(&fork_id)
+    .bind(creation_id)
     .bind(&parent_workspace_id)
     .bind(FORK_HEARTBEAT_STALE_SECS as f64)
     .fetch_optional(&db)
     .await?;
-    let Some(row) = row else {
+    // Only the user who started it reads an attempt: its id is not handed to anyone else.
+    let Some(row) = row.filter(|r| r.get::<String, _>("created_by") == authed.email) else {
         return Err(Error::NotFound(format!(
-            "no creation of fork '{fork_id}' from '{parent_workspace_id}'"
+            "no fork creation {creation_id} from '{parent_workspace_id}'"
         )));
     };
-    let created_by: String = row.get("created_by");
-    if created_by != authed.email && !authed.is_admin {
-        return Err(Error::NotFound(format!(
-            "no creation of fork '{fork_id}' from '{parent_workspace_id}'"
-        )));
-    }
     let error: Option<String> = row.get("error");
     // The fork commits whole, so once it exists it is complete: the run's own record can lag behind
     // it when the server stopped between the commit and that record.
@@ -9681,6 +9677,7 @@ async fn write_workspace_fork(
         windmill_common::workspaces::invalidate_protection_rules_cache(&parent_workspace_id);
     }
 
+    // Clients that ask for a background fork recognise a server without it by this answer.
     Ok(format!("Created forked workspace {}", &forked_id))
 }
 

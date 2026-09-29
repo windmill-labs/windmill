@@ -27,7 +27,7 @@ describe('createWorkspaceForkAndWait', () => {
 	beforeEach(() => {
 		vi.useFakeTimers()
 		vi.resetAllMocks()
-		svc.createWorkspaceFork.mockResolvedValue('Creating fork wm-fork-x in the background')
+		svc.createWorkspaceFork.mockResolvedValue('5c3e1b1e-0000-4000-8000-000000000000')
 	})
 	afterEach(() => vi.useRealTimers())
 

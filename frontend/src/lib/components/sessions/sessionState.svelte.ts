@@ -45,7 +45,7 @@ export function syncWorkspaceTo(workspaceId: string | undefined): void {
 	switchWorkspace(workspaceId)
 }
 import { WorkspaceService } from '$lib/gen'
-import { createWorkspaceForkAndWait, waitForForkCreation } from '$lib/utils/forkCreation'
+import { createWorkspaceForkAndWait } from '$lib/utils/forkCreation'
 import { sendUserToast } from '$lib/toast'
 import { onUserChange } from '$lib/userScopedStorage'
 
@@ -1301,14 +1301,7 @@ export function setGeneratedSessionSummary(
 export async function materializeFork(fork: PendingFork): Promise<string | undefined> {
 	if (get(userWorkspaces).some((w) => w.id === fork.id)) return fork.id
 	try {
-		try {
-			await createWorkspaceForkAndWait(fork.parent_workspace_id, { id: fork.id, name: fork.name })
-		} catch (e: any) {
-			// This fork's request is always the same, so a creation of it already in flight (a
-			// lost response, a reload) is this one: the status only answers its own creator.
-			if (!String(e?.body ?? '').includes('is already being created')) throw e
-			await waitForForkCreation(fork.parent_workspace_id, fork.id)
-		}
+		await createWorkspaceForkAndWait(fork.parent_workspace_id, { id: fork.id, name: fork.name })
 		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
 		sendUserToast(`Created fork ${fork.name}`)
 		return fork.id

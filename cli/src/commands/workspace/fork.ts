@@ -13,6 +13,7 @@ import {
   renameCurrentGitBranch,
 } from "../../utils/git.ts";
 import process from "node:process";
+import { apiErrorMessage } from "../../utils/utils.ts";
 import { WM_FORK_PREFIX } from "../../core/constants.ts";
 import { tryResolveBranchWorkspace } from "../../core/context.ts";
 import {
@@ -22,8 +23,8 @@ import {
   readConfigFile,
 } from "../../core/conf.ts";
 
-/** Wait for the creation of a fork started in the background by this user. */
-async function waitForForkCreation(parentWorkspace: string, forkId: string) {
+/** Wait for a fork creation started in the background, by the id its request answered with. */
+async function waitForForkCreation(parentWorkspace: string, creationId: string) {
   let failingSince: number | undefined;
   let lastStep: string | undefined;
   while (true) {
@@ -33,7 +34,7 @@ async function waitForForkCreation(parentWorkspace: string, forkId: string) {
     try {
       result = await wmill.getForkCreationStatus({
         workspace: parentWorkspace,
-        forkWorkspaceId: forkId,
+        creationId,
       });
       failingSince = undefined;
     } catch (e) {
@@ -420,13 +421,15 @@ async function createWorkspaceFork(
     });
     // A server without background forks ignores the flag and answers once the fork is created.
     if (!response.startsWith("Created forked workspace")) {
-      await waitForForkCreation(workspace.workspaceId, trueWorkspaceId);
+      await waitForForkCreation(workspace.workspaceId, response);
     }
 
     log.info(colors.green(`✅ Created forked workspace ${trueWorkspaceId}`));
   } catch (error) {
     log.error(
-      colors.red(`Failed to create forked workspace: ${(error as Error).message}`),
+      colors.red(
+        `Failed to create forked workspace: ${apiErrorMessage(error) ?? (error as Error).message}`,
+      ),
     );
     throw error;
   }

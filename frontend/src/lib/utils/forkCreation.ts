@@ -23,22 +23,14 @@ export async function createWorkspaceForkAndWait(
 	})
 	// A server without background forks ignores the flag and answers once the fork is created.
 	if (response.startsWith('Created forked workspace')) return
-	await waitForForkCreation(parentWorkspace, fork.id, onStep)
-}
-
-/** Wait for the creation of a fork started in the background by this user from `parentWorkspace`. */
-export async function waitForForkCreation(
-	parentWorkspace: string,
-	forkId: string,
-	onStep?: (step: string) => void
-): Promise<void> {
+	const creationId = response
 	let failingSince: number | undefined
 	while (true) {
 		let result: Awaited<ReturnType<typeof WorkspaceService.getForkCreationStatus>> | undefined
 		try {
 			result = await WorkspaceService.getForkCreationStatus({
 				workspace: parentWorkspace,
-				forkWorkspaceId: forkId
+				creationId
 			})
 			failingSince = undefined
 		} catch (e) {
