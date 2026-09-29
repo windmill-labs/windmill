@@ -4750,6 +4750,19 @@ function draftTarget(
 	}
 }
 
+/** The name the addressed draft deploys under, known before the write from the value the
+ * dispatch already read. Falls back to the addressed path when no draft was found there. */
+function addressedDisplayPath(
+	target: ResolvedDraftTarget,
+	type: WorkspaceItemType,
+	triggerKind?: TriggerKind
+): string {
+	const itemKind = itemKindFor(type, triggerKind)
+	const name =
+		itemKind && target.value !== undefined ? chosenDraftName(itemKind, target.value) : undefined
+	return name ?? target.path
+}
+
 /** The draft this call addresses. Failing here beats writing to a path that was never
  * resolved to a storage key. Reachable when the call named an empty path, which the schemas
  * accept — so the message names that rather than the declaration a reader cannot fix. */
@@ -5239,16 +5252,20 @@ function startDraftWrite(ctx: WriteDraftCtx, type: WorkspaceItemType, path: stri
 // when the save succeeded (the caller then emits its own success payload).
 function draftWriteFailure(result: DraftPersistResult, ctx: WriteDraftCtx): string | undefined {
 	const stored = result.item
+	// The name it deploys under, as the success message uses: the call may have addressed it
+	// by its storage key, and a retry instruction naming a `draft_<uuid>` is one the model
+	// cannot relay to the user.
+	const displayPath = stored.draftPath ?? stored.path
 	if (result.status === 'conflict') {
 		ctx.toolCallbacks.setToolStatus(ctx.toolId, {
-			content: `Draft ${stored.type} "${stored.path}" changed externally`,
+			content: `Draft ${stored.type} "${displayPath}" changed externally`,
 			result: `Conflict`
 		})
 		return JSON.stringify(
 			{
 				success: false,
 				conflict: true,
-				message: `The ${stored.type} draft "${stored.path}" changed externally since you last read it. Re-run this tool to merge onto the latest version, or pass override:true to overwrite. If an editor for it is open, a conflict dialog is also shown there.`
+				message: `The ${stored.type} draft "${displayPath}" changed externally since you last read it. Re-run this tool to merge onto the latest version, or pass override:true to overwrite. If an editor for it is open, a conflict dialog is also shown there.`
 			},
 			null,
 			2
@@ -5256,14 +5273,14 @@ function draftWriteFailure(result: DraftPersistResult, ctx: WriteDraftCtx): stri
 	}
 	if (result.status === 'error') {
 		ctx.toolCallbacks.setToolStatus(ctx.toolId, {
-			content: `Failed to save ${stored.type} "${stored.path}"`,
+			content: `Failed to save ${stored.type} "${displayPath}"`,
 			result: `Save failed`
 		})
 		return JSON.stringify(
 			{
 				success: false,
 				error: true,
-				message: `The ${stored.type} draft "${stored.path}" could NOT be saved (${result.message}). The change was not persisted — retry; do not assume it succeeded.`
+				message: `The ${stored.type} draft "${displayPath}" could NOT be saved (${result.message}). The change was not persisted — retry; do not assume it succeeded.`
 			},
 			null,
 			2
@@ -5385,7 +5402,7 @@ async function writeDraft<T, A>(
 ): Promise<string> {
 	const { workspace } = ctx
 	const target = draftTargetOf(ctx)
-	startDraftWrite(ctx, type, target.path)
+	startDraftWrite(ctx, type, addressedDisplayPath(target, type, opts.triggerKind))
 
 	const existingDraft = await readGlobalDraftValue<T>(workspace, type, target, {
 		triggerKind: opts.triggerKind
@@ -6856,11 +6873,12 @@ async function writeAppFile(
 	}
 	assertNotGeneratedAppFile(target.filePath)
 
+	const draft = draftTargetOf(ctx)
+	const appName = addressedDisplayPath(draft, 'app')
 	toolCallbacks.setToolStatus(toolId, {
-		content: `Writing ${target.filePath} to app "${args.path}"...`
+		content: `Writing ${target.filePath} to app "${appName}"...`
 	})
 
-	const draft = draftTargetOf(ctx)
 	const value = await loadAppDraftValue(draft, workspace)
 	value.files = { ...value.files, [target.filePath]: args.content }
 	const result = await saveAppDraft(workspace, draft, value)
@@ -6883,14 +6901,15 @@ async function deleteAppFile(
 	}
 	assertNotGeneratedAppFile(target.filePath)
 
+	const draft = draftTargetOf(ctx)
+	const appName = addressedDisplayPath(draft, 'app')
 	toolCallbacks.setToolStatus(toolId, {
-		content: `Deleting ${target.filePath} from app "${args.path}"...`
+		content: `Deleting ${target.filePath} from app "${appName}"...`
 	})
 
-	const draft = draftTargetOf(ctx)
 	const value = await loadAppDraftValue(draft, workspace)
 	if (!(target.filePath in value.files)) {
-		throw new Error(`Frontend file "${target.filePath}" not found in app "${args.path}".`)
+		throw new Error(`Frontend file "${target.filePath}" not found in app "${appName}".`)
 	}
 	const { [target.filePath]: _removed, ...remaining } = value.files
 	value.files = remaining
@@ -6924,11 +6943,12 @@ async function patchAppFile(
 		assertNotGeneratedAppFile(target.filePath)
 	}
 
+	const draft = draftTargetOf(ctx)
+	const appName = addressedDisplayPath(draft, 'app')
 	toolCallbacks.setToolStatus(toolId, {
-		content: `Patching ${target.filePath} in app "${path}"...`
+		content: `Patching ${target.filePath} in app "${appName}"...`
 	})
 
-	const draft = draftTargetOf(ctx)
 	const value = await loadAppDraftValue(draft, workspace)
 	let currentContent: string
 	let runnable: PersistedRunnable | undefined
@@ -6936,7 +6956,7 @@ async function patchAppFile(
 	if (target.kind === 'frontend') {
 		const existing = value.files[target.filePath]
 		if (existing === undefined) {
-			throw new Error(`Frontend file "${target.filePath}" not found in app "${path}".`)
+			throw new Error(`Frontend file "${target.filePath}" not found in app "${appName}".`)
 		}
 		currentContent = existing
 	} else {
@@ -6992,12 +7012,13 @@ async function writeAppRunnable(
 	ctx: WriteDraftCtx
 ): Promise<string> {
 	const { workspace, toolId, toolCallbacks } = ctx
-	const { path, key, runnable: input } = args
+	const { key, runnable: input } = args
+	const target = draftTargetOf(ctx)
+	const appName = addressedDisplayPath(target, 'app')
 	toolCallbacks.setToolStatus(toolId, {
-		content: `Writing runnable "${key}" to app "${path}"...`
+		content: `Writing runnable "${key}" to app "${appName}"...`
 	})
 
-	const target = draftTargetOf(ctx)
 	const value = await loadAppDraftValue(target, workspace)
 	const existing = value.runnables[key] as PersistedRunnable | undefined
 	const persisted = buildPersistedRunnable(input, existing)
@@ -7104,15 +7125,16 @@ async function deleteAppRunnable(
 	ctx: WriteDraftCtx
 ): Promise<string> {
 	const { workspace, toolId, toolCallbacks } = ctx
-	const { path, key } = args
+	const { key } = args
+	const target = draftTargetOf(ctx)
+	const appName = addressedDisplayPath(target, 'app')
 	toolCallbacks.setToolStatus(toolId, {
-		content: `Removing runnable "${key}" from app "${path}"...`
+		content: `Removing runnable "${key}" from app "${appName}"...`
 	})
 
-	const target = draftTargetOf(ctx)
 	const value = await loadAppDraftValue(target, workspace)
 	if (!(key in value.runnables)) {
-		throw new Error(`Backend runnable "${key}" not found in app "${path}".`)
+		throw new Error(`Backend runnable "${key}" not found in app "${appName}".`)
 	}
 	const { [key]: _removed, ...remaining } = value.runnables
 	value.runnables = remaining

@@ -409,13 +409,22 @@ async function storagePathForChosenName(
 				`it may name: ${e instanceof Error ? e.message : String(e)}. Try again.`
 		)
 	}
-	for (const row of rows) {
-		if (row.kind === itemKind && row.draft_path === path) add(row.path, row.summary)
-	}
-	// Local cells too: a name typed a moment ago may not have reached the backend yet.
+	// A local cell supersedes the row it came from, so the row's name is only consulted for a
+	// draft with no cell open. A rename typed but not yet saved otherwise leaves the draft
+	// answering to its old name as well as its new one — and makes a second draft that now
+	// holds that old name look like an ambiguity.
+	const cells = new Map<string, unknown>()
 	for (const entry of UserDraft.list({ workspace, itemKinds: [itemKind] })) {
-		if (chosenDraftName(itemKind, entry.value) === path) {
-			add(entry.path, getItemSummary(entry.value))
+		cells.set(entry.path, entry.value)
+	}
+	for (const row of rows) {
+		if (row.kind !== itemKind || cells.has(row.path)) continue
+		if (row.draft_path === path) add(row.path, row.summary)
+	}
+	// Cells carry a name typed a moment ago, which may not have reached the backend yet.
+	for (const [storagePath, value] of cells) {
+		if (chosenDraftName(itemKind, value) === path) {
+			add(storagePath, getItemSummary(value))
 		}
 	}
 	if (staged.length === 0) return path
@@ -544,7 +553,7 @@ async function fetchBackendDraftValue(
 }
 
 /** Draft VALUE at a resolved target: cell-if-present (the user's freshest in-tab edits)
- * else the current user's backend draft. Answers from what resolving the target already
+ * else the current user's backend draft. Falls back to what resolving the target already
  * read, unless `fresh` — for a caller that has since changed the draft it is reading. */
 export async function readGlobalDraftValue<V>(
 	workspace: string,
@@ -552,11 +561,14 @@ export async function readGlobalDraftValue<V>(
 	target: ResolvedDraftTarget,
 	opts: { triggerKind?: TriggerKind; fresh?: boolean } = {}
 ): Promise<V | undefined> {
-	if (target.fetched && !opts.fresh) return target.value as V | undefined
 	const itemKind = itemKindFor(type, opts.triggerKind)
 	if (!itemKind) return undefined
+	// Ahead of the resolved value, which was read when the call was dispatched: a tool awaits
+	// other work before its write (the provider catalog, a bundle), and an edit made in the
+	// editor during that window would be overwritten by the older snapshot.
 	const cell = UserDraft.get<V>(itemKind, target.storagePath, { workspace })
 	if (cell !== undefined) return cell
+	if (target.fetched && !opts.fresh) return target.value as V | undefined
 	return (await fetchBackendDraftValue(workspace, itemKind, target.storagePath)) as V | undefined
 }
 

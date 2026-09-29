@@ -3064,6 +3064,56 @@ describe('global AI tools', () => {
 		expect(getBackendDraft('script', path, { workspace: WORKSPACE })).toBeUndefined()
 	})
 
+	// The resolved value is a snapshot from dispatch time, and a tool awaits other work before
+	// its write, so an edit made in the editor during that window must win over it.
+	it('prefers a cell edited after the target was resolved over the resolved value', async () => {
+		const path = 'u/admin/snapshot_race'
+		UserDraft.save(
+			'script',
+			path,
+			{ path, summary: 'edited in the editor', content: 'new', language: 'bun', kind: 'script' },
+			{ workspace: WORKSPACE }
+		)
+
+		const stale = { path, summary: 'as dispatched', content: 'old', language: 'bun' }
+		const value = await readGlobalDraftValue<any>(WORKSPACE, 'script', {
+			path,
+			storagePath: path,
+			value: stale,
+			fetched: true
+		})
+
+		expect(value?.content).toBe('new')
+		expect(value?.summary).toBe('edited in the editor')
+	})
+
+	// A rename typed in the editor is only in the cell; the backend row still carries the old
+	// name. Matching the row anyway would let the old name keep selecting the draft.
+	it('does not resolve a renamed draft by the name its backend row still carries', async () => {
+		seedBackendDraft(
+			'script',
+			'u/admin/draft_renamed',
+			{ path: 'f/team/old_name', content: 'x', language: 'bun', kind: 'script' },
+			{ workspace: WORKSPACE }
+		)
+		UserDraft.save(
+			'script',
+			'u/admin/draft_renamed',
+			{ path: 'f/team/new_name', content: 'x', language: 'bun', kind: 'script' },
+			{ workspace: WORKSPACE }
+		)
+
+		// The new name reaches it; the old one no longer does.
+		expect(
+			(await resolveDraftTarget(WORKSPACE, { type: 'script', path: 'f/team/new_name' }))
+				.storagePath
+		).toBe('u/admin/draft_renamed')
+		expect(
+			(await resolveDraftTarget(WORKSPACE, { type: 'script', path: 'f/team/old_name' }))
+				.storagePath
+		).toBe('f/team/old_name')
+	})
+
 	// A non-404 read failure must propagate, not collapse to "no draft" — else
 	// the write merge falls through to the deployed item, losing draft edits.
 	it('a non-404 backend read failure propagates instead of returning undefined', async () => {
