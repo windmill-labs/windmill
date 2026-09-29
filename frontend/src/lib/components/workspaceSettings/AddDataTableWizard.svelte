@@ -1255,9 +1255,6 @@
 						{/if}
 					{:else}
 						{@render ownStep()}
-						{#if canSetUpExternal}
-							{@render externalHint('Let Windmill manage your external database')}
-						{/if}
 					{/if}
 
 					<DataTableConnectionReport
@@ -1292,16 +1289,28 @@
 							<Button size="xs" variant="default" onClick={backToReview}>Back</Button>
 						{/if}
 					</div>
-					<Button
-						size="sm"
-						variant="accent"
-						disabled={primary.disabled}
-						loading={primary.busy}
-						endIcon={primary.busy ? undefined : { icon: ArrowRight }}
-						onClick={() => primary.act?.()}
-					>
-						{primary.label}
-					</Button>
+					<div class="flex items-center gap-2">
+						{#if wiz.step === 2 && !run.steps.length && wiz.provider === 'resource' && canSetUpExternal}
+							<Button
+								unifiedSize="md"
+								variant="default"
+								startIcon={{ icon: Lightbulb }}
+								onClick={explainExternalInstance}
+							>
+								Let Windmill manage your external database
+							</Button>
+						{/if}
+						<Button
+							size="sm"
+							variant="accent"
+							disabled={primary.disabled}
+							loading={primary.busy}
+							endIcon={primary.busy ? undefined : { icon: ArrowRight }}
+							onClick={() => primary.act?.()}
+						>
+							{primary.label}
+						</Button>
+					</div>
 				</div>
 				{#if wiz.provider === 'supabase' && !supaOauth.authed}
 					<p class="text-2xs text-secondary text-right">
