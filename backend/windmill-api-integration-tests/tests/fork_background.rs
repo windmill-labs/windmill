@@ -103,6 +103,22 @@ async fn test_fork_created_in_background(db: Pool<Postgres>) -> anyhow::Result<(
         .await?;
     assert_eq!(resp.status(), 404);
 
+    // An attempt whose server stopped heartbeating before its fork committed reads as failed.
+    let abandoned = "5c3e1b1e-0000-4000-8000-000000000000";
+    sqlx::query(
+        "INSERT INTO workspace_fork_creation
+             (fork_workspace_id, parent_workspace_id, created_by, creation_id, heartbeat_at)
+         VALUES ('wm-fork-gone', 'test-workspace', 'test@windmill.dev', $1::uuid,
+                 now() - interval '2 minutes')",
+    )
+    .bind(abandoned)
+    .execute(&db)
+    .await?;
+    assert_eq!(
+        wait_for_fork(&client, &base_url, abandoned).await["status"],
+        "failed"
+    );
+
     // Without the flag the fork is created before the answer, which clients asking for a
     // background fork recognise a server without it by.
     sqlx::query("UPDATE workspace SET deleted = true WHERE id = 'wm-fork-bg-err'")
