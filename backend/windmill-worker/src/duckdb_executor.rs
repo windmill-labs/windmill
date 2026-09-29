@@ -2692,7 +2692,7 @@ fn datatable_secret_name(alias: &str) -> String {
 }
 
 /// ATTACH a datatable's postgres database through a DuckDB TEMPORARY SECRET holding
-/// the connection parameters; only sslmode rides in the ATTACH string.
+/// the connection parameters; only sslmode and options ride in the ATTACH string.
 fn pg_secret_attach_statements(db_resource: Value, alias_name: &str) -> Result<Vec<String>> {
     let res: PgDatabase = serde_json::from_value(db_resource)?;
     // Escape single quotes: each field is embedded in a single-quoted DuckDB literal,
@@ -2704,6 +2704,15 @@ fn pg_secret_attach_statements(db_resource: Value, alias_name: &str) -> Result<V
         Some("disable") => "disable",
         Some("require") | Some("verify-ca") | Some("verify-full") => "require",
         _ => "prefer",
+    };
+    // Nor an options parameter. The value is quoted for libpq's keyword/value syntax first,
+    // then escaped for the DuckDB literal around it.
+    let options = match res.non_empty_options() {
+        Some(o) => esc(&format!(
+            " options='{}'",
+            o.replace('\\', "\\\\").replace('\'', "\\'")
+        )),
+        None => String::new(),
     };
     let secret_name = datatable_secret_name(alias_name);
     Ok(vec![
@@ -2717,7 +2726,7 @@ fn pg_secret_attach_statements(db_resource: Value, alias_name: &str) -> Result<V
             esc(res.login_name()),
             esc(res.password.as_deref().unwrap_or("")),
         ),
-        format!("ATTACH 'sslmode={sslmode}' AS {alias_name} (TYPE postgres, SECRET {secret_name});"),
+        format!("ATTACH 'sslmode={sslmode}{options}' AS {alias_name} (TYPE postgres, SECRET {secret_name});"),
         // The attachment keeps its own resolved connection string, so the secret is dead weight
         // once attached — and a live one is a credential the script's own statements can name: an
         // `ATTACH 'dbname=<other>' (TYPE postgres, SECRET …)` would reach a database nobody
@@ -3974,6 +3983,19 @@ mod tests {
                 stmts[3]
             );
         }
+    }
+
+    #[test]
+    fn test_pg_secret_attach_statements_options() {
+        let db_resource = json!({ "host": "h", "dbname": "d", "options": r"-c search_path='a\b'" });
+        let stmts = pg_secret_attach_statements(db_resource, "dt").unwrap();
+        let secret_name = datatable_secret_name("dt");
+        assert_eq!(
+            stmts[3],
+            format!(
+                r"ATTACH 'sslmode=prefer options=''-c search_path=\''a\\b\''''' AS dt (TYPE postgres, SECRET {secret_name});"
+            )
+        );
     }
 
     #[test]

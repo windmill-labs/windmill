@@ -1,0 +1,96 @@
+# Operator write rights
+
+Most of `workspace_settings.operator_settings` is visibility: flags that hide pages from operators
+so the UI stays uncluttered. They are not enforced, and were never meant to be.
+
+`manage_schedules` and `manage_triggers` are different. They are **enforced** on the write paths,
+because hiding the schedules page never stopped an operator creating a schedule through the API,
+the CLI or MCP. An admin who wants operators to see what is scheduled without letting them change
+it could not express that with a visibility flag alone.
+
+## Where the gate lives
+
+On the router, not in the handlers. `gate_operator_writes` is layered in `windmill-api/src/lib.rs`
+over the schedules router, the trigger routers, the native-trigger routers and capture, and refuses
+anything that is not a GET/HEAD/OPTIONS.
+
+That is not a style choice. A trigger kind can register routes of its own beside the shared CRUD
+ones — bulk HTTP creation, the Postgres publication and replication-slot setup — and those are
+hand-written, one per feature. A check inside each handler misses every one of those extra routes,
+along with the whole native-trigger family, which does not use the shared handlers at all. On the
+router the author of the next route writes nothing and is covered anyway.
+
+**A layer only covers the routers it is on.** It closes routes added *inside* a gated router; it
+says nothing about a new feature that performs trigger writes from a router of its own. Capture is
+exactly that — it configures a trigger without creating one, and saving a Postgres capture config
+creates a replication slot and a publication on the target database — and it needed its own layer
+rather than inheriting one. That includes `move`, which re-points existing capture configs between
+runnables: the builders, which call it on every script and flow creation, skip it while the right is
+withdrawn, since captures only arrive through a saved config. Before adding a feature that writes
+trigger or schedule state, ask which router it lands on.
+
+Three consequences to keep in mind when adding a route under one of these:
+
+- A read served over POST gets refused, and an unprompted refusal reaches the operator as a bare
+  privilege toast. The connection test is button-fired, so it only refuses someone who asked. The
+  HTTP route and email address availability checks and the Azure scope and topic lists run on
+  editor open, so their config sections skip them while the lock is set. Put new reads on GET; if
+  one must stay POST, check nothing fires it unprompted.
+- Anything mounted under a gated router inherits the gate. The native-trigger mount also carries
+  the workspace's integration setup, which is a settings concern, so the layer goes on the trigger
+  routes alone rather than the whole mount.
+- A route operating on *jobs* rather than configuration inherits it too.
+  `resume_suspended_trigger_jobs` and its cancel twin stay gated: an operator who can neither
+  suspend nor un-suspend a trigger should not override the consequence. Weigh the next one rather
+  than taking the router's answer.
+
+`check_operator_can_manage` is still the function underneath, for a write that cannot be reached
+through one of these routers. `/acls/add` and `/acls/remove` are the case that needs it: sharing an
+object is a write to it, but that router serves every kind there is, so it can only be gated per
+kind from inside the handlers. `manage_kind_for_acl_kind` holds that list, spelled out rather than
+matched on the `_trigger` suffix so a kind named otherwise cannot slip through ungated.
+
+It refuses with `PermissionDenied` (403), never `NotAuthorized` (401): the frontend reads an
+uncaught 401 as an expired session and logs the user out, so 401 here ejects an operator from the
+app rather than telling them why. Both integration tests assert the status for that reason.
+
+## In the UI
+
+The shared lists (`TriggerList`, `SchedulesList`, `NativeTriggerTable`) derive a per-row `canEdit`
+from `canWrite && !$lock` and leave `canWrite` itself alone, because `canWrite` also tells
+`SharedBadge` whether a row belongs to someone else — fold the lock into it and every row,
+including ones the operator owns and has never shared, claims to be shared read-only. Gate write
+affordances on `canEdit`, never the badge.
+
+Each schedule and trigger editor folds the lock into its own `can_write`, so a withdrawn operator
+gets the same read-only editor as someone without write access to the folder. There, unlike the
+list pages, nothing reads `can_write` as a sharing hint. It is derived for a new trigger too, so the
+toolbar, which takes its permissions from `can_write`, needs no lock of its own. Sharing is gated in
+`ShareModal`, which locks itself off the kind it was opened on rather than relying on each of the
+dozen menu entries that open it.
+
+The cache is per process, so withdrawing a right has to reach every replica: an `AFTER UPDATE OF
+operator_settings` trigger writes a `notify_operator_settings_change` row and `process_notify_event`
+drops the entry. Keep both ends if you touch either, or a workspace that withdrew a right keeps
+authorizing writes on every other replica until its own entry expires.
+
+## Granted unless withdrawn
+
+These name capabilities operators already hold, so absence has to mean "never configured", not a
+value. That is easy to get wrong in two places, and the obvious implementation gets both wrong:
+
+- The read coalesces to **true** (`operator_manage_rights`), including for a workspace with no
+  `workspace_settings` row, which is what `OperatorManageRights::default` is for. Coalescing to
+  false instead revokes the right on upgrade for every workspace that ever saved operator settings,
+  since those rows carry explicit keys and none of them is this one.
+- The update endpoint **merges** into the stored jsonb and takes these two as `Option<bool>`, so an
+  omitted key keeps its stored value. It has to: `operator_settings` is git-synced as a whole
+  object (`cli/src/core/settings.ts` posts the file's contents verbatim), so a settings file
+  written before these keys existed reaches the endpoint on every pull. A serde or SQL default of
+  either polarity turns that pull into a silent withdrawal or a silent restoration.
+
+The visibility flags are plain `bool` and always serialize, so the merge is a no-op for them and
+their behaviour is unchanged.
+
+Do not model a right that an admin *grants* on these. Granted-by-default and granted-on-request
+are opposite polarities, and a gate written for one is wrong for the other.

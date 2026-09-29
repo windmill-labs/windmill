@@ -53,6 +53,7 @@
 		resetSessionPreviewTabs
 	} from './sessionRuntime.svelte'
 	import SessionStatusDot from './SessionStatusDot.svelte'
+	import UnreadCountBadge from '$lib/components/common/badge/UnreadCountBadge.svelte'
 	import { buildWorkspaceHierarchy } from '$lib/utils/workspaceHierarchy'
 	import SessionFilterMenu from './SessionFilterMenu.svelte'
 	import { Menu, Menubar, MenuItem } from '$lib/components/meltComponents'
@@ -803,14 +804,7 @@
 													{#if draft}
 														<PencilLine class="w-3 h-3 text-tertiary" aria-label="Unsent draft" />
 													{/if}
-													{#if unread > 0}
-														<span
-															class="inline-flex items-center justify-center rounded-full bg-surface-accent-primary text-white font-medium leading-none min-w-4 h-4 px-1 text-[10px]"
-															aria-label="{unread} unread message{unread === 1 ? '' : 's'}"
-														>
-															{unread > 9 ? '9+' : unread}
-														</span>
-													{/if}
+													<UnreadCountBadge count={unread} class="min-w-4 h-4 text-[10px]" />
 												</span>
 											{/if}
 										</MenuItem>
@@ -1079,14 +1073,7 @@
 										{#if draft}
 											<PencilLine class="w-3 h-3 text-tertiary" aria-label="Unsent draft" />
 										{/if}
-										{#if unread > 0}
-											<span
-												class="inline-flex items-center justify-center rounded-full bg-surface-accent-primary text-white font-medium leading-none min-w-4 h-4 px-1 text-[10px]"
-												aria-label="{unread} unread message{unread === 1 ? '' : 's'}"
-											>
-												{unread > 9 ? '9+' : unread}
-											</span>
-										{/if}
+										<UnreadCountBadge count={unread} class="min-w-4 h-4 text-[10px]" />
 									</span>
 								{/if}
 							</button>

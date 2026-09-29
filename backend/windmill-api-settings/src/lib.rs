@@ -303,7 +303,9 @@ pub async fn test_email(
 use windmill_object_store::ObjectSettings;
 
 #[cfg(feature = "parquet")]
-use windmill_object_store::build_object_store_from_settings;
+use windmill_object_store::{
+    build_object_store_from_settings, build_public_object_store_from_settings,
+};
 
 #[cfg(feature = "parquet")]
 pub async fn test_s3_bucket(
@@ -338,9 +340,15 @@ pub async fn test_s3_bucket(
             })?;
     }
 
-    let client = build_object_store_from_settings(test_s3_bucket, Some(&db))
-        .await?
-        .store;
+    // The restricted client re-judges every address it connects to: the checks above resolve the
+    // endpoint separately from the connect, which a rebinding name answers differently.
+    let client = if restrict {
+        build_public_object_store_from_settings(test_s3_bucket).await?
+    } else {
+        build_object_store_from_settings(test_s3_bucket, Some(&db))
+            .await?
+            .store
+    };
 
     let run = async {
         let mut list = client.list(Some(
@@ -546,7 +554,7 @@ async fn validate_public_endpoint(endpoint: &str) -> error::Result<()> {
     // Reject if any resolved address is non-public, which also defeats the simplest DNS-rebinding
     // attempts (a name resolving to both a public and a private address).
     for addr in addrs {
-        if is_forbidden_ip(addr.ip()) {
+        if windmill_common::ssrf::is_private_ip(&addr.ip()) {
             // The resolved address stays out of the message: it is the server's resolver's
             // answer, and this message is only ever shown to the caller being constrained.
             return Err(error::Error::NotAuthorized(format!(
@@ -596,51 +604,6 @@ fn extract_host(endpoint: &str) -> Option<String> {
         None
     } else {
         Some(host.to_string())
-    }
-}
-
-#[cfg(feature = "parquet")]
-fn is_forbidden_ip(ip: std::net::IpAddr) -> bool {
-    use std::net::{IpAddr, Ipv4Addr};
-    match ip {
-        IpAddr::V4(v4) => {
-            v4.is_loopback()
-                || v4.is_private()
-                || v4.is_link_local() // 169.254.0.0/16, incl. the cloud metadata endpoint
-                || v4.is_unspecified()
-                || v4.is_broadcast()
-                || v4.is_documentation()
-                || v4.is_multicast()
-                || v4.octets()[0] == 0 // 0.0.0.0/8
-                || (v4.octets()[0] == 100 && (v4.octets()[1] & 0xc0) == 64) // 100.64.0.0/10 CGNAT
-        }
-        IpAddr::V6(v6) => {
-            // Any IPv4 embedded in an IPv6 address (IPv4-mapped ::ffff:0:0/96, IPv4-compatible
-            // ::/96, or NAT64 64:ff9b::/96) is re-checked against the IPv4 rules, so e.g.
-            // 64:ff9b::169.254.169.254 cannot route to the metadata endpoint in a NAT64 network.
-            let seg = v6.segments();
-            let is_v4_compatible = seg[0..6] == [0, 0, 0, 0, 0, 0];
-            let is_nat64 = seg[0] == 0x0064 && seg[1] == 0xff9b && seg[2..6] == [0, 0, 0, 0];
-            if let Some(v4) = v6.to_ipv4_mapped() {
-                return is_forbidden_ip(IpAddr::V4(v4));
-            }
-            if is_v4_compatible || is_nat64 {
-                let embedded = Ipv4Addr::new(
-                    (seg[6] >> 8) as u8,
-                    (seg[6] & 0xff) as u8,
-                    (seg[7] >> 8) as u8,
-                    (seg[7] & 0xff) as u8,
-                );
-                if is_forbidden_ip(IpAddr::V4(embedded)) {
-                    return true;
-                }
-            }
-            v6.is_loopback()
-                || v6.is_unspecified()
-                || v6.is_multicast()
-                || (seg[0] & 0xfe00) == 0xfc00 // fc00::/7 unique local
-                || (seg[0] & 0xffc0) == 0xfe80 // fe80::/10 link-local
-        }
     }
 }
 
@@ -2582,8 +2545,7 @@ mod tests {
 
 #[cfg(all(test, feature = "parquet"))]
 mod object_storage_test_hardening {
-    use super::{extract_host, is_forbidden_ip, validate_object_storage_test};
-    use std::net::IpAddr;
+    use super::{extract_host, validate_object_storage_test};
     use windmill_object_store::ObjectSettings;
 
     // IP literals (not hostnames) keep validate_public_endpoint deterministic — `lookup_host`
@@ -2641,40 +2603,6 @@ mod object_storage_test_hardening {
                 validate_object_storage_test(&settings).await.is_err(),
                 "blank key {key:?} should be rejected"
             );
-        }
-    }
-
-    fn ip(s: &str) -> IpAddr {
-        s.parse().unwrap()
-    }
-
-    #[test]
-    fn forbids_internal_ips() {
-        for s in [
-            "127.0.0.1",                // loopback
-            "169.254.169.254",          // cloud metadata (link-local)
-            "10.0.0.5",                 // private
-            "172.16.3.4",               // private
-            "192.168.1.10",             // private
-            "0.0.0.0",                  // unspecified
-            "100.64.0.1",               // CGNAT
-            "::1",                      // IPv6 loopback
-            "fe80::1",                  // IPv6 link-local
-            "fc00::1",                  // IPv6 unique local
-            "::ffff:127.0.0.1",         // IPv4-mapped loopback
-            "::ffff:169.254.169.254",   // IPv4-mapped metadata
-            "::169.254.169.254",        // IPv4-compatible metadata
-            "64:ff9b::169.254.169.254", // NAT64-embedded metadata
-            "64:ff9b::a9fe:a9fe",       // NAT64-embedded metadata (hex form)
-        ] {
-            assert!(is_forbidden_ip(ip(s)), "{s} should be forbidden");
-        }
-    }
-
-    #[test]
-    fn allows_public_ips() {
-        for s in ["8.8.8.8", "1.1.1.1", "52.95.110.1", "2606:4700:4700::1111"] {
-            assert!(!is_forbidden_ip(ip(s)), "{s} should be allowed");
         }
     }
 

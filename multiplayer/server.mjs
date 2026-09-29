@@ -168,6 +168,13 @@ const getYDoc = (docname) => {
   return doc
 }
 
+/**
+ * Every error message is peer-controlled: `applyAwarenessUpdate` runs
+ * `JSON.parse` on the peer's bytes and V8 quotes the offending input back. Only
+ * printable ASCII survives, so nothing in it can forge or flood a log line.
+ */
+const describeError = (error) => String(error?.message ?? error).replace(/[^\x20-\x7e]+/g, ' ').slice(0, 200)
+
 const send = (conn, message) => {
   if (conn.readyState === 1) { // WebSocket.OPEN
     conn.send(message, err => { if (err) console.error(err) })
@@ -176,6 +183,7 @@ const send = (conn, message) => {
 
 const setupWSConnection = (conn, req, docName, bufferedMessages = []) => {
   const doc = getYDoc(docName)
+  const clientIp = req.socket.remoteAddress
 
   // Initialize awareness
   if (!doc.awareness) {
@@ -189,22 +197,36 @@ const setupWSConnection = (conn, req, docName, bufferedMessages = []) => {
   doc.conns.add(conn)
 
   const messageHandler = (message) => {
-    const data = new Uint8Array(message)
-    const decoder = decoding.createDecoder(data)
-    const messageType = decoding.readVarUint(decoder)
+    // A frame that arrived before we decided to close this connection (or that a
+    // replay below already made moot) must not still be applied to the document.
+    if (conn.readyState !== 1) return // WebSocket.OPEN
 
-    switch (messageType) {
-      case messageSync:
-        const encoder = encoding.createEncoder()
-        encoding.writeVarUint(encoder, messageSync)
-        syncProtocol.readSyncMessage(decoder, encoder, doc, null)
-        if (encoding.length(encoder) > 1) {
-          send(conn, encoding.toUint8Array(encoder))
+    try {
+      const data = new Uint8Array(message)
+      const decoder = decoding.createDecoder(data)
+      const messageType = decoding.readVarUint(decoder)
+
+      switch (messageType) {
+        case messageSync: {
+          const encoder = encoding.createEncoder()
+          encoding.writeVarUint(encoder, messageSync)
+          syncProtocol.readSyncMessage(decoder, encoder, doc, null)
+          if (encoding.length(encoder) > 1) {
+            send(conn, encoding.toUint8Array(encoder))
+          }
+          break
         }
-        break
-      case messageAwareness:
-        awarenessProtocol.applyAwarenessUpdate(awareness, decoding.readVarUint8Array(decoder), conn)
-        break
+        case messageAwareness:
+          awarenessProtocol.applyAwarenessUpdate(awareness, decoding.readVarUint8Array(decoder), conn)
+          break
+      }
+    } catch (error) {
+      // The decoders throw on unparseable input and `ws` re-emits a listener's
+      // exception on the process, so one bad frame from one peer would end the
+      // server for every document and client. Drop only the offender, with RFC
+      // 6455's 1007; the frame itself is untrusted and is never logged.
+      console.warn(`[${new Date().toISOString()}] MALFORMED MESSAGE: doc="${docName}" from=${clientIp} error="${describeError(error)}"`)
+      conn.close(1007, 'Invalid message')
     }
   }
   conn.on('message', messageHandler)
@@ -259,7 +281,12 @@ const setupWSConnection = (conn, req, docName, bufferedMessages = []) => {
   })
 
   // Replay, in order, the messages that arrived while the token was being
-  // verified, now that the handlers above are in place.
+  // verified, now that the handlers above are in place. The log line is the only
+  // outside evidence that a frame took this path rather than the live handler,
+  // and marks a client that beat the JWKS fetch on a slow-starting instance.
+  if (bufferedMessages.length > 0) {
+    console.log(`[${new Date().toISOString()}] REPLAY: doc="${docName}" from=${clientIp} messages=${bufferedMessages.length}`)
+  }
   bufferedMessages.forEach(messageHandler)
 }
 
@@ -287,6 +314,14 @@ const server = http.createServer((req, res) => {
 
 const wss = new WebSocketServer({ server })
 
+// `ws` forwards the HTTP server's errors here, and those are fatal: a failed
+// listen leaves nothing to serve, and exiting 0 would read as a clean shutdown.
+// `process.exitCode` rather than `process.exit()`, which truncates this line.
+wss.on('error', (error) => {
+  console.error(`[${new Date().toISOString()}] WEBSOCKET SERVER ERROR: ${describeError(error)}`)
+  process.exitCode = 1
+})
+
 wss.on('connection', async (ws, req) => {
   let docName = req.url?.slice(1).split('?')[0] || 'unknown'
 
@@ -296,6 +331,14 @@ wss.on('connection', async (ws, req) => {
   }
 
   const clientIp = req.socket.remoteAddress
+
+  // A frame `ws` cannot parse at the protocol level fails in its Receiver, never
+  // reaching the handler below, and an unhandled 'error' on an EventEmitter ends
+  // the process. Attached before authentication, since the pre-auth window is
+  // exposed too; `ws` has already closed the connection by the time this runs.
+  ws.on('error', (error) => {
+    console.warn(`[${new Date().toISOString()}] SOCKET ERROR: doc="${docName}" from=${clientIp} error="${describeError(error)}"`)
+  })
 
   // Handle ping test — respond and close immediately
   if (docName === '__ping__') {
