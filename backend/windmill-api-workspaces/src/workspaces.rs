@@ -6672,7 +6672,7 @@ async fn clone_workspace_data(
     clone_resource_types(tx, source_workspace_id, target_workspace_id).await?;
 
     // Clone resources
-    clone_resources(tx, source_workspace_id, target_workspace_id, authed).await?;
+    clone_resources(tx, source_workspace_id, target_workspace_id).await?;
 
     // Clone variables (including external secret backend replication)
     clone_variables(tx, db, source_workspace_id, target_workspace_id).await?;
@@ -7205,30 +7205,18 @@ async fn clone_resource_types(
     Ok(())
 }
 
-/// An agent's value carries the identity it runs as, re-pointed at the fork's creator when they
-/// may not preserve someone else's, as `clone_apps` does an app's policy. The rest is swept by
-/// `repoint_unresolvable_cloned_identities` once the fork's membership is final.
 async fn clone_resources(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
     target_workspace_id: &str,
-    authed: &ApiAuthed,
 ) -> Result<()> {
-    let repoint = (!windmill_common::can_preserve_on_behalf_of(authed))
-        .then(|| username_to_permissioned_as(&authed.username));
     sqlx::query!(
         "INSERT INTO resource (workspace_id, path, value, description, resource_type, extra_perms, edited_at, created_by)
-         SELECT $2, path,
-                CASE WHEN $3::text IS NOT NULL AND resource_type = 'ai_agent'
-                          AND jsonb_typeof(value) = 'object' AND value ? 'on_behalf_of'
-                     THEN jsonb_set(value, '{on_behalf_of}', to_jsonb($3::text))
-                     ELSE value END,
-                description, resource_type, extra_perms, edited_at, created_by
+         SELECT $2, path, value, description, resource_type, extra_perms, edited_at, created_by
          FROM resource
          WHERE workspace_id = $1",
         source_workspace_id,
         target_workspace_id,
-        repoint,
     )
     .execute(&mut **tx)
     .await?;
@@ -7714,18 +7702,6 @@ async fn repoint_unresolvable_cloned_identities(
         .execute(&mut **tx)
         .await?;
     }
-
-    sqlx::query(&format!(
-        "UPDATE resource SET value = jsonb_set(value, '{{on_behalf_of}}', to_jsonb($2::text))
-         WHERE workspace_id = $1 AND resource_type = 'ai_agent'
-           AND jsonb_typeof(value) = 'object' AND value ? 'on_behalf_of'
-           AND NOT ({})",
-        principal_resolves_sql("(value->>'on_behalf_of')")
-    ))
-    .bind(target_workspace_id)
-    .bind(&principal)
-    .execute(&mut **tx)
-    .await?;
 
     // `email` is still written for workers that predate `permissioned_as`.
     sqlx::query(&format!(
@@ -13076,18 +13052,17 @@ async fn compare_two_flows(
     });
 }
 
-/// An app's policy or an agent's value minus the identity it carries. Deploying cannot converge
-/// a difference there — the target recomputes the identity from the deployer's own choice, which
-/// offers its current value, the deployer, or a typed-in one, never the source's — so listing an
-/// item for it alone leaves an entry no deploy can clear. `script` and `flow` compare no identity
-/// either.
-fn without_identity(value: &serde_json::Value) -> serde_json::Value {
-    let mut value = value.clone();
-    if let Some(obj) = value.as_object_mut() {
+/// The policy minus the identity pair. Deploying cannot converge a difference there — the
+/// target recomputes the identity from the deployer's own choice, which offers its current
+/// value, the deployer, or a typed-in one, never the source's — so listing an app for it
+/// alone leaves an entry no deploy can clear. `script` and `flow` compare no identity either.
+fn policy_without_identity(policy: &serde_json::Value) -> serde_json::Value {
+    let mut policy = policy.clone();
+    if let Some(obj) = policy.as_object_mut() {
         obj.remove("on_behalf_of");
         obj.remove("on_behalf_of_email");
     }
-    value
+    policy
 }
 
 async fn compare_two_apps(
@@ -13130,7 +13105,7 @@ async fn compare_two_apps(
     // Check metadata and content differences
     if let (Some(source), Some(target)) = (&source_app, &target_app) {
         if source.summary != target.summary
-            || without_identity(&source.policy) != without_identity(&target.policy)
+            || policy_without_identity(&source.policy) != policy_without_identity(&target.policy)
             || source.value != target.value
             || source.raw_app != target.raw_app
         {
@@ -13208,14 +13183,7 @@ async fn compare_two_resources(
 
     // Check metadata differences
     if let (Some(source), Some(target)) = (&source_resource, &target_resource) {
-        let agent = source.resource_type == "ai_agent" && target.resource_type == "ai_agent";
-        let values_differ = if agent {
-            source.value.as_ref().map(without_identity)
-                != target.value.as_ref().map(without_identity)
-        } else {
-            source.value != target.value
-        };
-        if values_differ
+        if source.value != target.value
             || source.description != target.description
             || source.resource_type != target.resource_type
         {

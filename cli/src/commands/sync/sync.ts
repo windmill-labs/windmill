@@ -5918,7 +5918,6 @@ export async function push(
                     resourceFilePath,
                     isFileResWsSpecific ? true : undefined,
                     true,
-                    permissionedAsContext,
                   );
                 }
                 // Already-synced parents got the full content this run.

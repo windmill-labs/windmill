@@ -233,14 +233,8 @@ function canonicalizeDraftDiffValue(kind: DraftKind, raw: any, isDraft: boolean)
 	if (kind === 'resource') {
 		// draft: { args, description, resource_type, labels, wsSpecific }
 		// deployed row: { value, description, resource_type, labels, ws_specific }
-		// An agent's identity is in its deployed value and never in a draft, which is not an edit.
-		let value = (isDraft ? raw.args : raw.value) ?? {}
-		if (raw.resource_type === 'ai_agent') {
-			const { on_behalf_of: _, ...rest } = value
-			value = rest
-		}
 		return {
-			value,
+			value: (isDraft ? raw.args : raw.value) ?? {},
 			description: raw.description ?? '',
 			resource_type: raw.resource_type ?? undefined,
 			labels: raw.labels ?? undefined,
@@ -645,18 +639,12 @@ export async function deployDraft(
 					}
 				})
 			} else {
-				// As for an app: an agent draft carries no identity, so the deployed one is kept (the
-				// backend resets it to the deploying user without the flag, gated by
-				// can_preserve_on_behalf_of).
-				const agentObo =
-					deployed.resource_type === 'ai_agent' ? deployed.value?.on_behalf_of : undefined
 				await ResourceService.updateResource({
 					workspace,
 					path,
 					requestBody: {
 						path: d.path ?? path,
-						value: agentObo ? { ...(d.args ?? {}), on_behalf_of: agentObo } : (d.args ?? {}),
-						preserve_on_behalf_of: agentObo ? true : undefined,
+						value: d.args ?? {},
 						description: d.description ?? '',
 						labels: d.labels,
 						ws_specific: d.wsSpecific

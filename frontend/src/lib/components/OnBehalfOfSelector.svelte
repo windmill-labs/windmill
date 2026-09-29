@@ -19,9 +19,7 @@
 			kind === 'app' ||
 			kind === 'raw_app' ||
 			kind === 'trigger' ||
-			isTriggerOrScheduleKind(kind) ||
-			// Only an agent's value carries an identity, so no other resource has a source value.
-			kind === 'resource'
+			isTriggerOrScheduleKind(kind)
 		if (!supported) return false
 		return !!sourceValue
 	}

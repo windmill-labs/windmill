@@ -2,8 +2,8 @@
 //!
 //! The run is built here from the stored agent rather than sent by the client, which is what lets
 //! anyone who can read the agent run it, operators included, the way a deployed flow runs by path:
-//! a preview takes arbitrary code, this takes only the run's inputs. It runs as the agent's
-//! `on_behalf_of`, which the server resolves on every write of the agent.
+//! a preview takes arbitrary code, this takes only the run's inputs. It runs as the caller, who
+//! needs access to the agent's AI resource and to whatever its tools use.
 
 use std::collections::HashMap;
 
@@ -59,16 +59,11 @@ pub(crate) async fn run_agent(
     .fetch_optional(&mut *tx)
     .await?;
     tx.commit().await?;
-    let Some(sqlx::types::Json(mut value)) = not_found_if_none(value, "Agent", path)? else {
+    let Some(sqlx::types::Json(value)) = not_found_if_none(value, "Agent", path)? else {
         return Err(Error::BadRequest(format!(
             "Agent {path} has no configuration"
         )));
     };
-    // Who the agent runs as, not one of its inputs.
-    let agent_obo = value
-        .as_object_mut()
-        .and_then(|o| o.remove("on_behalf_of"))
-        .and_then(|v| v.as_str().map(str::to_string));
     let config = config_to_draft(value)?;
 
     // A chat turn is filed where the agent's chat lists its conversations, which a flow cannot
@@ -81,31 +76,10 @@ pub(crate) async fn run_agent(
     };
     let flow_value = agent_flow(&config, chat)?;
 
-    let on_behalf_of =
-        windmill_common::on_behalf_of_from_permissioned_as(agent_obo.as_deref(), &w_id, &db)
-            .await?;
-    // As `run_flow` picks the identity of a deployed flow: the agent's own when it has one, the
-    // caller's otherwise, which lends nobody's permissions.
-    let (email, permissioned_as, push_authed, isolation) = if let Some(obo) = on_behalf_of.as_ref()
-    {
-        (
-            &obo.email,
-            obo.permissioned_as.clone(),
-            None,
-            PushIsolationLevel::IsolatedRoot(db.clone()),
-        )
-    } else {
-        (
-            &authed.email,
-            username_to_permissioned_as(&authed.username),
-            Some(authed.clone().into()),
-            PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into()),
-        )
-    };
-
+    let push_authed = authed.clone().into();
     let (uuid, mut tx) = push(
         &db,
-        isolation,
+        PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into()),
         &w_id,
         JobPayload::RawFlow {
             value: flow_value,
@@ -114,8 +88,8 @@ pub(crate) async fn run_agent(
         },
         PushArgs::from(&args),
         authed.display_username(),
-        email,
-        permissioned_as,
+        &authed.email,
+        username_to_permissioned_as(&authed.username),
         authed.token_prefix.as_deref(),
         authed.username_override.as_deref(),
         None,
@@ -132,7 +106,7 @@ pub(crate) async fn run_agent(
         None,
         None,
         None,
-        push_authed.as_ref(),
+        Some(&push_authed),
         false,
         None,
         authed.trigger_or_fallback(None),
@@ -144,8 +118,7 @@ pub(crate) async fn run_agent(
         set_flow_memory_id(&mut tx, uuid, memory_id).await?;
     }
     if chat {
-        // The caller's conversation, whoever the agent runs as, and a real one: this is the
-        // agent as deployed, not a draft under test.
+        // A real conversation, not a test one: this is the agent as deployed, not a draft.
         handle_chat_conversation_messages(
             &mut tx,
             &authed,
