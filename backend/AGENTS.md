@@ -23,7 +23,7 @@
 ## Cargo features & running the dev backend
 
 The dev backend runs under `cargo watch` and is launched by default with **only
-`--features quickjs`** (see the tmux backend pane). That baseline compiles fast but
+`--features quickjs`** (see the backend pane). That baseline compiles fast but
 **deliberately omits most functionality** — notably S3/object storage, the S3 proxy, all
 EE code, MCP, and every non-JS language runtime. A running server never gains a feature you
 didn't compile in: feature-gated routes 404 or return a `"requires <feature>"` stub. So if
@@ -33,22 +33,30 @@ MUST **restart the backend with the appropriate features** for what you're worki
 ### Restarting the dev backend with the right features
 
 Restart in the **same pane**, so the relaunch inherits that pane's `DATABASE_URL`, `BACKEND_PORT`
-and the rest of `runtime.env`. Scope every kill to this worktree — **never**
+and the rest of the worktree environment. Scope every kill to this worktree — **never**
 `pkill -f target/debug/windmill`, which kills every sibling worktree's backend.
 
-1. Find the backend pane by what it is running, not by index. The index depends on the webmux
-   profile: pane 1 is the backend under `full`, but the *frontend* under `frontendOnly`.
+1. Find the backend pane by where it is running, not by index. Under herdr the two server panes
+   sit in the worktree's `backend/` and `frontend/`, so match on `cwd`:
+
+   ```bash
+   herdr pane list --workspace "$HERDR_WORKSPACE_ID"
+   ```
+
+   Under webmux they are tmux panes, and the index depends on the profile: pane 1 is the backend
+   under `full`, but the *frontend* under `frontendOnly`.
 
    ```bash
    WIN=$(tmux display-message -p -t "$TMUX_PANE" '#{window_id}')
    tmux list-panes -t "$WIN" -F '#{pane_index} #{pane_current_command} #{pane_pid}'
    ```
 
-2. Read the feature set it is **actually** running. `CARGO_FEATURES` in `runtime.env` is only what
-   the pane started with, and goes stale the first time anyone restarts by hand:
+2. Read the feature set it is **actually** running. The `CARGO_FEATURES` the worktree was created
+   with is only what the pane started with, and goes stale the first time anyone restarts by hand:
 
    ```bash
-   ps --ppid <pane_pid> -o args=
+   herdr pane process-info --pane <pane_id>   # foreground_processes[].argv
+   ps --ppid <pane_pid> -o args=              # under webmux
    # /home/hugo/.cargo/bin/cargo-watch watch -x run --features quickjs
    ```
 
@@ -56,22 +64,25 @@ and the rest of `runtime.env`. Scope every kill to this worktree — **never**
    explicitly:
 
    ```bash
-   tmux send-keys -t "$WIN.<idx>" C-c
-   tmux send-keys -t "$WIN.<idx>" 'PORT=$BACKEND_PORT cargo watch -x "run --features quickjs,private,parquet"' Enter
+   herdr pane send-keys <pane_id> C-c
+   herdr pane run <pane_id> 'PORT=$BACKEND_PORT cargo watch -x "run --features quickjs,private,parquet"'
+   # under webmux: tmux send-keys -t "$WIN.<idx>" C-c, then the same command line with Enter
    ```
 
    Carry over every feature the old command had unless you mean to drop one — rebuilding the list
    from memory is how a backend silently loses `quickjs`.
 
-4. Persist the new set so a recreated pane starts with it: set `CARGO_FEATURES` in the
-   worktree's `.env.local`, which `scripts/post-create.sh` writes and webmux reads. Do **not**
-   edit `runtime.env` for this — webmux regenerates it from metadata and `.env.local` every time
-   the worktree is opened, so an edit there is lost on the next reopen. Either way the change
-   only affects a future pane; step 3 is what takes effect now.
+4. Persist the new set so a recreated pane starts with it: set `CARGO_FEATURES` in the worktree's
+   `.env.local`, which the worktree hooks write. A herdr pane sources that file directly, so the
+   next pane picks the value up. A webmux pane sources `webmux/runtime.env` instead, which webmux
+   regenerates from metadata and `.env.local` when the worktree is *opened* — so the value lands
+   on the next reopen, not the next pane, and editing `runtime.env` by hand is lost at that same
+   reopen. Either way the change only affects a future pane; step 3 is what takes effect now.
 
-5. Re-capture the pane until `health check completed` appears before hitting the API. A cold
-   rebuild takes ~60s, and the previous run's success line is still in the scrollback, so a
-   capture taken too early reads as ready when it isn't.
+5. Re-read the pane (`herdr pane read <pane_id> --source recent-unwrapped`, or `tmux
+   capture-pane`) until `health check completed` appears before hitting the API. A cold rebuild
+   takes ~60s, and the previous run's success line is still in the scrollback, so a capture taken
+   too early reads as ready when it isn't.
 
 cargo-watch only re-runs on a file change, so after an idle/failed run `touch README.md` (from
 `backend/`, where the watch runs) is a cheap retrigger (touching a `.rs` forces a full rebuild).

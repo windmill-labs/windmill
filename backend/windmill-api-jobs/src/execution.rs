@@ -40,8 +40,8 @@ use windmill_common::{
     FlowVersionInfo, DB,
 };
 use windmill_queue::{
-    cancel_job, get_result_and_success_by_id_from_flow, parse_result_object, push, PushArgs,
-    PushArgsOwned, PushIsolationLevel,
+    cancel_job, check_tag_available_for_push, get_result_and_success_by_id_from_flow,
+    parse_result_object, push, tag_reads_args, PushArgs, PushArgsOwned, PushIsolationLevel,
 };
 
 use crate::types::RunJobQuery;
@@ -50,7 +50,27 @@ use crate::types::RunJobQuery;
 // Tag / license checks
 // ---------------------------------------------------------------------------
 
+/// `args` must be the ones the job is pushed with, see [`windmill_queue::check_tag_available_for_push`].
 pub async fn check_tag_available_for_workspace(
+    db: &DB,
+    w_id: &str,
+    tag: &Option<String>,
+    args: &PushArgs<'_>,
+    authed: &ApiAuthed,
+) -> error::Result<()> {
+    if let Some(tag) = tag.as_deref().filter(|t| !t.is_empty()) {
+        let tags = get_scope_tags(authed);
+        // Job-aware: a WM_TOKEN running as a superadmin must not unlock restricted tags.
+        let is_super_admin = windmill_api_auth::is_super_admin_authed(db, authed).await?;
+        check_tag_available_for_push(db, w_id, tag, args, is_super_admin, tags).await
+    } else {
+        Ok(())
+    }
+}
+
+/// [`check_tag_available_for_workspace`] for a tag filled in from values nothing can check yet,
+/// such as a flow's preprocessor output: only an entry spelled exactly like it admits it.
+pub async fn check_tag_as_written_available_for_workspace(
     db: &DB,
     w_id: &str,
     tag: &Option<String>,
@@ -60,10 +80,96 @@ pub async fn check_tag_available_for_workspace(
         let tags = get_scope_tags(authed);
         // Job-aware: a WM_TOKEN running as a superadmin must not unlock restricted tags.
         let is_super_admin = windmill_api_auth::is_super_admin_authed(db, authed).await?;
-        check_tag_available_for_workspace_internal(db, w_id, tag, is_super_admin, tags).await
+        check_tag_available_for_workspace_internal(
+            db,
+            w_id,
+            tag,
+            None,
+            std::future::ready(w_id.to_string()),
+            is_super_admin,
+            tags,
+        )
+        .await
     } else {
         Ok(())
     }
+}
+
+/// Clears a `parent_job` / `root_job` the caller cannot claim. They identify the pushed job
+/// (`WM_FLOW_JOB_ID`, `WM_ROOT_FLOW_JOB_ID`, the OIDC token's flow path), so only a job's own
+/// `WM_TOKEN` may name that job or its ancestors, and a workspace admin any job of the workspace.
+/// Cleared rather than refused: the SDKs send them from inside a job whatever token they hold.
+pub async fn drop_unclaimable_run_lineage(
+    db: &DB,
+    w_id: &str,
+    run_query: &mut RunJobQuery,
+    authed: &ApiAuthed,
+) -> error::Result<()> {
+    let referenced: Vec<Uuid> = [run_query.parent_job, run_query.root_job]
+        .into_iter()
+        .flatten()
+        .collect();
+    let unclaimable = unclaimable_run_lineage(db, w_id, referenced, authed).await?;
+    for field in [&mut run_query.parent_job, &mut run_query.root_job] {
+        if field.is_some_and(|id| unclaimable.contains(&id)) {
+            tracing::warn!(
+                "ignoring parent_job/root_job {field:?} that {} cannot claim in {w_id}",
+                authed.username
+            );
+            *field = None;
+        }
+    }
+    Ok(())
+}
+
+/// The jobs of `referenced` that `authed` cannot claim as its own run lineage: anything but the
+/// token's own job and that job's `parent_job`, `root_job` and `flow_innermost_root_job`, or for
+/// a workspace admin anything outside the workspace.
+pub async fn unclaimable_run_lineage(
+    db: &DB,
+    w_id: &str,
+    mut referenced: Vec<Uuid>,
+    authed: &ApiAuthed,
+) -> error::Result<Vec<Uuid>> {
+    referenced.sort();
+    referenced.dedup();
+    if let Some(token_job) = authed.job_id {
+        referenced.retain(|id| *id != token_job);
+        if !referenced.is_empty() {
+            if let Some(lineage) = sqlx::query!(
+                "SELECT parent_job, root_job, flow_innermost_root_job FROM v2_job
+                WHERE id = $1 AND workspace_id = $2",
+                token_job,
+                w_id
+            )
+            .fetch_optional(db)
+            .await?
+            {
+                let ancestors = [
+                    lineage.parent_job,
+                    lineage.root_job,
+                    lineage.flow_innermost_root_job,
+                ];
+                referenced.retain(|id| !ancestors.contains(&Some(*id)));
+            }
+        }
+    }
+    if referenced.is_empty() {
+        return Ok(referenced);
+    }
+    let in_workspace = if authed.is_admin {
+        sqlx::query_scalar!(
+            "SELECT id FROM v2_job WHERE id = ANY($1) AND workspace_id = $2",
+            &referenced,
+            w_id,
+        )
+        .fetch_all(db)
+        .await?
+    } else {
+        vec![]
+    };
+    referenced.retain(|id| !in_workspace.contains(id));
+    Ok(referenced)
 }
 
 #[cfg(feature = "enterprise")]
@@ -747,6 +853,8 @@ pub async fn run_flow<'c>(
     bool,
     Option<sqlx::Transaction<'c, sqlx::Postgres>>,
 )> {
+    let mut run_query = run_query;
+    drop_unclaimable_run_lineage(db, w_id, &mut run_query, authed).await?;
     let on_behalf_of = flow_version_info.on_behalf_of(w_id, &db).await?;
     let FlowVersionInfo {
         version,
@@ -760,9 +868,25 @@ pub async fn run_flow<'c>(
         ..
     } = flow_version_info;
 
-    let tag = run_query.tag.clone().or(tag);
+    let flow_tag = tag;
+    let tag = run_query.tag.clone().or(flow_tag.clone());
+    let push_args = PushArgs { args: &args.args, extra: args.extra };
+    let apply_preprocessor =
+        !run_query.skip_preprocessor.unwrap_or(false) && has_preprocessor.unwrap_or(false);
 
-    check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
+    if !apply_preprocessor || run_query.tag.is_some() {
+        check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
+    }
+    // `push` drops the tag of a flow whose preprocessor runs, and the worker then puts the flow on
+    // its own tag filled in from the preprocessor's output, after this caller's identity is gone.
+    // So that tag is the one to check, and an `$args[...]` in it is judged as written.
+    if apply_preprocessor {
+        if flow_tag.as_deref().is_some_and(tag_reads_args) {
+            check_tag_as_written_available_for_workspace(&db, &w_id, &flow_tag, &authed).await?;
+        } else {
+            check_tag_available_for_workspace(&db, &w_id, &flow_tag, &push_args, &authed).await?;
+        }
+    }
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
     let return_tx = tx_o.is_some();
@@ -798,11 +922,10 @@ pub async fn run_flow<'c>(
             path: flow_path.to_string(),
             dedicated_worker,
             version,
-            apply_preprocessor: !run_query.skip_preprocessor.unwrap_or(false)
-                && has_preprocessor.unwrap_or(false),
+            apply_preprocessor,
             labels,
         },
-        PushArgs { args: &args.args, extra: args.extra },
+        push_args,
         authed.display_username(),
         email,
         permissioned_as,
@@ -973,6 +1096,8 @@ pub async fn push_script_job_by_path_into_queue<'c>(
 
     let script_path = script_path.to_path();
     check_scopes(&authed, || format!("jobs:run:scripts:{script_path}"))?;
+    let mut run_query = run_query;
+    drop_unclaimable_run_lineage(&db, &w_id, &mut run_query, &authed).await?;
 
     let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
     let (job_payload, tag, delete_after_use, delete_after_secs, timeout, on_behalf_of) =
@@ -988,7 +1113,8 @@ pub async fn push_script_job_by_path_into_queue<'c>(
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
     let tag = run_query.tag.clone().or(tag);
-    check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
+    let push_args = PushArgs { args: &args.args, extra: args.extra };
+    check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
 
     let return_tx = tx_o.is_some();
 
@@ -1020,7 +1146,7 @@ pub async fn push_script_job_by_path_into_queue<'c>(
         tx,
         &w_id,
         job_payload,
-        PushArgs { args: &args.args, extra: args.extra },
+        push_args,
         authed.display_username(),
         email,
         permissioned_as,

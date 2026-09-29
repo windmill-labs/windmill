@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO zombie_job_counter (job_id, counter) VALUES ($1, 1)\n                    ON CONFLICT (job_id) DO UPDATE SET counter = zombie_job_counter.counter + 1\n                    RETURNING counter",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "counter",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "9d8e3b978d746432d336900282602f0ce092d50783d8b3ea17b7e6121f207b92"
+}

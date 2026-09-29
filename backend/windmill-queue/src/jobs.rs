@@ -1290,7 +1290,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         ));
     }
 
-    // Native script retry: a failed `Script` job that carries a retry policy and
+    // Native script retry: a failed `Script` or `Script_Hub` job that carries a retry policy and
     // has attempts left gets its next attempt enqueued here — before the queue
     // row (which holds the attempt counter) is removed by commit. The failed
     // attempt is still recorded as a completed job below. `maybe_enqueue_…`
@@ -1360,9 +1360,9 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     // Auto-resolve a retry chain that ultimately worked, from whichever of the two
     // completions lands last (see resolve_retry_chain_if_succeeded): a success that has a
     // parent (so is a possible retry attempt), or a failure that just enqueued a retry.
-    // `retry_pending` already implies a non-flow-step `Script`.
+    // `retry_pending` already implies a non-flow-step `Script` or `Script_Hub`.
     let resolve_root = if success && !skipped && !completed_job.is_flow_step() {
-        matches!(completed_job.kind, JobKind::Script)
+        matches!(completed_job.kind, JobKind::Script | JobKind::Script_Hub)
             .then(|| completed_job.parent_job)
             .flatten()
     } else if !success && !skipped && retry_pending {
@@ -1460,74 +1460,76 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     let serialized_result = result.serialized_json();
     let sanitized_result = strip_json_nul(serialized_result.as_ref());
 
+    let labels = result.wm_labels();
+    let is_scheduled =
+        completed_job.schedule_path().is_some() && completed_job.runnable_path.is_some();
+    let wac_parent = (!completed_job.is_flow_step())
+        .then_some(completed_job.parent_job)
+        .flatten();
+    let monitor_parent = (completed_job.is_flow_step() && flow_is_done)
+        .then_some(completed_job.parent_job)
+        .flatten();
+    let completion = Completion {
+        completed_job,
+        success,
+        skipped,
+        result: sanitized_result.as_ref(),
+        result_columns,
+        mem_peak,
+        canceled_by,
+        duration,
+    };
+
+    if labels.is_none()
+        && !has_concurrent_limit
+        && wac_parent.is_none()
+        && monitor_parent.is_none()
+        && !is_scheduled
+    {
+        let Some(duration) = completion.execute(&mut *db.acquire().await?).await? else {
+            return Err(not_in_queue_error(db, job_id).await);
+        };
+        log_completed_job(completed_job, duration, success);
+        return Ok((None, duration, false, false));
+    }
+
     let mut tx = db.begin().warn_after_seconds(10).await?;
 
-    let duration =  sqlx::query_scalar!(
-            "INSERT INTO v2_job_completed AS cj
-                    ( workspace_id
-                    , id
-                    , started_at
-                    , duration_ms
-                    , result
-                    , result_columns
-                    , canceled_by
-                    , canceled_reason
-                    , flow_status
-                    , workflow_as_code_status
-                    , memory_peak
-                    , status
-                    , worker
-                    )
-                SELECT q.workspace_id, q.id, started_at, COALESCE($9::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(started_at, now()))))*1000), $3::text::jsonb, $10, $5, $6,
-                        flow_status, workflow_as_code_status,
-                        $8, CASE WHEN $4::BOOL THEN 'canceled'::job_status
-                        WHEN $7::BOOL THEN 'skipped'::job_status
-                        WHEN $2::BOOL THEN 'success'::job_status
-                        ELSE 'failure'::job_status END AS status,
-                        q.worker
-                FROM v2_job_queue q LEFT JOIN v2_job_status USING (id) WHERE q.id = $1
-            ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, result = $3::text::jsonb RETURNING duration_ms AS \"duration_ms!\"",
-            /* $1 */ completed_job.id,
-            /* $2 */ success,
-            /* $3 */ sanitized_result.as_ref(),
-            /* $4 */ canceled_by.is_some(),
-            /* $5 */ canceled_by.clone().map(|cb| cb.username).flatten(),
-            /* $6 */ canceled_by.clone().map(|cb| cb.reason).flatten(),
-            /* $7 */ skipped,
-            /* $8 */ if mem_peak > 0 { Some(mem_peak) } else { None },
-            /* $9 */ duration,
-            /* $10 */ result_columns as Option<&Vec<String>>,
+    // The parent's rows are locked ahead of the child's own queue row (see
+    // `record_child_completion` for the order this must keep), so the duration it stamps is read
+    // before the completion: the one the completed row will hold. `now()` is fixed for the
+    // transaction, and a completed row already there keeps its own duration.
+    let mut wac_parent_ready = false;
+    if let Some(parent_job) = wac_parent {
+        let Some(duration) = sqlx::query_scalar!(
+            "SELECT COALESCE(c.duration_ms, COALESCE($2::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(q.started_at, now()))))*1000)::bigint) AS \"duration_ms!\"
+             FROM v2_job_queue q LEFT JOIN v2_job_completed c ON c.id = q.id WHERE q.id = $1",
+            job_id,
+            duration,
         )
         .fetch_optional(&mut *tx)
         .warn_after_seconds(10)
-        .await
-        .map_err(|e| Error::internal_err(format!("Could not add completed job {job_id}: {e:#}")))?;
-
-    let duration = if let Some(duration) = duration {
-        duration
-    } else {
-        let already_inserted = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM v2_job_completed WHERE id = $1)",
-            job_id
+        .await?
+        else {
+            return Err(not_in_queue_error(&mut *tx, job_id).await);
+        };
+        wac_parent_ready = windmill_common::wac::record_child_completion(
+            &mut tx,
+            &parent_job,
+            &completed_job.id,
+            success,
+            duration,
+            sanitized_result.as_ref(),
         )
-        .fetch_one(&mut *tx)
         .warn_after_seconds(10)
-        .await
-        .map_err(|e| Error::internal_err(format!("Could not add completed job {job_id}: {e:#}")))?
-        .unwrap_or(false);
+        .await?;
+    }
 
-        if already_inserted {
-            return Err(Error::AlreadyCompleted(format!(
-                "The queued job {job_id} is already completed."
-            )));
-        } else {
-            return Err(Error::AlreadyCompleted(format!(
-                "There is no queued job anymore for {job_id} but there is no completed job either."
-            )));
-        }
+    let Some(duration) = completion.execute(&mut *tx).await? else {
+        return Err(not_in_queue_error(&mut *tx, job_id).await);
     };
 
-    if let Some(mut labels) = result.wm_labels() {
+    if let Some(mut labels) = labels {
         // A `\u0000` inside a wm_labels entry decodes to a real NUL that the
         // `text[]` column rejects, which would abort this same transaction (and
         // roll back the sanitized result insert) exactly like an unsanitized
@@ -1549,60 +1551,19 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         .map_err(|e| Error::InternalErr(format!("Could not update job labels: {e:#}")))?;
     }
 
-    // Before `delete_job`: the parent's rows are locked ahead of the child's own
-    // queue row (see `record_child_completion` for the order this must keep).
-    let mut wac_parent_ready = false;
-    if !completed_job.is_flow_step() {
-        if let Some(parent_job) = completed_job.parent_job {
-            wac_parent_ready = windmill_common::wac::record_child_completion(
-                &mut tx,
-                &parent_job,
-                &completed_job.id,
-                success,
-                duration,
-                sanitized_result.as_ref(),
-            )
-            .warn_after_seconds(10)
-            .await?;
-        }
-    }
-
     let mut _skip_downstream_error_handlers = false;
-    tx = delete_job(tx, &job_id).warn_after_seconds(10).await?;
-    // tracing::error!("3 {:?}", start.elapsed());
-
     if completed_job.is_flow_step() {
-        if let Some(parent_job) = completed_job.parent_job {
-            // persist the flow last progress timestamp to avoid zombie flow jobs
-            tracing::debug!(
-                "Persisting flow last progress timestamp to flow job: {:?}",
-                parent_job
-            );
-            sqlx::query!(
-                "UPDATE v2_job_runtime r SET
-                        ping = now()
-                    FROM v2_job_queue q
-                    WHERE r.id = $1 AND q.id = r.id
-                        AND q.workspace_id = $2
-                        AND canceled_by IS NULL",
+        if let Some(parent_job) = monitor_parent {
+            let r = sqlx::query_scalar!(
+                "UPDATE parallel_monitor_lock SET last_ping = now() WHERE parent_flow_id = $1 and job_id = $2 RETURNING 1",
                 parent_job,
-                &completed_job.workspace_id
-            )
-            .execute(&mut *tx)
-            .warn_after_seconds(10)
-            .await?;
-            if flow_is_done {
-                let r = sqlx::query_scalar!(
-                    "UPDATE parallel_monitor_lock SET last_ping = now() WHERE parent_flow_id = $1 and job_id = $2 RETURNING 1",
-                    parent_job,
-                    &completed_job.id
-                ).fetch_optional(&mut *tx).warn_after_seconds(10).await?;
-                if r.is_some() {
-                    tracing::info!(
-                            "parallel flow iteration is done, setting parallel monitor last ping lock for job {}",
-                            &completed_job.id
-                        );
-                }
+                &completed_job.id
+            ).fetch_optional(&mut *tx).warn_after_seconds(10).await?;
+            if r.is_some() {
+                tracing::info!(
+                        "parallel flow iteration is done, setting parallel monitor last ping lock for job {}",
+                        &completed_job.id
+                    );
             }
         }
     } else {
@@ -1774,6 +1735,216 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
 
     tx.commit().warn_after_seconds(10).await?;
 
+    log_completed_job(completed_job, duration, success);
+    // tracing::info!("completed job: {:?}", start.elapsed().as_micros());
+    Ok((
+        None,
+        duration,
+        _skip_downstream_error_handlers,
+        wac_parent_ready,
+    ))
+}
+
+/// What a job's completion writes, for `Completion::execute`.
+struct Completion<'a> {
+    completed_job: &'a MiniCompletedJob,
+    success: bool,
+    skipped: bool,
+    result: &'a str,
+    result_columns: Option<&'a Vec<String>>,
+    mem_peak: i32,
+    canceled_by: &'a Option<CanceledBy>,
+    duration: Option<i64>,
+}
+
+impl Completion<'_> {
+    /// Moves the job from the queue to the completed jobs and refreshes a flow step's parent
+    /// ping, as one statement. Returns `None` when the job was no longer in the queue.
+    ///
+    /// The completion takes its cancellation from the queue row it deletes, not only from
+    /// `canceled_by`: that is what the worker last read, and the delete waits for a cancel still
+    /// being written, so the deleted row is the final word on whether the job was canceled.
+    ///
+    /// It locks the queue row before the completed row's key. Any other writer completing a job
+    /// (the monitor's zombie fallback, debounce) must take them in the same order, or the two
+    /// deadlock.
+    async fn execute(&self, conn: &mut sqlx::PgConnection) -> error::Result<Option<i64>> {
+        let Completion {
+            completed_job,
+            success,
+            skipped,
+            result,
+            result_columns,
+            mem_peak,
+            canceled_by,
+            duration,
+        } = *self;
+        #[cfg(feature = "prometheus")]
+        if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+            QUEUE_DELETE_COUNT.inc();
+        }
+        otel_incr_queue_delete_count();
+        let err = |e: sqlx::Error| {
+            Error::internal_err(format!(
+                "Could not add completed job {}: {e:#}",
+                completed_job.id
+            ))
+        };
+        // A step's completion is progress of its flow, and keeps the flow from being reaped as a
+        // zombie. Any other completion runs the statement without the ping: Postgres sets up every
+        // write of a plan, so an unused ping would cost about a tenth of the completion. The two
+        // statements differ only by the ping; a change to the delete or the insert goes in both.
+        let Some(parent_to_ping) = completed_job
+            .is_flow_step()
+            .then_some(completed_job.parent_job)
+            .flatten()
+        else {
+            return sqlx::query_scalar!(
+                "WITH deleted AS (
+                    DELETE FROM v2_job_queue WHERE id = $1
+                    RETURNING id, workspace_id, started_at, worker, canceled_by, canceled_reason
+                ), completed AS (
+                    INSERT INTO v2_job_completed AS cj
+                        ( workspace_id
+                        , id
+                        , started_at
+                        , duration_ms
+                        , result
+                        , result_columns
+                        , canceled_by
+                        , canceled_reason
+                        , flow_status
+                        , workflow_as_code_status
+                        , memory_peak
+                        , status
+                        , worker
+                        )
+                    SELECT d.workspace_id, d.id, d.started_at,
+                        COALESCE($9::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(d.started_at, now()))))*1000),
+                        $3::text::jsonb, $10,
+                        CASE WHEN $4::BOOL THEN $5 ELSE d.canceled_by END,
+                        CASE WHEN $4::BOOL THEN $6 WHEN d.canceled_by IS NOT NULL THEN d.canceled_reason END,
+                        s.flow_status, s.workflow_as_code_status, $8,
+                        CASE WHEN $4::BOOL OR d.canceled_by IS NOT NULL THEN 'canceled'::job_status
+                            WHEN $7::BOOL THEN 'skipped'::job_status
+                            WHEN $2::BOOL THEN 'success'::job_status
+                            ELSE 'failure'::job_status END,
+                        d.worker
+                    FROM deleted d LEFT JOIN v2_job_status s ON s.id = d.id
+                    ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, result = $3::text::jsonb,
+                        canceled_by = CASE WHEN NOT $4::BOOL AND EXCLUDED.canceled_by IS NOT NULL
+                            THEN EXCLUDED.canceled_by ELSE cj.canceled_by END,
+                        canceled_reason = CASE WHEN NOT $4::BOOL AND EXCLUDED.canceled_by IS NOT NULL
+                            THEN EXCLUDED.canceled_reason ELSE cj.canceled_reason END
+                    RETURNING duration_ms
+                )
+                SELECT duration_ms AS \"duration_ms!\" FROM completed",
+                /* $1 */ completed_job.id,
+                /* $2 */ success,
+                /* $3 */ result,
+                /* $4 */ canceled_by.is_some(),
+                /* $5 */ canceled_by.as_ref().and_then(|cb| cb.username.as_deref()),
+                /* $6 */ canceled_by.as_ref().and_then(|cb| cb.reason.as_deref()),
+                /* $7 */ skipped,
+                /* $8 */ if mem_peak > 0 { Some(mem_peak) } else { None },
+                /* $9 */ duration,
+                /* $10 */ result_columns as Option<&Vec<String>>,
+            )
+            .fetch_optional(&mut *conn)
+            .warn_after_seconds(10)
+            .await
+            .map_err(err);
+        };
+        // A canceled flow is pinged too: it is completed by its next transition like any other
+        // flow, and the zombie flow monitor needs the ping to finish the cancel if that
+        // transition is lost.
+        sqlx::query_scalar!(
+        "WITH deleted AS (
+            DELETE FROM v2_job_queue WHERE id = $1
+            RETURNING id, workspace_id, started_at, worker, canceled_by, canceled_reason
+        ), completed AS (
+            INSERT INTO v2_job_completed AS cj
+                ( workspace_id
+                , id
+                , started_at
+                , duration_ms
+                , result
+                , result_columns
+                , canceled_by
+                , canceled_reason
+                , flow_status
+                , workflow_as_code_status
+                , memory_peak
+                , status
+                , worker
+                )
+            SELECT d.workspace_id, d.id, d.started_at,
+                COALESCE($9::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(d.started_at, now()))))*1000),
+                $3::text::jsonb, $10,
+                CASE WHEN $4::BOOL THEN $5 ELSE d.canceled_by END,
+                CASE WHEN $4::BOOL THEN $6 WHEN d.canceled_by IS NOT NULL THEN d.canceled_reason END,
+                s.flow_status, s.workflow_as_code_status, $8,
+                CASE WHEN $4::BOOL OR d.canceled_by IS NOT NULL THEN 'canceled'::job_status
+                    WHEN $7::BOOL THEN 'skipped'::job_status
+                    WHEN $2::BOOL THEN 'success'::job_status
+                    ELSE 'failure'::job_status END,
+                d.worker
+            FROM deleted d LEFT JOIN v2_job_status s ON s.id = d.id
+            ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, result = $3::text::jsonb,
+                canceled_by = CASE WHEN NOT $4::BOOL AND EXCLUDED.canceled_by IS NOT NULL
+                    THEN EXCLUDED.canceled_by ELSE cj.canceled_by END,
+                canceled_reason = CASE WHEN NOT $4::BOOL AND EXCLUDED.canceled_by IS NOT NULL
+                    THEN EXCLUDED.canceled_reason ELSE cj.canceled_reason END
+            RETURNING duration_ms
+        ), parent_ping AS (
+            UPDATE v2_job_runtime r SET ping = now()
+            FROM v2_job_queue q
+            WHERE r.id = $11 AND q.id = r.id AND q.workspace_id = $12
+                AND EXISTS (SELECT 1 FROM completed)
+        )
+        SELECT duration_ms AS \"duration_ms!\" FROM completed",
+        /* $1 */ completed_job.id,
+        /* $2 */ success,
+        /* $3 */ result,
+        /* $4 */ canceled_by.is_some(),
+        /* $5 */ canceled_by.as_ref().and_then(|cb| cb.username.as_deref()),
+        /* $6 */ canceled_by.as_ref().and_then(|cb| cb.reason.as_deref()),
+        /* $7 */ skipped,
+        /* $8 */ if mem_peak > 0 { Some(mem_peak) } else { None },
+        /* $9 */ duration,
+        /* $10 */ result_columns as Option<&Vec<String>>,
+        /* $11 */ parent_to_ping,
+        /* $12 */ &completed_job.workspace_id,
+    )
+    .fetch_optional(&mut *conn)
+    .warn_after_seconds(10)
+    .await
+    .map_err(err)
+    }
+}
+
+/// The error for a completion that found no queue row to complete.
+async fn not_in_queue_error<'e>(conn: impl PgExecutor<'e>, job_id: Uuid) -> Error {
+    let already_inserted = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM v2_job_completed WHERE id = $1)",
+        job_id
+    )
+    .fetch_one(conn)
+    .warn_after_seconds(10)
+    .await;
+    match already_inserted {
+        Err(e) => Error::internal_err(format!("Could not add completed job {job_id}: {e:#}")),
+        Ok(Some(true)) => {
+            Error::AlreadyCompleted(format!("The queued job {job_id} is already completed."))
+        }
+        Ok(_) => Error::AlreadyCompleted(format!(
+            "There is no queued job anymore for {job_id} but there is no completed job either."
+        )),
+    }
+}
+
+fn log_completed_job(completed_job: &MiniCompletedJob, duration: i64, success: bool) {
+    let job_id = completed_job.id;
     tracing::info!(
         %job_id,
         root_job = ?completed_job.flow_innermost_root_job.map(|x| x.to_string()).unwrap_or_else(|| String::new()),
@@ -1792,13 +1963,6 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         "inserted completed job: {} (success: {success})",
         completed_job.id
     );
-    // tracing::info!("completed job: {:?}", start.elapsed().as_micros());
-    Ok((
-        None,
-        duration,
-        _skip_downstream_error_handlers,
-        wac_parent_ready,
-    ))
 }
 
 async fn check_result_size<T: ValidableJson>(
@@ -1894,6 +2058,22 @@ async fn restart_job_if_perpetual_inner(
     };
 
     if restart {
+        // Not `canceled_by`: a worker reads the queue row on a widening interval, up to every 5s
+        // once a job has run for a minute, so a cancel landing after its last read reaches a
+        // completion carrying none. `commit_completed_job` records it from the queue row it
+        // deletes, so the completed row is what says whether this loop was stopped.
+        let canceled = sqlx::query_scalar!(
+            "SELECT canceled_by IS NOT NULL AS \"canceled!\" FROM v2_job_completed \
+             WHERE id = $1 AND workspace_id = $2",
+            queued_job.id,
+            &queued_job.workspace_id
+        )
+        .fetch_optional(db)
+        .await?
+        .unwrap_or(false);
+        if canceled {
+            return Ok(());
+        }
         let tx = PushIsolationLevel::IsolatedRoot(db.clone());
 
         // perpetual jobs can run one job per 10s max. If the job was faster than 10s, schedule the next one with the appropriate delay
@@ -2092,10 +2272,10 @@ async fn eval_retry_if(
     false
 }
 
-/// Native script retry. When a failed `Script` job carries a retry policy (via
-/// `runnable_settings_handle`) and has attempts left, enqueue a fresh attempt of
-/// the same script after the policy's backoff delay — instead of having wrapped
-/// it in a one-step flow. Each attempt is a real `Script` job; the attempt
+/// Native script retry. When a failed `Script` or `Script_Hub` job carries a retry
+/// policy (via `runnable_settings_handle`) and has attempts left, enqueue a fresh
+/// attempt of the same script after the policy's backoff delay — instead of having
+/// wrapped it in a one-step flow. Each attempt is a job of the same kind; the attempt
 /// counter lives in the `native_retry_attempt` marker, written here and read only
 /// on the next failure (never on the hot job-pull path).
 ///
@@ -2116,7 +2296,10 @@ pub async fn maybe_enqueue_native_script_retry(
     result_fn: &(dyn Fn() -> Option<Box<serde_json::value::RawValue>> + Sync),
 ) -> Result<bool, Error> {
     // Only plain top-level scripts retry natively; cancellation always wins.
-    if canceled_by.is_some() || !matches!(job.kind, JobKind::Script) || job.is_flow_step() {
+    if canceled_by.is_some()
+        || !matches!(job.kind, JobKind::Script | JobKind::Script_Hub)
+        || job.is_flow_step()
+    {
         return Ok(false);
     }
 
@@ -4979,6 +5162,72 @@ pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> Strin
     }
 }
 
+/// The queue an explicit `tag` sends a job pushed with `args` to, or `None` when `push` drops the
+/// tag and the job runs on its default one.
+pub async fn resolve_push_tag(
+    tag: &str,
+    args: &PushArgs<'_>,
+    workspace_id: &str,
+    db: &DB,
+) -> Option<String> {
+    // The flow runtime resolves a step's `$flow_expr[...]` before pushing it, so one still here
+    // was pushed with no flow state to read (a step test, a dependency job) and would name a
+    // queue no worker serves: the job runs on its default tag instead.
+    if tag.is_empty() || tag_reads_flow_expr(tag) {
+        return None;
+    }
+    // `$workspace` must resolve the same way the default tags do, or an explicit tag and a default
+    // tag from the same workspace address two different worker pools. Resolving costs a lookup,
+    // so pay it only for tags that actually interpolate `$workspace`.
+    let tag_ws = if tag.contains("$workspace") {
+        crate::tags::tag_workspace_id(workspace_id, db).await
+    } else {
+        workspace_id.to_string()
+    };
+    Some(interpolate_args(tag.to_string(), args, &tag_ws))
+}
+
+/// Refuses a `tag` the caller chose that the instance's custom tags do not let `w_id` use,
+/// judging the queue it resolves to. `args` must be the ones the job is pushed with: resolving
+/// with any others checks a queue the job does not land on.
+pub async fn check_tag_available_for_push(
+    db: &DB,
+    w_id: &str,
+    tag: &str,
+    args: &PushArgs<'_>,
+    is_super_admin: bool,
+    scope_tags: Option<Vec<&str>>,
+) -> Result<(), Error> {
+    check_tag_written_as_available_for_push(db, w_id, tag, tag, args, is_super_admin, scope_tags)
+        .await
+}
+
+/// [`check_tag_available_for_push`] for a `tag` the flow runtime already partly resolved from
+/// `written_tag`, the step's tag as its author wrote it.
+pub async fn check_tag_written_as_available_for_push(
+    db: &DB,
+    w_id: &str,
+    written_tag: &str,
+    tag: &str,
+    args: &PushArgs<'_>,
+    is_super_admin: bool,
+    scope_tags: Option<Vec<&str>>,
+) -> Result<(), Error> {
+    let Some(resolved_tag) = resolve_push_tag(tag, args, w_id, db).await else {
+        return Ok(());
+    };
+    windmill_common::jobs::check_tag_available_for_workspace_internal(
+        db,
+        w_id,
+        written_tag,
+        Some(&resolved_tag),
+        crate::tags::tag_workspace_id(w_id, db),
+        is_super_admin,
+        scope_tags,
+    )
+    .await
+}
+
 pub fn fullpath_with_workspace(
     workspace_id: &str,
     script_path: Option<&String>,
@@ -5368,36 +5617,6 @@ async fn extract_result_from_job_result(
         .flatten()
         .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null))),
     }
-}
-
-pub async fn delete_job<'c>(
-    mut tx: Transaction<'c, Postgres>,
-    job_id: &Uuid,
-) -> windmill_common::error::Result<Transaction<'c, Postgres>> {
-    #[cfg(feature = "prometheus")]
-    if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
-        QUEUE_DELETE_COUNT.inc();
-    }
-    otel_incr_queue_delete_count();
-
-    let job_removed =
-        sqlx::query_scalar!("DELETE FROM v2_job_queue WHERE id = $1 RETURNING 1", job_id,)
-            .fetch_optional(&mut *tx)
-            .await;
-
-    if let Err(job_removed) = job_removed {
-        tracing::error!(
-            "Job {job_id} could not be deleted: {job_removed}. This is not necessarily an error, as the job might have been deleted by another process such as in the case of cancelling"
-        );
-    } else {
-        let job_removed = job_removed.unwrap().flatten().unwrap_or(0);
-        if job_removed != 1 {
-            tracing::error!("Job {job_id} could not be deleted, returned not 1: {job_removed}. This is not necessarily an error, as the job might have been deleted by another process such as in the case of cancelling");
-        }
-    }
-
-    tracing::debug!("Job {job_id} deleted");
-    Ok(tx)
 }
 
 pub async fn job_is_complete(db: &DB, id: Uuid, w_id: &str) -> error::Result<bool> {
@@ -6027,10 +6246,10 @@ async fn push_inner<'c, 'd>(
             dedicated_worker,
             ..Default::default()
         },
-        JobPayload::FlowNode { id, path } => {
+        JobPayload::FlowNode { id, path, no_inherited_flow_env } => {
             let data = cache::flow::fetch_flow(db, id).await?;
             let value = data.value();
-            let status = Some(FlowStatus::new(value));
+            let status = Some(FlowStatus { no_inherited_flow_env, ..FlowStatus::new(value) });
             // Keep inserting `value` if not all workers are updated.
             // Starting at `v1.440`, the value is fetched on pull from the flow node id.
             let value_o = if !MIN_VERSION_IS_AT_LEAST_1_440.met().await {
@@ -6267,6 +6486,7 @@ async fn push_inner<'c, 'd>(
                         stream_job: None,
                         chat_input_enabled: None,
                         memory_id: None,
+                        no_inherited_flow_env: false,
                     }
                 }
                 _ => {
@@ -6326,10 +6546,12 @@ async fn push_inner<'c, 'd>(
             // `quickjs` feature it cannot be evaluated and fails closed (no retry);
             // the flow path is not a fallback, since the flow runtime needs quickjs
             // too.
+            // A hub script has no hash and runs as a `Script_Hub` job.
+            let is_hub = hash.is_none() && path.starts_with("hub/");
             let native_retry = !is_flow
                 && skip_handler.is_none()
                 && error_handler_path.is_none()
-                && hash.is_some()
+                && (hash.is_some() || is_hub)
                 && language.is_some()
                 && windmill_common::runnable_settings::min_version_supports_runnable_settings_v0()
                     .await;
@@ -6359,7 +6581,11 @@ async fn push_inner<'c, 'd>(
                 break 'ssf JobPayloadUntagged {
                     runnable_id: hash.map(|h| h.0),
                     runnable_path: Some(path),
-                    job_kind: JobKind::Script,
+                    job_kind: if is_hub {
+                        JobKind::Script_Hub
+                    } else {
+                        JobKind::Script
+                    },
                     language,
                     dedicated_worker,
                     concurrency_settings,
@@ -6661,6 +6887,7 @@ async fn push_inner<'c, 'd>(
                 stream_job: None,
                 chat_input_enabled: None,
                 memory_id: None,
+                no_inherited_flow_env: false,
             };
             let value = flow_data.value();
             let priority = value.priority;
@@ -6818,23 +7045,9 @@ async fn push_inner<'c, 'd>(
         );
         windmill_common::worker::dedicated_worker_tag(workspace_id, &full_path)
     } else {
-        // The flow runtime resolves a step's `$flow_expr[...]` before pushing it, so one still here
-        // was pushed with no flow state to read (a step test, a dependency job) and would name a
-        // queue no worker serves: the job runs on its default tag instead.
-        if tag == Some("".to_string()) || tag.as_deref().is_some_and(tag_reads_flow_expr) {
-            tag = None;
-        }
-
-        // `$workspace` must resolve the same way the default tags below do, or an explicit tag and
-        // a default tag from the same workspace address two different worker pools. Resolving costs
-        // a lookup, so pay it only for tags that actually interpolate `$workspace`.
         let interpolated_tag = match tag {
+            Some(x) => resolve_push_tag(&x, &args, workspace_id, db).await,
             None => None,
-            Some(x) if x.contains("$workspace") => {
-                let tag_ws = crate::tags::tag_workspace_id(&workspace_id, db).await;
-                Some(interpolate_args(x, &args, &tag_ws))
-            }
-            Some(x) => Some(interpolate_args(x, &args, workspace_id)),
         };
         let effective_ws = per_workspace_tag(&workspace_id, db).await;
 
@@ -6939,9 +7152,19 @@ async fn push_inner<'c, 'd>(
     // `schedule_path` (see `FlowJob::schedule_path`), so counting per push would
     // score one run as a fire per step job — a loop pushes two of those per
     // iteration — burying every other kind, and would sit on the per-step path.
+    //
+    // A job a suspended trigger parks is not a fire: it counts as `fired` only
+    // when `resume_suspended_trigger_jobs` releases it, or never if discarded.
+    // Both are counted before the queue caps below and the caller's commit, so a
+    // rejected push still counts; accepted for a telemetry counter.
     if flow_step_id.is_none() {
         if let Some(kind) = trigger_kind.as_ref() {
-            windmill_common::feature_usage::log_feature_usage("trigger", "fired", kind.as_str());
+            let action = if suspended_mode.unwrap_or(false) {
+                "suspended"
+            } else {
+                "fired"
+            };
+            windmill_common::feature_usage::log_feature_usage("trigger", action, kind.as_str());
         }
     }
 
@@ -7759,6 +7982,34 @@ fn reuse_completed_zombie_module(module: FlowStatusModule) -> FlowStatusModule {
     }
 }
 
+/// Loads the flow version a restart switches to. The version id is caller-supplied and the
+/// restarted job keeps the original job's path, so it must be a version of that same flow in
+/// that same workspace: any other id would run foreign code under the original path.
+/// This only ties the version to the flow; it does not authorize the caller. `workspace_id`
+/// and `flow_path` must come from the original job, which the caller is already allowed to
+/// restart.
+pub async fn fetch_restart_flow_version(
+    db: &Pool<Postgres>,
+    workspace_id: &str,
+    flow_path: &str,
+    version: i64,
+) -> Result<Arc<FlowData>, Error> {
+    let belongs = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM flow_version WHERE id = $1 AND workspace_id = $2 AND path = $3) AS \"exists!\"",
+        version,
+        workspace_id,
+        flow_path,
+    )
+    .fetch_one(db)
+    .await?;
+    if !belongs {
+        return Err(Error::BadRequest(format!(
+            "flow version {version} is not a version of flow {flow_path} in workspace {workspace_id}"
+        )));
+    }
+    cache::flow::fetch_version(db, version).await
+}
+
 async fn restarted_flows_resolution(
     db: &Pool<Postgres>,
     workspace_id: &str,
@@ -7820,9 +8071,12 @@ async fn restarted_flows_resolution(
         && row.job_kind == JobKind::Flow;
 
     let flow_data = if is_version_change {
-        // Fetch the new flow version
-        let new_version = flow_version.unwrap();
-        cache::flow::fetch_version(db, new_version).await?
+        let flow_path = row.script_path.as_deref().ok_or_else(|| {
+            Error::BadRequest(format!(
+                "completed flow {completed_flow_id} has no path to restart a version of"
+            ))
+        })?;
+        fetch_restart_flow_version(db, workspace_id, flow_path, flow_version.unwrap()).await?
     } else {
         cache::job::fetch_flow(db, &row.job_kind, row.script_hash)
             .or_else(|_| {

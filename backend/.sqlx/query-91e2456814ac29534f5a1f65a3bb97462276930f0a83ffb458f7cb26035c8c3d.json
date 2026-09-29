@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM datatable_migrations WHERE workspace_id = $1 AND datatable = $2 AND timestamp = $3 AND code_up = $4 AND code_down IS NOT DISTINCT FROM $5 RETURNING name",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "91e2456814ac29534f5a1f65a3bb97462276930f0a83ffb458f7cb26035c8c3d"
+}

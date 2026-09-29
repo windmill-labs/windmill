@@ -98,9 +98,11 @@ export async function runEval<THelpers, TOutput>(
   // Wrap tools to intercept fn calls for tracking.
   // Cast to ProductionTool since the eval Tool has a narrower toolCallbacks type
   // but the actual callbacks passed at runtime will satisfy both interfaces.
+  // `fn` forwards `this`: the chat loop calls it on a per-iteration copy carrying the def the
+  // model was sent, and a tool reading `this.def` must see that one, as it does in production.
   const wrappedTools = tools.map((tool) => ({
     ...tool,
-    fn: async (p: any) => {
+    fn: async function (this: unknown, p: any) {
       toolCallsCount++;
       toolsCalled.push(tool.def.function.name);
       let argumentsText = "";
@@ -120,7 +122,7 @@ export async function runEval<THelpers, TOutput>(
         toolName: tool.def.function.name,
         argumentsText,
       });
-      return tool.fn(p);
+      return tool.fn.call(this, p);
     },
   }));
 

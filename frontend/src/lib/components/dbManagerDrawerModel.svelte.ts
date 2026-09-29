@@ -2,10 +2,11 @@ import { z } from 'zod'
 import { useSearchParams } from '$lib/svelte5UtilsKit.svelte'
 import type { DbInput, DbType } from './dbTypes'
 import { isDbType } from './dbTypes'
+import { DB_TABLE_LAYOUT_PREFIX } from './dbTableLayoutStorage'
 
 /**
  * Single URL param `dbm` encodes the full DB manager state:
- *   firstSegment~path~schema.table
+ *   firstSegment~path~schema.table~role=name
  *
  * firstSegment:
  *   datatable              – database with datatable:// resource (resourceType always postgresql)
@@ -26,28 +27,46 @@ import { isDbType } from './dbTypes'
  *   datatable~main~.customers          (schema "public" implied)
  *   ducklake~main~.orders              (schema "main" implied)
  *   postgresql~$res:u/user/my_pg~public.customers
+ *   datatable~main~.customers~role=analyst
+ *   datatable~main~role=analyst        (no schema/table selected)
+ *
+ * role=name (last segment, optional, data tables only): the data table role to connect as.
+ * Omitted means the data table's default role. A trailing segment starting with `role=` is always
+ * the role, whatever follows. The name is kept as written, even when invalid (a `.` included), so
+ * the connection refuses it visibly instead of falling back to the default.
  */
 
 const dbManagerSchema = z.object({
 	dbm: z.string().nullable()
 })
 
-interface ParsedDbm {
+export interface ParsedDbm {
 	type: 'database' | 'datatable' | 'ducklake'
 	path: string
 	resType?: string
 	schema?: string
 	table?: string
+	role?: string
 }
 
-function parseDbm(raw: unknown): ParsedDbm | null {
+const ROLE_SEGMENT_PREFIX = 'role='
+
+function isRoleSegment(segment: string | undefined): segment is string {
+	return !!segment && segment.startsWith(ROLE_SEGMENT_PREFIX)
+}
+
+export function parseDbm(raw: unknown): ParsedDbm | null {
 	if (!raw || typeof raw !== 'string') return null
 	const parts = raw.split('~')
 	if (parts.length < 2 || !parts[1]) return null
 
 	const firstSeg = parts[0]
 	const path = parts[1]
-	const schemaTable = parts[2] ?? ''
+	const rest = parts.slice(2)
+	const role = isRoleSegment(rest.at(-1))
+		? rest.pop()!.slice(ROLE_SEGMENT_PREFIX.length)
+		: undefined
+	const schemaTable = rest[0] ?? ''
 
 	let type: ParsedDbm['type']
 	let resType: string | undefined
@@ -81,12 +100,12 @@ function parseDbm(raw: unknown): ParsedDbm | null {
 		schema = defaultSchemas[type]
 	}
 
-	return { type, path, resType, schema, table }
+	return { type, path, resType, schema, table, role: type === 'datatable' ? role : undefined }
 }
 
 const defaultSchemas: Record<string, string> = { datatable: 'public', ducklake: 'main' }
 
-function buildDbm(p: ParsedDbm): string {
+export function buildDbm(p: ParsedDbm): string {
 	const firstSeg = p.type === 'database' ? p.resType! : p.type
 	const schema = p.schema === defaultSchemas[p.type] ? undefined : p.schema
 	let schemaTable = ''
@@ -97,7 +116,56 @@ function buildDbm(p: ParsedDbm): string {
 	} else if (schema) {
 		schemaTable = `${schema}.`
 	}
-	return schemaTable ? `${firstSeg}~${p.path}~${schemaTable}` : `${firstSeg}~${p.path}`
+	const segments = [firstSeg, p.path]
+	if (schemaTable) segments.push(schemaTable)
+	if (p.type === 'datatable' && p.role !== undefined) {
+		segments.push(`${ROLE_SEGMENT_PREFIX}${p.role}`)
+	}
+	return segments.join('~')
+}
+
+/** The `dbm` fields an input designates, before any schema or table is picked from it. */
+export function dbmOfInput(input: DbInput): ParsedDbm {
+	if (input.type === 'ducklake') {
+		return {
+			type: 'ducklake',
+			path: input.ducklake,
+			schema: input.specificSchema,
+			table: input.specificTable
+		}
+	}
+	const isDatatable = input.resourcePath.startsWith('datatable://')
+	return {
+		type: isDatatable ? 'datatable' : 'database',
+		path: isDatatable ? input.resourcePath.slice('datatable://'.length) : input.resourcePath,
+		resType: isDatatable ? undefined : input.resourceType,
+		role: isDatatable ? input.role : undefined,
+		schema: input.specificSchema,
+		table: input.specificTable
+	}
+}
+
+/** localStorage key of a table's grid layout: the table as the `dbm` URL param names it, in
+ * its workspace. The role is left out, since connecting as another role is the same table. */
+export function dbTableLayoutStorageKey(
+	workspace: string,
+	input: DbInput,
+	schema: string | undefined,
+	table: string
+): string {
+	return `${DB_TABLE_LAYOUT_PREFIX}${workspace}:${buildDbm({ ...dbmOfInput(input), role: undefined, schema, table })}`
+}
+
+/** localStorage key of the DB manager's tabs over a database, named as the `dbm` URL param
+ * names that database: no role, schema or table. */
+export function dbManagerTabsStorageKey(workspace: string, input: DbInput): string {
+	const dbm = buildDbm({
+		...dbmOfInput(input),
+		role: undefined,
+		schema: undefined,
+		table: undefined
+	})
+	return `dbManagerTabs:${workspace}:${dbm}`
 }
 
 export interface DbManagerUriState {
@@ -105,6 +173,8 @@ export interface DbManagerUriState {
 	readonly effectiveInput: DbInput | undefined
 	readonly isDatatableInput: boolean
 	selectedDatatable: string | undefined
+	/** The data table role the drawer connects as; undefined means its default. */
+	selectedRole: string | undefined
 	selectedSchema: string | undefined
 	selectedTable: string | undefined
 	readonly open: boolean
@@ -137,6 +207,7 @@ export function useDbManagerUriState(): DbManagerUriState {
 			type: 'database' as const,
 			resourceType: resType as DbType,
 			resourcePath: parsed.type === 'datatable' ? `datatable://${parsed.path}` : parsed.path,
+			role: parsed.role,
 			specificSchema: parsed.schema,
 			specificTable: parsed.table
 		}
@@ -157,23 +228,7 @@ export function useDbManagerUriState(): DbManagerUriState {
 
 	function openDrawer(nInput: DbInput, ws?: string) {
 		workspace = ws
-		if (nInput.type === 'database') {
-			const isDatatable = nInput.resourcePath.startsWith('datatable://')
-			params.dbm = buildDbm({
-				type: isDatatable ? 'datatable' : 'database',
-				path: isDatatable ? nInput.resourcePath.slice('datatable://'.length) : nInput.resourcePath,
-				resType: isDatatable ? undefined : nInput.resourceType,
-				schema: nInput.specificSchema,
-				table: nInput.specificTable
-			})
-		} else {
-			params.dbm = buildDbm({
-				type: 'ducklake',
-				path: nInput.ducklake,
-				schema: nInput.specificSchema,
-				table: nInput.specificTable
-			})
-		}
+		params.dbm = buildDbm(dbmOfInput(nInput))
 	}
 
 	function closeDrawer() {
@@ -194,7 +249,14 @@ export function useDbManagerUriState(): DbManagerUriState {
 			return parsed?.type === 'datatable' ? parsed.path : undefined
 		},
 		set selectedDatatable(v: string | undefined) {
-			if (v) updateField({ path: v })
+			// A role belongs to one data table, so it cannot carry over to another.
+			if (v) updateField({ path: v, role: undefined })
+		},
+		get selectedRole() {
+			return parsed?.role
+		},
+		set selectedRole(v: string | undefined) {
+			updateField({ role: v })
 		},
 		get selectedSchema() {
 			return parsed?.schema

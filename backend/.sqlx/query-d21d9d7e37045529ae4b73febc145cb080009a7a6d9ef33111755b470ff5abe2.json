@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM remote_deploy_token WHERE workspace_id = $1 AND email = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d21d9d7e37045529ae4b73febc145cb080009a7a6d9ef33111755b470ff5abe2"
+}

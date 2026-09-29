@@ -519,6 +519,8 @@ pub enum JobPayload {
     FlowNode {
         id: FlowNodeId,
         path: String,
+        /// See [`crate::flow_status::FlowStatus::no_inherited_flow_env`].
+        no_inherited_flow_env: bool,
     },
     FlowScript {
         id: FlowNodeId,

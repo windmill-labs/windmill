@@ -6,6 +6,7 @@ export type UseWindmillChat = ChatState &
   Pick<
     Chat,
     | 'sendMessage'
+    | 'resumeTurn'
     | 'stop'
     | 'newConversation'
     | 'selectConversation'
@@ -13,6 +14,7 @@ export type UseWindmillChat = ChatState &
     | 'deleteConversation'
     | 'renameConversation'
     | 'loadOlderMessages'
+    | 'refreshMessages'
   > & { chat: Chat }
 
 /**
@@ -61,13 +63,15 @@ export function useWindmillChat(options: ChatOptions): UseWindmillChat {
       chat,
       sendMessage: (text, options) =>
         chat.sendMessage(text, { ...options, inputs: { ...latest.current.inputs, ...options?.inputs } }),
+      resumeTurn: chat.resumeTurn,
       stop: chat.stop,
       newConversation: chat.newConversation,
       selectConversation: chat.selectConversation,
       loadConversations: chat.loadConversations,
       deleteConversation: chat.deleteConversation,
       renameConversation: chat.renameConversation,
-      loadOlderMessages: chat.loadOlderMessages
+      loadOlderMessages: chat.loadOlderMessages,
+      refreshMessages: chat.refreshMessages
     }),
     [state, chat]
   )

@@ -62,7 +62,7 @@ describe('enterSessionMode — restore is scoped to the active family', () => {
 		try {
 			await enterSessionMode()
 			expect(sessionState.currentSessionId).toBe('sw-in-family')
-			expect(goto).toHaveBeenCalledWith('/sessions?session_name=session-911', {
+			expect(goto).toHaveBeenCalledWith('/sessions?session=sw-in-family', {
 				replaceState: false
 			})
 		} finally {
@@ -82,7 +82,7 @@ describe('enterSessionMode — restore is scoped to the active family', () => {
 		try {
 			await enterSessionMode()
 			expect(sessionState.currentSessionId).toBe('sw-local')
-			expect(goto).toHaveBeenCalledWith('/sessions?session_name=session-913', {
+			expect(goto).toHaveBeenCalledWith('/sessions?session=sw-local', {
 				replaceState: false
 			})
 		} finally {

@@ -93,6 +93,8 @@
 
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<!-- Keeps the sr-only checkbox's absolute box on the toggle; it does not size the knob,
+		     which resolves against the track. -->
 		<div
 			class="relative"
 			onclick={stopPropagation(bubble('click'))}
@@ -116,21 +118,25 @@
 					dispatch('change', !!checked)
 				})}
 			/>
+			<!-- Knob offsets resolve against the track's padding box, so the track stays
+			     relative. Whole px and 2px of inset: at 1x a track on a fractional x blurs its
+			     edge over a whole pixel, which swallows a thinner gap.
+			     knob = h - 6, checked translate = w - h. -->
 			<div
 				class={classNames(
-					"transition-all bg-surface-sunken rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute  after:bg-surface after:border-white after:border after:rounded-full after:transition-all items-center",
+					"relative transition-all bg-surface-sunken rounded-full peer peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-white after:border after:rounded-full after:transition-all items-center",
 					color == 'red'
 						? 'peer-checked:bg-red-600'
 						: color == 'blue'
 							? 'peer-checked:bg-blue-400 '
 							: 'peer-checked:bg-nord-950 dark:peer-checked:bg-nord-900',
 					size === 'md'
-						? 'w-11 h-6 after:top-0.5 after:left-[2px] after:h-5 after:w-5'
+						? 'w-[44px] h-[24px] after:h-[18px] after:w-[18px] peer-checked:after:translate-x-[20px]'
 						: size === 'sm'
-							? 'w-9 h-5 after:top-0.5 after:left-[2px] after:h-4 after:w-4'
+							? 'w-[36px] h-[20px] after:h-[14px] after:w-[14px] peer-checked:after:translate-x-[16px]'
 							: size === '2xs'
-								? 'w-5 h-3 after:top-0.5 after:left-[2px] after:h-2 after:w-2'
-								: 'w-7 h-4 after:top-0.5 after:left-[2px] after:h-3 after:w-3',
+								? 'w-[20px] h-[12px] after:h-[6px] after:w-[6px] peer-checked:after:translate-x-[8px]'
+								: 'w-[28px] h-[16px] after:h-[10px] after:w-[10px] peer-checked:after:translate-x-[12px]',
 					inputBorderClass()
 				)}
 			></div>

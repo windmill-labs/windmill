@@ -15,7 +15,8 @@
 
 use crate::error::Error;
 
-/// What every roles path answers without the Enterprise Edition.
+/// What every roles path answers without the Enterprise Edition. The frontend matches this exact
+/// sentence (`datatableUsableRoles.ts`) to read the refusal as "not under roles": reword both.
 pub fn datatable_roles_unavailable() -> Error {
     Error::BadRequest("Data table roles are a Windmill Enterprise Edition feature".to_string())
 }

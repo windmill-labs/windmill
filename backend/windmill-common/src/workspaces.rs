@@ -1186,6 +1186,138 @@ pub fn invalidate_protection_rules_cache(workspace_id: &str) {
     PROTECTION_RULES_CACHE.remove(workspace_id);
 }
 
+// Operator rights cache
+
+lazy_static::lazy_static! {
+    static ref OPERATOR_RIGHTS_CACHE: Cache<String, (OperatorManageRights, i64)> = Cache::new(1000);
+}
+
+/// Writes an operator may perform unless the workspace withdraws them. Unlike the visibility
+/// flags beside them in `operator_settings`, these are enforced; unlike a right a workspace
+/// grants, they are held by default and cost no seat.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct OperatorManageRights {
+    pub schedules: bool,
+    pub triggers: bool,
+}
+
+/// Granted unless explicitly withdrawn. Every path that materializes these rights without a
+/// stored setting - a workspace with no `workspace_settings` row included - has to land here, or
+/// an upgrade silently revokes what operators could do the day before.
+impl Default for OperatorManageRights {
+    fn default() -> Self {
+        Self { schedules: true, triggers: true }
+    }
+}
+
+/// Which withdrawable capability a gate needs.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ManageKind {
+    Schedules,
+    Triggers,
+}
+
+impl ManageKind {
+    /// Plural noun for the refusal message.
+    pub fn noun(&self) -> &'static str {
+        match self {
+            ManageKind::Schedules => "schedules",
+            ManageKind::Triggers => "triggers",
+        }
+    }
+
+    /// Prefixes the `/acls` audit action (`schedules.grant_acl`). Deliberately its own string
+    /// rather than `noun()`, which it happens to equal: audit actions are a stable key that rows
+    /// already on disk were written with, so rewording the message must not rename them.
+    pub fn audit_prefix(&self) -> &'static str {
+        match self {
+            ManageKind::Schedules => "schedules",
+            ManageKind::Triggers => "triggers",
+        }
+    }
+}
+
+impl OperatorManageRights {
+    pub fn has(&self, kind: ManageKind) -> bool {
+        match kind {
+            ManageKind::Schedules => self.schedules,
+            ManageKind::Triggers => self.triggers,
+        }
+    }
+}
+
+/// What operators of this workspace may still write. Per workspace, not per user.
+///
+/// Read on every gated write, so it is cached with a 60s TTL. This gates writes, so a withdrawal
+/// cannot wait out that TTL on the rest of the fleet: an `AFTER UPDATE OF operator_settings`
+/// trigger publishes `notify_operator_settings_change` and every server drops its entry through
+/// `process_notify_event`. [`invalidate_operator_rights_cache`] is the local half of that, and
+/// what a test flipping the setting directly has to call itself.
+///
+/// Call it before opening an RLS transaction: it takes a connection from the root pool, and a
+/// second pooled connection held alongside a transaction self-deadlocks on a one-connection pool.
+async fn operator_manage_rights(db: &DB, workspace_id: &str) -> Result<OperatorManageRights> {
+    let now = chrono::Utc::now().timestamp();
+
+    if let Some((rights, expiry)) = OPERATOR_RIGHTS_CACHE.get(workspace_id) {
+        if expiry > now {
+            return Ok(rights);
+        }
+    }
+
+    // Coalesced to true, matching `OperatorManageRights::default`: an absent key means the
+    // workspace never configured the right, not that it withdrew it.
+    let row = sqlx::query!(
+        "SELECT COALESCE((operator_settings->>'manage_schedules')::boolean, true) AS \"schedules!\",
+                COALESCE((operator_settings->>'manage_triggers')::boolean, true) AS \"triggers!\"
+         FROM workspace_settings WHERE workspace_id = $1",
+        workspace_id
+    )
+    .fetch_optional(db)
+    .await
+    .map_err(|e| {
+        Error::internal_err(format!(
+            "Failed to fetch operator settings for {workspace_id}: {e:#}"
+        ))
+    })?;
+
+    let rights = row
+        .map(|r| OperatorManageRights { schedules: r.schedules, triggers: r.triggers })
+        .unwrap_or_default();
+
+    OPERATOR_RIGHTS_CACHE.insert(workspace_id.to_string(), (rights, now + 60));
+
+    Ok(rights)
+}
+
+/// Invalidate the operator rights cache for a workspace
+pub fn invalidate_operator_rights_cache(workspace_id: &str) {
+    OPERATOR_RIGHTS_CACHE.remove(workspace_id);
+}
+
+/// Gate for a write operators may perform unless the workspace withdrew it. Prefer layering
+/// `gate_operator_writes` on a whole router over calling this per handler; see
+/// `docs/operator-write-rights.md`. Both `workspace_id` and `is_operator` MUST come from the
+/// authenticated request (the route's workspace, `ApiAuthed::is_operator`): passing `false` skips
+/// the check, and another workspace's id checks the wrong settings.
+pub async fn check_operator_can_manage(
+    db: &DB,
+    workspace_id: &str,
+    is_operator: bool,
+    kind: ManageKind,
+) -> Result<()> {
+    if is_operator && !operator_manage_rights(db, workspace_id).await?.has(kind) {
+        // 403, not 401: the caller is authenticated and simply lacks the right. The frontend reads
+        // an uncaught 401 as a dead session and logs the user out, so `NotAuthorized` here would
+        // eject an operator from the app instead of telling them why.
+        return Err(Error::PermissionDenied(format!(
+            "Operators cannot manage {} in this workspace",
+            kind.noun()
+        )));
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuleCheckResult {
     Allowed,
@@ -1304,6 +1436,12 @@ pub struct DataTable {
     /// nothing local for a fork admin to widen.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reference: Option<DataTableReference>,
+    /// Set on a *clone* — a terminal entry whose database was copied from the entry this names. The
+    /// copy holds that entry's rows, so who may connect as which role stays that entry's decision:
+    /// the clone carries no `permissions` of its own and is governed like a pointer, while
+    /// connecting to its own database.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub governed_by: Option<DataTableReference>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub forked_from: Option<DataTableForkedFrom>,
     /// Whether the SQL-migrations feature is opted in for this data table.
@@ -1362,9 +1500,16 @@ pub const DATATABLE_TENANT_WILDCARD: &str = "*";
 /// enough to survive a fork of a fork.
 const DATATABLE_REFERENCE_MAX_DEPTH: usize = 20;
 
-/// Exactly one of `database` and `reference` must be set. Called wherever an entry is persisted,
-/// so nothing downstream has to handle an entry that is both or neither.
+/// Exactly one of `database` and `reference` must be set, and a clone's `governed_by` leaves no
+/// `permissions` beside it. Called wherever an entry is persisted, so nothing downstream has to
+/// handle an entry that is both or neither, or a clone with a decision of its own.
 pub fn validate_datatable_shape(name: &str, dt: &DataTable) -> Result<()> {
+    if dt.governed_by.is_some() && (dt.database.is_none() || dt.permissions.is_some()) {
+        return Err(Error::BadRequest(format!(
+            "Data table '{name}' is a clone, which owns a database and takes its roles from the \
+             data table it was cloned from"
+        )));
+    }
     match (&dt.database, &dt.reference) {
         (Some(_), None) | (None, Some(_)) => Ok(()),
         (Some(_), Some(_)) => Err(Error::BadRequest(format!(
@@ -1452,23 +1597,28 @@ pub async fn read_datatable_entry(db: &DB, w_id: &str, name: &str) -> Result<Dat
     Ok(serde_json::from_value::<DataTable>(datatable.clone())?)
 }
 
-/// The terminal entry a reference chain lands on: the workspace that governs the data table, the
-/// entry name there, and the entry itself. A terminal entry resolves to itself.
+/// The terminal entry a reference chain lands on, and what governs it: the workspace and name of
+/// the entry that owns the database, the entry itself, and — for a clone — the entry its
+/// `governed_by` chain lands on. A terminal entry that is not a clone resolves to itself and
+/// governs itself.
 ///
-/// Every decision downstream — which database to connect to, whose `permissions` apply, whose
-/// members tenants are evaluated against, who may administer it — is taken on this, never on the
-/// entry the caller named.
+/// Every decision downstream is taken on this, never on the entry the caller named. Which database
+/// to connect to comes from `workspace_id` / `name` / `datatable.database`; whose `permissions`
+/// apply (already in `datatable.permissions`), whose members tenants are evaluated against and who
+/// may administer it come from [`GoverningDatatable::governing_workspace_id`].
 ///
 /// Authorization: resolving deliberately crosses into the governing workspace, so it answers for a
 /// workspace the caller may not belong to and checks nothing itself. It is the input to the
 /// checks, not one of them: callers MUST pass what it returns to
 /// [`can_use_datatable_role_in_governing_workspace`] or [`ensure_datatable_admin_access`] before
-/// acting on it, and MUST NOT return its `permissions` or `workspace_id` to a caller from
+/// acting on it, and MUST NOT return its `permissions` or workspace ids to a caller from
 /// elsewhere without gating on the answer.
 pub struct GoverningDatatable {
     pub workspace_id: String,
     pub name: String,
     pub datatable: DataTable,
+    /// For a clone, the entry whose `permissions` govern it. `None` when the entry governs itself.
+    pub governor: Option<DataTableReference>,
 }
 
 impl GoverningDatatable {
@@ -1480,6 +1630,13 @@ impl GoverningDatatable {
             .as_ref()
             .is_some_and(|d| d.resource_type == DataTableCatalogResourceType::Instance)
     }
+
+    /// The workspace whose admins administer the data table and whose members its tenants are.
+    pub fn governing_workspace_id(&self) -> &str {
+        self.governor
+            .as_ref()
+            .map_or(&self.workspace_id, |g| &g.workspace_id)
+    }
 }
 
 pub async fn resolve_governing_datatable(
@@ -1490,6 +1647,9 @@ pub async fn resolve_governing_datatable(
     let mut workspace_id = w_id.to_string();
     let mut name = name.to_string();
     let mut hops = 0;
+    // The clone a `governed_by` chain started from: it keeps its database, and takes the
+    // `permissions` of wherever the chain lands.
+    let mut clone: Option<(String, String, DataTable)> = None;
     for _ in 0..DATATABLE_REFERENCE_MAX_DEPTH {
         let datatable = read_datatable_entry(db, &workspace_id, &name)
             .await
@@ -1500,21 +1660,48 @@ pub async fn resolve_governing_datatable(
                     // A pointer outlives the workspace it names: deleting one only nulls the fork
                     // lineage, it does not sweep the entries that pointed at it. Say which one is
                     // gone rather than reporting a data table this workspace never had.
-                    Error::NotFound(format!(
-                        "Data table '{name}' of workspace '{workspace_id}' governs this one and no \
-                         longer exists. A superadmin can point this data table somewhere else."
-                    ))
+                    if clone.is_some() {
+                        Error::NotFound(format!(
+                            "Data table '{name}' of workspace '{workspace_id}', which this clone \
+                             takes its roles from, no longer exists, so nobody is let into the copy."
+                        ))
+                    } else {
+                        Error::NotFound(format!(
+                            "Data table '{name}' of workspace '{workspace_id}' governs this one and \
+                             no longer exists. A superadmin can point this data table somewhere \
+                             else."
+                        ))
+                    }
                 }
             })?;
         hops += 1;
         validate_datatable_shape(&name, &datatable)?;
-        match &datatable.reference {
-            None => return Ok(GoverningDatatable { workspace_id, name, datatable }),
-            Some(reference) => {
-                workspace_id = reference.workspace_id.clone();
-                name = reference.datatable.clone();
+        let next = match (&datatable.reference, &datatable.governed_by) {
+            (Some(reference), _) => reference.clone(),
+            (None, Some(governed_by)) => {
+                let governed_by = governed_by.clone();
+                if clone.is_none() {
+                    clone = Some((workspace_id.clone(), name.clone(), datatable));
+                }
+                governed_by
             }
-        }
+            (None, None) => {
+                return Ok(match clone {
+                    None => GoverningDatatable { workspace_id, name, datatable, governor: None },
+                    Some((clone_w_id, clone_name, mut clone_datatable)) => {
+                        clone_datatable.permissions = datatable.permissions;
+                        GoverningDatatable {
+                            workspace_id: clone_w_id,
+                            name: clone_name,
+                            datatable: clone_datatable,
+                            governor: Some(DataTableReference { workspace_id, datatable: name }),
+                        }
+                    }
+                });
+            }
+        };
+        workspace_id = next.workspace_id;
+        name = next.datatable;
     }
     Err(Error::BadRequest(format!(
         "Data table '{name}' points at another data table through more than \
@@ -1554,17 +1741,20 @@ pub async fn resolve_workspace_governing_datatables(
 
     let mut entries = Entries::new();
     let listed = load(db, &[w_id.to_string()], &mut entries).await?;
-    // (index into `listed`, workspace, entry name) still to be followed.
-    let mut cursors: Vec<(usize, String, String)> = listed
+    // (index into `listed`, workspace, entry name, the clone the chain started from) still to be
+    // followed. A clone keeps its own database and takes the `permissions` of wherever its
+    // `governed_by` chain lands, as the single resolution does.
+    type Clone = Option<(String, String, DataTable)>;
+    let mut cursors: Vec<(usize, String, String, Clone)> = listed
         .iter()
         .enumerate()
-        .map(|(i, name)| (i, w_id.to_string(), name.clone()))
+        .map(|(i, name)| (i, w_id.to_string(), name.clone(), None))
         .collect();
     let mut resolved: Vec<(usize, GoverningDatatable)> = vec![];
 
     for _ in 0..DATATABLE_REFERENCE_MAX_DEPTH {
         let mut next = vec![];
-        for (i, ws, name) in cursors.drain(..) {
+        for (i, ws, name, clone) in cursors.drain(..) {
             let Some(value) = entries
                 .get(&ws)
                 .and_then(|m| m.get(&name))
@@ -1578,14 +1768,41 @@ pub async fn resolve_workspace_governing_datatables(
             if validate_datatable_shape(&name, &datatable).is_err() {
                 continue;
             }
-            match &datatable.reference {
-                None => {
-                    resolved.push((i, GoverningDatatable { workspace_id: ws, name, datatable }))
-                }
-                Some(reference) => next.push((
+            match (&datatable.reference, &datatable.governed_by) {
+                (Some(reference), _) => next.push((
                     i,
                     reference.workspace_id.clone(),
                     reference.datatable.clone(),
+                    clone,
+                )),
+                (None, Some(governed_by)) => {
+                    let (governor_ws, governor_name) =
+                        (governed_by.workspace_id.clone(), governed_by.datatable.clone());
+                    let clone = clone.or(Some((ws, name, datatable)));
+                    next.push((i, governor_ws, governor_name, clone));
+                }
+                (None, None) => resolved.push((
+                    i,
+                    match clone {
+                        None => GoverningDatatable {
+                            workspace_id: ws,
+                            name,
+                            datatable,
+                            governor: None,
+                        },
+                        Some((clone_ws, clone_name, mut clone_datatable)) => {
+                            clone_datatable.permissions = datatable.permissions;
+                            GoverningDatatable {
+                                workspace_id: clone_ws,
+                                name: clone_name,
+                                datatable: clone_datatable,
+                                governor: Some(DataTableReference {
+                                    workspace_id: ws,
+                                    datatable: name,
+                                }),
+                            }
+                        }
+                    },
                 )),
             }
         }
@@ -1594,7 +1811,7 @@ pub async fn resolve_workspace_governing_datatables(
         }
         let to_load: Vec<String> = next
             .iter()
-            .map(|(_, ws, _)| ws.clone())
+            .map(|(_, ws, _, _)| ws.clone())
             .filter(|ws| !entries.contains_key(ws))
             .collect::<std::collections::BTreeSet<_>>()
             .into_iter()
@@ -1967,6 +2184,8 @@ pub fn strip_datatable_permissions(
 /// As [`parse_datatable_ref`], except that an entry whose stored name itself contains `?` — which
 /// names could before they were restricted — resolves by that exact name, without a role. It is
 /// looked up first, so `sales?role=x` never reaches a different entry than the one stored so.
+/// When `sales` is stored too, the reference means either one, and is refused rather than
+/// resolved to whichever is looked up first.
 ///
 /// Authorization: checks nothing, and its answer reveals whether `w_id` stores that exact name.
 /// Callers MUST already act for `w_id` — a job of it, or a caller authenticated into it — and
@@ -1977,16 +2196,26 @@ pub async fn parse_datatable_ref_for(
     reference: &str,
 ) -> Result<(String, Option<String>)> {
     if reference.contains('?') {
-        let exists = sqlx::query_scalar::<_, Option<bool>>(
-            "SELECT (datatable->'datatables') ? $2 FROM workspace_settings WHERE workspace_id = $1",
+        let role_target = parse_datatable_ref(reference)
+            .ok()
+            .and_then(|(name, role)| role.map(|_| name));
+        let (exists, target_exists) = sqlx::query_as::<_, (Option<bool>, Option<bool>)>(
+            "SELECT (datatable->'datatables') ? $2, (datatable->'datatables') ? $3
+             FROM workspace_settings WHERE workspace_id = $1",
         )
         .bind(w_id)
         .bind(reference)
+        .bind(role_target)
         .fetch_optional(db)
         .await?
-        .flatten()
-        .unwrap_or(false);
-        if exists {
+        .unwrap_or((None, None));
+        if exists.unwrap_or(false) {
+            if let (Some(name), Some(true)) = (role_target, target_exists) {
+                return Err(Error::BadRequest(format!(
+                    "Data table reference '{reference}' names both the data table '{reference}' \
+                     and a role on the data table '{name}'. Rename '{reference}' to use either."
+                )));
+            }
             return Ok((reference.to_string(), None));
         }
     }
@@ -3344,6 +3573,7 @@ mod tests {
                 resource_path: "dt_main".to_string(),
             }),
             reference: None,
+            governed_by: None,
             forked_from: None,
             migrations_enabled: None,
             permissions: None,

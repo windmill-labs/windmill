@@ -372,7 +372,10 @@ pub async fn migrate(
     }
 
     crate::live_migrations::custom_migrations(&mut custom_migrator).await?;
-    Ok(None)
+    Ok(Some(crate::live_migrations::spawn_background_migrations(
+        db.clone(),
+        killpill_rx,
+    )))
 }
 
 pub async fn wait_for_migrations(

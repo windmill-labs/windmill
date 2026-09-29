@@ -232,6 +232,8 @@ pub struct GlobalSettings {
     pub request_size_limit_mb: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout_wait_result: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cancel_stranded_jobs_after_days: Option<i64>,
 
     // Boolean settings
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -248,6 +250,8 @@ pub struct GlobalSettings {
     pub dev_instance: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub critical_alert_mute_ui: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub critical_alert_mute_stranded_jobs: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub monitor_logs_on_s3: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -473,6 +477,8 @@ pub struct SmtpSettings {
     pub smtp_tls_implicit: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub smtp_disable_tls: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub smtp_clicktracking_off: Option<bool>,
 }
 
 // ---------------------------------------------------------------------------
@@ -831,6 +837,8 @@ pub struct CustomInstanceDbLogs {
     pub replication_user: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub replication_user_error: Option<String>,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub user_connect: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -1027,9 +1035,10 @@ const NESTED_SENSITIVE_FIELDS: &[(&str, &[&str])] = &[
     ),
     (
         "object_store_cache_config",
-        &["secret_key", "serviceAccountKey"],
+        &["secret_key", "serviceAccountKey", "accessKey"],
     ),
     ("custom_instance_pg_databases", &["user_pwd"]),
+    ("github_enterprise_app", &["private_key"]),
 ];
 
 fn redact_json_value(value: &serde_json::Value) -> serde_json::Value {
@@ -1349,6 +1358,14 @@ pub async fn sync_global_settings_declarative(
             // The validator's messages name the offending field and its expected type,
             // never the submitted value, so they are safe to surface here.
             .map_err(|e| anyhow::anyhow!("{banner_key}: {e}"))?,
+    }
+
+    let accent_key = crate::global_settings::ACCENT_COLOR_SETTING;
+    match desired.get(accent_key) {
+        None | Some(serde_json::Value::Null) => {}
+        Some(serde_json::Value::String(s)) if s.trim().is_empty() => {}
+        Some(color) => crate::global_settings::validate_accent_color(color)
+            .map_err(|e| anyhow::anyhow!("{accent_key}: {e}"))?,
     }
 
     // An origin list that cannot be parsed is dropped at boot, leaving the
@@ -2267,6 +2284,20 @@ mod tests {
         assert_eq!(original.custom_tags, reconstructed.custom_tags);
     }
 
+    #[test]
+    fn smtp_settings_keep_clicktracking_off() {
+        let smtp = serde_json::json!({
+            "smtp_host": "smtp.example.com",
+            "smtp_port": 587,
+            "smtp_tls_implicit": false,
+            "smtp_disable_tls": false,
+            "smtp_clicktracking_off": true,
+        });
+        let settings: GlobalSettings =
+            serde_json::from_value(serde_json::json!({ "smtp_settings": smtp })).unwrap();
+        assert_eq!(settings.to_settings_map()["smtp_settings"], smtp);
+    }
+
     // -----------------------------------------------------------------------
     // Serialization edge cases
     // -----------------------------------------------------------------------
@@ -2643,6 +2674,26 @@ mod tests {
         assert!(!formatted.contains("my-super-secret-12345"));
         assert!(formatted.contains("client-id"));
         assert!(formatted.contains("****"));
+    }
+
+    #[test]
+    fn format_setting_value_redacts_nested_credentials() {
+        let val = serde_json::json!({
+            "type": "Azure",
+            "accountName": "acct",
+            "containerName": "c",
+            "accessKey": "azure-storage-account-key-12345"
+        });
+        let formatted = format_setting_value("object_store_cache_config", &val);
+        assert!(!formatted.contains("azure-storage-account-key-12345"));
+        assert!(formatted.contains("acct"));
+
+        let val = serde_json::json!({
+            "app_id": 1,
+            "private_key": "-----BEGIN RSA PRIVATE KEY-----\nMIIEsecretbody\n-----END RSA PRIVATE KEY-----"
+        });
+        let formatted = format_setting_value("github_enterprise_app", &val);
+        assert!(!formatted.contains("MIIEsecretbody"));
     }
 
     #[test]

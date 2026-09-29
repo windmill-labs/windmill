@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM remote_deploy_token WHERE email = 'test@windmill.dev'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "c96486a83ba0f4bf8daf3c525d6f67554643d0e730bec2e64840ad3d1862e540"
+}
