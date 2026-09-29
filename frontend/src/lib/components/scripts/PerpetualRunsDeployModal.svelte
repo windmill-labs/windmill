@@ -20,11 +20,7 @@
 	const single = $derived(runs?.count === 1)
 	const subject = $derived(single ? 'it' : 'them')
 	const runsText = $derived(
-		runs?.count === undefined
-			? 'Runs of this script could not be listed. Any that are'
-			: single
-				? '1 run of this script is'
-				: `${runs?.count} runs of this script are`
+		single ? '1 run of this script is' : `${runs?.count} runs of this script are`
 	)
 
 	function reset() {
@@ -61,10 +57,18 @@
 						: 'their'} place.
 				</p>
 			{:else}
-				<p>
-					{runsText} queued or running on an earlier version. Deploying stops {subject} and starts {subject}
-					again on this version, with the arguments {single ? 'it has' : 'they have'} now.
-				</p>
+				{#if runs.count === undefined}
+					<p>
+						Runs of this script could not be listed. Any queued or running on an earlier version
+						stop and start again on this version, with the values they have now.
+					</p>
+				{:else}
+					<p>
+						{runsText} queued or running on an earlier version. Deploying stops {subject} and starts
+						{subject}
+						again on this version, with the values {single ? 'it has' : 'they have'} now.
+					</p>
+				{/if}
 				{#if runs.count === undefined || runs.mismatchedArgs.length > 0}
 					<Alert
 						type="warning"
@@ -76,18 +80,19 @@
 						<div class="flex flex-col items-start gap-2">
 							<p>
 								{#if runs.mismatchedArgs.length > 0}
-									This version changes
-									{runs.mismatchedArgs.length === 1 ? 'this argument' : 'these arguments'}:
+									This version defines
+									{runs.mismatchedArgs.length === 1 ? 'this argument' : 'these arguments'} differently:
 									{#each runs.mismatchedArgs as arg, i (arg)}
 										<code>{arg}</code>{i < runs.mismatchedArgs.length - 1 ? ', ' : '.'}
 									{/each}
 								{:else}
-									The versions the runs are on could not be read, so arguments this version changes
-									would still be carried over.
+									The versions the runs are on could not be read, so arguments this version defines
+									differently would still be carried over.
 								{/if}
-								{single ? 'The restarted run keeps' : 'Restarted runs keep'} the old ones. To run this
-								version with arguments that fit it, scale down to 0 here and start a run yourself once
-								deployed.
+								{single ? 'The restarted run keeps' : 'Restarted runs keep'} the values {single
+									? 'it has'
+									: 'they have'} now. To run this version with values that fit it, scale down to 0 here
+								and start a run yourself once deployed.
 							</p>
 							<Button
 								variant="default"
