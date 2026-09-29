@@ -202,7 +202,10 @@ export function unsandboxedRawAppHtml(
 }
 
 // The app fills static and ctx fields itself, so the frontend never passes them.
-function removeServerFilledFields(schema: Schema, fields: Record<string, { type: string }>): Schema {
+function removeServerFilledFields(
+	schema: Schema,
+	fields: Record<string, { type: string }>
+): Schema {
 	const staticFields = Object.keys(fields).filter(
 		(k) => fields[k].type == 'static' || fields[k].type == 'ctx'
 	)
@@ -227,7 +230,9 @@ function hiddenRunnableToTsType(runnable: Runnable) {
 		}
 	} else if (isRunnableByPath(runnable)) {
 		if (runnable?.schema) {
-			return schemaToTsType(removeServerFilledFields(runnable.schema as Schema, runnable?.fields ?? {}))
+			return schemaToTsType(
+				removeServerFilledFields(runnable.schema as Schema, runnable?.fields ?? {})
+			)
 		} else {
 			return '{}'
 		}

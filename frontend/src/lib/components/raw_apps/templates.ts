@@ -13,7 +13,7 @@ root.render(<App/>);
 `
 
 const STATS_SAMPLE_TEXT =
-  'Windmill turns scripts into apps. Write the frontend in React, Svelte or Vue, and the backend in TypeScript, Python or any other supported language. Scripts run on workers, and the app calls them like functions.'
+	'Windmill turns scripts into apps. Write the frontend in React, Svelte or Vue, and the backend in TypeScript, Python or any other supported language. Scripts run on workers, and the app calls them like functions.'
 
 const appTsx = `import React, { useState } from 'react'
 import { backend, backendAsync, getJob, streamJob } from './wmill'
@@ -1116,10 +1116,10 @@ button:disabled {
 `
 
 export const react19Template = {
-  '/index.tsx': reactIndex,
-  '/App.tsx': appTsx,
-  '/index.css': indexCss,
-  '/package.json': `{
+	'/index.tsx': reactIndex,
+	'/App.tsx': appTsx,
+	'/index.css': indexCss,
+	'/package.json': `{
     "dependencies": {
         "react": "19.0.0",
         "react-dom": "19.0.0"
@@ -1132,10 +1132,10 @@ export const react19Template = {
 }
 
 export const react18Template = {
-  '/index.tsx': reactIndex,
-  '/App.tsx': appTsx,
-  '/index.css': indexCss,
-  '/package.json': `{
+	'/index.tsx': reactIndex,
+	'/App.tsx': appTsx,
+	'/index.css': indexCss,
+	'/package.json': `{
     "dependencies": {
         "react": "18.3.1",
         "react-dom": "18.3.1"
@@ -1148,10 +1148,10 @@ export const react18Template = {
 }
 
 export const svelte5Template = {
-  '/index.ts': indexSvelte,
-  '/App.svelte': appSvelte,
-  '/index.css': indexCss,
-  '/package.json': `{
+	'/index.ts': indexSvelte,
+	'/App.svelte': appSvelte,
+	'/index.css': indexCss,
+	'/package.json': `{
     "dependencies": {
         "svelte": "^5.56.8"
     }
@@ -1159,10 +1159,10 @@ export const svelte5Template = {
 }
 
 export const vueTemplate = {
-  '/index.ts': indexVue,
-  '/App.vue': appVue,
-  '/index.css': indexCss,
-  '/package.json': `{
+	'/index.ts': indexVue,
+	'/App.vue': appVue,
+	'/index.css': indexCss,
+	'/package.json': `{
     "dependencies": {
         "core-js": "3.26.1",
         "vue": "3.5.13"
@@ -1171,10 +1171,10 @@ export const vueTemplate = {
 }
 
 export const FRAMEWORK_TEMPLATES = {
-  react19: react19Template,
-  react18: react18Template,
-  svelte5: svelte5Template,
-  vue: vueTemplate
+	react19: react19Template,
+	react18: react18Template,
+	svelte5: svelte5Template,
+	vue: vueTemplate
 }
 
 export type FrameworkKey = keyof typeof FRAMEWORK_TEMPLATES
@@ -1182,40 +1182,40 @@ export type FrameworkKey = keyof typeof FRAMEWORK_TEMPLATES
 type StarterArg = { type: 'string' | 'number' }
 
 function inlineRunnable(
-  language: 'bun' | 'python3',
-  content: string,
-  args: Record<string, StarterArg>,
-  fields: Record<string, any> = {}
+	language: 'bun' | 'python3',
+	content: string,
+	args: Record<string, StarterArg>,
+	fields: Record<string, any> = {}
 ) {
-  return {
-    fields,
-    type: 'inline',
-    inlineScript: {
-      content,
-      language,
-      schema: {
-        $schema: 'https://json-schema.org/draft/2020-12/schema',
-        properties: Object.fromEntries(
-          Object.entries(args).map(([k, { type }]) => [
-            k,
-            { default: null, description: '', originalType: type, type }
-          ])
-        ),
-        required: Object.keys(args),
-        type: 'object'
-      }
-    }
-  }
+	return {
+		fields,
+		type: 'inline',
+		inlineScript: {
+			content,
+			language,
+			schema: {
+				$schema: 'https://json-schema.org/draft/2020-12/schema',
+				properties: Object.fromEntries(
+					Object.entries(args).map(([k, { type }]) => [
+						k,
+						{ default: null, description: '', originalType: type, type }
+					])
+				),
+				required: Object.keys(args),
+				type: 'object'
+			}
+		}
+	}
 }
 
 // The runnables every framework template calls, seeded by the apps_raw/edit page and
 // the AI chat's app creation so the starter works on first render.
 export const STARTER_RUNNABLES = {
-  greet: {
-    name: 'greet',
-    ...inlineRunnable(
-      'bun',
-      `// import * as wmill from "windmill-client"
+	greet: {
+		name: 'greet',
+		...inlineRunnable(
+			'bun',
+			`// import * as wmill from "windmill-client"
 
 // \`username\` is a context field: the app fills it with the viewer's username.
 // Direct API callers can pass any value, so don't use it for access control.
@@ -1226,15 +1226,15 @@ export async function main(name: string, username: string) {
   }
 }
 `,
-      { name: { type: 'string' }, username: { type: 'string' } },
-      { username: { type: 'ctx', ctx: 'username' } }
-    )
-  },
-  word_stats: {
-    name: 'word_stats',
-    ...inlineRunnable(
-      'python3',
-      `import re
+			{ name: { type: 'string' }, username: { type: 'string' } },
+			{ username: { type: 'ctx', ctx: 'username' } }
+		)
+	},
+	word_stats: {
+		name: 'word_stats',
+		...inlineRunnable(
+			'python3',
+			`import re
 from collections import Counter
 
 
@@ -1248,26 +1248,26 @@ def main(text: str):
         "top_words": [word for word, _ in top],
     }
 `,
-      { text: { type: 'string' } }
-    )
-  },
-  slow_task: {
-    name: 'slow_task',
-    ...inlineRunnable(
-      'bun',
-      `export async function main(seconds: number) {
+			{ text: { type: 'string' } }
+		)
+	},
+	slow_task: {
+		name: 'slow_task',
+		...inlineRunnable(
+			'bun',
+			`export async function main(seconds: number) {
   await new Promise((resolve) => setTimeout(resolve, seconds * 1000))
   return \`Done after \${seconds}s\`
 }
 `,
-      { seconds: { type: 'number' } }
-    )
-  },
-  stream_text: {
-    name: 'stream_text',
-    ...inlineRunnable(
-      'bun',
-      `// Returning an async generator streams each yielded chunk to the caller.
+			{ seconds: { type: 'number' } }
+		)
+	},
+	stream_text: {
+		name: 'stream_text',
+		...inlineRunnable(
+			'bun',
+			`// Returning an async generator streams each yielded chunk to the caller.
 export async function main() {
   const text =
     'Every word of this text is yielded by a Bun script as soon as it is ready, ' +
@@ -1281,9 +1281,9 @@ export async function main() {
   })()
 }
 `,
-      {}
-    )
-  }
+			{}
+		)
+	}
 }
 
 export const appVueRouter = `
