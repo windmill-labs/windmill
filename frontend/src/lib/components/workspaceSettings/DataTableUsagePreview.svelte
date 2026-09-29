@@ -36,7 +36,9 @@ export async function main() {
 	{#snippet content()}
 		{#each ['python3', 'duckdb', 'bun'] as const as lang (lang)}
 			<TabContent value={lang} class="pt-2">
-				<HighlightCode language={lang} code={snippets[lang]} className="text-xs" />
+				<div class="rounded-md border border-border-light px-3 py-2">
+					<HighlightCode language={lang} code={snippets[lang]} className="text-xs" />
+				</div>
 			</TabContent>
 		{/each}
 	{/snippet}

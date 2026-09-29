@@ -423,7 +423,11 @@
 		// A caller that needs a specific name wins over the usual "main, unless taken":
 		// the import wizard's migrations only apply to a table of the name they target.
 		if (initialName) return initialName
-		return existingNames.includes('main') ? `${targetWorkspace || 'data'}_datatable` : 'main'
+		if (!existingNames.includes('main')) return 'main'
+		const base = targetWorkspace || 'data'
+		let name = base
+		for (let i = 2; existingNames.includes(name); i++) name = `${base}_${i}`
+		return name
 	}
 
 	// Takes the list rather than reading it, so the fetch that loads it can seed off its own
