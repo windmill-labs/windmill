@@ -716,6 +716,10 @@ pub struct OnBehalfOf {
 
 pub const ENTRYPOINT_OVERRIDE: &str = "_ENTRYPOINT_OVERRIDE";
 
+/// Job-arg key carrying a preview's module code. Only `push` writes it, from
+/// `RawCode::modules`: a caller-supplied one is dropped there.
+pub const MODULES_ARG: &str = "_MODULES";
+
 /// Reserved job-arg key holding the inbound W3C `traceparent` captured from the
 /// request that enqueued the job (run endpoints). It rides the `args` jsonb like
 /// [`ENTRYPOINT_OVERRIDE`]; normal scripts never see it because args are bound by
