@@ -77,6 +77,9 @@
 	let disabling = $state(false)
 	let disableModalOpen = $state(false)
 	let disableInternalModalOpen = $state(false)
+	/** Databases on Windmill's own Postgres that a data table or Ducklake catalog still uses,
+	 *  with the workspaces using each. Read when the offer to disable it is made. */
+	let internalInUse = $state<{ name: string; workspaces: string[] }[]>([])
 	let dropModalName = $state<string | undefined>(undefined)
 	let creating = $state(false)
 	let newDbName = $state('')
@@ -130,7 +133,7 @@
 				!report.success
 			)
 			if (report.success && !wasSetUp && !isCloudHosted() && !$values[INSTANCE_PG_DISABLED_KEY])
-				disableInternalModalOpen = true
+				await offerToDisableInternal()
 		} catch (e) {
 			sendUserToast(e?.body ?? e?.message ?? String(e), true)
 		} finally {
@@ -140,6 +143,19 @@
 	}
 
 	const INSTANCE_PG_DISABLED_KEY = 'instance_pg_disabled'
+
+	async function offerToDisableInternal() {
+		try {
+			const dbs = await SettingService.listCustomInstanceDbs()
+			internalInUse = Object.entries(dbs)
+				.map(([name, db]) => ({ name, workspaces: db.used_by_workspaces ?? [] }))
+				.filter((db) => db.workspaces.length > 0)
+		} catch {
+			// The offer stands without the usage check; the warning is what it would have added.
+			internalInUse = []
+		}
+		disableInternalModalOpen = true
+	}
 
 	async function disableInternal() {
 		try {
@@ -508,6 +524,20 @@
 		catalogs on Windmill's database keep working; only new ones can no longer be created there. You
 		can turn it back on under Windmill instance below.
 	</span>
+	{#if internalInUse.length > 0}
+		<Alert type="warning" title="Data is still on Windmill's database" size="xs" class="mt-3">
+			{internalInUse.length === 1 ? 'This database is' : 'These databases are'} still used by a data
+			table or Ducklake catalog. {internalInUse.length === 1 ? 'It keeps' : 'They keep'} working if you
+			disable it, but stay on Windmill's database until moved.
+			<ul class="list-disc list-inside mt-1">
+				{#each internalInUse as db (db.name)}
+					<li>
+						<span class="font-mono">{db.name}</span> — {db.workspaces.join(', ')}
+					</li>
+				{/each}
+			</ul>
+		</Alert>
+	{/if}
 </ConfirmationModal>
 
 <ConfirmationModal
