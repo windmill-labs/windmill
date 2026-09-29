@@ -23,7 +23,6 @@
 	} from '$lib/gen'
 	import { emptyString, truncateRev, urlize } from '$lib/utils'
 	import { registryEntryFor, registryCcCapableFor, stripSandboxSuffix } from './oauthRegistry'
-	import { RESOURCE_TYPE_CATEGORIES, resourceTypeCategory } from './resourceTypeCategories'
 	import { createEventDispatcher, onDestroy, tick } from 'svelte'
 	import Path from './Path.svelte'
 	import { Badge, Button, ListRow, RadioCard, Skeleton } from './common'
@@ -47,6 +46,7 @@
 	import {
 		alphabetical,
 		byPopularity,
+		hubResourceTypeCategories,
 		hubResourceTypePicks,
 		localResourceTypeCounts,
 		recordHubResourceTypePick
@@ -107,7 +107,7 @@
 
 	/** An instance entry with shared credentials (admin id+secret): connect with
 	 * no input. Shown under "Instance-configured"; bring-your-own-only providers
-	 * (no shared creds) are listed with the other resource types instead. */
+	 * (no shared creds) are shown under "Others" instead. */
 	function isSharedConnect(key: string): boolean {
 		return connectsInfo[key]?.has_shared_credentials ?? false
 	}
@@ -257,9 +257,8 @@
 	 * doesn't enter their own — the exchange runs server-side with those creds */
 	let ccInstanceConfigured = $state(false)
 
-	/** The user wants their own credentials (picked the provider from the resource
-	 * type list rather than the instance section) — overrides the shared instance
-	 * credentials for this connection */
+	/** The user wants their own credentials (picked the provider from the "Others"
+	 * section) — overrides the shared instance credentials for this connection */
 	let ccBringYourOwn = $state(false)
 
 	/** Connect with the shared instance credentials (no form) rather than the
@@ -325,7 +324,7 @@
 		return registryCcCapableFor(key)
 	}
 
-	/** Step-1 resource type selection: CC-capable resource types open the client-
+	/** Step-1 "Others" selection: CC-capable resource types open the client-
 	 * credentials form with the user's own credentials — even when the instance
 	 * has shared ones (the "Instance-configured OAuth APIs" section is the entry
 	 * point for those). Every other type opens the raw manual form. */
@@ -413,14 +412,31 @@
 	 * alphabetically and re-sort when this lands.
 	 */
 	let popularity: (a: string, b: string) => number = $state(alphabetical)
+	/** The hub's most picked types, tagged "Popular" wherever they land in the list. */
+	let hubPopular: Set<string> = $state(new Set())
+	let hubPicks: Record<string, number> = $state({})
+	/** Hub category per type; fetched apart from the picks since the first read is slow. */
+	let categories: Record<string, string> = $state({})
+	let selectedCategory: string | undefined = $state(undefined)
+
+	const POPULAR_TAG_COUNT = 10
 
 	async function loadPopularity() {
 		if (!effectiveWorkspace) return
+		hubResourceTypeCategories(effectiveWorkspace).then((c) => (categories = c))
 		const [hub, local] = await Promise.all([
 			hubResourceTypePicks(effectiveWorkspace),
 			localResourceTypeCounts(effectiveWorkspace)
 		])
 		popularity = byPopularity(hub, local)
+		hubPicks = hub
+		hubPopular = new Set(
+			Object.entries(hub)
+				.filter(([, picks]) => picks > 0)
+				.sort(([a, pa], [b, pb]) => pb - pa || a.localeCompare(b))
+				.slice(0, POPULAR_TAG_COUNT)
+				.map(([name]) => name)
+		)
 	}
 
 	async function loadConnects() {
@@ -508,7 +524,7 @@
 			})
 			.catch(() => {})
 
-		// The resource type list holds every type — including instance-configured OAuth
+		// "Others" lists every resource type — including instance-configured OAuth
 		// providers — so any of them can also be connected with the user's own
 		// credentials or manually, not only via the shared instance setup (same as
 		// the authorization-code behavior).
@@ -1032,6 +1048,8 @@
 	let filteredConnectsManual: { key: string; img?: string; instructions: string[] }[] = $state([])
 
 	let searching = $derived(filter.trim() !== '')
+	/** A narrowed list: sections that end up empty are dropped rather than explained. */
+	let filtering = $derived(searching || selectedCategory !== undefined)
 
 	// Searching, the query owns the order: uFuzzy scores the name and the description as one
 	// string, so "google" ranks every type whose description mentions Google alongside the
@@ -1060,71 +1078,45 @@
 		rank(filteredConnectsManual) as typeof filteredConnectsManual | undefined
 	)
 
-	let manualOrderedKeys = $derived((rankedConnectsManual ?? []).map((x) => x.key))
+	const categoryOf = (key: string): string | undefined => categories[stripSandboxSuffix(key)]
+	const inSelectedCategory = (key: string) =>
+		selectedCategory === undefined || categoryOf(key) === selectedCategory
+
+	// The filters on offer: every category some listed type falls in, the most picked first
+	// so the ones people reach for lead the row.
+	let categoryFilters = $derived.by(() => {
+		const picks = new Map<string, number>()
+		for (const { key } of connectsManual ?? []) {
+			const category = categoryOf(key)
+			if (category) picks.set(category, (picks.get(category) ?? 0) + (hubPicks[key] ?? 0))
+		}
+		return [...picks.entries()]
+			.sort(([a, pa], [b, pb]) => pb - pa || a.localeCompare(b))
+			.map(([category]) => category)
+	})
+
+	let manualOrderedKeys = $derived(
+		(rankedConnectsManual ?? []).map((x) => x.key).filter(inSelectedCategory)
+	)
+	let filteredRankedConnects = $derived(rankedConnects?.filter((x) => inSelectedCategory(x.key)))
 
 	let customKeys = $derived(manualOrderedKeys.filter((key) => customResourceTypes.has(key)))
 	let otherKeys = $derived(manualOrderedKeys.filter((key) => !customResourceTypes.has(key)))
-
-	// Browsing, the common types are grouped into categories ahead of "Others". Searching,
-	// that grouping would outrank the search itself — a weak Databases match sorting above
-	// the exact hit in Others — so the ranked order stands on its own.
-	let manualSections = $derived.by(() => {
-		type Section = { title: string; popular: boolean; keys: string[]; seeMore?: string }
-		const others: Section = {
-			title: 'Others',
-			popular: false,
-			keys: searching ? otherKeys : otherKeys.filter((key) => !resourceTypeCategory(key))
-		}
-		if (searching) return [others]
-		const keysIn = (title: string, popular: boolean) =>
-			otherKeys.filter((key) => {
-				const category = resourceTypeCategory(key)
-				return category?.title === title && category.popular === popular
-			})
-		const popular: Section[] = []
-		const rest: Section[] = []
-		for (const category of RESOURCE_TYPE_CATEGORIES) {
-			const restKeys = keysIn(category.title, false)
-			const popularKeys = keysIn(category.title, true)
-			if (restKeys.length > 0) rest.push({ title: category.title, popular: false, keys: restKeys })
-			if (popularKeys.length > 0)
-				popular.push({
-					title: category.title,
-					popular: true,
-					keys: popularKeys,
-					seeMore: restKeys.length > 0 ? `See ${category.others}` : undefined
-				})
-		}
-		// An empty Others still renders while loading (its skeletons) and on an unsynced
-		// list (the sync hint).
-		const keepOthers =
-			others.keys.length > 0 || !rankedConnectsManual || (connectsManual?.length ?? 0) < 10
-		return keepOthers ? [...popular, ...rest, others] : [...popular, ...rest]
-	})
 
 	// Every row in the order it is rendered, so arrow keys walk the sections as one list.
 	// A provider appears in more than one, so rows are addressed by index, not by name.
 	let navItems = $derived([
 		...customKeys.map((key) => ({ key, oauth: false })),
-		...(rankedConnects ?? []).map((x) => ({ key: x.key, oauth: true })),
-		...manualSections.flatMap((section) => section.keys.map((key) => ({ key, oauth: false })))
+		...(filteredRankedConnects ?? []).map((x) => ({ key: x.key, oauth: true })),
+		...otherKeys.map((key) => ({ key, oauth: false }))
 	])
 	// Both lists start undefined and render skeletons; "nothing found" only means something
 	// once they have landed.
 	let listsLoaded = $derived(rankedConnectsManual !== undefined && rankedConnects !== undefined)
 	const rowDomId = (index: number) => `resource-type-row-${index}`
-	const categorySectionId = (title: string) =>
-		`resource-type-category-${title.toLowerCase().replace(/[^a-z]+/g, '-')}`
 
 	const oauthRowOffset = $derived(customKeys.length)
-	const manualRowOffsets = $derived.by(() => {
-		let offset = customKeys.length + (rankedConnects?.length ?? 0)
-		return manualSections.map((section) => {
-			const start = offset
-			offset += section.keys.length
-			return start
-		})
-	})
+	const otherRowOffset = $derived(customKeys.length + (filteredRankedConnects?.length ?? 0))
 
 	// Sections are rendered in a fixed order, so the best match is not necessarily the first
 	// row: rank the rows against the query to find it.
@@ -1201,12 +1193,26 @@
 						class="pl-7 text-xs w-full"
 					/>
 				</div>
+				{#if categoryFilters.length > 0}
+					<div class="flex flex-wrap gap-1 mt-2" role="group" aria-label="Filter by category">
+						{#each [undefined, ...categoryFilters] as category (category ?? '')}
+							<Button
+								variant="subtle"
+								unifiedSize="xs"
+								selected={selectedCategory === category}
+								aria-pressed={selectedCategory === category}
+								onClick={() => (selectedCategory = category)}
+							>
+								{category ?? 'All'}
+							</Button>
+						{/each}
+					</div>
+				{/if}
 			</div>
 
-			{#snippet sectionHeading(title: string, count: number, popular: boolean = false)}
-				<h2 class="mb-3 flex items-center gap-2 text-2xs font-normal uppercase text-secondary">
-					{title}{#if popular}<Badge color="blue" small class="normal-case">Popular</Badge
-						>{/if}{#if searching}<span class="text-hint">{count}</span>{/if}
+			{#snippet sectionHeading(title: string, count: number)}
+				<h2 class="mb-3 text-2xs font-normal uppercase text-secondary">
+					{title}{#if filtering}<span class="ml-2 text-hint">{count}</span>{/if}
 				</h2>
 			{/snippet}
 
@@ -1217,6 +1223,9 @@
 				{#snippet title()}
 					<span class="truncate leading-5">{resourceTypeDisplayName(key)}</span>
 					<span class="shrink-0 font-mono text-2xs font-normal text-hint">{key}</span>
+					{#if hubPopular.has(stripSandboxSuffix(key))}
+						<Badge color="blue" small class="self-center">Popular</Badge>
+					{/if}
 				{/snippet}
 				{#snippet subtitle()}
 					{plainDescription(resourceTypeDescriptions[key])}
@@ -1249,7 +1258,7 @@
 				{:else}
 					<!-- One gap between sections, owned by the column: a section that a search empties
 					     out then takes its spacing with it. -->
-					<div class="flex flex-col gap-8">
+					<div class="flex flex-col gap-10">
 						{#if customKeys.length > 0}
 							<section>
 								{@render sectionHeading('Custom resource types', customKeys.length)}
@@ -1261,15 +1270,15 @@
 							</section>
 						{/if}
 
-						{#if !searching || (rankedConnects?.length ?? 0) > 0}
+						{#if !filtering || (filteredRankedConnects?.length ?? 0) > 0}
 							<section>
 								{@render sectionHeading(
 									'Instance-configured OAuth APIs',
-									rankedConnects?.length ?? 0
+									filteredRankedConnects?.length ?? 0
 								)}
 								<div class="flex flex-col gap-0.5">
-									{#if rankedConnects}
-										{#each rankedConnects as { key }, i}
+									{#if filteredRankedConnects}
+										{#each filteredRankedConnects as { key }, i}
 											{@render resourceButton(key, oauthRowOffset + i, true)}
 										{/each}
 									{:else}
@@ -1289,44 +1298,29 @@
 							</section>
 						{/if}
 
-						{#each manualSections as section, s (`${section.title}-${section.popular}`)}
-							{#if !searching || section.keys.length > 0}
-								<section id={section.popular ? undefined : categorySectionId(section.title)}>
-									{@render sectionHeading(section.title, section.keys.length, section.popular)}
+						{#if !filtering || otherKeys.length > 0}
+							<section>
+								{@render sectionHeading(selectedCategory ?? 'Others', otherKeys.length)}
 
-									{#if section.title === 'Others' && !searching && connectsManual && connectsManual?.length < 10}
-										<div class="text-secondary text-xs p-2">
-											Resource types have not been synced with the hub
-										</div>
-									{/if}
-
-									<div class="flex flex-col gap-0.5">
-										{#if rankedConnectsManual}
-											{#each section.keys as key, i}
-												{@render resourceButton(key, manualRowOffsets[s] + i, false)}
-											{/each}
-										{:else}
-											{#each new Array(9) as _}
-												<Skeleton layout={[[2]]} />
-											{/each}
-										{/if}
+								{#if !searching && connectsManual && connectsManual?.length < 10}
+									<div class="text-secondary text-xs p-2">
+										Resource types have not been synced with the hub
 									</div>
-									{#if section.seeMore}
-										<Button
-											variant="subtle"
-											unifiedSize="sm"
-											wrapperClasses="mt-1 w-fit"
-											onClick={() =>
-												document
-													.getElementById(categorySectionId(section.title))
-													?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-										>
-											{section.seeMore}
-										</Button>
+								{/if}
+
+								<div class="flex flex-col gap-0.5">
+									{#if rankedConnectsManual}
+										{#each otherKeys as key, i}
+											{@render resourceButton(key, otherRowOffset + i, false)}
+										{/each}
+									{:else}
+										{#each new Array(9) as _}
+											<Skeleton layout={[[2]]} />
+										{/each}
 									{/if}
-								</section>
-							{/if}
-						{/each}
+								</div>
+							</section>
+						{/if}
 					</div>
 				{/if}
 			</div>

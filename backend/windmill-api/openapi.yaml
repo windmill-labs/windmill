@@ -9491,6 +9491,32 @@ paths:
                     - app
                     - picks
 
+  /w/{workspace}/resources/type/hub/categories:
+    get:
+      summary: list the hub category of each resource type
+      operationId: listHubResourceTypeCategories
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: each hub resource type whose integration has a category on the hub, empty if the hub cannot be reached
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    category:
+                      type: string
+                  required:
+                    - name
+                    - category
+
   /w/{workspace}/resources/type/hub/pick/{name}:
     post:
       summary: record a hub resource type pick

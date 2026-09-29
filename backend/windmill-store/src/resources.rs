@@ -92,6 +92,10 @@ pub fn workspaced_service() -> Router {
         .route("/type/listnames", get(list_resource_types_names))
         .route("/type/resource_counts", get(list_resource_counts_by_type))
         .route("/type/hub/info", get(list_hub_resource_type_info))
+        .route(
+            "/type/hub/categories",
+            get(list_hub_resource_type_categories),
+        )
         .route("/type/hub/pick/{name}", post(pick_hub_resource_type))
         .route("/type/get/{name}", get(get_resource_type))
         .route("/type/exists/{name}", get(exists_resource_type))
@@ -3110,6 +3114,127 @@ async fn list_hub_resource_type_info(
     );
 
     Ok(Json(info))
+}
+
+/// Categories are editorial and change rarely, and reading them fans out one hub request per
+/// integration — so they are kept for a day. A read that found nothing is retried sooner,
+/// without costing every drawer open a fan-out against a hub that has no categories.
+const HUB_APP_CATEGORIES_TTL: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
+const HUB_APP_CATEGORIES_EMPTY_TTL: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+const HUB_APP_CATEGORIES_CONCURRENCY: usize = 16;
+
+static HUB_APP_CATEGORIES: LazyLock<std::sync::RwLock<Option<HubCached<HashMap<String, String>>>>> =
+    LazyLock::new(|| std::sync::RwLock::new(None));
+/// Drawers opened while the fan-out runs wait for it rather than each starting their own.
+static HUB_APP_CATEGORIES_REFRESH: LazyLock<tokio::sync::Mutex<()>> =
+    LazyLock::new(|| tokio::sync::Mutex::new(()));
+
+#[derive(Deserialize)]
+struct HubIntegrationContent {
+    content: HubIntegrationContentBody,
+}
+
+#[derive(Deserialize)]
+struct HubIntegrationContentBody {
+    #[serde(default)]
+    category: Option<String>,
+}
+
+fn hub_app_categories_cached(hub_base_url: &str) -> Option<HashMap<String, String>> {
+    let guard = HUB_APP_CATEGORIES.read().ok()?;
+    let entry = guard.as_ref()?;
+    let ttl = if entry.value.is_empty() {
+        HUB_APP_CATEGORIES_EMPTY_TTL
+    } else {
+        HUB_APP_CATEGORIES_TTL
+    };
+    (entry.hub_base_url == hub_base_url && entry.fetched_at.elapsed() < ttl)
+        .then(|| entry.value.clone())
+}
+
+/// The hub's category for each integration that has one, keyed by the integration name as
+/// the resource type index spells it. The hub only serves categories one integration at a
+/// time (`/integrations/<app>/content`, 404 when it has none).
+async fn hub_app_categories(
+    db: &DB,
+    hub_base_url: &str,
+    apps: HashSet<String>,
+) -> HashMap<String, String> {
+    if let Some(cached) = hub_app_categories_cached(hub_base_url) {
+        return cached;
+    }
+    let _refresh = HUB_APP_CATEGORIES_REFRESH.lock().await;
+    if let Some(cached) = hub_app_categories_cached(hub_base_url) {
+        return cached;
+    }
+
+    use futures::StreamExt;
+    // The name goes into a URL path; a hub slug never needs escaping, so anything that
+    // would is skipped rather than requested.
+    let slug = |app: &str| {
+        app.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+            .then(|| app.to_lowercase())
+    };
+    let categories: HashMap<String, String> = futures::stream::iter(apps)
+        .filter_map(|app| async move { slug(&app).map(|slug| (app, slug)) })
+        .map(|(app, slug)| async move {
+            let response = windmill_common::utils::http_get_from_hub(
+                &windmill_common::utils::HTTP_CLIENT,
+                &format!("{hub_base_url}/integrations/{slug}/content"),
+                false,
+                None,
+                Some(db),
+            )
+            .await
+            .ok()?;
+            if !response.status().is_success() {
+                return None;
+            }
+            let category = response
+                .json::<HubIntegrationContent>()
+                .await
+                .ok()?
+                .content
+                .category?;
+            Some((app, category))
+        })
+        .buffer_unordered(HUB_APP_CATEGORIES_CONCURRENCY)
+        .filter_map(|entry| async move { entry })
+        .collect()
+        .await;
+
+    hub_cache_put(&HUB_APP_CATEGORIES, hub_base_url, categories.clone());
+    categories
+}
+
+#[derive(Serialize)]
+struct HubResourceTypeCategory {
+    name: String,
+    category: String,
+}
+
+/// The hub's category for each resource type, inherited from its integration. Types whose
+/// integration has no category are left out; an unreachable hub yields an empty list.
+async fn list_hub_resource_type_categories(
+    Extension(db): Extension<DB>,
+) -> JsonResult<Vec<HubResourceTypeCategory>> {
+    let hub_base_url = (**windmill_common::HUB_BASE_URL.load()).clone();
+    let index = hub_resource_types(&db, &hub_base_url)
+        .await
+        .unwrap_or_default();
+    let apps = index.values().map(|rt| rt.app.clone()).collect();
+    let categories = hub_app_categories(&db, &hub_base_url, apps).await;
+
+    Ok(Json(
+        index
+            .into_iter()
+            .filter_map(|(name, rt)| {
+                let category = categories.get(&rt.app)?.clone();
+                Some(HubResourceTypeCategory { name, category })
+            })
+            .collect(),
+    ))
 }
 
 async fn get_resource_type(
