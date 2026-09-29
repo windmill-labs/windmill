@@ -7421,6 +7421,20 @@ pub async fn run_workflow_as_code(
         )
         .await?;
 
+    // A task re-runs a preview with the preview's modules: the ones `push` stored for it, never
+    // the task's args. Read on their own, as `fetch_queued` swaps oversized args for a placeholder.
+    let preview_modules = if job.job_kind == JobKind::Preview {
+        sqlx::query_scalar::<_, Option<sqlx::types::Json<HashMap<String, ScriptModule>>>>(
+            "SELECT args->'_MODULES' FROM v2_job WHERE id = $1",
+        )
+        .bind(job.id)
+        .fetch_one(&db)
+        .await?
+        .map(|modules| modules.0)
+    } else {
+        None
+    };
+
     let (job_payload, tag, _delete_after_use, _delete_after_secs, timeout, on_behalf_of) =
         match job.job_kind {
             JobKind::Preview => (
@@ -7444,7 +7458,7 @@ pub async fn run_workflow_as_code(
                     dedicated_worker: None,
                     // TODO(debouncing): enable for this mode
                     debouncing_settings: DebouncingSettings::default(),
-                    modules: None,
+                    modules: preview_modules,
                     tag: None,
                 }),
                 Some(job.tag.clone()),
@@ -8629,9 +8643,6 @@ async fn run_preview_script(
     let mut extra = HashMap::new();
     if let Some(fp) = &preview.flow_path {
         extra.insert("_FLOW_PATH".to_string(), to_raw_value(fp));
-    }
-    if let Some(ref modules) = preview.modules {
-        extra.insert("_MODULES".to_string(), to_raw_value(modules));
     }
     if let Some(ref temp_script_refs) = preview.temp_script_refs {
         extra.insert(
