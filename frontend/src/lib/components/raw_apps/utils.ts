@@ -83,9 +83,17 @@ export type RawAppRuntimeLogEntry = {
 	message: string
 	ts: number
 }
-export type RawAppRuntimeLogRequester = (
-	limit: number
-) => Promise<RawAppRuntimeLogEntry[] | undefined>
+export type RawAppPreviewLogs = {
+	/** Console output of the rendered app; undefined when the preview document isn't loaded. */
+	entries: RawAppRuntimeLogEntry[] | undefined
+	/** Set while the latest UI Builder build failed. A failed build never reaches the preview
+	 * document, so its console cannot report it. */
+	buildError: string | undefined
+	/** Files were sent to the UI Builder and its build has not reported back in time. */
+	buildPending: boolean
+	buildLogs: string
+}
+export type RawAppRuntimeLogRequester = (limit: number) => Promise<RawAppPreviewLogs>
 
 const RAW_APP_RUNTIME_LOG_LEVELS = new Set<RawAppRuntimeLogLevel>([
 	'log',
@@ -125,6 +133,30 @@ export function formatRuntimeLogsForChat(entries: RawAppRuntimeLogEntry[]): stri
 		return `[${time}] ${e.level.toUpperCase()}: ${e.message}`
 	})
 	return lines.join('\n')
+}
+
+const BUILD_LOG_TAIL_LINES = 40
+const BUILD_LOG_TAIL_CHARS = 6000
+// Per-package install progress: dozens of lines per build that would crowd the errors out of the tail.
+const ROUTINE_INSTALL_LOG_LINE = /^\s*(Using cached resolution|Using idb cache|Resolved |Extract)/
+
+export function formatBuildLogTailForChat(buildLogs: string): string {
+	// The bundler log accumulates every install and build since the editor opened.
+	const tail = buildLogs
+		.split('\n')
+		.filter((line) => line.trim() && !ROUTINE_INSTALL_LOG_LINE.test(line))
+		.slice(-BUILD_LOG_TAIL_LINES)
+		.join('\n')
+		.slice(-BUILD_LOG_TAIL_CHARS)
+	return tail ? `Recent bundler logs:\n${tail}` : 'No bundler logs yet.'
+}
+
+export function formatBuildFailureForChat(buildError: string, buildLogs: string): string {
+	return [
+		'The app build FAILED, so the preview is not running the current code. Fix these errors in the frontend files, then call get_app_runtime_logs again to confirm the build passes.',
+		`Build error:\n${buildError}`,
+		formatBuildLogTailForChat(buildLogs)
+	].join('\n\n')
 }
 
 export type RawAppRunSummary = {

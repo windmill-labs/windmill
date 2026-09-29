@@ -86,8 +86,10 @@ import {
 } from '$lib/components/copilot/chat/global/core'
 import {
 	formatRuntimeLogsForChat,
+	formatBuildFailureForChat,
+	formatBuildLogTailForChat,
 	formatAppRunsForChat,
-	type RawAppRuntimeLogEntry,
+	type RawAppPreviewLogs,
 	type RawAppRuntimeLogRequester,
 	type RawAppRunSummary,
 	type RawAppRunsProvider,
@@ -210,7 +212,7 @@ export interface SessionRuntime {
 		deployedOnly?: boolean
 	): Promise<void>
 	setRuntimeLogRequester(requester: RawAppRuntimeLogRequester | undefined): void
-	requestRuntimeLogs(limit: number): Promise<RawAppRuntimeLogEntry[] | undefined>
+	requestRuntimeLogs(limit: number): Promise<RawAppPreviewLogs | undefined>
 	/** Register a mounted raw-app preview's DOM requester, keyed by app path.
 	 * ALL mounted preview tabs register (hidden ones stay mounted), so a
 	 * DOM-scoped turn can read its own app even when another tab is visible. */
@@ -1297,7 +1299,28 @@ setGetRuntimeLogsHandler(async ({ sessionId: callerSessionId, limit }) => {
 			toolResult: 'Runtime logs unavailable'
 		}
 	}
-	const entries = await runtime.requestRuntimeLogs(limit)
+	const previewLogs = await runtime.requestRuntimeLogs(limit)
+	if (previewLogs?.buildError !== undefined) {
+		const report = formatBuildFailureForChat(previewLogs.buildError, previewLogs.buildLogs)
+		const consoleLogs = previewLogs.entries?.length
+			? `\n\nConsole output of the last successful build still shown in the preview (stale until the build is fixed):\n${formatRuntimeLogsForChat(previewLogs.entries.slice(-limit))}`
+			: ''
+		return {
+			aiResult: `${report}${consoleLogs}`,
+			uiMessage: 'App build failed',
+			toolResult: report
+		}
+	}
+	if (previewLogs?.buildPending) {
+		return {
+			aiResult:
+				'The app is still building (or its build never started, e.g. no index entrypoint file) — no build result arrived within 20 seconds, so the preview may still run an older build. Check the bundler logs below, wait, then call get_app_runtime_logs again.\n\n' +
+				formatBuildLogTailForChat(previewLogs.buildLogs),
+			uiMessage: 'App build still running',
+			toolResult: 'App build still running'
+		}
+	}
+	const entries = previewLogs?.entries
 	if (entries === undefined) {
 		return {
 			aiResult:

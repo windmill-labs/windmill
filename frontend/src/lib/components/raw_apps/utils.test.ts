@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
 	canonicalRawAppDiffValue,
+	formatBuildFailureForChat,
 	formatRuntimeLogsForChat,
 	genWmillTs,
 	normalizeRawAppRuntimeLogs,
@@ -82,6 +83,27 @@ describe('normalizeRawAppRuntimeLogs', () => {
 
 		expect(entries).toEqual([{ level: 'log', message: 'ready', ts: 1718000000000 }])
 		expect(formatRuntimeLogsForChat(entries)).toBe('[06:13:20.000] LOG: ready')
+	})
+})
+
+describe('formatBuildFailureForChat', () => {
+	it('reports the build error with the bundler log tail, without install noise', () => {
+		const logs = [
+			'Installing react …',
+			'Using cached resolution for react@19.0.0: 19.0.0',
+			'Resolved react@19.0.0',
+			'Using idb cache for react@19.0.0 …',
+			'[esbuild] Build started...',
+			'[esbuild] Build failed: Build failed with 1 error:',
+			'App.tsx:1:15: ERROR: Unexpected ";"'
+		].join('\n')
+		const report = formatBuildFailureForChat('App.tsx:1:15: ERROR: Unexpected ";"', logs)
+
+		expect(report).toContain('Build error:\nApp.tsx:1:15: ERROR: Unexpected ";"')
+		expect(report).toContain('[esbuild] Build failed')
+		expect(report).toContain('Installing react')
+		expect(report).not.toContain('Using cached resolution')
+		expect(report).not.toContain('Resolved react')
 	})
 })
 

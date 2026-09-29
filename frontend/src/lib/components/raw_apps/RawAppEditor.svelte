@@ -909,6 +909,7 @@
 		if (!target) return
 		iframeFiles = { ...newFiles }
 		iframeFocusPending = undefined
+		buildPending = true
 		const files = Object.fromEntries(
 			Object.entries(newFiles).filter(([path, _]) => !path.endsWith('/'))
 		)
@@ -928,6 +929,7 @@
 		iframeFiles = { ...newFiles }
 		const focus = iframeFocusPending === pathToSelect
 		iframeFocusPending = undefined
+		buildPending = true
 		const files = Object.fromEntries(
 			Object.entries(newFiles).filter(([path, _]) => !path.endsWith('/'))
 		)
@@ -1376,6 +1378,7 @@
 		// `message: undefined` arrives on the next successful build and clears the banner.
 		if (fromUiBuilder && e.data.type === 'buildError') {
 			buildError = typeof e.data.message === 'string' ? e.data.message : undefined
+			settleBuild()
 			return
 		}
 
@@ -1713,7 +1716,44 @@
 		pending.resolve(entries)
 	}
 
-	const requestRuntimeLogs: RawAppRuntimeLogRequester = (limit) => {
+	// Files sent to the UI Builder but no build result back yet. A chat edit lands here
+	// shortly before its build reports, so reading the build state right away would
+	// return the previous build's outcome.
+	const BUILD_WAIT_TIMEOUT_MS = 20_000
+	let buildPending = false
+	let buildWaiters: (() => void)[] = []
+	function settleBuild() {
+		buildPending = false
+		const waiters = buildWaiters
+		buildWaiters = []
+		waiters.forEach((w) => w())
+	}
+	function waitForPendingBuild(): Promise<void> {
+		if (!buildPending) return Promise.resolve()
+		return new Promise((resolve) => {
+			const timer = setTimeout(resolve, BUILD_WAIT_TIMEOUT_MS)
+			buildWaiters.push(() => {
+				clearTimeout(timer)
+				resolve()
+			})
+		})
+	}
+
+	const requestRuntimeLogs: RawAppRuntimeLogRequester = async (limit) => {
+		await waitForPendingBuild()
+		const timedOut = buildPending
+		// The UI Builder skips the build entirely when no entrypoint exists, so a timed-out
+		// wait is reported once rather than making every later call wait again.
+		buildPending = false
+		return {
+			entries: await requestPreviewConsoleLogs(limit),
+			buildError,
+			buildPending: timedOut,
+			buildLogs: logs
+		}
+	}
+
+	function requestPreviewConsoleLogs(limit: number) {
 		const win = previewIframe?.contentWindow
 		if (!win || !previewIframeLoaded) return Promise.resolve(undefined)
 		const requestId = randomUUID()
