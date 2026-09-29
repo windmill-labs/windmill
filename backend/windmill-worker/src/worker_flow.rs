@@ -44,12 +44,13 @@ use windmill_common::flow_status::{
 };
 use windmill_common::flows::{add_virtual_items_if_necessary, Branch, FlowNodeId, StopAfterIf};
 use windmill_common::jobs::{
-    script_path_to_payload, JobKind, JobPayload, OnBehalfOf, RawCode, ENTRYPOINT_OVERRIDE,
+    script_path_to_payload, JobKind, JobPayload, OnBehalfOf, RawCode, TriggerKindLabel,
+    ENTRYPOINT_OVERRIDE,
 };
 use windmill_common::runnable_settings::{
     ConcurrencySettingsWithCustom, DebouncingSettings, RunnableSettingsTrait,
 };
-use windmill_common::scripts::{ScriptHash, ScriptRunnableSettingsInline};
+use windmill_common::scripts::{ScriptHash, ScriptLang, ScriptRunnableSettingsInline};
 use windmill_common::utils::WarnAfterExt;
 use windmill_common::worker::{error_to_value, to_raw_value, Connection};
 use windmill_common::{
@@ -537,15 +538,22 @@ pub async fn update_flow_status_after_job_completion_internal(
             if let Some(cached) = RESOLVED_FLOW_ENV_CACHE.get(&flow) {
                 Some(cached)
             } else {
-                resolve_flow_env_for_status_update(db, client, flow, w_id, flow_value)
-                    .await
-                    .map(|(env, is_cacheable)| {
-                        let arc = Arc::new(env);
-                        if is_cacheable {
-                            RESOLVED_FLOW_ENV_CACHE.insert(flow, arc.clone());
-                        }
-                        arc
-                    })
+                resolve_flow_env_for_status_update(
+                    db,
+                    client,
+                    flow,
+                    w_id,
+                    flow_value,
+                    old_status.no_inherited_flow_env,
+                )
+                .await
+                .map(|(env, is_cacheable)| {
+                    let arc = Arc::new(env);
+                    if is_cacheable {
+                        RESOLVED_FLOW_ENV_CACHE.insert(flow, arc.clone());
+                    }
+                    arc
+                })
             }
         } else {
             None
@@ -1366,36 +1374,52 @@ pub async fn update_flow_status_after_job_completion_internal(
         }
 
         let step_counter = if inc_step_counter {
-            sqlx::query!(
-                "UPDATE v2_job_status
-                 SET flow_status = JSONB_SET(flow_status, ARRAY['step'], $1)
-                 WHERE id = $2",
-                json!(old_status.step + 1),
-                flow
-            )
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| {
-                Error::internal_err(format!("error while setting flow index for {flow}: {e:#}"))
-            })?;
             old_status.step + 1
         } else {
             old_status.step
         };
-
-        // tracing::error!(
-        //     "step_counter: {:?} {} {inc_step_counter} {flow}",
-        //     step_counter,
-        //     old_status.step,
-        // );
-        // panic!("stop");
 
         /* is_last_step is true when the step_counter (the next step index) is an invalid index */
         let is_last_step = usize::try_from(step_counter)
             .map(|i| !(..old_status.modules.len()).contains(&i))
             .unwrap_or(true);
 
-        if let Some(new_status) = new_status.as_ref() {
+        let nresult = if let Some(nresult) = nresult {
+            // can be some either with early stop error or with the flow jobs results (was fetched to evaluate stop_early_after_all_iters but evaluated to false)
+            nresult
+        } else {
+            match &new_status {
+                Some(FlowStatusModule::Success { flow_jobs: Some(jobs), .. })
+                | Some(FlowStatusModule::Failure { flow_jobs: Some(jobs), .. }) => {
+                    Arc::new(retrieve_flow_jobs_results(&mut *tx, w_id, jobs).await?)
+                }
+                _ => result.clone(),
+            }
+        };
+
+        let remove_retry = old_status.retry.fail_count > 0
+            && matches!(&new_status, Some(FlowStatusModule::Success { .. }));
+
+        let special_step_status = new_status
+            .as_ref()
+            .filter(|_| is_failure_step || module_step.is_preprocessor_step());
+
+        let flow_job = if let Some(new_status) = special_step_status {
+            if inc_step_counter {
+                sqlx::query!(
+                    "UPDATE v2_job_status
+                     SET flow_status = JSONB_SET(flow_status, ARRAY['step'], $1)
+                     WHERE id = $2",
+                    json!(step_counter),
+                    flow
+                )
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| {
+                    Error::internal_err(format!("error while setting flow index for {flow}: {e:#}"))
+                })?;
+            }
+
             if is_failure_step {
                 let parent_module = sqlx::query_scalar!(
                      "SELECT flow_status->'failure_module'->>'parent_module' FROM v2_job_status WHERE id = $1",
@@ -1425,7 +1449,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                         "error while setting flow status in failure step: {e:#}"
                     ))
                 })?;
-            } else if module_step.is_preprocessor_step() {
+            } else {
                 sqlx::query!(
                     "UPDATE v2_job_status
                      SET flow_status = JSONB_SET(flow_status, ARRAY['preprocessor_module'], $1)
@@ -1440,69 +1464,71 @@ pub async fn update_flow_status_after_job_completion_internal(
                         "error while setting flow status in preprocessing step: {e:#}"
                     ))
                 })?;
-            } else {
+            }
+
+            if remove_retry {
                 sqlx::query!(
                     "UPDATE v2_job_status
-                     SET flow_status = JSONB_SET(flow_status, ARRAY['modules', $1::TEXT], $2)
-                     WHERE id = $3",
-                    old_status.step.to_string(),
-                    json!(new_status),
+                     SET flow_status = flow_status - 'retry'
+                     WHERE id = $1",
                     flow
                 )
                 .execute(&mut *tx)
                 .await
-                .map_err(|e| {
-                    Error::internal_err(format!("error while setting new flow status: {e:#}"))
-                })?;
-
-                if let Some(job_result) = new_status.job_result() {
-                    sqlx::query!(
-                         "UPDATE v2_job_status
-                         SET flow_leaf_jobs = JSONB_SET(coalesce(flow_leaf_jobs, '{}'::jsonb), ARRAY[$1::TEXT], $2)
-                         WHERE COALESCE((SELECT flow_innermost_root_job FROM v2_job WHERE id = $3), $3) = id",
-                         new_status.id(),
-                         json!(job_result),
-                         flow
-                     )
-                     .execute(&mut *tx)
-                     .await.map_err(|e| {
-                         Error::internal_err(format!(
-                             "error while setting leaf jobs: {e:#}"
-                         ))
-                     })?;
-                }
+                .context("remove flow status retry")?;
             }
-        }
 
-        let nresult = if let Some(nresult) = nresult {
-            // can be some either with early stop error or with the flow jobs results (was fetched to evaluate stop_early_after_all_iters but evaluated to false)
-            nresult
+            get_mini_pulled_job(&mut *tx, &flow).await?
         } else {
-            match &new_status {
-                Some(FlowStatusModule::Success { flow_jobs: Some(jobs), .. })
-                | Some(FlowStatusModule::Failure { flow_jobs: Some(jobs), .. }) => {
-                    Arc::new(retrieve_flow_jobs_results(&mut *tx, w_id, jobs).await?)
+            let module_status = new_status
+                .as_ref()
+                .map(|s| (old_status.step.to_string(), json!(s)));
+            let leaf_job = new_status
+                .as_ref()
+                .and_then(|s| s.job_result().map(|r| (s.id(), json!(r))));
+
+            let flow_job = if inc_step_counter || module_status.is_some() || remove_retry {
+                match advance_flow_status(
+                    &mut tx,
+                    flow,
+                    inc_step_counter.then_some(step_counter),
+                    module_status,
+                    leaf_job.as_ref(),
+                    remove_retry,
+                )
+                .await?
+                {
+                    Some(flow_job) => Some(flow_job),
+                    None => get_mini_pulled_job(&mut *tx, &flow).await?,
                 }
-                _ => result.clone(),
+            } else {
+                get_mini_pulled_job(&mut *tx, &flow).await?
+            };
+
+            // The leaf jobs of a subflow are kept on its innermost root's row, which the
+            // statement above does not touch.
+            let innermost_root = flow_job
+                .as_ref()
+                .and_then(|j| j.flow_innermost_root_job)
+                .filter(|root| *root != flow);
+            if let (Some((leaf_id, leaf_result)), Some(root)) = (leaf_job, innermost_root) {
+                sqlx::query!(
+                    "UPDATE v2_job_status
+                     SET flow_leaf_jobs = JSONB_SET(coalesce(flow_leaf_jobs, '{}'::jsonb), ARRAY[$1::TEXT], $2)
+                     WHERE id = $3",
+                    leaf_id,
+                    leaf_result,
+                    root
+                )
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| Error::internal_err(format!("error while setting leaf jobs: {e:#}")))?;
             }
+
+            flow_job
         };
 
-        if old_status.retry.fail_count > 0
-            && matches!(&new_status, Some(FlowStatusModule::Success { .. }))
-        {
-            sqlx::query!(
-                "UPDATE v2_job_status
-                 SET flow_status = flow_status - 'retry'
-                 WHERE id = $1",
-                flow
-            )
-            .execute(&mut *tx)
-            .await
-            .context("remove flow status retry")?;
-        }
-
-        let flow_job = get_mini_pulled_job(&mut *tx, &flow)
-            .await?
+        let flow_job = flow_job
             .ok_or_else(|| Error::internal_err(format!("requiring flow to be in the queue")))?;
         tx.commit().await?;
 
@@ -2297,6 +2323,100 @@ async fn set_success_and_duration_in_flow_job_success<'c>(
     Ok(())
 }
 
+/// Applies a step's edits to the flow's `v2_job_status` row and reads the flow back, in one
+/// statement: every UPDATE of that row writes a new row version carrying the whole
+/// `flow_status`, so the edits must not be split. `leaf_job` is only written here when the flow
+/// is its own innermost root; otherwise it belongs on the root's row and the caller writes it
+/// there. `Ok(None)` means nothing was written because the flow has no queued `v2_job_status`
+/// row; the caller then reads the flow with `get_mini_pulled_job`, whose LEFT JOIN still returns
+/// a queued flow that lacks a status row.
+async fn advance_flow_status(
+    tx: &mut Transaction<'_, Postgres>,
+    flow: Uuid,
+    step: Option<i32>,
+    module_status: Option<(String, Value)>,
+    leaf_job: Option<&(String, Value)>,
+    remove_retry: bool,
+) -> error::Result<Option<MiniPulledJob>> {
+    // An edit that does not apply gets an empty path, which JSONB_SET treats as a no-op. Its
+    // value must stay JSON `null`, never SQL NULL: JSONB_SET is strict and would null the whole
+    // `flow_status`. Each edit stays a JSONB_SET on its own path so that a malformed
+    // `flow_status` fails exactly as the equivalent separate UPDATEs would.
+    let (step_path, step) = match step {
+        Some(step) => (vec!["step"], json!(step)),
+        None => (vec![], Value::Null),
+    };
+    let (module_path, module_status) = match &module_status {
+        Some((index, status)) => (vec!["modules", index.as_str()], status),
+        None => (vec![], &Value::Null),
+    };
+    let (leaf_id, leaf_result) = leaf_job.map(|(id, r)| (id.as_str(), r)).unzip();
+    let removed_keys: &[&str] = if remove_retry { &["retry"] } else { &[] };
+
+    sqlx::query_as!(
+        MiniPulledJob,
+        "UPDATE v2_job_status SET
+            flow_status = JSONB_SET(
+                JSONB_SET(v2_job_status.flow_status, $2::TEXT[], $3),
+                $4::TEXT[], $5
+            ) - $6::TEXT[],
+            flow_leaf_jobs = CASE
+                WHEN $7::TEXT IS NULL
+                    OR COALESCE(v2_job.flow_innermost_root_job, v2_job_status.id) <> v2_job_status.id
+                THEN v2_job_status.flow_leaf_jobs
+                ELSE JSONB_SET(COALESCE(v2_job_status.flow_leaf_jobs, '{}'::JSONB), ARRAY[$7::TEXT], $8) END
+        FROM v2_job_queue INNER JOIN v2_job ON v2_job.id = v2_job_queue.id
+        WHERE v2_job_status.id = $1 AND v2_job_queue.id = $1
+        RETURNING
+            v2_job_queue.workspace_id,
+            v2_job_queue.id,
+            v2_job.args as \"args: sqlx::types::Json<HashMap<String, Box<RawValue>>>\",
+            v2_job.parent_job,
+            v2_job.created_by,
+            v2_job_queue.started_at,
+            v2_job_queue.runnable_settings_handle,
+            v2_job_queue.scheduled_for,
+            v2_job.runnable_path,
+            v2_job.kind as \"kind: JobKind\",
+            v2_job.runnable_id as \"runnable_id: ScriptHash\",
+            v2_job_queue.canceled_reason,
+            v2_job_queue.canceled_by,
+            v2_job.permissioned_as,
+            v2_job.permissioned_as_email,
+            v2_job_status.flow_status as \"flow_status: sqlx::types::Json<Box<RawValue>>\",
+            v2_job.tag,
+            v2_job.script_lang as \"script_lang: ScriptLang\",
+            v2_job.same_worker,
+            v2_job.pre_run_error,
+            v2_job.concurrent_limit,
+            v2_job.concurrency_time_window_s,
+            v2_job.flow_innermost_root_job,
+            v2_job.root_job,
+            v2_job.timeout,
+            v2_job.flow_step_id,
+            v2_job.cache_ttl,
+            v2_job_queue.cache_ignore_s3_path,
+            v2_job_queue.priority,
+            v2_job.preprocessed,
+            v2_job.script_entrypoint_override,
+            v2_job.trigger,
+            v2_job.trigger_kind as \"trigger_kind: TriggerKindLabel\",
+            v2_job.visible_to_owner,
+            NULL as permissioned_as_end_user_email",
+        flow,
+        &step_path as &[&str],
+        step,
+        &module_path as &[&str],
+        module_status,
+        removed_keys as &[&str],
+        leaf_id,
+        leaf_result,
+    )
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|e| Error::internal_err(format!("error while setting new flow status: {e:#}")))
+}
+
 async fn retrieve_flow_jobs_results<'c>(
     e: impl sqlx::PgExecutor<'c>,
     w_id: &str,
@@ -2521,6 +2641,7 @@ async fn resolve_flow_env_for_status_update(
     flow_job_id: Uuid,
     workspace_id: &str,
     flow_value: &FlowValue,
+    no_inherited_flow_env: bool,
 ) -> Option<(HashMap<String, Box<RawValue>>, bool)> {
     // Fetch the env source. For the inherited path, we first need to know whether the
     // flow even has a parent — `fetch_root_flow_env` runs a recursive CTE on `v2_job`
@@ -2529,6 +2650,8 @@ async fn resolve_flow_env_for_status_update(
     let (env, mini): (HashMap<String, Box<RawValue>>, Option<MiniPulledJob>) =
         if let Some(ref e) = flow_value.flow_env {
             (e.clone(), None)
+        } else if no_inherited_flow_env {
+            return None;
         } else {
             let mini = match get_mini_pulled_job(db, &flow_job_id).await {
                 Ok(Some(j)) => j,
@@ -2542,7 +2665,13 @@ async fn resolve_flow_env_for_status_update(
                 // No own flow_env and no parent to inherit from — nothing to resolve.
                 return None;
             }
-            let env = fetch_root_flow_env(db, flow_job_id, workspace_id).await?;
+            let env = match fetch_root_flow_env(db, flow_job_id, workspace_id).await {
+                Ok(env) => env?,
+                Err(e) => {
+                    tracing::warn!("Failed to look up the inherited flow_env: {e:#}");
+                    return None;
+                }
+            };
             (env, Some(mini))
         };
     if env.is_empty() {
@@ -2608,7 +2737,7 @@ async fn fetch_root_flow_env(
     db: &DB,
     flow_job_id: Uuid,
     workspace_id: &str,
-) -> Option<HashMap<String, Box<RawValue>>> {
+) -> Result<Option<HashMap<String, Box<RawValue>>>, sqlx::Error> {
     sqlx::query_scalar!(
         r#"WITH RECURSIVE chain(id, parent_job, flow_innermost_root_job, runnable_id, runnable_path, raw_flow, depth) AS (
             SELECT id, parent_job, flow_innermost_root_job, runnable_id, runnable_path, raw_flow, 0
@@ -2645,10 +2774,7 @@ async fn fetch_root_flow_env(
     )
     .fetch_optional(db)
     .await
-    .ok()
-    .flatten()
-    .flatten()
-    .map(|json| json.0)
+    .map(|row| row.flatten().map(|json| json.0))
 }
 
 struct FailureContext {
@@ -2793,18 +2919,31 @@ pub async fn handle_flow(
 ) -> anyhow::Result<()> {
     let flow = flow_data.value();
 
+    let status = flow_job
+        .parse_flow_status()
+        .with_context(|| "Unable to parse flow status")?;
+
     // Sub-flows spawned by `payload_from_modules` for branches/loops don't
     // carry the parent's `flow_env` in their own FlowValue. Fall back to the
     // nearest enclosing scope's `flow_env` so predicates like `skip_if`,
     // `stop_after_if`, and branch conditions see the same env as input
     // transforms.
-    let inherited_env: Option<HashMap<String, Box<RawValue>>> =
-        if flow.flow_env.is_none() && flow_job.parent_job.is_some() {
-            fetch_root_flow_env(db, flow_job.id, &flow_job.workspace_id).await
-        } else {
-            None
-        };
+    let (inherited_env, inherited_env_known) = if flow.flow_env.is_none()
+        && flow_job.parent_job.is_some()
+        && !status.no_inherited_flow_env
+    {
+        match fetch_root_flow_env(db, flow_job.id, &flow_job.workspace_id).await {
+            Ok(env) => (env, true),
+            Err(e) => {
+                tracing::warn!("Failed to look up the inherited flow_env: {e:#}");
+                (None, false)
+            }
+        }
+    } else {
+        (None, true)
+    };
     let env_source = flow.flow_env.as_ref().or(inherited_env.as_ref());
+    let no_flow_env = inherited_env_known && env_source.is_none_or(|e| e.is_empty());
 
     // Resolve $var: and $res: references in flow_env.
     // We resolve into a separate variable to avoid cloning the entire FlowValue
@@ -2849,10 +2988,6 @@ pub async fn handle_flow(
             }
         }
     }
-
-    let status = flow_job
-        .parse_flow_status()
-        .with_context(|| "Unable to parse flow status")?;
 
     let schedule_path = flow_job.schedule_path();
     if !flow_job.is_flow_step()
@@ -2997,6 +3132,7 @@ pub async fn handle_flow(
             status,
             flow,
             flow_env,
+            no_flow_env,
             db,
             client,
             last_result.clone(),
@@ -3240,6 +3376,8 @@ async fn push_next_flow_job(
     mut status: FlowStatus,
     flow: &FlowValue,
     flow_env: Option<&HashMap<String, Box<RawValue>>>,
+    // Neither this flow nor any ancestor defines `flow_env`.
+    no_flow_env: bool,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClient,
     last_job_result: Option<Arc<Box<RawValue>>>,
@@ -4229,7 +4367,14 @@ async fn push_next_flow_job(
 
     let mut tx = db.begin().warn_after_seconds(3).await?;
     let nargs = args.as_ref();
-    for (i, payload_tag) in job_payloads.into_iter().enumerate() {
+    for (i, mut payload_tag) in job_payloads.into_iter().enumerate() {
+        // A `FlowNode` here is a branch/loop sub-flow from `payload_from_modules`: it never defines
+        // its own `flow_env`, so it inherits exactly this flow's. The mark lives in the child's
+        // status, not its definition: a `RawFlow` child's stored definition is replayed by nested
+        // restarts, whose root may have gained a `flow_env` since.
+        if let JobPayload::FlowNode { no_inherited_flow_env, .. } = &mut payload_tag.payload {
+            *no_inherited_flow_env = no_flow_env;
+        }
         if i % 100 == 0 && i != 0 {
             tracing::info!(id = %flow_job.id, root_id = %job_root, "pushed (non-commited yet) first {i} subflows of {len}");
             // Ping on the pool, outside `tx`, so the zombie flow monitor sees it before the
@@ -5218,7 +5363,7 @@ fn payload_from_modules<'a>(
     }
 
     if let Some(id) = modules_node {
-        return Some(JobPayload::FlowNode { id, path: path() });
+        return Some(JobPayload::FlowNode { id, path: path(), no_inherited_flow_env: false });
     }
 
     add_virtual_items_if_necessary(&mut modules);
@@ -6153,7 +6298,7 @@ async fn payload_from_simple_module(
 pub fn raw_script_to_payload(
     path: String,
     content: String,
-    language: windmill_common::scripts::ScriptLang,
+    language: ScriptLang,
     lock: Option<String>,
     concurrency_settings: ConcurrencySettingsWithCustom,
     module: &FlowModule,

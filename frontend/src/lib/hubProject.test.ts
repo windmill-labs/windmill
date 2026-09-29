@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('./gen', () => ({ HubPublishService: {}, SettingService: {} }))
-vi.mock('./components/icons', () => ({ appIconComponent: () => undefined }))
+vi.mock('./components/icons/appIcon.svelte', () => ({ appIconComponent: () => undefined }))
 
 import { hubProjectDescription, pinHubProjects } from './hubProject'
 
@@ -52,11 +52,27 @@ describe('hubProjectDescription', () => {
 
 describe('pinHubProjects', () => {
 	const pick = (slug: string, apps: string[], stars: number) =>
-		({ id: slug, slug, name: slug, summary: '', description: '', author: '', apps, iconApps: apps, stars }) as any
-	const all = [pick('a', ['slack'], 9), pick('b', ['hubspot'], 5), pick('c', ['hubspot', 'slack'], 2)]
+		({
+			id: slug,
+			slug,
+			name: slug,
+			summary: '',
+			description: '',
+			author: '',
+			apps,
+			iconApps: apps,
+			stars
+		}) as any
+	const all = [
+		pick('a', ['slack'], 9),
+		pick('b', ['hubspot'], 5),
+		pick('c', ['hubspot', 'slack'], 2)
+	]
 
 	it('hoists the named slugs in the invite order and skips ones the hub no longer lists', () => {
-		expect(pinHubProjects(all, { hub_projects: ['c', 'gone', 'a'] }).map((p) => [p.slug, p.pinned])).toEqual([
+		expect(
+			pinHubProjects(all, { hub_projects: ['c', 'gone', 'a'] }).map((p) => [p.slug, p.pinned])
+		).toEqual([
 			['c', true],
 			['a', true],
 			['b', false]

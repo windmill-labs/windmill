@@ -319,9 +319,15 @@
 	link="https://www.windmill.dev/docs/core_concepts/persistent_storage/data_tables"
 >
 	{#snippet actions()}
-		{#if $superadmin && $enterpriseLicense && !isCloudHosted()}
-			<InstanceRolesButton />
-		{/if}
+		<InstanceRolesButton
+			unavailable={!$enterpriseLicense
+				? { reason: 'Instance roles are an Enterprise Edition feature.', ee: true }
+				: isCloudHosted()
+					? { reason: 'Instance roles are only available on self-hosted instances.', ee: false }
+					: !$superadmin
+						? { reason: 'Only instance superadmins can manage instance roles.', ee: false }
+						: undefined}
+		/>
 	{/snippet}
 </SettingsPageHeader>
 
@@ -529,17 +535,21 @@
 								tooltip: dirtyMap[dataTable.name] ? 'Save the settings first' : undefined,
 								action: () => migrationsButtons[dataTable.name]?.open()
 							},
-							...($enterpriseLicense && !isCloudHosted()
-								? [
-										{
-											displayName: 'Roles',
-											icon: KeyRound,
-											disabled: !!dirtyMap[dataTable.name],
-											tooltip: dirtyMap[dataTable.name] ? 'Save the settings first' : undefined,
-											action: () => permissionsButtons[dataTable.name]?.open()
-										}
-									]
-								: []),
+							// Listed even where it cannot be used, disabled with the reason, so the feature
+							// can be found.
+							{
+								displayName: $enterpriseLicense ? 'Roles' : 'Roles (EE)',
+								icon: KeyRound,
+								disabled: !$enterpriseLicense || isCloudHosted() || !!dirtyMap[dataTable.name],
+								tooltip: !$enterpriseLicense
+									? 'Data table roles are an Enterprise Edition feature.'
+									: isCloudHosted()
+										? 'Data table roles are only available on self-hosted instances.'
+										: dirtyMap[dataTable.name]
+											? 'Save the settings first'
+											: undefined,
+								action: () => permissionsButtons[dataTable.name]?.open()
+							},
 							// A fork's pointer entry is written by forking and kept by the server, not this form.
 							...(dataTable.reference
 								? []

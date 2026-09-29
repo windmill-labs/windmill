@@ -1608,3 +1608,34 @@ async fn declarative_sync_rejects_an_unusable_default_allowed_origins(db: Pool<P
     .await
     .expect("a valid origin list must sync");
 }
+
+/// The accent color is interpolated into a stylesheet every user loads, so the operator
+/// path must refuse anything but `#rrggbb` just like the settings API does.
+#[sqlx::test(fixtures("base"))]
+async fn declarative_sync_rejects_a_non_hex_accent_color(db: Pool<Postgres>) {
+    clear_settings_and_configs(&db).await;
+
+    let mut desired = BTreeMap::new();
+    desired.insert(
+        "accent_color".to_string(),
+        serde_json::json!("#000;}body{display:none"),
+    );
+    let err = windmill_common::instance_config::sync_global_settings_declarative(
+        &db,
+        &BTreeMap::new(),
+        &desired,
+    )
+    .await
+    .expect_err("a non-hex accent color must fail the sync");
+    assert!(err.to_string().contains("accent_color"), "got: {err}");
+    assert!(get_global_setting(&db, "accent_color").await.is_none());
+
+    desired.insert("accent_color".to_string(), serde_json::json!("#1f9d55"));
+    windmill_common::instance_config::sync_global_settings_declarative(
+        &db,
+        &BTreeMap::new(),
+        &desired,
+    )
+    .await
+    .expect("a hex accent color must sync");
+}

@@ -13,8 +13,11 @@
 	import LabelsInput from '$lib/components/LabelsInput.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
+	import { loadSchema } from '$lib/infer'
 	import PipelineLockedRunnableInfo from '$lib/components/triggers/PipelineLockedRunnableInfo.svelte'
-	import ErrorOrRecoveryHandler from '$lib/components/ErrorOrRecoveryHandler.svelte'
+	import ErrorOrRecoveryHandler, {
+		handlerFullPath
+	} from '$lib/components/ErrorOrRecoveryHandler.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
@@ -31,6 +34,7 @@
 	} from '$lib/gen'
 	import { enterpriseLicense } from '$lib/stores'
 	import { canWrite, emptyString, formatCron, sendUserToast, cronV1toV2 } from '$lib/utils'
+	import { useScheduleLock } from '$lib/operatorWriteRights'
 	import { base } from '$lib/base'
 	import Section from '$lib/components/Section.svelte'
 	import { List, Loader2, Save, AlertTriangle } from 'lucide-svelte'
@@ -51,6 +55,7 @@
 	import PermissionedAsLine from '../PermissionedAsLine.svelte'
 	import { useActingUser } from '$lib/actingUser.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	const scheduleLock = useScheduleLock()
 
 	let {
 		useDrawer = true,
@@ -110,7 +115,7 @@
 	// already-bound script. We swap the runnable ScriptPicker for a read-only
 	// viewer so the trigger can't be silently reassigned off the pipeline.
 	let fixedScriptPath = $state('')
-	let runnable: Script | Flow | undefined = $state()
+	let runnable: Pick<Script | Flow, 'schema'> | undefined = $state()
 	let args: Record<string, any> = $state({})
 	let loading = $state(false)
 	let drawerLoading = $state(true)
@@ -145,7 +150,7 @@
 	const acting = useActingUser(() => wsId)
 	const actingUser = $derived(acting.current)
 	const can_write = $derived(
-		permsPath === undefined ? true : canWrite(permsPath, extraPerms, actingUser)
+		(permsPath === undefined || canWrite(permsPath, extraPerms, actingUser)) && !$scheduleLock
 	)
 	// Editing the runnable is closed to operators, and an unresolved acting user is no
 	// evidence that this one isn't.
@@ -416,6 +421,8 @@
 			try {
 				if (is_flow) {
 					runnable = await FlowService.getFlowByPath({ workspace: wsId!, path: p })
+				} else if (p.startsWith('hub/')) {
+					runnable = await loadSchema(wsId!, p, 'hubscript')
 				} else {
 					runnable = await ScriptService.getScriptByPath({ workspace: wsId!, path: p })
 				}
@@ -439,7 +446,7 @@
 					path:
 						errorHandlerPath == undefined
 							? undefined
-							: `${errorHandleritemKind}/${errorHandlerPath}`,
+							: handlerFullPath(errorHandlerSelected, errorHandleritemKind, errorHandlerPath),
 					extra_args: errorHandlerExtraArgs,
 					number_of_occurence: failedTimes,
 					number_of_occurence_exact: failedExact,
@@ -468,7 +475,11 @@
 					path:
 						recoveryHandlerPath === undefined
 							? undefined
-							: `${recoveryHandlerItemKind}/${recoveryHandlerPath}`,
+							: handlerFullPath(
+									recoveryHandlerSelected,
+									recoveryHandlerItemKind,
+									recoveryHandlerPath
+								),
 					extra_args: recoveryHandlerExtraArgs,
 					number_of_occurence: recoveredTimes
 				}
@@ -495,7 +506,7 @@
 					path:
 						successHandlerPath === undefined
 							? undefined
-							: `${successHandlerItemKind}/${successHandlerPath}`,
+							: handlerFullPath(successHandlerSelected, successHandlerItemKind, successHandlerPath),
 					extra_args: successHandlerExtraArgs,
 					number_of_occurence: recoveredTimes
 				}
@@ -637,15 +648,18 @@
 		const handlerMap = {
 			error: {
 				teams: '/workspace-or-schedule-error-handler-teams',
-				slack: '/workspace-or-schedule-error-handler-slack'
+				slack: '/workspace-or-schedule-error-handler-slack',
+				email: '/workspace-or-error-handler-email'
 			},
 			recovery: {
 				teams: '/schedule-recovery-handler-teams',
-				slack: '/schedule-recovery-handler-slack'
+				slack: '/schedule-recovery-handler-slack',
+				email: '/workspace-or-error-handler-email'
 			},
 			success: {
 				teams: '/schedule-success-handler-teams',
-				slack: '/schedule-success-handler-slack'
+				slack: '/schedule-success-handler-slack',
+				email: '/workspace-or-error-handler-email'
 			}
 		}
 
@@ -691,17 +705,19 @@
 			is_flow: is_flow,
 			args: args,
 			enabled: enabled,
-			on_failure: errorHandlerPath ? `${errorHandleritemKind}/${errorHandlerPath}` : undefined,
+			on_failure: errorHandlerPath
+				? handlerFullPath(errorHandlerSelected, errorHandleritemKind, errorHandlerPath)
+				: undefined,
 			on_failure_times: failedTimes,
 			on_failure_exact: failedExact,
 			on_failure_extra_args: errorHandlerPath ? errorHandlerExtraArgs : undefined,
 			on_recovery: recoveryHandlerPath
-				? `${recoveryHandlerItemKind}/${recoveryHandlerPath}`
+				? handlerFullPath(recoveryHandlerSelected, recoveryHandlerItemKind, recoveryHandlerPath)
 				: undefined,
 			on_recovery_times: recoveredTimes,
 			on_recovery_extra_args: recoveryHandlerPath ? recoveryHandlerExtraArgs : {},
 			on_success: successHandlerPath
-				? `${successHandlerItemKind}/${successHandlerPath}`
+				? handlerFullPath(successHandlerSelected, successHandlerItemKind, successHandlerPath)
 				: undefined,
 			on_success_extra_args: successHandlerPath ? successHandlerExtraArgs : {},
 			ws_error_handler_muted: wsErrorHandlerMuted,
@@ -722,19 +738,34 @@
 
 	async function handleToggleEnabled(nEnabled: boolean) {
 		const previousEnabled = enabled
-		enabled = nEnabled
-		if (!trigger?.draftConfig) {
-			const ok = await withForkConflictRetry(
-				(force) =>
-					ScheduleService.setScheduleEnabled({
-						path: initialPath,
-						workspace: wsId ?? '',
-						requestBody: { enabled: nEnabled, force }
-					}),
-				'schedule'
-			)
+		const writesBackend = !trigger?.draftConfig
+		const togglePath = initialPath
+		const setEnabled = (v: boolean) => {
+			// The drawer is reused: a revert landing after it moved to another
+			// schedule would fold this one's value into that one's baseline.
+			if (initialPath !== togglePath) return
+			enabled = v
+			if (writesBackend) draftSync.patchBaseline({ enabled: v })
+		}
+		setEnabled(nEnabled)
+		if (writesBackend) {
+			let ok: boolean
+			try {
+				ok = await withForkConflictRetry(
+					(force) =>
+						ScheduleService.setScheduleEnabled({
+							path: initialPath,
+							workspace: wsId ?? '',
+							requestBody: { enabled: nEnabled, force }
+						}),
+					'schedule'
+				)
+			} catch (err) {
+				setEnabled(previousEnabled)
+				throw err
+			}
 			if (!ok) {
-				enabled = previousEnabled
+				setEnabled(previousEnabled)
 				return
 			}
 			sendUserToast(`${nEnabled ? 'enabled' : 'disabled'} schedule ${initialPath}`)
@@ -969,6 +1000,7 @@
 							initialPath={initialScriptPath}
 							kinds={['script']}
 							allowFlow={true}
+							allowHub={true}
 							allowRefresh={can_write}
 							bind:itemKind
 							bind:scriptPath={script_path}
