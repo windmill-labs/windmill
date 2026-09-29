@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO app_script (app, hash, lock, code, code_sha256)\n         SELECT m.new_app_id,\n                encode(sha256(int8send(m.new_app_id) || decode(s.code_sha256, 'hex')\n                              || COALESCE(convert_to(s.lock, 'UTF8'), ''::bytea)), 'hex'),\n                s.lock, s.code, s.code_sha256\n         FROM app_script s\n         JOIN UNNEST($1::bigint[], $2::bigint[]) AS m(old_app_id, new_app_id) ON s.app = m.old_app_id\n         ON CONFLICT DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array",
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "892def914fda1ac11f6b6ed72c1456bef77183fb7b5fb1af16190387b51832a8"
+}

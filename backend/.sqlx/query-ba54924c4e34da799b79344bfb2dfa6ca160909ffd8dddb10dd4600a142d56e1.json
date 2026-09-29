@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO app_bundles (app_version_id, w_id, file_type, data)\n             SELECT m.new_id, $4, b.file_type, b.data\n             FROM app_bundles b\n             JOIN UNNEST($1::bigint[], $2::bigint[]) AS m(old_id, new_id) ON b.app_version_id = m.old_id\n             WHERE b.w_id = $3\n             RETURNING app_version_id, file_type",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "app_version_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "file_type",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8Array",
+        "Int8Array",
+        "Text",
+        "Varchar"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "ba54924c4e34da799b79344bfb2dfa6ca160909ffd8dddb10dd4600a142d56e1"
+}

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH ins AS (\n            INSERT INTO flow_version (workspace_id, path, value, schema, created_by, created_at)\n            SELECT $2, path, value, schema, created_by, created_at\n            FROM flow_version\n            WHERE workspace_id = $1\n            ORDER BY path, created_at, id\n            RETURNING id, path, created_at\n         )\n         UPDATE flow SET versions = v.ids\n         FROM (SELECT path, array_agg(id ORDER BY created_at, id) AS ids FROM ins GROUP BY path) v\n         WHERE flow.workspace_id = $2 AND flow.path = v.path",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3ff799e66dc118a0fa836bec89009b84b3c130ee0cbd017ae5fbb93a89f8bb47"
+}

@@ -27,8 +27,6 @@ use chrono::Utc;
 
 use regex::Regex;
 
-use hex;
-use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use strum::IntoEnumIterator;
 use uuid::Uuid;
@@ -7784,44 +7782,25 @@ async fn clone_flows(
     clear_orphaned_compat_address(tx, "flow", "path", source_workspace_id, target_workspace_id)
         .await?;
 
-    // Then clone flow versions
-    let flow_versions = sqlx::query!(
-        "SELECT id, workspace_id, path, value, schema, created_by, created_at
-         FROM flow_version
-         WHERE workspace_id = $1
-         ORDER BY path, created_at",
-        source_workspace_id
+    // One statement, not a round trip per version: a workspace's version history grows with every
+    // deploy, and the fork request has to finish within the proxy timeout in front of the server.
+    sqlx::query!(
+        "WITH ins AS (
+            INSERT INTO flow_version (workspace_id, path, value, schema, created_by, created_at)
+            SELECT $2, path, value, schema, created_by, created_at
+            FROM flow_version
+            WHERE workspace_id = $1
+            ORDER BY path, created_at, id
+            RETURNING id, path, created_at
+         )
+         UPDATE flow SET versions = v.ids
+         FROM (SELECT path, array_agg(id ORDER BY created_at, id) AS ids FROM ins GROUP BY path) v
+         WHERE flow.workspace_id = $2 AND flow.path = v.path",
+        source_workspace_id,
+        target_workspace_id,
     )
-    .fetch_all(&mut **tx)
+    .execute(&mut **tx)
     .await?;
-
-    for version in flow_versions {
-        let new_version_id = sqlx::query_scalar!(
-            "INSERT INTO flow_version (workspace_id, path, value, schema, created_by, created_at)
-             VALUES ($1, $2, $3, $4, $5, $6)
-             RETURNING id",
-            target_workspace_id,
-            version.path,
-            version.value,
-            version.schema,
-            version.created_by,
-            version.created_at,
-        )
-        .fetch_one(&mut **tx)
-        .await?;
-
-        // Update flow to include this version
-        sqlx::query!(
-            "UPDATE flow
-             SET versions = array_append(versions, $1)
-             WHERE workspace_id = $2 AND path = $3",
-            new_version_id,
-            target_workspace_id,
-            version.path,
-        )
-        .execute(&mut **tx)
-        .await?;
-    }
 
     Ok(())
 }
@@ -7886,7 +7865,6 @@ async fn clone_apps(
     .fetch_all(&mut **tx)
     .await?;
 
-    let mut app_id_mapping: HashMap<i64, i64> = HashMap::new();
     // Only a raw app's current (last) version has a bundle worth carrying into the fork: bundles exist
     // only for raw apps, and older versions aren't viewable/runnable (the bundle secret is only ever
     // minted for `versions.last()`). Copying a bundle for every version of every app is what makes
@@ -7894,7 +7872,19 @@ async fn clone_apps(
     // the fork transaction. Collect each app's current version here; intersect with raw versions below.
     let mut latest_version_ids: HashSet<i64> = HashSet::new();
 
-    // Clone apps with new IDs
+    // Both halves of what `create_app` demands to set a custom path: admin, and — unless
+    // paths are scoped per workspace — that nobody else holds it. Cloning one instance-wide
+    // would leave the parent's live public URL, resolved with no workspace filter and no
+    // ordering, answering from either row.
+    let scoped = *CLOUD_HOSTED
+        || windmill_common::apps::APP_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
+
+    let mut old_ids_by_path: HashMap<String, i64> = HashMap::with_capacity(apps.len());
+    let mut paths = Vec::with_capacity(apps.len());
+    let mut summaries = Vec::with_capacity(apps.len());
+    let mut policies = Vec::with_capacity(apps.len());
+    let mut extra_perms = Vec::with_capacity(apps.len());
+    let mut custom_paths: Vec<Option<String>> = Vec::with_capacity(apps.len());
     for mut app in apps {
         if let Some(&current_version) = app.versions.last() {
             latest_version_ids.insert(current_version);
@@ -7902,71 +7892,71 @@ async fn clone_apps(
         if !preserve_identity {
             repoint_cloned_app_identity(&mut app.policy, authed);
         }
-        // Both halves of what `create_app` demands to set a custom path: admin, and — unless
-        // paths are scoped per workspace — that nobody else holds it. Cloning one instance-wide
-        // would leave the parent's live public URL, resolved with no workspace filter and no
-        // ordering, answering from either row.
-        let scoped = *CLOUD_HOSTED
-            || windmill_common::apps::APP_WORKSPACED_ROUTE
-                .load(std::sync::atomic::Ordering::Relaxed);
-        let custom_path = if scoped && authed.is_admin {
+        old_ids_by_path.insert(app.path.clone(), app.id);
+        paths.push(app.path);
+        summaries.push(app.summary);
+        policies.push(app.policy);
+        extra_perms.push(app.extra_perms);
+        custom_paths.push(if scoped && authed.is_admin {
             app.custom_path
         } else {
             None
-        };
-        let new_app_id = sqlx::query_scalar!(
-            "INSERT INTO app (workspace_id, path, summary, policy, versions, extra_perms, custom_path)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)
-             RETURNING id",
-            target_workspace_id,
-            app.path,
-            app.summary,
-            app.policy,
-            &Vec::<i64>::new(), // Start with empty versions array
-            app.extra_perms,
-            custom_path,
-        )
-        .fetch_one(&mut **tx)
-        .await?;
-
-        app_id_mapping.insert(app.id, new_app_id);
+        });
     }
 
-    let mut version_id_mapping: HashMap<i64, i64> = HashMap::new();
+    // Everything below is one statement per table, not a round trip per row: a workspace's app
+    // version history grows with every deploy, and the fork request has to finish within the
+    // proxy timeout in front of the server.
+    let new_apps = sqlx::query!(
+        "INSERT INTO app (workspace_id, path, summary, policy, versions, extra_perms, custom_path)
+         SELECT $1, path, summary, policy, ARRAY[]::bigint[], extra_perms, custom_path
+         FROM UNNEST($2::varchar[], $3::varchar[], $4::jsonb[], $5::jsonb[], $6::text[])
+              AS t(path, summary, policy, extra_perms, custom_path)
+         RETURNING id, path",
+        target_workspace_id,
+        &paths,
+        &summaries,
+        &policies,
+        &extra_perms,
+        &custom_paths as &[Option<String>],
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+
+    let app_id_mapping: HashMap<i64, i64> = new_apps
+        .into_iter()
+        .filter_map(|a| old_ids_by_path.get(&a.path).map(|&old| (old, a.id)))
+        .collect();
+    let (old_app_ids, new_app_ids): (Vec<i64>, Vec<i64>) =
+        app_id_mapping.iter().map(|(o, n)| (*o, *n)).unzip();
+
+    // Ids are drawn up front so the old → new mapping comes back without the version values.
+    let cloned_versions = sqlx::query!(
+        r#"WITH src AS MATERIALIZED (
+            SELECT av.id AS old_id, nextval(pg_get_serial_sequence('app_version', 'id')) AS new_id,
+                   m.new_app_id, av.value, av.created_by, av.created_at, av.raw_app
+            FROM app_version av
+            JOIN UNNEST($1::bigint[], $2::bigint[]) AS m(old_app_id, new_app_id)
+              ON av.app_id = m.old_app_id
+            ORDER BY av.app_id, av.created_at, av.id
+         ), ins AS (
+            INSERT INTO app_version (id, app_id, value, created_by, created_at, raw_app)
+            SELECT new_id, new_app_id, value, created_by, created_at, raw_app FROM src
+         )
+         SELECT old_id AS "old_id!", new_id AS "new_id!", raw_app AS "raw_app!" FROM src"#,
+        &old_app_ids,
+        &new_app_ids,
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+
+    let mut version_id_mapping: HashMap<i64, i64> = HashMap::with_capacity(cloned_versions.len());
     let mut raw_version_ids: HashSet<i64> = HashSet::new();
-
-    {
-        // Clone app versions
-        let app_versions = sqlx::query!(
-            "SELECT id, app_id, value, created_by, created_at, raw_app
-         FROM app_version
-         WHERE app_id = ANY(SELECT id FROM app WHERE workspace_id = $1)
-         ORDER BY app_id, created_at",
-            source_workspace_id
-        )
-        .fetch_all(&mut **tx)
-        .await?;
-
-        for version in app_versions {
-            if let Some(&new_app_id) = app_id_mapping.get(&version.app_id) {
-                if version.raw_app {
-                    raw_version_ids.insert(version.id);
-                }
-                let new_version_id = sqlx::query_scalar!(
-                    "INSERT INTO app_version (app_id, value, created_by, created_at, raw_app)
-                 VALUES ($1, $2, $3, $4, $5) RETURNING id",
-                    new_app_id,
-                    version.value,
-                    version.created_by,
-                    version.created_at,
-                    version.raw_app,
-                )
-                .fetch_one(&mut **tx)
-                .await?;
-
-                version_id_mapping.insert(version.id, new_version_id);
-            }
+    for v in cloned_versions {
+        if v.raw_app {
+            raw_version_ids.insert(v.old_id);
         }
+        version_id_mapping.insert(v.old_id, v.new_id);
     }
 
     // The bundles worth cloning: each raw app's current version (latest ∩ raw). Everything else either
@@ -7978,35 +7968,35 @@ async fn clone_apps(
 
     // Clone app bundles — only the current version of each raw app (see bundle_version_ids).
     if !bundle_version_ids.is_empty() {
-        let old_ids: Vec<i64> = bundle_version_ids.iter().copied().collect();
-        let bundles = sqlx::query!(
-            "SELECT app_version_id, file_type, data FROM app_bundles
-             WHERE app_version_id = ANY($1) AND w_id = $2",
+        let (old_ids, new_ids): (Vec<i64>, Vec<i64>) = bundle_version_ids
+            .iter()
+            .filter_map(|old| version_id_mapping.get(old).map(|new| (*old, *new)))
+            .unzip();
+        let cloned = sqlx::query!(
+            "INSERT INTO app_bundles (app_version_id, w_id, file_type, data)
+             SELECT m.new_id, $4, b.file_type, b.data
+             FROM app_bundles b
+             JOIN UNNEST($1::bigint[], $2::bigint[]) AS m(old_id, new_id) ON b.app_version_id = m.old_id
+             WHERE b.w_id = $3
+             RETURNING app_version_id, file_type",
             &old_ids,
-            source_workspace_id
+            &new_ids,
+            source_workspace_id,
+            target_workspace_id,
         )
         .fetch_all(&mut **tx)
         .await?;
 
-        let mut cloned_from_db: std::collections::HashSet<(i64, String)> = HashSet::new();
-        for bundle in &bundles {
-            cloned_from_db.insert((bundle.app_version_id, bundle.file_type.clone()));
-        }
-
-        for bundle in bundles {
-            if let Some(&new_version_id) = version_id_mapping.get(&bundle.app_version_id) {
-                sqlx::query!(
-                    "INSERT INTO app_bundles (app_version_id, w_id, file_type, data)
-                     VALUES ($1, $2, $3, $4)",
-                    new_version_id,
-                    target_workspace_id,
-                    bundle.file_type,
-                    bundle.data,
-                )
-                .execute(&mut **tx)
-                .await?;
-            }
-        }
+        let old_by_new: HashMap<i64, i64> = new_ids.iter().copied().zip(old_ids).collect();
+        #[allow(unused_variables)]
+        let cloned_from_db: HashSet<(i64, String)> = cloned
+            .into_iter()
+            .filter_map(|b| {
+                old_by_new
+                    .get(&b.app_version_id)
+                    .map(|old| (*old, b.file_type))
+            })
+            .collect();
 
         // Clone bundles from S3 for versions not found in DB
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
@@ -8099,40 +8089,22 @@ async fn clone_apps(
     .execute(&mut **tx)
     .await?;
 
-    // Clone app scripts with recomputed hashes
-    let app_scripts = sqlx::query!(
-        "SELECT app, hash, lock, code, code_sha256
-         FROM app_script
-         WHERE app = ANY(SELECT id FROM app WHERE workspace_id = $1)",
-        source_workspace_id
+    // `hash` is unique instance-wide, so each clone gets its own: sha256 of the new app id
+    // (big-endian, as `int8send` encodes it), the decoded code_sha256 and the lock.
+    sqlx::query!(
+        "INSERT INTO app_script (app, hash, lock, code, code_sha256)
+         SELECT m.new_app_id,
+                encode(sha256(int8send(m.new_app_id) || decode(s.code_sha256, 'hex')
+                              || COALESCE(convert_to(s.lock, 'UTF8'), ''::bytea)), 'hex'),
+                s.lock, s.code, s.code_sha256
+         FROM app_script s
+         JOIN UNNEST($1::bigint[], $2::bigint[]) AS m(old_app_id, new_app_id) ON s.app = m.old_app_id
+         ON CONFLICT DO NOTHING",
+        &old_app_ids,
+        &new_app_ids,
     )
-    .fetch_all(&mut **tx)
+    .execute(&mut **tx)
     .await?;
-
-    for app_script in app_scripts {
-        if let Some(&new_app_id) = app_id_mapping.get(&app_script.app) {
-            // Recompute hash using app_id, code_sha256, and lock
-            let mut hasher = Sha256::new();
-            hasher.update(new_app_id.to_be_bytes());
-            hasher.update(hex::decode(&app_script.code_sha256)?);
-            if let Some(lock) = &app_script.lock {
-                hasher.update(lock.as_bytes());
-            }
-            let new_hash = hex::encode(hasher.finalize());
-
-            sqlx::query!(
-                "INSERT INTO app_script (app, hash, lock, code, code_sha256)
-                 VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING",
-                new_app_id,
-                new_hash,
-                app_script.lock,
-                app_script.code,
-                app_script.code_sha256,
-            )
-            .execute(&mut **tx)
-            .await?;
-        }
-    }
 
     Ok(app_id_mapping)
 }

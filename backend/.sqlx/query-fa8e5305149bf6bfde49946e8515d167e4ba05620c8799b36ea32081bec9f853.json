@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH src AS MATERIALIZED (\n            SELECT av.id AS old_id, nextval(pg_get_serial_sequence('app_version', 'id')) AS new_id,\n                   m.new_app_id, av.value, av.created_by, av.created_at, av.raw_app\n            FROM app_version av\n            JOIN UNNEST($1::bigint[], $2::bigint[]) AS m(old_app_id, new_app_id)\n              ON av.app_id = m.old_app_id\n            ORDER BY av.app_id, av.created_at, av.id\n         ), ins AS (\n            INSERT INTO app_version (id, app_id, value, created_by, created_at, raw_app)\n            SELECT new_id, new_app_id, value, created_by, created_at, raw_app FROM src\n         )\n         SELECT old_id AS \"old_id!\", new_id AS \"new_id!\", raw_app AS \"raw_app!\" FROM src",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "old_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "new_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "raw_app!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8Array",
+        "Int8Array"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      false
+    ]
+  },
+  "hash": "fa8e5305149bf6bfde49946e8515d167e4ba05620c8799b36ea32081bec9f853"
+}
