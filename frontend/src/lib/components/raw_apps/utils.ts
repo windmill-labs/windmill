@@ -201,7 +201,7 @@ export function unsandboxedRawAppHtml(
 </html>`
 }
 
-// Static and ctx fields are filled in for the caller, whatever the frontend passes.
+// The app fills static and ctx fields itself, so the frontend never passes them.
 function removeServerFilledFields(schema: Schema, fields: Record<string, { type: string }>): Schema {
 	const staticFields = Object.keys(fields).filter(
 		(k) => fields[k].type == 'static' || fields[k].type == 'ctx'

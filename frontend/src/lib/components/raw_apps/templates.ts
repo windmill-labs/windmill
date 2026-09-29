@@ -75,7 +75,7 @@ function GreetDemo() {
     <Card
       step="1"
       title="Call a backend runnable"
-      description="Runnables are scripts that run on Windmill workers. Call them like async functions; the server adds who is calling."
+      description="Runnables are scripts that run on Windmill workers. Call them like async functions; context fields add who is calling."
       code="const res = await backend.greet({ name })"
     >
       <form
@@ -404,7 +404,7 @@ const appSvelte = `<script lang="ts">
 
   <div class="grid">
     <section class="card">
-      {@render header('1', 'Call a backend runnable', 'Runnables are scripts that run on Windmill workers. Call them like async functions; the server adds who is calling.')}
+      {@render header('1', 'Call a backend runnable', 'Runnables are scripts that run on Windmill workers. Call them like async functions; context fields add who is calling.')}
       <div class="card-body">
         <form class="row" onsubmit={greet}>
           <input bind:value={name} placeholder="Your name" />
@@ -533,7 +533,7 @@ const appVue = `<template>
           <span class="card-step">1</span>
           <div>
             <h2>Call a backend runnable</h2>
-            <p class="muted">Runnables are scripts that run on Windmill workers. Call them like async functions; the server adds who is calling.</p>
+            <p class="muted">Runnables are scripts that run on Windmill workers. Call them like async functions; context fields add who is calling.</p>
           </div>
         </div>
         <div class="card-body">
@@ -1217,11 +1217,11 @@ export const STARTER_RUNNABLES = {
       'bun',
       `// import * as wmill from "windmill-client"
 
-// \`username\` is a context field: the server fills it with the viewer's
-// username, so the frontend cannot forge it.
+// \`username\` is a context field: the app fills it with the viewer's username.
+// Direct API callers can pass any value, so don't use it for access control.
 export async function main(name: string, username: string) {
   return {
-    message: \`Hello \${name}! The server knows you as \${username ?? 'an anonymous viewer'}.\`,
+    message: \`Hello \${name}! \${username ? \`You are signed in as \${username}.\` : 'You are not signed in.'}\`,
     ran_at: new Date().toISOString()
   }
 }
