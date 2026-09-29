@@ -45,6 +45,7 @@ export function syncWorkspaceTo(workspaceId: string | undefined): void {
 	switchWorkspace(workspaceId)
 }
 import { WorkspaceService } from '$lib/gen'
+import { createWorkspaceForkAndWait } from '$lib/utils/forkCreation'
 import { sendUserToast } from '$lib/toast'
 import { onUserChange } from '$lib/userScopedStorage'
 
@@ -1300,10 +1301,7 @@ export function setGeneratedSessionSummary(
 export async function materializeFork(fork: PendingFork): Promise<string | undefined> {
 	if (get(userWorkspaces).some((w) => w.id === fork.id)) return fork.id
 	try {
-		await WorkspaceService.createWorkspaceFork({
-			workspace: fork.parent_workspace_id,
-			requestBody: { id: fork.id, name: fork.name }
-		})
+		await createWorkspaceForkAndWait(fork.parent_workspace_id, { id: fork.id, name: fork.name })
 		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
 		sendUserToast(`Created fork ${fork.name}`)
 		return fork.id

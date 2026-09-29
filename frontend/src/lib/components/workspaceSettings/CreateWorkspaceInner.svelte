@@ -70,6 +70,7 @@
 	import WorkspaceScopeTrigger from '../WorkspaceScopeTrigger.svelte'
 	import DarkModeToggle from '../sidebar/DarkModeToggle.svelte'
 	import ForkDucklakeSection from './ForkDucklakeSection.svelte'
+	import { createWorkspaceForkAndWait } from '$lib/utils/forkCreation'
 
 	interface Props {
 		isFork?: boolean
@@ -470,26 +471,24 @@
 		}
 
 		try {
-			await WorkspaceService.createWorkspaceFork({
-				workspace: baseWorkspaceId!,
-				requestBody: {
-					id: prefixed_id,
-					name,
-					color: colorEnabled && workspaceColor ? workspaceColor : undefined,
-					forked_datatables: forkedDatatables,
-					shared_ducklakes: forkDucklakeSection?.getSharedDucklakes() ?? [],
-					is_dev_workspace: createAsDevWorkspace,
-					dev_workspace_label: createAsDevWorkspace ? devWorkspaceLabel : undefined,
-					lock_prod_deploy: createAsDevWorkspace && effectiveLockProdDeploy,
-					lock_prod_forking: createAsDevWorkspace && effectiveLockProdForking,
-					copy_members: copyMembers
-				}
+			await createWorkspaceForkAndWait(baseWorkspaceId!, {
+				id: prefixed_id,
+				name,
+				color: colorEnabled && workspaceColor ? workspaceColor : undefined,
+				forked_datatables: forkedDatatables,
+				shared_ducklakes: forkDucklakeSection?.getSharedDucklakes() ?? [],
+				is_dev_workspace: createAsDevWorkspace,
+				dev_workspace_label: createAsDevWorkspace ? devWorkspaceLabel : undefined,
+				lock_prod_deploy: createAsDevWorkspace && effectiveLockProdDeploy,
+				lock_prod_forking: createAsDevWorkspace && effectiveLockProdForking,
+				copy_members: copyMembers
 			})
 		} catch (e) {
+			const msg = e?.body ?? e?.message ?? e ?? 'Unknown error'
 			forkCreationError = `Failed to create fork '${prefixed_id}'`
-			errorMsgs.push(e?.body ?? e ?? 'Unknown error')
+			errorMsgs.push(msg)
 			forkCreationLoading = false
-			sendUserToast(`Could not create fork '${prefixed_id}' ${e}`, true)
+			sendUserToast(`Could not create fork '${prefixed_id}' ${msg}`, true)
 			return
 		}
 
