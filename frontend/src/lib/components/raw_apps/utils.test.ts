@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import {
 	canonicalRawAppDiffValue,
+	createRawAppBuildTracker,
 	formatBuildFailureForChat,
 	formatRuntimeLogsForChat,
 	genWmillTs,
@@ -104,6 +105,38 @@ describe('formatBuildFailureForChat', () => {
 		expect(report).toContain('Installing react')
 		expect(report).not.toContain('Using cached resolution')
 		expect(report).not.toContain('Resolved react')
+	})
+})
+
+describe('createRawAppBuildTracker', () => {
+	it('keeps a timed-out build pending without waiting again until it settles', async () => {
+		vi.useFakeTimers()
+		try {
+			const tracker = createRawAppBuildTracker(1000)
+			tracker.start()
+			const first = tracker.wait()
+			await vi.advanceTimersByTimeAsync(1000)
+			await first
+			expect(tracker.pending).toBe(true)
+
+			let secondDone = false
+			void tracker.wait().then(() => (secondDone = true))
+			await vi.advanceTimersByTimeAsync(0)
+			expect(secondDone).toBe(true)
+
+			tracker.settle()
+			expect(tracker.pending).toBe(false)
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
+	it('ignores a settle for a generation an edit has superseded', () => {
+		const tracker = createRawAppBuildTracker(1000)
+		const gen = tracker.start()
+		tracker.start()
+		tracker.settle(gen)
+		expect(tracker.pending).toBe(true)
 	})
 })
 

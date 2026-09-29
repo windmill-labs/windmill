@@ -1189,7 +1189,13 @@ const getRuntimeLogsSchema = z.object({
 		.min(1)
 		.max(100)
 		.optional()
-		.describe('How many of the most recent runtime log lines to return. Defaults to 10.')
+		.describe('How many of the most recent runtime log lines to return. Defaults to 10.'),
+	app_path: z
+		.string()
+		.optional()
+		.describe(
+			'Path of the raw app whose preview to read. Pass it when several raw app previews are open; defaults to the visible one.'
+		)
 })
 
 const listAppRunsSchema = z.object({
@@ -4439,7 +4445,7 @@ export const globalTools: SessionTool<{}>[] = [
 		def: createToolDef(
 			getRuntimeLogsSchema,
 			'get_app_runtime_logs',
-			'Fetch the most recent browser console logs (and uncaught errors) from the raw app preview currently open in this AI session. When the latest build of the app failed, returns the build error and bundler logs instead.'
+			'Fetch the most recent browser console logs (and uncaught errors) from the raw app preview currently open in this AI session. Also reports the build: right after an edit it waits (up to 20s) for the rebuild, and when the build failed it returns the build error and bundler logs first.'
 		),
 		planModeSafe: true,
 		showDetails: true,
@@ -4447,7 +4453,11 @@ export const globalTools: SessionTool<{}>[] = [
 		fn: async (ctx) => {
 			const parsed = getRuntimeLogsSchema.parse(ctx.args)
 			ctx.toolCallbacks.setToolStatus(ctx.toolId, { content: 'Reading app runtime logs...' })
-			const result = await getSessionRuntimeLogs(parsed.limit ?? 10, sessionIdFromCtx(ctx))
+			const result = await getSessionRuntimeLogs(
+				parsed.limit ?? 10,
+				sessionIdFromCtx(ctx),
+				parsed.app_path
+			)
 			ctx.toolCallbacks.setToolStatus(ctx.toolId, {
 				content: result.uiMessage,
 				result: result.toolResult
@@ -4811,6 +4821,7 @@ function closeSessionPreviewTabs(
 export type GetRuntimeLogsHandler = (req: {
 	sessionId: string | undefined
 	limit: number
+	appPath?: string
 }) => Promise<SessionToolResult>
 
 let getRuntimeLogsHandler: GetRuntimeLogsHandler | undefined
@@ -4821,7 +4832,8 @@ export function setGetRuntimeLogsHandler(handler: GetRuntimeLogsHandler | undefi
 
 function getSessionRuntimeLogs(
 	limit: number,
-	sessionId: string | undefined
+	sessionId: string | undefined,
+	appPath: string | undefined
 ): Promise<SessionToolResult> {
 	if (!getRuntimeLogsHandler) {
 		return Promise.resolve({
@@ -4831,7 +4843,7 @@ function getSessionRuntimeLogs(
 			toolResult: 'Runtime logs unavailable'
 		})
 	}
-	return getRuntimeLogsHandler({ sessionId, limit })
+	return getRuntimeLogsHandler({ sessionId, limit, appPath })
 }
 
 export type ListAppRunsHandler = (req: {

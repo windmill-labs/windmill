@@ -95,6 +95,64 @@ export type RawAppPreviewLogs = {
 }
 export type RawAppRuntimeLogRequester = (limit: number) => Promise<RawAppPreviewLogs>
 
+export const RAW_APP_BUILD_WAIT_MS = 20_000
+
+/** Whether files sent to the UI Builder have produced a build result yet, so a read made
+ * right after an edit waits for that edit's build instead of reporting the previous one.
+ * The UI Builder carries no build id: when edits land while a build runs, the result of
+ * the older build can settle the wait. */
+export function createRawAppBuildTracker(timeoutMs = RAW_APP_BUILD_WAIT_MS) {
+	let pending = false
+	// A wait that timed out is not repeated until the next edit: the UI Builder never
+	// builds an app with no entrypoint, so the build may never report. It stays pending.
+	let waitExpired = false
+	let generation = 0
+	let waiters: (() => void)[] = []
+	function release() {
+		const toRelease = waiters
+		waiters = []
+		toRelease.forEach((w) => w())
+	}
+	return {
+		get pending() {
+			return pending
+		},
+		/** Files were sent for a build; returns the generation to pass to `settle`. */
+		start(): number {
+			pending = true
+			waitExpired = false
+			return ++generation
+		},
+		/** A build reported. With `gen`, only settles if no edit was sent since. */
+		settle(gen?: number) {
+			if (gen !== undefined && gen !== generation) return
+			pending = false
+			waitExpired = false
+			release()
+		},
+		/** Ends every wait without settling, e.g. when the editor unmounts. */
+		release,
+		get generation() {
+			return generation
+		},
+		wait(): Promise<void> {
+			if (!pending || waitExpired) return Promise.resolve()
+			return new Promise((resolve) => {
+				const done = () => {
+					clearTimeout(timer)
+					resolve()
+				}
+				const timer = setTimeout(() => {
+					waitExpired = true
+					waiters = waiters.filter((w) => w !== done)
+					resolve()
+				}, timeoutMs)
+				waiters.push(done)
+			})
+		}
+	}
+}
+
 const RAW_APP_RUNTIME_LOG_LEVELS = new Set<RawAppRuntimeLogLevel>([
 	'log',
 	'info',
@@ -138,16 +196,20 @@ export function formatRuntimeLogsForChat(entries: RawAppRuntimeLogEntry[]): stri
 const BUILD_LOG_TAIL_LINES = 40
 const BUILD_LOG_TAIL_CHARS = 6000
 // Per-package install progress: dozens of lines per build that would crowd the errors out of the tail.
-const ROUTINE_INSTALL_LOG_LINE = /^\s*(Using cached resolution|Using idb cache|Resolved |Extract)/
+const ROUTINE_INSTALL_LOG_LINE = /^\s*(Using cached resolution|Using idb cache|Resolved \S+@|Extract(ing|ed) )/
 
 export function formatBuildLogTailForChat(buildLogs: string): string {
 	// The bundler log accumulates every install and build since the editor opened.
-	const tail = buildLogs
+	const lines = buildLogs
 		.split('\n')
 		.filter((line) => line.trim() && !ROUTINE_INSTALL_LOG_LINE.test(line))
 		.slice(-BUILD_LOG_TAIL_LINES)
-		.join('\n')
-		.slice(-BUILD_LOG_TAIL_CHARS)
+	let tail = lines.join('\n')
+	while (tail.length > BUILD_LOG_TAIL_CHARS && lines.length > 1) {
+		lines.shift()
+		tail = lines.join('\n')
+	}
+	tail = tail.slice(-BUILD_LOG_TAIL_CHARS)
 	return tail ? `Recent bundler logs:\n${tail}` : 'No bundler logs yet.'
 }
 

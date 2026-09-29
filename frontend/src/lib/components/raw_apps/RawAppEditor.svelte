@@ -20,6 +20,7 @@
 		WMILL_TS_PATH,
 		genWmillTs,
 		normalizeRawAppRuntimeLogs,
+		createRawAppBuildTracker,
 		type Runnable,
 		type RawAppRuntimeLogEntry,
 		type RawAppRuntimeLogRequester,
@@ -406,6 +407,9 @@
 
 	// Latest UI Builder error; cleared on next successful build.
 	let buildError = $state<string | undefined>(undefined)
+	const buildTracker = createRawAppBuildTracker()
+	const PREVIEW_SETTLE_MS = 1000
+	let editorDestroyed = false
 	// Latest uncaught runtime error thrown by the rendered app; cleared on next build.
 	let runtimeError = $state<string | undefined>(undefined)
 	// Set when a build ran cleanly but never mounted anything into #root — the
@@ -909,7 +913,7 @@
 		if (!target) return
 		iframeFiles = { ...newFiles }
 		iframeFocusPending = undefined
-		buildPending = true
+		buildTracker.start()
 		const files = Object.fromEntries(
 			Object.entries(newFiles).filter(([path, _]) => !path.endsWith('/'))
 		)
@@ -929,7 +933,7 @@
 		iframeFiles = { ...newFiles }
 		const focus = iframeFocusPending === pathToSelect
 		iframeFocusPending = undefined
-		buildPending = true
+		buildTracker.start()
 		const files = Object.fromEntries(
 			Object.entries(newFiles).filter(([path, _]) => !path.endsWith('/'))
 		)
@@ -1358,6 +1362,9 @@
 			lastBuild = { css: e.data.css, js: e.data.js }
 			feedPreviewIframe(lastBuild)
 			syncExternalPreview()
+			// Give the fed app a moment to run, so a console read after the wait sees its output.
+			const gen = buildTracker.generation
+			setTimeout(() => buildTracker.settle(gen), PREVIEW_SETTLE_MS)
 			return
 		}
 
@@ -1378,7 +1385,8 @@
 		// `message: undefined` arrives on the next successful build and clears the banner.
 		if (fromUiBuilder && e.data.type === 'buildError') {
 			buildError = typeof e.data.message === 'string' ? e.data.message : undefined
-			settleBuild()
+			// A successful build settles once the preview has it (see `preview` above).
+			if (buildError !== undefined) buildTracker.settle()
 			return
 		}
 
@@ -1716,39 +1724,15 @@
 		pending.resolve(entries)
 	}
 
-	// Files sent to the UI Builder but no build result back yet. A chat edit lands here
-	// shortly before its build reports, so reading the build state right away would
-	// return the previous build's outcome.
-	const BUILD_WAIT_TIMEOUT_MS = 20_000
-	let buildPending = false
-	let buildWaiters: (() => void)[] = []
-	function settleBuild() {
-		buildPending = false
-		const waiters = buildWaiters
-		buildWaiters = []
-		waiters.forEach((w) => w())
-	}
-	function waitForPendingBuild(): Promise<void> {
-		if (!buildPending) return Promise.resolve()
-		return new Promise((resolve) => {
-			const timer = setTimeout(resolve, BUILD_WAIT_TIMEOUT_MS)
-			buildWaiters.push(() => {
-				clearTimeout(timer)
-				resolve()
-			})
-		})
-	}
-
 	const requestRuntimeLogs: RawAppRuntimeLogRequester = async (limit) => {
-		await waitForPendingBuild()
-		const timedOut = buildPending
-		// The UI Builder skips the build entirely when no entrypoint exists, so a timed-out
-		// wait is reported once rather than making every later call wait again.
-		buildPending = false
+		await buildTracker.wait()
+		if (editorDestroyed) {
+			return { entries: undefined, buildError: undefined, buildPending: false, buildLogs: '' }
+		}
 		return {
 			entries: await requestPreviewConsoleLogs(limit),
 			buildError,
-			buildPending: timedOut,
+			buildPending: buildTracker.pending,
 			buildLogs: logs
 		}
 	}
@@ -2069,6 +2053,8 @@
 			onScreenshotRequester?.(undefined)
 			for (const requestId of Array.from(pendingRuntimeLogReqs.keys()))
 				resolvePendingRuntimeLogRequest(requestId, undefined)
+			editorDestroyed = true
+			buildTracker.release()
 		}
 	})
 
