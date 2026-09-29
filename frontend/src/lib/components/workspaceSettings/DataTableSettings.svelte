@@ -177,9 +177,7 @@
 	)
 	// Both substrates answer only to a superadmin, so nobody else can be told whether one is on
 	// offer: they see a managed kind only where an entry already sits on it.
-	let instancePossible = $derived(
-		!!$superadmin && !isCloudHosted() && !instancePgDisabled.current
-	)
+	let instancePossible = $derived(!!$superadmin && !isCloudHosted() && !instancePgDisabled.current)
 	let instanceAvailable = $derived(instancePossible)
 
 	// A kind already saved stays listed whatever the instance offers now, or the entry would read
@@ -421,20 +419,97 @@
 			{@const dirty = !!dirtyMap[dataTable.name]}
 			<div class="rounded-md border border-border-light bg-surface-tertiary">
 				<div class="flex flex-col gap-4 p-4">
-					<div class="flex items-start gap-4">
+					<div class="flex flex-wrap items-end gap-4">
 						<Label
 							label="Name"
-							class="flex-1"
+							class="w-56"
 							tooltip="Data tables are referenced by their name. main is a special name that can be used as the default data table."
 						>
 							{#if dataTable.reference}
 								<span class="font-mono text-sm">{dataTable.name}</span>
 							{:else}
 								<TextInput
-									class="max-w-64"
 									bind:value={dataTable.name}
 									inputProps={{ placeholder: 'Name', id: 'name' }}
 								/>
+							{/if}
+						</Label>
+						<Label
+							label="Database"
+							class="flex-1 min-w-96"
+							tooltip="The database where the data is stored."
+						>
+							{#if dataTable.reference}
+								<div class="flex items-center gap-1 text-sm text-secondary">
+									<span>Governed by</span>
+									<span class="font-mono">{dataTable.reference.workspace_id}</span>
+									<span>/</span>
+									<span class="font-mono">{dataTable.reference.datatable}</span>
+									<Tooltip>
+										This fork uses its parent's data table rather than a copy of it, so the database
+										and its roles are decided in that workspace.
+									</Tooltip>
+								</div>
+							{:else}
+								<div class="flex gap-2">
+									<div class="relative">
+										{#if dataTable.database.resource_type === 'instance'}
+											<Tooltip
+												wrapperClass="absolute inset-y-0 right-2 z-20 flex items-center"
+												placement="bottom-start"
+											>
+												Use Windmill's PostgreSQL instance
+											</Tooltip>
+										{:else if dataTable.database.resource_type === 'external_instance'}
+											<Tooltip
+												wrapperClass="absolute inset-y-0 right-2 z-20 flex items-center"
+												placement="bottom-start"
+											>
+												Use a database Windmill manages on the external PostgreSQL cluster
+											</Tooltip>
+										{/if}
+										<Select
+											items={kindItems(dataTable.database.resource_type)}
+											bind:value={
+												() => dataTable.database.resource_type,
+												(resource_type) => {
+													dataTable.database = {
+														resource_type,
+														resource_path:
+															resource_type === 'instance' ? defaultInstanceDbName() : undefined
+													}
+												}
+											}
+											transformInputSelectedText={shortManagedInstanceLabel}
+											id="database-type-select"
+											class="w-44"
+										/>
+									</div>
+									<div class="flex items-center gap-1 w-80 relative">
+										{#if dataTable.database.resource_type === 'external_instance'}
+											<ExternalInstanceDbSelect
+												class="flex-1"
+												{externalInstanceDbs}
+												bind:value={dataTable.database.resource_path}
+												tag="datatable"
+											/>
+										{:else if dataTable.database.resource_type !== 'instance'}
+											<ResourcePicker
+												class="flex-1"
+												bind:value={dataTable.database.resource_path}
+												resourceType={dataTable.database.resource_type}
+											/>
+										{:else}
+											<CustomInstanceDbSelect
+												class="flex-1"
+												{confirmationModal}
+												{customInstanceDbs}
+												bind:value={dataTable.database.resource_path}
+												tag="datatable"
+											/>
+										{/if}
+									</div>
+								</div>
 							{/if}
 						</Label>
 						<!-- A fork's pointer entry is written by forking and kept by the server, not this form. -->
@@ -450,80 +525,6 @@
 							/>
 						{/if}
 					</div>
-					<Label label="Database" tooltip="The database where the data is stored.">
-						{#if dataTable.reference}
-							<div class="flex items-center gap-1 text-sm text-secondary">
-								<span>Governed by</span>
-								<span class="font-mono">{dataTable.reference.workspace_id}</span>
-								<span>/</span>
-								<span class="font-mono">{dataTable.reference.datatable}</span>
-								<Tooltip>
-									This fork uses its parent's data table rather than a copy of it, so the database and
-									its roles are decided in that workspace.
-								</Tooltip>
-							</div>
-						{:else}
-							<div class="flex gap-2">
-								<div class="relative">
-									{#if dataTable.database.resource_type === 'instance'}
-										<Tooltip
-											wrapperClass="absolute mt-[0.6rem] right-2 z-20"
-											placement="bottom-start"
-										>
-											Use Windmill's PostgreSQL instance
-										</Tooltip>
-									{:else if dataTable.database.resource_type === 'external_instance'}
-										<Tooltip
-											wrapperClass="absolute mt-[0.6rem] right-2 z-20"
-											placement="bottom-start"
-										>
-											Use a database Windmill manages on the external PostgreSQL cluster
-										</Tooltip>
-									{/if}
-									<Select
-										items={kindItems(dataTable.database.resource_type)}
-										bind:value={
-											() => dataTable.database.resource_type,
-											(resource_type) => {
-												dataTable.database = {
-													resource_type,
-													resource_path:
-														resource_type === 'instance' ? defaultInstanceDbName() : undefined
-												}
-											}
-										}
-										transformInputSelectedText={shortManagedInstanceLabel}
-										id="database-type-select"
-										class="w-44"
-									/>
-								</div>
-								<div class="flex items-center gap-1 w-80 relative">
-									{#if dataTable.database.resource_type === 'external_instance'}
-										<ExternalInstanceDbSelect
-											class="flex-1"
-											{externalInstanceDbs}
-											bind:value={dataTable.database.resource_path}
-											tag="datatable"
-										/>
-									{:else if dataTable.database.resource_type !== 'instance'}
-										<ResourcePicker
-											class="flex-1"
-											bind:value={dataTable.database.resource_path}
-											resourceType={dataTable.database.resource_type}
-										/>
-									{:else}
-										<CustomInstanceDbSelect
-											class="flex-1"
-											{confirmationModal}
-											{customInstanceDbs}
-											bind:value={dataTable.database.resource_path}
-											tag="datatable"
-										/>
-									{/if}
-								</div>
-							</div>
-						{/if}
-					</Label>
 					{#if connectionCheck?.name === dataTable.name && !connectionCheck.loading}
 						<DataTableConnectionReport
 							name={connectionCheck.name}
@@ -534,22 +535,6 @@
 				</div>
 				<!-- Everything down here acts on the saved data table, which unsaved edits are not. -->
 				<div class="flex flex-wrap items-center gap-2 border-t border-border-light px-4 py-3">
-					{#if dirty}
-						<Popover
-							openOnHover
-							contentClasses="p-2 text-sm text-secondary italic"
-							class="cursor-not-allowed"
-						>
-							{#snippet trigger()}
-								<ExploreAssetButton asset={{ kind: 'datatable', path: dataTable.name }} disabled />
-							{/snippet}
-							{#snippet content()}
-								Please save settings first
-							{/snippet}
-						</Popover>
-					{:else}
-						<ExploreAssetButton asset={{ kind: 'datatable', path: dataTable.name }} />
-					{/if}
 					<Button
 						unifiedSize="md"
 						variant="default"
@@ -589,6 +574,29 @@
 					>
 						Test connection
 					</Button>
+					<!-- Opening the data table is what most visits are for, so it stands apart from the
+					administration actions. -->
+					<div class="ml-auto">
+						{#if dirty}
+							<Popover
+								openOnHover
+								contentClasses="p-2 text-sm text-secondary italic"
+								class="cursor-not-allowed"
+							>
+								{#snippet trigger()}
+									<ExploreAssetButton
+										asset={{ kind: 'datatable', path: dataTable.name }}
+										disabled
+									/>
+								{/snippet}
+								{#snippet content()}
+									Please save settings first
+								{/snippet}
+							</Popover>
+						{:else}
+							<ExploreAssetButton asset={{ kind: 'datatable', path: dataTable.name }} />
+						{/if}
+					</div>
 				</div>
 				<DataTableMigrationsButton
 					bind:this={migrationsButtons[dataTable.name]}
