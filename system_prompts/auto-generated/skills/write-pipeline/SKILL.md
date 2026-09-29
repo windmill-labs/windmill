@@ -1,3 +1,8 @@
+---
+name: write-pipeline
+description: MUST use when creating or modifying a data pipeline, a set of scripts marked `pipeline` and wired together by `on` / `materialize` annotations.
+---
+
 # Data pipeline authoring
 
 A **data pipeline** is NOT a flow. A flow is one runnable that orchestrates steps internally. A data pipeline is a set of **independent scripts**, each deployed on its own, that form a DAG by reading and writing shared **storage assets** (DuckLake tables, data tables, S3 objects, volumes, resources) and by declaring execution **triggers**. The pipeline is visualized and edited at `/pipeline/<folder>`; every node is a normal workspace script that happens to carry pipeline annotations. When the user asks for a "data pipeline" (or to "ingest / transform / materialize" data across steps), build pipeline-annotated scripts — do NOT build a flow.
@@ -14,9 +19,7 @@ Do not spread a pipeline across postgres, S3, and DuckLake when one DuckLake lak
 ## Storage prerequisites
 
 A DuckLake pipeline only runs once the workspace has **object storage** (S3 / Azure Blob / GCS) **and a DuckLake catalog** configured — DuckLake tables and `s3://` assets can't be materialized or read without it. Check which DuckLake catalogs the workspace has before you build.
-<!-- cli-only -->
 `wmill ducklake list` lists them.
-<!-- /cli-only -->
 Drafting the annotated scripts does not require storage, but the pipeline can't ingest, materialize, or read its assets until it exists. So if there is none (or the user hits "storage not configured" errors), say so and give the right next step **by role**:
 
 - a workspace **admin** sets it up in Workspace settings → Object Storage (add an S3/Azure/GCS storage), then adds a DuckLake catalog on top of it;
@@ -92,7 +95,6 @@ On a node that materializes a DuckLake table, `// measure <name> = <aggregate> [
 3. Start each body with `// pipeline`, then the `// on` input declarations, then the transform that writes the output.
 4. **Chain nodes by asset URI**: read an upstream node's output asset, then `// on <that-same-uri>` in the downstream node so the edge forms. Reuse exact asset paths from existing nodes rather than inventing parallel ones.
 5. Don't deploy nodes unless the user asks to. A pipeline only "runs" once its scripts are deployed and their triggers exist.
-<!-- cli-only -->
 
 Locally:
 
@@ -100,7 +102,6 @@ Locally:
 - `wmill pipeline show <folder> --local` draws the graph from your working tree — check that every edge you meant to form is there;
 - `wmill pipeline dev <folder>` live-previews the pipeline, and `wmill pipeline run <folder> --local` runs the cascade from local files without deploying (`--dry-run` prints the plan first);
 - a trigger such as `// on schedule` only declares the binding: the schedule or trigger itself is created separately (see the `schedules` and `triggers` skills).
-<!-- /cli-only -->
 
 ## Example (DuckDB → DuckLake, scheduled ingest + downstream transform)
 
