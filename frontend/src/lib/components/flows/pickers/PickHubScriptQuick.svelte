@@ -36,7 +36,7 @@
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import { Skeleton } from '$lib/components/common'
 	import { classNames, createCache } from '$lib/utils'
-	import { APP_TO_ICON_COMPONENT } from '$lib/components/icons'
+	import { appIconMap } from '$lib/components/icons/appIcon.svelte'
 	import { listHubIntegrationsShared } from '$lib/components/displayNameLoaders'
 	import { ScriptService, type HubScriptKind } from '$lib/gen'
 	import { Circle, ExternalLink } from 'lucide-svelte'
@@ -253,8 +253,8 @@
 						onClick={() => handlePickScript(item)}
 					>
 						<div class={classNames('flex justify-center items-center')}>
-							{#if item['app'] in APP_TO_ICON_COMPONENT}
-								{@const SvelteComponent = APP_TO_ICON_COMPONENT[item['app']]}
+							{#if appIconMap()?.[item['app']]}
+								{@const SvelteComponent = appIconMap()![item['app']]}
 								<SvelteComponent height={13} width={13} />
 							{:else}
 								<div class="text-gray-400 flex flex-row items-center justify-center">

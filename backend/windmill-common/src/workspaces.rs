@@ -1186,6 +1186,138 @@ pub fn invalidate_protection_rules_cache(workspace_id: &str) {
     PROTECTION_RULES_CACHE.remove(workspace_id);
 }
 
+// Operator rights cache
+
+lazy_static::lazy_static! {
+    static ref OPERATOR_RIGHTS_CACHE: Cache<String, (OperatorManageRights, i64)> = Cache::new(1000);
+}
+
+/// Writes an operator may perform unless the workspace withdraws them. Unlike the visibility
+/// flags beside them in `operator_settings`, these are enforced; unlike a right a workspace
+/// grants, they are held by default and cost no seat.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct OperatorManageRights {
+    pub schedules: bool,
+    pub triggers: bool,
+}
+
+/// Granted unless explicitly withdrawn. Every path that materializes these rights without a
+/// stored setting - a workspace with no `workspace_settings` row included - has to land here, or
+/// an upgrade silently revokes what operators could do the day before.
+impl Default for OperatorManageRights {
+    fn default() -> Self {
+        Self { schedules: true, triggers: true }
+    }
+}
+
+/// Which withdrawable capability a gate needs.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ManageKind {
+    Schedules,
+    Triggers,
+}
+
+impl ManageKind {
+    /// Plural noun for the refusal message.
+    pub fn noun(&self) -> &'static str {
+        match self {
+            ManageKind::Schedules => "schedules",
+            ManageKind::Triggers => "triggers",
+        }
+    }
+
+    /// Prefixes the `/acls` audit action (`schedules.grant_acl`). Deliberately its own string
+    /// rather than `noun()`, which it happens to equal: audit actions are a stable key that rows
+    /// already on disk were written with, so rewording the message must not rename them.
+    pub fn audit_prefix(&self) -> &'static str {
+        match self {
+            ManageKind::Schedules => "schedules",
+            ManageKind::Triggers => "triggers",
+        }
+    }
+}
+
+impl OperatorManageRights {
+    pub fn has(&self, kind: ManageKind) -> bool {
+        match kind {
+            ManageKind::Schedules => self.schedules,
+            ManageKind::Triggers => self.triggers,
+        }
+    }
+}
+
+/// What operators of this workspace may still write. Per workspace, not per user.
+///
+/// Read on every gated write, so it is cached with a 60s TTL. This gates writes, so a withdrawal
+/// cannot wait out that TTL on the rest of the fleet: an `AFTER UPDATE OF operator_settings`
+/// trigger publishes `notify_operator_settings_change` and every server drops its entry through
+/// `process_notify_event`. [`invalidate_operator_rights_cache`] is the local half of that, and
+/// what a test flipping the setting directly has to call itself.
+///
+/// Call it before opening an RLS transaction: it takes a connection from the root pool, and a
+/// second pooled connection held alongside a transaction self-deadlocks on a one-connection pool.
+async fn operator_manage_rights(db: &DB, workspace_id: &str) -> Result<OperatorManageRights> {
+    let now = chrono::Utc::now().timestamp();
+
+    if let Some((rights, expiry)) = OPERATOR_RIGHTS_CACHE.get(workspace_id) {
+        if expiry > now {
+            return Ok(rights);
+        }
+    }
+
+    // Coalesced to true, matching `OperatorManageRights::default`: an absent key means the
+    // workspace never configured the right, not that it withdrew it.
+    let row = sqlx::query!(
+        "SELECT COALESCE((operator_settings->>'manage_schedules')::boolean, true) AS \"schedules!\",
+                COALESCE((operator_settings->>'manage_triggers')::boolean, true) AS \"triggers!\"
+         FROM workspace_settings WHERE workspace_id = $1",
+        workspace_id
+    )
+    .fetch_optional(db)
+    .await
+    .map_err(|e| {
+        Error::internal_err(format!(
+            "Failed to fetch operator settings for {workspace_id}: {e:#}"
+        ))
+    })?;
+
+    let rights = row
+        .map(|r| OperatorManageRights { schedules: r.schedules, triggers: r.triggers })
+        .unwrap_or_default();
+
+    OPERATOR_RIGHTS_CACHE.insert(workspace_id.to_string(), (rights, now + 60));
+
+    Ok(rights)
+}
+
+/// Invalidate the operator rights cache for a workspace
+pub fn invalidate_operator_rights_cache(workspace_id: &str) {
+    OPERATOR_RIGHTS_CACHE.remove(workspace_id);
+}
+
+/// Gate for a write operators may perform unless the workspace withdrew it. Prefer layering
+/// `gate_operator_writes` on a whole router over calling this per handler; see
+/// `docs/operator-write-rights.md`. Both `workspace_id` and `is_operator` MUST come from the
+/// authenticated request (the route's workspace, `ApiAuthed::is_operator`): passing `false` skips
+/// the check, and another workspace's id checks the wrong settings.
+pub async fn check_operator_can_manage(
+    db: &DB,
+    workspace_id: &str,
+    is_operator: bool,
+    kind: ManageKind,
+) -> Result<()> {
+    if is_operator && !operator_manage_rights(db, workspace_id).await?.has(kind) {
+        // 403, not 401: the caller is authenticated and simply lacks the right. The frontend reads
+        // an uncaught 401 as a dead session and logs the user out, so `NotAuthorized` here would
+        // eject an operator from the app instead of telling them why.
+        return Err(Error::PermissionDenied(format!(
+            "Operators cannot manage {} in this workspace",
+            kind.noun()
+        )));
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuleCheckResult {
     Allowed,

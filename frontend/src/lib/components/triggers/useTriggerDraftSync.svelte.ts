@@ -88,6 +88,13 @@ export interface TriggerDraftSync {
 	 * the form back to the now-stale draft.
 	 */
 	discard(path: string, fallback: Cfg | undefined): void
+	/**
+	 * Fold fields the editor wrote to the backend on its own (the enabled/mode
+	 * toggle) into the baseline, so they don't read as unsaved changes. Call it
+	 * in the same tick as the form write: a later call leaves the persist-effect
+	 * time to save the toggle as a draft.
+	 */
+	patchBaseline(patch: Cfg): void
 }
 
 /**
@@ -301,6 +308,15 @@ export function useTriggerDraftSync(opts: TriggerDraftSyncOptions): TriggerDraft
 			openedOnDraft = false
 			await opts.applyCfg(deployedCfg)
 		},
-		discard
+		discard,
+		patchBaseline(patch: Cfg) {
+			const deployed = opts.deployed()
+			if (deployed == null) return
+			// The deployed object too, so `resetToDeployed` restores the new value;
+			// `settledBaseline` because it shadows the deployed object and is the
+			// reactive side (an editor's `deployed` may be a plain `let`).
+			Object.assign(deployed, patch)
+			settledBaseline = { ...snapshotCfg(settledBaseline ?? deployed), ...patch }
+		}
 	}
 }

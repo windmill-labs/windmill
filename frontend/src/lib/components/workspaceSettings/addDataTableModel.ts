@@ -264,6 +264,7 @@ export function postgresResourceValue(
 		port: parts.port ?? 5432,
 		dbname: parts.dbname || 'postgres',
 		sslmode: parts.sslmode || DEFAULT_SSLMODE,
+		...(parts.options ? { options: parts.options } : {}),
 		password,
 		region: advanced.region,
 		root_certificate_pem: advanced.root_certificate_pem,

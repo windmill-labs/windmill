@@ -117,7 +117,8 @@ use windmill_common::{
     scripts::{ScriptHash, ScriptLang},
     users::username_to_permissioned_as,
     utils::{
-        not_found_if_none, now_from_db, paginate, require_admin, Pagination, ScheduleType, StripPath,
+        not_found_if_none, now_from_db, paginate, require_admin, Pagination, ScheduleType,
+        StripPath,
     },
 };
 
@@ -2762,7 +2763,7 @@ async fn send_email_with_instance_smtp(
     Json(send_email): Json<SendEmail>,
 ) -> error::Result<Json<String>> {
     use windmill_common::jobs::EMAIL_ERROR_HANDLER_USER_EMAIL;
-    use windmill_queue::SCHEDULE_ERROR_HANDLER_USER_EMAIL;
+    use windmill_queue::{ERROR_HANDLER_USER_EMAIL, SCHEDULE_ERROR_HANDLER_USER_EMAIL};
 
     if *CLOUD_HOSTED {
         tracing::warn!(
@@ -2771,12 +2772,15 @@ async fn send_email_with_instance_smtp(
         return Err(anyhow::anyhow!("Feature not supported in cloud hosted windmill").into());
     }
 
+    // Any code pushed as a workspace or schedule error handler, custom ones included, runs as
+    // one of these identities: this keeps out ad-hoc job tokens, not who authors handler code.
     let is_handler_job = authed.email == EMAIL_ERROR_HANDLER_USER_EMAIL
+        || authed.email == ERROR_HANDLER_USER_EMAIL
         || authed.email == SCHEDULE_ERROR_HANDLER_USER_EMAIL;
 
     if !is_handler_job && !windmill_api_auth::is_super_admin_authed(&db, &authed).await? {
         return Err(Error::NotAuthorized(
-            "Only super admin or whitelisted token can access email workspace error handler feature"
+            "Only super admin or a workspace/schedule error handler job can send emails with the instance SMTP"
                 .to_string(),
         ));
     }
@@ -4193,13 +4197,15 @@ async fn get_args(
 
 async fn get_started_at_by_ids(
     Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
     Json(mut ids): Json<Vec<Uuid>>,
 ) -> JsonResult<Vec<Option<chrono::DateTime<chrono::Utc>>>> {
     ids.truncate(100);
 
     let started_at = sqlx::query!(
-        "SELECT id, started_at FROM v2_job_queue WHERE id = ANY($1)",
-        ids.as_slice()
+        "SELECT id, started_at FROM v2_job_queue WHERE id = ANY($1) AND workspace_id = $2",
+        ids.as_slice(),
+        &w_id
     )
     .fetch_all(&db)
     .await?;
@@ -5407,7 +5413,7 @@ async fn resume_suspended_job_internal(
     verify_suspended_secret(&w_id, &db, job_id, resume_id, &approver, secret).await?;
 
     // Get flow info - works for step-level, flow-level, and WAC approval
-    let (flow_info, is_flow_level, is_wac) = get_flow_info_for_resume(job_id, &db).await?;
+    let (flow_info, is_flow_level, is_wac) = get_flow_info_for_resume(job_id, &w_id, &db).await?;
 
     // HMAC secret = full capability. Skip approval_conditions checks: possession of the full
     // resume URL is the authorization (it is only disclosed to intended approvers, e.g. when a
@@ -5639,7 +5645,11 @@ struct FlowInfo {
 /// Returns (FlowInfo, is_flow_level, is_wac) where:
 /// - is_flow_level: job_id was a flow job (pre-approval)
 /// - is_wac: job_id is a WAC workflow suspended for approval (target is itself)
-async fn get_flow_info_for_resume(job_id: Uuid, db: &DB) -> error::Result<(FlowInfo, bool, bool)> {
+async fn get_flow_info_for_resume(
+    job_id: Uuid,
+    w_id: &str,
+    db: &DB,
+) -> error::Result<(FlowInfo, bool, bool)> {
     // Single query that determines if job_id is a flow, step, or WAC job,
     // and fetches the appropriate suspended job info.
     // For WAC jobs (no parent, not a flow), the job itself is the suspended target.
@@ -5648,7 +5658,7 @@ async fn get_flow_info_for_resume(job_id: Uuid, db: &DB) -> error::Result<(FlowI
         WITH job_info AS (
             SELECT id, kind::text AS kind, parent_job
             FROM v2_job
-            WHERE id = $1
+            WHERE id = $1 AND workspace_id = $2
         )
         SELECT
             q.id AS "id!",
@@ -5668,10 +5678,15 @@ async fn get_flow_info_for_resume(job_id: Uuid, db: &DB) -> error::Result<(FlowI
         FOR UPDATE OF q
         "#,
         job_id,
+        w_id,
     )
     .fetch_optional(db)
     .await?
-    .ok_or_else(|| anyhow::anyhow!("job not found or parent flow not in queue: {}", job_id))?;
+    .ok_or_else(|| {
+        Error::NotFound(format!(
+            "job not found or parent flow not in queue: {job_id}"
+        ))
+    })?;
 
     let flow_info = FlowInfo {
         id: result.id,
@@ -5975,12 +5990,7 @@ pub async fn create_job_signature(
     Path((w_id, job_id, resume_id)): Path<(String, Uuid, u32)>,
     Query(approver): Query<QueryApprover>,
 ) -> error::Result<String> {
-    // The HMAC is treated as full authority by the resume endpoints, so minting
-    // it requires run scope on the suspended job's flow — not merely any
-    // jobs:run scope. No-op for unscoped tokens (incl. the in-flow substep token
-    // used by wmill.get_resume_urls()).
-    let flow_path = resume_target_flow_path(&db, &w_id, job_id).await?;
-    check_scopes(&authed, || format!("jobs:run:flows:{}", flow_path))?;
+    require_resume_mint_authority(&db, &w_id, &authed, job_id).await?;
     let key = get_workspace_key(&w_id, &db).await?;
     create_signature(key, job_id, resume_id, approver.approver)
 }
@@ -6073,12 +6083,7 @@ pub async fn get_resume_urls(
     Path((w_id, job_id, resume_id)): Path<(String, Uuid, u32)>,
     Query(approver): Query<QueryApprover>,
 ) -> error::JsonResult<ResumeUrls> {
-    // These URLs embed a resume signature (full resume capability), so a scoped
-    // token must hold run scope on the suspended job's flow. No-op for unscoped
-    // tokens (incl. the in-flow substep token). Trusted internal callers use
-    // get_resume_urls_internal directly and are unaffected.
-    let flow_path = resume_target_flow_path(&db, &w_id, job_id).await?;
-    check_scopes(&authed, || format!("jobs:run:flows:{}", flow_path))?;
+    require_resume_mint_authority(&db, &w_id, &authed, job_id).await?;
     get_resume_urls_internal(
         Extension(db),
         Path((w_id, job_id, resume_id)),
@@ -6103,23 +6108,9 @@ pub async fn get_wac_approval_urls(
             "step_key must be the key of a wait_for_approval step".to_string(),
         ));
     }
-    let flow_path = resume_target_flow_path(&db, &w_id, job_id).await?;
-    check_scopes(&authed, || format!("jobs:run:flows:{}", flow_path))?;
-
-    // This handler writes to the job's status row, so the job must actually be in
-    // the caller's workspace — `v2_job_status` is keyed by job id alone and would
-    // otherwise take a write aimed at another workspace's job.
-    let in_workspace = sqlx::query_scalar!(
-        "SELECT EXISTS (SELECT 1 FROM v2_job WHERE id = $1 AND workspace_id = $2)",
-        job_id,
-        w_id
-    )
-    .fetch_one(&db)
-    .await?
-    .unwrap_or(false);
-    if !in_workspace {
-        return Err(Error::NotFound(format!("job {job_id} not found")));
-    }
+    // Also the workspace check for the `v2_job_status` write below, which is keyed by job id
+    // alone and would otherwise take a write aimed at another workspace's job.
+    require_resume_mint_authority(&db, &w_id, &authed, job_id).await?;
 
     // The approval belongs to the WAC parent, but WM_JOB_ID is the child job when
     // this is called from inside a task() rather than a step(). Resolve up so the
@@ -6319,12 +6310,34 @@ pub async fn get_resume_urls_internal(
     Ok(Json(res))
 }
 
-/// Resolve the runnable path of the flow a (possibly step) job belongs to, used
+/// A resume signature is full approval authority: `jobs_u/resume|cancel` skip the step's
+/// approval_conditions and accept any resume_id. So only a workspace admin, or a job token
+/// whose run lineage claims the suspended job ([`unclaimable_run_lineage`]), may mint one, and
+/// a scoped token also needs run scope on the flow. The job must be in `w_id`, whose key signs
+/// the result.
+async fn require_resume_mint_authority(
+    db: &DB,
+    w_id: &str,
+    authed: &ApiAuthed,
+    job_id: Uuid,
+) -> error::Result<()> {
+    let flow_path = resume_target_flow_path(db, w_id, job_id).await?;
+    check_scopes(authed, || format!("jobs:run:flows:{}", flow_path))?;
+    if !unclaimable_run_lineage(db, w_id, vec![job_id], authed)
+        .await?
+        .is_empty()
+    {
+        return Err(Error::PermissionDenied(format!(
+            "only job {job_id}'s own run or a workspace admin can sign resume or approval urls for it"
+        )));
+    }
+    Ok(())
+}
+
+/// Resolve the runnable path of the flow a (possibly step) job of `w_id` belongs to, used
 /// to scope-check resume-signature minting against `jobs:run:flows:<path>`.
-/// Returns an empty string when the path can't be resolved (e.g. previews or an
-/// unknown job); an empty path only matters for path-restricted tokens, which
-/// would not be running such a flow. Never hard-fails, so it can't break resume
-/// for unscoped tokens (the in-flow `get_resume_urls()` path).
+/// Returns an empty string when the path can't be resolved (e.g. previews); an empty
+/// path only matters for path-restricted tokens, which would not be running such a flow.
 async fn resume_target_flow_path(db: &DB, w_id: &str, job_id: Uuid) -> error::Result<String> {
     let job = sqlx::query!(
         r#"SELECT kind::text as "kind!", parent_job, runnable_path
@@ -6333,10 +6346,8 @@ async fn resume_target_flow_path(db: &DB, w_id: &str, job_id: Uuid) -> error::Re
         w_id
     )
     .fetch_optional(db)
-    .await?;
-    let Some(job) = job else {
-        return Ok(String::new());
-    };
+    .await?
+    .ok_or_else(|| Error::NotFound(format!("job {job_id} not found")))?;
     // All flow kinds: the job itself is the flow whose path scopes the resume.
     if matches!(
         job.kind.as_str(),
@@ -6495,6 +6506,8 @@ struct BatchReRunQueryReturnType {
     scheduled_for: chrono::DateTime<Utc>,
     #[serde(skip_serializing_if = "Option::is_none")]
     schema: Option<serde_json::Value>,
+    #[serde(skip)]
+    created_by: String,
 }
 
 async fn batch_rerun_compute_js_expression(
@@ -6544,7 +6557,7 @@ fn batch_rerun_jobs_inner(
                 BatchReRunQueryReturnType,
                 r#"WITH norm AS (
                         SELECT
-                            j.id, j.workspace_id, j.runnable_path, j.runnable_id, j.kind, j.args,
+                            j.id, j.workspace_id, j.runnable_path, j.runnable_id, j.kind, j.args, j.created_by,
                             -- Project effective kind for dispatch: pass script/flow through;
                             -- for singlestepflow, read the wrapped runnable's type from
                             -- raw_flow.modules[id='a'].value.type (always 'script' or 'flow').
@@ -6583,6 +6596,7 @@ fn batch_rerun_jobs_inner(
                         COALESCE(s.hash, f.id, n.ssf_hash, 0::bigint) AS "script_hash!: _",
                         COALESCE(jc.started_at, jq.scheduled_for, make_date(1970, 1, 1)) AS "scheduled_for!: _",
                         n.args AS input,
+                        n.created_by,
                         -- Pinned schema for script/flow; latest-by-path fallback for
                         -- singlestepflow so input_transforms still resolve at rerun time.
                         COALESCE(
@@ -6639,6 +6653,10 @@ async fn batch_rerun_handle_job(
     w_id: &String,
     body: &BatchReRunJobsBodyArgs,
 ) -> error::Result<String> {
+    // The source jobs are selected on the root pool, and a rerun copies their args into a
+    // job the caller owns, so each one must pass the same read gate as `jobs_u/get`.
+    require_job_read_access(db, user_db, authed, w_id, &job.id, &job.created_by, None).await?;
+
     let options = if matches!(job.kind, JobKind::Script) {
         &body.script_options_by_path
     } else {
@@ -6937,7 +6955,8 @@ async fn resolve_nested_restart(
     parent_step_id: &str,
     parent_branch_or_iteration_n: Option<usize>,
     nested_path: Vec<NestedRestartStep>,
-    parent_flow_version: Option<i64>,
+    // (flow path of the restarted job, version to restart on)
+    parent_flow_version: Option<(&str, i64)>,
 ) -> error::Result<(
     Option<windmill_common::flow_status::BranchChosen>,
     Option<Box<RestartedFrom>>,
@@ -6965,8 +6984,8 @@ async fn resolve_nested_restart(
         )
     })?;
 
-    let flow_data = if let Some(version) = parent_flow_version {
-        cache::flow::fetch_version(db, version).await?
+    let flow_data = if let Some((flow_path, version)) = parent_flow_version {
+        windmill_queue::fetch_restart_flow_version(db, workspace_id, flow_path, version).await?
     } else {
         cache::job::fetch_flow(db, &row.job_kind, row.runnable_id)
             .or_else(|_| cache::job::fetch_preview_flow(db, &parent_job_id, row.raw_flow))
@@ -7143,6 +7162,8 @@ pub async fn restart_flow(
         .script_path
         .with_context(|| "No flow path set for completed flow job")?;
     check_scopes(&authed, || format!("jobs:run:flows:{flow_path}"))?;
+    let mut run_query = run_query;
+    drop_unclaimable_run_lineage(&db, &w_id, &mut run_query, &authed).await?;
 
     let ehm = HashMap::new();
     let push_args = completed_job
@@ -7160,7 +7181,7 @@ pub async fn restart_flow(
         &step_id,
         branch_or_iteration_n,
         nested_path,
-        flow_version,
+        flow_version.map(|v| (flow_path.as_str(), v)),
     )
     .await?;
 
@@ -7341,6 +7362,13 @@ pub async fn run_workflow_as_code(
     let args = PushArgs { args: &task.args.unwrap_or_else(HashMap::new), extra: Some(extra) };
     check_tag_available_for_workspace(&db, &w_id, &run_query.tag, &args, &authed).await?;
     check_scopes(&authed, || format!("jobs:run"))?;
+    // The task becomes a child of `job_id`, runs its code and writes into its flow status, so
+    // only that job itself (the SDK's `task` wrapper, on its `WM_TOKEN`) or an admin may push it.
+    if authed.job_id != Some(job_id) && !authed.is_admin {
+        return Err(error::Error::PermissionDenied(format!(
+            "only job {job_id}'s own WM_TOKEN can run its workflow tasks"
+        )));
+    }
 
     if !is_valid_entrypoint_name(&entrypoint) {
         return Err(error::Error::BadRequest(format!(
@@ -7757,6 +7785,8 @@ pub async fn run_wait_result_job_by_path_get(
     let tag = run_query.tag.clone().or(tag);
     let push_args = PushArgs { args: &args.args, extra: args.extra };
     check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
+    let mut run_query = run_query;
+    drop_unclaimable_run_lineage(&db, &w_id, &mut run_query, &authed).await?;
 
     let (email, permissioned_as, push_authed, tx) =
         if let Some(on_behalf_of) = on_behalf_authed.as_ref() {
@@ -7903,6 +7933,8 @@ pub async fn run_wait_result_script_by_path_internal(
     let tag = run_query.tag.clone().or(tag);
     let push_args = PushArgs { args: &args.args, extra: args.extra };
     check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
+    let mut run_query = run_query;
+    drop_unclaimable_run_lineage(&db, &w_id, &mut run_query, &authed).await?;
 
     let (email, permissioned_as, push_authed, tx) =
         if let Some(on_behalf_of) = on_behalf_of.as_ref() {
@@ -8017,6 +8049,8 @@ pub async fn run_wait_result_script_by_hash(
     let tag = run_query.tag.clone().or(tag);
     let push_args = PushArgs { args: &args.args, extra: args.extra };
     check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
+    let mut run_query = run_query;
+    drop_unclaimable_run_lineage(&db, &w_id, &mut run_query, &authed).await?;
 
     let (email, permissioned_as, push_authed, tx) = if let Some(obo) = on_behalf_of.as_ref() {
         (
@@ -10036,6 +10070,8 @@ pub async fn run_job_by_hash_inner(
     let push_args = PushArgs { args: &args.args, extra: args.extra };
 
     check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
+    let mut run_query = run_query;
+    drop_unclaimable_run_lineage(&db, &w_id, &mut run_query, &authed).await?;
 
     let (email, permissioned_as, push_authed, tx) = if let Some(obo) = on_behalf_of.as_ref() {
         (

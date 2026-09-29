@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.817.0
+  version: 1.818.0
   title: Windmill API
 
   contact:
@@ -10872,6 +10872,8 @@ paths:
             text/plain:
               schema:
                 type: string
+        "400":
+          description: the body's workspace_id does not match the workspace in the path
 
   /w/{workspace}/workspace_dependencies/archive/{language}:
     post:
@@ -13526,7 +13528,7 @@ paths:
         Returns the flat list of all item paths visible to the caller across
         scripts, flows, apps, raw apps, variables, and resources. Intended to
         feed an entirely client-side path autocomplete UI: the frontend fetches
-        once (server caches per workspace for 60s) and performs all prefix/segment
+        once (server caches per caller for 60s) and performs all prefix/segment
         computation locally. Capped at 20,000 paths (5,000 per table).
       operationId: listPathAutocompletePaths
       tags:
@@ -29504,6 +29506,7 @@ components:
       properties:
         workspace_id:
           type: string
+          description: must equal the workspace in the request path
         language:
           $ref: "#/components/schemas/ScriptLang"
         name:
@@ -37259,6 +37262,12 @@ components:
         workers:
           type: boolean
           description: Whether operators can view workers page
+        manage_schedules:
+          type: boolean
+          description: Whether operators can create, edit and delete schedules. Granted unless withdrawn; omitting the field leaves the stored value unchanged.
+        manage_triggers:
+          type: boolean
+          description: Whether operators can create, edit and delete triggers. Granted unless withdrawn; omitting the field leaves the stored value unchanged.
 
     WorkspaceComparison:
       type: object

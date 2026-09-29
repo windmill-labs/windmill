@@ -6,26 +6,20 @@
  * file states, and that the markers still close a deployed open app back down.
  */
 
-import { afterAll, beforeEach, expect, mock, test } from "bun:test";
+import { beforeEach, expect, test } from "bun:test";
 import { mkdtemp, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { mockServices } from "./mock_services.ts";
 
 let calls: any[] = [];
 let deployedPolicy: any;
 /** No app deployed at the path: `getAppByPath` 404s and the push creates one. */
 let deployed = true;
 
-// Stub only what no other in-process suite imports, and treat a stub as
-// permanent for the run (see "Module mocks" in cli/TESTING.md). These three API
-// functions qualify — nothing else in `test/` imports them. `bundle.ts` did not:
-// stubbing it left `raw_app_svelte_plugin_unit.test.ts` asserting against an
-// empty bundle, which an `afterAll` hand-back did not prevent. So the real
-// bundler runs instead, on the app each push writes below.
-const realServices = await import("../gen/services.gen.ts");
-
-mock.module("../gen/services.gen.ts", () => ({
-  ...realServices,
+// `bundle.ts` is deliberately not stubbed (see "Module mocks" in
+// cli/TESTING.md): the real bundler runs on the app each push writes below.
+mockServices({
   getAppByPath: async () => {
     if (!deployed) throw new Error("not found");
     return {
@@ -41,12 +35,6 @@ mock.module("../gen/services.gen.ts", () => ({
   createAppRaw: async (a: unknown) => {
     calls.push(a);
   },
-}));
-
-// Belt and braces: nothing else in-process calls these, and a hand-back is not
-// what makes that safe.
-afterAll(() => {
-  mock.module("../gen/services.gen.ts", () => realServices);
 });
 
 const { pushRawApp } = await import("../src/commands/app/raw_apps.ts");

@@ -1,4 +1,8 @@
 <script lang="ts">
+	import { dbManagerTabsStorageKey, dbTableLayoutStorageKey } from './dbManagerDrawerModel.svelte'
+	import { DbManagerTabs, type DbManagerTabKind } from './dbManagerTabs.svelte'
+	import DbSqlTab from './DbSqlTab.svelte'
+	import { untrack } from 'svelte'
 	import { dbSchemas, type DBSchema } from '$lib/stores'
 	import type { DataTableTables } from '$lib/gen'
 	import { sortArray } from '$lib/utils'
@@ -69,6 +73,10 @@
 		/** Which view the right pane shows, set by the control the caller renders. */
 		requestedViewMode?: DbManagerViewMode
 		onViewMode?: (mode: DbManagerViewMode) => void
+		/** Show the right pane as tabs (data, diagram, SQL editor) kept per database, in place of
+		 * the single view and the SQL pane below it. The caller renders the tab strip from
+		 * `tabsModel()`. */
+		tabbed?: boolean
 	}
 
 	let {
@@ -91,7 +99,8 @@
 		workspace = undefined,
 		workerTag = $bindable(),
 		requestedViewMode,
-		onViewMode
+		onViewMode,
+		tabbed = false
 	}: Props = $props()
 
 	let ws = $derived(workspace ?? $operatingWorkspace)
@@ -131,8 +140,11 @@
 	let colDefsRun = 0
 	let schemaRun = 0
 
+	// Keyed on the database rather than `input`, which is replaced whenever the selected table
+	// changes: re-reading on that would redo the whole database's reads per click.
+	let databaseCacheKey = $derived(input ? schemaCacheKey(ws, input) : undefined)
 	let colDefs = resource(
-		() => [input, ws, workerTag],
+		() => [databaseCacheKey, workerTag],
 		async () => {
 			const run = ++colDefsRun
 			colDefsError = undefined
@@ -158,7 +170,7 @@
 	)
 
 	let dbSchemasPromise = resource(
-		() => [input, ws, workerTag],
+		() => [databaseCacheKey, workerTag],
 		async () => {
 			const run = ++schemaRun
 			schemaError = undefined
@@ -247,6 +259,24 @@
 	}
 	let _dbManager: DbManager | undefined = $state()
 	export const dbManager = () => _dbManager
+
+	// Keyed on the database alone: `input` is replaced whenever the selected table changes, and
+	// that must not reset the tabs.
+	let tabsStorageKey = $derived(
+		tabbed && input && ws ? dbManagerTabsStorageKey(ws, input) : undefined
+	)
+	let tabs = $derived.by(() => {
+		const key = tabsStorageKey
+		if (!key) return undefined
+		return untrack(() => {
+			const kinds: DbManagerTabKind[] =
+				input && getDbType(input) === 'postgresql' ? ['data', 'diagram', 'sql'] : ['data', 'sql']
+			const model = new DbManagerTabs(key, kinds)
+			if (input?.specificTable) model.openTable(input.specificSchema, input.specificTable)
+			return model
+		})
+	})
+	export const tabsModel = () => tabs
 </script>
 
 <svelte:window
@@ -295,29 +325,56 @@
 	{@const _input = input}
 	{@const dbType = getDbType(_input)}
 	{@const shownSchema = loadError || !dbSchema ? emptySchemaFor(_input) : dbSchema}
+	{@const placeholderTableName = sortArray(
+		Object.keys(
+			shownSchema.schema[
+				'public' in shownSchema.schema
+					? 'public'
+					: 'dbo' in shownSchema.schema
+						? 'dbo'
+						: Object.keys(shownSchema.schema ?? {})?.[0]
+			] ?? {}
+		)
+	)?.[0]}
+	{#snippet sqlTab(tab: { id: string; code?: string })}
+		<DbSqlTab
+			input={_input}
+			workspace={ws!}
+			tag={workerTag}
+			{placeholderTableName}
+			initialCode={tab.code}
+			onCodeChange={(code) => tabs?.update(tab.id, { code })}
+			onSchemaChange={() => refresh()}
+			schema={shownSchema}
+		/>
+	{/snippet}
 	<Splitpanes horizontal>
 		<Pane class="relative">
-			<!-- svelte-ignore a11y_click_events_have_key_events -->
-			<!-- svelte-ignore a11y_no_static_element_interactions -->
-			<div
-				class={'absolute inset-0 z-10 p-8 ' +
-					(replResultData
-						? 'bg-surface/90'
-						: 'transition-colors bg-transparent pointer-events-none select-none')}
-				onclick={(e) => {
-					// Only proceed if the click is directly on this div and not on the child elements
-					if (e.target === e.currentTarget) {
-						replResultData = undefined
-					}
-				}}
-			>
-				{#if replResultData}
-					{#key replResultData}
-						<SimpleAgTable data={replResultData} class="animate-zoom-in" />
-					{/key}
-				{/if}
-			</div>
+			{#if !tabbed}
+				<!-- svelte-ignore a11y_click_events_have_key_events -->
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div
+					class={'absolute inset-0 z-10 p-8 ' +
+						(replResultData
+							? 'bg-surface/90'
+							: 'transition-colors bg-transparent pointer-events-none select-none')}
+					onclick={(e) => {
+						// Only proceed if the click is directly on this div and not on the child elements
+						if (e.target === e.currentTarget) {
+							replResultData = undefined
+						}
+					}}
+				>
+					{#if replResultData}
+						{#key replResultData}
+							<SimpleAgTable data={replResultData} class="animate-zoom-in" />
+						{/key}
+					{/if}
+				</div>
+			{/if}
 			<DbManager
+				{tabs}
+				{sqlTab}
 				{requestedViewMode}
 				{onViewMode}
 				databaseKey={schemaCacheKey(ws, _input)}
@@ -327,11 +384,10 @@
 				dbSchema={shownSchema}
 				mainPane={loadError ? errorPane : undefined}
 				colDefs={loadError ? undefined : colDefsOfInput}
-				dbTableOpsFactory={({ colDefs, tableKey, whereClause }) =>
+				dbTableOpsFactory={({ colDefs, tableKey }) =>
 					dbTableOpsWithPreviewScripts({
 						colDefs,
 						tableKey,
-						whereClause,
 						input: _input,
 						workspace: ws,
 						tag: workerTag
@@ -373,9 +429,10 @@
 				bind:this={_dbManager}
 				{disabledTables}
 				features={getDbFeatures(input)}
+				tableLayoutKey={(schema, table) => dbTableLayoutStorageKey(ws, _input, schema, table)}
 			/>
 		</Pane>
-		{#if showRepl}
+		{#if showRepl && !tabbed}
 			<Pane bind:size={replPanelSize} minSize={REPL_MIN_SIZE} class="relative">
 				<SqlRepl
 					{input}
@@ -385,17 +442,8 @@
 						replResultData = data
 					}}
 					onSchemaChange={() => refresh()}
-					placeholderTableName={sortArray(
-						Object.keys(
-							shownSchema.schema[
-								'public' in shownSchema.schema
-									? 'public'
-									: 'dbo' in shownSchema.schema
-										? 'dbo'
-										: Object.keys(shownSchema.schema ?? {})?.[0]
-							] ?? {}
-						)
-					)?.[0]}
+					{placeholderTableName}
+					schema={shownSchema}
 				/>
 			</Pane>
 		{/if}
