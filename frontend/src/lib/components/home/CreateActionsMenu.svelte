@@ -405,8 +405,7 @@
 			importScriptStore.set(parsed)
 			await goto(`${base}/scripts/add?import=true`)
 		} else if (importKind === 'app-fullcode') {
-			// /apps_raw/add does a full reload (cross-origin isolation), so the in-memory
-			// store would be lost — hand the payload over via sessionStorage instead.
+			// The raw app editor reads the payload from sessionStorage on mount.
 			sessionStorage.setItem('rawAppImport', JSON.stringify(parsed))
 			await goto(`${base}/apps_raw/add`)
 		} else {
