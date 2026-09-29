@@ -1,9 +1,13 @@
 import { expect, it, vi } from 'vitest'
 // @ts-ignore - Node.js fs/promises
-import { mkdir, writeFile } from 'fs/promises'
+import { mkdir, readFile, writeFile } from 'fs/promises'
 // @ts-ignore - Node.js path
 import { dirname, resolve } from 'path'
+// @ts-ignore - Node.js url
+import { fileURLToPath } from 'url'
 import { handleBenchmarkApiFetch, hasBenchmarkApiHandler } from './mockBackend'
+
+const FRONTEND_DIR = fileURLToPath(new URL('../../../frontend/', import.meta.url))
 
 // Some tools reach the backend by relative fetch('/api/...'), which has no meaning
 // in the vitest environment — serve the ones the benchmark handles.
@@ -24,8 +28,25 @@ globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
 	if (typeof url === 'string' && hasBenchmarkApiHandler(url)) {
 		return handleBenchmarkApiFetch(url, init)
 	}
+	// The parsers behind inferArgs load their wasm from a vite `?url` path, which only a dev
+	// server serves. Unserved, every script schema infers as empty, and the tools then tell the
+	// model its arguments are undeclared, so it rewrites a correct script until it runs out of turns.
+	const wasmPath = typeof url === 'string' ? wasmFilePath(url) : undefined
+	if (wasmPath) {
+		return new Response(await readFile(wasmPath), {
+			headers: { 'Content-Type': 'application/wasm' }
+		})
+	}
 	return ORIGINAL_FETCH(input as Parameters<typeof fetch>[0], init)
 }) as typeof fetch
+
+function wasmFilePath(url: string): string | undefined {
+	const pathname = url.split(/[?#]/)[0]
+	if (!pathname.endsWith('.wasm')) return undefined
+	if (pathname.startsWith('/@fs/')) return pathname.slice('/@fs'.length)
+	if (pathname.startsWith('/node_modules/')) return resolve(FRONTEND_DIR, `.${pathname}`)
+	return undefined
+}
 
 vi.mock('monaco-editor', () => ({
 	editor: {},
