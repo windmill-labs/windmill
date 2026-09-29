@@ -1224,7 +1224,7 @@
 					<span class="truncate leading-5">{resourceTypeDisplayName(key)}</span>
 					<span class="shrink-0 font-mono text-2xs font-normal text-hint">{key}</span>
 					{#if hubPopular.has(stripSandboxSuffix(key))}
-						<Badge color="blue" small class="self-center">Popular</Badge>
+						<Badge color="blue" small wrapperClass="ml-auto shrink-0 self-center">Popular</Badge>
 					{/if}
 				{/snippet}
 				{#snippet subtitle()}
