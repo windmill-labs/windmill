@@ -14,7 +14,15 @@ callers that already know which section they mean, such as the "+" menu's Manage
 </script>
 
 <script lang="ts">
-	import { BookOpen, Boxes, Paperclip, Plug, ScrollText, SlidersHorizontal } from 'lucide-svelte'
+	import {
+		BookOpen,
+		Boxes,
+		ExternalLink,
+		Paperclip,
+		Plug,
+		ScrollText,
+		SlidersHorizontal
+	} from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
 	import SidebarNavigation from '$lib/components/common/sidebar/SidebarNavigation.svelte'
@@ -28,6 +36,11 @@ callers that already know which section they mean, such as the "+" menu's Manage
 	import AssistantMcpSection from './AssistantMcpSection.svelte'
 	import AssistantFilesSection from './AssistantFilesSection.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	// Prefilled title marks the issue as AI Sessions feedback for triage.
+	const FEEDBACK_ISSUE_URL =
+		'https://github.com/windmill-labs/windmill/issues/new?title=' +
+		encodeURIComponent('AI Sessions feedback: ')
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -194,6 +207,18 @@ callers that already know which section they mean, such as the "+" menu's Manage
 				selectedId={section}
 				onNavigate={(id) => select(id as AssistantSettingsSection)}
 			/>
+			<div class="mt-auto">
+				<Button
+					variant="subtle"
+					unifiedSize="sm"
+					endIcon={{ icon: ExternalLink }}
+					btnClasses="!justify-start !w-full"
+					href={FEEDBACK_ISSUE_URL}
+					target="_blank"
+				>
+					Give feedback
+				</Button>
+			</div>
 		</div>
 
 		<div class="grow min-w-0 flex flex-col min-h-0">
