@@ -415,7 +415,8 @@
 		if (!isSecret || !selected || !existedInitially[selected]) return
 		const s = states[selected]?.draft
 		const ini = initialStates[selected]
-		if (!s || !ini?.variable.is_secret || s.variable.value !== ini.variable.value) return
+		if (!s || !ini?.variable.is_secret) return
+		if (s.variable.value !== '' && s.variable.value !== ini.variable.value) return
 		s.variable.value = ''
 		ini.variable.value = ''
 		form?.setCode('')
