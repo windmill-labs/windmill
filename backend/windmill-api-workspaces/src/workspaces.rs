@@ -1669,6 +1669,14 @@ async fn run_slack_message_test_job(
     Path(w_id): Path<String>,
     Json(req): Json<RunSlackMessageTestJobRequest>,
 ) -> JsonResult<RunSlackMessageTestJobResponse> {
+    // Runs as the error handler identity, handed the Slack bot token.
+    if !(windmill_queue::is_preset_handler_path(&req.hub_script_path)
+        && req.hub_script_path.ends_with("-slack"))
+    {
+        return Err(Error::BadRequest(
+            "Only a preset Slack handler from the hub can be tested".to_string(),
+        ));
+    }
     let mut fake_result = HashMap::new();
     fake_result.insert("error".to_string(), to_raw_value(&req.test_msg));
     fake_result.insert("success_result".to_string(), to_raw_value(&req.test_msg));
@@ -1693,7 +1701,7 @@ async fn run_slack_message_test_job(
         Some(Utc::now()),
         Some(sqlx::types::Json(to_raw_value(&extra_args))),
         authed.email.as_str(),
-        false,
+        None,
         false,
         None, // Note: we could mark it as high priority to return result quickly to the user
     )
