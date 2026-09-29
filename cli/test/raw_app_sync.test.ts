@@ -61,8 +61,7 @@ root.render(<App/>);
 const PACKAGE_JSON = `{
     "dependencies": {
         "react": "19.0.0",
-        "react-dom": "19.0.0",
-        "windmill-client": "^1"
+        "react-dom": "19.0.0"
     },
     "devDependencies": {
         "@types/react-dom": "^19.0.0",

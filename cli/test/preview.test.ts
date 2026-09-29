@@ -455,6 +455,10 @@ schema:
 // SCRIPT WITH MODULES PREVIEW TESTS
 // =============================================================================
 
+// Pinned: a release commit runs these tests while the same release publishes a new
+// windmill-client, and the worker resolving that version before npm serves it fails the job.
+const WINDMILL_CLIENT = "windmill-client@1.819.0";
+
 test("script preview: script with modules (taskScript pattern)", async () => {
   await withTestBackend(async (backend, tempDir) => {
     await createWmillConfig(tempDir, { defaultTs: "bun" });
@@ -463,7 +467,7 @@ test("script preview: script with modules (taskScript pattern)", async () => {
     await createScript(
       tempDir,
       "f/test/wac_script.ts",
-      `import { task, taskScript, workflow } from "windmill-client";
+      `import { task, taskScript, workflow } from "${WINDMILL_CLIENT}";
 
 const helper = taskScript("./helper.ts");
 
@@ -512,7 +516,7 @@ test("script preview: script with modules (folder layout)", async () => {
     // Entry point script
     await writeFile(
       `${modDir}/script.ts`,
-      `import { task, taskScript, workflow } from "windmill-client";
+      `import { task, taskScript, workflow } from "${WINDMILL_CLIENT}";
 
 const helper = taskScript("./helper.ts");
 
