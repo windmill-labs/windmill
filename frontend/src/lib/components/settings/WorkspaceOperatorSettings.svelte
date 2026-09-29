@@ -76,7 +76,7 @@
 			sendUserToast('Operator settings saved successfully!', false)
 		} catch (error) {
 			console.error('Error updating operator settings:', error)
-			sendUserToast('Failed to save operator settings.', true)
+			sendUserToast(`Failed to save operator settings: ${error?.body ?? error}`, true)
 		}
 	}
 
