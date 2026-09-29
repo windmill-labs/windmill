@@ -584,6 +584,7 @@ pub async fn handle_ai_agent_job(
     };
 
     let value = flow_data.value();
+    let preserve_step_tags = value.preserve_step_tags;
 
     let module = if direct_parent_job_kind == JobKind::AIAgent {
         let parent_agent_step_id = direct_parent_job_flow_step_id.as_deref().ok_or_else(|| {
@@ -1009,6 +1010,7 @@ pub async fn handle_ai_agent_job(
             has_stream,
             has_websearch,
             omit_output_from_conversation,
+            preserve_step_tags,
             cancel_rx,
             tool_abort_handles.clone(),
             job_completed_tx,
@@ -1126,6 +1128,7 @@ pub async fn run_agent(
     has_stream: &mut bool,
     has_websearch: bool,
     omit_output_from_conversation: bool,
+    preserve_step_tags: bool,
 
     // cancellation signal from parent
     cancel_rx: tokio::sync::watch::Receiver<bool>,
@@ -1881,6 +1884,7 @@ pub async fn run_agent(
                     stream_event_processor: stream_event_processor.as_ref(),
                     flow_context: &mut flow_context,
                     omit_output_from_conversation,
+                    preserve_step_tags,
                     reasoning: if structured_output_first {
                         None
                     } else {

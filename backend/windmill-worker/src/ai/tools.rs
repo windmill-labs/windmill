@@ -7,7 +7,8 @@ use crate::ai::utils::{
 use crate::common::OccupancyMetrics;
 use crate::result_processor::handle_non_flow_job_error;
 use crate::worker_flow::{
-    evaluate_input_transform, raw_script_to_payload, script_to_payload, JobPayloadWithTag,
+    evaluate_input_transform, raw_script_to_payload, resolve_flow_step_tag, script_to_payload,
+    JobPayloadWithTag,
 };
 use crate::{create_job_dir, handle_queued_job, JobCompletedSender};
 use anyhow::Context;
@@ -37,8 +38,9 @@ use windmill_common::{
     worker::{make_tool_job_pull_query, to_raw_value, Connection, WORKER_CONFIG},
 };
 use windmill_queue::{
-    check_tag_available_for_push, get_mini_pulled_job, pull, push, resolve_push_tag,
-    try_admit_owned_job, MiniCompletedJob, MiniPulledJob, PushArgs, PushIsolationLevel,
+    append_logs, check_tag_available_for_push, get_mini_pulled_job, pull, push, resolve_push_tag,
+    tag_reads_flow_expr, try_admit_owned_job, MiniCompletedJob, MiniPulledJob, PushArgs,
+    PushIsolationLevel,
 };
 
 /// Shared collection of abort handles for spawned tool tasks.
@@ -72,6 +74,8 @@ pub struct ToolExecutionContext<'a> {
     pub stream_event_processor: Option<&'a StreamEventProcessor>,
     pub flow_context: &'a mut FlowContext,
     pub omit_output_from_conversation: bool,
+    /// The agent's flow `preserve_step_tags`: its tools pick their tag as that flow's steps do.
+    pub preserve_step_tags: bool,
     /// The thinking that led to this round's calls, stored on the first tool row written.
     /// None when the round wrote text, whose row carries it.
     pub reasoning: Option<String>,
@@ -507,9 +511,30 @@ async fn enqueue_windmill_tool(
 
     let push_args = PushArgs { args: &tool_call_args, extra: None };
 
+    // The agent's tag stands in for the flow's, as a sub-flow's does for its own steps.
+    let tool_tag = resolve_flow_step_tag(
+        false,
+        &ctx.job.tag,
+        &ctx.job.workspace_id,
+        ctx.preserve_step_tags,
+        job_payload.tag.as_deref(),
+    );
+    if tool_tag.as_deref().is_some_and(tag_reads_flow_expr) {
+        append_logs(
+            &ctx.job.id,
+            &ctx.job.workspace_id,
+            format!(
+                "Tool '{}' is tagged with `$flow_expr[...]`, which AI agent tools do not resolve, so it runs on its default tag.\n",
+                tool_call.function.name
+            ),
+            ctx.conn,
+        )
+        .await;
+    }
+
     // A tool's own tag routes its job, so like any tag the caller chose it must pass the
     // workspace's custom tag restrictions. The agent's tag was already checked when it was pushed.
-    if let Some(tag) = job_payload.tag.as_deref() {
+    if let Some(tag) = tool_tag.as_deref() {
         if resolve_push_tag(tag, &push_args, &ctx.job.workspace_id, ctx.db)
             .await
             .is_some_and(|resolved| resolved != ctx.job.tag)
@@ -565,7 +590,7 @@ async fn enqueue_windmill_tool(
         false,
         None,
         ctx.job.visible_to_owner,
-        job_payload.tag,
+        tool_tag,
         job_payload.timeout,
         None,
         job_priority,
