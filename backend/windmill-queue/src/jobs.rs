@@ -6872,6 +6872,8 @@ async fn push_inner<'c, 'd>(
     //
     // A job a suspended trigger parks is not a fire: it counts as `fired` only
     // when `resume_suspended_trigger_jobs` releases it, or never if discarded.
+    // Both are counted before the queue caps below and the caller's commit, so a
+    // rejected push still counts; accepted for a telemetry counter.
     if flow_step_id.is_none() {
         if let Some(kind) = trigger_kind.as_ref() {
             let action = if suspended_mode.unwrap_or(false) {
