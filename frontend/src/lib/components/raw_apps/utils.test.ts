@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import {
 	canonicalRawAppDiffValue,
+	createRawAppBuildTracker,
+	formatBuildFailureForChat,
 	formatRuntimeLogsForChat,
 	genWmillTs,
 	normalizeRawAppRuntimeLogs,
@@ -82,6 +84,58 @@ describe('normalizeRawAppRuntimeLogs', () => {
 
 		expect(entries).toEqual([{ level: 'log', message: 'ready', ts: 1718000000000 }])
 		expect(formatRuntimeLogsForChat(entries)).toBe('[06:13:20.000] LOG: ready')
+	})
+})
+
+describe('formatBuildFailureForChat', () => {
+	it('reports the build error with the bundler log tail, without install noise', () => {
+		const logs = [
+			'Installing react …',
+			'Using cached resolution for react@19.0.0: 19.0.0',
+			'Resolved react@19.0.0',
+			'Using idb cache for react@19.0.0 …',
+			'[esbuild] Build started...',
+			'[esbuild] Build failed: Build failed with 1 error:',
+			'App.tsx:1:15: ERROR: Unexpected ";"'
+		].join('\n')
+		const report = formatBuildFailureForChat('App.tsx:1:15: ERROR: Unexpected ";"', logs)
+
+		expect(report).toContain('Build error:\nApp.tsx:1:15: ERROR: Unexpected ";"')
+		expect(report).toContain('[esbuild] Build failed')
+		expect(report).toContain('Installing react')
+		expect(report).not.toContain('Using cached resolution')
+		expect(report).not.toContain('Resolved react')
+	})
+})
+
+describe('createRawAppBuildTracker', () => {
+	it('keeps a timed-out build pending until it settles', async () => {
+		vi.useFakeTimers()
+		try {
+			const tracker = createRawAppBuildTracker(1000)
+			tracker.start()
+			const first = tracker.wait()
+			await vi.advanceTimersByTimeAsync(1000)
+			await first
+			expect(tracker.pending).toBe(true)
+
+			let secondDone = false
+			void tracker.wait().then(() => (secondDone = true))
+			tracker.settle()
+			await vi.advanceTimersByTimeAsync(0)
+			expect(secondDone).toBe(true)
+			expect(tracker.pending).toBe(false)
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
+	it('ignores a settle for a generation an edit has superseded', () => {
+		const tracker = createRawAppBuildTracker(1000)
+		const gen = tracker.start()
+		tracker.start()
+		tracker.settle(gen)
+		expect(tracker.pending).toBe(true)
 	})
 })
 

@@ -23,8 +23,7 @@
 	async function importRaw() {
 		const parsed = importType === 'yaml' ? YAML.parse(pendingRaw) : JSON.parse(pendingRaw)
 		if (appKind === 'fullcode') {
-			// Navigation to /apps_raw/add triggers a full page reload (for cross-origin isolation),
-			// so the in-memory importStore would be lost. Use sessionStorage instead.
+			// The raw app editor reads the payload from sessionStorage on mount.
 			sessionStorage.setItem('rawAppImport', JSON.stringify(parsed))
 			await goto('/apps_raw/add')
 		} else {

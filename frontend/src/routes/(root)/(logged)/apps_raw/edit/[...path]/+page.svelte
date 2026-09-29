@@ -233,9 +233,8 @@
 			// Explicit path seed: the fork-a-draft handoff re-homes the source
 			// path into the forker's namespace and passes it here.
 			const pathParam = page.url.searchParams.get('seed_path')
-			// One-shot YAML/JSON import handoff. Carried via $importStore, or
-			// sessionStorage when /apps_raw's full page reload would drop in-memory
-			// state. Wrapped exports carry { summary, value, policy }; bare ones the value.
+			// One-shot YAML/JSON import handoff, carried via $importStore or
+			// sessionStorage. Wrapped exports carry { summary, value, policy }; bare ones the value.
 			let importRaw: any = $importStore
 			if ($importStore) {
 				$importStore = undefined

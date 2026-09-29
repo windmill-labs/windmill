@@ -28,6 +28,9 @@ export type WizardResume = {
 	claims?: Claim[]
 	/** Every project created before the redirect, each still guarding its password's path. */
 	createdProjects?: CreatedProject[]
+	/** External-cluster databases the interrupted run created, so the resumed one does not try
+	 *  to create them a second time. */
+	createdExternalDbs?: string[]
 	/**
 	 * Which side of the step-2 toggle the run was on, and where it was pointed. A run that
 	 * died mid-create otherwise comes back on `existing`, is asked for the password it

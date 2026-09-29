@@ -2772,15 +2772,16 @@ async fn send_email_with_instance_smtp(
         return Err(anyhow::anyhow!("Feature not supported in cloud hosted windmill").into());
     }
 
-    // Any code pushed as a workspace or schedule error handler, custom ones included, runs as
-    // one of these identities: this keeps out ad-hoc job tokens, not who authors handler code.
+    // Workspace error handlers (admin-configured, custom ones included) and the preset hub
+    // handlers of a schedule run as one of these identities. A custom schedule handler runs as
+    // the schedule and is set by any schedule writer, so it must stay out of this list.
     let is_handler_job = authed.email == EMAIL_ERROR_HANDLER_USER_EMAIL
         || authed.email == ERROR_HANDLER_USER_EMAIL
         || authed.email == SCHEDULE_ERROR_HANDLER_USER_EMAIL;
 
     if !is_handler_job && !windmill_api_auth::is_super_admin_authed(&db, &authed).await? {
         return Err(Error::NotAuthorized(
-            "Only super admin or a workspace/schedule error handler job can send emails with the instance SMTP"
+            "Only super admin, a workspace error handler or a preset schedule handler can send emails with the instance SMTP"
                 .to_string(),
         ));
     }
@@ -4227,6 +4228,7 @@ async fn get_started_at_by_ids(
 struct ListableQueuedJob {
     pub id: Uuid,
     pub running: bool,
+    pub canceled: bool,
     pub created_by: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub started_at: Option<chrono::DateTime<chrono::Utc>>,
@@ -4272,6 +4274,9 @@ async fn list_queue_jobs(
         &[
             "v2_job.id",
             "v2_job_queue.running",
+            // A canceled row stays in the queue until a worker picks it up and completes it, and
+            // the `QueuedJob` schema this answers with declares the field either way.
+            "v2_job_queue.canceled_by IS NOT NULL as canceled",
             "v2_job.created_by",
             "v2_job.created_at",
             "v2_job_queue.started_at",
@@ -9655,6 +9660,13 @@ async fn run_preview_flow_job(
     // jobs:run scope so a narrowly-scoped token cannot escape its scope. See run_preview_script.
     check_scopes(&authed, || format!("jobs:run"))?;
     require_path_read_access_for_preview(&authed, &raw_flow.path)?;
+    // Restarting copies the source runs' step results into the new run, and the queue resolves
+    // them with the service pool, so every run the request names must be readable as the caller.
+    let mut level = raw_flow.restarted_from.as_ref();
+    while let Some(r) = level {
+        require_job_update_read_access(&db, &user_db, &authed, &w_id, &r.flow_job_id, None).await?;
+        level = r.nested.as_deref();
+    }
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tag = run_query.tag.clone().or(raw_flow.tag.clone());
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());

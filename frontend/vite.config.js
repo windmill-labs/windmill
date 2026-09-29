@@ -199,17 +199,14 @@ function isolateAuthCookie(proxy) {
 
 // Cross-origin isolation headers, scoped to mirror the production predicate —
 // see `needs_cross_origin_isolation` in backend/windmill-api/src/static_assets.rs
-// for which paths need them and why the raw app viewer must be excluded.
+// for why only opted-in public apps get them.
 // `enforce: 'pre'` so these headers are set before SvelteKit's sirv static
 // handler serves `static/` files and ends the response without calling next().
 function needsCrossOriginIsolation(url) {
 	const [path, query = ''] = url.split('?')
 	return (
-		path.startsWith('/apps_raw/edit') ||
-		path.startsWith('/apps_raw/add') ||
-		path.startsWith('/ui_builder/') ||
-		((path.startsWith('/public/') || path.startsWith('/a/')) &&
-			new URLSearchParams(query).has('wm_coep'))
+		(path.startsWith('/public/') || path.startsWith('/a/')) &&
+		new URLSearchParams(query).has('wm_coep')
 	)
 }
 
@@ -313,8 +310,6 @@ const config = {
 							target: 'http://localhost:4000',
 							changeOrigin: true,
 							headers: {
-								'Cross-Origin-Opener-Policy': 'same-origin',
-								'Cross-Origin-Embedder-Policy': 'require-corp',
 								'Cross-Origin-Resource-Policy': 'cross-origin'
 							}
 						}
