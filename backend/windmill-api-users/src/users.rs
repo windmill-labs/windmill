@@ -2867,15 +2867,23 @@ async fn refresh_token(
         ));
     }
     let t_hash = windmill_common::auth::hash_token(&token);
-    // An impersonation session must end at its own expiry. Refreshing would swap it for a
-    // regular session of the service account: no 24h cap, no impersonator in the label, and
-    // a `users.token.refresh` that bills the service account as an active user.
-    let label = sqlx::query_scalar!("SELECT label FROM token WHERE token_hash = $1", &t_hash)
+    // Only a live, non-impersonation row may be exchanged for a session: an impersonation must
+    // end at its 24h expiry, not become a renewable service-account session billed as active.
+    // Read the row rather than trust `authed`, which the auth cache keeps serving for up to
+    // 120s after the row expired or was swept. `jwt_` tokens have no row.
+    if !token.starts_with("jwt_") {
+        let refreshable = sqlx::query_scalar!(
+            "SELECT NOT starts_with(COALESCE(label, ''), 'impersonation:') FROM token
+             WHERE token_hash = $1 AND (expiration IS NULL OR expiration > now())",
+            &t_hash
+        )
         .fetch_optional(&db)
         .await?
-        .flatten();
-    if label.is_some_and(|l| l.starts_with("impersonation:")) {
-        return Ok("impersonation sessions are not refreshed".to_string());
+        .flatten()
+        .unwrap_or(false);
+        if !refreshable {
+            return Ok("this session cannot be refreshed".to_string());
+        }
     }
     if let Some(thresh_s) = query.if_expiring_in_less_than_s {
         let not_expired = sqlx::query_scalar!("SELECT true FROM token WHERE token_hash = $1 and expiration IS NOT NULL and expiration > now() + $2::int * '1 sec'::interval", &t_hash, thresh_s)
