@@ -26,6 +26,7 @@
 	} from 'lucide-svelte'
 	import type { Writable } from 'svelte/store'
 	import EEOnly from '../EEOnly.svelte'
+	import { isCloudHosted } from '$lib/cloud'
 
 	interface Props {
 		values: Writable<Record<string, any>>
@@ -56,6 +57,7 @@
 	let dropping = $state<string | undefined>(undefined)
 	let disabling = $state(false)
 	let disableModalOpen = $state(false)
+	let disableInternalModalOpen = $state(false)
 	let dropModalName = $state<string | undefined>(undefined)
 	let creating = $state(false)
 	let newDbName = $state('')
@@ -88,6 +90,9 @@
 	// written before it runs.
 	async function saveAndSetup(rotate: boolean) {
 		settingUp = true
+		// Read before the save: the offer below is for the setup that first brings the cluster
+		// into use, not for every re-run or rotation after it.
+		const wasSetUp = !!status?.configured && !!status?.last_setup?.success
 		try {
 			const value = { ...$state.snapshot(form), sslmode: form.sslmode ?? 'verify-full' }
 			await SettingService.setGlobal({ key: KEY, requestBody: { value } })
@@ -104,11 +109,31 @@
 				report.success ? 'External cluster set up' : 'Setup finished with errors',
 				!report.success
 			)
+			if (report.success && !wasSetUp && !isCloudHosted() && !$values[INSTANCE_PG_DISABLED_KEY])
+				disableInternalModalOpen = true
 		} catch (e) {
 			sendUserToast(e?.body ?? e?.message ?? String(e), true)
 		} finally {
 			settingUp = false
 			rotatePasswords = false
+		}
+	}
+
+	const INSTANCE_PG_DISABLED_KEY = 'instance_pg_disabled'
+
+	async function disableInternal() {
+		try {
+			await SettingService.setGlobal({
+				key: INSTANCE_PG_DISABLED_KEY,
+				requestBody: { value: true }
+			})
+			$values[INSTANCE_PG_DISABLED_KEY] = true
+			markSettingSaved?.(INSTANCE_PG_DISABLED_KEY)
+			sendUserToast(
+				"Windmill's database is no longer offered for new data tables and Ducklake catalogs"
+			)
+		} catch (e) {
+			sendUserToast(e?.body ?? e?.message ?? String(e), true)
 		}
 	}
 
@@ -434,6 +459,25 @@
 	<span class="text-sm">
 		New passwords are generated for the roles Windmill manages on the cluster. Jobs running against
 		those databases while the rotation happens can fail and have to be retried.
+	</span>
+</ConfirmationModal>
+
+<ConfirmationModal
+	open={disableInternalModalOpen}
+	title="Disable the internal managed instance?"
+	confirmationText="Disable internal"
+	type="info"
+	on:canceled={() => (disableInternalModalOpen = false)}
+	on:confirmed={() => {
+		disableInternalModalOpen = false
+		disableInternal()
+	}}
+>
+	<span class="text-sm">
+		Do you want to disable the internal one, which uses the Windmill database instance? We recommend
+		having either the external or the internal one, not both. Existing data tables and Ducklake
+		catalogs on Windmill's database keep working; only new ones can no longer be created there. You
+		can turn it back on under Windmill instance below.
 	</span>
 </ConfirmationModal>
 

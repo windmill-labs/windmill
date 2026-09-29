@@ -494,7 +494,7 @@
 										}
 										transformInputSelectedText={shortManagedInstanceLabel}
 										id="database-type-select"
-										class="w-36"
+										class="w-44"
 									/>
 								</div>
 								<div class="flex items-center gap-1 w-80 relative">
@@ -652,6 +652,12 @@
 	{customInstanceDbs}
 	{externalInstanceDbs}
 	externalInstanceAvailable={externalInstanceConfigured && !!$superadmin}
+	{instanceAvailable}
+	refreshManagedInstances={() => {
+		externalInstanceStatus.refetch()
+		externalInstanceDbs.refetch()
+		instancePgDisabled.refetch()
+	}}
 	{defaultExternalDbName}
 	{confirmationModal}
 	{defaultInstanceDbName}

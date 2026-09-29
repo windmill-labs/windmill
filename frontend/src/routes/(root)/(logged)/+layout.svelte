@@ -44,6 +44,7 @@
 		devopsRole,
 		whitelabelNameStore,
 		globalDbManagerDrawer,
+		instanceSettingsSelectedTab,
 		globalForkModal,
 		globalS3FilePickerExplorer,
 		nonMemberWorkspaces,
@@ -64,7 +65,10 @@
 		getFavoriteHref,
 		getFavoriteLabel
 	} from '$lib/components/sidebar/FavoriteMenu.svelte'
-	import { SUPERADMIN_SETTINGS_HASH, USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
+	import {
+		parseSuperadminSettingsHash,
+		USER_SETTINGS_HASH
+	} from '$lib/components/sidebar/settings'
 	import { isCloudHosted } from '$lib/cloud'
 	import { PanelLeftClose, PanelLeftOpen, Home, Play, Search, WandSparkles } from 'lucide-svelte'
 	import { getUserExt } from '$lib/user'
@@ -297,7 +301,9 @@
 	}
 
 	function onQueryChangeAdminSettings() {
-		if (superadminSettings && page.url.hash === SUPERADMIN_SETTINGS_HASH) {
+		const target = parseSuperadminSettingsHash(page.url.hash)
+		if (superadminSettings && target) {
+			if (target.tab) instanceSettingsSelectedTab.set(target.tab)
 			superadminSettings.openDrawer()
 		}
 	}
@@ -691,7 +697,7 @@
 	let superadminSettingsRequested = $state(false)
 	$effect(() => {
 		if (page.url.hash.startsWith(USER_SETTINGS_HASH)) userSettingsRequested = true
-		if (page.url.hash === SUPERADMIN_SETTINGS_HASH) superadminSettingsRequested = true
+		if (parseSuperadminSettingsHash(page.url.hash)) superadminSettingsRequested = true
 	})
 	let dbManagerRequested = $state(false)
 	$effect(() => {
