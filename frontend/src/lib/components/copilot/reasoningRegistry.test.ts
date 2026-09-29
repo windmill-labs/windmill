@@ -10,6 +10,8 @@ import {
 	stripLegacyThinkingSuffix,
 	supportsReasoning
 } from './reasoningRegistry'
+import type { AIProvider } from '$lib/gen'
+import parity from './reasoningParity.json'
 
 describe('stripLegacyThinkingSuffix', () => {
 	it('removes the deprecated /thinking suffix', () => {
@@ -389,6 +391,22 @@ describe('Azure AI Foundry reasoning follows the model family', () => {
 		expect(supportsReasoning('azure_foundry', 'gpt-4o')).toBe(false)
 		expect(supportsReasoning('azure_foundry', 'DeepSeek-R1')).toBe(false)
 	})
+})
+
+describe('backend parity', () => {
+	// windmill-ai's `providers/mod.rs` test reads the same file, so the two rule lists
+	// can't drift.
+	it.each(parity)(
+		'$provider $model',
+		({ provider, model, canDisable, completionsToolsNeedOff }) => {
+			const capability = getReasoningCapability(provider as AIProvider, model)
+			expect(capability.supported).toBe(true)
+			expect(capability.canDisable).toBe(canDisable)
+			expect(completionsRejectsToolsWithReasoning(provider as AIProvider, model)).toBe(
+				completionsToolsNeedOff
+			)
+		}
+	)
 })
 
 describe('resolveEffectiveReasoning', () => {

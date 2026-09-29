@@ -1,6 +1,4 @@
-use super::{
-    completions_rejects_tools_with_reasoning, model_always_reasons, REASONING_OFF_SENTINEL,
-};
+use super::{completions_tools_need_reasoning_off, REASONING_OFF_SENTINEL};
 use crate::{
     ai_providers::AIProvider,
     image_handler::prepare_messages_for_api,
@@ -149,8 +147,7 @@ impl OtherQueryBuilder {
         // With tools, gpt-5.5+ only run here with reasoning off: turn it off where the model
         // can, rather than failing every turn.
         let reasoning_effort = if args.tools.is_some_and(|tools| !tools.is_empty())
-            && completions_rejects_tools_with_reasoning(args.model)
-            && !model_always_reasons(args.model)
+            && completions_tools_need_reasoning_off(args.model)
         {
             Some(REASONING_OFF_SENTINEL)
         } else {

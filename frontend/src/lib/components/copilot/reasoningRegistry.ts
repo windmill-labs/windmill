@@ -1,5 +1,5 @@
 import type { AIProvider, AIProviderModel } from '$lib/gen'
-import { parseModelId, usesAnthropicMessagesApi } from './modelConfig'
+import { usesAnthropicMessagesApi } from './modelConfig'
 
 /**
  * Reasoning effort is provider/model-specific. We never normalize a single
@@ -33,48 +33,6 @@ export function stripLegacyThinkingSuffix(model: string): string {
 		: model
 }
 
-/** Bare model id without any provider/gateway prefix (e.g. OpenRouter's `openai/o3`). */
-function baseModelId(model: string): string {
-	return parseModelId(model).base
-}
-
-/**
- * The GPT major version, or undefined. One digit, then a separator or the end: Azure
- * names gpt-3.5 `gpt-35-turbo`, which is not major 35.
- */
-function gptMajor(base: string): number | undefined {
-	const major = /^gpt-(\d)(?:[.-]|$)/.exec(base)?.[1]
-	return major === undefined ? undefined : Number(major)
-}
-
-/** gpt-5 and every later major version reason, including each gpt-6 tier. */
-function isGpt5OrLater(base: string): boolean {
-	return (gptMajor(base) ?? 0) >= 5
-}
-
-/**
- * gpt-5.5 and later refuse function tools on Chat Completions while they reason, even
- * with the effort omitted (live-verified); the Responses API has no such limit. Earlier
- * models (gpt-5.1, gpt-5, o-series) take both.
- */
-export function completionsRejectsToolsWithReasoning(provider: AIProvider, model: string): boolean {
-	const family = reasoningProviderFamily(provider, model)
-	if (family !== 'openai' && family !== 'azure_openai') return false
-	const base = baseModelId(model)
-	const major = gptMajor(base) ?? 0
-	return major > 5 || (major === 5 && Number(/^gpt-5\.(\d+)/.exec(base)?.[1] ?? 0) >= 5)
-}
-
-/**
- * Whether an OpenAI reasoning model takes the `none` effort: gpt-5.1+ and later majors
- * do, except gpt-6-astra (live-verified: it takes low..max only, while sol and luna take
- * `none`); gpt-5 and the o-series reject it.
- */
-function openaiCanDisable(base: string): boolean {
-	if (/^gpt-5\./.test(base)) return true
-	return (gptMajor(base) ?? 0) >= 6 && !base.includes('astra')
-}
-
 /**
  * Azure AI Foundry hosts multiple model families under one provider, so reasoning
  * support follows the underlying model rather than the provider: Claude deployments
@@ -90,173 +48,209 @@ function reasoningProviderFamily(provider: AIProvider, model: string): AIProvide
 }
 
 /**
- * Suggested effort levels per provider, sourced from each provider SDK's own
- * vocabulary.
+ * Sentinel sent for the deepseek off case. It never reaches the wire as an
+ * effort: the 'deepseek' branch of `applyReasoningToConfig` translates it to
+ * the provider's `thinking: {type: "disabled"}` param (`reasoning_effort:
+ * "none"` is rejected by their API).
  */
-const PROVIDER_REASONING_LEVELS: Partial<Record<AIProvider, ReasoningEffort[]>> = {
-	// DeepSeek accepts the full five-token vocabulary but only two levels are
-	// real: low/medium are server-mapped to high and xhigh to max — offering
-	// them would be a no-op knob.
-	deepseek: ['high', 'max'],
-	// Mistral's only effort token besides the 'none' disable is 'high'
-	// (anything else is rejected), so the knob is effectively on/off.
-	mistral: ['high']
-}
+export const DEEPSEEK_OFF_SENTINEL: ReasoningEffort = 'none'
 
 /**
- * OpenRouter validates effort against its own vocabulary
- * (minimal..xhigh + none) and translates per underlying provider, so the
- * real ladder depends on the model family: Anthropic gets all five as
- * distinct budget ratios (minimal 10% .. xhigh 95% of max_tokens); Gemini
- * maps to thinkingLevel with xhigh clamped to high (a no-op vs high);
- * OpenAI gets the token passed through verbatim, so the per-model OpenAI
- * scoping applies; DeepSeek server-maps low/medium to high and xhigh to max.
+ * Sentinel for the Anthropic off case. Like the DeepSeek one it never reaches
+ * the wire as an effort: the 'anthropic' branch of `applyReasoningToConfig`
+ * translates it to `thinking: {type: "disabled"}`, the only off that Opus and
+ * Sonnet 5 respect.
  */
-function openrouterReasoningLevels(model: string): ReasoningEffort[] {
-	const m = model.toLowerCase()
-	const base = baseModelId(model)
-	if (/claude-(opus|sonnet)-(4|5)/.test(m)) {
-		return ['minimal', 'low', 'medium', 'high', 'xhigh']
-	}
-	if (m.includes('gemini-')) {
-		return geminiReasoningLevels(m)
-	}
-	if (isGpt5OrLater(base) || /^o\d/.test(base)) {
-		return openaiReasoningLevels(base)
-	}
-	if (m.includes('deepseek-v4')) {
-		return ['high', 'xhigh']
-	}
-	return ['low', 'medium', 'high']
-}
+export const ANTHROPIC_OFF_SENTINEL: ReasoningEffort = 'none'
 
 /**
- * OpenAI's effort vocabulary is model-dependent: `minimal` exists on gpt-5 but
- * not on gpt-5.1+, `xhigh` arrived on gpt-5.5 and `max` on gpt-5.6 (gpt-6 keeps the
- * gpt-5.6 ladder); o-series
- * take low/medium/high. An unsupported level is rejected, so scope the list to
- * the model. (`none` is the disable token, handled by `explicitOffToken`.)
+ * What the registry knows about one group of models. The rows below are matched in
+ * order against the lowercased model id, first match wins, so a narrower row goes above
+ * the row it overrides. A model no row matches does not reason, as far as we know.
  */
-function openaiReasoningLevels(model: string): ReasoningEffort[] {
-	const base = baseModelId(model)
-	if (/^gpt-5\.6/.test(base) || (isGpt5OrLater(base) && !base.startsWith('gpt-5'))) {
-		return ['low', 'medium', 'high', 'xhigh', 'max']
-	}
-	if (/^gpt-5\.5/.test(base)) {
-		return ['low', 'medium', 'high', 'xhigh']
-	}
-	if (/^gpt-5\./.test(base)) {
-		return ['low', 'medium', 'high']
-	}
-	if (/^gpt-5/.test(base)) {
-		return ['minimal', 'low', 'medium', 'high']
-	}
-	return ['low', 'medium', 'high']
+type ReasoningRule = {
+	match: RegExp
+	/** The levels the UI offers. An unsupported level is a 400, so this is per model. */
+	levels: readonly ReasoningEffort[]
+	/**
+	 * Whether "off" really stops the model reasoning. When false the UI offers no off:
+	 * the provider would reject it, or coerce it to the lowest level.
+	 */
+	canDisable: boolean
+	/**
+	 * The effort to send for off on a model that reasons when the field is omitted.
+	 * Unset where omission is already off. Always `'none'`: `requestsReasoning` reads
+	 * that as off, and each wire format translates it (see `applyReasoningToConfig`).
+	 */
+	offToken?: ReasoningEffort
+	/**
+	 * gpt-5.5 and later refuse function tools on Chat Completions while they reason,
+	 * even with the effort omitted (live-verified); the Responses API has no such limit.
+	 */
+	completionsToolsNeedOff?: boolean
 }
+
+const LOW_TO_HIGH = ['low', 'medium', 'high']
+const LOW_TO_XHIGH = ['low', 'medium', 'high', 'xhigh']
+const LOW_TO_MAX = ['low', 'medium', 'high', 'xhigh', 'max']
+const MINIMAL_TO_HIGH = ['minimal', 'low', 'medium', 'high']
 
 /**
- * Gemini's level ladder is model-dependent: Gemini 3+ Flash / Flash-Lite accept
- * `minimal`, while 3.x Pro does not (and cannot disable thinking). Gemini 2.5
- * uses numeric budgets — the proxy maps the three tiers to budget values, so
- * `minimal` is not offered there.
+ * Claude models whose thinking cannot be turned off: an explicit disable 400s. Fable,
+ * Mythos, and the 5.x point releases (Sonnet 5.5, Opus 5.5), whose lowest setting is
+ * adaptive thinking at `low` (live-verified). The version match stops at one digit so a
+ * dated id (`claude-sonnet-5-20260101`) stays Sonnet 5.
  */
-function geminiReasoningLevels(model: string): ReasoningEffort[] {
-	const m = model.toLowerCase()
-	const isGemini3Plus = !m.includes('gemini-2.5')
-	if (isGemini3Plus && (m.includes('flash') || m.includes('lite'))) {
-		return ['minimal', 'low', 'medium', 'high']
-	}
-	return ['low', 'medium', 'high']
+const CLAUDE_ALWAYS_THINKING = /fable|mythos|claude-(opus|sonnet)-5[-.][1-9](?!\d)/
+
+// Anthropic ids are matched anywhere in the id: Bedrock prefixes them
+// (`us.anthropic.claude-opus-4-6-v1`). Opus 4.5 and older reject adaptive thinking.
+const ANTHROPIC_RULES: ReasoningRule[] = [
+	{ match: CLAUDE_ALWAYS_THINKING, levels: LOW_TO_MAX, canDisable: false },
+	// The 5 family thinks when the field is absent, so off is an explicit disable.
+	{
+		match: /claude-(opus|sonnet)-5/,
+		levels: LOW_TO_MAX,
+		canDisable: true,
+		offToken: ANTHROPIC_OFF_SENTINEL
+	},
+	// 4.6-4.8 only think when asked, so omission is already off.
+	{ match: /claude-opus-4-[78]/, levels: LOW_TO_MAX, canDisable: true },
+	{ match: /claude-(opus|sonnet)-4-6/, levels: ['low', 'medium', 'high', 'max'], canDisable: true }
+]
+
+const BEDROCK_RULES: ReasoningRule[] = [
+	ANTHROPIC_RULES[0],
+	// AWS documents Sonnet 5 on Bedrock as always thinking, where the native API
+	// accepts a disable for it.
+	{ match: /claude-sonnet-5/, levels: LOW_TO_MAX, canDisable: false },
+	...ANTHROPIC_RULES.slice(1)
+]
+
+// Anchored at the start or after a gateway's `vendor/`, and the major is one digit:
+// Azure names gpt-3.5 `gpt-35-turbo`. `minimal` exists on gpt-5 only, `xhigh` from
+// gpt-5.5, `max` from gpt-5.6.
+const OPENAI_RULES: ReasoningRule[] = [
+	// Live-verified: astra takes low..max only, where sol and luna also take `none`.
+	{
+		match: /(?:^|\/)gpt-6-astra/,
+		levels: LOW_TO_MAX,
+		canDisable: false,
+		completionsToolsNeedOff: true
+	},
+	{
+		match: /(?:^|\/)gpt-[6-9](?:[.:-]|$)/,
+		levels: LOW_TO_MAX,
+		canDisable: true,
+		offToken: 'none',
+		completionsToolsNeedOff: true
+	},
+	{
+		match: /(?:^|\/)gpt-5\.6/,
+		levels: LOW_TO_MAX,
+		canDisable: true,
+		offToken: 'none',
+		completionsToolsNeedOff: true
+	},
+	{
+		match: /(?:^|\/)gpt-5\.5/,
+		levels: LOW_TO_XHIGH,
+		canDisable: true,
+		offToken: 'none',
+		completionsToolsNeedOff: true
+	},
+	// gpt-5.1+ are off only through `none`: omitted, they reason at medium.
+	{ match: /(?:^|\/)gpt-5\./, levels: LOW_TO_HIGH, canDisable: true, offToken: 'none' },
+	// gpt-5 and the o-series reject `none` and reason when it is omitted.
+	{ match: /(?:^|\/)gpt-5(?:[:-]|$)/, levels: MINIMAL_TO_HIGH, canDisable: false },
+	{ match: /(?:^|\/)o\d/, levels: LOW_TO_HIGH, canDisable: false }
+]
+
+// Gemini 2.5/3 think by default; the backend proxy maps `none` to off on Flash, or to
+// the floor on Pro, which enforces one (level `low` on 3.x, 128 tokens on 2.5).
+// Gemini 3+ Flash / Flash-Lite accept `minimal`; 2.5 takes numeric budgets the proxy
+// maps from three tiers.
+const GEMINI_RULES: ReasoningRule[] = [
+	{ match: /gemini-2\.5.*pro/, levels: LOW_TO_HIGH, canDisable: false, offToken: 'none' },
+	{ match: /gemini-2\.5/, levels: LOW_TO_HIGH, canDisable: true, offToken: 'none' },
+	{ match: /gemini-3.*pro/, levels: LOW_TO_HIGH, canDisable: false, offToken: 'none' },
+	{ match: /gemini-3.*(flash|lite)/, levels: MINIMAL_TO_HIGH, canDisable: true, offToken: 'none' },
+	{ match: /gemini-3/, levels: LOW_TO_HIGH, canDisable: true, offToken: 'none' }
+]
+
+const REASONING_RULES: Partial<Record<AIProvider, ReasoningRule[]>> = {
+	anthropic: ANTHROPIC_RULES,
+	aws_bedrock: BEDROCK_RULES,
+	openai: OPENAI_RULES,
+	azure_openai: OPENAI_RULES,
+	googleai: GEMINI_RULES,
+	deepseek: [
+		// Every current API model takes reasoning_effort, but only two levels are real:
+		// low/medium are server-mapped to high, xhigh to max. The retired
+		// `deepseek-chat` alias means "non-thinking mode", so a saved selection on it
+		// must not silently become a thinking request. Off is a separate `thinking` param.
+		{
+			match: /(?:^|\/)deepseek(?!-chat(?::|$))/,
+			levels: ['high', 'max'],
+			canDisable: true,
+			offToken: DEEPSEEK_OFF_SENTINEL
+		}
+	],
+	mistral: [
+		// Only the ids verified to accept reasoning_effort (large, magistral, ministral
+		// and pinned versions reject it), whose only effort besides off is `high`.
+		{
+			match: /(?:^|\/)mistral-(?:(?:small|medium)-latest(?::|$)|medium-3[-.]5)/,
+			levels: ['high'],
+			canDisable: true
+		}
+	],
+	// OpenRouter validates effort against its own vocabulary (minimal..xhigh + none) and
+	// translates it per underlying provider, which scopes the ladder: Anthropic gets all
+	// five as budget ratios, OpenAI gets the token verbatim, DeepSeek server-maps. `none`
+	// is its documented off, more reliable than omission; it can only disable a model
+	// whose upstream can.
+	openrouter: [
+		{
+			match: /claude-(opus|sonnet)-5[-.][1-9](?!\d)/,
+			levels: ['minimal', ...LOW_TO_XHIGH],
+			canDisable: false
+		},
+		{
+			match: /claude-(opus|sonnet)-(4|5)/,
+			levels: ['minimal', ...LOW_TO_XHIGH],
+			canDisable: true,
+			offToken: 'none'
+		},
+		...GEMINI_RULES,
+		...OPENAI_RULES.map(({ completionsToolsNeedOff: _, ...rule }) => ({
+			...rule,
+			offToken: 'none'
+		})),
+		{ match: /deepseek-v4/, levels: LOW_TO_XHIGH.slice(2), canDisable: true, offToken: 'none' },
+		// deepseek-r1, grok-4 and :thinking variants reason unconditionally.
+		{
+			match: /deepseek-r|grok-4|:thinking/,
+			levels: LOW_TO_HIGH,
+			canDisable: false,
+			offToken: 'none'
+		}
+	]
 }
 
-/**
- * Gemini Pro models cannot turn thinking off — the API enforces a floor
- * (level `low` on 3.x Pro, a 128-token budget on 2.5 Pro), so an off option
- * would silently mean "lowest". Flash / Flash-Lite can truly disable
- * (budget 0 / level `minimal`).
- */
-function geminiCanDisable(model: string): boolean {
-	return !model.toLowerCase().includes('pro')
+/** The row that describes a model, and whether its provider family has rows at all. */
+function findReasoningRule(
+	provider: AIProvider,
+	model: string
+): { rule: ReasoningRule | undefined; known: boolean } {
+	const rules = REASONING_RULES[reasoningProviderFamily(provider, model)]
+	const id = stripLegacyThinkingSuffix(model).toLowerCase()
+	return { rule: rules?.find((rule) => rule.match.test(id)), known: rules !== undefined }
 }
 
-/**
- * Anthropic's effort ladder is model-dependent: `xhigh` exists on Opus 4.7/4.8,
- * the 5 family and Fable/Mythos; `max` also on Opus 4.6 and Sonnet 4.6.
- * Offering an unsupported level would 400, so scope the list to the model.
- */
-function anthropicReasoningLevels(model: string): ReasoningEffort[] {
-	const m = model.toLowerCase()
-	if (
-		/claude-(opus|sonnet)-5/.test(m) ||
-		/claude-opus-4-(7|8)/.test(m) ||
-		m.includes('fable') ||
-		m.includes('mythos')
-	) {
-		return ['low', 'medium', 'high', 'xhigh', 'max']
-	}
-	return ['low', 'medium', 'high', 'max']
-}
-
-/** Mistral writes both `mistral-medium-3.5` and `mistral-medium-3-5`. */
-function normalizeMistralId(model: string): string {
-	return baseModelId(model).replace(/\./g, '-')
-}
-
-/**
- * Conservative static predicate for whether a model accepts an effort knob.
- * Kept tight to avoid 400s on models that reject reasoning params.
- */
-function supportsReasoningStatic(provider: AIProvider, model: string): boolean {
-	const m = model.toLowerCase()
-	const base = baseModelId(model)
-	switch (reasoningProviderFamily(provider, model)) {
-		case 'anthropic':
-		// Bedrock serves the same Claude models under prefixed ids
-		// (e.g. `us.anthropic.claude-opus-4-6-v1`), so match on the full string.
-		case 'aws_bedrock':
-			// 4.6+ only: Opus 4.5 rejects adaptive thinking (and, on Bedrock,
-			// the whole output_config surface) — live-verified hard 400.
-			return (
-				/claude-opus-(4-(6|7|8)|5)/.test(m) ||
-				/claude-sonnet-(4-6|5)/.test(m) ||
-				m.includes('fable') ||
-				m.includes('mythos')
-			)
-		case 'openai':
-		case 'azure_openai':
-			return isGpt5OrLater(base) || /^o\d/.test(base)
-		case 'openrouter':
-			// Best-effort markers for models whose `supported_parameters` include
-			// `reasoning` in OpenRouter's catalog; OpenRouter translates the effort
-			// per underlying provider.
-			return (
-				isGpt5OrLater(base) ||
-				/^o\d/.test(base) ||
-				/claude-(opus|sonnet)-(4|5)/.test(m) ||
-				/gemini-(2\.5|3)/.test(m) ||
-				m.includes('deepseek-r') ||
-				m.includes('deepseek-v4') ||
-				m.includes('grok-4') ||
-				m.includes(':thinking')
-			)
-		case 'googleai':
-			return /gemini-(2\.5|3)/.test(m)
-		case 'deepseek':
-			// All current API models take reasoning_effort (live-verified). The
-			// retired `deepseek-chat` alias stays excluded: its documented meaning
-			// is "non-thinking mode", so a saved selection on it must not silently
-			// become a thinking request.
-			return base.startsWith('deepseek') && base !== 'deepseek-chat'
-		case 'mistral':
-			// Only the ids verified to accept reasoning_effort; other models
-			// (large, magistral, ministral, pinned versions) reject the param.
-			return (
-				/^mistral-(small|medium)-latest$/.test(base) ||
-				normalizeMistralId(model).startsWith('mistral-medium-3-5')
-			)
-		default:
-			return false
-	}
+/** Whether Chat Completions needs reasoning off for this model to take function tools. */
+export function completionsRejectsToolsWithReasoning(provider: AIProvider, model: string): boolean {
+	return findReasoningRule(provider, model).rule?.completionsToolsNeedOff ?? false
 }
 
 export type ReasoningCapability = {
@@ -279,89 +273,12 @@ export type ReasoningCapability = {
 	known: boolean
 }
 
-/** Provider families the registry has real rules for; everything else is a shrug. */
-const KNOWN_REASONING_FAMILIES: ReadonlySet<string> = new Set([
-	'anthropic',
-	'aws_bedrock',
-	'openai',
-	'azure_openai',
-	'openrouter',
-	'googleai',
-	'deepseek',
-	'mistral'
-])
-
 /** Resolve the reasoning capability of a model from the static registry. */
 export function getReasoningCapability(provider: AIProvider, model: string): ReasoningCapability {
-	const bareModel = stripLegacyThinkingSuffix(model)
-	const known = KNOWN_REASONING_FAMILIES.has(reasoningProviderFamily(provider, bareModel))
-	const supported = supportsReasoningStatic(provider, bareModel)
-	if (!supported) {
-		return { supported: false, levels: [], canDisable: false, known }
-	}
-	const family = reasoningProviderFamily(provider, bareModel)
-	const levels =
-		family === 'anthropic' || family === 'aws_bedrock'
-			? anthropicReasoningLevels(bareModel)
-			: family === 'googleai'
-				? geminiReasoningLevels(bareModel)
-				: family === 'openai' || family === 'azure_openai'
-					? openaiReasoningLevels(bareModel)
-					: family === 'openrouter'
-						? openrouterReasoningLevels(bareModel)
-						: (PROVIDER_REASONING_LEVELS[family] ?? ['low', 'medium', 'high'])
-	return { supported, levels, canDisable: canDisableReasoning(provider, bareModel), known }
-}
-
-/**
- * Whether selecting "off" truly disables reasoning for the model. Off is
- * sent either as an explicit provider disable (see `explicitOffToken`) or by
- * omitting the effort — which only works where the model doesn't reason by
- * default.
- */
-function canDisableReasoning(provider: AIProvider, model: string): boolean {
-	const m = model.toLowerCase()
-	const base = baseModelId(model)
-	switch (reasoningProviderFamily(provider, model)) {
-		case 'anthropic':
-			// Every Claude but the always-thinking ones can stop thinking: 4.6-4.8
-			// by omission, and Opus/Sonnet 5 through the explicit disable that
-			// `explicitOffToken` sends.
-			return !ANTHROPIC_ALWAYS_THINKING.test(m)
-		case 'aws_bedrock':
-			// Same models, different answer: AWS documents Sonnet 5 on Bedrock as
-			// always thinking, where the native API accepts a disable for it.
-			return !(ANTHROPIC_ALWAYS_THINKING.test(m) || m.includes('claude-sonnet-5'))
-		case 'googleai':
-			return geminiCanDisable(model)
-		case 'openai':
-		case 'azure_openai':
-			// gpt-5 and o-series reject effort 'none' and reason at `medium` by
-			// default, so omission isn't off either.
-			return openaiCanDisable(base)
-		case 'openrouter':
-			// 'none' is in OpenRouter's vocabulary, but the gateway can't
-			// disable a model whose upstream can't — scope off per underlying
-			// family, like the levels.
-			// The 5 family thinks by default, but its upstream takes an explicit
-			// disable, so the gateway's 'none' has something to translate to.
-			if (/claude-(opus|sonnet)-(4|5)/.test(m)) {
-				return !ANTHROPIC_ALWAYS_THINKING.test(m)
-			}
-			if (m.includes('gemini-')) {
-				return geminiCanDisable(m)
-			}
-			if (isGpt5OrLater(base) || /^o\d/.test(base)) {
-				return openaiCanDisable(base)
-			}
-			if (m.includes('deepseek-v4')) {
-				return true
-			}
-			// grok-4, deepseek-r1 and :thinking variants reason unconditionally.
-			return false
-		default:
-			return true
-	}
+	const { rule, known } = findReasoningRule(provider, model)
+	return rule
+		? { supported: true, levels: [...rule.levels], canDisable: rule.canDisable, known }
+		: { supported: false, levels: [], canDisable: false, known }
 }
 
 export function supportsReasoning(provider: AIProvider, model: string): boolean {
@@ -391,75 +308,13 @@ export function resolveEffectiveReasoning(
 }
 
 /**
- * Sentinel sent for the deepseek off case. It never reaches the wire as an
- * effort: the 'deepseek' branch of `applyReasoningToConfig` translates it to
- * the provider's `thinking: {type: "disabled"}` param (`reasoning_effort:
- * "none"` is rejected by their API).
- */
-export const DEEPSEEK_OFF_SENTINEL: ReasoningEffort = 'none'
-
-/**
- * Sentinel for the Anthropic off case. Like the DeepSeek one it never reaches
- * the wire as an effort: the 'anthropic' branch of `applyReasoningToConfig`
- * translates it to `thinking: {type: "disabled"}`, which is the only off the
- * always-on 5 family respects.
- */
-export const ANTHROPIC_OFF_SENTINEL: ReasoningEffort = 'none'
-
-/**
- * Claude models whose thinking cannot be turned off — an explicit disable 400s: Fable,
- * Mythos, and the 5.x point releases (Sonnet 5.5, Opus 5.5), where the lowest setting is
- * adaptive thinking at `low` (live-verified). The version match stops at one digit so a
- * dated id (`claude-sonnet-5-20260101`) stays Sonnet 5.
- */
-const ANTHROPIC_ALWAYS_THINKING = /fable|mythos|claude-(opus|sonnet)-5[-.][1-9](?!\d)/
-
-/**
  * Disable token to forward when the user explicitly turns reasoning off on a
  * model that reasons *by default* — omitting the field would silently keep
- * the default-on behavior. Undefined means omission is the correct off. Every
- * token is `'none'`: `requestsReasoning` reads that value as off.
+ * the default-on behavior. Undefined means omission is the correct off, or that
+ * the model cannot be turned off at all.
  */
 export function explicitOffToken(provider: AIProvider, model: string): ReasoningEffort | undefined {
-	switch (reasoningProviderFamily(provider, model)) {
-		case 'anthropic':
-			// Claude 4.6-4.8 only think when asked, so omission is already a
-			// real off there and stays the wire form. Only the 5 family, which
-			// thinks when the field is absent, needs the explicit disable —
-			// the always-thinking models reject it outright and get no off token.
-			return /claude-(opus|sonnet)-5/.test(model.toLowerCase()) &&
-				!ANTHROPIC_ALWAYS_THINKING.test(model.toLowerCase())
-				? ANTHROPIC_OFF_SENTINEL
-				: undefined
-		case 'aws_bedrock':
-			// Bedrock's Sonnet 5 cannot be disabled at all, so only Opus 5 gets
-			// the sentinel; the rest keep omission.
-			return model.toLowerCase().includes('claude-opus-5') &&
-				!ANTHROPIC_ALWAYS_THINKING.test(model.toLowerCase())
-				? ANTHROPIC_OFF_SENTINEL
-				: undefined
-		case 'googleai':
-			// Gemini 2.5/3 think by default (dynamic budget / level). The backend
-			// proxy maps 'none' to off on Flash, or the floor on Pro (only
-			// reachable via a stale persisted preference — see canDisableReasoning).
-			return 'none'
-		case 'deepseek':
-			return DEEPSEEK_OFF_SENTINEL
-		case 'openai':
-		case 'azure_openai':
-			// Reasoning is off only via the explicit 'none' effort (gpt-5.5
-			// defaults to medium when the field is omitted).
-			return openaiCanDisable(baseModelId(model)) ? 'none' : undefined
-		case 'openrouter':
-			// OpenRouter validates effort against xhigh..minimal|none and
-			// documents 'none' as disabling reasoning, translated per the
-			// underlying provider — more reliable than omission, which keeps
-			// reasoning-by-default models thinking. None for a model that rejects every
-			// disable, which the gateway would still translate into one.
-			return ANTHROPIC_ALWAYS_THINKING.test(model.toLowerCase()) ? undefined : 'none'
-		default:
-			return undefined
-	}
+	return findReasoningRule(provider, model).rule?.offToken
 }
 
 /**
