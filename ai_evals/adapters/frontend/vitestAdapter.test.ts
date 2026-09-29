@@ -41,10 +41,13 @@ globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
 }) as typeof fetch
 
 function wasmFilePath(url: string): string | undefined {
-	const pathname = url.split(/[?#]/)[0]
+	const pathname = decodeURIComponent(url.split(/[?#]/)[0])
 	if (!pathname.endsWith('.wasm')) return undefined
-	if (pathname.startsWith('/@fs/')) return pathname.slice('/@fs'.length)
-	if (pathname.startsWith('/node_modules/')) return resolve(FRONTEND_DIR, `.${pathname}`)
+	// Located past whatever base path the config prefixes.
+	const fs = pathname.indexOf('/@fs/')
+	if (fs !== -1) return pathname.slice(fs + '/@fs'.length)
+	const modules = pathname.indexOf('/node_modules/')
+	if (modules !== -1) return resolve(FRONTEND_DIR, `.${pathname.slice(modules)}`)
 	return undefined
 }
 
