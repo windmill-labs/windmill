@@ -54,7 +54,7 @@ Use `wmill resource-type list --schema` to discover available resource types.
 
 - A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
 - Libraries are installed automatically - do not show installation instructions
-- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it `main` and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash and PowerShell scripts have no `main`: their language section shows how they take arguments
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it `main` (`Main` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no `main`: their language section shows how they take arguments
 - Where the language has a Windmill client (`wmill`), use it to interact with the platform
 
 ## Return Values
