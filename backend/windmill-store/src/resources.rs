@@ -3047,6 +3047,37 @@ mod hub_picks_tests {
         }
     }
 
+    /// The category cache mirrors the index cache's invariants by hand: keyed on the hub, and
+    /// an incomplete read forgotten long before a complete one.
+    #[test]
+    fn the_category_cache_is_keyed_on_the_hub_and_forgets_incomplete_reads_sooner() {
+        let categories = HashMap::from([("slack".to_string(), "Communication".to_string())]);
+        hub_cache_put(
+            &HUB_APP_CATEGORIES,
+            "https://hub.example",
+            HubAppCategories { categories: categories.clone(), complete: false },
+        );
+        assert_eq!(
+            hub_app_categories_cached("https://hub.example"),
+            Some(categories)
+        );
+        assert!(hub_app_categories_cached("https://other.example").is_none());
+        assert!(HUB_APP_CATEGORIES_INCOMPLETE_TTL < HUB_APP_CATEGORIES_TTL);
+
+        if let Ok(mut guard) = HUB_APP_CATEGORIES.write() {
+            *guard = None;
+        }
+    }
+
+    /// An integration whose content is null carries no category; it must not read as a
+    /// failure, or the cache would never reach its day-long TTL.
+    #[test]
+    fn null_integration_content_decodes_as_no_category() {
+        let parsed: HubIntegrationContent =
+            serde_json::from_str(r#"{"app":"x","content":null}"#).unwrap();
+        assert!(parsed.content.is_none());
+    }
+
     /// The hub counts picks in a bigint, which postgres.js serialises as a string. Typing
     /// the field as a plain i64 fails the whole response, and the ranking silently empties.
     #[test]
@@ -3151,8 +3182,11 @@ async fn list_hub_resource_type_info(
 /// briefly, or those integrations would drop out of their filter for the whole day.
 const HUB_APP_CATEGORIES_TTL: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
 const HUB_APP_CATEGORIES_INCOMPLETE_TTL: std::time::Duration =
-    std::time::Duration::from_secs(5 * 60);
+    std::time::Duration::from_secs(30 * 60);
 const HUB_APP_CATEGORIES_CONCURRENCY: usize = 16;
+/// Bounds the whole fan-out: callers queue behind it, and a slow or rate-limiting hub would
+/// otherwise hold them for minutes. What landed by then is kept as an incomplete read.
+const HUB_APP_CATEGORIES_DEADLINE: std::time::Duration = std::time::Duration::from_secs(15);
 
 #[derive(Clone)]
 struct HubAppCategories {
@@ -3168,7 +3202,8 @@ static HUB_APP_CATEGORIES_REFRESH: LazyLock<tokio::sync::Mutex<()>> =
 
 #[derive(Deserialize)]
 struct HubIntegrationContent {
-    content: HubIntegrationContentBody,
+    #[serde(default)]
+    content: Option<HubIntegrationContentBody>,
 }
 
 #[derive(Deserialize)]
@@ -3220,7 +3255,8 @@ async fn hub_app_categories(
             .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
             .then(|| app.to_lowercase())
     };
-    let reads: Vec<HubAppCategoryRead> = futures::stream::iter(apps)
+    let app_count = apps.len();
+    let pending = futures::stream::iter(apps)
         .filter_map(|app| async move { slug(&app).map(|slug| (app, slug)) })
         .map(|(app, slug)| async move {
             let Ok(response) = windmill_common::utils::http_get_from_hub(
@@ -3242,19 +3278,36 @@ async fn hub_app_categories(
             }
             match response.json::<HubIntegrationContent>().await {
                 Ok(HubIntegrationContent {
-                    content: HubIntegrationContentBody { category: Some(category) },
+                    content: Some(HubIntegrationContentBody { category: Some(category) }),
                 }) => HubAppCategoryRead::Found(app, category),
                 Ok(_) => HubAppCategoryRead::Absent,
                 Err(_) => HubAppCategoryRead::Failed,
             }
         })
-        .buffer_unordered(HUB_APP_CATEGORIES_CONCURRENCY)
-        .collect()
-        .await;
+        .buffer_unordered(HUB_APP_CATEGORIES_CONCURRENCY);
+    futures::pin_mut!(pending);
 
-    let complete = !reads
+    let mut reads: Vec<HubAppCategoryRead> = Vec::with_capacity(app_count);
+    let finished = tokio::time::timeout(HUB_APP_CATEGORIES_DEADLINE, async {
+        while let Some(read) = pending.next().await {
+            reads.push(read);
+        }
+    })
+    .await
+    .is_ok();
+
+    let failed = reads
         .iter()
-        .any(|read| matches!(read, HubAppCategoryRead::Failed));
+        .filter(|read| matches!(read, HubAppCategoryRead::Failed))
+        .count();
+    let complete = finished && failed == 0;
+    if !complete {
+        tracing::warn!(
+            "hub category read incomplete: {} of {app_count} integrations answered, {failed} failed; retrying in {}s",
+            reads.len(),
+            HUB_APP_CATEGORIES_INCOMPLETE_TTL.as_secs()
+        );
+    }
     let categories: HashMap<String, String> = reads
         .into_iter()
         .filter_map(|read| match read {

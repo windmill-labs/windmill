@@ -1088,7 +1088,8 @@
 		const picks = new Map<string, number>()
 		for (const { key } of connectsManual ?? []) {
 			const category = categoryOf(key)
-			if (category) picks.set(category, (picks.get(category) ?? 0) + (hubPicks[key] ?? 0))
+			if (!category) continue
+			picks.set(category, (picks.get(category) ?? 0) + (hubPicks[stripSandboxSuffix(key)] ?? 0))
 		}
 		return [...picks.entries()]
 			.sort(([a, pa], [b, pb]) => pb - pa || a.localeCompare(b))
@@ -1283,7 +1284,7 @@
 							</section>
 						{/if}
 
-						{#if !filtering || (filteredRankedConnects?.length ?? 0) > 0}
+						{#if !filtering || !filteredRankedConnects || filteredRankedConnects.length > 0}
 							<section>
 								{@render sectionHeading(
 									'Instance-configured OAuth APIs',
@@ -1311,7 +1312,7 @@
 							</section>
 						{/if}
 
-						{#if !filtering || otherKeys.length > 0}
+						{#if !filtering || !rankedConnectsManual || otherKeys.length > 0}
 							<section>
 								{@render sectionHeading(selectedCategory ?? 'Others', otherKeys.length)}
 
