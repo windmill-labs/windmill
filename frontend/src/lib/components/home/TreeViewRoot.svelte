@@ -277,98 +277,105 @@
 		<div class="text-xs font-normal text-hint">No items</div>
 	</div>
 {:else}
-	<div class="border rounded-md bg-surface-tertiary">
-		{#each rows.slice(0, nbDisplayed) as row (row.kind === 'otherUsers' ? 'other_users' : 'folderName' in row.node ? `f__${row.node.folderName}` : 'username' in row.node ? `u__${row.node.username}` : `i__${row.node.type}__${row.node.path}`)}
-			{#if row.kind === 'otherUsers'}
-				<!-- Same shape as an owner row, so it reads as part of the tree. It only reveals
+	<!-- Every row draws its own border-b, so the last one would double the frame's bottom border.
+	     Pulling the content 1px down puts that border under the frame, where overflow-hidden
+	     clips it, whichever row (collapsed owner, leaf, expanded subtree) ends the list. -->
+	<div class="border rounded-md bg-surface-tertiary overflow-hidden">
+		<div class="-mb-px">
+			{#each rows.slice(0, nbDisplayed) as row (row.kind === 'otherUsers' ? 'other_users' : 'folderName' in row.node ? `f__${row.node.folderName}` : 'username' in row.node ? `u__${row.node.username}` : `i__${row.node.type}__${row.node.path}`)}
+				{#if row.kind === 'otherUsers'}
+					<!-- Same shape as an owner row, so it reads as part of the tree. It only reveals
 				     the user rows under it: each still loads its own items when opened. -->
-				<!-- svelte-ignore a11y_click_events_have_key_events -->
-				<!-- svelte-ignore a11y_no_static_element_interactions -->
-				<div
-					onclick={toggleOtherUsers}
-					class="px-4 py-2 border-b w-full flex flex-row items-center justify-between cursor-pointer"
-				>
-					<div class="flex flex-row items-center gap-4">
-						<Users size={16} class="text-secondary" />
-						<div>
-							<span class="whitespace-nowrap text-xs text-emphasis font-semibold">Other users</span>
-							<div class="text-2xs font-normal text-secondary whitespace-nowrap">
-								({pluralize(otherUsers.length, 'user')}{otherUsersItemCount != undefined
-									? ` · ${pluralize(otherUsersItemCount, 'item')}`
-									: ''})
+					<!-- svelte-ignore a11y_click_events_have_key_events -->
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<div
+						onclick={toggleOtherUsers}
+						class="px-4 py-2 border-b w-full flex flex-row items-center justify-between cursor-pointer"
+					>
+						<div class="flex flex-row items-center gap-4">
+							<Users size={16} class="text-secondary" />
+							<div>
+								<span class="whitespace-nowrap text-xs text-emphasis font-semibold"
+									>Other users</span
+								>
+								<div class="text-2xs font-normal text-secondary whitespace-nowrap">
+									({pluralize(otherUsers.length, 'user')}{otherUsersItemCount != undefined
+										? ` · ${pluralize(otherUsersItemCount, 'item')}`
+										: ''})
+								</div>
 							</div>
 						</div>
+						<Button
+							iconOnly
+							unifiedSize="xs"
+							variant="subtle"
+							startIcon={{ icon: otherUsersOpen ? ChevronUp : ChevronDown }}
+							title={otherUsersOpen ? 'Hide other users' : 'Show other users'}
+							aria-label="Other users"
+							aria-expanded={otherUsersOpen}
+							onClick={toggleOtherUsers}
+						/>
 					</div>
-					<Button
-						iconOnly
-						unifiedSize="xs"
-						variant="subtle"
-						startIcon={{ icon: otherUsersOpen ? ChevronUp : ChevronDown }}
-						title={otherUsersOpen ? 'Hide other users' : 'Show other users'}
-						aria-label="Other users"
-						aria-expanded={otherUsersOpen}
-						onClick={toggleOtherUsers}
-					/>
-				</div>
-				{#if otherUsersOpen}
-					<!-- Ranked after every root owner, so opening this row can't push folders out
+					{#if otherUsersOpen}
+						<!-- Ranked after every root owner, so opening this row can't push folders out
 					     of what "expand all" auto-loads. -->
-					{#each otherUsers.slice(0, nbOtherUsersDisplayed) as user, i (user.username)}
-						{@render ownerNode(user, ownerRowCount + i, 1)}
-					{/each}
-					{#if nbOtherUsersDisplayed < otherUsers.length}
-						<div
-							class="pl-8 pr-4 py-2 border-b flex flex-row items-center justify-between gap-4 bg-surface-secondary"
-						>
-							<span class="text-xs text-secondary">
-								Showing {nbOtherUsersDisplayed} of {otherUsers.length} users
-							</span>
-							<Button
-								unifiedSize="sm"
-								variant="subtle"
-								onClick={() =>
-									(nbOtherUsersDisplayed = Math.min(
-										nbOtherUsersDisplayed + ROOT_PAGE,
-										otherUsers.length
-									))}
+						{#each otherUsers.slice(0, nbOtherUsersDisplayed) as user, i (user.username)}
+							{@render ownerNode(user, ownerRowCount + i, 1)}
+						{/each}
+						{#if nbOtherUsersDisplayed < otherUsers.length}
+							<div
+								class="pl-8 pr-4 py-2 border-b flex flex-row items-center justify-between gap-4 bg-surface-secondary"
 							>
-								Show more
-							</Button>
-						</div>
+								<span class="text-xs text-secondary">
+									Showing {nbOtherUsersDisplayed} of {otherUsers.length} users
+								</span>
+								<Button
+									unifiedSize="sm"
+									variant="subtle"
+									onClick={() =>
+										(nbOtherUsersDisplayed = Math.min(
+											nbOtherUsersDisplayed + ROOT_PAGE,
+											otherUsers.length
+										))}
+								>
+									Show more
+								</Button>
+							</div>
+						{/if}
 					{/if}
+				{:else}
+					{@render ownerNode(row.node, row.loadRank, 0)}
 				{/if}
-			{:else}
-				{@render ownerNode(row.node, row.loadRank, 0)}
-			{/if}
-		{/each}
-		{#if nbDisplayed < rows.length || hasMoreServer}
-			<!-- Last row of the tree's own frame, not a caption under it: what is missing
+			{/each}
+			{#if nbDisplayed < rows.length || hasMoreServer}
+				<!-- Last row of the tree's own frame, not a caption under it: what is missing
 			     has to read as part of the list to be noticed at all. -->
-			<div
-				bind:this={footerEl}
-				class="px-4 py-3 flex flex-row items-center justify-between gap-4 bg-surface-secondary"
-			>
-				<span class="text-xs text-secondary">
-					{#if nbDisplayed < rows.length}
-						Showing {shownOwnerRowCount} of {ownerRowCount} folders and users
-					{:else}
-						<!-- Scoped to one owner: the tree groups the paged browse stream, so what
-						     is missing is items, not root nodes. -->
-						Not all items are loaded yet
-					{/if}
-				</span>
-				<Button
-					unifiedSize="sm"
-					variant="subtle"
-					on:click={() => {
-						if (nbDisplayed < rows.length)
-							nbDisplayed = Math.min(nbDisplayed + ROOT_PAGE, rows.length)
-						else onLoadMore?.()
-					}}
+				<div
+					bind:this={footerEl}
+					class="px-4 py-3 flex flex-row items-center justify-between gap-4 bg-surface-secondary"
 				>
-					{nbDisplayed < rows.length ? 'Show more' : 'Load more'}
-				</Button>
-			</div>
-		{/if}
+					<span class="text-xs text-secondary">
+						{#if nbDisplayed < rows.length}
+							Showing {shownOwnerRowCount} of {ownerRowCount} folders and users
+						{:else}
+							<!-- Scoped to one owner: the tree groups the paged browse stream, so what
+						     is missing is items, not root nodes. -->
+							Not all items are loaded yet
+						{/if}
+					</span>
+					<Button
+						unifiedSize="sm"
+						variant="subtle"
+						on:click={() => {
+							if (nbDisplayed < rows.length)
+								nbDisplayed = Math.min(nbDisplayed + ROOT_PAGE, rows.length)
+							else onLoadMore?.()
+						}}
+					>
+						{nbDisplayed < rows.length ? 'Show more' : 'Load more'}
+					</Button>
+				</div>
+			{/if}
+		</div>
 	</div>
 {/if}
