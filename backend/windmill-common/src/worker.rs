@@ -1939,6 +1939,9 @@ pub async fn update_ping_http(
                 insert_ping.occupancy_rate_30m,
                 insert_ping.native_mode.unwrap_or(false),
                 insert_ping.ip.as_deref(),
+                insert_ping
+                    .last_job_executed
+                    .zip(insert_ping.last_job_workspace_id.as_deref()),
                 db,
             )
             .await?
@@ -2220,12 +2223,15 @@ pub async fn update_worker_ping_main_loop_query(
     occupancy_rate_30m: Option<f32>,
     native_mode: bool,
     ip: Option<&str>,
+    last_job: Option<(Uuid, &str)>,
     db: &DB,
 ) -> anyhow::Result<()> {
+    let (last_job_id, last_job_workspace_id) = last_job.unzip();
     timeout(Duration::from_secs(10), sqlx::query!(
         "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2,
          occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, vcpus = COALESCE($7, vcpus),
-         memory = COALESCE($8, memory), occupancy_rate_15s = $9, occupancy_rate_5m = $10, occupancy_rate_30m = $11, native_mode = $12, ip = COALESCE($13, ip) WHERE worker = $6",
+         memory = COALESCE($8, memory), occupancy_rate_15s = $9, occupancy_rate_5m = $10, occupancy_rate_30m = $11, native_mode = $12, ip = COALESCE($13, ip),
+         current_job_id = COALESCE($14, current_job_id), current_job_workspace_id = COALESCE($15, current_job_workspace_id) WHERE worker = $6",
         jobs_executed,
         tags,
         occupancy_rate,
@@ -2239,6 +2245,8 @@ pub async fn update_worker_ping_main_loop_query(
         occupancy_rate_30m,
         native_mode,
         ip,
+        last_job_id,
+        last_job_workspace_id,
     )
         .execute(db))
     .await??;

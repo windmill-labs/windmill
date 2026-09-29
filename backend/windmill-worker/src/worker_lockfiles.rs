@@ -589,6 +589,16 @@ pub async fn handle_dependency_job(
             // hash whose content cache has not caught up.
             windmill_common::invalidate_deployed_script_hash_cache(w_id, script_path);
 
+            if restart_perpetual_runs_from_args(job.args.as_ref()) {
+                windmill_queue::restart_perpetual_runs_on_new_version(
+                    db,
+                    w_id,
+                    script_path,
+                    &job.created_by,
+                )
+                .await;
+            }
+
             if let Err(e) = handle_deployment_metadata(
                 &job.permissioned_as_email,
                 &job.created_by,
@@ -1317,6 +1327,14 @@ pub async fn handle_flow_dependency_job(
         "modified_ids": modified_ids,
         "updated_flow_value": new_flow_value,
     })))
+}
+
+/// Set by a deploy someone made of a perpetual script, and by nothing else: a relock this path
+/// gets because an imported script changed leaves the runs of the version it replaces alone.
+fn restart_perpetual_runs_from_args(args: Option<&Json<HashMap<String, Box<RawValue>>>>) -> bool {
+    args.and_then(|args| args.0.get("restart_perpetual_runs"))
+        .and_then(|value| serde_json::from_str::<bool>(value.get()).ok())
+        .unwrap_or(false)
 }
 
 fn get_deployment_msg_and_parent_path_from_args(

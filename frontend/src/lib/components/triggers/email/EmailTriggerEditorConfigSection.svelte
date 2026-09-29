@@ -14,7 +14,8 @@
 		useOperatingUser,
 		useOperatingWorkspace
 	} from '$lib/components/operatingWorkspace.svelte'
-	import { triggerLock } from '$lib/operatorWriteRights'
+	import { useTriggerLock } from '$lib/operatorWriteRights'
+	const triggerLock = useTriggerLock()
 	interface Props {
 		initialTriggerPath?: string | undefined
 		dirtyLocalPart?: boolean

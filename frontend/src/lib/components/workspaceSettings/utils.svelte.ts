@@ -47,3 +47,27 @@ export function getUnusedInstanceDbName(
 	} while (used.has(candidate))
 	return candidate
 }
+
+/**
+ * What to call the two substrates Windmill administers. They are one concept to a workspace admin
+ * — a database Windmill makes and manages — so each is only qualified while the other is also on
+ * offer; alone, either is just "Managed instance".
+ */
+export function managedInstanceLabels(instanceAvailable: boolean, externalAvailable: boolean) {
+	const both = instanceAvailable && externalAvailable
+	return {
+		instance: both ? 'Managed instance (Internal)' : 'Managed instance',
+		external: both ? 'Managed instance (External)' : 'Managed instance'
+	}
+}
+
+/**
+ * What the closed select shows for a managed kind. The list needs the whole name to tell the
+ * two substrates apart, but once one is picked the row is narrow and the qualifier alone
+ * carries the distinction.
+ */
+export function shortManagedInstanceLabel(text: string): string {
+	return text.startsWith('Managed instance (')
+		? text.replace('Managed instance (', 'Managed (')
+		: text
+}

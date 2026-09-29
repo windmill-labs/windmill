@@ -13,7 +13,11 @@ Do not spread a pipeline across postgres, S3, and DuckLake when one DuckLake lak
 
 ## Storage prerequisites
 
-A DuckLake pipeline only runs once the workspace has **object storage** (S3 / Azure Blob / GCS) **and a DuckLake catalog** configured — DuckLake tables and `s3://` assets can't be materialized or read without it. Check with the `list_ducklakes` tool before you build (it returns the configured DuckLake catalogs, or none). Drafting the annotated scripts does not require storage, but the pipeline can't ingest, materialize, or read its assets until it exists. So if `list_ducklakes` returns none (or the user hits "storage not configured" errors), say so and give the right next step **by role**:
+A DuckLake pipeline only runs once the workspace has **object storage** (S3 / Azure Blob / GCS) **and a DuckLake catalog** configured — DuckLake tables and `s3://` assets can't be materialized or read without it. Check which DuckLake catalogs the workspace has before you build.
+<!-- cli-only -->
+`wmill ducklake list` lists them.
+<!-- /cli-only -->
+Drafting the annotated scripts does not require storage, but the pipeline can't ingest, materialize, or read its assets until it exists. So if there is none (or the user hits "storage not configured" errors), say so and give the right next step **by role**:
 
 - a workspace **admin** sets it up in Workspace settings → Object Storage (add an S3/Azure/GCS storage), then adds a DuckLake catalog on top of it;
 - anyone **without admin rights** should ask a workspace admin to configure object storage + a DuckLake catalog.
@@ -37,7 +41,7 @@ A script joins the pipeline when its source begins with the `pipeline` annotatio
       SELECT * FROM read_csv($file)
       ```
 - **Outputs** are inferred from what the body writes — a `CREATE TABLE`, a `wmill.writeS3File(...)`, a DuckLake/datatable write. To declare a managed output explicitly, use `// materialize <asset-uri>`.
-- Optional badges: `// partitioned <daily|hourly|weekly|monthly|dynamic>`, `// freshness <duration>` (e.g. `1h`), `// tag <worker-tag>`, `// retry <count> [delay]`, `// data_test <kind> ...` (managed DuckLake targets only — deploy rejects it beside a `dbt://` one).
+- Optional badges: `// partitioned <daily|hourly|weekly|monthly|dynamic>`, `// freshness <duration>` (e.g. `1h`), `// tag <worker-tag>`, `// retry <count> [delay]`, `// data_test <kind> ...` (managed DuckLake targets only — deploy rejects it beside a `dbt://` one), `// measure <name> = <agg> [where <pred>]` and `// dimension <name> = <expr>` (see "Declared metrics" below).
 
 ## S3 object wiring (storage form matters)
 
@@ -64,19 +68,39 @@ A managed `// materialize ducklake://<name>/<table>` tells the runtime to write 
 
 `// materialize manual <uri>` opts **out** of managed writes — the script writes its own DDL and the annotation only records the output asset for lineage.
 
-`materialize` pairs with partitioning for incremental pipelines: a `// partitioned <daily|hourly|weekly|monthly|dynamic>` node runs **once per partition** (append/merge into a fixed-schema table), and the `{partition}` token inside any asset URI is substituted with the current partition value at run time.
+`materialize` pairs with partitioning for incremental pipelines: a `// partitioned <daily|hourly|weekly|monthly|dynamic>` node runs **once per partition** (append/merge into a fixed-schema table). The `{partition}` token, usable in any asset URI **and** in the body SQL, is replaced at run time by the current partition's **identity string**:
+
+- To filter the source to the active slice on a time grain, use the runtime-injected macro: `WHERE wm_partition(<ts_col>) = {partition}`. `wm_partition(ts)` buckets a timestamp in exactly the identity format the runtime uses for daily/hourly/weekly/monthly, so it always matches; never hand-write a `strftime` format.
+- Do NOT write `= TIMESTAMP {partition}`: the identity string is not a valid timestamp literal for hourly/weekly/monthly and errors at run time.
+- For `dynamic` partitioning the identity is the caller-supplied key (not a timestamp, no macro), so filter on it directly: `WHERE <your_key_col> = {partition}`.
 
 `materialize` is an output **declaration** on a node — not a command. There is no "materialize run".
 
-## How to build one in chat
+## Declared metrics (`measure` / `dimension`)
+
+On a node that materializes a DuckLake table, `// measure <name> = <aggregate> [where <predicate>]` names the canonical way to aggregate that table (e.g. `// measure revenue = sum(amount) where not is_refund`), and `// dimension <name> = <expr>` names a way to slice it (e.g. `// dimension region = region`, `// dimension month = date_trunc('month', ordered_at)`). They execute nothing: they are catalogued at deploy so the editor and other agents reuse the definition instead of re-deriving it and silently disagreeing.
+
+- Keep the predicate in the `where` clause rather than folding it into the aggregate: it is rendered as `<agg> FILTER (WHERE <pred>)`, which is what lets two measures with different predicates share one GROUP BY.
+- DuckLake-only, and only meaningful next to `// materialize`.
+- Declare one when a number carries a judgement call someone else would get wrong (refunds excluded, test rows dropped, which column is the amount); do NOT blanket every table with measures — an obvious `count(*)` earns nothing.
+- To use a metric another node declares, read that node and reuse its exact expression rather than guessing it.
+
+## How to build one
 
 1. Put every node in the **same folder**: `f/<folder>/<name>`. The folder is the pipeline.
-2. Author each node as a **script draft** with `write_script` (or `edit_script`). Default to `duckdb` materializing into DuckLake (see "Default to DuckDB + DuckLake" above); pick `postgresql`, `bun`, or `python3` only when that section says the work calls for it.
+2. Write each node as its own script. Default to `duckdb` materializing into DuckLake (see "Default to DuckDB + DuckLake" above); pick `postgresql`, `bun`, or `python3` only when that section says the work calls for it.
 3. Start each body with `// pipeline`, then the `// on` input declarations, then the transform that writes the output.
 4. **Chain nodes by asset URI**: read an upstream node's output asset, then `// on <that-same-uri>` in the downstream node so the edge forms. Reuse exact asset paths from existing nodes rather than inventing parallel ones.
-5. Leave nodes as drafts unless the user asks to deploy. A pipeline only "runs" once its scripts are deployed and their triggers exist.
+5. Don't deploy nodes unless the user asks to. A pipeline only "runs" once its scripts are deployed and their triggers exist.
+<!-- cli-only -->
 
-When the user already has the `/pipeline/<folder>` editor open, prefer the dedicated `build_pipeline_node` / `edit_pipeline_node` tools (they stage reviewable, canvas-highlighted proposals). Outside the editor, use the standard script-draft tools with the annotations above.
+Locally:
+
+- create each node with `wmill script new f/<folder>/<name> <language>`, then write its body;
+- `wmill pipeline show <folder> --local` draws the graph from your working tree — check that every edge you meant to form is there;
+- `wmill pipeline dev <folder>` live-previews the pipeline, and `wmill pipeline run <folder> --local` runs the cascade from local files without deploying (`--dry-run` prints the plan first);
+- a trigger such as `// on schedule` only declares the binding: the schedule or trigger itself is created separately (see the `schedules` and `triggers` skills).
+<!-- /cli-only -->
 
 ## Example (DuckDB → DuckLake, scheduled ingest + downstream transform)
 

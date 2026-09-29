@@ -32,13 +32,14 @@
 	import { twMerge } from 'tailwind-merge'
 	import Badge from '../common/badge/Badge.svelte'
 	import Tooltip from '../meltComponents/Tooltip.svelte'
-	import { triggerLock } from '$lib/operatorWriteRights'
+	import { useTriggerLock } from '$lib/operatorWriteRights'
 	import { deepEqual } from 'fast-equals'
 	import {
 		errorHandlerArgs,
 		slackErrorHandlerHubPathEnding
 	} from '../ErrorOrRecoveryHandler.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	const triggerLock = useTriggerLock()
 
 	type Props = {
 		triggerPath: string

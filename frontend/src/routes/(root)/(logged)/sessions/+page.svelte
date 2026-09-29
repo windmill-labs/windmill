@@ -50,7 +50,7 @@
 	import { markSessionRecovered } from '$lib/components/sessions/sessionRecoveryNotice.svelte'
 	import {
 		isGlobalAiEnabled,
-		setSessionsBetaOptOut
+		clearSessionsBetaOptOut
 	} from '$lib/components/copilot/chat/global/gate'
 	import { setToolCompletionListener } from '$lib/components/copilot/chat/shared'
 	import { registerToolDisplayActionHandler } from '$lib/components/copilot/chat/createdResourceActions.svelte'
@@ -908,7 +908,7 @@
 		<div class="p-8 flex flex-col items-start gap-3 text-secondary text-sm">
 			<p class="text-primary font-medium">AI Sessions are deactivated</p>
 			<p>You switched back to the legacy chat. Activate AI Sessions (beta) to open this page.</p>
-			<Button size="xs" onclick={() => setSessionsBetaOptOut(false, `${base}/sessions`)}>
+			<Button unifiedSize="sm" onclick={() => clearSessionsBetaOptOut(`${base}/sessions`)}>
 				Activate AI Sessions
 			</Button>
 		</div>
