@@ -22,12 +22,7 @@ import {
   readConfigFile,
 } from "../../core/conf.ts";
 
-/**
- * Wait for a fork requested with `background: true`. A poll that fails says nothing about the
- * fork: it can be lost to a proxy, or reach a server without background forks (an older version,
- * possibly one replica during a rolling deploy), which ignored the flag and created the fork
- * before answering.
- */
+/** Wait for the creation of a fork started in the background by this user. */
 async function waitForForkCreation(parentWorkspace: string, forkId: string) {
   let failingSince: number | undefined;
   let lastStep: string | undefined;
@@ -42,10 +37,8 @@ async function waitForForkCreation(parentWorkspace: string, forkId: string) {
       });
       failingSince = undefined;
     } catch (e) {
-      const exists = await wmill
-        .existsWorkspace({ requestBody: { id: forkId } })
-        .catch(() => false);
-      if (exists) return;
+      // A failed poll says nothing about the fork: it can be lost to a proxy, or reach a replica
+      // that has no status route yet during a rolling deploy.
       failingSince ??= Date.now();
       if (Date.now() - failingSince >= 3 * 60 * 1000) throw e;
     }
@@ -415,18 +408,20 @@ async function createWorkspaceFork(
 
   // --- Create the fork workspace ---
   try {
-    await wmill
-      .createWorkspaceFork({
-        workspace: workspace.workspaceId,
-        background: true,
-        requestBody: {
-          id: trueWorkspaceId,
-          name: opts.createWorkspaceName ?? workspaceName ?? trueWorkspaceId,
-          color: forkColor,
-          forked_datatables: forkedDatatables,
-        },
-      });
-    await waitForForkCreation(workspace.workspaceId, trueWorkspaceId);
+    const response = await wmill.createWorkspaceFork({
+      workspace: workspace.workspaceId,
+      background: true,
+      requestBody: {
+        id: trueWorkspaceId,
+        name: opts.createWorkspaceName ?? workspaceName ?? trueWorkspaceId,
+        color: forkColor,
+        forked_datatables: forkedDatatables,
+      },
+    });
+    // A server without background forks ignores the flag and answers once the fork is created.
+    if (!response.startsWith("Created forked workspace")) {
+      await waitForForkCreation(workspace.workspaceId, trueWorkspaceId);
+    }
 
     log.info(colors.green(`✅ Created forked workspace ${trueWorkspaceId}`));
   } catch (error) {

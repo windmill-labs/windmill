@@ -16,25 +16,34 @@ export async function createWorkspaceForkAndWait(
 	fork: CreateWorkspaceFork,
 	onStep?: (step: string) => void
 ): Promise<void> {
-	await WorkspaceService.createWorkspaceFork({
+	const response = await WorkspaceService.createWorkspaceFork({
 		workspace: parentWorkspace,
 		background: true,
 		requestBody: fork
 	})
-	// A poll that fails says nothing about the fork: it can be lost to the same proxy, or reach a
-	// server without background forks (one of an older version during a rolling deploy), which
-	// ignored the flag and created the fork before answering.
+	// A server without background forks ignores the flag and answers once the fork is created.
+	if (response.startsWith('Created forked workspace')) return
+	await waitForForkCreation(parentWorkspace, fork.id, onStep)
+}
+
+/** Wait for the creation of a fork started in the background by this user from `parentWorkspace`. */
+export async function waitForForkCreation(
+	parentWorkspace: string,
+	forkId: string,
+	onStep?: (step: string) => void
+): Promise<void> {
 	let failingSince: number | undefined
 	while (true) {
 		let result: Awaited<ReturnType<typeof WorkspaceService.getForkCreationStatus>> | undefined
 		try {
 			result = await WorkspaceService.getForkCreationStatus({
 				workspace: parentWorkspace,
-				forkWorkspaceId: fork.id
+				forkWorkspaceId: forkId
 			})
 			failingSince = undefined
 		} catch (e) {
-			if (await forkExists(fork.id)) return
+			// A failed poll says nothing about the fork: it can be lost to the same proxy the fork
+			// runs in the background to avoid, or reach a replica that has no status route yet.
 			failingSince ??= Date.now()
 			if (Date.now() - failingSince >= MAX_FAILING_POLLS_MS) throw e
 		}
@@ -42,13 +51,5 @@ export async function createWorkspaceForkAndWait(
 		if (result?.status === 'completed') return
 		if (result?.status === 'failed') throw new Error(result.error ?? 'Unknown error')
 		await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
-	}
-}
-
-async function forkExists(id: string): Promise<boolean> {
-	try {
-		return await WorkspaceService.existsWorkspace({ requestBody: { id } })
-	} catch {
-		return false
 	}
 }

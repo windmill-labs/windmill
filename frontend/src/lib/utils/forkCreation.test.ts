@@ -3,8 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('$lib/gen', () => ({
 	WorkspaceService: {
 		createWorkspaceFork: vi.fn(),
-		getForkCreationStatus: vi.fn(),
-		existsWorkspace: vi.fn()
+		getForkCreationStatus: vi.fn()
 	}
 }))
 
@@ -28,8 +27,7 @@ describe('createWorkspaceForkAndWait', () => {
 	beforeEach(() => {
 		vi.useFakeTimers()
 		vi.resetAllMocks()
-		svc.createWorkspaceFork.mockResolvedValue('started')
-		svc.existsWorkspace.mockResolvedValue(false)
+		svc.createWorkspaceFork.mockResolvedValue('Creating fork wm-fork-x in the background')
 	})
 	afterEach(() => vi.useRealTimers())
 
@@ -43,17 +41,23 @@ describe('createWorkspaceForkAndWait', () => {
 		expect(steps).toEqual(['Copying flows'])
 	})
 
-	it('takes a failed poll for success once the fork exists', async () => {
-		// A server without background forks created it synchronously and has no status route.
-		svc.getForkCreationStatus.mockRejectedValue(
-			Object.assign(new Error('Not Found'), { status: 404 })
-		)
-		svc.existsWorkspace.mockResolvedValue(true)
+	it('returns at once when the server created the fork synchronously', async () => {
+		// A server without background forks ignores the flag.
+		svc.createWorkspaceFork.mockResolvedValue('Created forked workspace wm-fork-x')
+		expect(await run()).toBe('completed')
+		expect(svc.getForkCreationStatus).not.toHaveBeenCalled()
+	})
+
+	it('keeps polling through failed polls', async () => {
+		svc.getForkCreationStatus
+			.mockRejectedValueOnce(Object.assign(new Error('Not Found'), { status: 404 }))
+			.mockRejectedValueOnce(new Error('upstream request timeout'))
+			.mockResolvedValueOnce({ status: 'completed' })
 		expect(await run()).toBe('completed')
 	})
 
 	it('gives up once polls keep failing for a fork that never appears', async () => {
 		svc.getForkCreationStatus.mockRejectedValue(new Error('upstream request timeout'))
 		expect(await run()).toBe('failed: upstream request timeout')
-			})
+	})
 })

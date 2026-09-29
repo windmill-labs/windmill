@@ -9083,23 +9083,6 @@ async fn create_workspace_fork(
     // Every write of this run is scoped to its `started_at`: a run taken over as abandoned must
     // not report over the run that took its place.
     let Some(started_at) = claimed.map(|r| r.get::<chrono::DateTime<Utc>, _>("started_at")) else {
-        // A retry whose response was lost joins the creation it started; its status is polled the
-        // same way. Anyone else is refused rather than handed a fork of another request.
-        let same_request = sqlx::query_scalar::<_, bool>(
-            "SELECT EXISTS(SELECT 1 FROM workspace_fork_creation
-             WHERE fork_workspace_id = $1 AND parent_workspace_id = $2 AND created_by = $3
-               AND finished_at IS NULL)",
-        )
-        .bind(&fork_id)
-        .bind(&parent_workspace_id)
-        .bind(&authed.email)
-        .fetch_one(&db)
-        .await?;
-        if same_request {
-            return Ok(format!(
-                "Creating fork {response_fork_id} in the background"
-            ));
-        }
         return Err(Error::BadRequest(format!(
             "workspace '{fork_id}' is already being created"
         )));
