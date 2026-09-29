@@ -171,6 +171,7 @@ mod db_connect;
 pub mod ee;
 mod ee_oss;
 mod monitor;
+mod stranded_jobs;
 
 // Windows service support - EE feature
 #[cfg(all(windows, feature = "enterprise", feature = "private"))]
@@ -1835,6 +1836,13 @@ async fn process_notify_event(
             );
             windmill_common::variables::CUSTOM_ENVS_CACHE.remove(payload);
         }
+        "notify_operator_settings_change" => {
+            tracing::info!(
+                "Operator settings change detected, invalidating operator rights cache: {}",
+                payload
+            );
+            windmill_common::workspaces::invalidate_operator_rights_cache(payload);
+        }
         "notify_asset_producer_change" => {
             tracing::debug!(
                 "Asset producer change for workspace {}, invalidating producer-writes cache",
@@ -1944,13 +1952,13 @@ async fn process_notify_event(
         #[cfg(feature = "http_trigger")]
         "notify_http_trigger_change" => {
             tracing::info!("HTTP trigger change detected: {}", payload);
-            match windmill_api::triggers::http::refresh_routers(db, true).await {
-                Ok(_) => {
+            match windmill_api::triggers::http::refresh_loaded_routers(db, true).await {
+                Ok(true) => {
                     tracing::info!("Refreshed HTTP routers (trigger change)");
                 }
+                Ok(false) => {}
                 Err(err) => {
                     tracing::error!("Error refreshing HTTP routers (trigger change): {err:#}");
-                    windmill_api::triggers::http::invalidate_routers();
                     return false;
                 }
             };
@@ -2207,8 +2215,8 @@ async fn process_notify_event(
                         tracing::error!(error = %e, "Could not reload http route workspaced route setting");
                     }
                     #[cfg(feature = "http_trigger")]
-                    match windmill_api::triggers::http::refresh_routers(db, false).await {
-                        Ok((true, _)) => {
+                    match windmill_api::triggers::http::refresh_loaded_routers(db, false).await {
+                        Ok(true) => {
                             tracing::info!(
                                 "Refreshed HTTP routers (http workspaced route setting change)"
                             );

@@ -4,7 +4,8 @@
  * the file carries one. Rationale lives at the apply sites in settings.ts.
  */
 
-import { expect, test, describe, beforeEach, mock } from "bun:test";
+import { expect, test, describe, beforeEach } from "bun:test";
+import { mockServices } from "./mock_services.ts";
 
 let changeWorkspaceNameCalls: unknown[] = [];
 let changeWorkspaceColorCalls: unknown[] = [];
@@ -15,7 +16,7 @@ let remoteWebhook: string | undefined = undefined;
 
 // Every wmill.* call reachable from pushWorkspaceSettings is stubbed so the
 // function runs without a backend; only the three we assert on record calls.
-mock.module("../gen/services.gen.ts", () => ({
+mockServices({
   getSettings: async (_a: { workspace: string }) => ({
     webhook: remoteWebhook,
     color: remoteColor,
@@ -45,7 +46,7 @@ mock.module("../gen/services.gen.ts", () => ({
   editSlackCommand: async () => {},
   setWorkspaceSlackOauthConfig: async () => {},
   deleteWorkspaceSlackOauthConfig: async () => {},
-}));
+});
 
 const { pushWorkspaceSettings } = await import("../src/core/settings.ts");
 

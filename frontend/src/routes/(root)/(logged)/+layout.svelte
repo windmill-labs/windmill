@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { BROWSER } from 'esm-env'
+	import { isMac } from '$lib/utils'
 
 	import {
 		AppService,
@@ -54,8 +55,8 @@
 	import { afterNavigate, beforeNavigate } from '$app/navigation'
 	import { goto } from '$lib/navigation'
 	import { registerToolDisplayActionHandler } from '$lib/components/copilot/chat/createdResourceActions.svelte'
-	import UserSettings from '$lib/components/UserSettings.svelte'
-	import SuperadminSettings from '$lib/components/SuperadminSettings.svelte'
+	import type UserSettings from '$lib/components/UserSettings.svelte'
+	import type SuperadminSettings from '$lib/components/SuperadminSettings.svelte'
 	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
 	import { page } from '$app/state'
 	import FavoriteMenu, {
@@ -71,7 +72,7 @@
 	import { deepEqual } from 'fast-equals'
 	import { twMerge } from 'tailwind-merge'
 	import OperatorMenu from '$lib/components/sidebar/OperatorMenu.svelte'
-	import GlobalSearchModal from '$lib/components/search/GlobalSearchModal.svelte'
+	import type GlobalSearchModal from '$lib/components/search/GlobalSearchModal.svelte'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import MenuLink from '$lib/components/sidebar/MenuLink.svelte'
 	import { loadProtectionRules } from '$lib/workspaceProtectionRules.svelte'
@@ -102,7 +103,6 @@
 	import { currentWorkspaceRootId } from '$lib/components/sessions/sessionScope.svelte'
 	import WorkspaceScopeHeader from '$lib/components/sidebar/WorkspaceScopeHeader.svelte'
 	import { DEFAULT_HUB_BASE_URL } from '$lib/hub'
-	import DBManagerDrawer from '$lib/components/DBManagerDrawer.svelte'
 	import S3FilePicker from '$lib/components/S3FilePicker.svelte'
 	import { useIsDarkMode } from '$lib/components/DarkModeObserver.svelte'
 	import { useDbManagerUriState } from '$lib/components/dbManagerDrawerModel.svelte'
@@ -686,11 +686,53 @@
 		}
 	}
 
-	function openSearchModal(
-		text?: string,
-		stack?: import('$lib/components/common/overlayHost.svelte').OverlayStack
-	): void {
-		globalSearchModal?.openSearchWithPrefilledText(text, stack)
+	// Sticky: once opened, a drawer stays mounted, so reopening it is instant.
+	let userSettingsRequested = $state(false)
+	let superadminSettingsRequested = $state(false)
+	$effect(() => {
+		if (page.url.hash.startsWith(USER_SETTINGS_HASH)) userSettingsRequested = true
+		if (page.url.hash === SUPERADMIN_SETTINGS_HASH) superadminSettingsRequested = true
+	})
+	let dbManagerRequested = $state(false)
+	$effect(() => {
+		if (globalDbManagerDrawer.val?.open) dbManagerRequested = true
+	})
+
+	type OverlayStack = import('$lib/components/common/overlayHost.svelte').OverlayStack
+	// The modal is loaded on the first request, which is held here and replayed once it is
+	// bound. Only where the modal mounts (the markup's `{:else if $userStore}`): elsewhere
+	// the request would replay much later.
+	let searchModalRequested = $state(false)
+	let pendingSearchOpen: { text?: string; stack?: OverlayStack } | undefined = $state()
+	let searchModalMounts = $derived(page.status != 404 && !!$userStore)
+
+	function openSearchModal(text?: string, stack?: OverlayStack): void {
+		if (globalSearchModal) globalSearchModal.openSearchWithPrefilledText(text, stack)
+		else if (searchModalMounts) {
+			pendingSearchOpen = { text, stack }
+			searchModalRequested = true
+		}
+	}
+
+	$effect(() => {
+		if (globalSearchModal && pendingSearchOpen) {
+			const { text, stack } = pendingSearchOpen
+			pendingSearchOpen = undefined
+			untrack(() => globalSearchModal?.openSearchWithPrefilledText(text, stack))
+		}
+	})
+
+	// Ctrl/Cmd+K is what first loads the modal; once bound, the modal's own listener takes over.
+	function onSearchShortcutBeforeLoad(e: KeyboardEvent) {
+		if (
+			!globalSearchModal &&
+			searchModalMounts &&
+			(isMac() ? e.metaKey : e.ctrlKey) &&
+			e.key === 'k'
+		) {
+			e.preventDefault()
+			openSearchModal()
+		}
 	}
 
 	setContext('openSearchWithPrefilledText', openSearchModal)
@@ -921,7 +963,7 @@
 	})
 </script>
 
-<svelte:window bind:innerWidth />
+<svelte:window bind:innerWidth onkeydown={onSearchShortcutBeforeLoad} />
 
 <!-- Home + Runs lifted to the top of the workspace nav, sitting with Favorites
      and Search as the primary quick-access cluster. Excluded from SidebarContent
@@ -990,7 +1032,14 @@
 	</div>
 {/snippet}
 
-<UserSettings bind:this={userSettings} showMcpMode={true} />
+<!-- The drawers and modals below are dynamic imports mounted on first open: this layout
+     wraps every workspace page, so a static import gates first paint, and a load on mount
+     competes with the page for bandwidth (several of them reach monaco). -->
+{#if userSettingsRequested}
+	{#await import('$lib/components/UserSettings.svelte') then UserSettings}
+		<UserSettings.default bind:this={userSettings} showMcpMode={true} />
+	{/await}
+{/if}
 {#if accountSetup.pending}
 	<FinishAccountSetup
 		bind:open={accountSetup.open}
@@ -1002,9 +1051,15 @@
 {#if page.status == 404}
 	<CenteredModal title="Page not found, redirecting you to login" loading={true}></CenteredModal>
 {:else if $userStore}
-	<GlobalSearchModal bind:this={globalSearchModal} />
-	{#if $superadmin}
-		<SuperadminSettings bind:this={superadminSettings} />
+	{#if searchModalRequested}
+		{#await import('$lib/components/search/GlobalSearchModal.svelte') then GlobalSearchModal}
+			<GlobalSearchModal.default bind:this={globalSearchModal} />
+		{/await}
+	{/if}
+	{#if $superadmin && superadminSettingsRequested}
+		{#await import('$lib/components/SuperadminSettings.svelte') then SuperadminSettings}
+			<SuperadminSettings.default bind:this={superadminSettings} />
+		{/await}
 	{/if}
 	{#if mountModal}
 		<CriticalAlertModal bind:muteSettings bind:numUnacknowledgedCriticalAlerts />
@@ -1502,8 +1557,10 @@
 	<CenteredModal title="Loading user..." loading={true}></CenteredModal>
 {/if}
 
-{#if $workspaceStore && globalDbManagerDrawer.val}
-	<DBManagerDrawer uriState={globalDbManagerDrawer.val} />
+{#if $workspaceStore && globalDbManagerDrawer.val && dbManagerRequested}
+	{#await import('$lib/components/DBManagerDrawer.svelte') then DBManagerDrawer}
+		<DBManagerDrawer.default uriState={globalDbManagerDrawer.val} />
+	{/await}
 {/if}
 
 {#if $workspaceStore}

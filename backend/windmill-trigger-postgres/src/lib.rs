@@ -236,6 +236,8 @@ pub struct Postgres {
     pub sslmode: String,
     #[serde(default, deserialize_with = "empty_as_none")]
     pub root_certificate_pem: Option<String>,
+    #[serde(default, deserialize_with = "empty_as_none")]
+    pub options: Option<String>,
 }
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
@@ -347,6 +349,10 @@ pub async fn get_raw_postgres_connection(
 
     if !database.password.is_empty() {
         config.password(&database.password);
+    }
+
+    if let Some(options) = &database.options {
+        config.options(options);
     }
 
     let connector = build_tls_connector(ssl_mode, database.root_certificate_pem.as_ref())?;

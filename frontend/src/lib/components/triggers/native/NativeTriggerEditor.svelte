@@ -10,6 +10,7 @@
 	} from './utils'
 	import { usedTriggerKinds } from '$lib/stores'
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
+	import { useTriggerLock } from '$lib/operatorWriteRights'
 	import { Button } from '$lib/components/common'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
@@ -31,6 +32,7 @@
 		useOperatingUser,
 		useOperatingWorkspace
 	} from '$lib/components/operatingWorkspace.svelte'
+	const triggerLock = useTriggerLock()
 
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
@@ -117,7 +119,9 @@
 	// Derived, not snapshotted at load: the acting user's role arrives on its own schedule, and
 	// a trigger that loaded first would otherwise stay read-only until reopened.
 	const can_write = $derived(
-		writeVerdict ?? (permsScriptPath === undefined || canWrite(permsScriptPath, {}, actingUser))
+		(writeVerdict ??
+			(permsScriptPath === undefined || canWrite(permsScriptPath, {}, actingUser))) &&
+			!$triggerLock
 	)
 	let originalConfig = $state<Record<string, any> | undefined>(undefined)
 	let initialConfig = $state<Record<string, any> | undefined>(undefined)
@@ -438,6 +442,7 @@
 		variant="accent"
 		on:click={save}
 		disabled={saveDisabled}
+		title={$triggerLock}
 		{loading}
 	>
 		Save

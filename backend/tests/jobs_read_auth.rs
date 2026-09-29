@@ -513,12 +513,12 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
     let (status, secret) = get(
         &authed_base,
         &format!("job_signature/{STEP_JOB}/0"),
-        Some("SECRET_TOKEN_2"),
+        Some("SECRET_TOKEN"),
     )
     .await;
     assert!(
         status.is_success(),
-        "owner must mint a resume secret: {secret}"
+        "an admin must mint a resume secret: {secret}"
     );
     let secret = secret.trim().trim_matches('"').to_string();
     let approval_result = format!(
