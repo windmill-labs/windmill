@@ -41,8 +41,9 @@ globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
 }) as typeof fetch
 
 function wasmFilePath(url: string): string | undefined {
-	const pathname = decodeURIComponent(url.split(/[?#]/)[0])
-	if (!pathname.endsWith('.wasm')) return undefined
+	const raw = url.split(/[?#]/)[0]
+	if (!raw.endsWith('.wasm')) return undefined
+	const pathname = decodeURIComponent(raw)
 	// Located past whatever base path the config prefixes.
 	const fs = pathname.indexOf('/@fs/')
 	if (fs !== -1) return pathname.slice(fs + '/@fs'.length)
@@ -664,6 +665,13 @@ benchmarkIt(
 	async () => {
 		const { resetBenchmarkMockBackend } = await import('./mockBackend')
 		resetBenchmarkMockBackend()
+		// The tools swallow inference failures, so a wasm the fetch stub stops serving would
+		// only show up as empty schemas the model chases, never as an error.
+		const { inferArgs } = await import('$lib/infer')
+		const { emptySchema } = await import('$lib/utils')
+		const probe = emptySchema()
+		await inferArgs('bun', 'export async function main(name: string) {}', probe)
+		expect(Object.keys(probe.properties)).toEqual(['name'])
 		const { runFrontendBenchmarkFromEnv } = await import('./benchmarkRunner')
 		try {
 			const payload = await runFrontendBenchmarkFromEnv()
