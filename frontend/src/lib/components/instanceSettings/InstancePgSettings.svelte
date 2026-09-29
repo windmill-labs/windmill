@@ -29,7 +29,7 @@
 			sendUserToast(
 				next
 					? "Windmill's database can back data tables and Ducklake catalogs again"
-					: "Windmill's database is no longer offered for new data tables and Ducklake catalogs"
+					: "Windmill's database is off: its data tables no longer resolve, and it is not offered for new ones"
 			)
 		} catch (e) {
 			sendUserToast(e?.body ?? e?.message ?? String(e), true)
@@ -56,10 +56,10 @@
 			on:change={({ detail }) => !saving && setEnabled(detail)}
 		/>
 		<p class="text-xs text-secondary max-w-prose">
-			Turning this off leaves what already runs on it alone: existing data tables and catalogs keep
-			resolving, and their databases stay where they are. What it stops is a workspace naming
-			Windmill's database for something new, so the external cluster becomes the only substrate
-			Windmill administers.
+			Turning this off takes Windmill's database out of use: data tables on it stop resolving, so
+			jobs, apps and triggers using them fail until they are moved or this is turned back on, and no
+			workspace can name it for a new data table or Ducklake catalog. The databases themselves stay
+			where they are. Ducklake catalogs already on it keep working.
 		</p>
 	{/if}
 </div>

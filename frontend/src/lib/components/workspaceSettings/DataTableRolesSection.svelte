@@ -14,6 +14,7 @@
 	import { Pencil, Plus } from 'lucide-svelte'
 	import { SettingService, type DatatableRoleCluster, type InstanceDatatableRole } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
+	import { isCloudHosted } from '$lib/cloud'
 
 	let {
 		initialName = '',
@@ -38,6 +39,17 @@
 	/** Whether the external cluster is configured, so its catalog is worth offering. Only a
 	 *  superadmin can read that, and only a superadmin manages roles. */
 	let externalConfigured = $state(false)
+	/** Windmill's database turned off as a data table substrate, and whether roles are still defined
+	 *  on it. Its data tables stop resolving while it is off, but their databases and grants remain,
+	 *  so while any role is left its catalog stays reachable to clean it up or to turn it back on. */
+	let internalTurnedOff = $state(false)
+	let internalHasRoles = $state(false)
+	let internalAvailable = $derived(!isCloudHosted() && (!internalTurnedOff || internalHasRoles))
+	/** Neither catalog can be offered, so nothing here may create a role on either cluster. */
+	let clusterAvailable = $derived(
+		pinnedCluster !== undefined ||
+			(cluster === 'external_instance' ? externalConfigured : internalAvailable)
+	)
 	let roles = $state<InstanceDatatableRole[]>([])
 	let loading = $state(true)
 	let loadError = $state<string | undefined>(undefined)
@@ -54,7 +66,8 @@
 	 *  both clusters, so the rows would look right while every control acted on the wrong id. */
 	let loadSeq = 0
 
-	async function load() {
+	/** Resolves to the roles it seated, or undefined when it failed or was overtaken. */
+	async function load(): Promise<InstanceDatatableRole[] | undefined> {
 		const seq = ++loadSeq
 		loading = true
 		loadError = undefined
@@ -62,6 +75,7 @@
 			const fresh = await SettingService.listInstanceDatatableRoles({ cluster })
 			if (seq !== loadSeq) return
 			roles = fresh
+			return fresh
 		} catch (e) {
 			if (seq !== loadSeq) return
 			loadError = e?.body ?? e?.message ?? String(e)
@@ -69,12 +83,26 @@
 			if (seq === loadSeq) loading = false
 		}
 	}
-	load()
+	const initialLoad = load()
 
 	if (pinnedCluster === undefined) {
-		SettingService.getExternalInstancePgStatus()
-			.then((s) => (externalConfigured = s.configured))
-			.catch(() => (externalConfigured = false))
+		Promise.all([
+			SettingService.getExternalInstancePgStatus()
+				.then((s) => s.configured)
+				.catch(() => false),
+			SettingService.getGlobal({ key: 'instance_pg_disabled' })
+				.then((v) => !!v)
+				.catch(() => false),
+			// Unpinned, the first load is Windmill's database. One it could not read counts as having
+			// roles, so the catalog is not hidden on a guess.
+			initialLoad
+		]).then(([external, turnedOff, internalRoles]) => {
+			externalConfigured = external
+			internalTurnedOff = turnedOff
+			internalHasRoles = internalRoles === undefined || internalRoles.length > 0
+			// Opened on Windmill's database by default; land on the cluster that is actually in use.
+			if (!internalAvailable && externalConfigured) switchCluster('external_instance')
+		})
 	}
 
 	async function switchCluster(next: DatatableRoleCluster) {
@@ -133,7 +161,7 @@
 <ConfirmationModal {...confirmationModal.props} />
 
 <div class="flex flex-col gap-2">
-	{#if pinnedCluster === undefined && externalConfigured}
+	{#if pinnedCluster === undefined}
 		<!-- Each cluster keeps its own logins, so the catalogs are separate lists, not one
 		filtered view. Offered only where a caller has not pinned one. -->
 		<ToggleButtonGroup
@@ -142,12 +170,37 @@
 			disabled={busy}
 		>
 			{#snippet children({ item })}
-				<ToggleButton value="instance" label="Windmill's database" {item} small />
-				<ToggleButton value="external_instance" label="External cluster" {item} small />
+				<ToggleButton
+					value="instance"
+					label="Windmill's database"
+					disabled={!internalAvailable}
+					tooltip={internalAvailable
+						? undefined
+						: isCloudHosted()
+							? "Windmill's database is not available on cloud."
+							: "Windmill's database is turned off for data tables, and has no roles left."}
+					{item}
+					small
+				/>
+				<ToggleButton
+					value="external_instance"
+					label="External cluster"
+					disabled={!externalConfigured}
+					tooltip={externalConfigured
+						? undefined
+						: 'No external cluster is set up. Configure one under Managed Postgres.'}
+					{item}
+					small
+				/>
 			{/snippet}
 		</ToggleButtonGroup>
 	{/if}
-	{#if loadError}
+	{#if !clusterAvailable}
+		<Alert type="info" title="No Postgres to define roles on" size="xs">
+			Windmill's database is turned off for data tables and no external cluster is set up. Configure
+			one under Instance settings → Managed Postgres to manage its roles here.
+		</Alert>
+	{:else if loadError}
 		<Alert type="error" title="Could not load the data table roles" size="xs">{loadError}</Alert>
 	{:else}
 		<DataTable>

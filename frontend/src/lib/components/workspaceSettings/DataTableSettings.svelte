@@ -64,18 +64,13 @@
 </script>
 
 <script lang="ts">
-	import { History, KeyRound, Plus, PlugZap, Trash2 } from 'lucide-svelte'
-	import DropdownV2 from '../DropdownV2.svelte'
+	import { Database, History, KeyRound, Plus, PlugZap, Trash2 } from 'lucide-svelte'
 
 	import Button from '../common/button/Button.svelte'
 
 	import ResourcePicker from '../ResourcePicker.svelte'
 	import SettingsPageHeader from '../settings/SettingsPageHeader.svelte'
 	import Select from '../select/Select.svelte'
-	import Cell from '../table/Cell.svelte'
-	import DataTable from '../table/DataTable.svelte'
-	import Head from '../table/Head.svelte'
-	import Row from '../table/Row.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 	import Tooltip from '../Tooltip.svelte'
 	import {
@@ -83,9 +78,8 @@
 		managedInstanceLabels,
 		shortManagedInstanceLabel,
 		getUnusedInstanceDbName,
-		isDataTableWizardEnabled
+		useManagedInstances
 	} from './utils.svelte'
-	import { random_adj } from '../random_positive_adjetive'
 	import { sendUserToast } from '$lib/toast'
 	import {
 		SettingService,
@@ -105,14 +99,16 @@
 	import DataTablePermissionsButton from './DataTablePermissionsButton.svelte'
 	import InstanceRolesButton from './InstanceRolesButton.svelte'
 	import { deepEqual } from 'fast-equals'
-	import { apiErrorMessage, clone, onlyAlphaNumAndUnderscore } from '$lib/utils'
+	import { apiErrorMessage, clone, escapeHtml } from '$lib/utils'
 	import SettingsFooter from './SettingsFooter.svelte'
 	import Alert from '../common/alert/Alert.svelte'
+	import EmptyState from '../common/emptyState/EmptyState.svelte'
+	import Label from '../Label.svelte'
 	import MissingWorkerTagAlert from '../jobs/MissingWorkerTagAlert.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import AddDataTableWizard from './AddDataTableWizard.svelte'
+	import DataTableConnectionReport from './DataTableConnectionReport.svelte'
 	import { takeParkedWizard, type WizardResume } from './wizardParking'
-	import { Database } from 'lucide-svelte'
 	import { onMount } from 'svelte'
 
 	type Props = {
@@ -121,7 +117,7 @@
 
 	let { dataTableSettings = $bindable() }: Props = $props()
 
-	// Result of the last "Test connection", shown under the table: the grant
+	// Result of the last "Test connection", shown in that data table's card: the grant
 	// statements have to stay selectable, which rules out a toast.
 	let connectionCheck = $state<
 		| {
@@ -154,12 +150,6 @@
 		}
 	}
 
-	let tableHeadNames = ['Name', 'Database', '', ''] as const
-	let tableHeadTooltips: Partial<Record<(typeof tableHeadNames)[number], string | undefined>> = {
-		Name: 'Data tables are referenced by their name. main is a special name that can be used as the default data table.',
-		Database: 'The database where the data is stored.'
-	}
-
 	let tempSettings: DataTableSettingsType = $derived.by(() => {
 		let s = $state($state.snapshot(dataTableSettings))
 		return s
@@ -171,27 +161,12 @@
 
 	const customInstanceDbs = resource([() => $workspaceStore], SettingService.listCustomInstanceDbs)
 
-	// Both endpoints are superadmin-only, and the kind is theirs to pick, so a workspace admin
-	// never loads them — and sees the option disabled rather than an empty picker.
-	const externalInstanceStatus = resource([() => $superadmin], ([isSuperadmin]) =>
-		isSuperadmin ? SettingService.getExternalInstancePgStatus() : Promise.resolve(undefined)
-	)
-	const externalInstanceDbs = resource([() => $superadmin], ([isSuperadmin]) =>
-		isSuperadmin ? SettingService.listExternalInstancePgDatabases() : Promise.resolve({})
-	)
-	let externalInstanceConfigured = $derived(externalInstanceStatus.current?.configured === true)
-	// Superadmin-only like the ones above, and absent means on.
-	const instancePgDisabled = resource([() => $superadmin], ([isSuperadmin]) =>
-		isSuperadmin
-			? SettingService.getGlobal({ key: 'instance_pg_disabled' }).catch(() => undefined)
-			: Promise.resolve(undefined)
-	)
+	const managed = useManagedInstances(() => !!$superadmin)
+	const externalInstanceDbs = managed.externalDbs
 	// Both substrates answer only to a superadmin, so nobody else can be told whether one is on
 	// offer: they see a managed kind only where an entry already sits on it.
-	let instancePossible = $derived(
-		!!$superadmin && !isCloudHosted() && !instancePgDisabled.current
-	)
-	let instanceAvailable = $derived(instancePossible)
+	let instanceAvailable = $derived(managed.instanceAvailable)
+	let externalAvailable = $derived(managed.externalAvailable)
 
 	// A kind already saved stays listed whatever the instance offers now, or the entry would read
 	// as something it is not.
@@ -204,12 +179,12 @@
 		tempSettings.dataTables.some((d) => d.database.resource_type === 'external_instance')
 	)
 	function kindItems(current: string | undefined) {
-		const showInstance = instancePossible || current === 'instance'
+		const showInstance = instanceAvailable || current === 'instance'
 		const showExternal =
-			(externalInstanceConfigured && !!$superadmin) || current === 'external_instance'
+			externalAvailable || current === 'external_instance'
 		const labels = managedInstanceLabels(
-			instancePossible || anyInstanceRow,
-			(externalInstanceConfigured && !!$superadmin) || anyExternalRow
+			instanceAvailable || anyInstanceRow,
+			externalAvailable || anyExternalRow
 		)
 		const items: { value: string; label: string; disabled?: boolean; subtitle?: string }[] = [
 			{ value: 'postgresql', label: 'Postgres Resource' }
@@ -232,10 +207,10 @@
 			items.push({
 				value: 'external_instance',
 				label: labels.external,
-				disabled: !externalInstanceConfigured || !$superadmin,
+				disabled: !externalAvailable,
 				subtitle: !$superadmin
 					? 'Superadmin only'
-					: externalInstanceConfigured
+					: externalAvailable
 						? undefined
 						: 'No external cluster configured'
 			})
@@ -263,28 +238,6 @@
 		return getUnusedInstanceDbName('dt', $workspaceStore ?? '', usedNames)
 	}
 
-	// Kept for the flag-off path: adding a data table is a row in this table that the user
-	// fills in and saves, rather than a wizard.
-	function onNewDataTable() {
-		const name = tempSettings.dataTables.some((d) => d.name === 'main')
-			? `${random_adj()}_datatable`
-			: 'main'
-		tempSettings.dataTables.push({
-			id: randomUUID(),
-			name,
-			database: {
-				// A new entry starts on a kind this instance actually offers, so it is never born
-				// on one the save would refuse.
-				resource_type: instanceAvailable
-					? 'instance'
-					: externalInstanceConfigured && $superadmin
-						? 'external_instance'
-						: 'postgresql',
-				resource_path: instanceAvailable ? defaultInstanceDbName() : undefined
-			}
-		})
-	}
-
 	async function onSave() {
 		try {
 			if (
@@ -300,7 +253,7 @@
 					children: 'Are you sure you want to save without setting them up ?',
 					confirmationText: 'Save anyway'
 				})
-				if (!confirm) return
+				if (!confirm) return false
 			}
 			const settings = convertDataTableSettingsToBackend(tempSettings)
 			// Track renames/deletions by stable id (against the saved baseline) so
@@ -313,6 +266,24 @@
 			const deleted_datatables = dataTableSettings.dataTables
 				.filter((d) => !tempIds.has(d.id))
 				.map((d) => d.name)
+			if (deleted_datatables.length > 0) {
+				const names = deleted_datatables
+					.map((n) => `<span class="font-mono">datatable://${escapeHtml(n)}</span>`)
+					.join(', ')
+				const one = deleted_datatables.length === 1
+				const confirmed = await confirmationModal.ask({
+					title: one
+						? `Delete the data table ${deleted_datatables[0]}?`
+						: `Delete ${deleted_datatables.length} data tables?`,
+					confirmationText: one
+						? 'Delete and save'
+						: `Delete ${deleted_datatables.length} and save`,
+					// One root element: the modal renders this as a raw snippet, which keeps only the
+					// first node.
+					children: `<span>Scripts, flows and apps using ${names} stop resolving, and ${one ? 'its' : 'their'} migration history is deleted. The database${one ? '' : 's'} behind ${one ? 'it is' : 'them are'} not dropped.</span>`
+				})
+				if (!confirmed) return false
+			}
 			const result = await WorkspaceService.editDataTableConfig({
 				workspace: $workspaceStore!,
 				requestBody: { settings, renames, deleted_datatables }
@@ -342,7 +313,6 @@
 		}
 	}
 
-	const wizardEnabled = isDataTableWizardEnabled()
 	let wizardOpen = $state(false)
 	/** Opened through the wizard's own `open()`, which is what sets a fresh run up. */
 	let wizard: { open: (parked?: WizardResume) => void } | undefined = $state(undefined)
@@ -351,7 +321,6 @@
 	// Supabase sends the user back here after authorizing; pick the wizard back up where it
 	// was rather than making them start again.
 	onMount(() => {
-		if (!wizardEnabled) return
 		const parked = takeParkedWizard()
 		if (parked) {
 			wizardResume = parked
@@ -364,7 +333,7 @@
 	/**
 	 * The wizard persists what it creates, so the server is authoritative afterwards and the
 	 * whole baseline comes from it. `tempSettings` derives from that baseline, so this discards
-	 * uncommitted edits in the table -- which is why the wizard cannot be opened while there
+	 * uncommitted edits in the cards -- which is why the wizard cannot be opened while there
 	 * are any (see the disabled entry points below).
 	 */
 	async function reloadAfterWizard() {
@@ -374,7 +343,7 @@
 	}
 
 	let confirmationModal = createAsyncConfirmationModal()
-	// Each mounts its own modal or drawer; the row menu opens them.
+	// Each mounts its own modal or drawer; the card's buttons open them.
 	let migrationsButtons = $state<Record<string, DataTableMigrationsButton | undefined>>({})
 	let permissionsButtons = $state<Record<string, DataTablePermissionsButton | undefined>>({})
 	let dirtyMap = $derived.by(() => {
@@ -432,172 +401,189 @@
 
 <MissingWorkerTagAlert tag="postgresql" subject="Browsing and querying data tables" class="mb-4" />
 
-<DataTable>
-	<Head>
-		<tr>
-			{#each tableHeadNames as name, i}
-				<Cell head first={i == 0} last={i == tableHeadNames.length - 1}>
-					{name}
-					{#if tableHeadTooltips[name]}
-						<Tooltip>
-							{@html tableHeadTooltips[name]}
-						</Tooltip>
-					{/if}
-				</Cell>
-			{/each}
-		</tr>
-	</Head>
-	<tbody class="divide-y bg-surface-tertiary">
-		{#if tempSettings.dataTables.length == 0}
-			<Row>
-				{#if wizardEnabled}
-					<Cell colspan={tableHeadNames.length} class="py-8">
-						<div class="flex flex-col items-center gap-3 text-center">
-							<Database size={24} class="text-secondary" />
-							<div class="flex flex-col gap-1 items-center">
-								<span class="font-semibold text-sm">No data table yet</span>
-								<p class="text-xs text-secondary max-w-sm">
-									Give your scripts a database to store and query data.
-									{#if isCloudHosted()}
-										Set one up free in about a minute.
-									{:else}
-										Use the Windmill database, or bring your own.
-									{/if}
-								</p>
-							</div>
-							<Button
-								size="sm"
-								variant="accent"
-								disabled={hasUnsavedChanges}
-								title={hasUnsavedChanges ? 'Save or discard your changes first' : undefined}
-								on:click={() => wizard?.open()}
-							>
-								Add a data table
-							</Button>
-						</div>
-					</Cell>
-				{:else}
-					<Cell colspan={tableHeadNames.length} class="text-center py-6">
-						No data table in this workspace yet
-					</Cell>
-				{/if}
-			</Row>
-		{/if}
+{#if tempSettings.dataTables.length == 0}
+	<EmptyState
+		icon={Database}
+		title="No data table yet"
+		description={`Give your scripts a database to store and query data. ${
+			isCloudHosted()
+				? 'Set one up free in about a minute.'
+				: 'Use the Windmill database, or bring your own.'
+		}`}
+		action={{
+			label: 'Add a data table',
+			icon: Plus,
+			variant: 'accent',
+			disabled: hasUnsavedChanges,
+			title: hasUnsavedChanges ? 'Save or discard your changes first' : undefined,
+			onClick: () => wizard?.open()
+		}}
+	/>
+{:else}
+	<div class="flex flex-col gap-4">
 		{#each tempSettings.dataTables as dataTable, dataTableIndex (dataTable.id)}
-			<Row>
-				<Cell first class="w-48 relative">
-					{#if dataTable.reference}
-						<span class="font-mono text-sm">{dataTable.name}</span>
-					{:else}
-						<TextInput
-							bind:value={dataTable.name}
-							inputProps={{ placeholder: 'Name', id: 'name' }}
-						/>
-					{/if}
-				</Cell>
-				<Cell>
-					{#if dataTable.reference}
-						<div class="flex items-center gap-1 text-sm text-secondary">
-							<span>Governed by</span>
-							<span class="font-mono">{dataTable.reference.workspace_id}</span>
-							<span>/</span>
-							<span class="font-mono">{dataTable.reference.datatable}</span>
-							<Tooltip>
-								This fork uses its parent's data table rather than a copy of it, so the database and
-								its roles are decided in that workspace.
-							</Tooltip>
-						</div>
-					{:else}
-						<div class="flex gap-2">
-							<div class="relative">
-								{#if dataTable.database.resource_type === 'instance'}
-									<Tooltip
-										wrapperClass="absolute mt-[0.6rem] right-2 z-20"
-										placement="bottom-start"
-									>
-										Use Windmill's PostgreSQL instance
-									</Tooltip>
-								{:else if dataTable.database.resource_type === 'external_instance'}
-									<Tooltip
-										wrapperClass="absolute mt-[0.6rem] right-2 z-20"
-										placement="bottom-start"
-									>
-										Use a database Windmill manages on the external PostgreSQL cluster
-									</Tooltip>
-								{/if}
-								<Select
-									items={kindItems(dataTable.database.resource_type)}
-									bind:value={
-										() => dataTable.database.resource_type,
-										(resource_type) => {
-											dataTable.database = {
-												resource_type,
-												resource_path:
-													resource_type === 'instance' ? defaultInstanceDbName() : undefined
-											}
-										}
-									}
-									transformInputSelectedText={shortManagedInstanceLabel}
-									id="database-type-select"
-									class="w-36"
+			{@const dirty = !!dirtyMap[dataTable.name]}
+			<div class="rounded-md border border-border-light bg-surface-tertiary">
+				<div class="flex flex-col gap-4 p-4">
+					<div class="flex flex-wrap items-end gap-4">
+						<Label
+							label="Name"
+							class="w-56"
+							tooltip="Data tables are referenced by their name. main is a special name that can be used as the default data table."
+						>
+							{#if dataTable.reference}
+								<span class="font-mono text-sm">{dataTable.name}</span>
+							{:else}
+								<TextInput
+									bind:value={dataTable.name}
+									inputProps={{ placeholder: 'Name', id: 'name' }}
 								/>
-							</div>
-							<div class="flex items-center gap-1 w-80 relative">
-								{#if dataTable.database.resource_type === 'external_instance'}
-									<ExternalInstanceDbSelect
-										class="flex-1"
-										{externalInstanceDbs}
-										bind:value={dataTable.database.resource_path}
-										tag="datatable"
-									/>
-								{:else if dataTable.database.resource_type !== 'instance'}
-									<ResourcePicker
-										class="flex-1"
-										bind:value={dataTable.database.resource_path}
-										resourceType={dataTable.database.resource_type}
-									/>
-								{:else}
-									<CustomInstanceDbSelect
-										class="flex-1"
-										{confirmationModal}
-										{customInstanceDbs}
-										bind:value={dataTable.database.resource_path}
-										tag="datatable"
-									/>
-								{/if}
-							</div>
-						</div>
-					{/if}
-				</Cell>
-
-				<Cell class="whitespace-nowrap">
-					<div class="flex gap-2">
-						<DataTableMigrationsButton
-							bind:this={migrationsButtons[dataTable.name]}
-							hideTrigger
-							workspace={$workspaceStore ?? ''}
-							datatable={dataTable.name}
-						/>
-						{#if $enterpriseLicense && !isCloudHosted()}
-							<DataTablePermissionsButton
-								bind:this={permissionsButtons[dataTable.name]}
-								hideTrigger
-								workspace={$workspaceStore ?? ''}
-								datatable={dataTable.name}
+							{/if}
+						</Label>
+						<Label
+							label="Database"
+							class="flex-1 min-w-96"
+							tooltip="The database where the data is stored."
+						>
+							{#if dataTable.reference}
+								<div class="flex items-center gap-1 text-sm text-secondary">
+									<span>Governed by</span>
+									<span class="font-mono">{dataTable.reference.workspace_id}</span>
+									<span>/</span>
+									<span class="font-mono">{dataTable.reference.datatable}</span>
+									<Tooltip>
+										This fork uses its parent's data table rather than a copy of it, so the database
+										and its roles are decided in that workspace.
+									</Tooltip>
+								</div>
+							{:else}
+								<div class="flex gap-2">
+									<div class="relative">
+										{#if dataTable.database.resource_type === 'instance'}
+											<Tooltip
+												wrapperClass="absolute inset-y-0 right-2 z-20 flex items-center"
+												placement="bottom-start"
+											>
+												Use Windmill's PostgreSQL instance
+											</Tooltip>
+										{:else if dataTable.database.resource_type === 'external_instance'}
+											<Tooltip
+												wrapperClass="absolute inset-y-0 right-2 z-20 flex items-center"
+												placement="bottom-start"
+											>
+												Use a database Windmill manages on the external PostgreSQL cluster
+											</Tooltip>
+										{/if}
+										<Select
+											items={kindItems(dataTable.database.resource_type)}
+											bind:value={
+												() => dataTable.database.resource_type,
+												(resource_type) => {
+													dataTable.database = {
+														resource_type,
+														resource_path:
+															resource_type === 'instance' ? defaultInstanceDbName() : undefined
+													}
+												}
+											}
+											transformInputSelectedText={shortManagedInstanceLabel}
+											id="database-type-select"
+											class="w-44"
+										/>
+									</div>
+									<div class="flex items-center gap-1 w-80 relative">
+										{#if dataTable.database.resource_type === 'external_instance'}
+											<ExternalInstanceDbSelect
+												class="flex-1"
+												{externalInstanceDbs}
+												bind:value={dataTable.database.resource_path}
+												tag="datatable"
+											/>
+										{:else if dataTable.database.resource_type !== 'instance'}
+											<ResourcePicker
+												class="flex-1"
+												bind:value={dataTable.database.resource_path}
+												resourceType={dataTable.database.resource_type}
+											/>
+										{:else}
+											<CustomInstanceDbSelect
+												class="flex-1"
+												{confirmationModal}
+												{customInstanceDbs}
+												bind:value={dataTable.database.resource_path}
+												tag="datatable"
+											/>
+										{/if}
+									</div>
+								</div>
+							{/if}
+						</Label>
+						<!-- A fork's pointer entry is written by forking and kept by the server, not this form. -->
+						{#if !dataTable.reference}
+							<Button
+								unifiedSize="md"
+								variant="subtle"
+								destructive
+								startIcon={{ icon: Trash2 }}
+								iconOnly
+								title="Remove"
+								on:click={() => removeDataTable(dataTableIndex)}
 							/>
 						{/if}
-						<Button
-							size="xs"
-							color="light"
-							variant="border"
-							startIcon={{ icon: PlugZap }}
-							iconOnly
-							disabled={!!dirtyMap[dataTable.name]}
-							loading={connectionCheck?.name === dataTable.name && connectionCheck.loading}
-							title="Test connection: check the database is reachable and its user can create tables"
-							on:click={() => testConnection(dataTable.name)}
+					</div>
+					{#if connectionCheck?.name === dataTable.name && !connectionCheck.loading}
+						<DataTableConnectionReport
+							name={connectionCheck.name}
+							report={connectionCheck.report}
+							error={connectionCheck.error}
 						/>
-						{#if dirtyMap[dataTable.name]}
+					{/if}
+				</div>
+				<!-- Everything down here acts on the saved data table, which unsaved edits are not. -->
+				<div class="flex flex-wrap items-center gap-2 border-t border-border-light px-4 py-3">
+					<Button
+						unifiedSize="md"
+						variant="default"
+						startIcon={{ icon: History }}
+						disabled={dirty}
+						title={dirty ? 'Save the settings first' : 'Version schema changes as migrations'}
+						on:click={() => migrationsButtons[dataTable.name]?.open()}
+					>
+						Migrations
+					</Button>
+					<!-- Shown even where it cannot be used, disabled with the reason, so the feature can be
+					found. -->
+					<Button
+						unifiedSize="md"
+						variant="default"
+						startIcon={{ icon: KeyRound }}
+						disabled={!$enterpriseLicense || isCloudHosted() || dirty}
+						title={!$enterpriseLicense
+							? 'Data table roles are an Enterprise Edition feature.'
+							: isCloudHosted()
+								? 'Data table roles are only available on self-hosted instances.'
+								: dirty
+									? 'Save the settings first'
+									: 'Roles: who may connect as which Postgres role'}
+						on:click={() => permissionsButtons[dataTable.name]?.open()}
+					>
+						{$enterpriseLicense ? 'Roles' : 'Roles (EE)'}
+					</Button>
+					<Button
+						unifiedSize="md"
+						variant="default"
+						startIcon={{ icon: PlugZap }}
+						disabled={dirty}
+						loading={connectionCheck?.name === dataTable.name && connectionCheck.loading}
+						title="Check the database is reachable and its user can create tables"
+						on:click={() => testConnection(dataTable.name)}
+					>
+						Test connection
+					</Button>
+					<!-- Opening the data table is what most visits are for, so it stands apart from the
+					administration actions. -->
+					<div class="ml-auto">
+						{#if dirty}
 							<Popover
 								openOnHover
 								contentClasses="p-2 text-sm text-secondary italic"
@@ -606,6 +592,7 @@
 								{#snippet trigger()}
 									<ExploreAssetButton
 										asset={{ kind: 'datatable', path: dataTable.name }}
+										buttonVariant="accent"
 										disabled
 									/>
 								{/snippet}
@@ -614,138 +601,42 @@
 								{/snippet}
 							</Popover>
 						{:else}
-							<ExploreAssetButton asset={{ kind: 'datatable', path: dataTable.name }} />
+							<ExploreAssetButton
+								asset={{ kind: 'datatable', path: dataTable.name }}
+								buttonVariant="accent"
+							/>
 						{/if}
 					</div>
-				</Cell>
-				<Cell class="w-12">
-					<DropdownV2
-						items={() => [
-							{
-								displayName: 'Migrations',
-								icon: History,
-								// Both act on the saved data table, which unsaved edits are not.
-								disabled: !!dirtyMap[dataTable.name],
-								tooltip: dirtyMap[dataTable.name] ? 'Save the settings first' : undefined,
-								action: () => migrationsButtons[dataTable.name]?.open()
-							},
-							// Listed even where it cannot be used, disabled with the reason, so the feature
-							// can be found.
-							{
-								displayName: $enterpriseLicense ? 'Roles' : 'Roles (EE)',
-								icon: KeyRound,
-								disabled: !$enterpriseLicense || isCloudHosted() || !!dirtyMap[dataTable.name],
-								tooltip: !$enterpriseLicense
-									? 'Data table roles are an Enterprise Edition feature.'
-									: isCloudHosted()
-										? 'Data table roles are only available on self-hosted instances.'
-										: dirtyMap[dataTable.name]
-											? 'Save the settings first'
-											: undefined,
-								action: () => permissionsButtons[dataTable.name]?.open()
-							},
-							// A fork's pointer entry is written by forking and kept by the server, not this form.
-							...(dataTable.reference
-								? []
-								: [
-										{
-											displayName: 'Remove',
-											icon: Trash2,
-											type: 'delete' as const,
-											action: () => removeDataTable(dataTableIndex)
-										}
-									])
-						]}
-						btnId={'datatable-settings-actions-' + onlyAlphaNumAndUnderscore(dataTable.name)}
-					/>
-				</Cell>
-			</Row>
-		{/each}
-		{#if !wizardEnabled || tempSettings.dataTables.length > 0}
-			<Row class="!border-0">
-				<Cell colspan={tableHeadNames.length} class="pt-0 pb-2">
-					<div class="flex justify-center">
-						<Button
-							size="sm"
-							btnClasses="max-w-fit"
-							variant="default"
-							disabled={wizardEnabled && hasUnsavedChanges}
-							title={wizardEnabled && hasUnsavedChanges
-								? 'Save or discard your changes first'
-								: undefined}
-							on:click={() => (wizardEnabled ? wizard?.open() : onNewDataTable())}
-						>
-							<Plus />
-							{wizardEnabled ? 'Add a data table' : 'New Data Table'}
-						</Button>
-					</div>
-				</Cell>
-			</Row>
-		{/if}
-	</tbody>
-</DataTable>
-
-{#if connectionCheck && !connectionCheck.loading}
-	{@const report = connectionCheck.report}
-	{#if connectionCheck.error}
-		<Alert type="error" title="Could not connect to {connectionCheck.name}" class="mt-4" size="xs">
-			{connectionCheck.error}
-		</Alert>
-	{:else if report}
-		{@const fullyPrivileged = report.can_create_table && report.can_create_schema}
-		<Alert
-			type={fullyPrivileged ? 'success' : 'warning'}
-			title={fullyPrivileged
-				? `${connectionCheck.name} is reachable and its user can create tables and schemas`
-				: `${connectionCheck.name} is reachable but its user is missing privileges`}
-			class="mt-4"
-			size="xs"
-		>
-			<div class="flex flex-col gap-2">
-				<div>
-					Connects as <span class="font-mono">{report.user}</span>{#if report.schema}, resolving
-						unqualified statements to schema <span class="font-mono">{report.schema}</span>{/if}.
 				</div>
-				{#if report.suggested_search_path}
-					<div>
-						Its search_path resolves to no schema, so unqualified statements fail with
-						<span class="font-mono">no schema has been selected to create in</span> whatever
-						privileges the role holds. Point it at one, e.g.
-						<span class="font-mono select-all">{report.suggested_search_path}</span>.
-					</div>
-				{/if}
-				<ul class="list-disc list-inside">
-					<li>
-						Create tables{report.schema ? ` in ${report.schema}` : ''}:
-						<span class="font-semibold">{report.can_create_table ? 'yes' : 'no'}</span>
-					</li>
-					<li>
-						Create schemas:
-						<span class="font-semibold">{report.can_create_schema ? 'yes' : 'no'}</span>
-					</li>
-					<li>
-						Migration bookkeeping table exists:
-						<span class="font-semibold">{report.migrations_table_exists ? 'yes' : 'no'}</span>
-					</li>
-				</ul>
-				{#if report.suggested_grants.length > 0}
-					<div>
-						Windmill connects as the role that lacks these privileges, so it cannot grant them
-						itself. Run as a schema owner or superuser on that database:
-					</div>
-					<pre class="whitespace-pre-wrap select-all text-xs"
-						>{report.suggested_grants.map((g) => `${g};`).join('\n')}</pre
-					>
-					{#if report.schema && !report.can_create_table && !report.migrations_table_exists}
-						<div>
-							Alternatively, create the <span class="font-mono">_wm_migrations</span> bookkeeping table
-							yourself and grant only SELECT, INSERT, UPDATE, DELETE on it.
-						</div>
-					{/if}
+				<DataTableMigrationsButton
+					bind:this={migrationsButtons[dataTable.name]}
+					hideTrigger
+					workspace={$workspaceStore ?? ''}
+					datatable={dataTable.name}
+				/>
+				{#if $enterpriseLicense && !isCloudHosted()}
+					<DataTablePermissionsButton
+						bind:this={permissionsButtons[dataTable.name]}
+						hideTrigger
+						workspace={$workspaceStore ?? ''}
+						datatable={dataTable.name}
+					/>
 				{/if}
 			</div>
-		</Alert>
-	{/if}
+		{/each}
+		<div class="flex justify-center">
+			<Button
+				unifiedSize="md"
+				variant="default"
+				startIcon={{ icon: Plus }}
+				disabled={hasUnsavedChanges}
+				title={hasUnsavedChanges ? 'Save or discard your changes first' : undefined}
+				on:click={() => wizard?.open()}
+			>
+				Add a data table
+			</Button>
+		</div>
+	</div>
 {/if}
 
 <SettingsFooter
@@ -758,30 +649,31 @@
 
 <ConfirmationModal {...confirmationModal.props} />
 
-{#if wizardEnabled}
-	<AddDataTableWizard
-		bind:this={wizard}
-		bind:opened={
-			() => wizardOpen,
-			(v) => {
-				wizardOpen = v
-				// Drop the parked run once the wizard closes: leaving it set would force the next
-				// open straight back to the Supabase setup step.
-				if (!v) wizardResume = undefined
-			}
+<AddDataTableWizard
+	bind:this={wizard}
+	bind:opened={
+		() => wizardOpen,
+		(v) => {
+			wizardOpen = v
+			// Drop the parked run once the wizard closes: leaving it set would force the next
+			// open straight back to the Supabase setup step.
+			if (!v) wizardResume = undefined
 		}
-		existingNames={tempSettings.dataTables.map((d) => d.name)}
-		existingDataTables={tempSettings.dataTables.map((d) => ({
-			name: d.name,
-			resourcePath: d.database.resource_path
-		}))}
-		resume={wizardResume}
-		onDone={reloadAfterWizard}
-		{customInstanceDbs}
-		{externalInstanceDbs}
-		externalInstanceAvailable={externalInstanceConfigured && !!$superadmin}
-		{defaultExternalDbName}
-		{confirmationModal}
-		{defaultInstanceDbName}
-	/>
-{/if}
+	}
+	existingNames={tempSettings.dataTables.map((d) => d.name)}
+	existingDataTables={tempSettings.dataTables.map((d) => ({
+		name: d.name,
+		resourcePath: d.database.resource_path
+	}))}
+	resume={wizardResume}
+	onDone={reloadAfterWizard}
+	{customInstanceDbs}
+	{externalInstanceDbs}
+	externalInstanceAvailable={externalAvailable}
+	{instanceAvailable}
+	offerExternalSetup
+	refreshManagedInstances={managed.refresh}
+	{defaultExternalDbName}
+	{confirmationModal}
+	{defaultInstanceDbName}
+/>
