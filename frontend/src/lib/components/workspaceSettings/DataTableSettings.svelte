@@ -77,7 +77,8 @@
 		isCustomInstanceDbEnabled,
 		managedInstanceLabels,
 		shortManagedInstanceLabel,
-		getUnusedInstanceDbName
+		getUnusedInstanceDbName,
+		useManagedInstances
 	} from './utils.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import {
@@ -160,25 +161,12 @@
 
 	const customInstanceDbs = resource([() => $workspaceStore], SettingService.listCustomInstanceDbs)
 
-	// Both endpoints are superadmin-only, and the kind is theirs to pick, so a workspace admin
-	// never loads them — and sees the option disabled rather than an empty picker.
-	const externalInstanceStatus = resource([() => $superadmin], ([isSuperadmin]) =>
-		isSuperadmin ? SettingService.getExternalInstancePgStatus() : Promise.resolve(undefined)
-	)
-	const externalInstanceDbs = resource([() => $superadmin], ([isSuperadmin]) =>
-		isSuperadmin ? SettingService.listExternalInstancePgDatabases() : Promise.resolve({})
-	)
-	let externalInstanceConfigured = $derived(externalInstanceStatus.current?.configured === true)
-	// Superadmin-only like the ones above, and absent means on.
-	const instancePgDisabled = resource([() => $superadmin], ([isSuperadmin]) =>
-		isSuperadmin
-			? SettingService.getGlobal({ key: 'instance_pg_disabled' }).catch(() => undefined)
-			: Promise.resolve(undefined)
-	)
+	const managed = useManagedInstances(() => !!$superadmin)
+	const externalInstanceDbs = managed.externalDbs
 	// Both substrates answer only to a superadmin, so nobody else can be told whether one is on
 	// offer: they see a managed kind only where an entry already sits on it.
-	let instancePossible = $derived(!!$superadmin && !isCloudHosted() && !instancePgDisabled.current)
-	let instanceAvailable = $derived(instancePossible)
+	let instanceAvailable = $derived(managed.instanceAvailable)
+	let externalAvailable = $derived(managed.externalAvailable)
 
 	// A kind already saved stays listed whatever the instance offers now, or the entry would read
 	// as something it is not.
@@ -191,12 +179,12 @@
 		tempSettings.dataTables.some((d) => d.database.resource_type === 'external_instance')
 	)
 	function kindItems(current: string | undefined) {
-		const showInstance = instancePossible || current === 'instance'
+		const showInstance = instanceAvailable || current === 'instance'
 		const showExternal =
-			(externalInstanceConfigured && !!$superadmin) || current === 'external_instance'
+			externalAvailable || current === 'external_instance'
 		const labels = managedInstanceLabels(
-			instancePossible || anyInstanceRow,
-			(externalInstanceConfigured && !!$superadmin) || anyExternalRow
+			instanceAvailable || anyInstanceRow,
+			externalAvailable || anyExternalRow
 		)
 		const items: { value: string; label: string; disabled?: boolean; subtitle?: string }[] = [
 			{ value: 'postgresql', label: 'Postgres Resource' }
@@ -219,10 +207,10 @@
 			items.push({
 				value: 'external_instance',
 				label: labels.external,
-				disabled: !externalInstanceConfigured || !$superadmin,
+				disabled: !externalAvailable,
 				subtitle: !$superadmin
 					? 'Superadmin only'
-					: externalInstanceConfigured
+					: externalAvailable
 						? undefined
 						: 'No external cluster configured'
 			})
@@ -681,14 +669,10 @@
 	onDone={reloadAfterWizard}
 	{customInstanceDbs}
 	{externalInstanceDbs}
-	externalInstanceAvailable={externalInstanceConfigured && !!$superadmin}
+	externalInstanceAvailable={externalAvailable}
 	{instanceAvailable}
 	offerExternalSetup
-	refreshManagedInstances={() => {
-		externalInstanceStatus.refetch()
-		externalInstanceDbs.refetch()
-		instancePgDisabled.refetch()
-	}}
+	refreshManagedInstances={managed.refresh}
 	{defaultExternalDbName}
 	{confirmationModal}
 	{defaultInstanceDbName}

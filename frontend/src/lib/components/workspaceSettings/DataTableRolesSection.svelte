@@ -45,6 +45,11 @@
 	let internalTurnedOff = $state(false)
 	let internalHasRoles = $state(false)
 	let internalAvailable = $derived(!isCloudHosted() && (!internalTurnedOff || internalHasRoles))
+	/** Neither catalog can be offered, so nothing here may create a role on either cluster. */
+	let clusterAvailable = $derived(
+		pinnedCluster !== undefined ||
+			(cluster === 'external_instance' ? externalConfigured : internalAvailable)
+	)
 	let roles = $state<InstanceDatatableRole[]>([])
 	let loading = $state(true)
 	let loadError = $state<string | undefined>(undefined)
@@ -61,7 +66,8 @@
 	 *  both clusters, so the rows would look right while every control acted on the wrong id. */
 	let loadSeq = 0
 
-	async function load() {
+	/** Resolves to the roles it seated, or undefined when it failed or was overtaken. */
+	async function load(): Promise<InstanceDatatableRole[] | undefined> {
 		const seq = ++loadSeq
 		loading = true
 		loadError = undefined
@@ -69,6 +75,7 @@
 			const fresh = await SettingService.listInstanceDatatableRoles({ cluster })
 			if (seq !== loadSeq) return
 			roles = fresh
+			return fresh
 		} catch (e) {
 			if (seq !== loadSeq) return
 			loadError = e?.body ?? e?.message ?? String(e)
@@ -76,7 +83,7 @@
 			if (seq === loadSeq) loading = false
 		}
 	}
-	load()
+	const initialLoad = load()
 
 	if (pinnedCluster === undefined) {
 		Promise.all([
@@ -86,13 +93,13 @@
 			SettingService.getGlobal({ key: 'instance_pg_disabled' })
 				.then((v) => !!v)
 				.catch(() => false),
-			SettingService.listInstanceDatatableRoles({ cluster: 'instance' })
-				.then((r) => r.length > 0)
-				.catch(() => true)
-		]).then(([external, turnedOff, hasRoles]) => {
+			// Unpinned, the first load is Windmill's database. One it could not read counts as having
+			// roles, so the catalog is not hidden on a guess.
+			initialLoad
+		]).then(([external, turnedOff, internalRoles]) => {
 			externalConfigured = external
 			internalTurnedOff = turnedOff
-			internalHasRoles = hasRoles
+			internalHasRoles = internalRoles === undefined || internalRoles.length > 0
 			// Opened on Windmill's database by default; land on the cluster that is actually in use.
 			if (!internalAvailable && externalConfigured) switchCluster('external_instance')
 		})
@@ -188,7 +195,12 @@
 			{/snippet}
 		</ToggleButtonGroup>
 	{/if}
-	{#if loadError}
+	{#if !clusterAvailable}
+		<Alert type="info" title="No Postgres to define roles on" size="xs">
+			Windmill's database is turned off for data tables and no external cluster is set up. Configure
+			one under Instance settings → Managed Postgres to manage its roles here.
+		</Alert>
+	{:else if loadError}
 		<Alert type="error" title="Could not load the data table roles" size="xs">{loadError}</Alert>
 	{:else}
 		<DataTable>

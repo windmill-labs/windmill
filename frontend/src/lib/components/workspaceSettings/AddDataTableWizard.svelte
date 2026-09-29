@@ -1369,7 +1369,7 @@
 							</Button>
 						{/if}
 						<Button
-							size="sm"
+							unifiedSize="md"
 							variant="accent"
 							disabled={primary.disabled}
 							loading={primary.busy}

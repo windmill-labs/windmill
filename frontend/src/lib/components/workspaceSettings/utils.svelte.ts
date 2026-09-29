@@ -1,6 +1,8 @@
 import { isCloudHosted } from '$lib/cloud'
 
+import { SettingService } from '$lib/gen'
 import { superadmin } from '$lib/stores'
+import { resource } from 'runed'
 import { derived } from 'svelte/store'
 
 export let isCustomInstanceDbEnabled = derived(
@@ -58,4 +60,38 @@ export function shortManagedInstanceLabel(text: string): string {
 	return text.startsWith('Managed instance (')
 		? text.replace('Managed instance (', 'Managed (')
 		: text
+}
+
+/**
+ * Whether each Postgres Windmill manages can take a new data table, and the external cluster's
+ * databases. Both answer only to a superadmin, and only a superadmin creates on either, so for
+ * anyone else neither is available and nothing is fetched.
+ */
+export function useManagedInstances(isSuperadmin: () => boolean) {
+	const externalStatus = resource([isSuperadmin], ([su]) =>
+		su ? SettingService.getExternalInstancePgStatus() : Promise.resolve(undefined)
+	)
+	const externalDbs = resource([isSuperadmin], ([su]) =>
+		su ? SettingService.listExternalInstancePgDatabases() : Promise.resolve({})
+	)
+	// Absent means on.
+	const instancePgDisabled = resource([isSuperadmin], ([su]) =>
+		su
+			? SettingService.getGlobal({ key: 'instance_pg_disabled' }).catch(() => undefined)
+			: Promise.resolve(undefined)
+	)
+	return {
+		externalDbs,
+		get externalAvailable() {
+			return isSuperadmin() && externalStatus.current?.configured === true
+		},
+		get instanceAvailable() {
+			return isSuperadmin() && !isCloudHosted() && !instancePgDisabled.current
+		},
+		refresh() {
+			externalStatus.refetch()
+			externalDbs.refetch()
+			instancePgDisabled.refetch()
+		}
+	}
 }
