@@ -4,7 +4,7 @@
 	import { argsToJsonPayload } from '$lib/schema'
 	import JobLoader from '$lib/components/JobLoader.svelte'
 	import { Button } from '$lib/components/common'
-	import { WindmillIcon } from '$lib/components/icons'
+	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
 	import LogPanel from '$lib/components/scriptEditor/LogPanel.svelte'
 	import {
 		type CompletedJob,

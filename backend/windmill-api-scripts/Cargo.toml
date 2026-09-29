@@ -30,7 +30,11 @@ windmill-parser-ts-asset.workspace = true
 windmill-parser-sql-asset.workspace = true
 windmill-parser-sql.workspace = true
 windmill-parser-yaml.workspace = true
+windmill-parser-bash.workspace = true
+windmill-parser-go.workspace = true
+windmill-parser-graphql.workspace = true
 
+anyhow.workspace = true
 axum.workspace = true
 futures.workspace = true
 http.workspace = true

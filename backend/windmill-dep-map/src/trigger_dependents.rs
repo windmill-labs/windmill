@@ -66,6 +66,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             ..Default::default()
         };
 
+        let mut tag = None;
         let job_payload = match importer_kind.as_str() {
             "script" => match sqlx::query_scalar!(
                 "SELECT hash FROM script WHERE path = $1 AND workspace_id = $2 AND deleted = false AND archived = false ORDER BY created_at DESC LIMIT 1",
@@ -80,6 +81,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
 
                     let info =
                         windmill_common::get_script_info_for_hash(None, db, w_id, hash).await?;
+                    tag = windmill_common::scripts::dependency_job_tag(info.tag, &info.language);
 
                     JobPayload::Dependencies {
                         path: importer_path.clone(),
@@ -199,7 +201,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             false,
             None,
             true,
-            Some("dependency".into()),
+            tag,
             None,
             None,
             None,

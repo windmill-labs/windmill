@@ -6,7 +6,9 @@
 	import { Button } from '$lib/components/common'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import { GithubIcon, GitlabIcon, GoogleIcon } from '$lib/components/icons'
+	import GithubIcon from '$lib/components/icons/GithubIcon.svelte'
+	import GitlabIcon from '$lib/components/icons/GitlabIcon.svelte'
+	import GoogleIcon from '$lib/components/icons/GoogleIcon.svelte'
 	import { OauthService } from '$lib/gen'
 
 	// An account created through a pre-approved invite has no credentials yet

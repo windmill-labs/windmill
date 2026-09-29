@@ -537,7 +537,9 @@ pub async fn run_server(
     #[cfg(feature = "http_trigger")]
     {
         let http_killpill_rx = killpill_rx.resubscribe();
-        triggers::http::refresh_routers_loop(&db, http_killpill_rx).await;
+        // A worker only serves `/r` when one of its own jobs calls the local API, so it loads the
+        // routers on that first request rather than at startup.
+        triggers::http::refresh_routers_loop(&db, http_killpill_rx, server_mode).await;
     }
 
     let triggers_service = triggers::generate_trigger_routers().layer(from_fn_with_state(

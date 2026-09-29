@@ -1,7 +1,7 @@
 openapi: '3.0.3'
 
 info:
-  version: 1.817.0
+  version: 1.819.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -203,11 +203,11 @@ components:
             - height
         color:
           type: string
-          description: Color of the note (e.g., "yellow", "#ffff00")
+          description: "Color of the note, one of: yellow, blue, green, purple, pink, orange, red, cyan, lime, gray. Any other value renders unstyled."
         type:
           type: string
           enum: [free, group]
-          description: Type of note - 'free' for standalone notes, 'group' for notes that group other nodes
+          description: Type of note - 'free' for standalone notes. 'group' notes are deprecated; segment a flow with FlowValue.groups instead.
         locked:
           type: boolean
           default: false
@@ -245,7 +245,7 @@ components:
           description: ID of the last flow module in this group (topological exit point)
         color:
           type: string
-          description: Color for the group in the flow editor
+          description: "Color for the group in the flow editor, one of: yellow, blue, green, purple, pink, orange, red, cyan, lime, gray. Omit it to let the editor pick one."
       required:
         - start_id
         - end_id
