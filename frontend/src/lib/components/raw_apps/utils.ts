@@ -102,10 +102,9 @@ export const RAW_APP_BUILD_WAIT_MS = 20_000
  * The UI Builder carries no build id: when edits land while a build runs, the result of
  * the older build can settle the wait. */
 export function createRawAppBuildTracker(timeoutMs = RAW_APP_BUILD_WAIT_MS) {
+	// Stays set after a timed-out wait: the UI Builder never builds an app with no
+	// entrypoint, so a build may never report, and a later read must not call it done.
 	let pending = false
-	// A wait that timed out is not repeated until the next edit: the UI Builder never
-	// builds an app with no entrypoint, so the build may never report. It stays pending.
-	let waitExpired = false
 	let generation = 0
 	let waiters: (() => void)[] = []
 	function release() {
@@ -120,14 +119,12 @@ export function createRawAppBuildTracker(timeoutMs = RAW_APP_BUILD_WAIT_MS) {
 		/** Files were sent for a build; returns the generation to pass to `settle`. */
 		start(): number {
 			pending = true
-			waitExpired = false
 			return ++generation
 		},
 		/** A build reported. With `gen`, only settles if no edit was sent since. */
 		settle(gen?: number) {
 			if (gen !== undefined && gen !== generation) return
 			pending = false
-			waitExpired = false
 			release()
 		},
 		/** Ends every wait without settling, e.g. when the editor unmounts. */
@@ -136,14 +133,13 @@ export function createRawAppBuildTracker(timeoutMs = RAW_APP_BUILD_WAIT_MS) {
 			return generation
 		},
 		wait(): Promise<void> {
-			if (!pending || waitExpired) return Promise.resolve()
+			if (!pending) return Promise.resolve()
 			return new Promise((resolve) => {
 				const done = () => {
 					clearTimeout(timer)
 					resolve()
 				}
 				const timer = setTimeout(() => {
-					waitExpired = true
 					waiters = waiters.filter((w) => w !== done)
 					resolve()
 				}, timeoutMs)

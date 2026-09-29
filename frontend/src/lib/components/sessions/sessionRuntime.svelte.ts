@@ -219,7 +219,9 @@ export interface SessionRuntime {
 	requestRuntimeLogs(
 		limit: number,
 		appPath?: string
-	): Promise<RawAppPreviewLogs | { closedAppPath: string } | undefined>
+	): Promise<
+		RawAppPreviewLogs | { closedAppPath: string } | { ambiguousAppPaths: string[] } | undefined
+	>
 	/** Register a mounted raw-app preview's DOM requester, keyed by app path.
 	 * ALL mounted preview tabs register (hidden ones stay mounted), so a
 	 * DOM-scoped turn can read its own app even when another tab is visible. */
@@ -945,7 +947,11 @@ function createRuntime(session: Session): SessionRuntime {
 				appPath ??
 				activeDomAppPath ??
 				(runtimeLogRequesters.size === 1 ? [...runtimeLogRequesters.keys()][0] : undefined)
-			if (path === undefined) return undefined
+			if (path === undefined) {
+				return runtimeLogRequesters.size > 1
+					? { ambiguousAppPaths: [...runtimeLogRequesters.keys()] }
+					: undefined
+			}
 			const requester = runtimeLogRequesters.get(path)
 			return requester ? requester(limit) : { closedAppPath: path }
 		},
@@ -1319,6 +1325,13 @@ setGetRuntimeLogsHandler(async ({ sessionId: callerSessionId, limit, appPath }) 
 	if (previewLogs && 'closedAppPath' in previewLogs) {
 		return {
 			aiResult: `The preview for "${previewLogs.closedAppPath}" is not open, so its logs can't be read. Call open_preview with kind="raw_app" and that path, then call get_app_runtime_logs again.`,
+			uiMessage: 'Runtime logs unavailable',
+			toolResult: 'Runtime logs unavailable'
+		}
+	}
+	if (previewLogs && 'ambiguousAppPaths' in previewLogs) {
+		return {
+			aiResult: `Several raw app previews are open (${previewLogs.ambiguousAppPaths.join(', ')}) and none is visible. Call get_app_runtime_logs again with app_path set to the app you want.`,
 			uiMessage: 'Runtime logs unavailable',
 			toolResult: 'Runtime logs unavailable'
 		}

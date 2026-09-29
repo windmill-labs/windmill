@@ -109,7 +109,7 @@ describe('formatBuildFailureForChat', () => {
 })
 
 describe('createRawAppBuildTracker', () => {
-	it('keeps a timed-out build pending without waiting again until it settles', async () => {
+	it('keeps a timed-out build pending until it settles', async () => {
 		vi.useFakeTimers()
 		try {
 			const tracker = createRawAppBuildTracker(1000)
@@ -121,10 +121,9 @@ describe('createRawAppBuildTracker', () => {
 
 			let secondDone = false
 			void tracker.wait().then(() => (secondDone = true))
+			tracker.settle()
 			await vi.advanceTimersByTimeAsync(0)
 			expect(secondDone).toBe(true)
-
-			tracker.settle()
 			expect(tracker.pending).toBe(false)
 		} finally {
 			vi.useRealTimers()
