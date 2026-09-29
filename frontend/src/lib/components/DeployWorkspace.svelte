@@ -108,16 +108,22 @@
 		return needsOnBehalfOfSelection(kind, sourceOnBehalfOfInfo[statusPath])
 	}
 
+	/** Triggers and agents record who they run as by principal, the rest by address. */
+	function usesPrincipal(kind: Kind): boolean {
+		return kind === 'trigger' || kind === 'resource'
+	}
+
 	/**
 	 * Get the on_behalf_of value for deployment based on user's choice.
-	 * Returns an email for flows/scripts/apps, or permissioned_as (u/username, g/group) for triggers/schedules.
+	 * Returns an email for flows/scripts/apps, or permissioned_as (u/username, g/group) for
+	 * triggers/schedules and agents.
 	 */
 	function getOnBehalfOfForDeploy(statusPath: string, kind: Kind): string | undefined {
 		const choice = onBehalfOfChoice[statusPath]
 		if (choice === 'target') return targetOnBehalfOfInfo[statusPath]
 		if (choice === 'custom') {
 			const details = customOnBehalfOf[statusPath]
-			return kind === 'trigger' ? details?.permissionedAs : details?.email
+			return usesPrincipal(kind) ? details?.permissionedAs : details?.email
 		}
 		// 'me' or undefined = don't pass, backend will use deploying user's identity
 		return undefined
@@ -132,7 +138,7 @@
 		statusPath: string,
 		kind: Kind
 	): string | undefined {
-		if (kind === 'trigger' || onBehalfOfChoice[statusPath] !== 'custom') return undefined
+		if (usesPrincipal(kind) || onBehalfOfChoice[statusPath] !== 'custom') return undefined
 		return customOnBehalfOf[statusPath]?.permissionedAs
 	}
 
@@ -203,7 +209,7 @@
 
 		// Fetch on_behalf_of_email for flows, scripts, apps, and triggers from both workspaces
 		for (const dep of sortedSet.filter((d) =>
-			['flow', 'script', 'app', 'trigger'].includes(d.kind)
+			['flow', 'script', 'app', 'trigger', 'resource'].includes(d.kind)
 		)) {
 			const key = computeStatusPath(dep.kind, dep.path)
 			let source: string | undefined

@@ -51,7 +51,8 @@
 		keepsManagedMemory
 	} from '../agentFormFields'
 	import { toolDisplayName, type AgentTool } from '../agentToolUtils'
-	import { useAgentDraft } from '../agentDraft.svelte'
+	import { useAgentDraft, type AgentRunAs } from '../agentDraft.svelte'
+	import PermissionedAsLine from '$lib/components/triggers/PermissionedAsLine.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import Label from '$lib/components/Label.svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -444,13 +445,14 @@
 	let pathError = $state('')
 
 	/** Who the next deploy makes the agent run as, as the "Permissioned as" line picked it. */
+	let runAs = $state<AgentRunAs | undefined>(undefined)
 
 	export function deploy(): Promise<boolean> {
 		if (pathError) {
 			sendUserToast(`Cannot deploy the agent: ${pathError}`, true)
 			return Promise.resolve(false)
 		}
-		return draft.deploy().then(async (written) => {
+		return draft.deploy(runAs).then(async (written) => {
 			// The path the write landed on, which a rename moves off the one this editor opened.
 			if (written) await onSaved?.(written)
 			return written !== undefined
@@ -566,13 +568,17 @@
 							disabled={readOnly}
 						/>
 					</Label>
-					<!-- An agent runs as whoever runs it, so sharing one through a folder shares nothing
-					     it uses. -->
-					{#if !readOnly && draft.state?.path?.startsWith('f/')}
-						<Alert type="info" size="xs" title="Shared through its folder" class="mt-2">
-							Anyone who runs this agent needs access to its AI resource, and to the resources and
-							workspace scripts its tools use.
-						</Alert>
+					<!-- Who the deployed agent runs as when someone runs it from its page, resolved on
+					     deploy as a flow's on-behalf-of identity is. -->
+					{#if !readOnly}
+						<div class="pt-2">
+							<PermissionedAsLine
+								permissionedAs={draft.onBehalfOf}
+								path={draft.state?.path}
+								onPermissionedAsChange={(permissionedAs, preserve) =>
+									(runAs = { permissionedAs, preserve })}
+							/>
+						</div>
 					{/if}
 				</div>
 			{/if}

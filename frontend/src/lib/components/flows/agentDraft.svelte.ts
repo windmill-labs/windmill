@@ -144,18 +144,29 @@ export function agentDraftDeployRefusal(
  */
 type AgentWriteResult = { ok: true } | { ok: false; error: string; notAnAgent?: true }
 
+/** Who a deploy makes the agent run as. The server resolves it as it does a flow's: without
+ *  `preserve`, or from someone not allowed to keep another identity, it is the deployer. */
+export interface AgentRunAs {
+	permissionedAs: string | undefined
+	preserve: boolean
+}
+
 async function writeAgentResource(
 	workspace: string,
 	fromPath: string,
 	state: AgentResourceState,
-	noDeployed: boolean
+	noDeployed: boolean,
+	runAs?: AgentRunAs
 ): Promise<AgentWriteResult> {
 	const body = {
 		path: state.path,
-		value: state.args,
+		value: runAs?.permissionedAs
+			? { ...state.args, on_behalf_of: runAs.permissionedAs }
+			: state.args,
 		description: state.description,
 		labels: state.labels,
-		ws_specific: state.wsSpecific
+		ws_specific: state.wsSpecific,
+		preserve_on_behalf_of: runAs?.preserve || undefined
 	}
 	try {
 		if (noDeployed) {
@@ -221,9 +232,12 @@ export interface AgentDraftHandle {
 	/** Why this path cannot be edited here, if it cannot. Render it instead of the form. */
 	readonly refusal: string | undefined
 	readonly sync: TriggerDraftSync
+	/** Who the deployed agent runs as when run from its page; undefined when nothing is deployed
+	 *  or it runs as whoever runs it. */
+	readonly onBehalfOf: string | undefined
 	/** Write the current state to the resource and drop the draft. Resolves to the path written,
 	 *  which differs from the one loaded when the draft renames the agent, or undefined on failure. */
-	deploy: () => Promise<string | undefined>
+	deploy: (runAs?: AgentRunAs) => Promise<string | undefined>
 }
 
 /**
@@ -237,6 +251,7 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 	let loading = $state(true)
 	let noDeployed = $state(false)
 	let canWriteResource = $state(true)
+	let onBehalfOf = $state<string | undefined>(undefined)
 	/** Guards the load against a path that changed under a slow response. */
 	let loadedFor = $state<string | undefined>(undefined)
 	/** Why the loaded path cannot be edited here, if it cannot. Gates the sync for as long as that
@@ -324,10 +339,15 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 							return
 						}
 						noDeployed = Boolean((r as any).no_deployed)
+						// Who it runs as is the deploy's to decide, not a setting the form or a draft holds.
+						const { on_behalf_of, ...args } = (r.value ?? {}) as AIAgentConfig & {
+							on_behalf_of?: string
+						}
+						onBehalfOf = noDeployed ? undefined : on_behalf_of
 						const deployedState: AgentResourceState = {
 							path: r.path,
 							description: r.description ?? '',
-							args: (r.value ?? {}) as AIAgentConfig,
+							args,
 							// Only where nothing else answers for the type: with a deployed row both the
 							// create below and the review page's `deployDraft` read it from there, and
 							// carrying it would make every draft the generic resource editor writes — which
@@ -408,7 +428,7 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 		})
 	})
 
-	async function deploy(): Promise<string | undefined> {
+	async function deploy(runAs?: AgentRunAs): Promise<string | undefined> {
 		const ws = opts.workspace()
 		const fromPath = opts.path()
 		const s = state
@@ -424,7 +444,7 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 		// made during the request as saved, and the banner would clear on a value the server never
 		// received; against the snapshot it stays a draft, which is what it is.
 		const submitted = structuredClone($state.snapshot(s)) as AgentResourceState
-		const written = await writeAgentResource(ws, fromPath, submitted, noDeployed)
+		const written = await writeAgentResource(ws, fromPath, submitted, noDeployed, runAs)
 		if (!written.ok) {
 			// A path that is no longer an agent tears this editor down; anything else is a plain error
 			// the user can retry from the form as it stands.
@@ -440,6 +460,10 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 		logReusableAgentUsage(noDeployed ? 'saved' : 'updated')
 		deployed = submitted
 		noDeployed = false
+		// What the server resolved, which a request to keep an identity does not decide alone.
+		void ResourceService.getResource({ workspace: ws, path: submitted.path })
+			.then((r) => (onBehalfOf = (r.value as { on_behalf_of?: string } | undefined)?.on_behalf_of))
+			.catch(() => {})
 		const renamed = submitted.path !== fromPath
 		// Only when the form still holds exactly what was sent. `discard` resets the handle's cell to
 		// what it is given, and the apply-effect copies that back over the form: against an edit made
@@ -478,6 +502,9 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 		},
 		get refusal() {
 			return refusal
+		},
+		get onBehalfOf() {
+			return onBehalfOf
 		},
 		sync,
 		deploy

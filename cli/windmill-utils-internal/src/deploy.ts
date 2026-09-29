@@ -630,14 +630,25 @@ export async function deployItem(
         workspace: workspaceFrom,
         path,
       });
+      let value = resource.value ?? "";
+      // An agent's value carries the principal it runs as, as a trigger's row does: the source's
+      // names nobody in the target, so it is replaced by the chosen one or dropped, leaving the
+      // backend to make it the deployer's.
+      const agent = resource.resource_type === "ai_agent" && typeof value === "object";
+      if (agent) {
+        const { on_behalf_of: _, ...rest } = value;
+        value = onBehalfOf ? { ...rest, on_behalf_of: onBehalfOf } : rest;
+      }
+      const agentPreserve = agent ? { preserve_on_behalf_of: preserveOnBehalfOf } : {};
       if (alreadyExists) {
         await provider.updateResource({
           workspace: workspaceTo,
           path,
           requestBody: {
             path,
-            value: resource.value ?? "",
+            value,
             description: resource.description ?? "",
+            ...agentPreserve,
           },
         });
       } else {
@@ -645,9 +656,10 @@ export async function deployItem(
           workspace: workspaceTo,
           requestBody: {
             path,
-            value: resource.value ?? "",
+            value,
             resource_type: resource.resource_type,
             description: resource.description ?? "",
+            ...agentPreserve,
           },
         });
       }
@@ -902,6 +914,11 @@ export async function getItemValue(
       return variable.value;
     } else if (kind === "resource") {
       const resource = await provider.getResource({ workspace, path });
+      // Each workspace resolves its own agent identity, which a deploy never copies.
+      if (resource.resource_type === "ai_agent" && resource.value) {
+        const { on_behalf_of: _, ...value } = resource.value;
+        return value;
+      }
       return resource.value;
     } else if (kind === "resource_type") {
       const rt = await provider.getResourceType({ workspace, path });
@@ -987,7 +1004,8 @@ function stripTriggerOrScheduleRuntimeFields(row: unknown): unknown {
 
 /**
  * Fetch the on_behalf_of value for a deployable item.
- * Returns an email for flows/scripts/apps, or undefined if not applicable.
+ * Returns an email for flows/scripts/apps, a principal (u/username, g/group) for
+ * triggers/schedules and agents, or undefined if not applicable.
  */
 export async function getOnBehalfOf(
   provider: DeployProvider,
@@ -1005,6 +1023,12 @@ export async function getOnBehalfOf(
     } else if (kind === "app" || kind === "raw_app") {
       const app = await provider.getAppByPath({ workspace, path });
       return app.policy?.on_behalf_of_email;
+    } else if (kind === "resource") {
+      // Only an agent runs as anyone, and like a trigger it records the principal.
+      const resource = await provider.getResource({ workspace, path });
+      return resource.resource_type === "ai_agent"
+        ? resource.value?.on_behalf_of
+        : undefined;
     } else if (kind === "schedule") {
       const schedule = await provider.getSchedule({ workspace, path });
       return schedule.permissioned_as;

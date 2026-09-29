@@ -122,6 +122,25 @@ describe('deployDraft preserves on_behalf_of', () => {
 			})
 		)
 	})
+
+	it('agent: claims the deployed identity, which its draft never carries', async () => {
+		vi.mocked(ResourceService.getResource).mockResolvedValueOnce({
+			path: 'f/support/triage_agent',
+			resource_type: 'ai_agent',
+			value: { system_prompt: 'deployed', on_behalf_of: 'u/alice' },
+			draft: { path: 'f/support/triage_agent', args: { system_prompt: 'drafted' } }
+		} as any)
+
+		expect(await deployDraft('resource', 'f/support/triage_agent', 'ws')).toEqual({ success: true })
+		expect(ResourceService.updateResource).toHaveBeenCalledWith(
+			expect.objectContaining({
+				requestBody: expect.objectContaining({
+					value: { system_prompt: 'drafted', on_behalf_of: 'u/alice' },
+					preserve_on_behalf_of: true
+				})
+			})
+		)
+	})
 })
 
 // The resource branch reads the item again when the deploy lands, and falls back to the deployed

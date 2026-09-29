@@ -196,6 +196,11 @@ export type DeployConflict = { hit: boolean }
  * A group kept as the target identity travels as its synthetic `group-*@windmill.dev`
  * address, which an admin-created account holding it would win on the backend: known and
  * accepted, see `users::permissioned_as_from_email`.
+ *
+ * An agent carries its principal inside its resource value, and is handed the chosen one as a
+ * principal, as a trigger is. Every read here drops the source's, so a diff never shows it and
+ * the published `deployItem` copies none; the write then stamps the chosen one, or none, which
+ * leaves the backend to make it the deployer's.
  */
 function makeProvider(
 	onBehalfOfPrincipal?: string,
@@ -224,6 +229,17 @@ function makeProvider(
 					}
 				}
 			: app
+	const agents = new Set<string>()
+	const withAgentIdentity = <T extends Record<string, any>>(requestBody: T, path: string): T =>
+		agents.has(path) && requestBody.value && typeof requestBody.value === 'object'
+			? {
+					...requestBody,
+					value: onBehalfOf
+						? { ...requestBody.value, on_behalf_of: onBehalfOf }
+						: requestBody.value,
+					preserve_on_behalf_of: onBehalfOf !== undefined
+				}
+			: requestBody
 	const refuseUpdate = (): never => {
 		if (conflict) conflict.hit = true
 		throw new Error('item already exists in the target workspace')
@@ -276,9 +292,23 @@ function makeProvider(
 		createVariable: (p) => VariableService.createVariable(p),
 		updateVariable: (p) => VariableService.updateVariable(p),
 		deleteVariable: (p) => VariableService.deleteVariable(p),
-		getResource: (p) => ResourceService.getResource(p),
-		createResource: (p) => ResourceService.createResource(p),
-		updateResource: (p) => ResourceService.updateResource(p),
+		getResource: async (p) => {
+			const resource = await ResourceService.getResource(p)
+			if (resource.resource_type !== 'ai_agent' || !resource.value) return resource
+			agents.add(p.path)
+			const { on_behalf_of: _, ...value } = resource.value as Record<string, any>
+			return { ...resource, value }
+		},
+		createResource: (p) =>
+			ResourceService.createResource({
+				...p,
+				requestBody: withAgentIdentity(p.requestBody, p.requestBody.path)
+			}),
+		updateResource: (p) =>
+			ResourceService.updateResource({
+				...p,
+				requestBody: withAgentIdentity(p.requestBody, p.path)
+			}),
 		deleteResource: (p) => ResourceService.deleteResource(p),
 		getResourceType: (p) => ResourceService.getResourceType(p),
 		createResourceType: (p) => ResourceService.createResourceType(p),
@@ -565,6 +595,17 @@ export async function getOnBehalfOf(
 	if (kind === 'trigger' && additionalInformation?.triggers) {
 		try {
 			return await getTriggerPermissionedAs(additionalInformation.triggers.kind, path, workspace)
+		} catch {
+			return undefined
+		}
+	}
+	if (kind === 'resource') {
+		// Only an agent runs as anyone, and like a trigger it records the principal.
+		try {
+			const resource = await ResourceService.getResource({ workspace, path })
+			return resource.resource_type === 'ai_agent'
+				? (resource.value as { on_behalf_of?: string } | undefined)?.on_behalf_of
+				: undefined
 		} catch {
 			return undefined
 		}
