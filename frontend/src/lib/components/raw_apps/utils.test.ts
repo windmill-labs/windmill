@@ -48,6 +48,23 @@ describe('genWmillTs', () => {
 		expect(dts).toContain('myflow: (args: { string_input: string }) => Promise<any>;')
 	})
 
+	it('leaves ctx fields out of the args type, the server fills them', () => {
+		const runnables: Record<string, Runnable> = {
+			myflow: {
+				type: 'path',
+				runType: 'flow',
+				path: 'u/dev/my_flow',
+				name: 'My flow',
+				schema: flowSchema,
+				fields: {
+					string_input: { type: 'ctx', ctx: 'username', fieldType: 'text' }
+				}
+			}
+		}
+
+		expect(genWmillTs(runnables)).toContain('myflow: (args: { count?: number }) => Promise<any>;')
+	})
+
 	it('quotes flow input names that are not valid identifiers', () => {
 		const runnables: Record<string, Runnable> = {
 			myflow: {

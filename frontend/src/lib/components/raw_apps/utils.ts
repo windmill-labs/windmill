@@ -201,8 +201,11 @@ export function unsandboxedRawAppHtml(
 </html>`
 }
 
-function removeStaticFields(schema: Schema, fields: Record<string, { type: string }>): Schema {
-	const staticFields = Object.keys(fields).filter((k) => fields[k].type == 'static')
+// Static and ctx fields are filled in for the caller, whatever the frontend passes.
+function removeServerFilledFields(schema: Schema, fields: Record<string, { type: string }>): Schema {
+	const staticFields = Object.keys(fields).filter(
+		(k) => fields[k].type == 'static' || fields[k].type == 'ctx'
+	)
 	return {
 		...schema,
 		properties: {
@@ -217,14 +220,14 @@ function hiddenRunnableToTsType(runnable: Runnable) {
 	if (isRunnableByName(runnable)) {
 		if (runnable?.inlineScript?.schema) {
 			return schemaToTsType(
-				removeStaticFields(runnable?.inlineScript?.schema, runnable?.fields ?? {})
+				removeServerFilledFields(runnable?.inlineScript?.schema, runnable?.fields ?? {})
 			)
 		} else {
 			return '{}'
 		}
 	} else if (isRunnableByPath(runnable)) {
 		if (runnable?.schema) {
-			return schemaToTsType(removeStaticFields(runnable.schema as Schema, runnable?.fields ?? {}))
+			return schemaToTsType(removeServerFilledFields(runnable.schema as Schema, runnable?.fields ?? {}))
 		} else {
 			return '{}'
 		}
