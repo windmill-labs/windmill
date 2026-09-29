@@ -37,6 +37,7 @@ vi.mock('$lib/gen', async (orig) => {
 		WorkspaceService: {
 			...actual.WorkspaceService,
 			createWorkspaceFork: vi.fn().mockRejectedValue(new Error('fork creation failed')),
+			getForkCreationStatus: vi.fn().mockResolvedValue({ status: 'completed' }),
 			listUserWorkspaces: vi.fn().mockResolvedValue([])
 		}
 	}
@@ -100,6 +101,38 @@ describe('commitSessionWorkspace — fork-creation failure', () => {
 			const s = sessionState.sessions.find((x) => x.id === id)
 			expect(s?.workspace_id).toBeUndefined()
 			expect(s?.pending_fork).toBeUndefined()
+		} finally {
+			const i = sessionState.sessions.findIndex((x) => x.id === id)
+			if (i >= 0) sessionState.sessions.splice(i, 1)
+			enterpriseLicense.set(prevLicense)
+		}
+	})
+})
+
+describe('commitSessionWorkspace — fork creation resumed after a reload', () => {
+	it('waits for the creation the pending fork started instead of requesting it again', async () => {
+		const id = 'test-commit-fork-resume'
+		const prevLicense = get(enterpriseLicense)
+		enterpriseLicense.set('test-license')
+		vi.mocked(WorkspaceService.createWorkspaceFork).mockClear()
+		sessionState.sessions.push({
+			id,
+			name: 'fork-resume',
+			createdAt: 0,
+			pending_fork: {
+				parent_workspace_id: 'parent_ws',
+				id: 'wm-fork-resume',
+				name: 'resume',
+				creation_id: '5c3e1b1e-0000-4000-8000-000000000000'
+			}
+		} as Session)
+		try {
+			expect(await commitSessionWorkspace(id, 'parent_ws')).toBe('wm-fork-resume')
+			expect(WorkspaceService.getForkCreationStatus).toHaveBeenCalledWith({
+				workspace: 'parent_ws',
+				creationId: '5c3e1b1e-0000-4000-8000-000000000000'
+			})
+			expect(WorkspaceService.createWorkspaceFork).not.toHaveBeenCalled()
 		} finally {
 			const i = sessionState.sessions.findIndex((x) => x.id === id)
 			if (i >= 0) sessionState.sessions.splice(i, 1)
