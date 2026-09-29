@@ -83,19 +83,7 @@ Public CLI surface:
 
 ## Models
 
-Use `bun run cli -- models` to see the current aliases.
-
-Today:
-
-- `haiku`
-- `sonnet`
-- `opus`
-- `4o`
-- `gpt-5.5`
-- `gemini-3-flash-preview`
-- `gemini-3.1-pro-preview`
-- `deepseek-v4-flash`
-- `deepseek-v4-pro`
+Use `bun run cli -- models` to see the current aliases; `core/models.ts` is the list.
 
 Notes:
 
