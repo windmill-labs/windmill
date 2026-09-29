@@ -14,6 +14,35 @@ use std::time::{Duration, Instant};
 /// its `thinking` param, Gemini to a zero budget or the model's floor).
 pub(crate) const REASONING_OFF_SENTINEL: &str = "none";
 
+/// The effort to send for a model, dropping the off sentinel on a model that rejects every
+/// disable: the model then reasons at its default instead of failing the request. The UI
+/// never offers off on these (`reasoningRegistry.ts` `canDisableReasoning`), so this guards
+/// an agent step saved before it stopped, or an effort passed in as a flow input.
+pub fn effective_reasoning_effort<'a>(model: &str, effort: Option<&'a str>) -> Option<&'a str> {
+    match effort {
+        Some(effort) if effort == REASONING_OFF_SENTINEL && model_always_reasons(model) => None,
+        effort => effort,
+    }
+}
+
+/// Live-verified: Claude Fable, Mythos and the 5.x point releases (Sonnet 5.5, Opus 5.5)
+/// reject `thinking: {type: "disabled"}`, and `gpt-6-astra` rejects effort `none` (its
+/// sol and luna tiers take it). The Claude version match stops at one digit so a dated id
+/// (`claude-sonnet-5-20260101`) stays Sonnet 5.
+fn model_always_reasons(model: &str) -> bool {
+    let model = model.to_lowercase().replace('.', "-");
+    let claude_5_point_release = ["claude-opus-5-", "claude-sonnet-5-"].iter().any(|prefix| {
+        model.split(prefix).skip(1).any(|rest| {
+            let mut chars = rest.chars();
+            matches!(chars.next(), Some('1'..='9')) && !matches!(chars.next(), Some('0'..='9'))
+        })
+    });
+    claude_5_point_release
+        || model.contains("claude-fable")
+        || model.contains("claude-mythos")
+        || model.contains("gpt-6-astra")
+}
+
 /// Whether a Claude model removed the sampling params (`temperature`, `top_p`,
 /// `top_k`). On these, any value is a hard 400 — `temperature is deprecated for
 /// this model` — whatever the thinking mode, so the param has to be dropped on
@@ -117,6 +146,44 @@ pub fn is_chat_completions_only(base_url: &str, model: &str) -> bool {
 /// Record that this deployment rejected the endpoint its provider prefers.
 pub fn remember_chat_completions_only(base_url: &str, model: &str) {
     CHAT_COMPLETIONS_ONLY.insert((base_url.to_string(), model.to_string()), Instant::now());
+}
+
+#[cfg(test)]
+mod effective_reasoning_effort_tests {
+    use super::*;
+
+    #[test]
+    fn drops_off_only_where_the_model_rejects_every_disable() {
+        for model in [
+            "claude-sonnet-5-5",
+            "claude-opus-5.5",
+            "global.anthropic.claude-opus-5-5-v1:0",
+            "gpt-6-astra",
+        ] {
+            assert_eq!(
+                effective_reasoning_effort(model, Some("none")),
+                None,
+                "{model}"
+            );
+            assert_eq!(
+                effective_reasoning_effort(model, Some("low")),
+                Some("low"),
+                "{model}"
+            );
+        }
+        for model in [
+            "claude-sonnet-5",
+            "claude-opus-5-20260101",
+            "gpt-6-sol",
+            "gpt-5.6-sol",
+        ] {
+            assert_eq!(
+                effective_reasoning_effort(model, Some("none")),
+                Some("none"),
+                "{model}"
+            );
+        }
+    }
 }
 
 #[cfg(test)]

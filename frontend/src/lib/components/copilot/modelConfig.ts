@@ -58,7 +58,7 @@ export function usesOpenRouterPromptCaching(provider: AIProvider, model: string)
 // so it does not catch unrelated ids like Mistral's "open-mistral-*" or "optimus-*".
 export function requiresMaxCompletionTokens(model: string) {
 	const baseModel = parseModelId(model).base
-	return baseModel.startsWith('gpt-5') || /^o\d/.test(baseModel)
+	return Number(/^gpt-(\d+)/.exec(baseModel)?.[1]) >= 5 || /^o\d/.test(baseModel)
 }
 
 // Context windows of the models we know, most specific entry first — the first

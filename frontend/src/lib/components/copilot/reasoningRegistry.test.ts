@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
 	applyReasoningToConfig,
+	explicitOffToken,
 	getReasoningCapability,
 	REASONING_OFF,
 	resolveEffectiveReasoning,
@@ -260,6 +261,29 @@ describe('supportsReasoning (static registry)', () => {
 		expect(getReasoningCapability('openrouter', 'openai/gpt-5-mini').canDisable).toBe(false)
 		expect(getReasoningCapability('openrouter', 'x-ai/grok-4').canDisable).toBe(false)
 		expect(getReasoningCapability('openrouter', 'deepseek/deepseek-r1').canDisable).toBe(false)
+	})
+	it('never sends a disable the 5.5 point releases and gpt-6-astra reject', () => {
+		// Live-verified: Claude 5.5 rejects `thinking: disabled`, gpt-6-astra rejects `none`.
+		for (const [provider, model] of [
+			['anthropic', 'claude-sonnet-5-5'],
+			['anthropic', 'claude-opus-5-5'],
+			['aws_bedrock', 'global.anthropic.claude-opus-5-5-v1:0'],
+			['openai', 'gpt-6-astra']
+		] as const) {
+			expect(getReasoningCapability(provider, model).canDisable, model).toBe(false)
+			expect(explicitOffToken(provider, model), model).toBeUndefined()
+		}
+		expect(getReasoningCapability('openrouter', 'anthropic/claude-sonnet-5.5').canDisable).toBe(
+			false
+		)
+		// A dated Claude 5 id is not a point release.
+		expect(explicitOffToken('anthropic', 'claude-sonnet-5-20260101')).toBe('none')
+		expect(explicitOffToken('openai', 'gpt-6-sol')).toBe('none')
+		expect(getReasoningCapability('openai', 'gpt-6-luna')).toMatchObject({
+			supported: true,
+			canDisable: true,
+			levels: ['low', 'medium', 'high', 'xhigh', 'max']
+		})
 	})
 	it('forwards an explicit off as effort none through OpenRouter', () => {
 		expect(
