@@ -1249,11 +1249,24 @@
 			<div class="flex-1 min-h-0 overflow-y-auto">
 				{#if searching && listsLoaded && navItems.length === 0}
 					<div class="flex flex-col items-center gap-1 py-16 text-center">
-						<span class="text-sm text-primary">No resource type matches “{filter.trim()}”</span>
-						<span class="text-xs text-secondary">
-							Search on the name, the product or what the resource holds — or sync resource types
-							with the hub for more.
-						</span>
+						{#if selectedCategory}
+							<span class="text-sm text-primary">
+								No {selectedCategory} resource type matches “{filter.trim()}”
+							</span>
+							<Button
+								variant="subtle"
+								unifiedSize="sm"
+								onClick={() => (selectedCategory = undefined)}
+							>
+								Search all categories
+							</Button>
+						{:else}
+							<span class="text-sm text-primary">No resource type matches “{filter.trim()}”</span>
+							<span class="text-xs text-secondary">
+								Search on the name, the product or what the resource holds — or sync resource types
+								with the hub for more.
+							</span>
+						{/if}
 					</div>
 				{:else}
 					<!-- One gap between sections, owned by the column: a section that a search empties
