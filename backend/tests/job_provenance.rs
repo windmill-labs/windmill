@@ -75,6 +75,7 @@ async fn preview_step_of_deployed_flow_is_deployed_within_its_path(db: Pool<Post
         assert!(p.deployed && p.claimed_paths.is_empty(), "step {step}");
     }
     assert!(!deployed(&db, "3bb0c0de-0000-4000-8000-00000000000c").await);
+    assert!(!deployed(&db, "3bb0c0de-0000-4000-8000-000000000011").await);
     assert_eq!(
         claims(&db, "3bb0c0de-0000-4000-8000-00000000000c").await,
         [claim("f/t/agentx", ClaimedItem::Script)]
@@ -94,4 +95,9 @@ async fn claimed_paths_are_the_request_supplied_origins(db: Pool<Postgres>) {
     );
     assert_eq!(claims(&db, "3bb0c0de-0000-4000-8000-000000000006").await, [flow()]);
     assert!(claims(&db, "3bb0c0de-0000-4000-8000-000000000002").await.is_empty());
+    // A parent whose path names no item cannot cover the claims below it.
+    assert_eq!(
+        claims(&db, "3bb0c0de-0000-4000-8000-000000000013").await,
+        [claim("f/prod/deploy", ClaimedItem::Script)]
+    );
 }

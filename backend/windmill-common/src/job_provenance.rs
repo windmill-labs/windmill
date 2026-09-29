@@ -52,6 +52,7 @@ struct LineageJob {
     permissioned_as: String,
     origin_verified: bool,
     app_stamped: bool,
+    args_modules: bool,
 }
 
 /// Reads any job of `w_id` regardless of the caller: authorize access to `job_id` first.
@@ -60,11 +61,11 @@ pub async fn job_provenance(db: &DB, job_id: &Uuid, w_id: &str) -> Result<Option
         LineageJob,
         r#"WITH RECURSIVE lineage AS (
             SELECT id, parent_job, kind, runnable_path, runnable_id, trigger_kind, trigger,
-                permissioned_as, 0 AS depth
+                permissioned_as, args, 0 AS depth
             FROM v2_job WHERE id = $1 AND workspace_id = $2
           UNION ALL
             SELECT p.id, p.parent_job, p.kind, p.runnable_path, p.runnable_id, p.trigger_kind,
-                p.trigger, p.permissioned_as, l.depth + 1
+                p.trigger, p.permissioned_as, p.args, l.depth + 1
             FROM v2_job p JOIN lineage l ON p.id = l.parent_job
             WHERE p.workspace_id = $2 AND l.depth < 100
         )
@@ -82,7 +83,10 @@ pub async fn job_provenance(db: &DB, job_id: &Uuid, w_id: &str) -> Result<Option
             -- Only deployed-app runs are stamped with their app; an app editor preview
             -- runs app code at an app path it does not have to own.
             COALESCE(trigger_kind = 'app' AND starts_with(runnable_path, trigger || '/'), false)
-                AS "app_stamped!"
+                AS "app_stamped!",
+            -- A preview's modules come from its args, which its parent may have taken from
+            -- the caller.
+            COALESCE(jsonb_typeof(args->'_MODULES') = 'object', false) AS "args_modules!"
         FROM lineage ORDER BY depth"#,
         job_id,
         w_id
@@ -148,7 +152,8 @@ fn runs_stored_code(job: &LineageJob, parent: Option<(&LineageJob, bool)>) -> bo
         // task or module). A flow deployed before flow nodes, or run with
         // `DISABLE_FLOW_SCRIPT`, runs its inline steps this way.
         JobKind::Preview | JobKind::FlowPreview => {
-            parent.is_some_and(|(p, p_stored)| p_stored && path_within(job, p))
+            !job.args_modules
+                && parent.is_some_and(|(p, p_stored)| p_stored && path_within(job, p))
         }
         JobKind::Dependencies
         | JobKind::FlowDependencies

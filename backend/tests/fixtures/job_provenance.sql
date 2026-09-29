@@ -53,3 +53,11 @@ VALUES
 INSERT INTO v2_job (id, workspace_id, kind, runnable_path, trigger_kind, trigger, created_by, permissioned_as, permissioned_as_email)
 VALUES
     ('3bb0c0de-0000-4000-8000-000000000010', 'test-workspace', 'preview', 'f/t/app/comp', 'app', 'f/t/app', 'test-user', 'u/test-user', 'test@windmill.dev');
+
+-- A step of the deployed flow whose modules came in its args, and a flow preview at the
+-- bare `f` whose step names another item.
+INSERT INTO v2_job (id, workspace_id, kind, runnable_path, parent_job, args, created_by, permissioned_as, permissioned_as_email)
+VALUES
+    ('3bb0c0de-0000-4000-8000-000000000011', 'test-workspace', 'preview', 'f/t/agent/m', '3bb0c0de-0000-4000-8000-000000000001', '{"_MODULES": {}}', 'test-user', 'u/test-user', 'test@windmill.dev'),
+    ('3bb0c0de-0000-4000-8000-000000000012', 'test-workspace', 'flowpreview', 'f', NULL, NULL, 'test-user', 'u/test-user', 'test@windmill.dev'),
+    ('3bb0c0de-0000-4000-8000-000000000013', 'test-workspace', 'preview', 'f/prod/deploy', '3bb0c0de-0000-4000-8000-000000000012', NULL, 'test-user', 'u/test-user', 'test@windmill.dev');
