@@ -432,6 +432,12 @@ async function storagePathForChosenName(
 		// Something is staged under this name, and whether the path is also a deployed item's
 		// own is what says which draft the call means. Answering it either way could delete or
 		// deploy an unrelated draft.
+		//
+		// Reads stop here too, unlike the listing failure above, which hands them the addressed
+		// path. That branch knows nothing is staged under the name; this one knows something is,
+		// so the name is genuinely ambiguous and saying so beats reading whichever item the path
+		// happens to hold. The destructive tools reach this as reads — they declare no
+		// `forWrite` — and this is the stop that keeps them off the namesake.
 		throw new Error(
 			`Could not tell whether something is already deployed at "${path}", so the draft staged ` +
 				`under that name cannot be identified. Try again.`
@@ -552,9 +558,10 @@ async function fetchBackendDraftValue(
 	return resp.value ?? undefined
 }
 
-/** Draft VALUE at a resolved target: cell-if-present (the user's freshest in-tab edits)
- * else the current user's backend draft. Falls back to what resolving the target already
- * read, unless `fresh` — for a caller that has since changed the draft it is reading. */
+/** Draft VALUE at a resolved target, in order: the cell if one is open (the user's freshest
+ * in-tab edits), else the value resolving the target already read, else the current user's
+ * backend draft. `fresh` skips the resolved value — for a caller that has since changed the
+ * draft it is reading. */
 export async function readGlobalDraftValue<V>(
 	workspace: string,
 	type: WorkspaceItemType,
