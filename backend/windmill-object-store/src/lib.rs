@@ -770,6 +770,9 @@ async fn build_s3_client_with(
         s3_resource.path_style,
         s3_resource.bucket.clone(),
     );
+    // Deletes go through `delete_stream`, i.e. the bulk `POST /?delete` API, even for a
+    // single key: `ObjectStoreExt::delete` has no other path. An S3-compatible endpoint
+    // that only implements `DELETE /key` needs `.with_disable_bulk_delete(true)` here.
     let mut store_builder = AmazonS3Builder::new()
         .with_client_options(
             ClientOptions::new()

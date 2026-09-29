@@ -461,6 +461,8 @@ headers = "^0"
 hyper = { version = "^1", features = ["full"] }
 hyper-tls = "^0.6"
 hyper-util = { version = "^0.1", features = ["client-legacy", "http1", "tokio"] }
+# Pinned exactly so every edition resolves the same runtime. The floor is not free to
+# lower: `datafusion` requires `tokio ^1.52`, so anything below that fails to resolve.
 tokio = { version = "=1.53.1", features = ["full", "tracing", "time"] }
 tokio-stream = { version = "0.1.17" }
 tower = "^0"
@@ -670,9 +672,12 @@ process-wrap = { version = "8.2.1", features = ["tokio1"] }
 
 systemstat = "0.2.4"
 
-# No datafusion release yet depends on `object_store` 0.14, and only `object_store` >= 0.14.1
-# carries `quick-xml` >= 0.41 (RUSTSEC-2026-0194, RUSTSEC-2026-0195). Drop the git pin for
-# `datafusion = "56"` once it is published.
+# Only `object_store` >= 0.14.1 carries `quick-xml` >= 0.41 (RUSTSEC-2026-0194,
+# RUSTSEC-2026-0195), the store is shared with datafusion through
+# `register_object_store`, and no published datafusion accepts `object_store` 0.14 —
+# 55.1.0, the newest, requires ^0.13.2. This rev is the `main` line that moved to
+# arrow/parquet 60 and `object_store` 0.14.2. Replace it with `datafusion = "56"`, and
+# nothing else, as soon as 56.0.0 is published.
 datafusion = { git = "https://github.com/apache/datafusion", rev = "2cac713274496ba8ee08e58655e80f0d464f6d48" }
 # The row API only: a dbt engine's parquet index is six string columns, so this
 # needs no arrow and no writer. `parquet` is already in the tree with `arrow` for
