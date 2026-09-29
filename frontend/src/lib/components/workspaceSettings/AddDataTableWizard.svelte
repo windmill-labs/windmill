@@ -36,6 +36,7 @@
 	import SetupChecklist, { type SetupStep } from '../wizards/SetupChecklist.svelte'
 	import SupabaseProjectStep from './SupabaseProjectStep.svelte'
 	import DataTableConnectionReport from './DataTableConnectionReport.svelte'
+	import DataTableUsagePreview from './DataTableUsagePreview.svelte'
 	import { useSupabaseOauth } from './supabaseOauth.svelte'
 	import { probeDatatableConnection } from './datatableProbe'
 	import { logDatatableWizard } from './datatableTelemetry'
@@ -1879,6 +1880,10 @@
 			</p>
 		{/if}
 		<InputError error={nameError ?? (nameConflict || undefined)} />
+	</Label>
+
+	<Label label="Using it from a script" class="gap-1">
+		<DataTableUsagePreview name={wiz.review.name.trim() || 'main'} />
 	</Label>
 
 	{#if wiz.provider === 'supabase'}
