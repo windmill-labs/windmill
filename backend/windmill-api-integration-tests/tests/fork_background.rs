@@ -70,8 +70,17 @@ async fn test_fork_created_in_background(db: Pool<Postgres>) -> anyhow::Result<(
         .await?;
     let resp = create("wm-fork-bg-err").await?;
     assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    // A retry by the same user joins the creation in flight; anyone else is refused.
     let resp = create("wm-fork-bg-err").await?;
-    assert_eq!(resp.status(), 400, "a second creation of the same fork");
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    let resp = client
+        .post(format!("{base_url}/create_fork?background=true"))
+        .header("Authorization", "Bearer SECRET_TOKEN_2")
+        .json(&json!({ "id": "wm-fork-bg-err", "name": "wm-fork-bg-err" }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 400);
+    assert!(resp.text().await?.contains("is already being created"));
     sqlx::query("INSERT INTO workspace (id, name, owner) VALUES ('wm-fork-bg-err', 'x', 'x')")
         .execute(&mut *blocker)
         .await?;

@@ -29,7 +29,7 @@ import {
  * before answering.
  */
 async function waitForForkCreation(parentWorkspace: string, forkId: string) {
-  let failedPolls = 0;
+  let failingSince: number | undefined;
   let lastStep: string | undefined;
   while (true) {
     let result:
@@ -40,13 +40,14 @@ async function waitForForkCreation(parentWorkspace: string, forkId: string) {
         workspace: parentWorkspace,
         forkWorkspaceId: forkId,
       });
-      failedPolls = 0;
+      failingSince = undefined;
     } catch (e) {
       const exists = await wmill
         .existsWorkspace({ requestBody: { id: forkId } })
         .catch(() => false);
       if (exists) return;
-      if (++failedPolls >= 10) throw e;
+      failingSince ??= Date.now();
+      if (Date.now() - failingSince >= 3 * 60 * 1000) throw e;
     }
     if (result?.status === "running" && result.step && result.step !== lastStep) {
       lastStep = result.step;
@@ -424,10 +425,6 @@ async function createWorkspaceFork(
           color: forkColor,
           forked_datatables: forkedDatatables,
         },
-      })
-      .catch((e) => {
-        // Started by an earlier run: wait for that creation instead.
-        if (!String((e as { body?: unknown })?.body ?? "").includes("is already being created")) throw e;
       });
     await waitForForkCreation(workspace.workspaceId, trueWorkspaceId);
 

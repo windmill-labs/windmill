@@ -52,17 +52,8 @@ describe('createWorkspaceForkAndWait', () => {
 		expect(await run()).toBe('completed')
 	})
 
-	it('gives up after repeated failed polls for a fork that never appears', async () => {
+	it('gives up once polls keep failing for a fork that never appears', async () => {
 		svc.getForkCreationStatus.mockRejectedValue(new Error('upstream request timeout'))
 		expect(await run()).toBe('failed: upstream request timeout')
-		expect(svc.getForkCreationStatus).toHaveBeenCalledTimes(10)
-	})
-
-	it('waits for a creation an earlier request already started', async () => {
-		svc.createWorkspaceFork.mockRejectedValue({
-			body: "Bad request: workspace 'wm-fork-x' is already being created"
-		})
-		svc.getForkCreationStatus.mockResolvedValue({ status: 'completed' })
-		expect(await run()).toBe('completed')
-	})
+			})
 })

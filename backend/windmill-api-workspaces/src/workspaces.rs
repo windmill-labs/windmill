@@ -9083,6 +9083,23 @@ async fn create_workspace_fork(
     // Every write of this run is scoped to its `started_at`: a run taken over as abandoned must
     // not report over the run that took its place.
     let Some(started_at) = claimed.map(|r| r.get::<chrono::DateTime<Utc>, _>("started_at")) else {
+        // A retry whose response was lost joins the creation it started; its status is polled the
+        // same way. Anyone else is refused rather than handed a fork of another request.
+        let same_request = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM workspace_fork_creation
+             WHERE fork_workspace_id = $1 AND parent_workspace_id = $2 AND created_by = $3
+               AND finished_at IS NULL)",
+        )
+        .bind(&fork_id)
+        .bind(&parent_workspace_id)
+        .bind(&authed.email)
+        .fetch_one(&db)
+        .await?;
+        if same_request {
+            return Ok(format!(
+                "Creating fork {response_fork_id} in the background"
+            ));
+        }
         return Err(Error::BadRequest(format!(
             "workspace '{fork_id}' is already being created"
         )));
@@ -9200,10 +9217,13 @@ async fn get_fork_creation_status(
     Path((parent_workspace_id, fork_id)): Path<(String, String)>,
 ) -> JsonResult<ForkCreationStatus> {
     let row = sqlx::query(
-        "SELECT created_by, finished_at IS NOT NULL AS finished, error, step,
-                heartbeat_at < now() - $3 * interval '1 second' AS stale
-         FROM workspace_fork_creation
-         WHERE fork_workspace_id = $1 AND parent_workspace_id = $2",
+        "SELECT c.created_by, c.finished_at IS NOT NULL AS finished, c.error, c.step,
+                c.heartbeat_at < now() - $3 * interval '1 second' AS stale,
+                EXISTS(SELECT 1 FROM workspace w
+                       WHERE w.id = c.fork_workspace_id
+                         AND w.parent_workspace_id = c.parent_workspace_id) AS fork_exists
+         FROM workspace_fork_creation c
+         WHERE c.fork_workspace_id = $1 AND c.parent_workspace_id = $2",
     )
     .bind(&fork_id)
     .bind(&parent_workspace_id)
@@ -9222,7 +9242,11 @@ async fn get_fork_creation_status(
         )));
     }
     let error: Option<String> = row.get("error");
-    let status = if row.get::<bool, _>("finished") {
+    // The fork commits whole, so once it exists it is complete: the run's own record can lag behind
+    // it when the server stopped between the commit and that record.
+    let status = if error.is_none() && row.get::<bool, _>("fork_exists") {
+        ForkCreationStatus { status: "completed", step: None, error: None }
+    } else if row.get::<bool, _>("finished") {
         match error {
             Some(error) => ForkCreationStatus { status: "failed", step: None, error: Some(error) },
             None => ForkCreationStatus { status: "completed", step: None, error: None },

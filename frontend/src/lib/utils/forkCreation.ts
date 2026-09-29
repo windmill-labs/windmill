@@ -1,7 +1,8 @@
 import { WorkspaceService, type CreateWorkspaceFork } from '$lib/gen'
 
 const POLL_INTERVAL_MS = 1500
-const MAX_FAILED_POLLS = 10
+// How long polls may keep failing, which a rolling deploy's replicas without the status route cause.
+const MAX_FAILING_POLLS_MS = 3 * 60 * 1000
 
 /**
  * Create a fork and resolve once it exists, rejecting with the reason it could not be created.
@@ -15,20 +16,15 @@ export async function createWorkspaceForkAndWait(
 	fork: CreateWorkspaceFork,
 	onStep?: (step: string) => void
 ): Promise<void> {
-	try {
-		await WorkspaceService.createWorkspaceFork({
-			workspace: parentWorkspace,
-			background: true,
-			requestBody: fork
-		})
-	} catch (e) {
-		// A retry of a request whose response was lost: wait for the creation it started.
-		if (!String(e?.body ?? '').includes('is already being created')) throw e
-	}
+	await WorkspaceService.createWorkspaceFork({
+		workspace: parentWorkspace,
+		background: true,
+		requestBody: fork
+	})
 	// A poll that fails says nothing about the fork: it can be lost to the same proxy, or reach a
 	// server without background forks (one of an older version during a rolling deploy), which
 	// ignored the flag and created the fork before answering.
-	let failedPolls = 0
+	let failingSince: number | undefined
 	while (true) {
 		let result: Awaited<ReturnType<typeof WorkspaceService.getForkCreationStatus>> | undefined
 		try {
@@ -36,10 +32,11 @@ export async function createWorkspaceForkAndWait(
 				workspace: parentWorkspace,
 				forkWorkspaceId: fork.id
 			})
-			failedPolls = 0
+			failingSince = undefined
 		} catch (e) {
 			if (await forkExists(fork.id)) return
-			if (++failedPolls >= MAX_FAILED_POLLS) throw e
+			failingSince ??= Date.now()
+			if (Date.now() - failingSince >= MAX_FAILING_POLLS_MS) throw e
 		}
 		if (result?.status === 'running' && result.step) onStep?.(result.step)
 		if (result?.status === 'completed') return
