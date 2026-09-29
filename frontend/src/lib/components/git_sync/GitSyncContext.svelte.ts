@@ -1,5 +1,5 @@
 import { getContext, setContext } from 'svelte'
-import { enterpriseLicense, userStore } from '$lib/stores'
+import { enterpriseLicense, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 import { get } from 'svelte/store'
 import { sendUserToast } from '$lib/toast'
 import { apiErrorMessage } from '$lib/utils'
@@ -46,7 +46,15 @@ export type GitSyncSettings = {
 export type ModalState = {
 	push: { idx: number; repo: GitSyncRepository; open: boolean } | null
 	pull: { idx: number; repo: GitSyncRepository; open: boolean; settingsOnly?: boolean } | null
-	success: { open: boolean; savedWithoutInit?: boolean; autoPullOn?: boolean } | null
+	success: {
+		open: boolean
+		savedWithoutInit?: boolean
+		autoPullOn?: boolean
+		/** Why pulling fell back to polling, when it did. */
+		webhookError?: string
+		/** Whether this workspace is the one that would turn pulling on for this repository. */
+		ownsAutoPull?: boolean
+	} | null
 }
 
 export type ValidationState = {
@@ -202,6 +210,11 @@ export function createGitSyncContext(workspace: string) {
 					'flow',
 					'app',
 					'folder',
+					'resource',
+					'resourcetype',
+					'variable',
+					'schedule',
+					'trigger',
 					'workspacedependencies',
 					'datatablemigration'
 				]
@@ -290,8 +303,23 @@ export function createGitSyncContext(workspace: string) {
 		closeModal('pull')
 	}
 
-	function showSuccessModal(savedWithoutInit?: boolean, autoPullOn?: boolean) {
-		activeModals.success = { open: true, savedWithoutInit, autoPullOn }
+	/** Only a sync repository in a non-fork workspace has a pull toggle of its own: promotion
+	 * repositories have none, and a fork's pulling is its parent's to set. */
+	function ownsAutoPull(repo: GitSyncRepository): boolean {
+		const ws = get(workspaceStore)
+		const isFork =
+			(ws?.startsWith('wm-fork-') ?? false) ||
+			!!get(userWorkspaces)?.find((w) => w.id === ws)?.parent_workspace_id
+		return !repo.use_individual_branch && !isFork
+	}
+
+	function showSuccessModal(
+		savedWithoutInit?: boolean,
+		autoPullOn?: boolean,
+		ownsAutoPull?: boolean,
+		webhookError?: string
+	) {
+		activeModals.success = { open: true, savedWithoutInit, autoPullOn, ownsAutoPull, webhookError }
 	}
 
 	function closeSuccessModal() {
@@ -314,8 +342,11 @@ export function createGitSyncContext(workspace: string) {
 		repo.detectionJobId = undefined
 		repo.detectionJobStatus = undefined
 
-		// Track the detection timestamp to avoid race conditions from old jobs
+		// Track the detection timestamp to avoid race conditions from old jobs. Stamped before
+		// the request, or a failure to even start the job reads as superseded and leaves the
+		// repository loading for good.
 		const detectionTimestamp = Date.now()
+		repo._detectionTimestamp = detectionTimestamp
 
 		try {
 			const jobId = await JobService.runScriptByPath({
@@ -335,7 +366,6 @@ export function createGitSyncContext(workspace: string) {
 
 			repo.detectionJobId = jobId
 			repo.detectionJobStatus = 'running'
-			repo._detectionTimestamp = detectionTimestamp
 
 			// Use JobManager for polling - result will be the actual job response
 			await jobManager.runWithProgress(() => Promise.resolve(jobId), {
@@ -506,7 +536,9 @@ export function createGitSyncContext(workspace: string) {
 		}
 	}
 
-	async function saveRepository(idx: number, savedWithoutInit = false) {
+	/** `announce` off for a caller that reports the save itself — the setup dialog ends on a
+	 *  step saying the same thing, and a modal over it would say it twice. */
+	async function saveRepository(idx: number, savedWithoutInit = false, announce = true) {
 		const repo = repositories[idx]
 		if (!repo || !validateRepository(repo, idx)) {
 			throw new Error('Cannot save invalid repository')
@@ -539,7 +571,8 @@ export function createGitSyncContext(workspace: string) {
 		if (repoToSave.auto_pull) {
 			repoToSave.auto_pull = {
 				...repoToSave.auto_pull,
-				enabled_by: repoToSave.auto_pull.enabled ? get(userStore)?.email : undefined
+				enabled_by: repoToSave.auto_pull.enabled ? get(userStore)?.email : undefined,
+				webhook_error: await readWebhookError(repoToSave)
 			}
 		}
 
@@ -553,7 +586,31 @@ export function createGitSyncContext(workspace: string) {
 			repoToSave.detectionState = undefined
 			repoToSave.extractedSettings = undefined
 			// Show success modal for new connections
-			showSuccessModal(savedWithoutInit, repoToSave.auto_pull?.enabled === true)
+			if (announce) {
+				showSuccessModal(
+					savedWithoutInit,
+					repoToSave.auto_pull?.enabled === true,
+					ownsAutoPull(repoToSave),
+					repoToSave.auto_pull?.webhook_error
+				)
+			}
+		}
+	}
+
+	/** The webhook is registered after the settings commit, best-effort, and a failure is
+	 * reported only through the stored settings — so it stays invisible until they are read
+	 * back. Without this, pulling reads as working when it has silently fallen back to
+	 * polling (an app missing the webhook permission, an instance GitHub cannot reach). */
+	async function readWebhookError(repo: GitSyncRepository): Promise<string | undefined> {
+		if (!repo.auto_pull?.enabled) return undefined
+		try {
+			const settings = await WorkspaceService.getSettings({ workspace })
+			return settings.git_sync?.repositories?.find(
+				(r) => r.git_repo_resource_path.replace('$res:', '') === repo.git_repo_resource_path
+			)?.auto_pull?.webhook_error
+		} catch {
+			// Only costs the warning; the card shows it on the next load.
+			return undefined
 		}
 	}
 
@@ -704,6 +761,11 @@ export function createGitSyncContext(workspace: string) {
 					'flow',
 					'app',
 					'folder',
+					'resource',
+					'resourcetype',
+					'variable',
+					'schedule',
+					'trigger',
 					'workspacedependencies',
 					'datatablemigration'
 				]
@@ -712,9 +774,10 @@ export function createGitSyncContext(workspace: string) {
 			legacyImported: false,
 			isUnsavedConnection: true,
 			collapsed: false
-			// Pull-from-Git defaults are applied by the repository card once the
-			// selected resource resolves: only app-backed repos (instant webhook
-			// delivery) default to auto-pull on; polling is opt-in for token repos.
+			// Pull-from-Git defaults are applied once the selected resource resolves, by
+			// whoever is configuring the connection (see applyNewConnectionDefaults): only
+			// app-backed repos (instant webhook delivery) default to auto-pull on; polling is
+			// opt-in for token repos.
 		})
 		gitSyncTestJobs.push({
 			jobId: '',
@@ -741,6 +804,11 @@ export function createGitSyncContext(workspace: string) {
 					'flow',
 					'app',
 					'folder',
+					'resource',
+					'resourcetype',
+					'variable',
+					'schedule',
+					'trigger',
 					'workspacedependencies',
 					'datatablemigration'
 				]

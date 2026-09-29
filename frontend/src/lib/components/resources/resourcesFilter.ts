@@ -76,15 +76,14 @@ export function buildResourcesFilterSchema({
 			icon: Tag,
 			description: 'Filter by label (comma-separated for multiple)'
 		},
-		...(showUserFoldersFilter
-			? {
-					user_folders_only: {
-						type: 'boolean' as const,
-						label: userFoldersLabel || 'User folders only',
-						icon: Users,
-						description: 'Show only resources in user folders'
-					}
-				}
-			: {})
+		// The key stays for every role, hidden where the filter does not apply: the list's URL sync
+		// reads the key set once, before the acting user that gates it may have loaded.
+		user_folders_only: {
+			type: 'boolean' as const,
+			label: userFoldersLabel || 'User folders only',
+			icon: Users,
+			description: 'Show only resources in user folders',
+			hidden: !showUserFoldersFilter
+		}
 	} satisfies FilterSchemaRec
 }

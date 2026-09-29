@@ -12,10 +12,13 @@
 
 	import autosize from '$lib/autosize'
 	import { ResourceService, VariableService } from '$lib/gen'
-	import { oauthStore, workspaceStore } from '$lib/stores'
+	import { oauthStore } from '$lib/stores'
 	import Password from './Password.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import HighlightTheme from './HighlightTheme.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	let drawer: Drawer | undefined = $state()
 	let token: undefined | string = $state(undefined)
@@ -78,7 +81,7 @@
 	async function save() {
 		if (!path) return
 		await VariableService.createVariable({
-			workspace: $workspaceStore!,
+			workspace: $operatingWorkspace!,
 			requestBody: {
 				path,
 				value: password,
@@ -89,7 +92,7 @@
 		})
 
 		await ResourceService.createResource({
-			workspace: $workspaceStore!,
+			workspace: $operatingWorkspace!,
 			requestBody: {
 				resource_type: 'postgresql',
 				path,

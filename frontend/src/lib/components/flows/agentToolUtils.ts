@@ -126,6 +126,11 @@ export function toolEnabledName(tool: AgentTool): string | undefined {
 	return toolDisplayName(tool)
 }
 
+/** The names `enabled_tools` can pick from: every tool in the roster that has one. */
+export function enabledToolNames(tools: AgentTool[]): string[] {
+	return tools.map((tool) => toolEnabledName(tool)).filter((name): name is string => !!name)
+}
+
 /**
  * Create an AI Agent tool (nested agent)
  */

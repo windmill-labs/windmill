@@ -16,7 +16,7 @@
 	import { Bot, ExternalLink } from 'lucide-svelte'
 	import CopyButton from '$lib/components/common/button/CopyButton.svelte'
 	import { base } from '$lib/base'
-	import { displayDate } from '$lib/utils'
+	import { displayDate, truncateRev } from '$lib/utils'
 
 	interface Props {
 		message: DisplayMessage
@@ -191,7 +191,7 @@
 				class="inline-flex items-center gap-1 hover:text-primary hover:underline"
 				title="Open this run"
 			>
-				<span>job <span class="font-mono">{jobId?.slice(0, 8)}</span></span>
+				<span>job <span class="font-mono">{truncateRev(jobId ?? '', 8)}</span></span>
 				<ExternalLink size={11} class="shrink-0" />
 			</a>
 		{/if}

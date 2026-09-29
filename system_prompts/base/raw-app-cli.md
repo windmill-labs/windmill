@@ -163,7 +163,7 @@ The `data` block in `raw_app.yaml` controls which tables the app can query.
 ```yaml
 data:
   datatable: main           # Default datatable
-  schema: app_schema        # Default schema (optional)
+  schema: app_schema        # Schema the app's tables go in (optional); still write them as app_schema.<table>
   tables:
     - main/users            # Table in public schema
     - main/app_schema:items # Table in specific schema
@@ -208,6 +208,8 @@ data:
     - main/users
 ```
 
+A migration runs with no default schema, so a table outside `public` is created with its schema, `CREATE TABLE IF NOT EXISTS app_schema.items (...)`, listed as `main/app_schema:items`, and queried as `app_schema.items`.
+
 ### Migration best practices
 
 - **Use idempotent SQL**: `CREATE TABLE IF NOT EXISTS`, etc.
@@ -217,8 +219,9 @@ data:
 
 ## CLI Commands
 
-Two commands you run yourself, not the user:
+Commands you run yourself, not the user:
 - `wmill app new` — run it with flags, per the "Creating a Raw App" section above.
+- `wmill app lint <app_folder>` — checks the app's structure and that it builds. Run it after editing, before offering a preview or a deploy; a bundle that compiles still says nothing about behavior, so a preview is what checks that.
 - `wmill generate-metadata` — (re)generates local lock files and refreshes `wmill-lock.yaml` content hashes; writes local files only (not a deploy). After adding or editing a runnable, offer it and run it on agreement — or automatically if the project's `AGENTS.md` opts into that (see "After creating a runnable" above).
 
 For the rest, tell the user which command fits their intent and let them run it — these deploy to the workspace, overwrite local files, or launch a long-running server, so the user should consent each time:

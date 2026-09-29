@@ -391,7 +391,11 @@ async fn concurrent_role_creations_both_survive(db: Pool<Postgres>) -> anyhow::R
         assert_eq!(a.0, 200, "{}", a.1);
         assert_eq!(b.0, 200, "{}", b.1);
 
-        let catalog = windmill_common::datatable_roles::read_role_catalog(&db).await?;
+        let catalog = windmill_common::datatable_roles::read_role_catalog(
+            &db,
+            windmill_common::datatable_roles::DatatableRoleCluster::Instance,
+        )
+        .await?;
         let recorded: Vec<&str> = catalog.values().map(|r| r.name.as_str()).collect();
         for name in &names {
             assert!(
@@ -460,7 +464,11 @@ async fn a_role_delete_that_fails_part_way_leaves_the_role_disabled(
         let body = resp.text().await?;
         assert_eq!(status, 400, "{body}");
 
-        let catalog = windmill_common::datatable_roles::read_role_catalog(&db).await?;
+        let catalog = windmill_common::datatable_roles::read_role_catalog(
+            &db,
+            windmill_common::datatable_roles::DatatableRoleCluster::Instance,
+        )
+        .await?;
         let role = catalog
             .get(&id)
             .expect("a failed delete keeps the entry to retry");

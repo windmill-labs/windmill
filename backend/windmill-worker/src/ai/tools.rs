@@ -39,8 +39,8 @@ use windmill_common::{
     worker::{to_raw_value, Connection},
 };
 use windmill_queue::{
-    add_completed_job, add_completed_job_error, get_mini_pulled_job, push, MiniCompletedJob,
-    MiniPulledJob, PushArgs, PushIsolationLevel,
+    add_completed_job, add_completed_job_error, check_tag_available_for_push, get_mini_pulled_job,
+    push, resolve_push_tag, MiniCompletedJob, MiniPulledJob, PushArgs, PushIsolationLevel,
 };
 
 /// Shared collection of abort handles for spawned tool tasks.
@@ -473,8 +473,7 @@ async fn execute_windmill_tool(
                 ));
             }
             let path = format!("{}/tools/{}", ctx.job.runnable_path(), tool_module.id);
-            // tool jobs are pushed with the parent agent job's tag and executed inline on the
-            // same worker, so a tag override on a nested agent tool does not apply here
+            // a nested agent always runs inline on this worker, under this agent's tag
             JobPayloadWithTag {
                 payload: JobPayload::AIAgent { path },
                 tag: None,
@@ -492,13 +491,6 @@ async fn execute_windmill_tool(
         }
     };
 
-    let mut tx = ctx.db.begin().await?;
-
-    let job_perms =
-        windmill_common::auth::get_job_perms(&mut *tx, &ctx.job.id, &ctx.job.workspace_id)
-            .await?
-            .map(|x| x.into());
-
     let (email, permissioned_as) = if let Some(on_behalf_of) = job_payload.on_behalf_of.as_ref() {
         (&on_behalf_of.email, on_behalf_of.permissioned_as.clone())
     } else {
@@ -508,6 +500,55 @@ async fn execute_windmill_tool(
         )
     };
 
+    let push_args = PushArgs { args: &tool_call_args, extra: None };
+
+    // A tool with a tag of its own naming another queue than this agent's must run on a worker
+    // that tag selects, and like any tag the caller chose it must pass the workspace's custom tag
+    // restrictions. It runs inline when this worker serves that queue: the agent holds this
+    // worker while it waits, so dispatching to a queue it serves could wait on itself.
+    let mut resolved_tool_tag = None;
+    if let Some(tag) = job_payload.tag.as_deref() {
+        resolved_tool_tag = resolve_push_tag(tag, &push_args, &ctx.job.workspace_id, ctx.db)
+            .await
+            .filter(|resolved| *resolved != ctx.job.tag);
+    }
+    let tool_tag = match (job_payload.tag.as_deref(), resolved_tool_tag.as_ref()) {
+        (Some(tag), Some(_)) => {
+            let is_super_admin = windmill_common::auth::is_super_admin_email(ctx.db, email).await?;
+            check_tag_available_for_push(
+                ctx.db,
+                &ctx.job.workspace_id,
+                tag,
+                &push_args,
+                is_super_admin,
+                None,
+            )
+            .await
+            .map_err(|e| match e {
+                Error::BadRequest(msg) => Error::BadRequest(format!(
+                    "tool '{}' cannot run on tag '{tag}': {msg}",
+                    tool_call.function.name
+                )),
+                e => e,
+            })?;
+            Some(tag.to_string())
+        }
+        _ => None,
+    };
+    let run_inline = resolved_tool_tag.is_none_or(|resolved| {
+        windmill_common::worker::WORKER_CONFIG
+            .load()
+            .worker_tags
+            .contains(&resolved)
+    });
+
+    let mut tx = ctx.db.begin().await?;
+
+    let job_perms =
+        windmill_common::auth::get_job_perms(&mut *tx, &ctx.job.id, &ctx.job.workspace_id)
+            .await?
+            .map(|x| x.into());
+
     let job_priority = tool_module.priority.or(ctx.job.priority);
 
     let tx = PushIsolationLevel::Transaction(tx);
@@ -516,7 +557,7 @@ async fn execute_windmill_tool(
         tx,
         &ctx.job.workspace_id,
         job_payload.payload,
-        PushArgs { args: &tool_call_args, extra: None },
+        push_args,
         &ctx.job.created_by,
         email,
         permissioned_as,
@@ -532,12 +573,12 @@ async fn execute_windmill_tool(
         false,
         None,
         ctx.job.visible_to_owner,
-        Some(ctx.job.tag.clone()),
+        Some(tool_tag.unwrap_or_else(|| ctx.job.tag.clone())),
         job_payload.timeout,
         None,
         job_priority,
         job_perms.as_ref(),
-        true,
+        run_inline,
         None,
         None,
         None,
@@ -546,12 +587,45 @@ async fn execute_windmill_tool(
 
     tx.commit().await?;
 
+    if !run_inline {
+        // Like an inline tool's failure, a lost wait reaches the model rather than failing the
+        // agent.
+        let (result, success) =
+            match wait_for_dispatched_tool_job(ctx.db, &uuid, &ctx.job.workspace_id).await {
+                Ok(outcome) => outcome,
+                Err(e) => (
+                    to_raw_value(&serde_json::json!({ "error": { "message": e.to_string() } })),
+                    false,
+                ),
+            };
+        return report_tool_result(
+            ctx,
+            tool_call,
+            tool_module,
+            job_id,
+            &result,
+            success,
+            is_ai_agent_tool && success,
+            messages,
+            final_events_str,
+        )
+        .await;
+    }
+
     let tool_job = get_mini_pulled_job(ctx.db, &uuid).await?;
 
     let Some(tool_job) = tool_job else {
         return Err(Error::internal_err("Tool job not found".to_string()));
     };
 
+    // The tool gets a token of its own, as it would on any worker: the agent's token would
+    // identify the tool as the agent job (its OIDC path and job id).
+    let tool_client = AuthedClient::new(
+        ctx.base_internal_url.to_string(),
+        tool_job.workspace_id.clone(),
+        windmill_queue::create_token(ctx.db, &tool_job, None).await,
+        None,
+    );
     let tool_job = Arc::new(tool_job);
 
     let (inner_job_completed_tx, inner_job_completed_rx) = JobCompletedSender::new(ctx.conn, 1);
@@ -564,7 +638,7 @@ async fn execute_windmill_tool(
     // Clone everything needed for the spawned task
     let tool_job_spawn = tool_job.clone();
     let conn_spawn = ctx.conn.clone();
-    let client_spawn = ctx.client.clone();
+    let client_spawn = tool_client;
     let hostname_spawn = ctx.hostname.to_string();
     let worker_name_spawn = ctx.worker_name.to_string();
     let worker_dir_spawn = ctx.worker_dir.to_string();
@@ -793,12 +867,93 @@ async fn handle_tool_execution_success(
         ));
     };
 
+    report_tool_result(
+        ctx,
+        tool_call,
+        tool_module,
+        job_id,
+        &result,
+        success,
+        is_ai_agent_tool && job_success,
+        messages,
+        final_events_str,
+    )
+    .await
+}
+
+/// Wait for a tool job another worker runs; returns its result and whether it succeeded.
+/// Canceling the agent cancels this job along with it, as a child of the agent's job.
+async fn wait_for_dispatched_tool_job(
+    db: &DB,
+    id: &Uuid,
+    w_id: &str,
+) -> Result<(Box<RawValue>, bool), Error> {
+    const MAX_CONSECUTIVE_POLL_ERRORS: u32 = 10;
+    let mut interval = std::time::Duration::from_millis(50);
+    let mut poll_errors = 0;
+    loop {
+        // One statement reads both tables from one snapshot, so a job completing between two
+        // reads cannot look like one that vanished.
+        let state = match sqlx::query!(
+            "SELECT c.id IS NOT NULL AS \"completed!\",
+                c.result AS \"result: sqlx::types::Json<Box<RawValue>>\",
+                c.status = 'success' AS \"success\",
+                EXISTS(SELECT 1 FROM v2_job_queue WHERE id = $1) AS \"queued!\"
+            FROM (SELECT 1) one
+            LEFT JOIN v2_job_completed c ON c.id = $1 AND c.workspace_id = $2",
+            id,
+            w_id
+        )
+        .fetch_one(db)
+        .await
+        {
+            Ok(state) => {
+                poll_errors = 0;
+                state
+            }
+            Err(e) if poll_errors < MAX_CONSECUTIVE_POLL_ERRORS => {
+                poll_errors += 1;
+                tracing::warn!("polling tool job {id} failed, retrying: {e}");
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                continue;
+            }
+            Err(e) => return Err(e.into()),
+        };
+        if state.completed {
+            let result = state
+                .result
+                .map(|r| r.0)
+                .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null));
+            return Ok((result, state.success.unwrap_or(false)));
+        }
+        if !state.queued {
+            return Err(Error::internal_err(format!(
+                "tool job {id} is neither queued nor completed"
+            )));
+        }
+        tokio::time::sleep(interval).await;
+        interval = std::cmp::min(interval * 2, std::time::Duration::from_secs(1));
+    }
+}
+
+/// Hand a finished tool job's result to the model, the stream, the flow status and the chat.
+async fn report_tool_result(
+    ctx: &mut ToolExecutionContext<'_>,
+    tool_call: &OpenAIToolCall,
+    tool_module: &windmill_common::flows::FlowModule,
+    job_id: Uuid,
+    result: &RawValue,
+    success: bool,
+    is_ai_agent_output: bool,
+    messages: &mut Vec<OpenAIMessage>,
+    final_events_str: &mut String,
+) -> Result<(), Error> {
     // A nested agent returns the whole `AIAgentResult` envelope: on top of `output` it carries
     // the child's entire message history, stream log and token usage. Feeding that back would
     // grow the caller's context by the child's full transcript on every call, so the caller only
     // sees `output`. The envelope stays intact in the tool job's completed row.
-    let tool_result = if is_ai_agent_tool && job_success {
-        extract_ai_agent_output(&result).unwrap_or_else(|| result.get().to_string())
+    let tool_result = if is_ai_agent_output {
+        extract_ai_agent_output(result).unwrap_or_else(|| result.get().to_string())
     } else {
         result.get().to_string()
     };

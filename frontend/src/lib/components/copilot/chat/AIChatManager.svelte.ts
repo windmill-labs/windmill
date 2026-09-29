@@ -59,7 +59,8 @@ import { getEffectiveModelContextWindow } from '../modelConfig'
 import {
 	getCompactionSummaryPrompt,
 	formatCompactSummary,
-	buildSummaryMessageContent
+	buildSummaryMessageContent,
+	toolExchangesAsText
 } from './compactionPrompt'
 import { dfs } from '$lib/components/flows/previousResults'
 import { redactFileArgs, redactSecretArgs } from '$lib/components/job_args'
@@ -88,10 +89,11 @@ import {
 import type { FlowModuleState, FlowState } from '$lib/components/flows/flowState'
 import type { CurrentEditor, ExtendedOpenFlow } from '$lib/components/flows/types'
 import { untrack } from 'svelte'
-import { get } from 'svelte/store'
+import { fromStore, get } from 'svelte/store'
+import type { ProviderToolSummary } from './agentContext'
 import { BROWSER } from 'esm-env'
 import { workspaceStore, type DBSchemas } from '$lib/stores'
-import { copilotInfo } from '$lib/aiStore'
+import { copilotInfo, copilotSessionModel } from '$lib/aiStore'
 import { copilotWorkspaceRequested, loadCopilot } from '$lib/components/copilot/loadCopilot'
 import { askTools, prepareAskSystemMessage, prepareAskUserMessage } from './ask/core'
 import { readDocsPageTool, searchDocsTool } from './docs/core'
@@ -109,7 +111,12 @@ import {
 import type { Selection } from 'monaco-editor'
 import type AIChatInput from './AIChatInput.svelte'
 import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
-import { closeInterruptedToolBatch, runChatLoop, truncateToToolPairedPrefix } from './chatLoop'
+import {
+	closeInterruptedToolBatch,
+	runChatLoop,
+	sendsWebSearch,
+	truncateToToolPairedPrefix
+} from './chatLoop'
 import { FREE_TIER_OUTPUT_TOKEN_LIMIT_MESSAGE, OutputTokenLimitError } from './outputTokenLimit'
 import { sanitizeToolCallArguments } from './toolCallArguments'
 import { billedTokens, normalizeContextUsage, type ChatTokenUsage } from './tokenUsage'
@@ -128,6 +135,11 @@ import type { WorkspaceMutationTarget } from './workspaceTools'
 import { resolveSessionAccess } from './global/sessionAccess'
 import type { SessionAccess } from './sessionCapabilities'
 import { filterSessionTools } from './global/sessionToolset'
+import {
+	listFolderInstructions,
+	type FolderInstruction,
+	type FolderInstructionsDelivery
+} from './folderInstructions'
 import {
 	loadWorkspaceSkills,
 	resolveGlobalPromptIdentity,
@@ -166,7 +178,10 @@ import { PlanModeController, type PlanModeHost } from './planModeController.svel
 // cannot see — the upcoming completion and tool results, system-prompt/tool-
 // schema changes from mode switches, and the estimate's chars/4 error.
 const COMPACTION_TRIGGER_RATIO = 0.8
-const COMPACTION_TARGET_RATIO = 0.7
+// The gap below the trigger is what one compaction buys: each summarization request
+// carries most of the window, and a target close to the trigger spends that on a few
+// turns of room and summarizes its own previous summary again soon after.
+const COMPACTION_TARGET_RATIO = 0.5
 // How often a running turn is offered to the mid-turn checkpoint (see
 // sendRequest). The whole transcript is rewritten on each accepted checkpoint,
 // so this bounds the write rate; it also bounds how much of a turn a tab that
@@ -480,7 +495,7 @@ export class AIChatManager implements ChatViewHost {
 	abortController: AbortController | undefined = undefined
 	inlineAbortController: AbortController | undefined = undefined
 	// Flag to skip Responses API if it's not available (e.g., Azure region doesn't support it)
-	skipResponsesApi = false
+	skipResponsesApi = $state(false)
 
 	mode = $state<AIMode>(AIMode.NAVIGATOR)
 	pipelineAiChatHelpers = $state<PipelineAIChatHelpers | undefined>(undefined)
@@ -741,6 +756,28 @@ export class AIChatManager implements ChatViewHost {
 	 * transitions, whichever one is offered right now. A reference answer, so flipping the
 	 * autonomy picker must not change it. */
 	availableTools: Tool<any>[] = $derived(this.#shipped(this.planMode.availableTools))
+	#copilotInfo = fromStore(copilotInfo)
+	#sessionModel = fromStore(copilotSessionModel)
+	/** Capabilities the provider runs on its own servers, attached by the adapter at send
+	 * time. Never part of `tools`: the request path would try to dispatch them. The two
+	 * `void` reads only subscribe: the model helpers read through `get()`, which tracks
+	 * nothing, so a change of model or of the workspace's AI config would otherwise not
+	 * re-derive. A workspace switch re-derives through the AI config it loads. */
+	get providerTools(): ProviderToolSummary[] {
+		void this.#copilotInfo.current
+		void this.#sessionModel.current
+		const model = tryGetCurrentModel()
+		if (!model || (model.provider === 'openai' && this.skipResponsesApi)) return []
+		const enabled = isWebSearchEnabledForProvider(model.provider)
+		return sendsWebSearch(this.operatingWorkspace ?? '', model, enabled)
+			? [
+					{
+						name: 'Web search',
+						description: "Runs on the provider's servers, no confirmation."
+					}
+				]
+			: []
+	}
 	helpers = $state<any | undefined>(undefined)
 
 	scriptEditorOptions = $state<ScriptOptions | undefined>(undefined)
@@ -1349,6 +1386,13 @@ export class AIChatManager implements ChatViewHost {
 	globalSkills = $state<AiSkillListItem[]>([])
 	private globalSkillsRefreshId = 0
 
+	// The `ai_instruction` resources readable in the operating workspace, loaded
+	// alongside skills. The prompt names their folders; the tool loop delivers each
+	// one's body the first time a call touches its folder, recording which call did.
+	private globalFolderInstructions: FolderInstruction[] = []
+	private globalFolderInstructionsRefreshId = 0
+	private folderInstructionsDeliveredBy = new Map<string, FolderInstructionsDelivery>()
+
 	// External MCP servers the user connected (resources of type `mcp`). Loaded
 	// asynchronously alongside skills; the MCP tools are only registered when
 	// this is non-empty, so a workspace with no connection pays no schema cost
@@ -1540,7 +1584,7 @@ export class AIChatManager implements ChatViewHost {
 				[
 					// Strip image blobs from the summarizer input — the summary text stands in
 					// for them, so re-sending base64 to the summarizer only wastes tokens.
-					...stripImagePartsFromMessages(sanitizeToolCallArguments(prefix)),
+					...toolExchangesAsText(stripImagePartsFromMessages(sanitizeToolCallArguments(prefix))),
 					{ role: 'user', content: getCompactionSummaryPrompt() }
 				],
 				abortController,
@@ -2428,6 +2472,7 @@ export class AIChatManager implements ChatViewHost {
 			this.configureGlobalMode()
 			void this.refreshGlobalIdentity()
 			void this.refreshGlobalSkills()
+			void this.refreshGlobalFolderInstructions()
 			void this.refreshMcpServers()
 		} else if (mode === AIMode.APP) {
 			const customPrompt = getCombinedCustomPrompt(mode)
@@ -2458,7 +2503,6 @@ export class AIChatManager implements ChatViewHost {
 				: {}),
 			testActiveFlow: async (storagePath: string, args?: Record<string, any>, memoryId?: string) =>
 				this.flowEditorFor(storagePath)?.testFlow(args, memoryId),
-			getModifiedItems: () => (this.modifiedItems ? [...this.modifiedItems] : undefined),
 			attachedFiles: this.attachedFiles,
 			getUserInstructions: () => getUserCustomPrompts()[AIMode.GLOBAL] ?? '',
 			setUserInstructions: (instructions: string) => {
@@ -2482,6 +2526,7 @@ export class AIChatManager implements ChatViewHost {
 		previewTools: this.isSessionChat,
 		user: this.globalIdentity,
 		skills: this.globalSkills,
+		folderInstructions: this.globalFolderInstructions,
 		mcpServers: this.mcpServers,
 		access: this.sessionAccess,
 		sessionContext: this.sessionContextResolver?.(),
@@ -2502,6 +2547,25 @@ export class AIChatManager implements ChatViewHost {
 		// skills to a chat now acting elsewhere. Same check the identity and MCP
 		// refreshes make.
 		this.globalSkills = workspace === (this.operatingWorkspace ?? '') ? skills : []
+		if (this.mode === AIMode.GLOBAL) {
+			this.configureGlobalMode()
+		}
+	}
+
+	// Same shape as refreshGlobalSkills.
+	refreshGlobalFolderInstructions = async (workspace = this.operatingWorkspace ?? '') => {
+		const refreshId = ++this.globalFolderInstructionsRefreshId
+		let instructions: FolderInstruction[] = []
+		try {
+			instructions = await listFolderInstructions(workspace)
+		} catch (e) {
+			console.error('Failed to load folder instructions', e)
+		}
+		if (refreshId !== this.globalFolderInstructionsRefreshId) {
+			return
+		}
+		this.globalFolderInstructions =
+			workspace === (this.operatingWorkspace ?? '') ? instructions : []
 		if (this.mode === AIMode.GLOBAL) {
 			this.configureGlobalMode()
 		}
@@ -3583,14 +3647,16 @@ export class AIChatManager implements ChatViewHost {
 				return false
 			}
 		}
-		// Session chats commit their workspace in beforeSend; the identity, skills, MCP
-		// servers and capabilities must all match the committed workspace before the system
-		// prompt is sent. Settling them here rather than mid-turn also keeps the prompt — the
-		// cached prefix of every iteration — stable for the whole request.
+		// Session chats commit their workspace in beforeSend; the identity, skills, folder
+		// instructions, MCP servers and capabilities must all match the committed workspace
+		// before the system prompt is sent. Settling them here rather than mid-turn also
+		// keeps the prompt — the cached prefix of every iteration — stable for the whole
+		// request.
 		if (this.mode === AIMode.GLOBAL) {
 			await Promise.all([
 				this.refreshGlobalIdentity(this.operatingWorkspace ?? ''),
 				this.refreshGlobalSkills(this.operatingWorkspace ?? ''),
+				this.refreshGlobalFolderInstructions(this.operatingWorkspace ?? ''),
 				this.refreshMcpServers(this.operatingWorkspace ?? ''),
 				this.refreshSessionAccess(this.operatingWorkspace ?? '')
 			])
@@ -4050,7 +4116,11 @@ export class AIChatManager implements ChatViewHost {
 						? {
 								onJobStarted: (job) => this.registerJob(job),
 								onJobStatus: (jobId, update) => this.updateJob(jobId, update),
-								onJobDetached: (jobId) => this.markJobDetached(jobId)
+								onJobDetached: (jobId) => this.markJobDetached(jobId),
+								folderInstructions: {
+									list: () => this.globalFolderInstructions,
+									deliveredBy: this.folderInstructionsDeliveredBy
+								}
 							}
 						: {}),
 					removeToolStatus: (id) => {

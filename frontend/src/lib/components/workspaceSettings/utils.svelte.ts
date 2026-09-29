@@ -1,19 +1,9 @@
 import { isCloudHosted } from '$lib/cloud'
 
+import { SettingService } from '$lib/gen'
 import { superadmin } from '$lib/stores'
-import { getLocalSetting } from '$lib/utils'
+import { resource } from 'runed'
 import { derived } from 'svelte/store'
-
-/**
- * Opt-in for the data table setup wizard while it is being tested. Browser-local and read
- * once per page: `localStorage.setItem('dataTableWizard', 'true')`, then reload. With it
- * off, adding a data table falls back to the inline row in the settings table.
- */
-export const DATATABLE_WIZARD_SETTING_NAME = 'dataTableWizard'
-
-export function isDataTableWizardEnabled(): boolean {
-	return getLocalSetting(DATATABLE_WIZARD_SETTING_NAME) === 'true'
-}
 
 export let isCustomInstanceDbEnabled = derived(
 	[superadmin],
@@ -46,4 +36,62 @@ export function getUnusedInstanceDbName(
 		i++
 	} while (used.has(candidate))
 	return candidate
+}
+
+/**
+ * What to call the two substrates Windmill administers. They are one concept to a workspace admin
+ * — a database Windmill makes and manages — so each is only qualified while the other is also on
+ * offer; alone, either is just "Managed instance".
+ */
+export function managedInstanceLabels(instanceAvailable: boolean, externalAvailable: boolean) {
+	const both = instanceAvailable && externalAvailable
+	return {
+		instance: both ? 'Managed instance (Internal)' : 'Managed instance',
+		external: both ? 'Managed instance (External)' : 'Managed instance'
+	}
+}
+
+/**
+ * What the closed select shows for a managed kind. The list needs the whole name to tell the
+ * two substrates apart, but once one is picked the row is narrow and the qualifier alone
+ * carries the distinction.
+ */
+export function shortManagedInstanceLabel(text: string): string {
+	return text.startsWith('Managed instance (')
+		? text.replace('Managed instance (', 'Managed (')
+		: text
+}
+
+/**
+ * Whether each Postgres Windmill manages can take a new data table, and the external cluster's
+ * databases. Both answer only to a superadmin, and only a superadmin creates on either, so for
+ * anyone else neither is available and nothing is fetched.
+ */
+export function useManagedInstances(isSuperadmin: () => boolean) {
+	const externalStatus = resource([isSuperadmin], ([su]) =>
+		su ? SettingService.getExternalInstancePgStatus() : Promise.resolve(undefined)
+	)
+	const externalDbs = resource([isSuperadmin], ([su]) =>
+		su ? SettingService.listExternalInstancePgDatabases() : Promise.resolve({})
+	)
+	// Absent means on.
+	const instancePgDisabled = resource([isSuperadmin], ([su]) =>
+		su
+			? SettingService.getGlobal({ key: 'instance_pg_disabled' }).catch(() => undefined)
+			: Promise.resolve(undefined)
+	)
+	return {
+		externalDbs,
+		get externalAvailable() {
+			return isSuperadmin() && externalStatus.current?.configured === true
+		},
+		get instanceAvailable() {
+			return isSuperadmin() && !isCloudHosted() && !instancePgDisabled.current
+		},
+		refresh() {
+			externalStatus.refetch()
+			externalDbs.refetch()
+			instancePgDisabled.refetch()
+		}
+	}
 }

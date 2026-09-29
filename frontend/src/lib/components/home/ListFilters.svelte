@@ -2,9 +2,10 @@
 	import { Folder, User } from 'lucide-svelte'
 	import { Badge } from '../common'
 	import type { BadgeColor, BadgeIconProps } from '../common/badge/model'
-	import { appIconComponent } from '../icons'
+	import { appIconComponent } from '../icons/appIcon.svelte'
 	import { integrationDisplayName } from '../resourceTypeDisplay'
-	import { onDestroy, onMount } from 'svelte'
+	import { untrack } from 'svelte'
+	import { useHostedPage } from '../hostedPage'
 
 	interface Props {
 		filters: string[]
@@ -39,41 +40,34 @@
 		inline = false
 	}: Props = $props()
 
-	const queryChange: (value: URL) => void = (url: URL) => {
-		if (syncQuery) {
-			window.history.pushState(history.state, '', `?${url?.searchParams.toString()}`)
-		}
-	}
-
-	const eventListener = (e: PopStateEvent) => {
-		if (syncQuery) {
-			loadFilterFromUrl()
-		}
-	}
-
-	onMount(() => {
-		window.addEventListener('popstate', eventListener)
-	})
-
-	onDestroy(() => {
-		window.removeEventListener('popstate', (e) => eventListener(e))
-	})
-
-	loadFilterFromUrl()
+	const hosted = useHostedPage()
 
 	function loadFilterFromUrl() {
-		let queryValue = new URL(window.location.href).searchParams.get(queryName) ?? undefined
-		selectedFilter = queryValue
+		const search = hosted ? hosted.search : window.location.search
+		selectedFilter = new URLSearchParams(search).get(queryName) ?? undefined
 	}
 
-	export async function setQuery(url: URL, key: string, value: string | undefined): Promise<void> {
-		if (value != undefined) {
-			url.searchParams.set(key, value)
-		} else {
-			url.searchParams.delete(key)
-		}
-		queryChange(url)
+	function writeQuery(value: string | undefined) {
+		if (!syncQuery) return
+		const params = new URLSearchParams(hosted ? hosted.search : window.location.search)
+		if (value != undefined) params.set(queryName, value)
+		else params.delete(queryName)
+		if (hosted) hosted.setSearch(params.size ? `?${params}` : '')
+		else window.history.pushState(history.state, '', `?${params}`)
 	}
+
+	$effect(() => {
+		if (!syncQuery) return
+		if (hosted) {
+			hosted.search
+			untrack(loadFilterFromUrl)
+			return
+		}
+		window.addEventListener('popstate', loadFilterFromUrl)
+		return () => window.removeEventListener('popstate', loadFilterFromUrl)
+	})
+
+	untrack(loadFilterFromUrl)
 
 	let filtersAndSelected = $derived(
 		selectedFilter
@@ -109,11 +103,7 @@
 					class="inline-flex items-center gap-1 align-middle"
 					onclick={() => {
 						selectedFilter = selectedFilter == filter ? undefined : filter
-						if (selectedFilter) {
-							setQuery(new URL(window.location.href), queryName, selectedFilter)
-						} else {
-							setQuery(new URL(window.location.href), queryName, undefined)
-						}
+						writeQuery(selectedFilter)
 					}}
 					{color}
 					clickable
@@ -125,7 +115,9 @@
 							<Icon class="mr-0.5" size={12} />
 						{:else if resourceType}
 							{@const SvelteComponent = appIconComponent(filter)}
-							<SvelteComponent height="14px" width="14px" />
+							{#if SvelteComponent}
+								<SvelteComponent height="14px" width="14px" />
+							{/if}
 						{:else if filter.startsWith('u/')}
 							<User class="mr-0.5" size={14} />
 						{:else if filter.startsWith('f/')}

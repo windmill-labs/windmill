@@ -22,7 +22,6 @@
 		Database,
 		Loader2
 	} from 'lucide-svelte'
-	import DucklakeResultPreview from './assets/AssetGraph/DucklakeResultPreview.svelte'
 	import DataTestsResult from './DataTestsResult.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 	import DisplayResultControlBar from './DisplayResultControlBar.svelte'
@@ -1105,11 +1104,15 @@
 							/>
 							{#if showMaterializedPreview}
 								<div class="border rounded-md h-80 min-h-0 overflow-hidden">
-									<DucklakeResultPreview
-										assetUri={m.materialized}
-										partition={m.partition}
-										class="h-full"
-									/>
+									<!-- Dynamic: the DuckDB preview reaches ~450 modules (data table editor, low-code
+									     components), and every page that shows a job result imports this file. -->
+									{#await import('./assets/AssetGraph/DucklakeResultPreview.svelte') then DucklakeResultPreview}
+										<DucklakeResultPreview.default
+											assetUri={m.materialized}
+											partition={m.partition}
+											class="h-full"
+										/>
+									{/await}
 								</div>
 							{/if}
 						</div>

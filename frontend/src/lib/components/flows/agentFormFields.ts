@@ -30,16 +30,42 @@ export const AGENT_TOOLS_ROW = 'tools'
 export const AGENT_HISTORY_KEYS = ['memory_id', 'previous_messages'] as const
 export type AgentHistoryKey = (typeof AGENT_HISTORY_KEYS)[number]
 
-/** What turning managed memory on writes. */
-export const DEFAULT_AGENT_MEMORY: MemoryConfig = { kind: 'window', context_length: 10 }
+/** The input transforms a one-off test of an agent step runs with: each form key is fed from
+ *  `flow_input`, over the step's own transforms. A blank history input is unset, as on the step:
+ *  an expression evaluating to nothing reads as an empty memory id, and the step's transform is
+ *  stale. */
+export function agentTestInputTransforms(
+	stepTransforms: Record<string, InputTransform> | undefined,
+	args: Record<string, unknown>,
+	formKeys: readonly string[] = Object.keys(args)
+): Record<string, InputTransform> {
+	const isBlank = (v: unknown) => v == undefined || v === '' || (Array.isArray(v) && !v.length)
+	const kept = (key: string) =>
+		!(AGENT_HISTORY_KEYS as readonly string[]).includes(key) || !isBlank(args[key])
+	return {
+		...Object.fromEntries(Object.entries(stepTransforms ?? {}).filter(([key]) => kept(key))),
+		...Object.fromEntries(
+			formKeys
+				.filter(kept)
+				.map((key) => [key, { type: 'javascript' as const, expr: `flow_input.${key}` }])
+		)
+	}
+}
+
+/** What turning managed memory on writes. Both call sites are chat mode, and a chat conversation
+ *  is open-ended: it keeps everything and summarizes the older part rather than dropping messages
+ *  off the front. No context window, so the run reads the one known for the model it ends up on. */
+export const DEFAULT_AGENT_MEMORY: MemoryConfig = { kind: 'compaction' }
 
 /** The docs section on how an agent's memory is named and kept. */
 export const AGENT_MEMORY_DOCS_URL =
 	'https://www.windmill.dev/docs/core_concepts/ai_agents#memory-auto--manual'
 
-/** Whether Windmill stores and replays the agent's conversation, mirroring the worker: `window`, or
- *  its older spelling `auto`, with a message count above 0. A legacy `manual` list is not managed. */
+/** Whether Windmill stores and replays the agent's conversation, mirroring the worker: `compaction`,
+ *  which keeps all of it, or `window` and its older spelling `auto` with a message count above 0. A
+ *  legacy `manual` list is not managed. */
 export function keepsManagedMemory(memory: any): boolean {
+	if (memory?.kind === 'compaction') return true
 	return (memory?.kind === 'window' || memory?.kind === 'auto') && Boolean(memory.context_length)
 }
 
@@ -68,6 +94,11 @@ export function historyInputApplies(
 
 /** A memory setting in words, for a linked agent's summary. */
 export function describeMemoryPolicy(memory: any): string {
+	if (memory?.kind === 'compaction') {
+		return memory.context_window
+			? `Whole conversation, summarized near ${memory.context_window} tokens`
+			: "Whole conversation, summarized as it fills the model's context window"
+	}
 	if (keepsManagedMemory(memory)) return `Last ${memory.context_length} messages`
 	if (memory?.kind === 'manual') return 'Off, sends previous messages saved with the agent'
 	return 'Off'
@@ -143,7 +174,8 @@ export const AGENT_FIELDS: AgentFieldSpec[] = [
 		key: 'memory',
 		group: 'messages',
 		label: 'Managed memory',
-		tooltip: 'Windmill stores the conversation and sends its last messages with each request.',
+		tooltip:
+			'Windmill stores the conversation and sends it with each request: its last messages, or a summary of the older ones with the recent ones verbatim. Without instance object storage, saved memory is limited to 100KB. Compaction tries a summary, then keeps the newest complete conversation that fits, starting with a user message. If none fits, memory is not updated.',
 		implicit: { kind: 'off' },
 		defaultHint: 'Default: off',
 		textOnly: true

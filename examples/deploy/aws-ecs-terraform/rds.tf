@@ -19,7 +19,7 @@ resource "aws_db_instance" "windmill_cluster_rds" {
   # iops                  = 3000
 
   engine               = "postgres"
-  engine_version       = "16.1"
+  engine_version       = "16"
   parameter_group_name = "default.postgres16"
   license_model        = "postgresql-license"
 
@@ -39,4 +39,11 @@ resource "aws_db_instance" "windmill_cluster_rds" {
   backup_retention_period = 7
   skip_final_snapshot     = true
   deletion_protection     = false
+
+  # engine_version picks the major version when the database is created; RDS then applies minor
+  # upgrades itself. Changing it on an existing instance would ask RDS to "upgrade" to the bare major
+  # version, which it rejects, so Terraform leaves it alone after creation.
+  lifecycle {
+    ignore_changes = [engine_version]
+  }
 }

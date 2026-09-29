@@ -464,6 +464,18 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			const stepId = args.stepId
 			const stepArgs = args.args || {}
 
+			// An agent step runs on the step's own configuration with this run's changes on top, which
+			// the global chat's run form assembles; this tool sends only what the model named.
+			if (findModuleInFlow(flow.value, stepId)?.value.type === 'aiagent') {
+				toolCallbacks.setToolStatus(toolId, {
+					content: `Step "${stepId}" is an AI agent step`,
+					error: 'AI agent steps cannot be tested from this chat'
+				})
+				throw new Error(
+					'AI agent steps cannot be tested from this chat. Test it from the step\'s "Test this step" tab.'
+				)
+			}
+
 			return executeFlowStepTestRun({
 				flowValue: flow.value,
 				stepId,
@@ -842,7 +854,9 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 ]
 
 export function prepareFlowSystemMessage(customPrompt?: string): ChatCompletionSystemMessageParam {
-	// Get base flow documentation from centralized prompts (includes FLOW_BASE, OPENFLOW_SCHEMA, RESOURCE_TYPES)
+	// Flow domain guidance (module shapes, loops, groups, AI agent tools…) is FLOW_BASE, shared with
+	// global mode and the CLI's write-flow skill: it belongs in system_prompts/base/flow-base.md.
+	// This prompt adds only the flow editor's tools.
 	const flowBaseContext = getFlowPrompt()
 
 	// Chat-specific tool instructions
@@ -911,16 +925,8 @@ Use the \`set_flow_json\` tool to set the entire flow structure at once. Provide
 - \`schema\`: Flow input schema in JSON Schema format (optional)
 - \`preprocessor_module\`: Special module that runs before \`modules\` (optional, separate from \`modules\`)
 - \`failure_module\`: Special module that runs on failure (optional, separate from \`modules\`)
-- \`groups\`: Array of semantic groups for organizing modules in the editor (optional, but **strongly recommended** — proactively segment any non-trivial flow into groups so it reads clearly; don't wait to be asked). Each group has \`summary\` (display name), \`note\` (markdown description shown below the group header — attached directly to the group, not a separate sticky note), \`autocollapse\`, \`start_id\`, \`end_id\`, and \`color\`. \`start_id\` and \`end_id\` must reference existing module IDs in the flow (not \`preprocessor\` or \`failure\`). \`color\` MUST be one of these exact names: \`yellow\`, \`blue\`, \`green\`, \`purple\`, \`pink\`, \`orange\`, \`red\`, \`cyan\`, \`lime\`, \`gray\` — do NOT use hex codes, CSS colors, or any other strings. Omit \`color\` entirely if no preference and the editor will assign one automatically. Groups do not affect execution — they provide naming and collapsibility in the editor. Pass \`null\` to clear existing groups.
-- \`notes\`: Array of free-floating sticky notes shown in the editor (optional). Each note has \`id\` (unique string), \`text\` (markdown content), \`color\` (same palette as groups: \`yellow\`, \`blue\`, \`green\`, \`purple\`, \`pink\`, \`orange\`, \`red\`, \`cyan\`, \`lime\`, \`gray\` — never hex codes), and optional \`position\` {x, y} / \`size\` {width, height} (omit both — the editor auto-places and sizes the note). Always set \`type\` to \`free\`. The \`group\` note type is **deprecated** — do not create group notes; use the \`groups\` field to segment a flow instead. Notes are documentation only and do not affect execution. Pass \`null\` to clear existing notes.
-
-### When to use notes vs groups
-
-**Strongly prefer \`groups\` to organize flows.** Groups are the primary way to make a flow readable: whenever a flow has more than a couple of steps, or any time consecutive steps form a logical stage (e.g. "fetch", "transform", "notify"), segment them into \`groups\`. Each group spans a range of steps (\`start_id\`..\`end_id\`), carries its own \`summary\`, \`note\` (markdown under the group header), and \`color\`, and can be collapsed. Proactively add or update groups when building or restructuring a flow — do not wait to be asked. Aim for every meaningful step to belong to a semantic group.
-
-- **\`groups\` (default, use liberally):** segment a flow into labelled semantic sections. This is the main organizational tool — reach for it on essentially any non-trivial flow, not just "complex" ones.
-- **\`notes\` (free sticky notes, use sparingly):** reserve for important flow-wide information that does not belong to a specific span of steps — overall purpose, key assumptions, warnings, or TODOs. Usually a single note is enough; do not use notes to label sequences of steps (that is what \`groups\` are for).
-- Do **not** use \`group\`-type notes (deprecated) — \`groups\` is the supported way to group steps.
+- \`groups\`: Array of semantic groups (optional, but add them to any non-trivial flow without being asked; see "Organizing Flows: Groups and Notes" below). Pass \`null\` to clear existing groups.
+- \`notes\`: Array of free-floating sticky notes (optional; see the same section). Pass \`null\` to clear existing notes.
 
 **Example - Simple flow:**
 \`\`\`javascript
