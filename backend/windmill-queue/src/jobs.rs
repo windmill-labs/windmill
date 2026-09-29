@@ -43,6 +43,7 @@ use windmill_common::auth::JobPerms;
 use windmill_common::bench::BenchmarkIter;
 use windmill_common::jobs::{
     script_path_to_payload, JobTriggerKind, TriggerKindLabel, EMAIL_ERROR_HANDLER_USER_EMAIL,
+    MODULES_ARG,
 };
 use windmill_common::min_version::{
     MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
@@ -6003,6 +6004,27 @@ async fn push_inner<'c, 'd>(
     trigger: Option<TriggerMetadata>,
     suspended_mode: Option<bool>,
 ) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
+    // The worker builds a preview's `_MODULES` arg into the job as its module code. Every
+    // caller-reachable value lands in `args` or `extra` (webhook query and headers go to
+    // `extra`, WAC children copy their parent's args), so it is dropped from both and only
+    // the `JobPayload::Code` arm below sets it, from the server-side `RawCode::modules`.
+    let args_without_modules;
+    let mut args = {
+        let mut extra = args.extra;
+        if let Some(extra) = extra.as_mut() {
+            extra.remove(MODULES_ARG);
+        }
+        let args = if args.args.contains_key(MODULES_ARG) {
+            let mut stripped = args.args.clone();
+            stripped.remove(MODULES_ARG);
+            args_without_modules = stripped;
+            &args_without_modules
+        } else {
+            args.args
+        };
+        PushArgs { extra, args }
+    };
+
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
         // A fork/dev workspace draws its plan and usage from the root (billing) workspace, so its
@@ -6375,12 +6397,11 @@ async fn push_inner<'c, 'd>(
                     language = ScriptLang::Bun;
                 }
             }
-            // Inject modules into job args as _MODULES so the worker can extract them
             if let Some(ref modules) = modules {
                 match serde_json::to_string(modules).and_then(|s| RawValue::from_string(s)) {
                     Ok(raw) => {
                         let extra = args.extra.get_or_insert_with(HashMap::new);
-                        extra.insert("_MODULES".to_string(), raw);
+                        extra.insert(MODULES_ARG.to_string(), raw);
                     }
                     Err(e) => {
                         tracing::warn!("Failed to serialize modules for preview job: {e}");
