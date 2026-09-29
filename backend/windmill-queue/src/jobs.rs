@@ -5192,10 +5192,15 @@ pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> Strin
         for cap in RE_ARG_TAG.captures_iter(&workspaced) {
             let arg_name = cap.get(1).unwrap().as_str();
             let (root, rest) = arg_name.split_once('.').unwrap_or((arg_name, ""));
-            let root_value = args
-                .args
-                .get(root)
-                .or(args.extra.as_ref().and_then(|x| x.get(root)));
+            // `push` strips a caller's `_MODULES` only after a run handler has authorized the
+            // tag, so reading it here would let the authorized tag and the queued one differ.
+            let root_value = (root != MODULES_ARG)
+                .then(|| {
+                    args.args
+                        .get(root)
+                        .or(args.extra.as_ref().and_then(|x| x.get(root)))
+                })
+                .flatten();
             let arg_value = render_tag_path(root_value.map(|x| &**x), rest);
             interpolated =
                 interpolated.replace(format!("$args[{}]", arg_name).as_str(), &arg_value);
@@ -5978,7 +5983,7 @@ async fn push_inner<'c, 'd>(
     mut tx: PushIsolationLevel<'c>,
     workspace_id: &str,
     job_payload: JobPayload,
-    mut args: PushArgs<'d>,
+    args: PushArgs<'d>,
     user: &str,
     mut email: &str,
     mut permissioned_as: String,
@@ -8592,6 +8597,13 @@ mod render_tag_path_tests {
         assert_eq!(
             interpolate_args("w-$args[cfg.lang]-$args[e]".to_string(), &push_args, "ws"),
             "w-eu-x"
+        );
+
+        let args = HashMap::from([("_MODULES".to_string(), raw(r#""allowed-""#))]);
+        let push_args = PushArgs { args: &args, extra: None };
+        assert_eq!(
+            interpolate_args("$args[_MODULES]private".to_string(), &push_args, "ws"),
+            "private"
         );
     }
 
