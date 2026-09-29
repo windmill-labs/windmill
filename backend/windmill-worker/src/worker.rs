@@ -5543,11 +5543,14 @@ async fn handle_code_execution_job(
         None => job,
     };
 
-    // Any job kind, not just previews: whatever is here is what gets written to the job dir
-    // and built in, so the agent-worker server precomputing a cache name has to resolve
-    // modules the same way (`windmill-api-agent-workers`, `get_code_and_lock`).
+    // Whatever is here is what gets written to the job dir and built in, so the agent-worker
+    // server precomputing a cache name has to resolve modules the same way
+    // (`windmill-api-agent-workers`, `get_code_and_lock`). Only a preview carries its modules
+    // in its args: a deployed runnable's args are the caller's, so honoring `_MODULES` there
+    // would run caller code as that runnable (and as its `on_behalf_of` identity).
     let modules = modules_from_data.clone().or_else(|| {
-        job.args.as_ref().and_then(|args| {
+        let args = job.args.as_ref().filter(|_| job.kind == JobKind::Preview);
+        args.and_then(|args| {
             args.get("_MODULES").and_then(|raw| {
                 serde_json::from_str::<std::collections::HashMap<String, ScriptModule>>(raw.get())
                     .ok()

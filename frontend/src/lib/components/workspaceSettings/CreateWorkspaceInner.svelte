@@ -70,6 +70,7 @@
 	import WorkspaceScopeTrigger from '../WorkspaceScopeTrigger.svelte'
 	import DarkModeToggle from '../sidebar/DarkModeToggle.svelte'
 	import ForkDucklakeSection from './ForkDucklakeSection.svelte'
+	import { createWorkspaceForkAndWait } from '$lib/utils/forkCreation'
 
 	interface Props {
 		isFork?: boolean
@@ -329,6 +330,7 @@
 	}
 
 	let forkCreationLoading = $state(false)
+	let forkCreationStep = $state('Creating branch')
 	let forkCreationError = $state('')
 	let errorMsgs: string[] = $state([])
 	let failedSyncJobs: string[] = $state([])
@@ -376,6 +378,7 @@
 	async function forkWorkspace(prefixed_id: string): Promise<void> {
 		if (baseWorkspaceId) {
 			forkCreationLoading = true
+			forkCreationStep = 'Creating branch'
 			errorMsgs = []
 			failedSyncJobs = []
 			forkCreationError = ''
@@ -470,9 +473,10 @@
 		}
 
 		try {
-			await WorkspaceService.createWorkspaceFork({
-				workspace: baseWorkspaceId!,
-				requestBody: {
+			forkCreationStep = 'Creating fork'
+			await createWorkspaceForkAndWait(
+				baseWorkspaceId!,
+				{
 					id: prefixed_id,
 					name,
 					color: colorEnabled && workspaceColor ? workspaceColor : undefined,
@@ -483,13 +487,15 @@
 					lock_prod_deploy: createAsDevWorkspace && effectiveLockProdDeploy,
 					lock_prod_forking: createAsDevWorkspace && effectiveLockProdForking,
 					copy_members: copyMembers
-				}
-			})
+				},
+				{ onStep: (step) => (forkCreationStep = step) }
+			)
 		} catch (e) {
+			const msg = e?.body ?? e?.message ?? e ?? 'Unknown error'
 			forkCreationError = `Failed to create fork '${prefixed_id}'`
-			errorMsgs.push(e?.body ?? e ?? 'Unknown error')
+			errorMsgs.push(msg)
 			forkCreationLoading = false
-			sendUserToast(`Could not create fork '${prefixed_id}' ${e}`, true)
+			sendUserToast(`Could not create fork '${prefixed_id}' ${msg}`, true)
 			return
 		}
 
@@ -1115,7 +1121,8 @@
 			</Button>
 		{:else}
 			<Button variant="accent" disabled={true}>
-				<LoaderCircle class="animate-spin" /> Creating branch
+				<LoaderCircle class="animate-spin" />
+				{forkCreationStep}
 			</Button>
 		{/if}
 	</div>

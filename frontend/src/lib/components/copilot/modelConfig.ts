@@ -69,6 +69,9 @@ export function requiresMaxCompletionTokens(model: string) {
 // (trim/compaction, the usage indicator) go through
 // getEffectiveModelContextWindow, whose conservative 128K fallback keeps a
 // limit enforced and is surfaced to the user as an assumed window.
+//
+// Keep entries aligned with MODEL_CONTEXT_WINDOWS in
+// `backend/windmill-ai/src/model_context.rs`, used by AI agent compaction.
 const MODEL_CONTEXT_WINDOWS: [name: string, contextWindow: number][] = [
 	// Anthropic — Sonnet/Opus 4.6+ ship a 1M window at standard pricing (GA);
 	// Haiku, older Claude models (3.x, 4.0, 4.1, 4.5) and date-suffixed Claude 4

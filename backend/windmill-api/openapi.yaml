@@ -1398,6 +1398,14 @@ paths:
         - workspace
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: background
+          description: |
+            return once the request is validated and create the fork in the background, answering
+            with the creation id getForkCreationStatus reads
+          in: query
+          required: false
+          schema:
+            type: boolean
       requestBody:
         description: new forked workspace
         required: true
@@ -1407,11 +1415,44 @@ paths:
               $ref: "#/components/schemas/CreateWorkspaceFork"
       responses:
         "201":
-          description: forked workspace created
+          description: forked workspace created, or with background set, the id of its creation
           content:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/workspaces/fork_creation_status/{creation_id}:
+    get:
+      summary: get the status of a fork created in the background
+      operationId: getForkCreationStatus
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: creation_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: fork creation status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [running, completed, failed]
+                  step:
+                    type: string
+                    description: the part of the copy a running fork is in
+                  error:
+                    type: string
+                required:
+                  - status
 
   /w/{workspace}/workspaces/attach_dev_workspace:
     post:

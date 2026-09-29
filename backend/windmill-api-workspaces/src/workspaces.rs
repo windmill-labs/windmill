@@ -176,6 +176,10 @@ pub fn workspaced_service() -> Router {
         .route("/leave", post(leave_workspace))
         .route("/get_workspace_name", get(get_workspace_name))
         .route("/create_fork", post(create_workspace_fork))
+        .route(
+            "/fork_creation_status/{creation_id}",
+            get(get_fork_creation_status),
+        )
         .route("/attach_dev_workspace", post(attach_dev_workspace))
         .route("/detach_dev_workspace", post(detach_dev_workspace))
         .route("/get_dev_workspace", get(get_dev_workspace))
@@ -1665,6 +1669,14 @@ async fn run_slack_message_test_job(
     Path(w_id): Path<String>,
     Json(req): Json<RunSlackMessageTestJobRequest>,
 ) -> JsonResult<RunSlackMessageTestJobResponse> {
+    // Runs as the error handler identity, handed the Slack bot token.
+    if !(windmill_queue::is_preset_handler_path(&req.hub_script_path)
+        && req.hub_script_path.ends_with("-slack"))
+    {
+        return Err(Error::BadRequest(
+            "Only a preset Slack handler from the hub can be tested".to_string(),
+        ));
+    }
     let mut fake_result = HashMap::new();
     fake_result.insert("error".to_string(), to_raw_value(&req.test_msg));
     fake_result.insert("success_result".to_string(), to_raw_value(&req.test_msg));
@@ -1689,7 +1701,7 @@ async fn run_slack_message_test_job(
         Some(Utc::now()),
         Some(sqlx::types::Json(to_raw_value(&extra_args))),
         authed.email.as_str(),
-        false,
+        None,
         false,
         None, // Note: we could mark it as high priority to return result quickly to the user
     )
@@ -6925,7 +6937,9 @@ async fn clone_workspace_data(
     source_workspace_id: &str,
     target_workspace_id: &str,
     authed: &ApiAuthed,
+    progress: &ForkProgress,
 ) -> Result<()> {
+    progress.step("Copying settings, folders and groups");
     // Clone workspace settings (merge with existing basic settings)
     update_workspace_settings(tx, source_workspace_id, target_workspace_id).await?;
 
@@ -6947,6 +6961,7 @@ async fn clone_workspace_data(
     // Clone groups
     clone_groups(tx, source_workspace_id, target_workspace_id).await?;
 
+    progress.step("Copying resources and variables");
     // Clone resource types
     clone_resource_types(tx, source_workspace_id, target_workspace_id).await?;
 
@@ -6956,6 +6971,7 @@ async fn clone_workspace_data(
     // Clone variables (including external secret backend replication)
     clone_variables(tx, db, source_workspace_id, target_workspace_id).await?;
 
+    progress.step("Copying scripts");
     // Clone scripts with new hashes
     clone_scripts(tx, source_workspace_id, target_workspace_id).await?;
 
@@ -6973,18 +6989,21 @@ async fn clone_workspace_data(
     clone_metric_catalog(tx, source_workspace_id, target_workspace_id).await?;
     clone_asset_usages_and_triggers(tx, source_workspace_id, target_workspace_id).await?;
 
+    progress.step("Copying flows");
     // Clone flows with new versions
     clone_flows(tx, source_workspace_id, target_workspace_id).await?;
 
     // Clone flow nodes
     clone_flow_nodes(tx, source_workspace_id, target_workspace_id).await?;
 
+    progress.step("Copying apps");
     // Clone apps with new IDs and app scripts
     let _app_id_mapping = clone_apps(tx, source_workspace_id, target_workspace_id, authed).await?;
 
     // Clone raw apps
     clone_raw_apps(tx, source_workspace_id, target_workspace_id).await?;
 
+    progress.step("Copying drafts and dependencies");
     // Clone the forker's own per-user drafts (plus the legacy NULL-email
     // workspace draft, if any) so they keep their pending edits in the
     // fork. Other users' drafts are intentionally NOT cloned — they don't
@@ -9210,6 +9229,7 @@ async fn create_workspace_fork(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(parent_workspace_id): Path<String>,
+    Query(q): Query<CreateWorkspaceForkQuery>,
     Json(nw): Json<CreateWorkspaceFork>,
 ) -> Result<String> {
     enforce_fork_depth(&db, &parent_workspace_id, 0).await?;
@@ -9315,63 +9335,279 @@ async fn create_workspace_fork(
     // Refused here, before any database exists; `make_copies` checks again under the locks.
     validate_forked_datatables(&db, &authed, &parent_workspace_id, &nw).await?;
 
-    // Detached from the request: a client that goes away while the copies are made must still end
-    // with the fork created or no copy left behind, and dropping the handler's future would skip
-    // that cleanup.
-    tokio::spawn(async move {
-        let fork_id = nw.id.clone();
-        let copies = crate::datatable_clone::make_copies(
-            &db,
-            &authed,
-            &parent_workspace_id,
-            &copy_requests(&nw.forked_datatables),
-        )
-        .await?;
-        let replayed: Vec<DataTableForkBehavior> = copies
-            .iter()
-            .filter(|c| c.replayed)
-            .map(|c| c.behavior)
-            .collect();
-        match write_workspace_fork(
+    if !q.background.unwrap_or(false) {
+        // Detached from the request: a client that goes away while the copies are made must still
+        // end with the fork created or no copy left behind, and dropping the handler's future
+        // would skip that cleanup.
+        return tokio::spawn(make_workspace_fork(
+            db,
+            authed,
+            parent_workspace_id,
+            nw,
+            dev_workspace_label,
+            ForkProgress::default(),
+        ))
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!("Creating the fork stopped unexpectedly: {e}"))
+        })?;
+    }
+
+    let fork_id = nw.id.clone();
+    sqlx::query(
+        "DELETE FROM workspace_fork_creation
+         WHERE COALESCE(finished_at, heartbeat_at) < now() - interval '7 days'",
+    )
+    .execute(&db)
+    .await?;
+    let claimed = sqlx::query(
+        "INSERT INTO workspace_fork_creation
+             (fork_workspace_id, parent_workspace_id, created_by, creation_id)
+         VALUES ($1, $2, $3, $5)
+         ON CONFLICT (fork_workspace_id) DO UPDATE SET
+             parent_workspace_id = EXCLUDED.parent_workspace_id,
+             created_by = EXCLUDED.created_by,
+             creation_id = EXCLUDED.creation_id,
+             started_at = now(), heartbeat_at = now(), step = NULL, finished_at = NULL,
+             error = NULL
+         WHERE workspace_fork_creation.finished_at IS NOT NULL
+            OR workspace_fork_creation.heartbeat_at < now() - $4 * interval '1 second'
+         RETURNING creation_id",
+    )
+    .bind(&fork_id)
+    .bind(&parent_workspace_id)
+    .bind(&authed.email)
+    .bind(FORK_HEARTBEAT_STALE_SECS as f64)
+    .bind(Uuid::new_v4())
+    .fetch_optional(&db)
+    .await?;
+    // Every write of this attempt is scoped to its `creation_id`: one taken over as abandoned must
+    // not report over the attempt that took its place.
+    let Some(creation_id) = claimed.map(|r| r.get::<Uuid, _>("creation_id")) else {
+        return Err(Error::BadRequest(format!(
+            "workspace '{fork_id}' is already being created"
+        )));
+    };
+
+    BACKGROUND_FORKS.spawn(async move {
+        let (progress_tx, mut progress_rx) = tokio::sync::watch::channel("");
+        // The one writer of the run's row while it copies: it records a new step as soon as the
+        // copy reports it, and refreshes the heartbeat in between.
+        let heartbeat = {
+            let (db, fork_id) = (db.clone(), fork_id.clone());
+            tokio::spawn(async move {
+                let mut interval =
+                    tokio::time::interval(std::time::Duration::from_secs(FORK_HEARTBEAT_SECS));
+                let mut reporting = true;
+                loop {
+                    tokio::select! {
+                        _ = interval.tick() => {}
+                        changed = progress_rx.changed(), if reporting => reporting = changed.is_ok(),
+                    }
+                    let step = *progress_rx.borrow_and_update();
+                    if let Err(e) = sqlx::query(
+                        "UPDATE workspace_fork_creation SET heartbeat_at = now(), step = $3
+                         WHERE fork_workspace_id = $1 AND creation_id = $2",
+                    )
+                    .bind(&fork_id)
+                    .bind(creation_id)
+                    .bind((!step.is_empty()).then_some(step))
+                    .execute(&db)
+                    .await
+                    {
+                        tracing::warn!("fork '{fork_id}': could not record progress: {e}");
+                    }
+                }
+            })
+        };
+        let made = tokio::spawn(make_workspace_fork(
             db.clone(),
             authed,
             parent_workspace_id,
             nw,
             dev_workspace_label,
-            &copies,
+            ForkProgress { creation_id: Some(creation_id), steps: Some(progress_tx) },
+        ))
+        .await
+        .map_err(|e| Error::internal_err(format!("Creating the fork stopped unexpectedly: {e}")))
+        .and_then(|r| r);
+        heartbeat.abort();
+        let error = made.err().map(|e| {
+            tracing::error!("Creating fork '{fork_id}' failed: {e}");
+            e.to_string()
+        });
+        // A fork that committed is already recorded complete, even when its commit's
+        // acknowledgement was lost and the attempt reads as an error here.
+        if let Err(e) = sqlx::query(
+            "UPDATE workspace_fork_creation SET finished_at = now(), error = $3
+             WHERE fork_workspace_id = $1 AND creation_id = $2 AND finished_at IS NULL",
         )
+        .bind(&fork_id)
+        .bind(creation_id)
+        .bind(error)
+        .execute(&db)
         .await
         {
-            Ok(message) => {
-                for behavior in replayed {
-                    windmill_common::feature_usage::log_feature_usage(
-                        "datatable",
-                        "clone_replayed",
-                        match behavior {
-                            DataTableForkBehavior::SchemaOnly => "schema_only",
-                            _ => "schema_and_data",
-                        },
-                    );
-                }
-                Ok(message)
-            }
-            // A commit whose acknowledgement was lost can still have committed, and a concurrent
-            // request for the same id can have: once the write has settled, the cleanup keeps
-            // whichever copies a committed fork names, and drops the rest.
-            Err(e) => match wait_for_fork_write(&db, &fork_id).await {
-                Ok(()) => Err(crate::datatable_clone::drop_copies_after(&db, copies, e).await),
-                Err(settle) => {
-                    tracing::error!(
-                        "Could not tell whether fork '{fork_id}' was created, so its copies were \
-                         kept: {settle}"
-                    );
-                    Err(e)
-                }
-            },
+            tracing::error!("fork '{fork_id}': could not record how its creation ended: {e}");
         }
-    })
+    });
+    Ok(creation_id.to_string())
+}
+
+/// How often a fork created in the background records that its copy is still running, and how long
+/// without that record its creation counts as abandoned.
+const FORK_HEARTBEAT_SECS: u64 = 10;
+const FORK_HEARTBEAT_STALE_SECS: u64 = 60;
+
+/// Forks being created in the background. The server waits for them on shutdown: a copy cut short
+/// never drops the data table databases it already made, and a retry under the same id is refused
+/// while they exist.
+pub static BACKGROUND_FORKS: std::sync::LazyLock<tokio_util::task::TaskTracker> =
+    std::sync::LazyLock::new(tokio_util::task::TaskTracker::new);
+
+#[derive(Deserialize)]
+struct CreateWorkspaceForkQuery {
+    /// Return once the request is validated and create the fork in the background, answering with
+    /// the id `fork_creation_status` reads this attempt by. Without it the answer is
+    /// `Created forked workspace <id>`, which clients take as a server without background forks.
+    background: Option<bool>,
+}
+
+/// The attempt a fork created in the background belongs to, and where its copy is, for its status
+/// to report.
+#[derive(Default)]
+struct ForkProgress {
+    creation_id: Option<Uuid>,
+    steps: Option<tokio::sync::watch::Sender<&'static str>>,
+}
+
+impl ForkProgress {
+    fn step(&self, step: &'static str) {
+        if let Some(tx) = &self.steps {
+            tx.send_replace(step);
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct ForkCreationStatus {
+    /// `running`, `completed` or `failed`.
+    status: &'static str,
+    /// The part of the copy a running fork is in.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    step: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+async fn get_fork_creation_status(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((parent_workspace_id, creation_id)): Path<(String, Uuid)>,
+) -> JsonResult<ForkCreationStatus> {
+    let row = sqlx::query(
+        "SELECT c.created_by, c.finished_at IS NOT NULL AS finished, c.error, c.step,
+                c.heartbeat_at < now() - $3 * interval '1 second' AS stale
+         FROM workspace_fork_creation c
+         WHERE c.creation_id = $1 AND c.parent_workspace_id = $2",
+    )
+    .bind(creation_id)
+    .bind(&parent_workspace_id)
+    .bind(FORK_HEARTBEAT_STALE_SECS as f64)
+    .fetch_optional(&db)
+    .await?;
+    // Only the user who started it reads an attempt: its id is not handed to anyone else.
+    let Some(row) = row.filter(|r| r.get::<String, _>("created_by") == authed.email) else {
+        return Err(Error::NotFound(format!(
+            "no fork creation {creation_id} from '{parent_workspace_id}'"
+        )));
+    };
+    let error: Option<String> = row.get("error");
+    let status = if row.get::<bool, _>("finished") {
+        match error {
+            Some(error) => ForkCreationStatus { status: "failed", step: None, error: Some(error) },
+            None => ForkCreationStatus { status: "completed", step: None, error: None },
+        }
+    } else if row.get::<bool, _>("stale") {
+        ForkCreationStatus {
+            status: "failed",
+            step: None,
+            error: Some(
+                "the server creating the fork stopped before it finished; check the server logs \
+                 and whether the fork exists before retrying"
+                    .to_string(),
+            ),
+        }
+    } else {
+        ForkCreationStatus { status: "running", step: row.get("step"), error: None }
+    };
+    Ok(Json(status))
+}
+
+/// Copy the data tables the fork gets, then write the fork itself, dropping the copies again if
+/// that write fails.
+async fn make_workspace_fork(
+    db: DB,
+    authed: ApiAuthed,
+    parent_workspace_id: String,
+    nw: CreateWorkspaceFork,
+    dev_workspace_label: Option<String>,
+    progress: ForkProgress,
+) -> Result<String> {
+    let fork_id = nw.id.clone();
+    if !nw.forked_datatables.is_empty() {
+        progress.step("Copying data tables");
+    }
+    let copies = crate::datatable_clone::make_copies(
+        &db,
+        &authed,
+        &parent_workspace_id,
+        &copy_requests(&nw.forked_datatables),
+    )
+    .await?;
+    let replayed: Vec<DataTableForkBehavior> = copies
+        .iter()
+        .filter(|c| c.replayed)
+        .map(|c| c.behavior)
+        .collect();
+    match write_workspace_fork(
+        db.clone(),
+        authed,
+        parent_workspace_id,
+        nw,
+        dev_workspace_label,
+        &copies,
+        &progress,
+    )
     .await
-    .map_err(|e| Error::internal_err(format!("Creating the fork stopped unexpectedly: {e}")))?
+    {
+        Ok(message) => {
+            for behavior in replayed {
+                windmill_common::feature_usage::log_feature_usage(
+                    "datatable",
+                    "clone_replayed",
+                    match behavior {
+                        DataTableForkBehavior::SchemaOnly => "schema_only",
+                        _ => "schema_and_data",
+                    },
+                );
+            }
+            Ok(message)
+        }
+        // A commit whose acknowledgement was lost can still have committed, and a concurrent
+        // request for the same id can have: once the write has settled, the cleanup keeps
+        // whichever copies a committed fork names, and drops the rest.
+        Err(e) => match wait_for_fork_write(&db, &fork_id).await {
+            Ok(()) => Err(crate::datatable_clone::drop_copies_after(&db, copies, e).await),
+            Err(settle) => {
+                tracing::error!(
+                    "Could not tell whether fork '{fork_id}' was created, so its copies were \
+                     kept: {settle}"
+                );
+                Err(e)
+            }
+        },
+    }
 }
 
 /// The database a data table of the fork or dev workspace `fork_id` is copied into, as the wizard
@@ -9467,6 +9703,7 @@ async fn write_workspace_fork(
     nw: CreateWorkspaceFork,
     dev_workspace_label: Option<String>,
     copies: &[crate::datatable_clone::MadeCopy],
+    progress: &ForkProgress,
 ) -> Result<String> {
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
     // Held until this transaction ends: after an error, the copies' cleanup waits on it, so it reads
@@ -9569,8 +9806,15 @@ async fn write_workspace_fork(
         .await?;
 
     // Clone all data from the parent workspace using Rust implementation
-    if let Err(e) =
-        clone_workspace_data(&mut tx, &db, &parent_workspace_id, &forked_id, &authed).await
+    if let Err(e) = clone_workspace_data(
+        &mut tx,
+        &db,
+        &parent_workspace_id,
+        &forked_id,
+        &authed,
+        progress,
+    )
+    .await
     {
         // A genuine `\u0000` in a source `json` value (`app_version.value` /
         // `flow_version.schema`) aborts the clone when it is re-encoded to jsonb:
@@ -9601,6 +9845,7 @@ async fn write_workspace_fork(
     // enabled=false. Disabled rows have no side effects (no listener
     // attaches, no cron fires) so this is safe by construction. The user
     // re-enables in the fork, with parent-conflict warnings on enable.
+    progress.step("Copying triggers and schedules");
     clone_triggers_and_schedules(&mut tx, &parent_workspace_id, &forked_id).await?;
 
     repoint_unresolvable_cloned_identities(&mut tx, &forked_id, &authed).await?;
@@ -9748,6 +9993,16 @@ async fn write_workspace_fork(
         (!copied.is_empty()).then(|| [("copied_datatables", copied.as_str())].into()),
     )
     .await?;
+    // Committed with the fork, so its attempt reads complete exactly when the fork exists.
+    if let Some(creation_id) = progress.creation_id {
+        sqlx::query(
+            "UPDATE workspace_fork_creation SET finished_at = now(), error = NULL
+             WHERE creation_id = $1",
+        )
+        .bind(creation_id)
+        .execute(&mut *tx)
+        .await?;
+    }
     tx.commit().await?;
 
     // A pre-creation lookup could have cached an EMPTY ancestor chain for this id, which
@@ -9761,6 +10016,7 @@ async fn write_workspace_fork(
         windmill_common::workspaces::invalidate_protection_rules_cache(&parent_workspace_id);
     }
 
+    // Clients that ask for a background fork recognise a server without it by this answer.
     Ok(format!("Created forked workspace {}", &forked_id))
 }
 
