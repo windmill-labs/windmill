@@ -29,6 +29,10 @@ Open-source platform for internal tools, workflows, API integrations, background
 - **Agent workers**: `docs/agent-worker-e2e.md` — building and running one locally. An agent
   reaches the DB only through the API, so `Connection::Http` paths are never taken by a plain
   `cargo run`; a normal build cannot start one at all.
+- **External instance data tables**: `docs/external-instance-datatables.md` — the cluster Windmill
+  administers behind `external_instance` data tables and Ducklake catalogs: its invariants (one
+  lifecycle lock, managed-object markers, the setup gate, per-cluster roles, fork copy ownership)
+  and how to run one locally
 - **Enterprise**: `docs/enterprise.md` — EE file conventions and PR workflow
 - **Operator write rights**: `docs/operator-write-rights.md` — which `operator_settings` flags are
   enforced rather than cosmetic, and why a right that is granted-unless-withdrawn needs `Option`

@@ -3,6 +3,8 @@
 	import CloseButton from '../common/CloseButton.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 	import Toggle from '../Toggle.svelte'
+	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { createAsyncConfirmationModal } from '../common/confirmationModal/asyncConfirmationModal.svelte'
 	import Cell from '../table/Cell.svelte'
@@ -10,19 +12,32 @@
 	import Head from '../table/Head.svelte'
 	import Row from '../table/Row.svelte'
 	import { Pencil, Plus } from 'lucide-svelte'
-	import { SettingService, type InstanceDatatableRole } from '$lib/gen'
+	import { SettingService, type DatatableRoleCluster, type InstanceDatatableRole } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 
 	let {
 		initialName = '',
+		pinnedCluster,
 		onChanged
 	}: {
 		/** Prefills the name of the role to add. */
 		initialName?: string
+		/** The one catalog to manage, when the caller has a cluster of its own: a data table can
+		 *  only grant the roles of the cluster it sits on, so its drawer pins that one. Left out,
+		 *  the section offers whichever clusters this instance has. */
+		pinnedCluster?: DatatableRoleCluster
 		/** Called after every change to the catalog, whether or not it went through. */
 		onChanged?: () => void
 	} = $props()
 
+	let cluster = $state<DatatableRoleCluster>(pinnedCluster ?? 'instance')
+	/** The databases a role here reaches, for the copy: a drop is explained by what it undoes. */
+	let clusterName = $derived(
+		cluster === 'external_instance' ? 'the external cluster' : "Windmill's database"
+	)
+	/** Whether the external cluster is configured, so its catalog is worth offering. Only a
+	 *  superadmin can read that, and only a superadmin manages roles. */
+	let externalConfigured = $state(false)
 	let roles = $state<InstanceDatatableRole[]>([])
 	let loading = $state(true)
 	let loadError = $state<string | undefined>(undefined)
@@ -34,18 +49,43 @@
 
 	const confirmationModal = createAsyncConfirmationModal()
 
+	/** Identifies the load in flight. A switch back and forth leaves two requests racing, and the
+	 *  slower one must not seat another cluster's roles under the selected one: a name exists on
+	 *  both clusters, so the rows would look right while every control acted on the wrong id. */
+	let loadSeq = 0
+
 	async function load() {
+		const seq = ++loadSeq
 		loading = true
 		loadError = undefined
 		try {
-			roles = await SettingService.listInstanceDatatableRoles()
+			const fresh = await SettingService.listInstanceDatatableRoles({ cluster })
+			if (seq !== loadSeq) return
+			roles = fresh
 		} catch (e) {
+			if (seq !== loadSeq) return
 			loadError = e?.body ?? e?.message ?? String(e)
 		} finally {
-			loading = false
+			if (seq === loadSeq) loading = false
 		}
 	}
 	load()
+
+	if (pinnedCluster === undefined) {
+		SettingService.getExternalInstancePgStatus()
+			.then((s) => (externalConfigured = s.configured))
+			.catch(() => (externalConfigured = false))
+	}
+
+	async function switchCluster(next: DatatableRoleCluster) {
+		if (next === cluster) return
+		cluster = next
+		// The old cluster's rows go with it: leaving them on screen offers controls that would act
+		// on the catalog no longer selected.
+		roles = []
+		renaming = undefined
+		await load()
+	}
 
 	async function run(fn: () => Promise<unknown>, success: string) {
 		busy = true
@@ -69,7 +109,7 @@
 		await run(
 			() =>
 				SettingService.createInstanceDatatableRole({
-					requestBody: { name }
+					requestBody: { name, cluster }
 				}),
 			`Created the data table role ${name}`
 		)
@@ -79,8 +119,7 @@
 	async function remove(role: InstanceDatatableRole) {
 		const confirmed = await confirmationModal.ask({
 			title: `Delete the role ${role.name}?`,
-			children:
-				'Everything it owns in every instance database is handed back to the admin connection, its grants are dropped, and it is removed from every data table that named it. This cannot be undone.',
+			children: `Everything it owns in every database Windmill manages on ${clusterName} is handed back to the admin connection, its grants are dropped, and it is removed from every data table that named it. This cannot be undone.`,
 			confirmationText: 'Delete role'
 		})
 		if (!confirmed) return
@@ -94,8 +133,22 @@
 <ConfirmationModal {...confirmationModal.props} />
 
 <div class="flex flex-col gap-2">
+	{#if pinnedCluster === undefined && externalConfigured}
+		<!-- Each cluster keeps its own logins, so the catalogs are separate lists, not one
+		filtered view. Offered only where a caller has not pinned one. -->
+		<ToggleButtonGroup
+			bind:selected={() => cluster, (v) => switchCluster(v)}
+			class="w-fit"
+			disabled={busy}
+		>
+			{#snippet children({ item })}
+				<ToggleButton value="instance" label="Windmill's database" {item} small />
+				<ToggleButton value="external_instance" label="External cluster" {item} small />
+			{/snippet}
+		</ToggleButtonGroup>
+	{/if}
 	{#if loadError}
-		<Alert type="error" title="Could not load the instance roles" size="xs">{loadError}</Alert>
+		<Alert type="error" title="Could not load the data table roles" size="xs">{loadError}</Alert>
 	{:else}
 		<DataTable>
 			<Head>
@@ -127,7 +180,7 @@
 									<Button
 										unifiedSize="xs"
 										variant="accent"
-										disabled={busy}
+										disabled={busy || loading}
 										on:click={async () => {
 											const name = renaming?.name?.trim()
 											renaming = undefined
@@ -165,7 +218,7 @@
 							<div class="flex items-center gap-2">
 								<Toggle
 									checked={role.enabled}
-									disabled={busy}
+									disabled={busy || loading}
 									on:change={(e) =>
 										run(
 											() =>

@@ -11,6 +11,7 @@
 	import SetupChecklist from '../wizards/SetupChecklist.svelte'
 	import Button from '../common/button/Button.svelte'
 	import { sendUserToast } from '$lib/toast'
+	import { apiErrorMessage } from '$lib/utils'
 	import { isCustomInstanceDbEnabled } from './utils.svelte'
 	import type { ResourceReturn } from 'runed'
 	import type { ConfirmationModalHandle } from '../common/confirmationModal/asyncConfirmationModal.svelte'
@@ -106,7 +107,7 @@
 										sendUserToast(`Database "${dbname}" dropped successfully`)
 										opened = undefined
 									} catch (e) {
-										sendUserToast(`Failed to drop database: ${e}`, true)
+										sendUserToast(`Failed to drop database: ${apiErrorMessage(e)}`, true)
 										console.error('Error dropping custom instance database', e)
 									} finally {
 										dropIsRunning = false
@@ -184,7 +185,7 @@
 								sendUserToast(result.error ?? 'An error occurred', true)
 							}
 						} catch (e) {
-							sendUserToast('Unexpected error, check console for details', true)
+							sendUserToast(apiErrorMessage(e), true)
 							console.error('Error setting up custom instance database', e)
 						} finally {
 							customInstanceDbSetupIsRunning = false
