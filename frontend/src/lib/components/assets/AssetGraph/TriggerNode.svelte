@@ -50,6 +50,7 @@
 <script lang="ts">
 	import { Handle, Position } from '@xyflow/svelte'
 	import PipelineNodeCard from './PipelineNodeCard.svelte'
+	import { describeCron } from '$lib/utils/describeCron'
 	import { twMerge } from 'tailwind-merge'
 	import { AlertTriangle, CheckCircle2, EllipsisVertical, Target, Trash2 } from 'lucide-svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
@@ -72,6 +73,8 @@
 			// Edit/delete go through the same callbacks, which the page routes
 			// to the draft instead of a trigger row.
 			draft?: boolean
+			// The cron, for a schedule: the node names its cadence instead of "Schedule".
+			schedule?: string
 			runnable_path?: string
 			// Page-supplied dispatcher that opens the matching native
 			// trigger drawer with `script_path` pre-filled. When absent
@@ -201,6 +204,14 @@
 			: [])
 	])
 
+	// A schedule names its cadence ("Every day at 4:00", or the cron itself
+	// when it has no plain reading); every other kind names its kind.
+	let kindName = $derived(
+		data.kind === 'schedule' && data.schedule
+			? (describeCron(data.schedule) ?? `Schedule (${data.schedule})`)
+			: style.label
+	)
+
 	// One card for every state: which label, title and click the node gets.
 	let card = $derived.by(
 		(): {
@@ -223,7 +234,7 @@
 				}
 			if (canEdit)
 				return {
-					kindLabel: `${style.label}${data.draft ? ' · draft' : unsaved ? ' · unsaved' : ''}`,
+					kindLabel: `${kindName}${data.draft ? ' · draft' : unsaved ? ' · unsaved' : ''}`,
 					title: data.ref,
 					tooltip: data.draft
 						? `Draft ${style.label}: ${data.ref} — created when you save the pipeline. Click to edit.`
@@ -251,7 +262,7 @@
 					onclick: handleDataUploadClick
 				}
 			return {
-				kindLabel: `${style.label}${displayMissing ? ' · missing' : unsaved ? ' · unsaved' : ''}`,
+				kindLabel: `${displayMissing ? style.label : kindName}${displayMissing ? ' · missing' : unsaved ? ' · unsaved' : ''}`,
 				title: displayMissing ? 'no trigger row' : data.ref,
 				tooltip:
 					missingTitle ??

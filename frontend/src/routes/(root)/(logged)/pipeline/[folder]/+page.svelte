@@ -1363,7 +1363,7 @@
 		withSummaries(mode === 'edit' || includeDrafts ? graphWithDraft : deployedGraph)
 	)
 	// Adds what the canvas shows but the resolved graph does not carry: script
-	// summaries and languages, and which assets are misconfigured.
+	// summaries and languages, schedule crons, and which nodes are misconfigured.
 	function withSummaries(g: AssetGraphResponse): AssetGraphResponse {
 		const showDrafts = mode === 'edit' || includeDrafts
 		const explicitOnByPath = new Map<string, Array<{ kind: AssetKind; path: string }>>()
@@ -1381,8 +1381,16 @@
 			if (refs.length > 0) explicitOnByPath.set(r.path, refs)
 		}
 		const errors = pipelineNodeErrors(g, explicitOnByPath)
+		const crons = scheduleCrons.current
 		return {
 			...g,
+			triggers: crons?.size
+				? g.triggers.map((t) =>
+						t.trigger_kind === 'schedule' && t.path && !t.schedule && crons.has(t.path)
+							? { ...t, schedule: crons.get(t.path) }
+							: t
+					)
+				: g.triggers,
 			assets:
 				errors.assets.size === 0
 					? g.assets
@@ -2456,6 +2464,31 @@
 			})
 			if (!res.ok) throw new Error(`GET /assets/graph → ${res.status}`)
 			return hideDbtRunnables((await res.json()) as AssetGraphResponse)
+		}
+	)
+
+	// Crons of the deployed schedules on the graph, for their nodes' labels.
+	// Re-read with every graph load, so an edit in the schedule drawer shows.
+	let scheduleCrons = resource(
+		[() => $workspaceStore, () => graphRes.current],
+		async ([ws, g]) => {
+			const crons = new Map<string, string>()
+			if (!ws || !g) return crons
+			const paths = new Set<string>()
+			for (const t of g.triggers) {
+				if (t.trigger_kind === 'schedule' && t.path && !t.missing) paths.add(t.path)
+			}
+			await Promise.all(
+				[...paths].map(async (path) => {
+					try {
+						const s = await ScheduleService.getSchedule({ workspace: ws, path })
+						crons.set(path, s.schedule)
+					} catch {
+						// Unreadable schedule: its node keeps the plain "Schedule" label.
+					}
+				})
+			)
+			return crons
 		}
 	)
 

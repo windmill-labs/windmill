@@ -214,6 +214,8 @@ export type AssetGraphTrigger =
 			// A pipeline-local `PipelineTriggerDraft`: `path` is the trigger it
 			// will be deployed as, and no row exists yet.
 			draft?: boolean
+			// A schedule's cron, filled in client-side, for the node's label.
+			schedule?: string
 	  }
 
 // Macro-library → consumer edge: the consumer calls `macro_names` of

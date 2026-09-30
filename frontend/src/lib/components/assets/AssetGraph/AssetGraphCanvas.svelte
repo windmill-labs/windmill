@@ -717,6 +717,7 @@
 				ref: string
 				missing: boolean
 				draft: boolean
+				schedule?: string
 				// First target script (drives the per-script create/edit flows).
 				runnable_path?: string
 				// Every target script: a single (kind, ref) — e.g. one schedule —
@@ -733,7 +734,8 @@
 			unsaved: boolean,
 			missing: boolean,
 			draft: boolean,
-			runnable_path?: string
+			runnable_path?: string,
+			schedule?: string
 		) {
 			const prev = triggerSourceNodes.get(id)
 			if (!prev) {
@@ -743,6 +745,7 @@
 					ref,
 					missing,
 					draft,
+					schedule,
 					runnable_path,
 					runnable_paths: runnable_path ? [runnable_path] : []
 				})
@@ -798,7 +801,8 @@
 				// lock. Previously only set for missing, which silently
 				// disabled `canEdit` (and the resulting click affordance)
 				// on every attached native trigger.
-				t.runnable_path
+				t.runnable_path,
+				t.schedule
 			)
 			edges.push({
 				id: `trig-${t.trigger_kind}:${sourceId}->${runnableId}`,
@@ -827,6 +831,7 @@
 					unsaved: info.allUnsaved,
 					missing: info.missing,
 					draft: info.draft,
+					schedule: info.schedule,
 					runnable_path: info.runnable_path,
 					// data_upload nodes go green once a file is staged for their
 					// target script (see readyDataUploadPaths / page dataUploadArgs).
