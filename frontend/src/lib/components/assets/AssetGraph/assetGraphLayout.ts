@@ -10,7 +10,8 @@ const NODE_HEIGHT = NODE.height + 30
 /** Rendered height of a pipeline node: a kind label over a title. Fits inside
  * the `NODE_HEIGHT` row the layout reserves. */
 export const PIPELINE_NODE_HEIGHT = 48
-const LAYER_GAP = NODE.gap.vertical
+// A step more than the flow editor's gap: the + on a node's bottom edge sits in it.
+const LAYER_GAP = NODE.gap.vertical + 16
 const SIBLING_GAP = NODE.gap.horizontal
 // Horizontal gutter between two disjoint subgraphs. Wider than the
 // within-subgraph sibling gap so visually-unrelated components (e.g. two
