@@ -460,16 +460,19 @@
 					title="Deployed <> Unsaved agent changes"
 				/>
 			</div>
-			<!-- Two pages of one strip, so opening evals slides in from the right the way its own
-				     levels do. No `onNavigate`: the arrow keys belong to whichever pane is on screen,
-				     and evals answers them for its own levels. -->
+			<!-- One strip of pages, so a level slides in from the right the way evals' own levels do.
+			     No `onNavigate`: the arrow keys belong to whichever pane is on screen, and evals answers
+			     them for its own levels. Warmed, as those levels are: a page built on its first visit
+			     lands inside the transition and arrives empty. Evals only where they can be opened,
+			     since warming them loads them. -->
 			<PagedContent
+				warm
 				class="flex-1 min-h-0"
 				current={inEvals ? 'evals' : inSettings ? 'settings' : 'agent'}
 				pages={[
 					{ key: 'agent', content: agentPage },
 					{ key: 'settings', content: settingsPage },
-					{ key: 'evals', content: evalsPage }
+					...(draftOnly || readOnly ? [] : [{ key: 'evals', content: evalsPage }])
 				]}
 			/>
 		</div>
