@@ -328,7 +328,14 @@
 				model.edges.some((x) => x.kind === kind && x.source === e.source && x.target === id)
 			const target = { script: script.path as string, asset, reads: has('lineage-read') }
 			if (has('trigger-asset')) stop.push(target)
-			else if (target.reads) listen.push(target)
+			// A script rerunning on its own writes would loop: offered only for inputs.
+			else if (
+				target.reads &&
+				!model.edges.some(
+					(x) => x.kind === 'lineage-write' && x.source === id && x.target === e.source
+				)
+			)
+				listen.push(target)
 		}
 		const where = (ts: EdgeTarget[]) =>
 			ts.length === 1 ? ts[0].script : `${ts.length} scripts: ${ts.map((t) => t.script).join(', ')}`
@@ -343,7 +350,10 @@
 		if (stop.length) {
 			out.push({
 				label: 'Stop rerunning on writes',
-				detail: `${stopListeningChangeText(asset, stop.some((t) => t.reads))} in ${where(stop)}; only the annotation header changes. Saved as a draft.`,
+				detail: `${stopListeningChangeText(
+					asset,
+					stop.some((t) => t.reads)
+				)} in ${where(stop)}; only the annotation header changes. Saved as a draft.`,
 				run: () => onEdgeAction?.({ action: 'stop', targets: stop })
 			})
 		}
@@ -356,7 +366,8 @@
 		const nameOf = (id: string) => {
 			const n = byId.get(id)
 			if (!n) return id.replace(/^[^:]+:/, '')
-			if (n.type === 'asset') return formatShortAssetPath({ kind: n.data.asset_kind, path: n.data.path })
+			if (n.type === 'asset')
+				return formatShortAssetPath({ kind: n.data.asset_kind, path: n.data.path })
 			if (n.type === 'no-asset') return 'the scripts that build no asset'
 			if (n.type === 'trigger') return n.data.summary || n.data.ref
 			return n.data.summary || n.data.path
@@ -1227,13 +1238,20 @@
 						}
 					: onDeleteAssetUpstream && u
 						? {
-								deleteBlocked: !u.multiple
-									? r?.runnable_kind === 'flow'
-										? 'a flow builds it'
-										: 'its script builds other assets too'
-									: u.runnableIds.length > 1
-										? 'several scripts build it'
-										: 'its script has several triggers'
+								// The No-asset card stands for its scripts; an asset is built by them.
+								deleteBlocked: data.noAsset
+									? !u.multiple
+										? 'it stands for a flow'
+										: u.runnableIds.length > 1
+											? 'it stands for several scripts'
+											: 'its script has several triggers'
+									: !u.multiple
+										? r?.runnable_kind === 'flow'
+											? 'a flow builds it'
+											: 'its script builds other assets too'
+										: u.runnableIds.length > 1
+											? 'several scripts build it'
+											: 'its script has several triggers'
 							}
 						: {})
 			}
@@ -1903,10 +1921,7 @@
 {/if}
 
 {#if scheduleWizard}
-	<div
-		class="fixed w-0 h-0"
-		style="left: {scheduleWizard.at.x}px; top: {scheduleWizard.at.y}px;"
-	>
+	<div class="fixed w-0 h-0" style="left: {scheduleWizard.at.x}px; top: {scheduleWizard.at.y}px;">
 		<PipelineInsertMenu
 			kinds={[{ id: 'schedule', label: 'On schedule', description: '', icon: Clock }]}
 			onPick={() => {}}

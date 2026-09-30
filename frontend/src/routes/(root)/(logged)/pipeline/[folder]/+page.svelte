@@ -185,6 +185,8 @@
 			if (pe.folder !== f) {
 				if (pe.folder !== undefined) {
 					pe.reset()
+					// The set-aside edit pane belongs to the folder being left.
+					editPane = undefined
 					// Re-scope the Global chat's pipeline prompt to the new folder. The
 					// helper methods already read the reactive folder, but the system
 					// message string was built for the old one and is only rebuilt when
@@ -241,24 +243,13 @@
 		if (m === 'view') url.searchParams.delete('mode')
 		else url.searchParams.set('mode', m)
 		// Same-pathname navigation — the drafts leave-guard skips it.
-		goto(url, { replaceState: opts?.replace ?? false, keepFocus: true, noScroll: true })
+		return goto(url, { replaceState: opts?.replace ?? false, keepFocus: true, noScroll: true })
 	}
 	// View-mode drafts overlay: "what View will show once the drafts are
 	// deployed". A view variant rather than a third mode — ephemeral (not
 	// URL-addressable: drafts live in this browser's localStorage, so a
 	// shared link couldn't reproduce it anyway).
 	let includeDrafts = $state(false)
-
-	// Asset-kind → syntax-prefix for `// on <ref>` reconstruction. Mirrors
-	// ASSET_KINDS in backend/parsers/windmill-parser/src/asset_parser.rs.
-	const ASSET_PREFIX: Record<AssetKind, string> = {
-		s3object: 's3://',
-		resource: '$res:',
-		ducklake: 'ducklake://',
-		datatable: 'datatable://',
-		volume: 'volume://',
-		dbt: 'dbt://'
-	}
 
 	// Path-input split for the insert menu: a read-only `f/<folder>/` chip
 	// on the left the user can't delete, plus an editable suffix seeded
@@ -1210,7 +1201,7 @@
 		aiPrompt?: string,
 		options?: PipelineInsertOptions
 	) {
-		const ref = `${ASSET_PREFIX[asset.kind]}${asset.path}`
+		const ref = assetRef(asset)
 		openMaterializerDraft(
 			language,
 			scriptPath,
@@ -1306,7 +1297,9 @@
 	): Promise<boolean> {
 		const ws = $workspaceStore
 		if (!ws) return false
-		if (mode !== 'edit') setMode('edit')
+		// Wait for Edit: the switch reopens Edit's set-aside pane when it lands, which
+		// would take the place of the draft opened below.
+		if (mode !== 'edit') await setMode('edit')
 		pe.selection = undefined
 		pe.activeDraftPath = undefined
 		await tick()
@@ -1430,6 +1423,15 @@
 						scheduleFor: {
 							script: path,
 							onSchedule: async (schedule) => {
+								// Checked first: a header saying `on schedule` with no schedule
+								// behind it would be a new error, not a fix.
+								if (pe.triggerDrafts.has(triggerDraftKey('schedule', schedule.path))) {
+									sendUserToast(
+										`Another draft schedule already uses the path ${schedule.path}`,
+										true
+									)
+									return
+								}
 								const ok = await editScriptHeader(
 									path,
 									(c) => addTriggerDirective(c, 'schedule'),
@@ -1741,22 +1743,29 @@
 		const showDrafts = mode === 'edit' || includeDrafts
 		const errors = nodeErrors
 		const schedules = scheduleInfo.current
+		// An asset drawn only because a script subscribes to it, which nothing ever
+		// writes, stands for nothing: it is left out, and the subscriber carries the
+		// error. One a script reads or writes stays.
+		const used = new Set(g.edges.map((e) => `${e.asset_kind}:${e.asset_path}`))
+		const phantom = new Set([...errors.unwritten.keys()].filter((k) => !used.has(k)))
+		const triggers = g.triggers.filter(
+			(t) => t.trigger_kind !== 'asset' || !phantom.has(`${t.asset_kind}:${t.asset_path}`)
+		)
 		return {
 			...g,
 			triggers: schedules?.size
-				? g.triggers.map((t) =>
+				? triggers.map((t) =>
 						t.trigger_kind === 'schedule' && t.path && !t.draft && schedules.has(t.path)
 							? { ...t, ...schedules.get(t.path) }
 							: t
 					)
-				: g.triggers,
-			assets:
-				errors.assets.size === 0
-					? g.assets
-					: g.assets.map((a) => {
-							const error = errors.assets.get(`${a.kind}:${a.path}`)
-							return error ? { ...a, error } : a
-						}),
+				: triggers,
+			assets: g.assets
+				.filter((a) => !phantom.has(`${a.kind}:${a.path}`))
+				.map((a) => {
+					const error = errors.assets.get(`${a.kind}:${a.path}`)
+					return error ? { ...a, error } : a
+				}),
 			runnables: g.runnables.map((r) => {
 				const draft = showDrafts ? pe.drafts.get(r.path)?.script : undefined
 				const meta = scriptMetaByPath.get(r.path)
