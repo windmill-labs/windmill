@@ -145,7 +145,15 @@
 	// layout without adding lineage information.
 	const DATA_KINDS = DATA_ASSET_KINDS
 
-	let folder = $derived(normalizePipelineFolder(page.params.folder as string))
+	// The route param is gone for a moment while the page tears down on leaving; the
+	// folder keeps its last value so nothing keyed on it (draft autosave, graph
+	// fetch) sees a different folder in that window.
+	let lastFolder = ''
+	let folder = $derived.by(() => {
+		const param = page.params.folder
+		if (param !== undefined) lastFolder = normalizePipelineFolder(param)
+		return lastFolder
+	})
 
 	// Externalized editor state (drafts, live overlays, selection), shared with
 	// the in-session pipeline preview via PipelineEditorState. Referenced as
