@@ -26,6 +26,9 @@
 	} from 'lucide-svelte'
 	import type { Writable } from 'svelte/store'
 	import EEOnly from '../EEOnly.svelte'
+	import { isCloudHosted } from '$lib/cloud'
+	import { untrack } from 'svelte'
+	import { externalInstancePgPrefill } from './externalInstancePgPrefill'
 
 	interface Props {
 		values: Writable<Record<string, any>>
@@ -42,12 +45,29 @@
 	// the setting's validator — failing an admin's unrelated edit in the same save.
 	let form = $state<Record<string, any>>({})
 	let seededFrom: unknown = undefined
+	/** Fields the data table wizard handed over from a resource. Kept apart from `form` until a
+	 *  save, so the settings loading after them cannot reseed them away. */
+	let prefill = $state<{ source: string; fields: Record<string, any> } | undefined>(undefined)
 	$effect(() => {
 		const stored = $values[KEY]
 		if (stored !== seededFrom) {
 			seededFrom = stored
-			form = stored ? { ...$state.snapshot(stored) } : {}
+			form = {
+				...(stored ? $state.snapshot(stored) : {}),
+				...untrack(() => prefill?.fields ?? {})
+			}
 		}
+	})
+	$effect(() => {
+		const handed = $externalInstancePgPrefill
+		if (!handed) return
+		untrack(() => {
+			const { source, ...rest } = handed
+			const fields = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined))
+			prefill = { source, fields }
+			form = { ...form, ...fields }
+			externalInstancePgPrefill.set(undefined)
+		})
 	})
 
 	let settingUp = $state(false)
@@ -56,6 +76,10 @@
 	let dropping = $state<string | undefined>(undefined)
 	let disabling = $state(false)
 	let disableModalOpen = $state(false)
+	let disableInternalModalOpen = $state(false)
+	/** Databases on Windmill's own Postgres that a data table or Ducklake catalog still uses,
+	 *  with the workspaces using each. Read when the offer to disable it is made. */
+	let internalInUse = $state<{ name: string; workspaces: string[] }[]>([])
 	let dropModalName = $state<string | undefined>(undefined)
 	let creating = $state(false)
 	let newDbName = $state('')
@@ -88,12 +112,16 @@
 	// written before it runs.
 	async function saveAndSetup(rotate: boolean) {
 		settingUp = true
+		// Read before the save: the offer below is for the setup that first brings the cluster
+		// into use, not for every re-run or rotation after it.
+		const wasSetUp = !!status?.configured && !!status?.last_setup?.success
 		try {
 			const value = { ...$state.snapshot(form), sslmode: form.sslmode ?? 'verify-full' }
 			await SettingService.setGlobal({ key: KEY, requestBody: { value } })
 			// The page keeps its own copy of every setting and bulk-saves it: leaving the one it read
 			// at load in place would let a later save of an unrelated setting revert this one.
 			seededFrom = value
+			prefill = undefined
 			$values[KEY] = value
 			markSettingSaved?.(KEY)
 			const report = await SettingService.setupExternalInstancePg({
@@ -104,11 +132,44 @@
 				report.success ? 'External cluster set up' : 'Setup finished with errors',
 				!report.success
 			)
+			if (report.success && !wasSetUp && !isCloudHosted() && !$values[INSTANCE_PG_DISABLED_KEY])
+				await offerToDisableInternal()
 		} catch (e) {
 			sendUserToast(e?.body ?? e?.message ?? String(e), true)
 		} finally {
 			settingUp = false
 			rotatePasswords = false
+		}
+	}
+
+	const INSTANCE_PG_DISABLED_KEY = 'instance_pg_disabled'
+
+	async function offerToDisableInternal() {
+		try {
+			const dbs = await SettingService.listCustomInstanceDbs()
+			internalInUse = Object.entries(dbs)
+				.map(([name, db]) => ({ name, workspaces: db.used_by_workspaces ?? [] }))
+				.filter((db) => db.workspaces.length > 0)
+		} catch {
+			// The offer stands without the usage check; the warning is what it would have added.
+			internalInUse = []
+		}
+		disableInternalModalOpen = true
+	}
+
+	async function disableInternal() {
+		try {
+			await SettingService.setGlobal({
+				key: INSTANCE_PG_DISABLED_KEY,
+				requestBody: { value: true }
+			})
+			$values[INSTANCE_PG_DISABLED_KEY] = true
+			markSettingSaved?.(INSTANCE_PG_DISABLED_KEY)
+			sendUserToast(
+				"Windmill's database is off: its data tables no longer resolve, and it is not offered for new ones"
+			)
+		} catch (e) {
+			sendUserToast(e?.body ?? e?.message ?? String(e), true)
 		}
 	}
 
@@ -119,6 +180,7 @@
 		try {
 			await SettingService.setGlobal({ key: KEY, requestBody: { value: null } })
 			seededFrom = undefined
+			prefill = undefined
 			$values[KEY] = undefined
 			markSettingSaved?.(KEY)
 			form = {}
@@ -169,6 +231,14 @@
 <div class="flex flex-col gap-6">
 		{#if !$enterpriseLicense}
 			<EEOnly />
+		{/if}
+
+		{#if prefill}
+			<Alert type="warning" title="Filled in from {prefill.source}" size="xs">
+				Review the connection below, then save and run setup. Nothing is saved until you do. Its
+				user needs <span class="font-mono">CREATEDB</span> and
+				<span class="font-mono">CREATEROLE</span>: setup reports it if it lacks either.
+			</Alert>
 		{/if}
 
 		<Alert type="info" title="A Postgres cluster Windmill administers" size="xs">
@@ -435,6 +505,39 @@
 		New passwords are generated for the roles Windmill manages on the cluster. Jobs running against
 		those databases while the rotation happens can fail and have to be retried.
 	</span>
+</ConfirmationModal>
+
+<ConfirmationModal
+	open={disableInternalModalOpen}
+	title="Disable the internal managed instance?"
+	confirmationText="Disable internal"
+	type="info"
+	on:canceled={() => (disableInternalModalOpen = false)}
+	on:confirmed={() => {
+		disableInternalModalOpen = false
+		disableInternal()
+	}}
+>
+	<span class="text-sm">
+		Do you want to disable the internal one, which uses the Windmill database instance? We recommend
+		having either the external or the internal one, not both. Data tables on Windmill's database stop
+		working until they are moved, and no new data table or Ducklake catalog can be created there. You
+		can turn it back on under Windmill instance below.
+	</span>
+	{#if internalInUse.length > 0}
+		<Alert type="warning" title="Data is still on Windmill's database" size="xs" class="mt-3">
+			{internalInUse.length === 1 ? 'This database is' : 'These databases are'} still used by a data
+			table or Ducklake catalog. Data tables on {internalInUse.length === 1 ? 'it' : 'them'} stop working
+			as soon as you disable the internal instance; move them to the external cluster first.
+			<ul class="list-disc list-inside mt-1">
+				{#each internalInUse as db (db.name)}
+					<li>
+						<span class="font-mono">{db.name}</span> — {db.workspaces.join(', ')}
+					</li>
+				{/each}
+			</ul>
+		</Alert>
+	{/if}
 </ConfirmationModal>
 
 <ConfirmationModal

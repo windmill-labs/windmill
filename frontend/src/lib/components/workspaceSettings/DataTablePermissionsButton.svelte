@@ -404,6 +404,7 @@
 													}
 												}
 												onCreateItem={addRoleByName}
+												noItemsMsg={$superadmin ? 'Start typing to create a role' : undefined}
 												class="w-64"
 											/>
 										</div>
@@ -415,7 +416,9 @@
 				{/if}
 			</div>
 
-			{#if info?.supported && !hasUnsavedChanges}
+			<!-- Grants only matter to a data table under roles: without them every job connects as the
+			default login, whatever is granted here. -->
+			{#if info?.supported && permissioned && !hasUnsavedChanges}
 				<div class="mt-6 pt-6 border-t">
 					<PgAclEditor {workspace} {datatable} target={{ kind: 'database' }} />
 				</div>

@@ -4362,12 +4362,10 @@ async fn execute_component(
     let resolved_delete_secs =
         resolve_delete_after_secs(None, policy_triggerables.delete_after_secs);
 
-    // `_MODULES` and `_TEMP_SCRIPT_REFS` are server-injected control keys (into
-    // `extra`) that the worker reads back for a `Preview` job — which an inline run
-    // is. A caller supplying them in `args` would inject module content/locks or
-    // redirect relative-import resolution, unpinned, as the app identity. Drop them;
-    // legitimate values ride in `extra`, never the request `args`.
-    payload.args.remove("_MODULES");
+    // `_TEMP_SCRIPT_REFS` is a server-injected control key (into `extra`) that the
+    // worker reads back for a `Preview` job, which an inline run is. A caller
+    // supplying it in `args` would redirect relative-import resolution, unpinned, as
+    // the app identity. Drop it; the legitimate value rides in `extra`.
     payload.args.remove("_TEMP_SCRIPT_REFS");
 
     let (mut args, job_id) = build_args(

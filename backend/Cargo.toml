@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.819.0"
+version = "1.820.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -88,7 +88,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal", "./parsers/windmill-parser-wasm"]
 
 [workspace.package]
-version = "1.819.0"
+version = "1.820.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -328,6 +328,9 @@ strum.workspace = true
 [target.'cfg(windows)'.dependencies]
 windows-service = "0.7"
 windows-sys = { version = "0.52", features = ["Win32_System_Services", "Win32_System_Console", "Win32_Foundation"] }
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = { version = "0.1.31", default-features = false }
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = { optional = true, workspace = true }

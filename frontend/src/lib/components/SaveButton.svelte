@@ -13,7 +13,9 @@
 		unifiedSize = undefined,
 		variant = 'accent'
 	}: {
-		onSave: () => void | Promise<void>
+		/** Resolving to `false` means the save was called off (e.g. a confirmation was declined):
+		 *  nothing was written, so neither success nor error is shown. */
+		onSave: () => void | boolean | Promise<void | boolean>
 		disabled?: boolean
 		label?: string
 		size?: ButtonType.Size | undefined
@@ -40,7 +42,8 @@
 		clearStatusTimeout()
 
 		Promise.resolve(onSave())
-			.then(() => {
+			.then((result) => {
+				if (result === false) return
 				saveStatus = 'success'
 				statusTimeout = setTimeout(() => {
 					saveStatus = null

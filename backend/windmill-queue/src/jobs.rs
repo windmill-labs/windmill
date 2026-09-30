@@ -43,6 +43,7 @@ use windmill_common::auth::JobPerms;
 use windmill_common::bench::BenchmarkIter;
 use windmill_common::jobs::{
     script_path_to_payload, JobTriggerKind, TriggerKindLabel, EMAIL_ERROR_HANDLER_USER_EMAIL,
+    MODULES_ARG,
 };
 use windmill_common::min_version::{
     MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
@@ -4908,6 +4909,45 @@ pub fn has_active_concurrency_limit(concurrent_limit: Option<i32>) -> bool {
     concurrent_limit.is_some_and(|n| n > 0)
 }
 
+/// Admit a job already owned by a worker without releasing its queue reservation.
+/// The caller must maintain its heartbeat while waiting and complete it on failure.
+pub async fn try_admit_owned_job(db: &DB, job: &MiniPulledJob) -> error::Result<bool> {
+    #[cfg(all(feature = "private", feature = "enterprise"))]
+    {
+        let settings = windmill_common::runnable_settings::prefetch_cached_from_handle(
+            job.runnable_settings_handle,
+            db,
+        )
+        .await?
+        .1
+        .maybe_fallback(None, job.concurrent_limit, job.concurrency_time_window_s);
+        if has_active_concurrency_limit(settings.concurrent_limit)
+            && !*DISABLE_CONCURRENCY_LIMIT
+            && job.canceled_by.is_none()
+        {
+            let key = concurrency_key(db, &job.id).await?.ok_or_else(|| {
+                Error::internal_err(format!("No concurrency key found for job {}", job.id))
+            })?;
+            if !key.is_empty() {
+                return Ok(crate::jobs_ee::update_concurrency_counter(
+                    db,
+                    &job.id,
+                    key,
+                    serde_json::json!({ job.id.to_string(): {} }),
+                    job.id.to_string(),
+                    settings.concurrency_time_window_s.unwrap_or(0),
+                    settings.concurrent_limit.unwrap_or_default(),
+                )
+                .await?
+                .0);
+            }
+        }
+    }
+    #[cfg(not(all(feature = "private", feature = "enterprise")))]
+    let _ = (db, job);
+    Ok(true)
+}
+
 pub async fn custom_concurrency_key(
     db: &Pool<Postgres>,
     job_id: &Uuid,
@@ -5191,10 +5231,15 @@ pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> Strin
         for cap in RE_ARG_TAG.captures_iter(&workspaced) {
             let arg_name = cap.get(1).unwrap().as_str();
             let (root, rest) = arg_name.split_once('.').unwrap_or((arg_name, ""));
-            let root_value = args
-                .args
-                .get(root)
-                .or(args.extra.as_ref().and_then(|x| x.get(root)));
+            // `push` strips a caller's `_MODULES` only after a run handler has authorized the
+            // tag, so reading it here would let the authorized tag and the queued one differ.
+            let root_value = (root != MODULES_ARG)
+                .then(|| {
+                    args.args
+                        .get(root)
+                        .or(args.extra.as_ref().and_then(|x| x.get(root)))
+                })
+                .flatten();
             let arg_value = render_tag_path(root_value.map(|x| &**x), rest);
             interpolated =
                 interpolated.replace(format!("$args[{}]", arg_name).as_str(), &arg_value);
@@ -5977,7 +6022,7 @@ async fn push_inner<'c, 'd>(
     mut tx: PushIsolationLevel<'c>,
     workspace_id: &str,
     job_payload: JobPayload,
-    mut args: PushArgs<'d>,
+    args: PushArgs<'d>,
     user: &str,
     mut email: &str,
     mut permissioned_as: String,
@@ -6003,6 +6048,27 @@ async fn push_inner<'c, 'd>(
     trigger: Option<TriggerMetadata>,
     suspended_mode: Option<bool>,
 ) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
+    // The worker builds a preview's `_MODULES` arg into the job as its module code. Every
+    // caller-reachable value lands in `args` or `extra` (webhook query and headers go to
+    // `extra`, WAC children copy their parent's args), so it is dropped from both and only
+    // the `JobPayload::Code` arm below sets it, from the server-side `RawCode::modules`.
+    let args_without_modules;
+    let mut args = {
+        let mut extra = args.extra;
+        if let Some(extra) = extra.as_mut() {
+            extra.remove(MODULES_ARG);
+        }
+        let args = if args.args.contains_key(MODULES_ARG) {
+            let mut stripped = args.args.clone();
+            stripped.remove(MODULES_ARG);
+            args_without_modules = stripped;
+            &args_without_modules
+        } else {
+            args.args
+        };
+        PushArgs { extra, args }
+    };
+
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
         // A fork/dev workspace draws its plan and usage from the root (billing) workspace, so its
@@ -6375,12 +6441,11 @@ async fn push_inner<'c, 'd>(
                     language = ScriptLang::Bun;
                 }
             }
-            // Inject modules into job args as _MODULES so the worker can extract them
             if let Some(ref modules) = modules {
                 match serde_json::to_string(modules).and_then(|s| RawValue::from_string(s)) {
                     Ok(raw) => {
                         let extra = args.extra.get_or_insert_with(HashMap::new);
-                        extra.insert("_MODULES".to_string(), raw);
+                        extra.insert(MODULES_ARG.to_string(), raw);
                     }
                     Err(e) => {
                         tracing::warn!("Failed to serialize modules for preview job: {e}");
@@ -8571,6 +8636,13 @@ mod render_tag_path_tests {
         assert_eq!(
             interpolate_args("w-$args[cfg.lang]-$args[e]".to_string(), &push_args, "ws"),
             "w-eu-x"
+        );
+
+        let args = HashMap::from([("_MODULES".to_string(), raw(r#""allowed-""#))]);
+        let push_args = PushArgs { args: &args, extra: None };
+        assert_eq!(
+            interpolate_args("$args[_MODULES]private".to_string(), &push_args, "ws"),
+            "private"
         );
     }
 
