@@ -465,6 +465,37 @@ def main(x: int):
         );
     }
 
+    #[test]
+    fn test_python_execd_async() {
+        let script = r#"
+import asyncio
+
+_import_loop = asyncio.new_event_loop()
+asyncio.set_event_loop(_import_loop)
+
+async def preprocessor(x: int):
+    return {"x": x * 2}
+
+async def main(x: int):
+    return {"x": x + 100, "same_loop": asyncio.get_running_loop() is _import_loop}
+"#;
+        let results = run_py_raw_protocol_test(
+            &[("f/test/async", script)],
+            vec![
+                ProtocolCmd::ExecdPreprocess { args: serde_json::json!({"x": 5}) },
+                ProtocolCmd::Execd { args: serde_json::json!({"x": 7}) },
+            ],
+        );
+        assert_eq!(
+            results,
+            vec![
+                DedicatedWorkerResult::PreprocessedArgs(serde_json::json!({"x": 10})),
+                DedicatedWorkerResult::Success(serde_json::json!({"x": 110, "same_loop": true})),
+                DedicatedWorkerResult::Success(serde_json::json!({"x": 107, "same_loop": true})),
+            ]
+        );
+    }
+
     // ==================== Argument Transformation Tests ====================
 
     #[test]
@@ -757,6 +788,49 @@ def main():
         .unwrap();
 
     assert_eq!(result, serde_json::json!("hello world"));
+    Ok(())
+}
+
+#[cfg(feature = "python")]
+#[sqlx::test(fixtures("base"))]
+async fn test_python_async_main(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let content = r#"
+import asyncio
+
+async def main(x: int):
+    await asyncio.sleep(0)
+    return x + 1
+        "#
+    .to_owned();
+
+    let job = JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        language: ScriptLang::Python3,
+        lock: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        modules: None,
+        tag: None,
+    });
+
+    let result = RunJob::from(job)
+        .arg("x", serde_json::json!(41))
+        .run_until_complete(&db, false, port)
+        .await
+        .json_result()
+        .unwrap();
+
+    assert_eq!(result, serde_json::json!(42));
     Ok(())
 }
 
