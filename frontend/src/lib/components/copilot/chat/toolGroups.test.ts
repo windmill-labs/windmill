@@ -127,9 +127,10 @@ describe('groupToolRuns', () => {
 		expect(
 			shape([
 				tool('set_module_code', { moduleId: 'a' }),
+				tool('patch_flow_json', { old_string: 'a', new_string: 'b' }),
 				tool('set_module_code', { moduleId: 'b' })
 			])
-		).toEqual([{ edit: [0, 1] }])
+		).toEqual([{ edit: [0, 1, 2] }])
 	})
 
 	it('folds edits and reads of one app, apart from a flow at the same path', () => {

@@ -8,7 +8,7 @@ import { webSearchResultOf } from './webSearchResult'
 type EditedItemKind = 'flow' | 'app'
 
 // Tools that fold into an edit group, by the kind of item they edit; the item is the call's
-// `path` ('' for the flow-mode tools below). Scripts are left out on purpose: each script edit
+// `path` ('' for flow mode's tools, which edit the open flow). Scripts are left out on purpose: each script edit
 // renders its own diff card, and the diff is what the user reads.
 const EDIT_TOOLS: Record<string, EditedItemKind> = {
 	patch_flow_json: 'flow',
@@ -34,15 +34,6 @@ const ITEM_READ_TOOLS: Record<string, EditedItemKind> = {
 	read_app_file: 'app',
 	search_app: 'app'
 }
-// Flow-mode tools act on the flow open in the editor and take no path.
-const FLOW_MODE_TOOLS = new Set([
-	'set_flow_json',
-	'set_module_code',
-	'set_preprocessor_module',
-	'set_failure_module',
-	'inspect_inline_script',
-	'get_lint_errors'
-])
 // Calls that only look things up. Not derived from `planModeSafe`, which also admits test
 // runs and plan-document writes.
 const READ_TOOLS = new Set([
@@ -134,16 +125,24 @@ function itemMembership(message: DisplayMessage): Membership | undefined {
 	const streaming = typeof call.parameters === 'string'
 	const params = streaming ? {} : (call.parameters ?? {})
 	const tool = call.toolName!
+	const kind = Object.hasOwn(EDIT_TOOLS, tool)
+		? EDIT_TOOLS[tool]
+		: Object.hasOwn(ITEM_READ_TOOLS, tool)
+			? ITEM_READ_TOOLS[tool]
+			: undefined
 	// No `parameters` at all: a call queued before its arguments reached the row (tools that do
-	// not stream them). No string `path` in them: arguments the tool will reject. Either way the
-	// item is not known, except for a flow-mode tool, which always edits the open flow ('').
+	// not stream them), so its item is not known yet. Arguments without a path mean the open
+	// flow for a flow tool: flow mode's tools (patch_flow_json included, which shares its name
+	// with the global tool) never take one. An app tool always does, so it is unknown there.
 	const path = streaming
 		? streamedPath(call.parameters)
-		: typeof params.path === 'string'
-			? params.path
-			: FLOW_MODE_TOOLS.has(tool)
-				? ''
-				: undefined
+		: call.parameters === undefined
+			? undefined
+			: typeof params.path === 'string'
+				? params.path
+				: kind === 'flow'
+					? ''
+					: undefined
 	if (Object.hasOwn(EDIT_TOOLS, tool)) return { kind: EDIT_TOOLS[tool], path, edit: true }
 	if (Object.hasOwn(ITEM_READ_TOOLS, tool)) {
 		return { kind: ITEM_READ_TOOLS[tool], path, edit: false }
