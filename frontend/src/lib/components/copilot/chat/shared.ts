@@ -1629,7 +1629,7 @@ type HubScriptHit = {
 	description?: string | null
 }
 
-type HubIntegration = { name: string; documented: boolean }
+type HubIntegration = { name: string; displayName?: string | null; documented: boolean }
 
 /** The integration slugs are a large but static list, so one fetch per session
  * is enough. Only matched slugs ever reach the model, never the whole list. */
@@ -1640,6 +1640,7 @@ async function fetchHubIntegrations(): Promise<HubIntegration[]> {
 		const integrations = await IntegrationService.listHubIntegrations({ kind: 'script' })
 		return integrations.map((i) => ({
 			name: i.name,
+			displayName: i.display_name,
 			// A hub predating the flag omits it, and so does one with no authored
 			// notes. Both mean the same thing: nothing to read beyond what the
 			// metadata call returns for every integration.
@@ -1675,33 +1676,46 @@ async function suggestHubIntegrations(query: string): Promise<string[]> {
 		.toLowerCase()
 		.split(/[^a-z0-9]+/)
 		.filter((t) => t.length >= 2)
+	// Ranked by how much of the query each name accounts for, because a vendor with
+	// several products shares one word across all of them: "google drive" matches
+	// every `g*` integration on "google", and only Google Drive on both words. The
+	// cap would otherwise cut the one the user named.
 	return available
-		.map((i) => i.name)
-		.filter((name) => tokens.some((t) => tokenMatchesSlug(t, name.toLowerCase())))
+		.map(({ name, displayName }) => ({
+			name,
+			matched: tokens.filter((t) => tokenMatchesIntegration(t, name, displayName)).length
+		}))
+		.filter(({ matched }) => matched > 0)
+		.sort((a, b) => b.matched - a.matched)
+		.map(({ name }) => name)
 		.slice(0, MAX_SUGGESTED_INTEGRATIONS)
 }
 
-/** Matches a query word against a slug on word boundaries. A bare substring test
- * makes every three-letter English word a hit — `for` in sales*for*ce, `the` in
- * basis_*the*ory. Short tokens must equal a slug or a part, which is also what
- * reaches the two-character slugs (`s3`, `wiz`) a length floor would hide. */
-function tokenMatchesSlug(token: string, slug: string): boolean {
-	const parts = slug.split(/[_-]/).filter(Boolean)
-	if (slug === token || parts.includes(token)) {
+/** Matches a query word against an integration's slug and the name the hub curates
+ * for it, which is what reaches a slug compressing the vendor to a letter: "google
+ * drive" matches `gdrive` only through its "Google Drive". A bare substring test
+ * instead makes every three-letter English word a hit — `for` in sales*for*ce, `the`
+ * in basis_*the*ory — so a token matches a whole word, or extends one from four
+ * characters on. Short tokens must equal a word, which is also what reaches the
+ * two-character slugs (`s3`, `wiz`) a length floor would hide. */
+function tokenMatchesIntegration(
+	token: string,
+	slug: string,
+	displayName?: string | null
+): boolean {
+	const words = [slug, displayName ?? '']
+		.join(' ')
+		.toLowerCase()
+		.split(/[^a-z0-9]+/)
+		.filter(Boolean)
+	if (words.includes(token)) {
 		return true
 	}
 	if (token.length < 4) {
 		return false
 	}
 	const extends_ = (a: string, b: string) => a.startsWith(b) || b.startsWith(a)
-	return (
-		parts.some((p) => p.length >= 4 && extends_(p, token)) ||
-		(slug.length >= 4 && extends_(slug, token)) ||
-		// A whole family of slugs compresses the vendor to one letter in front of the
-		// product word, so the word the user actually says starts one character in:
-		// "google sheet" has to reach `gsheets`, "google drive" `gdrive`.
-		parts.some((p) => p.length >= 5 && extends_(p.slice(1), token))
-	)
+	return words.some((w) => w.length >= 4 && extends_(w, token))
 }
 
 export const clearHubIntegrationsCache = () => {

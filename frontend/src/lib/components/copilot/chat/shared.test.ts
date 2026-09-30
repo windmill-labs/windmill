@@ -2017,14 +2017,17 @@ describe('createSearchHubScriptsTool', () => {
 				{ name: 'salesforce' },
 				{ name: 'basis_theory' },
 				{ name: 'hackernews' },
-				{ name: 's3' }
+				{ name: 's3' },
+				// A slug that is an ordinary word with a letter in front of it: matching
+				// one character in would read "node" as this integration.
+				{ name: 'enode' }
 			])
 		})
 
 		const { createSearchHubScriptsTool, clearHubIntegrationsCache } = await import('./shared')
 		clearHubIntegrationsCache()
 		const raw = await createSearchHubScriptsTool().fn({
-			args: { query: 'list all the invoices for the new month' },
+			args: { query: 'list all the invoices for the new month in a node script' },
 			toolId: 't1',
 			toolCallbacks: { setToolStatus: vi.fn() }
 		} as any)
@@ -2032,16 +2035,16 @@ describe('createSearchHubScriptsTool', () => {
 		expect(JSON.parse(raw).suggested_integrations).toEqual([])
 	})
 
-	// Google's integrations are all a compressed `g` plus the product word, so the
-	// word a user actually says starts one character into the slug.
+	// Google's integrations compress the vendor to a `g`, so the word a user says
+	// appears in the name the hub curates and nowhere in the slug.
 	it('reaches an integration whose slug compresses the vendor name', async () => {
 		const { ScriptService, IntegrationService } = await import('$lib/gen')
 		Object.assign(ScriptService, { queryHubScripts: vi.fn(async () => []) })
 		Object.assign(IntegrationService, {
 			listHubIntegrations: vi.fn(async () => [
-				{ name: 'gsheets' },
-				{ name: 'gdrive' },
-				{ name: 'smartsheet' }
+				{ name: 'gsheets', display_name: 'Google Sheets' },
+				{ name: 'gdrive', display_name: 'Google Drive' },
+				{ name: 'smartsheet', display_name: null }
 			])
 		})
 
@@ -2053,7 +2056,8 @@ describe('createSearchHubScriptsTool', () => {
 			toolCallbacks: { setToolStatus: vi.fn() }
 		} as any)
 
-		expect(JSON.parse(raw).suggested_integrations).toEqual(['gsheets'])
+		// "google" names both products, and a suggestion list is allowed to offer both.
+		expect(JSON.parse(raw).suggested_integrations).toEqual(['gsheets', 'gdrive'])
 	})
 
 	// A slug shorter than the token floor is only reachable by an exact match.
