@@ -17,6 +17,7 @@
 		ShieldCheck,
 		ShieldAlert,
 		CheckCircle2,
+		CircleSlash,
 		Trash2,
 		XCircle
 	} from 'lucide-svelte'
@@ -148,6 +149,8 @@
 			 * pipeline writes, `multiple` when the producer or its trigger is
 			 * ambiguous. */
 			upstream?: AssetUpstreamChips
+			/** The assets-only node for the scripts that build no asset. */
+			noAsset?: boolean
 			/** Card width in the assets-only view, sized to its text. */
 			width?: number
 			/** Assets-only view: deletes the producing script and trigger no other
@@ -232,6 +235,10 @@
 				: []
 	)
 	let upstream = $derived(data.upstream)
+	let noAssetTitle = $derived.by(() => {
+		const n = upstream && 'scripts' in upstream ? upstream.scripts.length : 1
+		return `${n} script${n === 1 ? '' : 's'}`
+	})
 	const CHIP_CLASS =
 		'shrink-0 h-5 min-w-5 rounded-md border bg-surface text-secondary hover:bg-surface-hover border-gray-300 dark:border-gray-600'
 	const CHIP_SELECTED =
@@ -240,9 +247,7 @@
 	let coProducers = $derived(upstream && 'scripts' in upstream ? upstream.scripts : [])
 	let coSelected = $derived(!!(upstream && 'scripts' in upstream && upstream.selected))
 	let coProducerItems = $derived(
-		upstreamScriptItems(coProducers, (path) =>
-			coProducers.find((s) => s.path === path)?.onOpen()
-		)
+		upstreamScriptItems(coProducers, (path) => coProducers.find((s) => s.path === path)?.onOpen())
 	)
 	let scriptMenuOpen = $state(false)
 
@@ -409,9 +414,13 @@
 		kebabClass={showGuardBadge ? '-right-8' : undefined}
 	>
 		<PipelineNodeCard
-			kindLabel={formatAssetKind(asset)}
-			title={formatShortAssetPath(asset)}
-			tooltip={data.error ? `${data.path}: ${data.error}` : data.path}
+			kindLabel={data.noAsset ? 'No asset' : formatAssetKind(asset)}
+			title={data.noAsset ? noAssetTitle : formatShortAssetPath(asset)}
+			tooltip={data.noAsset
+				? 'Scripts that build no asset'
+				: data.error
+					? `${data.path}: ${data.error}`
+					: data.path}
 			{selected}
 			tone={data.error ? 'error' : undefined}
 			subtitle={upstream ? upstreamRow : undefined}
@@ -422,15 +431,19 @@
 				<!-- Data identity carries the accent (luminance blue), pairing with
 				     the blue write edges that produce these assets — scripts stay
 				     neutral, so script vs data reads at a glance. -->
-				<AssetGenericIcon
-					assetKind={data.asset_kind}
-					class={data.error
-						? 'text-red-600 dark:text-red-200'
-						: selected
-							? 'text-accent'
-							: 'text-blue-600 dark:text-blue-400'}
-					size="14px"
-				/>
+				{#if data.noAsset}
+					<CircleSlash size={14} class="text-tertiary" />
+				{:else}
+					<AssetGenericIcon
+						assetKind={data.asset_kind}
+						class={data.error
+							? 'text-red-600 dark:text-red-200'
+							: selected
+								? 'text-accent'
+								: 'text-blue-600 dark:text-blue-400'}
+						size="14px"
+					/>
+				{/if}
 			{/snippet}
 			{#snippet leading()}
 				{#if data.runStatus}
@@ -540,10 +553,7 @@
 					<!-- Several scripts build this table: the first two languages and a
 					     count, opening a menu to pick which one to open. -->
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
-					<div
-						onpointerdown={(e) => e.stopPropagation()}
-						onkeydown={(e) => e.stopPropagation()}
-					>
+					<div onpointerdown={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
 						<DropdownV2
 							items={coProducerItems}
 							placement="bottom-end"

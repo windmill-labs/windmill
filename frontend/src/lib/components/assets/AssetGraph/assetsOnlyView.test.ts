@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { assetsOnlyView, upstreamDeletion, type AssetUpstream } from './assetsOnlyView'
+import {
+	assetsOnlyView,
+	upstreamDeletion,
+	NO_ASSET_NODE_ID,
+	type AssetUpstream
+} from './assetsOnlyView'
 
 const node = (id: string, type: string, data: any = {}) => ({ id, type, data })
 const edge = (source: string, target: string, kind: string) => ({
@@ -55,6 +60,33 @@ describe('assetsOnlyView', () => {
 			multiple: true,
 			runnableIds: ['script:f/p/report', 'script:f/p/other']
 		})
+	})
+})
+
+describe('the No asset node', () => {
+	it('gathers scripts that build nothing, but not dbt projects or macro libraries', () => {
+		const v = assetsOnlyView(
+			[
+				node('asset:ducklake:raw', 'asset'),
+				node('script:f/p/notify', 'runnable'),
+				node('script:f/p/dbt', 'runnable', { dbt: { model_count: 3 } }),
+				node('script:f/p/macros', 'runnable', { macros: [{ name: 'm' }] })
+			],
+			[edge('asset:ducklake:raw', 'script:f/p/notify', 'lineage-read')]
+		)
+		expect(v.hasNoAssetNode).toBe(true)
+		expect(v.upstream.get(NO_ASSET_NODE_ID)).toMatchObject({ runnableId: 'script:f/p/notify' })
+		expect(v.edges.map((e) => `${e.source} -> ${e.target}`)).toEqual([
+			`asset:ducklake:raw -> ${NO_ASSET_NODE_ID}`
+		])
+	})
+
+	it('is absent when every script builds an asset', () => {
+		const v = assetsOnlyView(
+			[node('asset:ducklake:a', 'asset'), node('script:f/p/a', 'runnable')],
+			[edge('script:f/p/a', 'asset:ducklake:a', 'lineage-write')]
+		)
+		expect(v.hasNoAssetNode).toBe(false)
 	})
 })
 

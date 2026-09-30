@@ -23,6 +23,7 @@
 	import {
 		assetsOnlyView,
 		upstreamDeletion,
+		NO_ASSET_NODE_ID,
 		type AssetUpstream,
 		type AssetUpstreamDelete
 	} from './assetsOnlyView'
@@ -345,7 +346,7 @@
 	function build(g: AssetGraphResponse) {
 		const nodes: Array<{
 			id: string
-			type: 'asset' | 'runnable' | 'trigger' | 'add' | 'data-test'
+			type: 'asset' | 'runnable' | 'trigger' | 'add' | 'data-test' | 'no-asset'
 			data: any
 		}> = []
 		const edges: BuiltEdge[] = []
@@ -1009,100 +1010,108 @@
 	function assetsOnlyModel(m: typeof model): typeof model {
 		const v = assetsOnlyView(m.nodes, m.edges)
 		const runnables = new Map(m.nodes.filter((n) => n.type === 'runnable').map((n) => [n.id, n]))
+		// What an asset card shows in this view: its producer's chips, its width,
+		// and what deleting it removes. `data` is an asset's, or the "No asset" node's.
+		const fold = (data: any, u: AssetUpstream | undefined) => {
+			const r = u && !u.multiple ? runnables.get(u.runnableId)?.data : undefined
+			// A dbt model is built by its project, whose writes the canvas does not
+			// draw; its dbt chip already names it.
+			const upstream = !u
+				? data.dbt && data.dbt.resource_type !== 'source'
+					? undefined
+					: { none: true as const }
+				: u.multiple || !r
+					? {
+							multiple: true as const,
+							scripts: (u.multiple ? u.runnableIds : [])
+								.map((id) => runnables.get(id)?.data)
+								.filter((d) => d != undefined)
+								.map((d) => ({
+									runnableId: `${d.runnable_kind}:${d.path}`,
+									path: d.path as string,
+									summary: d.summary as string | undefined,
+									language: d.language,
+									unsaved: d.unsaved as boolean | undefined,
+									onOpen: () =>
+										onselect?.({ kind: 'runnable', runnable_kind: d.runnable_kind, path: d.path })
+								}))
+						}
+					: {
+							runnableId: u.runnableId,
+							path: r.path,
+							summary: r.summary,
+							language: r.language,
+							unsaved: r.unsaved,
+							runState: r.runState,
+							trigger: triggerChip(u.trigger, r.path),
+							onOpen: () =>
+								onselect?.({
+									kind: 'runnable',
+									runnable_kind: r.runnable_kind,
+									path: r.path
+								})
+						}
+			const toDelete =
+				onDeleteAssetUpstream && u && !u.multiple && r
+					? upstreamDeletion(u, r, v.upstream)
+					: undefined
+			const asset = { kind: data.asset_kind, path: data.path }
+			const scriptCount = u?.multiple ? u.runnableIds.length : 1
+			// Chips this estimate does not model keep the regular width.
+			const width =
+				upstream && !data.dbt && !data.fork_materialization && !data.derived_from && !data.runStatus
+					? assetsOnlyNodeWidth({
+							kind: data.noAsset ? 'No asset' : formatAssetKind(asset),
+							title: data.noAsset
+								? `${scriptCount} script${scriptCount === 1 ? '' : 's'}`
+								: formatShortAssetPath(asset),
+							chip:
+								'none' in upstream
+									? 'External source'
+									: 'multiple' in upstream
+										? 'Multiple upstream nodes'
+										: `${upstream.trigger.label}${upstream.trigger.draft ? ' · draft' : ''}`,
+							runState: 'runState' in upstream && !!upstream.runState,
+							scriptChips:
+								'runnableId' in upstream
+									? 1
+									: 'scripts' in upstream
+										? (upstream.scripts?.length ?? 0)
+										: 0
+						})
+					: undefined
+			return {
+				...data,
+				upstream,
+				width,
+				...(toDelete
+					? {
+							deleteCount: toDelete.trigger ? 2 : 1,
+							onDeleteUpstream: () => onDeleteAssetUpstream?.(toDelete)
+						}
+					: onDeleteAssetUpstream && u
+						? {
+								deleteBlocked: !u.multiple
+									? r?.runnable_kind === 'flow'
+										? 'a flow builds it'
+										: 'its script builds other assets too'
+									: u.runnableIds.length > 1
+										? 'several scripts build it'
+										: 'its script has several triggers'
+							}
+						: {})
+			}
+		}
 		const nodes = m.nodes
 			.filter((n) => n.id === ADD_NODE_ID || v.nodeIds.has(n.id))
-			.map((n) => {
-				if (n.type !== 'asset') return n
-				const u = v.upstream.get(n.id)
-				const r = u && !u.multiple ? runnables.get(u.runnableId)?.data : undefined
-				// A dbt model is built by its project, whose writes the canvas does not
-				// draw; its dbt chip already names it.
-				const upstream = !u
-					? n.data.dbt && n.data.dbt.resource_type !== 'source'
-						? undefined
-						: { none: true as const }
-					: u.multiple || !r
-						? {
-								multiple: true as const,
-								scripts: (u.multiple ? u.runnableIds : [])
-									.map((id) => runnables.get(id)?.data)
-									.filter((d) => d != undefined)
-									.map((d) => ({
-										runnableId: `${d.runnable_kind}:${d.path}`,
-										path: d.path as string,
-										summary: d.summary as string | undefined,
-										language: d.language,
-										unsaved: d.unsaved as boolean | undefined,
-										onOpen: () =>
-											onselect?.({ kind: 'runnable', runnable_kind: d.runnable_kind, path: d.path })
-									}))
-							}
-						: {
-								runnableId: u.runnableId,
-								path: r.path,
-								summary: r.summary,
-								language: r.language,
-								unsaved: r.unsaved,
-								runState: r.runState,
-								trigger: triggerChip(u.trigger, r.path),
-								onOpen: () =>
-									onselect?.({
-										kind: 'runnable',
-										runnable_kind: r.runnable_kind,
-										path: r.path
-									})
-							}
-				const toDelete =
-					onDeleteAssetUpstream && u && !u.multiple && r
-						? upstreamDeletion(u, r, v.upstream)
-						: undefined
-				const asset = { kind: n.data.asset_kind, path: n.data.path }
-				// Chips this estimate does not model keep the regular width.
-				const width =
-					upstream &&
-					!n.data.dbt &&
-					!n.data.fork_materialization &&
-					!n.data.derived_from &&
-					!n.data.runStatus
-						? assetsOnlyNodeWidth({
-								kind: formatAssetKind(asset),
-								title: formatShortAssetPath(asset),
-								chip:
-									'none' in upstream
-										? 'External source'
-										: 'multiple' in upstream
-											? 'Multiple upstream nodes'
-											: `${upstream.trigger.label}${upstream.trigger.draft ? ' · draft' : ''}`,
-								runState: 'runState' in upstream && !!upstream.runState,
-								scriptChips:
-									'runnableId' in upstream ? 1 : 'scripts' in upstream ? (upstream.scripts?.length ?? 0) : 0
-							})
-						: undefined
-				return {
-					...n,
-					data: {
-						...n.data,
-						upstream,
-						width,
-						...(toDelete
-							? {
-									deleteCount: toDelete.trigger ? 2 : 1,
-									onDeleteUpstream: () => onDeleteAssetUpstream?.(toDelete)
-								}
-							: onDeleteAssetUpstream && u
-								? {
-										deleteBlocked: !u.multiple
-											? r?.runnable_kind === 'flow'
-												? 'a flow builds it'
-												: 'its script builds other assets too'
-											: u.runnableIds.length > 1
-												? 'several scripts build it'
-												: 'its script has several triggers'
-									}
-								: {})
-					}
-				}
+			.map((n) => (n.type === 'asset' ? { ...n, data: fold(n.data, v.upstream.get(n.id)) } : n))
+		if (v.hasNoAssetNode) {
+			nodes.push({
+				id: NO_ASSET_NODE_ID,
+				type: 'no-asset',
+				data: fold({ noAsset: true }, v.upstream.get(NO_ASSET_NODE_ID))
 			})
+		}
 		const edges: BuiltEdge[] = v.edges.map((e) => ({ ...e, kind: e.kind as BuiltEdge['kind'] }))
 		if (nodes.some((n) => n.id === ADD_NODE_ID)) {
 			const hasIncoming = new Set(edges.map((e) => e.target))
@@ -1242,17 +1251,18 @@
 			const dbtClass = dbtEmphasisIds.has(n.id) ? 'wm-dbt-linked' : undefined
 			// The chips' selected look rides on the positioned nodes, so a selection
 			// never re-runs the layout.
-			const up = n.type === 'asset' ? n.data.upstream : undefined
-			const data =
-				up?.scripts
-					? {
-							...n.data,
-							upstream: {
-								...up,
-								selected: up.scripts.some((sc: { runnableId: string }) => sc.runnableId === selectedId)
-							}
+			const up = n.type === 'asset' || n.type === 'no-asset' ? n.data.upstream : undefined
+			const data = up?.scripts
+				? {
+						...n.data,
+						upstream: {
+							...up,
+							selected: up.scripts.some(
+								(sc: { runnableId: string }) => sc.runnableId === selectedId
+							)
 						}
-					: up?.runnableId !== undefined
+					}
+				: up?.runnableId !== undefined
 					? {
 							...n.data,
 							upstream: {
@@ -1281,7 +1291,7 @@
 				// on its inner box so the edit/create button still receives
 				// clicks despite svelte-flow's wrapper-level pointer-events: none.
 				draggable: false,
-				selectable: n.id !== ADD_NODE_ID && n.type !== 'trigger'
+				selectable: n.id !== ADD_NODE_ID && n.type !== 'trigger' && n.type !== 'no-asset'
 			}
 		})
 	})
@@ -1541,6 +1551,7 @@
 
 	const nodeTypes = {
 		asset: AssetNode as any,
+		'no-asset': AssetNode as any,
 		runnable: RunnableNode as any,
 		trigger: TriggerNode as any,
 		add: AddNode as any,
@@ -1631,10 +1642,7 @@
 		<PanToNode targetId={panToNodeId} {nodes} />
 		<Controls position="top-right" orientation="horizontal" showLock={false} class="!mr-10" />
 		{#if assetsOnlyToggle}
-			<Panel
-				position="top-left"
-				class="!m-3"
-			>
+			<Panel position="top-left" class="!m-3">
 				<Toggle
 					checked={!assetsOnly}
 					size="xs"
