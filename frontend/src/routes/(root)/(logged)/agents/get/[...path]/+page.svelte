@@ -117,18 +117,6 @@
 					</ToggleButtonGroup>
 				{/if}
 				{#if config && !$userStore?.operator}
-					<!-- Evaluating an agent builds datasets and runs against it: authoring, as editing is. -->
-					{#if canEdit}
-						<Button
-							variant="default"
-							unifiedSize="md"
-							startIcon={{ icon: FlaskConical }}
-							title="Run this agent against a dataset of cases"
-							onClick={() => evalsModal?.openModal()}
-						>
-							Evals
-						</Button>
-					{/if}
 					<DropdownV2
 						placement="bottom-end"
 						size="md"
@@ -158,6 +146,18 @@
 							}
 						]}
 					/>
+					<!-- Evaluating an agent builds datasets and runs against it: authoring, as editing is. -->
+					{#if canEdit}
+						<Button
+							variant="default"
+							unifiedSize="md"
+							startIcon={{ icon: FlaskConical }}
+							title="Run this agent against a dataset of cases"
+							onClick={() => evalsModal?.openModal()}
+						>
+							Evals
+						</Button>
+					{/if}
 				{/if}
 				{#if canEdit}
 					<Button
