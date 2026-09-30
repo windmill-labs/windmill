@@ -20,7 +20,7 @@ const SIBLING_GAP = NODE.gap.horizontal
 const COMPONENT_GAP = SIBLING_GAP * 2
 
 /** Extra height of an assets-only node: the trigger chip under its title. */
-export const PIPELINE_NODE_EXTRA_ROW = 16
+export const PIPELINE_NODE_EXTRA_ROW = 20
 /** Height of the header strip naming an assets-only node's producing script. */
 export const PIPELINE_NODE_HEADER = 22
 /** Extra vertical padding of a card under a header, top plus bottom. */

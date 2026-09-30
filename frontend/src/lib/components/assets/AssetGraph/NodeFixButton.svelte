@@ -70,7 +70,7 @@ red fill already says something is wrong.
 		{#snippet trigger()}
 			{#if chip}
 				<span
-					class="flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-3xs leading-none font-normal whitespace-nowrap bg-surface border-red-300 dark:border-red-600 text-red-700 dark:text-red-300 hover:bg-surface-hover"
+					class="flex items-center gap-1 rounded-md border px-1.5 py-1 text-3xs leading-none font-normal whitespace-nowrap bg-surface border-red-300 dark:border-red-600 text-red-700 dark:text-red-300 hover:bg-surface-hover"
 				>
 					<Wrench size={10} class="shrink-0" />
 					{label}

@@ -251,6 +251,10 @@
 		'bg-surface-accent-selected border-border-selected hover:bg-surface-accent-selected text-accent'
 	let producer = $derived(upstream && 'path' in upstream ? upstream : undefined)
 	let coProducers = $derived(upstream && 'scripts' in upstream ? upstream.scripts : [])
+	let hasHeader = $derived(!!producer || coProducers.length > 0)
+	// The corner controls sit on the card's corner, below the header tab:
+	// -top-2 plus PIPELINE_NODE_HEADER (22px).
+	const CARD_CORNER_TOP = 'top-[14px]'
 	let coSelected = $derived(!!(upstream && 'scripts' in upstream && upstream.selected))
 	let coProducerItems = $derived(
 		upstreamScriptItems(coProducers, (path) => coProducers.find((s) => s.path === path)?.onOpen())
@@ -403,7 +407,7 @@
 	{:else if upstream}
 		{@const trigger = producer?.trigger}
 		{@const chipClass = twMerge(
-			'truncate rounded-md border px-1.5 py-0.5 text-3xs leading-none font-normal',
+			'truncate rounded-md border px-1.5 py-1 text-3xs leading-none font-normal',
 			trigger?.missing
 				? 'border-red-300 dark:border-red-600 text-red-700 dark:text-red-300'
 				: 'border-gray-300 dark:border-gray-600 text-secondary',
@@ -461,7 +465,7 @@
 	<NodeActionsMenu
 		items={menuItems}
 		hover={hovered}
-		kebabClass={showGuardBadge ? '-right-8' : undefined}
+		kebabClass={twMerge(showGuardBadge && '-right-8', hasHeader && CARD_CORNER_TOP)}
 	>
 		<PipelineNodeCard
 			kindLabel={data.noAsset ? 'No asset' : formatAssetKind(asset)}
@@ -474,7 +478,7 @@
 			{selected}
 			tone={data.error ? 'error' : undefined}
 			subtitle={upstream ? upstreamRow : undefined}
-			header={producer || coProducers.length > 0 ? scriptHeader : undefined}
+			header={hasHeader ? scriptHeader : undefined}
 			headerSelected={producer ? !!producer.selected : coSelected}
 			width={data.width}
 			surface={upstream ? 'primary' : 'secondary'}
@@ -605,6 +609,7 @@
 		<div
 			class={twMerge(
 				'absolute -top-2 -right-2 z-10 rounded-full w-5 h-5 grid place-items-center border shadow-sm',
+				hasHeader && CARD_CORNER_TOP,
 				guardClass
 			)}
 			title={guardTitle}
