@@ -156,6 +156,8 @@
 			foldedFixes?: NodeFix[]
 			/** The assets-only node for the scripts that build no asset. */
 			noAsset?: boolean
+			/** Nothing in the workspace writes it. */
+			neverWritten?: boolean
 			/** Card width in the assets-only view, sized to its text. */
 			width?: number
 			/** Assets-only view: deletes the producing script and trigger no other
@@ -219,8 +221,9 @@
 		}
 	}
 
-	// A red asset needs fixing where its error comes from, not a downstream step.
-	let showAdd = $derived(data.onAddScript != undefined && !data.error)
+	// A red asset needs fixing where its error comes from, not a downstream step;
+	// and a step downstream of what nothing writes would never run on its writes.
+	let showAdd = $derived(data.onAddScript != undefined && !data.error && !data.neverWritten)
 	let menuItems: Item[] = $derived(
 		data.onDeleteUpstream
 			? [

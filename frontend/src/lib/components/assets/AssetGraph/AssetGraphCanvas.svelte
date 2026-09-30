@@ -623,6 +623,7 @@
 					error: a.error,
 					dbt: a.dbt,
 					onAddScript: onAddScriptForAsset,
+					neverWritten: a.never_written,
 					pathPrefix,
 					defaultPathSuffix,
 					producers: producersByAsset.get(`${a.kind}:${a.path}`) ?? [],

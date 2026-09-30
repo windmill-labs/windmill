@@ -8,6 +8,9 @@ export interface AssetGraphAssetNode {
 	path: string
 	// Filled in client-side: the node is misconfigured (see `pipelineNodeErrors`).
 	error?: string
+	// Filled in client-side: nothing in the workspace writes it, so a step
+	// downstream of it would never run on its writes.
+	never_written?: boolean
 	// Fork workspaces only: 'fork' when this ducklake asset was materialized in
 	// the fork itself, 'deferred' when reads fall back to the parent workspace's
 	// current table via a defer view. Absent outside forks / for other kinds /

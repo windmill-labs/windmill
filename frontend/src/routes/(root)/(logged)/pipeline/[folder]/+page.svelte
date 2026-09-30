@@ -1705,8 +1705,24 @@
 	// Assets an asset trigger waits on (explicit `on`, or an auto-triggering read)
 	// that nothing in the pipeline writes, checked against the whole workspace: an
 	// asset trigger fires on a write from anywhere.
+	// Every other asset nothing in the pipeline writes is looked up too, so an
+	// asset nothing writes anywhere can go without the "add downstream step" +.
+	let writtenInPipeline = $derived(
+		new Set(
+			shownGraph.edges
+				.filter((e) => e.access_type === 'w' || e.access_type === 'rw')
+				.map((e) => `${e.asset_kind}:${e.asset_path}`)
+		)
+	)
 	let unwrittenInPipeline = $derived(
-		[...pipelineNodeErrors(shownGraph, explicitOnByPath).unwrittenTriggerAssets]
+		[
+			...new Set([
+				...pipelineNodeErrors(shownGraph, explicitOnByPath).unwrittenTriggerAssets,
+				...shownGraph.assets
+					.filter((a) => !a.dbt && !writtenInPipeline.has(`${a.kind}:${a.path}`))
+					.map((a) => `${a.kind}:${a.path}`)
+			])
+		]
 			.sort()
 			.join('\n')
 	)
@@ -1768,8 +1784,16 @@
 			assets: g.assets
 				.filter((a) => !phantom.has(`${a.kind}:${a.path}`))
 				.map((a) => {
-					const error = errors.assets.get(`${a.kind}:${a.path}`)
-					return error ? { ...a, error } : a
+					const key = `${a.kind}:${a.path}`
+					const error = errors.assets.get(key)
+					// Only once the workspace lookup has answered: before, it is unknown.
+					const never_written =
+						!a.dbt &&
+						!writtenInPipeline.has(key) &&
+						!!writtenElsewhere.current &&
+						!writtenElsewhere.loading &&
+						!writtenElsewhere.current.has(key)
+					return error || never_written ? { ...a, error, never_written } : a
 				}),
 			runnables: g.runnables.map((r) => {
 				const draft = showDrafts ? pe.drafts.get(r.path)?.script : undefined
