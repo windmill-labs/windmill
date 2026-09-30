@@ -23,8 +23,7 @@ use windmill_common::{
 };
 use windmill_queue::{push, PushArgs, PushIsolationLevel};
 
-use crate::ai_evals::run::config_to_draft;
-use crate::ai_evals::subject::AgentDraft;
+use crate::ai_evals::run::{agent_step_flow, config_to_draft};
 use crate::db::{ApiAuthed, DB};
 use crate::jobs::{handle_chat_conversation_messages, set_flow_memory_id, RunJobQuery};
 
@@ -74,7 +73,14 @@ pub(crate) async fn run_agent(
     } else {
         path.to_string()
     };
-    let flow_value = agent_flow(&config, chat)?;
+    // A step memory id would replace the conversation's, and the agent would forget the turns
+    // before; history comes from the conversation alone.
+    let flow_value = agent_step_flow(
+        &config,
+        AGENT_NODE_ID,
+        chat,
+        &["memory_id", "previous_messages"],
+    )?;
 
     let push_authed = authed.clone().into();
     let (uuid, mut tx) = push(
@@ -135,35 +141,4 @@ pub(crate) async fn run_agent(
     tx.commit().await?;
 
     Ok((StatusCode::CREATED, uuid.to_string()))
-}
-
-/// The agent as a one-module flow reading the message and files from the run's inputs, shaped
-/// through `FlowValue` rather than trusted as raw JSON.
-fn agent_flow(config: &AgentDraft, chat: bool) -> Result<windmill_common::flows::FlowValue> {
-    let mut input_transforms = match &config.input_transforms {
-        serde_json::Value::Object(map) => map.clone(),
-        _ => serde_json::Map::new(),
-    };
-    // A step memory id would replace the conversation's, and the agent would forget the turns
-    // before; history comes from the conversation alone.
-    for key in ["memory_id", "previous_messages"] {
-        input_transforms.remove(key);
-    }
-    for key in ["user_message", "user_attachments"] {
-        input_transforms.insert(
-            key.to_string(),
-            serde_json::json!({ "type": "javascript", "expr": format!("flow_input.{}", key) }),
-        );
-    }
-    Ok(serde_json::from_value(serde_json::json!({
-        "chat_input_enabled": chat,
-        "modules": [{
-            "id": AGENT_NODE_ID,
-            "value": {
-                "type": "aiagent",
-                "tools": config.tools,
-                "input_transforms": serde_json::Value::Object(input_transforms),
-            }
-        }]
-    }))?)
 }
