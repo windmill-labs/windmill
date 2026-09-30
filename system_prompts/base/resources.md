@@ -2,11 +2,13 @@
 
 Resources store credentials and configuration for external services.
 
+<!-- cli-only -->
 ## File Format
 
 Resource files use the pattern: `{path}.resource.json`
 
 Example: `f/databases/postgres_prod.resource.json`
+<!-- /cli-only -->
 
 ## Resource Structure
 
@@ -46,6 +48,16 @@ Reference variables in resource values:
 - `$var:g/all/name` - Global variable
 - `$var:u/username/name` - User variable
 - `$var:f/folder/name` - Folder variable
+
+## Secrets
+
+Never put a secret (password, API key, token) inline in a resource value. Store it in a secret variable and reference that variable as `$var:<path>`.
+
+- `$var:<path>` is a reference, not a value: it resolves to the variable's value at run time. Never invent a value for a variable.
+- A resource that references a variable needs the variable to exist first, so create or deploy the variable before the resource.
+<!-- cli-only -->
+- A secret's plaintext never goes in a file of the repo: a `.variable.yaml` holding it would be committed. Ask the user to create the secret on the workspace instead, e.g. `wmill variable add '<value>' <path>` (a secret by default), then reference it by path.
+<!-- /cli-only -->
 
 ## Resource References
 
@@ -260,6 +272,7 @@ def main(db: postgresql):
     pass
 ```
 
+<!-- cli-only -->
 ## CLI Commands
 
 ```bash
@@ -277,3 +290,4 @@ wmill resource-type get postgresql
 # deploy via `git push` or `wmill sync push` (see the Deploying section in AGENTS.wmill.md).
 wmill sync push
 ```
+<!-- /cli-only -->

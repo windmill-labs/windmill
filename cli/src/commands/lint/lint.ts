@@ -36,6 +36,7 @@ import {
   getScriptBasePathFromModulePath,
 } from "../../utils/resource_folders.ts";
 import { isFilesetResource } from "../../utils/utils.ts";
+import { checkFlowSemantics } from "./flow_semantics.ts";
 import {
   exts,
   findContentFile,
@@ -823,6 +824,16 @@ export async function runLint(
       ...formatYamlDiagnostics(result.parsed),
       ...result.errors.map((error) => formatValidationError(error)),
     ];
+    if (target.type === "flow") {
+      const semantics = checkFlowSemantics(result.parsed?.data);
+      fileErrors.push(...semantics.errors);
+      warnings.push(
+        ...semantics.warnings.map((message) => ({
+          path: normalizedPath,
+          message,
+        })),
+      );
+    }
     if (fileErrors.length > 0) {
       issues.push({
         path: normalizedPath,
@@ -979,7 +990,7 @@ async function lintWatch(opts: LintOptions, directory?: string) {
 
 const command = new Command()
   .description(
-    "Validate Windmill flow, schedule, and trigger YAML files in a directory, and report script metadata that has no deployable content file",
+    "Validate Windmill flow, schedule, and trigger YAML files in a directory (including AI agent tool names and flow groups/notes), and report script metadata that has no deployable content file",
   )
   .arguments("[directory:string]")
   .option("--json", "Output results in JSON format")

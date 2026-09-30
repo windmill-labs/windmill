@@ -1,6 +1,6 @@
 <script lang="ts">
 	import TreeView from './TreeView.svelte'
-	import { onDestroy, untrack } from 'svelte'
+	import { onDestroy, untrack, type Snippet } from 'svelte'
 	import ResizeTransitionWrapper from '$lib/components/common/ResizeTransitionWrapper.svelte'
 
 	import { ChevronDown, ChevronUp, Folder, FolderTree, NetworkIcon, User } from 'lucide-svelte'
@@ -48,6 +48,9 @@
 		// that loads lazily), so an owner shown inside a grouping row is indented through
 		// this rather than by raising its depth.
 		indent?: number
+		// Renders a leaf in place of the home page's `<Item>`, for lists whose rows are not
+		// scripts/flows/apps. Receives the leaf and its visual depth.
+		leaf?: Snippet<[ItemType, number]>
 	}
 
 	let {
@@ -65,7 +68,8 @@
 		showEditButton = true,
 		parentPrefix,
 		ancestorHasMore = false,
-		indent = 0
+		indent = 0,
+		leaf
 	}: Props = $props()
 
 	let visualDepth = $derived(depth + indent)
@@ -344,6 +348,7 @@
 							{showEditButton}
 							depth={depth + 1}
 							{indent}
+							{leaf}
 						/>
 					{/each}
 					{#if effectiveMax < item.items.length}
@@ -426,6 +431,8 @@
 			{/if}
 		</ResizeTransitionWrapper>
 	</div>
+{:else if leaf}
+	{@render leaf(item, visualDepth)}
 {:else}
 	<Item
 		{item}

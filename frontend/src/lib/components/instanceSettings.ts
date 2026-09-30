@@ -68,6 +68,8 @@ export interface Setting {
 		| 'otel'
 		| 'otel_tracing_proxy'
 		| 'secret_backend'
+		| 'external_instance_pg'
+		| 'instance_pg'
 		| 'github_enterprise_app'
 		| 'webhook_base_url'
 		| 'ws_connectivity'
@@ -583,6 +585,39 @@ export const settings: Record<string, Setting[]> = {
 			cloudonly: true,
 			ee_only: '',
 			hideInQuickSetup: true
+		},
+		{
+			label: 'Cancel jobs on unserved tags after (days)',
+			description:
+				"A job queued with a tag that no worker group serves waits forever. Superadmins get a daily critical alert listing such jobs once they have waited a day with no worker serving their tag (it can be muted under Alerts). When set, pending jobs whose tag no worker has served for this many days are also canceled, with a reason naming the tag. Only top-level jobs are checked: a step waiting inside a running flow is not. A canceled schedule tick is followed by the schedule's next one, on the same tag. At most 3650. Leave empty or set 0 to only alert.",
+			key: 'cancel_stranded_jobs_after_days',
+			fieldType: 'number',
+			placeholder: 'off',
+			storage: 'setting',
+			hideInQuickSetup: true,
+			isValid: (v) =>
+				v == undefined ||
+				v === '' ||
+				(Number.isInteger(Number(v)) && Number(v) >= 0 && Number(v) <= 3650)
+		}
+	],
+	'Managed Postgres': [
+		{
+			label: 'External instance',
+			description:
+				'A Postgres cluster Windmill administers for data tables and Ducklake catalogs, instead of its own database. It creates the databases there and manages the roles jobs connect as.',
+			key: 'external_instance_pg',
+			fieldType: 'external_instance_pg',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
+			label: 'Windmill instance',
+			description:
+				"Windmill's own database as a data table and Ducklake substrate. On unless turned off here, and never available on cloud.",
+			key: 'instance_pg_disabled',
+			fieldType: 'instance_pg',
+			storage: 'setting'
 		}
 	],
 	'Object Storage': [
@@ -1028,6 +1063,15 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		},
 		{
+			label: 'Mute stranded job alerts',
+			description:
+				'Stop the daily critical alert listing pending jobs whose tag no worker has served for a day. Cancelling those jobs automatically is configured separately, under Jobs.',
+			key: 'critical_alert_mute_stranded_jobs',
+			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
 			label: 'Slack',
 			key: 'slack',
 			fieldType: 'slack_connect',
@@ -1286,6 +1330,14 @@ export const instanceSettingsNavigationGroups = [
 				aiId: 'instance-settings-object-storage',
 				aiDescription: 'Instance object storage settings',
 				isEE: true
+			},
+			{
+				id: 'managed_postgres',
+				label: 'Managed Postgres',
+				aiId: 'instance-settings-managed-postgres',
+				aiDescription:
+					'Postgres substrates Windmill administers for data tables and Ducklake catalogs: its own database and an external cluster',
+				isEE: true
 			}
 		]
 	},
@@ -1405,6 +1457,7 @@ export const tabToCategoryMap: Record<string, string> = {
 	telemetry: 'Telemetry',
 	secret_storage: 'Secret Storage',
 	object_storage: 'Object Storage',
+	managed_postgres: 'Managed Postgres',
 	jobs: 'Jobs',
 	private_hub: 'Private Hub',
 	github_enterprise_app: 'GitHub App',
@@ -1441,6 +1494,7 @@ export const categoryToTabMap: Record<string, string> = {
 	Telemetry: 'telemetry',
 	'Secret Storage': 'secret_storage',
 	'Object Storage': 'object_storage',
+	'Managed Postgres': 'managed_postgres',
 	Jobs: 'jobs',
 	'Private Hub': 'private_hub',
 	'GitHub App': 'github_enterprise_app',

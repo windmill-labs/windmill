@@ -30,7 +30,6 @@
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import RunChart from '$lib/components/RunChart.svelte'
 
-	import JobRunsPreview from '$lib/components/runs/JobRunsPreview.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	import RunsTable from '$lib/components/runs/RunsTable.svelte'
@@ -50,9 +49,7 @@
 	import ConcurrentJobsChart from '$lib/components/ConcurrentJobsChart.svelte'
 	import BatchLoadProgress from '$lib/components/BatchLoadProgress.svelte'
 	import { pluralize, MAX_RESOLUTION_BATCH, MAX_RESOLUTION_NOTE_LEN } from '$lib/utils'
-	import BatchReRunOptionsPane, {
-		type BatchReRunOptions
-	} from '$lib/components/runs/BatchReRunOptionsPane.svelte'
+	import type { BatchReRunOptions } from '$lib/components/runs/BatchReRunOptionsPane.svelte'
 	import { untrack } from 'svelte'
 	import { page } from '$app/state'
 	import Select from '$lib/components/select/Select.svelte'
@@ -631,7 +628,9 @@
 			{#if selectedIds[0] === '-'}
 				<div class="p-4">There is no information available for this job</div>
 			{:else}
-				<JobRunsPreview id={selectedIds[0]} workspace={selectedWorkspace} />
+				{#await import('$lib/components/runs/JobRunsPreview.svelte') then JobRunsPreview}
+					<JobRunsPreview.default id={selectedIds[0]} workspace={selectedWorkspace} />
+				{/await}
 			{/if}
 		{/if}
 	</DrawerContent>
@@ -1131,27 +1130,33 @@
 								</div>
 							</div>
 						{:else if batchRerunOptionsIsOpen}
-							<BatchReRunOptionsPane
-								{selectedIds}
-								onCancel={() => (
-									(batchRerunOptionsIsOpen = false),
-									(manualSelectionMode = undefined)
-								)}
-								onConfirm={async (options) => {
-									await onReRunSelectedJobs(options)
-								}}
-							/>
+							{#await import('$lib/components/runs/BatchReRunOptionsPane.svelte') then BatchReRunOptionsPane}
+								<BatchReRunOptionsPane.default
+									{selectedIds}
+									onCancel={() => (
+										(batchRerunOptionsIsOpen = false),
+										(manualSelectionMode = undefined)
+									)}
+									onConfirm={async (options) => {
+										await onReRunSelectedJobs(options)
+									}}
+								/>
+							{/await}
 						{:else if selectedIds.length === 1}
 							{#if selectedIds[0] === '-'}
 								<div class="p-4">There is no information available for this job</div>
 							{:else}
-								<JobRunsPreview
-									id={selectedIds[0]}
-									workspace={selectedWorkspace}
-									on:filterByConcurrencyKey={filterByConcurrencyKey}
-									on:filterByWorker={filterByWorker}
-									onResolutionChanged={() => jobsLoader?.loadJobs(true, true)}
-								/>
+								<!-- Dynamic, like the batch re-run pane: both only show once jobs are selected
+								     and each statically reaches hundreds of modules (flow graph, monaco). -->
+								{#await import('$lib/components/runs/JobRunsPreview.svelte') then JobRunsPreview}
+									<JobRunsPreview.default
+										id={selectedIds[0]}
+										workspace={selectedWorkspace}
+										on:filterByConcurrencyKey={filterByConcurrencyKey}
+										on:filterByWorker={filterByWorker}
+										onResolutionChanged={() => jobsLoader?.loadJobs(true, true)}
+									/>
+								{/await}
 							{/if}
 						{:else if selectedIds.length > 1}
 							<div

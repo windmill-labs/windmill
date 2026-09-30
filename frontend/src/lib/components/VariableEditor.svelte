@@ -409,6 +409,19 @@
 		form?.setCode(getV.value ?? '')
 	}
 
+	// Re-securing hides the deployed value again, back to the state before it was loaded.
+	// A value the user typed is theirs to keep: it is what the next save deploys.
+	function onSecretChange(isSecret: boolean): void {
+		if (!isSecret || !selected || !existedInitially[selected]) return
+		const s = states[selected]?.draft
+		const ini = initialStates[selected]
+		if (!s || !ini?.variable.is_secret) return
+		if (s.variable.value !== '' && s.variable.value !== ini.variable.value) return
+		s.variable.value = ''
+		ini.variable.value = ''
+		form?.setCode('')
+	}
+
 	async function save(): Promise<void> {
 		const dirty = dirtyWorkspaces
 		const savedPath = (curWs ? states[curWs]?.draft?.path : undefined) ?? editPath ?? ''
@@ -549,6 +562,10 @@
 						can_write={can_write === true}
 						{edit}
 						onLoadSecret={loadSecret}
+						{onSecretChange}
+						deployedSecret={!!selected &&
+							!!existedInitially[selected] &&
+							!!initialStates[selected]?.variable.is_secret}
 						workspace={selected}
 						actingUser={acting.in(selected) ?? null}
 					/>

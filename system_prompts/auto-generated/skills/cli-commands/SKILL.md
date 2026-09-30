@@ -380,7 +380,7 @@ Manage jobs (import/export)
 
 ### lint
 
-Validate Windmill flow, schedule, and trigger YAML files in a directory, and report script metadata that has no deployable content file
+Validate Windmill flow, schedule, and trigger YAML files in a directory (including AI agent tool names and flow groups/notes), and report script metadata that has no deployable content file
 
 **Arguments:** `[directory:string]`
 

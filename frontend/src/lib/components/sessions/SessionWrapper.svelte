@@ -2,7 +2,6 @@
 	import { onDestroy, setContext, untrack } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import AIChat from '$lib/components/copilot/chat/AIChat.svelte'
-	import SessionsBetaBanner from './SessionsBetaBanner.svelte'
 	import EditableInput from '$lib/components/common/EditableInput.svelte'
 	import { Button, NameIdTooltip } from '$lib/components/common'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
@@ -519,7 +518,6 @@
 						{inputPreface}
 					/>
 				</div>
-				<SessionsBetaBanner variant="session" />
 			</Pane>
 		</Splitpanes>
 	</div>
