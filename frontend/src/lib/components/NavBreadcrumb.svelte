@@ -33,7 +33,8 @@ same weight, size and icon size, so the line reads as one control rather than fo
 		item,
 		section,
 		afterName,
-		actingWorkspaceId
+		actingWorkspaceId,
+		narrow = false
 	}: {
 		item?: PageHeaderItem
 		section?: PageHeaderSection
@@ -42,6 +43,8 @@ same weight, size and icon size, so the line reads as one control rather than fo
 		afterName?: Snippet
 		/** The workspace the page acts on, when it differs from the one the app is pointed at. */
 		actingWorkspaceId?: string
+		/** The bar is short of room: the workspace part drops its names and keeps its marks. */
+		narrow?: boolean
 	} = $props()
 
 	const scopeId = $derived(actingWorkspaceId ?? $workspaceStore ?? undefined)
@@ -119,6 +122,14 @@ same weight, size and icon size, so the line reads as one control rather than fo
 	// fork's own name inside, so the family's name is not painted as if it were the fork.
 	const scopeChipClass = twMerge(SEGMENT, 'hover:bg-transparent')
 
+	const forkChipClass = $derived(
+		twMerge(
+			'flex items-center gap-1 min-w-0 px-1 rounded',
+			forkAccent &&
+				'bg-[color:var(--fork-accent-bg)] dark:bg-[color:var(--fork-accent-bg-dark)] text-[color:var(--fork-accent-text)] dark:text-[color:var(--fork-accent-text-dark)] font-semibold'
+		)
+	)
+
 	/** `f/demo` and `u/alice` name a folder and a user: the prefix becomes the path's icon. */
 	const scopeKind = $derived(item?.path?.split('/')[0])
 	/** The path's levels, the `f`/`u` prefix dropped — that is what the icon says. */
@@ -176,7 +187,7 @@ same weight, size and icon size, so the line reads as one control rather than fo
 	     included, in its own colour — leading home, and one chevron whose picker changes it. The
 	     picker lists the families and expands one to reach its forks, so a fork needs no part of
 	     its own here. -->
-	<div class="flex items-center min-w-0">
+	<div class={narrow ? 'flex items-center shrink-0' : 'flex items-center min-w-0'}>
 		<!-- No hover fill on the name: the chevron beside it is the thing that lights up, and two
 		     boxes reacting to one pass of the pointer read as two controls fighting. -->
 		<!-- bind:clientWidth: the menu hangs from the chevron, so it is shifted back by the width of
@@ -188,25 +199,33 @@ same weight, size and icon size, so the line reads as one control rather than fo
 				class={scopeChipClass}
 				title={showFork ? `${familyName} / ${scopeName}` : familyName}
 			>
-				<BreadcrumbItemContent label={familyName} icon={workspaceDisc} />
-				{#if showFork}
-					<!-- Both names: the fork is where the work happens, the family is which product it is
-				     part of, and either alone leaves the other to be guessed. -->
-					{@render slash()}
-					<span
-						class={twMerge(
-							'flex items-center gap-1 min-w-0 px-1 rounded',
-							forkAccent &&
-								'bg-[color:var(--fork-accent-bg)] dark:bg-[color:var(--fork-accent-bg-dark)] text-[color:var(--fork-accent-text)] dark:text-[color:var(--fork-accent-text-dark)] font-semibold'
-						)}
-						style={forkAccent}
-					>
-						<GitFork size={ICON} class="flex-shrink-0" />
-						<span class="truncate">{scopeName}</span>
+				{#if narrow}
+					<!-- Short of room, the part keeps what it cannot be read without: the disc in the
+					     workspace's own colour, the fork mark, and the environment. The names go — the
+					     hover title still carries them, and the picker beside it names them all. -->
+					{@render workspaceDisc()}
+					{#if showFork}
+						<span class={forkChipClass} style={forkAccent}>
+							<GitFork size={ICON} class="flex-shrink-0" />
+							{@render envBadgeMark()}
+						</span>
+					{:else}
 						{@render envBadgeMark()}
-					</span>
+					{/if}
 				{:else}
-					{@render envBadgeMark()}
+					<BreadcrumbItemContent label={familyName} icon={workspaceDisc} />
+					{#if showFork}
+						<!-- Both names: the fork is where the work happens, the family is which product it
+					     is part of, and either alone leaves the other to be guessed. -->
+						{@render slash()}
+						<span class={forkChipClass} style={forkAccent}>
+							<GitFork size={ICON} class="flex-shrink-0" />
+							<span class="truncate">{scopeName}</span>
+							{@render envBadgeMark()}
+						</span>
+					{:else}
+						{@render envBadgeMark()}
+					{/if}
 				{/if}
 			</svelte:element>
 		</div>
@@ -247,8 +266,15 @@ same weight, size and icon size, so the line reads as one control rather than fo
 			<div class="relative flex items-center min-w-0">
 				<!-- No hover fill: a fill offers to take you somewhere, and this only copies. The
 				     pointer and the popup after the click are affordance enough. -->
+				<!-- Capped: a draft's path is a 40-character uuid slug, and the trail yields so
+				     grudgingly that one would push a page's buttons off the end of the bar. Past the
+				     cap it truncates; the click still copies the path whole. -->
 				<button
-					class={twMerge(SEGMENT, 'gap-1.5 hover:bg-transparent')}
+					class={twMerge(
+						SEGMENT,
+						'gap-1.5 hover:bg-transparent overflow-hidden',
+						narrow ? 'max-w-[11rem]' : 'max-w-[16rem]'
+					)}
 					title="Copy path"
 					onclick={copyPath}
 					aria-label="Copy path {item.path}"
@@ -260,7 +286,12 @@ same weight, size and icon size, so the line reads as one control rather than fo
 					{/if}
 					{#each pathLevels as level, i (i)}
 						{#if i > 0}{@render slash()}{/if}
-						<span class="truncate">{level}</span>
+						<!-- The last level absorbs the squeeze: the scopes above it are a couple of
+						     characters each, and cutting them first leaves "m… / draft_a5b1…". -->
+						<span
+							class={i === pathLevels.length - 1 ? 'truncate' : 'truncate shrink-0 max-w-[8rem]'}
+							>{level}</span
+						>
 					{/each}
 				</button>
 				{#if afterName}{@render afterName()}{/if}
