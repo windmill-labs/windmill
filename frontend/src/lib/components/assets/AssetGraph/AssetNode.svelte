@@ -29,6 +29,8 @@
 	import DbtIcon from '$lib/components/icons/DbtIcon.svelte'
 	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
 	import RunStateChip from './RunStateChip.svelte'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import { upstreamScriptItems } from './upstreamScriptItems'
 	import type { RunnableRunState } from './activeRunnables.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
@@ -40,7 +42,19 @@
 	// non-deployed scripts).
 	export type AssetUpstreamChips =
 		| { none: true }
-		| { multiple: true }
+		| {
+				multiple: true
+				/** The producing scripts; one when only its triggers are ambiguous. */
+				scripts: Array<{
+					runnableId: string
+					path: string
+					summary?: string
+					language?: ScriptLang
+					unsaved?: boolean
+					onOpen: () => void
+				}>
+				selected?: boolean
+		  }
 		| {
 				runnableId: string
 				path: string
@@ -208,9 +222,19 @@
 			: []
 	)
 	let upstream = $derived(data.upstream)
+	const CHIP_CLASS =
+		'shrink-0 h-5 min-w-5 rounded-md border bg-surface text-secondary hover:bg-surface-hover border-gray-300 dark:border-gray-600'
 	const CHIP_SELECTED =
 		'bg-surface-accent-selected border-border-selected hover:bg-surface-accent-selected text-accent'
 	let producer = $derived(upstream && 'path' in upstream ? upstream : undefined)
+	let coProducers = $derived(upstream && 'scripts' in upstream ? upstream.scripts : [])
+	let coSelected = $derived(!!(upstream && 'scripts' in upstream && upstream.selected))
+	let coProducerItems = $derived(
+		upstreamScriptItems(coProducers, (path) =>
+			coProducers.find((s) => s.path === path)?.onOpen()
+		)
+	)
+	let scriptMenuOpen = $state(false)
 
 	// dbt badge. `materialized` is dbt's own word rather than the Windmill
 	// strategy because `view` and `ephemeral` have no strategy, and showing the
@@ -278,11 +302,44 @@
 	)
 </script>
 
+{#snippet scriptChip(sc: {
+	path: string
+	summary?: string
+	language?: ScriptLang
+	unsaved?: boolean
+	selected?: boolean
+	onOpen: () => void
+})}
+	<button
+		type="button"
+		class={twMerge(
+			CHIP_CLASS,
+			'grid place-items-center px-1',
+			sc.unsaved && 'border-dashed border-gray-400 dark:border-gray-500',
+			sc.selected && CHIP_SELECTED
+		)}
+		title={`Open ${sc.summary ? `${sc.summary} (${sc.path})` : sc.path}${sc.unsaved ? ' · draft' : ''}`}
+		aria-label="Open the script that produces this asset"
+		onpointerdown={(e) => e.stopPropagation()}
+		onkeydown={(e) => e.stopPropagation()}
+		onclick={(e) => {
+			e.stopPropagation()
+			sc.onOpen()
+		}}
+	>
+		{#if sc.language}
+			<LanguageIcon lang={sc.language} width={12} height={12} />
+		{:else}
+			<Code2 size={12} />
+		{/if}
+	</button>
+{/snippet}
+
 {#snippet upstreamRow()}
 	{#if upstream}
 		{@const trigger = producer?.trigger}
 		{@const chipClass = twMerge(
-			'truncate rounded-md border px-1.5 py-0.5 text-3xs leading-none font-normal',
+			'truncate rounded-md border px-1.5 py-0.5 text-3xs leading-none font-normal bg-surface',
 			trigger?.missing
 				? 'border-red-300 dark:border-red-600 text-red-700 dark:text-red-300'
 				: 'border-gray-300 dark:border-gray-600 text-secondary',
@@ -462,28 +519,47 @@
 					{#if producer.runState}
 						<RunStateChip runState={producer.runState} class="mr-1 h-5 px-1.5 rounded-md" />
 					{/if}
-					<button
-						type="button"
-						class={twMerge(
-							'shrink-0 h-5 min-w-5 px-1 grid place-items-center rounded-md border bg-surface text-secondary hover:bg-surface-hover border-gray-300 dark:border-gray-600',
-							producer.unsaved && 'border-dashed border-gray-400 dark:border-gray-500',
-							producer.selected && CHIP_SELECTED
-						)}
-						title={`Open ${producer.summary ? `${producer.summary} (${producer.path})` : producer.path}${producer.unsaved ? ' · draft' : ''}`}
-						aria-label="Open the script that produces this asset"
+					{@render scriptChip(producer)}
+				{:else if coProducers.length === 1}
+					{@render scriptChip({ ...coProducers[0], selected: coSelected })}
+				{:else if coProducers.length > 1}
+					<!-- Several scripts build this table: the first two languages and a
+					     count, opening a menu to pick which one to open. -->
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<div
 						onpointerdown={(e) => e.stopPropagation()}
 						onkeydown={(e) => e.stopPropagation()}
-						onclick={(e) => {
-							e.stopPropagation()
-							producer?.onOpen()
-						}}
 					>
-						{#if producer.language}
-							<LanguageIcon lang={producer.language} width={12} height={12} />
-						{:else}
-							<Code2 size={12} />
-						{/if}
-					</button>
+						<DropdownV2
+							items={coProducerItems}
+							placement="bottom-end"
+							bind:open={scriptMenuOpen}
+							fixedHeight={false}
+							usePointerDownOutside
+						>
+							{#snippet buttonReplacement()}
+								<span
+									class={twMerge(
+										CHIP_CLASS,
+										'flex items-center gap-0.5 px-1',
+										(coSelected || scriptMenuOpen) && CHIP_SELECTED
+									)}
+									title={`Built by ${coProducers.length} scripts: pick one to open`}
+								>
+									{#each coProducers.slice(0, 2) as s (s.path)}
+										{#if s.language}
+											<LanguageIcon lang={s.language} width={12} height={12} />
+										{:else}
+											<Code2 size={12} />
+										{/if}
+									{/each}
+									{#if coProducers.length > 2}
+										<span class="text-3xs leading-none">+{coProducers.length - 2}</span>
+									{/if}
+								</span>
+							{/snippet}
+						</DropdownV2>
+					</div>
 				{/if}
 			{/snippet}
 		</PipelineNodeCard>
@@ -566,7 +642,7 @@
 					>
 						<Plus size={16} strokeWidth={2.5} class="shrink-0" />
 						<span
-							class="max-w-0 opacity-0 whitespace-nowrap text-2xs font-normal transition-[max-width,opacity,margin] duration-200 ease-out group-hover/add:max-w-32 group-hover/add:opacity-100 group-hover/add:ml-1 group-hover/add:mr-2 group-data-[open=true]/add:max-w-32 group-data-[open=true]/add:opacity-100 group-data-[open=true]/add:ml-1 group-data-[open=true]/add:mr-2"
+							class="max-w-0 opacity-0 whitespace-nowrap text-3xs font-normal transition-[max-width,opacity,margin] duration-200 ease-out group-hover/add:max-w-32 group-hover/add:opacity-100 group-hover/add:ml-1 group-hover/add:mr-2 group-data-[open=true]/add:max-w-32 group-data-[open=true]/add:opacity-100 group-data-[open=true]/add:ml-1 group-data-[open=true]/add:mr-2"
 						>
 							Add downstream step
 						</span>

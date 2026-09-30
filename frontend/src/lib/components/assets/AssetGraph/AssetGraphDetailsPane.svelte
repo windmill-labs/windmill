@@ -20,8 +20,11 @@
 		SquareFunction,
 		Trash2,
 		X,
-		Pencil
+		Pencil,
+		ChevronDown
 	} from 'lucide-svelte'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import { upstreamScriptItems, type UpstreamScript } from './upstreamScriptItems'
 	import { inferArgs } from '$lib/infer'
 	import { emptySchema, sendUserToast } from '$lib/utils'
 	import type { Schema } from '$lib/common'
@@ -157,6 +160,10 @@
 			path: string
 			unsaved?: boolean
 		}>
+		/** The selected asset's producing scripts, for its "Edit script" action,
+		 * which calls `onEditScript` with the one picked. */
+		producerScripts?: UpstreamScript[]
+		onEditScript?: (path: string) => void
 		// Pipeline-wide column-lineage graph (built by the parent page from the
 		// resolved graph). Drives the transitive column-lineage trace shown for a
 		// selected materialized asset.
@@ -305,6 +312,8 @@
 		onScriptRenamed,
 		onScriptRemoved,
 		selectionProducers = [],
+		producerScripts = [],
+		onEditScript,
 		selectionColumnGraph,
 		selectionColumnLoading = false,
 		selectionColumnTruncated = false,
@@ -1018,6 +1027,36 @@
 			{/if}
 		</div>
 		<div class="flex items-center gap-1 shrink-0">
+			{#if selection?.kind === 'asset' && onEditScript && producerScripts.length === 1}
+				<Button
+					variant="default"
+					unifiedSize="sm"
+					startIcon={{ icon: Pencil }}
+					onclick={() => onEditScript(producerScripts[0].path)}
+					title={`Open ${producerScripts[0].path}, which builds this asset`}
+				>
+					Edit script
+				</Button>
+			{:else if selection?.kind === 'asset' && onEditScript && producerScripts.length > 1}
+				<DropdownV2
+					items={upstreamScriptItems(producerScripts, onEditScript)}
+					placement="bottom-end"
+					enableFlyTransition
+				>
+					{#snippet buttonReplacement()}
+						<Button
+							nonCaptureEvent
+							variant="default"
+							unifiedSize="sm"
+							startIcon={{ icon: Pencil }}
+							endIcon={{ icon: ChevronDown }}
+							title={`${producerScripts.length} scripts build this asset`}
+						>
+							Edit script
+						</Button>
+					{/snippet}
+				</DropdownV2>
+			{/if}
 			{#if readOnly && onRequestEdit}
 				<Button
 					variant="accent"

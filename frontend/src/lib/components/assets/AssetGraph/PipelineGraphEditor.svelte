@@ -279,6 +279,21 @@
 		}
 	})
 
+	// The selected asset's producing scripts, named and iconed from the graph, for
+	// the pane's "Edit script".
+	let producerScripts = $derived(
+		selectionProducers
+			.filter((p) => p.kind === 'script')
+			.map((p) => {
+				const r = displayGraph.runnables.find((x) => x.usage_kind === 'script' && x.path === p.path)
+				return { path: p.path, summary: r?.summary, language: r?.language }
+			})
+	)
+	function editProducerScript(path: string) {
+		if (mode !== 'edit') onRequestEdit?.()
+		onSelect({ kind: 'runnable', runnable_kind: 'script', path })
+	}
+
 	// ===================== Draft autosave (persistDrafts only) =====================
 	// All of this folder's in-flight drafts live in ONE per-user DB draft (typ
 	// `data_pipeline`) keyed at the folder, syncing across devices + surfacing in
@@ -576,6 +591,8 @@
 						{localScriptsVersion}
 						selection={activeDraft ? undefined : editor.selection}
 						selectionProducers={activeDraft ? [] : selectionProducers}
+						{producerScripts}
+						onEditScript={editProducerScript}
 						{selectionColumnGraph}
 						{selectionColumnLoading}
 						{selectionColumnTruncated}

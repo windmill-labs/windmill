@@ -1021,7 +1021,21 @@
 						? undefined
 						: { none: true as const }
 					: u.multiple || !r
-						? { multiple: true as const }
+						? {
+								multiple: true as const,
+								scripts: (u.multiple ? u.runnableIds : [])
+									.map((id) => runnables.get(id)?.data)
+									.filter((d) => d != undefined)
+									.map((d) => ({
+										runnableId: `${d.runnable_kind}:${d.path}`,
+										path: d.path as string,
+										summary: d.summary as string | undefined,
+										language: d.language,
+										unsaved: d.unsaved as boolean | undefined,
+										onOpen: () =>
+											onselect?.({ kind: 'runnable', runnable_kind: d.runnable_kind, path: d.path })
+									}))
+							}
 						: {
 								runnableId: u.runnableId,
 								path: r.path,
@@ -1059,7 +1073,8 @@
 											? 'Multiple upstream nodes'
 											: `${upstream.trigger.label}${upstream.trigger.draft ? ' · draft' : ''}`,
 								runState: 'runState' in upstream && !!upstream.runState,
-								scriptChip: 'runnableId' in upstream
+								scriptChips:
+									'runnableId' in upstream ? 1 : 'scripts' in upstream ? (upstream.scripts?.length ?? 0) : 0
 							})
 						: undefined
 				return {
@@ -1218,7 +1233,15 @@
 			// never re-runs the layout.
 			const up = n.type === 'asset' ? n.data.upstream : undefined
 			const data =
-				up?.runnableId !== undefined
+				up?.scripts
+					? {
+							...n.data,
+							upstream: {
+								...up,
+								selected: up.scripts.some((sc: { runnableId: string }) => sc.runnableId === selectedId)
+							}
+						}
+					: up?.runnableId !== undefined
 					? {
 							...n.data,
 							upstream: {

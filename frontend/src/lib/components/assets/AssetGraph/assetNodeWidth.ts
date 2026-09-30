@@ -28,7 +28,8 @@ export function assetsOnlyNodeWidth(n: {
 	title: string
 	chip: string
 	runState: boolean
-	scriptChip: boolean
+	/** Producing scripts: one chip for one, two icons and a "+N" for more. */
+	scriptChips: number
 }): number {
 	const icon = 12 + 14 + 10
 	const text = Math.max(
@@ -37,8 +38,13 @@ export function assetsOnlyNodeWidth(n: {
 		textWidth(n.chip, 0.65) + 12 + 2
 	)
 	// The run chip is sized for a two-digit count, so a new run never re-lays the graph.
-	const trailing =
-		(n.runState ? 12 + 10 + 2 + textWidth('×99', 0.65) + 4 : 0) + (n.scriptChip ? 20 : 0) + 8
+	const scripts =
+		n.scriptChips === 0
+			? 0
+			: n.scriptChips === 1
+				? 20
+				: 8 + 2 + 12 * 2 + 2 + (n.scriptChips > 2 ? textWidth(`+${n.scriptChips - 2}`, 0.65) + 2 : 0)
+	const trailing = (n.runState ? 12 + 10 + 2 + textWidth('×99', 0.65) + 4 : 0) + scripts + 8
 	const width = Math.ceil(icon + text + 4 + trailing + 2 + 8)
 	return Math.min(NODE.width, Math.max(MIN_WIDTH, width))
 }

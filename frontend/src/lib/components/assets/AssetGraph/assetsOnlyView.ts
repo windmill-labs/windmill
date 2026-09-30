@@ -18,7 +18,8 @@ export type AssetUpstreamDelete = {
 
 /** What an asset shows of the script and trigger that produce it, in the assets-only view. */
 export type AssetUpstream =
-	| { multiple: true }
+	/** Several producing scripts, or one with several triggers. */
+	| { multiple: true; runnableIds: string[] }
 	| {
 			multiple: false
 			/** Canvas id of the producing runnable (`script:<path>`). */
@@ -75,7 +76,7 @@ export function assetsOnlyView<N extends ViewNode, E extends ViewEdge>(
 	for (const [assetId, writes] of producersOf) {
 		const runnableIds = [...new Set(writes.map((w) => w.source))]
 		if (runnableIds.length !== 1) {
-			upstream.set(assetId, { multiple: true })
+			upstream.set(assetId, { multiple: true, runnableIds })
 			continue
 		}
 		const runnableId = runnableIds[0]
@@ -89,7 +90,7 @@ export function assetsOnlyView<N extends ViewNode, E extends ViewEdge>(
 			).values()
 		]
 		if (triggers.length > 1) {
-			upstream.set(assetId, { multiple: true })
+			upstream.set(assetId, { multiple: true, runnableIds })
 			continue
 		}
 		const t = triggers[0]
@@ -119,7 +120,9 @@ export function upstreamDeletion(
 ): AssetUpstreamDelete | undefined {
 	if (r.runnable_kind !== 'script') return undefined
 	const producesOthers =
-		[...all.values()].filter((o) => !o.multiple && o.runnableId === u.runnableId).length > 1
+		[...all.values()].filter((o) =>
+			o.multiple ? o.runnableIds.includes(u.runnableId) : o.runnableId === u.runnableId
+		).length > 1
 	if (producesOthers) return undefined
 	const t = u.trigger
 	const kind = t?.kind as NativeTriggerKind | undefined

@@ -51,7 +51,10 @@ describe('assetsOnlyView', () => {
 			runnableId: 'script:f/p/clean',
 			trigger: { kind: 'schedule', data: { schedule: '0 0 4 * * *' } }
 		})
-		expect(v.upstream.get('asset:ducklake:report')).toEqual({ multiple: true })
+		expect(v.upstream.get('asset:ducklake:report')).toEqual({
+			multiple: true,
+			runnableIds: ['script:f/p/report', 'script:f/p/other']
+		})
 	})
 })
 
@@ -79,6 +82,15 @@ describe('upstreamDeletion', () => {
 	it('keeps a trigger that fires other scripts', () => {
 		const u = own(schedule(['f/p/a', 'f/p/b']))
 		expect(upstreamDeletion(u, script, new Map([['asset:x', u]]))?.trigger).toBeUndefined()
+	})
+
+	it('deletes nothing when the script also co-produces another asset', () => {
+		const u = own(schedule(['f/p/a']))
+		const all = new Map<string, AssetUpstream>([
+			['asset:x', u],
+			['asset:y', { multiple: true, runnableIds: ['script:f/p/a', 'script:f/p/b'] }]
+		])
+		expect(upstreamDeletion(u, script, all)).toBeUndefined()
 	})
 
 	it('deletes nothing when the script builds another asset too', () => {
