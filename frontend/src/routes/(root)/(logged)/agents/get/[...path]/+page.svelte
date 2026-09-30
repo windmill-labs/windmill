@@ -1,11 +1,14 @@
 <script lang="ts">
 	import { page } from '$app/state'
-	import { FileUp, FormInput, MessageSquare, Pen, Shield, Trash } from 'lucide-svelte'
+	import { FileUp, FlaskConical, FormInput, MessageSquare, Pen, Shield, Trash } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { base } from '$lib/base'
 	import { goto } from '$lib/navigation'
 	import { copilotInfo } from '$lib/aiStore'
-	import { Button } from '$lib/components/common'
+	import { Badge, Button } from '$lib/components/common'
+	import Modal from '$lib/components/common/modal/Modal.svelte'
+	import EvalsPane from '$lib/components/aiEvals/EvalsPane.svelte'
+	import type { EvalsLocation } from '$lib/components/aiEvals/evalUtils'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import SummaryPathDisplay from '$lib/components/SummaryPathDisplay.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -15,6 +18,7 @@
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import AgentEditorHost from '$lib/components/flows/content/AgentEditorHost.svelte'
 	import AgentConfigModal from '$lib/components/flows/content/AgentConfigModal.svelte'
+	import RunForm from '$lib/components/RunForm.svelte'
 	import { keepsManagedMemory } from '$lib/components/flows/agentFormFields'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
 	import { ResourceService } from '$lib/gen'
@@ -40,6 +44,14 @@
 	let shareModal: ShareModal | undefined = $state(undefined)
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state(undefined)
 	let deleteOpen = $state(false)
+	let evalsOpen = $state(false)
+	// Where the evals pane is within itself, so its levels extend the dialog's trail. Cleared on the
+	// way in: the pane reports a level once it is on one, and never that it is back at its root.
+	let evalsLocation = $state<EvalsLocation | undefined>(undefined)
+	function openEvals() {
+		evalsLocation = undefined
+		evalsOpen = true
+	}
 
 	async function deleteAgent() {
 		if (!ws) return
@@ -114,6 +126,15 @@
 					</ToggleButtonGroup>
 				{/if}
 				{#if config && !$userStore?.operator}
+					<Button
+						variant="default"
+						unifiedSize="md"
+						startIcon={{ icon: FlaskConical }}
+						title="Run this agent against a dataset of cases"
+						onClick={openEvals}
+					>
+						Evals
+					</Button>
 					<DropdownV2
 						placement="bottom-end"
 						size="md"
@@ -166,10 +187,44 @@
 				enableAi={$copilotInfo.enabled}
 				view
 				onOpenConfig={() => configModal?.open()}
-			/>
+			>
+				{#snippet viewForm({ schema, run, loading, actions })}
+					<RunForm
+						runnable={{ schema, path }}
+						runAction={run}
+						schedulable={false}
+						detailed={false}
+						autofocus
+						{loading}
+						{actions}
+					/>
+				{/snippet}
+			</AgentEditorHost>
 		{/key}
 	</div>
 </main>
+
+{#if evalsOpen && ws}
+	<Modal
+		bind:open={evalsOpen}
+		kind="X"
+		fillHeight
+		enterConfirms={false}
+		title="Evals"
+		trail={[
+			{ label: 'Evals', onclick: evalsLocation ? evalsLocation.back : undefined },
+			...(evalsLocation ? [{ label: evalsLocation.label }] : [])
+		]}
+		class="w-[92vw] sm:w-[92vw] max-w-[1500px] sm:max-w-[1500px] h-[88vh]"
+	>
+		{#snippet titleBadge()}
+			{#if !evalsLocation}
+				<Badge color="blue" small class="shrink-0 !py-0 leading-4">Beta</Badge>
+			{/if}
+		{/snippet}
+		<EvalsPane agentPath={path} opWorkspace={ws} bind:location={evalsLocation} active={evalsOpen} />
+	</Modal>
+{/if}
 
 {#if config}
 	<AgentConfigModal bind:this={configModal} {config} toolSchema={(id) => host?.toolSchema(id)} />

@@ -12,7 +12,6 @@
 		agentChatPath
 	} from '../conversations/agentEditorChat'
 	import { runFlowPreview } from '../utils.svelte'
-	import RunForm from '$lib/components/RunForm.svelte'
 	import { goto } from '$lib/navigation'
 	import { deepEqual } from 'fast-equals'
 	import type { Flow, FlowModule, InputTransform, Job, OpenFlow } from '$lib/gen'
@@ -51,8 +50,6 @@
 	} from '../agentFormFields'
 	import { toolDisplayName, type AgentTool } from '../agentToolUtils'
 	import { useAgentDraft } from '../agentDraft.svelte'
-	import Path from '$lib/components/Path.svelte'
-	import Label from '$lib/components/Label.svelte'
 	import { sendUserToast } from '$lib/toast'
 
 	interface Props {
@@ -72,6 +69,18 @@
 		view?: boolean
 		/** Opens the agent's configuration, offered beside the model it runs with. */
 		onOpenConfig?: () => void
+		/** A view's form mode: the run form, drawn by the page. Kept out of this component because
+		 *  the flow editor reaches it, and the run form reads the navigation workspace. */
+		viewForm?: import('svelte').Snippet<
+			[
+				{
+					schema: typeof AGENT_CHAT_SCHEMA
+					run: (scheduledFor: string | undefined, args: Record<string, any>) => Promise<void>
+					loading: boolean
+					actions: import('svelte').Snippet | undefined
+				}
+			]
+		>
 	}
 
 	let {
@@ -83,7 +92,8 @@
 		onSaved = undefined,
 		isNew = false,
 		view = false,
-		onOpenConfig = undefined
+		onOpenConfig = undefined,
+		viewForm = undefined
 	}: Props = $props()
 
 	/** The one module the editor edits. Standalone (no `agent` key) so `initFlowState` loads a
@@ -370,9 +380,6 @@
 	}
 
 	let runLoading = $state(false)
-	let scheduledForStr = $state<string | undefined>(undefined)
-	let invisible_to_owner = $state<boolean | undefined>(undefined)
-	let overrideTag = $state<string | undefined>(undefined)
 
 	/** One run of the deployed agent from the view's form, outside any conversation, then onto its
 	 *  run page. */
@@ -439,8 +446,11 @@
 	}
 
 	/** The path field's own verdict (a taken path, an invalid name), which the server would otherwise
-	 *  only report after the request. */
+	 *  only report after the request. The field lives with whoever shows it, which reports here. */
 	let pathError = $state('')
+	export function setPathError(error: string | undefined) {
+		pathError = error ?? ''
+	}
 
 	export function deploy(): Promise<boolean> {
 		if (pathError) {
@@ -542,40 +552,9 @@
 
 	{#snippet configPane()}
 		<div class="h-full min-h-0 overflow-auto">
-			<!-- A view shows the path in its page header, and renaming is not for it anyway. -->
-			{#if !view}
-				<div class="px-4 pt-4">
-					<Label label="Path">
-						<Path
-							bind:path={
-								() => draft.state?.path,
-								(v) => {
-									if (draft.state && v !== undefined) draft.state.path = v
-								}
-							}
-							bind:error={pathError}
-							initialPath={draft.noDeployed ? '' : path}
-							checkInitialPathExistence={draft.noDeployed}
-							namePlaceholder="agent"
-							kind="resource"
-							workspaceOverride={workspace}
-							autofocus={false}
-							disabled={readOnly}
-						/>
-					</Label>
-					<!-- An agent runs as whoever runs it, so sharing one through a folder shares nothing
-					     it uses. -->
-					{#if !readOnly && draft.state?.path?.startsWith('f/')}
-						<Alert type="info" size="xs" title="Shared through its folder" class="mt-2">
-							Anyone who runs this agent needs access to its AI resource, and to the resources and
-							workspace scripts its tools use.
-						</Alert>
-					{/if}
-				</div>
-			{/if}
 			<PropPickerWrapper pickableProperties={stepPropPicker?.pickableProperties} noPadding sidePane>
 				<AiAgentStepInputs
-					class="px-4 pb-8"
+					class="px-4 pt-4 pb-8"
 					{schema}
 					filter={brainFilter}
 					previousModuleId={undefined}
@@ -610,18 +589,12 @@
 				<!-- Centered at the width the chat's column keeps, so switching modes moves nothing. -->
 				<div class="flex-1 min-h-0 overflow-auto p-4 {testMode === 'chat' ? 'hidden' : ''}">
 					<div class="max-w-3xl mx-auto">
-						<RunForm
-							runnable={{ schema: AGENT_CHAT_SCHEMA, path }}
-							runAction={runOnce}
-							schedulable={false}
-							detailed={false}
-							autofocus
-							loading={runLoading}
-							bind:scheduledForStr
-							bind:invisible_to_owner
-							bind:overrideTag
-							actions={onOpenConfig ? configurationButton : undefined}
-						/>
+						{@render viewForm?.({
+							schema: AGENT_CHAT_SCHEMA,
+							run: runOnce,
+							loading: runLoading,
+							actions: onOpenConfig ? configurationButton : undefined
+						})}
 					</div>
 				</div>
 			{:else}
