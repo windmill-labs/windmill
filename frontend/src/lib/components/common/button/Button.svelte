@@ -80,7 +80,8 @@
 		startIcon?: ButtonType.Icon | undefined
 		endIcon?: ButtonType.Icon | undefined
 		destructive?: boolean
-		/** Colors the `accent`, `default` and `subtle` variants to match an Alert of this type. */
+		/** Colors the `accent`, `default` and `subtle` variants to match an Alert of this type.
+		 * Ignored when `dropdownItems` is set: split buttons keep the neutral palette. */
 		tone?: ButtonType.Tone
 		shortCut?: { key?: string; hide?: boolean; Icon?: any; withoutModifier?: boolean } | undefined
 		tooltipPopover?:
@@ -146,6 +147,8 @@
 		...rest
 	}: Props = $props()
 
+	const activeTone = $derived(dropdownItems ? undefined : tone)
+
 	function computeDropdowns(menuItems: MenuItem[] | (() => MenuItem[])): Item[] {
 		const items = typeof menuItems === 'function' ? menuItems() : menuItems
 		return items.map((item) => ({
@@ -188,8 +191,10 @@
 		if (['accent-secondary', 'accent', 'default', 'subtle'].includes(variant)) {
 			let style = destructive
 				? ButtonType.DestructiveVariantStyles[variant]
-				: tone
-					? ButtonType.ToneVariantStyles[tone][variant === 'accent-secondary' ? 'accent' : variant]
+				: activeTone
+					? ButtonType.ToneVariantStyles[activeTone][
+							variant === 'accent-secondary' ? 'accent' : variant
+						]
 					: ButtonType.VariantStyles[variant]
 			// For default variant with dropdowns, remove border from button since it's on wrapper
 			if (
@@ -198,9 +203,7 @@
 				((typeof dropdownItems === 'function' && dropdownItems().length > 0) ||
 					dropdownItems.length > 0)
 			) {
-				style = tone
-					? style.replace(/(^|\s)(dark:)?border(-\S+)?(?=\s|$)/g, '')
-					: style.replace('border border-border-light', '')
+				style = style.replace('border border-border-light', '')
 			}
 			return style
 		}
@@ -245,9 +248,6 @@
 	}
 
 	function getDividerClass(color, variant) {
-		if (tone && !destructive && ['accent-secondary', 'accent', 'default'].includes(variant)) {
-			return ButtonType.ToneDividerStyles[tone][variant === 'default' ? 'default' : 'accent']
-		}
 		// Check if using new design system variants
 		if (variant === 'default') {
 			return 'border border-border-light divide-x divide-border-light'
@@ -282,7 +282,7 @@
 			'justify-center items-center text-center inline-flex gap-2',
 			'active:opacity-80 transition-[background-color,opacity] duration-150',
 			disabled
-				? tone && !destructive
+				? activeTone && !destructive
 					? 'disabled:opacity-50'
 					: ['default', 'subtle'].includes(variant)
 						? '!text-disabled'
@@ -341,18 +341,6 @@
 	})
 
 	const dividerClass = $derived(getDividerClass(color, variant))
-
-	// The dropdown trigger is a <div>, which never matches :enabled or :disabled, so the tone's
-	// pseudo-class states are rewritten as plain classes for it.
-	const dropdownTriggerClass = $derived(
-		!tone
-			? buttonClass
-			: disabled
-				? buttonClass
-						.replace(/(^|\s)\S*enabled:hover:\S*/g, '')
-						.replace('disabled:opacity-50', 'opacity-50')
-				: buttonClass.replaceAll('enabled:hover:', 'hover:')
-	)
 </script>
 
 <div
@@ -513,7 +501,7 @@
 			{#snippet buttonReplacement()}
 				<div
 					class={twMerge(
-						dropdownTriggerClass,
+						buttonClass,
 						'rounded-md m-0 p-0 center-center h-full',
 						variant === 'border' ? 'border-0 border-r border-y ' : 'border-0',
 						'rounded-r-md !rounded-l-none',

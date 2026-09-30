@@ -240,31 +240,6 @@ export namespace ButtonType {
 			}
 		}
 
-	// Split-button wrapper for a toned button: the outline and divider take the tone's hue
-	// instead of the neutral border and the blue accent divider.
-	export const ToneDividerStyles: Record<Tone, Record<'accent' | 'default', string>> = {
-		info: {
-			accent: 'divide-x divide-white/40',
-			default:
-				'border border-blue-300 dark:border-blue-400/40 divide-x divide-blue-300 dark:divide-blue-400/40'
-		},
-		warning: {
-			accent: 'divide-x divide-yellow-950/20',
-			default:
-				'border border-yellow-300 dark:border-yellow-400/40 divide-x divide-yellow-300 dark:divide-yellow-400/40'
-		},
-		error: {
-			accent: 'divide-x divide-white/40',
-			default:
-				'border border-red-300 dark:border-red-400/40 divide-x divide-red-300 dark:divide-red-400/40'
-		},
-		success: {
-			accent: 'divide-x divide-white/40',
-			default:
-				'border border-green-300 dark:border-green-400/40 divide-x divide-green-300 dark:divide-green-400/40'
-		}
-	}
-
 	export const VariantSpacingClasses: Record<ButtonType.Size, string> = {
 		xs3: 'px-0.5 py-[1px]',
 		xs2: 'px-2 py-[4px]',
