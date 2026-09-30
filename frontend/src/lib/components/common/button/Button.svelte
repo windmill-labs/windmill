@@ -341,6 +341,18 @@
 	})
 
 	const dividerClass = $derived(getDividerClass(color, variant))
+
+	// The dropdown trigger is a <div>, which never matches :enabled or :disabled, so the tone's
+	// pseudo-class states are rewritten as plain classes for it.
+	const dropdownTriggerClass = $derived(
+		!tone
+			? buttonClass
+			: disabled
+				? buttonClass
+						.replace(/(^|\s)\S*enabled:hover:\S*/g, '')
+						.replace('disabled:opacity-50', 'opacity-50')
+				: buttonClass.replaceAll('enabled:hover:', 'hover:')
+	)
 </script>
 
 <div
@@ -501,7 +513,7 @@
 			{#snippet buttonReplacement()}
 				<div
 					class={twMerge(
-						buttonClass,
+						dropdownTriggerClass,
 						'rounded-md m-0 p-0 center-center h-full',
 						variant === 'border' ? 'border-0 border-r border-y ' : 'border-0',
 						'rounded-r-md !rounded-l-none',
