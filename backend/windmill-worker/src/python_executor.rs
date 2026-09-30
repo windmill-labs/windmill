@@ -3338,8 +3338,8 @@ This is not normal behavior, please make sure all workers have enough memory.\n
 /// One loop per process: a dedicated worker's module-level async clients and
 /// locks are bound to the loop they were first used on, so `asyncio.run`'s
 /// loop-per-call would break them from the second job on. A loop the script
-/// already set while importing (e.g. `asyncio.get_event_loop()` at module
-/// level) is reused; asyncio is imported lazily to keep sync jobs' startup.
+/// set while importing (`asyncio.set_event_loop`) is reused. asyncio is
+/// imported lazily so sync jobs don't pay its import time.
 const PY_AWAIT_HELPER: &str = r#"_loop = None
 def _await(r):
     global _loop
