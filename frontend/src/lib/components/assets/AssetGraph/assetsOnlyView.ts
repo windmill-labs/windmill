@@ -186,3 +186,32 @@ export function upstreamDeletion(
 		trigger: ownTrigger ? { kind, path: t.data.ref, draft: !!t.data.draft } : undefined
 	}
 }
+
+/**
+ * The graph without its reads that start nothing: a read edge with no asset
+ * trigger along it, and the assets only such reads drew.
+ */
+export function withoutPassiveReads<N extends ViewNode, E extends ViewEdge>(
+	nodes: N[],
+	edges: E[]
+): { nodes: N[]; edges: E[]; dropped: number } {
+	const triggers = new Set(
+		edges.filter((e) => e.kind === 'trigger-asset').map((e) => `${e.source}\n${e.target}`)
+	)
+	const passive = (e: E) =>
+		e.kind === 'lineage-read' && !triggers.has(`${e.source}\n${e.target}`)
+	const kept = edges.filter((e) => !passive(e))
+	const dropped = edges.length - kept.length
+	if (dropped === 0) return { nodes, edges, dropped }
+	const linked = new Set(
+		kept.filter((e) => e.kind !== 'add-anchor').flatMap((e) => [e.source, e.target])
+	)
+	const readOnly = new Set(
+		edges.filter(passive).map((e) => e.source).filter((id) => !linked.has(id))
+	)
+	return {
+		nodes: nodes.filter((n) => !readOnly.has(n.id)),
+		edges: kept.filter((e) => !readOnly.has(e.source) && !readOnly.has(e.target)),
+		dropped
+	}
+}

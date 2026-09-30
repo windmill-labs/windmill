@@ -25,6 +25,7 @@
 		assetsOnlyView,
 		upstreamDeletion,
 		NO_ASSET_NODE_ID,
+		withoutPassiveReads,
 		type AssetUpstream,
 		type AssetUpstreamDelete
 	} from './assetsOnlyView'
@@ -1359,7 +1360,21 @@
 		}
 		return { ...m, nodes, edges }
 	}
-	let view = $derived(assetsOnly ? assetsOnlyModel(model) : model)
+	// Reads that start nothing (lookups, reference tables) are often most of a
+	// graph's edges; hiding them leaves what makes the pipeline run. Remembered
+	// across pipelines.
+	const SHOW_PASSIVE_READS_KEY = 'pipeline-show-passive-reads'
+	let showPassiveReads = $state(true)
+	try {
+		showPassiveReads = localStorage.getItem(SHOW_PASSIVE_READS_KEY) !== 'false'
+	} catch {}
+	let withoutPassive = $derived(withoutPassiveReads(model.nodes, model.edges))
+	let shownModel = $derived(
+		showPassiveReads || withoutPassive.dropped === 0
+			? model
+			: { ...model, nodes: withoutPassive.nodes, edges: withoutPassive.edges }
+	)
+	let view = $derived(assetsOnly ? assetsOnlyModel(shownModel) : shownModel)
 
 	// dbt association, surfaced by emphasis instead of edges. Hovering a model's
 	// dbt badge lights up the project node that materializes it; hovering the
@@ -1901,7 +1916,7 @@
 		<PanToNode targetId={panToNodeId} {nodes} />
 		<Controls position="top-right" orientation="horizontal" showLock={false} class="!mr-10" />
 		{#if assetsOnlyToggle}
-			<Panel position="top-left" class="!m-3">
+			<Panel position="top-left" class="!m-3 flex flex-col gap-1.5">
 				<Toggle
 					checked={!assetsOnly}
 					size="xs"
@@ -1911,6 +1926,19 @@
 						if (assetsOnlyFolder != undefined) setAssetsOnlyFolder(assetsOnlyFolder, assetsOnly)
 					}}
 				/>
+				{#if withoutPassive.dropped > 0}
+					<Toggle
+						checked={showPassiveReads}
+						size="xs"
+						options={{ right: "Show reads that don't trigger runs" }}
+						on:change={(e) => {
+							showPassiveReads = e.detail
+							try {
+								localStorage.setItem(SHOW_PASSIVE_READS_KEY, String(e.detail))
+							} catch {}
+						}}
+					/>
+				{/if}
 			</Panel>
 		{/if}
 		{#if showMinimap}

@@ -3,6 +3,7 @@ import {
 	assetsOnlyView,
 	upstreamDeletion,
 	NO_ASSET_NODE_ID,
+	withoutPassiveReads,
 	type AssetUpstream
 } from './assetsOnlyView'
 
@@ -132,5 +133,30 @@ describe('upstreamDeletion', () => {
 			['asset:y', u]
 		])
 		expect(upstreamDeletion(u, script, all)).toBeUndefined()
+	})
+})
+
+describe('withoutPassiveReads', () => {
+	it('drops reads that trigger nothing, and the assets only they drew', () => {
+		const nodes = [
+			node('asset:src', 'asset'),
+			node('asset:lookup', 'asset'),
+			node('asset:out', 'asset'),
+			node('script:a', 'runnable')
+		]
+		const edges = [
+			edge('asset:src', 'script:a', 'lineage-read'),
+			edge('asset:src', 'script:a', 'trigger-asset'),
+			edge('asset:lookup', 'script:a', 'lineage-read'),
+			edge('asset:out', 'script:a', 'lineage-read'),
+			edge('script:a', 'asset:out', 'lineage-write')
+		]
+		const r = withoutPassiveReads(nodes, edges)
+		expect(r.nodes.map((n) => n.id)).toEqual(['asset:src', 'asset:out', 'script:a'])
+		expect(r.edges.map((e) => e.id)).toEqual([
+			'lineage-read:asset:src->script:a',
+			'trigger-asset:asset:src->script:a',
+			'lineage-write:script:a->asset:out'
+		])
 	})
 })
