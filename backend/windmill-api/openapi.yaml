@@ -16185,8 +16185,7 @@ paths:
       summary: run a saved AI agent
       description: |
         Runs the `ai_agent` resource at `path` as stored, for any caller who can read it
-        (operators included), as the caller, who needs access to the agent's AI resource and to
-        whatever its tools use. With `memory_id`, the run is a turn
+        (operators included), as the agent's `on_behalf_of`. With `memory_id`, the run is a turn
         of the caller's conversation with the agent; without, a single run.
       operationId: runAgent
       tags:
@@ -31888,6 +31887,9 @@ components:
             type: string
         ws_specific:
           type: boolean
+        preserve_on_behalf_of:
+          type: boolean
+          description: ai_agent only. Keep the identity `value.on_behalf_of` names (`u/<username>`, `g/<group>`) rather than the caller's own. Honoured for admins and members of wm_deployers; otherwise every write of an agent sets it to the caller.
       required:
         - path
         - value
@@ -31912,6 +31914,9 @@ components:
             type: string
         ws_specific:
           type: boolean
+        preserve_on_behalf_of:
+          type: boolean
+          description: ai_agent only. Keep the identity `value.on_behalf_of` names (`u/<username>`, `g/<group>`) rather than the caller's own. Honoured for admins and members of wm_deployers; otherwise every write of an agent sets it to the caller.
 
     Resource:
       type: object

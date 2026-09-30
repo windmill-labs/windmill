@@ -7,8 +7,9 @@
 	import ResourceDescriptionField from '$lib/components/ResourceDescriptionField.svelte'
 	import ResourcePathHint from '$lib/components/ResourcePathHint.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import PermissionedAsLine from '$lib/components/triggers/PermissionedAsLine.svelte'
 	import { WorkspaceService } from '$lib/gen'
-	import type { AgentDraftHandle } from '../agentDraft.svelte'
+	import type { AgentDraftHandle, AgentRunAs } from '../agentDraft.svelte'
 
 	/** An agent's own settings, laid out as the top of the resource editor: what it is saved as
 	 *  rather than what it does. */
@@ -19,9 +20,11 @@
 		workspace: string | undefined
 		/** Why the path cannot be deployed to, if it cannot. */
 		error?: string
+		/** Who the next deploy makes the agent run as, as picked here. */
+		onRunAsChange?: (runAs: AgentRunAs) => void
 	}
 
-	let { draft, path, workspace, error = $bindable() }: Props = $props()
+	let { draft, path, workspace, error = $bindable(), onRunAsChange = undefined }: Props = $props()
 
 	let readOnly = $derived(!draft.canWrite)
 	// Only a workspace that deploys somewhere has anything to keep an agent out of.
@@ -53,6 +56,16 @@
 				disabled={readOnly}
 			/>
 		</Label>
+		<!-- Who the deployed agent runs as when someone runs it from its page, resolved on deploy as
+		     a flow's on-behalf-of identity is. -->
+		{#if !readOnly}
+			<PermissionedAsLine
+				permissionedAs={draft.onBehalfOf}
+				path={draft.state.path}
+				onPermissionedAsChange={(permissionedAs, preserve) =>
+					onRunAsChange?.({ permissionedAs, preserve })}
+			/>
+		{/if}
 		{#if readOnly}
 			{#if draft.state.labels?.length}
 				<div class="-mt-4 inline-flex items-center gap-1">
