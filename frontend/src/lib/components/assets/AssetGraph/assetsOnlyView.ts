@@ -8,6 +8,8 @@ export type ViewEdge = {
 	target: string
 	kind: string
 	unsaved?: boolean
+	/** Assets-only edges: the folded runnables the data goes through. */
+	via?: string[]
 }
 
 /** The assets-only node standing for the scripts that build no asset. */
@@ -70,8 +72,19 @@ export function assetsOnlyView<N extends ViewNode, E extends ViewEdge>(
 				const id = `flow:${r.source}->${assetId}`
 				const prev = out.get(id)
 				const unsaved = !!(w.unsaved || r.unsaved)
-				if (prev) prev.unsaved = prev.unsaved && unsaved
-				else out.set(id, { id, source: r.source, target: assetId, kind: 'asset-flow', unsaved })
+				if (prev) {
+					prev.unsaved = prev.unsaved && unsaved
+					if (!prev.via?.includes(w.source)) prev.via = [...(prev.via ?? []), w.source]
+				} else {
+					out.set(id, {
+						id,
+						source: r.source,
+						target: assetId,
+						kind: 'asset-flow',
+						unsaved,
+						via: [w.source]
+					})
+				}
 			}
 		}
 	}
@@ -123,15 +136,19 @@ export function assetsOnlyView<N extends ViewNode, E extends ViewEdge>(
 			for (const r of inputsOf.get(id) ?? []) {
 				const eid = `flow:${r.source}->${NO_ASSET_NODE_ID}`
 				const prev = out.get(eid)
-				if (prev) prev.unsaved = prev.unsaved && !!r.unsaved
-				else
+				if (prev) {
+					prev.unsaved = prev.unsaved && !!r.unsaved
+					if (!prev.via?.includes(id)) prev.via = [...(prev.via ?? []), id]
+				} else {
 					out.set(eid, {
 						id: eid,
 						source: r.source,
 						target: NO_ASSET_NODE_ID,
 						kind: 'asset-flow',
-						unsaved: !!r.unsaved
+						unsaved: !!r.unsaved,
+						via: [id]
 					})
+				}
 			}
 		}
 	}

@@ -28,6 +28,7 @@
 		type AssetUpstreamDelete
 	} from './assetsOnlyView'
 	import { assetsOnlyNodeWidth } from './assetNodeWidth'
+	import { describeEdge } from './edgeDescription'
 	import { isAssetsOnlyFolder, setAssetsOnlyFolder } from './assetsOnlyFolders'
 	import { formatAssetKind, formatShortAssetPath } from '$lib/components/assets/lib'
 	import { TRIGGER_NODE_STYLE } from './TriggerNode.svelte'
@@ -267,6 +268,34 @@
 	// Right-click on the empty canvas: a menu at the pointer whose entry opens the
 	// add-data-source menu there too.
 	let paneMenu = $state<{ x: number; y: number } | undefined>(undefined)
+
+	// Hovering an edge names the relationship it draws, after a short pause so
+	// sweeping the pointer across the canvas doesn't flash popovers.
+	let hoveredEdge = $state<{ id: string; x: number; y: number } | undefined>(undefined)
+	let edgeHoverTimer: ReturnType<typeof setTimeout> | undefined
+	function onEdgeEnter({ edge, event }: { edge: Edge; event: PointerEvent }) {
+		clearTimeout(edgeHoverTimer)
+		const at = { id: edge.id, x: event.clientX, y: event.clientY }
+		edgeHoverTimer = setTimeout(() => (hoveredEdge = at), 300)
+	}
+	function onEdgeLeave() {
+		clearTimeout(edgeHoverTimer)
+		hoveredEdge = undefined
+	}
+	let hoveredEdgeText = $derived.by(() => {
+		const e = hoveredEdge && view.edges.find((x) => x.id === hoveredEdge!.id)
+		if (!e) return undefined
+		const byId = new Map(view.nodes.map((n) => [n.id, n]))
+		const nameOf = (id: string) => {
+			const n = byId.get(id)
+			if (!n) return id.replace(/^[^:]+:/, '')
+			if (n.type === 'asset') return formatShortAssetPath({ kind: n.data.asset_kind, path: n.data.path })
+			if (n.type === 'no-asset') return 'the scripts that build no asset'
+			if (n.type === 'trigger') return n.data.summary || n.data.ref
+			return n.data.summary || n.data.path
+		}
+		return describeEdge(e, nameOf, (id) => byId.get(id)?.data)
+	})
 	let addMenuAt = $state<{ x: number; y: number }>({ x: 0, y: 0 })
 	let addMenuSignal = $state(0)
 	function handleContextMenu(e: MouseEvent) {
@@ -332,6 +361,8 @@
 		// whole lib when pulled in via `// use`) — rendered as a ƒ badge.
 		macro_names?: string[]
 		via_use?: boolean
+		// Assets-only edges: the scripts folded between the two assets.
+		via?: string[]
 	}
 
 	// Graph-id of the script the user just launched (zero-latency hint),
@@ -1635,6 +1666,8 @@
 		defaultEdgeOptions={{ type: 'asset' }}
 		proOptions={{ hideAttribution: true }}
 		onnodeclick={handleNodeClick}
+		onedgepointerenter={onEdgeEnter}
+		onedgepointerleave={onEdgeLeave}
 		--background-color={false}
 	>
 		<div class="absolute inset-0 !bg-surface-secondary h-full"></div>
@@ -1716,6 +1749,21 @@
 			<Plus size={14} />
 			Add data source
 		</button>
+	</div>
+{/if}
+
+{#if hoveredEdge && hoveredEdgeText}
+	{@const d = hoveredEdgeText}
+	<div
+		class="fixed z-50 max-w-80 rounded-md border bg-surface px-2.5 py-1.5 text-xs text-primary shadow-md pointer-events-none"
+		style="left: {hoveredEdge.x + 12}px; top: {hoveredEdge.y + 12}px;"
+		transition:fly={{ duration: 120, y: -4 }}
+		role="tooltip"
+	>
+		<span class="font-semibold text-emphasis">{d.subject}</span>
+		{d.phrase}
+		{#if d.object}<span class="font-semibold text-emphasis">{d.object}</span>{/if}
+		{#if d.note}<div class="mt-0.5 text-2xs text-secondary">{d.note}</div>{/if}
 	</div>
 {/if}
 

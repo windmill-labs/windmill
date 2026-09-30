@@ -179,7 +179,7 @@
 	path={edgePath}
 	{markerEnd}
 	{style}
-	interactionWidth={0}
+	interactionWidth={12}
 	label={undefined}
 	labelStyle={undefined}
 />
