@@ -2,7 +2,7 @@
 	import {
 		ChevronRight,
 		FlaskConical,
-		FolderOpen,
+		Settings,
 		FormInput,
 		History,
 		MessageSquare,
@@ -36,7 +36,7 @@
 	import { publishLinkedAgentTools } from '../flowState'
 	import { linkedModulesForAgent, linkedToolsScope } from '../linkedAgentToolsStore.svelte'
 	import AgentEditorHost from './AgentEditorHost.svelte'
-	import AgentPathField from './AgentPathField.svelte'
+	import AgentSettings from './AgentSettings.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
@@ -91,7 +91,7 @@
 	let ws = $derived(target?.workspace ?? $operatingWorkspace)
 	let host = $state<ReturnType<typeof AgentEditorHost> | undefined>(undefined)
 	let versionDrawer: Drawer | undefined = $state(undefined)
-	let pathDrawer: Drawer | undefined = $state(undefined)
+	let settingsDrawer: Drawer | undefined = $state(undefined)
 	let saving = $state(false)
 
 	// Counted per agent, so a deploy that leaves the editor on the same agent still refetches the
@@ -124,8 +124,8 @@
 	// the dialog carries only the refusal the host renders.
 	let refused = $derived(draft?.refusal != null)
 	let inEvals = $derived(target?.view === 'evals' && !refused)
-	// A level of its own in the dialog; the page layout opens the same field in a drawer instead.
-	let inPath = $derived(target?.view === 'path' && !refused)
+	// A level of its own in the dialog; the page layout opens the same settings in a drawer instead.
+	let inSettings = $derived(target?.view === 'settings' && !refused)
 	let readOnly = $derived(draft ? !draft.canWrite : false)
 	let draftOnly = $derived(draft?.noDeployed ?? false)
 	// A never-deployed agent is stored at a minted `draft_<uuid>` path, so it is named by the path
@@ -146,7 +146,7 @@
 
 	let root = $derived<ModalTrailSegment>({
 		label: shownPath ?? 'Agent',
-		onclick: inEvals || inPath ? () => showAgentEditorView(undefined) : undefined
+		onclick: inEvals || inSettings ? () => showAgentEditorView(undefined) : undefined
 	})
 	let trail = $derived<ModalTrailSegment[]>(
 		inEvals
@@ -155,17 +155,17 @@
 					{ label: 'Evals', onclick: evalsLocation ? evalsLocation.back : undefined },
 					...(evalsLocation ? [{ label: evalsLocation.label }] : [])
 				]
-			: inPath
-				? [root, { label: 'Path' }]
+			: inSettings
+				? [root, { label: 'Settings' }]
 				: [root]
 	)
 	// The root's alone: below it the header's second line is the way back, and what a level is for
 	// belongs to that level rather than to the dialog's own name.
-	let description = $derived(inEvals || inPath || refused ? undefined : AGENT_DESCRIPTION)
+	let description = $derived(inEvals || inSettings || refused ? undefined : AGENT_DESCRIPTION)
 
-	function openPath() {
-		if (layout === 'modal') showAgentEditorView('path')
-		else pathDrawer?.openDrawer()
+	function openSettings() {
+		if (layout === 'modal') showAgentEditorView('settings')
+		else settingsDrawer?.openDrawer()
 	}
 
 	/** The unsaved edits, in the shape the server builds from a deployed config
@@ -357,7 +357,7 @@
 			{#if !inEvals && !refused}
 				<!-- Switches the editor's right-hand pane, and is drawn only once the agent has
 						     loaded and the pane has picked its first mode. -->
-				{#if testPane?.mode && !inPath}
+				{#if testPane?.mode && !inSettings}
 					<ToggleButtonGroup
 						bind:selected={
 							() => testPane?.mode,
@@ -392,16 +392,15 @@
 						Read only
 					</Badge>
 				{/if}
-				{#if !inPath}
+				{#if !inSettings}
 					<Button
 						unifiedSize="sm"
 						variant="default"
-						startIcon={{ icon: FolderOpen }}
-						title="Where the agent is saved"
-						on:click={openPath}
-					>
-						Path
-					</Button>
+						startIcon={{ icon: Settings }}
+						iconOnly
+						title="Settings"
+						on:click={openSettings}
+					/>
 				{/if}
 				<!-- Evals run against the deployed agent, and a draft-only one has none: the
 						     backend's `require_agent` would reject every run. -->
@@ -457,10 +456,10 @@
 				     and evals answers them for its own levels. -->
 			<PagedContent
 				class="flex-1 min-h-0"
-				current={inEvals ? 'evals' : inPath ? 'path' : 'agent'}
+				current={inEvals ? 'evals' : inSettings ? 'settings' : 'agent'}
 				pages={[
 					{ key: 'agent', content: agentPage },
-					{ key: 'path', content: pathPage },
+					{ key: 'settings', content: settingsPage },
 					{ key: 'evals', content: evalsPage }
 				]}
 			/>
@@ -483,9 +482,9 @@
 		/>
 	{/snippet}
 
-	{#snippet pathField()}
+	{#snippet settingsFields()}
 		{#if draft}
-			<AgentPathField
+			<AgentSettings
 				{draft}
 				path={target?.path ?? ''}
 				workspace={ws}
@@ -494,8 +493,8 @@
 		{/if}
 	{/snippet}
 
-	{#snippet pathPage()}
-		<div class="max-w-2xl py-6">{@render pathField()}</div>
+	{#snippet settingsPage()}
+		<div class="max-w-2xl py-6">{@render settingsFields()}</div>
 	{/snippet}
 
 	{#snippet evalsPage()}
@@ -508,9 +507,9 @@
 		/>
 	{/snippet}
 
-	<Drawer bind:this={pathDrawer} size="600px">
-		<DrawerContent title="Path" on:close={() => pathDrawer?.closeDrawer()}>
-			{@render pathField()}
+	<Drawer bind:this={settingsDrawer} size="600px">
+		<DrawerContent title="Settings" on:close={() => settingsDrawer?.closeDrawer()}>
+			{@render settingsFields()}
 		</DrawerContent>
 	</Drawer>
 
