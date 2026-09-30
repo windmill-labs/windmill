@@ -505,6 +505,7 @@
 					{panToNodeId}
 					showMinimap={!stacked}
 					viewportFitKey={viewportFitKey ?? folder}
+					assetsOnlyToggle
 				/>
 				{#if boundBar}{@render boundBar()}{/if}
 				{#if mode === 'edit'}

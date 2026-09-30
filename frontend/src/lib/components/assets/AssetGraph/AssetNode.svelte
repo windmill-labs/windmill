@@ -25,6 +25,9 @@
 	import type { PipelineOutputKind } from './pipelineTemplates'
 	import type { DbtAssetProvenance } from './types'
 	import DbtIcon from '$lib/components/icons/DbtIcon.svelte'
+	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
+	import RunStateChip from './RunStateChip.svelte'
+	import type { RunnableRunState } from './activeRunnables.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
@@ -33,6 +36,19 @@
 	// `content` / `language` so the page-level run handler can dispatch to
 	// `runScriptPreview` instead of `runScriptByPath` (which 404s for
 	// non-deployed scripts).
+	export type AssetUpstreamChips =
+		| { none: true }
+		| { multiple: true }
+		| {
+				path: string
+				summary?: string
+				language?: ScriptLang
+				unsaved?: boolean
+				runState?: RunnableRunState
+				trigger: { label: string; missing?: boolean; draft?: boolean }
+				onOpen: () => void
+		  }
+
 	export type AssetProducer = {
 		kind: 'script' | 'flow'
 		path: string
@@ -102,6 +118,11 @@
 			// instead of only settling once the job ends.
 			runStatus?: 'running' | 'materialized' | 'failed'
 			runRowCount?: number | null
+			/** Set in the assets-only view, where the producing script and its
+			 * trigger are folded into the asset: `none` for an asset nothing in the
+			 * pipeline writes, `multiple` when the producer or its trigger is
+			 * ambiguous. */
+			upstream?: AssetUpstreamChips
 		}
 		// SvelteFlow injects this on the node component when the user clicks
 		// the node. Combined with our own `hovered` state to drive the
@@ -157,6 +178,8 @@
 	}
 
 	let showAdd = $derived(data.onAddScript != undefined)
+	let upstream = $derived(data.upstream)
+	let producer = $derived(upstream && 'path' in upstream ? upstream : undefined)
 
 	// dbt badge. `materialized` is dbt's own word rather than the Windmill
 	// strategy because `view` and `ephemeral` have no strategy, and showing the
@@ -224,6 +247,31 @@
 	)
 </script>
 
+	{#snippet upstreamRow()}
+		{#if upstream}
+			<span
+				class={twMerge(
+					'truncate rounded-md border px-1.5 py-0.5 text-3xs leading-none',
+					producer?.trigger.missing
+						? 'border-red-300 dark:border-red-600 text-red-700 dark:text-red-300'
+						: 'border-gray-300 dark:border-gray-600 text-secondary',
+					producer?.trigger.draft && 'border-dashed'
+				)}
+				title={producer?.trigger.missing
+					? `No ${producer.trigger.label} trigger targets ${producer.path} yet`
+					: undefined}
+			>
+				{#if 'none' in upstream}
+					External source
+				{:else if producer}
+					{producer.trigger.label}{producer.trigger.draft ? ' · draft' : ''}
+				{:else}
+					Multiple upstream nodes
+				{/if}
+			</span>
+		{/if}
+	{/snippet}
+
 <!-- onmouseenter/leave on the wrapper (not the inner card) so the run
      button — which floats outside the card — keeps the hover state alive
      when the cursor moves between the card and the button. -->
@@ -246,6 +294,7 @@
 		tooltip={data.error ? `${data.path}: ${data.error}` : data.path}
 		{selected}
 		tone={data.error ? 'error' : undefined}
+		footer={upstream ? upstreamRow : undefined}
 	>
 		{#snippet icon()}
 			<!-- Data identity carries the accent (luminance blue), pairing with
@@ -357,6 +406,29 @@
 				>
 					<History size={12} />
 				</span>
+			{/if}
+			{#if producer}
+				{#if producer.runState}
+					<RunStateChip runState={producer.runState} class="mr-1" />
+				{/if}
+				<button
+					type="button"
+					class="shrink-0 h-5 min-w-5 px-1 grid place-items-center rounded-md border bg-surface text-secondary hover:bg-surface-hover {producer.unsaved
+						? 'border-dashed border-gray-400 dark:border-gray-500'
+						: 'border-gray-300 dark:border-gray-600'}"
+					title={`Open ${producer.summary ? `${producer.summary} (${producer.path})` : producer.path}${producer.unsaved ? ' · draft' : ''}`}
+					aria-label="Open the script that produces this asset"
+					onclick={(e) => {
+						e.stopPropagation()
+						producer?.onOpen()
+					}}
+				>
+					{#if producer.language}
+						<LanguageIcon lang={producer.language} width={12} height={12} />
+					{:else}
+						<Code2 size={12} />
+					{/if}
+				</button>
 			{/if}
 		{/snippet}
 	</PipelineNodeCard>

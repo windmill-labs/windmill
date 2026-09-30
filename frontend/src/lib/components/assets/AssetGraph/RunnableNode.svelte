@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { Handle, Position } from '@xyflow/svelte'
 	import {
-		CheckCircle2,
 		ChevronDown,
 		Code2,
 		EllipsisVertical,
@@ -15,7 +14,6 @@
 		Target,
 		Timer,
 		Trash2,
-		XCircle,
 		Zap
 	} from 'lucide-svelte'
 	import DbtIcon from '$lib/components/icons/DbtIcon.svelte'
@@ -26,6 +24,7 @@
 	import { parseDurationSecs } from './parsePipelineAnnotations'
 	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
 	import PipelineNodeCard from './PipelineNodeCard.svelte'
+	import RunStateChip from './RunStateChip.svelte'
 	import type { ScriptLang } from '$lib/gen'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
@@ -315,35 +314,7 @@
 				</div>
 			{/if}
 			{#if data.runState}
-				{@const rs = data.runState}
-				<div
-					class={twMerge(
-						'shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm',
-						rs.status === 'running'
-							? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
-							: rs.status === 'success'
-								? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300'
-								: 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300'
-					)}
-					title={`${
-						rs.status === 'running'
-							? 'Running now'
-							: rs.status === 'success'
-								? 'Last run succeeded'
-								: 'Last run failed'
-					}${rs.runs > 0 ? ` — ran ${rs.runs}× this session` : ''}`}
-				>
-					{#if rs.status === 'running'}
-						<Loader2 size={10} class="animate-spin" />
-					{:else if rs.status === 'success'}
-						<CheckCircle2 size={10} />
-					{:else}
-						<XCircle size={10} />
-					{/if}
-					{#if rs.runs > 0}
-						<span class="text-3xs leading-none tabular-nums">×{rs.runs}</span>
-					{/if}
-				</div>
+				<RunStateChip runState={data.runState} class="mr-1" />
 			{/if}
 		{/snippet}
 	</PipelineNodeCard>

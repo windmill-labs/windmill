@@ -6,7 +6,7 @@ and the controls hung around the card.
 -->
 <script lang="ts">
 	import { NODE } from '$lib/components/graph/util'
-	import { PIPELINE_NODE_HEIGHT } from './assetGraphLayout'
+	import { PIPELINE_NODE_EXTRA_ROW, PIPELINE_NODE_HEIGHT } from './assetGraphLayout'
 	import { twMerge } from 'tailwind-merge'
 	import type { Snippet } from 'svelte'
 
@@ -29,6 +29,8 @@ and the controls hung around the card.
 		/** Between the icon and the text: a live status the eye should find first. */
 		leading?: Snippet
 		trailing?: Snippet
+		/** A second row under the title, as wide as the card. */
+		footer?: Snippet
 	}
 
 	let {
@@ -42,12 +44,13 @@ and the controls hung around the card.
 		tone,
 		onclick,
 		leading,
-		trailing
+		trailing,
+		footer
 	}: Props = $props()
 
 	const cardClass = $derived(
 		twMerge(
-			'flex items-center w-full text-left font-normal rounded-md drop-shadow-sm overflow-hidden border transition-colors',
+			'flex flex-col justify-center w-full text-left font-normal rounded-md drop-shadow-sm overflow-hidden border transition-colors',
 			surface === 'primary' ? 'bg-surface' : 'bg-surface-secondary',
 			'border-gray-400 dark:border-gray-600 hover:border-gray-500 dark:hover:border-gray-500',
 			draft && 'border-dashed border-gray-400 dark:border-gray-500',
@@ -66,6 +69,7 @@ and the controls hung around the card.
 				'bg-amber-50 dark:bg-amber-900/30 border-amber-400 dark:border-amber-600 animate-pulse'
 		)
 	)
+	const minHeight = $derived(PIPELINE_NODE_HEIGHT + (footer ? PIPELINE_NODE_EXTRA_ROW : 0))
 	const toneText = $derived(
 		tone === 'danger'
 			? 'text-red-700 dark:text-red-400'
@@ -78,6 +82,13 @@ and the controls hung around the card.
 </script>
 
 {#snippet body()}
+	<span class="flex items-center w-full">{@render row()}</span>
+	{#if footer}
+		<span class="flex items-center gap-1 w-full min-w-0 pl-3 pr-2 pb-1.5">{@render footer()}</span>
+	{/if}
+{/snippet}
+
+{#snippet row()}
 	<span class="shrink-0 ml-3 mr-2.5 flex items-center">{@render icon()}</span>
 	{@render leading?.()}
 	<span class="flex flex-col min-w-0 flex-1 pr-1 py-1 leading-tight">
@@ -96,7 +107,7 @@ and the controls hung around the card.
 		type="button"
 		{onclick}
 		class={cardClass}
-		style="width: {NODE.width}px; min-height: {PIPELINE_NODE_HEIGHT}px;"
+		style="width: {NODE.width}px; min-height: {minHeight}px;"
 		title={tooltip}
 	>
 		{@render body()}
@@ -104,7 +115,7 @@ and the controls hung around the card.
 {:else}
 	<div
 		class={cardClass}
-		style="width: {NODE.width}px; min-height: {PIPELINE_NODE_HEIGHT}px;"
+		style="width: {NODE.width}px; min-height: {minHeight}px;"
 		title={tooltip}
 	>
 		{@render body()}

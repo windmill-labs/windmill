@@ -3,6 +3,7 @@
 	import {
 		SvelteFlow,
 		Controls,
+		Panel,
 		MiniMap,
 		ConnectionLineType,
 		type Node,
@@ -17,7 +18,11 @@
 	import AssetGraphEdge from './AssetGraphEdge.svelte'
 	import PanToNode from './PanToNode.svelte'
 	import InitialFitView from './InitialFitView.svelte'
-	import { layoutAssetGraph } from './assetGraphLayout'
+	import { layoutAssetGraph, PIPELINE_NODE_EXTRA_ROW } from './assetGraphLayout'
+	import { assetsOnlyView, type AssetUpstream } from './assetsOnlyView'
+	import { TRIGGER_NODE_STYLE } from './TriggerNode.svelte'
+	import { describeCron } from '$lib/utils/describeCron'
+	import Toggle from '$lib/components/Toggle.svelte'
 	import { computeMutedReadKeys, dbtAssociations } from './resolveGraph'
 	import { buildDownstreamMap } from './graphTraversal'
 	import { buildLineageDownstreamMap } from './boundedCascade'
@@ -190,6 +195,9 @@
 		 * canvas is embedded inline inside a scrollable container, so a wheel
 		 * gesture over it scrolls the container instead of being captured. */
 		scrollZoom?: boolean
+		/** Offer the "Assets only" switch, which folds scripts and triggers into the
+		 * assets they produce. */
+		assetsOnlyToggle?: boolean
 	}
 	let {
 		graph,
@@ -222,8 +230,11 @@
 		highlightActiveRun = false,
 		recomputedAssetIds,
 		assetRunStatus,
-		scrollZoom = true
+		scrollZoom = true,
+		assetsOnlyToggle = false
 	}: Props = $props()
+
+	let assetsOnly = $state(false)
 
 	// `${kind}:${path}` ids for the hovered / pinned runs (both script and flow
 	// variants, since the run row's kind isn't known here).
@@ -252,6 +263,9 @@
 			| 'macro'
 			| 'test-dependency'
 			| 'dbt-ref'
+			// Assets-only view: an asset → an asset computed from it, through the
+			// script that is folded away.
+			| 'asset-flow'
 		unsaved?: boolean
 		// Muted read edge: a ducklake/s3 input read every run whose (default)
 		// auto cascade trigger is suppressed by `// mute` / `// mute all`.
@@ -885,6 +899,84 @@
 
 	let model = $derived(build(graph))
 
+	/** The label of the chip naming what runs an asset's producer. */
+	function triggerChip(t: (AssetUpstream & { multiple: false })['trigger']): {
+		label: string
+		missing?: boolean
+		draft?: boolean
+	} {
+		if (!t) return { label: 'Manual' }
+		if (t.kind === 'asset') return { label: 'On asset change' }
+		const style = TRIGGER_NODE_STYLE[t.kind as TriggerNodeKind]
+		const label =
+			t.kind === 'schedule' && t.data?.schedule
+				? (describeCron(t.data.schedule) ?? `Schedule (${t.data.schedule})`)
+				: (style?.label ?? t.kind)
+		return {
+			label,
+			missing: t.data?.missing && t.kind !== 'webhook' && t.kind !== 'data_upload',
+			draft: t.data?.draft
+		}
+	}
+
+	// Scripts and triggers fold into the assets they produce: each asset carries
+	// its producer's run state, language and trigger instead of drawing them.
+	function assetsOnlyModel(m: typeof model): typeof model {
+		const v = assetsOnlyView(m.nodes, m.edges)
+		const runnables = new Map(m.nodes.filter((n) => n.type === 'runnable').map((n) => [n.id, n]))
+		const nodes = m.nodes
+			.filter((n) => n.id === ADD_NODE_ID || v.nodeIds.has(n.id))
+			.map((n) => {
+				if (n.type !== 'asset') return n
+				const u = v.upstream.get(n.id)
+				const r = u && !u.multiple ? runnables.get(u.runnableId)?.data : undefined
+				return {
+					...n,
+					data: {
+						...n.data,
+						// A dbt model is built by its project, whose writes the canvas
+						// does not draw; its dbt chip already names it.
+						upstream: !u
+							? n.data.dbt && n.data.dbt.resource_type !== 'source'
+								? undefined
+								: { none: true }
+							: u.multiple || !r
+								? { multiple: true }
+								: {
+										path: r.path,
+										summary: r.summary,
+										language: r.language,
+										unsaved: r.unsaved,
+										runState: r.runState,
+										trigger: triggerChip(u.trigger),
+										onOpen: () =>
+											onselect?.({
+												kind: 'runnable',
+												runnable_kind: r.runnable_kind,
+												path: r.path
+											})
+									}
+					}
+				}
+			})
+		const edges: BuiltEdge[] = v.edges.map((e) => ({ ...e, kind: e.kind as BuiltEdge['kind'] }))
+		if (nodes.some((n) => n.id === ADD_NODE_ID)) {
+			const hasIncoming = new Set(edges.map((e) => e.target))
+			for (const n of nodes) {
+				if (n.id !== ADD_NODE_ID && !hasIncoming.has(n.id)) {
+					edges.push({
+						id: `add-anchor:${n.id}`,
+						source: ADD_NODE_ID,
+						target: n.id,
+						kind: 'add-anchor'
+					})
+				}
+			}
+		}
+		return { ...m, nodes, edges }
+	}
+	let view = $derived(assetsOnly ? assetsOnlyModel(model) : model)
+
 	// dbt association, surfaced by emphasis instead of edges. Hovering a model's
 	// dbt badge lights up the project node that materializes it; hovering the
 	// project node lights up every model it owns. Clicking the badge selects the
@@ -926,14 +1018,14 @@
 	// input; the rendered edges are untouched (both arrows still drawn).
 	let writeEdgePairs = $derived(
 		new Set(
-			model.edges.filter((e) => e.kind === 'lineage-write').map((e) => `${e.source}\n${e.target}`)
+			view.edges.filter((e) => e.kind === 'lineage-write').map((e) => `${e.source}\n${e.target}`)
 		)
 	)
 	let layoutInput = $derived({
-		nodes: model.nodes
+		nodes: view.nodes
 			.map((n) => ({ id: n.id, data: n.data }))
 			.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
-		edges: model.edges
+		edges: view.edges
 			.filter(
 				(e) =>
 					!(
@@ -954,7 +1046,9 @@
 						: 1
 			)
 	})
-	let layoutPositions = $derived(layoutAssetGraph(layoutInput, ADD_NODE_ID))
+	let layoutPositions = $derived(
+		layoutAssetGraph(layoutInput, ADD_NODE_ID, assetsOnly ? PIPELINE_NODE_EXTRA_ROW : 0)
+	)
 
 	let positionedNodes = $derived.by(() => {
 		// Compute bbox width from layout; shift every x so the graph is
@@ -969,7 +1063,7 @@
 		}
 		const bboxWidth = isFinite(minX) ? maxX - minX : 0
 		const xCenter = paneWidth / 2 - bboxWidth / 2
-		return model.nodes.map<Node>((n) => {
+		return view.nodes.map<Node>((n) => {
 			const p = layoutPositions.get(n.id) ?? { x: 0, y: 0 }
 			// Activity-panel emphasis (purely visual rings, kept off `selected`
 			// which swaps the details pane). Hover wins over pin so the cursor
@@ -1040,7 +1134,7 @@
 	let assetEmphasis = $derived.by<Map<string, 'input' | 'output'>>(() => {
 		const m = new Map<string, 'input' | 'output'>()
 		if (emphasizedRunIdSet.size === 0) return m
-		for (const e of model.edges) {
+		for (const e of view.edges) {
 			if (e.kind === 'lineage-write' && emphasizedRunIdSet.has(e.source)) {
 				m.set(e.target, 'output')
 			} else if (
@@ -1091,7 +1185,7 @@
 	}
 
 	let flowEdges = $derived.by(() =>
-		model.edges
+		view.edges
 			// Anchor edges are layout-only.
 			.filter((e) => e.kind !== 'add-anchor')
 			.map<Edge>((e) => {
@@ -1121,6 +1215,10 @@
 					case 'lineage-write':
 						style = 'stroke: rgb(59 130 246); stroke-width: 1.25px;'
 						animated = flowAnimated
+						markerColor = 'rgb(59 130 246)'
+						break
+					case 'asset-flow':
+						style = 'stroke: rgb(59 130 246); stroke-width: 1.25px;'
 						markerColor = 'rgb(59 130 246)'
 						break
 					case 'lineage-read':
@@ -1346,9 +1444,17 @@
 		--background-color={false}
 	>
 		<div class="absolute inset-0 !bg-surface-secondary h-full"></div>
-		<InitialFitView {nodes} fitKey={viewportFitKey} />
+		<InitialFitView {nodes} fitKey={`${viewportFitKey}:${assetsOnly}`} />
 		<PanToNode targetId={panToNodeId} {nodes} />
 		<Controls position="top-right" orientation="horizontal" showLock={false} class="!mr-10" />
+		{#if assetsOnlyToggle}
+			<Panel
+				position="top-left"
+				class="!m-3 px-2 py-1 rounded-md bg-surface border border-gray-200 dark:border-gray-700 shadow-sm"
+			>
+				<Toggle bind:checked={assetsOnly} size="xs" options={{ right: 'Assets only' }} />
+			</Panel>
+		{/if}
 		{#if showMinimap}
 			<!-- Node hues mirror the canvas: blue asset cards, amber triggers,
 			     bordered neutral script cards. Visible strokes + rounded corners +

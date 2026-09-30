@@ -18,7 +18,8 @@ const SIBLING_GAP = NODE.gap.horizontal
 // into each other's columns — but only ~2×, so they don't drift far apart.
 const COMPONENT_GAP = SIBLING_GAP * 2
 
-const LAYER_H = NODE_HEIGHT + LAYER_GAP
+/** Extra height of an assets-only node: the row of upstream chips under the title. */
+export const PIPELINE_NODE_EXTRA_ROW = 24
 
 interface GraphInput {
 	nodes: Array<{ id: string; data: AssetGraphNodeData }>
@@ -60,8 +61,10 @@ interface Band {
 // handled by dropping feedback edges (see the Kahn step below).
 function layoutComponent(
 	nodes: GraphInput['nodes'],
-	edges: GraphInput['edges']
+	edges: GraphInput['edges'],
+	rowH: number
 ): Map<string, Positioned> {
+	const layerH = rowH + LAYER_GAP
 	const out = new Map<string, Positioned>()
 	const ids = new Set(nodes.map((n) => n.id))
 
@@ -155,14 +158,14 @@ function layoutComponent(
 			if (l > hi) hi = l
 			for (const k of treeChildren.get(cur)!) stack.push(k)
 		}
-		return { top: lo * LAYER_H, bottom: hi * LAYER_H + NODE_HEIGHT }
+		return { top: lo * layerH, bottom: hi * layerH + rowH }
 	}
 
 	// Recursive placement: node centered over its band, children packed
 	// side-by-side and centered within it.
 	function placeTree(id: string, left: number) {
 		const w = W.get(id)!
-		out.set(id, { x: left + w / 2, y: layer.get(id)! * LAYER_H })
+		out.set(id, { x: left + w / 2, y: layer.get(id)! * layerH })
 		const kids = treeChildren.get(id)!
 		if (kids.length === 0) return
 		const kidsW = kids.reduce((acc, k) => acc + W.get(k)!, 0) + SIBLING_GAP * (kids.length - 1)
@@ -246,7 +249,13 @@ function layoutComponent(
 //
 // Falls back to a stable grid if the component layout throws (defensive —
 // cycles are already absorbed by feedback-edge dropping in layoutComponent).
-export function layoutAssetGraph(graph: GraphInput, anchorId?: string): Map<string, Positioned> {
+export function layoutAssetGraph(
+	graph: GraphInput,
+	anchorId?: string,
+	extraRowHeight = 0
+): Map<string, Positioned> {
+	const rowH = NODE_HEIGHT + extraRowHeight
+	const layerH = rowH + LAYER_GAP
 	const byId = new Map<string, Positioned>()
 	if (graph.nodes.length === 0) return byId
 
@@ -302,7 +311,7 @@ export function layoutAssetGraph(graph: GraphInput, anchorId?: string): Map<stri
 		// since positions are node centers) plus the gutter.
 		let xOffset = 0
 		for (let c = 0; c < nComp; c++) {
-			const positions = layoutComponent(compNodes[c], compEdges[c])
+			const positions = layoutComponent(compNodes[c], compEdges[c], rowH)
 			let maxX = 0
 			for (const p of positions.values()) if (p.x > maxX) maxX = p.x
 			for (const [id, p] of positions) {
@@ -327,7 +336,7 @@ export function layoutAssetGraph(graph: GraphInput, anchorId?: string): Map<stri
 					if (p.x > maxX) maxX = p.x
 					if (p.y < minY) minY = p.y
 				}
-				byId.set(anchorId, { x: (minX + maxX) / 2, y: minY - LAYER_H })
+				byId.set(anchorId, { x: (minX + maxX) / 2, y: minY - layerH })
 				let nMinY = Infinity
 				for (const p of byId.values()) if (p.y < nMinY) nMinY = p.y
 				for (const p of byId.values()) p.y -= nMinY
@@ -339,7 +348,7 @@ export function layoutAssetGraph(graph: GraphInput, anchorId?: string): Map<stri
 		graph.nodes.forEach((n, i) => {
 			byId.set(n.id, {
 				x: (i % cols) * (NODE_WIDTH + SIBLING_GAP),
-				y: Math.floor(i / cols) * LAYER_H
+				y: Math.floor(i / cols) * layerH
 			})
 		})
 		return byId
