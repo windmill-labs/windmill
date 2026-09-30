@@ -379,6 +379,7 @@
 			no_flow_overlap = s?.no_flow_overlap ?? false
 			wsErrorHandlerMuted = s?.ws_error_handler_muted ?? false
 			retry = s?.retry ?? undefined
+			dynamicSkipPath = s?.dynamic_skip ?? undefined
 
 			await setScheduleHandler(s)
 			permissionedAs = undefined

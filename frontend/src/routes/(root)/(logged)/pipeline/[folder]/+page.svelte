@@ -296,20 +296,21 @@
 		}
 	}
 
-	// Only-add cache of (script_path → body content) populated lazily by
-	// `bodyFetchEffect` for every script in the current folder. We never
-	// remove entries: stale keys (renamed-away, deleted) are simply ignored
-	// at read time because the derived maps below only iterate paths that
-	// appear in the current `g.runnables`. That self-cleaning property is
-	// the whole reason for the refactor — no rename/delete cleanup needed.
+	// Cache of (script_path → body content) populated lazily by
+	// `bodyFetchEffect` for every script in the current folder. Stale keys
+	// (renamed-away, deleted) are simply ignored at read time because the
+	// derived maps below only iterate paths that appear in the current
+	// `g.runnables`, so no rename/delete cleanup is needed. A stale *value*
+	// under a live key is different: a save through this page evicts its path
+	// (`forgetScriptCache`) so the sweep re-reads it.
 	let bodiesByPath = $state<Map<string, string>>(new Map())
 	// Deployed summary + language from the same fetch, for node titles and icons.
-	// Same only-add cache.
+	// Same lifecycle as `bodiesByPath`.
 	let scriptMetaByPath = $state<Map<string, { summary?: string; language: ScriptLang }>>(
 		new Map()
 	)
 	// Sibling cache: the parsed asset usages from `inferAssets` (wasm), one
-	// pass per body. Same only-add semantics as `bodiesByPath`.
+	// pass per body. Same lifecycle as `bodiesByPath`.
 	let inferredAssetsByPath = $state<Map<string, AssetWithAltAccessType[]>>(new Map())
 	// Bumped on folder change so an in-flight prefetch sweep stops before
 	// writing into the new folder's state.
@@ -850,6 +851,20 @@
 		const next = new Map(saveErrors)
 		next.delete(path)
 		saveErrors = next
+	}
+
+	function forgetScriptCache(...paths: string[]) {
+		const bodies = new Map(bodiesByPath)
+		const meta = new Map(scriptMetaByPath)
+		const inferred = new Map(inferredAssetsByPath)
+		for (const p of paths) {
+			bodies.delete(p)
+			meta.delete(p)
+			inferred.delete(p)
+		}
+		bodiesByPath = bodies
+		scriptMetaByPath = meta
+		inferredAssetsByPath = inferred
 	}
 
 	// "This path is gone" cleanup. The three big inferred-* / annotated-*
@@ -2860,6 +2875,7 @@
 				}}
 				onPersistedSaved={async (savedPath) => {
 					const predicted = predictCascadeFacts([savedPath])
+					forgetScriptCache(savedPath)
 					await graphRes.refetch()
 					reportDeployDrift(predicted)
 				}}
@@ -2867,6 +2883,7 @@
 					if (pe.selection?.kind === 'runnable' && pe.selection.path === oldPath) {
 						pe.selection = { ...pe.selection, path: newPath }
 					}
+					forgetScriptCache(oldPath, newPath)
 					await graphRes.refetch()
 				}}
 				onScriptRemoved={async (removedPath) => {

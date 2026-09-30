@@ -24,23 +24,13 @@
 	type Presentation = {
 		icon: ComponentType
 		label: string
-		// Tailwind class fragments for bg + border + text accent.
-		bg: string
-		border: string
-		borderUnsaved: string
 		iconText: string
 	}
 
-	// One muted treatment for every source kind — colors are meaningful, not
+	// One muted icon color for every source kind — colors are meaningful, not
 	// decorative (brand guidelines), so the kind is carried by the icon and
-	// label while bg/border stay on the surface/gray scale like the flow
-	// editor's nodes. Red stays reserved for the missing-trigger state.
-	const MUTED = {
-		bg: 'bg-surface-secondary',
-		border: 'outline-gray-400 dark:outline-gray-600',
-		borderUnsaved: 'outline-dashed outline-gray-400 dark:outline-gray-500',
-		iconText: 'text-secondary'
-	}
+	// label. Red stays reserved for the missing-trigger state.
+	const MUTED = { iconText: 'text-secondary' }
 
 	export const TRIGGER_NODE_STYLE: Record<TriggerNodeKind, Presentation> = {
 		schedule: { icon: Clock, label: 'Schedule', ...MUTED },
@@ -83,11 +73,6 @@
 			// to the draft instead of a trigger row.
 			draft?: boolean
 			runnable_path?: string
-			// True iff the target script is still a draft (no DB row yet).
-			// Drives the "(after draft save)" hint on the missing
-			// placeholder, since the page-level handler refuses to open the
-			// create drawer until the script is deployed.
-			runnable_unsaved?: boolean
 			// Page-supplied dispatcher that opens the matching native
 			// trigger drawer with `script_path` pre-filled. When absent
 			// (e.g. schedule, or a kind without an editor) the placeholder is

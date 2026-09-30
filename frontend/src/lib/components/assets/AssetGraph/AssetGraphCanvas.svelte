@@ -469,14 +469,6 @@
 				}
 			})
 		}
-		// Set of `script_path` values for runnables that are still drafts (no
-		// DB row yet). Trigger nodes use this to swap "Click to create" for
-		// "Click to create (after draft save)" so the user knows the create
-		// button is blocked until the script is deployed.
-		const unsavedRunnablePaths = new Set<string>()
-		for (const r of g.runnables) {
-			if (r.unsaved) unsavedRunnablePaths.add(r.path)
-		}
 		// Producer → its `// data_test` checks, keyed by runnable id, so the
 		// write-edge to the materialized asset can carry the test badge: the
 		// edge *is* the transformation, and the tests assert on what it produces.
@@ -842,9 +834,6 @@
 					missing: info.missing,
 					draft: info.draft,
 					runnable_path: info.runnable_path,
-					runnable_unsaved: info.runnable_path
-						? unsavedRunnablePaths.has(info.runnable_path)
-						: false,
 					// data_upload nodes go green once a file is staged for their
 					// target script (see readyDataUploadPaths / page dataUploadArgs).
 					ready: info.runnable_path

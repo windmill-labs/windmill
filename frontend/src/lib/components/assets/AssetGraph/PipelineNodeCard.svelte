@@ -21,8 +21,8 @@ and the controls hung around the card.
 		selected?: boolean
 		/** Not deployed yet: dashed edge. */
 		draft?: boolean
-		/** Feedback states, which recolor the whole card. */
-		/** `error` is a misconfigured node, styled like a failed flow step. */
+		/** Feedback states, which recolor the whole card. `error` is a misconfigured
+		 * node, styled like a failed flow step. */
 		tone?: 'danger' | 'error' | 'success' | 'running'
 		/** Makes the whole card a button. */
 		onclick?: (e: MouseEvent) => void

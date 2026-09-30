@@ -1274,4 +1274,29 @@ describe('pipelineNodeErrors', () => {
 		])
 		expect([...errors.scripts.keys()]).toEqual(['f/x/cons'])
 	})
+
+	it('treats dbt models as used and written by their (hidden) project, but not dbt sources', () => {
+		const dbt = (path: string, resource_type: string) => ({
+			kind: 'dbt' as const,
+			path,
+			dbt: { unique_id: `x.${path}`, resource_type } as any
+		})
+		const errors = pipelineNodeErrors(
+			baseGraph({
+				assets: [dbt('mart', 'model'), dbt('raw', 'source')],
+				runnables: [{ path: 'f/x/s', usage_kind: 'script' }]
+			}),
+			new Map([
+				[
+					'f/x/s',
+					[
+						{ kind: 'dbt', path: 'mart' },
+						{ kind: 'dbt', path: 'raw' }
+					]
+				]
+			])
+		)
+		expect([...errors.assets.keys()]).toEqual(['dbt:raw'])
+		expect([...errors.scripts.keys()]).toEqual(['f/x/s'])
+	})
 })

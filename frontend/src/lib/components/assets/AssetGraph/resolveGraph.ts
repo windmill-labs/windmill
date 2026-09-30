@@ -331,7 +331,14 @@ export function pipelineNodeErrors(
 			.filter((e) => e.access_type === 'w' || e.access_type === 'rw')
 			.map((e) => `${e.asset_kind}:${e.asset_path}`)
 	)
-	for (const e of graph.dbt_edges ?? []) written.add(`dbt:${e.from_asset_path}`)
+	// The dbt project's own edges are hidden from the pipeline graph (see
+	// `hideDbtRunnables`), so its relations are judged by their provenance: the
+	// project uses every one, and materializes all but its sources.
+	for (const a of graph.assets) {
+		if (!a.dbt) continue
+		referenced.add(`${a.kind}:${a.path}`)
+		if (a.dbt.resource_type !== 'source') written.add(`${a.kind}:${a.path}`)
+	}
 	const errors = new Map<string, string>()
 	const scriptErrors = new Map<string, string>()
 	for (const a of graph.assets) {
