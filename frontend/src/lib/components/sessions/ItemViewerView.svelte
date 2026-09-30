@@ -64,6 +64,10 @@
 
 	const searchParams = $derived(version ? new URLSearchParams({ version }) : undefined)
 
+	// A chat tool call parked on this item's run form, when one opened this tab to ask for
+	// a deployed run. The page fills its form from it and routes Run back to the call.
+	const pendingRun = $derived(runtime.pendingRunFor(kind, path))
+
 	// Nothing deployed at this path. Reset per remount key so a refetch after a deploy is
 	// not answered from the previous load's verdict.
 	let loadState: 'loaded' | 'not_found' | undefined = $state(undefined)
@@ -111,8 +115,8 @@
 			// segment with no slash is a hash — pinned in the query instead, or this tab's
 			// identity would become that hash and it would stop being a tab on this script.
 			const isVersionHash = route.kind === 'script' && !route.itemPath.includes('/')
-			runtime.previewTabs.navigate({
-				type: 'item',
+			const target = {
+				type: 'item' as const,
 				item: {
 					path: isVersionHash ? path : route.itemPath,
 					summary: '',
@@ -121,7 +125,13 @@
 				},
 				mode: route.mode,
 				version: isVersionHash ? route.itemPath : (query.get('version') ?? undefined)
-			})
+			}
+			// This tab is the deployed side, so a link to an editor is a request for the other
+			// side: it opens beside this one rather than replacing the page it was asked from.
+			// Everything else the page links — another version, the head, a rename's new path —
+			// is still this same view of the item, so it re-points in place.
+			if (route.mode === 'edit') runtime.previewTabs.open(target)
+			else runtime.previewTabs.navigate(target)
 			return
 		}
 		runtime.previewTabs.open({
@@ -157,6 +167,7 @@
 			{onNavigate}
 			{active}
 			syncArgsToUrl={false}
+			{pendingRun}
 			onLoadState={setLoadState}
 		/>
 	{:else if kind === 'flow'}
@@ -167,6 +178,7 @@
 			{onNavigate}
 			{active}
 			syncArgsToUrl={false}
+			{pendingRun}
 			onLoadState={setLoadState}
 		/>
 	{:else}

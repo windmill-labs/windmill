@@ -87,6 +87,19 @@ export type PreviewTarget =
 	| { type: 'runform'; toolCallId: string; label: string }
 	| { type: 'pageitem'; ref: PageItemRef }
 
+/**
+ * Which side of an item to open when the opener is showing the reader something
+ * that already exists, rather than something it just wrote: the deployed page,
+ * unless nothing is deployed there and the editor is all the item has.
+ *
+ * The openers that follow a write (`open_preview`, the write-result preview card)
+ * pass `'edit'` themselves — the item they mean may well be deployed, and its
+ * deployed page is precisely not what the reader asked to see.
+ */
+export function previewModeFor(item: Pick<WorkspaceItem, 'draftOnly'>): PreviewItemMode {
+	return item.draftOnly ? 'edit' : 'view'
+}
+
 export type PreviewPage = { label: string; path: string; icon: DrillIcon }
 
 // Core workspace-level destinations the preview can route to. Intentionally

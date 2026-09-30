@@ -13,11 +13,27 @@ import {
 	parseRunFormRoute,
 	previewLocationContext,
 	previewLocationLabel,
+	previewModeFor,
 	resolvePreviewTab,
 	runFormUrl,
 	workspacePageHref
 } from './previewRouter'
 import { pageItemUrl } from './previewPaths'
+
+describe('previewModeFor', () => {
+	// Every opener that shows the reader an item that already exists routes through
+	// this, so the two halves are one decision rather than a repeated conditional.
+	it('sends a deployed item to its page and a draft-only one to its editor', () => {
+		expect(previewModeFor({ draftOnly: false })).toBe('view')
+		expect(previewModeFor({ draftOnly: true })).toBe('edit')
+	})
+
+	// A row from a lister that was not asked for draft-only items carries no flag,
+	// and everything it lists is deployed.
+	it('treats a missing flag as deployed', () => {
+		expect(previewModeFor({})).toBe('view')
+	})
+})
 
 describe('workspacePageHref', () => {
 	it('sends a page item tab to its list page with the row open, never to its scheme', () => {

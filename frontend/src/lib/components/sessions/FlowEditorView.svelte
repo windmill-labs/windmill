@@ -1,7 +1,10 @@
 <script lang="ts">
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
-	import type { WorkspaceItem } from '$lib/components/workspacePicker'
+	import {
+		invalidate as invalidateWorkspaceItems,
+		type WorkspaceItem
+	} from '$lib/components/workspacePicker'
 	import type { Flow } from '$lib/gen'
 	import type { SessionRuntime } from './sessionRuntime.svelte'
 	import SessionEditorTarget from './SessionEditorTarget.svelte'
@@ -138,6 +141,10 @@
 				runtime.syncPreviewWithDeployed(workspaceId, 'flow', path)
 				// Deploying clears the item's pending draft — refresh the Draft Count.
 				invalidateWorkspaceDrafts(workspaceId)
+				// And drop the picker's cached row, whose `draftOnly` now decides which
+				// side a pick opens: stale, it would send the reader back to the editor
+				// of the thing they just deployed.
+				invalidateWorkspaceItems(workspaceId, 'flow')
 			}}
 		/>
 	{/snippet}

@@ -668,7 +668,7 @@
 			if (!o) return
 			const target = previewTargetForSessionTarget(action.previewKind, action.path)
 			if (!target) return
-			o.open(target)
+			o.open(target.type === 'item' ? { ...target, mode: action.mode } : target)
 		})
 	})
 	// Variables, resources, schedules and triggers the chat links to open as tabs of their
@@ -847,8 +847,11 @@
 
 	// An editor's `Exit & see details`: the session hosts the details page itself, so the
 	// tab moves to the item's deployed view rather than the browser leaving the session.
+	// `open`, not `navigate`: leaving the editor to look at what is deployed is not a
+	// redirect of the tab you are working in — you are stepping away from an editor you
+	// still want, so the deployed page arrives beside it.
 	function seeDetailsInPreview(item: WorkspaceItem) {
-		owner?.navigate({ type: 'item', item, mode: 'view' })
+		owner?.open({ type: 'item', item, mode: 'view' })
 	}
 
 	// A preview iframe that navigates to an editor route posts up to us instead of

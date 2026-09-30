@@ -1,7 +1,10 @@
 <script lang="ts">
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
-	import type { WorkspaceItem } from '$lib/components/workspacePicker'
+	import {
+		invalidate as invalidateWorkspaceItems,
+		type WorkspaceItem
+	} from '$lib/components/workspacePicker'
 	import type { SessionRuntime } from './sessionRuntime.svelte'
 	import type { NewScript } from '$lib/gen'
 	import { UserDraft } from '$lib/userDraft.svelte'
@@ -129,6 +132,10 @@
 					// Deploying clears the item's pending draft — refresh the workspace
 					// Draft Count so the session bar / compare page drop it immediately.
 					invalidateWorkspaceDrafts(workspaceId)
+					// And drop the picker's cached row, whose `draftOnly` now decides which
+					// side a pick opens: stale, it would send the reader back to the editor
+					// of the thing they just deployed.
+					invalidateWorkspaceItems(workspaceId, 'script')
 				}}
 			/>
 		{/if}

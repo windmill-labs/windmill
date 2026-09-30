@@ -1,5 +1,3 @@
-import type { Flow, ListableApp, Script } from '$lib/gen'
-
 export type WorkspaceItemKind = 'flow' | 'script' | 'app'
 
 export type WorkspaceItem = {
@@ -12,6 +10,15 @@ export type WorkspaceItem = {
 	 * Display-only: `path` stays the storage key and is what URLs and
 	 * dedupe must use — routing to the friendly path 404s. */
 	draftPath?: string
+	/** Nothing is deployed at this path: the row exists only because the
+	 * listers were asked for `include_draft_only`. Decides which side of an
+	 * item a picker opens, so it must be invalidated on deploy — a stale
+	 * `true` sends the reader to the editor of something they just shipped. */
+	draftOnly?: boolean
+	/** The authed user has a draft for this item. True for a draft-only item too,
+	 * so read it with `draftOnly` to tell "nothing deployed" from "deployed, with
+	 * edits pending". */
+	hasDraft?: boolean
 }
 
 /** Path to display (and group by) in pickers: the friendly draft path when
@@ -127,11 +134,13 @@ export async function loadKind(
 				includeDraftOnly: true,
 				withoutDescription: true
 			})
-			items = flows.map((f: Flow & { draft_path?: string }) => ({
+			items = flows.map((f) => ({
 				path: f.path,
 				summary: f.summary ?? '',
 				kind: 'flow' as const,
-				draftPath: f.draft_path
+				draftPath: f.draft_path,
+				draftOnly: f.draft_only ?? false,
+				hasDraft: f.is_draft ?? false
 			}))
 		} else if (kind === 'script') {
 			const scripts = await ScriptService.listScripts({
@@ -139,23 +148,27 @@ export async function loadKind(
 				includeDraftOnly: true,
 				withoutDescription: true
 			})
-			items = scripts.map((s: Script & { draft_path?: string }) => ({
+			items = scripts.map((s) => ({
 				path: s.path,
 				summary: s.summary ?? '',
 				kind: 'script' as const,
-				draftPath: s.draft_path
+				draftPath: s.draft_path,
+				draftOnly: s.draft_only ?? false,
+				hasDraft: s.is_draft ?? false
 			}))
 		} else {
 			const apps = await AppService.listApps({
 				workspace,
 				includeDraftOnly: true
 			})
-			items = apps.map((a: ListableApp & { draft_path?: string }) => ({
+			items = apps.map((a) => ({
 				path: a.path,
 				summary: a.summary ?? '',
 				kind: 'app' as const,
 				raw_app: a.raw_app ?? false,
-				draftPath: a.draft_path
+				draftPath: a.draft_path,
+				draftOnly: a.draft_only ?? false,
+				hasDraft: a.is_draft ?? false
 			}))
 		}
 		// Only commit if the cache version hasn't changed since we started —

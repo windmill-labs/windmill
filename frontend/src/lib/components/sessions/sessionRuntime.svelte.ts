@@ -1,6 +1,7 @@
 import { SvelteMap } from 'svelte/reactivity'
 import { get } from 'svelte/store'
 import { base } from '$lib/base'
+import type { PendingRun } from '$lib/components/details/pendingRun'
 import { AIChatManager, AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
 import { PipelineEditorState } from '$lib/components/assets/AssetGraph/pipelineEditorState.svelte'
 import { initFlow } from '$lib/components/flows/flowStore.svelte'
@@ -218,6 +219,8 @@ export interface SessionRuntime {
 	 * viewer refetches when this changes — it reads the deployed version from the
 	 * API, so nothing else tells it the editor beside it just published. */
 	deployedRevision(kind: SessionTargetKind, path: string): number
+	/** The chat tool call waiting on this item's deployed run form, if one adopted it. */
+	pendingRunFor(kind: SessionTargetKind, path: string): PendingRun | undefined
 	/** Record that a preview tab landed on `url`. Fires for a newly opened tab and
 	 * for an existing one switched to the other side of its item. */
 	logTabUsage(url: string): void
@@ -541,9 +544,48 @@ function createRuntime(session: Session): SessionRuntime {
 			// Only persist a real width; undefined means "never resized" (defaults to 50).
 			if (snap.previewSize != null) setSessionPreviewSize(session.id, snap.previewSize)
 		},
-		onTabsChanged: pruneEditorCells,
+		onTabsChanged: () => {
+			pruneEditorCells()
+			declineAdoptionsWithoutTab()
+		},
 		onTabOpened: logTabUsage
 	})
+
+	// Deployed pages that have taken over a parked run form, keyed by the item they show.
+	// Not persisted: a parked call does not survive a reload, so a restored tab comes back
+	// as a plain deployed page.
+	const adoptedRuns = new SvelteMap<string, { toolCallId: string; args: Record<string, any> }>()
+	const adoptionKey = (kind: SessionTargetKind, path: string) => `${kind}:${path}`
+
+	/** The call waiting on this item's run form, for the viewer that renders it. */
+	function pendingRunFor(kind: SessionTargetKind, path: string): PendingRun | undefined {
+		const adopted = adoptedRuns.get(adoptionKey(kind, path))
+		if (!adopted) return undefined
+		return {
+			toolCallId: adopted.toolCallId,
+			args: adopted.args,
+			submit: (args) => manager.handleRunFormSubmit(adopted.toolCallId, args),
+			decline: () => manager.handleRunFormCancel(adopted.toolCallId)
+		}
+	}
+
+	// Closing the tab declines the call, the contract the run form tab already has: the tab
+	// is the call's presence in the panel. Driven off the tab set rather than a close
+	// handler so a tab dropped by a reset or a session switch counts too.
+	function declineAdoptionsWithoutTab() {
+		for (const [key, adopted] of [...adoptedRuns]) {
+			const [kind, path] = [key.slice(0, key.indexOf(':')), key.slice(key.indexOf(':') + 1)]
+			const stillOpen = previewTabs.tabs.some((t) => {
+				const slot = resolvePreviewTab(t.url)
+				return slot.kind === 'viewer' && slot.viewerKind === kind && slot.path === path
+			})
+			if (stillOpen) continue
+			adoptedRuns.delete(key)
+			if (manager.isRunFormPending(adopted.toolCallId)) {
+				manager.handleRunFormCancel(adopted.toolCallId)
+			}
+		}
+	}
 
 	// Let the jobs tray open a run in this session's preview panel (as an iframe
 	// tab over the run page). The global side-panel chat leaves this unset and
@@ -562,16 +604,49 @@ function createRuntime(session: Session): SessionRuntime {
 	manager.openRunForm = ({ toolCallId, label }) => {
 		previewTabs.open({ type: 'runform', toolCallId, label })
 	}
-	manager.closeRunForm = (toolCallId) => previewTabs.closeRunForm(toolCallId)
+	// A deployed run shows the item's real deployed page instead, with the model's arguments
+	// in its own run form. The page hands them back through `pendingRunFor` rather than
+	// starting a job, so the tool still owns the run and the card still gets its logs.
+	manager.openRunOnDeployedPage = ({ toolCallId, kind, path, args, summary }) => {
+		adoptedRuns.set(adoptionKey(kind, path), { toolCallId, args })
+		previewTabs.open({
+			type: 'item',
+			item: { kind: kind === 'raw_app' ? 'app' : kind, raw_app: kind === 'raw_app', path, summary },
+			mode: 'view'
+		})
+	}
+	manager.closeRunForm = (toolCallId) => {
+		// The page outlives the call it adopted — it is still the item's deployed page — so
+		// settling only drops the adoption, and the form reverts to running on its own.
+		for (const [key, adopted] of [...adoptedRuns]) {
+			if (adopted.toolCallId === toolCallId) adoptedRuns.delete(key)
+		}
+		previewTabs.closeRunForm(toolCallId)
+	}
 	manager.showRunInPlaceOfForm = ({ toolCallId, jobId, workspace }) => {
-		previewTabs.retargetRunForm(toolCallId, `${base}/run/${jobId}?workspace=${workspace}`)
+		const runHref = `${base}/run/${jobId}?workspace=${workspace}`
+		// Either surface the call was waiting on becomes the run it started, in place.
+		for (const [key, adopted] of [...adoptedRuns]) {
+			if (adopted.toolCallId !== toolCallId) continue
+			adoptedRuns.delete(key)
+			const [kind, path] = [key.slice(0, key.indexOf(':')), key.slice(key.indexOf(':') + 1)]
+			const tab = previewTabs.tabs.find((t) => {
+				const slot = resolvePreviewTab(t.url)
+				return slot.kind === 'viewer' && slot.viewerKind === kind && slot.path === path
+			})
+			if (tab) previewTabs.retargetById(tab.id, runHref)
+		}
+		previewTabs.retargetRunForm(toolCallId, runHref)
 	}
 	// Read off the tab list rather than the slot's lifecycle: a tab the user has switched
 	// away from is unmounted but still open, and the card must keep its form hidden until it
 	// is closed. A resolver, like activePreviewResolver: the reader's own $derived subscribes
 	// to `tabs` through it, and the runtime is not inside an effect root to push from.
+	// An adopted deployed page counts: its form is this call's form, so the card must not
+	// mount a second one there either.
 	manager.isRunFormInPreview = (toolCallId) =>
-		previewTabs.tabs.some((t) => parseRunFormRoute(t.url)?.toolCallId === toolCallId)
+		previewTabs.tabs.some((t) => parseRunFormRoute(t.url)?.toolCallId === toolCallId) ||
+		[...adoptedRuns.values()].some((a) => a.toolCallId === toolCallId)
 
 	manager.openArtifact = (id, name, version) => {
 		previewTabs.open({ type: 'artifact', id, name, version })
@@ -607,6 +682,7 @@ function createRuntime(session: Session): SessionRuntime {
 		flowCell,
 		loadedEditorPath,
 		deployedRevision,
+		pendingRunFor,
 		logTabUsage,
 
 		async loadFlow(workspace: string, path: string, force = false) {
@@ -1191,7 +1267,7 @@ export function removeSession(sessionId: string): void {
 // backgrounded session's tool call opens its OWN preview, not the one the user
 // happens to be viewing. Outside a session there is no calling/active id and
 // the tool returns a polite error.
-setOpenPreviewHandler(async ({ sessionId: callerSessionId, kind, path }) => {
+setOpenPreviewHandler(async ({ sessionId: callerSessionId, kind, path, mode }) => {
 	const sessionId = callerSessionId ?? sessionState.currentSessionId
 	if (!sessionId) {
 		return 'Error: no active session to open the preview in.'
@@ -1205,7 +1281,11 @@ setOpenPreviewHandler(async ({ sessionId: callerSessionId, kind, path }) => {
 		return `Error: ${kind} targets cannot be shown in the preview panel.`
 	}
 	const runtime = getOrCreateRuntime(session)
-	const result = runtime.previewTabs.open(target)
+	// The editor unless the model asked otherwise: this tool's job is showing the user
+	// the draft a write tool just produced. A reference to an item that already exists
+	// reaches the panel as a pill in the transcript, which asks for the deployed page.
+	const resolved = target.type === 'item' ? { ...target, mode: mode ?? 'edit' } : target
+	const result = runtime.previewTabs.open(resolved)
 	// The pipeline editor registers its build_pipeline_node / edit_pipeline_node
 	// tools asynchronously once the canvas mounts. Block the tool result until
 	// they are live so the model's next turn doesn't race ahead and hit an

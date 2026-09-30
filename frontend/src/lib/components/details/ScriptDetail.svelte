@@ -46,6 +46,8 @@
 	} from '$lib/components/common'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
+	import { argsForSchema, type PendingRun } from '$lib/components/details/pendingRun'
+	import type { Schema } from '$lib/common'
 	import DbtRunGraph from '$lib/components/dbt/DbtRunGraph.svelte'
 	import { goto } from '$lib/navigation'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
@@ -121,6 +123,7 @@
 		onNavigate = goto,
 		active = true,
 		syncArgsToUrl = true,
+		pendingRun,
 		onLoadState
 	}: {
 		/** The `[...hash]` route segment: either a script hash or a script path. */
@@ -136,6 +139,9 @@
 		/** Whether the run form may mirror its args into the page URL's fragment. False
 		 * wherever this is embedded in a page that is not the script's own. */
 		syncArgsToUrl?: boolean
+		/** A chat tool call waiting on this form. Seeds the arguments it proposed and takes
+		 * over Run; see {@link PendingRun} for why the page must not run it itself. */
+		pendingRun?: PendingRun
 		/** How the load ended, for a host that renders its own state around this page.
 		 * Providing it also suppresses the "could not load" toast: a 404 here is the normal
 		 * state of a not-yet-deployed path, which the host explains in place instead. */
@@ -390,6 +396,23 @@
 	}
 
 	let args: Record<string, any> | undefined = $state(undefined)
+
+	// Run hands the arguments to the waiting call instead of starting a job: the tool that
+	// parked on this form starts one itself when it resumes.
+	const runAction = $derived(
+		pendingRun ? (_scheduledForStr, a: Record<string, any>) => pendingRun.submit(a) : runScript
+	)
+
+	// Seeded once the script is loaded, because narrowing the model's arguments needs its
+	// schema. The strip above the form is what says where they came from.
+	let seededCallId: string | undefined = undefined
+	$effect(() => {
+		if (!pendingRun || !script || !runForm) return
+		if (seededCallId === pendingRun.toolCallId) return
+		seededCallId = pendingRun.toolCallId
+		runForm.setArgs(argsForSchema(pendingRun.args, script.schema as Schema | undefined))
+	})
+
 	// Read once on purpose: these args seed the form, so tracking the fragment would
 	// overwrite what the user has typed whenever it changes.
 	let hash = untrack(() => locationHash)
@@ -734,6 +757,14 @@
 					}
 				}
 				break
+			case 'Escape':
+				// Only while the strip is up, and only if nothing nearer has claimed the key:
+				// a popover or drawer that handles Escape stops it before it reaches here.
+				if (pendingRun && !event.defaultPrevented) {
+					event.preventDefault()
+					pendingRun.decline()
+				}
+				break
 		}
 	}
 
@@ -1043,6 +1074,9 @@
 								/>
 							{/if}
 
+							{#if pendingRun}
+								<InputSelectedBadge inputSelected="pending_run" onReject={pendingRun.decline} />
+							{/if}
 							<RunForm
 								bind:scheduledForStr
 								bind:invisible_to_owner
@@ -1055,7 +1089,7 @@
 								detailed={false}
 								bind:isValid
 								runnable={script}
-								runAction={runScript}
+								{runAction}
 								bind:args
 								schedulable={true}
 								bind:this={runForm}

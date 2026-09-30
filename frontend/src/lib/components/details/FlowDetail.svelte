@@ -27,6 +27,8 @@
 	import { Badge as HeaderBadge, Alert } from '$lib/components/common'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
+	import { argsForSchema, type PendingRun } from '$lib/components/details/pendingRun'
+	import type { Schema } from '$lib/common'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import { enterpriseLicense, userStore, userWorkspaces } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
@@ -95,6 +97,7 @@
 		onNavigate = goto,
 		active = true,
 		syncArgsToUrl = true,
+		pendingRun,
 		onLoadState
 	}: {
 		/** The `[...path]` route segment: the flow's path. */
@@ -110,6 +113,9 @@
 		/** Whether the run form may mirror its args into the page URL's fragment. False
 		 * wherever this is embedded in a page that is not the flow's own. */
 		syncArgsToUrl?: boolean
+		/** A chat tool call waiting on this form. Seeds the arguments it proposed and takes
+		 * over Run; see {@link PendingRun} for why the page must not run it itself. */
+		pendingRun?: PendingRun
 		/** How the load ended, for a host that renders its own state around this page. */
 		onLoadState?: (state: 'loaded' | 'not_found') => void
 	} = $props()
@@ -323,6 +329,22 @@
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state()
 	let runForm: RunForm | undefined = $state()
 
+	// Run hands the arguments to the waiting call instead of starting a job: the tool that
+	// parked on this form starts one itself when it resumes.
+	const runAction = $derived(
+		pendingRun ? (_scheduledForStr, a: Record<string, any>) => pendingRun.submit(a) : runFlow
+	)
+
+	// Seeded once the flow is loaded, because narrowing the model's arguments needs its
+	// schema. The strip above the form is what says where they came from.
+	let seededCallId: string | undefined = undefined
+	$effect(() => {
+		if (!pendingRun || !flow || !runForm) return
+		if (seededCallId === pendingRun.toolCallId) return
+		seededCallId = pendingRun.toolCallId
+		runForm.setArgs(argsForSchema(pendingRun.args, flow.schema as Schema | undefined))
+	})
+
 	function getMainButtons(flow: Flow | undefined, args: object | undefined) {
 		const buttons: any = []
 
@@ -517,6 +539,14 @@
 					} else {
 						sendUserToast('Please fix errors before running', true)
 					}
+				}
+				break
+			case 'Escape':
+				// Only while the strip is up, and only if nothing nearer has claimed the key:
+				// a popover or drawer that handles Escape stops it before it reaches here.
+				if (pendingRun && !event.defaultPrevented) {
+					event.preventDefault()
+					pendingRun.decline()
 				}
 				break
 		}
@@ -809,6 +839,9 @@
 									/>
 								{/if}
 
+								{#if pendingRun}
+									<InputSelectedBadge inputSelected="pending_run" onReject={pendingRun.decline} />
+								{/if}
 								<RunForm
 									bind:scheduledForStr
 									bind:invisible_to_owner
@@ -821,7 +854,7 @@
 									detailed={false}
 									bind:isValid
 									runnable={flow}
-									runAction={runFlow}
+									{runAction}
 									bind:args
 									bind:this={runForm}
 									{jsonView}

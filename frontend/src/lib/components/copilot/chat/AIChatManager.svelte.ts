@@ -557,6 +557,17 @@ export class AIChatManager implements ChatViewHost {
 	 * chat card holds. Unset outside a session: a chat-bound form has nowhere else to go,
 	 * so the card hides the control rather than offering a tab that cannot run. */
 	openRunForm?: (a: { toolCallId: string; label: string }) => void
+	/** A DEPLOYED run instead shows the item's own deployed page, with these arguments in
+	 * the run form that is already there — the reader runs it where they would have run it
+	 * themselves, seeing its triggers and past runs. The page hands the arguments back to
+	 * this call rather than starting a job, so the tool still owns the run. */
+	openRunOnDeployedPage?: (a: {
+		toolCallId: string
+		kind: 'script' | 'flow' | 'raw_app'
+		path: string
+		summary: string
+		args: Record<string, any>
+	}) => void
 	closeRunForm?: (toolCallId: string) => void
 	/** Hands that tab from the form to the run it just started, in place: the tab keeps its
 	 * position in the strip and stays active if it was. */

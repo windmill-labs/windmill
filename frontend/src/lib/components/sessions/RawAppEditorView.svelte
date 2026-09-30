@@ -2,7 +2,10 @@
 	import { untrack } from 'svelte'
 	import RawAppEditor from '$lib/components/raw_apps/RawAppEditor.svelte'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
-	import type { WorkspaceItem } from '$lib/components/workspacePicker'
+	import {
+		invalidate as invalidateWorkspaceItems,
+		type WorkspaceItem
+	} from '$lib/components/workspacePicker'
 	import type { SessionRuntime } from './sessionRuntime.svelte'
 	import SessionEditorTarget from './SessionEditorTarget.svelte'
 	import { runResetToDeployed } from '$lib/userDraftToast'
@@ -271,6 +274,10 @@
 					runtime.syncPreviewWithDeployed(workspaceId, 'raw_app', e.path)
 					// Deploying clears the item's pending draft — refresh the Draft Count.
 					invalidateWorkspaceDrafts(workspaceId)
+					// And drop the picker's cached row, whose `draftOnly` now decides which
+					// side a pick opens: stale, it would send the reader back to the editor
+					// of the thing they just deployed.
+					invalidateWorkspaceItems(workspaceId, 'app')
 				}}
 				defaultSidebarCollapsed
 				sidebarStorageKey="raw-app-sidebar-collapsed-preview"

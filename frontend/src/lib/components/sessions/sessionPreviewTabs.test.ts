@@ -1114,3 +1114,40 @@ describe('SessionPreviewTabs.pulseFocus', () => {
 		expect(o.focusPulse.nonce).toBe(0)
 	})
 })
+
+describe('the two sides of an item are separate tabs', () => {
+	const viewTarget: PreviewTarget = { ...scriptTarget, mode: 'view' } as PreviewTarget
+
+	// The editor and the deployed page are different things to look at, so opening one
+	// never costs you the other — the reason the dedupe keys on the side and not the item.
+	it('opens a tab per side and focuses the side already open', () => {
+		const o = owner()
+		expect(o.open(scriptTarget).status).toBe('opened')
+		expect(o.open(viewTarget).status).toBe('opened')
+		expect(o.tabs.length).toBe(2)
+		expect(o.open(scriptTarget).status).toBe('focused')
+		expect(o.open(viewTarget).status).toBe('focused')
+		expect(o.tabs.length).toBe(2)
+	})
+
+	// Two editor tabs on one item would mount two editors racing its single (kind, path)
+	// cell; one editor beside one viewer does not, because the viewer holds no cell.
+	it('never opens a second editor for the same item', () => {
+		const o = owner()
+		o.open(scriptTarget)
+		o.open(scriptTarget)
+		expect(o.tabs.filter((t) => t.url.includes('/scripts/edit/')).length).toBe(1)
+	})
+
+	// The breadcrumb redirects the tab you are on. Sending it to the other side of the item
+	// it already shows must not leave a duplicate behind.
+	it('re-points in place when navigating a tab to its other side', () => {
+		const o = owner()
+		o.open(scriptTarget)
+		const id = o.tabs[0].id
+		o.navigate(viewTarget)
+		expect(o.tabs.length).toBe(1)
+		expect(o.tabs[0].id).toBe(id)
+		expect(o.tabs[0].url).toContain('/scripts/get/')
+	})
+})

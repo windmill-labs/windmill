@@ -373,25 +373,45 @@
 	// waiting on one, the run once a job exists. Neither, and there is nothing to open, so
 	// the button is not drawn at all — a form has nowhere to go outside a session, and a
 	// call cancelled before Run never became a run.
+	// A deployed run is shown on the item's own deployed page rather than a form of our own:
+	// the reader runs it where they would have run it themselves. A test run has no deployed
+	// page to show — it runs the draft being written — so it keeps the form.
+	const asDeployedPage = $derived(
+		pending && runForm?.kind === 'run' && !!path && !!aiChatManager.openRunOnDeployedPage
+	)
 	const previewTarget = $derived(
 		pending
-			? aiChatManager.openRunForm
-				? ('form' as const)
-				: undefined
+			? asDeployedPage
+				? ('deployed' as const)
+				: aiChatManager.openRunForm
+					? ('form' as const)
+					: undefined
 			: job
 				? ('run' as const)
 				: undefined
 	)
 	const previewTitle = $derived(
-		previewTarget === 'form'
-			? `Open this form in the preview panel: ${path}`
-			: aiChatManager.openRunInPreview
-				? `Open this run in the preview panel: ${path || runnableName}`
-				: `Open this run in a new tab: ${path || runnableName}`
+		previewTarget === 'deployed'
+			? `Open the deployed ${runnableKind === 'flow' ? 'flow' : 'script'} and its run form: ${path}`
+			: previewTarget === 'form'
+				? `Open this form in the preview panel: ${path}`
+				: aiChatManager.openRunInPreview
+					? `Open this run in the preview panel: ${path || runnableName}`
+					: `Open this run in a new tab: ${path || runnableName}`
 	)
 
 	function openPreview() {
 		const label = runnableName
+		if (previewTarget === 'deployed') {
+			aiChatManager.openRunOnDeployedPage?.({
+				toolCallId: message.tool_call_id,
+				kind: runnableKind === 'flow' ? 'flow' : 'script',
+				path,
+				summary: label,
+				args: aiChatManager.runFormDraft(message.tool_call_id, runForm!).args ?? {}
+			})
+			return
+		}
 		if (previewTarget === 'form') {
 			aiChatManager.openRunForm?.({ toolCallId: message.tool_call_id, label })
 			return
@@ -424,11 +444,14 @@
      on its way in, the run on its way out. Not a toggle — pressing it again focuses the
      tab it already opened. The row's only control, as on every other tool call. -->
 {#snippet previewChip()}
+	<!-- Every destination here is something to look at rather than edit — a form to fill, a
+	     deployed page, a run — so the chip carries the eye the preview tabs use. -->
 	<ToolPreviewCard
 		card={{ kind: runnableKind, path }}
 		title={previewTitle}
 		onOpen={openPreview}
 		kindIcon={false}
+		mode="view"
 	/>
 {/snippet}
 
