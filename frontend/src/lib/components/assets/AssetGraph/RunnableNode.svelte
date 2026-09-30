@@ -24,8 +24,9 @@
 	import type { GraphUsageKind } from './types'
 	import type { RunnableRunState } from './activeRunnables.svelte'
 	import { parseDurationSecs } from './parsePipelineAnnotations'
-	import { NODE } from '$lib/components/graph/util'
-	import { PIPELINE_NODE_HEIGHT } from './assetGraphLayout'
+	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
+	import PipelineNodeCard from './PipelineNodeCard.svelte'
+	import type { ScriptLang } from '$lib/gen'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import type { Item } from '$lib/utils'
@@ -39,6 +40,7 @@
 			runnable_kind: GraphUsageKind
 			path: string
 			summary?: string
+			language?: ScriptLang
 			in_pipeline?: boolean
 			partition_kind?: 'daily' | 'hourly' | 'weekly' | 'monthly' | 'dynamic'
 			freshness?: string
@@ -217,134 +219,132 @@
 	<!--
 		Mirrors the flow editor's step styling (getNodeColorClasses): muted
 		surface-tertiary fill with a quiet gray border, accent only for the
-		selected state, dashes for unsaved drafts. The 2px dashed stroke is
-		necessary for the dash gaps to be readable; 1px disappears into the
-		fill.
+		selected state, dashes for unsaved drafts — 1px, like the trigger
+		nodes' dashed outline, so every draft node reads the same.
 	-->
-	<div
-		class={twMerge(
-			'flex items-center rounded-md drop-shadow-sm overflow-hidden border transition-colors',
-			'bg-surface border-gray-400 dark:border-gray-600 hover:border-gray-500 dark:hover:border-gray-500',
-			selected && 'bg-surface-accent-selected border-border-selected',
-			data.unsaved && 'border-2 border-dashed border-gray-400 dark:border-gray-500',
-			computingNow &&
-				'bg-amber-50 dark:bg-amber-900/30 border-amber-400 dark:border-amber-600 animate-pulse'
-		)}
-		style="width: {NODE.width}px; min-height: {PIPELINE_NODE_HEIGHT}px;"
-		title={nodeTooltip}
+	<PipelineNodeCard
+		surface="primary"
+		kindLabel="{kindLabel}{data.unsaved ? ' · draft' : ''}"
+		title={data.summary || data.path}
+		tooltip={nodeTooltip}
+		{selected}
+		draft={data.unsaved}
+		tone={computingNow ? 'running' : undefined}
 	>
-		<Icon size={14} class={`shrink-0 ml-2 mr-2 ${selected ? 'text-accent' : 'text-secondary'}`} />
-		<div class="flex flex-col min-w-0 flex-1 pr-1 py-1 leading-tight">
-			<span class="text-3xs uppercase tracking-wide truncate text-tertiary">
-				{kindLabel}{data.unsaved ? ' · draft' : ''}
-			</span>
-			<span class="text-xs text-emphasis truncate">{data.summary || data.path}</span>
-		</div>
-		<!-- Annotation chips share one neutral treatment — the icon carries
+		{#snippet icon()}
+			{#if data.language && data.runnable_kind === 'script'}
+				<LanguageIcon lang={data.language} width={14} height={14} />
+			{:else}
+				<Icon size={14} class={selected ? 'text-accent' : 'text-secondary'} />
+			{/if}
+		{/snippet}
+		{#snippet trailing()}
+			<!-- Annotation chips share one neutral treatment — the icon carries
 		     the meaning (colors are reserved for feedback, per the brand
 		     guidelines). Only the freshness chip (when it has a verdict)
 		     and the run-state chip below use semantic colors. -->
-		{#if data.partition_kind}
-			<div
-				class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-surface-secondary text-secondary"
-				title={`// partitioned ${data.partition_kind}`}
-			>
-				<Layers size={10} />
-				<span class="text-3xs leading-none">{data.partition_kind}</span>
-			</div>
-		{/if}
-		<!-- Freshness is the one annotation chip that carries feedback (a
+			{#if data.partition_kind}
+				<div
+					class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-surface-secondary text-secondary"
+					title={`// partitioned ${data.partition_kind}`}
+				>
+					<Layers size={10} />
+					<span class="text-3xs leading-none">{data.partition_kind}</span>
+				</div>
+			{/if}
+			<!-- Freshness is the one annotation chip that carries feedback (a
 		     fresh/stale verdict against real run history), so like the
 		     run-state chip it uses semantic colors: emerald = within window,
 		     amber = stale. Neutral when there's no verdict (drafts, bad
 		     window value). -->
-		{#if data.freshness}
-			<div
-				class={twMerge(
-					'shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm',
-					freshnessState === 'fresh'
-						? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300'
-						: freshnessState === 'stale'
-							? 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300'
-							: 'bg-surface-secondary text-secondary'
-				)}
-				title={freshnessTooltip}
-			>
-				<Timer size={10} />
-				<span class="text-3xs leading-none">{data.freshness}</span>
-			</div>
-		{/if}
-		{#if data.tag}
-			<div
-				class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-surface-secondary text-secondary"
-				title={`// tag ${data.tag}`}
-			>
-				<Tag size={10} />
-				<span class="text-3xs leading-none">{data.tag}</span>
-			</div>
-		{/if}
-		{#if data.retry}
-			{@const r = data.retry}
-			<div
-				class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-surface-secondary text-secondary"
-				title={`// retry ${r.count}${r.delay ? ` ${r.delay}` : ''}`}
-			>
-				<RotateCw size={10} />
-				<span class="text-3xs leading-none">×{r.count}</span>
-			</div>
-		{/if}
-		{#if data.macros && data.macros.length > 0}
-			<div
-				class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-surface-secondary text-secondary"
-				title={`// macros — defines ${data.macros.length} macro${data.macros.length > 1 ? 's' : ''}:\n${data.macros
-					.map((m) => `• ${m.name}(${m.params})${m.is_table ? ' → table' : ''}`)
-					.join('\n')}`}
-			>
-				<SquareFunction size={10} />
-				<span class="text-3xs leading-none">×{data.macros.length}</span>
-			</div>
-		{/if}
-		{#if data.dbt}
-			<div
-				class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300"
-				title={`dbt project — materializes ${data.dbt.model_count} model${data.dbt.model_count === 1 ? '' : 's'}`}
-			>
-				<DbtIcon width={10} height={10} />
-				<span class="text-3xs leading-none">×{data.dbt.model_count}</span>
-			</div>
-		{/if}
-		{#if data.runState}
-			{@const rs = data.runState}
-			<div
-				class={twMerge(
-					'shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm',
-					rs.status === 'running'
-						? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
-						: rs.status === 'success'
+			{#if data.freshness}
+				<div
+					class={twMerge(
+						'shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm',
+						freshnessState === 'fresh'
 							? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300'
-							: 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300'
-				)}
-				title={`${
-					rs.status === 'running'
-						? 'Running now'
-						: rs.status === 'success'
-							? 'Last run succeeded'
-							: 'Last run failed'
-				}${rs.runs > 0 ? ` — ran ${rs.runs}× this session` : ''}`}
-			>
-				{#if rs.status === 'running'}
-					<Loader2 size={10} class="animate-spin" />
-				{:else if rs.status === 'success'}
-					<CheckCircle2 size={10} />
-				{:else}
-					<XCircle size={10} />
-				{/if}
-				{#if rs.runs > 0}
-					<span class="text-3xs leading-none tabular-nums">×{rs.runs}</span>
-				{/if}
-			</div>
-		{/if}
-	</div>
+							: freshnessState === 'stale'
+								? 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300'
+								: 'bg-surface-secondary text-secondary'
+					)}
+					title={freshnessTooltip}
+				>
+					<Timer size={10} />
+					<span class="text-3xs leading-none">{data.freshness}</span>
+				</div>
+			{/if}
+			{#if data.tag}
+				<div
+					class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-surface-secondary text-secondary"
+					title={`// tag ${data.tag}`}
+				>
+					<Tag size={10} />
+					<span class="text-3xs leading-none">{data.tag}</span>
+				</div>
+			{/if}
+			{#if data.retry}
+				{@const r = data.retry}
+				<div
+					class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-surface-secondary text-secondary"
+					title={`// retry ${r.count}${r.delay ? ` ${r.delay}` : ''}`}
+				>
+					<RotateCw size={10} />
+					<span class="text-3xs leading-none">×{r.count}</span>
+				</div>
+			{/if}
+			{#if data.macros && data.macros.length > 0}
+				<div
+					class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-surface-secondary text-secondary"
+					title={`// macros — defines ${data.macros.length} macro${data.macros.length > 1 ? 's' : ''}:\n${data.macros
+						.map((m) => `• ${m.name}(${m.params})${m.is_table ? ' → table' : ''}`)
+						.join('\n')}`}
+				>
+					<SquareFunction size={10} />
+					<span class="text-3xs leading-none">×{data.macros.length}</span>
+				</div>
+			{/if}
+			{#if data.dbt}
+				<div
+					class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300"
+					title={`dbt project — materializes ${data.dbt.model_count} model${data.dbt.model_count === 1 ? '' : 's'}`}
+				>
+					<DbtIcon width={10} height={10} />
+					<span class="text-3xs leading-none">×{data.dbt.model_count}</span>
+				</div>
+			{/if}
+			{#if data.runState}
+				{@const rs = data.runState}
+				<div
+					class={twMerge(
+						'shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm',
+						rs.status === 'running'
+							? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
+							: rs.status === 'success'
+								? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300'
+								: 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300'
+					)}
+					title={`${
+						rs.status === 'running'
+							? 'Running now'
+							: rs.status === 'success'
+								? 'Last run succeeded'
+								: 'Last run failed'
+					}${rs.runs > 0 ? ` — ran ${rs.runs}× this session` : ''}`}
+				>
+					{#if rs.status === 'running'}
+						<Loader2 size={10} class="animate-spin" />
+					{:else if rs.status === 'success'}
+						<CheckCircle2 size={10} />
+					{:else}
+						<XCircle size={10} />
+					{/if}
+					{#if rs.runs > 0}
+						<span class="text-3xs leading-none tabular-nums">×{rs.runs}</span>
+					{/if}
+				</div>
+			{/if}
+		{/snippet}
+	</PipelineNodeCard>
 	{#if showRun}
 		<!-- Run button revealed on hover/select. Matches the placement, size,
 		     and behaviour of AssetNode's run button so both nodes feel

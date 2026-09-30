@@ -529,6 +529,7 @@
 					runnable_kind: r.usage_kind,
 					path: r.path,
 					summary: r.summary,
+					language: r.language,
 					in_pipeline: r.in_pipeline ?? false,
 					partition_kind: r.partition_kind,
 					freshness: r.freshness,
@@ -1126,30 +1127,30 @@
 				// the "happening now" signal.
 				switch (e.kind) {
 					case 'lineage-write':
-						style = 'stroke: rgb(59 130 246); stroke-width: 2px;'
+						style = 'stroke: rgb(59 130 246); stroke-width: 1.25px;'
 						animated = flowAnimated
 						markerColor = 'rgb(59 130 246)'
 						break
 					case 'lineage-read':
-						style = 'stroke: rgb(156 163 175); stroke-width: 1.25px;'
+						style = 'stroke: rgb(156 163 175); stroke-width: 1px;'
 						animated = flowAnimated
 						break
 					case 'data-test':
 						// Asset → its custom-test script: dashed, muted, no run
 						// animation (the test isn't a producing step).
-						style = 'stroke: rgb(156 163 175); stroke-width: 1.25px;'
+						style = 'stroke: rgb(156 163 175); stroke-width: 1px;'
 						strokeDasharray = '4 3'
 						markerColor = 'rgb(156 163 175)'
 						break
 					case 'trigger-asset':
-						style = 'stroke: rgb(107 114 128); stroke-width: 2px;'
+						style = 'stroke: rgb(107 114 128); stroke-width: 1.25px;'
 						animated = flowAnimated
 						markerColor = 'rgb(107 114 128)'
 						label = 'triggers'
 						labelStyle = 'fill: rgb(107 114 128); font-size: 10px; font-weight: 600;'
 						break
 					case 'trigger-native':
-						style = 'stroke: rgb(107 114 128); stroke-width: 2px;'
+						style = 'stroke: rgb(107 114 128); stroke-width: 1.25px;'
 						strokeDasharray = '6 3'
 						markerColor = 'rgb(107 114 128)'
 						label = 'triggers'
@@ -1159,7 +1160,7 @@
 						// Library → consumer: violet dashed, visually apart from both
 						// lineage (blue/gray solid) and trigger (gray dashed) families —
 						// it's a code dependency, not data flow or execution.
-						style = 'stroke: rgb(139 92 246); stroke-width: 1.25px;'
+						style = 'stroke: rgb(139 92 246); stroke-width: 1px;'
 						strokeDasharray = '5 3'
 						markerColor = 'rgb(139 92 246)'
 						label = e.via_use ? 'uses lib' : 'macros'
@@ -1169,7 +1170,7 @@
 						// Producer → tested script: amber dashed ordering link. Not
 						// data flow (blue/gray) nor execution trigger (gray "triggers")
 						// — it only says "the test needs this asset to exist first".
-						style = 'stroke: rgb(217 119 6); stroke-width: 1.25px;'
+						style = 'stroke: rgb(217 119 6); stroke-width: 1px;'
 						strokeDasharray = '5 3'
 						markerColor = 'rgb(217 119 6)'
 						label = 'test needs'
@@ -1179,7 +1180,7 @@
 						// model → model inside one dbt project. Orange, matching the
 						// dbt badges, and dashed because the edge is dbt's own lineage
 						// rather than a Windmill read/write the cascade acts on.
-						style = 'stroke: rgb(234 88 12); stroke-width: 1.25px;'
+						style = 'stroke: rgb(234 88 12); stroke-width: 1px;'
 						strokeDasharray = '4 3'
 						markerColor = 'rgb(234 88 12)'
 						label = 'ref'
@@ -1216,7 +1217,7 @@
 				// (red dashed dimmed — fresh draft annotation that also has
 				// no matching row, which is the common case).
 				if (e.missing) {
-					style = 'stroke: rgb(239 68 68); stroke-width: 2px;'
+					style = 'stroke: rgb(239 68 68); stroke-width: 1.25px;'
 					strokeDasharray = '3 3'
 					markerColor = 'rgb(239 68 68)'
 					label = 'missing trigger'
@@ -1254,8 +1255,8 @@
 					style,
 					markerEnd: {
 						type: MarkerType.ArrowClosed,
-						width: 14,
-						height: 14,
+						width: 12,
+						height: 12,
 						color: markerColor
 					}
 				}
@@ -1397,11 +1398,8 @@
 	:global(.svelte-flow__controls-button:hover) {
 		@apply bg-surface-hover;
 	}
-	:global(.svelte-flow__node.selected .drop-shadow-sm) {
-		@apply outline outline-2 outline-blue-500;
-	}
 	/* Activity-panel emphasis — soft, monochromatic, less prominent than the
-	   blue details selection above. Hover is a thin neutral ring (transient);
+	   node's own selected state. Hover is a thin neutral ring (transient);
 	   pinning an expanded run is a soft-blue ring. */
 	/* A dbt project node and the models it materializes, related by badge
 	   rather than by edges — hovering either lights up the whole set. */

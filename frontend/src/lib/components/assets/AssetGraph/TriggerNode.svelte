@@ -43,24 +43,23 @@
 	}
 
 	export const TRIGGER_NODE_STYLE: Record<TriggerNodeKind, Presentation> = {
-		schedule: { icon: Clock, label: 'schedule', ...MUTED },
-		webhook: { icon: Webhook, label: 'webhook', ...MUTED },
-		email: { icon: Mail, label: 'email', ...MUTED },
-		kafka: { icon: Zap, label: 'kafka', ...MUTED },
-		mqtt: { icon: Radio, label: 'mqtt', ...MUTED },
-		amqp: { icon: Radio, label: 'amqp', ...MUTED },
-		nats: { icon: MessageSquare, label: 'nats', ...MUTED },
-		postgres: { icon: Database, label: 'postgres', ...MUTED },
-		sqs: { icon: Send, label: 'sqs', ...MUTED },
-		gcp: { icon: CloudCog, label: 'gcp', ...MUTED },
-		data_upload: { icon: Upload, label: 'data upload', ...MUTED }
+		schedule: { icon: Clock, label: 'Schedule', ...MUTED },
+		webhook: { icon: Webhook, label: 'Webhook', ...MUTED },
+		email: { icon: Mail, label: 'Email', ...MUTED },
+		kafka: { icon: Zap, label: 'Kafka', ...MUTED },
+		mqtt: { icon: Radio, label: 'MQTT', ...MUTED },
+		amqp: { icon: Radio, label: 'AMQP', ...MUTED },
+		nats: { icon: MessageSquare, label: 'NATS', ...MUTED },
+		postgres: { icon: Database, label: 'Postgres', ...MUTED },
+		sqs: { icon: Send, label: 'SQS', ...MUTED },
+		gcp: { icon: CloudCog, label: 'GCP Pub/Sub', ...MUTED },
+		data_upload: { icon: Upload, label: 'Data upload', ...MUTED }
 	}
 </script>
 
 <script lang="ts">
 	import { Handle, Position } from '@xyflow/svelte'
-	import { NODE } from '$lib/components/graph/util'
-	import { PIPELINE_NODE_HEIGHT } from './assetGraphLayout'
+	import PipelineNodeCard from './PipelineNodeCard.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { AlertTriangle, CheckCircle2, EllipsisVertical, Target, Trash2 } from 'lucide-svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
@@ -148,7 +147,7 @@
 	let Icon = $derived(displayMissing ? AlertTriangle : style.icon)
 	let missingTitle = $derived(
 		displayMissing
-			? `Missing ${style.label} trigger: ${data.runnable_path ?? ''} declares \`// on ${style.label}\` but no ${style.label} trigger targets it. Click to create one, or remove the annotation.`
+			? `Missing ${style.label} trigger: ${data.runnable_path ?? ''} declares \`// on ${data.kind}\` but no ${style.label} trigger targets it. Click to create one, or remove the annotation.`
 			: undefined
 	)
 	// Webhook gets a drawer (URLs + webhook-specific token creation) rather
@@ -217,6 +216,67 @@
 			: [])
 	])
 
+	// One card for every state: which label, title and click the node gets.
+	let card = $derived.by(
+		(): {
+			kindLabel: string
+			title: string
+			tooltip?: string
+			draft: boolean
+			tone?: 'danger' | 'success'
+			onclick?: () => void
+		} => {
+			const unsaved = !!data.unsaved
+			if (canCreate)
+				return {
+					kindLabel: `${style.label} · missing`,
+					title: 'Click to create',
+					tooltip: missingTitle,
+					draft: false,
+					tone: 'danger',
+					onclick: handleMissingClick
+				}
+			if (canEdit)
+				return {
+					kindLabel: `${style.label}${data.draft ? ' · draft' : unsaved ? ' · unsaved' : ''}`,
+					title: data.ref,
+					tooltip: data.draft
+						? `Draft ${style.label}: ${data.ref} — created when you save the pipeline. Click to edit.`
+						: `Edit ${style.label} trigger: ${data.ref}`,
+					draft: unsaved,
+					onclick: handleEditClick
+				}
+			if (canOpenWebhook)
+				return {
+					kindLabel: style.label,
+					title: 'URLs & token',
+					tooltip: `Webhook endpoint for ${data.runnable_path ?? ''} — click to view URLs and create a token`,
+					draft: unsaved,
+					onclick: handleWebhookClick
+				}
+			if (canOpenDataUpload)
+				return {
+					kindLabel: `${style.label}${dataUploadReady ? ' · ready' : ''}`,
+					title: dataUploadReady ? 'File staged' : 'Upload & run',
+					tooltip: dataUploadReady
+						? `Data upload for ${data.runnable_path ?? ''} — a file is staged; the pipeline is ready to run. Click to change it.`
+						: `Data upload for ${data.runnable_path ?? ''} — click to open the run form and upload a file`,
+					draft: !dataUploadReady && unsaved,
+					tone: dataUploadReady ? 'success' : undefined,
+					onclick: handleDataUploadClick
+				}
+			return {
+				kindLabel: `${style.label}${displayMissing ? ' · missing' : unsaved ? ' · unsaved' : ''}`,
+				title: displayMissing ? 'no trigger row' : data.ref,
+				tooltip:
+					missingTitle ??
+					(unsaved ? `Unsaved ${style.label}: ${data.ref}` : `${style.label}: ${data.ref}`),
+				draft: unsaved && !displayMissing,
+				tone: displayMissing ? 'danger' : undefined
+			}
+		}
+	)
+
 	function handleMissingClick() {
 		if (!canCreate || !data.runnable_path || !data.onCreateMissingTrigger) return
 		data.onCreateMissingTrigger(data.kind as NativeTriggerKind, data.runnable_path)
@@ -240,167 +300,28 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="relative" onmouseenter={() => (hover = true)} onmouseleave={() => (hover = false)}>
-	{#if canCreate}
-		<!-- Same affordance as the asset's downstream + button: render the
-		     whole node as a button so the cursor + hover + click is obvious
-		     without depending on svelte-flow's wrapper-level handlers. -->
-		<button
-			type="button"
-			onclick={handleMissingClick}
-			class={twMerge(
-				'flex items-center rounded-md drop-shadow-sm overflow-hidden outline outline-1 w-full text-left',
-				'bg-red-50 dark:bg-red-900/30 outline-dashed outline-red-400 dark:outline-red-500',
-				'hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors'
-			)}
-			style="width: {NODE.width}px; min-height: {PIPELINE_NODE_HEIGHT}px;"
-			title={missingTitle}
-		>
-			<Icon size={14} class="shrink-0 ml-2 mr-2 text-red-600 dark:text-red-400" />
-			<div class="flex flex-col min-w-0 flex-1 pr-2 py-0.5 leading-tight">
-				<span class="text-3xs uppercase tracking-wide truncate text-red-700 dark:text-red-400">
-					{style.label} · missing
-				</span>
-				<span class="text-2xs font-mono truncate text-red-700 dark:text-red-400">
-					Click to create
-				</span>
-			</div>
-		</button>
-	{:else if canEdit}
-		<!-- Mirrors the missing-trigger pattern: render the whole node as a
-		     button so clicks open the editor drawer reliably (don't rely on
-		     svelte-flow's onnodeclick wiring). -->
-		<button
-			type="button"
-			onclick={handleEditClick}
-			class={twMerge(
-				'flex items-center rounded-md drop-shadow-sm overflow-hidden outline outline-1 w-full text-left',
-				style.bg,
-				data.unsaved ? `opacity-80 ${style.borderUnsaved}` : style.border,
-				'hover:brightness-95 dark:hover:brightness-110 transition-[filter]'
-			)}
-			style="width: {NODE.width}px; min-height: {PIPELINE_NODE_HEIGHT}px;"
-			title={data.draft
-				? `Draft ${style.label}: ${data.ref} — created when you save the pipeline. Click to edit.`
-				: `Edit ${style.label} trigger: ${data.ref}`}
-		>
-			<Icon size={14} class={`shrink-0 ml-2 mr-2 ${style.iconText}`} />
-			<div class="flex flex-col min-w-0 flex-1 pr-2 py-0.5 leading-tight">
-				<span class="text-3xs uppercase tracking-wide truncate text-tertiary">
-					{style.label}{data.draft ? ' · draft' : data.unsaved ? ' · unsaved' : ''}
-				</span>
-				<span class="text-2xs font-mono truncate text-emphasis">
-					{data.ref}
-				</span>
-			</div>
-		</button>
-	{:else if canOpenWebhook}
-		<!-- Webhook endpoint: implicit (no trigger row), so the node opens a
-		     drawer with the URLs + webhook-specific token creation instead of
-		     an editor. Styled like an attached trigger, never the red
-		     "missing" state. -->
-		<button
-			type="button"
-			onclick={handleWebhookClick}
-			class={twMerge(
-				'flex items-center rounded-md drop-shadow-sm overflow-hidden outline outline-1 w-full text-left',
-				style.bg,
-				data.unsaved ? `opacity-80 ${style.borderUnsaved}` : style.border,
-				'hover:brightness-95 dark:hover:brightness-110 transition-[filter]'
-			)}
-			style="width: {NODE.width}px; min-height: {PIPELINE_NODE_HEIGHT}px;"
-			title={`Webhook endpoint for ${data.runnable_path ?? ''} — click to view URLs and create a token`}
-		>
-			<Icon size={14} class={`shrink-0 ml-2 mr-2 ${style.iconText}`} />
-			<div class="flex flex-col min-w-0 flex-1 pr-2 py-0.5 leading-tight">
-				<span class="text-3xs uppercase tracking-wide truncate text-tertiary">
-					{style.label}
-				</span>
-				<span class="text-2xs font-mono truncate text-emphasis"> URLs & token </span>
-			</div>
-		</button>
-	{:else if canOpenDataUpload}
-		<!-- Data upload: UI-first entry point (no trigger row). Clicking the
-		     node opens the target script's run form, where the auto-generated
-		     S3 picker lets the user upload a file and run the pipeline. Goes
-		     green once a file is staged (ready), so "Run pipeline" can proceed;
-		     until then it stays neutral with an "upload a file" prompt. Never
-		     the red "missing" state. -->
-		<button
-			type="button"
-			onclick={handleDataUploadClick}
-			class={twMerge(
-				'flex items-center rounded-md drop-shadow-sm overflow-hidden outline outline-1 w-full text-left',
-				dataUploadReady
-					? 'bg-green-50 dark:bg-green-900/30 outline-green-500 dark:outline-green-600'
-					: style.bg,
-				dataUploadReady ? '' : data.unsaved ? `opacity-80 ${style.borderUnsaved}` : style.border,
-				'hover:brightness-95 dark:hover:brightness-110 transition-[filter]'
-			)}
-			style="width: {NODE.width}px; min-height: {PIPELINE_NODE_HEIGHT}px;"
-			title={dataUploadReady
-				? `Data upload for ${data.runnable_path ?? ''} — a file is staged; the pipeline is ready to run. Click to change it.`
-				: `Data upload for ${data.runnable_path ?? ''} — click to open the run form and upload a file`}
-		>
-			<DataUploadIcon
-				size={14}
-				class={`shrink-0 ml-2 mr-2 ${dataUploadReady ? 'text-green-600 dark:text-green-400' : style.iconText}`}
-			/>
-			<div class="flex flex-col min-w-0 flex-1 pr-2 py-0.5 leading-tight">
-				<span
-					class={twMerge(
-						'text-3xs uppercase tracking-wide truncate',
-						dataUploadReady ? 'text-green-700 dark:text-green-400' : 'text-tertiary'
-					)}
-				>
-					{style.label}{dataUploadReady ? ' · ready' : ''}
-				</span>
-				<span
-					class={twMerge(
-						'text-2xs font-mono truncate',
-						dataUploadReady ? 'text-green-700 dark:text-green-400' : 'text-emphasis'
-					)}
-				>
-					{dataUploadReady ? 'File staged' : 'Upload & run'}
-				</span>
-			</div>
-		</button>
-	{:else}
-		<div
-			class={twMerge(
-				'flex items-center rounded-md drop-shadow-sm overflow-hidden outline outline-1',
-				displayMissing
-					? 'bg-red-50 dark:bg-red-900/30 outline-dashed outline-red-400 dark:outline-red-500'
-					: style.bg,
-				displayMissing ? '' : data.unsaved ? `opacity-80 ${style.borderUnsaved}` : style.border
-			)}
-			style="width: {NODE.width}px; min-height: {PIPELINE_NODE_HEIGHT}px;"
-			title={missingTitle ??
-				(data.unsaved ? `Unsaved ${style.label}: ${data.ref}` : `${style.label}: ${data.ref}`)}
-		>
-			<Icon
-				size={14}
-				class={`shrink-0 ml-2 mr-2 ${displayMissing ? 'text-red-600 dark:text-red-400' : style.iconText}`}
-			/>
-			<div class="flex flex-col min-w-0 flex-1 pr-2 py-0.5 leading-tight">
-				<span
-					class={twMerge(
-						'text-3xs uppercase tracking-wide truncate',
-						displayMissing ? 'text-red-700 dark:text-red-400' : 'text-tertiary'
-					)}
-				>
-					{style.label}{displayMissing ? ' · missing' : data.unsaved ? ' · unsaved' : ''}
-				</span>
-				<span
-					class={twMerge(
-						'text-2xs font-mono truncate',
-						displayMissing ? 'text-red-700 dark:text-red-400' : 'text-emphasis'
-					)}
-				>
-					{displayMissing ? 'no trigger row' : data.ref}
-				</span>
-			</div>
-		</div>
-	{/if}
+	<PipelineNodeCard
+		kindLabel={card.kindLabel}
+		title={card.title}
+		tooltip={card.tooltip}
+		draft={card.draft}
+		tone={card.tone}
+		onclick={card.onclick}
+	>
+		{#snippet icon()}
+			{#if canOpenDataUpload}
+				<DataUploadIcon
+					size={14}
+					class={dataUploadReady ? 'text-green-600 dark:text-green-400' : style.iconText}
+				/>
+			{:else}
+				<Icon
+					size={14}
+					class={displayMissing || canCreate ? 'text-red-600 dark:text-red-400' : style.iconText}
+				/>
+			{/if}
+		{/snippet}
+	</PipelineNodeCard>
 
 	{#if menuItems.length > 0}
 		<!-- Hover-revealed kebab menu (Delete only for now). Mirrors the

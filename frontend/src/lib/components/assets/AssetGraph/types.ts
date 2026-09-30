@@ -70,9 +70,10 @@ export interface DbtDataTest {
 export interface AssetGraphRunnableNode {
 	path: string
 	usage_kind: GraphUsageKind
-	// The script's summary, filled in client-side (not sent by the backend);
-	// the canvas titles the node with it over the path.
+	// Filled in client-side (not sent by the backend): the canvas titles the
+	// node with the summary over the path, and shows the language's icon.
 	summary?: string
+	language?: import('$lib/gen').ScriptLang
 	// Script has `// pipeline` annotation. Drives the pipeline-member
 	// visual state; unrelated to what the script actually writes (that's
 	// parsed separately into lineage edges).

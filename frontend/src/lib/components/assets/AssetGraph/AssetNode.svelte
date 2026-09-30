@@ -3,8 +3,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import AssetGenericIcon from '$lib/components/icons/AssetGenericIcon.svelte'
 	import { formatAssetKind, formatShortAssetPath, type AssetKind } from '$lib/components/assets/lib'
-	import { NODE } from '$lib/components/graph/util'
-	import { PIPELINE_NODE_HEIGHT } from './assetGraphLayout'
+	import PipelineNodeCard from './PipelineNodeCard.svelte'
 	import PipelineInsertMenu, { type PipelineInsertPick } from './PipelineInsertMenu.svelte'
 	import {
 		ArrowUpRight,
@@ -241,124 +240,121 @@
 	{/if}
 	<!-- Mirrors the flow editor's asset pill: quiet surface + gray border at
 	     rest, accent reserved for the selected state. -->
-	<div
-		class={twMerge(
-			'flex items-center rounded-md drop-shadow-sm overflow-hidden border',
-			'bg-surface-secondary border-gray-400 dark:border-gray-600 hover:border-gray-500 dark:hover:border-gray-500 transition-colors',
-			selected && 'bg-surface-accent-selected border-border-selected'
-		)}
-		style="width: {NODE.width}px; min-height: {PIPELINE_NODE_HEIGHT}px;"
-		title={data.path}
+	<PipelineNodeCard
+		kindLabel={formatAssetKind(asset)}
+		title={formatShortAssetPath(asset)}
+		tooltip={data.path}
+		{selected}
 	>
-		<!-- Data identity carries the accent (luminance blue), pairing with
-		     the blue write edges that produce these assets — scripts stay
-		     neutral, so script vs data reads at a glance. -->
-		<AssetGenericIcon
-			assetKind={data.asset_kind}
-			class={`shrink-0 ml-2 mr-2 ${selected ? 'text-accent' : 'text-blue-600 dark:text-blue-400'}`}
-			size="14px"
-		/>
-		{#if data.runStatus}
-			<!-- The run in view, per relation: a spinner while its producer is
+		{#snippet icon()}
+			<!-- Data identity carries the accent (luminance blue), pairing with
+			     the blue write edges that produce these assets — scripts stay
+			     neutral, so script vs data reads at a glance. -->
+			<AssetGenericIcon
+				assetKind={data.asset_kind}
+				class={selected ? 'text-accent' : 'text-blue-600 dark:text-blue-400'}
+				size="14px"
+			/>
+		{/snippet}
+		{#snippet leading()}
+			{#if data.runStatus}
+				<!-- The run in view, per relation: a spinner while its producer is
 			     building it, then its outcome. Left of the name so the eye finds
 			     the moving nodes first on a wide graph. -->
-			<span
-				class="shrink-0 mr-1 {data.runStatus === 'failed'
-					? 'text-red-600 dark:text-red-400'
-					: data.runStatus === 'materialized'
-						? 'text-green-600 dark:text-green-400'
-						: 'text-blue-600 dark:text-blue-400'}"
-				title={data.runStatus}
-			>
-				{#if data.runStatus === 'running'}
-					<Loader2 size={11} class="animate-spin" />
-				{:else if data.runStatus === 'failed'}
-					<XCircle size={11} />
-				{:else}
-					<CheckCircle2 size={11} />
-				{/if}
-			</span>
-			<!-- Rows the run wrote. Recorded per relation already, and the cheapest
+				<span
+					class="shrink-0 mr-1 {data.runStatus === 'failed'
+						? 'text-red-600 dark:text-red-400'
+						: data.runStatus === 'materialized'
+							? 'text-green-600 dark:text-green-400'
+							: 'text-blue-600 dark:text-blue-400'}"
+					title={data.runStatus}
+				>
+					{#if data.runStatus === 'running'}
+						<Loader2 size={11} class="animate-spin" />
+					{:else if data.runStatus === 'failed'}
+						<XCircle size={11} />
+					{:else}
+						<CheckCircle2 size={11} />
+					{/if}
+				</span>
+				<!-- Rows the run wrote. Recorded per relation already, and the cheapest
 			     answer to "did this model actually produce anything" — a model that
 			     built green but emitted 0 rows is the failure that looks like a
 			     success. Only once settled: mid-build the number is not yet real. -->
-			{#if data.runStatus === 'materialized' && data.runRowCount != undefined}
-				<span
-					class="shrink-0 mr-1 text-3xs tabular-nums text-tertiary"
-					title="{data.runRowCount} rows written by this run"
-				>
-					{Intl.NumberFormat().format(data.runRowCount)}
-				</span>
+				{#if data.runStatus === 'materialized' && data.runRowCount != undefined}
+					<span
+						class="shrink-0 mr-1 text-3xs tabular-nums text-tertiary"
+						title="{data.runRowCount} rows written by this run"
+					>
+						{Intl.NumberFormat().format(data.runRowCount)}
+					</span>
+				{/if}
 			{/if}
-		{/if}
-		<div class="flex flex-col min-w-0 flex-1 pr-1 py-1 leading-tight">
-			<span class="text-3xs uppercase tracking-wide truncate text-tertiary">
-				{formatAssetKind(asset)}
-			</span>
-			<span class="text-2xs font-mono text-emphasis truncate">{formatShortAssetPath(asset)}</span>
-		</div>
-		<!-- Fork data-environment chip: in a fork every asset shares its parent's
+		{/snippet}
+		{#snippet trailing()}
+			<!-- Fork data-environment chip: in a fork every asset shares its parent's
 		     name, so the env it resolves to must read at a glance. Labeled + tinted
 		     (amber "parent" = deferred read of the parent's current table via a
 		     view; emerald "fork" = the fork's own materialized copy) rather than a
 		     bare icon, which was too easy to miss. The title carries the detail. -->
-		{#if data.fork_materialization === 'deferred'}
-			<span
-				class="shrink-0 mr-1.5 flex items-center gap-0.5 rounded px-1 py-px text-3xs font-semibold uppercase tracking-wide bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700"
-				title="Deferred to parent workspace: reads the parent's current data. Materialize it in this fork to iterate on it."
-			>
-				<ArrowUpRight size={10} />
-				parent
-			</span>
-		{:else if data.fork_materialization === 'fork'}
-			<span
-				class="shrink-0 mr-1.5 flex items-center gap-0.5 rounded px-1 py-px text-3xs font-semibold uppercase tracking-wide bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700"
-				title="Materialized in this fork: reads and writes use the fork's isolated copy."
-			>
-				<GitFork size={10} />
-				fork
-			</span>
-		{/if}
-		<!-- dbt chip: names the materialization dbt declares, plus a test count
+			{#if data.fork_materialization === 'deferred'}
+				<span
+					class="shrink-0 mr-1.5 flex items-center gap-0.5 rounded px-1 py-px text-3xs font-semibold uppercase tracking-wide bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700"
+					title="Deferred to parent workspace: reads the parent's current data. Materialize it in this fork to iterate on it."
+				>
+					<ArrowUpRight size={10} />
+					parent
+				</span>
+			{:else if data.fork_materialization === 'fork'}
+				<span
+					class="shrink-0 mr-1.5 flex items-center gap-0.5 rounded px-1 py-px text-3xs font-semibold uppercase tracking-wide bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700"
+					title="Materialized in this fork: reads and writes use the fork's isolated copy."
+				>
+					<GitFork size={10} />
+					fork
+				</span>
+			{/if}
+			<!-- dbt chip: names the materialization dbt declares, plus a test count
 		     when the model carries generic tests. Orange keeps it visually
 		     separate from the fork/SCD2 chips, which describe Windmill state.
 		     Where the project node is on the graph it also stands in for the edge
 		     to it: hovering lights that node up, clicking selects it. Where it is
 		     not — the run page, and a pipeline holding a dbt project — there is
 		     nothing to point at, so the chip renders inert. -->
-		{#if data.dbt}
-			<button
-				type="button"
-				class="shrink-0 mr-1.5 flex items-center gap-0.5 rounded px-1 py-px text-3xs font-semibold tracking-wide bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300 border border-orange-300 dark:border-orange-700 {data.onDbtSelect
-					? 'hover:brightness-95 cursor-pointer'
-					: 'cursor-default'}"
-				title={dbtTitle}
-				onmouseenter={() => data.onDbtHover?.(true)}
-				onmouseleave={() => data.onDbtHover?.(false)}
-				onclick={(e) => {
-					e.stopPropagation()
-					data.onDbtSelect?.()
-				}}
-			>
-				<DbtIcon width={9} height={9} />
-				{dbtLabel}
-				{#if data.dbt.data_tests?.length}
-					<span class="opacity-70">&middot; {data.dbt.data_tests.length}T</span>
-				{/if}
-			</button>
-		{/if}
-		<!-- SCD2 companion marker: this node is the `<dim>_current` "latest row
+			{#if data.dbt}
+				<button
+					type="button"
+					class="shrink-0 mr-1.5 flex items-center gap-0.5 rounded px-1 py-px text-3xs font-semibold tracking-wide bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300 border border-orange-300 dark:border-orange-700 {data.onDbtSelect
+						? 'hover:brightness-95 cursor-pointer'
+						: 'cursor-default'}"
+					title={dbtTitle}
+					onmouseenter={() => data.onDbtHover?.(true)}
+					onmouseleave={() => data.onDbtHover?.(false)}
+					onclick={(e) => {
+						e.stopPropagation()
+						data.onDbtSelect?.()
+					}}
+				>
+					<DbtIcon width={9} height={9} />
+					{dbtLabel}
+					{#if data.dbt.data_tests?.length}
+						<span class="opacity-70">&middot; {data.dbt.data_tests.length}T</span>
+					{/if}
+				</button>
+			{/if}
+			<!-- SCD2 companion marker: this node is the `<dim>_current` "latest row
 		     per key" view its producer maintains alongside the base dimension.
 		     Icon-only (the pill already truncates); the title names the base. -->
-		{#if data.derived_from}
-			<span
-				class="shrink-0 mr-1.5 text-violet-600 dark:text-violet-400"
-				title={`SCD2 current view of ${data.derived_from}: latest row per key, maintained by the same producer as the base dimension.`}
-			>
-				<History size={12} />
-			</span>
-		{/if}
-	</div>
+			{#if data.derived_from}
+				<span
+					class="shrink-0 mr-1.5 text-violet-600 dark:text-violet-400"
+					title={`SCD2 current view of ${data.derived_from}: latest row per key, maintained by the same producer as the base dimension.`}
+				>
+					<History size={12} />
+				</span>
+			{/if}
+		{/snippet}
+	</PipelineNodeCard>
 	{#if showGuardBadge}
 		<!-- Data-test outcome badge. Floats off the TOP-RIGHT corner (opposite the
 		     left-edge run button and the bottom + inserter) so it never collides
@@ -406,25 +402,29 @@
 	{/if}
 	{#if showAdd}
 		<!-- Always-visible + below the asset for downstream pipeline-script
-		     creation. Half-overlapping the bottom edge so it visually attaches
-		     to the node like the flow editor's between-step inserter. -->
-		<div class="absolute left-1/2 -bottom-3 -translate-x-1/2 z-10">
-			<PipelineInsertMenu
-				kinds={[
-					{
-						id: 'pipeline_script',
-						label: 'Add downstream pipeline script',
-						description: 'Triggered when this asset changes',
-						icon: Code2
-					}
-				]}
-				languages={PIPELINE_LANGUAGES as any}
-				pathPrefix={data.pathPrefix ?? ''}
-				defaultPathSuffix={data.defaultPathSuffix ?? ''}
-				onPick={handlePick}
-			>
-				{#snippet trigger()}
-					<!--
+		     creation, hung under the node by a short connector so it clears the
+		     node's text and reads as attached to it. -->
+		<div
+			class="absolute left-1/2 top-full -translate-x-1/2 z-10 flex flex-col items-center pointer-events-none"
+		>
+			<div class="w-px h-3 bg-gray-300 dark:bg-gray-600"></div>
+			<div class="pointer-events-auto">
+				<PipelineInsertMenu
+					kinds={[
+						{
+							id: 'pipeline_script',
+							label: 'Add downstream pipeline script',
+							description: 'Triggered when this asset changes',
+							icon: Code2
+						}
+					]}
+					languages={PIPELINE_LANGUAGES as any}
+					pathPrefix={data.pathPrefix ?? ''}
+					defaultPathSuffix={data.defaultPathSuffix ?? ''}
+					onPick={handlePick}
+				>
+					{#snippet trigger()}
+						<!--
 						Sizing notes for the round + button:
 						  - w-6/h-6 (24px) chosen so that with border-2 (2px each
 						    side) the inner area is exactly 20px — divisible by
@@ -441,16 +441,17 @@
 						    text rendering, otherwise the icon is shifted
 						    downward by ~0.5px at fractional zooms.
 					-->
-					<button
-						type="button"
-						onclick={(e) => e.stopPropagation()}
-						class="bg-surface border border-gray-400 dark:border-gray-600 text-secondary hover:bg-surface-hover rounded-full w-6 h-6 grid place-items-center shadow-sm leading-none"
-						title="Add downstream pipeline script"
-					>
-						<Plus size={16} strokeWidth={2.5} />
-					</button>
-				{/snippet}
-			</PipelineInsertMenu>
+						<button
+							type="button"
+							onclick={(e) => e.stopPropagation()}
+							class="bg-surface border border-gray-400 dark:border-gray-600 text-secondary hover:bg-surface-hover rounded-full w-6 h-6 grid place-items-center shadow-sm leading-none"
+							title="Add downstream pipeline script"
+						>
+							<Plus size={16} strokeWidth={2.5} />
+						</button>
+					{/snippet}
+				</PipelineInsertMenu>
+			</div>
 		</div>
 	{/if}
 </div>

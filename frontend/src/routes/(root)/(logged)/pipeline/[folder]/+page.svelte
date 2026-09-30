@@ -18,6 +18,7 @@
 	import { usePipelineHistory } from '$lib/components/assets/AssetGraph/pipelineHistory.svelte'
 	import PipelineActivityPanel from '$lib/components/assets/AssetGraph/PipelineActivityPanel.svelte'
 	import PipelinePickerModal from '$lib/components/assets/AssetGraph/PipelinePickerModal.svelte'
+	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import {
 		extractWrites,
 		extractReads,
@@ -102,7 +103,6 @@
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import {
 		AlertTriangle,
-		ArrowLeft,
 		ChevronDown,
 		Circle,
 		Download,
@@ -300,8 +300,11 @@
 	// appear in the current `g.runnables`. That self-cleaning property is
 	// the whole reason for the refactor — no rename/delete cleanup needed.
 	let bodiesByPath = $state<Map<string, string>>(new Map())
-	// Deployed summaries from the same fetch, for node titles. Same only-add cache.
-	let summariesByPath = $state<Map<string, string>>(new Map())
+	// Deployed summary + language from the same fetch, for node titles and icons.
+	// Same only-add cache.
+	let scriptMetaByPath = $state<Map<string, { summary?: string; language: ScriptLang }>>(
+		new Map()
+	)
 	// Sibling cache: the parsed asset usages from `inferAssets` (wasm), one
 	// pass per body. Same only-add semantics as `bodiesByPath`.
 	let inferredAssetsByPath = $state<Map<string, AssetWithAltAccessType[]>>(new Map())
@@ -1330,10 +1333,11 @@
 		return {
 			...g,
 			runnables: g.runnables.map((r) => {
-				const summary =
-					(showDrafts ? pe.drafts.get(r.path)?.script.summary : undefined) ||
-					summariesByPath.get(r.path)
-				return summary ? { ...r, summary } : r
+				const draft = showDrafts ? pe.drafts.get(r.path)?.script : undefined
+				const meta = scriptMetaByPath.get(r.path)
+				const summary = draft?.summary || meta?.summary
+				const language = draft?.language ?? meta?.language
+				return summary || language ? { ...r, summary, language } : r
 			})
 		}
 	}
@@ -2447,8 +2451,11 @@
 							nextBodies.set(path, content)
 							bodiesByPath = nextBodies
 						}
-						if (s.summary && !summariesByPath.has(path)) {
-							summariesByPath = new Map(summariesByPath).set(path, s.summary)
+						if (!scriptMetaByPath.has(path)) {
+							scriptMetaByPath = new Map(scriptMetaByPath).set(path, {
+								summary: s.summary || undefined,
+								language: s.language
+							})
 						}
 						if (!inferredAssetsByPath.has(path)) {
 							const nextAssets = new Map(inferredAssetsByPath)
@@ -2508,56 +2515,50 @@
 	<title>Pipeline · {folder} — Windmill</title>
 </svelte:head>
 
-<div class="flex flex-col h-full">
-	<div
-		class="border-b flex flex-row justify-between gap-2 px-2 py-1 items-center overflow-y-visible overflow-x-auto min-h-12 shrink-0 whitespace-nowrap"
+<PageHeaderContent section={{ label: 'Pipelines', content: pipelineCrumb }} actions={pipelineActions} />
+
+{#snippet pipelineCrumb()}
+	<a
+		href="{base}/pipeline"
+		class="flex items-center gap-1 px-1 py-0.5 rounded text-xs text-primary hover:bg-surface-hover hover:text-emphasis transition-colors"
 	>
-		<div class="flex flex-row items-center gap-2 flex-1 min-w-0">
-			<Button
-				variant="subtle"
-				unifiedSize="sm"
-				href="{base}/pipeline"
-				startIcon={{ icon: ArrowLeft }}
-				iconOnly
-				title="Back to pipelines"
-			/>
-			<NetworkIcon size={16} class="text-tertiary shrink-0" />
-			<h1 class="text-sm font-semibold">{mode === 'edit' ? 'Pipeline editor' : 'Pipeline'}</h1>
-			<span class="text-tertiary text-sm">·</span>
-			{#if otherPipelineFolders.length === 0}
-				<button
-					type="button"
-					onclick={() => (pickerModalOpen = true)}
-					class="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-gray-300 dark:border-gray-600 bg-surface hover:bg-surface-hover transition-colors"
-					title="Switch pipeline folder"
-				>
-					<Folder size={14} class="text-tertiary shrink-0" />
-					<span class="text-sm font-mono font-medium text-emphasis">f/{folder}</span>
-					<ChevronDown size={12} class="text-tertiary" />
-				</button>
-			{:else}
-				<DropdownV2 size="sm" items={folderSwitcherItems}>
-					{#snippet buttonReplacement()}
-						<span
-							class="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-gray-300 dark:border-gray-600 bg-surface hover:bg-surface-hover transition-colors"
-							title="Switch pipeline folder"
-						>
-							<Folder size={14} class="text-tertiary shrink-0" />
-							<span class="text-sm font-mono font-medium text-emphasis">f/{folder}</span>
-							<ChevronDown size={12} class="text-tertiary" />
-						</span>
-					{/snippet}
-				</DropdownV2>
-			{/if}
-			{#if summary.length > 0}
-				<span class="text-xs text-tertiary">· {summary.join(' · ')}</span>
-			{/if}
-		</div>
+		<NetworkIcon size={14} class="shrink-0 text-tertiary" />
+		Pipelines
+	</a>
+	<span class="shrink-0 text-hint/40 text-xs" aria-hidden="true">/</span>
+	{#snippet folderSegment()}
+		<span
+			class="flex items-center gap-1 px-1 py-0.5 rounded text-xs text-primary hover:bg-surface-hover hover:text-emphasis transition-colors"
+			title="Switch pipeline folder"
+		>
+			<Folder size={14} class="shrink-0 text-tertiary" />
+			<span class="truncate font-normal">{folder}</span>
+			<ChevronDown size={14} class="shrink-0 text-tertiary" />
+		</span>
+	{/snippet}
+	{#if otherPipelineFolders.length === 0}
+		<button type="button" onclick={() => (pickerModalOpen = true)}>
+			{@render folderSegment()}
+		</button>
+	{:else}
+		<DropdownV2 size="sm" items={folderSwitcherItems}>
+			{#snippet buttonReplacement()}
+				{@render folderSegment()}
+			{/snippet}
+		</DropdownV2>
+	{/if}
+	{#if summary.length > 0}
+		<span class="text-2xs text-secondary truncate">{summary.join(' · ')}</span>
+	{/if}
+{/snippet}
+
+{#snippet pipelineActions()}
+	<div class="flex flex-row items-center gap-2">
 		{#if !isOperator}
 			<!-- Center group: the mode toggle is the page's primary control —
 			     anchored between the two flex-1 side groups so it stays
 			     centered, with breathing room on both sides. -->
-			<div class="flex flex-row items-center gap-2 shrink-0 px-6">
+			<div class="flex flex-row items-center gap-2 shrink-0">
 				<PipelineModeToggle {mode} draftCount={pendingCount} onModeChange={(m) => setMode(m)} />
 				{#if mode === 'view' && pendingCount > 0}
 					<!-- View variant: overlay the unsaved drafts onto the deployed
@@ -2582,7 +2583,6 @@
 				{/if}
 			</div>
 		{/if}
-		<div class="flex flex-row items-center gap-2 flex-1 justify-end">
 			{#if !isOperator && allPipelineScripts.length > 0}
 				<!-- Only the armed state surfaces on the bar (arming lives in the ⋮
 				     menu) — a compact disarm pill. -->
@@ -2702,9 +2702,10 @@
 				title="Refresh"
 			/>
 			<DropdownV2 size="sm" items={overflowMenuItems} />
-		</div>
 	</div>
+{/snippet}
 
+<div class="flex flex-col h-full">
 	<div class="flex-1 min-h-0">
 		{#if graphRes.loading && !graphRes.current}
 			<div class="h-full flex items-center justify-center gap-2 text-tertiary">
