@@ -378,6 +378,11 @@
 	// component flag: the in-session preview reuses one instance across editor
 	// hide/show, and it must hydrate ONCE per instance, not on every remount.
 	let lastPersistedBundle: string | undefined = undefined
+	// What decides whether the bundle needs saving: its drafts, not which one is
+	// open. Opening a draft is not an edit, so it rides along with the next real
+	// change instead of saving (and spinning the sync indicator) on a click.
+	const persistKey = (b: PipelineDraftBundle | undefined) =>
+		b ? JSON.stringify({ drafts: b.drafts, triggerDrafts: b.triggerDrafts }) : undefined
 
 	function restoreBundle(bundle: PipelineDraftBundle) {
 		if (Array.isArray(bundle.drafts)) {
@@ -465,7 +470,7 @@
 				{ workspace: ws ?? '', itemKind: PIPELINE_DRAFT_KIND, path },
 				migratedFromLocal ? undefined : serverSavedAt
 			)
-			if (!migratedFromLocal) lastPersistedBundle = bundle ? JSON.stringify(bundle) : undefined
+			if (!migratedFromLocal) lastPersistedBundle = persistKey(bundle)
 		} catch (e) {
 			console.warn('failed to load pipeline drafts', e)
 		} finally {
@@ -563,7 +568,7 @@
 			} catch (e) {
 				console.warn('failed to mirror pipeline state', e)
 			}
-			const serializedBundle = bundle ? JSON.stringify(bundle) : undefined
+			const serializedBundle = persistKey(bundle)
 			if (serializedBundle === lastPersistedBundle) return
 			lastPersistedBundle = serializedBundle
 			if (!ws) return

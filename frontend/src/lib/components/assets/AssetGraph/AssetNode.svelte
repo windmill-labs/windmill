@@ -472,6 +472,7 @@
 			tone={data.error ? 'error' : undefined}
 			subtitle={upstream ? upstreamRow : undefined}
 			header={producer || coProducers.length > 0 ? scriptHeader : undefined}
+			headerSelected={producer ? !!producer.selected : coSelected}
 			width={data.width}
 			surface={upstream ? 'primary' : 'secondary'}
 		>

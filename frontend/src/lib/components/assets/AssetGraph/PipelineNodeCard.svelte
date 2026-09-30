@@ -9,6 +9,7 @@ and the controls hung around the card.
 	import {
 		PIPELINE_NODE_EXTRA_ROW,
 		PIPELINE_NODE_HEADER,
+		PIPELINE_NODE_HEADER_CARD_PAD,
 		PIPELINE_NODE_HEIGHT
 	} from './assetGraphLayout'
 	import { twMerge } from 'tailwind-merge'
@@ -41,6 +42,8 @@ and the controls hung around the card.
 		/** A tab on the card's top edge. Only on a card without `onclick`, since it
 		 * may hold buttons of its own. */
 		header?: Snippet
+		/** The header's script is selected: its edge takes the selected colour. */
+		headerSelected?: boolean
 	}
 
 	let {
@@ -57,6 +60,7 @@ and the controls hung around the card.
 		trailing,
 		subtitle,
 		header,
+		headerSelected = false,
 		width = NODE.width
 	}: Props = $props()
 
@@ -131,12 +135,20 @@ and the controls hung around the card.
 	<!-- The header is a tab on the card's top edge, inset from its sides. -->
 	<div class="flex flex-col" style="width: {width}px;">
 		<div
-			class="mx-2 flex items-stretch min-w-0 rounded-t-md overflow-hidden bg-surface-secondary border border-b-0 border-gray-200 dark:border-gray-700"
+			class={twMerge(
+				'mx-2 flex items-stretch min-w-0 rounded-t-md overflow-hidden bg-surface border border-b-0 border-gray-200 dark:border-gray-700',
+				headerSelected && 'border-border-selected dark:border-border-selected'
+			)}
 			style="height: {PIPELINE_NODE_HEADER}px;"
 		>
 			{@render header()}
 		</div>
-		<div class={cardClass} style="min-height: {minHeight}px;" title={tooltip}>
+		<div
+			class={twMerge(cardClass, !selected && !tone && 'bg-surface-tertiary')}
+			style="min-height: {minHeight + PIPELINE_NODE_HEADER_CARD_PAD}px; padding-block: {PIPELINE_NODE_HEADER_CARD_PAD /
+				2}px;"
+			title={tooltip}
+		>
 			{@render body()}
 		</div>
 	</div>

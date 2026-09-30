@@ -25,7 +25,8 @@
 	import {
 		layoutAssetGraph,
 		PIPELINE_NODE_EXTRA_ROW,
-		PIPELINE_NODE_HEADER
+		PIPELINE_NODE_HEADER,
+		PIPELINE_NODE_HEADER_CARD_PAD
 	} from './assetGraphLayout'
 	import {
 		assetsOnlyView,
@@ -1595,7 +1596,9 @@
 		layoutAssetGraph(
 			layoutInput,
 			ADD_NODE_ID,
-			assetsOnly ? PIPELINE_NODE_EXTRA_ROW + PIPELINE_NODE_HEADER : 0
+			assetsOnly
+				? PIPELINE_NODE_EXTRA_ROW + PIPELINE_NODE_HEADER + PIPELINE_NODE_HEADER_CARD_PAD
+				: 0
 		)
 	)
 

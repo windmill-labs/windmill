@@ -23,6 +23,8 @@ const COMPONENT_GAP = SIBLING_GAP * 2
 export const PIPELINE_NODE_EXTRA_ROW = 16
 /** Height of the header strip naming an assets-only node's producing script. */
 export const PIPELINE_NODE_HEADER = 22
+/** Extra vertical padding of a card under a header, top plus bottom. */
+export const PIPELINE_NODE_HEADER_CARD_PAD = 12
 
 interface GraphInput {
 	/** `width` defaults to `NODE.width`. */
