@@ -607,6 +607,7 @@ pub async fn handle_ai_agent_job(
     hostname: &str,
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
     has_stream: &mut bool,
+    job_completed_tx: crate::JobCompletedSender,
 ) -> Result<Box<RawValue>, Error> {
     // build_args_map returns None if no $res:/$var: transforms needed, in which case use original args
     let local_args = match build_args_map(job, client, conn).await? {
@@ -686,6 +687,7 @@ pub async fn handle_ai_agent_job(
     };
 
     let value = flow_data.value();
+    let preserve_step_tags = value.preserve_step_tags;
 
     let module = if direct_parent_job_kind == JobKind::AIAgent {
         let parent_agent_step_id = direct_parent_job_flow_step_id.as_deref().ok_or_else(|| {
@@ -1111,8 +1113,10 @@ pub async fn handle_ai_agent_job(
             has_stream,
             has_websearch,
             omit_output_from_conversation,
+            preserve_step_tags,
             cancel_rx,
             tool_abort_handles.clone(),
+            job_completed_tx,
         );
 
         let mut occupancy_opt = Some(occupancy_metrics);
@@ -1131,12 +1135,9 @@ pub async fn handle_ai_agent_job(
             cancel_tx,
             CANCEL_GRACE_PERIOD,
         )
-        .await?
+        .await
     };
     // agent_fut and update_job are now dropped — borrows on mcp_clients and canceled_by released
-
-    // Cleanup MCP clients
-    cleanup_mcp_clients(mcp_clients).await;
 
     let format_cancel_info = |cb: &Option<CanceledBy>| {
         cb.as_ref()
@@ -1148,43 +1149,42 @@ pub async fn handle_ai_agent_job(
             })
     };
 
-    match outcome {
-        GracefulPollOutcome::Ok(result) => Ok(result),
-        GracefulPollOutcome::Timeout(ms) => {
-            tracing::error!("AI agent timeout after {}s", ms / 1000);
-            // A tool dispatched to another worker group would otherwise still run later, after
-            // the agent that wanted its result is gone.
-            let reason = format!("parent AI agent {} timed out", job.id);
-            let cb = CanceledBy { username: None, reason: Some(reason) };
-            cleanup_orphaned_tool_jobs(db, &job.id, &job.workspace_id, Some(cb)).await;
-            Err(Error::ExecutionErr(format!(
-                "AI agent timeout after (>{}s)",
-                ms / 1000
-            )))
-        }
-        GracefulPollOutcome::Cancelled { canceled_by: cb } => {
-            let (by, reason) = format_cancel_info(&cb);
-            Err(Error::ExecutionErr(format!(
-                "Job cancelled by {by} (reason: {reason})"
-            )))
-        }
-        GracefulPollOutcome::CancelledTimeout { canceled_by: cb } => {
-            let (by, reason) = format_cancel_info(&cb);
-            // Abort any still-running spawned tool tasks
-            // unwrap safe: lock is only held briefly for push/drain, no panic possible inside
-            for handle in tool_abort_handles.lock().unwrap().drain(..) {
-                handle.abort();
+    let result = match outcome {
+        Err(error) => Err(error),
+        Ok(outcome) => match outcome {
+            GracefulPollOutcome::Ok(result) => Ok(result),
+            GracefulPollOutcome::Timeout(ms) => {
+                tracing::error!("AI agent timeout after {}s", ms / 1000);
+                Err(Error::ExecutionErr(format!(
+                    "AI agent timeout after (>{}s)",
+                    ms / 1000
+                )))
             }
-            // Hard timeout: clean up orphaned jobs still stuck in v2_job_queue
-            cleanup_orphaned_tool_jobs(db, &job.id, &job.workspace_id, cb).await;
-            Err(Error::ExecutionErr(format!(
-                "Job cancelled by {by} (reason: {reason}, timed out waiting for tool calls)"
-            )))
+            GracefulPollOutcome::Cancelled { canceled_by: cb } => {
+                let (by, reason) = format_cancel_info(&cb);
+                Err(Error::ExecutionErr(format!(
+                    "Job cancelled by {by} (reason: {reason})"
+                )))
+            }
+            GracefulPollOutcome::CancelledTimeout { canceled_by: cb } => {
+                let (by, reason) = format_cancel_info(&cb);
+                Err(Error::ExecutionErr(format!(
+                    "Job cancelled by {by} (reason: {reason}, timed out waiting for tool calls)"
+                )))
+            }
+            GracefulPollOutcome::AlreadyCompleted => {
+                Err(Error::AlreadyCompleted("Job already completed".to_string()))
+            }
+        },
+    };
+    if result.is_err() {
+        for handle in tool_abort_handles.lock().unwrap().drain(..) {
+            handle.abort();
         }
-        GracefulPollOutcome::AlreadyCompleted => {
-            Err(Error::AlreadyCompleted("Job already completed".to_string()))
-        }
+        cleanup_orphaned_tool_jobs(db, &job.id, &job.workspace_id, canceled_by.clone()).await;
     }
+    cleanup_mcp_clients(mcp_clients).await;
+    result
 }
 
 /// OpenAI rejects a `prompt_cache_key` over 64 characters
@@ -1231,12 +1231,14 @@ pub async fn run_agent(
     has_stream: &mut bool,
     has_websearch: bool,
     omit_output_from_conversation: bool,
+    preserve_step_tags: bool,
 
     // cancellation signal from parent
     cancel_rx: tokio::sync::watch::Receiver<bool>,
 
     // abort handles for spawned tool tasks
     tool_abort_handles: ToolAbortHandles,
+    job_completed_tx: crate::JobCompletedSender,
 ) -> error::Result<Box<RawValue>> {
     let output_type = args.output_type.as_ref().unwrap_or(&OutputType::Text);
     let credentials = args.provider.to_provider_credentials(db).await?;
@@ -2105,6 +2107,7 @@ pub async fn run_agent(
                     stream_event_processor: stream_event_processor.as_ref(),
                     flow_context: &mut flow_context,
                     omit_output_from_conversation,
+                    preserve_step_tags,
                     reasoning: if structured_output_first {
                         None
                     } else {
@@ -2113,6 +2116,7 @@ pub async fn run_agent(
                     previous_result: &previous_result,
                     id_context: &id_context,
                     tool_abort_handles: tool_abort_handles.clone(),
+                    job_completed_tx: job_completed_tx.clone(),
                 };
 
                 let (tool_messages, tool_content, tool_used_structured_output) =
@@ -3093,11 +3097,13 @@ async fn cleanup_orphaned_tool_jobs(
             )
         });
 
-    // Find direct child jobs still in v2_job_queue (agent tool jobs are always direct children)
     let orphaned_ids: Vec<Uuid> = match sqlx::query_scalar!(
-        r#"SELECT j.id FROM v2_job j
-            JOIN v2_job_queue q ON q.id = j.id
-            WHERE j.parent_job = $1 AND j.workspace_id = $2"#,
+        r#"WITH RECURSIVE descendants AS (
+            SELECT id FROM v2_job WHERE parent_job = $1 AND workspace_id = $2
+            UNION ALL
+            SELECT j.id FROM v2_job j JOIN descendants d ON j.parent_job = d.id
+            WHERE j.workspace_id = $2
+        ) SELECT d.id AS "id!" FROM descendants d JOIN v2_job_queue q ON q.id = d.id"#,
         parent_job_id,
         w_id,
     )

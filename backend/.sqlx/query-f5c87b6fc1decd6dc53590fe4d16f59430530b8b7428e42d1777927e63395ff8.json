@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job_queue SET worker = $1, running = true, started_at = now()\n            WHERE id = $2 AND tag = ANY($3)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Uuid",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f5c87b6fc1decd6dc53590fe4d16f59430530b8b7428e42d1777927e63395ff8"
+}

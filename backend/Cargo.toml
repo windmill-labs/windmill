@@ -329,6 +329,9 @@ strum.workspace = true
 windows-service = "0.7"
 windows-sys = { version = "0.52", features = ["Win32_System_Services", "Win32_System_Console", "Win32_Foundation"] }
 
+[target.'cfg(windows)'.build-dependencies]
+winresource = { version = "0.1.31", default-features = false }
+
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = { optional = true, workspace = true }
 tikv-jemalloc-sys = { optional = true, workspace = true }
