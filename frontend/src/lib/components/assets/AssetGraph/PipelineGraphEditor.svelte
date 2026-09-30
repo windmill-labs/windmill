@@ -159,10 +159,7 @@
 		onDeleteTrigger?: (...args: any[]) => void
 		onOpenWebhook?: (...args: any[]) => void
 		onOpenDataUpload?: (...args: any[]) => void
-		onSelect: (
-			selection: AssetGraphSelection | undefined,
-			opts?: { soleScript?: string }
-		) => void
+		onSelect: (selection: AssetGraphSelection | undefined) => void
 		onAddScriptForAsset?: (
 			asset: { kind: AssetKind; path: string },
 			language: ScriptLang,

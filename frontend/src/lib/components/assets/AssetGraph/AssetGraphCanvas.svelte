@@ -70,11 +70,7 @@
 	interface Props {
 		graph: AssetGraphResponse
 		selection?: AssetGraphSelection | undefined
-		/** `soleScript`: assets-only, the one script folded into a clicked asset. */
-		onselect?: (
-			selection: AssetGraphSelection | undefined,
-			opts?: { soleScript?: string }
-		) => void
+		onselect?: (selection: AssetGraphSelection | undefined) => void
 		// Called when the user clicks the per-asset + button (consumer-script
 		// entry). Kept optional so the canvas stays usable outside the
 		// pipeline editor.
@@ -2009,11 +2005,7 @@
 		if (!onselect) return
 		const data = node.data as any
 		if (node.type === 'asset') {
-			const scripts = ((data.foldedIds ?? []) as string[]).filter((id) => id.startsWith('script:'))
-			onselect(
-				{ kind: 'asset', asset_kind: data.asset_kind, path: data.path },
-				scripts.length === 1 ? { soleScript: scripts[0].slice('script:'.length) } : undefined
-			)
+			onselect({ kind: 'asset', asset_kind: data.asset_kind, path: data.path })
 		} else if (node.type === 'runnable') {
 			onselect({ kind: 'runnable', runnable_kind: data.runnable_kind, path: data.path })
 		} else if (node.type === 'data-test') {

@@ -1205,44 +1205,7 @@
 			return false
 		}
 	}
-	// Assets a job has written, by `kind:path`. Only grows: once built, an asset
-	// stays built for this page's purposes.
-	const materialized = new Set<string>()
-	async function isMaterialized(asset: { kind: AssetKind; path: string }): Promise<boolean> {
-		const key = `${asset.kind}:${asset.path}`
-		if (materialized.has(key) || !$workspaceStore) return true
-		try {
-			const res = await AssetService.listAssets({
-				workspace: $workspaceStore,
-				path: asset.path,
-				assetKinds: asset.kind
-			})
-			const built = res.assets.some((a) =>
-				a.usages.some((u) => u.kind === 'job' && (u.access_type === 'w' || u.access_type === 'rw'))
-			)
-			if (built) materialized.add(key)
-			return built
-		} catch {
-			return true
-		}
-	}
-	// An asset nothing has built yet has no data to show: in the assets-only view,
-	// where its one script has no node of its own, the click opens that script.
-	async function handleCanvasSelect(
-		s: AssetGraphSelection | undefined,
-		opts?: { soleScript?: string }
-	) {
-		if (s?.kind === 'asset' && opts?.soleScript) {
-			const asset = s
-			if (!(await isMaterialized({ kind: asset.asset_kind, path: asset.path }))) {
-				s = { kind: 'runnable', runnable_kind: 'script', path: opts.soleScript }
-				// Job history expires, so "no write on record" may be an asset built long
-				// ago: its own pane stays one click away.
-				sendUserToast(`No build of ${asset.path} on record: opened its script.`, false, [
-					{ label: 'Show the asset', callback: () => void handleCanvasSelect(asset) }
-				])
-			}
-		}
+	function handleCanvasSelect(s: AssetGraphSelection | undefined) {
 		// Clicking a node while the pane is explicitly hidden is a request
 		// to see that node — unhide. Background clicks (s == undefined)
 		// keep the hidden state.
