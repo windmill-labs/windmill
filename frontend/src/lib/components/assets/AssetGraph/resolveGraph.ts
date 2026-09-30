@@ -309,7 +309,8 @@ function withTriggerDrafts(
 			runnable_path: d.config.script_path,
 			unsaved: true,
 			draft: true,
-			...(d.kind === 'schedule' ? { schedule: d.config.schedule as string } : {})
+			...(d.kind === 'schedule' ? { schedule: d.config.schedule as string } : {}),
+			...(d.config.summary ? { summary: d.config.summary as string } : {})
 		}))
 	]
 }

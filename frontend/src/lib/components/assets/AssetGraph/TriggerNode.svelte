@@ -75,6 +75,8 @@
 			draft?: boolean
 			// The cron, for a schedule: the node names its cadence instead of "Schedule".
 			schedule?: string
+			// Shown as the title over the trigger's path, when the trigger has one.
+			summary?: string
 			runnable_path?: string
 			// Page-supplied dispatcher that opens the matching native
 			// trigger drawer with `script_path` pre-filled. When absent
@@ -235,7 +237,7 @@
 			if (canEdit)
 				return {
 					kindLabel: `${kindName}${data.draft ? ' · draft' : unsaved ? ' · unsaved' : ''}`,
-					title: data.ref,
+					title: data.summary || data.ref,
 					tooltip: data.draft
 						? `Draft ${style.label}: ${data.ref} — created when you save the pipeline. Click to edit.`
 						: `Edit ${style.label} trigger: ${data.ref}`,
@@ -263,7 +265,7 @@
 				}
 			return {
 				kindLabel: `${displayMissing ? style.label : kindName}${displayMissing ? ' · missing' : unsaved ? ' · unsaved' : ''}`,
-				title: displayMissing ? 'no trigger row' : data.ref,
+				title: displayMissing ? 'no trigger row' : data.summary || data.ref,
 				tooltip:
 					missingTitle ??
 					(unsaved ? `Unsaved ${style.label}: ${data.ref}` : `${style.label}: ${data.ref}`),

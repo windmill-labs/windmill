@@ -1381,13 +1381,13 @@
 			if (refs.length > 0) explicitOnByPath.set(r.path, refs)
 		}
 		const errors = pipelineNodeErrors(g, explicitOnByPath)
-		const crons = scheduleCrons.current
+		const schedules = scheduleInfo.current
 		return {
 			...g,
-			triggers: crons?.size
+			triggers: schedules?.size
 				? g.triggers.map((t) =>
-						t.trigger_kind === 'schedule' && t.path && !t.schedule && crons.has(t.path)
-							? { ...t, schedule: crons.get(t.path) }
+						t.trigger_kind === 'schedule' && t.path && !t.draft && schedules.has(t.path)
+							? { ...t, ...schedules.get(t.path) }
 							: t
 					)
 				: g.triggers,
@@ -2467,13 +2467,13 @@
 		}
 	)
 
-	// Crons of the deployed schedules on the graph, for their nodes' labels.
-	// Re-read with every graph load, so an edit in the schedule drawer shows.
-	let scheduleCrons = resource(
+	// Cron and summary of the deployed schedules on the graph, for their nodes'
+	// labels. Re-read with every graph load, so an edit in the schedule drawer shows.
+	let scheduleInfo = resource(
 		[() => $workspaceStore, () => graphRes.current],
 		async ([ws, g]) => {
-			const crons = new Map<string, string>()
-			if (!ws || !g) return crons
+			const info = new Map<string, { schedule: string; summary?: string }>()
+			if (!ws || !g) return info
 			const paths = new Set<string>()
 			for (const t of g.triggers) {
 				if (t.trigger_kind === 'schedule' && t.path && !t.missing) paths.add(t.path)
@@ -2482,13 +2482,13 @@
 				[...paths].map(async (path) => {
 					try {
 						const s = await ScheduleService.getSchedule({ workspace: ws, path })
-						crons.set(path, s.schedule)
+						info.set(path, { schedule: s.schedule, summary: s.summary || undefined })
 					} catch {
 						// Unreadable schedule: its node keeps the plain "Schedule" label.
 					}
 				})
 			)
-			return crons
+			return info
 		}
 	)
 
