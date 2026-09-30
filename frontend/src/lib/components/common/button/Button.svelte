@@ -245,6 +245,9 @@
 	}
 
 	function getDividerClass(color, variant) {
+		if (tone && !destructive && ['accent-secondary', 'accent', 'default'].includes(variant)) {
+			return ButtonType.ToneDividerStyles[tone][variant === 'default' ? 'default' : 'accent']
+		}
 		// Check if using new design system variants
 		if (variant === 'default') {
 			return 'border border-border-light divide-x divide-border-light'
