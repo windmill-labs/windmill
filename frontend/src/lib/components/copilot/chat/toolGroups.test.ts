@@ -131,6 +131,10 @@ describe('groupToolRuns', () => {
 				tool('set_module_code', { moduleId: 'b' })
 			])
 		).toEqual([{ edit: [0, 1, 2] }])
+		// A global-only flow tool always takes a path, so without one its item is unknown.
+		expect(shape([tool('write_flow', { summary: 'x' }), tool('set_flow_module_code', {})])).toEqual(
+			[0, 1]
+		)
 	})
 
 	it('folds edits and reads of one app, apart from a flow at the same path', () => {

@@ -34,6 +34,17 @@ const ITEM_READ_TOOLS: Record<string, EditedItemKind> = {
 	read_app_file: 'app',
 	search_app: 'app'
 }
+// The grouped tools flow mode (flow/core.ts) offers without a `path`: they act on the flow open
+// in the editor. patch_flow_json shares its name with the global tool, which takes a path.
+const PATHLESS_FLOW_MODE_TOOLS = new Set([
+	'set_flow_json',
+	'patch_flow_json',
+	'set_module_code',
+	'set_preprocessor_module',
+	'set_failure_module',
+	'inspect_inline_script',
+	'get_lint_errors'
+])
 // Calls that only look things up. Not derived from `planModeSafe`, which also admits test
 // runs and plan-document writes.
 const READ_TOOLS = new Set([
@@ -125,22 +136,17 @@ function itemMembership(message: DisplayMessage): Membership | undefined {
 	const streaming = typeof call.parameters === 'string'
 	const params = streaming ? {} : (call.parameters ?? {})
 	const tool = call.toolName!
-	const kind = Object.hasOwn(EDIT_TOOLS, tool)
-		? EDIT_TOOLS[tool]
-		: Object.hasOwn(ITEM_READ_TOOLS, tool)
-			? ITEM_READ_TOOLS[tool]
-			: undefined
 	// No `parameters` at all: a call queued before its arguments reached the row (tools that do
 	// not stream them), so its item is not known yet. Arguments without a path mean the open
-	// flow for a flow tool: flow mode's tools (patch_flow_json included, which shares its name
-	// with the global tool) never take one. An app tool always does, so it is unknown there.
+	// flow only for a tool flow mode offers without one; any other tool requires a path, so
+	// its item is unknown.
 	const path = streaming
 		? streamedPath(call.parameters)
 		: call.parameters === undefined
 			? undefined
 			: typeof params.path === 'string'
 				? params.path
-				: kind === 'flow'
+				: PATHLESS_FLOW_MODE_TOOLS.has(tool)
 					? ''
 					: undefined
 	if (Object.hasOwn(EDIT_TOOLS, tool)) return { kind: EDIT_TOOLS[tool], path, edit: true }
