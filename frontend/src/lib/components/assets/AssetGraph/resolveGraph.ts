@@ -327,8 +327,12 @@ export type PipelineNodeErrors = {
 	unwritten: Map<string, { asset: { kind: AssetKind; path: string }; subscribers: string[] }>
 	/** Script path → the unwritten asset it runs on (its first, when several). */
 	waitsOn: Map<string, { kind: AssetKind; path: string }>
-	/** Pipeline scripts nothing starts: no trigger of any kind. */
-	untriggered: Set<string>
+	/** Pipeline scripts nothing starts → why: no trigger at all, or only asset
+	 * triggers on assets nothing writes (an auto-triggering read included). */
+	untriggered: Map<string, 'no-trigger' | 'unwritten-inputs'>
+	/** Assets some asset trigger waits on that nothing in the pipeline writes: the
+	 * ones to look up across the workspace for `writtenElsewhere`. */
+	unwrittenTriggerAssets: Set<string>
 }
 
 /**
@@ -385,17 +389,43 @@ export function pipelineNodeErrors(
 			}
 		}
 	}
-	// A pipeline script nothing starts runs only by hand. dbt projects and macro
-	// libraries are never started on their own, so they are left out.
-	const triggered = new Set(graph.triggers.map((t) => t.runnable_path))
-	const untriggered = new Set<string>()
+	// A pipeline script nothing starts runs only by hand. An asset trigger starts
+	// it only if something writes that asset, which covers the automatic trigger
+	// of a ducklake/s3 read too. dbt projects and macro libraries are never
+	// started on their own, so they are left out.
+	const assetKey = (t: { asset_kind: AssetKind; asset_path: string }) =>
+		`${t.asset_kind}:${t.asset_path}`
+	const unwrittenTriggerAssets = new Set<string>()
+	const hasTrigger = new Set<string>()
+	const started = new Set<string>()
+	for (const t of graph.triggers) {
+		hasTrigger.add(t.runnable_path)
+		if (t.trigger_kind !== 'asset') started.add(t.runnable_path)
+		else if (written.has(assetKey(t))) started.add(t.runnable_path)
+		else unwrittenTriggerAssets.add(assetKey(t))
+	}
+	for (const k of unwritten.keys()) unwrittenTriggerAssets.add(k)
+	const untriggered: PipelineNodeErrors['untriggered'] = new Map()
 	for (const r of graph.runnables) {
 		if (r.usage_kind !== 'script' || !r.in_pipeline || r.dbt || r.macros?.length) continue
-		if (triggered.has(r.path) || scriptErrors.has(r.path)) continue
-		untriggered.add(r.path)
-		scriptErrors.set(r.path, 'nothing starts it: it has no trigger')
+		if (started.has(r.path) || scriptErrors.has(r.path)) continue
+		const why = hasTrigger.has(r.path) ? 'unwritten-inputs' : 'no-trigger'
+		untriggered.set(r.path, why)
+		scriptErrors.set(
+			r.path,
+			why === 'no-trigger'
+				? 'nothing starts it: it has no trigger'
+				: 'nothing starts it: nothing writes the assets it runs after'
+		)
 	}
-	return { assets: errors, scripts: scriptErrors, unwritten, waitsOn, untriggered }
+	return {
+		assets: errors,
+		scripts: scriptErrors,
+		unwritten,
+		waitsOn,
+		untriggered,
+		unwrittenTriggerAssets
+	}
 }
 
 function referencedAssetKeys(

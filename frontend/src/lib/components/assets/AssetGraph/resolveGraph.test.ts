@@ -1290,7 +1290,36 @@ describe('pipelineNodeErrors', () => {
 				}
 			]
 		})
-		expect([...pipelineNodeErrors(g, new Map()).untriggered]).toEqual(['f/x/stray'])
+		expect([...pipelineNodeErrors(g, new Map()).untriggered.keys()]).toEqual(['f/x/stray'])
+	})
+
+	it('flags a script only started by reads of assets nothing writes', () => {
+		const g = baseGraph({
+			assets: [{ kind: 'ducklake', path: 'main/raw' }],
+			runnables: [{ path: 'f/x/reader', usage_kind: 'script', in_pipeline: true }] as any,
+			edges: [
+				{
+					runnable_path: 'f/x/reader',
+					runnable_kind: 'script',
+					asset_kind: 'ducklake',
+					asset_path: 'main/raw',
+					access_type: 'r'
+				}
+			],
+			triggers: [
+				{
+					trigger_kind: 'asset',
+					asset_kind: 'ducklake',
+					asset_path: 'main/raw',
+					runnable_kind: 'script',
+					runnable_path: 'f/x/reader'
+				}
+			]
+		})
+		expect(pipelineNodeErrors(g, new Map()).untriggered.get('f/x/reader')).toBe('unwritten-inputs')
+		expect(
+			pipelineNodeErrors(g, new Map(), new Set(['ducklake:main/raw'])).untriggered.size
+		).toBe(0)
 	})
 
 	it('clears a subscription the workspace writes outside the pipeline', () => {

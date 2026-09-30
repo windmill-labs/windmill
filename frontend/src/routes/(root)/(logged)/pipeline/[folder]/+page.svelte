@@ -1408,13 +1408,15 @@
 				]
 			})
 		}
-		for (const path of nodeErrors.untriggered) {
+		for (const [path, why] of nodeErrors.untriggered) {
 			const unsaved = displayGraph.runnables.some((r) => r.path === path && r.unsaved)
 			fixes.set(`script:${path}`, {
 				explainer: [
 					'Nothing starts ',
 					scriptLink(path),
-					': it has no trigger, so it only runs by hand.'
+					why === 'no-trigger'
+						? ': it has no trigger, so it only runs by hand.'
+						: ': it only runs after writes to tables it reads, and nothing writes them, so it only runs by hand.'
 				],
 				actions: [
 					{
@@ -1700,10 +1702,13 @@
 		}
 		return out
 	})
-	// Subscribed assets nothing in the pipeline writes, checked against the whole
-	// workspace: an asset trigger fires on a write from anywhere.
+	// Assets an asset trigger waits on (explicit `on`, or an auto-triggering read)
+	// that nothing in the pipeline writes, checked against the whole workspace: an
+	// asset trigger fires on a write from anywhere.
 	let unwrittenInPipeline = $derived(
-		[...pipelineNodeErrors(shownGraph, explicitOnByPath).unwritten.keys()].sort().join('\n')
+		[...pipelineNodeErrors(shownGraph, explicitOnByPath).unwrittenTriggerAssets]
+			.sort()
+			.join('\n')
 	)
 	let writtenElsewhere = resource(
 		[() => $workspaceStore, () => unwrittenInPipeline],
