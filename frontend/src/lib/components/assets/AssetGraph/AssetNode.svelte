@@ -132,6 +132,8 @@
 			 * pipeline writes, `multiple` when the producer or its trigger is
 			 * ambiguous. */
 			upstream?: AssetUpstreamChips
+			/** Card width in the assets-only view, sized to its text. */
+			width?: number
 		}
 		// SvelteFlow injects this on the node component when the user clicks
 		// the node. Combined with our own `hovered` state to drive the
@@ -323,6 +325,7 @@
 		{selected}
 		tone={data.error ? 'error' : undefined}
 		subtitle={upstream ? upstreamRow : undefined}
+		width={data.width}
 		surface={upstream ? 'primary' : 'secondary'}
 	>
 		{#snippet icon()}

@@ -28,7 +28,7 @@
 		untrack(() => {
 			const node = ns.find((n) => n.id === id)
 			if (!node) return // not laid out yet — re-runs when `nodes` updates
-			const cx = node.position.x + NODE.width / 2
+			const cx = node.position.x + (node.measured?.width ?? NODE.width) / 2
 			const cy = node.position.y + PIPELINE_NODE_HEIGHT / 2
 			const key = `${id}:${cx}:${cy}`
 			if (key === lastKey) return

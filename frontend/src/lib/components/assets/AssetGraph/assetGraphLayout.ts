@@ -22,7 +22,8 @@ const COMPONENT_GAP = SIBLING_GAP * 2
 export const PIPELINE_NODE_EXTRA_ROW = 16
 
 interface GraphInput {
-	nodes: Array<{ id: string; data: AssetGraphNodeData }>
+	/** `width` defaults to `NODE.width`. */
+	nodes: Array<{ id: string; data: AssetGraphNodeData; width?: number }>
 	edges: Array<{ source: string; target: string }>
 }
 
@@ -56,9 +57,9 @@ interface Band {
 // intersects theirs.
 //
 // y comes from longest-path layering (same top-down orientation as before:
-// producers above, assets in the middle, consumers below). Returns positions
-// (band centers) normalized so the component's min x,y = 0. Cyclic input is
-// handled by dropping feedback edges (see the Kahn step below).
+// producers above, assets in the middle, consumers below). Returns node
+// centers, normalized so the component's leftmost edge and top are at 0.
+// Cyclic input is handled by dropping feedback edges (see the Kahn step below).
 function layoutComponent(
 	nodes: GraphInput['nodes'],
 	edges: GraphInput['edges'],
@@ -67,6 +68,7 @@ function layoutComponent(
 	const layerH = rowH + LAYER_GAP
 	const out = new Map<string, Positioned>()
 	const ids = new Set(nodes.map((n) => n.id))
+	const nodeW = new Map(nodes.map((n) => [n.id, n.width ?? NODE_WIDTH]))
 
 	const parents = new Map<string, string[]>()
 	const children = new Map<string, string[]>()
@@ -143,7 +145,7 @@ function layoutComponent(
 		const kids = treeChildren.get(id)!
 		const kidsW =
 			kids.reduce((acc, k) => acc + W.get(k)!, 0) + SIBLING_GAP * Math.max(0, kids.length - 1)
-		W.set(id, Math.max(NODE_WIDTH, kidsW))
+		W.set(id, Math.max(nodeW.get(id)!, kidsW))
 	}
 
 	// Vertical (pixel) extent of a subtree, for band collision checks.
@@ -217,11 +219,11 @@ function layoutComponent(
 		placeAndRecord(id, center - w / 2)
 	}
 
-	// Normalize so the component's min x,y = 0.
+	// Normalize so the component's leftmost edge and top are at 0.
 	let minX = Infinity
 	let minY = Infinity
-	for (const p of out.values()) {
-		if (p.x < minX) minX = p.x
+	for (const [id, p] of out) {
+		if (p.x - nodeW.get(id)! / 2 < minX) minX = p.x - nodeW.get(id)! / 2
 		if (p.y < minY) minY = p.y
 	}
 	if (isFinite(minX) && isFinite(minY)) {
@@ -309,15 +311,16 @@ export function layoutAssetGraph(
 		// 3. Lay out each component and pack side-by-side. xOffset advances by
 		// the laid-out width of each component (max node center + a node width,
 		// since positions are node centers) plus the gutter.
+		const widthOf = new Map(nodes.map((n) => [n.id, n.width ?? NODE_WIDTH]))
 		let xOffset = 0
 		for (let c = 0; c < nComp; c++) {
 			const positions = layoutComponent(compNodes[c], compEdges[c], rowH)
-			let maxX = 0
-			for (const p of positions.values()) if (p.x > maxX) maxX = p.x
+			let maxRight = 0
 			for (const [id, p] of positions) {
+				maxRight = Math.max(maxRight, p.x + widthOf.get(id)! / 2)
 				byId.set(id, { x: p.x + xOffset, y: p.y })
 			}
-			xOffset += maxX + NODE_WIDTH + COMPONENT_GAP
+			xOffset += maxRight + COMPONENT_GAP
 		}
 
 		// 4. Re-place the anchor centered horizontally over the whole packed

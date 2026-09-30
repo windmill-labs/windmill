@@ -20,6 +20,8 @@
 	import InitialFitView from './InitialFitView.svelte'
 	import { layoutAssetGraph, PIPELINE_NODE_EXTRA_ROW } from './assetGraphLayout'
 	import { assetsOnlyView, type AssetUpstream } from './assetsOnlyView'
+	import { assetsOnlyNodeWidth } from './assetNodeWidth'
+	import { formatAssetKind, formatShortAssetPath } from '$lib/components/assets/lib'
 	import { TRIGGER_NODE_STYLE } from './TriggerNode.svelte'
 	import { describeSchedule } from '$lib/utils/describeCron'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -969,35 +971,51 @@
 				if (n.type !== 'asset') return n
 				const u = v.upstream.get(n.id)
 				const r = u && !u.multiple ? runnables.get(u.runnableId)?.data : undefined
-				return {
-					...n,
-					data: {
-						...n.data,
-						// A dbt model is built by its project, whose writes the canvas
-						// does not draw; its dbt chip already names it.
-						upstream: !u
-							? n.data.dbt && n.data.dbt.resource_type !== 'source'
-								? undefined
-								: { none: true }
-							: u.multiple || !r
-								? { multiple: true }
-								: {
-										runnableId: u.runnableId,
-										path: r.path,
-										summary: r.summary,
-										language: r.language,
-										unsaved: r.unsaved,
-										runState: r.runState,
-										trigger: triggerChip(u.trigger, r.path),
-										onOpen: () =>
-											onselect?.({
-												kind: 'runnable',
-												runnable_kind: r.runnable_kind,
-												path: r.path
-											})
-									}
-					}
-				}
+				// A dbt model is built by its project, whose writes the canvas does not
+				// draw; its dbt chip already names it.
+				const upstream = !u
+					? n.data.dbt && n.data.dbt.resource_type !== 'source'
+						? undefined
+						: { none: true as const }
+					: u.multiple || !r
+						? { multiple: true as const }
+						: {
+								runnableId: u.runnableId,
+								path: r.path,
+								summary: r.summary,
+								language: r.language,
+								unsaved: r.unsaved,
+								runState: r.runState,
+								trigger: triggerChip(u.trigger, r.path),
+								onOpen: () =>
+									onselect?.({
+										kind: 'runnable',
+										runnable_kind: r.runnable_kind,
+										path: r.path
+									})
+							}
+				const asset = { kind: n.data.asset_kind, path: n.data.path }
+				// Chips this estimate does not model keep the regular width.
+				const width =
+					upstream &&
+					!n.data.dbt &&
+					!n.data.fork_materialization &&
+					!n.data.derived_from &&
+					!n.data.runStatus
+						? assetsOnlyNodeWidth({
+								kind: formatAssetKind(asset),
+								title: formatShortAssetPath(asset),
+								chip:
+									'none' in upstream
+										? 'External source'
+										: 'multiple' in upstream
+											? 'Multiple upstream nodes'
+											: `${upstream.trigger.label}${upstream.trigger.draft ? ' · draft' : ''}`,
+								runState: 'runState' in upstream && !!upstream.runState,
+								scriptChip: 'runnableId' in upstream
+							})
+						: undefined
+				return { ...n, data: { ...n.data, upstream, width } }
 			})
 		const edges: BuiltEdge[] = v.edges.map((e) => ({ ...e, kind: e.kind as BuiltEdge['kind'] }))
 		if (nodes.some((n) => n.id === ADD_NODE_ID)) {
@@ -1063,7 +1081,7 @@
 	)
 	let layoutInput = $derived({
 		nodes: view.nodes
-			.map((n) => ({ id: n.id, data: n.data }))
+			.map((n) => ({ id: n.id, data: n.data, width: n.data?.width as number | undefined }))
 			.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
 		edges: view.edges
 			.filter(
@@ -1089,6 +1107,9 @@
 	let layoutPositions = $derived(
 		layoutAssetGraph(layoutInput, ADD_NODE_ID, assetsOnly ? PIPELINE_NODE_EXTRA_ROW : 0)
 	)
+
+	/** Assets-only asset cards size to their text; every other node is `NODE.width`. */
+	const nodeWidth = (n: { data?: any }): number => n.data?.width ?? NODE.width
 
 	let positionedNodes = $derived.by(() => {
 		// Compute bbox width from layout; shift every x so the graph is
@@ -1153,7 +1174,8 @@
 			return {
 				id: n.id,
 				type: n.type,
-				position: { x: p.x + xCenter, y: p.y + 40 },
+				// The layout places centers; a node's position is its top-left corner.
+				position: { x: p.x - nodeWidth(n) / 2 + xCenter, y: p.y + 40 },
 				data,
 				class: boundClass ?? dbtClass ?? runClass ?? assetClass,
 				selected: n.id === selectedId,
@@ -1210,7 +1232,12 @@
 	let nodeCenters = $derived(
 		positionedNodes
 			.filter((n) => n.id !== ADD_NODE_ID)
-			.map((n) => ({ id: n.id, cx: n.position.x + NODE.width / 2, cy: n.position.y }))
+			.map((n) => ({
+				id: n.id,
+				cx: n.position.x + nodeWidth(n) / 2,
+				cy: n.position.y,
+				halfW: nodeWidth(n) / 2
+			}))
 	)
 	// Detour lane for an edge whose run would pass over an unrelated node. An
 	// edge spanning rows bends inside the first gap below its source and then
@@ -1219,7 +1246,6 @@
 	// x, not against a source→target line. A crossed node is routed around on
 	// the side the target lies. Returns the outermost lane x clearing every
 	// crossed node, or undefined when the corridor is clear. O(nodes) per edge.
-	const HALF_W = NODE.width / 2
 	const ROUTE_PAD = NODE.gap.horizontal / 2
 	function detourForEdge(sourceId: string, targetId: string): number | undefined {
 		const s = nodeCenters.find((n) => n.id === sourceId)
@@ -1231,10 +1257,10 @@
 			if (n.id === sourceId || n.id === targetId) continue
 			// strictly between the two rows
 			if ((n.cy - s.cy) / dyTot <= 0.01 || (n.cy - s.cy) / dyTot >= 0.99) continue
-			if (Math.abs(t.cx - n.cx) >= HALF_W + 8) continue
+			if (Math.abs(t.cx - n.cx) >= n.halfW + 8) continue
 			// Crossed: a lane just outside this node, toward the target side.
 			const side = t.cx >= n.cx ? 1 : -1
-			const candidate = n.cx + side * (HALF_W + ROUTE_PAD)
+			const candidate = n.cx + side * (n.halfW + ROUTE_PAD)
 			// Keep the outermost lane so one detour clears every obstacle.
 			if (lane == undefined || Math.abs(candidate - s.cx) > Math.abs(lane - s.cx)) lane = candidate
 		}

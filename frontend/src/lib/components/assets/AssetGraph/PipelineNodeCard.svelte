@@ -29,6 +29,8 @@ and the controls hung around the card.
 		/** Between the icon and the text: a live status the eye should find first. */
 		leading?: Snippet
 		trailing?: Snippet
+		/** Defaults to `NODE.width`. */
+		width?: number
 		/** A line under the title, in the text column. */
 		subtitle?: Snippet
 	}
@@ -45,7 +47,8 @@ and the controls hung around the card.
 		onclick,
 		leading,
 		trailing,
-		subtitle
+		subtitle,
+		width = NODE.width
 	}: Props = $props()
 
 	const cardClass = $derived(
@@ -103,7 +106,7 @@ and the controls hung around the card.
 		type="button"
 		{onclick}
 		class={cardClass}
-		style="width: {NODE.width}px; min-height: {minHeight}px;"
+		style="width: {width}px; min-height: {minHeight}px;"
 		title={tooltip}
 	>
 		{@render body()}
@@ -111,7 +114,7 @@ and the controls hung around the card.
 {:else}
 	<div
 		class={cardClass}
-		style="width: {NODE.width}px; min-height: {minHeight}px;"
+		style="width: {width}px; min-height: {minHeight}px;"
 		title={tooltip}
 	>
 		{@render body()}
