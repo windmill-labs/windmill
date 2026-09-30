@@ -13,6 +13,9 @@ export function splitItemPath(path: string): { dirs: PathDir[]; leaf: PathDir } 
 	if (parts.length < 3) return undefined
 	const scope = parts.slice(0, 2).join('/')
 	const slug = parts.slice(2)
+	// `f/demo/` is three parts but names nothing yet, and a leaf with an empty name draws a blank
+	// segment. The editor's path is bound live, so the breadcrumb sees every keystroke.
+	if (slug[slug.length - 1] === '') return undefined
 	const dirs: PathDir[] = [{ name: scope, fullPath: scope }]
 	let acc = scope
 	for (let i = 0; i < slug.length - 1; i++) {

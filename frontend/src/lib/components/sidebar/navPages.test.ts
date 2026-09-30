@@ -6,7 +6,7 @@ describe('navPageFor', () => {
 		expect(navPageFor('/base/runs', '/base')?.label).toBe('Runs')
 	})
 
-	it('keeps an item route on its page (longest prefix wins)', () => {
+	it('keeps an item route on its page', () => {
 		expect(navPageFor('/runs/f/demo/x', '')?.label).toBe('Runs')
 	})
 
