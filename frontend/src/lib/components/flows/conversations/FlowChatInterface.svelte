@@ -7,7 +7,8 @@
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
-	import { emptyString, type DynamicInput } from '$lib/utils'
+	import { emptyString, DynamicInput } from '$lib/utils'
+	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
 	import { tick, untrack } from 'svelte'
 	import type { Chat } from 'windmill-chat'
 	import { saveFlowChatInputs } from './flowChatProps'
@@ -73,15 +74,16 @@
 		subject = 'flow'
 	}: Props = $props()
 
+	const operatingUser = useOperatingUser()
 	// Derive helperScript for dynamic inputs from schema
-	const dynamicInputHelperScript = $derived.by((): DynamicInput.HelperScript | undefined => {
-		const dynCode = additionalInputsSchema?.['x-windmill-dyn-select-code']
-		const dynLang = additionalInputsSchema?.['x-windmill-dyn-select-lang']
-		if (dynCode && dynLang) {
-			return { source: 'inline', code: dynCode, lang: dynLang }
-		}
-		return undefined
-	})
+	const dynamicInputHelperScript = $derived(
+		DynamicInput.flowHelperScript(
+			additionalInputsSchema?.['x-windmill-dyn-select-code'],
+			additionalInputsSchema?.['x-windmill-dyn-select-lang'],
+			path,
+			operatingUser.current?.operator
+		)
+	)
 
 	// The composer's attachments feed this input, and the paperclip is its whole editor.
 	const attachmentsTarget = $derived.by(() => {

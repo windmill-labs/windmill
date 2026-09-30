@@ -6,6 +6,7 @@
 	import Section from '$lib/components/Section.svelte'
 	import Head from '$lib/components/table/Head.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { WorkspaceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
@@ -13,7 +14,7 @@
 	import { SaveIcon, EyeIcon, EyeOffIcon } from 'lucide-svelte'
 	import { untrack } from 'svelte'
 
-	let operatorWorkspaceSettings = $state({
+	const defaultVisibility = {
 		runs: true,
 		schedules: true,
 		resources: true,
@@ -24,30 +25,46 @@
 		groups: true,
 		folders: true,
 		workers: true
-	})
+	}
+	let operatorWorkspaceSettings = $state({ ...defaultVisibility })
 
 	// Kept out of `operatorWorkspaceSettings` so the visibility table's "Enable all" never flips a
-	// write right, and so these rows stay out of that table. Withdrawable rather than granted:
-	// operators hold them until an admin turns them off.
+	// write right, and so these rows stay out of that table.
+	let builderFlows = $state(false)
+	// Withdrawable rather than granted: operators hold these until an admin turns them off.
 	let manageSchedules = $state(true)
 	let manageTriggers = $state(true)
 
 	let originalSettings = $state({
 		...untrack(() => operatorWorkspaceSettings),
+		builder_flows: false,
 		manage_schedules: true,
 		manage_triggers: true
 	})
 	let isChanged = $state(false)
 	let currentWorkspace: string | null = $state(null)
+	let confirmBuilderOpen = $state(false)
 	// Saving sends every key, so saving before the load, or over a late response for another
 	// workspace, would write defaults over the rights stored there.
 	let loadedWorkspace: string | null = $state(null)
 
 	const settingsPayload = $derived({
 		...operatorWorkspaceSettings,
+		builder_flows: builderFlows,
 		manage_schedules: manageSchedules,
 		manage_triggers: manageTriggers
 	})
+
+	// The seat cost lands when the right is first granted, so confirm only on that transition.
+	const grantsBuilderRight = $derived(builderFlows && !originalSettings.builder_flows)
+
+	function onSaveClicked() {
+		if (grantsBuilderRight) {
+			confirmBuilderOpen = true
+		} else {
+			saveSettings()
+		}
+	}
 
 	async function saveSettings() {
 		try {
@@ -60,7 +77,7 @@
 			sendUserToast('Operator settings saved successfully!', false)
 		} catch (error) {
 			console.error('Error updating operator settings:', error)
-			sendUserToast('Failed to save operator settings.', true)
+			sendUserToast(`Failed to save operator settings: ${error?.body ?? error}`, true)
 		}
 	}
 
@@ -84,20 +101,23 @@
 				currentWorkspace = ws
 				const settings = await WorkspaceService.getSettings({ workspace: ws })
 				if (ws !== currentWorkspace) return
-				if (settings.operator_settings !== null) {
-					const {
-						manage_schedules: remoteSchedules,
-						manage_triggers: remoteTriggers,
-						...remoteVisibility
-					} = settings.operator_settings ?? {}
-					operatorWorkspaceSettings = { ...operatorWorkspaceSettings, ...remoteVisibility }
-					manageSchedules = remoteSchedules ?? true
-					manageTriggers = remoteTriggers ?? true
-					originalSettings = {
-						...operatorWorkspaceSettings,
-						manage_schedules: manageSchedules,
-						manage_triggers: manageTriggers
-					}
+				// Every value is reset, null settings included: one kept from the previous workspace
+				// would be saved here with the next unrelated change, builder rights among them.
+				const {
+					builder_flows: remoteFlows,
+					manage_schedules: remoteSchedules,
+					manage_triggers: remoteTriggers,
+					...remoteVisibility
+				} = settings.operator_settings ?? {}
+				operatorWorkspaceSettings = { ...defaultVisibility, ...remoteVisibility }
+				builderFlows = remoteFlows ?? false
+				manageSchedules = remoteSchedules ?? true
+				manageTriggers = remoteTriggers ?? true
+				originalSettings = {
+					...operatorWorkspaceSettings,
+					builder_flows: builderFlows,
+					manage_schedules: manageSchedules,
+					manage_triggers: manageTriggers
 				}
 				loadedWorkspace = ws
 			})()
@@ -124,7 +144,7 @@
 >
 	{#snippet action()}
 		<Button
-			on:click={saveSettings}
+			on:click={onSaveClicked}
 			startIcon={{ icon: SaveIcon }}
 			disabled={!isChanged || loadedWorkspace !== $workspaceStore}
 			variant="accent"
@@ -132,6 +152,20 @@
 			Save operator settings
 		</Button>
 	{/snippet}
+
+	<Section
+		small
+		label="Build flows"
+		description="Let operators compose flows out of scripts and flows that are already deployed. They still cannot write code. Granting this makes each operator consume a full seat instead of half a seat."
+		wrapperClass="mb-6"
+		class="flex flex-col gap-y-1"
+	>
+		<Toggle
+			bind:checked={builderFlows}
+			options={{ right: 'Operators can build flows' }}
+			size="xs"
+		/>
+	</Section>
 
 	<Section
 		small
@@ -216,3 +250,27 @@
 		</DataTable>
 	</Section>
 </Section>
+
+<ConfirmationModal
+	open={confirmBuilderOpen}
+	title="Give operators builder rights"
+	type="info"
+	confirmationText="Enable builder rights"
+	onCanceled={() => (confirmBuilderOpen = false)}
+	onConfirmed={async () => {
+		confirmBuilderOpen = false
+		await saveSettings()
+	}}
+>
+	<div class="flex flex-col gap-2 text-sm">
+		<span>This applies to every operator of this workspace, not to a chosen few.</span>
+		<span>
+			Each of them then consumes a full seat instead of half a seat, which changes what this
+			instance is billed.
+		</span>
+		<span>
+			They can create, edit and delete flows wherever their folder permissions already let them
+			write. Review those permissions before enabling.
+		</span>
+	</div>
+</ConfirmationModal>

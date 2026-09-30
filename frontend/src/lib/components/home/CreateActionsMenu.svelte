@@ -25,10 +25,13 @@
 	import { importScriptStore } from '$lib/components/scripts/scriptStore.svelte'
 	import { importStore } from '$lib/components/apps/store'
 	import { conditionalMelt, getLocalSetting, storeLocalSetting } from '$lib/utils'
+	import { useOperatorBuilderFlows } from '$lib/operatorWriteRights'
 	import { createDropdownMenu, melt } from '@melt-ui/svelte'
 	import YAML from 'yaml'
 	import type { Snippet } from 'svelte'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
+
+	const operatorBuilderFlows = useOperatorBuilderFlows()
 
 	interface Props {
 		/** Replaces the default `New` button, e.g. with an inline text link. */
@@ -247,6 +250,14 @@
 		}
 	}
 
+	// A builder composes runnables that already exist, so only flows are offered: everything else
+	// here writes code, which the backend refuses from an operator.
+	// Derived, not computed once: switching workspace only sets `workspaceStore`, it does not
+	// remount this component, so a snapshot would keep the previous workspace's kinds.
+	const options: Option[] = $derived(
+		$operatorBuilderFlows ? allOptions.filter((o) => o.key === 'flow') : allOptions
+	)
+
 	// the doc panel only shows while an option is hovered or focused, so the menu opens compact
 	let activeKey: string | undefined = $state(undefined)
 	// every option's import action, surfaced together under the bottom "Import" submenu.
@@ -256,7 +267,7 @@
 		...(onImportHubProject
 			? [{ label: 'Import a hub project', onSelect: onImportHubProject }]
 			: []),
-		...allOptions.flatMap((o) => o.extras ?? [])
+		...options.flatMap((o) => o.extras ?? [])
 	])
 
 	// melt dropdown menu: arrow-key nav, typeahead, focus management and outside/escape
@@ -372,7 +383,7 @@
 			activeKey = undefined
 		}
 	})
-	let active = $derived(allOptions.find((o) => o.key === activeKey))
+	let active = $derived(options.find((o) => o.key === activeKey))
 	let activeAc = $derived(active ? accentClasses[active.accent] : undefined)
 
 	// shared YAML/JSON import drawer, reused by every "Import …" extra
@@ -524,7 +535,7 @@
 						</span>
 					{/if}
 				{/snippet}
-				{#each allOptions as option (option.key)}
+				{#each options as option (option.key)}
 					{@const ac = accentClasses[option.accent]}
 					{@const rowClass =
 						'w-full flex flex-row items-center gap-2.5 rounded-md px-2 py-1.5 text-left cursor-pointer transition-colors focus:outline-none data-[highlighted]:bg-surface-hover hover:bg-surface-hover'}

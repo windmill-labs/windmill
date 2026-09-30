@@ -72,6 +72,14 @@ pub async fn check_seat_cap_for_reactivation(
 }
 
 #[cfg(all(feature = "enterprise", not(feature = "private")))]
+pub async fn check_seat_cap_for_operator_builder(
+    _db: &DB,
+    _w_id: &str,
+) -> anyhow::Result<Option<String>> {
+    Ok(None)
+}
+
+#[cfg(all(feature = "enterprise", not(feature = "private")))]
 pub async fn compute_instance_hash(_db: &DB) -> anyhow::Result<Option<String>> {
     // Implementation is not open source
     Ok(None)
