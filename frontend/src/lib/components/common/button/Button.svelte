@@ -4,6 +4,7 @@
 	const bubble = createBubbler()
 	import { createEventDispatcher, untrack } from 'svelte'
 	import { ButtonType } from './model'
+	import type { AlertType } from '../alert/model'
 	import { twMerge } from 'tailwind-merge'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import { getModifierKey, type Item } from '$lib/utils'
@@ -80,6 +81,8 @@
 		startIcon?: ButtonType.Icon | undefined
 		endIcon?: ButtonType.Icon | undefined
 		destructive?: boolean
+		/** Colors the `accent`, `default` and `subtle` variants to match an Alert of this type. */
+		tone?: AlertType
 		shortCut?: { key?: string; hide?: boolean; Icon?: any; withoutModifier?: boolean } | undefined
 		tooltipPopover?:
 			| {
@@ -130,6 +133,7 @@
 		startIcon = undefined,
 		endIcon = undefined,
 		destructive = false,
+		tone = undefined,
 		shortCut = undefined,
 		tooltipPopover = undefined,
 		dropdownBtnClasses = '',
@@ -185,7 +189,9 @@
 		if (['accent-secondary', 'accent', 'default', 'subtle'].includes(variant)) {
 			let style = destructive
 				? ButtonType.DestructiveVariantStyles[variant]
-				: ButtonType.VariantStyles[variant]
+				: tone
+					? ButtonType.ToneVariantStyles[tone][variant === 'accent-secondary' ? 'accent' : variant]
+					: ButtonType.VariantStyles[variant]
 			// For default variant with dropdowns, remove border from button since it's on wrapper
 			if (
 				variant === 'default' &&
@@ -272,9 +278,11 @@
 			'justify-center items-center text-center inline-flex gap-2',
 			'active:opacity-80 transition-[background-color,opacity] duration-150',
 			disabled
-				? ['default', 'subtle'].includes(variant)
-					? '!text-disabled'
-					: '!bg-surface-disabled !text-disabled'
+				? tone && !destructive
+					? 'disabled:opacity-50'
+					: ['default', 'subtle'].includes(variant)
+						? '!text-disabled'
+						: '!bg-surface-disabled !text-disabled'
 				: '',
 			loading ? 'cursor-wait' : '',
 			selected && ['default', 'subtle'].includes(variant)

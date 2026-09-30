@@ -1,4 +1,5 @@
 import type { IconType } from '$lib/utils'
+import type { AlertType } from '../alert/model'
 
 export const BUTTON_COLORS = [
 	'blue',
@@ -198,6 +199,44 @@ export namespace ButtonType {
 		subtle:
 			'bg-transparent hover:bg-red-500 hover:text-white dark:hover:bg-red-600 text-primary focus-visible:bg-red-100 dark:focus-visible:bg-red-900/30 focus-visible:ring-red-300'
 	}
+
+	// Colors a button to match the Alert it sits in: text and borders take the alert's hue so a
+	// gray button never lands on a tinted background.
+	export const ToneVariantStyles: Record<AlertType, Record<'accent' | 'default' | 'subtle', string>> =
+		{
+			info: {
+				accent:
+					'bg-blue-500 hover:bg-blue-600 focus-visible:bg-blue-600 text-white focus-visible:ring-blue-300',
+				default:
+					'border border-blue-300 dark:border-blue-400/40 bg-transparent hover:bg-blue-500/10 dark:hover:bg-blue-400/15 text-blue-700 dark:text-blue-200 focus-visible:ring-blue-300',
+				subtle:
+					'bg-transparent hover:bg-blue-500/10 dark:hover:bg-blue-400/15 text-blue-700 dark:text-blue-200 focus-visible:ring-blue-300'
+			},
+			warning: {
+				accent:
+					'bg-yellow-400 hover:bg-yellow-500 focus-visible:bg-yellow-500 text-yellow-950 focus-visible:ring-yellow-300',
+				default:
+					'border border-yellow-300 dark:border-yellow-400/40 bg-transparent hover:bg-yellow-500/15 dark:hover:bg-yellow-400/15 text-yellow-800 dark:text-yellow-300 focus-visible:ring-yellow-300',
+				subtle:
+					'bg-transparent hover:bg-yellow-500/15 dark:hover:bg-yellow-400/15 text-yellow-800 dark:text-yellow-300 focus-visible:ring-yellow-300'
+			},
+			error: {
+				accent:
+					'bg-red-500 hover:bg-red-600 focus-visible:bg-red-600 text-white focus-visible:ring-red-300',
+				default:
+					'border border-red-300 dark:border-red-400/40 bg-transparent hover:bg-red-500/10 dark:hover:bg-red-400/15 text-red-800 dark:text-red-300 focus-visible:ring-red-300',
+				subtle:
+					'bg-transparent hover:bg-red-500/10 dark:hover:bg-red-400/15 text-red-800 dark:text-red-300 focus-visible:ring-red-300'
+			},
+			success: {
+				accent:
+					'bg-green-600 hover:bg-green-700 focus-visible:bg-green-700 text-white focus-visible:ring-green-300',
+				default:
+					'border border-green-300 dark:border-green-400/40 bg-transparent hover:bg-green-500/10 dark:hover:bg-green-400/15 text-green-800 dark:text-green-300 focus-visible:ring-green-300',
+				subtle:
+					'bg-transparent hover:bg-green-500/10 dark:hover:bg-green-400/15 text-green-800 dark:text-green-300 focus-visible:ring-green-300'
+			}
+		}
 
 	export const VariantSpacingClasses: Record<ButtonType.Size, string> = {
 		xs3: 'px-0.5 py-[1px]',

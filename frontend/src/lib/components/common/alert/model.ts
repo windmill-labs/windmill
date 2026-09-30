@@ -1,6 +1,17 @@
 import { AlertCircle, AlertTriangle, CheckCircle2, Info } from 'lucide-svelte'
 
+import type { ButtonType } from '../button/model'
+
 export type AlertType = 'success' | 'error' | 'warning' | 'info'
+
+export type AlertAction = {
+	label: string
+	onClick: () => void
+	variant?: 'accent' | 'default' | 'subtle'
+	startIcon?: ButtonType.Icon
+	disabled?: boolean
+	loading?: boolean
+}
 
 export const classes: Record<AlertType, Record<string, string>> = {
 	info: {
