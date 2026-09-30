@@ -118,6 +118,11 @@
 	import type { PipelineRecording } from '$lib/components/recording/types'
 	import AutosaveIndicator from '$lib/components/AutosaveIndicator.svelte'
 	import { onMount, tick, untrack } from 'svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+	import OpenInSessionButton, {
+		type OpenInSessionSource
+	} from '$lib/components/sessions/OpenInSessionButton.svelte'
+	import { setOpenInSessionHandoff } from '$lib/components/sessions/openInSessionContext'
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import {
 		AlertTriangle,
@@ -588,6 +593,31 @@
 	})
 
 	onMount(() => aiChatManager.setPipelineHelpers(pipelineAiHelpers))
+
+	// The session's preview hydrates this folder's drafts from its DB bundle, so the
+	// autosave still inside its debounce has to land first.
+	async function persistDraftsForSession(): Promise<void> {
+		const workspace = $workspaceStore
+		if (!workspace) return
+		await tick()
+		await UserDraftDbSyncer.flush({
+			workspace,
+			itemKind: PIPELINE_DRAFT_KIND,
+			path: pipelineDraftPath
+		})
+	}
+
+	const sessionOpen: OpenInSessionSource | undefined = $derived(
+		isOperator
+			? undefined
+			: {
+					target: { kind: 'pipeline', path: folder },
+					workspaceId: $workspaceStore ?? undefined,
+					beforeOpen: persistDraftsForSession
+				}
+	)
+	// Lets the navigation rail's session switch open this pipeline, with its drafts.
+	setOpenInSessionHandoff({ source: () => sessionOpen })
 
 	// Navigation guard state. `pendingNavigationUrl` holds the URL the user
 	// tried to leave to so we can complete the navigation after they pick
@@ -3265,6 +3295,7 @@
 					Activity
 				</Button>
 			{/if}
+			<OpenInSessionButton source={sessionOpen} />
 			<Button
 				variant="subtle"
 				unifiedSize="sm"

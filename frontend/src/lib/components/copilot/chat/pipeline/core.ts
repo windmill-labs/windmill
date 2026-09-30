@@ -10,6 +10,7 @@ import {
 	type SessionTool
 } from '../sessionCapabilities'
 import type { PipelineOutputKind } from '$lib/components/assets/AssetGraph/pipelineTemplates'
+import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
 
 // ============================================================================
 // Pipeline AI chat tools.
@@ -57,6 +58,8 @@ export type PipelineContext = {
  * small — the page owns the draft Map and canvas rendering.
  */
 export interface PipelineAIChatHelpers {
+	/** Folder name (no `f/` prefix) of the pipeline this editor shows. */
+	getFolder: () => string
 	getPipelineContext: () => PipelineContext
 	/** Read a node's source (the in-flight draft body if one exists, else deployed). */
 	getNodeBody: (path: string) => Promise<{ language: ScriptLang; content: string } | undefined>
@@ -81,16 +84,58 @@ export interface PipelineAIChatHelpers {
 	testNode: (path: string, args?: Record<string, any>) => Promise<string | undefined>
 }
 
-/** Helper bag the pipeline tools receive from the manager in global mode. */
-export type PipelineToolHelpers = { pipeline?: PipelineAIChatHelpers }
+/** Helper bag the pipeline tools receive from the manager in global mode: every
+ * pipeline editor currently open, one per folder. */
+export type PipelineToolHelpers = { pipelines?: () => readonly PipelineAIChatHelpers[] }
 
-function requirePipeline(helpers: PipelineToolHelpers): PipelineAIChatHelpers {
-	if (!helpers?.pipeline) {
+function openPipelines(helpers: PipelineToolHelpers): readonly PipelineAIChatHelpers[] {
+	const open = helpers?.pipelines?.() ?? []
+	if (open.length === 0) {
 		throw new Error(
 			'No pipeline editor is open. Pipeline tools only work on a /pipeline/<folder> page in edit mode.'
 		)
 	}
-	return helpers.pipeline
+	return open
+}
+
+function notOpenError(folder: string, open: readonly PipelineAIChatHelpers[]): Error {
+	const names = open.map((p) => `'${p.getFolder()}'`).join(', ')
+	return new Error(
+		`No pipeline editor is open for folder '${folder}' (open: ${names}). Open it with open_preview(kind="pipeline", path="${folder}") first.`
+	)
+}
+
+/** The editor of the pipeline a node path belongs to (`f/<folder>/<node>`). With a
+ * single editor open, a path outside it still goes to that editor, whose own check
+ * names the corrected path. */
+function pipelineForPath(helpers: PipelineToolHelpers, path: string): PipelineAIChatHelpers {
+	const open = openPipelines(helpers)
+	const folder = path.match(/^f\/([^/]+)\//)?.[1]
+	const match = folder ? open.find((p) => p.getFolder() === folder) : undefined
+	if (match) return match
+	if (open.length === 1) return open[0]
+	throw folder
+		? notOpenError(folder, open)
+		: new Error(
+				`'${path}' is not a pipeline node path — nodes live at f/<folder>/<node_name>, with <folder> one of: ${open.map((p) => `'${p.getFolder()}'`).join(', ')}.`
+			)
+}
+
+function pipelineForFolder(
+	helpers: PipelineToolHelpers,
+	folder: string | undefined
+): PipelineAIChatHelpers {
+	const open = openPipelines(helpers)
+	if (folder) {
+		const name = normalizePipelineFolder(folder)
+		const match = open.find((p) => p.getFolder() === name)
+		if (!match) throw notOpenError(name, open)
+		return match
+	}
+	if (open.length === 1) return open[0]
+	throw new Error(
+		`Several pipeline editors are open (${open.map((p) => `'${p.getFolder()}'`).join(', ')}) — pass the folder to read.`
+	)
 }
 
 const scriptLangSchema = z.enum($ScriptLang.enum)
@@ -105,12 +150,20 @@ const outputKindSchema = z
 // Read tools
 // ----------------------------------------------------------------------------
 
-const getPipelineGraphSchema = z.object({})
+const getPipelineGraphSchema = z.object({
+	folder: z
+		.string()
+		.optional()
+		.describe(
+			'Folder of the pipeline to read (e.g. `analytics`). Required when several pipeline editors are open; may be omitted when only one is.'
+		)
+})
 
 const getPipelineGraphToolDef = createToolDef(
 	getPipelineGraphSchema,
 	'get_pipeline_graph',
-	"Read the live pipeline graph for the open /pipeline/<folder> editor: its nodes (scripts), each node's language, asset reads/writes, declared triggers, and whether it has an unsaved draft edit. Call this before building or editing nodes so you reuse existing assets/paths and understand the current DAG."
+	"Read the live pipeline graph of an open /pipeline/<folder> editor: its nodes (scripts), each node's language, asset reads/writes, declared triggers, and whether it has an unsaved draft edit. Call this before building or editing nodes so you reuse existing assets/paths and understand the current DAG.",
+	{ strict: false }
 )
 
 const readPipelineNodeSchema = z.object({
@@ -131,7 +184,7 @@ const buildPipelineNodeSchema = z.object({
 	path: z
 		.string()
 		.describe(
-			"Workspace path for the new node, e.g. f/<folder>/<name>. Use the open pipeline's folder. Must not collide with an existing node."
+			'Workspace path for the new node, e.g. f/<folder>/<name>, in the folder of an open pipeline editor. Must not collide with an existing node.'
 		),
 	language: scriptLangSchema.describe(
 		'Script language. SQL-shaped data work uses duckdb (DuckLake/S3) or postgresql (data tables); bun/python3 for general transforms.'
@@ -217,8 +270,9 @@ export const pipelineTools: SessionTool<PipelineToolHelpers>[] = [
 		requires: NONE,
 		def: getPipelineGraphToolDef,
 		planModeSafe: true,
-		fn: async ({ helpers, toolId, toolCallbacks }) => {
-			const pipeline = requirePipeline(helpers)
+		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+			const { folder } = getPipelineGraphSchema.parse(args ?? {})
+			const pipeline = pipelineForFolder(helpers, folder)
 			toolCallbacks.setToolStatus(toolId, { content: 'Reading pipeline graph...' })
 			const ctx = pipeline.getPipelineContext()
 			toolCallbacks.setToolStatus(toolId, {
@@ -233,8 +287,8 @@ export const pipelineTools: SessionTool<PipelineToolHelpers>[] = [
 		def: readPipelineNodeToolDef,
 		planModeSafe: true,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			const pipeline = requirePipeline(helpers)
 			const { path } = readPipelineNodeSchema.parse(args)
+			const pipeline = pipelineForPath(helpers, path)
 			toolCallbacks.setToolStatus(toolId, { content: `Reading node '${path}'...` })
 			const node = await pipeline.getNodeBody(path)
 			if (!node) {
@@ -251,8 +305,8 @@ export const pipelineTools: SessionTool<PipelineToolHelpers>[] = [
 		showDetails: true,
 		showFade: true,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			const pipeline = requirePipeline(helpers)
 			const { path, language, content, output_kind } = buildPipelineNodeSchema.parse(args)
+			const pipeline = pipelineForPath(helpers, path)
 			toolCallbacks.setToolStatus(toolId, { content: `Building node '${path}'...` })
 			const { detectedReads, detectedWrites } = await pipeline.proposeNode({
 				path,
@@ -274,8 +328,8 @@ export const pipelineTools: SessionTool<PipelineToolHelpers>[] = [
 		showDetails: true,
 		showFade: true,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			const pipeline = requirePipeline(helpers)
 			const { path, old_string, new_string, replace_all } = editPipelineNodeSchema.parse(args)
+			const pipeline = pipelineForPath(helpers, path)
 			const node = await pipeline.getNodeBody(path)
 			if (!node) {
 				return `No pipeline node found at '${path}'. Call get_pipeline_graph to list the available nodes.`
@@ -300,8 +354,8 @@ export const pipelineTools: SessionTool<PipelineToolHelpers>[] = [
 		requires: WRITE_DRAFT,
 		def: removePipelineNodeToolDef,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			const pipeline = requirePipeline(helpers)
 			const { path } = removePipelineNodeSchema.parse(args)
+			const pipeline = pipelineForPath(helpers, path)
 			toolCallbacks.setToolStatus(toolId, { content: `Discarding draft '${path}'...` })
 			await pipeline.removeProposedNode(path)
 			toolCallbacks.setToolStatus(toolId, {
@@ -319,8 +373,8 @@ export const pipelineTools: SessionTool<PipelineToolHelpers>[] = [
 		showDetails: true,
 		autoCollapseDetails: false,
 		fn: async ({ args, workspace, helpers, toolId, toolCallbacks }) => {
-			const pipeline = requirePipeline(helpers)
 			const { path, args: runArgs } = testPipelineNodeSchema.parse(args)
+			const pipeline = pipelineForPath(helpers, path)
 			return executeTestRun({
 				jobStarter: async () => {
 					const jobId = await pipeline.testNode(path, runArgs ?? undefined)
@@ -350,18 +404,30 @@ export const pipelineTools: SessionTool<PipelineToolHelpers>[] = [
  * since the tools it names are withheld from that session; the annotation model stays,
  * as it is what lets the model read and explain an existing pipeline.
  */
-export function getPipelinePromptSection(ctx: PipelineContext, access?: SessionAccess): string {
+export function getPipelinePromptSection(
+	folders: readonly string[],
+	access?: SessionAccess
+): string {
 	const canWriteDraft = !access || access.has('write_draft')
+	const [first] = folders
+	const openLine =
+		folders.length === 1
+			? `The user has the /pipeline/${first} editor open.`
+			: `The user has ${folders.length} pipeline editors open: ${folders.map((f) => `/pipeline/${f}`).join(', ')}. Each tool acts on the pipeline its node path's folder names; pass \`folder\` to get_pipeline_graph.`
+	const pathLine =
+		folders.length === 1
+			? `Every node of this pipeline lives at \`f/${first}/<node_name>\` — \`${first}\` is the folder name and \`f/\` is the owner prefix every workspace path carries, so write it exactly once (never \`f/f/…\`, and never a bare \`<node_name>\`).`
+			: `Every node of a pipeline lives at \`f/<folder>/<node_name>\` (e.g. \`f/${first}/<node_name>\`) — \`f/\` is the owner prefix every workspace path carries, so write it exactly once (never \`f/f/…\`, and never a bare \`<node_name>\`). A node can only be built in the folder of an open pipeline editor.`
 	return `
 
 Data Pipeline editor (ACTIVE):
-- The user has the /pipeline/${ctx.folder} editor open. A pipeline is a DAG of scripts (nodes) connected by storage assets (DuckLake tables, data tables, S3 objects, volumes, resources) and execution triggers.
+- ${openLine} A pipeline is a DAG of scripts (nodes) connected by storage assets (DuckLake tables, data tables, S3 objects, volumes, resources) and execution triggers.
 - Annotations are top-of-file comments in the NODE'S OWN comment syntax: \`--\` for SQL (duckdb/postgresql), \`#\` for python3/bash, \`//\` for bun/TS. The \`//\` shown below is the TS form — translate it (a \`// pipeline\` line in a SQL node is a syntax error that won't deploy).
 - A script becomes a pipeline node when its source starts with the \`// pipeline\` annotation. Declare execution-DAG inputs with \`// on <asset-uri | schedule | webhook | email | kafka | mqtt | amqp | nats | postgres | sqs | gcp | data_upload>\` (e.g. \`// on ducklake://main/orders\`). Outputs are inferred from what the body writes (wmill SDK calls / SQL CREATE TABLE / writeS3File); declare a managed output with \`// materialize <asset-uri>\`. Optional badges: \`// partitioned <daily|hourly|weekly|monthly|dynamic>\`, \`// freshness <duration>\`, \`// tag <name>\`, \`// retry <count> [delay]\`, \`// data_test <kind> ...\` (managed DuckLake targets only — deploy rejects it beside a \`dbt://\` target), \`// measure <name> = <agg> [where <pred>]\`, \`// dimension <name> = <expr>\`.
 - \`materialize\` (the managed output): a managed \`// materialize ducklake://<name>/<table>\` means the runtime writes the node's output table FOR you — write the body as a single SELECT and the runtime wraps it in the create/replace, so do NOT also write your own CREATE TABLE / INSERT. The \`dbt://\` target below is the opposite: the node writes its own DDL and none of the write strategies apply to it. IMPORTANT: a MANAGED \`// materialize\` is **DuckDB-only** and its target MUST be a DuckLake table (\`ducklake://<name>/<table>\`) — deploy rejects a \`ducklake://\` target on any other language. For a \`python3\`/\`bun\`/\`postgresql\` node writing the lake, do NOT use \`// materialize\`; write the output via the SDK instead (e.g. \`wmill.writeS3File(...)\`, a \`CREATE TABLE\` in postgresql, or \`wmill.databaseUrlFromResource\`/ducklake helpers) and let the output be inferred. Reach for \`duckdb\` when a node should materialize a DuckLake table. The one target any language BUT DBT'S OWN may declare (a dbt project's writes come from its manifest, so \`// materialize\` on a dbt script is rejected at deploy) is a WAREHOUSE RELATION: \`// materialize manual dbt://<warehouse>/<schema>/<name>\`, with \`<warehouse>\` a warehouse the workspace configures under Settings → dbt. \`manual\` is its only mode — nothing generates warehouse DDL, so the node issues its own write and the annotation records the outcome. Use it on an ingestion node a dbt project reads as a \`source\`: the declared relation and the dbt model become ONE graph node, and a downstream \`// on dbt://<warehouse>/<schema>/<name>\` fires when that node completes. Write strategy: with no option it REPLACES the whole table each run (full refresh; the only mode whose output columns may change); \`// materialize <uri> append\` INSERT-appends rows (incremental); \`// materialize <uri> key=<col>\` merges/upserts on \`<col>\`. \`// materialize manual <uri>\` opts OUT of managed writes — the script writes its own DDL and the annotation only records the output asset for lineage. \`materialize\` is paired with partitioning for incremental pipelines: a \`// partitioned <daily|hourly|weekly|monthly|dynamic>\` node runs once per partition (append/merge into a fixed-schema table), and the \`{partition}\` token — usable in any asset URI AND in the body SQL — is substituted with the current partition's IDENTITY string at run time. To filter the source to the active slice on a time grain, use the runtime-injected macro: \`WHERE wm_partition(<ts_col>) = {partition}\`. \`wm_partition(ts)\` buckets a timestamp with the exact identity format the runtime used (daily/hourly/weekly/monthly), so it always matches and you never hand-write a \`strftime\` format. Do NOT write \`= TIMESTAMP {partition}\`: the identity string is not a valid timestamp literal for hourly/weekly/monthly and errors at runtime. For \`dynamic\` partitioning the identity is your caller-supplied key (not a timestamp, no macro), so filter on it directly: \`WHERE <your_key_col> = {partition}\`. \`materialize\` is an output DECLARATION on the node — it is not a command; there is no "materialize run".
 - \`measure\` / \`dimension\` (declared metrics): on a node that materializes a DuckLake table, \`// measure <name> = <aggregate> [where <predicate>]\` names the canonical way to aggregate that table (e.g. \`// measure revenue = sum(amount) where not is_refund\`), and \`// dimension <name> = <expr>\` names a way to slice it (e.g. \`// dimension region = region\`, \`// dimension month = date_trunc('month', ordered_at)\`). They execute nothing: they are catalogued at deploy so the editor and other agents can reuse the definition instead of re-deriving it and silently disagreeing. Keep the predicate in the \`where\` clause rather than folding it into the aggregate: it is rendered as \`<agg> FILTER (WHERE <pred>)\`, which is what lets two measures with different predicates sit under one GROUP BY. DuckLake-only, and only meaningful next to \`// materialize\`. Declare one when a number carries a judgement call someone else would get wrong (refunds excluded, test rows dropped, which column is the amount); do NOT blanket every table with measures, an obvious \`count(*)\` earns nothing. To USE a metric another node declares, read that node with read_pipeline_node and reuse its exact expression rather than guessing it.
 - Use get_pipeline_graph to see the current nodes/assets/triggers, and read_pipeline_node before editing one.
-- Every node of this pipeline lives at \`f/${ctx.folder}/<node_name>\` — \`${ctx.folder}\` is the folder name and \`f/\` is the owner prefix every workspace path carries, so write it exactly once (never \`f/f/…\`, and never a bare \`<node_name>\`).${
+- ${pathLine}${
 		canWriteDraft
 			? `
 - Build new nodes with build_pipeline_node and edit existing ones with edit_pipeline_node. These apply directly as unsaved drafts on the canvas (like the flow/script editor applies AI edits) — they DO NOT deploy. There is no separate Accept/Reject step. Prefer these over the generic write_script/edit_script draft tools while a pipeline is open.

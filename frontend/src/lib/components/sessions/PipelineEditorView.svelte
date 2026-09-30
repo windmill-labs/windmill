@@ -29,7 +29,7 @@
 		/** Folder name the pipeline graph is scoped to (not a workspace item path). */
 		path: string
 		workspaceId: string
-		/** Only the visible session registers the pipeline tools on its manager. */
+		/** Only the visible session polls the live run badges. */
 		isActiveSession?: boolean
 		/** Whether this is the foreground preview tab. */
 		active?: boolean
@@ -43,39 +43,13 @@
 	// wrong chat — leaving this session's chat unable to build canvas nodes.
 	const aiChatManager = runtime.manager
 
-	// Only the foreground tab of the foreground session owns the chat's pipeline
-	// tools and runs the live-badge poll — a background tab (another preview tab is
-	// showing, or another session is active) must not shadow that context or poll.
+	// Only the foreground tab of the foreground session runs the live-badge poll.
 	const engaged = $derived(isActiveSession && active)
 
-	// Externalized editor state — lives on the runtime so the drafts persist across
-	// hide/show of the preview pane (the pane unmounts on hide).
-	const pe = runtime.pipelineEditorState
-
-	// The reused `pe` is scoped to a folder. A same-folder remount (hide→show)
-	// keeps the drafts; a retarget to a different folder resets so stale drafts
-	// don't bleed across folders. untrack the writes so this can't self-loop.
-	$effect(() => {
-		const folder = path
-		untrack(() => {
-			if (pe.folder !== folder) {
-				if (pe.folder !== undefined) {
-					pe.reset()
-					// A retarget without remount re-scopes the poll, so the release
-					// effect could never match the old folder's job — drop the hint.
-					activeRunnable = undefined
-					activeRunnableJobId = undefined
-					// Re-scope the Global pipeline prompt to the new folder (the helper
-					// methods already read the reactive path, but the system message
-					// string was built for the old one). Only when this tab is engaged —
-					// its helpers are the registered set; a background tab reconfigures
-					// when it next becomes the foreground one.
-					if (engaged) aiChatManager.rebuildGlobalSystemMessage()
-				}
-				pe.folder = folder
-			}
-		})
-	})
+	// This folder's editor state lives on the runtime, so its drafts survive a
+	// remount. The host remounts this view when the tab moves to another folder, so
+	// `path` is fixed for its lifetime.
+	const pe = untrack(() => runtime.pipelineEditor(path))
 
 	const EMPTY_GRAPH: AssetGraphResponse = { assets: [], runnables: [], edges: [], triggers: [] }
 	const EMPTY_PATH_MAP = new Map<string, Array<{ kind: AssetKind; path: string }>>()
@@ -285,14 +259,10 @@
 		}
 	}
 
-	// Register the pipeline tools on this session's manager while this tab is the
-	// engaged (foreground) one. setPipelineHelpers rebuilds the global tool set to
-	// include the pipeline tools and tears them down on cleanup — so switching to
-	// another preview tab or session releases them.
-	$effect(() => {
-		if (!engaged) return
-		return aiChatManager.setPipelineHelpers(helpers)
-	})
+	// Register this folder's pipeline tools on the session's own manager for as long
+	// as the view is mounted — background tabs included, since each folder's tools
+	// act on its own state — and release them on unmount.
+	$effect(() => aiChatManager.setPipelineHelpers(helpers))
 </script>
 
 <div class="flex flex-col h-full w-full bg-surface">

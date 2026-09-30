@@ -214,6 +214,7 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 	}
 
 	const helpers: PipelineAIChatHelpers = {
+		getFolder: folderName,
 		getPipelineContext: buildContext,
 		getNodeBody: async (path) => {
 			const draft = deps.getDrafts().get(path)

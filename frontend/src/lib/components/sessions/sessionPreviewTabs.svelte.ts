@@ -421,20 +421,15 @@ export class SessionPreviewTabs {
 			}
 		}
 		const url = targetUrl(target)
-		// Pipeline previews all share one runtime.pipelineEditorState, so keep at
-		// most one pipeline tab: re-point the existing one to the requested folder
-		// rather than opening a second pipeline editor that would fight over the
-		// shared state (`focused` when it already showed this folder, else `opened`
-		// since the view now shows a different pipeline).
+		// One tab per pipeline folder: two would mount two editors over one folder's
+		// state and draft.
 		const pipelineFolder = parsePipelineRoute(url)
 		if (pipelineFolder) {
-			const existing = this.#tabs.find((t) => parsePipelineRoute(t.url) !== null)
+			const existing = this.#tabs.find((t) => parsePipelineRoute(t.url) === pipelineFolder)
 			if (existing) {
-				const same = existing.url === url
-				this.#retarget(existing, url)
 				this.#activeId = existing.id
 				this.#flush()
-				return { status: same ? 'focused' : 'opened' }
+				return { status: 'focused' }
 			}
 		}
 		// Dedupe artifacts by id, not full url: an update may have changed the name the url carries.
@@ -506,15 +501,11 @@ export class SessionPreviewTabs {
 				return
 			}
 		}
-		// Keep at most one pipeline tab (all share runtime.pipelineEditorState): if a
-		// *different* tab already hosts a pipeline, retarget and focus it rather than
-		// turning the active tab into a second pipeline editor racing the shared
-		// state. Same invariant as open(); a no-op when the active tab is that tab.
+		// Same one-tab-per-folder rule as open(): focus the tab already on this folder.
 		const pipelineFolder = parsePipelineRoute(targetUrl(target))
 		if (pipelineFolder) {
-			const existing = this.#tabs.find((x) => parsePipelineRoute(x.url) !== null)
+			const existing = this.#tabs.find((x) => parsePipelineRoute(x.url) === pipelineFolder)
 			if (existing && existing.id !== t.id) {
-				this.#retarget(existing, targetUrl(target, existing))
 				this.#activeId = existing.id
 				this.#flush()
 				return

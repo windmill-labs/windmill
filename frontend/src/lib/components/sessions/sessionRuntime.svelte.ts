@@ -191,9 +191,9 @@ export interface SessionRuntime {
 	// (renderer) and the open_preview/get_preview_status tools cross it, so the
 	// tab model has exactly one live copy.
 	readonly previewTabs: SessionPreviewTabs
-	// Pipeline target state — persists across editor hide/show (the pane unmounts
-	// on hide, so this can't be component-local) and across session switches.
-	readonly pipelineEditorState: PipelineEditorState
+	// Pipeline editor state per folder — persists across editor remounts and
+	// session switches, so it can't be component-local. Created on first use.
+	pipelineEditor(folder: string): PipelineEditorState
 	// Per-(kind, path) editor cells (content/baseline stores + load slot), created
 	// on demand. Each editable preview tab resolves its own cell, so several items
 	// stay live at once.
@@ -577,10 +577,17 @@ function createRuntime(session: Session): SessionRuntime {
 	// picker lists, so changeMode's network refreshes would fire once per listing.
 	manager.configureGlobalMode()
 
-	// Pipeline target state lives on the runtime (not the PipelineEditorView
-	// component) so the in-session drafts survive hide/show of the editor pane —
-	// the pane unmounts on hide, and a component-local store would be discarded.
-	const pipelineEditorState = new PipelineEditorState()
+	const pipelineEditors = new Map<string, PipelineEditorState>()
+	function pipelineEditor(folder: string): PipelineEditorState {
+		const key = normalizePipelineFolder(folder)
+		let editor = pipelineEditors.get(key)
+		if (!editor) {
+			editor = new PipelineEditorState()
+			editor.folder = key
+			pipelineEditors.set(key, editor)
+		}
+		return editor
+	}
 
 	const runtimeLogRequesters = new Map<string, RawAppRuntimeLogRequester>()
 	// appPath → requester, one entry per mounted raw-app preview tab.
@@ -594,7 +601,7 @@ function createRuntime(session: Session): SessionRuntime {
 		sessionId: session.id,
 		manager,
 		previewTabs,
-		pipelineEditorState,
+		pipelineEditor,
 		flowCell,
 		loadedEditorPath,
 
@@ -1211,8 +1218,8 @@ setOpenPreviewHandler(async ({ sessionId: callerSessionId, kind, path }) => {
 	// "Unknown tool call" error on the first node it tries to build.
 	if (kind === 'pipeline') {
 		const folder = normalizePipelineFolder(path)
-		const ready = await runtime.manager.waitForPipelineHelpers()
-		// A backgrounded session's preview tab does not mount, so its editor never
+		const ready = await runtime.manager.waitForPipelineHelpers(folder)
+		// A session whose page is not mounted never mounts the editor, so it never
 		// registers — don't claim success, or the model calls build_pipeline_node
 		// into the void. Tell it the tools aren't available and how to recover.
 		if (!ready) {

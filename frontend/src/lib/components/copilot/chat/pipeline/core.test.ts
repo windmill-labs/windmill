@@ -39,7 +39,7 @@ const sampleContext: PipelineContext = {
 }
 
 function makeHelpers(overrides: Partial<PipelineAIChatHelpers> = {}): {
-	helpers: { pipeline: PipelineAIChatHelpers }
+	helpers: { pipelines: () => PipelineAIChatHelpers[] }
 	calls: Record<string, any[]>
 } {
 	const calls: Record<string, any[]> = {}
@@ -50,6 +50,7 @@ function makeHelpers(overrides: Partial<PipelineAIChatHelpers> = {}): {
 			return ret
 		}
 	const pipeline: PipelineAIChatHelpers = {
+		getFolder: () => sampleContext.folder,
 		getPipelineContext: () => sampleContext,
 		getNodeBody: async (path: string) => {
 			calls.getNodeBody = [...(calls.getNodeBody ?? []), [path]]
@@ -67,7 +68,7 @@ function makeHelpers(overrides: Partial<PipelineAIChatHelpers> = {}): {
 		testNode: async () => 'job-123',
 		...overrides
 	}
-	return { helpers: { pipeline }, calls }
+	return { helpers: { pipelines: () => [pipeline] }, calls }
 }
 
 describe('pipeline tools', () => {
@@ -196,9 +197,60 @@ describe('pipeline tools', () => {
 	})
 })
 
+describe('pipeline tools with several editors open', () => {
+	function editorFor(folder: string, built: string[]): PipelineAIChatHelpers {
+		return {
+			...makeHelpers().helpers.pipelines()[0],
+			getFolder: () => folder,
+			getPipelineContext: () => ({ ...sampleContext, folder }),
+			proposeNode: async (input) => {
+				built.push(`${folder}:${input.path}`)
+				return { path: input.path, detectedReads: [], detectedWrites: [] }
+			}
+		}
+	}
+	const call = (name: string, args: any, editors: PipelineAIChatHelpers[]) =>
+		toolByName(name).fn({
+			args,
+			workspace: 'w',
+			helpers: { pipelines: () => editors },
+			toolCallbacks: noopCallbacks(),
+			toolId: 't'
+		})
+
+	it('routes a node to the editor of its folder', async () => {
+		const built: string[] = []
+		const editors = [editorFor('crm', built), editorFor('sales', built)]
+		await call(
+			'build_pipeline_node',
+			{ path: 'f/sales/clean', language: 'bun', content: '// pipeline' },
+			editors
+		)
+		expect(built).toEqual(['sales:f/sales/clean'])
+		await expect(
+			call(
+				'build_pipeline_node',
+				{ path: 'f/other/clean', language: 'bun', content: '// pipeline' },
+				editors
+			)
+		).rejects.toThrow(/open_preview\(kind="pipeline", path="other"\)/)
+	})
+
+	it('get_pipeline_graph needs the folder only when it is ambiguous', async () => {
+		const editors = [editorFor('crm', []), editorFor('sales', [])]
+		await expect(call('get_pipeline_graph', {}, editors)).rejects.toThrow(/pass the folder/)
+		expect(
+			JSON.parse(await call('get_pipeline_graph', { folder: 'f/sales' }, editors))
+		).toMatchObject({ folder: 'sales' })
+		expect(JSON.parse(await call('get_pipeline_graph', {}, [editors[0]]))).toMatchObject({
+			folder: 'crm'
+		})
+	})
+})
+
 describe('getPipelinePromptSection', () => {
 	it('names the active folder and the direct-draft workflow', () => {
-		const section = getPipelinePromptSection(sampleContext)
+		const section = getPipelinePromptSection([sampleContext.folder])
 		expect(section).toContain('/pipeline/analytics')
 		expect(section).toContain('build_pipeline_node')
 		expect(section).toContain('directly as unsaved drafts')
