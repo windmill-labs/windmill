@@ -425,30 +425,21 @@
 				onPick={handlePick}
 			>
 				{#snippet trigger()}
-					<!--
-						Sizing notes for the round + button:
-						  - w-6/h-6 (24px) chosen so that with border-2 (2px each
-						    side) the inner area is exactly 20px — divisible by
-						    the 16px icon to leave a 2px gap on every side. At
-						    20px / 12px before, the gap was 4px-each but the
-						    odd rounding interacted badly with svelte-flow's
-						    fractional zoom transforms and the icon drifted
-						    half a pixel off-center on certain zoom levels.
-						  - `grid place-items-center` instead of flex centering:
-						    flex's baseline alignment introduces a sub-pixel
-						    nudge on small elements that grid avoids.
-						  - `leading-none` strips the default line-height
-						    contribution that the SVG inherits via the parent's
-						    text rendering, otherwise the icon is shifted
-						    downward by ~0.5px at fractional zooms.
-					-->
+					<!-- A circle at rest; hovering widens it into a labelled pill. The
+					     label animates its max-width (width itself can't transition to
+					     auto) and never wraps, so the pill grows on one line. -->
 					<button
 						type="button"
 						onclick={(e) => e.stopPropagation()}
-						class="bg-surface border border-gray-400 dark:border-gray-600 text-secondary hover:bg-surface-hover rounded-full w-6 h-6 grid place-items-center shadow-sm leading-none"
-						title="Add downstream pipeline script"
+						class="group/add h-6 min-w-6 rounded-full flex items-center justify-center bg-surface border border-gray-400 dark:border-gray-600 text-secondary hover:text-primary hover:border-gray-500 shadow-sm leading-none overflow-hidden transition-[padding] duration-200 ease-out hover:pl-1"
+						aria-label="Add downstream step"
 					>
-						<Plus size={16} strokeWidth={2.5} />
+						<Plus size={16} strokeWidth={2.5} class="shrink-0" />
+						<span
+							class="max-w-0 opacity-0 whitespace-nowrap text-2xs font-normal transition-[max-width,opacity,margin] duration-200 ease-out group-hover/add:max-w-32 group-hover/add:opacity-100 group-hover/add:ml-1 group-hover/add:mr-2"
+						>
+							Add downstream step
+						</span>
 					</button>
 				{/snippet}
 			</PipelineInsertMenu>

@@ -16,6 +16,7 @@
 	import type { ScriptLang } from '$lib/gen'
 	import type { NativeTriggerKind } from './types'
 	import { PIPELINE_LANGUAGES } from './pipelineLanguages'
+	import { NODE } from '$lib/components/graph/util'
 	import type { PipelineOutputKind } from './pipelineTemplates'
 
 	// Each left-column kind is just "pipeline script triggered by <trigger
@@ -58,6 +59,9 @@
 	}
 </script>
 
+<!-- The layout gives this node a full node-width slot; centering the pill in
+     it lines it up with the nodes below whatever its label's width. -->
+<div class="flex justify-center" style="width: {NODE.width}px;">
 <PipelineInsertMenu
 	kinds={[
 		{
@@ -143,13 +147,14 @@
 	{#snippet trigger()}
 		<!-- Quiet insert affordance, mirroring the flow editor's inline +
 		     buttons (bg-surface + gray border + secondary text) — a filled
-		     accent circle outweighed every real node on the canvas. -->
+		     accent pill would outweigh every real node on the canvas. -->
 		<button
 			type="button"
-			class="w-8 h-8 rounded-full flex items-center justify-center bg-surface border border-gray-400 dark:border-gray-600 text-secondary shadow-sm hover:bg-surface-hover transition-colors cursor-pointer"
-			title="Add to pipeline"
+			class="h-8 px-3 rounded-full flex items-center gap-1.5 whitespace-nowrap bg-surface border border-gray-400 dark:border-gray-600 text-xs font-normal text-secondary shadow-sm hover:bg-surface-hover transition-colors cursor-pointer"
 		>
-			<Plus size={16} />
+			<Plus size={16} class="shrink-0" />
+			Add data source
 		</button>
 	{/snippet}
 </PipelineInsertMenu>
+</div>

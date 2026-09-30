@@ -31,12 +31,6 @@
 	import type { AssetKind } from '$lib/gen'
 	import { NODE } from '$lib/components/graph/util'
 
-	// Width of the + node's rendered DOM element. Sugiyama allocates a full
-	// NODE.width slot for every node, so the small round button ends up
-	// left-aligned in its slot. We compensate by shifting the + node right
-	// by half the difference so its visual center matches the slot center.
-	const ADD_NODE_WIDTH = 40
-
 	interface Props {
 		graph: AssetGraphResponse
 		selection?: AssetGraphSelection | undefined
@@ -967,9 +961,6 @@
 		const xCenter = paneWidth / 2 - bboxWidth / 2
 		return model.nodes.map<Node>((n) => {
 			const p = layoutPositions.get(n.id) ?? { x: 0, y: 0 }
-			// Compensate for the + node being narrower than its layout slot
-			// so it visually centers over the node(s) below.
-			const xShift = n.id === ADD_NODE_ID ? (NODE.width - ADD_NODE_WIDTH) / 2 : 0
 			// Activity-panel emphasis (purely visual rings, kept off `selected`
 			// which swaps the details pane). Hover wins over pin so the cursor
 			// always tracks.
@@ -1001,7 +992,7 @@
 			return {
 				id: n.id,
 				type: n.type,
-				position: { x: p.x + xCenter + xShift, y: p.y + 40 },
+				position: { x: p.x + xCenter, y: p.y + 40 },
 				data: n.data,
 				class: boundClass ?? dbtClass ?? runClass ?? assetClass,
 				selected: n.id === selectedId,
