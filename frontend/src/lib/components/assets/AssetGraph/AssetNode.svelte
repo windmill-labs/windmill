@@ -406,30 +406,26 @@
 		</div>
 	{/if}
 	{#if showAdd}
-		<!-- Always-visible + below the asset for downstream pipeline-script
-		     creation, hung under the node by a short connector so it clears the
-		     node's text and reads as attached to it. -->
-		<div
-			class="absolute left-1/2 top-full -translate-x-1/2 z-10 flex flex-col items-center pointer-events-none"
-		>
-			<div class="w-px h-3 bg-gray-300 dark:bg-gray-600"></div>
-			<div class="pointer-events-auto">
-				<PipelineInsertMenu
-					kinds={[
-						{
-							id: 'pipeline_script',
-							label: 'Add downstream pipeline script',
-							description: 'Triggered when this asset changes',
-							icon: Code2
-						}
-					]}
-					languages={PIPELINE_LANGUAGES as any}
-					pathPrefix={data.pathPrefix ?? ''}
-					defaultPathSuffix={data.defaultPathSuffix ?? ''}
-					onPick={handlePick}
-				>
-					{#snippet trigger()}
-						<!--
+		<!-- Always-visible + on the asset's bottom edge for downstream pipeline-
+		     script creation, half-overlapping it like the flow editor's
+		     between-step inserter. -->
+		<div class="absolute left-1/2 -bottom-3 -translate-x-1/2 z-10">
+			<PipelineInsertMenu
+				kinds={[
+					{
+						id: 'pipeline_script',
+						label: 'Add downstream pipeline script',
+						description: 'Triggered when this asset changes',
+						icon: Code2
+					}
+				]}
+				languages={PIPELINE_LANGUAGES as any}
+				pathPrefix={data.pathPrefix ?? ''}
+				defaultPathSuffix={data.defaultPathSuffix ?? ''}
+				onPick={handlePick}
+			>
+				{#snippet trigger()}
+					<!--
 						Sizing notes for the round + button:
 						  - w-6/h-6 (24px) chosen so that with border-2 (2px each
 						    side) the inner area is exactly 20px — divisible by
@@ -446,17 +442,16 @@
 						    text rendering, otherwise the icon is shifted
 						    downward by ~0.5px at fractional zooms.
 					-->
-						<button
-							type="button"
-							onclick={(e) => e.stopPropagation()}
-							class="bg-surface border border-gray-400 dark:border-gray-600 text-secondary hover:bg-surface-hover rounded-full w-6 h-6 grid place-items-center shadow-sm leading-none"
-							title="Add downstream pipeline script"
-						>
-							<Plus size={16} strokeWidth={2.5} />
-						</button>
-					{/snippet}
-				</PipelineInsertMenu>
-			</div>
+					<button
+						type="button"
+						onclick={(e) => e.stopPropagation()}
+						class="bg-surface border border-gray-400 dark:border-gray-600 text-secondary hover:bg-surface-hover rounded-full w-6 h-6 grid place-items-center shadow-sm leading-none"
+						title="Add downstream pipeline script"
+					>
+						<Plus size={16} strokeWidth={2.5} />
+					</button>
+				{/snippet}
+			</PipelineInsertMenu>
 		</div>
 	{/if}
 </div>
