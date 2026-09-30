@@ -704,7 +704,7 @@
 							>
 						{/if}
 						<li>Unlink it to fork an editable copy into just this step.</li>
-						<li>Or ask for access to the provider resource.</li>
+						<li>Ask for access to the provider resource.</li>
 					</ul>
 					<div class="flex gap-2 pt-2">
 						{#if canEditAgent && !fromAgentEditor}
