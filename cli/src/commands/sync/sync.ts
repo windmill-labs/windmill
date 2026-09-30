@@ -77,6 +77,7 @@ import {
 import {
   getEffectiveSettings,
   inferWsNameFromProfile,
+  inferWsNameFromForkBranch,
   resolveWsNameForConfigFromFlags,
   mergeConfigWithConfigFile,
   parseSyncBehavior,
@@ -3752,9 +3753,12 @@ export async function pull(
     }
   }
 
-  // If wsNameForConfig wasn't set from flags, infer from the resolved profile
+  // If wsNameForConfig wasn't set from flags, infer from the resolved profile,
+  // then (for a fork) from the parent's entry
   if (!wsNameForConfig) {
-    wsNameForConfig = inferWsNameFromProfile(opts, workspace);
+    wsNameForConfig =
+      inferWsNameFromProfile(opts, workspace) ??
+      inferWsNameFromForkBranch(opts, workspace.workspaceId);
   }
 
   // Resolve effective sync options with workspace awareness
@@ -4802,9 +4806,12 @@ export async function push(
   const workspace = await resolveWorkspace(opts, wsNameForConfig);
   await requireLogin(opts);
 
-  // If wsNameForConfig wasn't set from flags, infer from the resolved profile
+  // If wsNameForConfig wasn't set from flags, infer from the resolved profile,
+  // then (for a fork) from the parent's entry
   if (!wsNameForConfig) {
-    wsNameForConfig = inferWsNameFromProfile(opts, workspace);
+    wsNameForConfig =
+      inferWsNameFromProfile(opts, workspace) ??
+      inferWsNameFromForkBranch(opts, workspace.workspaceId);
   }
 
   // Resolve effective sync options with workspace awareness

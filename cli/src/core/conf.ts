@@ -5,6 +5,7 @@ import { stringify as yamlStringify } from "yaml";
 import {
   getCurrentGitBranch,
   getOriginalBranchForWorkspaceForks,
+  getWorkspaceIdForWorkspaceForkFromBranchName,
   isGitRepository,
 } from "../utils/git.ts";
 import { join, dirname, resolve, relative } from "node:path";
@@ -723,6 +724,30 @@ export function inferWsNameFromProfile(
     }
   }
   return undefined;
+}
+
+/**
+ * The workspace config entry a fork inherits from its parent: the one bound to
+ * the base branch of the checked-out `wm-fork/<base>/<id>` branch, when
+ * `workspaceId` is the fork that branch names. A fork id never has an entry of
+ * its own, so without this its specific items and file suffix fall back to
+ * the common/base files and clobber what the fork cloned from its parent.
+ */
+export function inferWsNameFromForkBranch(
+  opts: SyncOptions,
+  workspaceId: string
+): string | undefined {
+  if (!opts.workspaces || !isGitRepository()) return undefined;
+  const branch = getCurrentGitBranch();
+  const baseBranch = getOriginalBranchForWorkspaceForks(branch);
+  if (
+    !branch ||
+    !baseBranch ||
+    getWorkspaceIdForWorkspaceForkFromBranchName(branch) !== workspaceId
+  ) {
+    return undefined;
+  }
+  return findWorkspaceByGitBranch(opts.workspaces, baseBranch)?.[0];
 }
 
 /**
