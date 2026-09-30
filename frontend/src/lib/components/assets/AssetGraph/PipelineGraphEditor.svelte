@@ -11,6 +11,9 @@
 	import type { ColumnLineageGraph } from './columnLineageGraph'
 	import HideButton from '$lib/components/apps/editor/settingsPanel/HideButton.svelte'
 	import AssetGraphCanvas from './AssetGraphCanvas.svelte'
+	import { TRIGGER_NODE_STYLE } from './TriggerNode.svelte'
+	import { describeSchedule } from '$lib/utils/describeCron'
+	import type { UpstreamTriggerAction } from './upstreamScriptItems'
 	import type { AssetUpstreamDelete } from './assetsOnlyView'
 	import AssetGraphDetailsPane from './AssetGraphDetailsPane.svelte'
 	import PipelineEventLog from './PipelineEventLog.svelte'
@@ -289,6 +292,52 @@
 				return { path: p.path, summary: r?.summary, language: r?.language }
 			})
 	)
+	// The selected asset's upstream triggers that can be opened from here, each
+	// with the same action its trigger node has: edit (edit mode), create a
+	// missing one (edit mode), or the webhook / data-upload drawers.
+	let producerTriggers = $derived.by((): UpstreamTriggerAction[] => {
+		const scripts = new Set(producerScripts.map((p) => p.path))
+		const seen = new Set<string>()
+		const out: UpstreamTriggerAction[] = []
+		for (const t of displayGraph.triggers ?? []) {
+			if (t.trigger_kind === 'asset' || !scripts.has(t.runnable_path)) continue
+			const kind = t.trigger_kind
+			const rowless = kind === 'webhook' || kind === 'data_upload'
+			const key = `${kind}:${rowless || t.missing ? t.runnable_path : t.path}`
+			if (seen.has(key)) continue
+			seen.add(key)
+			const label = TRIGGER_NODE_STYLE[kind]?.label ?? kind
+			const script = t.runnable_path
+			let action: UpstreamTriggerAction | undefined
+			if (kind === 'webhook') {
+				if (onOpenWebhook)
+					action = { label: 'Open webhook', detail: script, onOpen: () => onOpenWebhook(script) }
+			} else if (kind === 'data_upload') {
+				if (onOpenDataUpload)
+					action = { label: 'Upload data', detail: script, onOpen: () => onOpenDataUpload(script) }
+			} else if (t.missing && !rowless) {
+				if (onCreateMissingTrigger)
+					action = {
+						label: `Create ${label} trigger`,
+						detail: script,
+						onOpen: () => onCreateMissingTrigger(kind, script)
+					}
+			} else if (t.path && onEditTrigger) {
+				const path = t.path
+				action = {
+					label: kind === 'schedule' ? 'Edit schedule' : `Edit ${label} trigger`,
+					detail:
+						kind === 'schedule' && t.schedule
+							? (t.summary ?? describeSchedule(t.schedule, t.timezone) ?? path)
+							: path,
+					onOpen: () => onEditTrigger(kind, path, script)
+				}
+			}
+			if (action) out.push(action)
+		}
+		return out
+	})
+
 	function editProducerScript(path: string) {
 		if (mode !== 'edit') onRequestEdit?.()
 		onSelect({ kind: 'runnable', runnable_kind: 'script', path })
@@ -491,8 +540,7 @@
 			try {
 				if (typeof localStorage !== 'undefined') {
 					if (isEmpty) localStorage.removeItem(key)
-					else
-						localStorage.setItem(key, encodeState(bundle))
+					else localStorage.setItem(key, encodeState(bundle))
 				}
 			} catch (e) {
 				console.warn('failed to mirror pipeline state', e)
@@ -593,6 +641,7 @@
 						selectionProducers={activeDraft ? [] : selectionProducers}
 						{producerScripts}
 						onEditScript={editProducerScript}
+						{producerTriggers}
 						{selectionColumnGraph}
 						{selectionColumnLoading}
 						{selectionColumnTruncated}

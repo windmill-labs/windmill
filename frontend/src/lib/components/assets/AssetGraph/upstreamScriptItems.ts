@@ -19,3 +19,14 @@ export function upstreamScriptItems(
 		action: () => onPick(s.path)
 	}))
 }
+
+/** An upstream trigger the asset pane can open, and how. */
+export type UpstreamTriggerAction = { label: string; detail?: string; onOpen: () => void }
+
+export function upstreamTriggerItems(triggers: UpstreamTriggerAction[]): Item[] {
+	return triggers.map((t) => ({
+		displayName: t.label,
+		description: t.detail,
+		action: () => t.onOpen()
+	}))
+}

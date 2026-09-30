@@ -21,10 +21,16 @@
 		Trash2,
 		X,
 		Pencil,
-		ChevronDown
+		ChevronDown,
+		Zap
 	} from 'lucide-svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import { upstreamScriptItems, type UpstreamScript } from './upstreamScriptItems'
+	import {
+		upstreamScriptItems,
+		upstreamTriggerItems,
+		type UpstreamScript,
+		type UpstreamTriggerAction
+	} from './upstreamScriptItems'
 	import { inferArgs } from '$lib/infer'
 	import { emptySchema, sendUserToast } from '$lib/utils'
 	import type { Schema } from '$lib/common'
@@ -164,6 +170,8 @@
 		 * which calls `onEditScript` with the one picked. */
 		producerScripts?: UpstreamScript[]
 		onEditScript?: (path: string) => void
+		/** The selected asset's upstream triggers that can be opened from here. */
+		producerTriggers?: UpstreamTriggerAction[]
 		// Pipeline-wide column-lineage graph (built by the parent page from the
 		// resolved graph). Drives the transitive column-lineage trace shown for a
 		// selected materialized asset.
@@ -314,6 +322,7 @@
 		selectionProducers = [],
 		producerScripts = [],
 		onEditScript,
+		producerTriggers = [],
 		selectionColumnGraph,
 		selectionColumnLoading = false,
 		selectionColumnTruncated = false,
@@ -1055,6 +1064,36 @@
 							title={`${producerScripts.length} scripts build this asset`}
 						>
 							{editScriptLabel}
+						</Button>
+					{/snippet}
+				</DropdownV2>
+			{/if}
+			{#if selection?.kind === 'asset' && producerTriggers.length === 1}
+				<Button
+					variant="default"
+					unifiedSize="sm"
+					startIcon={{ icon: Zap }}
+					onclick={() => producerTriggers[0].onOpen()}
+					title={producerTriggers[0].detail}
+				>
+					{producerTriggers[0].label}
+				</Button>
+			{:else if selection?.kind === 'asset' && producerTriggers.length > 1}
+				<DropdownV2
+					items={upstreamTriggerItems(producerTriggers)}
+					placement="bottom-end"
+					enableFlyTransition
+				>
+					{#snippet buttonReplacement()}
+						<Button
+							nonCaptureEvent
+							variant="default"
+							unifiedSize="sm"
+							startIcon={{ icon: Zap }}
+							endIcon={{ icon: ChevronDown }}
+							title={`${producerTriggers.length} triggers start the scripts that build this asset`}
+						>
+							Triggers
 						</Button>
 					{/snippet}
 				</DropdownV2>
