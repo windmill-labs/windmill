@@ -208,9 +208,12 @@
 	// Keyed by call id: a bare flag would carry one card's collapse onto the next message
 	// reusing this instance. Open by default, since the run is what was asked for —
 	// except for an inspection, which is usually a step in the reasoning rather than
-	// the answer, and which pays a fetch for being opened.
+	// the answer, and which pays a fetch for being opened. A run refused before it started
+	// is closed too: the row already says Cancelled, and the body holds only unused inputs.
 	let toggled = $state<{ id: string; open: boolean } | undefined>(undefined)
-	const expanded = $derived(toggled?.id === message.tool_call_id ? toggled.open : !inspected)
+	const expanded = $derived(
+		toggled?.id === message.tool_call_id ? toggled.open : !inspected && !(canceled && !ran)
+	)
 
 	$effect(() => {
 		const target = inspected
