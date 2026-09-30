@@ -1268,11 +1268,10 @@ describe('pipelineNodeErrors', () => {
 			graph,
 			new Map([['f/x/cons', onRefs('main/produced', 'main/external')]])
 		)
-		expect([...errors.assets.keys()].sort()).toEqual([
-			'ducklake:main/external',
-			'ducklake:main/orphan'
-		])
+		// The subscriber is at fault, not the asset nothing writes.
+		expect([...errors.assets.keys()]).toEqual(['ducklake:main/orphan'])
 		expect([...errors.scripts.keys()]).toEqual(['f/x/cons'])
+		expect([...errors.unwritten.keys()]).toEqual(['ducklake:main/external'])
 	})
 
 	it('flags a pipeline script nothing starts, but not a macro library or a triggered one', () => {
@@ -1325,7 +1324,7 @@ describe('pipelineNodeErrors', () => {
 				]
 			])
 		)
-		expect([...errors.assets.keys()]).toEqual(['dbt:raw'])
+		expect([...errors.unwritten.keys()]).toEqual(['dbt:raw'])
 		expect([...errors.scripts.keys()]).toEqual(['f/x/s'])
 	})
 })

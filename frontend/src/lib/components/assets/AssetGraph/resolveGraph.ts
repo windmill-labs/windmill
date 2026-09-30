@@ -333,11 +333,11 @@ export type PipelineNodeErrors = {
 
 /**
  * Nodes the pipeline cannot work with, with the reason. Assets (keyed
- * `kind:path`): one nothing uses at all, and one a script subscribes to
- * (`// on <asset>`) that nothing writes, in the pipeline or, per
- * `writtenElsewhere`, anywhere else in the workspace (asset triggers fire on
- * any write). Scripts (keyed by path): the subscriber, whose subscription can
- * never fire. A body read of an external asset is fine and is not passed here:
+ * `kind:path`): one nothing uses at all. Scripts (keyed by path): one
+ * subscribed (`// on <asset>`) to an asset nothing writes, in the pipeline or,
+ * per `writtenElsewhere`, anywhere else in the workspace (asset triggers fire
+ * on any write), since the subscription can never fire; the asset itself is
+ * fine, and is reported in `unwritten`. A body read of an external asset is fine and is not passed here:
  * only the explicit `// on` annotations, per script path, count as subscriptions.
  */
 export function pipelineNodeErrors(
@@ -379,7 +379,6 @@ export function pipelineNodeErrors(
 			const entry = unwritten.get(key) ?? { asset: ref, subscribers: [] }
 			if (!entry.subscribers.includes(path)) entry.subscribers.push(path)
 			unwritten.set(key, entry)
-			if (!errors.has(key)) errors.set(key, `${path} runs on it, but nothing writes it`)
 			if (!scriptErrors.has(path)) {
 				scriptErrors.set(path, `runs on ${ref.path}, which nothing writes`)
 				waitsOn.set(path, ref)
