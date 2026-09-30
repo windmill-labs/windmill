@@ -2,6 +2,7 @@
 	import {
 		ChevronRight,
 		FlaskConical,
+		FolderOpen,
 		FormInput,
 		History,
 		MessageSquare,
@@ -35,6 +36,7 @@
 	import { publishLinkedAgentTools } from '../flowState'
 	import { linkedModulesForAgent, linkedToolsScope } from '../linkedAgentToolsStore.svelte'
 	import AgentEditorHost from './AgentEditorHost.svelte'
+	import AgentPathField from './AgentPathField.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
@@ -89,6 +91,7 @@
 	let ws = $derived(target?.workspace ?? $operatingWorkspace)
 	let host = $state<ReturnType<typeof AgentEditorHost> | undefined>(undefined)
 	let versionDrawer: Drawer | undefined = $state(undefined)
+	let pathDrawer: Drawer | undefined = $state(undefined)
 	let saving = $state(false)
 
 	// Counted per agent, so a deploy that leaves the editor on the same agent still refetches the
@@ -121,6 +124,8 @@
 	// the dialog carries only the refusal the host renders.
 	let refused = $derived(draft?.refusal != null)
 	let inEvals = $derived(target?.view === 'evals' && !refused)
+	// A level of its own in the dialog; the page layout opens the same field in a drawer instead.
+	let inPath = $derived(target?.view === 'path' && !refused)
 	let readOnly = $derived(draft ? !draft.canWrite : false)
 	let draftOnly = $derived(draft?.noDeployed ?? false)
 	// A never-deployed agent is stored at a minted `draft_<uuid>` path, so it is named by the path
@@ -141,7 +146,7 @@
 
 	let root = $derived<ModalTrailSegment>({
 		label: shownPath ?? 'Agent',
-		onclick: inEvals ? () => showAgentEditorView(undefined) : undefined
+		onclick: inEvals || inPath ? () => showAgentEditorView(undefined) : undefined
 	})
 	let trail = $derived<ModalTrailSegment[]>(
 		inEvals
@@ -150,11 +155,18 @@
 					{ label: 'Evals', onclick: evalsLocation ? evalsLocation.back : undefined },
 					...(evalsLocation ? [{ label: evalsLocation.label }] : [])
 				]
-			: [root]
+			: inPath
+				? [root, { label: 'Path' }]
+				: [root]
 	)
 	// The root's alone: below it the header's second line is the way back, and what a level is for
 	// belongs to that level rather than to the dialog's own name.
-	let description = $derived(inEvals || refused ? undefined : AGENT_DESCRIPTION)
+	let description = $derived(inEvals || inPath || refused ? undefined : AGENT_DESCRIPTION)
+
+	function openPath() {
+		if (layout === 'modal') showAgentEditorView('path')
+		else pathDrawer?.openDrawer()
+	}
 
 	/** The unsaved edits, in the shape the server builds from a deployed config
 	 *  (`ai_evals/run.rs` `config_to_draft`), so a draft run's hash can be recognised as equal to
@@ -345,7 +357,7 @@
 			{#if !inEvals && !refused}
 				<!-- Switches the editor's right-hand pane, and is drawn only once the agent has
 						     loaded and the pane has picked its first mode. -->
-				{#if testPane?.mode}
+				{#if testPane?.mode && !inPath}
 					<ToggleButtonGroup
 						bind:selected={
 							() => testPane?.mode,
@@ -379,6 +391,17 @@
 					<Badge color="gray" class="shrink-0" title="You do not have write access to this agent">
 						Read only
 					</Badge>
+				{/if}
+				{#if !inPath}
+					<Button
+						unifiedSize="sm"
+						variant="default"
+						startIcon={{ icon: FolderOpen }}
+						title="Where the agent is saved"
+						on:click={openPath}
+					>
+						Path
+					</Button>
 				{/if}
 				<!-- Evals run against the deployed agent, and a draft-only one has none: the
 						     backend's `require_agent` would reject every run. -->
@@ -434,9 +457,10 @@
 				     and evals answers them for its own levels. -->
 			<PagedContent
 				class="flex-1 min-h-0"
-				current={inEvals ? 'evals' : 'agent'}
+				current={inEvals ? 'evals' : inPath ? 'path' : 'agent'}
 				pages={[
 					{ key: 'agent', content: agentPage },
+					{ key: 'path', content: pathPage },
 					{ key: 'evals', content: evalsPage }
 				]}
 			/>
@@ -459,6 +483,22 @@
 		/>
 	{/snippet}
 
+	{#snippet pathField()}
+		{#if draft}
+			<AgentPathField
+				{draft}
+				path={target?.path ?? ''}
+				workspace={ws}
+				bind:error={() => undefined, (error) => host?.setPathError(error)}
+				onRunAsChange={(runAs) => host?.setRunAs(runAs)}
+			/>
+		{/if}
+	{/snippet}
+
+	{#snippet pathPage()}
+		<div class="max-w-2xl py-6">{@render pathField()}</div>
+	{/snippet}
+
 	{#snippet evalsPage()}
 		<EvalsPane
 			agentPath={target?.path ?? ''}
@@ -468,6 +508,12 @@
 			active={inEvals}
 		/>
 	{/snippet}
+
+	<Drawer bind:this={pathDrawer} size="600px">
+		<DrawerContent title="Path" on:close={() => pathDrawer?.closeDrawer()}>
+			{@render pathField()}
+		</DrawerContent>
+	</Drawer>
 
 	<Drawer bind:this={versionDrawer} size="1200px">
 		<DrawerContent title="Version history" on:close={() => versionDrawer?.closeDrawer()} noPadding>
