@@ -130,6 +130,19 @@ async fn test_operator_builder_flows_boundary(db: Pool<Postgres>) -> anyhow::Res
         resp.text().await?
     );
 
+    let mut tagged = composition_flow_at("u/operator/f5", "u/operator/some_script");
+    tagged["tag"] = json!("privileged_group");
+    let resp = c
+        .post(format!("{api}/flows/create"))
+        .json(&tagged)
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        400,
+        "a builder must not route a flow onto a worker tag the workspace cannot use"
+    );
+
     let mut with_dyn_code = composition_flow_at("u/operator/f1", "u/operator/some_script");
     with_dyn_code["schema"] =
         json!({"x-windmill-dyn-select-code": "x", "x-windmill-dyn-select-lang": "bun"});

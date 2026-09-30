@@ -370,7 +370,7 @@ fn check_branches_are_composition_only(
         if branch.modules_node.is_some() {
             return Err(refused(
                 id,
-                "a branch references code stored outside the flow",
+                "has a branch that references code stored outside the flow",
             ));
         }
         for module in &branch.modules {
@@ -382,8 +382,8 @@ fn check_branches_are_composition_only(
 
 fn refused(id: &str, what: &str) -> Error {
     Error::PermissionDenied(format!(
-        "Step {id}: {what}. Operators with builder rights compose runnables that are already \
-         deployed; they cannot author code."
+        "Step {id} {what}, so only a developer can edit this flow. Builders can compose scripts \
+         and flows that are already deployed."
     ))
 }
 

@@ -253,6 +253,7 @@
 <ConfirmationModal
 	open={confirmBuilderOpen}
 	title="Give operators builder rights"
+	type="info"
 	confirmationText="Enable builder rights"
 	onCanceled={() => (confirmBuilderOpen = false)}
 	onConfirmed={async () => {

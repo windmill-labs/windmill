@@ -621,8 +621,7 @@ pub async fn validate_operator_flow(
         let schema: serde_json::Value = serde_json::from_str(schema)?;
         if schema.get("x-windmill-dyn-select-code").is_some() {
             return Err(Error::PermissionDenied(
-                "Operators cannot author a flow's dynamic dropdown code: ask a developer"
-                    .to_string(),
+                "This flow has dynamic dropdown code, so only a developer can edit it".to_string(),
             ));
         }
     }
