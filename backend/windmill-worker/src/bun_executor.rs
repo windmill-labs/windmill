@@ -1622,7 +1622,6 @@ pub async fn handle_bun_job(
     modules: &Option<std::collections::HashMap<String, windmill_common::scripts::ScriptModule>>,
 ) -> error::Result<Box<RawValue>> {
     let mut annotation = windmill_common::worker::TypeScriptAnnotations::parse(inner_content);
-    annotation.refuse_unenforced_no_network(annotation.native)?;
 
     // Preview jobs may carry _TEMP_SCRIPT_REFS so relative imports resolve from
     // not-yet-deployed local content uploaded to raw_script_temp. Extracted up
@@ -4133,7 +4132,6 @@ pub async fn start_worker(
         get_common_bun_proc_envs(Some(&base_internal_url)).await;
 
     let mut annotation = windmill_common::worker::TypeScriptAnnotations::parse(inner_content);
-    annotation.refuse_unenforced_no_network(annotation.native)?;
 
     let context = variables::get_reserved_variables(
         &Connection::from(db.clone()),
@@ -4217,10 +4215,10 @@ pub async fn start_worker(
             .map(|x| (x.name.clone(), x.value.clone()))
             .collect();
         let env_code = build_nativets_env_code(
-                base_internal_url,
-                &reserved_variables,
-                annotation.no_network,
-            );
+            base_internal_url,
+            &reserved_variables,
+            annotation.no_network,
+        );
 
         return handle_dedicated_bunnative(
             inner_content,

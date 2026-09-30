@@ -250,7 +250,6 @@ pub async fn handle_deno_job(
     has_stream: &mut bool,
 ) -> error::Result<Box<RawValue>> {
     let annotations = TypeScriptAnnotations::parse(inner_content);
-    annotations.refuse_unenforced_no_network(false)?;
 
     // let mut start = Instant::now();
     let mut logs1 = "\n\n--- DENO CODE EXECUTION ---\n".to_string();
@@ -745,8 +744,6 @@ pub async fn start_worker(
     use windmill_common::variables;
 
     use crate::common::build_envs_map;
-
-    TypeScriptAnnotations::parse(inner_content).refuse_unenforced_no_network(false)?;
 
     let _ = write_file(job_dir, "main.ts", inner_content)?;
     let common_deno_proc_envs = get_common_deno_proc_envs(
