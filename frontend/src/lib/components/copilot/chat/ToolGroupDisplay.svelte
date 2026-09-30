@@ -19,10 +19,13 @@
 	const calls = $derived(
 		group.entries.map((e) => e.message).filter((m): m is ToolDisplayMessage => m.role === 'tool')
 	)
-	// Same states as a single row: only an executing call shimmers, and a group whose calls are
-	// all still waiting their turn is faded like a queued row.
-	const running = $derived(calls.some((m) => m.isLoading || m.isStreamingArguments))
-	const queued = $derived(!running && calls.some((m) => m.isQueued))
+	// Same states as a single row: a group whose calls are all still waiting their turn is faded
+	// like a queued row. Once one call has run, the group is in progress until every call has,
+	// including the moments between two calls when none is executing.
+	const executing = $derived(calls.some((m) => m.isLoading || m.isStreamingArguments))
+	const waiting = $derived(calls.some((m) => m.isQueued))
+	const queued = $derived(!executing && waiting && calls.every((m) => m.isQueued))
+	const running = $derived(executing || (waiting && !queued))
 	const header = $derived(groupHeader(group, running ? 'running' : queued ? 'queued' : 'settled'))
 	const failedCount = $derived(calls.filter(callFailed).length)
 	// Every edit of one item carries the same chip, so the group shows it once.
@@ -36,7 +39,12 @@
 	)
 	// What the group is doing right now, so a collapsed run still names its current step.
 	const liveLine = $derived(
-		running ? calls.findLast((m) => m.isLoading || m.isStreamingArguments)?.content : undefined
+		running
+			? (
+					calls.findLast((m) => m.isLoading || m.isStreamingArguments) ??
+					calls.find((m) => m.isQueued)
+				)?.content
+			: undefined
 	)
 </script>
 
