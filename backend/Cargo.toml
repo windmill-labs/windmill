@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.817.0"
+version = "1.820.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -88,7 +88,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal", "./parsers/windmill-parser-wasm"]
 
 [workspace.package]
-version = "1.817.0"
+version = "1.820.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -329,6 +329,9 @@ strum.workspace = true
 windows-service = "0.7"
 windows-sys = { version = "0.52", features = ["Win32_System_Services", "Win32_System_Console", "Win32_Foundation"] }
 
+[target.'cfg(windows)'.build-dependencies]
+winresource = { version = "0.1.31", default-features = false }
+
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = { optional = true, workspace = true }
 tikv-jemalloc-sys = { optional = true, workspace = true }
@@ -511,13 +514,15 @@ quick-xml = { version = "^0.37", features = ["serialize"] }
 url = { version = "^2" , features = ["serde"]}
 async-oauth2 = "0.5.1"
 reqwest = { version = "^0.13", features = ["json", "stream", "gzip", "multipart", "query", "form"] }
+# The reqwest object_store builds its HTTP clients with, for a custom `HttpConnector`.
+reqwest_object_store = { package = "reqwest", version = "0.12", default-features = false, features = ["rustls-tls-native-roots"] }
 eventsource-stream = "0.2.3"
 time = "^0"
 serde_urlencoded = "^0"
 astral-tokio-tar = "^0.6.2"
 tempfile = "^3"
 x509-parser = "^0.16"
-tokio-util = { version = "=0.7.17", features = ["io"] }
+tokio-util = { version = "=0.7.17", features = ["io", "rt"] }
 json-pointer = "^0"
 itertools = "^0.14.0"
 regex = "^1"
@@ -624,6 +629,7 @@ wasm-bindgen-test = "^0"
 convert_case = "0.6.0"
 getrandom = "0.2"
 tokio-postgres = {version = "^0.7", features = ["array-impls", "with-serde_json-1", "with-chrono-0_4", "with-uuid-1", "with-bit-vec-0_6"]}
+postgres-protocol = "0.6"
 rust-postgres = { package = "tokio-postgres", git = "https://github.com/MaterializeInc/rust-postgres", rev = "78c1222577bb091d69bc22b1bc7ad01c14675abe"}
 rust-postgres-native-tls = { package = "postgres-native-tls", git = "https://github.com/MaterializeInc/rust-postgres", features = ["runtime"], rev = "78c1222577bb091d69bc22b1bc7ad01c14675abe" }
 bit-vec = "=0.6.3"

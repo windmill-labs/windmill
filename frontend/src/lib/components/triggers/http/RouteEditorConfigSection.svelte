@@ -12,10 +12,12 @@
 	import TestingBadge from '../testingBadge.svelte'
 	import { untrack } from 'svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import { useTriggerLock } from '$lib/operatorWriteRights'
 	import {
 		useOperatingUser,
 		useOperatingWorkspace
 	} from '$lib/components/operatingWorkspace.svelte'
+	const triggerLock = useTriggerLock()
 
 	interface Props {
 		initialTriggerPath?: string | undefined
@@ -60,6 +62,9 @@
 		if (validateTimeout) {
 			clearTimeout(validateTimeout)
 		}
+		// A read the server only serves over POST, so the write gate refuses it — and this runs on
+		// open, including the read-only editor a withdrawn operator is meant to open. Skipping it
+		// loses only a warning about a save they cannot perform.
 		validateTimeout = setTimeout(async () => {
 			if (
 				!routePath ||
@@ -67,7 +72,7 @@
 				!/^(\*[-\w]+$|:?[-\w]+)(\/(\*[-\w]+$|:?[-\w]+))*$/.test(routePath)
 			) {
 				routeError = 'Endpoint not valid'
-			} else if (await routeExists(routePath, method, workspaced_route)) {
+			} else if (!$triggerLock && (await routeExists(routePath, method, workspaced_route))) {
 				routeError = 'Endpoint already taken'
 			} else {
 				routeError = ''

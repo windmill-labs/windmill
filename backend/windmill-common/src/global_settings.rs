@@ -57,6 +57,11 @@ pub const SAML_METADATA_SETTING: &str = "saml_metadata";
 pub const SMTP_SETTING: &str = "smtp_settings";
 pub const TEAMS_SETTING: &str = "teams";
 pub const INDEXER_SETTING: &str = "indexer_settings";
+pub const EXTERNAL_INSTANCE_PG_SETTING: &str = "external_instance_pg";
+/// Turns off Windmill's own Postgres as a data table and Ducklake substrate. Absent means on,
+/// which is what every instance that predates the setting expects.
+pub const INSTANCE_PG_DISABLED_SETTING: &str = "instance_pg_disabled";
+pub const EXTERNAL_INSTANCE_PG_STATE_SETTING: &str = "external_instance_pg_state";
 pub const TIMEOUT_WAIT_RESULT_SETTING: &str = "timeout_wait_result";
 
 pub const UNIQUE_ID_SETTING: &str = "uid";
@@ -158,6 +163,7 @@ pub const CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING: &str = "critical_alerts_on_db_
 pub const CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING: &str = "critical_alerts_on_token_expiry";
 pub const CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART_SETTING: &str =
     "critical_alert_mute_zombie_job_restart";
+pub const CRITICAL_ALERT_MUTE_STRANDED_JOBS_SETTING: &str = "critical_alert_mute_stranded_jobs";
 pub const DEV_INSTANCE_SETTING: &str = "dev_instance";
 pub const JWT_SECRET_SETTING: &str = "jwt_secret";
 pub const EMAIL_DOMAIN_SETTING: &str = "email_domain";
@@ -399,6 +405,10 @@ pub const CONCURRENCY_KEY_MAX_QUEUED_SETTING: &str = "concurrency_key_max_queued
 // disables the cap. See `windmill-queue/src/jobs.rs`, `check_workspace_queue_cap`.
 pub const WORKSPACE_MAX_QUEUED_JOBS_SETTING: &str = "workspace_max_queued_jobs";
 
+// Days after which a pending top-level job whose tag no worker has served in that time is
+// canceled. Unset or `0` only alerts. Read by the server monitor on each pass.
+pub const CANCEL_STRANDED_JOBS_AFTER_DAYS_SETTING: &str = "cancel_stranded_jobs_after_days";
+
 /// Global settings an agent worker (a remote worker connected over HTTP instead
 /// of to the database) must NEVER read through
 /// `GET /api/agent_workers/get_global_setting/{key}`. Every other key is served.
@@ -443,6 +453,9 @@ pub const AGENT_WORKER_BLOCKED_SETTINGS: &[&str] = &[
     // resolve datatable connections through the dedicated datatable endpoints, never these.
     "custom_instance_pg_databases",
     "custom_instance_replication_pwd",
+    // The external cluster's admin login, and the passwords Windmill generated on it.
+    EXTERNAL_INSTANCE_PG_SETTING,
+    EXTERNAL_INSTANCE_PG_STATE_SETTING,
 ];
 
 /// Whether an agent worker may read the given global setting over HTTP.

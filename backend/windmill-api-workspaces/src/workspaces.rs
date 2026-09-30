@@ -176,6 +176,10 @@ pub fn workspaced_service() -> Router {
         .route("/leave", post(leave_workspace))
         .route("/get_workspace_name", get(get_workspace_name))
         .route("/create_fork", post(create_workspace_fork))
+        .route(
+            "/fork_creation_status/{creation_id}",
+            get(get_fork_creation_status),
+        )
         .route("/attach_dev_workspace", post(attach_dev_workspace))
         .route("/detach_dev_workspace", post(detach_dev_workspace))
         .route("/get_dev_workspace", get(get_dev_workspace))
@@ -596,6 +600,17 @@ pub struct NewWorkspaceUser {
     pub username: Option<String>,
     pub is_admin: bool,
     pub operator: bool,
+}
+
+/// The role is one choice stored as two flags; both set would show as admin in the UI while the
+/// server refuses the user as an operator.
+fn reject_admin_and_operator(is_admin: bool, operator: bool) -> Result<()> {
+    if is_admin && operator {
+        return Err(Error::BadRequest(
+            "A user cannot be both admin and operator".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 // New format for error handler (grouped)
@@ -1654,6 +1669,14 @@ async fn run_slack_message_test_job(
     Path(w_id): Path<String>,
     Json(req): Json<RunSlackMessageTestJobRequest>,
 ) -> JsonResult<RunSlackMessageTestJobResponse> {
+    // Runs as the error handler identity, handed the Slack bot token.
+    if !(windmill_queue::is_preset_handler_path(&req.hub_script_path)
+        && req.hub_script_path.ends_with("-slack"))
+    {
+        return Err(Error::BadRequest(
+            "Only a preset Slack handler from the hub can be tested".to_string(),
+        ));
+    }
     let mut fake_result = HashMap::new();
     fake_result.insert("error".to_string(), to_raw_value(&req.test_msg));
     fake_result.insert("success_result".to_string(), to_raw_value(&req.test_msg));
@@ -1678,7 +1701,7 @@ async fn run_slack_message_test_job(
         Some(Utc::now()),
         Some(sqlx::types::Json(to_raw_value(&extra_args))),
         authed.email.as_str(),
-        false,
+        None,
         false,
         None, // Note: we could mark it as high priority to return result quickly to the user
     )
@@ -2289,7 +2312,8 @@ struct DataTableTables {
     schemas: TableListMap,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
-    /// On the instance database: the only kind that can be under roles or have its access edited.
+    /// On a database Windmill manages, on its own cluster or the external one: the only kinds that
+    /// can be under roles or have their access edited.
     instance: bool,
     permissioned: bool,
     /// The roles this caller may connect as, by name; empty when not under roles.
@@ -2546,7 +2570,7 @@ async fn list_one_datatable_tables(
     };
     let result: Result<()> = async {
         let governing = resolve_governing_datatable(db, w_id, &entry.datatable_name).await?;
-        entry.instance = governing.is_instance();
+        entry.instance = governing.role_cluster().is_some();
         let usable =
             crate::datatable_permissions_oss::usable_datatable_roles(db, authed, w_id, &governing)
                 .await?;
@@ -3071,6 +3095,25 @@ pub(crate) async fn resolve_pg_source_checked(
     w_id: &str,
     source: &str,
 ) -> Result<PgDatabase> {
+    Ok(
+        resolve_pg_source_checked_with_kind(db, user_db, authed, w_id, source)
+            .await?
+            .0,
+    )
+}
+
+/// [`resolve_pg_source_checked`], also reporting the kind of Windmill-managed database behind the
+/// source, `None` for a user resource. Callers that guard a managed connection MUST take the kind
+/// from here rather than ask separately: between two reads a save can flip the entry, leaving the guards of one kind
+/// applied to the connection of the other.
+pub(crate) async fn resolve_pg_source_checked_with_kind(
+    db: &DB,
+    user_db: &UserDB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    source: &str,
+) -> Result<(PgDatabase, Option<DataTableCatalogResourceType>)> {
+    let mut managed_kind = None;
     let db_resource = if let Some(name) = source.strip_prefix("datatable://") {
         windmill_common::workspaces::ensure_datatable_admin_access(
             db,
@@ -3079,7 +3122,13 @@ pub(crate) async fn resolve_pg_source_checked(
             &DatatableAccess::Authed(authed.to_authed_ref()),
         )
         .await?;
-        get_datatable_resource_from_db_unchecked(db, w_id, name).await?
+        let (connection, kind) =
+            windmill_common::workspaces::get_datatable_connection_and_kind_unchecked(
+                db, w_id, name,
+            )
+            .await?;
+        managed_kind = kind;
+        connection
     } else if let Some(path) = source.strip_prefix("$res:") {
         let db_with_authed = windmill_common::db::DbWithOptAuthed::from_authed(
             authed,
@@ -3112,27 +3161,37 @@ pub(crate) async fn resolve_pg_source_checked(
         )));
     };
 
-    serde_json::from_value(db_resource)
-        .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))
+    let pg: PgDatabase = serde_json::from_value(db_resource)
+        .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
+    Ok((pg, managed_kind))
 }
 
-/// Whether the data table `name` is backed by the Windmill instance's own PostgreSQL
-/// rather than a user resource.
-pub(crate) async fn is_instance_datatable(db: &DB, w_id: &str, name: &str) -> Result<bool> {
+/// The kind of the database backing the data table `name` when Windmill manages it (on its own
+/// cluster or the external one), `None` when it is a user resource.
+pub(crate) async fn managed_datatable_kind(
+    db: &DB,
+    w_id: &str,
+    name: &str,
+) -> Result<Option<DataTableCatalogResourceType>> {
     // Resolved rather than read: a pointer entry owns no database of its own, so only the entry it
-    // lands on can answer. A name that resolves to nothing keeps the historical `false`.
+    // lands on can answer. A name that resolves to nothing keeps the historical `None`.
     Ok(resolve_governing_datatable(db, w_id, name)
         .await
         .ok()
         .and_then(|g| g.datatable.database)
-        .is_some_and(|d| d.resource_type == DataTableCatalogResourceType::Instance))
+        .map(|d| d.resource_type)
+        .filter(|kind| kind.is_windmill_managed()))
 }
 
 /// Same, for the `datatable://<name>` / `$res:<path>` form the import endpoints take.
-async fn is_instance_datatable_source(db: &DB, w_id: &str, source: &str) -> Result<bool> {
+async fn managed_datatable_source_kind(
+    db: &DB,
+    w_id: &str,
+    source: &str,
+) -> Result<Option<DataTableCatalogResourceType>> {
     match source.strip_prefix("datatable://") {
-        Some(name) => is_instance_datatable(db, w_id, name).await,
-        None => Ok(false),
+        Some(name) => managed_datatable_kind(db, w_id, name).await,
+        None => Ok(None),
     }
 }
 
@@ -3231,10 +3290,7 @@ pub(crate) async fn pg_dump_database(
     if let Some(ref password) = pg_db.password {
         cmd.env("PGPASSWORD", password);
     }
-
-    if let Some(ref sslmode) = pg_db.sslmode {
-        cmd.env("PGSSLMODE", sslmode);
-    }
+    let _root_cert = apply_pg_tls_env(&mut cmd, pg_db)?;
 
     let output = cmd
         .output()
@@ -3352,7 +3408,7 @@ async fn comment_out_unsupported_settings(
 
 /// A psql invocation against `pg_db`, carrying the connection settings the CLI reads
 /// from the environment.
-fn psql_command(pg_db: &PgDatabase) -> tokio::process::Command {
+fn psql_command(pg_db: &PgDatabase) -> Result<(tokio::process::Command, Option<DumpFile>)> {
     let mut cmd = tokio::process::Command::new("psql");
     cmd.arg("--host")
         .arg(&pg_db.host)
@@ -3369,10 +3425,92 @@ fn psql_command(pg_db: &PgDatabase) -> tokio::process::Command {
     if let Some(ref password) = pg_db.password {
         cmd.env("PGPASSWORD", password);
     }
+    let root_cert = apply_pg_tls_env(&mut cmd, pg_db)?;
+    Ok((cmd, root_cert))
+}
+
+/// Give libpq the TLS settings `PgDatabase::connect` applies. The returned file holds the root
+/// certificate `PGSSLROOTCERT` names, so it must outlive the command.
+fn apply_pg_tls_env(
+    cmd: &mut tokio::process::Command,
+    pg_db: &PgDatabase,
+) -> Result<Option<DumpFile>> {
     if let Some(ref sslmode) = pg_db.sslmode {
         cmd.env("PGSSLMODE", sslmode);
     }
-    cmd
+    if let Some(options) = pg_db.non_empty_options() {
+        cmd.env("PGOPTIONS", options);
+    }
+    if let Some(pem) = pg_db
+        .root_certificate_pem
+        .as_deref()
+        .filter(|p| !p.is_empty())
+    {
+        let file = DumpFile::new()?;
+        std::fs::write(&file.path, pem)
+            .map_err(|e| Error::internal_err(format!("Failed to write root certificate: {e}")))?;
+        cmd.env("PGSSLROOTCERT", &file.path);
+        return Ok(Some(file));
+    }
+    // Only a connection that asked to be verified against the system trust store. Without a file,
+    // libpq's own default would look for `~/.postgresql/root.crt` and refuse a verify-* mode. libpq
+    // takes the special `system` value with verify-full only, so verify-ca needs the bundle itself.
+    if pg_db.accept_invalid_certs == Some(false) {
+        match pg_db.sslmode.as_deref() {
+            Some("verify-full") => {
+                cmd.env("PGSSLROOTCERT", "system");
+            }
+            Some("verify-ca") => {
+                if let Some(bundle) = windmill_common::system_ca_bundle() {
+                    cmd.env("PGSSLROOTCERT", bundle);
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(None)
+}
+
+
+#[cfg(test)]
+mod pg_tls_env_tests {
+    use super::apply_pg_tls_env;
+    use windmill_common::PgDatabase;
+
+    fn root_cert_env(sslmode: &str) -> Option<std::ffi::OsString> {
+        let pg_db = PgDatabase {
+            host: "db".to_string(),
+            user: None,
+            password: None,
+            port: None,
+            sslmode: Some(sslmode.to_string()),
+            dbname: "d".to_string(),
+            root_certificate_pem: None,
+            accept_invalid_certs: Some(false),
+            use_iam_auth: None,
+            region: None,
+            options: None,
+        };
+        let mut cmd = tokio::process::Command::new("psql");
+        apply_pg_tls_env(&mut cmd, &pg_db).unwrap();
+        cmd.as_std()
+            .get_envs()
+            .find(|(k, _)| *k == "PGSSLROOTCERT")
+            .and_then(|(_, v)| v.map(|v| v.to_os_string()))
+    }
+
+    #[test]
+    fn system_roots_only_through_verify_full() {
+        assert_eq!(
+            root_cert_env("verify-full").as_deref(),
+            Some("system".as_ref())
+        );
+        // libpq refuses `sslrootcert=system` with verify-ca, which would fail every dump and restore.
+        assert_ne!(
+            root_cert_env("verify-ca").as_deref(),
+            Some("system".as_ref())
+        );
+    }
 }
 
 /// GUC names the server backing `pg_db` knows about.
@@ -3382,7 +3520,8 @@ fn psql_command(pg_db: &PgDatabase) -> tokio::process::Command {
 /// and an unset mode, where `PgDatabase::connect` would hand a TLS-only server a
 /// plaintext socket and fail before the import ever starts.
 async fn server_setting_names(pg_db: &PgDatabase) -> Result<HashSet<String>> {
-    let output = psql_command(pg_db)
+    let (mut cmd, _root_cert) = psql_command(pg_db)?;
+    let output = cmd
         .arg("--tuples-only")
         .arg("--no-align")
         .arg("--command")
@@ -3419,7 +3558,8 @@ pub(crate) async fn pg_import_dump(target_db: &PgDatabase, dump_file: &DumpFile)
     let supported_settings = server_setting_names(target_db).await?;
     comment_out_unsupported_settings(dump_file, &supported_settings).await?;
 
-    let output = psql_command(target_db)
+    let (mut cmd, _root_cert) = psql_command(target_db)?;
+    let output = cmd
         .arg("--set")
         .arg("ON_ERROR_STOP=1")
         .arg("--single-transaction")
@@ -3477,9 +3617,39 @@ async fn create_pg_database(
         }
     }
 
-    if is_instance_datatable_source(&db, &w_id, &req.source).await? {
-        windmill_common::create_custom_instance_database(&db, &req.target_dbname, "datatable")
+    if let Some(source_kind) = managed_datatable_source_kind(&db, &w_id, &req.source).await? {
+        // Held until the copy is registered, as a rename migrates reservations to the new id under
+        // it once the old one is archived: a copy registered after that would be reserved for an
+        // id nothing answers on.
+        let mut tx = db.begin().await?;
+        windmill_common::workspaces::lock_fork_datatables(&mut tx, &w_id).await?;
+        let live = sqlx::query_scalar::<_, bool>("SELECT NOT deleted FROM workspace WHERE id = $1")
+            .bind(&w_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .unwrap_or(false);
+        if !live {
+            return Err(Error::BadRequest(format!("Workspace '{w_id}' is archived")));
+        }
+        if source_kind == DataTableCatalogResourceType::ExternalInstance {
+            windmill_common::external_instance_pg::create_external_instance_database_unchecked(
+                &db,
+                &mut tx,
+                &req.target_dbname,
+                "datatable",
+                Some(&w_id),
+            )
             .await?;
+        } else {
+            windmill_common::create_custom_instance_database(
+                &db,
+                &req.target_dbname,
+                "datatable",
+                Some(&w_id),
+            )
+            .await?;
+        }
+        tx.commit().await?;
     } else {
         let source_pg =
             resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.source).await?;
@@ -3566,12 +3736,12 @@ pub(crate) async fn ensure_datatable_is_clonable(
     let governing = resolve_governing_datatable(db, w_id, name).await?;
     // The copy has to name a database of its own. A resource-backed entry reached through a
     // pointer names one this workspace does not own, so there is nothing here to repoint.
-    let is_instance = governing
+    let is_managed = governing
         .datatable
         .database
         .as_ref()
-        .is_some_and(|d| d.resource_type == DataTableCatalogResourceType::Instance);
-    if governing.workspace_id != w_id && !is_instance {
+        .is_some_and(|d| d.resource_type.is_windmill_managed());
+    if governing.workspace_id != w_id && !is_managed {
         return Err(Error::BadRequest(format!(
             "Data table '{name}' points at a resource-backed data table in another workspace \
              and cannot be copied; fork it from the workspace that owns it."
@@ -3625,9 +3795,11 @@ async fn import_pg_database(
     }
 
     let schema_only = req.fork_behavior == DataTableForkBehavior::SchemaOnly;
-    let source_pg = resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.source).await?;
-    let mut target_pg =
-        resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.target).await?;
+    let mut fork_lock: Option<Transaction<'_, Postgres>> = None;
+    let (source_pg, source_kind) =
+        resolve_pg_source_checked_with_kind(&db, &user_db, &authed, &w_id, &req.source).await?;
+    let (mut target_pg, target_kind) =
+        resolve_pg_source_checked_with_kind(&db, &user_db, &authed, &w_id, &req.target).await?;
 
     if let Some(ref override_dbname) = req.target_dbname_override {
         if !windmill_api_auth::is_super_admin_authed(&db, &authed).await? {
@@ -3636,6 +3808,29 @@ async fn import_pg_database(
                     "Non-superadmin users can only override target dbname with names starting with 'wm_fork_'"
                         .to_string(),
                 ));
+            }
+            // The kind the connection above was built from, never a second read: an entry flipped
+            // to a resource between the two would keep the managed connection here and lose the
+            // check that decides which copy it may fill.
+            if let Some(kind) = target_kind {
+                // Held until the restore is done: fork finalization takes the first, and every
+                // save newly naming a database, in any workspace, the second. Nothing may start
+                // using this database while `psql` is still filling it.
+                let mut tx = db.begin().await?;
+                windmill_common::workspaces::lock_fork_datatables(&mut tx, &w_id).await?;
+                windmill_common::datatable_roles::lock_instance_databases_governance(
+                    &mut tx,
+                    [override_dbname.as_str()],
+                )
+                .await?;
+                windmill_common::ensure_fork_database_available_to(
+                    &mut tx,
+                    kind,
+                    override_dbname,
+                    &w_id,
+                )
+                .await?;
+                fork_lock = Some(tx);
             }
         }
         target_pg.dbname = override_dbname.clone();
@@ -3646,8 +3841,7 @@ async fn import_pg_database(
     // what it creates it owns. Grants do, except around an instance data table — Windmill
     // plants `custom_instance_user` grants in one, which nothing else can replay. Elsewhere
     // the ACLs are user intent (`REVOKE ... FROM PUBLIC`) and dropping them widens access.
-    let no_acl = is_instance_datatable_source(&db, &w_id, &req.target).await?
-        || is_instance_datatable_source(&db, &w_id, &req.source).await?;
+    let no_acl = target_kind.is_some() || source_kind.is_some();
 
     let dump_file = pg_dump_database(
         &source_pg,
@@ -3655,6 +3849,9 @@ async fn import_pg_database(
     )
     .await?;
     pg_import_dump(&target_pg, &dump_file).await?;
+    if let Some(tx) = fork_lock {
+        tx.commit().await?;
+    }
 
     Ok(format!(
         "Imported from '{}' into '{}'",
@@ -3755,38 +3952,75 @@ async fn edit_ducklake_config(
     )
     .await?;
 
-    let old_ducklakes = sqlx::query_scalar!(
-        r#"
-            SELECT ws.ducklake->'ducklakes' AS ducklake_name
-            FROM workspace_settings ws
-            WHERE ws.workspace_id = $1
-        "#,
-        &w_id
+    // Under the row lock the save writes with, taken before the database locks below as fork
+    // cleanup takes the two.
+    let old_ducklakes = sqlx::query_scalar::<_, Option<serde_json::Value>>(
+        "SELECT ws.ducklake->'ducklakes' FROM workspace_settings ws
+         WHERE ws.workspace_id = $1 FOR UPDATE",
     )
+    .bind(&w_id)
     .fetch_one(&mut *tx)
     .await?
     .unwrap_or(serde_json::Value::Null);
     let old_ducklakes: HashMap<String, Ducklake> =
         serde_json::from_value(old_ducklakes).unwrap_or_default();
 
-    // Check that non-superadmins are not abusing Instance databases
-    if !is_superadmin {
-        for (name, dl) in new_config.settings.ducklakes.iter() {
-            if dl.catalog.resource_type == DucklakeCatalogResourceType::Instance {
-                let old_dl = old_ducklakes.get(name);
-                if old_dl.is_none()
-                    || old_dl.unwrap().catalog.resource_type
-                        != DucklakeCatalogResourceType::Instance
-                    || old_dl.unwrap().catalog.resource_path != dl.catalog.resource_path
-                {
-                    return Err(Error::BadRequest(
-                        "Only superadmins can create or modify ducklakes with Instance databases"
-                            .to_string(),
-                    ));
-                }
-            }
+    // Check that non-superadmins are not abusing Instance databases. An unchanged catalog is left
+    // alone either way, so a downgraded instance can still save lakes that already name an
+    // external instance database.
+    for (name, dl) in new_config.settings.ducklakes.iter() {
+        let kind = &dl.catalog.resource_type;
+        if !matches!(
+            kind,
+            DucklakeCatalogResourceType::Instance | DucklakeCatalogResourceType::ExternalInstance
+        ) {
+            continue;
+        }
+        let unchanged = old_ducklakes.get(name).is_some_and(|old| {
+            &old.catalog.resource_type == kind
+                && old.catalog.resource_path == dl.catalog.resource_path
+        });
+        if unchanged {
+            continue;
+        }
+        // Before the registration check, whose refusal would otherwise tell a workspace admin
+        // which databases exist on the cluster.
+        if !is_superadmin {
+            return Err(Error::BadRequest(
+                "Only superadmins can create or modify ducklakes with Instance databases"
+                    .to_string(),
+            ));
+        }
+        if *kind == DucklakeCatalogResourceType::ExternalInstance {
+            windmill_common::external_instance_pg::ensure_external_instance_available()?;
+            windmill_common::external_instance_pg::ensure_external_instance_database_registered(
+                &mut tx,
+                &dl.catalog.resource_path,
+            )
+            .await?;
+        } else {
+            windmill_common::workspaces::ensure_instance_pg_available(&mut *tx).await?;
         }
     }
+
+    // Fork cleanup decides nothing uses an instance database under this lock, so a catalog newly
+    // put on one must not commit between its check and its drop.
+    windmill_common::datatable_roles::lock_instance_databases_governance(
+        &mut *tx,
+        new_config
+            .settings
+            .ducklakes
+            .iter()
+            .filter(|(name, dl)| {
+                dl.catalog.resource_type == DucklakeCatalogResourceType::Instance
+                    && old_ducklakes.get(name.as_str()).is_none_or(|old| {
+                        old.catalog.resource_type != DucklakeCatalogResourceType::Instance
+                            || old.catalog.resource_path != dl.catalog.resource_path
+                    })
+            })
+            .map(|(_, dl)| dl.catalog.resource_path.as_str()),
+    )
+    .await?;
 
     let config: serde_json::Value = serde_json::to_value(&new_config.settings)
         .map_err(|err| Error::internal_err(err.to_string()))?;
@@ -3843,6 +4077,8 @@ async fn edit_datatable_config(
     let is_superadmin = require_super_admin(&db, &authed).await.is_ok();
 
     let mut tx = db.begin().await?;
+    // Ahead of the settings row, as fork cleanup of this workspace takes the two.
+    windmill_common::workspaces::lock_fork_datatables(&mut tx, &w_id).await?;
     windmill_common::lock_instance_databases(
         &mut tx,
         new_config.settings.datatables.values().filter_map(|dt| {
@@ -3966,6 +4202,7 @@ async fn edit_datatable_config(
                 // so these line up with the `datatable_configured` adoption counts.
                 created_substrates.push(match dt.database.as_ref().map(|d| d.resource_type) {
                     Some(DataTableCatalogResourceType::Instance) => "instance",
+                    Some(DataTableCatalogResourceType::ExternalInstance) => "external_instance",
                     Some(DataTableCatalogResourceType::Postgresql) => "postgresql",
                     None => "reference",
                 });
@@ -4001,18 +4238,20 @@ async fn edit_datatable_config(
             )));
         }
         // Carrying the block onto a resource-backed entry would produce a data table the chokepoint
-        // refuses on every job — a save that succeeds and breaks everything afterwards. Refuse it
-        // instead: turning roles off first is one step, and it keeps discarding an access decision
-        // something somebody chose rather than a side effect of moving a database.
+        // refuses on every job — a save that succeeds and breaks everything afterwards — and onto
+        // the other managed cluster, one whose role ids name nothing in that cluster's catalog.
+        // Refuse it instead: turning roles off first is one step, and it keeps discarding an access
+        // decision something somebody chose rather than a side effect of moving a database.
+        let old_kind = old.and_then(|old| old.database.as_ref()).map(|d| d.resource_type);
         if dt.permissions.is_some()
             && dt
                 .database
                 .as_ref()
-                .is_some_and(|d| d.resource_type != DataTableCatalogResourceType::Instance)
+                .is_some_and(|d| Some(d.resource_type) != old_kind)
         {
             return Err(Error::BadRequest(format!(
-                "Data table '{name}' is under roles, which only a data table on the instance \
-                 database can be. Turn its roles off before moving it to a PostgreSQL resource."
+                "Data table '{name}' is under roles, which belong to the cluster its database is \
+                 on. Turn its roles off before moving it to another kind of database."
             )));
         }
         // A pointer names no database of its own, so the form's empty `database` is correct there.
@@ -4037,35 +4276,52 @@ async fn edit_datatable_config(
     // Check that non-superadmins are not abusing Instance databases, which reach a database this
     // workspace does not own. Pointing an entry at another workspace's data table is not checked
     // here because it cannot be requested at all: `reference` is overwritten from the stored entry
-    // above, for every caller.
+    // above, for every caller. An unchanged entry is left alone either way, so a downgraded
+    // instance can still save settings that already name an external instance database.
     //
     // Compared against the entry the carried fields came from, not the one stored under the same
     // name: otherwise swapping two names keeps each database in place while moving a clone's
     // `governed_by` off the copy it governs.
-    if !is_superadmin {
-        for (name, dt) in new_config.settings.datatables.iter() {
-            let old_dt = old_datatables.get(
+    for (name, dt) in new_config.settings.datatables.iter() {
+        let Some(database) = dt
+            .database
+            .as_ref()
+            .filter(|d| d.resource_type.is_windmill_managed())
+        else {
+            continue;
+        };
+        let unchanged = old_datatables
+            .get(
                 rename_src
                     .get(name.as_str())
                     .copied()
                     .unwrap_or(name.as_str()),
-            );
-            if dt
-                .database
-                .as_ref()
-                .is_some_and(|d| d.resource_type == DataTableCatalogResourceType::Instance)
-            {
-                let unchanged = old_dt.and_then(|o| o.database.as_ref()).is_some_and(|o| {
-                    o.resource_type == DataTableCatalogResourceType::Instance
-                        && Some(&o.resource_path) == dt.database.as_ref().map(|d| &d.resource_path)
-                });
-                if !unchanged {
-                    return Err(Error::BadRequest(
-                        "Only superadmins can create or modify data tables with Instance databases"
-                            .to_string(),
-                    ));
-                }
-            }
+            )
+            .and_then(|o| o.database.as_ref())
+            .is_some_and(|o| {
+                o.resource_type == database.resource_type
+                    && o.resource_path == database.resource_path
+            });
+        if unchanged {
+            continue;
+        }
+        // Before the registration check, whose refusal would otherwise tell a workspace admin
+        // which databases exist on the cluster.
+        if !is_superadmin {
+            return Err(Error::BadRequest(
+                "Only superadmins can create or modify data tables with Instance databases"
+                    .to_string(),
+            ));
+        }
+        if database.resource_type == DataTableCatalogResourceType::ExternalInstance {
+            windmill_common::external_instance_pg::ensure_external_instance_available()?;
+            windmill_common::external_instance_pg::ensure_external_instance_database_registered(
+                &mut tx,
+                &database.resource_path,
+            )
+            .await?;
+        } else {
+            windmill_common::workspaces::ensure_instance_pg_available(&mut *tx).await?;
         }
     }
 
@@ -4085,7 +4341,7 @@ async fn edit_datatable_config(
     // entry through a declared rename alone, and a settings sync never declares one, so an entry
     // without roles that newly points at such a database — a name added, or an existing one
     // repointed — would answer everyone there as `admin`. That holds whichever workspace governs it.
-    let newly_pointed: Vec<(&String, &str)> = new_config
+    let newly_pointed: Vec<(&String, DataTableCatalogResourceType, &str)> = new_config
         .settings
         .datatables
         .iter()
@@ -4095,7 +4351,7 @@ async fn edit_datatable_config(
             let db = dt
                 .database
                 .as_ref()
-                .filter(|d| d.resource_type == DataTableCatalogResourceType::Instance)?;
+                .filter(|d| d.resource_type.is_windmill_managed())?;
             let lookup = rename_src
                 .get(name.as_str())
                 .copied()
@@ -4107,38 +4363,72 @@ async fn edit_datatable_config(
                     old_db.resource_type != db.resource_type
                         || old_db.resource_path != db.resource_path
                 });
-            repointed.then_some((name, db.resource_path.as_str()))
+            repointed.then_some((name, db.resource_type, db.resource_path.as_str()))
         })
         .collect();
     // Another workspace turning roles on for the same database holds only its own settings row, so
-    // without this the scan below could read past its uncommitted write.
+    // without this the scan below could read past its uncommitted write. Every managed database
+    // this save newly names is locked, not just the ones the scan is about: fork cleanup takes the
+    // same lock to decide nothing uses the database it is dropping.
+    let newly_named: std::collections::BTreeSet<&str> = new_config
+        .settings
+        .datatables
+        .iter()
+        .filter_map(|(name, dt)| {
+            let db = dt
+                .database
+                .as_ref()
+                .filter(|d| d.resource_type == DataTableCatalogResourceType::Instance)?;
+            let lookup = rename_src
+                .get(name.as_str())
+                .copied()
+                .unwrap_or(name.as_str());
+            old_datatables
+                .get(lookup)
+                .and_then(|old| old.database.as_ref())
+                .is_none_or(|old_db| {
+                    old_db.resource_type != db.resource_type
+                        || old_db.resource_path != db.resource_path
+                })
+                .then_some(db.resource_path.as_str())
+        })
+        .collect();
     windmill_common::datatable_roles::lock_instance_databases_governance(
         &mut *tx,
-        newly_pointed.iter().map(|(_, dbname)| *dbname),
+        newly_pointed
+            .iter()
+            .map(|(_, _, dbname)| *dbname)
+            .chain(newly_named.iter().copied()),
     )
     .await?;
-    let governed_elsewhere: Vec<String> = if newly_pointed.is_empty() {
+    let governed_elsewhere: Vec<(String, String)> = if newly_pointed.is_empty() {
         vec![]
     } else {
-        sqlx::query_scalar(
-            "SELECT DISTINCT dt.value->'database'->>'resource_path' FROM workspace_settings ws
+        sqlx::query_as(
+            "SELECT DISTINCT dt.value->'database'->>'resource_type',
+                    dt.value->'database'->>'resource_path'
+             FROM workspace_settings ws
              CROSS JOIN LATERAL jsonb_each(COALESCE(ws.datatable->'datatables', '{}'::jsonb)) dt
              WHERE ws.workspace_id <> $1 AND (dt.value ? 'permissions' OR dt.value ? 'governed_by')
-               AND dt.value->'database'->>'resource_type' = 'instance'",
+               AND dt.value->'database'->>'resource_type' IN ('instance', 'external_instance')",
         )
         .bind(&w_id)
         .fetch_all(&mut *tx)
         .await?
     };
-    for (name, dbname) in newly_pointed {
+    for (name, kind, dbname) in newly_pointed {
         let governed_here = old_datatables.values().any(|old| {
             (old.permissions.is_some() || old.governed_by.is_some())
-                && old.database.as_ref().is_some_and(|d| {
-                    d.resource_type == DataTableCatalogResourceType::Instance
-                        && d.resource_path == dbname
-                })
+                && old
+                    .database
+                    .as_ref()
+                    .is_some_and(|d| d.resource_type == kind && d.resource_path == dbname)
         });
-        if governed_here || governed_elsewhere.iter().any(|g| g == dbname) {
+        if governed_here
+            || governed_elsewhere
+                .iter()
+                .any(|(k, p)| k == kind.as_ref() && p == dbname)
+        {
             return Err(Error::BadRequest(format!(
                 "Data table '{name}' would point at database '{dbname}', which a data table under \
                  roles uses, without carrying those roles: everyone reaching '{name}' would connect \
@@ -6646,7 +6936,9 @@ async fn clone_workspace_data(
     source_workspace_id: &str,
     target_workspace_id: &str,
     authed: &ApiAuthed,
+    progress: &ForkProgress,
 ) -> Result<()> {
+    progress.step("Copying settings, folders and groups");
     // Clone workspace settings (merge with existing basic settings)
     update_workspace_settings(tx, source_workspace_id, target_workspace_id).await?;
 
@@ -6668,6 +6960,7 @@ async fn clone_workspace_data(
     // Clone groups
     clone_groups(tx, source_workspace_id, target_workspace_id).await?;
 
+    progress.step("Copying resources and variables");
     // Clone resource types
     clone_resource_types(tx, source_workspace_id, target_workspace_id).await?;
 
@@ -6677,6 +6970,7 @@ async fn clone_workspace_data(
     // Clone variables (including external secret backend replication)
     clone_variables(tx, db, source_workspace_id, target_workspace_id).await?;
 
+    progress.step("Copying scripts");
     // Clone scripts with new hashes
     clone_scripts(tx, source_workspace_id, target_workspace_id).await?;
 
@@ -6694,18 +6988,21 @@ async fn clone_workspace_data(
     clone_metric_catalog(tx, source_workspace_id, target_workspace_id).await?;
     clone_asset_usages_and_triggers(tx, source_workspace_id, target_workspace_id).await?;
 
+    progress.step("Copying flows");
     // Clone flows with new versions
     clone_flows(tx, source_workspace_id, target_workspace_id).await?;
 
     // Clone flow nodes
     clone_flow_nodes(tx, source_workspace_id, target_workspace_id).await?;
 
+    progress.step("Copying apps");
     // Clone apps with new IDs and app scripts
     let _app_id_mapping = clone_apps(tx, source_workspace_id, target_workspace_id, authed).await?;
 
     // Clone raw apps
     clone_raw_apps(tx, source_workspace_id, target_workspace_id).await?;
 
+    progress.step("Copying drafts and dependencies");
     // Clone the forker's own per-user drafts (plus the legacy NULL-email
     // workspace draft, if any) so they keep their pending edits in the
     // fork. Other users' drafts are intentionally NOT cloned — they don't
@@ -8412,13 +8709,14 @@ async fn point_kept_datatables_at_parent(
         if dt.reference.is_some() {
             continue;
         }
-        // Only instance databases. A resource-backed data table names a resource, and the settings
-        // clone gave the fork its own copy of that resource in its own workspace — pointing at the
-        // parent's entry would silently move the fork onto the parent's resource instead.
+        // Only instance databases, on either cluster. A resource-backed data table names a
+        // resource, and the settings clone gave the fork its own copy of that resource in its own
+        // workspace — pointing at the parent's entry would silently move the fork onto the
+        // parent's resource instead.
         if dt
             .database
             .as_ref()
-            .is_none_or(|d| d.resource_type != DataTableCatalogResourceType::Instance)
+            .is_none_or(|d| !d.resource_type.is_windmill_managed())
         {
             continue;
         }
@@ -8592,11 +8890,39 @@ async fn apply_forked_datatable(
         })?,
     };
 
-    if database.resource_type == DataTableCatalogResourceType::Instance {
+    if database.resource_type == DataTableCatalogResourceType::ExternalInstance {
+        windmill_common::external_instance_pg::ensure_external_instance_database_registered(
+            tx,
+            &fdt.new_dbname,
+        )
+        .await?;
+    }
+    if database.resource_type.is_windmill_managed() {
+        // Held until the fork commits, as every save newly naming a database takes it: none may
+        // claim the copy between the check below and this fork's entry landing on it.
+        windmill_common::datatable_roles::lock_instance_databases_governance(
+            &mut **tx,
+            [fdt.new_dbname.as_str()],
+        )
+        .await?;
+    }
+    if database.resource_type.is_windmill_managed()
+        && !windmill_api_auth::is_super_admin_authed(db, authed).await?
+    {
+        windmill_common::ensure_fork_database_available_to(
+            &mut **tx,
+            database.resource_type,
+            &fdt.new_dbname,
+            parent_w_id,
+        )
+        .await?;
+    }
+    if database.resource_type.is_windmill_managed() {
         // The whole `database` object, not just its `resource_path`: a pointer entry has none to
-        // patch. `reference` goes with it — exactly one of the two may be set.
+        // patch. `reference` goes with it — exactly one of the two may be set. The copy was created
+        // on the same cluster as its source, so it keeps the source's kind.
         let new_database = serde_json::json!({
-            "resource_type": "instance",
+            "resource_type": database.resource_type,
             "resource_path": &fdt.new_dbname,
         });
         sqlx::query(
@@ -8902,6 +9228,7 @@ async fn create_workspace_fork(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(parent_workspace_id): Path<String>,
+    Query(q): Query<CreateWorkspaceForkQuery>,
     Json(nw): Json<CreateWorkspaceFork>,
 ) -> Result<String> {
     enforce_fork_depth(&db, &parent_workspace_id, 0).await?;
@@ -9007,63 +9334,279 @@ async fn create_workspace_fork(
     // Refused here, before any database exists; `make_copies` checks again under the locks.
     validate_forked_datatables(&db, &authed, &parent_workspace_id, &nw).await?;
 
-    // Detached from the request: a client that goes away while the copies are made must still end
-    // with the fork created or no copy left behind, and dropping the handler's future would skip
-    // that cleanup.
-    tokio::spawn(async move {
-        let fork_id = nw.id.clone();
-        let copies = crate::datatable_clone::make_copies(
-            &db,
-            &authed,
-            &parent_workspace_id,
-            &copy_requests(&nw.forked_datatables),
-        )
-        .await?;
-        let replayed: Vec<DataTableForkBehavior> = copies
-            .iter()
-            .filter(|c| c.replayed)
-            .map(|c| c.behavior)
-            .collect();
-        match write_workspace_fork(
+    if !q.background.unwrap_or(false) {
+        // Detached from the request: a client that goes away while the copies are made must still
+        // end with the fork created or no copy left behind, and dropping the handler's future
+        // would skip that cleanup.
+        return tokio::spawn(make_workspace_fork(
+            db,
+            authed,
+            parent_workspace_id,
+            nw,
+            dev_workspace_label,
+            ForkProgress::default(),
+        ))
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!("Creating the fork stopped unexpectedly: {e}"))
+        })?;
+    }
+
+    let fork_id = nw.id.clone();
+    sqlx::query(
+        "DELETE FROM workspace_fork_creation
+         WHERE COALESCE(finished_at, heartbeat_at) < now() - interval '7 days'",
+    )
+    .execute(&db)
+    .await?;
+    let claimed = sqlx::query(
+        "INSERT INTO workspace_fork_creation
+             (fork_workspace_id, parent_workspace_id, created_by, creation_id)
+         VALUES ($1, $2, $3, $5)
+         ON CONFLICT (fork_workspace_id) DO UPDATE SET
+             parent_workspace_id = EXCLUDED.parent_workspace_id,
+             created_by = EXCLUDED.created_by,
+             creation_id = EXCLUDED.creation_id,
+             started_at = now(), heartbeat_at = now(), step = NULL, finished_at = NULL,
+             error = NULL
+         WHERE workspace_fork_creation.finished_at IS NOT NULL
+            OR workspace_fork_creation.heartbeat_at < now() - $4 * interval '1 second'
+         RETURNING creation_id",
+    )
+    .bind(&fork_id)
+    .bind(&parent_workspace_id)
+    .bind(&authed.email)
+    .bind(FORK_HEARTBEAT_STALE_SECS as f64)
+    .bind(Uuid::new_v4())
+    .fetch_optional(&db)
+    .await?;
+    // Every write of this attempt is scoped to its `creation_id`: one taken over as abandoned must
+    // not report over the attempt that took its place.
+    let Some(creation_id) = claimed.map(|r| r.get::<Uuid, _>("creation_id")) else {
+        return Err(Error::BadRequest(format!(
+            "workspace '{fork_id}' is already being created"
+        )));
+    };
+
+    BACKGROUND_FORKS.spawn(async move {
+        let (progress_tx, mut progress_rx) = tokio::sync::watch::channel("");
+        // The one writer of the run's row while it copies: it records a new step as soon as the
+        // copy reports it, and refreshes the heartbeat in between.
+        let heartbeat = {
+            let (db, fork_id) = (db.clone(), fork_id.clone());
+            tokio::spawn(async move {
+                let mut interval =
+                    tokio::time::interval(std::time::Duration::from_secs(FORK_HEARTBEAT_SECS));
+                let mut reporting = true;
+                loop {
+                    tokio::select! {
+                        _ = interval.tick() => {}
+                        changed = progress_rx.changed(), if reporting => reporting = changed.is_ok(),
+                    }
+                    let step = *progress_rx.borrow_and_update();
+                    if let Err(e) = sqlx::query(
+                        "UPDATE workspace_fork_creation SET heartbeat_at = now(), step = $3
+                         WHERE fork_workspace_id = $1 AND creation_id = $2",
+                    )
+                    .bind(&fork_id)
+                    .bind(creation_id)
+                    .bind((!step.is_empty()).then_some(step))
+                    .execute(&db)
+                    .await
+                    {
+                        tracing::warn!("fork '{fork_id}': could not record progress: {e}");
+                    }
+                }
+            })
+        };
+        let made = tokio::spawn(make_workspace_fork(
             db.clone(),
             authed,
             parent_workspace_id,
             nw,
             dev_workspace_label,
-            &copies,
+            ForkProgress { creation_id: Some(creation_id), steps: Some(progress_tx) },
+        ))
+        .await
+        .map_err(|e| Error::internal_err(format!("Creating the fork stopped unexpectedly: {e}")))
+        .and_then(|r| r);
+        heartbeat.abort();
+        let error = made.err().map(|e| {
+            tracing::error!("Creating fork '{fork_id}' failed: {e}");
+            e.to_string()
+        });
+        // A fork that committed is already recorded complete, even when its commit's
+        // acknowledgement was lost and the attempt reads as an error here.
+        if let Err(e) = sqlx::query(
+            "UPDATE workspace_fork_creation SET finished_at = now(), error = $3
+             WHERE fork_workspace_id = $1 AND creation_id = $2 AND finished_at IS NULL",
         )
+        .bind(&fork_id)
+        .bind(creation_id)
+        .bind(error)
+        .execute(&db)
         .await
         {
-            Ok(message) => {
-                for behavior in replayed {
-                    windmill_common::feature_usage::log_feature_usage(
-                        "datatable",
-                        "clone_replayed",
-                        match behavior {
-                            DataTableForkBehavior::SchemaOnly => "schema_only",
-                            _ => "schema_and_data",
-                        },
-                    );
-                }
-                Ok(message)
-            }
-            // A commit whose acknowledgement was lost can still have committed, and a concurrent
-            // request for the same id can have: once the write has settled, the cleanup keeps
-            // whichever copies a committed fork names, and drops the rest.
-            Err(e) => match wait_for_fork_write(&db, &fork_id).await {
-                Ok(()) => Err(crate::datatable_clone::drop_copies_after(&db, copies, e).await),
-                Err(settle) => {
-                    tracing::error!(
-                        "Could not tell whether fork '{fork_id}' was created, so its copies were \
-                         kept: {settle}"
-                    );
-                    Err(e)
-                }
-            },
+            tracing::error!("fork '{fork_id}': could not record how its creation ended: {e}");
         }
-    })
+    });
+    Ok(creation_id.to_string())
+}
+
+/// How often a fork created in the background records that its copy is still running, and how long
+/// without that record its creation counts as abandoned.
+const FORK_HEARTBEAT_SECS: u64 = 10;
+const FORK_HEARTBEAT_STALE_SECS: u64 = 60;
+
+/// Forks being created in the background. The server waits for them on shutdown: a copy cut short
+/// never drops the data table databases it already made, and a retry under the same id is refused
+/// while they exist.
+pub static BACKGROUND_FORKS: std::sync::LazyLock<tokio_util::task::TaskTracker> =
+    std::sync::LazyLock::new(tokio_util::task::TaskTracker::new);
+
+#[derive(Deserialize)]
+struct CreateWorkspaceForkQuery {
+    /// Return once the request is validated and create the fork in the background, answering with
+    /// the id `fork_creation_status` reads this attempt by. Without it the answer is
+    /// `Created forked workspace <id>`, which clients take as a server without background forks.
+    background: Option<bool>,
+}
+
+/// The attempt a fork created in the background belongs to, and where its copy is, for its status
+/// to report.
+#[derive(Default)]
+struct ForkProgress {
+    creation_id: Option<Uuid>,
+    steps: Option<tokio::sync::watch::Sender<&'static str>>,
+}
+
+impl ForkProgress {
+    fn step(&self, step: &'static str) {
+        if let Some(tx) = &self.steps {
+            tx.send_replace(step);
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct ForkCreationStatus {
+    /// `running`, `completed` or `failed`.
+    status: &'static str,
+    /// The part of the copy a running fork is in.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    step: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+async fn get_fork_creation_status(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((parent_workspace_id, creation_id)): Path<(String, Uuid)>,
+) -> JsonResult<ForkCreationStatus> {
+    let row = sqlx::query(
+        "SELECT c.created_by, c.finished_at IS NOT NULL AS finished, c.error, c.step,
+                c.heartbeat_at < now() - $3 * interval '1 second' AS stale
+         FROM workspace_fork_creation c
+         WHERE c.creation_id = $1 AND c.parent_workspace_id = $2",
+    )
+    .bind(creation_id)
+    .bind(&parent_workspace_id)
+    .bind(FORK_HEARTBEAT_STALE_SECS as f64)
+    .fetch_optional(&db)
+    .await?;
+    // Only the user who started it reads an attempt: its id is not handed to anyone else.
+    let Some(row) = row.filter(|r| r.get::<String, _>("created_by") == authed.email) else {
+        return Err(Error::NotFound(format!(
+            "no fork creation {creation_id} from '{parent_workspace_id}'"
+        )));
+    };
+    let error: Option<String> = row.get("error");
+    let status = if row.get::<bool, _>("finished") {
+        match error {
+            Some(error) => ForkCreationStatus { status: "failed", step: None, error: Some(error) },
+            None => ForkCreationStatus { status: "completed", step: None, error: None },
+        }
+    } else if row.get::<bool, _>("stale") {
+        ForkCreationStatus {
+            status: "failed",
+            step: None,
+            error: Some(
+                "the server creating the fork stopped before it finished; check the server logs \
+                 and whether the fork exists before retrying"
+                    .to_string(),
+            ),
+        }
+    } else {
+        ForkCreationStatus { status: "running", step: row.get("step"), error: None }
+    };
+    Ok(Json(status))
+}
+
+/// Copy the data tables the fork gets, then write the fork itself, dropping the copies again if
+/// that write fails.
+async fn make_workspace_fork(
+    db: DB,
+    authed: ApiAuthed,
+    parent_workspace_id: String,
+    nw: CreateWorkspaceFork,
+    dev_workspace_label: Option<String>,
+    progress: ForkProgress,
+) -> Result<String> {
+    let fork_id = nw.id.clone();
+    if !nw.forked_datatables.is_empty() {
+        progress.step("Copying data tables");
+    }
+    let copies = crate::datatable_clone::make_copies(
+        &db,
+        &authed,
+        &parent_workspace_id,
+        &copy_requests(&nw.forked_datatables),
+    )
+    .await?;
+    let replayed: Vec<DataTableForkBehavior> = copies
+        .iter()
+        .filter(|c| c.replayed)
+        .map(|c| c.behavior)
+        .collect();
+    match write_workspace_fork(
+        db.clone(),
+        authed,
+        parent_workspace_id,
+        nw,
+        dev_workspace_label,
+        &copies,
+        &progress,
+    )
     .await
-    .map_err(|e| Error::internal_err(format!("Creating the fork stopped unexpectedly: {e}")))?
+    {
+        Ok(message) => {
+            for behavior in replayed {
+                windmill_common::feature_usage::log_feature_usage(
+                    "datatable",
+                    "clone_replayed",
+                    match behavior {
+                        DataTableForkBehavior::SchemaOnly => "schema_only",
+                        _ => "schema_and_data",
+                    },
+                );
+            }
+            Ok(message)
+        }
+        // A commit whose acknowledgement was lost can still have committed, and a concurrent
+        // request for the same id can have: once the write has settled, the cleanup keeps
+        // whichever copies a committed fork names, and drops the rest.
+        Err(e) => match wait_for_fork_write(&db, &fork_id).await {
+            Ok(()) => Err(crate::datatable_clone::drop_copies_after(&db, copies, e).await),
+            Err(settle) => {
+                tracing::error!(
+                    "Could not tell whether fork '{fork_id}' was created, so its copies were \
+                     kept: {settle}"
+                );
+                Err(e)
+            }
+        },
+    }
 }
 
 /// The database a data table of the fork or dev workspace `fork_id` is copied into, as the wizard
@@ -9159,6 +9702,7 @@ async fn write_workspace_fork(
     nw: CreateWorkspaceFork,
     dev_workspace_label: Option<String>,
     copies: &[crate::datatable_clone::MadeCopy],
+    progress: &ForkProgress,
 ) -> Result<String> {
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
     // Held until this transaction ends: after an error, the copies' cleanup waits on it, so it reads
@@ -9167,6 +9711,11 @@ async fn write_workspace_fork(
         .bind(&nw.id)
         .execute(&mut *tx)
         .await?;
+    // Before the settings clone reads the parent's data tables: a pointer this fork ends up with
+    // must not be written after cleanup of the parent decided that nothing points at its copies.
+    // Also before the external cluster's lifecycle lock, which finalizing an external copy takes:
+    // fork cleanup takes the two in this order.
+    windmill_common::workspaces::lock_fork_datatables(&mut tx, &parent_workspace_id).await?;
 
     if nw.is_dev_workspace {
         // The checks above ran outside a transaction, so the parent's eligibility and the chain's
@@ -9256,8 +9805,15 @@ async fn write_workspace_fork(
         .await?;
 
     // Clone all data from the parent workspace using Rust implementation
-    if let Err(e) =
-        clone_workspace_data(&mut tx, &db, &parent_workspace_id, &forked_id, &authed).await
+    if let Err(e) = clone_workspace_data(
+        &mut tx,
+        &db,
+        &parent_workspace_id,
+        &forked_id,
+        &authed,
+        progress,
+    )
+    .await
     {
         // A genuine `\u0000` in a source `json` value (`app_version.value` /
         // `flow_version.schema`) aborts the clone when it is re-encoded to jsonb:
@@ -9288,6 +9844,7 @@ async fn write_workspace_fork(
     // enabled=false. Disabled rows have no side effects (no listener
     // attaches, no cron fires) so this is safe by construction. The user
     // re-enables in the fork, with parent-conflict warnings on enable.
+    progress.step("Copying triggers and schedules");
     clone_triggers_and_schedules(&mut tx, &parent_workspace_id, &forked_id).await?;
 
     repoint_unresolvable_cloned_identities(&mut tx, &forked_id, &authed).await?;
@@ -9308,6 +9865,32 @@ async fn write_workspace_fork(
                 "Database '{dbname}' copied for this fork is already used by workspaces {}; \
                  fork again",
                 users.join(", ")
+            )));
+        }
+    }
+    // Saves name an external database under the external cluster's lifecycle lock instead.
+    let external_copies: Vec<&str> = copies
+        .iter()
+        .filter(|c| {
+            c.source_database.resource_type == DataTableCatalogResourceType::ExternalInstance
+        })
+        .map(|c| c.dbname.as_str())
+        .collect();
+    if !external_copies.is_empty() {
+        windmill_common::external_instance_pg::lock_external_instance_pg_state(&mut tx).await?;
+    }
+    for dbname in &external_copies {
+        let uses = windmill_common::workspaces::managed_database_uses(
+            &mut tx,
+            DataTableCatalogResourceType::ExternalInstance,
+            dbname,
+            None,
+        )
+        .await?;
+        if !uses.is_empty() {
+            return Err(Error::BadRequest(format!(
+                "Database '{dbname}' copied for this fork is already used by {}; fork again",
+                uses.join(", ")
             )));
         }
     }
@@ -9409,6 +9992,16 @@ async fn write_workspace_fork(
         (!copied.is_empty()).then(|| [("copied_datatables", copied.as_str())].into()),
     )
     .await?;
+    // Committed with the fork, so its attempt reads complete exactly when the fork exists.
+    if let Some(creation_id) = progress.creation_id {
+        sqlx::query(
+            "UPDATE workspace_fork_creation SET finished_at = now(), error = NULL
+             WHERE creation_id = $1",
+        )
+        .bind(creation_id)
+        .execute(&mut *tx)
+        .await?;
+    }
     tx.commit().await?;
 
     // A pre-creation lookup could have cached an EMPTY ancestor chain for this id, which
@@ -9422,6 +10015,7 @@ async fn write_workspace_fork(
         windmill_common::workspaces::invalidate_protection_rules_cache(&parent_workspace_id);
     }
 
+    // Clients that ask for a background fork recognise a server without it by this answer.
     Ok(format!("Created forked workspace {}", &forked_id))
 }
 
@@ -10265,6 +10859,7 @@ async fn invite_user(
     Json(mut nu): Json<NewWorkspaceInvite>,
 ) -> Result<(StatusCode, String)> {
     require_admin(is_admin, &username)?;
+    reject_admin_and_operator(nu.is_admin, nu.operator)?;
 
     #[cfg(not(feature = "enterprise"))]
     if w_id == "admins" {
@@ -10412,6 +11007,8 @@ async fn add_user(
     Path(w_id): Path<String>,
     Json(mut nu): Json<NewWorkspaceUser>,
 ) -> Result<(StatusCode, String)> {
+    reject_admin_and_operator(nu.is_admin, nu.operator)?;
+
     #[cfg(not(feature = "enterprise"))]
     if w_id == "admins" {
         return Err(Error::BadRequest(
@@ -10992,6 +11589,14 @@ struct ChangeOperatorSettings {
     folders: bool,
     #[serde(default)]
     workers: bool,
+    /// Writes operators may perform unless withdrawn, so `None` (key absent) must mean "leave as
+    /// stored" rather than a value: the row is merged, not overwritten, and this endpoint takes
+    /// whole-object payloads from git-sync files that predate the key. Defaulting either way here
+    /// would make an older file silently withdraw or restore the right on every pull.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    manage_schedules: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    manage_triggers: Option<bool>,
 }
 
 async fn update_operator_settings(
@@ -11006,15 +11611,31 @@ async fn update_operator_settings(
 
     let settings_json = serde_json::json!(settings);
 
+    // Merged for the `Option` fields above; the visibility flags always serialize, so for them
+    // this is a plain overwrite.
     sqlx::query!(
-        "UPDATE workspace_settings SET operator_settings = $1 WHERE workspace_id = $2",
+        "UPDATE workspace_settings
+         SET operator_settings = COALESCE(operator_settings, '{}'::jsonb) || $1
+         WHERE workspace_id = $2",
         settings_json,
         &w_id
     )
     .execute(&mut *tx)
     .await?;
 
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.update_operator_settings",
+        ActionKind::Update,
+        &w_id,
+        None,
+        Some([("operator_settings", settings_json.to_string().as_str())].into()),
+    )
+    .await?;
     tx.commit().await?;
+
+    windmill_common::workspaces::invalidate_operator_rights_cache(&w_id);
 
     // Trigger git sync for operator settings changes
     handle_deployment_metadata(

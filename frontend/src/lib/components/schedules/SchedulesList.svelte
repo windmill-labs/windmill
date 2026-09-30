@@ -6,7 +6,8 @@
 		type WorkspaceDeployUISettings,
 		WorkspaceService
 	} from '$lib/gen'
-	import { canWrite, displayDate, getLocalSetting, storeLocalSetting } from '$lib/utils'
+	import { canWrite, displayDate, getLocalSetting, pluralize, storeLocalSetting } from '$lib/utils'
+	import { useScheduleLock } from '$lib/operatorWriteRights'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import { base } from '$app/paths'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -33,7 +34,8 @@
 		Plus,
 		SearchX,
 		Shield,
-		Trash
+		Trash,
+		TriangleAlert
 	} from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
@@ -43,6 +45,11 @@
 	} from '$lib/components/FilterSearchbar.svelte'
 	import { buildSchedulesFilterSchema } from '$lib/components/schedules/schedulesFilter'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
+	import TreeViewRoot from '$lib/components/home/TreeViewRoot.svelte'
+	import TreeViewControls from '$lib/components/home/TreeViewControls.svelte'
+	import { TreeViewState } from '$lib/components/home/treeViewState.svelte'
+	import type { ItemType } from '$lib/components/home/treeViewUtils'
+	import { twMerge } from 'tailwind-merge'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import JobPreview from '$lib/components/jobs/JobPreview.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -58,6 +65,7 @@
 		useOperatingWorkspace,
 		useOperatingUser
 	} from '$lib/components/operatingWorkspace.svelte'
+	const scheduleLock = useScheduleLock()
 
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
@@ -69,6 +77,8 @@
 	}
 
 	type ScheduleW = ScheduleWJobs & { canWrite: boolean }
+
+	const MISSED_VISIBLE_MS = 7 * 24 * 60 * 60 * 1000
 
 	let schedules: ScheduleW[] = $state([])
 	let shareModal: ShareModal | undefined = $state()
@@ -163,6 +173,9 @@
 		for (let schedule of schedules) {
 			if (schedulesWithJobsByPath[schedule.path]) {
 				schedule.jobs = schedulesWithJobsByPath[schedule.path].jobs
+				schedule.late_run_streak = schedulesWithJobsByPath[schedule.path].late_run_streak
+				schedule.missed_occurrences = schedulesWithJobsByPath[schedule.path].missed_occurrences
+				schedule.last_missed_at = schedulesWithJobsByPath[schedule.path].last_missed_at
 			}
 		}
 		loadingSchedulesWithJobStats = false
@@ -305,7 +318,12 @@
 	])
 
 	let nbDisplayed = $state(15)
+
+	const tree = new TreeViewState('schedulesTreeView')
 	let filterEnabledDisabled: 'all' | 'enabled' | 'disabled' = $state('all')
+	// A filter opens every folder so no match hides behind a closed one; Expand/Collapse all
+	// has no effect then.
+	let treeForceExpanded = $derived(activeFilters || filterEnabledDisabled !== 'all')
 
 	const SCHEDULE_PATH_KIND_FILTER_SETTING = 'schedulePathKindFilter'
 	let selectedFilterKind = $state(
@@ -365,6 +383,315 @@
 	let items = $derived(filteredItems)
 </script>
 
+{#snippet scheduleRow(s: ScheduleW, inTree: boolean, depth: number)}
+	{@const {
+		path,
+		error,
+		summary,
+		edited_by,
+		edited_at,
+		schedule,
+		timezone,
+		enabled,
+		script_path,
+		is_flow,
+		extra_perms,
+		canWrite,
+		jobs,
+		late_run_streak,
+		missed_occurrences,
+		last_missed_at,
+		paused_until,
+		labels,
+		inherited_labels,
+		draft_only,
+		is_draft
+	} = s}
+	{@const hasDraft = getLocalDraftHint($operatingWorkspace, 'trigger_schedule', path) ?? is_draft}
+	{@const canEdit = canWrite && !$scheduleLock}
+	{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
+	{@const avg_s = jobs ? jobs.reduce((acc, x) => acc + x.duration_ms, 0) / jobs.length : undefined}
+
+	<div
+		class={twMerge(
+			'bg-surface-tertiary hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 flex flex-col',
+			inTree
+				? 'border-b'
+				: 'first-of-type:!border-t-0 first-of-type:rounded-t-md last-of-type:rounded-b-md'
+		)}
+		style={depth > 0 ? `padding-left: ${(depth + 1) * 16}px;` : ''}
+	>
+		<div class="w-full flex gap-4 items-center">
+			<RowIcon kind={is_flow ? 'flow' : 'script'} />
+
+			<a
+				href="#{path}"
+				onclick={() => {
+					handledHash = `#${path}`
+					editSchedule(path, is_flow)
+				}}
+				class="min-w-0 grow hover:underline decoration-gray-400"
+			>
+				<div class="text-emphasis flex-wrap text-left text-xs font-semibold mb-1 truncate">
+					{summary || script_path}{hasDraft ? '*' : ''}
+				</div>
+				<div class="text-secondary text-xs truncate text-left">
+					schedule: {path}
+				</div>
+			</a>
+			{#if labels?.length}
+				{#each labels as label}
+					<Badge
+						color="blue"
+						small
+						class="px-1"
+						title="Label: {label}"
+						clickable
+						onclick={() => {
+							const arr = (filters.val.label ?? '').split(',').filter(Boolean)
+							const idx = arr.indexOf(label)
+							if (idx >= 0) arr.splice(idx, 1)
+							else arr.push(label)
+							const newFilters = { ...filters.val }
+							if (arr.length) newFilters.label = arr.join(',')
+							else delete newFilters.label
+							filters.val = newFilters
+						}}>{label}</Badge
+					>
+				{/each}
+			{/if}
+			<InheritedLabels labels={inherited_labels} />
+
+			{#if paused_until && new Date(paused_until) > new Date()}
+				<div class="pb-1">
+					<Badge color="yellow">Paused until {new Date(paused_until).toLocaleString()}</Badge>
+				</div>
+			{/if}
+
+			<div class="gap-2 items-center hidden md:flex">
+				<Badge large color="blue">{schedule}</Badge>
+				<Badge small color="gray">{timezone}</Badge>
+			</div>
+
+			<div class="hidden lg:flex flex-row gap-1 items-center">
+				<SharedBadge {canWrite} extraPerms={extra_perms} />
+			</div>
+
+			<div class="w-10">
+				{#if error}
+					<Popover notClickable>
+						<span class="flex h-4 w-4">
+							<Circle
+								class="text-red-600 animate-ping absolute inline-flex fill-current"
+								size={12}
+							/>
+							<Circle class="text-red-600 relative inline-flex fill-current" size={12} />
+						</span>
+						{#snippet text()}
+							<div>
+								The schedule disabled itself because there was an error scheduling the next job: {error}
+							</div>
+						{/snippet}
+					</Popover>
+				{:else if late_run_streak}
+					<Popover notClickable>
+						<TriangleAlert size={16} class="text-yellow-600" />
+						{#snippet text()}
+							<div>
+								Missed {pluralize(missed_occurrences ?? 0, 'occurrence')}: the last
+								{late_run_streak === 1 ? 'run' : `${late_run_streak} runs in a row`} started or finished
+								too late.
+							</div>
+						{/snippet}
+					</Popover>
+				{:else if last_missed_at && Date.now() - new Date(last_missed_at).getTime() < MISSED_VISIBLE_MS}
+					<Popover notClickable>
+						<TriangleAlert size={16} class="text-secondary" />
+						{#snippet text()}
+							<div>
+								Missed {pluralize(missed_occurrences ?? 0, 'occurrence')}, the last on
+								{displayDate(last_missed_at)}. On schedule since.
+							</div>
+						{/snippet}
+					</Popover>
+				{/if}
+			</div>
+
+			<div class="flex items-center justify-end gap-2 shrink-0 min-w-[8rem]">
+				<DraftBadge {draft_only} is_draft={hasDraft} />
+				{#key toggleResetVersions[path] ?? 0}
+					<Toggle
+						disabled={draft_only || !!$scheduleLock}
+						options={{
+							title: draft_only
+								? 'Draft only: deploy the schedule to enable it'
+								: ($scheduleLock ??
+									(hasDraft
+										? 'Enables/disables the deployed schedule; the draft is not affected'
+										: undefined))
+						}}
+						checked={!draft_only && enabled}
+						on:change={(e) => {
+							if (canWrite) {
+								setScheduleEnabled(path, e.detail)
+							} else {
+								sendUserToast('not enough permission', true)
+								// Permission denied — bump the row's reset
+								// counter so the Toggle remounts back to the
+								// prop value. Without this, the local
+								// `bind:checked` flip from the user's click
+								// stays stuck on.
+								bumpToggleReset(path)
+							}
+						}}
+					/>
+				{/key}
+			</div>
+			<div class="flex gap-2 items-center justify-end">
+				<Button
+					href={`${base}/runs/?schedule_path=${path}&job_trigger_kind=schedule&show_future_jobs=true`}
+					disabled={draft_only}
+					unifiedSize="md"
+					startIcon={{ icon: List }}
+					variant="subtle"
+				>
+					Runs
+				</Button>
+				<Button
+					on:click={() => editSchedule(path, is_flow)}
+					unifiedSize="md"
+					startIcon={{ icon: canEdit ? Pen : Eye }}
+					variant="subtle"
+				>
+					{canEdit ? 'Edit' : 'View'}
+				</Button>
+				<Dropdown
+					size="md"
+					items={[
+						{
+							displayName: `View ${is_flow ? 'Flow' : 'Script'}`,
+							icon: Eye,
+							action: () => {
+								if (hosted) hosted.openLink(`${base}${href}`)
+								else goto(href)
+							}
+						},
+						{
+							displayName: `Duplicate schedule`,
+							icon: Copy,
+							disabled: !!$scheduleLock,
+							tooltip: $scheduleLock,
+							action: () => {
+								scheduleEditor?.openNew(is_flow, script_path, path)
+							}
+						},
+						{
+							displayName: 'Delete',
+							type: 'delete',
+							icon: Trash,
+							disabled: !canEdit,
+							tooltip: $scheduleLock,
+							action: async () => {
+								await ScheduleService.deleteSchedule({
+									workspace: $operatingWorkspace ?? '',
+									path
+								})
+								loadSchedules()
+							}
+						},
+						{
+							displayName: canEdit ? 'Edit' : 'View',
+							icon: canEdit ? Pen : Eye,
+							action: () => {
+								editSchedule(path, is_flow)
+							}
+						},
+						...(isDeployable('trigger', path, deployUiSettings)
+							? [
+									{
+										displayName: 'Deploy to prod/staging',
+										icon: FileUp,
+										action: () => {
+											deploymentDrawer?.openDrawer(path, 'trigger', {
+												triggers: {
+													kind: 'schedules'
+												}
+											})
+										}
+									}
+								]
+							: []),
+						{
+							displayName: 'View runs',
+							icon: List,
+							href: `${base}/runs/?schedule_path=${path}&job_trigger_kind=schedule&show_future_jobs=true`
+						},
+						{
+							displayName: 'Audit logs',
+							icon: Eye,
+							href: `${base}/audit_logs?resource=${path}`
+						},
+						{
+							displayName: 'Run now',
+							icon: Play,
+							action: () => {
+								runScheduleNow(script_path, path, is_flow, $operatingWorkspace!)
+							}
+						},
+						{
+							displayName: 'Permissions',
+							icon: Shield,
+							action: () => {
+								shareModal?.openDrawer(path, 'schedule')
+							}
+						}
+					]}
+				/>
+			</div>
+		</div>
+		<div class="w-full flex justify-between items-baseline">
+			{#if loadingSchedulesWithJobStats}
+				<div class="flex gap-1 ml-0.5 text-xs text-secondary items-center">
+					<Loader2 size={14} class="animate-spin" />
+					<span>Job stats loading...</span>
+				</div>
+			{:else}
+				<div class="flex gap-1.5 ml-0.5 items-baseline flex-row-reverse">
+					{#if avg_s}
+						<div class="pl-2 text-secondary text-xs">Avg: {(avg_s / 1000).toFixed(2)}s</div>
+					{/if}
+					{#each jobs ?? [] as job}
+						{@const h = (avg_s ? job.duration_ms / avg_s : 1) * 7 + 3}
+						<a href="{base}/run/{job.id}?workspace={$operatingWorkspace}">
+							<JobPreview id={job.id} class="p-4">
+								<div>
+									<div
+										class="{job.success ? 'bg-green-300' : 'bg-red-300'} mx-auto w-1.5"
+										style="height: {h}px"
+									></div>
+									<!-- <div class="text-[0.6em] mt-0.5 text-center text-primary"
+									>{(job.duration_ms / 1000).toFixed(2)}s</div
+								> -->
+								</div>
+							</JobPreview>
+						</a>
+					{/each}
+				</div>
+			{/if}
+			<div
+				class="flex flex-wrap text-xs text-secondary gap-1 items-center justify-end truncate pr-2"
+				>{#if edited_by}<div class="truncate">edited by {edited_by}</div>{/if}<div class="truncate"
+					>{edited_by ? 'at ' : ''}{displayDate(edited_at)}</div
+				></div
+			></div
+		>
+	</div>
+{/snippet}
+
+{#snippet treeLeaf(item: ItemType, depth: number)}
+	{@render scheduleRow(item as unknown as ScheduleW, true, depth)}
+{/snippet}
+
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 <ScheduleEditor onUpdate={loadSchedules} bind:this={scheduleEditor} />
 
@@ -384,6 +711,8 @@
 				unifiedSize="md"
 				variant="accent"
 				startIcon={{ icon: Plus }}
+				disabled={!!$scheduleLock}
+				title={$scheduleLock}
 				on:click={() => scheduleEditor?.openNew(false)}
 				aiId="schedules-add-schedule"
 				aiDescription="Add schedule"
@@ -393,6 +722,7 @@
 		</PageHeader>
 		<div class="w-full h-full flex flex-col">
 			<div class="flex flex-row items-center justify-end gap-4 pb-4">
+				<TreeViewControls {tree} forceExpanded={treeForceExpanded} class="mr-auto" />
 				<ToggleButtonGroup bind:selected={filterEnabledDisabled} class="w-fit">
 					{#snippet children({ item })}
 						<ToggleButton value="all" label="All" {item} />
@@ -427,279 +757,34 @@
 							label: 'Add a schedule',
 							icon: Plus,
 							onClick: () => scheduleEditor?.openNew(false),
+							disabled: !!$scheduleLock,
+							title: $scheduleLock,
 							aiId: 'schedules-empty-add',
 							aiDescription: 'Add schedule'
 						}}
 					/>
 				{/if}
 			{:else if items?.length}
-				<div class="border rounded-md divide-y">
-					{#each items.slice(0, nbDisplayed) as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, jobs, paused_until, labels, inherited_labels, draft_only, is_draft } (path)}
-						{@const hasDraft =
-							getLocalDraftHint($operatingWorkspace, 'trigger_schedule', path) ?? is_draft}
-						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
-						{@const avg_s = jobs
-							? jobs.reduce((acc, x) => acc + x.duration_ms, 0) / jobs.length
-							: undefined}
-
-						<div
-							class="bg-surface-tertiary hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0
-				first-of-type:rounded-t-md last-of-type:rounded-b-md flex flex-col"
-						>
-							<div class="w-full flex gap-4 items-center">
-								<RowIcon kind={is_flow ? 'flow' : 'script'} />
-
-								<a
-									href="#{path}"
-									onclick={() => {
-										handledHash = `#${path}`
-										editSchedule(path, is_flow)
-									}}
-									class="min-w-0 grow hover:underline decoration-gray-400"
-								>
-									<div
-										class="text-emphasis flex-wrap text-left text-xs font-semibold mb-1 truncate"
-									>
-										{summary || script_path}{hasDraft ? '*' : ''}
-									</div>
-									<div class="text-secondary text-xs truncate text-left">
-										schedule: {path}
-									</div>
-								</a>
-								{#if labels?.length}
-									{#each labels as label}
-										<Badge
-											color="blue"
-											small
-											class="px-1"
-											title="Label: {label}"
-											clickable
-											onclick={() => {
-												const arr = (filters.val.label ?? '').split(',').filter(Boolean)
-												const idx = arr.indexOf(label)
-												if (idx >= 0) arr.splice(idx, 1)
-												else arr.push(label)
-												const newFilters = { ...filters.val }
-												if (arr.length) newFilters.label = arr.join(',')
-												else delete newFilters.label
-												filters.val = newFilters
-											}}>{label}</Badge
-										>
-									{/each}
-								{/if}
-								<InheritedLabels labels={inherited_labels} />
-
-								{#if paused_until && new Date(paused_until) > new Date()}
-									<div class="pb-1">
-										<Badge color="yellow"
-											>Paused until {new Date(paused_until).toLocaleString()}</Badge
-										>
-									</div>
-								{/if}
-
-								<div class="gap-2 items-center hidden md:flex">
-									<Badge large color="blue">{schedule}</Badge>
-									<Badge small color="gray">{timezone}</Badge>
-								</div>
-
-								<div class="hidden lg:flex flex-row gap-1 items-center">
-									<SharedBadge {canWrite} extraPerms={extra_perms} />
-								</div>
-
-								<div class="w-10">
-									{#if error}
-										<Popover notClickable>
-											<span class="flex h-4 w-4">
-												<Circle
-													class="text-red-600 animate-ping absolute inline-flex fill-current"
-													size={12}
-												/>
-												<Circle class="text-red-600 relative inline-flex fill-current" size={12} />
-											</span>
-											{#snippet text()}
-												<div>
-													The schedule disabled itself because there was an error scheduling the
-													next job: {error}
-												</div>
-											{/snippet}
-										</Popover>
-									{/if}
-								</div>
-
-								<div class="flex items-center justify-end gap-2 shrink-0 min-w-[8rem]">
-									<DraftBadge {draft_only} is_draft={hasDraft} />
-									{#key toggleResetVersions[path] ?? 0}
-										<Toggle
-											disabled={draft_only}
-											options={{
-												title: draft_only
-													? 'Draft only: deploy the schedule to enable it'
-													: hasDraft
-														? 'Enables/disables the deployed schedule; the draft is not affected'
-														: undefined
-											}}
-											checked={!draft_only && enabled}
-											on:change={(e) => {
-												if (canWrite) {
-													setScheduleEnabled(path, e.detail)
-												} else {
-													sendUserToast('not enough permission', true)
-													// Permission denied — bump the row's reset
-													// counter so the Toggle remounts back to the
-													// prop value. Without this, the local
-													// `bind:checked` flip from the user's click
-													// stays stuck on.
-													bumpToggleReset(path)
-												}
-											}}
-										/>
-									{/key}
-								</div>
-								<div class="flex gap-2 items-center justify-end">
-									<Button
-										href={`${base}/runs/?schedule_path=${path}&job_trigger_kind=schedule&show_future_jobs=true`}
-										disabled={draft_only}
-										unifiedSize="md"
-										startIcon={{ icon: List }}
-										variant="subtle"
-									>
-										Runs
-									</Button>
-									<Button
-										on:click={() => editSchedule(path, is_flow)}
-										unifiedSize="md"
-										startIcon={{ icon: canWrite ? Pen : Eye }}
-										variant="subtle"
-									>
-										{canWrite ? 'Edit' : 'View'}
-									</Button>
-									<Dropdown
-										size="md"
-										items={[
-											{
-												displayName: `View ${is_flow ? 'Flow' : 'Script'}`,
-												icon: Eye,
-												action: () => {
-													if (hosted) hosted.openLink(`${base}${href}`)
-													else goto(href)
-												}
-											},
-											{
-												displayName: `Duplicate schedule`,
-												icon: Copy,
-												action: () => {
-													scheduleEditor?.openNew(is_flow, script_path, path)
-												}
-											},
-											{
-												displayName: 'Delete',
-												type: 'delete',
-												icon: Trash,
-												disabled: !canWrite,
-												action: async () => {
-													await ScheduleService.deleteSchedule({
-														workspace: $operatingWorkspace ?? '',
-														path
-													})
-													loadSchedules()
-												}
-											},
-											{
-												displayName: canWrite ? 'Edit' : 'View',
-												icon: canWrite ? Pen : Eye,
-												action: () => {
-													editSchedule(path, is_flow)
-												}
-											},
-											...(isDeployable('trigger', path, deployUiSettings)
-												? [
-														{
-															displayName: 'Deploy to prod/staging',
-															icon: FileUp,
-															action: () => {
-																deploymentDrawer?.openDrawer(path, 'trigger', {
-																	triggers: {
-																		kind: 'schedules'
-																	}
-																})
-															}
-														}
-													]
-												: []),
-											{
-												displayName: 'View runs',
-												icon: List,
-												href: `${base}/runs/?schedule_path=${path}&job_trigger_kind=schedule&show_future_jobs=true`
-											},
-											{
-												displayName: 'Audit logs',
-												icon: Eye,
-												href: `${base}/audit_logs?resource=${path}`
-											},
-											{
-												displayName: 'Run now',
-												icon: Play,
-												action: () => {
-													runScheduleNow(script_path, path, is_flow, $operatingWorkspace!)
-												}
-											},
-											{
-												displayName: 'Permissions',
-												icon: Shield,
-												action: () => {
-													shareModal?.openDrawer(path, 'schedule')
-												}
-											}
-										]}
-									/>
-								</div>
-							</div>
-							<div class="w-full flex justify-between items-baseline">
-								{#if loadingSchedulesWithJobStats}
-									<div class="flex gap-1 ml-0.5 text-xs text-secondary items-center">
-										<Loader2 size={14} class="animate-spin" />
-										<span>Job stats loading...</span>
-									</div>
-								{:else}
-									<div class="flex gap-1.5 ml-0.5 items-baseline flex-row-reverse">
-										{#if avg_s}
-											<div class="pl-2 text-secondary text-xs"
-												>Avg: {(avg_s / 1000).toFixed(2)}s</div
-											>
-										{/if}
-										{#each jobs ?? [] as job}
-											{@const h = (avg_s ? job.duration_ms / avg_s : 1) * 7 + 3}
-											<a href="{base}/run/{job.id}?workspace={$operatingWorkspace}">
-												<JobPreview id={job.id} class="p-4">
-													<div>
-														<div
-															class="{job.success ? 'bg-green-300' : 'bg-red-300'} mx-auto w-1.5"
-															style="height: {h}px"
-														></div>
-														<!-- <div class="text-[0.6em] mt-0.5 text-center text-primary"
-														>{(job.duration_ms / 1000).toFixed(2)}s</div
-													> -->
-													</div>
-												</JobPreview>
-											</a>
-										{/each}
-									</div>
-								{/if}
-								<div
-									class="flex flex-wrap text-xs text-secondary gap-1 items-center justify-end truncate pr-2"
-									>{#if edited_by}<div class="truncate">edited by {edited_by}</div>{/if}<div
-										class="truncate">{edited_by ? 'at ' : ''}{displayDate(edited_at)}</div
-									></div
-								></div
-							>
-						</div>
-					{/each}
-				</div>
+				{#if tree.treeView}
+					<TreeViewRoot
+						items={items as unknown as ItemType[]}
+						collapseAll={tree.collapseAll}
+						isSearching={treeForceExpanded}
+						showCode={() => {}}
+						leaf={treeLeaf}
+					/>
+				{:else}
+					<div class="border rounded-md divide-y">
+						{#each items.slice(0, nbDisplayed) as s (s.path)}
+							{@render scheduleRow(s, false, 0)}
+						{/each}
+					</div>
+				{/if}
 			{:else}
 				<NoItemFound />
 			{/if}
 		</div>
-		{#if items && items?.length > 15 && nbDisplayed < items.length}
+		{#if !tree.treeView && items && items?.length > 15 && nbDisplayed < items.length}
 			<div class="flex items-center gap-4 text-xs font-semibold text-emphasis">
 				<span>{nbDisplayed} items out of {items.length}</span>
 				<Button unifiedSize="sm" variant="subtle" on:click={() => (nbDisplayed += 30)}>

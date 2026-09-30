@@ -33,6 +33,7 @@ export const SKILLS: SkillMetadata[] = [
   { name: "schedules", description: "MUST use when configuring schedules." },
   { name: "resources", description: "MUST use when managing resources." },
   { name: "write-workflow-as-code", description: "MUST use when writing or modifying Windmill Workflow-as-Code scripts using workflow, task, step, sleep, approvals, taskScript, taskFlow, task_script, or task_flow." },
+  { name: "write-pipeline", description: "MUST use when creating or modifying a data pipeline, a set of scripts marked `pipeline` and wired together by `on` / `materialize` annotations." },
   { name: "cli-commands", description: "MUST use when using the CLI, including debugging job failures and inspecting run history via `wmill job`." },
   { name: "preview", description: "MUST use when opening the Windmill dev page / visual preview of a flow, script, or app. Triggers on words like preview, open, navigate to, visualize, see the flow/app/script, and after writing a flow/script/app for visual verification." },
 ];
@@ -88,6 +89,29 @@ If the user already asked to test/run/try the script in their original request, 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
+
+# Windmill Script Writing Guide
+
+## General Principles
+
+- A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- Libraries are installed automatically - do not show installation instructions
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
+- Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
+
+## Return Values
+
+- A script can return any JSON-serializable value; a SQL script returns the rows its query produces
+- Return values become available to subsequent flow steps via \`results.step_id\`
+
+## Preprocessor Scripts
+
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+
+A preprocessor is written in TypeScript or Python: its function is named \`preprocessor\` instead of \`main\`, and it receives a single parameter called \`event\` (the language section gives its type).
+
+The returned object determines the parameter values passed to the flow.
+e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
 
 # Ansible
 
@@ -229,6 +253,29 @@ For a **visual** open-the-script-in-the-dev-page preview (rather than \`script p
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
+# Windmill Script Writing Guide
+
+## General Principles
+
+- A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- Libraries are installed automatically - do not show installation instructions
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
+- Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
+
+## Return Values
+
+- A script can return any JSON-serializable value; a SQL script returns the rows its query produces
+- Return values become available to subsequent flow steps via \`results.step_id\`
+
+## Preprocessor Scripts
+
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+
+A preprocessor is written in TypeScript or Python: its function is named \`preprocessor\` instead of \`main\`, and it receives a single parameter called \`event\` (the language section gives its type).
+
+The returned object determines the parameter values passed to the flow.
+e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
+
 # Bash
 
 ## Structure
@@ -329,6 +376,29 @@ For a **visual** open-the-script-in-the-dev-page preview (rather than \`script p
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
+# Windmill Script Writing Guide
+
+## General Principles
+
+- A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- Libraries are installed automatically - do not show installation instructions
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
+- Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
+
+## Return Values
+
+- A script can return any JSON-serializable value; a SQL script returns the rows its query produces
+- Return values become available to subsequent flow steps via \`results.step_id\`
+
+## Preprocessor Scripts
+
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+
+A preprocessor is written in TypeScript or Python: its function is named \`preprocessor\` instead of \`main\`, and it receives a single parameter called \`event\` (the language section gives its type).
+
+The returned object determines the parameter values passed to the flow.
+e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
+
 # BigQuery
 
 Arguments use \`@name\` syntax.
@@ -422,6 +492,29 @@ For a **visual** open-the-script-in-the-dev-page preview (rather than \`script p
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
+# Windmill Script Writing Guide
+
+## General Principles
+
+- A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- Libraries are installed automatically - do not show installation instructions
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
+- Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
+
+## Return Values
+
+- A script can return any JSON-serializable value; a SQL script returns the rows its query produces
+- Return values become available to subsequent flow steps via \`results.step_id\`
+
+## Preprocessor Scripts
+
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+
+A preprocessor is written in TypeScript or Python: its function is named \`preprocessor\` instead of \`main\`, and it receives a single parameter called \`event\` (the language section gives its type).
+
+The returned object determines the parameter values passed to the flow.
+e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
+
 # TypeScript (Bun)
 
 Bun runtime with full npm ecosystem and fastest execution. **Bun is the default and preferred TypeScript runtime** — choose it for any TypeScript script unless there is a major reason to use Deno for that specific use-case.
@@ -476,7 +569,7 @@ import * as wmill from "windmill-client";
 
 **Prefer \`windmill-client\` over raw \`fetch\` for anything that talks to Windmill** — reading resources/variables/states, running scripts and flows, S3 object operations, etc. It handles auth, the workspace, and the base URL for you, so you don't hand-roll URLs or tokens. Reserve \`fetch\` for calling *external* HTTP APIs that aren't Windmill.
 
-The full \`windmill-client\` API reference (every exported function and its signature) is included in this skill below — consult it for the exact method to use instead of guessing or falling back to \`fetch\`.
+The full \`windmill-client\` API reference (every exported function and its signature) is included below — consult it for the exact method to use instead of guessing or falling back to \`fetch\`.
 
 ## Preprocessor Scripts
 
@@ -494,7 +587,9 @@ type Event = {
     | "postgres"
     | "sqs"
     | "mqtt"
-    | "gcp";
+    | "amqp"
+    | "gcp"
+    | "azure";
   body: any;
   headers: Record<string, string>;
   query: Record<string, string>;
@@ -541,7 +636,6 @@ const result: wmill.S3Object = await wmill.writeS3File(
   s3ResourcePath // Optional: specific S3 resource to use
 );
 \`\`\`
-
 
 # TypeScript SDK (windmill-client)
 
@@ -1218,6 +1312,29 @@ For a **visual** open-the-script-in-the-dev-page preview (rather than \`script p
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
+# Windmill Script Writing Guide
+
+## General Principles
+
+- A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- Libraries are installed automatically - do not show installation instructions
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
+- Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
+
+## Return Values
+
+- A script can return any JSON-serializable value; a SQL script returns the rows its query produces
+- Return values become available to subsequent flow steps via \`results.step_id\`
+
+## Preprocessor Scripts
+
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+
+A preprocessor is written in TypeScript or Python: its function is named \`preprocessor\` instead of \`main\`, and it receives a single parameter called \`event\` (the language section gives its type).
+
+The returned object determines the parameter values passed to the flow.
+e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
+
 # TypeScript (Bun Native)
 
 Native TypeScript execution. Native scripts are Bun scripts that run on the native worker — a lightweight V8 isolate that exposes \`fetch\` and the JavaScript standard library — and can be heavily parallelized. Every script MUST start with \`//native\` on its first line so Windmill routes it to the native worker; without it the exact same script runs on the regular Bun worker. You may import npm packages and other Windmill scripts (e.g. \`./helper.ts\`) — imports are resolved and bundled just like a regular Bun script — as long as everything (your code and its dependencies) relies only on \`fetch\` and the standard library. Libraries that need Node/Bun runtime APIs (filesystem, \`node:*\` modules, child processes, native addons) will not work on the native worker; use the regular \`bun\` language for those.
@@ -1269,7 +1386,7 @@ export async function main(url: string) {
 
 \`windmill-client\` works on the native worker (its calls go over \`fetch\`), so use it as the **preferred way to talk to Windmill** — reading resources/variables/states, running scripts and flows, and the S3 helpers below (\`loadS3File\`, \`loadS3FileStream\`, \`writeS3File\`, \`S3Object\`). It handles auth, the workspace, and the base URL for you. Reserve raw \`fetch\` for calling *external* HTTP APIs that aren't Windmill.
 
-The full \`windmill-client\` API reference (every exported function and its signature) is included in this skill below — consult it for the exact method instead of hand-rolling a \`fetch\` against the Windmill API.
+The full \`windmill-client\` API reference (every exported function and its signature) is included below — consult it for the exact method instead of hand-rolling a \`fetch\` against the Windmill API.
 
 ## Preprocessor Scripts
 
@@ -1288,7 +1405,9 @@ type Event = {
     | "postgres"
     | "sqs"
     | "mqtt"
-    | "gcp";
+    | "amqp"
+    | "gcp"
+    | "azure";
   body: any;
   headers: Record<string, string>;
   query: Record<string, string>;
@@ -1337,7 +1456,6 @@ const result: wmill.S3Object = await wmill.writeS3File(
   s3ResourcePath // Optional: specific S3 resource to use
 );
 \`\`\`
-
 
 # TypeScript SDK (windmill-client)
 
@@ -2014,6 +2132,29 @@ For a **visual** open-the-script-in-the-dev-page preview (rather than \`script p
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
+# Windmill Script Writing Guide
+
+## General Principles
+
+- A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- Libraries are installed automatically - do not show installation instructions
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
+- Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
+
+## Return Values
+
+- A script can return any JSON-serializable value; a SQL script returns the rows its query produces
+- Return values become available to subsequent flow steps via \`results.step_id\`
+
+## Preprocessor Scripts
+
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+
+A preprocessor is written in TypeScript or Python: its function is named \`preprocessor\` instead of \`main\`, and it receives a single parameter called \`event\` (the language section gives its type).
+
+The returned object determines the parameter values passed to the flow.
+e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
+
 # C#
 
 The script must contain a public static \`Main\` method inside a class:
@@ -2106,6 +2247,29 @@ For a **visual** open-the-script-in-the-dev-page preview (rather than \`script p
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
+# Windmill Script Writing Guide
+
+## General Principles
+
+- A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- Libraries are installed automatically - do not show installation instructions
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
+- Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
+
+## Return Values
+
+- A script can return any JSON-serializable value; a SQL script returns the rows its query produces
+- Return values become available to subsequent flow steps via \`results.step_id\`
+
+## Preprocessor Scripts
+
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+
+A preprocessor is written in TypeScript or Python: its function is named \`preprocessor\` instead of \`main\`, and it receives a single parameter called \`event\` (the language section gives its type).
+
+The returned object determines the parameter values passed to the flow.
+e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
+
 # TypeScript (Deno)
 
 Deno runtime with npm support via \`npm:\` prefix and native Deno libraries.
@@ -2162,7 +2326,7 @@ import * as wmill from "windmill-client";
 
 **Prefer \`windmill-client\` over raw \`fetch\` for anything that talks to Windmill** — reading resources/variables/states, running scripts and flows, S3 object operations, etc. It handles auth, the workspace, and the base URL for you. Reserve \`fetch\` for calling *external* HTTP APIs that aren't Windmill.
 
-The full \`windmill-client\` API reference (every exported function and its signature) is included in this skill below — consult it for the exact method instead of guessing or falling back to \`fetch\`.
+The full \`windmill-client\` API reference (every exported function and its signature) is included below — consult it for the exact method instead of guessing or falling back to \`fetch\`.
 
 ## Preprocessor Scripts
 
@@ -2180,7 +2344,9 @@ type Event = {
     | "postgres"
     | "sqs"
     | "mqtt"
-    | "gcp";
+    | "amqp"
+    | "gcp"
+    | "azure";
   body: any;
   headers: Record<string, string>;
   query: Record<string, string>;
@@ -2227,7 +2393,6 @@ const result: wmill.S3Object = await wmill.writeS3File(
   s3ResourcePath // Optional: specific S3 resource to use
 );
 \`\`\`
-
 
 # TypeScript SDK (windmill-client)
 
@@ -2904,6 +3069,29 @@ For a **visual** open-the-script-in-the-dev-page preview (rather than \`script p
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
+# Windmill Script Writing Guide
+
+## General Principles
+
+- A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- Libraries are installed automatically - do not show installation instructions
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
+- Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
+
+## Return Values
+
+- A script can return any JSON-serializable value; a SQL script returns the rows its query produces
+- Return values become available to subsequent flow steps via \`results.step_id\`
+
+## Preprocessor Scripts
+
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+
+A preprocessor is written in TypeScript or Python: its function is named \`preprocessor\` instead of \`main\`, and it receives a single parameter called \`event\` (the language section gives its type).
+
+The returned object determines the parameter values passed to the flow.
+e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
+
 # DuckDB
 
 Arguments are defined with comments and used with \`$name\` syntax:
@@ -3030,6 +3218,29 @@ For a **visual** open-the-script-in-the-dev-page preview (rather than \`script p
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
+# Windmill Script Writing Guide
+
+## General Principles
+
+- A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- Libraries are installed automatically - do not show installation instructions
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
+- Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
+
+## Return Values
+
+- A script can return any JSON-serializable value; a SQL script returns the rows its query produces
+- Return values become available to subsequent flow steps via \`results.step_id\`
+
+## Preprocessor Scripts
+
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+
+A preprocessor is written in TypeScript or Python: its function is named \`preprocessor\` instead of \`main\`, and it receives a single parameter called \`event\` (the language section gives its type).
+
+The returned object determines the parameter values passed to the flow.
+e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
+
 # Go
 
 ## Structure
@@ -3139,6 +3350,29 @@ For a **visual** open-the-script-in-the-dev-page preview (rather than \`script p
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
+# Windmill Script Writing Guide
+
+## General Principles
+
+- A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- Libraries are installed automatically - do not show installation instructions
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
+- Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
+
+## Return Values
+
+- A script can return any JSON-serializable value; a SQL script returns the rows its query produces
+- Return values become available to subsequent flow steps via \`results.step_id\`
+
+## Preprocessor Scripts
+
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+
+A preprocessor is written in TypeScript or Python: its function is named \`preprocessor\` instead of \`main\`, and it receives a single parameter called \`event\` (the language section gives its type).
+
+The returned object determines the parameter values passed to the flow.
+e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
+
 # GraphQL
 
 ## Structure
@@ -3235,6 +3469,29 @@ For a **visual** open-the-script-in-the-dev-page preview (rather than \`script p
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
+# Windmill Script Writing Guide
+
+## General Principles
+
+- A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- Libraries are installed automatically - do not show installation instructions
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
+- Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
+
+## Return Values
+
+- A script can return any JSON-serializable value; a SQL script returns the rows its query produces
+- Return values become available to subsequent flow steps via \`results.step_id\`
+
+## Preprocessor Scripts
+
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+
+A preprocessor is written in TypeScript or Python: its function is named \`preprocessor\` instead of \`main\`, and it receives a single parameter called \`event\` (the language section gives its type).
+
+The returned object determines the parameter values passed to the flow.
+e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
+
 # Java
 
 The script must contain a Main public class with a \`public static main()\` method:
@@ -3323,6 +3580,29 @@ If the user already asked to test/run/try the script in their original request, 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
+
+# Windmill Script Writing Guide
+
+## General Principles
+
+- A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- Libraries are installed automatically - do not show installation instructions
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
+- Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
+
+## Return Values
+
+- A script can return any JSON-serializable value; a SQL script returns the rows its query produces
+- Return values become available to subsequent flow steps via \`results.step_id\`
+
+## Preprocessor Scripts
+
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+
+A preprocessor is written in TypeScript or Python: its function is named \`preprocessor\` instead of \`main\`, and it receives a single parameter called \`event\` (the language section gives its type).
+
+The returned object determines the parameter values passed to the flow.
+e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
 
 # Microsoft SQL Server (MSSQL)
 
@@ -3416,6 +3696,29 @@ For a **visual** open-the-script-in-the-dev-page preview (rather than \`script p
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
+# Windmill Script Writing Guide
+
+## General Principles
+
+- A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- Libraries are installed automatically - do not show installation instructions
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
+- Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
+
+## Return Values
+
+- A script can return any JSON-serializable value; a SQL script returns the rows its query produces
+- Return values become available to subsequent flow steps via \`results.step_id\`
+
+## Preprocessor Scripts
+
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+
+A preprocessor is written in TypeScript or Python: its function is named \`preprocessor\` instead of \`main\`, and it receives a single parameter called \`event\` (the language section gives its type).
+
+The returned object determines the parameter values passed to the flow.
+e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
+
 # MySQL
 
 Arguments use \`?\` placeholders.
@@ -3508,6 +3811,29 @@ If the user already asked to test/run/try the script in their original request, 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
+
+# Windmill Script Writing Guide
+
+## General Principles
+
+- A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- Libraries are installed automatically - do not show installation instructions
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
+- Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
+
+## Return Values
+
+- A script can return any JSON-serializable value; a SQL script returns the rows its query produces
+- Return values become available to subsequent flow steps via \`results.step_id\`
+
+## Preprocessor Scripts
+
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+
+A preprocessor is written in TypeScript or Python: its function is named \`preprocessor\` instead of \`main\`, and it receives a single parameter called \`event\` (the language section gives its type).
+
+The returned object determines the parameter values passed to the flow.
+e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
 
 # PHP
 
@@ -3617,6 +3943,29 @@ For a **visual** open-the-script-in-the-dev-page preview (rather than \`script p
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
+# Windmill Script Writing Guide
+
+## General Principles
+
+- A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- Libraries are installed automatically - do not show installation instructions
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
+- Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
+
+## Return Values
+
+- A script can return any JSON-serializable value; a SQL script returns the rows its query produces
+- Return values become available to subsequent flow steps via \`results.step_id\`
+
+## Preprocessor Scripts
+
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+
+A preprocessor is written in TypeScript or Python: its function is named \`preprocessor\` instead of \`main\`, and it receives a single parameter called \`event\` (the language section gives its type).
+
+The returned object determines the parameter values passed to the flow.
+e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
+
 # PostgreSQL
 
 Arguments are obtained directly in the statement with \`$1::{type}\`, \`$2::{type}\`, etc.
@@ -3707,6 +4056,29 @@ If the user already asked to test/run/try the script in their original request, 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
+
+# Windmill Script Writing Guide
+
+## General Principles
+
+- A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- Libraries are installed automatically - do not show installation instructions
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
+- Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
+
+## Return Values
+
+- A script can return any JSON-serializable value; a SQL script returns the rows its query produces
+- Return values become available to subsequent flow steps via \`results.step_id\`
+
+## Preprocessor Scripts
+
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+
+A preprocessor is written in TypeScript or Python: its function is named \`preprocessor\` instead of \`main\`, and it receives a single parameter called \`event\` (the language section gives its type).
+
+The returned object determines the parameter values passed to the flow.
+e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
 
 # PowerShell
 
@@ -3814,6 +4186,29 @@ For a **visual** open-the-script-in-the-dev-page preview (rather than \`script p
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
+# Windmill Script Writing Guide
+
+## General Principles
+
+- A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- Libraries are installed automatically - do not show installation instructions
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
+- Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
+
+## Return Values
+
+- A script can return any JSON-serializable value; a SQL script returns the rows its query produces
+- Return values become available to subsequent flow steps via \`results.step_id\`
+
+## Preprocessor Scripts
+
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+
+A preprocessor is written in TypeScript or Python: its function is named \`preprocessor\` instead of \`main\`, and it receives a single parameter called \`event\` (the language section gives its type).
+
+The returned object determines the parameter values passed to the flow.
+e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
+
 # Python
 
 ## Structure
@@ -3897,7 +4292,7 @@ For preprocessor scripts, the function should be named \`preprocessor\` and rece
 from typing import TypedDict, Literal, Any
 
 class Event(TypedDict):
-    kind: Literal["webhook", "http", "websocket", "kafka", "email", "nats", "postgres", "sqs", "mqtt", "gcp"]
+    kind: Literal["webhook", "http", "websocket", "kafka", "email", "nats", "postgres", "sqs", "mqtt", "amqp", "gcp", "azure"]
     body: Any
     headers: dict[str, str]
     query: dict[str, str]
@@ -3947,7 +4342,6 @@ result: S3Object = wmill.write_s3_file(
     content_disposition # Optional: Content-Disposition header
 )
 \`\`\`
-
 
 # Python SDK (wmill)
 
@@ -4745,7 +5139,6 @@ async def parallel(items, fn, *, concurrency: Optional[int] = None)
 #     partition: Partition number (from event['partition'])
 #     offset: Message offset to commit (from event['offset'])
 def commit_kafka_offsets(trigger_path: str, topic: str, partition: int, offset: int) -> None
-
 `,
   "write-script-rlang": `---
 name: write-script-rlang
@@ -4796,6 +5189,29 @@ If the user already asked to test/run/try the script in their original request, 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
+
+# Windmill Script Writing Guide
+
+## General Principles
+
+- A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- Libraries are installed automatically - do not show installation instructions
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
+- Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
+
+## Return Values
+
+- A script can return any JSON-serializable value; a SQL script returns the rows its query produces
+- Return values become available to subsequent flow steps via \`results.step_id\`
+
+## Preprocessor Scripts
+
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+
+A preprocessor is written in TypeScript or Python: its function is named \`preprocessor\` instead of \`main\`, and it receives a single parameter called \`event\` (the language section gives its type).
+
+The returned object determines the parameter values passed to the flow.
+e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
 
 # R
 
@@ -4933,6 +5349,29 @@ For a **visual** open-the-script-in-the-dev-page preview (rather than \`script p
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
+# Windmill Script Writing Guide
+
+## General Principles
+
+- A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- Libraries are installed automatically - do not show installation instructions
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
+- Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
+
+## Return Values
+
+- A script can return any JSON-serializable value; a SQL script returns the rows its query produces
+- Return values become available to subsequent flow steps via \`results.step_id\`
+
+## Preprocessor Scripts
+
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+
+A preprocessor is written in TypeScript or Python: its function is named \`preprocessor\` instead of \`main\`, and it receives a single parameter called \`event\` (the language section gives its type).
+
+The returned object determines the parameter values passed to the flow.
+e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
+
 # Rust
 
 ## Structure
@@ -5058,6 +5497,29 @@ If the user already asked to test/run/try the script in their original request, 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
+
+# Windmill Script Writing Guide
+
+## General Principles
+
+- A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- Libraries are installed automatically - do not show installation instructions
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it \`main\` (\`Main\` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no \`main\`: their language section shows how they take arguments
+- Where the language has a Windmill client (\`wmill\`), use it to interact with the platform
+
+## Return Values
+
+- A script can return any JSON-serializable value; a SQL script returns the rows its query produces
+- Return values become available to subsequent flow steps via \`results.step_id\`
+
+## Preprocessor Scripts
+
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+
+A preprocessor is written in TypeScript or Python: its function is named \`preprocessor\` instead of \`main\`, and it receives a single parameter called \`event\` (the language section gives its type).
+
+The returned object determines the parameter values passed to the flow.
+e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
 
 # Snowflake
 
@@ -5188,7 +5650,6 @@ An input typed as a resource (\`format: resource-<type>\` in the schema) takes t
 ### Visual preview
 
 To open the flow visually in the dev page (graph + live reload), use the \`preview\` skill. Always **offer** it as a one-sentence next step (e.g. "Want me to open the visual preview?") rather than opening it automatically — opening the dev page has side effects (browser window, possibly a \`launch.json\` entry under MCP-preview branches) the user should consent to. If the user already asked to see/preview/visualize the flow in their original request, skip the offer and just invoke the skill.
-
 
 # Windmill Flow Building Guide
 
@@ -5327,7 +5788,7 @@ needs becomes unreachable.
       },
       "user_message": { "type": "javascript", "expr": "flow_input.user_message" },
       "user_attachments": { "type": "javascript", "expr": "flow_input.files" },
-      "memory": { "type": "static", "value": { "kind": "window", "context_length": 10 } },
+      "memory": { "type": "static", "value": { "kind": "compaction" } },
       "streaming": { "type": "static", "value": true },
       "output_type": { "type": "static", "value": "text" }
     },
@@ -5362,8 +5823,8 @@ names, so neither is name-checked at all — leave those summaries as they are.
 - Always set \`summary\`. It must be unique among that agent's tools, and must not be one of the
   reserved ids (\`do\`, \`bg\`, \`ctx\`, \`state\`, \`if\`, \`else\`, \`for\`, \`delete\`, \`while\`, \`new\`, \`in\`,
   \`failure\`, \`preprocessor\`, \`as\`, \`Input\`, \`Result\`, \`Trigger\`)
-- A tool name outside that character set is rejected: flow write tools refuse it, and a flow that
-  reaches the worker with one fails every run with \`Invalid tool name\`
+- A tool name outside that character set fails any run that offers the tool to the agent, with \`Invalid tool name\`.
+  \`wmill lint <flow folder>\` reports it before anything runs.
 - Tool \`id\` follows the same rules as any module ID — unique across the flow, underscores not spaces
 - \`description\` is optional free text telling the agent when and how to call the tool. Set it
   whenever the name alone does not make that obvious; it overrides the description derived from the
@@ -5386,9 +5847,11 @@ names, so neither is name-checked at all — leave those summaries as they are.
 
 ## Loop Structure Rules
 
+- A \`forloopflow\` runs its \`modules\` once per element of \`iterator\`, a javascript expression returning an array (e.g. \`results.get_items\`); \`parallel: true\` runs the iterations concurrently, and \`skip_failures: true\` carries on past a failed iteration
 - For \`whileloopflow\`, break the loop with a module-level \`stop_after_if\`: on the loop module itself, or on an inner step (required when that step carries state via its own \`results\` — see below)
 - \`stop_after_if\` is always a sibling of \`id\` and \`value\` on a flow module — never a direct key of the loop's \`value\` object
 - \`stop_after_all_iters_if\` is for checks after the whole loop finishes, not the normal per-iteration break condition
+- \`stop_after_if\` is evaluated after each iteration: on the loop module, \`result\` is that iteration's result (what its last step returned); on an inner step, it is that step's result
 - \`flow_input.iter.value\` in a \`whileloopflow\` is just the iteration index (same number as \`flow_input.iter.index\`) — it never carries state, so \`flow_input.iter.value.<field>\` is always undefined and a loop whose stop condition depends on it never terminates
 - To carry state across iterations, a step reads its own previous-iteration result via \`results.<its_own_id>\` with a first-iteration fallback (e.g. \`results.b ?? flow_input.start\`) — but then the loop's \`stop_after_if\` MUST sit on that inner step, not on the loop module: a body that is exactly one plain step with the stop condition on the loop module runs on a fast path where \`results.<step_id>\` is null on every iteration and the loop never terminates (bodies with 2+ steps, or whose single step has its own \`stop_after_if\`, retry or similar, resolve \`results\` across iterations regardless of stop placement)
 - For state that is just a counter, derive it from the index instead (e.g. \`flow_input.iter.index + 1\`) — that works in every configuration, including with \`stop_after_if\` on the loop module
@@ -5526,6 +5989,7 @@ Incorrect shape (identity has no resume URLs — not a real approval):
 
 ## Branch Result Scope Rules
 
+- A \`branchone\` runs the first of its \`branches\` whose \`expr\` is true, in order, and its \`default\` modules when none is; a \`branchall\` runs every branch (concurrently with \`parallel: true\`)
 - Inside a branch, you may reference earlier outer steps and earlier steps in the same branch
 - Outside a \`branchone\`, do NOT reference ids of steps that only exist inside its branches or default branch. Use \`results.<branchone_module_id>\` instead
 - Outside a \`branchall\`, do NOT reference ids of steps inside its branches. Use \`results.<branchall_module_id>\` instead
@@ -5585,6 +6049,41 @@ JavaScript transform (dynamic expression):
 - For flow inputs: Use type \`"object"\` with format \`"resource-{type}"\` (e.g., \`"resource-postgresql"\`)
 - For step inputs: Use static value \`"$res:path/to/resource"\`
 
+## Reusing Existing Scripts and Flows
+
+Unless the user asked for new code, look for a workspace script or flow that already does a step's job before writing it, and reuse it by path instead of copying its logic into a rawscript:
+
+- a workspace script: \`type: script\` with \`path\` (e.g. \`f/folder/send_email\`)
+- a workspace flow, run as a subflow: \`type: flow\` with \`path\`
+- a Hub script: \`type: script\` with a \`hub/<version>/<app>/<name>\` path
+
+The step's \`input_transforms\` must cover the reused item's inputs, so read its input schema first.
+Find candidates in the local tree (a \`.script.yaml\` sits next to each script and holds its input schema, a \`flow.yaml\` in each flow folder) and on the workspace with \`wmill script list\` / \`wmill flow list\`; \`wmill script get <path>\` and \`wmill flow get <path>\` show an item's details.
+
+## Organizing Flows: Groups and Notes
+
+Groups and notes shape how a flow reads in the editor; neither changes what it does.
+
+**Segment every non-trivial flow into groups without waiting to be asked.** Whenever a flow has more than a couple of steps, or consecutive steps form a stage ("fetch", "transform", "notify"), put them in a group, and aim for every meaningful step to belong to one. Use notes sparingly, for flow-wide information that belongs to no span of steps: the flow's purpose, key assumptions, warnings, TODOs. One note is usually enough; never label a run of steps with a note, which is what a group is for.
+
+\`value.groups\` lists the groups, each spanning the steps from \`start_id\` to \`end_id\`:
+
+- \`start_id\`, \`end_id\` (required): ids of the group's first and last step; the same id for both makes a one-step group
+- \`summary\`: the group's title
+- \`note\`: markdown shown under the title
+- \`color\`: one of \`yellow\`, \`blue\`, \`green\`, \`purple\`, \`pink\`, \`orange\`, \`red\`, \`cyan\`, \`lime\`, \`gray\`, never a hex code or CSS color; leave it out and the editor picks one
+- \`autocollapse\`: \`true\` shows the group collapsed by default
+
+The editor refuses to draw a flow whose groups break any of these rules:
+
+- \`start_id\` and \`end_id\` are steps of the same list: both top-level, or both in the same loop body or branch. A group can hold a loop or branch step whole, but cannot start outside one and end inside it
+- \`start_id\` does not come after \`end_id\` in that list
+- groups nest (one entirely inside another) but never partly overlap, and no two groups share both \`start_id\` and \`end_id\`
+- groups hold ordinary steps only: never \`preprocessor\`, \`failure\`, \`Input\`, \`Result\`, \`Trigger\`, or an AI agent's tools
+
+\`value.notes\` lists sticky notes, each with a unique \`id\`, markdown \`text\`, a \`color\` from the same list, and \`type: free\`. The \`group\` note type is deprecated; use \`value.groups\` instead.
+Give each note a \`position\` (\`{ x, y }\`) and a \`size\` (\`{ width, height }\`): the editor draws a note without them at the origin and cannot resize it. \`x: -400\` with \`width: 275\` places it beside the graph.
+
 ## Final Structural Self-Check
 
 Before finalizing a flow, verify:
@@ -5594,6 +6093,8 @@ Before finalizing a flow, verify:
 - any approval step has module-level \`suspend\`
 - no downstream step references inner branch step ids from outside the branch
 - every AI agent flowmodule tool has a unique \`summary\` made only of letters, numbers and underscores
+- every group starts and ends on steps of the same list, start before end, nesting without partial overlap
+- \`wmill lint <flow folder>\` reports no error
 
 ## S3 Object Operations
 
@@ -5648,10 +6149,10 @@ Reference a specific resource using \`$res:\` prefix:
 }
 \`\`\`
 
-
 ## OpenFlow Schema
 
-{"OpenFlow":{"type":"object","description":"Top-level flow definition containing metadata, configuration, and the flow structure","properties":{"summary":{"type":"string","description":"Short description of what this flow does"},"description":{"type":"string","description":"Detailed documentation for this flow"},"value":{"$ref":"#/components/schemas/FlowValue"},"schema":{"type":"object","description":"JSON Schema for flow inputs. Use this to define input parameters, their types, defaults, and validation. For resource inputs, set type to 'object' and format to 'resource-<type>' (e.g., 'resource-stripe')"},"on_behalf_of_email":{"type":"string","description":"Address of the account the flow runs on behalf of. Derived from on_behalf_of on read; accepted on write, where it is resolved to the account it names."},"on_behalf_of":{"type":"string","description":"The flow runs with the permissions of this identity: u/{username}, g/{group}, or a bare email when the username is itself email-shaped. The only stored half of the identity; on_behalf_of_email is derived from it. Omit it when writing and it is resolved from that address instead."}},"required":["summary","value"]},"FlowValue":{"type":"object","description":"The flow structure containing modules and optional preprocessor/failure handlers","properties":{"modules":{"type":"array","description":"Array of steps that execute in sequence. Each step can be a script, subflow, loop, or branch","items":{"$ref":"#/components/schemas/FlowModule"}},"failure_module":{"description":"Special module that executes when the flow fails. Receives error object with message, name, stack, and step_id. Must have id 'failure'. Only supports script/rawscript types","$ref":"#/components/schemas/FlowModule"},"preprocessor_module":{"description":"Special module that runs before the first step on external triggers. Must have id 'preprocessor'. Only supports script/rawscript types. Cannot reference other step results","$ref":"#/components/schemas/FlowModule"},"same_worker":{"type":"boolean","description":"If true, all steps run on the same worker for better performance"},"preserve_step_tags":{"type":"boolean","description":"If true and the flow runs on a custom worker tag, steps that declare their own non-empty tag run on it instead of inheriting the flow tag. Steps without their own tag still inherit the flow tag."},"concurrent_limit":{"type":"number","description":"Maximum number of concurrent executions of this flow"},"concurrency_key":{"type":"string","description":"Expression to group concurrent executions (e.g., by user ID)"},"concurrency_time_window_s":{"type":"number","description":"Time window in seconds for concurrent_limit"},"debounce_delay_s":{"type":"integer","description":"Delay in seconds to debounce flow executions"},"debounce_key":{"type":"string","description":"Expression to group debounced executions"},"debounce_args_to_accumulate":{"type":"array","description":"Arguments to accumulate across debounced executions","items":{"type":"string"}},"max_total_debouncing_time":{"type":"integer","description":"Maximum total time in seconds that a job can be debounced"},"max_total_debounces_amount":{"type":"integer","description":"Maximum number of times a job can be debounced"},"skip_expr":{"type":"string","description":"JavaScript expression to conditionally skip the entire flow"},"cache_ttl":{"type":"number","description":"Cache duration in seconds for flow results"},"cache_ignore_s3_path":{"type":"boolean"},"delete_after_secs":{"type":"integer","description":"If set, delete the flow job's args, result and logs after this many seconds following job completion"},"flow_env":{"type":"object","description":"Environment variables available to all steps. Values can be strings, JSON values, or special references: '$var:path' (workspace variable) or '$res:path' (resource).","additionalProperties":{}},"priority":{"type":"number","description":"Execution priority (higher numbers run first)"},"early_return":{"type":"string","description":"JavaScript expression to return early from the flow"},"chat_input_enabled":{"type":"boolean","description":"Whether this flow accepts chat-style input"},"notes":{"type":"array","description":"Sticky notes attached to the flow","items":{"$ref":"#/components/schemas/FlowNote"}},"groups":{"type":"array","description":"Semantic groups of modules for organizational purposes","items":{"$ref":"#/components/schemas/FlowGroup"}}},"required":["modules"]},"Retry":{"type":"object","description":"Retry configuration for failed module executions","properties":{"constant":{"type":"object","description":"Retry with constant delay between attempts","properties":{"attempts":{"type":"integer","description":"Number of retry attempts"},"seconds":{"type":"integer","description":"Seconds to wait between retries"}}},"exponential":{"type":"object","description":"Retry with exponential backoff (delay doubles each time)","properties":{"attempts":{"type":"integer","description":"Number of retry attempts"},"multiplier":{"type":"integer","description":"Multiplier for exponential backoff"},"seconds":{"type":"integer","minimum":1,"description":"Initial delay in seconds"},"random_factor":{"type":"integer","minimum":0,"maximum":100,"description":"Random jitter percentage (0-100) to avoid thundering herd"}}},"retry_if":{"$ref":"#/components/schemas/RetryIf"}}},"FlowNote":{"type":"object","description":"A sticky note attached to a flow for documentation and annotation","properties":{"id":{"type":"string","description":"Unique identifier for the note"},"text":{"type":"string","description":"Content of the note"},"position":{"type":"object","description":"Position of the note in the flow editor","properties":{"x":{"type":"number","description":"X coordinate"},"y":{"type":"number","description":"Y coordinate"}},"required":["x","y"]},"size":{"type":"object","description":"Size of the note in the flow editor","properties":{"width":{"type":"number","description":"Width in pixels"},"height":{"type":"number","description":"Height in pixels"}},"required":["width","height"]},"color":{"type":"string","description":"Color of the note (e.g., \\"yellow\\", \\"#ffff00\\")"},"type":{"type":"string","enum":["free","group"],"description":"Type of note - 'free' for standalone notes, 'group' for notes that group other nodes"},"locked":{"type":"boolean","default":false,"description":"Whether the note is locked and cannot be edited or moved"},"contained_node_ids":{"type":"array","items":{"type":"string"},"description":"For group notes, the IDs of nodes contained within this group"}},"required":["id","text","color","type"]},"FlowGroup":{"type":"object","description":"A semantic group of flow modules for organizational purposes. Does not affect execution \\u2014 modules remain in their original position in the flow. Groups provide naming and collapsibility in the editor. Members are computed dynamically from all nodes on paths between start_id and end_id.","properties":{"summary":{"type":"string","description":"Display name for this group"},"note":{"type":"string","description":"Markdown note shown below the group header"},"autocollapse":{"type":"boolean","default":false,"description":"If true, this group is collapsed by default in the flow editor. UI hint only."},"start_id":{"type":"string","description":"ID of the first flow module in this group (topological entry point)"},"end_id":{"type":"string","description":"ID of the last flow module in this group (topological exit point)"},"color":{"type":"string","description":"Color for the group in the flow editor"}},"required":["start_id","end_id"]},"RetryIf":{"type":"object","description":"Conditional retry based on error or result","properties":{"expr":{"type":"string","description":"JavaScript expression that returns true to retry. Has access to 'result' and 'error' variables"}},"required":["expr"]},"StopAfterIf":{"type":"object","description":"Early termination condition for a module","properties":{"skip_if_stopped":{"type":"boolean","description":"If true, following steps are skipped when this condition triggers"},"expr":{"type":"string","description":"JavaScript expression evaluated after the module runs. Can use 'result' (step's result) or 'flow_input'. Return true to stop"},"error_message":{"type":"string","nullable":true,"description":"Custom error message when stopping with an error. Mutually exclusive with skip_if_stopped. If set to a non-empty string, the flow stops with this error. If empty string, a default error message is used. If null or omitted, no error is raised."},"error_include_result":{"type":"boolean","description":"When stopping with an error (error_message set), embed the stopping step's own result inside the raised error object (as error.result) instead of discarding it. The top-level result stays { error }. Defaults to false."}},"required":["expr"]},"FlowModule":{"type":"object","description":"A single step in a flow. Can be a script, subflow, loop, or branch","properties":{"id":{"type":"string","description":"Unique identifier for this step. Used to reference results via 'results.step_id'. Must be a valid identifier (alphanumeric, underscore, hyphen)"},"value":{"$ref":"#/components/schemas/FlowModuleValue"},"stop_after_if":{"description":"Early termination condition evaluated after this step completes","$ref":"#/components/schemas/StopAfterIf"},"stop_after_all_iters_if":{"description":"For loops only - early termination condition evaluated after all iterations complete","$ref":"#/components/schemas/StopAfterIf"},"skip_if":{"type":"object","description":"Conditionally skip this step based on previous results or flow inputs","properties":{"expr":{"type":"string","description":"JavaScript expression that returns true to skip. Can use 'flow_input' or 'results.<step_id>'"}},"required":["expr"]},"sleep":{"description":"Delay before executing this step (in seconds or as expression)","$ref":"#/components/schemas/InputTransform"},"cache_ttl":{"type":"number","description":"Cache duration in seconds for this step's results"},"cache_ignore_s3_path":{"type":"boolean"},"timeout":{"description":"Maximum execution time in seconds (static value or expression)","$ref":"#/components/schemas/InputTransform"},"delete_after_secs":{"type":"integer","description":"If set, delete the step's args, result and logs after this many seconds following job completion"},"summary":{"type":"string","description":"Short description of what this step does"},"mock":{"type":"object","description":"Mock configuration for testing without executing the actual step","properties":{"enabled":{"type":"boolean","description":"If true, return mock value instead of executing"},"return_value":{"description":"Value to return when mocked"}}},"suspend":{"type":"object","description":"Configuration for approval/resume steps that wait for user input","properties":{"required_events":{"type":"integer","description":"Number of approvals required before continuing"},"timeout":{"type":"integer","description":"Timeout in seconds before auto-continuing or canceling"},"resume_form":{"type":"object","description":"Form schema for collecting input when resuming","properties":{"schema":{"type":"object","description":"JSON Schema for the resume form"}}},"user_auth_required":{"type":"boolean","description":"If true, only authenticated users can approve"},"user_groups_required":{"description":"Expression or list of groups that can approve","$ref":"#/components/schemas/InputTransform"},"self_approval_disabled":{"type":"boolean","description":"If true, the user who started the flow cannot approve"},"hide_cancel":{"type":"boolean","description":"If true, hide the cancel button on the approval form"},"continue_on_disapprove_timeout":{"type":"boolean","description":"If true, continue flow on timeout instead of canceling"},"skin":{"type":"string","enum":["detailed","minimal"],"description":"How the approval request is presented, on the approval page and in Slack/Teams approval messages. 'detailed' (used when unset) shows the flow details (arguments, graph, approvers); 'minimal' shows only the request: the step description, form and approve/reject actions"}}},"priority":{"type":"number","description":"Execution priority for this step (higher numbers run first)"},"continue_on_error":{"type":"boolean","description":"If true, flow continues even if this step fails"},"retry":{"description":"Retry configuration if this step fails","$ref":"#/components/schemas/Retry"},"debouncing":{"description":"Debounce configuration for this step (EE only)","type":"object","properties":{"debounce_delay_s":{"type":"integer","description":"Delay in seconds to debounce this step's executions across flow runs"},"debounce_key":{"type":"string","description":"Expression to group debounced executions. Supports $workspace and $args[name]. Default: $workspace/flow/<flow_path>-<step_id>"},"debounce_args_to_accumulate":{"type":"array","description":"Array-type arguments to accumulate across debounced executions","items":{"type":"string"}},"max_total_debouncing_time":{"type":"integer","description":"Maximum total time in seconds before forced execution"},"max_total_debounces_amount":{"type":"integer","description":"Maximum number of debounces before forced execution"}}}},"required":["value","id"]},"InputTransform":{"description":"Maps input parameters for a step. Can be a static value or a JavaScript expression that references previous results or flow inputs","oneOf":[{"$ref":"#/components/schemas/StaticTransform"},{"$ref":"#/components/schemas/JavascriptTransform"},{"$ref":"#/components/schemas/AiTransform"}],"discriminator":{"propertyName":"type","mapping":{"static":"#/components/schemas/StaticTransform","javascript":"#/components/schemas/JavascriptTransform","ai":"#/components/schemas/AiTransform"}}},"StaticTransform":{"type":"object","description":"Static value passed directly to the step. Use for hardcoded values or resource references like '$res:path/to/resource'","properties":{"value":{"description":"The static value. For resources, use format '$res:path/to/resource'"},"type":{"type":"string","enum":["static"]}},"required":["type"]},"JavascriptTransform":{"type":"object","description":"JavaScript expression evaluated at runtime. Can reference previous step results via 'results.step_id' or flow inputs via 'flow_input.property'. Inside for loops, use 'flow_input.iter.value' for the current iteration value (in while loops it equals 'flow_input.iter.index')","properties":{"expr":{"type":"string","description":"JavaScript expression returning the value. Available variables - results (object with all previous step results), flow_input (flow inputs), flow_input.iter (in loops)"},"type":{"type":"string","enum":["javascript"]}},"required":["expr","type"]},"AiTransform":{"type":"object","description":"Value resolved by the AI runtime for this input. The AI engine decides how to satisfy the parameter.","properties":{"type":{"type":"string","enum":["ai"]}},"required":["type"]},"AIProviderKind":{"type":"string","description":"Supported AI provider types","enum":["openai","azure_openai","azure_foundry","anthropic","mistral","deepseek","googleai","groq","openrouter","togetherai","customai","aws_bedrock"]},"ProviderConfig":{"type":"object","description":"Complete AI provider configuration with resource reference and model selection","properties":{"kind":{"$ref":"#/components/schemas/AIProviderKind"},"resource":{"type":"string","description":"Resource reference in format '$res:{resource_path}' pointing to provider credentials"},"model":{"type":"string","description":"Model identifier (e.g., 'gpt-4', 'claude-3-opus-20240229', 'gemini-pro')"},"reasoning_effort":{"type":"string","description":"Provider-native reasoning effort token (e.g. 'low', 'high', 'none') for models that support extended thinking. Optional; unset leaves the provider default."}},"required":["kind","resource","model"]},"StaticProviderTransform":{"type":"object","description":"Static provider configuration passed directly to the AI agent","properties":{"value":{"$ref":"#/components/schemas/ProviderConfig"},"type":{"type":"string","enum":["static"]}},"required":["type","value"]},"ProviderTransform":{"description":"Provider configuration - can be static (ProviderConfig), JavaScript expression, or AI-determined","oneOf":[{"$ref":"#/components/schemas/StaticProviderTransform"},{"$ref":"#/components/schemas/JavascriptTransform"},{"$ref":"#/components/schemas/AiTransform"}],"discriminator":{"propertyName":"type","mapping":{"static":"#/components/schemas/StaticProviderTransform","javascript":"#/components/schemas/JavascriptTransform","ai":"#/components/schemas/AiTransform"}}},"MemoryOff":{"type":"object","description":"No conversation memory/context","properties":{"kind":{"type":"string","enum":["off"]}},"required":["kind"]},"MemoryWindow":{"type":"object","description":"Keeps the most recent messages of the memory named by the run's memory id (or the step's\\n\`memory_id\`). Without a memory id the agent runs without memory.\\n","properties":{"kind":{"type":"string","enum":["window"]},"context_length":{"type":"integer","description":"Number of most recent messages to load and store. 0 turns memory off."}},"required":["kind","context_length"]},"MemoryAuto":{"type":"object","deprecated":true,"description":"Deprecated, still read as it was written: the run's memory id, else the \`memory_id\` here.\\nThe step's own \`memory_id\` is not read while this kind is set; switch the kind to \`window\`\\nto use it. Without a \`context_length\`, or with 0, it is \`off\` and reads \`previous_messages\`.\\n","properties":{"kind":{"type":"string","enum":["auto"]},"context_length":{"type":"integer","description":"Maximum number of messages to retain in context"},"memory_id":{"type":"string","description":"Identifier for persistent memory across agent invocations"}},"required":["kind"]},"MemoryMessage":{"type":"object","description":"A single message in conversation history","properties":{"role":{"type":"string","enum":["user","assistant","system"]},"content":{"type":"string"}},"required":["role","content"]},"MemoryManual":{"type":"object","deprecated":true,"description":"Deprecated, still read as it was written. Move the step to \`off\` with \`previous_messages\` instead.","properties":{"kind":{"type":"string","enum":["manual"]},"messages":{"type":"array","items":{"$ref":"#/components/schemas/MemoryMessage"}}},"required":["kind","messages"]},"MemoryConfig":{"description":"Managed memory, stored by Windmill and replayed with each request. The memory is named by a memory id, see \`memory_id\`. While it is off, a step can supply its history in \`previous_messages\`.","oneOf":[{"$ref":"#/components/schemas/MemoryOff"},{"$ref":"#/components/schemas/MemoryWindow"},{"$ref":"#/components/schemas/MemoryAuto"},{"$ref":"#/components/schemas/MemoryManual"}],"discriminator":{"propertyName":"kind","mapping":{"off":"#/components/schemas/MemoryOff","window":"#/components/schemas/MemoryWindow","auto":"#/components/schemas/MemoryAuto","manual":"#/components/schemas/MemoryManual"}}},"StaticMemoryTransform":{"type":"object","description":"Static memory configuration passed directly to the AI agent","properties":{"value":{"$ref":"#/components/schemas/MemoryConfig"},"type":{"type":"string","enum":["static"]}},"required":["type","value"]},"MemoryTransform":{"description":"Memory configuration - can be static (MemoryConfig), JavaScript expression, or AI-determined","oneOf":[{"$ref":"#/components/schemas/StaticMemoryTransform"},{"$ref":"#/components/schemas/JavascriptTransform"},{"$ref":"#/components/schemas/AiTransform"}],"discriminator":{"propertyName":"type","mapping":{"static":"#/components/schemas/StaticMemoryTransform","javascript":"#/components/schemas/JavascriptTransform","ai":"#/components/schemas/AiTransform"}}},"FlowModuleValue":{"description":"The actual implementation of a flow step. Can be a script (inline or referenced), subflow, loop, branch, or special module type","oneOf":[{"$ref":"#/components/schemas/RawScript"},{"$ref":"#/components/schemas/PathScript"},{"$ref":"#/components/schemas/PathFlow"},{"$ref":"#/components/schemas/ForloopFlow"},{"$ref":"#/components/schemas/WhileloopFlow"},{"$ref":"#/components/schemas/BranchOne"},{"$ref":"#/components/schemas/BranchAll"},{"$ref":"#/components/schemas/Identity"},{"$ref":"#/components/schemas/AiAgent"}],"discriminator":{"propertyName":"type","mapping":{"rawscript":"#/components/schemas/RawScript","script":"#/components/schemas/PathScript","flow":"#/components/schemas/PathFlow","forloopflow":"#/components/schemas/ForloopFlow","whileloopflow":"#/components/schemas/WhileloopFlow","branchone":"#/components/schemas/BranchOne","branchall":"#/components/schemas/BranchAll","identity":"#/components/schemas/Identity","aiagent":"#/components/schemas/AiAgent"}}},"RawScript":{"type":"object","description":"Inline script with code defined directly in the flow. Use 'bun' as default language if unspecified. The script receives arguments from input_transforms","properties":{"input_transforms":{"type":"object","description":"Map of parameter names to their values (static or JavaScript expressions). These become the script's input arguments","additionalProperties":{"$ref":"#/components/schemas/InputTransform"}},"content":{"type":"string","description":"The script source code. Should export a 'main' function"},"language":{"type":"string","description":"Programming language for this script","enum":["deno","bun","bunnative","python3","go","bash","powershell","postgresql","mysql","bigquery","snowflake","mssql","oracledb","graphql","nativets","php","rust","ansible","csharp","nu","java","ruby","rlang","duckdb"]},"path":{"type":"string","description":"Optional path for saving this script"},"lock":{"type":"string","description":"Lock file content for dependencies"},"type":{"type":"string","enum":["rawscript"]},"tag":{"type":"string","description":"Worker group tag for execution routing"},"concurrent_limit":{"type":"number","description":"Maximum concurrent executions of this script"},"concurrency_time_window_s":{"type":"number","description":"Time window for concurrent_limit"},"custom_concurrency_key":{"type":"string","description":"Custom key for grouping concurrent executions"},"is_trigger":{"type":"boolean","description":"If true, this script is a trigger that can start the flow"},"assets":{"type":"array","description":"External resources this script accesses (S3 objects, resources, etc.)","items":{"type":"object","required":["path","kind"],"properties":{"path":{"type":"string","description":"Path to the asset"},"kind":{"type":"string","description":"Type of asset","enum":["s3object","resource","ducklake","datatable","volume","dbt"]},"access_type":{"type":"string","nullable":true,"description":"Access level for this asset","enum":["r","w","rw"]},"alt_access_type":{"type":"string","nullable":true,"description":"Alternative access level","enum":["r","w","rw"]}}}}},"required":["type","content","language","input_transforms"]},"PathScript":{"type":"object","description":"Reference to an existing script by path. Use this when calling a previously saved script instead of writing inline code","properties":{"input_transforms":{"type":"object","description":"Map of parameter names to their values (static or JavaScript expressions). These become the script's input arguments","additionalProperties":{"$ref":"#/components/schemas/InputTransform"}},"path":{"type":"string","description":"Path to the script in the workspace (e.g., 'f/scripts/send_email')"},"hash":{"type":"string","description":"Optional specific version hash of the script to use"},"type":{"type":"string","enum":["script"]},"tag_override":{"type":"string","description":"Override the script's default worker group tag"},"is_trigger":{"type":"boolean","description":"If true, this script is a trigger that can start the flow"}},"required":["type","path","input_transforms"]},"PathFlow":{"type":"object","description":"Reference to an existing flow by path. Use this to call another flow as a subflow","properties":{"input_transforms":{"type":"object","description":"Map of parameter names to their values (static or JavaScript expressions). These become the subflow's input arguments","additionalProperties":{"$ref":"#/components/schemas/InputTransform"}},"path":{"type":"string","description":"Path to the flow in the workspace (e.g., 'f/flows/process_user')"},"type":{"type":"string","enum":["flow"]}},"required":["type","path","input_transforms"]},"ForloopFlow":{"type":"object","description":"Executes nested modules in a loop over an iterator. Inside the loop, use 'flow_input.iter.value' to access the current iteration value, and 'flow_input.iter.index' for the index. Supports parallel execution for better performance on I/O-bound operations","properties":{"modules":{"type":"array","description":"Steps to execute for each iteration. These can reference the iteration value via 'flow_input.iter.value'","items":{"$ref":"#/components/schemas/FlowModule"}},"iterator":{"description":"JavaScript expression that returns an array to iterate over. Can reference 'results.step_id' or 'flow_input'","$ref":"#/components/schemas/InputTransform"},"skip_failures":{"type":"boolean","description":"If true, iteration failures don't stop the loop. Failed iterations return null"},"type":{"type":"string","enum":["forloopflow"]},"parallel":{"type":"boolean","description":"If true, iterations run concurrently (faster for I/O-bound operations). Use with parallelism to control concurrency"},"parallelism":{"description":"Maximum number of concurrent iterations when parallel=true. Limits resource usage. Can be static number or expression","$ref":"#/components/schemas/InputTransform"},"squash":{"type":"boolean"}},"required":["modules","iterator","skip_failures","type"]},"WhileloopFlow":{"type":"object","description":"Executes nested modules repeatedly until stopped. The implicit iterator is the iteration counter, so 'flow_input.iter.value' equals 'flow_input.iter.index' (0, 1, 2, ...) and never carries state. To carry state across iterations, a step reads its own previous-iteration result via 'results.<its_own_id>' with a first-iteration fallback - the loop's stop_after_if must then be on that inner step (a plain single-step body with stop_after_if on the loop module does not resolve 'results' across iterations and never terminates); plain counters can instead be derived from 'flow_input.iter.index', which works in every configuration. stop_after_if is evaluated after each iteration - on the loop module 'result' is the last iteration's result","properties":{"modules":{"type":"array","description":"Steps to execute in each iteration","items":{"$ref":"#/components/schemas/FlowModule"}},"skip_failures":{"type":"boolean","description":"If true, iteration failures don't stop the loop. Failed iterations return null"},"type":{"type":"string","enum":["whileloopflow"]},"parallel":{"type":"boolean","description":"If true, iterations run concurrently (use with caution in while loops)"},"parallelism":{"description":"Maximum number of concurrent iterations when parallel=true","$ref":"#/components/schemas/InputTransform"},"squash":{"type":"boolean"}},"required":["modules","skip_failures","type"]},"BranchOne":{"type":"object","description":"Conditional branching where only the first matching branch executes. Branches are evaluated in order, and the first one with a true expression runs. If no branches match, the default branch executes","properties":{"branches":{"type":"array","description":"Array of branches to evaluate in order. The first branch with expr evaluating to true executes","items":{"type":"object","properties":{"summary":{"type":"string","description":"Short description of this branch condition"},"expr":{"type":"string","description":"JavaScript expression that returns boolean. Can use 'results.step_id' or 'flow_input'. First true expr wins"},"modules":{"type":"array","description":"Steps to execute if this branch's expr is true","items":{"$ref":"#/components/schemas/FlowModule"}}},"required":["modules","expr"]}},"default":{"type":"array","description":"Steps to execute if no branch expressions match","items":{"$ref":"#/components/schemas/FlowModule"}},"type":{"type":"string","enum":["branchone"]}},"required":["branches","default","type"]},"BranchAll":{"type":"object","description":"Parallel branching where all branches execute simultaneously. Unlike BranchOne, all branches run regardless of conditions. Useful for executing independent tasks concurrently","properties":{"branches":{"type":"array","description":"Array of branches that all execute (either in parallel or sequentially)","items":{"type":"object","properties":{"summary":{"type":"string","description":"Short description of this branch's purpose"},"skip_failure":{"type":"boolean","description":"If true, failure in this branch doesn't fail the entire flow"},"modules":{"type":"array","description":"Steps to execute in this branch","items":{"$ref":"#/components/schemas/FlowModule"}}},"required":["modules"]}},"type":{"type":"string","enum":["branchall"]},"parallel":{"type":"boolean","description":"If true, all branches execute concurrently. If false, they execute sequentially"}},"required":["branches","type"]},"AgentTool":{"type":"object","description":"A tool available to an AI agent. Can be a flow module or an external MCP (Model Context Protocol) tool","properties":{"id":{"type":"string","description":"Unique identifier for this tool. Cannot contain spaces - use underscores instead (e.g., 'get_user_data' not 'get user data')"},"summary":{"type":"string","description":"The name the AI agent calls this tool by, not a human label. On a flowmodule tool it must match ^[a-zA-Z0-9_]+$ - letters, numbers and underscores only (e.g. 'search_documentation', not 'Search documentation') - and always be set; on an mcp or websearch tool it is a plain label. Put the human-readable explanation in 'description'."},"description":{"type":"string","description":"Free-text description of the tool given to the AI to decide when and how to call it. Overrides the description auto-derived from the underlying script."},"value":{"$ref":"#/components/schemas/ToolValue"}},"required":["id","value"]},"ToolValue":{"description":"The implementation of a tool. Can be a flow module (script/flow) or an MCP tool reference","oneOf":[{"$ref":"#/components/schemas/FlowModuleTool"},{"$ref":"#/components/schemas/McpToolValue"},{"$ref":"#/components/schemas/WebsearchToolValue"}],"discriminator":{"propertyName":"tool_type","mapping":{"flowmodule":"#/components/schemas/FlowModuleTool","mcp":"#/components/schemas/McpToolValue","websearch":"#/components/schemas/WebsearchToolValue"}}},"FlowModuleTool":{"description":"A tool implemented as a flow module (script, flow, etc.). The AI can call this like any other flow module","allOf":[{"type":"object","properties":{"tool_type":{"type":"string","enum":["flowmodule"]}},"required":["tool_type"]},{"$ref":"#/components/schemas/FlowModuleValue"}]},"WebsearchToolValue":{"type":"object","description":"A tool implemented as a websearch tool. The AI can call this like any other websearch tool","properties":{"tool_type":{"type":"string","enum":["websearch"]}},"required":["tool_type"]},"McpToolValue":{"type":"object","description":"Reference to an external MCP (Model Context Protocol) tool. The AI can call tools from MCP servers","properties":{"tool_type":{"type":"string","enum":["mcp"]},"resource_path":{"type":"string","description":"Path to the MCP resource/server configuration"},"include_tools":{"type":"array","description":"Whitelist of specific tools to include from this MCP server","items":{"type":"string"}},"exclude_tools":{"type":"array","description":"Blacklist of tools to exclude from this MCP server","items":{"type":"string"}}},"required":["tool_type","resource_path"]},"AiAgent":{"type":"object","description":"AI agent step that can use tools to accomplish tasks. The agent receives inputs and can call any of its configured tools to complete the task","properties":{"input_transforms":{"type":"object","description":"Input parameters for the AI agent mapped to their values","properties":{"provider":{"$ref":"#/components/schemas/ProviderTransform"},"output_type":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"Output format type.\\nValid values: 'text' (default) - plain text response, 'image' - image generation\\n"},"user_message":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"The user's prompt/message to the AI agent. Supports variable interpolation with\\nflow.input syntax. Required unless memory is off and \`previous_messages\` supplies\\nthe prompt; image output always needs it.\\n"},"system_prompt":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"System instructions that guide the AI's behavior, persona, and response style. Optional."},"streaming":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"Boolean. If true, stream the AI response incrementally.\\nStreaming events include: token_delta, reasoning_token_delta, tool_call, tool_call_arguments, tool_execution, tool_result\\n"},"memory":{"$ref":"#/components/schemas/MemoryTransform"},"memory_id":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"String. Names the memory this step reads and writes, overriding the memory id the run\\nwas started with (the chat conversation, an app chat session or the \`memory_id\` run\\nparameter). Leave unset to use the run's memory id. A fixed value shares one memory\\nacross every run; an expression such as \`flow_input.customer_id\` keeps one memory per\\nkey. When it evaluates to an empty value the agent runs without memory. Read only\\nwhile \`memory\` is \`window\`: it is ignored when memory is off, and an older \`auto\` or\\n\`manual\` memory reads neither history input.\\n"},"previous_messages":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"Array of MemoryMessage. History supplied by the flow, sent between the system prompt\\nand the user message. Read only while \`memory\` is off or absent: managed memory\\nignores it, and an older \`auto\` or \`manual\` memory reads neither history input.\\n"},"output_schema":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"JSON Schema object defining structured output format. Used when you need the AI to return data in a specific shape.\\nSupports standard JSON Schema properties: type, properties, required, items, enum, pattern, minLength, maxLength, minimum, maximum, etc.\\nExample: { type: 'object', properties: { name: { type: 'string' }, age: { type: 'integer' } }, required: ['name'] }\\n"},"user_attachments":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"Array of file references (images or PDFs) for the AI agent.\\nFormat: Array<{ bucket: string, key: string }> - S3 object references\\nExample: [{ bucket: 'my-bucket', key: 'documents/report.pdf' }]\\n"},"enabled_tools":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"Array of strings naming which of the tools configured in \`tools\` the agent may call\\nthis run. Leaving it unset carries every one of them; an empty array carries none.\\nA tool is named as the model is shown it. An entry the model is shown nothing of is\\nnamed by what identifies it instead: an MCP server by its resource path, carrying\\nevery tool it exposes (which of them stays that entry's include_tools/exclude_tools),\\nand a websearch entry by the reserved name '__wm_web_search', whatever summary it carries\\n(no tool may take that name).\\nExample: ['get_user', 'u/admin/github_mcp', '__wm_web_search']\\n"},"max_completion_tokens":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"Integer. Maximum number of tokens the AI will generate in its response.\\nRange: 1 to 4,294,967,295. Typical values: 256-4096 for most use cases.\\n"},"temperature":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"Float. Controls randomness/creativity of responses.\\nRange: 0.0 to 2.0 (provider-dependent)\\n- 0.0 = deterministic, focused responses\\n- 0.7 = balanced (common default)\\n- 1.0+ = more creative/random\\n"},"max_iterations":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"Number. Limits how many times the agent can loop through reasoning and tool use.\\nRange: 1-1000.\\n"}}},"tools":{"type":"array","description":"Array of tools the agent can use. The agent decides which tools to call based on the task","items":{"$ref":"#/components/schemas/AgentTool"}},"type":{"type":"string","enum":["aiagent"]},"tag":{"type":"string","description":"Worker group tag for execution routing. If not set, the AI agent step runs on the flow's tag (default \`flow\`)"},"omit_output_from_conversation":{"type":"boolean","default":false,"description":"If true, this AI agent step does not persist its assistant or tool messages to the flow conversation when chat mode is enabled."},"agent":{"type":"string","description":"Path of a reusable \`ai_agent\` resource (hybrid linking). When set, the agent brain\\nconfig (provider/model/system prompt/etc.) and tool set are resolved at runtime from\\nthat resource; the module's input_transforms then only carry the flow-local inputs\\n(user_message, user_attachments, enabled_tools and the history inputs memory_id and previous_messages).\\n"},"tool_inputs":{"type":"object","description":"Host-local wiring for an agent's tool inputs, keyed by tool id then input key. Binds the\\nreferenced agent's tools to this flow's context (flow_input/results) without mutating the\\nshared resource; overlaid onto the tools' input_transforms at runtime \\u2014 including when\\n\`agent\` is unset, since a step forked for editing keeps these overrides until it is saved\\nback or unlinked.\\n","additionalProperties":{"type":"object","additionalProperties":{"$ref":"#/components/schemas/InputTransform"}}},"parallel":{"type":"boolean","description":"If true, the agent can execute multiple tool calls in parallel"}},"required":["type","input_transforms"]},"Identity":{"type":"object","description":"Pass-through module that returns its input unchanged. Useful for flow structure or as a placeholder","properties":{"type":{"type":"string","enum":["identity"]},"flow":{"type":"boolean","description":"If true, marks this as a flow identity (special handling)"}},"required":["type"]},"FlowStatus":{"type":"object","properties":{"step":{"type":"integer"},"modules":{"type":"array","items":{"$ref":"#/components/schemas/FlowStatusModule"}},"user_states":{"additionalProperties":true},"preprocessor_module":{"allOf":[{"$ref":"#/components/schemas/FlowStatusModule"}]},"failure_module":{"allOf":[{"$ref":"#/components/schemas/FlowStatusModule"},{"type":"object","properties":{"parent_module":{"type":"string"}}}]},"retry":{"type":"object","properties":{"fail_count":{"type":"integer"},"failed_jobs":{"type":"array","items":{"type":"string","format":"uuid"}}}}},"required":["step","modules","failure_module"]},"FlowStatusModule":{"type":"object","properties":{"type":{"type":"string","enum":["WaitingForPriorSteps","WaitingForEvents","WaitingForExecutor","InProgress","Success","Failure"]},"id":{"type":"string"},"job":{"type":"string","format":"uuid"},"count":{"type":"integer"},"progress":{"type":"integer"},"iterator":{"type":"object","properties":{"index":{"type":"integer"},"itered":{"type":"array","items":{}},"itered_len":{"type":"integer"},"args":{}}},"flow_jobs":{"type":"array","items":{"type":"string"}},"flow_jobs_success":{"type":"array","items":{"type":"boolean"}},"flow_jobs_duration":{"type":"object","properties":{"started_at":{"type":"array","items":{"type":"string"}},"duration_ms":{"type":"array","items":{"type":"integer"}}}},"branch_chosen":{"type":"object","properties":{"type":{"type":"string","enum":["branch","default"]},"branch":{"type":"integer"}},"required":["type"]},"branchall":{"type":"object","properties":{"branch":{"type":"integer"},"len":{"type":"integer"}},"required":["branch","len"]},"approvers":{"type":"array","items":{"type":"object","properties":{"resume_id":{"type":"integer"},"approver":{"type":"string"}},"required":["resume_id","approver"]}},"failed_retries":{"type":"array","items":{"type":"string","format":"uuid"}},"skipped":{"type":"boolean"},"agent_actions":{"type":"array","items":{"type":"object","oneOf":[{"type":"object","properties":{"job_id":{"type":"string","format":"uuid"},"function_name":{"type":"string"},"type":{"type":"string","enum":["tool_call"]},"module_id":{"type":"string"}},"required":["job_id","function_name","type","module_id"]},{"type":"object","properties":{"call_id":{"type":"string","format":"uuid"},"function_name":{"type":"string"},"resource_path":{"type":"string"},"type":{"type":"string","enum":["mcp_tool_call"]},"arguments":{"type":"object"}},"required":["call_id","function_name","resource_path","type"]},{"type":"object","properties":{"type":{"type":"string","enum":["web_search"]}},"required":["type"]},{"type":"object","properties":{"type":{"type":"string","enum":["message"]}},"required":["content","type"]}]}},"agent_actions_success":{"type":"array","items":{"type":"boolean"}}},"required":["type"]}}`,
+{"OpenFlow":{"type":"object","description":"Top-level flow definition containing metadata, configuration, and the flow structure","properties":{"summary":{"type":"string","description":"Short description of what this flow does"},"description":{"type":"string","description":"Detailed documentation for this flow"},"value":{"$ref":"#/components/schemas/FlowValue"},"schema":{"type":"object","description":"JSON Schema for flow inputs. Use this to define input parameters, their types, defaults, and validation. For resource inputs, set type to 'object' and format to 'resource-<type>' (e.g., 'resource-stripe')"},"on_behalf_of_email":{"type":"string","description":"Address of the account the flow runs on behalf of. Derived from on_behalf_of on read; accepted on write, where it is resolved to the account it names."},"on_behalf_of":{"type":"string","description":"The flow runs with the permissions of this identity: u/{username}, g/{group}, or a bare email when the username is itself email-shaped. The only stored half of the identity; on_behalf_of_email is derived from it. Omit it when writing and it is resolved from that address instead."}},"required":["summary","value"]},"FlowValue":{"type":"object","description":"The flow structure containing modules and optional preprocessor/failure handlers","properties":{"modules":{"type":"array","description":"Array of steps that execute in sequence. Each step can be a script, subflow, loop, or branch","items":{"$ref":"#/components/schemas/FlowModule"}},"failure_module":{"description":"Special module that executes when the flow fails. Receives error object with message, name, stack, and step_id. Must have id 'failure'. Only supports script/rawscript types","$ref":"#/components/schemas/FlowModule"},"preprocessor_module":{"description":"Special module that runs before the first step on external triggers. Must have id 'preprocessor'. Only supports script/rawscript types. Cannot reference other step results","$ref":"#/components/schemas/FlowModule"},"same_worker":{"type":"boolean","description":"If true, all steps run on the same worker for better performance"},"preserve_step_tags":{"type":"boolean","description":"If true and the flow runs on a custom worker tag, steps that declare their own non-empty tag run on it instead of inheriting the flow tag. Steps without their own tag still inherit the flow tag."},"concurrent_limit":{"type":"number","description":"Maximum number of concurrent executions of this flow"},"concurrency_key":{"type":"string","description":"Expression to group concurrent executions (e.g., by user ID)"},"concurrency_time_window_s":{"type":"number","description":"Time window in seconds for concurrent_limit"},"debounce_delay_s":{"type":"integer","description":"Delay in seconds to debounce flow executions"},"debounce_key":{"type":"string","description":"Expression to group debounced executions"},"debounce_args_to_accumulate":{"type":"array","description":"Arguments to accumulate across debounced executions","items":{"type":"string"}},"max_total_debouncing_time":{"type":"integer","description":"Maximum total time in seconds that a job can be debounced"},"max_total_debounces_amount":{"type":"integer","description":"Maximum number of times a job can be debounced"},"skip_expr":{"type":"string","description":"JavaScript expression to conditionally skip the entire flow"},"cache_ttl":{"type":"number","description":"Cache duration in seconds for flow results"},"cache_ignore_s3_path":{"type":"boolean"},"delete_after_secs":{"type":"integer","description":"If set, delete the flow job's args, result and logs after this many seconds following job completion"},"flow_env":{"type":"object","description":"Environment variables available to all steps. Values can be strings, JSON values, or special references: '$var:path' (workspace variable) or '$res:path' (resource).","additionalProperties":{}},"priority":{"type":"number","description":"Execution priority (higher numbers run first)"},"early_return":{"type":"string","description":"JavaScript expression to return early from the flow"},"chat_input_enabled":{"type":"boolean","description":"Whether this flow accepts chat-style input"},"notes":{"type":"array","description":"Sticky notes attached to the flow","items":{"$ref":"#/components/schemas/FlowNote"}},"groups":{"type":"array","description":"Semantic groups of modules for organizational purposes","items":{"$ref":"#/components/schemas/FlowGroup"}}},"required":["modules"]},"Retry":{"type":"object","description":"Retry configuration for failed module executions","properties":{"constant":{"type":"object","description":"Retry with constant delay between attempts","properties":{"attempts":{"type":"integer","description":"Number of retry attempts"},"seconds":{"type":"integer","description":"Seconds to wait between retries"}}},"exponential":{"type":"object","description":"Retry with exponential backoff (delay doubles each time)","properties":{"attempts":{"type":"integer","description":"Number of retry attempts"},"multiplier":{"type":"integer","description":"Multiplier for exponential backoff"},"seconds":{"type":"integer","minimum":1,"description":"Initial delay in seconds"},"random_factor":{"type":"integer","minimum":0,"maximum":100,"description":"Random jitter percentage (0-100) to avoid thundering herd"}}},"retry_if":{"$ref":"#/components/schemas/RetryIf"}}},"FlowNote":{"type":"object","description":"A sticky note attached to a flow for documentation and annotation","properties":{"id":{"type":"string","description":"Unique identifier for the note"},"text":{"type":"string","description":"Content of the note"},"position":{"type":"object","description":"Position of the note in the flow editor","properties":{"x":{"type":"number","description":"X coordinate"},"y":{"type":"number","description":"Y coordinate"}},"required":["x","y"]},"size":{"type":"object","description":"Size of the note in the flow editor","properties":{"width":{"type":"number","description":"Width in pixels"},"height":{"type":"number","description":"Height in pixels"}},"required":["width","height"]},"color":{"type":"string","description":"Color of the note, one of: yellow, blue, green, purple, pink, orange, red, cyan, lime, gray. Any other value renders unstyled."},"type":{"type":"string","enum":["free","group"],"description":"Type of note - 'free' for standalone notes. 'group' notes are deprecated; segment a flow with FlowValue.groups instead."},"locked":{"type":"boolean","default":false,"description":"Whether the note is locked and cannot be edited or moved"},"contained_node_ids":{"type":"array","items":{"type":"string"},"description":"For group notes, the IDs of nodes contained within this group"}},"required":["id","text","color","type"]},"FlowGroup":{"type":"object","description":"A semantic group of flow modules for organizational purposes. Does not affect execution \\u2014 modules remain in their original position in the flow. Groups provide naming and collapsibility in the editor. Members are computed dynamically from all nodes on paths between start_id and end_id.","properties":{"summary":{"type":"string","description":"Display name for this group"},"note":{"type":"string","description":"Markdown note shown below the group header"},"autocollapse":{"type":"boolean","default":false,"description":"If true, this group is collapsed by default in the flow editor. UI hint only."},"start_id":{"type":"string","description":"ID of the first flow module in this group (topological entry point)"},"end_id":{"type":"string","description":"ID of the last flow module in this group (topological exit point)"},"color":{"type":"string","description":"Color for the group in the flow editor, one of: yellow, blue, green, purple, pink, orange, red, cyan, lime, gray. Omit it to let the editor pick one."}},"required":["start_id","end_id"]},"RetryIf":{"type":"object","description":"Conditional retry based on error or result","properties":{"expr":{"type":"string","description":"JavaScript expression that returns true to retry. Has access to 'result' and 'error' variables"}},"required":["expr"]},"StopAfterIf":{"type":"object","description":"Early termination condition for a module","properties":{"skip_if_stopped":{"type":"boolean","description":"If true, following steps are skipped when this condition triggers"},"expr":{"type":"string","description":"JavaScript expression evaluated after the module runs. Can use 'result' (step's result) or 'flow_input'. Return true to stop"},"error_message":{"type":"string","nullable":true,"description":"Custom error message when stopping with an error. Mutually exclusive with skip_if_stopped. If set to a non-empty string, the flow stops with this error. If empty string, a default error message is used. If null or omitted, no error is raised."},"error_include_result":{"type":"boolean","description":"When stopping with an error (error_message set), embed the stopping step's own result inside the raised error object (as error.result) instead of discarding it. The top-level result stays { error }. Defaults to false."}},"required":["expr"]},"FlowModule":{"type":"object","description":"A single step in a flow. Can be a script, subflow, loop, or branch","properties":{"id":{"type":"string","description":"Unique identifier for this step. Used to reference results via 'results.step_id'. Must be a valid identifier (alphanumeric, underscore, hyphen)"},"value":{"$ref":"#/components/schemas/FlowModuleValue"},"stop_after_if":{"description":"Early termination condition evaluated after this step completes","$ref":"#/components/schemas/StopAfterIf"},"stop_after_all_iters_if":{"description":"For loops only - early termination condition evaluated after all iterations complete","$ref":"#/components/schemas/StopAfterIf"},"skip_if":{"type":"object","description":"Conditionally skip this step based on previous results or flow inputs","properties":{"expr":{"type":"string","description":"JavaScript expression that returns true to skip. Can use 'flow_input' or 'results.<step_id>'"}},"required":["expr"]},"sleep":{"description":"Delay before executing this step (in seconds or as expression)","$ref":"#/components/schemas/InputTransform"},"cache_ttl":{"type":"number","description":"Cache duration in seconds for this step's results"},"cache_ignore_s3_path":{"type":"boolean"},"timeout":{"description":"Maximum execution time in seconds (static value or expression)","$ref":"#/components/schemas/InputTransform"},"delete_after_secs":{"type":"integer","description":"If set, delete the step's args, result and logs after this many seconds following job completion"},"summary":{"type":"string","description":"Short description of what this step does"},"mock":{"type":"object","description":"Mock configuration for testing without executing the actual step","properties":{"enabled":{"type":"boolean","description":"If true, return mock value instead of executing"},"return_value":{"description":"Value to return when mocked"}}},"suspend":{"type":"object","description":"Configuration for approval/resume steps that wait for user input","properties":{"required_events":{"type":"integer","description":"Number of approvals required before continuing"},"timeout":{"type":"integer","description":"Timeout in seconds before auto-continuing or canceling"},"resume_form":{"type":"object","description":"Form schema for collecting input when resuming","properties":{"schema":{"type":"object","description":"JSON Schema for the resume form"}}},"user_auth_required":{"type":"boolean","description":"If true, only authenticated users can approve"},"user_groups_required":{"description":"Expression or list of groups that can approve","$ref":"#/components/schemas/InputTransform"},"self_approval_disabled":{"type":"boolean","description":"If true, the user who started the flow cannot approve"},"hide_cancel":{"type":"boolean","description":"If true, hide the cancel button on the approval form"},"continue_on_disapprove_timeout":{"type":"boolean","description":"If true, continue flow on timeout instead of canceling"},"skin":{"type":"string","enum":["detailed","minimal"],"description":"How the approval request is presented, on the approval page and in Slack/Teams approval messages. 'detailed' (used when unset) shows the flow details (arguments, graph, approvers); 'minimal' shows only the request: the step description, form and approve/reject actions"}}},"priority":{"type":"number","description":"Execution priority for this step (higher numbers run first)"},"continue_on_error":{"type":"boolean","description":"If true, flow continues even if this step fails"},"retry":{"description":"Retry configuration if this step fails","$ref":"#/components/schemas/Retry"},"debouncing":{"description":"Debounce configuration for this step (EE only)","type":"object","properties":{"debounce_delay_s":{"type":"integer","description":"Delay in seconds to debounce this step's executions across flow runs"},"debounce_key":{"type":"string","description":"Expression to group debounced executions. Supports $workspace and $args[name]. Default: $workspace/flow/<flow_path>-<step_id>"},"debounce_args_to_accumulate":{"type":"array","description":"Array-type arguments to accumulate across debounced executions","items":{"type":"string"}},"max_total_debouncing_time":{"type":"integer","description":"Maximum total time in seconds before forced execution"},"max_total_debounces_amount":{"type":"integer","description":"Maximum number of debounces before forced execution"}}}},"required":["value","id"]},"InputTransform":{"description":"Maps input parameters for a step. Can be a static value or a JavaScript expression that references previous results or flow inputs","oneOf":[{"$ref":"#/components/schemas/StaticTransform"},{"$ref":"#/components/schemas/JavascriptTransform"},{"$ref":"#/components/schemas/AiTransform"}],"discriminator":{"propertyName":"type","mapping":{"static":"#/components/schemas/StaticTransform","javascript":"#/components/schemas/JavascriptTransform","ai":"#/components/schemas/AiTransform"}}},"StaticTransform":{"type":"object","description":"Static value passed directly to the step. Use for hardcoded values or resource references like '$res:path/to/resource'","properties":{"value":{"description":"The static value. For resources, use format '$res:path/to/resource'"},"type":{"type":"string","enum":["static"]}},"required":["type"]},"JavascriptTransform":{"type":"object","description":"JavaScript expression evaluated at runtime. Can reference previous step results via 'results.step_id' or flow inputs via 'flow_input.property'. Inside for loops, use 'flow_input.iter.value' for the current iteration value (in while loops it equals 'flow_input.iter.index')","properties":{"expr":{"type":"string","description":"JavaScript expression returning the value. Available variables - results (object with all previous step results), flow_input (flow inputs), flow_input.iter (in loops)"},"type":{"type":"string","enum":["javascript"]}},"required":["expr","type"]},"AiTransform":{"type":"object","description":"Value resolved by the AI runtime for this input. The AI engine decides how to satisfy the parameter.","properties":{"type":{"type":"string","enum":["ai"]}},"required":["type"]},"AIProviderKind":{"type":"string","description":"Supported AI provider types","enum":["openai","azure_openai","azure_foundry","anthropic","mistral","deepseek","googleai","groq","openrouter","togetherai","customai","aws_bedrock"]},"ProviderConfig":{"type":"object","description":"Complete AI provider configuration with resource reference and model selection","properties":{"kind":{"$ref":"#/components/schemas/AIProviderKind"},"resource":{"type":"string","description":"Resource reference in format '$res:{resource_path}' pointing to provider credentials"},"model":{"type":"string","description":"Model identifier (e.g., 'gpt-4', 'claude-3-opus-20240229', 'gemini-pro')"},"reasoning_effort":{"type":"string","description":"Provider-native reasoning effort token (e.g. 'low', 'high', 'none') for models that support extended thinking. Optional; unset leaves the provider default."}},"required":["kind","resource","model"]},"StaticProviderTransform":{"type":"object","description":"Static provider configuration passed directly to the AI agent","properties":{"value":{"$ref":"#/components/schemas/ProviderConfig"},"type":{"type":"string","enum":["static"]}},"required":["type","value"]},"ProviderTransform":{"description":"Provider configuration - can be static (ProviderConfig), JavaScript expression, or AI-determined","oneOf":[{"$ref":"#/components/schemas/StaticProviderTransform"},{"$ref":"#/components/schemas/JavascriptTransform"},{"$ref":"#/components/schemas/AiTransform"}],"discriminator":{"propertyName":"type","mapping":{"static":"#/components/schemas/StaticProviderTransform","javascript":"#/components/schemas/JavascriptTransform","ai":"#/components/schemas/AiTransform"}}},"MemoryOff":{"type":"object","description":"No conversation memory/context","properties":{"kind":{"type":"string","enum":["off"]}},"required":["kind"]},"MemoryWindow":{"type":"object","description":"Keeps the most recent messages of the memory named by the run's memory id (or the step's\\n\`memory_id\`). Without a memory id the agent runs without memory.\\n","properties":{"kind":{"type":"string","enum":["window"]},"context_length":{"type":"integer","description":"Number of most recent messages to load and store. 0 turns memory off."}},"required":["kind","context_length"]},"MemoryAuto":{"type":"object","deprecated":true,"description":"Deprecated, still read as it was written: the run's memory id, else the \`memory_id\` here.\\nThe step's own \`memory_id\` is not read while this kind is set; switch the kind to \`window\`\\nto use it. Without a \`context_length\`, or with 0, it is \`off\` and reads \`previous_messages\`.\\n","properties":{"kind":{"type":"string","enum":["auto"]},"context_length":{"type":"integer","description":"Maximum number of messages to retain in context"},"memory_id":{"type":"string","description":"Identifier for persistent memory across agent invocations"}},"required":["kind"]},"MemoryCompaction":{"type":"object","description":"Keeps the whole memory named by the run's memory id (or the step's \`memory_id\`), replacing\\nits older part with a summary as the conversation approaches the model's context window.\\nWithout a memory id the agent runs without memory, and compaction bounds the run's own loop.\\n","properties":{"kind":{"type":"string","enum":["compaction"]},"context_window":{"type":"integer","description":"Overrides the context window looked up from the model, in tokens. Only a model\\nWindmill does not know needs one; those fall back to 128000.\\n"}},"required":["kind"]},"MemoryMessage":{"type":"object","description":"A single message in conversation history","properties":{"role":{"type":"string","enum":["user","assistant","system"]},"content":{"type":"string"}},"required":["role","content"]},"MemoryManual":{"type":"object","deprecated":true,"description":"Deprecated, still read as it was written. Move the step to \`off\` with \`previous_messages\` instead.","properties":{"kind":{"type":"string","enum":["manual"]},"messages":{"type":"array","items":{"$ref":"#/components/schemas/MemoryMessage"}}},"required":["kind","messages"]},"MemoryConfig":{"description":"Managed memory, stored by Windmill and replayed with each request. The memory is named by a memory id, see \`memory_id\`. While it is off, a step can supply its history in \`previous_messages\`.","oneOf":[{"$ref":"#/components/schemas/MemoryOff"},{"$ref":"#/components/schemas/MemoryWindow"},{"$ref":"#/components/schemas/MemoryCompaction"},{"$ref":"#/components/schemas/MemoryAuto"},{"$ref":"#/components/schemas/MemoryManual"}],"discriminator":{"propertyName":"kind","mapping":{"off":"#/components/schemas/MemoryOff","window":"#/components/schemas/MemoryWindow","compaction":"#/components/schemas/MemoryCompaction","auto":"#/components/schemas/MemoryAuto","manual":"#/components/schemas/MemoryManual"}}},"StaticMemoryTransform":{"type":"object","description":"Static memory configuration passed directly to the AI agent","properties":{"value":{"$ref":"#/components/schemas/MemoryConfig"},"type":{"type":"string","enum":["static"]}},"required":["type","value"]},"MemoryTransform":{"description":"Memory configuration - can be static (MemoryConfig), JavaScript expression, or AI-determined","oneOf":[{"$ref":"#/components/schemas/StaticMemoryTransform"},{"$ref":"#/components/schemas/JavascriptTransform"},{"$ref":"#/components/schemas/AiTransform"}],"discriminator":{"propertyName":"type","mapping":{"static":"#/components/schemas/StaticMemoryTransform","javascript":"#/components/schemas/JavascriptTransform","ai":"#/components/schemas/AiTransform"}}},"FlowModuleValue":{"description":"The actual implementation of a flow step. Can be a script (inline or referenced), subflow, loop, branch, or special module type","oneOf":[{"$ref":"#/components/schemas/RawScript"},{"$ref":"#/components/schemas/PathScript"},{"$ref":"#/components/schemas/PathFlow"},{"$ref":"#/components/schemas/ForloopFlow"},{"$ref":"#/components/schemas/WhileloopFlow"},{"$ref":"#/components/schemas/BranchOne"},{"$ref":"#/components/schemas/BranchAll"},{"$ref":"#/components/schemas/Identity"},{"$ref":"#/components/schemas/AiAgent"}],"discriminator":{"propertyName":"type","mapping":{"rawscript":"#/components/schemas/RawScript","script":"#/components/schemas/PathScript","flow":"#/components/schemas/PathFlow","forloopflow":"#/components/schemas/ForloopFlow","whileloopflow":"#/components/schemas/WhileloopFlow","branchone":"#/components/schemas/BranchOne","branchall":"#/components/schemas/BranchAll","identity":"#/components/schemas/Identity","aiagent":"#/components/schemas/AiAgent"}}},"RawScript":{"type":"object","description":"Inline script with code defined directly in the flow. Use 'bun' as default language if unspecified. The script receives arguments from input_transforms","properties":{"input_transforms":{"type":"object","description":"Map of parameter names to their values (static or JavaScript expressions). These become the script's input arguments","additionalProperties":{"$ref":"#/components/schemas/InputTransform"}},"content":{"type":"string","description":"The script source code. Should export a 'main' function"},"language":{"type":"string","description":"Programming language for this script","enum":["deno","bun","bunnative","python3","go","bash","powershell","postgresql","mysql","bigquery","snowflake","mssql","oracledb","graphql","nativets","php","rust","ansible","csharp","nu","java","ruby","rlang","duckdb"]},"path":{"type":"string","description":"Optional path for saving this script"},"lock":{"type":"string","description":"Lock file content for dependencies"},"type":{"type":"string","enum":["rawscript"]},"tag":{"type":"string","description":"Worker group tag for execution routing"},"concurrent_limit":{"type":"number","description":"Maximum concurrent executions of this script"},"concurrency_time_window_s":{"type":"number","description":"Time window for concurrent_limit"},"custom_concurrency_key":{"type":"string","description":"Custom key for grouping concurrent executions"},"is_trigger":{"type":"boolean","description":"If true, this script is a trigger that can start the flow"},"assets":{"type":"array","description":"External resources this script accesses (S3 objects, resources, etc.)","items":{"type":"object","required":["path","kind"],"properties":{"path":{"type":"string","description":"Path to the asset"},"kind":{"type":"string","description":"Type of asset","enum":["s3object","resource","ducklake","datatable","volume","dbt"]},"access_type":{"type":"string","nullable":true,"description":"Access level for this asset","enum":["r","w","rw"]},"alt_access_type":{"type":"string","nullable":true,"description":"Alternative access level","enum":["r","w","rw"]}}}}},"required":["type","content","language","input_transforms"]},"PathScript":{"type":"object","description":"Reference to an existing script by path. Use this when calling a previously saved script instead of writing inline code","properties":{"input_transforms":{"type":"object","description":"Map of parameter names to their values (static or JavaScript expressions). These become the script's input arguments","additionalProperties":{"$ref":"#/components/schemas/InputTransform"}},"path":{"type":"string","description":"Path to the script in the workspace (e.g., 'f/scripts/send_email')"},"hash":{"type":"string","description":"Optional specific version hash of the script to use"},"type":{"type":"string","enum":["script"]},"tag_override":{"type":"string","description":"Override the script's default worker group tag"},"is_trigger":{"type":"boolean","description":"If true, this script is a trigger that can start the flow"}},"required":["type","path","input_transforms"]},"PathFlow":{"type":"object","description":"Reference to an existing flow by path. Use this to call another flow as a subflow","properties":{"input_transforms":{"type":"object","description":"Map of parameter names to their values (static or JavaScript expressions). These become the subflow's input arguments","additionalProperties":{"$ref":"#/components/schemas/InputTransform"}},"path":{"type":"string","description":"Path to the flow in the workspace (e.g., 'f/flows/process_user')"},"type":{"type":"string","enum":["flow"]}},"required":["type","path","input_transforms"]},"ForloopFlow":{"type":"object","description":"Executes nested modules in a loop over an iterator. Inside the loop, use 'flow_input.iter.value' to access the current iteration value, and 'flow_input.iter.index' for the index. Supports parallel execution for better performance on I/O-bound operations","properties":{"modules":{"type":"array","description":"Steps to execute for each iteration. These can reference the iteration value via 'flow_input.iter.value'","items":{"$ref":"#/components/schemas/FlowModule"}},"iterator":{"description":"JavaScript expression that returns an array to iterate over. Can reference 'results.step_id' or 'flow_input'","$ref":"#/components/schemas/InputTransform"},"skip_failures":{"type":"boolean","description":"If true, iteration failures don't stop the loop. Failed iterations return null"},"type":{"type":"string","enum":["forloopflow"]},"parallel":{"type":"boolean","description":"If true, iterations run concurrently (faster for I/O-bound operations). Use with parallelism to control concurrency"},"parallelism":{"description":"Maximum number of concurrent iterations when parallel=true. Limits resource usage. Can be static number or expression","$ref":"#/components/schemas/InputTransform"},"squash":{"type":"boolean"}},"required":["modules","iterator","skip_failures","type"]},"WhileloopFlow":{"type":"object","description":"Executes nested modules repeatedly until stopped. The implicit iterator is the iteration counter, so 'flow_input.iter.value' equals 'flow_input.iter.index' (0, 1, 2, ...) and never carries state. To carry state across iterations, a step reads its own previous-iteration result via 'results.<its_own_id>' with a first-iteration fallback - the loop's stop_after_if must then be on that inner step (a plain single-step body with stop_after_if on the loop module does not resolve 'results' across iterations and never terminates); plain counters can instead be derived from 'flow_input.iter.index', which works in every configuration. stop_after_if is evaluated after each iteration - on the loop module 'result' is the last iteration's result","properties":{"modules":{"type":"array","description":"Steps to execute in each iteration","items":{"$ref":"#/components/schemas/FlowModule"}},"skip_failures":{"type":"boolean","description":"If true, iteration failures don't stop the loop. Failed iterations return null"},"type":{"type":"string","enum":["whileloopflow"]},"parallel":{"type":"boolean","description":"If true, iterations run concurrently (use with caution in while loops)"},"parallelism":{"description":"Maximum number of concurrent iterations when parallel=true","$ref":"#/components/schemas/InputTransform"},"squash":{"type":"boolean"}},"required":["modules","skip_failures","type"]},"BranchOne":{"type":"object","description":"Conditional branching where only the first matching branch executes. Branches are evaluated in order, and the first one with a true expression runs. If no branches match, the default branch executes","properties":{"branches":{"type":"array","description":"Array of branches to evaluate in order. The first branch with expr evaluating to true executes","items":{"type":"object","properties":{"summary":{"type":"string","description":"Short description of this branch condition"},"expr":{"type":"string","description":"JavaScript expression that returns boolean. Can use 'results.step_id' or 'flow_input'. First true expr wins"},"modules":{"type":"array","description":"Steps to execute if this branch's expr is true","items":{"$ref":"#/components/schemas/FlowModule"}}},"required":["modules","expr"]}},"default":{"type":"array","description":"Steps to execute if no branch expressions match","items":{"$ref":"#/components/schemas/FlowModule"}},"type":{"type":"string","enum":["branchone"]}},"required":["branches","default","type"]},"BranchAll":{"type":"object","description":"Parallel branching where all branches execute simultaneously. Unlike BranchOne, all branches run regardless of conditions. Useful for executing independent tasks concurrently","properties":{"branches":{"type":"array","description":"Array of branches that all execute (either in parallel or sequentially)","items":{"type":"object","properties":{"summary":{"type":"string","description":"Short description of this branch's purpose"},"skip_failure":{"type":"boolean","description":"If true, failure in this branch doesn't fail the entire flow"},"modules":{"type":"array","description":"Steps to execute in this branch","items":{"$ref":"#/components/schemas/FlowModule"}}},"required":["modules"]}},"type":{"type":"string","enum":["branchall"]},"parallel":{"type":"boolean","description":"If true, all branches execute concurrently. If false, they execute sequentially"}},"required":["branches","type"]},"AgentTool":{"type":"object","description":"A tool available to an AI agent. Can be a flow module or an external MCP (Model Context Protocol) tool","properties":{"id":{"type":"string","description":"Unique identifier for this tool. Cannot contain spaces - use underscores instead (e.g., 'get_user_data' not 'get user data')"},"summary":{"type":"string","description":"The name the AI agent calls this tool by, not a human label. On a flowmodule tool it must match ^[a-zA-Z0-9_]+$ - letters, numbers and underscores only (e.g. 'search_documentation', not 'Search documentation') - and always be set; on an mcp or websearch tool it is a plain label. Put the human-readable explanation in 'description'."},"description":{"type":"string","description":"Free-text description of the tool given to the AI to decide when and how to call it. Overrides the description auto-derived from the underlying script."},"value":{"$ref":"#/components/schemas/ToolValue"}},"required":["id","value"]},"ToolValue":{"description":"The implementation of a tool. Can be a flow module (script/flow) or an MCP tool reference","oneOf":[{"$ref":"#/components/schemas/FlowModuleTool"},{"$ref":"#/components/schemas/McpToolValue"},{"$ref":"#/components/schemas/WebsearchToolValue"}],"discriminator":{"propertyName":"tool_type","mapping":{"flowmodule":"#/components/schemas/FlowModuleTool","mcp":"#/components/schemas/McpToolValue","websearch":"#/components/schemas/WebsearchToolValue"}}},"FlowModuleTool":{"description":"A tool implemented as a flow module (script, flow, etc.). The AI can call this like any other flow module","allOf":[{"type":"object","properties":{"tool_type":{"type":"string","enum":["flowmodule"]}},"required":["tool_type"]},{"$ref":"#/components/schemas/FlowModuleValue"}]},"WebsearchToolValue":{"type":"object","description":"A tool implemented as a websearch tool. The AI can call this like any other websearch tool","properties":{"tool_type":{"type":"string","enum":["websearch"]}},"required":["tool_type"]},"McpToolValue":{"type":"object","description":"Reference to an external MCP (Model Context Protocol) tool. The AI can call tools from MCP servers","properties":{"tool_type":{"type":"string","enum":["mcp"]},"resource_path":{"type":"string","description":"Path to the MCP resource/server configuration"},"include_tools":{"type":"array","description":"Whitelist of specific tools to include from this MCP server","items":{"type":"string"}},"exclude_tools":{"type":"array","description":"Blacklist of tools to exclude from this MCP server","items":{"type":"string"}}},"required":["tool_type","resource_path"]},"AiAgent":{"type":"object","description":"AI agent step that can use tools to accomplish tasks. The agent receives inputs and can call any of its configured tools to complete the task","properties":{"input_transforms":{"type":"object","description":"Input parameters for the AI agent mapped to their values","properties":{"provider":{"$ref":"#/components/schemas/ProviderTransform"},"output_type":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"Output format type.\\nValid values: 'text' (default) - plain text response, 'image' - image generation\\n"},"user_message":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"The user's prompt/message to the AI agent. Supports variable interpolation with\\nflow.input syntax. Required unless memory is off and \`previous_messages\` supplies\\nthe prompt; image output always needs it.\\n"},"system_prompt":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"System instructions that guide the AI's behavior, persona, and response style. Optional."},"streaming":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"Boolean. If true, stream the AI response incrementally.\\nStreaming events include: token_delta, reasoning_token_delta, tool_call, tool_call_arguments, tool_execution, tool_result\\n"},"memory":{"$ref":"#/components/schemas/MemoryTransform"},"memory_id":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"String. Names the memory this step reads and writes, overriding the memory id the run\\nwas started with (the chat conversation, an app chat session or the \`memory_id\` run\\nparameter). Leave unset to use the run's memory id. A fixed value shares one memory\\nacross every run; an expression such as \`flow_input.customer_id\` keeps one memory per\\nkey. When it evaluates to an empty value the agent runs without memory. Read only\\nwhile \`memory\` is \`window\` or \`compaction\`: it is ignored when memory is off, and an\\nolder \`auto\` or \`manual\` memory reads neither history input.\\n"},"previous_messages":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"Array of MemoryMessage. History supplied by the flow, sent between the system prompt\\nand the user message. Read only while \`memory\` is off or absent: managed memory\\nignores it, and an older \`auto\` or \`manual\` memory reads neither history input.\\n"},"output_schema":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"JSON Schema object defining structured output format. Used when you need the AI to return data in a specific shape.\\nSupports standard JSON Schema properties: type, properties, required, items, enum, pattern, minLength, maxLength, minimum, maximum, etc.\\nExample: { type: 'object', properties: { name: { type: 'string' }, age: { type: 'integer' } }, required: ['name'] }\\n"},"user_attachments":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"Array of file references (images or PDFs) for the AI agent.\\nFormat: Array<{ bucket: string, key: string }> - S3 object references\\nExample: [{ bucket: 'my-bucket', key: 'documents/report.pdf' }]\\n"},"enabled_tools":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"Array of strings naming which of the tools configured in \`tools\` the agent may call\\nthis run. Leaving it unset carries every one of them; an empty array carries none.\\nA tool is named as the model is shown it. An entry the model is shown nothing of is\\nnamed by what identifies it instead: an MCP server by its resource path, carrying\\nevery tool it exposes (which of them stays that entry's include_tools/exclude_tools),\\nand a websearch entry by the reserved name '__wm_web_search', whatever summary it carries\\n(no tool may take that name).\\nExample: ['get_user', 'u/admin/github_mcp', '__wm_web_search']\\n"},"max_completion_tokens":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"Integer. Maximum number of tokens the AI will generate in its response.\\nRange: 1 to 4,294,967,295. Typical values: 256-4096 for most use cases.\\n"},"temperature":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"Float. Controls randomness/creativity of responses.\\nRange: 0.0 to 2.0 (provider-dependent)\\n- 0.0 = deterministic, focused responses\\n- 0.7 = balanced (common default)\\n- 1.0+ = more creative/random\\n"},"max_iterations":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"Number. Limits how many times the agent can loop through reasoning and tool use.\\nRange: 1-1000.\\n"}}},"tools":{"type":"array","description":"Array of tools the agent can use. The agent decides which tools to call based on the task","items":{"$ref":"#/components/schemas/AgentTool"}},"type":{"type":"string","enum":["aiagent"]},"tag":{"type":"string","description":"Worker group tag for execution routing. If not set, the AI agent step runs on the flow's tag (default \`flow\`)"},"omit_output_from_conversation":{"type":"boolean","default":false,"description":"If true, this AI agent step does not persist its assistant or tool messages to the flow conversation when chat mode is enabled."},"agent":{"type":"string","description":"Path of a reusable \`ai_agent\` resource (hybrid linking). When set, the agent brain\\nconfig (provider/model/system prompt/etc.) and tool set are resolved at runtime from\\nthat resource; the module's input_transforms then only carry the flow-local inputs\\n(user_message, user_attachments, enabled_tools and the history inputs memory_id and previous_messages).\\n"},"tool_inputs":{"type":"object","description":"Host-local wiring for an agent's tool inputs, keyed by tool id then input key. Binds the\\nreferenced agent's tools to this flow's context (flow_input/results) without mutating the\\nshared resource; overlaid onto the tools' input_transforms at runtime \\u2014 including when\\n\`agent\` is unset, since a step forked for editing keeps these overrides until it is saved\\nback or unlinked.\\n","additionalProperties":{"type":"object","additionalProperties":{"$ref":"#/components/schemas/InputTransform"}}},"parallel":{"type":"boolean","description":"If true, the agent can execute multiple tool calls in parallel"}},"required":["type","input_transforms"]},"Identity":{"type":"object","description":"Pass-through module that returns its input unchanged. Useful for flow structure or as a placeholder","properties":{"type":{"type":"string","enum":["identity"]},"flow":{"type":"boolean","description":"If true, marks this as a flow identity (special handling)"}},"required":["type"]},"FlowStatus":{"type":"object","properties":{"step":{"type":"integer"},"modules":{"type":"array","items":{"$ref":"#/components/schemas/FlowStatusModule"}},"user_states":{"additionalProperties":true},"preprocessor_module":{"allOf":[{"$ref":"#/components/schemas/FlowStatusModule"}]},"failure_module":{"allOf":[{"$ref":"#/components/schemas/FlowStatusModule"},{"type":"object","properties":{"parent_module":{"type":"string"}}}]},"retry":{"type":"object","properties":{"fail_count":{"type":"integer"},"failed_jobs":{"type":"array","items":{"type":"string","format":"uuid"}}}}},"required":["step","modules","failure_module"]},"FlowStatusModule":{"type":"object","properties":{"type":{"type":"string","enum":["WaitingForPriorSteps","WaitingForEvents","WaitingForExecutor","InProgress","Success","Failure"]},"id":{"type":"string"},"job":{"type":"string","format":"uuid"},"count":{"type":"integer"},"progress":{"type":"integer"},"iterator":{"type":"object","properties":{"index":{"type":"integer"},"itered":{"type":"array","items":{}},"itered_len":{"type":"integer"},"args":{}}},"flow_jobs":{"type":"array","items":{"type":"string"}},"flow_jobs_success":{"type":"array","items":{"type":"boolean"}},"flow_jobs_duration":{"type":"object","properties":{"started_at":{"type":"array","items":{"type":"string"}},"duration_ms":{"type":"array","items":{"type":"integer"}}}},"branch_chosen":{"type":"object","properties":{"type":{"type":"string","enum":["branch","default"]},"branch":{"type":"integer"}},"required":["type"]},"branchall":{"type":"object","properties":{"branch":{"type":"integer"},"len":{"type":"integer"}},"required":["branch","len"]},"approvers":{"type":"array","items":{"type":"object","properties":{"resume_id":{"type":"integer"},"approver":{"type":"string"}},"required":["resume_id","approver"]}},"failed_retries":{"type":"array","items":{"type":"string","format":"uuid"}},"skipped":{"type":"boolean"},"agent_actions":{"type":"array","items":{"type":"object","oneOf":[{"type":"object","properties":{"job_id":{"type":"string","format":"uuid"},"function_name":{"type":"string"},"type":{"type":"string","enum":["tool_call"]},"module_id":{"type":"string"}},"required":["job_id","function_name","type","module_id"]},{"type":"object","properties":{"call_id":{"type":"string","format":"uuid"},"function_name":{"type":"string"},"resource_path":{"type":"string"},"type":{"type":"string","enum":["mcp_tool_call"]},"arguments":{"type":"object"}},"required":["call_id","function_name","resource_path","type"]},{"type":"object","properties":{"type":{"type":"string","enum":["web_search"]}},"required":["type"]},{"type":"object","properties":{"type":{"type":"string","enum":["message"]}},"required":["content","type"]}]}},"agent_actions_success":{"type":"array","items":{"type":"boolean"}}},"required":["type"]}}
+`,
   "raw-app": `---
 name: raw-app
 description: MUST use when creating raw apps.
@@ -5822,7 +6323,7 @@ The \`data\` block in \`raw_app.yaml\` controls which tables the app can query.
 \`\`\`yaml
 data:
   datatable: main           # Default datatable
-  schema: app_schema        # Default schema (optional)
+  schema: app_schema        # Schema the app's tables go in (optional); still write them as app_schema.<table>
   tables:
     - main/users            # Table in public schema
     - main/app_schema:items # Table in specific schema
@@ -5867,6 +6368,8 @@ data:
     - main/users
 \`\`\`
 
+A migration runs with no default schema, so a table outside \`public\` is created with its schema, \`CREATE TABLE IF NOT EXISTS app_schema.items (...)\`, listed as \`main/app_schema:items\`, and queried as \`app_schema.items\`.
+
 ### Migration best practices
 
 - **Use idempotent SQL**: \`CREATE TABLE IF NOT EXISTS\`, etc.
@@ -5876,8 +6379,9 @@ data:
 
 ## CLI Commands
 
-Two commands you run yourself, not the user:
+Commands you run yourself, not the user:
 - \`wmill app new\` — run it with flags, per the "Creating a Raw App" section above.
+- \`wmill app lint <app_folder>\` — checks the app's structure and that it builds. Run it after editing, before offering a preview or a deploy; a bundle that compiles still says nothing about behavior, so a preview is what checks that.
 - \`wmill generate-metadata\` — (re)generates local lock files and refreshes \`wmill-lock.yaml\` content hashes; writes local files only (not a deploy). After adding or editing a runnable, offer it and run it on agreement — or automatically if the project's \`AGENTS.md\` opts into that (see "After creating a runnable" above).
 
 For the rest, tell the user which command fits their intent and let them run it — these deploy to the workspace, overwrite local files, or launch a long-running server, so the user should consent each time:
@@ -5888,8 +6392,6 @@ For the rest, tell the user which command fits their intent and let them run it 
 | \`wmill app generate-agents\` | Refresh AGENTS.md and DATATABLES.md |
 | \`wmill sync push\` | Deploy app to Windmill |
 | \`wmill sync pull\` | Pull latest from Windmill |
-
-
 
 # Windmill Raw Apps
 
@@ -5940,6 +6442,8 @@ Import the generated bindings and call the runnable like a function. \`./wmill\`
 | \`waitJob(jobId)\` | the job's **result** (rejects if the job failed) | awaiting a \`backendAsync\` job |
 | \`getJob(jobId)\` | a \`Job\` (\`{ type, success, result, duration_ms, ... }\`) | polling status without blocking |
 | \`streamJob(jobId, onUpdate?)\` | the final result, calling \`onUpdate\` per chunk | showing output as it is produced |
+
+A runnable is always called with **one object** whose keys are its \`main\` parameters — \`main(user_id: string, limit: number)\` is called as \`backend.get_users({ user_id, limit })\`, never with positional arguments. A runnable without parameters is called with no argument. Resource and variable ids handed to the \`wmill\` client are paths (\`u/<user>/<name>\` or \`f/<folder>/<name>\`).
 
 Run and wait — the common case:
 
@@ -6014,9 +6518,10 @@ Each runnable has a unique key (used to call it from the frontend) and one of fo
 
 ### Inline runnables
 
-Inline runnables carry their own source code. For file-based raw apps, the runnable language is determined by the backend file extension. The script must expose a \`main\` function as its entrypoint.
+Inline runnables carry their own source code, and must expose a \`main\` function as their entrypoint.
+On disk, a runnable's language is determined by its backend file extension.
 
-**TypeScript example** (\`backend/get_user.ts\`):
+**TypeScript example** (runnable \`get_user\`):
 
 \`\`\`typescript
 import * as wmill from 'windmill-client';
@@ -6028,7 +6533,7 @@ export async function main(user_id: string) {
 }
 \`\`\`
 
-**Python example** (\`backend/get_user.py\`):
+**Python example** (runnable \`get_user\`):
 
 \`\`\`python
 import wmill
@@ -6045,11 +6550,13 @@ An inline runnable runs as an ordinary Windmill job. \`import * as wmill from 'w
 
 **Don't read \`WM_TOKEN\` or \`BASE_INTERNAL_URL\` and build an API URL to \`fetch\`.** The client's own \`setClient\` already reads exactly those, and it also sets the credentials mode a raw app needs (\`WM_RAW_APP\` suppresses credentials, because a sandboxed bundle calls the API from an opaque origin that can never pair with \`Access-Control-Allow-Origin: *\`). Rebuilding that by hand drops the parts you can't see. Use \`wmill.*\` for everything Windmill, and \`fetch\` only for third-party APIs.
 
-Prefer the \`wmill\` functions that appear in the SDK reference; for an endpoint none of them covers, the generated service classes (\`JobService\`, \`ScriptService\`, ...) are importable from \`windmill-client\`. What is not available is a name you guessed at: \`getBaseUrl\` and \`getWorkspaceToken\` are inventions, not API.
+Use only \`wmill\` functions the SDK actually exports; for an endpoint none of them covers, the generated service classes (\`JobService\`, \`ScriptService\`, ...) are importable from \`windmill-client\`. What is not available is a name you guessed at: \`getBaseUrl\` and \`getWorkspaceToken\` are inventions, not API.
 
 ### Path runnables (script / flow / hubscript)
 
 When \`type\` is \`script\`, \`flow\`, or \`hubscript\`, the runnable just stores a \`path\` to an existing workspace or hub item — no inline code. The referenced item's input/output schema becomes the runnable's surface.
+
+Before writing an inline runnable, look for a workspace script or flow that already does the job, or a Hub script (a prebuilt integration at \`hub/<version>/<app>/<name>\`) for a third-party service, and reference it instead of copying its logic.
 
 ### Draft code vs deployed code
 
@@ -6070,15 +6577,29 @@ Prefer a **path runnable of type \`flow\`** over an inline runnable that calls \
 
 \`staticInputs\` is an optional \`Record<string, any>\` for arguments not overridable from the frontend. Useful with path runnables to pre-fill some args while leaving the rest to the frontend caller.
 
+## Who can open a deployed app
+
+A draft app is reachable by nobody; deploying is what exposes it, and its backend runnables with it. Otherwise only users with access to the app can open it, unless the app is opened to:
+
+- **anonymous** users: anyone with the URL, without logging in;
+- **guests**: anyone the instance's identity provider authenticates, whether or not they belong to the workspace.
+
+Either one lets those people run the app's backend runnables, so never open an app up unless the user asks.
+\`public: true\` in \`raw_app.yaml\` deploys the app for anonymous users, and \`guests: true\` for guests. Remove the line and the next push closes the app again.
+
 ## Data Tables
 
-Data tables are PostgreSQL databases managed by Windmill. Backend runnables query them via the \`wmill\` client; the frontend never queries them directly.
+Data tables are PostgreSQL databases managed by Windmill. Backend runnables query them via the \`wmill\` client; the frontend never queries them directly. **When the app needs to store or persist data** (user data, settings, application state, records, logs), use a data table.
 
 ### Critical rules
 
-1. **Whitelisted tables only**: a runnable can only query tables listed in the app's \`data.tables\` config. Tables not in this list are not accessible.
-2. **Add tables before using**: queries against unlisted tables fail at runtime. When you introduce a new table, register it in \`data.tables\` first.
-3. **Use the configured datatable/schema**: the app's \`data\` config sets the default datatable and schema; reference them consistently across runnables.
+1. **Check what exists first**: look up the workspace's data tables and their tables before designing storage, and reuse a suitable table rather than creating another. Never assume a \`main\` data table exists.
+2. **Whitelisted tables only**: a runnable can only query tables listed in the app's \`data.tables\` config. Queries against unlisted tables fail at runtime, so register a new table there before using it.
+3. **No DDL inside runnables**: runnables only read and write rows (SELECT, INSERT, UPDATE, DELETE) on existing tables. Never CREATE, ALTER or DROP a table from a runnable.
+4. **Qualify table names**: an unqualified name means the \`public\` schema, so write every other table as \`schema.table\`, in table creation and queries alike. The app's \`data\` config sets the default datatable and schema its tables go in; use them consistently across runnables.
+5. **Pass the role**: when the app's \`data.roles\` gives a data table a role, every \`wmill.datatable\` call on it passes that role (\`wmill.datatable('main', { role: 'analyst' })\` in TypeScript, \`wmill.datatable('main', role='analyst')\` in Python). The role only reaches what it was granted, so a query outside it fails with \`permission denied\`.
+
+\`wmill datatable list\` lists the workspace's data tables. Create or change tables with a migration in \`sql_to_apply/\` (see "SQL Migrations" above), then add them to \`data.tables\` in \`raw_app.yaml\`.
 
 ### Querying in TypeScript (Bun/Deno)
 
@@ -6312,6 +6833,14 @@ Reference variables in resource values:
 - \`$var:g/all/name\` - Global variable
 - \`$var:u/username/name\` - User variable
 - \`$var:f/folder/name\` - Folder variable
+
+## Secrets
+
+Never put a secret (password, API key, token) inline in a resource value. Store it in a secret variable and reference that variable as \`$var:<path>\`.
+
+- \`$var:<path>\` is a reference, not a value: it resolves to the variable's value at run time. Never invent a value for a variable.
+- A resource that references a variable needs the variable to exist first, so create or deploy the variable before the resource.
+- A secret's plaintext never goes in a file of the repo: a \`.variable.yaml\` holding it would be committed. Ask the user to create the secret on the workspace instead, e.g. \`wmill variable add '<value>' <path>\` (a secret by default), then reference it by path.
 
 ## Resource References
 
@@ -6594,14 +7123,13 @@ For a **visual** open-the-script-in-the-dev-page preview (rather than \`script p
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
-Workflow-as-Code files use the normal script CLI workflow. There are no separate WAC deploy commands.
-
 # Windmill Workflow-as-Code Writing Guide
 
 ## Scope
 
 Use this guide when writing or modifying Windmill Workflow-as-Code (WAC) scripts.
 WAC is authored as a Windmill script and deployed with the normal script workflow. It is not an OpenFlow YAML flow.
+Workflow-as-Code files use the normal script CLI workflow. There are no separate WAC deploy commands.
 
 Supported WAC authoring targets:
 - Bun TypeScript scripts that import from \`windmill-client\`
@@ -6785,7 +7313,6 @@ Python: \`except Exception\` is safe around WAC calls because internal suspensio
 TypeScript: avoid broad \`try/catch\` around WAC SDK calls. The SDK uses an internal suspension error during initial dispatch; catching it can break workflow suspension. If a broad catch is unavoidable, rethrow internal suspension errors before handling business errors.
 
 A caught failure reads the same whether it came from a task or from a \`step()\`, and the same in the round that ran the failing body as in every round replaying it. It carries \`step_key\`, \`child_job_id\` (absent for a \`step()\`, which runs in the workflow job and has no child job), a \`message\` that is the failure's own message, and \`result\` = \`{"error": {"name", "message", "stack"?, "extra"?}}\`. \`name\`, \`message\` and \`stack\` are the fields that read the same whichever side failed; \`name\` and \`message\` are always there, \`stack\` only when the failure had a traceback to give. \`extra\` carries the failure's own custom fields (an exception's attributes, an error's properties) and is best-effort: it is absent when there were none, and a task can report entries a step does not, so read it defensively and don't branch on its absence. \`extra\` is dropped when it is too large to keep in the checkpoint, and \`extra_omitted: true\` says so — absent \`extra\` with no \`extra_omitted\` means the failure simply had no custom fields. Branch on those, not on the original exception type: the workflow body re-runs from the top every round and a replay rebuilds the failure from the checkpoint, so nothing outside that record survives. Python raises \`TaskError\`; TypeScript throws an \`Error\` named \`TaskError\` carrying the same fields. Nothing is chained onto \`__cause__\` / \`cause\` — the traceback is in \`result.error.stack\`, and is also printed to the job log when the step fails.
-
 
 ## TypeScript Workflow-as-Code API (windmill-client)
 
@@ -7154,6 +7681,132 @@ def get_approval_urls(step_key: str = 'approval', approver: str = None) -> dict
 #
 #     results = await parallel(items, process, concurrency=5)
 async def parallel(items, fn, *, concurrency: Optional[int] = None)
+\`\`\`
+`,
+  "write-pipeline": `---
+name: write-pipeline
+description: MUST use when creating or modifying a data pipeline, a set of scripts marked \`pipeline\` and wired together by \`on\` / \`materialize\` annotations.
+---
+
+# Data pipeline authoring
+
+A **data pipeline** is NOT a flow. A flow is one runnable that orchestrates steps internally. A data pipeline is a set of **independent scripts**, each deployed on its own, that form a DAG by reading and writing shared **storage assets** (DuckLake tables, data tables, S3 objects, volumes, resources) and by declaring execution **triggers**. The pipeline is visualized and edited at \`/pipeline/<folder>\`; every node is a normal workspace script that happens to carry pipeline annotations. When the user asks for a "data pipeline" (or to "ingest / transform / materialize" data across steps), build pipeline-annotated scripts — do NOT build a flow.
+
+## Default to DuckDB + DuckLake
+
+A pipeline node that produces a table should almost always be a **\`duckdb\`** node that materializes its output into a **DuckLake** table with \`-- materialize ducklake://<name>/<table>\` (in a DuckDB node the annotation uses SQL \`--\` comment syntax; write the body as a bare \`SELECT\` and let the runtime do the write). DuckLake is the default lakehouse store for pipelines and is the shape the pipeline editor is built around, so prefer it unless the work specifically calls for something else:
+
+- \`postgresql\` / data tables — only for row-level, OLTP-style mutations against an existing Postgres data table (frequent single-row upserts/updates, transactional reads that an app queries live).
+- \`bun\` / \`python3\` — only for non-tabular work that doesn't map to SQL: calling an external API, wrangling files, arbitrary glue. When such a node still produces tabular data for downstream steps, land it in DuckLake (write it with the wmill SDK / ducklake helpers) rather than inventing a parallel store.
+
+Do not spread a pipeline across postgres, S3, and DuckLake when one DuckLake lake would do; a consistent DuckLake lakehouse is the goal.
+
+## Storage prerequisites
+
+A DuckLake pipeline only runs once the workspace has **object storage** (S3 / Azure Blob / GCS) **and a DuckLake catalog** configured — DuckLake tables and \`s3://\` assets can't be materialized or read without it. Check which DuckLake catalogs the workspace has before you build.
+\`wmill ducklake list\` lists them.
+Drafting the annotated scripts does not require storage, but the pipeline can't ingest, materialize, or read its assets until it exists. So if there is none (or the user hits "storage not configured" errors), say so and give the right next step **by role**:
+
+- a workspace **admin** sets it up in Workspace settings → Object Storage (add an S3/Azure/GCS storage), then adds a DuckLake catalog on top of it;
+- anyone **without admin rights** should ask a workspace admin to configure object storage + a DuckLake catalog.
+
+Never hand back a DuckLake pipeline that cannot run without flagging the missing storage and pointing to who sets it up.
+
+## What makes a script a pipeline node
+
+A script joins the pipeline when its source begins with the \`pipeline\` annotation as a top-of-file comment, **written in the script's own comment syntax** — \`//\` for TS/JS (bun), \`--\` for SQL (DuckDB/Postgres), \`#\` for Python/Bash. So it's \`-- pipeline\` in a DuckDB node, \`# pipeline\` in a Python node, \`// pipeline\` in a bun node. Every annotation below uses that same prefix (the \`//\` shown is the TS form). All other wiring is expressed as annotation comments near the top of the file:
+
+- \`// on <ref>\` — declares an execution-DAG **input** (what triggers/feeds this node). \`<ref>\` is either:
+  - an **asset URI** (the node runs when that asset is produced upstream): \`ducklake://main/orders\`, \`datatable://main/users\`, \`$res:f/folder/my_resource\`, \`volume://name/path\`, or an S3 object (see the S3 storage-form rule below).
+  - a **native trigger kind**: \`schedule\`, \`webhook\`, \`email\`, \`kafka\`, \`mqtt\`, \`amqp\`, \`nats\`, \`postgres\`, \`sqs\`, \`gcp\`, or \`data_upload\` (a user-uploaded S3 file). For these the actual trigger row (cron, topic, …) is created separately; the annotation only declares the binding. **\`data_upload\` is special**: there is no trigger row — the node instead declares an **\`S3Object\` input parameter** fed by the auto-generated upload picker; it never hard-codes a key. Any language can be the \`data_upload\` node:
+    - Python (has \`import wmill\`): \`def main(file: wmill.S3Object):\` then \`wmill.load_s3_file(file)\`; TS (has \`import * as wmill from "windmill-client"\`): \`export async function main(file: wmill.S3Object)\`. Qualify the type as \`wmill.S3Object\` (or add \`from wmill import S3Object\` / \`import { S3Object } from "windmill-client"\`) — a bare \`S3Object\` is undefined.
+    - **DuckDB** takes the s3object arg via a \`-- $<name> (s3object)\` declaration and reads it directly, so a single DuckDB node can ingest **and** materialize:
+      \`\`\`
+      -- pipeline
+      -- on data_upload
+      -- materialize ducklake://main/raw_uploads
+      -- $file (s3object)
+      SELECT * FROM read_csv($file)
+      \`\`\`
+- **Outputs** are inferred from what the body writes — a \`CREATE TABLE\`, a \`wmill.writeS3File(...)\`, a DuckLake/datatable write. To declare a managed output explicitly, use \`// materialize <asset-uri>\`.
+- Optional badges: \`// partitioned <daily|hourly|weekly|monthly|dynamic>\`, \`// freshness <duration>\` (e.g. \`1h\`), \`// tag <worker-tag>\`, \`// retry <count> [delay]\`, \`// data_test <kind> ...\` (managed DuckLake targets only — deploy rejects it beside a \`dbt://\` one), \`// measure <name> = <agg> [where <pred>]\` and \`// dimension <name> = <expr>\` (see "Declared metrics" below).
+
+## S3 object wiring (storage form matters)
+
+An \`s3://\` URI's first slashes select the **storage**, not part of the key — get this wrong and the producer/consumer edge silently won't connect:
+
+- \`s3:///<key>\` (**triple** slash, empty first segment) = the **default** workspace storage. A downstream node reading or triggering on that object uses \`s3:///<key>\` — e.g. DuckDB \`-- on s3:///orders/2024.parquet\` and \`read_parquet('s3:///orders/2024.parquet')\`.
+- \`s3://<storage>/<key>\` (**double** slash, non-empty first segment) = a **named secondary** storage called \`<storage>\` — so \`s3://ingest/x\` means storage \`ingest\`, key \`x\`, NOT key \`ingest/x\`. Only use this when the object genuinely lives in a configured secondary storage; never invent a bucket/storage name for a default-storage object (it breaks the edge).
+
+To make the producer side visible to lineage, a Python/TS node MUST pass the **\`S3Object\` form**, not a bare key string: Python \`wmill.write_s3_file(wmill.S3Object(s3="<key>"), data)\` (or the import-free dict \`{"s3": "<key>"}\`), TS \`wmill.writeS3File({ s3: "<key>" }, data)\`. That records the default-storage asset \`/<key>\`, which a downstream \`s3:///<key>\` reader connects to (same key both sides). A bare \`write_s3_file("<key>", ...)\` records **no** asset and produces **no** edge. Add \`storage="<name>"\` only for a named secondary storage.
+
+The key must be a **string literal** — the graph parser is static and cannot follow a variable, f-string, or computed path, so \`write_s3_file(wmill.S3Object(s3=key_var), ...)\` records no edge. Inline the literal (\`s3="events/user_events.parquet"\`) on both the writing and reading node. The same rule applies to every asset URI in an annotation or SDK call (\`ducklake://\`, \`datatable://\`, \`s3://\`): write them literally, not via a variable.
+
+## Materialize (the managed output)
+
+> **A MANAGED \`// materialize\` is DuckDB-only**, and its target must be a DuckLake table (\`ducklake://<name>/<table>\`). Deploy **rejects** a \`ducklake://\` \`// materialize\` on any other language (\`python3\`, \`bun\`, \`postgresql\`). For a non-DuckDB node writing the lake, do **not** use \`// materialize\` — write the output via the SDK (\`wmill.writeS3File(...)\`, ducklake helpers, …) and let it be inferred. Use \`duckdb\` when a node should materialize a DuckLake table.
+>
+> The one target ANY language may declare (except a dbt script, whose writes come from its manifest) is a **warehouse relation**: \`// materialize manual dbt://<warehouse>/<schema>/<name>\`, where \`<warehouse>\` is a warehouse the workspace configures under Settings → dbt. \`manual\` is the only mode it has — nothing generates warehouse DDL, so the node issues its own write (a postgresql \`CREATE TABLE\` / \`INSERT\`, an SDK load, …) and the annotation records the outcome. Use it on an ingestion node whose output a dbt project reads as a \`source\`: the declared relation and the dbt model land on ONE graph node, and a downstream \`// on dbt://<warehouse>/<schema>/<name>\` fires when the ingestion node completes.
+
+A managed \`// materialize ducklake://<name>/<table>\` tells the runtime to write the node's output table **for you**: write the body as a single \`SELECT\` and the runtime wraps it in the create/replace — do **not** also write your own \`CREATE TABLE\` / \`INSERT\`. (The opposite holds for the \`dbt://\` target above: there the node writes its own DDL and the strategies below do not apply.) Write strategy:
+
+- no option → **replace** the whole table each run (full refresh; the only mode whose output columns may change);
+- \`// materialize <uri> append\` → INSERT-append rows (incremental);
+- \`// materialize <uri> key=<col>\` → merge/upsert on \`<col>\`.
+
+\`// materialize manual <uri>\` opts **out** of managed writes — the script writes its own DDL and the annotation only records the output asset for lineage.
+
+\`materialize\` pairs with partitioning for incremental pipelines: a \`// partitioned <daily|hourly|weekly|monthly|dynamic>\` node runs **once per partition** (append/merge into a fixed-schema table). The \`{partition}\` token, usable in any asset URI **and** in the body SQL, is replaced at run time by the current partition's **identity string**:
+
+- To filter the source to the active slice on a time grain, use the runtime-injected macro: \`WHERE wm_partition(<ts_col>) = {partition}\`. \`wm_partition(ts)\` buckets a timestamp in exactly the identity format the runtime uses for daily/hourly/weekly/monthly, so it always matches; never hand-write a \`strftime\` format.
+- Do NOT write \`= TIMESTAMP {partition}\`: the identity string is not a valid timestamp literal for hourly/weekly/monthly and errors at run time.
+- For \`dynamic\` partitioning the identity is the caller-supplied key (not a timestamp, no macro), so filter on it directly: \`WHERE <your_key_col> = {partition}\`.
+
+\`materialize\` is an output **declaration** on a node — not a command. There is no "materialize run".
+
+## Declared metrics (\`measure\` / \`dimension\`)
+
+On a node that materializes a DuckLake table, \`// measure <name> = <aggregate> [where <predicate>]\` names the canonical way to aggregate that table (e.g. \`// measure revenue = sum(amount) where not is_refund\`), and \`// dimension <name> = <expr>\` names a way to slice it (e.g. \`// dimension region = region\`, \`// dimension month = date_trunc('month', ordered_at)\`). They execute nothing: they are catalogued at deploy so the editor and other agents reuse the definition instead of re-deriving it and silently disagreeing.
+
+- Keep the predicate in the \`where\` clause rather than folding it into the aggregate: it is rendered as \`<agg> FILTER (WHERE <pred>)\`, which is what lets two measures with different predicates share one GROUP BY.
+- DuckLake-only, and only meaningful next to \`// materialize\`.
+- Declare one when a number carries a judgement call someone else would get wrong (refunds excluded, test rows dropped, which column is the amount); do NOT blanket every table with measures — an obvious \`count(*)\` earns nothing.
+- To use a metric another node declares, read that node and reuse its exact expression rather than guessing it.
+
+## How to build one
+
+1. Put every node in the **same folder**: \`f/<folder>/<name>\`. The folder is the pipeline.
+2. Write each node as its own script. Default to \`duckdb\` materializing into DuckLake (see "Default to DuckDB + DuckLake" above); pick \`postgresql\`, \`bun\`, or \`python3\` only when that section says the work calls for it.
+3. Start each body with \`// pipeline\`, then the \`// on\` input declarations, then the transform that writes the output.
+4. **Chain nodes by asset URI**: read an upstream node's output asset, then \`// on <that-same-uri>\` in the downstream node so the edge forms. Reuse exact asset paths from existing nodes rather than inventing parallel ones.
+5. Don't deploy nodes unless the user asks to. A pipeline only "runs" once its scripts are deployed and their triggers exist.
+
+Locally:
+
+- create each node with \`wmill script new f/<folder>/<name> <language>\`, then write its body;
+- \`wmill pipeline show <folder> --local\` draws the graph from your working tree — check that every edge you meant to form is there;
+- \`wmill pipeline dev <folder>\` live-previews the pipeline, and \`wmill pipeline run <folder> --local\` runs the cascade from local files without deploying (\`--dry-run\` prints the plan first);
+- a trigger such as \`// on schedule\` only declares the binding: the schedule or trigger itself is created separately (see the \`schedules\` and \`triggers\` skills).
+
+## Example (DuckDB → DuckLake, scheduled ingest + downstream transform)
+
+Node \`f/sales/orders_ingest\` (runs on a schedule, materializes a DuckLake table):
+
+\`\`\`sql
+-- pipeline
+-- on schedule
+-- materialize ducklake://main/orders
+SELECT * FROM read_csv('s3:///raw/orders/*.csv')
+\`\`\`
+
+Node \`f/sales/orders_daily\` (runs when \`orders\` is produced, writes a rollup):
+
+\`\`\`sql
+-- pipeline
+-- on ducklake://main/orders
+-- materialize ducklake://main/orders_daily
+SELECT date_trunc('day', ts) AS day, count(*) AS n
+FROM ducklake.main.orders GROUP BY 1
 \`\`\`
 `,
   "cli-commands": `---
@@ -7538,7 +8191,7 @@ Manage jobs (import/export)
 
 ### lint
 
-Validate Windmill flow, schedule, and trigger YAML files in a directory, and report script metadata that has no deployable content file
+Validate Windmill flow, schedule, and trigger YAML files in a directory (including AI agent tool names and flow groups/notes), and report script metadata that has no deployable content file
 
 **Arguments:** \`[directory:string]\`
 

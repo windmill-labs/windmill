@@ -60,7 +60,7 @@ import { logFeatureUsage, logHubScriptPick } from '$lib/utils/featureUsage'
 import { forLater } from '$lib/forLater'
 import { scriptLangToEditorLang } from '$lib/scripts'
 import { getCurrentModel } from '$lib/aiStore'
-import { type editor as meditor } from 'monaco-editor'
+import type { editor as meditor } from 'monaco-editor'
 import { pendingFolderInstructions, type FolderInstructionsContext } from './folderInstructions'
 import type { WebSearchSource } from './webSearchResult'
 
