@@ -25,11 +25,13 @@
 	import { importScriptStore } from '$lib/components/scripts/scriptStore.svelte'
 	import { importStore } from '$lib/components/apps/store'
 	import { conditionalMelt, getLocalSetting, storeLocalSetting } from '$lib/utils'
-	import { operatorBuilderFlows } from '$lib/stores'
+	import { useOperatorBuilderFlows } from '$lib/operatorWriteRights'
 	import { createDropdownMenu, melt } from '@melt-ui/svelte'
 	import YAML from 'yaml'
 	import type { Snippet } from 'svelte'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
+
+	const operatorBuilderFlows = useOperatorBuilderFlows()
 
 	interface Props {
 		/** Replaces the default `New` button, e.g. with an inline text link. */

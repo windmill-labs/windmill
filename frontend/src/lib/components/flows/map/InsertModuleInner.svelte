@@ -12,13 +12,14 @@
 	import RefreshButton from '$lib/components/common/button/RefreshButton.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { ResourceService } from '$lib/gen'
-	import { operatorBuilderFlows } from '$lib/stores'
+	import { useOperatorBuilderFlows } from '$lib/operatorWriteRights'
 	import type { FlowEditorContext } from '../types'
 	import { logReusableAgentUsage } from '../agentTelemetry'
 	import { BotIcon, Loader2, Plus } from 'lucide-svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatorBuilderFlows = useOperatorBuilderFlows()
 
 	const dispatch = createEventDispatcher()
 	interface Props {

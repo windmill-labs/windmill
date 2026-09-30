@@ -7,12 +7,8 @@
 	import { sendUserToast } from '$lib/toast'
 	import FlowScriptPickerQuick from '../pickers/FlowScriptPickerQuick.svelte'
 	import { defaultScriptLanguages, processInlineLangs } from '$lib/scripts'
-	import {
-		defaultScripts,
-		enterpriseLicense,
-		hubBaseUrlStore,
-		operatorBuilderFlows
-	} from '$lib/stores'
+	import { defaultScripts, enterpriseLicense, hubBaseUrlStore } from '$lib/stores'
+	import { useOperatorBuilderFlows } from '$lib/operatorWriteRights'
 	import type { SupportedLanguage } from '$lib/common'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
@@ -39,6 +35,7 @@
 	} from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatorBuilderFlows = useOperatorBuilderFlows()
 	const operatingUser = useOperatingUser()
 	const actingUser = $derived(operatingUser.current)
 

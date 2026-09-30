@@ -28,13 +28,8 @@
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
-	import {
-		enterpriseLicense,
-		operatorBuilderFlows,
-		userStore,
-		userWorkspaces,
-		workspaceStore
-	} from '$lib/stores'
+	import { enterpriseLicense, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import { useOperatorBuilderFlows } from '$lib/operatorWriteRights'
 	import { sendUserToast } from '$lib/toast'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import SavedInputsV2 from '$lib/components/SavedInputsV2.svelte'
@@ -91,6 +86,8 @@
 		onEditInForkClick
 	} from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
+
+	const operatorBuilderFlows = useOperatorBuilderFlows()
 
 	let flow: Flow | undefined = $state()
 	let can_write = $state(false)
@@ -442,13 +439,19 @@
 			})
 		}
 
-		menuItems.push({
-			label: 'Audit logs',
-			Icon: Eye,
-			onclick: () => {
-				goto(`/audit_logs?resource=${flow?.path}`)
-			}
-		})
+		// The builder right opens this menu to operators; audit logs stay behind their own setting.
+		if (
+			!$userStore?.operator ||
+			$userWorkspaces.find((w) => w.id === $workspaceStore)?.operator_settings?.audit_logs
+		) {
+			menuItems.push({
+				label: 'Audit logs',
+				Icon: Eye,
+				onclick: () => {
+					goto(`/audit_logs?resource=${flow?.path}`)
+				}
+			})
+		}
 
 		if (isDeployable('flow', flow?.path ?? '', deployUiSettings) && !$userStore?.operator) {
 			menuItems.push({

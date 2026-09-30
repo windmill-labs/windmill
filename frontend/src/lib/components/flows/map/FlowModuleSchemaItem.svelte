@@ -35,7 +35,9 @@
 	import DiffActionBar from './DiffActionBar.svelte'
 	import { getGraphContext } from '$lib/components/graph/graphContext'
 	import MoveHandleButton from '$lib/components/graph/MoveHandleButton.svelte'
-	import { operatorBuilderFlows } from '$lib/stores'
+	import { useOperatorBuilderFlows } from '$lib/operatorWriteRights'
+
+	const operatorBuilderFlows = useOperatorBuilderFlows()
 
 	interface Props {
 		selected?: boolean

@@ -3,9 +3,12 @@
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import type { HubProjectPick } from '$lib/hubProject'
-	import { disableHubStore, operatorBuilderFlows } from '$lib/stores'
+	import { disableHubStore } from '$lib/stores'
+	import { useOperatorBuilderFlows } from '$lib/operatorWriteRights'
 	import CreateActionsMenu from './CreateActionsMenu.svelte'
 	import HubTemplatePicker from './HubTemplatePicker.svelte'
+
+	const operatorBuilderFlows = useOperatorBuilderFlows()
 
 	interface Props {
 		/** A project was chosen here. The list owns the import dialog, and opens it on this. */

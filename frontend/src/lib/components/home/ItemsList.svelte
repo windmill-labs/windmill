@@ -16,12 +16,8 @@
 	} from '$lib/gen'
 	import { resource } from 'runed'
 	import { getDraftItems } from '$lib/workspaceDrafts.svelte'
-	import {
-		disableHubStore,
-		operatorBuilderFlows,
-		userStore,
-		workspaceStore
-	} from '$lib/stores'
+	import { disableHubStore, userStore, workspaceStore } from '$lib/stores'
+	import { useOperatorBuilderFlows } from '$lib/operatorWriteRights'
 	import type uFuzzy from '@leeoniya/ufuzzy'
 	import {
 		ArrowDownUp,
@@ -65,6 +61,9 @@
 	import { base } from '$lib/base'
 	import BulkActionsBar from './BulkActionsBar.svelte'
 	import { HomeSelection, setHomeSelection, toBulkItem } from './homeSelection.svelte'
+
+	const operatorBuilderFlows = useOperatorBuilderFlows()
+
 	interface Props {
 		subtab?: 'flow' | 'script' | 'app'
 		showEditButtons?: boolean

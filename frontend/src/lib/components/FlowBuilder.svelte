@@ -18,13 +18,7 @@
 		linkedAgentToolsVersion,
 		migrateLinkedAgentToolsScope
 	} from '$lib/components/flows/linkedAgentToolsStore.svelte'
-	import {
-		enterpriseLicense,
-		operatorBuilderFlows,
-		userStore,
-		userWorkspaces,
-		usedTriggerKinds
-	} from '$lib/stores'
+	import { enterpriseLicense, userStore, userWorkspaces, usedTriggerKinds } from '$lib/stores'
 	import {
 		generateRandomString,
 		orderedJsonStringify,
@@ -112,12 +106,13 @@
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { setOpenInSessionHandoff } from './sessions/openInSessionContext'
 	import { getEditorStoragePath, setEditorStoragePath } from './editorStoragePathContext'
-	import { useTriggerLock } from '$lib/operatorWriteRights'
+	import { useOperatorBuilderFlows, useTriggerLock } from '$lib/operatorWriteRights'
 	import {
 		useOperatingUser,
 		useOperatingWorkspace
 	} from '$lib/components/operatingWorkspace.svelte'
 	const triggerLock = useTriggerLock()
+	const operatorBuilderFlows = useOperatorBuilderFlows()
 
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()

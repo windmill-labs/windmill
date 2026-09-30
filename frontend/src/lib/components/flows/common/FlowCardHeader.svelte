@@ -19,7 +19,8 @@
 	import FlowPanelChrome from './FlowPanelChrome.svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import { hubBaseUrlStore, operatorBuilderFlows } from '$lib/stores'
+	import { hubBaseUrlStore } from '$lib/stores'
+	import { useOperatorBuilderFlows } from '$lib/operatorWriteRights'
 	import { DEFAULT_HUB_BASE_URL, PRIVATE_HUB_MIN_VERSION } from '$lib/hub'
 	import { getLatestHashForScript } from '$lib/scripts'
 	import { sendUserToast, type Item } from '$lib/utils'
@@ -30,6 +31,7 @@
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatorBuilderFlows = useOperatorBuilderFlows()
 
 	interface Props {
 		flowModuleValue?: FlowModuleValue | undefined
