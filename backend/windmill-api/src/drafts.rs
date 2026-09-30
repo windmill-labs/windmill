@@ -14,9 +14,11 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use windmill_api_flows::flows::validate_operator_flow;
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
+    flows::FlowValue,
     user_drafts::{DraftUserRef, UserDraftItemKind, ENCRYPTED_DRAFT_PREFIX},
     users::resolve_username_to_email,
     utils::{check_proper_path, strip_json_nul},
@@ -465,6 +467,30 @@ async fn update_draft(
                 ));
             }
             other => other?,
+        }
+    }
+
+    if authed.is_operator && kind == UserDraftItemKind::Flow {
+        if let Some(value) = &req.value {
+            #[derive(Deserialize)]
+            struct FlowDraft {
+                #[serde(default)]
+                value: FlowValue,
+                schema: Option<Box<serde_json::value::RawValue>>,
+                tag: Option<String>,
+            }
+            let draft: FlowDraft = serde_json::from_str(value.0.get())
+                .map_err(|e| Error::BadRequest(format!("Invalid flow draft: {e}")))?;
+            validate_operator_flow(
+                &draft.value,
+                &draft.tag,
+                draft.schema.as_deref().map(|s| s.get()),
+                &authed,
+                &db,
+                &user_db,
+                &w_id,
+            )
+            .await?;
         }
     }
 

@@ -122,37 +122,18 @@ async fn test_operator_builder_flows_boundary(db: Pool<Postgres>) -> anyhow::Res
         resp.text().await?
     );
 
-    sqlx::query(
-        "UPDATE flow SET schema = '{\"x-windmill-dyn-select-code\": \"dev\", \"x-windmill-dyn-select-lang\": \"bun\"}' WHERE workspace_id = $1 AND path = 'u/operator/f1'",
-    )
-    .bind(WS)
-    .execute(&db)
-    .await?;
-    let with_dyn_code = |code: &str| {
-        let mut f = composition_flow_at("u/operator/f1", "u/operator/some_script");
-        f["schema"] =
-            json!({"x-windmill-dyn-select-code": code, "x-windmill-dyn-select-lang": "bun"});
-        f
-    };
+    let mut with_dyn_code = composition_flow_at("u/operator/f1", "u/operator/some_script");
+    with_dyn_code["schema"] =
+        json!({"x-windmill-dyn-select-code": "x", "x-windmill-dyn-select-lang": "bun"});
     let resp = c
         .post(format!("{api}/flows/update/u/operator/f1"))
-        .json(&with_dyn_code("dev"))
-        .send()
-        .await?;
-    assert!(
-        resp.status().is_success(),
-        "a builder must be able to keep a flow's dropdown code: {}",
-        resp.text().await?
-    );
-    let resp = c
-        .post(format!("{api}/flows/update/u/operator/f1"))
-        .json(&with_dyn_code("builder"))
+        .json(&with_dyn_code)
         .send()
         .await?;
     assert_eq!(
         resp.status(),
         403,
-        "a builder must not change a flow's dropdown code"
+        "a builder must not save a flow carrying dropdown code"
     );
     let resp = c
         .post(format!("{api}/jobs/run/dynamic_select"))
@@ -203,6 +184,28 @@ async fn test_operator_builder_flows_boundary(db: Pool<Postgres>) -> anyhow::Res
         403,
         "a builder must not deploy a flow carrying inline code"
     );
+
+    for (draft, expected) in [
+        (
+            composition_flow_at("u/operator/f1", "u/operator/some_script"),
+            200,
+        ),
+        (inline_code_flow("u/operator/f1"), 403),
+        (with_dyn_code.clone(), 403),
+    ] {
+        let resp = c
+            .post(format!("{api}/drafts/update/flow/u/operator/f1"))
+            .json(&json!({ "value": draft, "force": true }))
+            .send()
+            .await?;
+        let status = resp.status();
+        assert_eq!(
+            status,
+            expected,
+            "flow draft {draft}: {}",
+            resp.text().await?
+        );
+    }
 
     // Same for the preview path, which runs a request-supplied flow value rather than a stored one.
     let resp = c

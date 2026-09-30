@@ -574,7 +574,6 @@ async fn list_paths_linking_agent(
 
 async fn validate_flow(
     new_flow: &NewFlow,
-    updated_path: Option<&str>,
     authed: &ApiAuthed,
     db: &DB,
     user_db: &UserDB,
@@ -591,58 +590,43 @@ async fn validate_flow(
     guard_flow_from_debounce_data(new_flow).await?;
 
     if authed.is_operator {
-        validate_operator_composed_flow(
+        validate_operator_flow(
             &new_flow.parse_flow_value()?,
             &new_flow.tag,
+            new_flow.schema.as_ref().map(|s| s.0.get()),
             authed,
             db,
             user_db,
             w_id,
         )
         .await?;
-        check_operator_kept_dyn_select_code(new_flow, updated_path, db, w_id).await?;
     }
 
     return Ok(());
 }
 
-/// A flow's dynamic dropdown code runs as whoever loads its form, so an operator may keep or drop
-/// the code stored on the flow being updated, never add or change it.
-async fn check_operator_kept_dyn_select_code(
-    new_flow: &NewFlow,
-    updated_path: Option<&str>,
+/// What an operator with builder rights must pass to store a flow, deployed or as a draft: a
+/// developer who loads a builder's draft in the editor runs its code as themselves.
+pub async fn validate_operator_flow(
+    value: &FlowValue,
+    flow_tag: &Option<String>,
+    schema: Option<&str>,
+    authed: &ApiAuthed,
     db: &DB,
+    user_db: &UserDB,
     w_id: &str,
 ) -> error::Result<()> {
-    const KEYS: [&str; 2] = ["x-windmill-dyn-select-code", "x-windmill-dyn-select-lang"];
-    let Some(schema) = &new_flow.schema else {
-        return Ok(());
-    };
-    let submitted: serde_json::Value = serde_json::from_str(schema.0.get())?;
-    if submitted.get(KEYS[0]).is_none() {
-        return Ok(());
+    // Dynamic dropdown code runs as whoever loads the flow's form: it is code like a step's.
+    if let Some(schema) = schema {
+        let schema: serde_json::Value = serde_json::from_str(schema)?;
+        if schema.get("x-windmill-dyn-select-code").is_some() {
+            return Err(Error::PermissionDenied(
+                "Operators cannot author a flow's dynamic dropdown code: ask a developer"
+                    .to_string(),
+            ));
+        }
     }
-    let stored = match updated_path {
-        Some(path) => sqlx::query_scalar::<_, Option<serde_json::Value>>(
-            "SELECT schema FROM flow WHERE workspace_id = $1 AND path = $2",
-        )
-        .bind(w_id)
-        .bind(path)
-        .fetch_optional(db)
-        .await?
-        .flatten(),
-        None => None,
-    };
-    if KEYS
-        .iter()
-        .all(|k| stored.as_ref().and_then(|s| s.get(k)) == submitted.get(k))
-    {
-        return Ok(());
-    }
-    Err(Error::PermissionDenied(
-        "Operators cannot add or change a flow's dynamic dropdown code: ask a developer"
-            .to_string(),
-    ))
+    validate_operator_composed_flow(value, flow_tag, authed, db, user_db, w_id).await
 }
 
 /// Runs on every write and every preview of a flow authored by an operator with builder rights.
@@ -767,7 +751,7 @@ async fn create_flow(
         return Err(Error::PermissionDenied(msg));
     }
 
-    validate_flow(&nf, None, &authed, &db, &user_db, &w_id).await?;
+    validate_flow(&nf, &authed, &db, &user_db, &w_id).await?;
     if *CLOUD_HOSTED {
         let nb_flows =
             sqlx::query_scalar!("SELECT COUNT(*) FROM flow WHERE workspace_id = $1", &w_id)
@@ -1365,7 +1349,7 @@ async fn update_flow(
         return Err(Error::PermissionDenied(msg));
     }
 
-    validate_flow(&nf, Some(flow_path), &authed, &db, &user_db, &w_id).await?;
+    validate_flow(&nf, &authed, &db, &user_db, &w_id).await?;
 
     let authed = maybe_refresh_folders(&flow_path, &w_id, authed, &db).await;
     let mut tx = user_db.clone().begin(&authed).await?;

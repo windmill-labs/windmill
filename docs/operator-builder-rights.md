@@ -38,13 +38,16 @@ permissions:
   script's hash still runs that other script.
 
 The value is not the only code a flow carries: the schema's `x-windmill-dyn-select-code` fills its
-dynamic dropdowns, run as whoever loads the form. A builder may keep or drop the code stored on the
-flow it updates, never add or change it, so the builder's editor previews dropdowns through the
-deployed flow rather than the inline route operators are refused.
+dynamic dropdowns, run as whoever loads the form, so `validate_operator_flow` refuses it like a
+step's code. A builder therefore cannot save a developer's flow that has dropdowns; its editor
+still previews them through the deployed flow rather than the inline route operators are refused.
+Which developer flows a builder may edit at all is left to permissions: write access to the flow
+or its folder.
 
 Call it on every write **and** every preview: `run_preview_flow_job` and
 `push_flow_dependencies_job` both take a request-supplied flow value, so leaving either out makes
-it the way to run what the write path refuses.
+it the way to run what the write path refuses. A flow draft goes through `validate_operator_flow`
+too: a developer who loads a builder's draft in the editor runs its code as themselves.
 
 ## Billing
 
