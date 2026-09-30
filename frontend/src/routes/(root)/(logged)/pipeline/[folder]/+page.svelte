@@ -611,6 +611,9 @@
 		pe.drafts = new Map()
 		pe.triggerDrafts = new Map()
 		pe.activeDraftPath = undefined
+		// The open pane's buffer is autosaved as a draft of the deployed script it
+		// edits, so it has to go with the drafts.
+		pe.clearLiveOverlays()
 		saveErrors = new Map()
 		const target = pendingNavigationUrl
 		leaveModalOpen = false
