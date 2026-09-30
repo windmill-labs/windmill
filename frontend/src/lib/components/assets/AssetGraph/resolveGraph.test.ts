@@ -1322,6 +1322,35 @@ describe('pipelineNodeErrors', () => {
 		).toBe(0)
 	})
 
+	it('does not count a flow write as starting an asset-triggered script', () => {
+		const g = baseGraph({
+			assets: [{ kind: 'ducklake', path: 'main/raw' }],
+			runnables: [
+				{ path: 'f/x/reader', usage_kind: 'script', in_pipeline: true },
+				{ path: 'f/x/loader', usage_kind: 'flow' }
+			] as any,
+			edges: [
+				{
+					runnable_path: 'f/x/loader',
+					runnable_kind: 'flow',
+					asset_kind: 'ducklake',
+					asset_path: 'main/raw',
+					access_type: 'w'
+				}
+			],
+			triggers: [
+				{
+					trigger_kind: 'asset',
+					asset_kind: 'ducklake',
+					asset_path: 'main/raw',
+					runnable_kind: 'script',
+					runnable_path: 'f/x/reader'
+				}
+			]
+		} as any)
+		expect(pipelineNodeErrors(g, new Map()).untriggered.get('f/x/reader')).toBe('unwritten-inputs')
+	})
+
 	it('clears a subscription the workspace writes outside the pipeline', () => {
 		const errors = pipelineNodeErrors(
 			graph,

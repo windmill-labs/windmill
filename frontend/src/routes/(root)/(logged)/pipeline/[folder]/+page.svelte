@@ -1,4 +1,5 @@
 <script lang="ts">
+	import pLimit from 'p-limit'
 	import { workspaceStore, userStore } from '$lib/stores'
 	import { PIPELINE_DRAFT_KIND, pipelineBundlePath } from '$lib/pipelinePaths'
 	import { base } from '$lib/base'
@@ -837,12 +838,20 @@
 				r.status === 'rejected'
 					? String((r.reason as any)?.body ?? (r.reason as any)?.message ?? r.reason)
 					: ''
-			// A draft identical to the deployed script is refused as a duplicate: it
-			// has nothing to deploy, so it is done rather than failed.
-			if (r.status === 'fulfilled' || /same hash/i.test(msg)) {
+			// A refused draft that equals the deployed script has nothing left to
+			// deploy. A duplicate refusal alone does not prove it: it is checked
+			// against every past version, not just the live one.
+			if (r.status === 'fulfilled') {
+				savedPaths.push(path)
+			} else if (await matchesDeployed(path, entries[i][1], ws)) {
 				savedPaths.push(path)
 			} else {
-				errors.set(path, msg)
+				errors.set(
+					path,
+					/same hash/i.test(msg)
+						? 'This is the content of an earlier version, which cannot be deployed again as is. Change anything in it (a comment will do) to deploy it.'
+						: msg
+				)
 			}
 		}
 		const savedTriggers = await deployTriggerDrafts(ws, savedPaths, errors)
@@ -1171,6 +1180,14 @@
 	// (same rationale as the live-callback handlers above) and so the
 	// template can gate them per-mode with simple ternaries — the canvas
 	// hides each affordance when its callback is undefined.
+	async function matchesDeployed(path: string, d: Draft, ws: string): Promise<boolean> {
+		try {
+			const live = await ScriptService.getScriptByPath({ workspace: ws, path })
+			return live.content === d.script.content && live.language === d.script.language
+		} catch {
+			return false
+		}
+	}
 	// Assets a job has written, by `kind:path`. Only grows: once built, an asset
 	// stays built for this page's purposes.
 	const materialized = new Set<string>()
@@ -1351,6 +1368,7 @@
 			sendUserToast(`Could not open ${path}: ${e?.body ?? e?.message ?? String(e)}`, true)
 			return false
 		}
+		panelHidden = false
 		const content = apply(script.content ?? '')
 		if (content === script.content) {
 			pe.activeDraftPath = draft ? path : undefined
@@ -1507,6 +1525,7 @@
 							// The pane takes the remove request only once it is open on the
 							// script: a request made as it mounts is its starting point.
 							if (!unsaved) {
+								panelHidden = false
 								pe.activeDraftPath = undefined
 								pe.selection = { kind: 'runnable', runnable_kind: 'script', path }
 								await tick()
@@ -1759,47 +1778,66 @@
 	let writtenInPipeline = $derived(
 		new Set(
 			shownGraph.edges
-				.filter((e) => e.access_type === 'w' || e.access_type === 'rw')
+				.filter(
+					(e) =>
+						e.runnable_kind === 'script' && (e.access_type === 'w' || e.access_type === 'rw')
+				)
 				.map((e) => `${e.asset_kind}:${e.asset_path}`)
 		)
 	)
+	// dbt builds its models; its sources come from elsewhere, like any other asset.
+	const dbtBuilt = (a: { dbt?: { resource_type?: string } | null }) =>
+		!!a.dbt && a.dbt.resource_type !== 'source'
 	let unwrittenInPipeline = $derived(
 		[
 			...new Set([
 				...pipelineNodeErrors(shownGraph, explicitOnByPath).unwrittenTriggerAssets,
 				...shownGraph.assets
-					.filter((a) => !a.dbt && !writtenInPipeline.has(`${a.kind}:${a.path}`))
+					.filter((a) => !dbtBuilt(a) && !writtenInPipeline.has(`${a.kind}:${a.path}`))
 					.map((a) => `${a.kind}:${a.path}`)
 			])
 		]
 			.sort()
 			.join('\n')
 	)
+	// Whether a script outside the pipeline writes each asset (a flow's write fires
+	// no asset trigger). One lookup per asset, bounded, and remembered per
+	// `kind:path` so editing the graph only asks about assets it has not seen.
+	const writerLookups = new Map<string, Promise<boolean | undefined>>()
+	const writerLimit = pLimit(6)
+	function writtenInWorkspace(ws: string, key: string): Promise<boolean | undefined> {
+		const cacheKey = `${ws}\n${key}`
+		let p = writerLookups.get(cacheKey)
+		if (!p) {
+			const i = key.indexOf(':')
+			const kind = key.slice(0, i)
+			const path = key.slice(i + 1)
+			p = writerLimit(async () => {
+				try {
+					const res = await AssetService.listAssets({ workspace: ws, path, assetKinds: kind })
+					return res.assets.some((a) =>
+						a.usages.some(
+							(u) => u.kind === 'script' && (u.access_type === 'w' || u.access_type === 'rw')
+						)
+					)
+				} catch {
+					// Unknown: the node stays flagged, and the next graph change asks again.
+					writerLookups.delete(cacheKey)
+					return undefined
+				}
+			})
+			writerLookups.set(cacheKey, p)
+		}
+		return p
+	}
 	let writtenElsewhere = resource(
 		[() => $workspaceStore, () => unwrittenInPipeline],
 		async ([ws, keys]) => {
 			const out = new Set<string>()
 			if (!ws || !keys) return out
-			await Promise.all(
-				keys.split('\n').map(async (key) => {
-					const i = key.indexOf(':')
-					const kind = key.slice(0, i)
-					const path = key.slice(i + 1)
-					try {
-						const res = await AssetService.listAssets({ workspace: ws, path, assetKinds: kind })
-						const writes = res.assets.some((a) =>
-							a.usages.some(
-								(u) =>
-									(u.kind === 'script' || u.kind === 'flow') &&
-									(u.access_type === 'w' || u.access_type === 'rw')
-							)
-						)
-						if (writes) out.add(key)
-					} catch {
-						// Unknown: the node stays flagged, as before the lookup.
-					}
-				})
-			)
+			const list = keys.split('\n')
+			const found = await Promise.all(list.map((key) => writtenInWorkspace(ws, key)))
+			list.forEach((key, i) => found[i] && out.add(key))
 			return out
 		}
 	)
@@ -1837,7 +1875,7 @@
 					const error = errors.assets.get(key)
 					// Only once the workspace lookup has answered: before, it is unknown.
 					const never_written =
-						!a.dbt &&
+						!dbtBuilt(a) &&
 						!writtenInPipeline.has(key) &&
 						!!writtenElsewhere.current &&
 						!writtenElsewhere.loading &&

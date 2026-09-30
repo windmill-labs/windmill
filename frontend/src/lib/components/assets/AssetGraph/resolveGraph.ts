@@ -339,8 +339,7 @@ export type PipelineNodeErrors = {
  * Nodes the pipeline cannot work with, with the reason. Assets (keyed
  * `kind:path`): one nothing uses at all. Scripts (keyed by path): one
  * subscribed (`// on <asset>`) to an asset nothing writes, in the pipeline or,
- * per `writtenElsewhere`, anywhere else in the workspace (asset triggers fire
- * on any write), since the subscription can never fire; the asset itself is
+ * per `writtenElsewhere`, by a script anywhere else in the workspace, since the subscription can never fire; the asset itself is
  * fine, and is reported in `unwritten`. A body read of an external asset is fine and is not passed here:
  * only the explicit `// on` annotations, per script path, count as subscriptions.
  */
@@ -350,9 +349,12 @@ export function pipelineNodeErrors(
 	writtenElsewhere: ReadonlySet<string> = new Set()
 ): PipelineNodeErrors {
 	const referenced = referencedAssetKeys(graph)
+	// Only a script's write fires an asset trigger: a flow's never does.
 	const written = new Set(
 		graph.edges
-			.filter((e) => e.access_type === 'w' || e.access_type === 'rw')
+			.filter(
+				(e) => e.runnable_kind === 'script' && (e.access_type === 'w' || e.access_type === 'rw')
+			)
 			.map((e) => `${e.asset_kind}:${e.asset_path}`)
 	)
 	for (const k of writtenElsewhere) written.add(k)
