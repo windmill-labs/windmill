@@ -19,6 +19,7 @@
 		ShieldCheck,
 		ShieldAlert,
 		CheckCircle2,
+		ChevronDown,
 		CircleSlash,
 		Trash2,
 		XCircle
@@ -244,8 +245,7 @@
 		const n = upstream && 'scripts' in upstream ? upstream.scripts.length : 1
 		return `${n} script${n === 1 ? '' : 's'}`
 	})
-	const CHIP_CLASS =
-		'shrink-0 h-5 min-w-5 rounded-md border bg-surface text-secondary hover:bg-surface-hover border-gray-300 dark:border-gray-600'
+	const HEADER_SELECTED = 'bg-surface-accent-selected hover:bg-surface-accent-selected text-accent'
 	const CHIP_SELECTED =
 		'bg-surface-accent-selected border-border-selected hover:bg-surface-accent-selected text-accent'
 	let producer = $derived(upstream && 'path' in upstream ? upstream : undefined)
@@ -322,37 +322,72 @@
 	)
 </script>
 
-{#snippet scriptChip(sc: {
-	path: string
-	summary?: string
-	language?: ScriptLang
-	unsaved?: boolean
-	selected?: boolean
-	onOpen: () => void
-})}
-	<button
-		type="button"
-		class={twMerge(
-			CHIP_CLASS,
-			'grid place-items-center px-1',
-			sc.unsaved && 'border-dashed border-gray-400 dark:border-gray-500',
-			sc.selected && CHIP_SELECTED
-		)}
-		title={`Open ${sc.summary ? `${sc.summary} (${sc.path})` : sc.path}${sc.unsaved ? ' · draft' : ''}`}
-		aria-label="Open the script that produces this asset"
-		onpointerdown={(e) => e.stopPropagation()}
-		onkeydown={(e) => e.stopPropagation()}
-		onclick={(e) => {
-			e.stopPropagation()
-			sc.onOpen()
-		}}
-	>
-		{#if sc.language}
-			<LanguageIcon lang={sc.language} width={12} height={12} />
-		{:else}
-			<Code2 size={12} />
-		{/if}
-	</button>
+{#snippet scriptHeader()}
+	<!-- The script building this asset, folded into it: a strip across the top
+	     naming it, which opens it. Several scripts open a menu to pick one. -->
+	{@const one = producer ?? (coProducers.length === 1 ? coProducers[0] : undefined)}
+	{@const headerClass = twMerge(
+		'flex items-center gap-1.5 w-full min-w-0 px-2 text-3xs font-normal leading-none text-secondary hover:bg-surface-hover hover:text-primary'
+	)}
+	{#if one}
+		{@const isSelected = producer ? !!producer.selected : coSelected}
+		<button
+			type="button"
+			class={twMerge(headerClass, isSelected && HEADER_SELECTED)}
+			title={`Open ${one.summary ? `${one.summary} (${one.path})` : one.path}${one.unsaved ? ' · draft' : ''}`}
+			onpointerdown={(e) => e.stopPropagation()}
+			onkeydown={(e) => e.stopPropagation()}
+			onclick={(e) => {
+				e.stopPropagation()
+				one.onOpen()
+			}}
+		>
+			{#if one.language}
+				<LanguageIcon lang={one.language} width={11} height={11} />
+			{:else}
+				<Code2 size={11} class="shrink-0" />
+			{/if}
+			<span class="truncate">{one.summary || one.path}</span>
+			{#if one.unsaved}<span class="shrink-0 text-tertiary">draft</span>{/if}
+			{#if producer?.runState}
+				<RunStateChip runState={producer.runState} class="ml-auto h-4 px-1 rounded" />
+			{/if}
+		</button>
+	{:else if coProducers.length > 1}
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div
+			class="w-full min-w-0 flex"
+			onpointerdown={(e) => e.stopPropagation()}
+			onkeydown={(e) => e.stopPropagation()}
+		>
+			<DropdownV2
+				items={coProducerItems}
+				placement="bottom-start"
+				bind:open={scriptMenuOpen}
+				fixedHeight={false}
+				usePointerDownOutside
+				enableFlyTransition
+				class="w-full"
+			>
+				{#snippet buttonReplacement()}
+					<span
+						class={twMerge(headerClass, 'h-full', (coSelected || scriptMenuOpen) && HEADER_SELECTED)}
+						title={`Built by ${coProducers.length} scripts: pick one to open`}
+					>
+						{#each coProducers.slice(0, 2) as sc (sc.path)}
+							{#if sc.language}
+								<LanguageIcon lang={sc.language} width={11} height={11} />
+							{:else}
+								<Code2 size={11} class="shrink-0" />
+							{/if}
+						{/each}
+						<span class="truncate">{coProducers.length} scripts</span>
+						<ChevronDown size={11} class="shrink-0 ml-auto" />
+					</span>
+				{/snippet}
+			</DropdownV2>
+		</div>
+	{/if}
 {/snippet}
 
 {#snippet upstreamRow()}
@@ -436,6 +471,7 @@
 			{selected}
 			tone={data.error ? 'error' : undefined}
 			subtitle={upstream ? upstreamRow : undefined}
+			header={producer || coProducers.length > 0 ? scriptHeader : undefined}
 			width={data.width}
 			surface={upstream ? 'primary' : 'secondary'}
 		>
@@ -553,50 +589,6 @@
 					>
 						<History size={12} />
 					</span>
-				{/if}
-				{#if producer}
-					{#if producer.runState}
-						<RunStateChip runState={producer.runState} class="mr-1 h-5 px-1.5 rounded-md" />
-					{/if}
-					{@render scriptChip(producer)}
-				{:else if coProducers.length === 1}
-					{@render scriptChip({ ...coProducers[0], selected: coSelected })}
-				{:else if coProducers.length > 1}
-					<!-- Several scripts build this table: the first two languages and a
-					     count, opening a menu to pick which one to open. -->
-					<!-- svelte-ignore a11y_no_static_element_interactions -->
-					<div onpointerdown={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
-						<DropdownV2
-							items={coProducerItems}
-							placement="bottom-end"
-							bind:open={scriptMenuOpen}
-							fixedHeight={false}
-							usePointerDownOutside
-							enableFlyTransition
-						>
-							{#snippet buttonReplacement()}
-								<span
-									class={twMerge(
-										CHIP_CLASS,
-										'flex items-center gap-0.5 px-1',
-										(coSelected || scriptMenuOpen) && CHIP_SELECTED
-									)}
-									title={`Built by ${coProducers.length} scripts: pick one to open`}
-								>
-									{#each coProducers.slice(0, 2) as s (s.path)}
-										{#if s.language}
-											<LanguageIcon lang={s.language} width={12} height={12} />
-										{:else}
-											<Code2 size={12} />
-										{/if}
-									{/each}
-									{#if coProducers.length > 2}
-										<span class="text-3xs leading-none">+{coProducers.length - 2}</span>
-									{/if}
-								</span>
-							{/snippet}
-						</DropdownV2>
-					</div>
 				{/if}
 			{/snippet}
 		</PipelineNodeCard>

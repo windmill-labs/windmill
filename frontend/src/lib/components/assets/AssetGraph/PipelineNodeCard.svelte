@@ -6,7 +6,11 @@ and the controls hung around the card.
 -->
 <script lang="ts">
 	import { NODE } from '$lib/components/graph/util'
-	import { PIPELINE_NODE_EXTRA_ROW, PIPELINE_NODE_HEIGHT } from './assetGraphLayout'
+	import {
+		PIPELINE_NODE_EXTRA_ROW,
+		PIPELINE_NODE_HEADER,
+		PIPELINE_NODE_HEIGHT
+	} from './assetGraphLayout'
 	import { twMerge } from 'tailwind-merge'
 	import type { Snippet } from 'svelte'
 
@@ -34,6 +38,9 @@ and the controls hung around the card.
 		width?: number
 		/** A line under the title, in the text column. */
 		subtitle?: Snippet
+		/** A tab on the card's top edge. Only on a card without `onclick`, since it
+		 * may hold buttons of its own. */
+		header?: Snippet
 	}
 
 	let {
@@ -49,6 +56,7 @@ and the controls hung around the card.
 		leading,
 		trailing,
 		subtitle,
+		header,
 		width = NODE.width
 	}: Props = $props()
 
@@ -119,6 +127,19 @@ and the controls hung around the card.
 	>
 		{@render body()}
 	</button>
+{:else if header}
+	<!-- The header is a tab on the card's top edge, inset from its sides. -->
+	<div class="flex flex-col" style="width: {width}px;">
+		<div
+			class="mx-2 flex items-stretch min-w-0 rounded-t-md overflow-hidden bg-surface-secondary border border-b-0 border-gray-200 dark:border-gray-700"
+			style="height: {PIPELINE_NODE_HEADER}px;"
+		>
+			{@render header()}
+		</div>
+		<div class={cardClass} style="min-height: {minHeight}px;" title={tooltip}>
+			{@render body()}
+		</div>
+	</div>
 {:else}
 	<div
 		class={cardClass}

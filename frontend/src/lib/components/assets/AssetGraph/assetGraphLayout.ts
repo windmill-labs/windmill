@@ -21,6 +21,8 @@ const COMPONENT_GAP = SIBLING_GAP * 2
 
 /** Extra height of an assets-only node: the trigger chip under its title. */
 export const PIPELINE_NODE_EXTRA_ROW = 16
+/** Height of the header strip naming an assets-only node's producing script. */
+export const PIPELINE_NODE_HEADER = 22
 
 interface GraphInput {
 	/** `width` defaults to `NODE.width`. */

@@ -22,7 +22,11 @@
 	import AssetGraphEdge from './AssetGraphEdge.svelte'
 	import PanToNode from './PanToNode.svelte'
 	import InitialFitView from './InitialFitView.svelte'
-	import { layoutAssetGraph, PIPELINE_NODE_EXTRA_ROW } from './assetGraphLayout'
+	import {
+		layoutAssetGraph,
+		PIPELINE_NODE_EXTRA_ROW,
+		PIPELINE_NODE_HEADER
+	} from './assetGraphLayout'
 	import {
 		assetsOnlyView,
 		upstreamDeletion,
@@ -1430,12 +1434,17 @@
 										: `${upstream.trigger.label}${upstream.trigger.draft ? ' · draft' : ''}`,
 							runState: 'runState' in upstream && !!upstream.runState,
 							chipIcon: foldedErrors > 0,
-							scriptChips:
+							header:
 								'runnableId' in upstream
-									? 1
-									: 'scripts' in upstream
-										? (upstream.scripts?.length ?? 0)
-										: 0
+									? { label: upstream.summary || upstream.path, icons: 1 }
+									: 'scripts' in upstream && upstream.scripts?.length
+										? upstream.scripts.length === 1
+											? {
+													label: upstream.scripts[0].summary || upstream.scripts[0].path,
+													icons: 1
+												}
+											: { label: `${upstream.scripts.length} scripts`, icons: 2 }
+										: undefined
 						})
 					: undefined
 			return {
@@ -1583,7 +1592,11 @@
 			)
 	})
 	let layoutPositions = $derived(
-		layoutAssetGraph(layoutInput, ADD_NODE_ID, assetsOnly ? PIPELINE_NODE_EXTRA_ROW : 0)
+		layoutAssetGraph(
+			layoutInput,
+			ADD_NODE_ID,
+			assetsOnly ? PIPELINE_NODE_EXTRA_ROW + PIPELINE_NODE_HEADER : 0
+		)
 	)
 
 	/** Assets-only asset cards size to their text; every other node is `NODE.width`. */

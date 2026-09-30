@@ -18,8 +18,8 @@ function textWidth(text: string, rem: number): number {
 
 /**
  * Width of an assets-only asset card, from the pieces `PipelineNodeCard` and
- * `AssetNode` lay out: icon, the widest of kind / title / trigger chip, and the
- * run and script chips. The numbers mirror their Tailwind spacing; change one
+ * `AssetNode` lay out: icon and the widest of kind / title / trigger chip, or the
+ * header naming the producing script, if wider. The numbers mirror their Tailwind spacing; change one
  * and the other drifts. Clamped to the regular node width, past which the title
  * truncates as usual.
  */
@@ -30,8 +30,9 @@ export function assetsOnlyNodeWidth(n: {
 	/** The chip leads with an icon (the folded-errors Fix chip). */
 	chipIcon?: boolean
 	runState: boolean
-	/** Producing scripts: one chip for one, two icons and a "+N" for more. */
-	scriptChips: number
+	/** The header's text (a script's summary or path, "N scripts"), with its icon
+	 * count; undefined without a header. */
+	header?: { label: string; icons: number }
 }): number {
 	const icon = 12 + 14 + 10
 	const text = Math.max(
@@ -39,14 +40,18 @@ export function assetsOnlyNodeWidth(n: {
 		textWidth(n.title, 0.75),
 		textWidth(n.chip, 0.65) + 12 + 2 + (n.chipIcon ? 14 : 0)
 	)
-	// The run chip is sized for a two-digit count, so a new run never re-lays the graph.
-	const scripts =
-		n.scriptChips === 0
-			? 0
-			: n.scriptChips === 1
-				? 20
-				: 8 + 2 + 12 * 2 + 2 + (n.scriptChips > 2 ? textWidth(`+${n.scriptChips - 2}`, 0.65) + 2 : 0)
-	const trailing = (n.runState ? 12 + 10 + 2 + textWidth('×99', 0.65) + 4 : 0) + scripts + 8
-	const width = Math.ceil(icon + text + 4 + trailing + 2 + 8)
-	return Math.min(NODE.width, Math.max(MIN_WIDTH, width))
+	const body = Math.ceil(icon + text + 4 + 8 + 2 + 8)
+	// Header: px-2, icons with gap-1.5, the label, then the run chip (sized for a
+	// two-digit count, so a new run never re-lays the graph) or the menu chevron.
+	const header = n.header
+		? Math.ceil(
+				8 +
+					n.header.icons * (11 + 6) +
+					textWidth(n.header.label, 0.65) +
+					6 +
+					(n.runState ? 11 + 4 + textWidth('×99', 0.65) + 8 : 11) +
+					8
+			)
+		: 0
+	return Math.min(NODE.width, Math.max(MIN_WIDTH, body, header))
 }
