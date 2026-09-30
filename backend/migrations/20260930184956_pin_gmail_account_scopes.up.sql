@@ -6,11 +6,10 @@ SET scopes = ARRAY['https://www.googleapis.com/auth/gmail.send']
 WHERE client = 'gmail'
   AND grant_type = 'authorization_code'
   AND (scopes IS NULL OR cardinality(scopes) = 0)
-  -- An instance connect_config with a URL replaces the registry entry, scopes included,
-  -- so its accounts never refreshed with gmail.send.
+  -- An instance connect_config with a token URL replaces the registry entry, scopes
+  -- included, so its accounts never refreshed with gmail.send.
   AND NOT EXISTS (
     SELECT 1 FROM global_settings
     WHERE name = 'oauths'
-      AND (coalesce(value -> 'gmail' -> 'connect_config' ->> 'auth_url', '') <> ''
-        OR coalesce(value -> 'gmail' -> 'connect_config' ->> 'token_url', '') <> '')
+      AND coalesce(value -> 'gmail' -> 'connect_config' ->> 'token_url', '') <> ''
   );
