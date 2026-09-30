@@ -10,9 +10,9 @@ import { AGENT_HISTORY_KEYS } from './agentFormFields'
  *  picked cannot drift from the button they see. */
 export const MEMORY_OPTION_LABELS: Record<string, string> = {
 	off: 'Off',
-	window: 'Last messages',
-	compaction: 'Compaction',
-	auto: 'Last messages (legacy)',
+	compaction: 'On',
+	window: 'Legacy',
+	auto: 'Legacy (older)',
 	manual: 'Previous messages (legacy)'
 }
 
@@ -78,20 +78,6 @@ export const AI_AGENT_SCHEMA: Schema = {
 				},
 				{
 					type: 'object',
-					title: 'window',
-					properties: {
-						kind: { type: 'string', enum: ['window'] },
-						context_length: {
-							type: 'number',
-							title: 'Messages to keep',
-							description: 'Number of most recent messages to load and store. 0 turns memory off.',
-							default: 10
-						}
-					},
-					required: ['kind', 'context_length']
-				},
-				{
-					type: 'object',
 					title: 'compaction',
 					properties: {
 						kind: { type: 'string', enum: ['compaction'] },
@@ -103,6 +89,20 @@ export const AI_AGENT_SCHEMA: Schema = {
 						}
 					},
 					required: ['kind']
+				},
+				{
+					type: 'object',
+					title: 'window',
+					properties: {
+						kind: { type: 'string', enum: ['window'] },
+						context_length: {
+							type: 'number',
+							title: 'Messages to keep',
+							description: 'Number of most recent messages to load and store. 0 turns memory off.',
+							default: 10
+						}
+					},
+					required: ['kind', 'context_length']
 				}
 			],
 			showExpr: "fields.output_type !== 'image'"
