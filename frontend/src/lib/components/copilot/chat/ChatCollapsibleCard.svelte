@@ -98,8 +98,9 @@
 			{@render headerLeft?.()}
 			<!-- A settled label fades in. The key sits outside the shimmer branch because a label
 			     change often comes with a shimmer change, and a transition inside a branch being
-			     swapped out does not play. In only: an outgoing copy would widen the row. -->
-			{#key `${shown.prefix ?? ''}\n${shown.label}`}
+			     swapped out does not play. In only: an outgoing copy would widen the row. Unsettled
+			     labels (an agent trace's ticking duration) keep one key and update in place. -->
+			{#key settleLabel ? `${shown.prefix ?? ''}\n${shown.label}` : ''}
 				<span
 					class="inline-flex items-center min-w-0"
 					in:fade={{ duration: settleLabel ? 400 : 0 }}

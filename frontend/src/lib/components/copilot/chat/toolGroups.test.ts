@@ -91,6 +91,27 @@ describe('groupToolRuns', () => {
 		).toEqual([0, 1, 2, 3])
 	})
 
+	it('keeps an edit whose arguments are still streaming in the group it follows', () => {
+		const flow = { path: 'f/a/flow' }
+		expect(
+			shape([
+				tool('patch_flow_json', flow),
+				tool('patch_flow_json', '{"path":"f/a/flow","old_str' as never, {
+					isStreamingArguments: true
+				}),
+				tool('set_flow_module_code', '{"pa' as never, { isStreamingArguments: true })
+			])
+		).toEqual([{ edit: [0, 1, 2] }])
+		expect(
+			shape([
+				tool('patch_flow_json', flow),
+				tool('patch_flow_json', '{"path":"f/b/flow","old_str' as never, {
+					isStreamingArguments: true
+				})
+			])
+		).toEqual([0, 1])
+	})
+
 	it('folds edits and reads of one app, apart from a flow at the same path', () => {
 		const app = { path: 'f/a/x', file_path: '/src/App.tsx' }
 		expect(

@@ -104,13 +104,31 @@ function groupableCall(message: DisplayMessage): ToolDisplayMessage | undefined 
 	return message
 }
 
-type Membership = { kind: EditedItemKind; path: string; edit: boolean }
+/** `path` undefined: the call's arguments are still streaming and have not named the item yet. */
+type Membership = { kind: EditedItemKind; path: string | undefined; edit: boolean }
+
+// While arguments stream, `parameters` is the partial JSON text. The path usually lands well
+// before the large code or content field, so read it out once its closing quote has arrived.
+function streamedPath(text: string): string | undefined {
+	const match = /"path"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(text)
+	if (!match) return undefined
+	try {
+		return JSON.parse(`"${match[1]}"`)
+	} catch {
+		return undefined
+	}
+}
 
 function itemMembership(message: DisplayMessage): Membership | undefined {
 	const call = groupableCall(message)
 	if (!call) return undefined
-	const params = call.parameters ?? {}
-	const path = typeof params.path === 'string' ? params.path : ''
+	const streaming = typeof call.parameters === 'string'
+	const params = streaming ? {} : (call.parameters ?? {})
+	const path = streaming
+		? streamedPath(call.parameters)
+		: typeof params.path === 'string'
+			? params.path
+			: ''
 	const tool = call.toolName!
 	if (Object.hasOwn(EDIT_TOOLS, tool)) return { kind: EDIT_TOOLS[tool], path, edit: true }
 	if (Object.hasOwn(ITEM_READ_TOOLS, tool)) {
@@ -122,9 +140,11 @@ function itemMembership(message: DisplayMessage): Membership | undefined {
 	return undefined
 }
 
-// A flow and an app can share a path, so the kind is part of what makes two calls one item.
+// A flow and an app can share a path, so the kind is part of what makes two calls one item. A
+// call still streaming its arguments stays with the group it follows until its path arrives,
+// or the edit in progress would leave its own group and the header would read as settled.
 function sameItem(a: Membership | undefined, b: Membership): boolean {
-	return a !== undefined && a.kind === b.kind && a.path === b.path
+	return a !== undefined && a.kind === b.kind && (a.path === undefined || a.path === b.path)
 }
 
 function isReadCall(message: DisplayMessage): boolean {
@@ -177,7 +197,7 @@ function editGroupAt(messages: DisplayMessage[], start: number): ToolGroup | und
 	const item = itemMembership(messages[start])
 	if (!item) return undefined
 	const end = runEnd(messages, start, (m) => sameItem(itemMembership(m), item))
-	return toolGroup(messages, start, end, 'edit', item.path)
+	return toolGroup(messages, start, end, 'edit', item.path ?? '')
 }
 
 export function groupToolRuns(messages: DisplayMessage[]): ChatItem[] {
