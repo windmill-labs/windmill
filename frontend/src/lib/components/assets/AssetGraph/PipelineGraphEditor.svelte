@@ -577,6 +577,7 @@
 						draftInputAssets={activeDraft?.inputAssets}
 						{onDraftPathChange}
 						onDraftMetaChange={editor.setDraftMeta}
+						{pathPrefix}
 						{workspace}
 						onAnnotationsChange={editor.handleAnnotationsChange}
 						onAssetsChange={editor.handleAssetsChange}

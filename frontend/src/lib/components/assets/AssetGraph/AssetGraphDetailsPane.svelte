@@ -219,7 +219,13 @@
 		// true on success; false on collision/validation failure so the
 		// popover can keep itself open and surface the error inline.
 		onDraftPathChange?: (oldPath: string, newPath: string) => boolean | string
-		onDraftMetaChange?: (path: string, meta: { summary: string; labels: string[] | undefined }) => void
+		onDraftMetaChange?: (
+			path: string,
+			meta: { summary: string; labels: string[] | undefined }
+		) => void
+		// The pipeline's folder prefix (`f/<folder>/`). A draft renamed outside it
+		// would be deployed out of the pipeline, so the rename is refused.
+		pathPrefix?: string
 		// Bumped by the parent (e.g. from the runnable-node action menu) to
 		// auto-open the archive/delete confirmation modal for the currently
 		// loaded persisted script. No-ops while the pane is showing a draft
@@ -313,6 +319,7 @@
 		requestRunSignal,
 		onDraftPathChange,
 		onDraftMetaChange,
+		pathPrefix = '',
 		requestRemoveSignal,
 		downstreamSubscribers = 0,
 		onStartBoundedRun,
@@ -926,6 +933,9 @@
 						kind="script"
 						onSaved={() => {}}
 						saveOverride={({ path, summary, labels }) => {
+							if (pathPrefix && (!path.startsWith(pathPrefix) || path === pathPrefix)) {
+								return `A pipeline script stays in ${pathPrefix}: pick a name inside that folder`
+							}
 							// Before the rename, which carries the draft entry over as it is.
 							onDraftMetaChange?.(draftScriptPath, { summary, labels })
 							if (script) {
