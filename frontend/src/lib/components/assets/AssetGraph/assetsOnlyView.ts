@@ -19,7 +19,6 @@ export type ViewEdge = {
 export const noAssetNodeId = (runnableId: string) => `no-asset:${runnableId}`
 export const isNoAssetNode = (id: string) => id.startsWith('no-asset:')
 
-/** The script and trigger an assets-only asset's delete removes. */
 /** What an assets-only delete removes: the script, its trigger, or both. */
 export type AssetUpstreamDelete = {
 	script?: { path: string; unsaved: boolean }

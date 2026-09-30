@@ -3531,7 +3531,11 @@
 		: assetDeleteTarget?.script
 			? `${canHardDeleteScripts ? 'Delete' : 'Archive'} script?`
 			: 'Delete trigger?'}
-	confirmationText="Delete"
+	confirmationText={assetDeleteTarget?.script && !canHardDeleteScripts
+		? assetDeleteTarget.trigger
+			? 'Archive and delete'
+			: 'Archive'
+		: 'Delete'}
 	onConfirmed={confirmAssetUpstreamDelete}
 	onCanceled={() => {
 		if (!assetDeleteLoading) assetDeleteTarget = undefined
