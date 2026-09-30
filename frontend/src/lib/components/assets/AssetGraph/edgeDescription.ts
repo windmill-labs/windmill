@@ -13,6 +13,7 @@ export type DescribedEdge = {
 	muted?: boolean
 	missing?: boolean
 	via?: string[]
+	reactive?: boolean
 	macro_names?: string[]
 	via_use?: boolean
 }
@@ -71,15 +72,18 @@ export function describeEdge(
 		}
 		case 'asset-flow': {
 			const via = (e.via ?? []).map(nameOf).join(', ')
+			const rerun = e.reactive
+				? `Each write to ${src} reruns it.`
+				: `A write to ${src} does not rerun it.`
 			// The scripts that build nothing only read: name them, not the node.
 			if (e.target === NO_ASSET_NODE_ID) {
-				return { subject: src, phrase: 'is read by', object: via || tgt }
+				return { subject: src, phrase: 'is read by', object: via || tgt, note: rerun }
 			}
 			return {
 				subject: tgt,
 				phrase: 'is built from',
 				object: src,
-				note: via ? `By ${via}.` : undefined
+				note: via ? `By ${via}. ${rerun}` : rerun
 			}
 		}
 		case 'dbt-ref':

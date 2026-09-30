@@ -16,6 +16,8 @@
 	import AddNode from './AddNode.svelte'
 	import AddDataSourceMenu from './AddDataSourceMenu.svelte'
 	import PipelineInsertMenu, { type PipelineInsertSchedule } from './PipelineInsertMenu.svelte'
+	import AddDownstreamMenu from './AddDownstreamMenu.svelte'
+	import AddDownstreamPill from './AddDownstreamPill.svelte'
 	import DataTestNode from './DataTestNode.svelte'
 	import AssetGraphEdge from './AssetGraphEdge.svelte'
 	import PanToNode from './PanToNode.svelte'
@@ -291,54 +293,169 @@
 		onAddAssetTrigger
 	}: Props = $props()
 
-	// Dragging a script's top dot onto an asset subscribes the script to it. Only
-	// the assets it can subscribe to without a loop stay lit while dragging.
+	// Two drags write `// on`: a script's top dot onto an asset, and an asset's "+"
+	// onto a script. Only the nodes the drop can subscribe without a loop stay lit.
+	// The "+" can also be dropped on the blank canvas, opening its add menu there.
 	let onDrag = $state<
 		| {
 				sourceId: string
-				scripts: string[]
 				from: { x: number; y: number }
 				to: { x: number; y: number }
 				eligible: Set<string>
 				over: string | undefined
+				/** Dragging an asset's "+", whose blank-canvas drop adds a step. */
+				feed: boolean
+				blank: boolean
 		  }
 		| undefined
 	>(undefined)
+	// Hit-tested on the boxes rather than with elementFromPoint: svelte-flow can
+	// make nodes click-through while the pointer is held down.
+	const within = (el: Element, x: number, y: number) => {
+		const r = el.getBoundingClientRect()
+		return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom
+	}
+	let flowEl: HTMLElement | undefined = $state()
 	const nodeUnder = (x: number, y: number) =>
-		document.elementFromPoint(x, y)?.closest('.svelte-flow__node')?.getAttribute('data-id') ??
-		undefined
-	function startOnDrag(sourceId: string, scripts: string[], e: PointerEvent) {
-		if (!onAddAssetTrigger || scripts.length === 0) return
-		const sets = scripts.map((id) => onDirectiveTargets(model.nodes, model.edges, id))
-		const eligible = new Set([...sets[0]].filter((a) => sets.every((t) => t.has(a))))
+		[...(flowEl?.querySelectorAll('.svelte-flow__node') ?? [])]
+			.find((el) => within(el, x, y))
+			?.getAttribute('data-id') ?? undefined
+	const overBlank = (x: number, y: number) =>
+		!!flowEl &&
+		within(flowEl, x, y) &&
+		![
+			...flowEl.querySelectorAll(
+				'.svelte-flow__panel, .svelte-flow__controls, .svelte-flow__minimap'
+			)
+		].some((el) => within(el, x, y))
+	const readsAsset = (assetId: string, scriptId: string) =>
+		model.edges.some((x) => x.kind === 'lineage-read' && x.source === assetId && x.target === scriptId)
+	const assetOf = (assetId: string) => {
+		const a = model.nodes.find((n) => n.id === assetId)?.data
+		return a ? { kind: a.asset_kind as AssetKind, path: a.path as string } : undefined
+	}
+	function subscribe(assetId: string, scripts: string[]) {
+		const asset = assetOf(assetId)
+		if (!asset) return
+		onAddAssetTrigger?.({
+			asset,
+			scripts: scripts.map((id) => ({
+				script: id.replace(/^script:/, ''),
+				reads: readsAsset(assetId, id)
+			}))
+		})
+	}
+	/** `threshold`: pixels the pointer must travel before it counts as a drag, so a
+	 * plain click on the handle still clicks. */
+	function trackDrag(
+		e: PointerEvent,
+		start: { sourceId: string; feed: boolean; eligible: () => Set<string>; threshold: number },
+		drop: (target: string | undefined, at: { x: number; y: number }, blank: boolean) => void
+	) {
 		const from = { x: e.clientX, y: e.clientY }
-		onDrag = { sourceId, scripts, from, to: from, eligible, over: undefined }
+		let started = false
+		const begin = () => {
+			started = true
+			onDrag = {
+				sourceId: start.sourceId,
+				from,
+				to: from,
+				eligible: start.eligible(),
+				over: undefined,
+				feed: start.feed,
+				blank: false
+			}
+		}
+		if (start.threshold === 0) begin()
 		const move = (ev: PointerEvent) => {
+			if (!started) {
+				if (Math.hypot(ev.clientX - from.x, ev.clientY - from.y) < start.threshold) return
+				begin()
+			}
 			if (!onDrag) return
 			onDrag.to = { x: ev.clientX, y: ev.clientY }
 			onDrag.over = nodeUnder(ev.clientX, ev.clientY)
+			onDrag.blank = !onDrag.over && overBlank(ev.clientX, ev.clientY)
 		}
 		const up = (ev: PointerEvent) => {
 			window.removeEventListener('pointermove', move)
 			const drag = onDrag
 			onDrag = undefined
+			if (!started || !drag) return
+			// The release is not a click on whatever it lands on.
+			const swallow = (c: MouseEvent) => {
+				c.stopPropagation()
+				c.preventDefault()
+			}
+			window.addEventListener('click', swallow, { capture: true, once: true })
+			setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 0)
 			const target = nodeUnder(ev.clientX, ev.clientY)
-			if (!drag || !target || !drag.eligible.has(target)) return
-			const a = model.nodes.find((n) => n.id === target)?.data
-			if (!a) return
-			const asset = { kind: a.asset_kind as AssetKind, path: a.path as string }
-			onAddAssetTrigger?.({
-				asset,
-				scripts: drag.scripts.map((id) => ({
-					script: id.replace(/^script:/, ''),
-					reads: model.edges.some(
-						(x) => x.kind === 'lineage-read' && x.source === target && x.target === id
-					)
-				}))
-			})
+			const at = { x: ev.clientX, y: ev.clientY }
+			drop(target && drag.eligible.has(target) ? target : undefined, at, !target && drag.blank)
 		}
 		window.addEventListener('pointermove', move)
 		window.addEventListener('pointerup', up, { once: true })
+	}
+	function startOnDrag(sourceId: string, scripts: string[], e: PointerEvent) {
+		if (!onAddAssetTrigger || scripts.length === 0) return
+		trackDrag(
+			e,
+			{
+				sourceId,
+				feed: false,
+				threshold: 0,
+				eligible: () => {
+					const sets = scripts.map((id) => onDirectiveTargets(model.nodes, model.edges, id))
+					return new Set([...sets[0]].filter((a) => sets.every((t) => t.has(a))))
+				}
+			},
+			(target) => {
+				if (target) subscribe(target, scripts)
+			}
+		)
+	}
+	// Where a "+" dropped on the blank canvas opened its add menu.
+	let feedMenu = $state<
+		| { at: { x: number; y: number }; asset: { kind: AssetKind; path: string }; data: any }
+		| undefined
+	>(undefined)
+	let feedMenuSignal = $state(0)
+	function startFeedDrag(assetId: string, data: any, e: PointerEvent) {
+		trackDrag(
+			e,
+			{
+				sourceId: assetId,
+				feed: true,
+				threshold: 5,
+				// A drop target is a node whose scripts can all subscribe to the asset.
+				eligible: () => {
+					if (!onAddAssetTrigger) return new Set()
+					const targets = new Map<string, Set<string>>()
+					const can = (id: string) => {
+						if (!targets.has(id)) targets.set(id, onDirectiveTargets(model.nodes, model.edges, id))
+						return targets.get(id)!.has(assetId)
+					}
+					return new Set(
+						view.nodes
+							.filter((n) => {
+								const scripts = dragScripts(n)
+								return n.id !== assetId && scripts.length > 0 && scripts.every(can)
+							})
+							.map((n) => n.id)
+					)
+				}
+			},
+			(target, at, blank) => {
+				const node = target ? view.nodes.find((n) => n.id === target) : undefined
+				if (node) subscribe(assetId, dragScripts(node))
+				else if (blank) {
+					const asset = assetOf(assetId)
+					if (!asset) return
+					feedMenu = { at, asset, data }
+					feedMenuSignal++
+				}
+			}
+		)
 	}
 	// Pipeline scripts a node's top dot drags for: the script itself, or, in the
 	// assets-only view, the scripts building the asset.
@@ -522,6 +639,8 @@
 			// script that is folded away.
 			| 'asset-flow'
 		unsaved?: boolean
+		// Assets-only `asset-flow`: a write to the source reruns a folded script.
+		reactive?: boolean
 		// Muted read edge: a ducklake/s3 input read every run whose (default)
 		// auto cascade trigger is suppressed by `// mute` / `// mute all`.
 		// Rendered with a bell-off badge — auto-wiring is the norm, so we mark
@@ -1541,6 +1660,9 @@
 				...(foldedFixes.length ? { foldedFixes } : {}),
 				...(scriptsToDrag.length
 					? { onStartOnDrag: (e: PointerEvent) => startOnDrag(n.id, scriptsToDrag, e) }
+					: {}),
+				...(n.type === 'asset' && onAddScriptForAsset
+					? { onStartFeedDrag: (e: PointerEvent) => startFeedDrag(n.id, n.data, e) }
 					: {})
 			}
 			return {
@@ -1673,8 +1795,16 @@
 						markerColor = 'rgb(59 130 246)'
 						break
 					case 'asset-flow':
-						style = 'stroke: rgb(59 130 246); stroke-width: 1.25px;'
-						markerColor = 'rgb(59 130 246)'
+						// Assets-only: a write upstream reruns what builds the target
+						// (solid, like a trigger), or the target only reads it (dashed gray).
+						if (e.reactive) {
+							style = 'stroke: rgb(59 130 246); stroke-width: 1.5px;'
+							markerColor = 'rgb(59 130 246)'
+						} else {
+							style = 'stroke: rgb(156 163 175); stroke-width: 1px;'
+							strokeDasharray = '4 3'
+							markerColor = 'rgb(156 163 175)'
+						}
 						break
 					case 'lineage-read':
 						style = 'stroke: rgb(156 163 175); stroke-width: 1px;'
@@ -1886,6 +2016,7 @@
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 <div
 	class="w-full h-full relative"
+	bind:this={flowEl}
 	bind:clientWidth={paneWidth}
 	onclickcapture={handleBackgroundClick}
 	oncontextmenu={handleContextMenu}
@@ -2017,8 +2148,39 @@
 			stroke-width="1.5"
 			stroke-dasharray="4 3"
 		/>
-		<circle cx={onDrag.to.x} cy={onDrag.to.y} r="3" class="fill-blue-500" />
+		{#if !(onDrag.feed && onDrag.blank)}
+			<circle cx={onDrag.to.x} cy={onDrag.to.y} r="3" class="fill-blue-500" />
+		{/if}
 	</svg>
+	{#if onDrag.feed && onDrag.blank}
+		<div
+			class="fixed z-50 pointer-events-none -translate-x-1/2 -translate-y-1/2"
+			style="left: {onDrag.to.x}px; top: {onDrag.to.y}px;"
+		>
+			<AddDownstreamPill expanded />
+		</div>
+	{/if}
+{/if}
+
+{#if feedMenu && onAddScriptForAsset}
+	<div
+		class="fixed z-10 -translate-x-1/2 -translate-y-1/2"
+		style="left: {feedMenu.at.x}px; top: {feedMenu.at.y}px;"
+	>
+		<AddDownstreamMenu
+			asset={feedMenu.asset}
+			onAddScript={onAddScriptForAsset}
+			pathPrefix={feedMenu.data.pathPrefix ?? pathPrefix}
+			defaultPathSuffix={feedMenu.data.defaultPathSuffix ?? defaultPathSuffix}
+			openSignal={feedMenuSignal}
+		>
+			{#snippet trigger({ open })}
+				{#if open}
+					<AddDownstreamPill expanded />
+				{/if}
+			{/snippet}
+		</AddDownstreamMenu>
+	</div>
 {/if}
 
 {#if hoveredEdge && hoveredEdgeText}

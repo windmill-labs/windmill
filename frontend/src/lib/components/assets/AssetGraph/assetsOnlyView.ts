@@ -10,6 +10,8 @@ export type ViewEdge = {
 	unsaved?: boolean
 	/** Assets-only edges: the folded runnables the data goes through. */
 	via?: string[]
+	/** Assets-only edges: a write to the source reruns one of `via`. */
+	reactive?: boolean
 }
 
 /** The assets-only node standing for the scripts that build no asset. */
@@ -63,6 +65,9 @@ export function assetsOnlyView<N extends ViewNode, E extends ViewEdge>(
 		} else if (e.kind === 'trigger-native') push(triggersOf, e.target, e)
 	}
 
+	const triggered = new Set(
+		edges.filter((e) => e.kind === 'trigger-asset').map((e) => `${e.source}\n${e.target}`)
+	)
 	const out = new Map<string, ViewEdge>()
 	for (const [assetId, writes] of producersOf) {
 		for (const w of writes) {
@@ -72,8 +77,10 @@ export function assetsOnlyView<N extends ViewNode, E extends ViewEdge>(
 				const id = `flow:${r.source}->${assetId}`
 				const prev = out.get(id)
 				const unsaved = !!(w.unsaved || r.unsaved)
+				const reactive = triggered.has(`${r.source}\n${w.source}`)
 				if (prev) {
 					prev.unsaved = prev.unsaved && unsaved
+					prev.reactive ||= reactive
 					if (!prev.via?.includes(w.source)) prev.via = [...(prev.via ?? []), w.source]
 				} else {
 					out.set(id, {
@@ -82,6 +89,7 @@ export function assetsOnlyView<N extends ViewNode, E extends ViewEdge>(
 						target: assetId,
 						kind: 'asset-flow',
 						unsaved,
+						reactive,
 						via: [w.source]
 					})
 				}
@@ -136,8 +144,10 @@ export function assetsOnlyView<N extends ViewNode, E extends ViewEdge>(
 			for (const r of inputsOf.get(id) ?? []) {
 				const eid = `flow:${r.source}->${NO_ASSET_NODE_ID}`
 				const prev = out.get(eid)
+				const reactive = triggered.has(`${r.source}\n${id}`)
 				if (prev) {
 					prev.unsaved = prev.unsaved && !!r.unsaved
+					prev.reactive ||= reactive
 					if (!prev.via?.includes(id)) prev.via = [...(prev.via ?? []), id]
 				} else {
 					out.set(eid, {
@@ -146,6 +156,7 @@ export function assetsOnlyView<N extends ViewNode, E extends ViewEdge>(
 						target: NO_ASSET_NODE_ID,
 						kind: 'asset-flow',
 						unsaved: !!r.unsaved,
+						reactive,
 						via: [id]
 					})
 				}

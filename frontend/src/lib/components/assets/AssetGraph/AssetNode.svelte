@@ -7,7 +7,8 @@
 	import NodeActionsMenu from './NodeActionsMenu.svelte'
 	import NodeFixButton, { type NodeFix } from './NodeFixButton.svelte'
 	import NodeOnDot from './NodeOnDot.svelte'
-	import PipelineInsertMenu, { type PipelineInsertPick } from './PipelineInsertMenu.svelte'
+	import AddDownstreamMenu from './AddDownstreamMenu.svelte'
+	import AddDownstreamPill from './AddDownstreamPill.svelte'
 	import {
 		ArrowUpRight,
 		Code2,
@@ -15,7 +16,6 @@
 		History,
 		Play,
 		Loader2,
-		Plus,
 		ShieldCheck,
 		ShieldAlert,
 		CheckCircle2,
@@ -26,7 +26,6 @@
 	import type { ScriptLang } from '$lib/gen'
 	import { enterpriseLicense } from '$lib/stores'
 	import { sendUserToast, type Item } from '$lib/utils'
-	import { PIPELINE_LANGUAGES } from './pipelineLanguages'
 	import type { PipelineOutputKind } from './pipelineTemplates'
 	import type { DbtAssetProvenance } from './types'
 	import DbtIcon from '$lib/components/icons/DbtIcon.svelte'
@@ -116,6 +115,9 @@
 			) => void
 			pathPrefix?: string
 			defaultPathSuffix?: string
+			/** Starts dragging the "+" onto a script (subscribing it to this asset)
+			 * or onto the blank canvas (opening the add menu there). */
+			onStartFeedDrag?: (e: PointerEvent) => void
 			// Producer scripts/flows that write to this asset, supplied by
 			// the canvas from the graph's write/rw edges. Drives the on-hover
 			// "Run" button. Includes unsaved/draft producers so the button
@@ -212,18 +214,7 @@
 		}
 	}
 
-	function handlePick(pick: PipelineInsertPick) {
-		if (pick.kindId === 'pipeline_script' && pick.language && pick.path) {
-			data.onAddScript?.(
-				{ kind: data.asset_kind, path: data.path },
-				pick.language as ScriptLang,
-				pick.path,
-				(pick.outputKind ?? 'none') as PipelineOutputKind,
-				pick.aiPrompt,
-				{ outputAsset: pick.outputAsset }
-			)
-		}
-	}
+
 
 	// A red asset needs fixing where its error comes from, not a downstream step;
 	// and a step downstream of what nothing writes would never run on its writes.
@@ -669,41 +660,33 @@
 		     script creation, half-overlapping it like the flow editor's
 		     between-step inserter. -->
 		<div class="absolute left-1/2 -bottom-3 -translate-x-1/2 z-10">
-			<PipelineInsertMenu
-				kinds={[
-					{
-						id: 'pipeline_script',
-						label: 'Add downstream pipeline script',
-						description: 'Triggered when this asset changes',
-						icon: Code2
-					}
-				]}
-				languages={PIPELINE_LANGUAGES as any}
-				pathPrefix={data.pathPrefix ?? ''}
-				defaultPathSuffix={data.defaultPathSuffix ?? ''}
-				onPick={handlePick}
+			<AddDownstreamMenu
+				asset={{ kind: data.asset_kind, path: data.path }}
+				onAddScript={data.onAddScript!}
+				pathPrefix={data.pathPrefix}
+				defaultPathSuffix={data.defaultPathSuffix}
 			>
 				{#snippet trigger({ open })}
-					<!-- A circle at rest; hovering widens it into a labelled pill, which
-					     stays open while its menu is (the menu can open under the pointer
-					     and take the hover away). The label animates its max-width (width
-					     can't transition to auto) and never wraps. -->
+					<!-- A click opens the menu; a drag goes to the canvas, which
+					     tells a real drag from a click by how far the pointer moves. -->
 					<button
 						type="button"
+						class="nopan nodrag block"
 						onclick={(e) => e.stopPropagation()}
-						class="group/add h-6 min-w-6 rounded-full flex items-center justify-center bg-surface border border-gray-400 dark:border-gray-600 text-secondary hover:text-primary hover:border-gray-500 shadow-sm leading-none overflow-hidden transition-[padding] duration-200 ease-out hover:pl-1 data-[open=true]:pl-1"
-						data-open={open}
+						onpointerdown={(e) => {
+							if (e.button !== 0) return
+							e.preventDefault()
+							data.onStartFeedDrag?.(e)
+						}}
 						aria-label="Add downstream step"
+						title={data.onStartFeedDrag
+							? 'Click to add a downstream step, or drag onto a script to run it after each write'
+							: undefined}
 					>
-						<Plus size={16} strokeWidth={2.5} class="shrink-0" />
-						<span
-							class="max-w-0 opacity-0 whitespace-nowrap text-3xs font-normal transition-[max-width,opacity,margin] duration-200 ease-out group-hover/add:max-w-32 group-hover/add:opacity-100 group-hover/add:ml-1 group-hover/add:mr-2 group-data-[open=true]/add:max-w-32 group-data-[open=true]/add:opacity-100 group-data-[open=true]/add:ml-1 group-data-[open=true]/add:mr-2"
-						>
-							Add downstream step
-						</span>
+						<AddDownstreamPill expanded={open} />
 					</button>
 				{/snippet}
-			</PipelineInsertMenu>
+			</AddDownstreamMenu>
 		</div>
 	{/if}
 </div>
