@@ -116,7 +116,9 @@
 		// (`onDraftPersist`). `onDraftPersist` stays the authoritative commit on
 		// navigate-away; this is the continuous feed that keeps the draft's
 		// server copy current while the user is still typing.
-		onContentChange?: (scriptPath: string | undefined, content: string) => void
+		// `base`: the deployed copy being edited, so the parent can autosave unsaved
+		// edits to it before they are promoted to a draft. Unset for a draft.
+		onContentChange?: (scriptPath: string | undefined, content: string, base?: Script) => void
 		// Fires when the user navigates away from a draft (selects another
 		// node, closes the pane, etc.) — the parent must persist the new
 		// content + write outputs into its drafts Map. Without this,
@@ -771,7 +773,12 @@
 	})
 	$effect(() => {
 		if (readOnly) return
-		onContentChange?.(script?.path, script?.content ?? '')
+		const base = draftScript ? undefined : scriptRes.current
+		onContentChange?.(
+			script?.path,
+			script?.content ?? '',
+			base && base.path === script?.path ? base : undefined
+		)
 	})
 
 	async function save() {

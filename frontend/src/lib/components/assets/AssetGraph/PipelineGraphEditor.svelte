@@ -433,6 +433,27 @@
 				return [p, d] as [string, PipelineDraft]
 			return [p, { ...d, script, outputAssets, inputAssets }] as [string, PipelineDraft]
 		})
+		// A deployed script being edited is only promoted to a draft when its pane
+		// closes; until then its buffer is saved as the draft it will become.
+		const { scriptPath: livePath, content: liveBody, base } = editor.liveContent
+		if (
+			livePath != undefined &&
+			base &&
+			!editor.drafts.has(livePath) &&
+			liveBody !== (base.content ?? '')
+		) {
+			const live = editor.liveBodyAssets.scriptPath === livePath
+			const writes = live ? extractWrites(editor.liveBodyAssets.assets) : []
+			serialized.push([
+				livePath,
+				{
+					localId: editor.promotedDraftLocalId(livePath),
+					script: { ...base, content: liveBody },
+					outputAssets: writes.length > 0 ? writes : undefined,
+					inputAssets: live ? extractReads(editor.liveBodyAssets.assets) : undefined
+				}
+			])
+		}
 		const activePath = editor.activeDraftPath
 		const triggerDrafts = [...editor.triggerDrafts.values()]
 		const key = storageKey

@@ -27,7 +27,12 @@ type LiveBodyAssets = {
 	assets: AssetWithAltAccessType[]
 	columnLineage?: ColumnLineage[]
 }
-type LiveContent = { scriptPath: string | undefined; content: string }
+type LiveContent = {
+	scriptPath: string | undefined
+	content: string
+	/** The deployed script the buffer was opened from; unset for a draft. */
+	base?: Script
+}
 
 export class PipelineEditorState {
 	/** In-flight drafts keyed by script path (manual + AI-staged). */
@@ -88,6 +93,18 @@ export class PipelineEditorState {
 		return `pe-${this.#nextDraftLocalId}`
 	}
 
+	// A deployed script with unsaved edits is autosaved as a draft before the pane
+	// promotes it, so both must give it the same id.
+	#promotedLocalIds = new Map<string, string>()
+	promotedDraftLocalId = (path: string): string => {
+		let id = this.#promotedLocalIds.get(path)
+		if (!id) {
+			id = this.newDraftLocalId()
+			this.#promotedLocalIds.set(path, id)
+		}
+		return id
+	}
+
 	handleAnnotationsChange = (scriptPath: string | undefined, annotations: PipelineAnnotations) => {
 		this.liveAnnotations = { scriptPath, annotations }
 	}
@@ -98,8 +115,8 @@ export class PipelineEditorState {
 	) => {
 		this.liveBodyAssets = { scriptPath, assets, columnLineage }
 	}
-	handleContentChange = (scriptPath: string | undefined, content: string) => {
-		this.liveContent = { scriptPath, content }
+	handleContentChange = (scriptPath: string | undefined, content: string, base?: Script) => {
+		this.liveContent = { scriptPath, content, base }
 	}
 
 	clearLiveOverlays = () => {
@@ -217,7 +234,7 @@ export class PipelineEditorState {
 				if (!snapshot.script) return
 				const next = new Map(this.drafts)
 				next.set(p, {
-					localId: this.newDraftLocalId(),
+					localId: this.promotedDraftLocalId(p),
 					script: snapshot.script,
 					outputAssets: snapshot.writes.length > 0 ? snapshot.writes : undefined,
 					inputAssets: snapshot.reads
