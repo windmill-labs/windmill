@@ -44,6 +44,8 @@ and the controls hung around the card.
 		header?: Snippet
 		/** The header's script is selected: its edge takes the selected colour. */
 		headerSelected?: boolean
+		/** The header's script has an error: its edge goes red. */
+		headerTone?: 'error'
 	}
 
 	let {
@@ -61,6 +63,7 @@ and the controls hung around the card.
 		subtitle,
 		header,
 		headerSelected = false,
+		headerTone,
 		width = NODE.width
 	}: Props = $props()
 
@@ -137,6 +140,7 @@ and the controls hung around the card.
 		<div
 			class={twMerge(
 				'mx-2 flex items-stretch min-w-0 rounded-t-md overflow-hidden bg-surface border border-b-0 border-gray-200 dark:border-gray-700',
+				headerTone === 'error' && 'border-red-300 dark:border-red-600',
 				headerSelected && 'border-border-selected dark:border-border-selected'
 			)}
 			style="height: {PIPELINE_NODE_HEADER}px;"

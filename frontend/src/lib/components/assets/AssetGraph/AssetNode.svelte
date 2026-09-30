@@ -171,14 +171,16 @@
 			noAssetName?: string
 			/** Assets-only: the node is only its script's banner. */
 			bannerOnly?: boolean
+			/** Assets-only: a script folded into the node has an error. */
+			scriptError?: boolean
 			/** No script in the workspace writes it; a flow's write fires no asset trigger. */
 			neverWritten?: boolean
 			/** Card width in the assets-only view, sized to its text. */
 			width?: number
-			/** Assets-only view: deletes the producing script and trigger no other
-			 * asset shares; `deleteCount` is how many that is. */
-			onDeleteUpstream?: () => void
-			deleteCount?: number
+			/** Assets-only view: the producing script and trigger no other asset
+			 * shares, which the menu offers to delete one by one or together. */
+			upstreamDelete?: import('./assetsOnlyView').AssetUpstreamDelete
+			onDeleteUpstream?: (target: import('./assetsOnlyView').AssetUpstreamDelete) => void
 			deleteVerb?: 'Delete' | 'Archive'
 			/** Why nothing can be deleted, when the producer is shared. */
 			deleteBlocked?: string
@@ -229,15 +231,8 @@
 	// and a step downstream of what nothing writes would never run on its writes.
 	let showAdd = $derived(data.onAddScript != undefined && !data.error && !data.neverWritten)
 	let menuItems: Item[] = $derived(
-		data.onDeleteUpstream
-			? [
-					{
-						displayName: `${data.deleteVerb ?? 'Delete'} ${data.deleteCount} item${data.deleteCount === 1 ? '' : 's'}`,
-						icon: Trash2,
-						type: 'delete' as const,
-						action: () => data.onDeleteUpstream?.()
-					}
-				]
+		data.onDeleteUpstream && data.upstreamDelete
+			? deleteItems(data.upstreamDelete, data.onDeleteUpstream)
 			: data.deleteBlocked
 				? [
 						{
@@ -248,6 +243,42 @@
 					]
 				: []
 	)
+	const lastSegment = (p: string) => p.split('/').pop() ?? p
+	// A script is archived rather than deleted when the user may not delete it;
+	// a trigger is always deleted.
+	function deleteItems(
+		t: import('./assetsOnlyView').AssetUpstreamDelete,
+		run: (target: import('./assetsOnlyView').AssetUpstreamDelete) => void
+	): Item[] {
+		const items: Item[] = []
+		if (t.script) {
+			const script = t.script
+			items.push({
+				displayName: `${data.deleteVerb ?? 'Delete'} script ${lastSegment(script.path)}`,
+				icon: Trash2,
+				type: 'delete' as const,
+				action: () => run({ script })
+			})
+		}
+		if (t.trigger) {
+			const trigger = t.trigger
+			items.push({
+				displayName: `Delete ${trigger.kind} trigger ${lastSegment(trigger.path)}`,
+				icon: Trash2,
+				type: 'delete' as const,
+				action: () => run({ trigger })
+			})
+		}
+		if (t.script && t.trigger) {
+			items.push({
+				displayName: `${data.deleteVerb === 'Archive' ? 'Remove' : 'Delete'} all 2 items`,
+				icon: Trash2,
+				type: 'delete' as const,
+				action: () => run(t)
+			})
+		}
+		return items
+	}
 	let upstream = $derived(data.upstream)
 	const HEADER_SELECTED = 'bg-surface-accent-selected hover:bg-surface-accent-selected text-accent'
 	const CHIP_SELECTED =
@@ -335,7 +366,9 @@
 	     naming it, which opens it. Several scripts open a menu to pick one. -->
 	{@const one = producer ?? (coProducers.length === 1 ? coProducers[0] : undefined)}
 	{@const headerClass = twMerge(
-		'flex items-center gap-1.5 w-full min-w-0 px-2 text-3xs font-normal leading-none text-secondary hover:bg-surface-hover hover:text-primary'
+		'flex items-center gap-1.5 w-full min-w-0 px-2 text-3xs font-normal leading-none text-secondary hover:bg-surface-hover hover:text-primary',
+		data.scriptError &&
+			'bg-red-100 dark:bg-red-700 text-red-700 dark:text-red-200 hover:bg-red-200 dark:hover:bg-red-600 hover:text-red-800'
 	)}
 	{#if one}
 		{@const isSelected = producer ? !!producer.selected : coSelected}
@@ -501,6 +534,7 @@
 				? upstreamRow
 				: undefined}
 			header={hasHeader ? scriptHeader : undefined}
+			headerTone={data.scriptError ? 'error' : undefined}
 			headerSelected={producer ? !!producer.selected : coSelected}
 			width={data.width}
 			surface={upstream ? 'primary' : 'secondary'}

@@ -1462,9 +1462,9 @@
 				foldedIds,
 				...(toDelete
 					? {
-							deleteCount: toDelete.trigger ? 2 : 1,
+							upstreamDelete: toDelete,
 							deleteVerb: assetDeleteVerb,
-							onDeleteUpstream: () => onDeleteAssetUpstream?.(toDelete)
+							onDeleteUpstream: (t: AssetUpstreamDelete) => onDeleteAssetUpstream?.(t)
 						}
 					: onDeleteAssetUpstream && u
 						? {
@@ -1705,8 +1705,13 @@
 				.map((id) => toFix(nodeFixes?.get(id)))
 				.filter((f) => f != undefined)
 			const scriptsToDrag = onAddAssetTrigger ? dragScripts(n) : []
+			// Assets-only: a folded script with an error reddens the header naming it.
+			const scriptError = ((n.data.foldedIds ?? []) as string[]).some(
+				(id) => id.startsWith('script:') && nodeFixes?.has(id)
+			)
 			const data = {
 				...withUpstream,
+				...(scriptError ? { scriptError } : {}),
 				...(fix ? { fix } : {}),
 				...(foldedFixes.length ? { foldedFixes } : {}),
 				...(scriptsToDrag.length

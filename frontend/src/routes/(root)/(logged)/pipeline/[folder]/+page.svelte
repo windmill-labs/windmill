@@ -1282,26 +1282,12 @@
 		if (!target || !ws) return
 		assetDeleteLoading = true
 		const { script, trigger } = target
+		const n = (script ? 1 : 0) + (trigger ? 1 : 0)
 		try {
 			// The script first: when it is refused, nothing else has changed.
-			const deployed = graphRes.current?.runnables.some(
-				(r) => r.path === script.path && !r.unsaved
-			)
-			if (deployed) {
-				if (canHardDeleteScripts) {
-					await ScriptService.deleteScriptByPath({ workspace: ws, path: script.path })
-				} else {
-					await ScriptService.archiveScriptByPath({ workspace: ws, path: script.path })
-				}
-			}
-			if (pe.drafts.has(script.path)) discardDraft(script.path)
-			if (deployed) {
-				pe.discardTriggerDraftsFor(script.path)
-				forgetPath(script.path)
-				forgetScriptCache(script.path)
-			}
+			if (script) await removeScript(script, ws)
 		} catch (e: any) {
-			sendUserToast(`Could not remove ${script.path}: ${e?.body ?? e?.message ?? String(e)}`, true)
+			sendUserToast(`Could not remove ${script?.path}: ${e?.body ?? e?.message ?? String(e)}`, true)
 			assetDeleteLoading = false
 			return
 		}
@@ -1311,17 +1297,34 @@
 				if (pe.triggerDrafts.has(key)) pe.discardTriggerDraft(key)
 				if (!trigger.draft) await deleteTriggerRow(trigger.kind, trigger.path, ws)
 			}
-			const n = trigger ? 2 : 1
 			sendUserToast(`Removed ${n} item${n === 1 ? '' : 's'}`)
 		} catch (e: any) {
 			sendUserToast(
-				`Removed ${script.path}, but not its ${trigger?.kind} trigger ${trigger?.path}: ${e?.body ?? e?.message ?? String(e)}`,
+				`${script ? `Removed ${script.path}, but not its` : 'Could not remove the'} ${trigger?.kind} trigger ${trigger?.path}: ${e?.body ?? e?.message ?? String(e)}`,
 				true
 			)
 		} finally {
 			assetDeleteTarget = undefined
 			assetDeleteLoading = false
 			await graphRes.refetch()
+		}
+	}
+	async function removeScript(script: { path: string }, ws: string) {
+		const deployed = graphRes.current?.runnables.some(
+			(r) => r.path === script.path && !r.unsaved
+		)
+		if (deployed) {
+			if (canHardDeleteScripts) {
+				await ScriptService.deleteScriptByPath({ workspace: ws, path: script.path })
+			} else {
+				await ScriptService.archiveScriptByPath({ workspace: ws, path: script.path })
+			}
+		}
+		if (pe.drafts.has(script.path)) discardDraft(script.path)
+		if (deployed) {
+			pe.discardTriggerDraftsFor(script.path)
+			forgetPath(script.path)
+			forgetScriptCache(script.path)
 		}
 	}
 
@@ -3523,7 +3526,11 @@
 <ConfirmationModal
 	open={assetDeleteTarget != undefined}
 	loading={assetDeleteLoading}
-	title={assetDeleteTarget?.trigger ? 'Delete 2 items?' : 'Delete 1 item?'}
+	title={assetDeleteTarget?.script && assetDeleteTarget.trigger
+		? 'Delete 2 items?'
+		: assetDeleteTarget?.script
+			? `${canHardDeleteScripts ? 'Delete' : 'Archive'} script?`
+			: 'Delete trigger?'}
 	confirmationText="Delete"
 	onConfirmed={confirmAssetUpstreamDelete}
 	onCanceled={() => {
@@ -3534,16 +3541,22 @@
 		{@const t = assetDeleteTarget}
 		<div class="flex flex-col gap-2 text-xs text-secondary">
 			<p>
-				{canHardDeleteScripts
-					? 'The script is deleted, with every version'
-					: 'The script is archived'}{t.trigger ? ', and its trigger deleted' : ''}. The tables it
-				wrote stay.
+				{#if t.script}
+					{canHardDeleteScripts
+						? 'The script is deleted, with every version'
+						: 'The script is archived'}{t.trigger ? ', and its trigger deleted' : ''}. The tables
+					it wrote stay.
+				{:else}
+					The trigger is deleted: its script stays, and no longer runs this way.
+				{/if}
 			</p>
 			<ul class="flex flex-col gap-1">
-				<li class="flex flex-col">
-					<span class="text-emphasis truncate">{t.script.path}</span>
-					<span class="text-2xs text-hint">Script{t.script.unsaved ? ' · draft' : ''}</span>
-				</li>
+				{#if t.script}
+					<li class="flex flex-col">
+						<span class="text-emphasis truncate">{t.script.path}</span>
+						<span class="text-2xs text-hint">Script{t.script.unsaved ? ' · draft' : ''}</span>
+					</li>
+				{/if}
 				{#if t.trigger}
 					<li class="flex flex-col">
 						<span class="text-emphasis truncate">{t.trigger.path}</span>
