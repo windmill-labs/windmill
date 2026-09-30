@@ -18,10 +18,12 @@ items. Place it inside the node's `relative` wrapper, around the node's card.
 		items: Item[]
 		/** The pointer is over the node: shows the kebab. */
 		hover: boolean
+		/** Moves the kebab, for a node with its own badge on that corner. */
+		kebabClass?: string
 		children: Snippet
 	}
 
-	let { items, hover, children }: Props = $props()
+	let { items, hover, kebabClass, children }: Props = $props()
 
 	let menuOpen = $state(false)
 	let contextItems = $derived(contextMenuItemsFromMenu(items))
@@ -34,7 +36,10 @@ items. Place it inside the node's `relative` wrapper, around the node's card.
 	<!-- Rendered only on hover or while open, so the canvas stays clean at rest.
 	     `pointerdown` is stopped so svelte-flow doesn't select the node when the
 	     user reaches for the menu. -->
-	<div class="absolute -top-2 -right-2 h-7 p-1 min-w-7" style="will-change: transform;">
+	<div
+		class={twMerge('absolute -top-2 -right-2 h-7 p-1 min-w-7', kebabClass)}
+		style="will-change: transform;"
+	>
 		<DropdownV2
 			{items}
 			placement="bottom-end"

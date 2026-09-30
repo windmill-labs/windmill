@@ -1209,6 +1209,9 @@
 	// script, each discarded if it is a draft and deleted if it is deployed.
 	let assetDeleteTarget = $state<AssetUpstreamDelete | undefined>(undefined)
 	let assetDeleteLoading = $state(false)
+	// Permanent script deletion is admin-only, as in the pane's own remove modal;
+	// everyone else archives it.
+	let canHardDeleteScripts = $derived(!!($userStore?.is_admin || $userStore?.is_super_admin))
 	async function confirmAssetUpstreamDelete() {
 		const target = assetDeleteTarget
 		const ws = $workspaceStore
@@ -1216,29 +1219,45 @@
 		assetDeleteLoading = true
 		const { script, trigger } = target
 		try {
+			// The script first: when it is refused, nothing else has changed.
+			const deployed = graphRes.current?.runnables.some(
+				(r) => r.path === script.path && !r.unsaved
+			)
+			if (deployed) {
+				if (canHardDeleteScripts) {
+					await ScriptService.deleteScriptByPath({ workspace: ws, path: script.path })
+				} else {
+					await ScriptService.archiveScriptByPath({ workspace: ws, path: script.path })
+				}
+			}
+			if (pe.drafts.has(script.path)) discardDraft(script.path)
+			if (deployed) {
+				pe.discardTriggerDraftsFor(script.path)
+				forgetPath(script.path)
+				forgetScriptCache(script.path)
+			}
+		} catch (e: any) {
+			sendUserToast(`Could not remove ${script.path}: ${e?.body ?? e?.message ?? String(e)}`, true)
+			assetDeleteLoading = false
+			return
+		}
+		try {
 			if (trigger) {
 				const key = triggerDraftKey(trigger.kind, trigger.path)
 				if (pe.triggerDrafts.has(key)) pe.discardTriggerDraft(key)
 				if (!trigger.draft) await deleteTriggerRow(trigger.kind, trigger.path, ws)
 			}
-			const deployed = graphRes.current?.runnables.some(
-				(r) => r.path === script.path && !r.unsaved
-			)
-			if (pe.drafts.has(script.path)) discardDraft(script.path)
-			if (deployed) {
-				await ScriptService.deleteScriptByPath({ workspace: ws, path: script.path })
-				pe.discardTriggerDraftsFor(script.path)
-				forgetPath(script.path)
-				forgetScriptCache(script.path)
-			}
 			const n = trigger ? 2 : 1
-			sendUserToast(`Deleted ${n} item${n === 1 ? '' : 's'}`)
-			assetDeleteTarget = undefined
-			await graphRes.refetch()
+			sendUserToast(`Removed ${n} item${n === 1 ? '' : 's'}`)
 		} catch (e: any) {
-			sendUserToast(`Could not delete: ${e?.body ?? e?.message ?? String(e)}`, true)
+			sendUserToast(
+				`Removed ${script.path}, but not its ${trigger?.kind} trigger ${trigger?.path}: ${e?.body ?? e?.message ?? String(e)}`,
+				true
+			)
 		} finally {
+			assetDeleteTarget = undefined
 			assetDeleteLoading = false
+			await graphRes.refetch()
 		}
 	}
 
@@ -3061,7 +3080,12 @@
 	{#if assetDeleteTarget}
 		{@const t = assetDeleteTarget}
 		<div class="flex flex-col gap-2 text-xs text-secondary">
-			<p>These are deleted, along with every version. The tables they wrote stay.</p>
+			<p>
+				{canHardDeleteScripts
+					? 'The script is deleted, with every version'
+					: 'The script is archived'}{t.trigger ? ', and its trigger deleted' : ''}. The tables it
+				wrote stay.
+			</p>
 			<ul class="flex flex-col gap-1">
 				<li class="flex flex-col">
 					<span class="text-emphasis truncate">{t.script.path}</span>

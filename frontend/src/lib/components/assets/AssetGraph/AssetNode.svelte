@@ -403,7 +403,11 @@
 			<div class="wm-recompute-flash pointer-events-none absolute inset-0 z-10 rounded-md"></div>
 		{/key}
 	{/if}
-	<NodeActionsMenu items={menuItems} hover={hovered}>
+	<NodeActionsMenu
+		items={menuItems}
+		hover={hovered}
+		kebabClass={showGuardBadge ? '-right-8' : undefined}
+	>
 		<PipelineNodeCard
 			kindLabel={formatAssetKind(asset)}
 			title={formatShortAssetPath(asset)}
