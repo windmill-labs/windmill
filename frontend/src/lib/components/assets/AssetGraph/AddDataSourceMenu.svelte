@@ -40,16 +40,13 @@ webhook, a queue…): the add node's, and the canvas's right-click one.
 		trigger: Snippet<[{ open: boolean }]>
 		/** Opens the menu each time it changes. */
 		openSignal?: number
-		/** With `openSignal`: the output the new script writes. */
-		presetOutput?: { kind: 'ducklake' | 'datatable'; store: string; table: string }
 	}
 	let {
 		onAddPipelineScript,
 		pathPrefix,
 		defaultPathSuffix,
 		trigger,
-		openSignal,
-		presetOutput
+		openSignal
 	}: Props = $props()
 
 	function handlePick(pick: PipelineInsertPick) {
@@ -149,6 +146,5 @@ webhook, a queue…): the add node's, and the canvas's right-click one.
 	{defaultPathSuffix}
 	onPick={handlePick}
 	{openSignal}
-	{presetOutput}
 	{trigger}
 />

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+	addTriggerDirective,
 	listenToAsset,
 	removeTriggerDirective,
-	scheduleInsteadOfAsset,
 	stopListeningToAsset
 } from './pipelineAnnotationEdits'
 
@@ -42,10 +42,9 @@ describe('pipeline annotation edits', () => {
 		)
 	})
 
-	it('swaps an asset subscription for a schedule, and drops a trigger kind', () => {
-		const ts = '// pipeline\n// on datatable://main/orders\nexport function main() {}'
-		expect(scheduleInsteadOfAsset(ts, table, false)).toBe(
-			'// pipeline\n// on schedule\nexport function main() {}'
+	it('adds a trigger kind once, and drops it', () => {
+		expect(addTriggerDirective('// pipeline\n// on webhook\nx()', 'webhook')).toBe(
+			'// pipeline\n// on webhook\nx()'
 		)
 		expect(removeTriggerDirective('// pipeline\n// on kafka\nx()', 'kafka')).toBe(
 			'// pipeline\nx()'

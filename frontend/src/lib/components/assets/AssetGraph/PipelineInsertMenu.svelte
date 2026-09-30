@@ -87,8 +87,6 @@
 		placement?: 'bottom' | 'top' | 'left' | 'right'
 		/** Opens the menu each time it changes, for an entry point other than the trigger. */
 		openSignal?: number
-		/** With `openSignal`: the new script's output, already picked and named. */
-		presetOutput?: { kind: 'ducklake' | 'datatable'; store: string; table: string }
 		/** With `openSignal`: only the schedule step, for this existing script; its
 		 * confirm hands the schedule to `onSchedule` instead of creating a script. */
 		scheduleFor?: string
@@ -104,7 +102,6 @@
 		defaultPathSuffix,
 		onPick,
 		openSignal,
-		presetOutput,
 		scheduleFor,
 		onSchedule
 	}: Props = $props()
@@ -122,21 +119,9 @@
 	})
 	let selected = $state(buildEmptySelected())
 	let menuOpen = $state(false)
-	// Opened for a given output: the output is not the user's to pick.
-	let outputLocked = $state(false)
 	$effect(() => {
 		if (!openSignal) return
 		untrack(() => {
-			outputLocked = !!presetOutput
-			if (presetOutput) {
-				resetWizard()
-				selected.outputId = presetOutput.kind
-				config.asset = { ...presetOutput }
-				config.tableEdited = true
-				// Named after what it writes, in the characters a script path allows.
-				const name = presetOutput.table.replace(/[^\w-]+/g, '_').replace(/^_+|_+$/g, '')
-				if (name) selected.scriptPath = name
-			}
 			if (scheduleFor) {
 				resetWizard()
 				selected.triggerId = 'schedule'
@@ -340,14 +325,7 @@
 	contentClasses={twMerge(
 		'p-0 bg-surface overflow-hidden relative transition-height',
 		// The first step's columns (w-56 + w-48 + w-80), held across steps.
-		// Without the output column when the output is preset (w-80 fewer).
-		singleKind
-			? outputLocked
-				? 'w-[12rem]'
-				: 'w-[32rem]'
-			: outputLocked
-				? 'w-[26rem]'
-				: 'w-[46rem]',
+		singleKind ? 'w-[32rem]' : 'w-[46rem]',
 		currentConfigStep === 'schedule'
 			? 'h-[27rem]'
 			: currentConfigStep === 'asset'
@@ -448,9 +426,7 @@
 			'flex flex-col gap-1 p-2 overflow-auto transition-opacity w-48',
 			selected.triggerId ? '' : 'opacity-20'
 		)}
-		{@attach arrowTabNav({
-			onKeyDown: selectAndAdvanceTo(() => (outputLocked ? pathEl : outputEl))
-		})}
+		{@attach arrowTabNav({ onKeyDown: selectAndAdvanceTo(() => outputEl) })}
 	>
 		<div class="text-2xs font-normal text-secondary ml-2 mb-1">Language</div>
 		{#each languages as l}
@@ -460,9 +436,6 @@
 				unifiedSize="sm"
 				btnClasses="justify-start"
 				selected={isSelected}
-				disabled={outputLocked &&
-					!!selected.outputId &&
-					!compatibleOutputKinds(l.lang).includes(selected.outputId)}
 				onClick={() => {
 					selected.language = l.lang
 					const _compatibleOutputKinds = compatibleOutputKinds(l.lang)
@@ -477,36 +450,34 @@
 		{/each}
 	</div>
 
-	{#if !outputLocked}
-		<div
-			bind:this={outputEl}
-			class={twMerge(
-				'flex flex-col gap-1 p-2 grow w-80 overflow-auto transition-opacity',
-				selected.triggerId && selected.language ? '' : 'opacity-20'
-			)}
-			{@attach arrowTabNav({ onKeyDown: selectAndAdvanceTo(() => pathEl, { timeout: 50 }) })}
-		>
-			<div class="text-2xs font-normal text-secondary ml-2 mb-1">Output asset</div>
-			{#each visibleOutputKinds.length ? visibleOutputKinds : PIPELINE_OUTPUT_KINDS as k}
-				{@const isSelected = selected.outputId === k.id}
-				<Button variant="subtle" selected={isSelected} onClick={() => (selected.outputId = k.id)}>
-					<span class="flex flex-col items-start flex-1 min-w-0 text-left">
-						<span class="text-xs font-normal leading-tight">{k.label}</span>
-						{#if k.description}
-							<span
-								class={twMerge(
-									'text-2xs font-normal leading-snug mt-0.5',
-									isSelected ? 'text-accent/80' : 'text-hint'
-								)}
-							>
-								{k.description}
-							</span>
-						{/if}
-					</span>
-				</Button>
-			{/each}
-		</div>
-	{/if}
+	<div
+		bind:this={outputEl}
+		class={twMerge(
+			'flex flex-col gap-1 p-2 grow w-80 overflow-auto transition-opacity',
+			selected.triggerId && selected.language ? '' : 'opacity-20'
+		)}
+		{@attach arrowTabNav({ onKeyDown: selectAndAdvanceTo(() => pathEl, { timeout: 50 }) })}
+	>
+		<div class="text-2xs font-normal text-secondary ml-2 mb-1">Output asset</div>
+		{#each visibleOutputKinds.length ? visibleOutputKinds : PIPELINE_OUTPUT_KINDS as k}
+			{@const isSelected = selected.outputId === k.id}
+			<Button variant="subtle" selected={isSelected} onClick={() => (selected.outputId = k.id)}>
+				<span class="flex flex-col items-start flex-1 min-w-0 text-left">
+					<span class="text-xs font-normal leading-tight">{k.label}</span>
+					{#if k.description}
+						<span
+							class={twMerge(
+								'text-2xs font-normal leading-snug mt-0.5',
+								isSelected ? 'text-accent/80' : 'text-hint'
+							)}
+						>
+							{k.description}
+						</span>
+					{/if}
+				</span>
+			</Button>
+		{/each}
+	</div>
 {/snippet}
 
 {#snippet bottomSection(close: () => void)}

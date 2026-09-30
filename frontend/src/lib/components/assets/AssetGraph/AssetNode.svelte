@@ -219,7 +219,8 @@
 		}
 	}
 
-	let showAdd = $derived(data.onAddScript != undefined)
+	// A red asset needs fixing where its error comes from, not a downstream step.
+	let showAdd = $derived(data.onAddScript != undefined && !data.error)
 	let menuItems: Item[] = $derived(
 		data.onDeleteUpstream
 			? [

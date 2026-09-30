@@ -105,7 +105,6 @@
 		assetRef,
 		listenToAsset,
 		removeTriggerDirective,
-		scheduleInsteadOfAsset,
 		stopListeningChangeText,
 		stopListeningToAsset
 	} from '$lib/components/assets/AssetGraph/pipelineAnnotationEdits'
@@ -1358,8 +1357,6 @@
 	}
 
 	const scriptName = (p: string) => p.split('/').pop() ?? p
-	const isTableKind = (k: AssetKind): k is 'ducklake' | 'datatable' =>
-		k === 'ducklake' || k === 'datatable'
 
 	const readsAsset = (script: string, asset: { kind: AssetKind; path: string }) =>
 		shownGraph.edges.some(
@@ -1385,77 +1382,9 @@
 		onClick: () => selectAsset(asset)
 	})
 
-	/** The fixes for an asset's unwritten subscription, from either end of it. */
-	function subscriptionFixes(
-		asset: { kind: AssetKind; path: string },
-		subscribers: string[]
-	): NodeFixSpec['actions'] {
-		const one = subscribers.length === 1 ? subscribers[0] : undefined
-		const reads = subscribers.some((s) => readsAsset(s, asset))
-		const actions: NodeFixSpec['actions'] = []
-		if (isTableKind(asset.kind)) {
-			actions.push({
-				label: 'Add a script that writes it',
-				detail: `Opens the new-script menu with ${assetRef(asset)} as its output.`,
-				addWriter: { kind: asset.kind, path: asset.path }
-			})
-		}
-		if (one) {
-			actions.push({
-				label: `Run ${scriptName(one)} on a schedule instead`,
-				detail: `Opens the schedule setup. On create: ${stopListeningChangeText(asset, reads).replace(/^R/, 'r')} and adds \`on schedule\` in ${one}, with the schedule as a draft.`,
-				scheduleFor: {
-					script: one,
-					onSchedule: async (schedule) => {
-						const ok = await editScriptHeader(
-							one,
-							(c) => scheduleInsteadOfAsset(c, asset, readsAsset(one, asset)),
-							'Switched to a schedule'
-						)
-						if (!ok) return
-						const saved = pe.setTriggerDraft({
-							kind: 'schedule',
-							config: { ...schedule, script_path: one }
-						})
-						if (!saved) {
-							sendUserToast(
-								`Another draft schedule already uses the path ${schedule.path}; ${one} has no schedule yet`,
-								true
-							)
-						}
-					}
-				}
-			})
-		}
-		actions.push({
-			label: one ? `Stop ${scriptName(one)} running on writes` : 'Stop them running on writes',
-			detail: `${stopListeningChangeText(asset, reads)} in ${subscribers.join(', ')}; only the annotation header changes. Saved as a draft.`,
-			run: () =>
-				editScripts(
-					subscribers,
-					'Stopped running on writes',
-					(s) => (c) => stopListeningToAsset(c, asset, readsAsset(s, asset))
-				)
-		})
-		return actions
-	}
-
 	let nodeFixes = $derived.by(() => {
 		const fixes = new Map<string, NodeFixSpec>()
 		if (isOperator) return fixes
-		for (const { asset, subscribers } of nodeErrors.unwritten.values()) {
-			fixes.set(`asset:${asset.kind}:${asset.path}`, {
-				explainer: [
-					...(subscribers.length === 1
-						? [scriptLink(subscribers[0]), ' runs']
-						: [`${subscribers.length} scripts run`]),
-					' after each write to ',
-					assetLink(asset),
-					`, but nothing writes it, so ${subscribers.length === 1 ? 'it never runs' : 'they never run'}.`
-				],
-				actions: subscriptionFixes(asset, subscribers)
-			})
-		}
 		for (const [path, asset] of nodeErrors.waitsOn) {
 			fixes.set(`script:${path}`, {
 				explainer: [
@@ -1464,7 +1393,16 @@
 					', but nothing writes it, so it never runs.'
 				],
 				actions: [
-					...subscriptionFixes(asset, [path]),
+					{
+						label: `Remove \`on ${assetRef(asset)}\``,
+						detail: `${stopListeningChangeText(asset, readsAsset(path, asset))} in ${path}; only the annotation header changes. Saved as a draft.`,
+						run: () =>
+							editScriptHeader(
+								path,
+								(c) => stopListeningToAsset(c, asset, readsAsset(path, asset)),
+								`Removed \`on ${assetRef(asset)}\``
+							)
+					},
 					{
 						label: 'Open script',
 						run: () => {

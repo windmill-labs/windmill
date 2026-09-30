@@ -16,15 +16,14 @@ red fill already says something is wrong.
 	export type FixExplainer = Array<string | { text: string; onClick: () => void }>
 	export type NodeFix = { explainer: FixExplainer; actions: NodeFixAction[] }
 
-	/** A fix as its supplier declares it: an action, or opening the add menu with
-	 * the new script's output preset (which the canvas owns). */
+	/** A fix as its supplier declares it: an action, or opening the schedule
+	 * wizard (which the canvas owns). */
 	export type NodeFixSpec = {
 		explainer: FixExplainer
 		actions: Array<{
 			label: string
 			detail?: string
 			run?: () => void
-			addWriter?: { kind: 'ducklake' | 'datatable'; path: string }
 			/** Opens the schedule wizard for this script; its confirm calls `onSchedule`. */
 			scheduleFor?: {
 				script: string

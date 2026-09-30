@@ -113,16 +113,6 @@ export function stopListeningToAsset(
 	return out
 }
 
-/** The script runs on a schedule rather than after writes to the asset. */
-export function scheduleInsteadOfAsset(
-	content: string,
-	asset: { kind: AssetKind; path: string },
-	reads: boolean
-): string {
-	const out = stopListeningToAsset(content, asset, reads)
-	return hasDirective(out, onTrigger('schedule')) ? out : addDirective(out, 'on schedule')
-}
-
 /** Adds a `// on <trigger kind>` line (`schedule`, `webhook`, …) unless it has one. */
 export function addTriggerDirective(content: string, kind: string): string {
 	return hasDirective(content, onTrigger(kind)) ? content : addDirective(content, `on ${kind}`)

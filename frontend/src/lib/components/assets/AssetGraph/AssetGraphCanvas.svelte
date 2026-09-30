@@ -365,9 +365,6 @@
 	})
 	let addMenuAt = $state<{ x: number; y: number }>({ x: 0, y: 0 })
 	let addMenuSignal = $state(0)
-	let addMenuPreset = $state<
-		{ kind: 'ducklake' | 'datatable'; store: string; table: string } | undefined
-	>(undefined)
 
 	// The schedule wizard a Fix action opens for an existing script, at the pill.
 	let scheduleWizard = $state<
@@ -391,11 +388,6 @@
 					if (a.scheduleFor) {
 						scheduleWizard = { ...a.scheduleFor, at: anchor }
 						scheduleWizardSignal++
-					} else if (a.addWriter) {
-						const [store, ...rest] = a.addWriter.path.split('/')
-						addMenuAt = anchor
-						addMenuPreset = { kind: a.addWriter.kind, store, table: rest.join('/') }
-						addMenuSignal++
 					} else a.run?.()
 				}
 			}))
@@ -1865,7 +1857,6 @@
 			onclick={() => {
 				if (paneMenu) addMenuAt = paneMenu
 				paneMenu = undefined
-				addMenuPreset = undefined
 				addMenuSignal++
 			}}
 		>
@@ -1937,7 +1928,6 @@
 			{pathPrefix}
 			{defaultPathSuffix}
 			openSignal={addMenuSignal}
-			presetOutput={addMenuPreset}
 		>
 			{#snippet trigger()}
 				<span class="block w-0 h-0" aria-hidden="true"></span>
