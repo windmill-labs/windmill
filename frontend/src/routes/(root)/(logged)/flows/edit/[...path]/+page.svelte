@@ -552,6 +552,7 @@
 	</div>
 {:else if renderEditor}
 	<FlowBuilder
+		ownsPageHeader
 		onTakeLatest={draftBaseVersion
 			? async (shown?: string) => {
 					// The version the drawer showed as head; see /scripts/edit.

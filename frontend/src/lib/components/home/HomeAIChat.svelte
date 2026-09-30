@@ -20,15 +20,7 @@
 
 <script lang="ts">
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import {
-		ArrowUp,
-		ExternalLink,
-		Globe2,
-		KeyRound,
-		PlugZap,
-		Settings,
-		WandSparkles
-	} from 'lucide-svelte'
+	import { ArrowUp, Globe2, KeyRound, Pin, PinOff, PlugZap, Settings } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import { Badge } from '../common'
 	import CloseButton from '../common/CloseButton.svelte'
@@ -46,6 +38,8 @@
 	import HomeConnectDrawer from './HomeConnectDrawer.svelte'
 	import { USER_SETTINGS_HASH } from '../sidebar/settings'
 	import { prefersSessionHandoff } from '../copilot/chat/global/gate'
+	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { onboardingProfile } from '$lib/onboardingProfile'
 
 	const COLLAPSED_SETTING = 'home-ai-composer-collapsed'
@@ -107,16 +101,14 @@
 	// unlocked, so the far commoner unlocked workspace never pops the composer in mid-load.
 	let runOnlyWorkspace = $derived(isRuleActive('DisableDirectDeployment'))
 
-	// The composer hands off to /sessions, which refuses operators — so hide it from them (the
-	// prompt would be silently dropped) while the AI-independent CLI/MCP row below stays.
+	// The composer hands off to /sessions, so users opted out of the sessions beta don't get it
+	// (the prompt would be silently dropped) while the AI-independent CLI/MCP row below stays.
 	let showComposer = $derived(
-		prefersSessionHandoff($userStore?.operator) &&
-			!runOnlyWorkspace &&
-			!$copilotInfo.workspaceDisabled
+		prefersSessionHandoff() && !runOnlyWorkspace && !$copilotInfo.workspaceDisabled
 	)
 
 	// The hero's margins and centered column are for the full block. The lone button row left
-	// by a collapsed, operator, run-only or hidden-assistant view is a hint line and should
+	// by a collapsed, opted-out, run-only or hidden-assistant view is a hint line and should
 	// cost the page almost nothing: no top margin, and the content column's full width so it
 	// hugs the right edge instead of floating centered in empty space.
 	let hero = $derived(showComposer && !collapsed)
@@ -149,7 +141,7 @@
 	const FADE_MS = 600
 
 	// Rotate the example prompt every CYCLE_MS: fade the placeholder out, swap it, fade it back in.
-	// Only while the composer is shown — otherwise (operators) it would loop forever driving an
+	// Only while the composer is shown — otherwise it would loop forever driving an
 	// unrendered input — and not under reduced motion, where the first prompt simply stays put.
 	// The index lives outside the effect so re-showing the composer resumes the rotation from the
 	// prompt currently displayed rather than restarting it.
@@ -295,49 +287,56 @@
 						</Button>
 					{/each}
 				</div>
-			{:else if showComposer}
-				<!-- All that is left of the composer once dismissed: sits with the CLI/MCP row so the
-				     collapsed home page is one quiet line. -->
-				<Button
-					variant="subtle"
-					unifiedSize="xs"
-					btnClasses="!text-2xs !text-hint"
-					startIcon={{ icon: WandSparkles }}
-					onClick={() => setCollapsed(false)}
-				>
-					Build with AI
-				</Button>
-			{:else}
-				<div></div>
 			{/if}
-
-			<!-- Not AI-related, so shown even to operators / when the composer is hidden. -->
-			<div class="flex flex-row items-center gap-1">
-				<Button
-					variant="subtle"
-					unifiedSize="xs"
-					btnClasses="!text-2xs !text-hint"
-					startIcon={{ icon: PlugZap }}
-					onClick={() => homeConnectDrawer?.openDrawer?.()}
-				>
-					CLI / MCP
-				</Button>
-				{#if !$userStore?.operator && HOME_SHOW_HUB}
-					<Button
-						variant="subtle"
-						unifiedSize="xs"
-						btnClasses="!text-2xs !text-hint"
-						startIcon={{ icon: Globe2 }}
-						endIcon={{ icon: ExternalLink }}
-						href={$hubBaseUrlStore}
-						target="_blank"
-					>
-						Hub
-					</Button>
-				{/if}
-			</div>
 		</div>
 	</div>
 </div>
 
 <HomeConnectDrawer bind:this={homeConnectDrawer} />
+
+<!-- Everything the hero offered beside the composer lives in the band's menu: the connect helper,
+     the hub, and the way back to the composer once it has been put away. -->
+<!-- Last in the bar whatever else the page registers: a menu of side trips belongs after the
+     buttons that act on what is on screen. -->
+<PageHeaderContent actions={homeMenu} actionsOrder={100} />
+
+{#snippet homeMenu()}
+	<!-- The band's own menu: the connect helper, the hub, and whether the composer is pinned to
+	     this page — all of them preferences or side trips, none of them the page's work. -->
+	<DropdownV2
+		placement="bottom-end"
+		size="sm"
+		items={[
+			...(showComposer
+				? [
+						collapsed
+							? {
+									displayName: 'Pin session chat to the page',
+									icon: Pin,
+									action: () => setCollapsed(false)
+								}
+							: {
+									displayName: 'Unpin session chat',
+									icon: PinOff,
+									action: () => setCollapsed(true)
+								}
+					]
+				: []),
+			{
+				displayName: 'CLI / MCP',
+				icon: PlugZap,
+				action: () => homeConnectDrawer?.openDrawer?.()
+			},
+			...(!$userStore?.operator && HOME_SHOW_HUB
+				? [
+						{
+							displayName: 'Hub',
+							icon: Globe2,
+							href: $hubBaseUrlStore,
+							hrefTarget: '_blank' as const
+						}
+					]
+				: [])
+		]}
+	/>
+{/snippet}

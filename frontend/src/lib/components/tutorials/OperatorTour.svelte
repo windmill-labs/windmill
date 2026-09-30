@@ -1,8 +1,7 @@
 <script lang="ts">
 	import type { DriveStep } from 'driver.js'
-	import { wait } from '$lib/utils'
 	import Tutorial from './Tutorial.svelte'
-	import { markOperatorTourSeen, MENU_OPEN_DELAY_MS } from './operatorTour'
+	import { markOperatorTourSeen } from './operatorTour'
 
 	let tutorial: Tutorial | undefined = $state(undefined)
 	let running = false
@@ -25,7 +24,7 @@
 <Tutorial
 	bind:this={tutorial}
 	{onDestroyed}
-	getSteps={(driver) => {
+	getSteps={() => {
 		const steps: DriveStep[] = [
 			{
 				popover: {
@@ -60,19 +59,12 @@
 			},
 			{
 				popover: {
-					title: 'Finally, the Menu section',
+					title: 'Finally, the sidebar',
 					description:
-						'Explore available tabs where you can access your history of runs, your scheduled scripts, and your workspaces.<p style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(128,128,128,0.3); font-size: 0.9em; opacity: 0.9;"><strong>💡 Want to see this again?</strong> Pick <strong>Take the tour</strong> from that same menu.</p>',
-					onNextClick: async () => {
-						// The step points into the menu, so it has to be open before the popover
-						// lands on it — and open is also where the entry to re-run the tour is.
-						const menuButton = document.querySelector('[role="menuitem"]') as HTMLElement | null
-						menuButton?.click()
-						await wait(MENU_OPEN_DELAY_MS)
-						driver.destroy()
-					}
+						'Explore the pages you can open from here: your history of runs, your scheduled scripts, AI sessions and your workspaces.<p style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(128,128,128,0.3); font-size: 0.9em; opacity: 0.9;"><strong>💡 Want to see this again?</strong> Pick <strong>Take the tour</strong> from your account menu, under <strong>Settings</strong>.</p>'
 				},
-				element: '[role="menuitem"]'
+				// Whichever the sidebar currently is: the floating handle when detached, the rail when not.
+				element: '[data-nav-handle], #sidebar'
 			}
 		]
 

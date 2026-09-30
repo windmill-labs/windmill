@@ -12,6 +12,8 @@
 	import { base } from '$lib/base'
 	import PublicApp from '$lib/components/apps/editor/PublicApp.svelte'
 	import PublicAppFrame from '$lib/components/apps/editor/PublicAppFrame.svelte'
+	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import { appHeaderPinned } from '$lib/components/apps/appHeaderPin.svelte'
 	import { Button } from '$lib/components/common'
 	import { AppService, OpenAPI } from '$lib/gen'
 	import { userStore } from '$lib/stores'
@@ -124,30 +126,52 @@
 	})
 </script>
 
-<PublicAppFrame
-	{fetchEmbedToken}
-	{viewerUrl}
-	onViewerReady={(_token, requestTokenRefresh) => {
-		refresh = requestTokenRefresh
-		loadApp()
-	}}
+<!-- The line separating the app from the band exists only while the band does: unpinned there is
+     nothing above the app to separate it from. It goes on the app's wrapper rather than on the
+     frame, which the header-less public page shares — and as an inset shadow rather than a border,
+     which would take a pixel off an app sized to fill the page exactly and leave it scrolling. -->
+<div
+	class="h-full {appHeaderPinned.val
+		? 'shadow-[inset_0_1px_0_0_rgb(var(--color-border-light))]'
+		: ''}"
 >
-	{#snippet viewer()}
-		<PublicApp
-			{app}
-			{workspace}
-			{notExists}
-			{noPermission}
-			jwtError={false}
-			inWorkspace
-			{hideRefreshBar}
-			onLoginSuccess={() => loadApp()}
-		></PublicApp>
-	{/snippet}
-</PublicAppFrame>
+	<PublicAppFrame
+		{fetchEmbedToken}
+		{viewerUrl}
+		onViewerReady={(_token, requestTokenRefresh) => {
+			refresh = requestTokenRefresh
+			loadApp()
+		}}
+	>
+		{#snippet viewer()}
+			<PublicApp
+				{app}
+				{workspace}
+				{notExists}
+				{noPermission}
+				jwtError={false}
+				inWorkspace
+				{hideRefreshBar}
+				onLoginSuccess={() => loadApp()}
+			></PublicApp>
+		{/snippet}
+	</PublicAppFrame>
+</div>
 
 {#if canWriteApp && !hideEditBtn}
-	<div id="app-edit-btn" class="absolute bottom-4 z-50 right-4">
-		<Button size="sm" startIcon={{ icon: Pen }} variant="subtle" href={editHref}>Edit</Button>
-	</div>
+	<!-- The page header carries it, with the app's name: a floating button over the app's own
+	     canvas lands on whatever the app draws there. -->
+	<!-- Edit sits with the app's name rather than at the far end of the bar: on a page whose header
+	     is only there while hovered, the far end is a journey across the window. -->
+	<PageHeaderContent item={{ kind: 'app', path }} afterName={editAction} fullBleed />
 {/if}
+
+{#snippet editAction()}
+	<Button
+		unifiedSize="sm"
+		startIcon={{ icon: Pen }}
+		variant="subtle"
+		href={editHref}
+		id="app-edit-btn">Edit</Button
+	>
+{/snippet}

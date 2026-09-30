@@ -1,14 +1,14 @@
 <script lang="ts">
+	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import { Badge } from './common'
 	import { workspaceStore, userWorkspaces, userStore, type UserExt } from '$lib/stores'
-	import { ScriptService } from '$lib/gen'
 	import type { WorkspaceComparison } from '$lib/gen'
 	import { fetchWorkspaceComparison } from '$lib/workspaceComparison'
 	import { Button } from './common'
-	import { AlertTriangle, GitFork, CircleCheck, CircleX, Loader2 } from 'lucide-svelte'
 	import { goto } from '$app/navigation'
 	import { onMount, untrack } from 'svelte'
 	import { useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
-	import { childWorkspaceNoun, devLabelWord } from '$lib/utils/devWorkspaceLabel'
+	import { childWorkspaceNoun } from '$lib/utils/devWorkspaceLabel'
 	import { diffActionableInDirection } from '$lib/utils_workspace_deploy'
 
 	let loading = $state(false)
@@ -20,12 +20,10 @@
 
 	let currentWorkspaceData = $derived($userWorkspaces.find((w) => w.id === $workspaceStore))
 	let parentWorkspaceId = $derived(currentWorkspaceData?.parent_workspace_id)
-	let parentWorkspaceData = $derived($userWorkspaces.find((w) => w.id === parentWorkspaceId))
 	// Detect fork/dev workspaces by their parent link, not the `wm-fork-` id prefix (dev
 	// workspaces have an ordinary, prefix-less id). Keying on the parent (rather than the
 	// prefix) also avoids a parentless "Fork of ()" banner when the linkage is dropped.
 	let isFork = $derived(parentWorkspaceId != null)
-	let isDevWorkspace = $derived(currentWorkspaceData?.is_dev_workspace ?? false)
 	let currentNoun = $derived(childWorkspaceNoun(currentWorkspaceData))
 	// Operators run scripts and flows, they never deploy a fork, so the banner and
 	// its CTA are noise for them. Gates the fetches too, not just the markup: the
@@ -67,14 +65,12 @@
 	let showDraftsOnly = $derived(upToDate && draftCount > 0)
 
 	// Leaving for a workspace with no comparison of its own has to invalidate whatever
-	// is in flight too, or that response lands as this one's answer — and its CI counts
-	// would be fetched for paths this workspace may not even have.
+	// is in flight too, or that response lands as this one's answer.
 	function dropComparison() {
 		requestSeq++
 		comparison = undefined
 		comparisonFor = undefined
 		loading = false
-		resetCiTestSummary()
 	}
 
 	// `isNotOperator` is a dependency of its own: it only turns true once this
@@ -113,8 +109,7 @@
 		if (comparisonFor !== ws) {
 			comparison = undefined
 			comparisonFor = undefined
-			resetCiTestSummary()
-		}
+			}
 		const seq = ++requestSeq
 		loading = true
 		error = undefined
@@ -159,68 +154,6 @@
 		}
 	}
 
-	let ciTestPassing = $state(0)
-	let ciTestFailing = $state(0)
-	let ciTestRunning = $state(0)
-	let ciTestTotal = $state(0)
-
-	// These describe the rows of one comparison, so they are dropped with it.
-	function resetCiTestSummary() {
-		ciTestPassing = 0
-		ciTestFailing = 0
-		ciTestRunning = 0
-		ciTestTotal = 0
-	}
-
-	async function fetchCiTestSummary() {
-		if (!$workspaceStore || !comparison?.diffs) return
-		const items = comparison.diffs
-			.filter((d) => d.kind === 'script' || d.kind === 'flow' || d.kind === 'resource')
-			.map((d) => ({ path: d.path, kind: d.kind as 'script' | 'flow' | 'resource' }))
-		if (items.length === 0) return
-		// Counted for the comparison current at call time — the poll below outlives a
-		// fork switch, and a slow batch for the fork we left would repaint this one's.
-		const seq = requestSeq
-		try {
-			const batch = await ScriptService.getCiTestResultsBatch({
-				workspace: $workspaceStore,
-				requestBody: { items }
-			})
-			if (seq !== requestSeq) return
-			let passing = 0
-			let failing = 0
-			let running = 0
-			let total = 0
-			for (const results of Object.values(batch)) {
-				for (const r of results) {
-					total++
-					if (r.status === 'success') passing++
-					else if (r.status === 'failure' || r.status === 'canceled') failing++
-					else if (r.status === 'running' || (r.job_id && !r.status)) running++
-				}
-			}
-			ciTestPassing = passing
-			ciTestFailing = failing
-			ciTestRunning = running
-			ciTestTotal = total
-		} catch (e) {
-			console.error('Failed to fetch CI test summary:', e)
-		}
-	}
-
-	$effect(() => {
-		if (comparison && comparison.summary.total_diffs > 0) {
-			fetchCiTestSummary()
-		}
-	})
-
-	// Poll while any CI test is still running
-	$effect(() => {
-		if (ciTestRunning <= 0) return
-		const interval = setInterval(fetchCiTestSummary, 3000)
-		return () => clearInterval(interval)
-	})
-
 	// Counted with the compare page's own predicate so the banner never advertises a
 	// direction whose list is empty: the `ahead`/`behind` sums in the summary include
 	// rows a direction does not carry, and miss a parent-only row that the update
@@ -246,191 +179,60 @@
 </script>
 
 {#if showBanner}
-	<!-- Side padding mirrors the page content container below, so the banner
-	     stays aligned with it instead of bleeding to the viewport edges. -->
-	<div class="w-full text-xs max-w-7xl mx-auto px-4 sm:px-8 pt-2">
-		<div class="bg-blue-50 dark:bg-blue-900 rounded-md px-4 py-2">
-			<!-- The summary wraps inside its own column while the CTA keeps its width and
-			     stays on the first line: laid out as one non-wrapping row, the summary is
-			     long enough on a laptop-width viewport to push the button out of the
-			     banner instead of getting shorter. -->
-			<div class="flex items-center justify-between gap-x-3">
-				<div class="flex items-center flex-wrap gap-x-3 gap-y-1 min-w-0">
-					<GitFork class="w-4 h-4 text-accent shrink-0" />
-					<div class="text-sm min-w-0">
-						<span class="font-medium text-blue-900 dark:text-blue-100">
-							{isDevWorkspace
-								? `${devLabelWord(currentWorkspaceData?.dev_workspace_label)} workspace of`
-								: 'Fork of'}
-							<b>{parentWorkspaceData?.name}</b
-							>{#if parentWorkspaceData?.name !== parentWorkspaceId}
-								({parentWorkspaceId}){/if}
-						</span>
-					</div>
-
-					{#if loading}
-						<span class="text-xs text-blue-600 dark:text-blue-400"> Checking for changes... </span>
-					{:else if error}
-						<span class="text-xs text-red-600 dark:text-red-400">
-							{error}
-						</span>
-					{:else if comparison}
-						<div class="flex items-center flex-wrap gap-x-4 gap-y-1 text-xs min-w-0">
-							{#if comparison.summary.total_diffs > 0}
-								<span class="text-blue-700 dark:text-blue-100">
-									{forkAheadBehindMessage(changesAhead, changesBehind)}
-									<span class="font-semibold underline">{parentWorkspaceId}</span> over {comparison
-										.summary.total_diffs} items<span class="hidden lg:inline">:</span>
-								</span>
-								<!-- The per-kind breakdown is the first thing to go on a narrow
-								     viewport: the item total above already sizes the change set, and
-								     the compare page carries the detail. -->
-								<div
-									class="hidden lg:flex items-center flex-wrap gap-x-2 gap-y-1 whitespace-nowrap"
-								>
-									{#if comparison.summary.scripts_changed > 0}
-										<span class="text-blue-700 dark:text-blue-100">
-											{comparison.summary.scripts_changed} script{comparison.summary
-												.scripts_changed !== 1
-												? 's'
-												: ''}
-										</span>
-									{/if}
-									{#if comparison.summary.flows_changed > 0}
-										<span class="text-blue-700 dark:text-blue-100">
-											{comparison.summary.flows_changed} flow{comparison.summary.flows_changed !== 1
-												? 's'
-												: ''}
-										</span>
-									{/if}
-									{#if comparison.summary.apps_changed > 0}
-										<span class="text-blue-700 dark:text-blue-100">
-											{comparison.summary.apps_changed} app{comparison.summary.apps_changed !== 1
-												? 's'
-												: ''}
-										</span>
-									{/if}
-									{#if comparison.summary.resources_changed > 0}
-										<span class="text-blue-700 dark:text-blue-100">
-											{comparison.summary.resources_changed} resource{comparison.summary
-												.resources_changed !== 1
-												? 's'
-												: ''}
-										</span>
-									{/if}
-									{#if comparison.summary.variables_changed > 0}
-										<span class="text-blue-700 dark:text-blue-100">
-											{comparison.summary.variables_changed} variable{comparison.summary
-												.variables_changed !== 1
-												? 's'
-												: ''}
-										</span>
-									{/if}
-									{#if comparison.summary.resource_types_changed > 0}
-										<span class="text-blue-700 dark:text-blue-100">
-											{comparison.summary.resource_types_changed} resource type{comparison.summary
-												.resource_types_changed !== 1
-												? 's'
-												: ''}
-										</span>
-									{/if}
-									{#if comparison.summary.folders_changed > 0}
-										<span class="text-blue-700 dark:text-blue-100">
-											{comparison.summary.folders_changed} folder{comparison.summary
-												.folders_changed !== 1
-												? 's'
-												: ''}
-										</span>
-									{/if}
-									{#if comparison.summary.schedules_changed > 0}
-										<span class="text-blue-700 dark:text-blue-100">
-											{comparison.summary.schedules_changed} schedule{comparison.summary
-												.schedules_changed !== 1
-												? 's'
-												: ''}
-										</span>
-									{/if}
-									{#if comparison.summary.triggers_changed > 0}
-										<span class="text-blue-700 dark:text-blue-100">
-											{comparison.summary.triggers_changed} trigger{comparison.summary
-												.triggers_changed !== 1
-												? 's'
-												: ''}
-										</span>
-									{/if}
-								</div>
-
-								{#if ciTestTotal > 0}
-									-
-									{#if ciTestFailing > 0}
-										<div
-											class="flex items-center gap-1 text-red-600 dark:text-red-400 whitespace-nowrap"
-										>
-											<CircleX class="w-3 h-3" />
-											<span>CI: {ciTestFailing} failing</span>
-										</div>
-									{:else if ciTestRunning > 0}
-										<div
-											class="flex items-center gap-1 text-yellow-600 dark:text-yellow-400 whitespace-nowrap"
-										>
-											<Loader2 class="w-3 h-3 animate-spin" />
-											<span>CI: {ciTestRunning} running</span>
-										</div>
-									{:else}
-										<div
-											class="flex items-center gap-1 text-green-600 dark:text-green-400 whitespace-nowrap"
-										>
-											<CircleCheck class="w-3 h-3" />
-											<span>CI: {ciTestPassing} passing</span>
-										</div>
-									{/if}
-								{/if}
-
-								{#if comparison.summary.conflicts > 0}
-									-
-									<div
-										class="flex items-center gap-1 text-orange-600 dark:text-orange-400 whitespace-nowrap"
-									>
-										<AlertTriangle class="w-3 h-3" />
-										<span
-											>{comparison.summary.conflicts} conflict{comparison.summary.conflicts !== 1
-												? 's'
-												: ''}</span
-										>
-									</div>
-								{/if}
-							{:else if comparison.skipped_comparison}
-								<span class="text-blue-600 dark:text-blue-200">
-									This {currentNoun} was created before the addition of certain windmill features, and
-									therefore the changes with its parent workspace cannot be displayed.</span
-								>
-							{:else if showDraftsOnly}
-								<span class="text-blue-700 dark:text-blue-100">
-									This workspace has {draftCount} draft{draftCount !== 1 ? 's' : ''}
-								</span>
-							{:else}
-								<span class="text-blue-600 dark:text-blue-200"> Everything is up to date </span>
-							{/if}
-						</div>
-					{/if}
-				</div>
-
-				<div class="flex items-center gap-2 shrink-0">
-					<Button
-						variant="default"
-						unifiedSize="sm"
-						onclick={showDraftsOnly ? openDraftCompare : openComparisonDrawer}
-					>
-						{#if showDraftsOnly}
-							Review & deploy drafts
-						{:else if !hasAnswer || changesAhead > 0}
-							Review & Deploy Changes
-						{:else}
-							Review & Update {currentNoun}
-						{/if}
-					</Button>
-				</div>
-			</div>
-		</div>
-	</div>
+	<!-- In the band, not a banner: the breadcrumb already says which fork this is, so all this has
+	     to carry is how far it has drifted and the way to review that. The per-kind breakdown, the
+	     CI line and the conflict count live on the compare page the button opens. -->
+	<PageHeaderContent actions={forkAction} />
 {/if}
+
+{#snippet forkAction()}
+	{@const total = comparison?.summary.total_diffs ?? 0}
+	{@const conflicts = comparison?.summary.conflicts ?? 0}
+	{#if loading}
+		<span class="text-2xs text-tertiary">Checking for changes…</span>
+	{:else if error}
+		<span class="text-2xs text-red-600 dark:text-red-400" title={error}>Comparison failed</span>
+	{:else if showDraftsOnly}
+		<Badge color="blue" small>
+			{draftCount} draft{draftCount !== 1 ? 's' : ''}
+		</Badge>
+		<Button
+			variant="subtle"
+			unifiedSize="sm"
+			onclick={openDraftCompare}
+			title={`Review and deploy this workspace's drafts`}
+		>
+			Review & deploy drafts
+		</Button>
+	{:else if total > 0}
+		<!-- Which way the drift goes is the thing to know at a glance: ahead is what this fork has
+		     to give its parent, behind is what it has yet to take. -->
+		{#if changesAhead > 0}
+			<Badge color="blue" small title="{changesAhead} ahead of {parentWorkspaceId}">
+				↑ {changesAhead}
+			</Badge>
+		{/if}
+		{#if changesBehind > 0}
+			<Badge color="gray" small title="{changesBehind} behind {parentWorkspaceId}">
+				↓ {changesBehind}
+			</Badge>
+		{/if}
+		{#if conflicts > 0}
+			<Badge color="orange" small title="{conflicts} conflicting item{conflicts !== 1 ? 's' : ''}">
+				{conflicts} conflict{conflicts !== 1 ? 's' : ''}
+			</Badge>
+		{/if}
+		<Button
+			variant="subtle"
+			unifiedSize="sm"
+			onclick={openComparisonDrawer}
+			title={`${forkAheadBehindMessage(changesAhead, changesBehind)} ${parentWorkspaceId} over ${total} items`}
+		>
+			{#if !hasAnswer || changesAhead > 0}
+				Review & Deploy Changes
+			{:else}
+				Review & Update {currentNoun}
+			{/if}
+		</Button>
+	{/if}
+{/snippet}
