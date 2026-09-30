@@ -317,17 +317,15 @@
 	}
 	let flowEl: HTMLElement | undefined = $state()
 	const nodeUnder = (x: number, y: number) =>
-		[...(flowEl?.querySelectorAll('.svelte-flow__node') ?? [])]
+		Array.from(flowEl?.querySelectorAll('.svelte-flow__node') ?? [])
 			.find((el) => within(el, x, y))
 			?.getAttribute('data-id') ?? undefined
 	const overBlank = (x: number, y: number) =>
 		!!flowEl &&
 		within(flowEl, x, y) &&
-		![
-			...flowEl.querySelectorAll(
-				'.svelte-flow__panel, .svelte-flow__controls, .svelte-flow__minimap'
-			)
-		].some((el) => within(el, x, y))
+		!Array.from(
+			flowEl.querySelectorAll('.svelte-flow__panel, .svelte-flow__controls, .svelte-flow__minimap')
+		).some((el) => within(el, x, y))
 	const readsAsset = (assetId: string, scriptId: string) =>
 		model.edges.some((x) => x.kind === 'lineage-read' && x.source === assetId && x.target === scriptId)
 	const assetOf = (assetId: string) => {
