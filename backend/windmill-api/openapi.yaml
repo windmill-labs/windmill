@@ -36183,6 +36183,9 @@ components:
             True when the authed user has a draft for this app — either no
             deployed row exists at this path (draft-only) or the user has
             saved a per-user draft on top of the deployed row.
+        draft_only:
+          type: boolean
+          description: No deployed counterpart exists at this path — the draft is the whole item.
         draft_path:
           type: string
           description: |

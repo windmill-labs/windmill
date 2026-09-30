@@ -828,7 +828,7 @@ pub async fn handle_python_job(
         for k, v in list(pre_args.items()):
             if v == '<function call>':
                 del pre_args[k]
-        kwargs = inner_script.preprocessor(**pre_args)
+        kwargs = _await(inner_script.preprocessor(**pre_args))
         kwrags_json = res_to_json(kwargs, type(kwargs))
         with open("args.json", 'w', encoding="utf-8") as f:
             f.write(kwrags_json)"#
@@ -969,6 +969,8 @@ result_json = os.path.join(os.path.abspath(os.path.dirname(__file__)), "result.j
 def res_to_json(res, typ):
 {res_to_json_body}
 
+{PY_AWAIT_HELPER}
+
 try:
     {preprocessor}
     {spread}
@@ -977,7 +979,7 @@ try:
             del args[k]
     if inner_script.{main_override} is None or not callable(inner_script.{main_override}):
         raise ValueError("{main_override} function is missing")
-    res = inner_script.{main_override}(**args)
+    res = _await(inner_script.{main_override}(**args))
     typ = type(res)
     if hasattr(res, '__iter__') and not isinstance(res, (str, dict, list, bytes, tuple, set, frozenset, range, memoryview, bytearray)) and typ.__name__ != 'DataFrame':
         for chunk in res:
@@ -1513,6 +1515,8 @@ _fix=lambda s:s if 'Infinity' not in s and 'NaN' not in s and '\\u0000' not in s
 
 def res_to_json(res, typ):
 {res_to_json_body}
+
+{PY_AWAIT_HELPER}
 {functions}
 {registrations}
 
@@ -1546,11 +1550,11 @@ for line in sys.stdin:
                 continue
             kwargs = json.loads(args_json, strict=False)
             pre_args = entry['pre_transform'](kwargs)
-            preprocessed = mod.preprocessor(**pre_args)
+            preprocessed = _await(mod.preprocessor(**pre_args))
             preprocessed_json = json.dumps(preprocessed, separators=(',', ':'), default=str).replace('\n', '')
             sys.stdout.write("wm_res[preprocessed_args]:" + preprocessed_json + "\n")
             main_args = entry['transform'](preprocessed if preprocessed else {{}})
-            res = mod.main(**main_args)
+            res = _await(mod.main(**main_args))
             typ = type(res)
             res_json = res_to_json(res, typ)
             sys.stdout.write("wm_res[success]:" + res_json + "\n")
@@ -1574,11 +1578,11 @@ for line in sys.stdin:
                 continue
             kwargs = json.loads(args_json, strict=False)
             pre_args = entry['pre_transform'](kwargs)
-            preprocessed = mod.preprocessor(**pre_args)
+            preprocessed = _await(mod.preprocessor(**pre_args))
             preprocessed_json = json.dumps(preprocessed, separators=(',', ':'), default=str).replace('\n', '')
             sys.stdout.write("wm_res[preprocessed_args]:" + preprocessed_json + "\n")
             main_args = entry['transform'](preprocessed if preprocessed else {{}})
-            res = mod.main(**main_args)
+            res = _await(mod.main(**main_args))
             typ = type(res)
             res_json = res_to_json(res, typ)
             sys.stdout.write("wm_res[success]:" + res_json + "\n")
@@ -1596,7 +1600,7 @@ for line in sys.stdin:
             entry = next(iter(scripts.values()))
             kwargs = json.loads(args_json, strict=False)
             args = entry['transform'](kwargs)
-            res = entry['mod'].main(**args)
+            res = _await(entry['mod'].main(**args))
             typ = type(res)
             res_json = res_to_json(res, typ)
             sys.stdout.write("wm_res[success]:" + res_json + "\n")
@@ -1624,7 +1628,7 @@ for line in sys.stdin:
 
             kwargs = json.loads(args_json, strict=False)
             args = entry['transform'](kwargs)
-            res = entry['mod'].main(**args)
+            res = _await(entry['mod'].main(**args))
             typ = type(res)
             res_json = res_to_json(res, typ)
             sys.stdout.write("wm_res[success]:" + res_json + "\n")
@@ -3329,6 +3333,31 @@ This is not normal behavior, please make sure all workers have enough memory.\n
         Ok(req_paths)
     };
 }
+
+/// Python helper running what an `async def` main or preprocessor returns.
+/// One loop per process: a dedicated worker's module-level async clients and
+/// locks are bound to the loop they were first used on, so `asyncio.run`'s
+/// loop-per-call would break them from the second job on. A loop the script
+/// set while importing (`asyncio.set_event_loop`) is reused. asyncio is
+/// imported lazily so sync jobs don't pay its import time.
+const PY_AWAIT_HELPER: &str = r#"_loop = None
+def _await(r):
+    global _loop
+    if not hasattr(r, '__await__'):
+        return r
+    import asyncio
+    if _loop is None or _loop.is_closed():
+        import warnings
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore', DeprecationWarning)
+                _loop = asyncio.get_event_loop()
+            if _loop.is_closed():
+                raise RuntimeError
+        except RuntimeError:
+            _loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(_loop)
+    return _loop.run_until_complete(r)"#;
 
 /// Python function body for `res_to_json(res, typ)`.
 /// Handles DataFrame, bytes, dict coercion + JSON serialization.

@@ -77,31 +77,20 @@ Public CLI surface:
 - `--verbose`: stream assistant output for frontend runs
 - `--skip-judge`: skip LLM judge scoring for the run
 - `--execution-only`: only require the model/proxy/frontend loop to complete; skip validators, tool expectations, backend artifact validation, and judge scoring
+- `--reasoning <effort>`: reasoning effort for frontend modes (`off`, `low`, `medium`, `high`, `max`, …); without it the product's default applies (`high` on models that can reason). The effort is appended to the recorded model label (`anthropic:claude-sonnet-5-5@max`)
 - `--record`: append a compact tracked summary line to `ai_evals/history/<mode>.jsonl` for full-suite runs only
 - `--backend-validation <mode>`: optional backend smoke validation (`off` or `preview`) for `script` and `flow` evals
 
 ## Models
 
-Use `bun run cli -- models` to see the current aliases.
-
-Today:
-
-- `haiku`
-- `sonnet`
-- `opus`
-- `4o`
-- `gpt-5.5`
-- `gemini-3-flash-preview`
-- `gemini-3.1-pro-preview`
-- `deepseek-v4-flash`
-- `deepseek-v4-pro`
+Use `bun run cli -- models` to see the current aliases; `core/models.ts` is the list.
 
 Notes:
 
 - the command also prints accepted alias spellings such as `gpt-4o`, `gpt-55`, `claude-opus-4.6`, and `claude-haiku-4.5`
 - frontend modes (`flow`, `script`, `app`, `global`) can use Anthropic, OpenAI, Gemini, and DeepSeek-backed aliases
 - `cli` mode always uses the Anthropic agent SDK, so only Anthropic aliases are valid there
-- the judge model is separate and currently defaults to `claude-sonnet-4-6`; use `--skip-judge` for deterministic-only runs
+- the judge model is separate and currently defaults to `claude-sonnet-5-5`; use `--skip-judge` for deterministic-only runs
 
 ## Case Format
 

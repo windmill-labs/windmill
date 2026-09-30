@@ -10,9 +10,9 @@ import { AGENT_HISTORY_KEYS } from './agentFormFields'
  *  picked cannot drift from the button they see. */
 export const MEMORY_OPTION_LABELS: Record<string, string> = {
 	off: 'Off',
-	window: 'Last messages',
-	compaction: 'Compaction',
-	auto: 'Last messages (legacy)',
+	compaction: 'On',
+	window: 'Legacy',
+	auto: 'Legacy (older)',
 	manual: 'Previous messages (legacy)'
 }
 
@@ -60,7 +60,7 @@ export const AI_AGENT_SCHEMA: Schema = {
 		memory: {
 			type: 'object',
 			description:
-				'Windmill stores the conversation and sends it with each request, keeping either its last messages or a summary of the older ones.',
+				'Windmill stores the conversation and sends it with each request. On keeps all of it, summarizing the older part as it nears the context window. Legacy keeps only the last messages.',
 			enumLabels: MEMORY_OPTION_LABELS,
 			// Chat mode keys memory on the conversation, so a chat whose agent has memory off
 			// forgets every turn. Enabling chat mode turns it on; this keeps it there. A step
@@ -68,6 +68,13 @@ export const AI_AGENT_SCHEMA: Schema = {
 			// an agent added to an already-chat-enabled flow — would have no way out of it.
 			lockOneOfWhenChatEnabled:
 				"Chat mode keys this agent's history on the conversation, so memory stays on while it is enabled.",
+			oneOfHints: {
+				off: 'Nothing is stored between runs.',
+				compaction:
+					'Keeps the whole conversation, summarizing older messages as it nears the context window.',
+				window: 'Keeps only the most recent messages and drops older ones. Prefer On.',
+				auto: 'Keeps only the most recent messages and drops older ones. Prefer On.'
+			},
 			oneOf: [
 				{
 					type: 'object',
@@ -78,20 +85,6 @@ export const AI_AGENT_SCHEMA: Schema = {
 				},
 				{
 					type: 'object',
-					title: 'window',
-					properties: {
-						kind: { type: 'string', enum: ['window'] },
-						context_length: {
-							type: 'number',
-							title: 'Messages to keep',
-							description: 'Number of most recent messages to load and store. 0 turns memory off.',
-							default: 10
-						}
-					},
-					required: ['kind', 'context_length']
-				},
-				{
-					type: 'object',
 					title: 'compaction',
 					properties: {
 						kind: { type: 'string', enum: ['compaction'] },
@@ -99,7 +92,7 @@ export const AI_AGENT_SCHEMA: Schema = {
 							type: 'number',
 							title: 'Context window',
 							description:
-								"Leave empty to use the model's context window. Set it for custom models."
+								"Leave empty to use the model's context window. Unknown models use 128k tokens, so set it for custom models."
 						}
 					},
 					required: ['kind']
@@ -219,10 +212,23 @@ export const AI_AGENT_SCHEMA: Schema = {
 	]
 }
 
-/** Memory shapes older editors wrote. The step form offers one only to a step that still holds it,
+/** Memory shapes the editor no longer offers for new steps. The step form offers one only to a step that still holds it,
  *  since the one-of field rewrites a value that matches none of its options. No field carries a
  *  default: the form writes one into a missing field on open, and a missing count runs as off. */
 export const LEGACY_MEMORY_VARIANTS: Record<string, any> = {
+	window: {
+		type: 'object',
+		title: 'window',
+		properties: {
+			kind: { type: 'string', enum: ['window'] },
+			context_length: {
+				type: 'number',
+				title: 'Messages to keep',
+				description: 'Number of most recent messages to load and store. 0 turns memory off.'
+			}
+		},
+		required: ['kind', 'context_length']
+	},
 	auto: {
 		type: 'object',
 		title: 'auto',

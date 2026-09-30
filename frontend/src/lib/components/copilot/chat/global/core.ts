@@ -250,6 +250,8 @@ import {
 	saveGlobalAppDraft,
 	type DraftPersistResult
 } from './userDraftAdapter'
+import { findModuleInFlow } from '$lib/components/flows/flowTree'
+import { DRAFT_CONFLICT_RESULT, DRAFT_SAVE_FAILED_RESULT } from '../draftWriteResults'
 import {
 	computeDiffParts,
 	expireWorkspaceDiffList,
@@ -5125,7 +5127,7 @@ function draftWriteFailure(result: DraftPersistResult, ctx: WriteDraftCtx): stri
 	if (result.status === 'conflict') {
 		ctx.toolCallbacks.setToolStatus(ctx.toolId, {
 			content: `Draft ${stored.type} "${stored.path}" changed externally`,
-			result: `Conflict`
+			result: DRAFT_CONFLICT_RESULT
 		})
 		return JSON.stringify(
 			{
@@ -5140,7 +5142,7 @@ function draftWriteFailure(result: DraftPersistResult, ctx: WriteDraftCtx): stri
 	if (result.status === 'error') {
 		ctx.toolCallbacks.setToolStatus(ctx.toolId, {
 			content: `Failed to save ${stored.type} "${stored.path}"`,
-			result: `Save failed`
+			result: DRAFT_SAVE_FAILED_RESULT
 		})
 		return JSON.stringify(
 			{
@@ -5710,7 +5712,7 @@ async function readFlowModuleCode(
 		)
 	}
 	toolCallbacks.setToolStatus(toolId, {
-		content: `Read inline script for "${args.module_id}"`
+		content: `Read code of step ${flowStepName(base.flow.value, args.module_id)}`
 	})
 	return content
 }
@@ -5733,7 +5735,7 @@ async function setFlowModuleCode(
 	}
 	session.set(args.module_id, args.code)
 	const newFlowValue = applyEditableFlowJsonToFlow(base.flow.value, editable, session)
-	return writeFlowDraft(
+	const result = await writeFlowDraft(
 		{
 			path: args.path,
 			summary: base.summary,
@@ -5741,6 +5743,18 @@ async function setFlowModuleCode(
 		},
 		ctx
 	)
+	// Several code edits of one flow read as identical rows under the generic flow label.
+	if (JSON.parse(result).success) {
+		toolCallbacks.setToolStatus(toolId, {
+			content: `Updated code of step ${flowStepName(base.flow.value, args.module_id)}`
+		})
+	}
+	return result
+}
+
+function flowStepName(flow: FlowValue, moduleId: string): string {
+	const summary = findModuleInFlow(flow, moduleId)?.summary
+	return summary ? `${moduleId} "${summary}"` : moduleId
 }
 
 function normalizeTestRunArgs(args: Record<string, any> | null | undefined): Record<string, any> {
