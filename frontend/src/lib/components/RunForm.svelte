@@ -116,9 +116,9 @@
 		loading?: boolean
 		noVariablePicker?: boolean
 		viewKeybinding?: boolean
-		scheduledForStr: string | undefined
-		invisible_to_owner: boolean | undefined
-		overrideTag: string | undefined
+		scheduledForStr?: string | undefined
+		invisible_to_owner?: boolean | undefined
+		overrideTag?: string | undefined
 		overrideTagNote?: string
 		args?: Record<string, any>
 		jsonView?: boolean
