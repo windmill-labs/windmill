@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte'
 	import { ExternalLink, PanelRight } from 'lucide-svelte'
+	import { Button } from '$lib/components/common'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 	import {
@@ -57,8 +58,7 @@
 		await runToolDisplayAction(previewAction)
 	}
 
-	const menuItemClass =
-		'flex items-center gap-2 w-full px-2 py-1 rounded-sm text-xs text-primary font-normal no-underline hover:bg-surface-hover transition-colors'
+	const menuItemClass = 'w-full justify-start no-underline'
 </script>
 
 {#snippet pill()}
@@ -84,14 +84,25 @@
 			{@render pill()}
 			{#snippet text()}
 				<div class="flex flex-col min-w-36">
-					<button type="button" class={menuItemClass} onclick={openAvailable}>
-						<PanelRight size={14} class="shrink-0" />
+					<Button
+						variant="subtle"
+						unifiedSize="sm"
+						startIcon={{ icon: PanelRight }}
+						btnClasses={menuItemClass}
+						onClick={openAvailable}
+					>
 						{previewAction ? 'Open in panel' : 'Open in editor'}
-					</button>
-					<a href={allowedHref} target="_blank" rel="noopener noreferrer" class={menuItemClass}>
-						<ExternalLink size={14} class="shrink-0" />
+					</Button>
+					<Button
+						variant="subtle"
+						unifiedSize="sm"
+						startIcon={{ icon: ExternalLink }}
+						btnClasses={menuItemClass}
+						href={allowedHref}
+						target="_blank"
+					>
 						Open in new tab
-					</a>
+					</Button>
 				</div>
 			{/snippet}
 		</Tooltip>
