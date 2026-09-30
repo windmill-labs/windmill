@@ -903,6 +903,8 @@
 		const draft = pe.drafts.get(oldPath)
 		if (!draft) return 'Draft not found'
 		if (pe.drafts.has(newPath)) return 'Another draft already uses this path'
+		const clash = pe.retargetTriggerDrafts(oldPath, newPath)
+		if (clash) return `Its draft trigger would be renamed to ${clash}, which another draft uses`
 		const next = new Map<string, Draft>()
 		// Preserve insertion order: replace the entry at its original
 		// position so the canvas / lists don't reshuffle on rename.
@@ -921,7 +923,6 @@
 			}
 		}
 		pe.drafts = next
-		pe.retargetTriggerDrafts(oldPath, newPath)
 		if (pe.activeDraftPath === oldPath) pe.activeDraftPath = newPath
 		// Path-keyed live overlays: re-key for the renamed draft so the
 		// graph stays consistent between the moment we mutate `drafts`

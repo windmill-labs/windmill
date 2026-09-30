@@ -137,4 +137,12 @@ describe('PipelineEditorState trigger drafts', () => {
 			true
 		)
 	})
+
+	it('refuse a script rename that moves a default name onto another draft', () => {
+		const pe = new PipelineEditorState()
+		pe.setTriggerDraft({ kind: 'kafka', config: { path: 'f/x/a_kafka', script_path: 'f/x/a' } })
+		pe.setTriggerDraft({ kind: 'kafka', config: { path: 'f/x/b_kafka', script_path: 'f/x/c' } })
+		expect(pe.retargetTriggerDrafts('f/x/a', 'f/x/b')).toBe('f/x/b_kafka')
+		expect([...pe.triggerDrafts.keys()].sort()).toEqual(['kafka:f/x/a_kafka', 'kafka:f/x/b_kafka'])
+	})
 })

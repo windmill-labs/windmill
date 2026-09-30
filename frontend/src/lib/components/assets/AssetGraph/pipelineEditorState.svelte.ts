@@ -172,25 +172,29 @@ export class PipelineEditorState {
 	}
 
 	/** Follow a script draft rename, keeping default `<script>_<kind>` names in step. */
-	retargetTriggerDrafts = (oldScriptPath: string, newScriptPath: string) => {
-		let changed = false
-		const next = new Map<string, PipelineTriggerDraft>()
+	/** Returns the trigger path another draft already holds, and changes nothing,
+	 * when a renamed default name would land on it. */
+	retargetTriggerDrafts = (oldScriptPath: string, newScriptPath: string): string | undefined => {
+		const moved = new Map<string, PipelineTriggerDraft>()
+		const kept = new Map<string, PipelineTriggerDraft>()
 		for (const [k, d] of this.triggerDrafts) {
 			if (d.config.script_path !== oldScriptPath) {
-				next.set(k, d)
+				kept.set(k, d)
 				continue
 			}
-			changed = true
 			const path =
 				d.config.path === defaultTriggerPath(oldScriptPath, d.kind)
 					? defaultTriggerPath(newScriptPath, d.kind)
 					: d.config.path
-			next.set(triggerDraftKey(d.kind, path), {
+			moved.set(triggerDraftKey(d.kind, path), {
 				...d,
 				config: { ...d.config, path, script_path: newScriptPath }
 			})
 		}
-		if (changed) this.triggerDrafts = next
+		if (moved.size === 0) return undefined
+		for (const [k, d] of moved) if (kept.has(k)) return d.config.path
+		this.triggerDrafts = new Map([...kept, ...moved])
+		return undefined
 	}
 
 	/** Commit body edits + inferred outputs back into the drafts Map on pane

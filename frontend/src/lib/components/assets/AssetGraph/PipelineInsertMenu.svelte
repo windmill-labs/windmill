@@ -140,6 +140,8 @@
 		pauseUntil: false,
 		pausedUntil: undefined as string | undefined,
 		advanced: emptyScheduleAdvanced(),
+		// The workspace's default handlers, loaded when the schedule step opens.
+		advancedDefaults: 'unloaded' as 'unloaded' | 'loading' | 'loaded',
 		// `store` is the data table or DuckLake catalog name. The table name
 		// follows the script name until the user types in it.
 		asset: undefined as
@@ -148,24 +150,23 @@
 		tableEdited: false
 	})
 	let config = $state(buildEmptyConfig())
-	loadAdvancedDefaults()
 
-	// The workspace's default handlers, as the schedule drawer applies to a new schedule.
+	// A new schedule starts from the workspace's default handlers, as in the schedule
+	// drawer. The step cannot be confirmed until they are in.
 	function loadAdvancedDefaults() {
 		const ws = $workspaceStore
-		if (!ws) return
+		if (!ws || config.advancedDefaults !== 'unloaded') return
 		const target = config
+		target.advancedDefaults = 'loading'
 		loadDefaultScheduleAdvanced(ws)
-			.then((d) => {
-				if (config === target) config.advanced = d
-			})
+			.then((d) => (target.advanced = d))
 			.catch(() => {})
+			.finally(() => (target.advancedDefaults = 'loaded'))
 	}
 
 	function resetWizard() {
 		selected = buildEmptySelected()
 		config = buildEmptyConfig()
-		loadAdvancedDefaults()
 		step = 0
 	}
 
@@ -178,7 +179,10 @@
 	)
 	let stepValid = $derived(
 		currentConfigStep === 'schedule'
-			? config.validCron && !!config.schedule.trim() && !config.schedulePathError
+			? config.validCron &&
+				!!config.schedule.trim() &&
+				!config.schedulePathError &&
+				config.advancedDefaults === 'loaded'
 			: currentConfigStep === 'asset'
 				? assetValid
 				: scriptNameValid && !!selected.triggerId && !!selected.language && !!selected.outputId
@@ -247,8 +251,9 @@
 		if (!isLastStep) {
 			step += 1
 			if (configSteps[step - 1] === 'asset') enterAssetStep()
-			if (configSteps[step - 1] === 'schedule' && !config.schedulePathDirty) {
-				config.schedulePath = `${pathPrefix}${suffix}_schedule`
+			if (configSteps[step - 1] === 'schedule') {
+				loadAdvancedDefaults()
+				if (!config.schedulePathDirty) config.schedulePath = `${pathPrefix}${suffix}_schedule`
 			}
 			void focusCurrentStep()
 			return
