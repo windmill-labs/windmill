@@ -1502,7 +1502,10 @@
 								// Its scripts' own triggers: a row that starts only them, which
 								// webhooks and data uploads (no row) and missing ones are not.
 								triggerDeletes: scriptIds.flatMap((id) => {
-									const scriptPath = runnables.get(id)?.data?.path
+									const runnable = runnables.get(id)?.data
+									// A flow is not deleted from here, and neither are its triggers.
+									if (runnable?.runnable_kind !== 'script') return []
+									const scriptPath = runnable.path
 									return m.edges
 										.filter((e) => e.kind === 'trigger-native' && e.target === id)
 										.map((e) => m.nodes.find((n) => n.id === e.source)?.data)
@@ -1740,7 +1743,11 @@
 							...up,
 							selected: up.scripts.some(
 								(sc: { runnableId: string }) => sc.runnableId === selectedId
-							)
+							),
+							triggers: (up.triggers ?? []).map((t: { nodeId?: string }) => ({
+								...t,
+								selected: !!t.nodeId && t.nodeId === activeTriggerId
+							}))
 						}
 					}
 				: up?.runnableId !== undefined
