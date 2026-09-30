@@ -280,7 +280,11 @@
 		return items
 	}
 	let upstream = $derived(data.upstream)
-	const HEADER_SELECTED = 'bg-surface-accent-selected hover:bg-surface-accent-selected text-accent'
+	let HEADER_SELECTED = $derived(
+		data.scriptError
+			? 'bg-red-200 dark:bg-red-600 hover:bg-red-200 dark:hover:bg-red-600'
+			: 'bg-surface-accent-selected hover:bg-surface-accent-selected text-accent'
+	)
 	const CHIP_SELECTED =
 		'bg-surface-accent-selected border-border-selected hover:bg-surface-accent-selected text-accent'
 	let producer = $derived(upstream && 'path' in upstream ? upstream : undefined)
