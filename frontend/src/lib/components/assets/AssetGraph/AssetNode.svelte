@@ -424,19 +424,21 @@
 				defaultPathSuffix={data.defaultPathSuffix ?? ''}
 				onPick={handlePick}
 			>
-				{#snippet trigger()}
-					<!-- A circle at rest; hovering widens it into a labelled pill. The
-					     label animates its max-width (width itself can't transition to
-					     auto) and never wraps, so the pill grows on one line. -->
+				{#snippet trigger({ open })}
+					<!-- A circle at rest; hovering widens it into a labelled pill, which
+					     stays open while its menu is (the menu can open under the pointer
+					     and take the hover away). The label animates its max-width (width
+					     can't transition to auto) and never wraps. -->
 					<button
 						type="button"
 						onclick={(e) => e.stopPropagation()}
-						class="group/add h-6 min-w-6 rounded-full flex items-center justify-center bg-surface border border-gray-400 dark:border-gray-600 text-secondary hover:text-primary hover:border-gray-500 shadow-sm leading-none overflow-hidden transition-[padding] duration-200 ease-out hover:pl-1"
+						class="group/add h-6 min-w-6 rounded-full flex items-center justify-center bg-surface border border-gray-400 dark:border-gray-600 text-secondary hover:text-primary hover:border-gray-500 shadow-sm leading-none overflow-hidden transition-[padding] duration-200 ease-out hover:pl-1 data-[open=true]:pl-1"
+						data-open={open}
 						aria-label="Add downstream step"
 					>
 						<Plus size={16} strokeWidth={2.5} class="shrink-0" />
 						<span
-							class="max-w-0 opacity-0 whitespace-nowrap text-2xs font-normal transition-[max-width,opacity,margin] duration-200 ease-out group-hover/add:max-w-32 group-hover/add:opacity-100 group-hover/add:ml-1 group-hover/add:mr-2"
+							class="max-w-0 opacity-0 whitespace-nowrap text-2xs font-normal transition-[max-width,opacity,margin] duration-200 ease-out group-hover/add:max-w-32 group-hover/add:opacity-100 group-hover/add:ml-1 group-hover/add:mr-2 group-data-[open=true]/add:max-w-32 group-data-[open=true]/add:opacity-100 group-data-[open=true]/add:ml-1 group-data-[open=true]/add:mr-2"
 						>
 							Add downstream step
 						</span>

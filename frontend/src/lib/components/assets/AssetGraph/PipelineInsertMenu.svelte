@@ -81,7 +81,8 @@
 		pathPrefix?: string
 		defaultPathSuffix?: string
 		onPick: (pick: PipelineInsertPick) => void
-		trigger: import('svelte').Snippet
+		/** Receives whether the menu is open, e.g. to keep a hover state while it is. */
+		trigger: import('svelte').Snippet<[{ open: boolean }]>
 		placement?: 'bottom' | 'top' | 'left' | 'right'
 	}
 
@@ -107,6 +108,7 @@
 		aiPrompt: undefined as undefined | string
 	})
 	let selected = $state(buildEmptySelected())
+	let menuOpen = $state(false)
 	let selectedKind = $derived(kinds.find((k) => k.id === selected.triggerId))
 
 	// Steps after the first, each configuring something the picks call for.
@@ -281,6 +283,7 @@
 					: 'h-[22rem]'
 	)}
 	class="inline-block"
+	bind:isOpen={menuOpen}
 	usePointerDownOutside
 	floatingConfig={{
 		placement,
@@ -294,7 +297,7 @@
 	onClose={resetWizard}
 >
 	{#snippet trigger()}
-		{@render triggerSnippet?.()}
+		{@render triggerSnippet?.({ open: menuOpen })}
 	{/snippet}
 	{#snippet content({ close })}
 		<div class="h-full" bind:this={contentEl}>
