@@ -46,6 +46,6 @@ describe('describeEdge', () => {
 				nameOf,
 				dataOf
 			)
-		).toEqual({ subject: 'raw', phrase: 'feeds', object: 'clean', note: 'Via Clean.' })
+		).toEqual({ subject: 'clean', phrase: 'is built from', object: 'raw', note: 'By Clean.' })
 	})
 })

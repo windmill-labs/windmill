@@ -1,4 +1,5 @@
 import { describeSchedule } from '$lib/utils/describeCron'
+import { NO_ASSET_NODE_ID } from './assetsOnlyView'
 
 /** What a hovered edge says: "`subject` `phrase` `object`", then a note. */
 export type EdgeDescription = { subject: string; phrase: string; object?: string; note?: string }
@@ -70,7 +71,16 @@ export function describeEdge(
 		}
 		case 'asset-flow': {
 			const via = (e.via ?? []).map(nameOf).join(', ')
-			return { subject: src, phrase: 'feeds', object: tgt, note: via ? `Via ${via}.` : undefined }
+			// The scripts that build nothing only read: name them, not the node.
+			if (e.target === NO_ASSET_NODE_ID) {
+				return { subject: src, phrase: 'is read by', object: via || tgt }
+			}
+			return {
+				subject: tgt,
+				phrase: 'is built from',
+				object: src,
+				note: via ? `By ${via}.` : undefined
+			}
 		}
 		case 'dbt-ref':
 			return { subject: tgt, phrase: 'references', object: src, note: 'dbt ref().' }
