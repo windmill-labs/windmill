@@ -468,11 +468,18 @@ def main(x: int):
     #[test]
     fn test_python_execd_async() {
         let script = r#"
+import asyncio
+
+_first_loop = None
+
 async def preprocessor(x: int):
     return {"x": x * 2}
 
 async def main(x: int):
-    return x + 100
+    global _first_loop
+    loop = asyncio.get_running_loop()
+    _first_loop = _first_loop or loop
+    return {"x": x + 100, "same_loop": loop is _first_loop}
 "#;
         let results = run_py_raw_protocol_test(
             &[("f/test/async", script)],
@@ -485,8 +492,8 @@ async def main(x: int):
             results,
             vec![
                 DedicatedWorkerResult::PreprocessedArgs(serde_json::json!({"x": 10})),
-                DedicatedWorkerResult::Success(serde_json::json!(110)),
-                DedicatedWorkerResult::Success(serde_json::json!(107)),
+                DedicatedWorkerResult::Success(serde_json::json!({"x": 110, "same_loop": true})),
+                DedicatedWorkerResult::Success(serde_json::json!({"x": 107, "same_loop": true})),
             ]
         );
     }

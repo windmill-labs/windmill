@@ -969,11 +969,7 @@ result_json = os.path.join(os.path.abspath(os.path.dirname(__file__)), "result.j
 def res_to_json(res, typ):
 {res_to_json_body}
 
-def _await(r):
-    if hasattr(r, '__await__'):
-        import asyncio
-        return asyncio.run(r)
-    return r
+{PY_AWAIT_HELPER}
 
 try:
     {preprocessor}
@@ -1520,11 +1516,7 @@ _fix=lambda s:s if 'Infinity' not in s and 'NaN' not in s and '\\u0000' not in s
 def res_to_json(res, typ):
 {res_to_json_body}
 
-def _await(r):
-    if hasattr(r, '__await__'):
-        import asyncio
-        return asyncio.run(r)
-    return r
+{PY_AWAIT_HELPER}
 {functions}
 {registrations}
 
@@ -3341,6 +3333,21 @@ This is not normal behavior, please make sure all workers have enough memory.\n
         Ok(req_paths)
     };
 }
+
+/// Python helper running what an `async def` main or preprocessor returns.
+/// One loop per process: a dedicated worker's module-level async clients and
+/// locks are bound to the loop they were first used on, so `asyncio.run`'s
+/// loop-per-call would break them from the second job on.
+const PY_AWAIT_HELPER: &str = r#"_loop = None
+def _await(r):
+    global _loop
+    if not hasattr(r, '__await__'):
+        return r
+    import asyncio
+    if _loop is None:
+        _loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(_loop)
+    return _loop.run_until_complete(r)"#;
 
 /// Python function body for `res_to_json(res, typ)`.
 /// Handles DataFrame, bytes, dict coercion + JSON serialization.
