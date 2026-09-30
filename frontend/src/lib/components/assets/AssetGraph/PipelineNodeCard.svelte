@@ -16,7 +16,8 @@ and the controls hung around the card.
 		title: string
 		/** Hover text; the path, when the title is a summary. */
 		tooltip?: string
-		/** Scripts sit on the main surface; assets and triggers a step down. */
+		/** Scripts sit on the main surface, assets and triggers a step down; in the
+		 * assets-only view, which has no scripts, assets take the main surface. */
 		surface?: 'primary' | 'secondary'
 		selected?: boolean
 		/** Not deployed yet: dashed edge. */

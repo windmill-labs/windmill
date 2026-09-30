@@ -293,7 +293,7 @@
 				{#if 'none' in upstream}
 					External source
 				{:else if trigger}
-					{trigger.label}
+					{trigger.label}{trigger.draft ? ' · draft' : ''}
 				{:else}
 					Multiple upstream nodes
 				{/if}
