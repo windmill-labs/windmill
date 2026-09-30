@@ -86,6 +86,16 @@ describe('itemHref', () => {
 		)
 	})
 
+	it('routes a draft-only script/flow/app to its editor, which is all that can open it', () => {
+		expect(itemHref({ kind: 'script', path: 'u/me/s', draftOnly: true }, 'ws1')).toBe(
+			'/scripts/edit/u/me/s?workspace=ws1'
+		)
+		expect(itemHref({ kind: 'flow', path: 'u/me/f', draftOnly: true })).toBe('/flows/edit/u/me/f')
+		expect(itemHref({ kind: 'app', path: 'u/me/a', rawApp: true, draftOnly: true })).toBe(
+			'/apps_raw/edit/u/me/a'
+		)
+	})
+
 	it('routes variable / resource / schedule to list page with hash fragment', () => {
 		expect(itemHref({ kind: 'variable', path: 'u/me/secret' })).toBe('/variables#u/me/secret')
 		expect(itemHref({ kind: 'resource', path: 'u/me/db' }, 'ws1')).toBe(

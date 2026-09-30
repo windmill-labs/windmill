@@ -51,6 +51,9 @@ export interface WorkspaceItemEntry {
 	/** Apps only. Both kinds share the `app` kind and the same `/apps/get/<path>` route,
 	 * so this flag is all that tells them apart downstream. */
 	rawApp?: boolean
+	/** Scripts, flows and apps that exist only as the viewer's draft: no deployed version,
+	 * so only their editor can open them. */
+	draftOnly?: boolean
 }
 
 export type WorkspaceItemTargetKind = 'script' | 'flow'
@@ -86,7 +89,8 @@ function workspaceItemTriggerKind(kind: WindmillItemKind): CreatedResourceAction
  * it; the hash fragment is preserved for destination pages that consume it.
  */
 export function itemHref(entry: WorkspaceItemEntry, workspace?: string): string {
-	const raw = offboardingItemHref(entry.kind, entry.path) ?? '#'
+	const raw =
+		(entry.draftOnly && draftEditHref(entry)) || offboardingItemHref(entry.kind, entry.path) || '#'
 	if (!workspace) return raw
 	const hashIdx = raw.indexOf('#')
 	if (hashIdx === -1) {
@@ -98,10 +102,24 @@ export function itemHref(entry: WorkspaceItemEntry, workspace?: string): string 
 	return `${pathPart}${sep}workspace=${workspace}${hashPart}`
 }
 
+function draftEditHref(entry: WorkspaceItemEntry): string | undefined {
+	switch (entry.kind) {
+		case 'script':
+			return `/scripts/edit/${entry.path}`
+		case 'flow':
+			return `/flows/edit/${entry.path}`
+		case 'app':
+			return `/apps${entry.rawApp ? '_raw' : ''}/edit/${entry.path}`
+		default:
+			return undefined
+	}
+}
+
 type WorkspaceItemListResult = Array<{
 	path: string
 	is_flow?: boolean | null
 	raw_app?: boolean | null
+	draft_only?: boolean | null
 }>
 
 const workspaceItemLoaders: Array<{
@@ -110,9 +128,15 @@ const workspaceItemLoaders: Array<{
 }> = [
 	// First writer wins on path collisions. Keep resources before variables because
 	// Windmill creates a companion variable for each resource at the same path.
-	{ kind: 'script', list: (workspace) => ScriptService.listScripts({ workspace }) },
-	{ kind: 'flow', list: (workspace) => FlowService.listFlows({ workspace }) },
-	{ kind: 'app', list: (workspace) => AppService.listApps({ workspace }) },
+	{
+		kind: 'script',
+		list: (workspace) => ScriptService.listScripts({ workspace, includeDraftOnly: true })
+	},
+	{
+		kind: 'flow',
+		list: (workspace) => FlowService.listFlows({ workspace, includeDraftOnly: true })
+	},
+	{ kind: 'app', list: (workspace) => AppService.listApps({ workspace, includeDraftOnly: true }) },
 	{ kind: 'resource', list: (workspace) => ResourceService.listResource({ workspace }) },
 	{ kind: 'variable', list: (workspace) => VariableService.listVariable({ workspace }) },
 	{ kind: 'schedule', list: (workspace) => ScheduleService.listSchedules({ workspace }) },
@@ -172,7 +196,8 @@ class WorkspaceItemRegistry {
 						path: it.path,
 						targetKind:
 							typeof it.is_flow === 'boolean' ? (it.is_flow ? 'flow' : 'script') : undefined,
-						rawApp: kind === 'app' ? it.raw_app === true : undefined
+						rawApp: kind === 'app' ? it.raw_app === true : undefined,
+						draftOnly: it.draft_only === true || undefined
 					})
 				}
 			}
