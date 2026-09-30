@@ -72,10 +72,16 @@ async fn no_network_denies_fetch_and_raw_socket_ops() {
     let out: serde_json::Value =
         serde_json::from_str(&run(&script("//native\n//no_network", port)).await).unwrap();
     let fetch = out["fetch"].as_str().unwrap();
-    assert!(fetch.contains("no_network"), "fetch was not denied: {fetch}");
+    assert!(
+        fetch.contains("no_network"),
+        "fetch was not denied: {fetch}"
+    );
     for key in ["tcp", "unix", "quic"] {
         let msg = out[key].as_str().unwrap();
-        assert!(msg.contains("op is disabled"), "{key} was not disabled: {msg}");
+        assert!(
+            msg.contains("op is disabled"),
+            "{key} was not disabled: {msg}"
+        );
     }
     assert_eq!(
         accepted.load(Ordering::SeqCst),

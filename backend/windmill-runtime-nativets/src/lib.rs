@@ -89,8 +89,16 @@ pub struct PermissionsContainer {
 
 const NO_NETWORK_ANNOTATION: &str = "no_network";
 
-/// Every op deno_net registers, see `create_nativets_runtime`.
-const NO_NETWORK_DISABLED_OP_PREFIXES: &[&str] = &["op_net_", "op_quic_", "op_dns_", "op_tls_"];
+/// Every op deno_net registers, see `create_nativets_runtime`. Read from the
+/// extension itself so an upgrade that adds an op cannot leave it enabled.
+static NO_NETWORK_DISABLED_OPS: LazyLock<std::collections::HashSet<&'static str>> =
+    LazyLock::new(|| {
+        deno_net::deno_net::init::<PermissionsContainer>(None, None)
+            .ops
+            .iter()
+            .map(|op| op.name)
+            .collect()
+    });
 
 impl PermissionsContainer {
     fn deny_net(&self, target: &str) -> Result<(), deno_permissions::PermissionCheckError> {
@@ -105,7 +113,6 @@ impl PermissionsContainer {
             Ok(())
         }
     }
-
 }
 
 impl FetchPermissions for PermissionsContainer {
@@ -467,7 +474,8 @@ pub fn get_annotation(inner_content: &str) -> NativeAnnotation {
 
     // Read by the same parser that decides `//native`, so the two cannot
     // disagree on where the leading comment block ends.
-    res.no_network = windmill_common::worker::TypeScriptAnnotations::parse(inner_content).no_network;
+    res.no_network =
+        windmill_common::worker::TypeScriptAnnotations::parse(inner_content).no_network;
 
     for ann in anns.iter() {
         if ann.starts_with("useragent") {
@@ -627,10 +635,7 @@ pub(crate) fn create_nativets_runtime(
     // extension's ops, which the snapshot does not constrain.
     let middleware_fn: Option<Box<deno_core::OpMiddlewareFn>> = no_network.then(|| {
         Box::new(|op: deno_core::OpDecl| {
-            if NO_NETWORK_DISABLED_OP_PREFIXES
-                .iter()
-                .any(|p| op.name.starts_with(p))
-            {
+            if NO_NETWORK_DISABLED_OPS.contains(op.name) {
                 op.disable()
             } else {
                 op

@@ -1179,13 +1179,15 @@ pub struct TypeScriptAnnotations {
 }
 
 impl TypeScriptAnnotations {
-    /// `//no_network` is enforced only by the native runtime. Any other executor
-    /// must refuse the job rather than run it with the network open, since the
-    /// annotation is what lets less trusted authors' scripts be allowed at all.
-    pub fn refuse_unenforced_no_network(&self) -> error::Result<()> {
-        if self.no_network && !self.native {
+    /// `//no_network` is enforced only by the native runtime. An executor that
+    /// will not run the job there must refuse it rather than run it with the
+    /// network open. `enforced` comes from the caller, which knows where the job
+    /// goes: `native` alone does not say that, the Deno executor ignores it.
+    pub fn refuse_unenforced_no_network(&self, enforced: bool) -> error::Result<()> {
+        if self.no_network && !enforced {
             return Err(error::Error::ExecutionErr(
-                "//no_network is only enforced for native scripts: add //native, or remove //no_network"
+                "//no_network is only enforced for native scripts (TypeScript/Bun with //native, \
+                 not Deno): make this a native script, or remove //no_network"
                     .to_string(),
             ));
         }
@@ -3452,6 +3454,21 @@ mod tests {
         let annotations = TypeScriptAnnotations::parse(content);
         assert!(annotations.sandbox);
         assert!(annotations.npm);
+    }
+
+    #[test]
+    fn test_no_network_refused_unless_the_executor_enforces_it() {
+        let bun = |code| {
+            let a = TypeScriptAnnotations::parse(code);
+            a.refuse_unenforced_no_network(a.native)
+        };
+        assert!(bun("//native\n//no_network\n").is_ok());
+        assert!(bun("//no_network\n").is_err());
+        assert!(bun("//native\n").is_ok());
+        // Deno never runs a script natively, whatever the header says.
+        assert!(TypeScriptAnnotations::parse("//native\n//no_network\n")
+            .refuse_unenforced_no_network(false)
+            .is_err());
     }
 
     #[test]
