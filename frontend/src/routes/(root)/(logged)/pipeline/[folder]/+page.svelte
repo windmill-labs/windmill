@@ -519,7 +519,10 @@
 		getDrafts: () => pe.drafts,
 		setDrafts: (next) => (pe.drafts = next),
 		newDraftLocalId: pe.newDraftLocalId,
-		onForgetPath: (path) => forgetPath(path),
+		onForgetPath: (path) => {
+			forgetPath(path)
+			pe.discardTriggerDraftsFor(path)
+		},
 		onShowDrafts: () => (includeDrafts = true),
 		onProposeNode: (path) => focusPipelineNode(`script:${path}`),
 		ensureEditable: () => {
@@ -603,7 +606,20 @@
 		}
 	}
 
+	// Triggers start running once deployed, so leaving through "Save all" asks
+	// first, like the toolbar button, and navigates once confirmed.
+	let leaveAfterTriggerConfirm = $state(false)
 	async function leaveModalSaveAll() {
+		if (pe.triggerDrafts.size > 0) {
+			leaveModalOpen = false
+			leaveAfterTriggerConfirm = true
+			confirmTriggerDeployOpen = true
+			return
+		}
+		await saveAllAndLeave()
+	}
+
+	async function saveAllAndLeave() {
 		leaveSaving = true
 		await saveAllDrafts()
 		leaveSaving = false
@@ -2889,9 +2905,20 @@
 	type="info"
 	onConfirmed={() => {
 		confirmTriggerDeployOpen = false
-		void saveAllDrafts()
+		if (leaveAfterTriggerConfirm) {
+			leaveAfterTriggerConfirm = false
+			void saveAllAndLeave()
+		} else {
+			void saveAllDrafts()
+		}
 	}}
-	onCanceled={() => (confirmTriggerDeployOpen = false)}
+	onCanceled={() => {
+		confirmTriggerDeployOpen = false
+		if (leaveAfterTriggerConfirm) {
+			leaveAfterTriggerConfirm = false
+			pendingNavigationUrl = undefined
+		}
+	}}
 >
 	<div class="flex flex-col gap-2 text-xs text-secondary">
 		<p>

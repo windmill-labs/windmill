@@ -67,7 +67,8 @@
 				<PipelineSetupSignpost workspace={$workspaceStore} />
 			{/if}
 
-			<PipelineFolderList hideExisting />
+			<!-- Operators cannot pick an arbitrary folder, so the list is their only way in. -->
+			<PipelineFolderList hideExisting={!$userStore?.operator} />
 		</div>
 	</div>
 </div>

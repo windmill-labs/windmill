@@ -104,3 +104,24 @@ describe('PipelineEditorState.handleDraftPersist — read capture', () => {
 		expect(pe.drafts.get('f/x/n')?.inputAssets).toBeUndefined()
 	})
 })
+
+describe('PipelineEditorState trigger drafts', () => {
+	it('follow their script draft: renamed with it, discarded with it', () => {
+		const pe = new PipelineEditorState()
+		pe.drafts = new Map([['f/x/n', draft('SELECT 1')]])
+		pe.setTriggerDraft({ kind: 'kafka', config: { path: 'f/x/n_kafka', script_path: 'f/x/n' } })
+		pe.setTriggerDraft({ kind: 'schedule', config: { path: 'f/x/nightly', script_path: 'f/x/n' } })
+
+		pe.retargetTriggerDrafts('f/x/n', 'f/x/m')
+		// A default `<script>_<kind>` name follows the script; a chosen one stays.
+		expect([...pe.triggerDrafts.keys()].sort()).toEqual([
+			'kafka:f/x/m_kafka',
+			'schedule:f/x/nightly'
+		])
+		expect([...pe.triggerDrafts.values()].every((d) => d.config.script_path === 'f/x/m')).toBe(true)
+
+		pe.drafts = new Map([['f/x/m', draft('SELECT 1')]])
+		pe.discardDraft('f/x/m')
+		expect(pe.triggerDrafts.size).toBe(0)
+	})
+})

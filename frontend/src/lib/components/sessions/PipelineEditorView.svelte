@@ -120,7 +120,10 @@
 		getDrafts: () => pe.drafts,
 		setDrafts: (next) => (pe.drafts = next),
 		newDraftLocalId: pe.newDraftLocalId,
-		onForgetPath: pe.forgetPath,
+		onForgetPath: (p) => {
+			pe.forgetPath(p)
+			pe.discardTriggerDraftsFor(p)
+		},
 		// Open the staged node in the details pane so its code is visible.
 		onProposeNode: (p) => {
 			pe.activeDraftPath = p
