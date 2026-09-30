@@ -126,20 +126,15 @@ describe('memoryPropertyFor', () => {
 		memoryPropertyFor(property, value).oneOf.map((variant: { title: string }) => variant.title)
 
 	it('adds a legacy kind as an option only while the value holds it', () => {
-		expect(memoryPropertyFor(property, { kind: 'window', context_length: 10 })).toBe(property)
+		expect(memoryPropertyFor(property, { kind: 'compaction' })).toBe(property)
 		expect(memoryPropertyFor(property, undefined)).toBe(property)
+		expect(kinds({ kind: 'window', context_length: 10 })).toEqual(['off', 'compaction', 'window'])
 		expect(kinds({ kind: 'auto', context_length: 4, memory_id: 'x' })).toEqual([
 			'off',
 			'compaction',
-			'window',
 			'auto'
 		])
-		expect(kinds({ kind: 'manual', messages: [] })).toEqual([
-			'off',
-			'compaction',
-			'window',
-			'manual'
-		])
+		expect(kinds({ kind: 'manual', messages: [] })).toEqual(['off', 'compaction', 'manual'])
 		const autoVariant = (value: unknown) => memoryPropertyFor(property, value).oneOf.at(-1)
 		expect(autoVariant({ kind: 'auto', context_length: 4 }).properties.memory_id).toBeUndefined()
 		expect(

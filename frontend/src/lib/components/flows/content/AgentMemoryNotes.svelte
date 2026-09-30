@@ -66,17 +66,6 @@
 	}
 </script>
 
-{#if memory?.kind === 'compaction'}
-	<p class="mt-1 text-2xs text-hint">
-		Keeps the whole conversation across runs. As it nears the model's context window, older messages
-		are replaced by a summary and recent ones stay verbatim.
-	</p>
-{:else if memory?.kind === 'window' && on}
-	<p class="mt-1 text-2xs text-hint">
-		Keeps only the last {memory.context_length} messages and drops older ones, with no summary. Prefer
-		On for new agents.
-	</p>
-{/if}
 {#if legacyMessages}
 	<Alert type="info" title="Older memory setting" class="mt-2">
 		<div class="flex flex-col gap-2">
