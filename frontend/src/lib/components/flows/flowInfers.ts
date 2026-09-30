@@ -69,7 +69,7 @@ export const AI_AGENT_SCHEMA: Schema = {
 			lockOneOfWhenChatEnabled:
 				"Chat mode keys this agent's history on the conversation, so memory stays on while it is enabled.",
 			oneOfHints: {
-				off: 'Nothing is stored between runs. Pass history through previous messages.',
+				off: 'Nothing is stored between runs.',
 				compaction:
 					'Keeps the whole conversation, summarizing older messages as it nears the context window.',
 				window: 'Keeps only the most recent messages and drops older ones. Prefer On.',
