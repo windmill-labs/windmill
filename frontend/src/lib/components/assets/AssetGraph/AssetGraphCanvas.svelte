@@ -317,17 +317,15 @@
 	}
 	let flowEl: HTMLElement | undefined = $state()
 	const nodeUnder = (x: number, y: number) =>
-		[...(flowEl?.querySelectorAll('.svelte-flow__node') ?? [])]
+		Array.from(flowEl?.querySelectorAll('.svelte-flow__node') ?? [])
 			.find((el) => within(el, x, y))
 			?.getAttribute('data-id') ?? undefined
 	const overBlank = (x: number, y: number) =>
 		!!flowEl &&
 		within(flowEl, x, y) &&
-		![
-			...flowEl.querySelectorAll(
-				'.svelte-flow__panel, .svelte-flow__controls, .svelte-flow__minimap'
-			)
-		].some((el) => within(el, x, y))
+		!Array.from(
+			flowEl.querySelectorAll('.svelte-flow__panel, .svelte-flow__controls, .svelte-flow__minimap')
+		).some((el) => within(el, x, y))
 	const readsAsset = (assetId: string, scriptId: string) =>
 		model.edges.some((x) => x.kind === 'lineage-read' && x.source === assetId && x.target === scriptId)
 	const assetOf = (assetId: string) => {
@@ -1504,7 +1502,10 @@
 								// Its scripts' own triggers: a row that starts only them, which
 								// webhooks and data uploads (no row) and missing ones are not.
 								triggerDeletes: scriptIds.flatMap((id) => {
-									const scriptPath = runnables.get(id)?.data?.path
+									const runnable = runnables.get(id)?.data
+									// A flow is not deleted from here, and neither are its triggers.
+									if (runnable?.runnable_kind !== 'script') return []
+									const scriptPath = runnable.path
 									return m.edges
 										.filter((e) => e.kind === 'trigger-native' && e.target === id)
 										.map((e) => m.nodes.find((n) => n.id === e.source)?.data)
@@ -1742,7 +1743,11 @@
 							...up,
 							selected: up.scripts.some(
 								(sc: { runnableId: string }) => sc.runnableId === selectedId
-							)
+							),
+							triggers: (up.triggers ?? []).map((t: { nodeId?: string }) => ({
+								...t,
+								selected: !!t.nodeId && t.nodeId === activeTriggerId
+							}))
 						}
 					}
 				: up?.runnableId !== undefined

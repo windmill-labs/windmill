@@ -468,6 +468,12 @@
 			fix={data.foldedFixes[0]}
 			label={`${data.foldedFixes.length} error${data.foldedFixes.length === 1 ? '' : 's'} · Fix`}
 		/>
+	{:else if upstream && coTriggers.length > 1 && !coTriggers.some((t) => t.onOpen)}
+		<!-- Several triggers, none editable here (View mode): a plain label. -->
+		<span
+			class="truncate rounded-md border px-1.5 py-1 text-3xs leading-none font-normal border-gray-300 dark:border-gray-600 text-secondary"
+			>Multiple triggers</span
+		>
 	{:else if upstream && coTriggers.length > 1}
 		<!-- Several triggers start what builds this asset: one chip, a menu to pick
 		     the one to edit. -->
