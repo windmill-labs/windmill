@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
 	resolveGraph,
 	computeMutedReadKeys,
-	pipelineErrorAssetKeys,
+	pipelineNodeErrors,
 	dbtAssociations,
 	type ResolveGraphInput
 } from './resolveGraph'
@@ -1233,7 +1233,7 @@ describe('dbtAssociations with two writers of one relation', () => {
 	})
 })
 
-describe('pipelineErrorAssetKeys', () => {
+describe('pipelineNodeErrors', () => {
 	const edge = (runnable_path: string, asset_path: string, access_type: 'r' | 'w') => ({
 		runnable_path,
 		runnable_kind: 'script' as const,
@@ -1258,13 +1258,20 @@ describe('pipelineErrorAssetKeys', () => {
 		]
 	})
 
-	it('flags an unused asset, and a `// on` with no producer, but not a plain read', () => {
-		const onRefs = (...paths: string[]) => paths.map((path) => ({ kind: 'ducklake' as const, path }))
-		expect([...pipelineErrorAssetKeys(graph, new Map()).keys()]).toEqual(['ducklake:main/orphan'])
-		const errors = pipelineErrorAssetKeys(
+	it('flags an unused asset, and a `// on` with no producer and its script, but not a plain read', () => {
+		const onRefs = (...paths: string[]) =>
+			paths.map((path) => ({ kind: 'ducklake' as const, path }))
+		const none = pipelineNodeErrors(graph, new Map())
+		expect([...none.assets.keys()]).toEqual(['ducklake:main/orphan'])
+		expect(none.scripts.size).toBe(0)
+		const errors = pipelineNodeErrors(
 			graph,
 			new Map([['f/x/cons', onRefs('main/produced', 'main/external')]])
 		)
-		expect([...errors.keys()].sort()).toEqual(['ducklake:main/external', 'ducklake:main/orphan'])
+		expect([...errors.assets.keys()].sort()).toEqual([
+			'ducklake:main/external',
+			'ducklake:main/orphan'
+		])
+		expect([...errors.scripts.keys()]).toEqual(['f/x/cons'])
 	})
 })

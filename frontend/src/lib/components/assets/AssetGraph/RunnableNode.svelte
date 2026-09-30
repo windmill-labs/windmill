@@ -41,6 +41,8 @@
 			path: string
 			summary?: string
 			language?: ScriptLang
+			// Why the script is misconfigured, when it is: renders it red.
+			error?: string
 			in_pipeline?: boolean
 			partition_kind?: 'daily' | 'hourly' | 'weekly' | 'monthly' | 'dynamic'
 			freshness?: string
@@ -226,10 +228,10 @@
 		surface="primary"
 		kindLabel="{kindLabel}{data.unsaved ? ' · draft' : ''}"
 		title={data.summary || data.path}
-		tooltip={nodeTooltip}
+		tooltip={data.error ? `${data.path}: ${data.error}` : nodeTooltip}
 		{selected}
 		draft={data.unsaved}
-		tone={computingNow ? 'running' : undefined}
+		tone={computingNow ? 'running' : data.error ? 'error' : undefined}
 	>
 		{#snippet icon()}
 			{#if data.language && data.runnable_kind === 'script'}

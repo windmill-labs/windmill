@@ -531,6 +531,7 @@
 					path: r.path,
 					summary: r.summary,
 					language: r.language,
+					error: r.error,
 					in_pipeline: r.in_pipeline ?? false,
 					partition_kind: r.partition_kind,
 					freshness: r.freshness,
@@ -1070,11 +1071,12 @@
 			.filter((n) => n.id !== ADD_NODE_ID)
 			.map((n) => ({ id: n.id, cx: n.position.x + NODE.width / 2, cy: n.position.y }))
 	)
-	// Detour lane for an edge whose straight run would pass over an unrelated
-	// node (the failure the same-column gutter can't see). For each node
-	// strictly between the endpoints' rows, sample the straight line at that
-	// row; if the node sits under it, route around the obstacle on the side the
-	// edge is already heading. Returns the outermost lane x clearing every
+	// Detour lane for an edge whose run would pass over an unrelated node. An
+	// edge spanning rows bends inside the first gap below its source and then
+	// runs straight down the *target's* column (see AssetGraphEdge), so every
+	// node strictly between the endpoints' rows is tested against the target's
+	// x, not against a source→target line. A crossed node is routed around on
+	// the side the target lies. Returns the outermost lane x clearing every
 	// crossed node, or undefined when the corridor is clear. O(nodes) per edge.
 	const HALF_W = NODE.width / 2
 	const ROUTE_PAD = NODE.gap.horizontal / 2
@@ -1088,8 +1090,7 @@
 			if (n.id === sourceId || n.id === targetId) continue
 			// strictly between the two rows
 			if ((n.cy - s.cy) / dyTot <= 0.01 || (n.cy - s.cy) / dyTot >= 0.99) continue
-			const edgeX = s.cx + (t.cx - s.cx) * ((n.cy - s.cy) / dyTot)
-			if (Math.abs(edgeX - n.cx) >= HALF_W + 8) continue
+			if (Math.abs(t.cx - n.cx) >= HALF_W + 8) continue
 			// Crossed: a lane just outside this node, toward the target side.
 			const side = t.cx >= n.cx ? 1 : -1
 			const candidate = n.cx + side * (HALF_W + ROUTE_PAD)

@@ -44,7 +44,7 @@
 	} from '$lib/components/assets/AssetGraph/columnLineageGraph'
 	import { useDbtColumnLineage } from '$lib/components/assets/AssetGraph/dbtColumnLineage.svelte'
 	import {
-		pipelineErrorAssetKeys,
+		pipelineNodeErrors,
 		resolveGraph
 	} from '$lib/components/assets/AssetGraph/resolveGraph'
 	import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
@@ -1365,14 +1365,14 @@
 					: []
 			if (refs.length > 0) explicitOnByPath.set(r.path, refs)
 		}
-		const errors = pipelineErrorAssetKeys(g, explicitOnByPath)
+		const errors = pipelineNodeErrors(g, explicitOnByPath)
 		return {
 			...g,
 			assets:
-				errors.size === 0
+				errors.assets.size === 0
 					? g.assets
 					: g.assets.map((a) => {
-							const error = errors.get(`${a.kind}:${a.path}`)
+							const error = errors.assets.get(`${a.kind}:${a.path}`)
 							return error ? { ...a, error } : a
 						}),
 			runnables: g.runnables.map((r) => {
@@ -1380,7 +1380,8 @@
 				const meta = scriptMetaByPath.get(r.path)
 				const summary = draft?.summary || meta?.summary
 				const language = draft?.language ?? meta?.language
-				return summary || language ? { ...r, summary, language } : r
+				const error = r.usage_kind === 'script' ? errors.scripts.get(r.path) : undefined
+				return summary || language || error ? { ...r, summary, language, error } : r
 			})
 		}
 	}

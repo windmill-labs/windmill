@@ -6,7 +6,7 @@ export type GraphUsageKind = 'script' | 'flow'
 export interface AssetGraphAssetNode {
 	kind: AssetKind
 	path: string
-	// Filled in client-side: the node is misconfigured (see `pipelineErrorAssetKeys`).
+	// Filled in client-side: the node is misconfigured (see `pipelineNodeErrors`).
 	error?: string
 	// Fork workspaces only: 'fork' when this ducklake asset was materialized in
 	// the fork itself, 'deferred' when reads fall back to the parent workspace's
@@ -76,6 +76,8 @@ export interface AssetGraphRunnableNode {
 	// node with the summary over the path, and shows the language's icon.
 	summary?: string
 	language?: import('$lib/gen').ScriptLang
+	// Why the script is misconfigured, when it is (see `pipelineNodeErrors`).
+	error?: string
 	// Script has `// pipeline` annotation. Drives the pipeline-member
 	// visual state; unrelated to what the script actually writes (that's
 	// parsed separately into lineage edges).
