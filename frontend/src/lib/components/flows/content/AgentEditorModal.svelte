@@ -37,6 +37,7 @@
 	import { linkedModulesForAgent, linkedToolsScope } from '../linkedAgentToolsStore.svelte'
 	import AgentEditorHost from './AgentEditorHost.svelte'
 	import AgentSettings from './AgentSettings.svelte'
+	import AgentEvalsModal from './AgentEvalsModal.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
@@ -92,6 +93,7 @@
 	let host = $state<ReturnType<typeof AgentEditorHost> | undefined>(undefined)
 	let versionDrawer: Drawer | undefined = $state(undefined)
 	let settingsDrawer: Drawer | undefined = $state(undefined)
+	let evalsModal: AgentEvalsModal | undefined = $state(undefined)
 	let saving = $state(false)
 
 	// Counted per agent, so a deploy that leaves the editor on the same agent still refetches the
@@ -162,6 +164,12 @@
 	// The root's alone: below it the header's second line is the way back, and what a level is for
 	// belongs to that level rather than to the dialog's own name.
 	let description = $derived(inEvals || inSettings || refused ? undefined : AGENT_DESCRIPTION)
+
+	// The dialog's levels are its pages; a page has none, so evals open over it as a dialog.
+	function openEvals() {
+		if (layout === 'modal') showAgentEditorView('evals')
+		else evalsModal?.openModal()
+	}
 
 	function openSettings() {
 		if (layout === 'modal') showAgentEditorView('settings')
@@ -410,7 +418,7 @@
 						variant="default"
 						startIcon={{ icon: FlaskConical }}
 						title="Run this agent against a dataset of cases"
-						on:click={() => showAgentEditorView('evals')}
+						on:click={openEvals}
 					>
 						Evals
 					</Button>
@@ -507,6 +515,15 @@
 			active={inEvals}
 		/>
 	{/snippet}
+
+	{#if layout === 'page' && ws}
+		<AgentEvalsModal
+			bind:this={evalsModal}
+			agentPath={target?.path ?? ''}
+			workspace={ws}
+			editedConfig={draft?.sync.hasDraft ? editedConfig : undefined}
+		/>
+	{/if}
 
 	<Drawer bind:this={settingsDrawer} size="600px">
 		<DrawerContent title="Settings" on:close={() => settingsDrawer?.closeDrawer()}>
