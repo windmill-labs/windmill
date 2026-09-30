@@ -230,13 +230,11 @@
 		nodeFixes?: ReadonlyMap<string, NodeFixSpec>
 		/** "Archive" for someone who can only archive the script the delete removes. */
 		assetDeleteVerb?: 'Delete' | 'Archive'
-		/** Makes a script run after each write to an asset it reads, or stop. */
+		/** Makes scripts run after each write to an asset they read, or stop. `reads`
+		 * decides whether stopping also mutes the asset. */
 		onEdgeAction?: (a: {
 			action: 'listen' | 'stop'
-			script: string
-			asset: { kind: AssetKind; path: string }
-			/** Whether the script reads the asset, which decides whether stopping mutes it. */
-			reads?: boolean
+			targets: Array<{ script: string; asset: { kind: AssetKind; path: string }; reads: boolean }>
 		}) => void
 	}
 	let {
@@ -305,29 +303,51 @@
 	}
 	// What the hovered edge lets you change: a plain read can become a trigger, and
 	// an asset trigger can be dropped. Both rewrite the script's `// on` header.
-	let hoveredEdgeAction = $derived.by(() => {
+	// What the hovered edge lets you change: a script that only reads the upstream
+	// asset can rerun on each write to it, and one it triggers can stop. On an
+	// assets-only edge, those are the scripts folded into it; both rewrite `// on`.
+	type EdgeTarget = { script: string; asset: { kind: AssetKind; path: string }; reads: boolean }
+	let hoveredEdgeActions = $derived.by(() => {
 		const e = hoveredEdge && onEdgeAction && view.edges.find((x) => x.id === hoveredEdge!.id)
-		if (!e || (e.kind !== 'lineage-read' && e.kind !== 'trigger-asset')) return undefined
-		const asset = view.nodes.find((n) => n.id === e.source)?.data
-		const script = view.nodes.find((n) => n.id === e.target)?.data
-		if (!asset?.asset_kind || script?.runnable_kind !== 'script' || !script.in_pipeline)
-			return undefined
-		const target = { kind: asset.asset_kind as AssetKind, path: asset.path as string }
-		const reads = view.edges.some(
-			(x) => x.kind === 'lineage-read' && x.source === e.source && x.target === e.target
-		)
-		return e.kind === 'lineage-read'
-			? {
-					label: 'Rerun on each write',
-					detail: `${listenChangeText(target)} in ${script.path}; only its annotation header changes. Saved as a draft.`,
-					run: () => onEdgeAction?.({ action: 'listen', script: script.path, asset: target })
-				}
-			: {
-					label: 'Stop rerunning on writes',
-					detail: `${stopListeningChangeText(target, reads)} in ${script.path}; only its annotation header changes. Saved as a draft.`,
-					run: () =>
-						onEdgeAction?.({ action: 'stop', script: script.path, asset: target, reads })
-				}
+		if (!e) return []
+		const assetData = view.nodes.find((n) => n.id === e.source)?.data
+		if (!assetData?.asset_kind) return []
+		const asset = { kind: assetData.asset_kind as AssetKind, path: assetData.path as string }
+		const scriptIds =
+			e.kind === 'asset-flow'
+				? (e.via ?? [])
+				: e.kind === 'lineage-read' || e.kind === 'trigger-asset'
+					? [e.target]
+					: []
+		const listen: EdgeTarget[] = []
+		const stop: EdgeTarget[] = []
+		for (const id of scriptIds) {
+			const script = model.nodes.find((n) => n.id === id)?.data
+			if (script?.runnable_kind !== 'script' || !script.in_pipeline) continue
+			const has = (kind: string) =>
+				model.edges.some((x) => x.kind === kind && x.source === e.source && x.target === id)
+			const target = { script: script.path as string, asset, reads: has('lineage-read') }
+			if (has('trigger-asset')) stop.push(target)
+			else if (target.reads) listen.push(target)
+		}
+		const where = (ts: EdgeTarget[]) =>
+			ts.length === 1 ? ts[0].script : `${ts.length} scripts: ${ts.map((t) => t.script).join(', ')}`
+		const out: Array<{ label: string; detail: string; run: () => void }> = []
+		if (listen.length) {
+			out.push({
+				label: 'Rerun on each write',
+				detail: `${listenChangeText(asset)} in ${where(listen)}; only the annotation header changes. Saved as a draft.`,
+				run: () => onEdgeAction?.({ action: 'listen', targets: listen })
+			})
+		}
+		if (stop.length) {
+			out.push({
+				label: 'Stop rerunning on writes',
+				detail: `${stopListeningChangeText(asset, stop.some((t) => t.reads))} in ${where(stop)}; only the annotation header changes. Saved as a draft.`,
+				run: () => onEdgeAction?.({ action: 'stop', targets: stop })
+			})
+		}
+		return out
 	})
 	let hoveredEdgeText = $derived.by(() => {
 		const e = hoveredEdge && view.edges.find((x) => x.id === hoveredEdge!.id)
@@ -1194,10 +1214,19 @@
 										: 0
 						})
 					: undefined
+			// The scripts and triggers folded into this node, whose errors it reports.
+			const scriptIds = u ? (u.multiple ? u.runnableIds : [u.runnableId]) : []
+			const foldedIds = [
+				...scriptIds,
+				...m.edges
+					.filter((e) => e.kind === 'trigger-native' && scriptIds.includes(e.target))
+					.map((e) => e.source)
+			]
 			return {
 				...data,
 				upstream,
 				width,
+				foldedIds,
 				...(toDelete
 					? {
 							deleteCount: toDelete.trigger ? 2 : 1,
@@ -1391,7 +1420,14 @@
 							}
 						}
 					: n.data
-			const data = fix ? { ...withUpstream, fix } : withUpstream
+			const foldedFixes = ((n.data.foldedIds ?? []) as string[])
+				.map((id) => toFix(nodeFixes?.get(id)))
+				.filter((f) => f != undefined)
+			const data = {
+				...withUpstream,
+				...(fix ? { fix } : {}),
+				...(foldedFixes.length ? { foldedFixes } : {})
+			}
 			return {
 				id: n.id,
 				type: n.type,
@@ -1841,7 +1877,7 @@
 
 {#if hoveredEdge && hoveredEdgeText}
 	{@const d = hoveredEdgeText}
-	{@const action = hoveredEdgeAction}
+	{@const actions = hoveredEdgeActions}
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		class="fixed z-50 max-w-80 rounded-md border bg-surface px-2.5 py-1.5 text-xs text-primary shadow-md"
@@ -1855,13 +1891,13 @@
 		{d.phrase}
 		{#if d.object}<span class="font-semibold text-emphasis">{d.object}</span>{/if}
 		{#if d.note}<div class="mt-0.5 text-2xs text-secondary">{d.note}</div>{/if}
-		{#if action}
+		{#each actions as action (action.label)}
 			<div class="mt-2 flex flex-col gap-0.5">
 				<Button
 					variant="default"
 					unifiedSize="sm"
 					onclick={() => {
-						// Closing the popover drops `action`: run what it held.
+						// Closing the popover drops `actions`: run what this one held.
 						const run = action.run
 						hoveredEdge = undefined
 						run()
@@ -1871,7 +1907,7 @@
 				</Button>
 				<span class="text-2xs text-secondary">{action.detail}</span>
 			</div>
-		{/if}
+		{/each}
 	</div>
 {/if}
 

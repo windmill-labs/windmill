@@ -181,9 +181,7 @@
 		assetDeleteVerb?: 'Delete' | 'Archive'
 		onEdgeAction?: (a: {
 			action: 'listen' | 'stop'
-			script: string
-			asset: { kind: AssetKind; path: string }
-			reads?: boolean
+			targets: Array<{ script: string; asset: { kind: AssetKind; path: string }; reads: boolean }>
 		}) => void
 		onRunProducer?: (producer: RunProducer) => Promise<string | undefined>
 		idlePane?: Snippet

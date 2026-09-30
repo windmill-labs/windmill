@@ -1339,6 +1339,23 @@
 		return true
 	}
 
+	// Edits several scripts' headers at once, after the user has seen the list: a
+	// change to one edge or node must not silently rewrite scripts they didn't pick.
+	let multiEdit = $state<{ scripts: string[]; what: string; run: () => Promise<void> } | undefined>(
+		undefined
+	)
+	function editScripts(
+		scripts: string[],
+		what: string,
+		apply: (script: string) => (content: string) => string
+	) {
+		const run = async () => {
+			for (const s of scripts) await editScriptHeader(s, apply(s), what)
+		}
+		if (scripts.length > 1) multiEdit = { scripts, what, run }
+		else void run()
+	}
+
 	const scriptName = (p: string) => p.split('/').pop() ?? p
 	const isTableKind = (k: AssetKind): k is 'ducklake' | 'datatable' =>
 		k === 'ducklake' || k === 'datatable'
@@ -1412,15 +1429,12 @@
 		actions.push({
 			label: one ? `Stop ${scriptName(one)} running on writes` : 'Stop them running on writes',
 			detail: `${stopListeningChangeText(asset, reads)} in ${subscribers.join(', ')}; only the annotation header changes. Saved as a draft.`,
-			run: async () => {
-				for (const s of subscribers) {
-					await editScriptHeader(
-						s,
-						(c) => stopListeningToAsset(c, asset, readsAsset(s, asset)),
-						'Stopped running on writes'
-					)
-				}
-			}
+			run: () =>
+				editScripts(
+					subscribers,
+					'Stopped running on writes',
+					(s) => (c) => stopListeningToAsset(c, asset, readsAsset(s, asset))
+				)
 		})
 		return actions
 	}
@@ -3218,15 +3232,29 @@
 				assetDeleteVerb={canHardDeleteScripts ? 'Delete' : 'Archive'}
 				onEdgeAction={isOperator
 					? undefined
-					: ({ action, script, asset, reads }) =>
-							editScriptHeader(
-								script,
-								(c) =>
-									action === 'listen'
-										? listenToAsset(c, asset)
-										: stopListeningToAsset(c, asset, reads ?? false),
-								action === 'listen' ? 'Now reruns on each write' : 'Stopped rerunning on writes'
-							)}
+					: ({
+							action,
+							targets
+						}: {
+							action: 'listen' | 'stop'
+							targets: Array<{
+								script: string
+								asset: { kind: AssetKind; path: string }
+								reads: boolean
+							}>
+						}) => {
+							const byScript = new Map(targets.map((t) => [t.script, t] as const))
+							editScripts(
+								[...byScript.keys()],
+								action === 'listen' ? 'Now reruns on each write' : 'Stopped rerunning on writes',
+								(s) => (c) => {
+									const t = byScript.get(s)!
+									return action === 'listen'
+										? listenToAsset(c, t.asset)
+										: stopListeningToAsset(c, t.asset, t.reads)
+								}
+							)
+						}}
 				onRunProducer={mode === 'edit' ? handleRunProducer : undefined}
 				onRequestEdit={isOperator ? undefined : () => setMode('edit')}
 				canRunByPath={openScriptHasDataUpload}
@@ -3356,6 +3384,30 @@
 <!-- Native trigger drawer wiring: create/edit/delete drawers (edit-mode
      only) + the always-mounted webhook drawer. Driven imperatively from the
      page via `triggerEditors`. -->
+<ConfirmationModal
+	open={multiEdit != undefined}
+	title={`Edit ${multiEdit?.scripts.length ?? 0} scripts?`}
+	confirmationText="Edit scripts"
+	type="info"
+	onConfirmed={() => {
+		const m = multiEdit
+		multiEdit = undefined
+		void m?.run()
+	}}
+	onCanceled={() => (multiEdit = undefined)}
+>
+	{#if multiEdit}
+		<div class="flex flex-col gap-2 text-xs text-secondary">
+			<p>This will edit the annotation header of the following scripts. Each is saved as a draft.</p>
+			<ul class="flex flex-col gap-1">
+				{#each multiEdit.scripts as s (s)}
+					<li class="text-emphasis truncate">{s}</li>
+				{/each}
+			</ul>
+		</div>
+	{/if}
+</ConfirmationModal>
+
 <ConfirmationModal
 	open={assetDeleteTarget != undefined}
 	loading={assetDeleteLoading}

@@ -39,7 +39,16 @@ red fill already says something is wrong.
 	import { Button } from '$lib/components/common'
 	import { Wrench } from 'lucide-svelte'
 
-	let { fix }: { fix: NodeFix } = $props()
+	let {
+		fix,
+		label = 'Fix',
+		chip = false
+	}: {
+		fix: NodeFix
+		label?: string
+		/** A small chip in a node's text, rather than the pill on its edge. */
+		chip?: boolean
+	} = $props()
 
 	let open = $state(false)
 	let anchorEl: HTMLElement | undefined = $state()
@@ -60,12 +69,21 @@ red fill already says something is wrong.
 		contentClasses="p-3 w-96"
 	>
 		{#snippet trigger()}
-			<span
-				class="h-6 px-2 rounded-full flex items-center gap-1 bg-surface border border-gray-400 dark:border-gray-600 text-secondary hover:text-primary hover:border-gray-500 shadow-sm text-2xs font-normal leading-none whitespace-nowrap"
-			>
-				<Wrench size={12} class="shrink-0" />
-				Fix
-			</span>
+			{#if chip}
+				<span
+					class="flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-3xs leading-none font-normal whitespace-nowrap bg-surface border-red-300 dark:border-red-600 text-red-700 dark:text-red-300 hover:bg-surface-hover"
+				>
+					<Wrench size={10} class="shrink-0" />
+					{label}
+				</span>
+			{:else}
+				<span
+					class="h-6 px-2 rounded-full flex items-center gap-1 bg-surface border border-gray-400 dark:border-gray-600 text-secondary hover:text-primary hover:border-gray-500 shadow-sm text-2xs font-normal leading-none whitespace-nowrap"
+				>
+					<Wrench size={12} class="shrink-0" />
+					{label}
+				</span>
+			{/if}
 		{/snippet}
 		{#snippet content()}
 			<div class="flex flex-col gap-3">

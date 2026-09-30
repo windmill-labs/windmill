@@ -152,6 +152,8 @@
 			upstream?: AssetUpstreamChips
 			/** What is wrong with the node, and how to fix it: replaces the "+". */
 			fix?: NodeFix
+			/** Assets-only: errors of the scripts and triggers folded into this node. */
+			foldedFixes?: NodeFix[]
 			/** The assets-only node for the scripts that build no asset. */
 			noAsset?: boolean
 			/** Card width in the assets-only view, sized to its text. */
@@ -355,7 +357,14 @@
 {/snippet}
 
 {#snippet upstreamRow()}
-	{#if upstream}
+	{#if data.foldedFixes?.length}
+		<!-- A folded script or trigger is misconfigured: its Fix, one at a time. -->
+		<NodeFixButton
+			chip
+			fix={data.foldedFixes[0]}
+			label={`${data.foldedFixes.length} error${data.foldedFixes.length === 1 ? '' : 's'} · Fix`}
+		/>
+	{:else if upstream}
 		{@const trigger = producer?.trigger}
 		{@const chipClass = twMerge(
 			'truncate rounded-md border px-1.5 py-0.5 text-3xs leading-none font-normal',
