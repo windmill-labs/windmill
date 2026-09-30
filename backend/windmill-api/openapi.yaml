@@ -16180,6 +16180,47 @@ paths:
             a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
             "user_seq" } }`.
 
+  /w/{workspace}/jobs/run/agent/{path}:
+    post:
+      summary: run a saved AI agent
+      description: |
+        Runs the `ai_agent` resource at `path` as stored, for any caller who can read it
+        (operators included), as the caller, who needs access to the agent's AI resource and to
+        whatever its tools use. With `memory_id`, the run is a turn
+        of the caller's conversation with the agent; without, a single run.
+      operationId: runAgent
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+        - name: memory_id
+          description: The conversation this turn belongs to. A uuid is used as is; any other string is hashed within the workspace and agent.
+          in: query
+          schema:
+            type: string
+      requestBody:
+        description: the run's inputs
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                user_message:
+                  type: string
+                user_attachments:
+                  type: array
+                  items: {}
+      responses:
+        "201":
+          description: job created
+          content:
+            text/plain:
+              schema:
+                type: string
+                format: uuid
+
   /w/{workspace}/jobs/run_wait_result/preview_flow:
     post:
       summary: run flow preview and wait for result
@@ -31991,6 +32032,17 @@ components:
             (over a deployed row or a synthesized draft-only row).
             Frontend appends a `*` to the displayed name.
           type: boolean
+        agent_memory:
+          description: |
+            For an `ai_agent` resource only, its `memory` setting: the one part
+            of the value a listing returns, since it decides whether the agent
+            keeps a conversation.
+        draft_path:
+          type: string
+          description: |
+            On a draft-only row, the path its editor has staged when it
+            differs from the storage path (e.g. a never-deployed item parked at
+            `u/{user}/draft_{uuid}`).
       required:
         - path
         - resource_type

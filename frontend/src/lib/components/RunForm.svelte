@@ -123,6 +123,9 @@
 		args?: Record<string, any>
 		jsonView?: boolean
 		isValid?: boolean
+		/** Controls beside the Run button of a form that cannot schedule, in the row a
+		 *  schedulable one gives its Advanced options. */
+		actions?: import('svelte').Snippet
 	}
 
 	let {
@@ -141,7 +144,8 @@
 		overrideTagNote = undefined,
 		args = $bindable(),
 		jsonView = false,
-		isValid = $bindable(true)
+		isValid = $bindable(true),
+		actions = undefined
 	}: Props = $props()
 
 	let showPsCommonParams = $derived(
@@ -384,6 +388,22 @@
 					Job will be invisible to owner
 				</div>
 			{/if}
+		</div>
+	{:else if actions}
+		<!-- The schedulable row's layout, with the caller's controls where Advanced sits. -->
+		<div class="flex-row-reverse flex-wrap flex w-full gap-4 mt-2 md:mt-6">
+			<Button
+				{loading}
+				variant="accent"
+				unifiedSize="md"
+				btnClasses="!inline-flex"
+				disabled={!isValid && !jsonView}
+				on:click={() => run(null)}
+				shortCut={{ Icon: CornerDownLeft, hide: !viewKeybinding }}
+			>
+				{buttonText}
+			</Button>
+			<div>{@render actions()}</div>
 		</div>
 	{:else}
 		<Button

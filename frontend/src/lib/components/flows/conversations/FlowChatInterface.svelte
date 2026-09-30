@@ -55,6 +55,8 @@
 		conversationKind?: 'test' | 'deployed'
 		/** What a message runs, as the composer names it. */
 		subject?: 'flow' | 'agent'
+		/** The host's own controls, after the model's in the composer's footer. */
+		extraSettings?: import('svelte').Snippet
 	}
 
 	let {
@@ -71,7 +73,8 @@
 		description = undefined,
 		wideLayout = false,
 		conversationKind = 'deployed',
-		subject = 'flow'
+		subject = 'flow',
+		extraSettings = undefined
 	}: Props = $props()
 
 	const operatingUser = useOperatingUser()
@@ -301,6 +304,7 @@
 			{workspace}
 		/>
 	{/if}
+	{@render extraSettings?.()}
 {/snippet}
 
 <!-- The transcript scroller fills its flex row, which needs a height to resolve
@@ -325,7 +329,7 @@
 		hideModeSelector
 		{wideLayout}
 		{emptyHint}
-		footerSettings={modalSchema || showModelButton ? footerSettings : undefined}
+		footerSettings={modalSchema || showModelButton || extraSettings ? footerSettings : undefined}
 		placeholder="Send a message to run the {subject}"
 		disabled={deploymentInProgress || !!modelGap || !!wrongKindReason}
 		disabledMessage={deploymentInProgress

@@ -61,6 +61,8 @@
 		/** What a message runs, as the chat names it. An agent has no deployed chats, so its
 		 *  sidebar offers no filter between those and the test ones. */
 		subject?: 'flow' | 'agent'
+		/** The host's own controls, after the model's in the composer's footer. */
+		composerSettings?: import('svelte').Snippet
 	}
 
 	let {
@@ -75,7 +77,8 @@
 		wideLayout = false,
 		frame = 'top',
 		conversationKind = 'deployed',
-		subject = 'flow'
+		subject = 'flow',
+		composerSettings = undefined
 	}: Props = $props()
 
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
@@ -239,6 +242,7 @@
 							{wideLayout}
 							{conversationKind}
 							{subject}
+							extraSettings={composerSettings}
 						/>
 					</div>
 				{/if}
