@@ -481,7 +481,7 @@
 {/snippet}
 
 {#snippet bottomSection(close: () => void)}
-	<Label label="Script path">
+	<Label label="Path">
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
 			bind:this={pathEl}
