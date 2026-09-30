@@ -566,6 +566,113 @@ async fn test_resource_value_cache_is_identity_scoped(db: Pool<Postgres>) -> any
     Ok(())
 }
 
+/// A token scoped to one resource must not read, through the `$var:`/`$res:` references it
+/// writes into that resource, what its scopes would refuse to read directly.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_interpolated_references_need_the_token_scopes(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace");
+
+    let resp = authed(client().post(format!("{base}/variables/create")))
+        .json(&json!({"path": "u/test-user/secret", "value": "CANARY", "is_secret": true, "description": ""}))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 201);
+    let resp = authed(client().post(format!("{base}/resources/create")))
+        .json(&json!({"path": "u/test-user/other", "value": {"pw": "OTHER"}, "resource_type": "object", "description": ""}))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 201);
+
+    let mint = |scopes: serde_json::Value| async move {
+        let resp =
+            authed(client().post(format!("http://localhost:{port}/api/users/tokens/create")))
+                .json(
+                    &json!({"label": "scoped", "scopes": scopes, "workspace_id": "test-workspace"}),
+                )
+                .send()
+                .await
+                .unwrap();
+        assert_eq!(resp.status(), 201);
+        resp.text().await.unwrap()
+    };
+    let probe_only = mint(json!(["resources:write:u/test-user/probe"])).await;
+    let with_var = mint(json!([
+        "resources:read:u/test-user/probe",
+        "variables:read:u/test-user/secret"
+    ]))
+    .await;
+
+    let read_probe = |value: serde_json::Value, token: String| {
+        let base = base.clone();
+        let probe_only = probe_only.clone();
+        async move {
+            let resp = client()
+                .post(format!("{base}/resources/create?update_if_exists=true"))
+                .bearer_auth(&probe_only)
+                .json(&json!({"path": "u/test-user/probe", "value": value, "resource_type": "object", "description": ""}))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(resp.status(), 201);
+            let resp = client()
+                .get(format!(
+                    "{base}/resources/get_value_interpolated/u/test-user/probe"
+                ))
+                .bearer_auth(&token)
+                .send()
+                .await
+                .unwrap();
+            (resp.status().as_u16(), resp.text().await.unwrap())
+        }
+    };
+
+    for value in [
+        json!({"v": "$var:u/test-user/secret"}),
+        json!({"v": "$jsonvar:u/test-user/secret"}),
+        json!({"v": ["$res:u/test-user/other"]}),
+    ] {
+        let (status, body) = read_probe(value.clone(), probe_only.clone()).await;
+        assert_eq!(status, 403, "{value}: {body}");
+        assert!(
+            !body.contains("CANARY") && !body.contains("OTHER"),
+            "{body}"
+        );
+    }
+
+    let (status, body) =
+        read_probe(json!({"v": "$var:u/test-user/secret"}), with_var.clone()).await;
+    assert_eq!((status, body.as_str()), (200, r#"{"v":"CANARY"}"#));
+
+    // The resource's own linked secrets (at its path, or `<path>_<field>`) are part of it.
+    for (path, value) in [
+        ("u/test-user/probe", "LINKED"),
+        ("u/test-user/probe_key", "KEY"),
+    ] {
+        let resp = authed(client().post(format!("{base}/variables/create")))
+            .json(&json!({"path": path, "value": value, "is_secret": true, "description": ""}))
+            .send()
+            .await?;
+        assert_eq!(resp.status(), 201);
+    }
+    let (status, body) = read_probe(
+        json!({"pw": "$var:u/test-user/probe", "key": "$var:u/test-user/probe_key"}),
+        probe_only.clone(),
+    )
+    .await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&body)?,
+        json!({"pw": "LINKED", "key": "KEY"})
+    );
+
+    Ok(())
+}
+
 /// A resource whose value contains a `$WM_*` contextual variable (e.g. `$WM_TOKEN`) is
 /// job-dependent and must NEVER be cached — even when first read WITHOUT a `job_id`, where the
 /// placeholder is left unresolved (caching that would serve a stale placeholder to a later job

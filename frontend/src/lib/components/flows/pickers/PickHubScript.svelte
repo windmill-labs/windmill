@@ -3,7 +3,7 @@
 	import { Alert, Badge, ButtonType, Skeleton } from '$lib/components/common'
 	import { capitalize } from '$lib/utils'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
-	import { APP_TO_ICON_COMPONENT } from '$lib/components/icons'
+	import { appIconMap } from '$lib/components/icons/appIcon.svelte'
 	import { listHubIntegrationsShared } from '$lib/components/displayNameLoaders'
 	import ListFilters from '$lib/components/home/ListFilters.svelte'
 	import { ScriptService, type HubScriptKind } from '$lib/gen'
@@ -205,8 +205,8 @@
 						>
 							<div class="flex items-center gap-4">
 								<div class="flex justify-center items-center">
-									{#if item['app'] in APP_TO_ICON_COMPONENT}
-										{@const SvelteComponent = APP_TO_ICON_COMPONENT[item['app']]}
+									{#if appIconMap()?.[item['app']]}
+										{@const SvelteComponent = appIconMap()![item['app']]}
 										<SvelteComponent height={18} width={18} />
 									{/if}
 								</div>

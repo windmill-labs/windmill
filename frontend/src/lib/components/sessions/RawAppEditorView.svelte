@@ -82,9 +82,17 @@
 		invalidateWorkspaceDrafts(workspaceId)
 	}
 
+	let runtimeLogRequester = $state<RawAppRuntimeLogRequester | undefined>(undefined)
 	function registerRuntimeLogRequester(requester: RawAppRuntimeLogRequester | undefined) {
-		runtime.setRuntimeLogRequester(requester)
+		runtimeLogRequester = requester
 	}
+	$effect(() => {
+		const p = path
+		const r = runtimeLogRequester
+		if (!r) return
+		runtime.registerRuntimeLogRequester(p, r)
+		return () => runtime.unregisterRuntimeLogRequester(p, r)
+	})
 
 	function registerRunsProvider(provider: RawAppRunsProvider | undefined) {
 		runtime.setAppRunsProvider(provider)

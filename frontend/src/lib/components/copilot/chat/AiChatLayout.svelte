@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import AiChat from './AIChat.svelte'
 	import SessionsBetaBanner from '$lib/components/sessions/SessionsBetaBanner.svelte'
 	import { zIndexes } from '$lib/zIndexes'
 	import { userStore, workspaceStore } from '$lib/stores'
@@ -127,10 +126,13 @@
 				class={`flex flex-col min-h-0 z-[${zIndexes.aiChat}]`}
 			>
 				<div class="flex-1 min-h-0">
-					<AiChat />
+					<!-- Dynamic: this layout wraps every workspace page, and the chat reaches ~100 modules. -->
+					{#await import('./AIChat.svelte') then AiChat}
+						<AiChat.default />
+					{/await}
 				</div>
 				{#if showSessionsBetaBanner}
-					<SessionsBetaBanner variant="legacy" />
+					<SessionsBetaBanner />
 				{/if}
 			</Pane>
 		{/if}

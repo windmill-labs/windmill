@@ -141,6 +141,9 @@
 		awareness?: any | undefined
 		folding?: boolean
 		args?: Record<string, any> | undefined
+		/** Schema to complete SQL against when the caller already holds it; otherwise it is
+		 * looked up from `args.database`. */
+		sqlSchema?: DBSchema | undefined
 		useWebsockets?: boolean
 		small?: boolean
 		scriptLang: Preview['language'] | 'bunnative' | 'tsx' | 'jsx' | 'json' | undefined
@@ -191,6 +194,7 @@
 		awareness = undefined,
 		folding = false,
 		args = undefined,
+		sqlSchema = undefined,
 		useWebsockets = true,
 		small = false,
 		scriptLang,
@@ -274,7 +278,8 @@
 	const sessionScopedChatManager = getContext<AIChatManager | undefined>('aiChatManager')
 	// let graphqlService: MonacoGraphQLAPI | undefined = undefined
 
-	let dbSchema: DBSchema | undefined = $state(undefined)
+	let fetchedDbSchema: DBSchema | undefined = $state(undefined)
+	let dbSchema: DBSchema | undefined = $derived(sqlSchema ?? fetchedDbSchema)
 
 	let destroyed = false
 	const uri = computeUri(
@@ -777,8 +782,8 @@
 	async function updateSchema(newSchemaRes: string | undefined) {
 		if (typeof newSchemaRes === 'string') {
 			const resourcePath = newSchemaRes.replace('$res:', '')
-			dbSchema = $dbSchemas[resourcePath]
-			if (dbSchema === undefined) {
+			fetchedDbSchema = $dbSchemas[resourcePath]
+			if (fetchedDbSchema === undefined) {
 				$dbSchemas[resourcePath] = await getDbSchemas(
 					lang === 'graphql' ? 'graphql' : (scriptLang ?? ''),
 					resourcePath,
@@ -787,9 +792,9 @@
 					{ customTag }
 				)
 			}
-			dbSchema = $dbSchemas[resourcePath]
+			fetchedDbSchema = $dbSchemas[resourcePath]
 		} else {
-			dbSchema = undefined
+			fetchedDbSchema = undefined
 		}
 	}
 
@@ -824,6 +829,9 @@
 			sqlSchemaCompletor = languages.registerCompletionItemProvider('sql', {
 				triggerCharacters: ['.', ' ', '('],
 				provideCompletionItems: function (model, position) {
+					// Registered for the whole `sql` language: every other mounted SQL editor
+					// would otherwise add its own schema's suggestions to this one's.
+					if (model !== editor?.getModel()) return { suggestions: [] }
 					const textUntilPosition = model.getValueInRange({
 						startLineNumber: 1,
 						startColumn: 1,

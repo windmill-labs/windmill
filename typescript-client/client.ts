@@ -837,7 +837,10 @@ export async function setVariable(
  */
 export async function databaseUrlFromResource(path: string): Promise<string> {
   const resource = await getResource(path);
-  return `postgresql://${resource.user}:${resource.password}@${resource.host}:${resource.port}/${resource.dbname}?sslmode=${resource.sslmode}`;
+  const options = resource.options
+    ? `&options=${encodeURIComponent(resource.options)}`
+    : "";
+  return `postgresql://${resource.user}:${resource.password}@${resource.host}:${resource.port}/${resource.dbname}?sslmode=${resource.sslmode}${options}`;
 }
 
 // TODO(gb): need to investigate more how Polars and DuckDB work in TS

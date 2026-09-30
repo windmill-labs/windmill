@@ -422,8 +422,7 @@
 				buttonProps: {
 					onClick: async () => {
 						const app = createRawAppFromFlow(flow.path, flow.summary, flow.schema)
-						// /apps_raw/add hard-reloads (cross-origin isolation), so the
-						// in-memory importStore would be dropped; hand off via sessionStorage.
+						// The raw app editor reads the payload from sessionStorage on mount.
 						sessionStorage.setItem('rawAppImport', JSON.stringify(app))
 						await onNavigate('/apps_raw/add')
 					},

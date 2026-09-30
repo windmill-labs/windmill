@@ -35,6 +35,24 @@ jobs:
         with:
           bun-version: latest
 
+      # Matches the Node major DockerfileExtra installs. The pin is load-bearing:
+      # glob arguments to `node --test` need Node >= 21.
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run multiplayer unit tests
+        working-directory: multiplayer
+        run: |
+          npm ci --omit=dev
+          npm test
+
+      # Runs the real entrypoint-extra.sh with stub services, so the supervision
+      # behaviour is checked without building the image first.
+      - name: Run entrypoint supervision tests
+        run: bash docker/test_entrypoint_extra.sh
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 

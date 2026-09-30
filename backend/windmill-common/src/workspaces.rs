@@ -184,7 +184,7 @@ pub enum ObjectType {
     DatatableMigration,
 }
 
-pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28971/sync-script-to-git-repo-windmill";
+pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28994/sync-script-to-git-repo-windmill";
 
 /// Hub script that applies a repository's state back into a workspace
 /// (the repo → Windmill / "pull" direction). Same script the UI runs from
@@ -192,7 +192,7 @@ pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28971/sync-script-to-git-repo
 /// ignores the slug, so the slug is kept free of characters that would be
 /// percent-encoded into the run URL (a `:` becomes `%3A`, which some hardened
 /// reverse proxies reject as double-encoding when the client re-encodes it).
-pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/28970/git-sync-init-repository-windmill";
+pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/28993/git-sync-init-repository-windmill";
 
 /// Prefix used to identify fork workspaces. A workspace whose id starts with this string is a
 /// fork of another workspace.
@@ -1186,6 +1186,138 @@ pub fn invalidate_protection_rules_cache(workspace_id: &str) {
     PROTECTION_RULES_CACHE.remove(workspace_id);
 }
 
+// Operator rights cache
+
+lazy_static::lazy_static! {
+    static ref OPERATOR_RIGHTS_CACHE: Cache<String, (OperatorManageRights, i64)> = Cache::new(1000);
+}
+
+/// Writes an operator may perform unless the workspace withdraws them. Unlike the visibility
+/// flags beside them in `operator_settings`, these are enforced; unlike a right a workspace
+/// grants, they are held by default and cost no seat.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct OperatorManageRights {
+    pub schedules: bool,
+    pub triggers: bool,
+}
+
+/// Granted unless explicitly withdrawn. Every path that materializes these rights without a
+/// stored setting - a workspace with no `workspace_settings` row included - has to land here, or
+/// an upgrade silently revokes what operators could do the day before.
+impl Default for OperatorManageRights {
+    fn default() -> Self {
+        Self { schedules: true, triggers: true }
+    }
+}
+
+/// Which withdrawable capability a gate needs.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ManageKind {
+    Schedules,
+    Triggers,
+}
+
+impl ManageKind {
+    /// Plural noun for the refusal message.
+    pub fn noun(&self) -> &'static str {
+        match self {
+            ManageKind::Schedules => "schedules",
+            ManageKind::Triggers => "triggers",
+        }
+    }
+
+    /// Prefixes the `/acls` audit action (`schedules.grant_acl`). Deliberately its own string
+    /// rather than `noun()`, which it happens to equal: audit actions are a stable key that rows
+    /// already on disk were written with, so rewording the message must not rename them.
+    pub fn audit_prefix(&self) -> &'static str {
+        match self {
+            ManageKind::Schedules => "schedules",
+            ManageKind::Triggers => "triggers",
+        }
+    }
+}
+
+impl OperatorManageRights {
+    pub fn has(&self, kind: ManageKind) -> bool {
+        match kind {
+            ManageKind::Schedules => self.schedules,
+            ManageKind::Triggers => self.triggers,
+        }
+    }
+}
+
+/// What operators of this workspace may still write. Per workspace, not per user.
+///
+/// Read on every gated write, so it is cached with a 60s TTL. This gates writes, so a withdrawal
+/// cannot wait out that TTL on the rest of the fleet: an `AFTER UPDATE OF operator_settings`
+/// trigger publishes `notify_operator_settings_change` and every server drops its entry through
+/// `process_notify_event`. [`invalidate_operator_rights_cache`] is the local half of that, and
+/// what a test flipping the setting directly has to call itself.
+///
+/// Call it before opening an RLS transaction: it takes a connection from the root pool, and a
+/// second pooled connection held alongside a transaction self-deadlocks on a one-connection pool.
+async fn operator_manage_rights(db: &DB, workspace_id: &str) -> Result<OperatorManageRights> {
+    let now = chrono::Utc::now().timestamp();
+
+    if let Some((rights, expiry)) = OPERATOR_RIGHTS_CACHE.get(workspace_id) {
+        if expiry > now {
+            return Ok(rights);
+        }
+    }
+
+    // Coalesced to true, matching `OperatorManageRights::default`: an absent key means the
+    // workspace never configured the right, not that it withdrew it.
+    let row = sqlx::query!(
+        "SELECT COALESCE((operator_settings->>'manage_schedules')::boolean, true) AS \"schedules!\",
+                COALESCE((operator_settings->>'manage_triggers')::boolean, true) AS \"triggers!\"
+         FROM workspace_settings WHERE workspace_id = $1",
+        workspace_id
+    )
+    .fetch_optional(db)
+    .await
+    .map_err(|e| {
+        Error::internal_err(format!(
+            "Failed to fetch operator settings for {workspace_id}: {e:#}"
+        ))
+    })?;
+
+    let rights = row
+        .map(|r| OperatorManageRights { schedules: r.schedules, triggers: r.triggers })
+        .unwrap_or_default();
+
+    OPERATOR_RIGHTS_CACHE.insert(workspace_id.to_string(), (rights, now + 60));
+
+    Ok(rights)
+}
+
+/// Invalidate the operator rights cache for a workspace
+pub fn invalidate_operator_rights_cache(workspace_id: &str) {
+    OPERATOR_RIGHTS_CACHE.remove(workspace_id);
+}
+
+/// Gate for a write operators may perform unless the workspace withdrew it. Prefer layering
+/// `gate_operator_writes` on a whole router over calling this per handler; see
+/// `docs/operator-write-rights.md`. Both `workspace_id` and `is_operator` MUST come from the
+/// authenticated request (the route's workspace, `ApiAuthed::is_operator`): passing `false` skips
+/// the check, and another workspace's id checks the wrong settings.
+pub async fn check_operator_can_manage(
+    db: &DB,
+    workspace_id: &str,
+    is_operator: bool,
+    kind: ManageKind,
+) -> Result<()> {
+    if is_operator && !operator_manage_rights(db, workspace_id).await?.has(kind) {
+        // 403, not 401: the caller is authenticated and simply lacks the right. The frontend reads
+        // an uncaught 401 as a dead session and logs the user out, so `NotAuthorized` here would
+        // eject an operator from the app instead of telling them why.
+        return Err(Error::PermissionDenied(format!(
+            "Operators cannot manage {} in this workspace",
+            kind.noun()
+        )));
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuleCheckResult {
     Allowed,
@@ -1410,6 +1542,51 @@ pub enum DataTableCatalogResourceType {
     #[strum(serialize = "postgres")]
     Postgresql,
     Instance,
+    /// On the external instance cluster ([`crate::external_instance_pg`]). Enterprise Edition.
+    #[serde(rename = "external_instance")]
+    #[strum(serialize = "external_instance")]
+    ExternalInstance,
+}
+
+impl DataTableCatalogResourceType {
+    /// A database Windmill created and administers, on its own cluster or the external one, as
+    /// opposed to one a user brought as a resource.
+    pub fn is_windmill_managed(self) -> bool {
+        matches!(self, Self::Instance | Self::ExternalInstance)
+    }
+}
+
+/// Whether an operator turned Windmill's own Postgres off as a data table and Ducklake substrate.
+pub async fn instance_pg_disabled<'c>(executor: impl sqlx::PgExecutor<'c>) -> Result<bool> {
+    Ok(sqlx::query_scalar::<_, Option<serde_json::Value>>(
+        "SELECT value FROM global_settings WHERE name = $1",
+    )
+    .bind(crate::global_settings::INSTANCE_PG_DISABLED_SETTING)
+    .fetch_optional(executor)
+    .await?
+    .flatten()
+    .is_some_and(|v| v.as_bool().unwrap_or(false)))
+}
+
+/// Refuse a new use of Windmill's own Postgres as a data table or Ducklake substrate where an
+/// operator turned it off, and on the managed cloud, which never had it. Data tables already on
+/// it are refused at resolution instead ([`resolve_datatable_connection_unchecked`]).
+pub async fn ensure_instance_pg_available<'c>(executor: impl sqlx::PgExecutor<'c>) -> Result<()> {
+    if *crate::worker::CLOUD_HOSTED {
+        return Err(Error::BadRequest(
+            "Windmill's own database cannot back a data table or Ducklake catalog on Windmill Cloud"
+                .to_string(),
+        ));
+    }
+    if instance_pg_disabled(executor).await? {
+        return Err(Error::BadRequest(
+            "Windmill's own database is disabled as a data table and Ducklake substrate on this \
+             instance. Use the external instance cluster, or turn it back on in the instance \
+             settings."
+                .to_string(),
+        ));
+    }
+    Ok(())
 }
 
 /// Build a self-teaching error for an unresolved `datatable://<name>` reference.
@@ -1489,14 +1666,82 @@ pub struct GoverningDatatable {
     pub governor: Option<DataTableReference>,
 }
 
+/// Everything still using the Windmill-managed database `dbname`, one description per use: data
+/// table entries naming it, fork entries pointing at those, Ducklake catalogs on it, and fork
+/// Ducklake metadata schemas there that cleanup has not dropped yet. `exempt` is the one data table
+/// entry, `(workspace_id, name)`, the caller is about to stop using it through; pointers at that
+/// entry still count, since dropping the database would leave them resolving to nothing.
+///
+/// Authorization: reads every workspace's settings and checks nothing. Callers MUST only turn the
+/// answer into a refusal for someone allowed to administer `dbname`.
+pub async fn managed_database_uses(
+    conn: &mut sqlx::PgConnection,
+    kind: DataTableCatalogResourceType,
+    dbname: &str,
+    exempt: Option<(&str, &str)>,
+) -> Result<Vec<String>> {
+    let (exempt_workspace, exempt_name) = exempt.unzip();
+    Ok(sqlx::query_scalar::<_, String>(
+        "WITH entries AS (
+             SELECT ws.workspace_id::text AS workspace_id, dt.key AS name, dt.value
+             FROM workspace_settings ws
+             CROSS JOIN LATERAL jsonb_each(
+                 CASE WHEN jsonb_typeof(ws.datatable->'datatables') = 'object'
+                     THEN ws.datatable->'datatables' ELSE '{}'::jsonb END) dt
+         ), naming AS (
+             SELECT workspace_id, name FROM entries
+             WHERE value->'database'->>'resource_type' = $1
+               AND value->'database'->>'resource_path' = $2
+         )
+         SELECT format('data table ''%s'' in workspace ''%s''', name, workspace_id) FROM naming
+         WHERE $3::text IS NULL OR NOT (workspace_id = $3 AND name = $4)
+         UNION ALL
+         SELECT format('data table ''%s'' in workspace ''%s'', which points at the one in ''%s''',
+                       e.name, e.workspace_id, n.workspace_id)
+         FROM entries e JOIN naming n
+           ON e.value->'reference'->>'workspace_id' = n.workspace_id
+          AND e.value->'reference'->>'datatable' = n.name
+         UNION ALL
+         SELECT format('Ducklake ''%s'' in workspace ''%s''', dl.key, ws.workspace_id)
+         FROM workspace_settings ws
+         CROSS JOIN LATERAL jsonb_each(
+             CASE WHEN jsonb_typeof(ws.ducklake->'ducklakes') = 'object'
+                 THEN ws.ducklake->'ducklakes' ELSE '{}'::jsonb END) dl
+         WHERE dl.value->'catalog'->>'resource_type' = $1
+           AND dl.value->'catalog'->>'resource_path' = $2
+         UNION ALL
+         SELECT format('the Ducklake namespace of fork ''%s'', not cleaned up yet', workspace_id)
+         FROM fork_ducklake_namespace
+         WHERE catalog = $1 || ':' || $2 AND NOT schema_dropped
+         ORDER BY 1",
+    )
+    .bind(kind.as_ref())
+    .bind(dbname)
+    .bind(exempt_workspace)
+    .bind(exempt_name)
+    .fetch_all(&mut *conn)
+    .await?)
+}
+
+/// Held by fork cleanup of `w_id`'s data tables and by forking `w_id`, which can hand the new fork
+/// pointers at them, so a pointer cannot appear between cleanup's check and its drop.
+pub async fn lock_fork_datatables(conn: &mut sqlx::PgConnection, w_id: &str) -> Result<()> {
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext('fork_datatables:' || $1))")
+        .bind(w_id)
+        .execute(&mut *conn)
+        .await?;
+    Ok(())
+}
+
 impl GoverningDatatable {
-    /// Backed by the Windmill instance's own Postgres, which is the only substrate data table
-    /// roles apply to.
-    pub fn is_instance(&self) -> bool {
+    /// The Windmill-managed cluster whose data table roles this entry can use. `None` for a
+    /// resource-backed one: roles are logins Windmill creates, and it creates none on a host a
+    /// workspace admin chose.
+    pub fn role_cluster(&self) -> Option<crate::datatable_roles::DatatableRoleCluster> {
         self.datatable
             .database
             .as_ref()
-            .is_some_and(|d| d.resource_type == DataTableCatalogResourceType::Instance)
+            .and_then(|d| crate::datatable_roles::DatatableRoleCluster::of(d.resource_type))
     }
 
     /// The workspace whose admins administer the data table and whose members its tenants are.
@@ -1644,20 +1889,19 @@ pub async fn resolve_workspace_governing_datatables(
                     clone,
                 )),
                 (None, Some(governed_by)) => {
-                    let (governor_ws, governor_name) =
-                        (governed_by.workspace_id.clone(), governed_by.datatable.clone());
+                    let (governor_ws, governor_name) = (
+                        governed_by.workspace_id.clone(),
+                        governed_by.datatable.clone(),
+                    );
                     let clone = clone.or(Some((ws, name, datatable)));
                     next.push((i, governor_ws, governor_name, clone));
                 }
                 (None, None) => resolved.push((
                     i,
                     match clone {
-                        None => GoverningDatatable {
-                            workspace_id: ws,
-                            name,
-                            datatable,
-                            governor: None,
-                        },
+                        None => {
+                            GoverningDatatable { workspace_id: ws, name, datatable, governor: None }
+                        }
                         Some((clone_ws, clone_name, mut clone_datatable)) => {
                             clone_datatable.permissions = datatable.permissions;
                             GoverningDatatable {
@@ -1698,7 +1942,8 @@ pub async fn resolve_workspace_governing_datatables(
 }
 
 /// Build the `admin` connection for a governing entry: `custom_instance_user` for an instance
-/// database, the user's own resource for a BYO-postgres one.
+/// database, on Windmill's cluster or the external one; the user's own resource for a BYO-postgres
+/// one.
 async fn resolve_datatable_connection_unchecked(
     db: &DB,
     governing: &GoverningDatatable,
@@ -1709,7 +1954,26 @@ async fn resolve_datatable_connection_unchecked(
         .database
         .as_ref()
         .expect("a governing entry owns a database");
-    if database.resource_type == DataTableCatalogResourceType::Instance {
+    if database.resource_type == DataTableCatalogResourceType::ExternalInstance {
+        let pg_creds = crate::external_instance_pg::external_instance_connection_unchecked(
+            db,
+            &database.resource_path,
+            replication,
+        )
+        .await?;
+        serde_json::to_value(&pg_creds)
+            .map_err(|e| Error::internal_err(format!("Error serializing pg creds: {}", e)))
+    } else if database.resource_type == DataTableCatalogResourceType::Instance {
+        // Turning Windmill's database off takes the data tables on it out of use, not only new
+        // ones: every job, API call and trigger reaches a data table through here.
+        if instance_pg_disabled(db).await? {
+            return Err(Error::BadRequest(format!(
+                "data table {} is on Windmill's own database, which is disabled on this instance. \
+                 Move it to the external instance cluster or a Postgres resource, or turn Windmill's \
+                 database back on in the instance settings.",
+                governing.name
+            )));
+        }
         let mut pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
         pg_creds.dbname = database.resource_path.clone();
         if replication {
@@ -1747,8 +2011,31 @@ pub async fn get_datatable_resource_from_db_unchecked(
     w_id: &str,
     name: &str,
 ) -> Result<serde_json::Value> {
+    Ok(get_datatable_connection_and_kind_unchecked(db, w_id, name)
+        .await?
+        .0)
+}
+
+/// As [`get_datatable_resource_from_db_unchecked`], also reporting the kind of database Windmill
+/// manages behind it, `None` for a user resource. One resolution answers both: a caller reading the
+/// kind separately can be handed one kind's connection and the other kind's checks by a save
+/// landing between the two, and the entry a pointer lands on is another workspace's to change.
+///
+/// Same authorization contract: the connection reaches every role.
+pub async fn get_datatable_connection_and_kind_unchecked(
+    db: &DB,
+    w_id: &str,
+    name: &str,
+) -> Result<(serde_json::Value, Option<DataTableCatalogResourceType>)> {
     let governing = resolve_governing_datatable(db, w_id, name).await?;
-    resolve_datatable_connection_unchecked(db, &governing, false).await
+    let kind = governing
+        .datatable
+        .database
+        .as_ref()
+        .map(|d| d.resource_type)
+        .filter(|kind| kind.is_windmill_managed());
+    let connection = resolve_datatable_connection_unchecked(db, &governing, false).await?;
+    Ok((connection, kind))
 }
 
 /// Same as [`get_datatable_resource_from_db_unchecked`] but for postgres trigger
@@ -2253,6 +2540,10 @@ pub enum DucklakeCatalogResourceType {
     Postgresql,
     Mysql,
     Instance,
+    /// On the external instance cluster ([`crate::external_instance_pg`]). Enterprise Edition.
+    #[serde(rename = "external_instance")]
+    #[strum(serialize = "external_instance")]
+    ExternalInstance,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -2780,7 +3071,16 @@ async fn ducklake_conn_data(
     let ducklake = serde_json::from_value::<Ducklake>(ducklake)?;
 
     let catalog_resource =
-        if ducklake.catalog.resource_type == DucklakeCatalogResourceType::Instance {
+        if ducklake.catalog.resource_type == DucklakeCatalogResourceType::ExternalInstance {
+            let pg_creds = crate::external_instance_pg::external_instance_connection_unchecked(
+                db,
+                &ducklake.catalog.resource_path,
+                false,
+            )
+            .await?;
+            serde_json::to_value(&pg_creds)
+                .map_err(|e| Error::internal_err(format!("Error serializing pg creds: {}", e)))?
+        } else if ducklake.catalog.resource_type == DucklakeCatalogResourceType::Instance {
             let mut pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
             pg_creds.dbname = ducklake.catalog.resource_path.clone();
             pg_creds.user = Some("custom_instance_user".to_string());
@@ -3161,6 +3461,14 @@ async fn register_fork_ducklake_namespace(
     {
         return Ok(());
     }
+    let mut tx = db.begin().await?;
+    // A row naming an external database counts as a use of it. Written under the lock a drop takes,
+    // and only while the database is still registered, so a drop cannot slip in between the
+    // settings this attach resolved and the row that protects the database.
+    if let Some(dbname) = catalog.strip_prefix("external_instance:") {
+        crate::external_instance_pg::ensure_external_instance_database_registered(&mut tx, dbname)
+            .await?;
+    }
     sqlx::query!(
         "INSERT INTO fork_ducklake_namespace
            (workspace_id, ducklake_name, metadata_schema, catalog, storage, storage_ref, data_path)
@@ -3175,9 +3483,10 @@ async fn register_fork_ducklake_namespace(
         &storage_ref,
         data_path,
     )
-    .execute(db)
+    .execute(&mut *tx)
     .await
     .map_err(|e| Error::internal_err(format!("registering fork ducklake namespace: {e:#}")))?;
+    tx.commit().await?;
     let mut locations = FORK_DUCKLAKE_REGISTERED
         .get(w_id)
         .filter(|(_, exp)| *exp > now)
