@@ -294,7 +294,10 @@ impl ProviderWithResource {
     /// The reasoning effort to thread to the provider, treating an empty string
     /// (e.g. a cleared flow input) as unset.
     pub fn get_reasoning_effort(&self) -> Option<&str> {
-        self.reasoning_effort.as_deref().filter(|s| !s.is_empty())
+        crate::providers::effective_reasoning_effort(
+            &self.model,
+            self.reasoning_effort.as_deref().filter(|s| !s.is_empty()),
+        )
     }
 
     pub async fn get_base_url(&self, db: &DB) -> Result<String, Error> {

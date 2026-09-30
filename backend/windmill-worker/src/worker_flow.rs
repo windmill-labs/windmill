@@ -3239,7 +3239,7 @@ struct PushNextFlowJobRec {
 /// - when the flow opts into `preserve_step_tags` and the child declares its own non-empty tag,
 ///   that tag is honored instead of being overridden by the flow tag;
 /// - otherwise the child inherits the parent flow job's tag.
-fn resolve_flow_step_tag(
+pub(crate) fn resolve_flow_step_tag(
     is_preprocessor_step: bool,
     flow_tag: &str,
     workspace_id: &str,
