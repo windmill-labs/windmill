@@ -19,11 +19,12 @@
 	const calls = $derived(
 		group.entries.map((e) => e.message).filter((m): m is ToolDisplayMessage => m.role === 'tool')
 	)
-	// Same states as a single row: only an executing call shimmers, and a group whose calls are
-	// all still waiting their turn is faded like a queued row.
+	// Same states as a single row: only an executing call shimmers and makes the header read as
+	// in progress, and a group whose calls are all still waiting their turn is faded like a
+	// queued row.
 	const running = $derived(calls.some((m) => m.isLoading || m.isStreamingArguments))
 	const queued = $derived(!running && calls.some((m) => m.isQueued))
-	const header = $derived(groupHeader(group, running || queued))
+	const header = $derived(groupHeader(group, running))
 	const failedCount = $derived(calls.filter(callFailed).length)
 	// Every edit of one item carries the same chip, so the group shows it once.
 	const previewCard = $derived(calls.findLast((m) => m.previewCard && !m.error)?.previewCard)
