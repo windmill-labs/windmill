@@ -211,7 +211,7 @@
 		 * canvas is embedded inline inside a scrollable container, so a wheel
 		 * gesture over it scrolls the container instead of being captured. */
 		scrollZoom?: boolean
-		/** Offer the "Assets only" switch, which folds scripts and triggers into the
+		/** Offer the "Show scripts and triggers" switch; off folds scripts and triggers into the
 		 * assets they produce. */
 		assetsOnlyToggle?: boolean
 		/** The pipeline folder, when the toggle's state should be remembered for it. */
@@ -1088,7 +1088,15 @@
 									deleteCount: toDelete.trigger ? 2 : 1,
 									onDeleteUpstream: () => onDeleteAssetUpstream?.(toDelete)
 								}
-							: {})
+							: onDeleteAssetUpstream && u
+								? {
+										deleteBlocked: !u.multiple
+											? 'its script builds other assets too'
+											: u.runnableIds.length > 1
+												? 'several scripts build it'
+												: 'its script has several triggers'
+									}
+								: {})
 					}
 				}
 			})
@@ -1625,11 +1633,12 @@
 				class="!m-3"
 			>
 				<Toggle
-					bind:checked={assetsOnly}
+					checked={!assetsOnly}
 					size="xs"
-					options={{ right: 'Assets only' }}
+					options={{ right: 'Show scripts and triggers' }}
 					on:change={(e) => {
-						if (assetsOnlyFolder != undefined) setAssetsOnlyFolder(assetsOnlyFolder, e.detail)
+						assetsOnly = !e.detail
+						if (assetsOnlyFolder != undefined) setAssetsOnlyFolder(assetsOnlyFolder, assetsOnly)
 					}}
 				/>
 			</Panel>

@@ -154,6 +154,8 @@
 			 * asset shares; `deleteCount` is how many that is. */
 			onDeleteUpstream?: () => void
 			deleteCount?: number
+			/** Why nothing can be deleted, when the producer is shared. */
+			deleteBlocked?: string
 		}
 		// SvelteFlow injects this on the node component when the user clicks
 		// the node. Combined with our own `hovered` state to drive the
@@ -219,7 +221,15 @@
 						action: () => data.onDeleteUpstream?.()
 					}
 				]
-			: []
+			: data.deleteBlocked
+				? [
+						{
+							displayName: `Can't delete: ${data.deleteBlocked}`,
+							icon: Trash2,
+							disabled: true
+						}
+					]
+				: []
 	)
 	let upstream = $derived(data.upstream)
 	const CHIP_CLASS =
