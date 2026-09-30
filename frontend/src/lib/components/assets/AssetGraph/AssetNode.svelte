@@ -409,7 +409,7 @@
 			{/if}
 			{#if producer}
 				{#if producer.runState}
-					<RunStateChip runState={producer.runState} class="mr-1" />
+					<RunStateChip runState={producer.runState} class="mr-1 h-5 px-1.5 rounded-md" />
 				{/if}
 				<button
 					type="button"

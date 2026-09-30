@@ -4,6 +4,7 @@
 	import { base } from '$lib/base'
 	import { CircleCheck, CircleAlert, Database, HardDrive, ArrowRight } from 'lucide-svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
+	import { Button } from '$lib/components/common'
 
 	interface Props {
 		workspace: string
@@ -74,7 +75,7 @@
 </script>
 
 {#if show}
-	<Alert type="warning" title="Finish setting up pipelines">
+	<Alert type="warning" title="Finish setting up pipelines" hideIcon>
 		<div class="flex flex-col gap-3">
 			<p>
 				Pipelines materialize data into DuckLake tables backed by object storage. Configure the
@@ -96,13 +97,15 @@
 							<span class="text-2xs text-secondary">{step.description}</span>
 						</div>
 						{#if step.done !== true}
-							<a
+							<Button
+								variant="default"
+								unifiedSize="sm"
 								href={step.href}
-								class="shrink-0 inline-flex items-center gap-1 text-xs text-accent hover:underline whitespace-nowrap"
+								endIcon={{ icon: ArrowRight }}
+								wrapperClasses="shrink-0"
 							>
 								{step.cta}
-								<ArrowRight size={12} />
-							</a>
+							</Button>
 						{:else}
 							<span class="shrink-0 text-2xs text-green-700 dark:text-green-400">Configured</span>
 						{/if}
