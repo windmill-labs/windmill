@@ -1,9 +1,5 @@
 import { minimatch } from "minimatch";
-import {
-  getCurrentGitBranch,
-  getOriginalBranchForWorkspaceForks,
-  isGitRepository,
-} from "../utils/git.ts";
+import { getCurrentGitBranch, isGitRepository } from "../utils/git.ts";
 import { isFileResource, isFilesetResource } from "../utils/utils.ts";
 import {
   SyncOptions,
@@ -92,8 +88,7 @@ function buildItemTypePattern(): string {
 /**
  * Get the specific items configuration for the current workspace.
  * workspaceNameOverride selects by workspace name (O(1)).
- * When not provided, auto-detects from the current git branch (a fork branch
- * resolves to its base branch, whose entry the fork inherits).
+ * When not provided, auto-detects from the current git branch.
  * Merges commonSpecificItems with workspace-specific specificItems.
  */
 export function getSpecificItemsForCurrentBranch(config: SyncOptions, workspaceNameOverride?: string): SpecificItemsConfig | undefined {
@@ -106,8 +101,7 @@ export function getSpecificItemsForCurrentBranch(config: SyncOptions, workspaceN
   if (workspaceNameOverride) {
     wsEntry = config.workspaces[workspaceNameOverride] as WorkspaceEntryConfig | undefined;
   } else if (isGitRepository()) {
-    const branch = getCurrentGitBranch();
-    const currentWorkspace = getOriginalBranchForWorkspaceForks(branch) ?? branch;
+    const currentWorkspace = getCurrentGitBranch();
     if (currentWorkspace) {
       const match = findWorkspaceByGitBranch(config.workspaces, currentWorkspace);
       if (match) {

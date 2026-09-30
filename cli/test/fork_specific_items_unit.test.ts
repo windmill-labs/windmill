@@ -5,12 +5,11 @@ import os from "node:os";
 import path from "node:path";
 
 import { inferWsNameFromForkBranch, type SyncOptions } from "../src/core/conf.ts";
-import { getSpecificItemsForCurrentBranch } from "../src/core/specific_items.ts";
 
 // A fork id never has a wmill.yaml entry of its own. Unless it resolves to its
 // parent's entry, a sync on the fork branch pushes the base files over the
 // workspace-specific values the fork cloned from its parent.
-test("a fork branch resolves specific items to its parent's workspace entry", async () => {
+test("a fork branch resolves to its parent's workspace entry", async () => {
   const repoDir = await mkdtemp(path.join(os.tmpdir(), "wmill_fork_specific_"));
   const originalCwd = process.cwd();
   try {
@@ -22,7 +21,6 @@ test("a fork branch resolves specific items to its parent's workspace entry", as
 
     const config: SyncOptions = {
       workspaces: {
-        commonSpecificItems: { variables: ["f/common/*"] },
         dev: {
           baseUrl: "http://localhost:8000/",
           workspaceId: "dev-ws",
@@ -35,11 +33,6 @@ test("a fork branch resolves specific items to its parent's workspace entry", as
     expect(inferWsNameFromForkBranch(config, "wm-fork-t1")).toEqual("dev");
     // Only the fork the branch names inherits the parent's entry.
     expect(inferWsNameFromForkBranch(config, "other-ws")).toBeUndefined();
-
-    expect(getSpecificItemsForCurrentBranch(config)).toEqual({
-      variables: ["f/common/*"],
-      folders: ["f/team"],
-    });
   } finally {
     process.chdir(originalCwd);
     await rm(repoDir, { recursive: true, force: true });
