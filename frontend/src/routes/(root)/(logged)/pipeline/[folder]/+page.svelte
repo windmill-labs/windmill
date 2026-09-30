@@ -139,7 +139,6 @@
 	import type { Schema } from '$lib/common'
 	import { beforeNavigate, goto } from '$app/navigation'
 	import { fade } from 'svelte/transition'
-	import { twMerge } from 'tailwind-merge'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { inferArgs, inferAssets } from '$lib/infer'
 	import PipelineTriggerEditors from '$lib/components/assets/AssetGraph/PipelineTriggerEditors.svelte'
@@ -2751,23 +2750,21 @@
 				{#if mode === 'view' && pendingCount > 0}
 					<!-- View variant: overlay the unsaved drafts onto the deployed
 					     graph — "what View will show once they're deployed". -->
-					<button
-						type="button"
+					<Button
+						variant="default"
+						unifiedSize="sm"
+						startIcon={{ icon: Telescope }}
 						onclick={() => (includeDrafts = !includeDrafts)}
-						class={twMerge(
-							'flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-medium transition-colors',
-							includeDrafts
-								? 'bg-amber-50 dark:bg-amber-900/30 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-400'
-								: 'bg-surface border-gray-300 dark:border-gray-600 text-secondary hover:bg-surface-hover'
-						)}
+						btnClasses={includeDrafts
+							? '!bg-amber-50 dark:!bg-amber-900/30 !border-amber-300 dark:!border-amber-700 !text-amber-700 dark:!text-amber-400'
+							: undefined}
 						title={includeDrafts
 							? 'Showing undeployed drafts overlaid on the deployed pipeline — click to hide them'
 							: 'Overlay your undeployed drafts to see what the pipeline will look like once deployed'}
 					>
-						<Telescope size={14} />
 						{includeDrafts ? 'Showing' : 'Show'}
 						{pendingCount} draft{pendingCount === 1 ? '' : 's'}
-					</button>
+					</Button>
 				{/if}
 			</div>
 		{/if}
