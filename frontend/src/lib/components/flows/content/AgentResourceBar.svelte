@@ -8,6 +8,8 @@
 	import ResourcePathHint from '$lib/components/ResourcePathHint.svelte'
 	import { ResourceService, type InputTransform, type Resource } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
+	import { userStore } from '$lib/stores'
+	import { canWrite } from '$lib/utils'
 	import { Bot, ChevronDown, ChevronUp, Save, Unlink, Pencil } from 'lucide-svelte'
 	import {
 		AGENT_BRAIN_KEYS,
@@ -116,6 +118,8 @@
 		fromDraft: boolean
 		providerPath?: string
 		providerOk: boolean
+		/** The agent's own sharing, to tell whether this user may edit it. */
+		extraPerms?: Record<string, boolean>
 		/** The link cannot be read. `missing` (404): nothing exists at the path, the agent having been
 		 *  renamed or deleted. `forbidden` (401/403): it exists and this user is refused it, a folder
 		 *  they cannot read included, which says nothing about whether a run of the flow can read it.
@@ -197,7 +201,8 @@
 				tools,
 				fromDraft: draft != undefined,
 				providerPath,
-				providerOk
+				providerOk,
+				extraPerms: (response.extra_perms ?? {}) as Record<string, boolean>
 			}
 		}
 	)
@@ -228,6 +233,11 @@
 	let providerPath = $derived(linkedInfo?.providerPath)
 	let providerOk = $derived(linkedInfo?.providerOk ?? true)
 	let unavailable = $derived(linkedInfo?.unavailable ?? false)
+	let canEditAgent = $derived(
+		!!agent &&
+			!$userStore?.operator &&
+			canWrite(agent, linkedInfo?.extraPerms ?? {}, $userStore ?? undefined)
+	)
 	// The hint flips on the first keystroke in the agent editor, so the badge does not wait for the
 	// debounced autosave and the refetch behind it; the fetched answer covers a draft written
 	// elsewhere, which no editor here has published an opinion about.
@@ -679,15 +689,43 @@
 		{:else if !providerOk}
 			<div class="mt-1">
 				<Alert type="warning" size="xs" title="Model provider not accessible">
-					<!-- Each branch holds the whole message: Svelte trims whitespace at a block's edges,
+					<!-- Each branch holds the whole sentence: Svelte trims whitespace at a block's edges,
 					     which is how the path once lost the spaces around it. -->
 					{#if providerPath}
 						You don't have access to <span class="font-medium">{providerPath}</span>, this agent's
-						model provider. Unlink to fork the agent, or gain access to the provider resource.
+						model provider.
 					{:else}
-						You don't have access to this agent's model provider. Unlink to fork the agent, or gain
-						access to the provider resource.
+						You don't have access to this agent's model provider.
 					{/if}
+					<ul class="list-disc pl-4 mt-1">
+						{#if canEditAgent && !fromAgentEditor}
+							<li
+								>Edit the agent to use a provider you can access. It changes everywhere it's used.</li
+							>
+						{/if}
+						<li>Unlink it to fork an editable copy into just this step.</li>
+						<li>Or ask for access to the provider resource.</li>
+					</ul>
+					<div class="flex gap-2 pt-2">
+						{#if canEditAgent && !fromAgentEditor}
+							<Button
+								unifiedSize="sm"
+								variant="default"
+								startIcon={{ icon: Pencil }}
+								onclick={editAgent}
+							>
+								Edit agent
+							</Button>
+						{/if}
+						<Button
+							unifiedSize="sm"
+							variant="default"
+							startIcon={{ icon: Unlink }}
+							onclick={unlink}
+						>
+							Unlink
+						</Button>
+					</div>
 				</Alert>
 			</div>
 		{/if}
