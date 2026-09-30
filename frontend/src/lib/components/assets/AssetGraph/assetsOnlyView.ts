@@ -14,8 +14,10 @@ export type ViewEdge = {
 	reactive?: boolean
 }
 
-/** The assets-only node standing for the scripts that build no asset. */
-export const NO_ASSET_NODE_ID = 'no-asset'
+/** The assets-only node standing for a script that builds no asset: one per
+ * script, so scripts reacting to different inputs stay apart. */
+export const noAssetNodeId = (runnableId: string) => `no-asset:${runnableId}`
+export const isNoAssetNode = (id: string) => id.startsWith('no-asset:')
 
 /** The script and trigger an assets-only asset's delete removes. */
 export type AssetUpstreamDelete = {
@@ -49,8 +51,9 @@ export function assetsOnlyView<N extends ViewNode, E extends ViewEdge>(
 	nodeIds: Set<string>
 	edges: Array<ViewEdge>
 	upstream: Map<string, AssetUpstream>
-	/** Some scripts build no asset; their upstream is under `NO_ASSET_NODE_ID`. */
-	hasNoAssetNode: boolean
+	/** A node per script that builds no asset (`noAssetNodeId`), its upstream
+	 * under that id. */
+	noAssetNodeIds: string[]
 } {
 	const nodeById = new Map(nodes.map((n) => [n.id, n]))
 	const inputsOf = new Map<string, E[]>()
@@ -129,43 +132,46 @@ export function assetsOnlyView<N extends ViewNode, E extends ViewEdge>(
 		upstream.set(assetId, describe([...new Set(writes.map((w) => w.source))]))
 	}
 
-	// Scripts that build no asset have nowhere to fold into, so they share one
-	// "No asset" node, fed by what they read. dbt projects (whose writes are not
-	// drawn) and macro libraries (which build nothing by design) stay out of it.
+	// Scripts that build no asset have nowhere to fold into, so each gets a "No
+	// asset" node, fed by what it reads. dbt projects (whose writes are not drawn)
+	// and macro libraries (which build nothing by design) get none.
 	const writers = new Set([...producersOf.values()].flat().map((w) => w.source))
 	const orphans = nodes
 		.filter(
 			(n) => n.type === 'runnable' && !writers.has(n.id) && !n.data?.dbt && !n.data?.macros?.length
 		)
 		.map((n) => n.id)
-	if (orphans.length > 0) {
-		upstream.set(NO_ASSET_NODE_ID, describe(orphans))
-		for (const id of orphans) {
-			for (const r of inputsOf.get(id) ?? []) {
-				const eid = `flow:${r.source}->${NO_ASSET_NODE_ID}`
-				const prev = out.get(eid)
-				const reactive = triggered.has(`${r.source}\n${id}`)
-				if (prev) {
-					prev.unsaved = prev.unsaved && !!r.unsaved
-					prev.reactive ||= reactive
-					if (!prev.via?.includes(id)) prev.via = [...(prev.via ?? []), id]
-				} else {
-					out.set(eid, {
-						id: eid,
-						source: r.source,
-						target: NO_ASSET_NODE_ID,
-						kind: 'asset-flow',
-						unsaved: !!r.unsaved,
-						reactive,
-						via: [id]
-					})
-				}
+	for (const id of orphans) {
+		const nodeId = noAssetNodeId(id)
+		upstream.set(nodeId, describe([id]))
+		for (const r of inputsOf.get(id) ?? []) {
+			const eid = `flow:${r.source}->${nodeId}`
+			const reactive = triggered.has(`${r.source}\n${id}`)
+			const prev = out.get(eid)
+			if (prev) {
+				prev.unsaved = prev.unsaved && !!r.unsaved
+				prev.reactive ||= reactive
+			} else {
+				out.set(eid, {
+					id: eid,
+					source: r.source,
+					target: nodeId,
+					kind: 'asset-flow',
+					unsaved: !!r.unsaved,
+					reactive,
+					via: [id]
+				})
 			}
 		}
 	}
 
 	const nodeIds = new Set(nodes.filter((n) => n.type === 'asset').map((n) => n.id))
-	return { nodeIds, edges: [...out.values()], upstream, hasNoAssetNode: orphans.length > 0 }
+	return {
+		nodeIds,
+		edges: [...out.values()],
+		upstream,
+		noAssetNodeIds: orphans.map(noAssetNodeId)
+	}
 }
 
 /** What deleting an asset's upstream removes: the script unless another asset

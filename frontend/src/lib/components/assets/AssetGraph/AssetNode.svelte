@@ -7,6 +7,7 @@
 	import NodeActionsMenu from './NodeActionsMenu.svelte'
 	import NodeFixButton, { type NodeFix } from './NodeFixButton.svelte'
 	import NodeOnDot from './NodeOnDot.svelte'
+	import { PIPELINE_NODE_HEADER } from './assetGraphLayout'
 	import AddDownstreamMenu from './AddDownstreamMenu.svelte'
 	import AddDownstreamPill from './AddDownstreamPill.svelte'
 	import {
@@ -68,6 +69,8 @@
 				runState?: RunnableRunState
 				trigger: {
 					label: string
+					/** No chip: the node's incoming edges already show what starts it. */
+					hidden?: boolean
 					missing?: boolean
 					draft?: boolean
 					/** Opens the trigger's editor; unset for what has none (manual, asset change). */
@@ -164,6 +167,10 @@
 			onStartOnDrag?: (e: PointerEvent) => void
 			/** The assets-only node for the scripts that build no asset. */
 			noAsset?: boolean
+			/** The No-asset node's script, by its file name. */
+			noAssetName?: string
+			/** Assets-only: the node is only its script's banner. */
+			bannerOnly?: boolean
 			/** No script in the workspace writes it; a flow's write fires no asset trigger. */
 			neverWritten?: boolean
 			/** Card width in the assets-only view, sized to its text. */
@@ -242,10 +249,6 @@
 				: []
 	)
 	let upstream = $derived(data.upstream)
-	let noAssetTitle = $derived.by(() => {
-		const n = upstream && 'scripts' in upstream ? upstream.scripts.length : 1
-		return `${n} script${n === 1 ? '' : 's'}`
-	})
 	const HEADER_SELECTED = 'bg-surface-accent-selected hover:bg-surface-accent-selected text-accent'
 	const CHIP_SELECTED =
 		'bg-surface-accent-selected border-border-selected hover:bg-surface-accent-selected text-accent'
@@ -465,19 +468,38 @@
 	<NodeActionsMenu
 		items={menuItems}
 		hover={hovered}
-		kebabClass={twMerge(showGuardBadge && '-right-8', hasHeader && CARD_CORNER_TOP)}
+		kebabClass={twMerge(
+			showGuardBadge && '-right-8',
+			hasHeader && !data.bannerOnly && CARD_CORNER_TOP
+		)}
 	>
+		{#if data.bannerOnly}
+			<!-- A script that builds nothing and runs only on writes to what it reads:
+			     the incoming edges say how it starts, so its banner is the whole node. -->
+			<div
+				class={twMerge(
+					'flex items-stretch min-w-0 rounded-md overflow-hidden bg-surface border border-gray-200 dark:border-gray-700 drop-shadow-sm',
+					(producer ? producer.selected : coSelected) &&
+						'border-border-selected dark:border-border-selected'
+				)}
+				style="width: {data.width ?? 160}px; height: {PIPELINE_NODE_HEADER}px;"
+			>
+				{@render scriptHeader()}
+			</div>
+		{:else}
 		<PipelineNodeCard
 			kindLabel={data.noAsset ? 'No asset' : formatAssetKind(asset)}
-			title={data.noAsset ? noAssetTitle : formatShortAssetPath(asset)}
+			title={data.noAsset ? (data.noAssetName ?? '') : formatShortAssetPath(asset)}
 			tooltip={data.noAsset
-				? 'Scripts that build no asset'
+				? 'This script builds no asset'
 				: data.error
 					? `${data.path}: ${data.error}`
 					: data.path}
 			{selected}
 			tone={data.error ? 'error' : undefined}
-			subtitle={upstream ? upstreamRow : undefined}
+			subtitle={data.foldedFixes?.length || (upstream && !producer?.trigger?.hidden)
+				? upstreamRow
+				: undefined}
 			header={hasHeader ? scriptHeader : undefined}
 			headerSelected={producer ? !!producer.selected : coSelected}
 			width={data.width}
@@ -600,6 +622,7 @@
 				{/if}
 			{/snippet}
 		</PipelineNodeCard>
+		{/if}
 	</NodeActionsMenu>
 	{#if showGuardBadge}
 		<!-- Data-test outcome badge. Floats off the TOP-RIGHT corner (opposite the

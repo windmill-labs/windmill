@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
 	assetsOnlyView,
 	upstreamDeletion,
-	NO_ASSET_NODE_ID,
+	noAssetNodeId,
 	withoutPassiveReads,
 	type AssetUpstream
 } from './assetsOnlyView'
@@ -64,30 +64,30 @@ describe('assetsOnlyView', () => {
 	})
 })
 
-describe('the No asset node', () => {
-	it('gathers scripts that build nothing, but not dbt projects or macro libraries', () => {
+describe('the No asset nodes', () => {
+	it('give each script that builds nothing its own node, fed by what it reads', () => {
 		const v = assetsOnlyView(
 			[
-				node('asset:ducklake:raw', 'asset'),
-				node('script:f/p/notify', 'runnable'),
+				node('asset:ducklake:a', 'asset'),
+				node('asset:ducklake:b', 'asset'),
+				node('script:f/p/on_a', 'runnable'),
+				node('script:f/p/on_b', 'runnable'),
 				node('script:f/p/dbt', 'runnable', { dbt: { model_count: 3 } }),
 				node('script:f/p/macros', 'runnable', { macros: [{ name: 'm' }] })
 			],
-			[edge('asset:ducklake:raw', 'script:f/p/notify', 'lineage-read')]
+			[
+				edge('asset:ducklake:a', 'script:f/p/on_a', 'trigger-asset'),
+				edge('asset:ducklake:b', 'script:f/p/on_b', 'trigger-asset')
+			]
 		)
-		expect(v.hasNoAssetNode).toBe(true)
-		expect(v.upstream.get(NO_ASSET_NODE_ID)).toMatchObject({ runnableId: 'script:f/p/notify' })
+		const onA = noAssetNodeId('script:f/p/on_a')
+		const onB = noAssetNodeId('script:f/p/on_b')
+		expect(v.noAssetNodeIds).toEqual([onA, onB])
+		expect(v.upstream.get(onA)).toMatchObject({ runnableId: 'script:f/p/on_a' })
 		expect(v.edges.map((e) => `${e.source} -> ${e.target}`)).toEqual([
-			`asset:ducklake:raw -> ${NO_ASSET_NODE_ID}`
+			`asset:ducklake:a -> ${onA}`,
+			`asset:ducklake:b -> ${onB}`
 		])
-	})
-
-	it('is absent when every script builds an asset', () => {
-		const v = assetsOnlyView(
-			[node('asset:ducklake:a', 'asset'), node('script:f/p/a', 'runnable')],
-			[edge('script:f/p/a', 'asset:ducklake:a', 'lineage-write')]
-		)
-		expect(v.hasNoAssetNode).toBe(false)
 	})
 })
 

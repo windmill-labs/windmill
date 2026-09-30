@@ -31,7 +31,6 @@
 	import {
 		assetsOnlyView,
 		upstreamDeletion,
-		NO_ASSET_NODE_ID,
 		withoutPassiveReads,
 		type AssetUpstream,
 		type AssetUpstreamDelete
@@ -578,7 +577,7 @@
 			if (!n) return id.replace(/^[^:]+:/, '')
 			if (n.type === 'asset')
 				return formatShortAssetPath({ kind: n.data.asset_kind, path: n.data.path })
-			if (n.type === 'no-asset') return 'the scripts that build no asset'
+			if (n.type === 'no-asset') return n.data.noAssetName
 			if (n.type === 'trigger') return n.data.summary || n.data.ref
 			return n.data.summary || n.data.path
 		}
@@ -1316,13 +1315,15 @@
 		scriptPath: string
 	): {
 		label: string
+		/** Nothing to show: the edges into the node already say it runs on writes. */
+		hidden?: boolean
 		nodeId?: string
 		missing?: boolean
 		draft?: boolean
 		onOpen?: () => void
 	} {
 		if (!t) return { label: 'Manual' }
-		if (t.kind === 'asset') return { label: 'On asset change' }
+		if (t.kind === 'asset') return { label: '', hidden: true }
 		const kind = t.kind as NativeTriggerKind
 		const style = TRIGGER_NODE_STYLE[kind]
 		const label =
@@ -1415,22 +1416,21 @@
 			]
 			const foldedErrors = foldedIds.filter((id) => nodeFixes?.has(id)).length
 			const asset = { kind: data.asset_kind, path: data.path }
-			const scriptCount = u?.multiple ? u.runnableIds.length : 1
 			// Chips this estimate does not model keep the regular width.
 			const width =
 				upstream && !data.dbt && !data.fork_materialization && !data.derived_from && !data.runStatus
 					? assetsOnlyNodeWidth({
 							kind: data.noAsset ? 'No asset' : formatAssetKind(asset),
-							title: data.noAsset
-								? `${scriptCount} script${scriptCount === 1 ? '' : 's'}`
-								: formatShortAssetPath(asset),
+							title: data.noAsset ? data.noAssetName : formatShortAssetPath(asset),
 							chip: foldedErrors
 								? `${foldedErrors} errors · Fix`
 								: 'none' in upstream
 									? 'External source'
 									: 'multiple' in upstream
 										? 'Multiple upstream nodes'
-										: `${upstream.trigger.label}${upstream.trigger.draft ? ' · draft' : ''}`,
+										: upstream.trigger.hidden
+											? ''
+											: `${upstream.trigger.label}${upstream.trigger.draft ? ' · draft' : ''}`,
 							chipIcon: foldedErrors > 0,
 							chipEdit:
 								!foldedErrors &&
@@ -1489,12 +1489,22 @@
 		const nodes = m.nodes
 			.filter((n) => n.id === ADD_NODE_ID || v.nodeIds.has(n.id))
 			.map((n) => (n.type === 'asset' ? { ...n, data: fold(n.data, v.upstream.get(n.id)) } : n))
-		if (v.hasNoAssetNode) {
-			nodes.push({
-				id: NO_ASSET_NODE_ID,
-				type: 'no-asset',
-				data: fold({ noAsset: true }, v.upstream.get(NO_ASSET_NODE_ID))
-			})
+		for (const id of v.noAssetNodeIds) {
+			const u = v.upstream.get(id)
+			const scriptId = u && !u.multiple ? u.runnableId : u?.runnableIds[0]
+			const data = fold(
+				{ noAsset: true, noAssetName: scriptId?.split('/').pop() ?? 'script' },
+				u
+			)
+			// Run only by writes to what it reads, the edges into it already say how
+			// it starts: the script's banner alone. Another trigger, or an error to
+			// fix, needs the card's chip row.
+			const bannerOnly =
+				!!u &&
+				!u.multiple &&
+				u.trigger?.kind === 'asset' &&
+				!(data.foldedIds as string[]).some((f) => nodeFixes?.has(f))
+			nodes.push({ id, type: 'no-asset', data: bannerOnly ? { ...data, bannerOnly } : data })
 		}
 		const edges: BuiltEdge[] = v.edges.map((e) => ({ ...e, kind: e.kind as BuiltEdge['kind'] }))
 		if (nodes.some((n) => n.id === ADD_NODE_ID)) {

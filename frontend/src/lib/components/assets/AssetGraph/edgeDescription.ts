@@ -1,5 +1,5 @@
 import { describeSchedule } from '$lib/utils/describeCron'
-import { NO_ASSET_NODE_ID } from './assetsOnlyView'
+import { isNoAssetNode } from './assetsOnlyView'
 
 /** What a hovered edge says: "`subject` `phrase` `object`", then a note. */
 export type EdgeDescription = { subject: string; phrase: string; object?: string; note?: string }
@@ -76,7 +76,7 @@ export function describeEdge(
 				? `Each write to ${src} reruns it.`
 				: `A write to ${src} does not rerun it.`
 			// The scripts that build nothing only read: name them, not the node.
-			if (e.target === NO_ASSET_NODE_ID) {
+			if (isNoAssetNode(e.target)) {
 				return { subject: src, phrase: 'is read by', object: via || tgt, note: rerun }
 			}
 			return {
