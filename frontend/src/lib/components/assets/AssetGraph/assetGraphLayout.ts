@@ -12,6 +12,10 @@ const NODE_HEIGHT = NODE.height + 30
 export const PIPELINE_NODE_HEIGHT = 48
 // A step more than the flow editor's gap: the + on a node's bottom edge sits in it.
 const LAYER_GAP = NODE.gap.vertical + 16
+/** Height of the "Add data source" pill the anchor draws, and its gap to the
+ * graph: tighter than LAYER_GAP, since no edge runs through it. */
+const ANCHOR_HEIGHT = 32
+const ANCHOR_GAP = 40
 const SIBLING_GAP = NODE.gap.horizontal
 // Horizontal gutter between two disjoint subgraphs. Wider than the
 // within-subgraph sibling gap so visually-unrelated components (e.g. two
@@ -329,7 +333,7 @@ export function layoutAssetGraph(
 		}
 
 		// 4. Re-place the anchor centered horizontally over the whole packed
-		// graph, one layer above it; then renormalize so the anchor sits at the
+		// graph, just above it; then renormalize so the anchor sits at the
 		// top (y = 0), pushing the components down a layer to make room (mirrors
 		// the previous "anchor is the parent of every root" behaviour).
 		if (anchorId && graph.nodes.some((n) => n.id === anchorId)) {
@@ -344,7 +348,9 @@ export function layoutAssetGraph(
 					if (p.x > maxX) maxX = p.x
 					if (p.y < minY) minY = p.y
 				}
-				byId.set(anchorId, { x: (minX + maxX) / 2, y: minY - layerH })
+				// One gap above the graph, sized to the pill rather than a full node row:
+				// a row tall enough for an assets-only card leaves it floating high.
+				byId.set(anchorId, { x: (minX + maxX) / 2, y: minY - ANCHOR_HEIGHT - ANCHOR_GAP })
 				let nMinY = Infinity
 				for (const p of byId.values()) if (p.y < nMinY) nMinY = p.y
 				for (const p of byId.values()) p.y -= nMinY
