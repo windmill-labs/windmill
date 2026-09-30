@@ -15,6 +15,7 @@
 	import { describeSchedule } from '$lib/utils/describeCron'
 	import type { UpstreamTriggerAction } from './upstreamScriptItems'
 	import type { AssetUpstreamDelete } from './assetsOnlyView'
+	import type { NodeFixSpec } from './NodeFixButton.svelte'
 	import AssetGraphDetailsPane from './AssetGraphDetailsPane.svelte'
 	import PipelineEventLog from './PipelineEventLog.svelte'
 	import type {
@@ -72,6 +73,9 @@
 		onAddPipelineScript,
 		onRunnableMenuRemove,
 		onDeleteAssetUpstream,
+		nodeFixes,
+		assetDeleteVerb,
+		onEdgeAction,
 		onRunProducer,
 		idlePane,
 		onRequestEdit,
@@ -173,6 +177,14 @@
 		) => void
 		onRunnableMenuRemove?: (...args: any[]) => void
 		onDeleteAssetUpstream?: (target: AssetUpstreamDelete) => void
+		nodeFixes?: ReadonlyMap<string, NodeFixSpec>
+		assetDeleteVerb?: 'Delete' | 'Archive'
+		onEdgeAction?: (a: {
+			action: 'listen' | 'stop'
+			script: string
+			asset: { kind: AssetKind; path: string }
+			reads?: boolean
+		}) => void
 		onRunProducer?: (producer: RunProducer) => Promise<string | undefined>
 		idlePane?: Snippet
 		onRequestEdit?: () => void
@@ -585,6 +597,9 @@
 					{onAddPipelineScript}
 					{onRunnableMenuRemove}
 					{onDeleteAssetUpstream}
+					{nodeFixes}
+					{assetDeleteVerb}
+					{onEdgeAction}
 					{onRunProducer}
 					{validStartPaths}
 					{onStartBoundedRun}

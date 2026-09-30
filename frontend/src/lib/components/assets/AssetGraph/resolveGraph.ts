@@ -317,24 +317,39 @@ function withTriggerDrafts(
 	]
 }
 
+/** Why a node is red, and what the Fix actions act on. */
+export type PipelineNodeErrors = {
+	/** `kind:path` → reason. */
+	assets: Map<string, string>
+	/** Script path → reason. */
+	scripts: Map<string, string>
+	/** Subscribed assets nothing writes: `kind:path` → the asset and its subscribers. */
+	unwritten: Map<string, { asset: { kind: AssetKind; path: string }; subscribers: string[] }>
+	/** Script path → the unwritten asset it runs on (its first, when several). */
+	waitsOn: Map<string, { kind: AssetKind; path: string }>
+}
+
 /**
  * Nodes the pipeline cannot work with, with the reason. Assets (keyed
  * `kind:path`): one nothing uses at all, and one a script subscribes to
- * (`// on <asset>`) that no runnable in the graph writes. Scripts (keyed by
- * path): the subscriber, whose subscription can never fire. A body read of an
- * external asset is fine and is not passed here: only the explicit `// on`
- * annotations, per script path, count as subscriptions.
+ * (`// on <asset>`) that nothing writes, in the pipeline or, per
+ * `writtenElsewhere`, anywhere else in the workspace (asset triggers fire on
+ * any write). Scripts (keyed by path): the subscriber, whose subscription can
+ * never fire. A body read of an external asset is fine and is not passed here:
+ * only the explicit `// on` annotations, per script path, count as subscriptions.
  */
 export function pipelineNodeErrors(
 	graph: AssetGraphResponse,
-	explicitOnByPath: Map<string, Array<{ kind: AssetKind; path: string }>>
-): { assets: Map<string, string>; scripts: Map<string, string> } {
+	explicitOnByPath: Map<string, Array<{ kind: AssetKind; path: string }>>,
+	writtenElsewhere: ReadonlySet<string> = new Set()
+): PipelineNodeErrors {
 	const referenced = referencedAssetKeys(graph)
 	const written = new Set(
 		graph.edges
 			.filter((e) => e.access_type === 'w' || e.access_type === 'rw')
 			.map((e) => `${e.asset_kind}:${e.asset_path}`)
 	)
+	for (const k of writtenElsewhere) written.add(k)
 	// The dbt project's own edges are hidden from the pipeline graph (see
 	// `hideDbtRunnables`), so its relations are judged by their provenance: the
 	// project uses every one, and materializes all but its sources.
@@ -345,6 +360,8 @@ export function pipelineNodeErrors(
 	}
 	const errors = new Map<string, string>()
 	const scriptErrors = new Map<string, string>()
+	const unwritten: PipelineNodeErrors['unwritten'] = new Map()
+	const waitsOn: PipelineNodeErrors['waitsOn'] = new Map()
 	for (const a of graph.assets) {
 		const key = `${a.kind}:${a.path}`
 		if (!referenced.has(key)) errors.set(key, 'nothing in the pipeline uses it')
@@ -357,15 +374,17 @@ export function pipelineNodeErrors(
 		for (const ref of refs) {
 			const key = `${ref.kind}:${ref.path}`
 			if (written.has(key)) continue
-			if (!errors.has(key)) {
-				errors.set(key, `${path} runs on it, but nothing in the pipeline writes it`)
-			}
+			const entry = unwritten.get(key) ?? { asset: ref, subscribers: [] }
+			if (!entry.subscribers.includes(path)) entry.subscribers.push(path)
+			unwritten.set(key, entry)
+			if (!errors.has(key)) errors.set(key, `${path} runs on it, but nothing writes it`)
 			if (!scriptErrors.has(path)) {
-				scriptErrors.set(path, `runs on ${ref.path}, which nothing in the pipeline writes`)
+				scriptErrors.set(path, `runs on ${ref.path}, which nothing writes`)
+				waitsOn.set(path, ref)
 			}
 		}
 	}
-	return { assets: errors, scripts: scriptErrors }
+	return { assets: errors, scripts: scriptErrors, unwritten, waitsOn }
 }
 
 function referencedAssetKeys(

@@ -5,6 +5,7 @@
 	import { formatAssetKind, formatShortAssetPath, type AssetKind } from '$lib/components/assets/lib'
 	import PipelineNodeCard from './PipelineNodeCard.svelte'
 	import NodeActionsMenu from './NodeActionsMenu.svelte'
+	import NodeFixButton, { type NodeFix } from './NodeFixButton.svelte'
 	import PipelineInsertMenu, { type PipelineInsertPick } from './PipelineInsertMenu.svelte'
 	import {
 		ArrowUpRight,
@@ -149,6 +150,8 @@
 			 * pipeline writes, `multiple` when the producer or its trigger is
 			 * ambiguous. */
 			upstream?: AssetUpstreamChips
+			/** What is wrong with the node, and how to fix it: replaces the "+". */
+			fix?: NodeFix
 			/** The assets-only node for the scripts that build no asset. */
 			noAsset?: boolean
 			/** Card width in the assets-only view, sized to its text. */
@@ -157,6 +160,7 @@
 			 * asset shares; `deleteCount` is how many that is. */
 			onDeleteUpstream?: () => void
 			deleteCount?: number
+			deleteVerb?: 'Delete' | 'Archive'
 			/** Why nothing can be deleted, when the producer is shared. */
 			deleteBlocked?: string
 		}
@@ -218,7 +222,7 @@
 		data.onDeleteUpstream
 			? [
 					{
-						displayName: `Delete ${data.deleteCount} item${data.deleteCount === 1 ? '' : 's'}`,
+						displayName: `${data.deleteVerb ?? 'Delete'} ${data.deleteCount} item${data.deleteCount === 1 ? '' : 's'}`,
 						icon: Trash2,
 						type: 'delete' as const,
 						action: () => data.onDeleteUpstream?.()
@@ -634,7 +638,13 @@
 			</button>
 		</div>
 	{/if}
-	{#if showAdd}
+	{#if data.fix}
+		<!-- A red node's way out replaces its "+": adding downstream of a broken
+		     node is not what it needs. -->
+		<div class="absolute left-1/2 -bottom-3 -translate-x-1/2 z-10">
+			<NodeFixButton fix={data.fix} />
+		</div>
+	{:else if showAdd}
 		<!-- Always-visible + on the asset's bottom edge for downstream pipeline-
 		     script creation, half-overlapping it like the flow editor's
 		     between-step inserter. -->

@@ -98,6 +98,16 @@
 		deployTriggerDraft
 	} from '$lib/components/assets/AssetGraph/pipelineTriggerDraftDeploy'
 	import type { AssetUpstreamDelete } from '$lib/components/assets/AssetGraph/assetsOnlyView'
+	import type { NodeFixSpec } from '$lib/components/assets/AssetGraph/NodeFixButton.svelte'
+	import { TRIGGER_NODE_STYLE } from '$lib/components/assets/AssetGraph/TriggerNode.svelte'
+	import {
+		assetRef,
+		listenToAsset,
+		removeTriggerDirective,
+		scheduleInsteadOfAsset,
+		stopListeningChangeText,
+		stopListeningToAsset
+	} from '$lib/components/assets/AssetGraph/pipelineAnnotationEdits'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import type { PipelineInsertOptions } from '$lib/components/assets/AssetGraph/PipelineInsertMenu.svelte'
 	import {
@@ -130,6 +140,7 @@
 		OpenAPI,
 		ScheduleService,
 		ScriptService,
+		AssetService,
 		type AssetKind,
 		type Script,
 		type ScriptLang
@@ -1284,6 +1295,209 @@
 		}
 	}
 
+	// ===================== Fixes for misconfigured nodes =====================
+	// Rewrites a script's annotation header and keeps the result as a draft, opened
+	// so the change is in view. The pane closes first and its buffer is saved back
+	// before the content is read: saved back after the edit, it would overwrite it.
+	async function editScriptHeader(
+		path: string,
+		apply: (content: string) => string,
+		done: string
+	): Promise<boolean> {
+		const ws = $workspaceStore
+		if (!ws) return false
+		if (mode !== 'edit') setMode('edit')
+		pe.selection = undefined
+		pe.activeDraftPath = undefined
+		await tick()
+		await new Promise<void>((r) => queueMicrotask(r))
+		const draft = pe.drafts.get(path)
+		let script: Script
+		try {
+			script = draft
+				? draft.script
+				: await ScriptService.getScriptByPath({ workspace: ws, path })
+		} catch (e: any) {
+			sendUserToast(`Could not open ${path}: ${e?.body ?? e?.message ?? String(e)}`, true)
+			return false
+		}
+		const content = apply(script.content ?? '')
+		if (content === script.content) {
+			pe.activeDraftPath = draft ? path : undefined
+			if (!draft) pe.selection = { kind: 'runnable', runnable_kind: 'script', path }
+			sendUserToast(`${path} already does that`)
+			return true
+		}
+		const next = new Map(pe.drafts)
+		next.set(path, {
+			...(draft ?? { localId: pe.promotedDraftLocalId(path) }),
+			script: { ...script, content }
+		})
+		pe.drafts = next
+		pe.activeDraftPath = path
+		sendUserToast(`${done} in ${path}. It is a draft until you save.`)
+		return true
+	}
+
+	const scriptName = (p: string) => p.split('/').pop() ?? p
+	const isTableKind = (k: AssetKind): k is 'ducklake' | 'datatable' =>
+		k === 'ducklake' || k === 'datatable'
+
+	const readsAsset = (script: string, asset: { kind: AssetKind; path: string }) =>
+		shownGraph.edges.some(
+			(e) =>
+				e.runnable_path === script &&
+				e.asset_kind === asset.kind &&
+				e.asset_path === asset.path &&
+				(e.access_type === 'r' || e.access_type === 'rw')
+		)
+	const selectScript = (path: string) => {
+		pe.activeDraftPath = pe.drafts.has(path) ? path : undefined
+		pe.selection = pe.drafts.has(path)
+			? undefined
+			: { kind: 'runnable', runnable_kind: 'script', path }
+	}
+	const selectAsset = (asset: { kind: AssetKind; path: string }) => {
+		pe.activeDraftPath = undefined
+		pe.selection = { kind: 'asset', asset_kind: asset.kind, path: asset.path }
+	}
+	const scriptLink = (path: string) => ({ text: path, onClick: () => selectScript(path) })
+	const assetLink = (asset: { kind: AssetKind; path: string }) => ({
+		text: asset.path,
+		onClick: () => selectAsset(asset)
+	})
+
+	/** The fixes for an asset's unwritten subscription, from either end of it. */
+	function subscriptionFixes(
+		asset: { kind: AssetKind; path: string },
+		subscribers: string[]
+	): NodeFixSpec['actions'] {
+		const one = subscribers.length === 1 ? subscribers[0] : undefined
+		const reads = subscribers.some((s) => readsAsset(s, asset))
+		const actions: NodeFixSpec['actions'] = []
+		if (isTableKind(asset.kind)) {
+			actions.push({
+				label: 'Add a script that writes it',
+				detail: `Opens the new-script menu with ${assetRef(asset)} as its output.`,
+				addWriter: { kind: asset.kind, path: asset.path }
+			})
+		}
+		if (one) {
+			actions.push({
+				label: `Run ${scriptName(one)} on a schedule instead`,
+				detail: `Opens the schedule setup. On create: ${stopListeningChangeText(asset, reads).replace(/^R/, 'r')} and adds \`on schedule\` in ${one}, with the schedule as a draft.`,
+				scheduleFor: {
+					script: one,
+					onSchedule: async (schedule) => {
+						const ok = await editScriptHeader(
+							one,
+							(c) => scheduleInsteadOfAsset(c, asset, readsAsset(one, asset)),
+							'Switched to a schedule'
+						)
+						if (!ok) return
+						const saved = pe.setTriggerDraft({
+							kind: 'schedule',
+							config: { ...schedule, script_path: one }
+						})
+						if (!saved) {
+							sendUserToast(
+								`Another draft schedule already uses the path ${schedule.path}; ${one} has no schedule yet`,
+								true
+							)
+						}
+					}
+				}
+			})
+		}
+		actions.push({
+			label: one ? `Stop ${scriptName(one)} running on writes` : 'Stop them running on writes',
+			detail: `${stopListeningChangeText(asset, reads)} in ${subscribers.join(', ')}; only the annotation header changes. Saved as a draft.`,
+			run: async () => {
+				for (const s of subscribers) {
+					await editScriptHeader(
+						s,
+						(c) => stopListeningToAsset(c, asset, readsAsset(s, asset)),
+						'Stopped running on writes'
+					)
+				}
+			}
+		})
+		return actions
+	}
+
+	let nodeFixes = $derived.by(() => {
+		const fixes = new Map<string, NodeFixSpec>()
+		if (isOperator) return fixes
+		for (const { asset, subscribers } of nodeErrors.unwritten.values()) {
+			fixes.set(`asset:${asset.kind}:${asset.path}`, {
+				explainer: [
+					...(subscribers.length === 1
+						? [scriptLink(subscribers[0]), ' runs']
+						: [`${subscribers.length} scripts run`]),
+					' after each write to ',
+					assetLink(asset),
+					`, but nothing writes it, so ${subscribers.length === 1 ? 'it never runs' : 'they never run'}.`
+				],
+				actions: subscriptionFixes(asset, subscribers)
+			})
+		}
+		for (const [path, asset] of nodeErrors.waitsOn) {
+			fixes.set(`script:${path}`, {
+				explainer: [
+					'Runs after each write to ',
+					assetLink(asset),
+					', but nothing writes it, so it never runs.'
+				],
+				actions: [
+					...subscriptionFixes(asset, [path]),
+					{
+						label: 'Open script',
+						run: () => {
+							pe.activeDraftPath = pe.drafts.has(path) ? path : undefined
+							pe.selection = pe.drafts.has(path)
+								? undefined
+								: { kind: 'runnable', runnable_kind: 'script', path }
+						}
+					}
+				]
+			})
+		}
+		for (const t of displayGraph.triggers) {
+			if (t.trigger_kind === 'asset' || !t.missing) continue
+			if (t.trigger_kind === 'webhook' || t.trigger_kind === 'data_upload') continue
+			const kind = t.trigger_kind
+			const script = t.runnable_path
+			const label = TRIGGER_NODE_STYLE[kind]?.label ?? kind
+			fixes.set(`trigger:${kind}:missing:${script}`, {
+				explainer: [
+					scriptLink(script),
+					` declares \`on ${kind}\`, but no ${label} trigger points at it, so nothing starts it that way.`
+				],
+				actions: [
+					{
+						label: `Create the ${label} trigger`,
+						detail: 'Opens its editor. It is created when you save the pipeline.',
+						run: () => {
+							if (mode !== 'edit') setMode('edit')
+							openMissingTriggerDrawer(kind, script)
+						}
+					},
+					{
+						label: `Remove \`on ${kind}\` from ${scriptName(script)}`,
+						detail: `Edits ${script}. Saved as a draft.`,
+						run: () =>
+							editScriptHeader(
+								script,
+								(c) => removeTriggerDirective(c, kind),
+								`Removed \`on ${kind}\``
+							)
+					}
+				]
+			})
+		}
+		return fixes
+	})
+
 	function handleRunnableMenuRemove(info: {
 		runnable_kind: 'script' | 'flow'
 		path: string
@@ -1461,15 +1675,13 @@
 	// What the canvas renders: drafts merged in edit, deployed-only in view —
 	// unless the "show drafts" chip is on, which overlays the drafts onto the
 	// view (what View will show once they're deployed).
-	let displayGraph = $derived(
-		withSummaries(mode === 'edit' || includeDrafts ? graphWithDraft : deployedGraph)
-	)
-	// Adds what the canvas shows but the resolved graph does not carry: script
-	// summaries and languages, schedule crons, and which nodes are misconfigured.
-	function withSummaries(g: AssetGraphResponse): AssetGraphResponse {
+	let shownGraph = $derived(mode === 'edit' || includeDrafts ? graphWithDraft : deployedGraph)
+	// Each script's explicit `// on <asset>` subscriptions, from its live buffer,
+	// draft or deployed body.
+	let explicitOnByPath = $derived.by(() => {
 		const showDrafts = mode === 'edit' || includeDrafts
-		const explicitOnByPath = new Map<string, Array<{ kind: AssetKind; path: string }>>()
-		for (const r of g.runnables) {
+		const out = new Map<string, Array<{ kind: AssetKind; path: string }>>()
+		for (const r of shownGraph.runnables) {
 			if (r.usage_kind !== 'script') continue
 			const live =
 				showDrafts && pe.liveAnnotations.scriptPath === r.path ? pe.liveAnnotations : undefined
@@ -1480,9 +1692,52 @@
 				: body !== undefined
 					? parsePipelineAnnotations(body).triggerAssets
 					: []
-			if (refs.length > 0) explicitOnByPath.set(r.path, refs)
+			if (refs.length > 0) out.set(r.path, refs)
 		}
-		const errors = pipelineNodeErrors(g, explicitOnByPath)
+		return out
+	})
+	// Subscribed assets nothing in the pipeline writes, checked against the whole
+	// workspace: an asset trigger fires on a write from anywhere.
+	let unwrittenInPipeline = $derived(
+		[...pipelineNodeErrors(shownGraph, explicitOnByPath).unwritten.keys()].sort().join('\n')
+	)
+	let writtenElsewhere = resource(
+		[() => $workspaceStore, () => unwrittenInPipeline],
+		async ([ws, keys]) => {
+			const out = new Set<string>()
+			if (!ws || !keys) return out
+			await Promise.all(
+				keys.split('\n').map(async (key) => {
+					const i = key.indexOf(':')
+					const kind = key.slice(0, i)
+					const path = key.slice(i + 1)
+					try {
+						const res = await AssetService.listAssets({ workspace: ws, path, assetKinds: kind })
+						const writes = res.assets.some((a) =>
+							a.usages.some(
+								(u) =>
+									(u.kind === 'script' || u.kind === 'flow') &&
+									(u.access_type === 'w' || u.access_type === 'rw')
+							)
+						)
+						if (writes) out.add(key)
+					} catch {
+						// Unknown: the node stays flagged, as before the lookup.
+					}
+				})
+			)
+			return out
+		}
+	)
+	let nodeErrors = $derived(
+		pipelineNodeErrors(shownGraph, explicitOnByPath, writtenElsewhere.current ?? new Set())
+	)
+	let displayGraph = $derived(withSummaries(shownGraph))
+	// Adds what the canvas shows but the resolved graph does not carry: script
+	// summaries and languages, schedule crons, and which nodes are misconfigured.
+	function withSummaries(g: AssetGraphResponse): AssetGraphResponse {
+		const showDrafts = mode === 'edit' || includeDrafts
+		const errors = nodeErrors
 		const schedules = scheduleInfo.current
 		return {
 			...g,
@@ -2959,6 +3214,19 @@
 				onAddPipelineScript={mode === 'edit' ? handleAddPipelineScript : undefined}
 				onRunnableMenuRemove={mode === 'edit' ? handleRunnableMenuRemove : undefined}
 				onDeleteAssetUpstream={isOperator ? undefined : (t) => (assetDeleteTarget = t)}
+				{nodeFixes}
+				assetDeleteVerb={canHardDeleteScripts ? 'Delete' : 'Archive'}
+				onEdgeAction={isOperator
+					? undefined
+					: ({ action, script, asset, reads }) =>
+							editScriptHeader(
+								script,
+								(c) =>
+									action === 'listen'
+										? listenToAsset(c, asset)
+										: stopListeningToAsset(c, asset, reads ?? false),
+								action === 'listen' ? 'Now reruns on each write' : 'Stopped rerunning on writes'
+							)}
 				onRunProducer={mode === 'edit' ? handleRunProducer : undefined}
 				onRequestEdit={isOperator ? undefined : () => setMode('edit')}
 				canRunByPath={openScriptHasDataUpload}

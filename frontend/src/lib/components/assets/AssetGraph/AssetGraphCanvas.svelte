@@ -15,6 +15,7 @@
 	import TriggerNode, { type TriggerNodeKind } from './TriggerNode.svelte'
 	import AddNode from './AddNode.svelte'
 	import AddDataSourceMenu from './AddDataSourceMenu.svelte'
+	import PipelineInsertMenu, { type PipelineInsertSchedule } from './PipelineInsertMenu.svelte'
 	import DataTestNode from './DataTestNode.svelte'
 	import AssetGraphEdge from './AssetGraphEdge.svelte'
 	import PanToNode from './PanToNode.svelte'
@@ -29,13 +30,16 @@
 	} from './assetsOnlyView'
 	import { assetsOnlyNodeWidth } from './assetNodeWidth'
 	import { describeEdge } from './edgeDescription'
+	import { listenChangeText, stopListeningChangeText } from './pipelineAnnotationEdits'
+	import { Button } from '$lib/components/common'
+	import type { NodeFix, NodeFixSpec } from './NodeFixButton.svelte'
 	import { isAssetsOnlyFolder, setAssetsOnlyFolder } from './assetsOnlyFolders'
 	import { formatAssetKind, formatShortAssetPath } from '$lib/components/assets/lib'
 	import { TRIGGER_NODE_STYLE } from './TriggerNode.svelte'
 	import { describeSchedule } from '$lib/utils/describeCron'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { fly } from 'svelte/transition'
-	import { Plus } from 'lucide-svelte'
+	import { Clock, Plus } from 'lucide-svelte'
 	import {
 		getContextMenuContainerClass,
 		CONTEXT_MENU_ITEM_BASE_CLASS,
@@ -222,6 +226,18 @@
 		/** Deletes what produces an asset in the assets-only view: its script, and its
 		 * trigger when set. The canvas only offers what no other asset shares. */
 		onDeleteAssetUpstream?: (target: AssetUpstreamDelete) => void
+		/** Canvas node id → what is wrong with it and how to fix it (the Fix pill). */
+		nodeFixes?: ReadonlyMap<string, NodeFixSpec>
+		/** "Archive" for someone who can only archive the script the delete removes. */
+		assetDeleteVerb?: 'Delete' | 'Archive'
+		/** Makes a script run after each write to an asset it reads, or stop. */
+		onEdgeAction?: (a: {
+			action: 'listen' | 'stop'
+			script: string
+			asset: { kind: AssetKind; path: string }
+			/** Whether the script reads the asset, which decides whether stopping mutes it. */
+			reads?: boolean
+		}) => void
 	}
 	let {
 		graph,
@@ -257,7 +273,10 @@
 		scrollZoom = true,
 		assetsOnlyToggle = false,
 		assetsOnlyFolder,
-		onDeleteAssetUpstream
+		onDeleteAssetUpstream,
+		nodeFixes,
+		assetDeleteVerb = 'Delete',
+		onEdgeAction
 	}: Props = $props()
 
 	let assetsOnly = $state(false)
@@ -278,10 +297,38 @@
 		const at = { id: edge.id, x: event.clientX, y: event.clientY }
 		edgeHoverTimer = setTimeout(() => (hoveredEdge = at), 300)
 	}
+	// Leaving the edge closes the popover after a moment, so the pointer can reach
+	// its buttons; entering the popover keeps it.
 	function onEdgeLeave() {
 		clearTimeout(edgeHoverTimer)
-		hoveredEdge = undefined
+		edgeHoverTimer = setTimeout(() => (hoveredEdge = undefined), 200)
 	}
+	// What the hovered edge lets you change: a plain read can become a trigger, and
+	// an asset trigger can be dropped. Both rewrite the script's `// on` header.
+	let hoveredEdgeAction = $derived.by(() => {
+		const e = hoveredEdge && onEdgeAction && view.edges.find((x) => x.id === hoveredEdge!.id)
+		if (!e || (e.kind !== 'lineage-read' && e.kind !== 'trigger-asset')) return undefined
+		const asset = view.nodes.find((n) => n.id === e.source)?.data
+		const script = view.nodes.find((n) => n.id === e.target)?.data
+		if (!asset?.asset_kind || script?.runnable_kind !== 'script' || !script.in_pipeline)
+			return undefined
+		const target = { kind: asset.asset_kind as AssetKind, path: asset.path as string }
+		const reads = view.edges.some(
+			(x) => x.kind === 'lineage-read' && x.source === e.source && x.target === e.target
+		)
+		return e.kind === 'lineage-read'
+			? {
+					label: 'Rerun on each write',
+					detail: `${listenChangeText(target)} in ${script.path}; only its annotation header changes. Saved as a draft.`,
+					run: () => onEdgeAction?.({ action: 'listen', script: script.path, asset: target })
+				}
+			: {
+					label: 'Stop rerunning on writes',
+					detail: `${stopListeningChangeText(target, reads)} in ${script.path}; only its annotation header changes. Saved as a draft.`,
+					run: () =>
+						onEdgeAction?.({ action: 'stop', script: script.path, asset: target, reads })
+				}
+	})
 	let hoveredEdgeText = $derived.by(() => {
 		const e = hoveredEdge && view.edges.find((x) => x.id === hoveredEdge!.id)
 		if (!e) return undefined
@@ -298,6 +345,42 @@
 	})
 	let addMenuAt = $state<{ x: number; y: number }>({ x: 0, y: 0 })
 	let addMenuSignal = $state(0)
+	let addMenuPreset = $state<
+		{ kind: 'ducklake' | 'datatable'; store: string; table: string } | undefined
+	>(undefined)
+
+	// The schedule wizard a Fix action opens for an existing script, at the pill.
+	let scheduleWizard = $state<
+		| {
+				script: string
+				onSchedule: (s: PipelineInsertSchedule) => void
+				at: { x: number; y: number }
+		  }
+		| undefined
+	>(undefined)
+	let scheduleWizardSignal = $state(0)
+
+	function toFix(spec: NodeFixSpec | undefined): NodeFix | undefined {
+		if (!spec) return undefined
+		return {
+			explainer: spec.explainer,
+			actions: spec.actions.map((a) => ({
+				label: a.label,
+				detail: a.detail,
+				run: (anchor) => {
+					if (a.scheduleFor) {
+						scheduleWizard = { ...a.scheduleFor, at: anchor }
+						scheduleWizardSignal++
+					} else if (a.addWriter) {
+						const [store, ...rest] = a.addWriter.path.split('/')
+						addMenuAt = anchor
+						addMenuPreset = { kind: a.addWriter.kind, store, table: rest.join('/') }
+						addMenuSignal++
+					} else a.run?.()
+				}
+			}))
+		}
+	}
 	function handleContextMenu(e: MouseEvent) {
 		const t = e.target as HTMLElement | null
 		// A node's own actions menu opens on right-click; the browser's never does,
@@ -1118,6 +1201,7 @@
 				...(toDelete
 					? {
 							deleteCount: toDelete.trigger ? 2 : 1,
+							deleteVerb: assetDeleteVerb,
 							onDeleteUpstream: () => onDeleteAssetUpstream?.(toDelete)
 						}
 					: onDeleteAssetUpstream && u
@@ -1283,7 +1367,8 @@
 			// The chips' selected look rides on the positioned nodes, so a selection
 			// never re-runs the layout.
 			const up = n.type === 'asset' || n.type === 'no-asset' ? n.data.upstream : undefined
-			const data = up?.scripts
+			const fix = toFix(nodeFixes?.get(n.id))
+			const withUpstream = up?.scripts
 				? {
 						...n.data,
 						upstream: {
@@ -1306,6 +1391,7 @@
 							}
 						}
 					: n.data
+			const data = fix ? { ...withUpstream, fix } : withUpstream
 			return {
 				id: n.id,
 				type: n.type,
@@ -1743,6 +1829,7 @@
 			onclick={() => {
 				if (paneMenu) addMenuAt = paneMenu
 				paneMenu = undefined
+				addMenuPreset = undefined
 				addMenuSignal++
 			}}
 		>
@@ -1754,16 +1841,56 @@
 
 {#if hoveredEdge && hoveredEdgeText}
 	{@const d = hoveredEdgeText}
+	{@const action = hoveredEdgeAction}
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
-		class="fixed z-50 max-w-80 rounded-md border bg-surface px-2.5 py-1.5 text-xs text-primary shadow-md pointer-events-none"
+		class="fixed z-50 max-w-80 rounded-md border bg-surface px-2.5 py-1.5 text-xs text-primary shadow-md"
 		style="left: {hoveredEdge.x + 12}px; top: {hoveredEdge.y + 12}px;"
 		transition:fly={{ duration: 120, y: -4 }}
 		role="tooltip"
+		onmouseenter={() => clearTimeout(edgeHoverTimer)}
+		onmouseleave={onEdgeLeave}
 	>
 		<span class="font-semibold text-emphasis">{d.subject}</span>
 		{d.phrase}
 		{#if d.object}<span class="font-semibold text-emphasis">{d.object}</span>{/if}
 		{#if d.note}<div class="mt-0.5 text-2xs text-secondary">{d.note}</div>{/if}
+		{#if action}
+			<div class="mt-2 flex flex-col gap-0.5">
+				<Button
+					variant="default"
+					unifiedSize="sm"
+					onclick={() => {
+						// Closing the popover drops `action`: run what it held.
+						const run = action.run
+						hoveredEdge = undefined
+						run()
+					}}
+				>
+					{action.label}
+				</Button>
+				<span class="text-2xs text-secondary">{action.detail}</span>
+			</div>
+		{/if}
+	</div>
+{/if}
+
+{#if scheduleWizard}
+	<div
+		class="fixed w-0 h-0"
+		style="left: {scheduleWizard.at.x}px; top: {scheduleWizard.at.y}px;"
+	>
+		<PipelineInsertMenu
+			kinds={[{ id: 'schedule', label: 'On schedule', description: '', icon: Clock }]}
+			onPick={() => {}}
+			openSignal={scheduleWizardSignal}
+			scheduleFor={scheduleWizard.script}
+			onSchedule={(s) => scheduleWizard?.onSchedule(s)}
+		>
+			{#snippet trigger()}
+				<span class="block w-0 h-0" aria-hidden="true"></span>
+			{/snippet}
+		</PipelineInsertMenu>
 	</div>
 {/if}
 
@@ -1774,6 +1901,7 @@
 			{pathPrefix}
 			{defaultPathSuffix}
 			openSignal={addMenuSignal}
+			presetOutput={addMenuPreset}
 		>
 			{#snippet trigger()}
 				<span class="block w-0 h-0" aria-hidden="true"></span>

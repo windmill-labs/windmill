@@ -51,6 +51,7 @@
 	import { Handle, Position } from '@xyflow/svelte'
 	import PipelineNodeCard from './PipelineNodeCard.svelte'
 	import NodeActionsMenu from './NodeActionsMenu.svelte'
+	import NodeFixButton, { type NodeFix } from './NodeFixButton.svelte'
 	import { describeSchedule } from '$lib/utils/describeCron'
 	import { AlertTriangle, CheckCircle2, Target, Trash2 } from 'lucide-svelte'
 	import type { Item } from '$lib/utils'
@@ -63,6 +64,8 @@
 		// owning script is in `runnable_path` (used by the title and the
 		// "+ Create trigger" drawer hook passed by the page).
 		data: {
+			/** What is wrong with the node, and how to fix it: shows the Fix pill. */
+			fix?: NodeFix
 			kind: TriggerNodeKind
 			ref: string
 			unsaved?: boolean
@@ -320,7 +323,11 @@
 			{/snippet}
 		</PipelineNodeCard>
 	</NodeActionsMenu>
-
+	{#if data.fix}
+		<div class="absolute left-1/2 -bottom-3 -translate-x-1/2 z-10">
+			<NodeFixButton fix={data.fix} />
+		</div>
+	{/if}
 </div>
 
 <Handle type="source" position={Position.Bottom} isConnectable={false} />

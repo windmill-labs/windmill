@@ -72,7 +72,7 @@
 	} from '$lib/components/triggers/schedules/ScheduleAdvancedOptions.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { ArrowLeft, ChevronDown, CornerDownLeft, Loader2, Sparkles } from 'lucide-svelte'
-	import { tick } from 'svelte'
+	import { tick, untrack } from 'svelte'
 	import { arrowTabNav } from '$lib/attachments/arrowTabNav'
 	import { selectAndAdvanceTo } from '$lib/attachments/selectAndAdvanceTo'
 
@@ -87,6 +87,12 @@
 		placement?: 'bottom' | 'top' | 'left' | 'right'
 		/** Opens the menu each time it changes, for an entry point other than the trigger. */
 		openSignal?: number
+		/** With `openSignal`: the new script's output, already picked and named. */
+		presetOutput?: { kind: 'ducklake' | 'datatable'; store: string; table: string }
+		/** With `openSignal`: only the schedule step, for this existing script; its
+		 * confirm hands the schedule to `onSchedule` instead of creating a script. */
+		scheduleFor?: string
+		onSchedule?: (schedule: PipelineInsertSchedule) => void
 	}
 
 	let {
@@ -97,7 +103,10 @@
 		placement = 'bottom',
 		defaultPathSuffix,
 		onPick,
-		openSignal
+		openSignal,
+		presetOutput,
+		scheduleFor,
+		onSchedule
 	}: Props = $props()
 
 	// When there's only one trigger kind, hide the Trigger column entirely
@@ -114,7 +123,24 @@
 	let selected = $state(buildEmptySelected())
 	let menuOpen = $state(false)
 	$effect(() => {
-		if (openSignal) menuOpen = true
+		if (!openSignal) return
+		untrack(() => {
+			if (presetOutput) {
+				resetWizard()
+				selected.outputId = presetOutput.kind
+				config.asset = { ...presetOutput }
+				config.tableEdited = true
+			}
+			if (scheduleFor) {
+				resetWizard()
+				selected.triggerId = 'schedule'
+				step = 1
+				config.schedulePath = `${scheduleFor}_schedule`
+				loadAdvancedDefaults()
+				void focusCurrentStep()
+			}
+			menuOpen = true
+		})
 	})
 	let selectedKind = $derived(kinds.find((k) => k.id === selected.triggerId))
 
@@ -250,7 +276,28 @@
 		void focusCurrentStep()
 	}
 
+	function scheduleConfig(): PipelineInsertSchedule {
+		return {
+			path: config.schedulePath,
+			schedule: config.schedule.trim(),
+			timezone: config.timezone,
+			cron_version: config.cronVersion,
+			summary: config.summary.trim() || undefined,
+			description: config.description,
+			paused_until: config.pauseUntil ? config.pausedUntil : undefined,
+			is_flow: false,
+			args: {},
+			...scheduleAdvancedCfg($state.snapshot(config.advanced))
+		}
+	}
+
 	function confirm(close: () => void) {
+		if (scheduleFor) {
+			if (!stepValid) return
+			onSchedule?.(scheduleConfig())
+			close()
+			return
+		}
 		const suffix = selected.scriptPath.trim()
 		if (!suffix || !selected.triggerId || !selected.language || !selected.outputId) return
 		if (!stepValid) return
@@ -271,20 +318,7 @@
 			path: pathPrefix + suffix,
 			outputKind: selected.outputId,
 			aiPrompt: trimmedPrompt && trimmedPrompt.length > 0 ? trimmedPrompt : undefined,
-			schedule: configSteps.includes('schedule')
-				? {
-						path: config.schedulePath,
-						schedule: config.schedule.trim(),
-						timezone: config.timezone,
-						cron_version: config.cronVersion,
-						summary: config.summary.trim() || undefined,
-						description: config.description,
-						paused_until: config.pauseUntil ? config.pausedUntil : undefined,
-						is_flow: false,
-						args: {},
-						...scheduleAdvancedCfg($state.snapshot(config.advanced))
-					}
-				: undefined,
+			schedule: configSteps.includes('schedule') ? scheduleConfig() : undefined,
 			outputAsset:
 				configSteps.includes('asset') && config.asset
 					? {
@@ -518,7 +552,9 @@
 		onClick={() => confirm(close)}
 		startIcon={isLastStep && hasAiPrompt ? { icon: Sparkles } : undefined}
 		shortCut={{ Icon: CornerDownLeft }}
-		>{!isLastStep
+		>{scheduleFor
+			? 'Create schedule'
+			: !isLastStep
 			? step === 0
 				? 'Configure'
 				: 'Next'
@@ -548,20 +584,28 @@
 		}}
 	>
 		<div class="flex items-center gap-2 px-2 py-2 border-b">
-			<Button
-				variant="subtle"
-				unifiedSize="sm"
-				iconOnly
-				startIcon={{ icon: ArrowLeft }}
-				onClick={goBack}
-				title="Back"
-			/>
-			<span class="text-xs font-semibold text-emphasis">
-				{configStep === 'schedule' ? 'Schedule' : 'Output asset'}
+			{#if !scheduleFor}
+				<Button
+					variant="subtle"
+					unifiedSize="sm"
+					iconOnly
+					startIcon={{ icon: ArrowLeft }}
+					onClick={goBack}
+					title="Back"
+				/>
+			{/if}
+			<span class="text-xs font-semibold text-emphasis {scheduleFor ? 'pl-2' : ''}">
+				{scheduleFor
+					? `Schedule for ${scheduleFor}`
+					: configStep === 'schedule'
+						? 'Schedule'
+						: 'Output asset'}
 			</span>
-			<span class="text-2xs text-hint ml-auto pr-2"
-				>Step {step + 1} of {configSteps.length + 1}</span
-			>
+			{#if !scheduleFor}
+				<span class="text-2xs text-hint ml-auto pr-2"
+					>Step {step + 1} of {configSteps.length + 1}</span
+				>
+			{/if}
 		</div>
 		<div class="flex flex-col gap-2 grow overflow-auto p-4">
 			{#if configStep === 'schedule'}

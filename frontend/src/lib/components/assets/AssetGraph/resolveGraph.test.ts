@@ -1275,6 +1275,16 @@ describe('pipelineNodeErrors', () => {
 		expect([...errors.scripts.keys()]).toEqual(['f/x/cons'])
 	})
 
+	it('clears a subscription the workspace writes outside the pipeline', () => {
+		const errors = pipelineNodeErrors(
+			graph,
+			new Map([['f/x/cons', [{ kind: 'ducklake' as const, path: 'main/external' }]]]),
+			new Set(['ducklake:main/external'])
+		)
+		expect(errors.scripts.size).toBe(0)
+		expect(errors.unwritten.size).toBe(0)
+	})
+
 	it('treats dbt models as used and written by their (hidden) project, but not dbt sources', () => {
 		const dbt = (path: string, resource_type: string) => ({
 			kind: 'dbt' as const,
