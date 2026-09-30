@@ -1429,7 +1429,6 @@
 									: 'multiple' in upstream
 										? 'Multiple upstream nodes'
 										: `${upstream.trigger.label}${upstream.trigger.draft ? ' · draft' : ''}`,
-							runState: 'runState' in upstream && !!upstream.runState,
 							chipIcon: foldedErrors > 0,
 							chipEdit:
 								!foldedErrors &&

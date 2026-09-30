@@ -31,7 +31,6 @@ export function assetsOnlyNodeWidth(n: {
 	chipIcon?: boolean
 	/** The chip ends in the edit icon (an editable trigger). */
 	chipEdit?: boolean
-	runState: boolean
 	/** The header tab: its text (a script's summary or path, "N scripts"), icon
 	 * count, and whether it ends in the menu chevron (else the edit icon) or has a "draft" mark;
 	 * undefined without a header. */
@@ -45,8 +44,9 @@ export function assetsOnlyNodeWidth(n: {
 	)
 	const body = Math.ceil(icon + text + 4 + 8 + 2 + 8)
 	// Header tab: mx-2 and a 1px border around px-2, then gap-1.5 between its
-	// items: the icons, the label, a "draft" mark, and the run chip (sized for a
-	// two-digit count, so a new run never re-lays the graph) or the menu chevron.
+	// items: the icons, the label, a "draft" mark, and the chevron or edit icon.
+	// The run chip is left out: it comes and goes with runs, and a width that
+	// followed it would re-lay the graph on a click; the label truncates instead.
 	const h = n.header
 	const header = h
 		? Math.ceil(
@@ -56,7 +56,6 @@ export function assetsOnlyNodeWidth(n: {
 					h.icons * (11 + 6) +
 					textWidth(h.label, 0.65) +
 					(h.draft ? 6 + textWidth('draft', 0.65) : 0) +
-					(n.runState ? 6 + 4 + 10 + 2 + textWidth('×99', 0.65) + 4 : 0) +
 					// The menu chevron, or the edit icon of a single script.
 					6 +
 					(h.chevron ? 11 : 10) +

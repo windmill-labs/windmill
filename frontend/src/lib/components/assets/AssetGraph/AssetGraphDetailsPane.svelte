@@ -1119,23 +1119,10 @@
 					title="Discard draft"
 				/>
 			{/if}
-			<!-- Action order, left → right: trash, external link, save, close.
-			     Save sits closest to Close so the primary commit action is
-			     anchored at the right edge of the bar; trash lives at the
-			     far left so destructive ops are visually separated from
-			     navigation/commit. Mirrors the draft Discard placement. -->
-			<!-- Rendered while the script loads (disabled) so the bar does not shift. -->
-			{#if !readOnly && !isDraft && isScriptView}
-				<Button
-					variant="subtle"
-					unifiedSize="sm"
-					startIcon={{ icon: Trash2 }}
-					disabled={!script?.hash}
-					onclick={() => (removeOpen = true)}
-					iconOnly
-					title="Archive or delete"
-				/>
-			{/if}
+			<!-- Action order, left → right: external link, save, close. Save sits
+			     closest to Close so the primary commit action is anchored at the
+			     right edge of the bar. Removing a script goes through its node's
+			     menu. -->
 			{#if !readOnly && !isDraft && selection?.kind === 'runnable'}
 				<Button
 					variant="subtle"
