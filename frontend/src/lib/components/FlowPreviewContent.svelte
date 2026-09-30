@@ -29,7 +29,6 @@
 		X
 	} from 'lucide-svelte'
 	import { DynamicInput, sendUserToast, type StateStore } from '$lib/utils'
-	import { userStore } from '$lib/stores'
 	import { dfs } from './flows/dfs'
 	import { sliceModules } from './flows/flowStateUtils.svelte'
 	import InputSelectedBadge from './schema/InputSelectedBadge.svelte'
@@ -45,9 +44,13 @@
 	import FlowRestartButton from './FlowRestartButton.svelte'
 	import { useNestedRestartState } from './useNestedRestartState.svelte'
 	import { buildFlowRecording, downloadRecordingJson } from './recording/runRecording'
-	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
 
 	interface Props {
 		previewMode: 'upTo' | 'whole'
@@ -559,7 +562,7 @@
 												| ScriptLang
 												| undefined,
 											$initialPathStore,
-											$userStore?.operator
+											operatingUser.current?.operator
 										)}
 									/>
 								</div>

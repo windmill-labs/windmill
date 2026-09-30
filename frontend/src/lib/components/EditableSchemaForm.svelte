@@ -19,7 +19,6 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Label from './Label.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { userStore } from '$lib/stores'
 	import { useOperatorBuilderFlows } from '$lib/operatorWriteRights'
 	import Toggle from './Toggle.svelte'
 	import {
@@ -37,9 +36,13 @@
 	import Section from '$lib/components/Section.svelte'
 	import Editor from './Editor.svelte'
 	import AddPropertyV2 from './schema/AddPropertyV2.svelte'
-	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
 	const operatorBuilderFlows = useOperatorBuilderFlows()
 
 	// export let openEditTab: () => void = () => {}
@@ -479,7 +482,7 @@
 								dynCode,
 								dynLang,
 								deployedFlowPath,
-								$userStore?.operator
+								operatingUser.current?.operator
 							)}
 							prettifyHeader={isAppInput}
 							disabled={!!previewSchema}
