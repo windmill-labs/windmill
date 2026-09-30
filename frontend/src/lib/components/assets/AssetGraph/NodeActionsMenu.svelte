@@ -46,6 +46,7 @@ items. Place it inside the node's `relative` wrapper, around the node's card.
 			bind:open={menuOpen}
 			fixedHeight={false}
 			usePointerDownOutside
+			enableFlyTransition
 		>
 			{#snippet buttonReplacement()}
 				<button

@@ -550,6 +550,7 @@
 							bind:open={scriptMenuOpen}
 							fixedHeight={false}
 							usePointerDownOutside
+							enableFlyTransition
 						>
 							{#snippet buttonReplacement()}
 								<span
