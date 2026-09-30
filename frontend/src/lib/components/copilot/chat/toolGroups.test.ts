@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { DisplayMessage } from './shared'
-import { groupHeader, groupToolRuns, type ToolGroup } from './toolGroups'
+import { groupHeader, groupToolRuns, type GroupState, type ToolGroup } from './toolGroups'
 
 let nextId = 0
 function tool(
@@ -27,9 +27,9 @@ function shape(messages: DisplayMessage[]) {
 	)
 }
 
-function header(messages: DisplayMessage[]) {
+function header(messages: DisplayMessage[], state: GroupState = 'settled') {
 	const group = groupToolRuns(messages).find((item) => item.kind === 'group') as ToolGroup
-	const { prefix, label } = groupHeader(group, false)
+	const { prefix, label } = groupHeader(group, state)
 	return prefix ? `${prefix} ${label}` : label
 }
 
@@ -112,6 +112,15 @@ describe('groupToolRuns', () => {
 		).toEqual([0, 1])
 	})
 
+	it('lets a call with no arguments yet join a group but not start one', () => {
+		const queued = (toolName: string) =>
+			tool(toolName, {}, { parameters: undefined, isQueued: true })
+		expect(shape([queued('delete_app_file'), queued('delete_app_runnable')])).toEqual([0, 1])
+		expect(shape([tool('patch_app_file', { path: 'f/a/x' }), queued('delete_app_file')])).toEqual([
+			{ edit: [0, 1] }
+		])
+	})
+
 	it('folds edits and reads of one app, apart from a flow at the same path', () => {
 		const app = { path: 'f/a/x', file_path: '/src/App.tsx' }
 		expect(
@@ -169,6 +178,16 @@ describe('groupToolRuns', () => {
 				tool('set_flow_module_code', flow, { result: 'Save failed' })
 			])
 		).toBe('Edited f/a/flow · 1 change')
+		// Before any call runs, the header says what will happen, not what did.
+		expect(
+			header(
+				[
+					tool('patch_flow_json', flow, { isQueued: true }),
+					tool('patch_flow_json', flow, { isQueued: true })
+				],
+				'queued'
+			)
+		).toBe('Edit f/a/flow · 2 changes')
 		expect(
 			header([
 				tool('search_workspace'),

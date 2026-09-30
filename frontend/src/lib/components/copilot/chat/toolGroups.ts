@@ -104,7 +104,8 @@ function groupableCall(message: DisplayMessage): ToolDisplayMessage | undefined 
 	return message
 }
 
-/** `path` undefined: the call's arguments are still streaming and have not named the item yet. */
+/** `path` undefined: the call's arguments have not named its item yet (still streaming, or
+ * not on the row yet). */
 type Membership = { kind: EditedItemKind; path: string | undefined; edit: boolean }
 
 // While arguments stream, `parameters` is the partial JSON text. The path usually lands well
@@ -124,11 +125,16 @@ function itemMembership(message: DisplayMessage): Membership | undefined {
 	if (!call) return undefined
 	const streaming = typeof call.parameters === 'string'
 	const params = streaming ? {} : (call.parameters ?? {})
+	// No `parameters` at all: a call queued before its arguments reached the row (tools that do
+	// not stream them), so its item is not known yet. An object without `path` is a flow-mode
+	// call, which edits the flow open in the editor.
 	const path = streaming
 		? streamedPath(call.parameters)
-		: typeof params.path === 'string'
-			? params.path
-			: ''
+		: call.parameters === undefined
+			? undefined
+			: typeof params.path === 'string'
+				? params.path
+				: ''
 	const tool = call.toolName!
 	if (Object.hasOwn(EDIT_TOOLS, tool)) return { kind: EDIT_TOOLS[tool], path, edit: true }
 	if (Object.hasOwn(ITEM_READ_TOOLS, tool)) {
@@ -141,8 +147,8 @@ function itemMembership(message: DisplayMessage): Membership | undefined {
 }
 
 // A flow and an app can share a path, so the kind is part of what makes two calls one item. A
-// call still streaming its arguments stays with the group it follows until its path arrives,
-// or the edit in progress would leave its own group and the header would read as settled.
+// call whose path has not arrived yet stays with the group it follows, or the edit in progress
+// would leave its own group and the header would read as settled.
 function sameItem(a: Membership | undefined, b: Membership): boolean {
 	return a !== undefined && a.kind === b.kind && (a.path === undefined || a.path === b.path)
 }
@@ -195,9 +201,11 @@ function toolGroup(
 
 function editGroupAt(messages: DisplayMessage[], start: number): ToolGroup | undefined {
 	const item = itemMembership(messages[start])
-	if (!item) return undefined
+	// A call whose item is not known yet may join a group but not start one: two such calls
+	// could be edits of different items.
+	if (!item || item.path === undefined) return undefined
 	const end = runEnd(messages, start, (m) => sameItem(itemMembership(m), item))
-	return toolGroup(messages, start, end, 'edit', item.path ?? '')
+	return toolGroup(messages, start, end, 'edit', item.path)
 }
 
 export function groupToolRuns(messages: DisplayMessage[]): ChatItem[] {
@@ -264,9 +272,17 @@ function repeated(name: string, n: number): string {
 		: `${name} ${n} times`
 }
 
+/** `queued`: every call is still waiting its turn. Every call in a turn is queued before the
+ * first one runs, so this state shows on each edit run; like a single row's queued label, it
+ * says what will happen rather than what did. */
+export type GroupState = 'queued' | 'running' | 'settled'
+
 /** The group's header, e.g. `Edited` + `f/a/flow · 3 changes`,
  * `search workspace 2 times, read 2 workspace item`, `github` + `list issues, get issue 2 times`. */
-export function groupHeader(group: ToolGroup, running: boolean): { prefix: string; label: string } {
+export function groupHeader(
+	group: ToolGroup,
+	state: GroupState
+): { prefix: string; label: string } {
 	const calls = group.entries
 		.map((e) => e.message)
 		.filter((m): m is ToolDisplayMessage => m.role === 'tool')
@@ -275,7 +291,7 @@ export function groupHeader(group: ToolGroup, running: boolean): { prefix: strin
 			(m) => Object.hasOwn(EDIT_TOOLS, m.toolName ?? '') && !callFailed(m)
 		).length
 		return {
-			prefix: running ? 'Editing' : 'Edited',
+			prefix: { queued: 'Edit', running: 'Editing', settled: 'Edited' }[state],
 			label: `${group.target || 'the flow'} · ${plural(edits, 'change')}`
 		}
 	}
