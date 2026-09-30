@@ -2,7 +2,6 @@
 	import { Alert, Button } from '$lib/components/common'
 	import {
 		clearPageDrawerAnchor,
-		handOffPageDrawer,
 		setPageDrawerAnchor
 	} from '$lib/components/sessions/pageDrawerSession'
 	import { TRIGGER_PAGES } from '$lib/components/sessions/previewPaths'
@@ -11,6 +10,7 @@
 	import Path from '$lib/components/Path.svelte'
 	import { usedTriggerKinds } from '$lib/stores'
 	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
+	import { useTriggerLock } from '$lib/operatorWriteRights'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import { Loader2 } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
@@ -45,6 +45,7 @@
 		useOperatingWorkspace,
 		useOperatingWorkspaceHref
 	} from '$lib/components/operatingWorkspace.svelte'
+	const triggerLock = useTriggerLock()
 
 	let drawer: Drawer | undefined = $state(undefined)
 	let initialPath = $state('')
@@ -64,7 +65,8 @@
 	// The acting user in the operating workspace arrives asynchronously, and an unknown user
 	// refuses — so the editor stays read-only until the lookup lands, which is the safe answer.
 	const can_write = $derived(
-		permsPath === undefined ? true : canWrite(permsPath, permsForWrite ?? {}, actingUser)
+		(permsPath === undefined || canWrite(permsPath, permsForWrite ?? {}, actingUser)) &&
+			!$triggerLock
 	)
 	let drawerLoading = $state(true)
 
@@ -156,7 +158,6 @@
 		isFlow: boolean,
 		defaultValues?: Record<string, any>
 	) {
-		if (handOffPageDrawer(TRIGGER_PAGES.azure.path, ePath)) return
 		// A `whoami` that failed earlier would otherwise pin this workspace to "unknown user".
 		operatingUser.forgetFailures()
 		drawerLoading = true

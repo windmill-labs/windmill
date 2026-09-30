@@ -6,10 +6,10 @@ import { datatableReference } from '$lib/components/dbTypes'
 import {
 	createToolDef,
 	executeTestRun,
-	type Tool,
 	type ToolDisplayMessage,
 	type ChatJobResultFormat
 } from './shared'
+import { NONE, RUN_PREVIEW, type SessionTool } from './sessionCapabilities'
 
 /**
  * Workspace-scoped datatable tools, with no app whitelist and no creation policy.
@@ -246,9 +246,10 @@ export function formatChatJobCompletion(
  * The unrestricted workspace datatable tools, for registration in global mode.
  * Helper-free: each tool reads `workspace` directly from the tool call params.
  */
-export function getDatatableTools(): Tool<{}>[] {
+export function getDatatableTools(): SessionTool<{}>[] {
 	return [
 		{
+			requires: NONE,
 			def: getListDatatablesToolDef(),
 			planModeSafe: true,
 			fn: async ({ args, workspace, toolId, toolCallbacks }) => {
@@ -298,6 +299,7 @@ export function getDatatableTools(): Tool<{}>[] {
 			}
 		},
 		{
+			requires: NONE,
 			def: getGetDatatableTableSchemaToolDef(),
 			planModeSafe: true,
 			fn: async ({ args, workspace, toolId, toolCallbacks }) => {
@@ -337,6 +339,8 @@ export function getDatatableTools(): Tool<{}>[] {
 			}
 		},
 		{
+			// `runScript` below goes through /jobs/run/preview, which jobs.rs refuses operators.
+			requires: RUN_PREVIEW,
 			def: getExecDatatableSqlToolDef(),
 			requiresConfirmation: true,
 			confirmationMessage: 'Execute SQL on datatable',

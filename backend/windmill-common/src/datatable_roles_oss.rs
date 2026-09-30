@@ -24,12 +24,12 @@ pub fn datatable_roles_unavailable() -> Error {
 #[cfg(all(feature = "private", feature = "enterprise"))]
 pub(crate) use crate::datatable_roles_ee::{
     can_use_datatable_role, can_use_datatable_role_in_governing_workspace, converge_connect_grants,
-    converge_connect_grants_with, create_instance_role, delete_role_catalog_entry,
-    drop_instance_role, ensure_can_use_datatable_role, ensure_datatable_admin_access,
+    converge_connect_grants_with, create_datatable_role, delete_role_catalog_entry,
+    drop_datatable_role, ensure_can_use_datatable_role, ensure_datatable_admin_access,
     ensure_instance_db_grant_options_unchecked, forget_datatable_role_everywhere,
     insert_role_catalog_entry, read_role_catalog, read_role_catalog_tx,
-    registered_instance_databases, rename_instance_role, resolve_datatable_role_connection,
-    set_instance_role_login, update_role_catalog_entry,
+    registered_instance_databases, rename_datatable_role, resolve_datatable_role_connection,
+    role_cluster, set_datatable_role_login, update_role_catalog_entry,
 };
 
 #[cfg(not(all(feature = "private", feature = "enterprise")))]
@@ -39,7 +39,7 @@ pub(crate) use ce::*;
 mod ce {
     use super::datatable_roles_unavailable as unavailable;
     use crate::{
-        datatable_roles::{DatatableRoleCatalog, InstanceDatatableRole},
+        datatable_roles::{DatatableRoleCatalog, DatatableRoleCluster, InstanceDatatableRole},
         db::AuthedRef,
         error::Result,
         workspaces::{
@@ -50,17 +50,31 @@ mod ce {
 
     type Tx<'a> = sqlx::Transaction<'a, sqlx::Postgres>;
 
-    pub(crate) async fn read_role_catalog(_db: &DB) -> Result<DatatableRoleCatalog> {
+    pub(crate) async fn read_role_catalog(
+        _db: &DB,
+        _cluster: DatatableRoleCluster,
+    ) -> Result<DatatableRoleCatalog> {
         Err(unavailable())
     }
 
-    pub(crate) async fn read_role_catalog_tx(_tx: &mut Tx<'_>) -> Result<DatatableRoleCatalog> {
+    pub(crate) async fn read_role_catalog_tx(
+        _tx: &mut Tx<'_>,
+        _cluster: DatatableRoleCluster,
+    ) -> Result<DatatableRoleCatalog> {
+        Err(unavailable())
+    }
+
+    pub(crate) async fn role_cluster(
+        _tx: &mut Tx<'_>,
+        _id: &str,
+    ) -> Result<Option<DatatableRoleCluster>> {
         Err(unavailable())
     }
 
     pub(crate) async fn insert_role_catalog_entry(
         _tx: &mut Tx<'_>,
         _id: &str,
+        _cluster: DatatableRoleCluster,
         _role: &InstanceDatatableRole,
     ) -> Result<()> {
         Err(unavailable())
@@ -78,43 +92,57 @@ mod ce {
         Err(unavailable())
     }
 
-    pub(crate) async fn registered_instance_databases(_db: &DB) -> Result<Vec<String>> {
+    pub(crate) async fn registered_instance_databases(
+        _db: &DB,
+        _cluster: DatatableRoleCluster,
+    ) -> Result<Vec<String>> {
         Err(unavailable())
     }
 
-    /// Nothing to converge: with no roles to admit, an instance database keeps the `CONNECT`
-    /// grants it was created with, `PUBLIC`'s included, as it did before roles existed.
-    pub(crate) async fn converge_connect_grants(_db: &DB, _dbname: &str) -> Result<()> {
+    /// Nothing to converge: with no roles to admit, a managed database keeps the `CONNECT` grants
+    /// it was created with, as it did before roles existed.
+    pub(crate) async fn converge_connect_grants(
+        _db: &DB,
+        _cluster: DatatableRoleCluster,
+        _dbname: &str,
+    ) -> Result<()> {
         Ok(())
     }
 
     /// As [`converge_connect_grants`].
     pub(crate) async fn converge_connect_grants_with(
         _db: &DB,
+        _cluster: DatatableRoleCluster,
         _dbname: &str,
         _catalog: &DatatableRoleCatalog,
     ) -> Result<()> {
         Ok(())
     }
 
-    pub(crate) async fn create_instance_role(
+    pub(crate) async fn create_datatable_role(
+        _db: &DB,
         _tx: &mut Tx<'_>,
+        _cluster: DatatableRoleCluster,
         _name: &str,
         _password: &str,
     ) -> Result<()> {
         Err(unavailable())
     }
 
-    pub(crate) async fn set_instance_role_login(
+    pub(crate) async fn set_datatable_role_login(
+        _db: &DB,
         _tx: &mut Tx<'_>,
+        _cluster: DatatableRoleCluster,
         _name: &str,
         _enabled: bool,
     ) -> Result<()> {
         Err(unavailable())
     }
 
-    pub(crate) async fn rename_instance_role(
+    pub(crate) async fn rename_datatable_role(
+        _db: &DB,
         _tx: &mut Tx<'_>,
+        _cluster: DatatableRoleCluster,
         _from: &str,
         _to: &str,
         _password: &str,
@@ -122,12 +150,18 @@ mod ce {
         Err(unavailable())
     }
 
-    pub(crate) async fn drop_instance_role(_db: &DB, _tx: &mut Tx<'_>, _name: &str) -> Result<()> {
+    pub(crate) async fn drop_datatable_role(
+        _db: &DB,
+        _tx: &mut Tx<'_>,
+        _cluster: DatatableRoleCluster,
+        _name: &str,
+    ) -> Result<()> {
         Err(unavailable())
     }
 
     pub(crate) async fn ensure_instance_db_grant_options_unchecked(
         _db: &DB,
+        _cluster: DatatableRoleCluster,
         _dbname: &str,
     ) -> Result<()> {
         Err(unavailable())

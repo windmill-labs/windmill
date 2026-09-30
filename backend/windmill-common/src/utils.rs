@@ -245,6 +245,9 @@ lazy_static::lazy_static! {
 /// Reject a path the `proper_id` constraint would reject anyway, so the caller
 /// gets a plain 400 instead of the raw Postgres constraint-violation string,
 /// which names the table and constraint and echoes the input back.
+///
+/// `app` and the trigger tables have no such constraint: for them this check is
+/// the only authority, so loosening it lets malformed paths be stored.
 pub fn check_proper_path(path: &str) -> Result<()> {
     // The column is varchar(255); without this an over-long but well-formed path
     // still reaches Postgres and leaks the same kind of message back.

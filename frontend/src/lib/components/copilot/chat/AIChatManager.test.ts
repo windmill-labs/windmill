@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { writable } from 'svelte/store'
 import type { FlowAIChatHelpers } from './flow/core'
 import type { PipelineAIChatHelpers } from './pipeline/core'
@@ -127,6 +127,7 @@ vi.mock('$lib/aiStore', () => ({
 	// `sendRequest` reads it before anything else, so a test that goes through a real turn
 	// rather than driving the manager directly needs it present and enabled.
 	copilotInfo: writable({ enabled: true, workspaceDisabled: false, aiModels: [] }),
+	copilotSessionModel: writable(undefined),
 	getCurrentModel: mocks.getCurrentModel,
 	tryGetCurrentModel: mocks.tryGetCurrentModel,
 	getCombinedCustomPrompt: () => '',
@@ -142,7 +143,8 @@ vi.mock('../lib', () => ({
 		getOpenaiClient: mocks.getOpenaiClient,
 		getAnthropicClient: mocks.getAnthropicClient
 	},
-	getNonStreamingCompletion: mocks.getNonStreamingCompletion
+	getNonStreamingCompletion: mocks.getNonStreamingCompletion,
+	providerSupportsWebSearch: (provider: string) => provider === 'openai' || provider === 'anthropic'
 }))
 
 vi.mock('./api/apiTools', () => ({
@@ -587,6 +589,27 @@ describe('AIChatManager request errors', () => {
 			'Failed to send request: provider quota exceeded',
 			true
 		)
+	})
+})
+
+describe('AIChatManager provider tools', () => {
+	it('lists web search exactly when a turn would attach it', () => {
+		const manager = new AIChatManager()
+		const withModel = (provider: string) =>
+			mocks.tryGetCurrentModel.mockReturnValue({ provider, model: 'm' })
+
+		withModel('anthropic')
+		mocks.isWebSearchEnabledForProvider.mockReturnValue(true)
+		expect(manager.providerTools.map((t) => t.name)).toEqual(['Web search'])
+		// Never mixed into what the request path dispatches.
+		expect(manager.availableTools.map((t) => t.def.function.name)).not.toContain('web_search')
+
+		mocks.isWebSearchEnabledForProvider.mockReturnValue(false)
+		expect(manager.providerTools).toEqual([])
+
+		mocks.isWebSearchEnabledForProvider.mockReturnValue(true)
+		withModel('mistral')
+		expect(manager.providerTools).toEqual([])
 	})
 })
 
@@ -1679,7 +1702,7 @@ describe('AIChatManager queued messages', () => {
 		mocks.tryGetCurrentModel.mockReturnValue(a)
 		mocks.runChatLoop.mockImplementation(async (config: any) => {
 			// an iteration starts on B...
-			await config.onBeforeIteration?.([], config.helpers, b)
+			await config.onBeforeIteration?.(b)
 			// ...the user switches to C while B's request is in flight...
 			mocks.getCurrentModel.mockReturnValue(c)
 			mocks.tryGetCurrentModel.mockReturnValue(c)
@@ -1792,7 +1815,7 @@ describe('AIChatManager queued messages', () => {
 			// mid-loop switch to a model the deny-list doesn't know...
 			mocks.getCurrentModel.mockReturnValue(unlistedBlind)
 			mocks.tryGetCurrentModel.mockReturnValue(unlistedBlind)
-			await config.onBeforeIteration?.([], config.helpers, unlistedBlind)
+			await config.onBeforeIteration?.(unlistedBlind)
 			// ...its request carries the images and the provider rejects them
 			throw new Error('400 this model does not support image input')
 		})
@@ -3061,14 +3084,14 @@ describe('AIChatManager context compaction', () => {
 	it('compacts the stored history before sending once reported usage projects over the trigger', async () => {
 		const manager = new AIChatManager()
 		manager.messages = [
-			{ role: 'user', content: 'a'.repeat(400_000) }, // ~100k estimated tokens
-			{ role: 'assistant', content: 'b'.repeat(400_000) }, // ~100k
+			{ role: 'user', content: 'a'.repeat(1_200_000) }, // ~300k estimated tokens
+			{ role: 'assistant', content: 'b'.repeat(1_200_000) }, // ~300k
 			{ role: 'user', content: 'c'.repeat(400) },
 			{ role: 'assistant', content: 'd'.repeat(400) }
 		]
-		// Provider fact: 850k used. Projected past the 800k trigger, so ~150k
-		// must be freed to come back to the 700k target — the first user +
-		// assistant pair (~200k estimated).
+		// Provider fact: 850k used. Projected past the 800k trigger, so ~350k
+		// must be freed to come back to the 500k target — the first user +
+		// assistant pair (~600k estimated).
 		manager.contextUsage = 850_000
 		manager.instructions = 'next question'
 		const saveChat = vi.spyOn(manager.historyManager, 'saveChat')
@@ -3086,7 +3109,7 @@ describe('AIChatManager context compaction', () => {
 		// compaction-time save) so a rolled-back turn keeps a consistent value
 		// 4th arg: the modified-items mask rides on every save (undefined here —
 		// this bare manager never initialised tracking).
-		expect(saveChat).toHaveBeenCalledWith(expect.anything(), expect.anything(), 650_000, undefined)
+		expect(saveChat).toHaveBeenCalledWith(expect.anything(), expect.anything(), 250_000, undefined)
 		// At commit, the no-report turn clears the stored value; the readable
 		// number falls back to estimating the now-tiny compacted history
 		expect(manager.contextUsage).toBeUndefined()
@@ -4557,5 +4580,115 @@ describe('AIChatManager cross-tab run seams', () => {
 
 		await manager.loadPastChat('c1')
 		expect(manager.queuedMessage).toBe('')
+	})
+})
+
+describe('AIChatManager tool views', () => {
+	beforeEach(() => {
+		vi.clearAllMocks()
+		mocks.getCurrentModel.mockReturnValue({ provider: 'openai', model: 'gpt-4o' })
+		mocks.tryGetCurrentModel.mockReturnValue({ provider: 'openai', model: 'gpt-4o' })
+		clearWorkspaceRoleCache()
+	})
+
+	// Every mode assigns the private base separately. A missed site leaves it empty on a fresh
+	// manager, which is what these catch — silently, since nothing throws on an empty tool set.
+	it.each([
+		AIMode.SCRIPT,
+		AIMode.FLOW,
+		AIMode.NAVIGATOR,
+		AIMode.ASK,
+		AIMode.API,
+		AIMode.GLOBAL,
+		AIMode.APP
+	])('assembles tools for %s', async (mode) => {
+		const manager = new AIChatManager()
+		await manager.changeMode(mode)
+		expect(manager.tools.length).toBeGreaterThan(0)
+		expect(manager.availableTools.length).toBeGreaterThan(0)
+	})
+
+	const OPERATOR_WHOAMI = {
+		username: 'op',
+		email: 'admin@test',
+		is_admin: false,
+		is_super_admin: false,
+		operator: true,
+		groups: [],
+		folders: [],
+		folders_read: []
+	}
+
+	// The capability filter is unit-tested against a profile handed to it directly; what is
+	// untested there is that the manager ever hands it one. This drives a real send and reads
+	// the toolset off the request, so moving the resolve out of the pre-flight, or dropping
+	// the rebuild when it lands, fails here rather than shipping an operator write tools.
+	it('withholds write and preview tools from an operator for the whole request', async () => {
+		onTestFinished(() => mocks.whoami.mockReset())
+		mocks.whoami.mockResolvedValue(OPERATOR_WHOAMI)
+		let sent: { tools: string[]; prompt: string; deployKinds: string[] } | undefined
+		mocks.runChatLoop.mockImplementation(async (config: any) => {
+			const deploy = config.tools.find((t: any) => t.def.function.name === 'deploy_workspace_item')
+			sent = {
+				tools: config.tools.map((t: any) => t.def.function.name),
+				prompt: config.systemMessage.content,
+				deployKinds: deploy?.def.function.parameters.properties.type.enum ?? []
+			}
+			return {
+				addedMessages: [],
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		await manager.sendRequest({ instructions: 'add a script', mode: AIMode.GLOBAL })
+
+		expect(sent?.tools).toEqual(expect.arrayContaining(['list_workspace_items', 'run_script']))
+		// Deploying ships — a draft can predate the role change — but only for the kinds an
+		// operator's token can land.
+		expect(sent?.deployKinds).toContain('schedule')
+		expect(sent?.deployKinds).not.toContain('script')
+		for (const withheld of ['write_script', 'test_run_script']) {
+			expect(sent?.tools).not.toContain(withheld)
+			// The prompt ships beside the tools, so the rebuild must have run after the
+			// profile landed — otherwise it still instructs the model to call these.
+			expect(sent?.prompt).not.toContain(withheld)
+		}
+	})
+
+	// The assistant settings modal resolves the profile on open, before any send, so the
+	// list it shows is the one the first request will carry, prompt included.
+	it('narrows the toolset and prompt when the profile resolves outside a send', async () => {
+		onTestFinished(() => mocks.whoami.mockReset())
+		mocks.whoami.mockResolvedValue(OPERATOR_WHOAMI)
+		const manager = new AIChatManager()
+		manager.mode = AIMode.GLOBAL
+		manager.isSessionChat = true
+		manager.configureGlobalMode()
+		expect(manager.availableTools.map((t) => t.def.function.name)).toContain('write_script')
+
+		await manager.refreshSessionAccess()
+
+		expect(manager.availableTools.map((t) => t.def.function.name)).not.toContain('write_script')
+		expect(manager.systemMessage.content).not.toContain('write_script')
+	})
+
+	// Which transition each posture offers is planModeController.test.ts's; what this pins is
+	// that only `tools` follows the picker. `isSessionChat` is what offers plan mode at all.
+	it('holds availableTools steady across the autonomy picker', async () => {
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		await manager.changeMode(AIMode.GLOBAL)
+
+		const names = (tools: { def: { function: { name: string } } }[]) =>
+			tools.map((t) => t.def.function.name)
+		const before = names(manager.availableTools)
+		expect(before).toEqual(expect.arrayContaining(['enter_plan_mode', 'exit_plan_mode']))
+
+		manager.setAutonomyMode(AIAutonomyMode.YOLO)
+		expect(names(manager.tools)).not.toContain('enter_plan_mode')
+		expect(names(manager.availableTools)).toEqual(before)
 	})
 })

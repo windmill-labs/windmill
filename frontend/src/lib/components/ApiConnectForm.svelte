@@ -5,7 +5,6 @@
 	import SchemaForm from './SchemaForm.svelte'
 	import Toggle from './Toggle.svelte'
 	import TestConnection from './TestConnection.svelte'
-	import SupabaseIcon from './icons/SupabaseIcon.svelte'
 	import Popover from './meltComponents/Popover.svelte'
 	import Button from './common/button/Button.svelte'
 	import { Loader2 } from 'lucide-svelte'
@@ -16,8 +15,6 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import ResourceGen from './copilot/ResourceGen.svelte'
 	import SyncResourceTypes from './SyncResourceTypes.svelte'
-	import { base } from '$lib/base'
-	import { isDataTableWizardEnabled } from './workspaceSettings/utils.svelte'
 	import { parsePostgresConnectionString } from '$lib/utils/postgresConnectionString'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
@@ -126,7 +123,8 @@
 				host: parts.host,
 				port: parts.port || args?.port,
 				dbname: parts.dbname || args?.dbname,
-				sslmode: parts.sslmode || args?.sslmode
+				sslmode: parts.sslmode || args?.sslmode,
+				options: parts.options || args?.options
 			},
 			null,
 			2
@@ -137,10 +135,6 @@
 
 	let rawCodeEditor: { setCode: (code: string) => void } | undefined = $state(undefined)
 	let textFileContent: string | undefined = $state(undefined)
-
-	// The wizard's Supabase entry point is opt-in for now; without it the form keeps the link
-	// that hands the whole leg over to the resources page.
-	const wizardEnabled = isDataTableWizardEnabled()
 
 	function applySupabasePick(value: Record<string, any>) {
 		args = { ...(args ?? {}), ...value }
@@ -227,28 +221,13 @@
 			</Popover>
 		{/if}
 		{#if resourceType == 'postgresql' && supabaseWizard}
-			{#if wizardEnabled}
-				<!-- Imported here rather than at the top so the wizard's Supabase graph stays out of
-				this form's chunk, which loads on the resources page and in every resource drawer. -->
-				{#await import('./workspaceSettings/SupabaseResourceConnect.svelte')}
-					<Loader2 class="animate-spin" />
-				{:then Module}
-					<Module.default onPicked={applySupabasePick} />
-				{/await}
-			{:else}
-				<!-- `noopener` is what the callback reads to tell this leg from the wizard's popup,
-				which hands its token back through `window.opener`. Browsers imply it for
-				`target="_blank"`, but only since 2021 -- stating it keeps older ones on this path. -->
-				<a
-					target="_blank"
-					rel="noopener"
-					href="{base}/api/oauth/connect/supabase_wizard"
-					class="border rounded-lg flex flex-row gap-2 items-center text-xs px-3 py-1.5 h-8 bg-[#F1F3F5] hover:bg-[#E6E8EB] dark:bg-[#1C1C1C] dark:hover:bg-black"
-				>
-					<SupabaseIcon height="16px" width="16px" />
-					<div class="text-[#11181C] dark:text-[#EDEDED] font-semibold">Connect Supabase</div>
-				</a>
-			{/if}
+			<!-- Imported here rather than at the top so the wizard's Supabase graph stays out of
+			this form's chunk, which loads on the resources page and in every resource drawer. -->
+			{#await import('./workspaceSettings/SupabaseResourceConnect.svelte')}
+				<Loader2 class="animate-spin" />
+			{:then Module}
+				<Module.default onPicked={applySupabasePick} />
+			{/await}
 		{/if}
 		<GitHubAppIntegration
 			{resourceType}

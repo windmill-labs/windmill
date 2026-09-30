@@ -69,7 +69,7 @@ use windmill_common::{
     user_drafts::{overlay_or_draft_only, DraftUserRef, UserDraftItemKind, WithDraftOverlay},
     users::username_to_permissioned_as,
     utils::{
-        http_get_from_hub, not_found_if_none, paginate, paginate_optional,
+        check_proper_path, http_get_from_hub, not_found_if_none, paginate, paginate_optional,
         query_elems_from_hub, require_admin, strip_json_nul, Pagination, RunnableKind, StripPath,
     },
     variables::{build_crypt, build_crypt_with_key_suffix, encrypt},
@@ -2506,6 +2506,7 @@ async fn create_app_internal<'a>(
     // inside process_app_multipart!, so checking after this call would leave a
     // denied app committed in the DB.
     check_scopes(&authed, || format!("apps:write:{}", &app.path))?;
+    check_proper_path(&app.path)?;
     validate_frontend_sdk_scopes(&app.policy)?;
     if raw_app {
         validate_raw_app_path_keys(&app.value.0)?;
@@ -3252,6 +3253,7 @@ async fn create_app_raw_source(
     // Before the compile, which costs a job on a worker: it must not run for a
     // path already taken, nor for one the caller can't write. `create_app_internal`
     // rejects both, but only after the sources have been built.
+    check_proper_path(&path)?;
     if app_exists(&db, &w_id, &path).await? {
         return Err(Error::BadRequest(format!("App {path} already exists")));
     }
@@ -3462,6 +3464,9 @@ async fn update_app_internal<'a>(
     // the token's write scope, not just the source path.
     if let Some(npath) = ns.path.as_deref() {
         check_scopes(&authed, || format!("apps:write:{}", npath))?;
+        if npath != path {
+            check_proper_path(npath)?;
+        }
     }
 
     if raw_app {
@@ -4357,12 +4362,10 @@ async fn execute_component(
     let resolved_delete_secs =
         resolve_delete_after_secs(None, policy_triggerables.delete_after_secs);
 
-    // `_MODULES` and `_TEMP_SCRIPT_REFS` are server-injected control keys (into
-    // `extra`) that the worker reads back for a `Preview` job — which an inline run
-    // is. A caller supplying them in `args` would inject module content/locks or
-    // redirect relative-import resolution, unpinned, as the app identity. Drop them;
-    // legitimate values ride in `extra`, never the request `args`.
-    payload.args.remove("_MODULES");
+    // `_TEMP_SCRIPT_REFS` is a server-injected control key (into `extra`) that the
+    // worker reads back for a `Preview` job, which an inline run is. A caller
+    // supplying it in `args` would redirect relative-import resolution, unpinned, as
+    // the app identity. Drop it; the legitimate value rides in `extra`.
     payload.args.remove("_TEMP_SCRIPT_REFS");
 
     let (mut args, job_id) = build_args(
@@ -4439,8 +4442,15 @@ async fn execute_component(
                 (JobPayload::Code(raw_code), tag, None)
             }
             // inline script: run mode (deployed app) with an entry in `app_script`.
-            (None, Some(RawCode { language, path, cache_ttl, tag, .. }), Some(id)) => (
-                JobPayload::AppScript { id: AppScriptId(id), cache_ttl, language, path },
+            // The path is derived like the legacy arm's: job identity (e.g. OIDC `sub`)
+            // reads it, so a caller must not choose it.
+            (None, Some(RawCode { language, cache_ttl, tag, .. }), Some(id)) => (
+                JobPayload::AppScript {
+                    id: AppScriptId(id),
+                    cache_ttl,
+                    language,
+                    path: Some(inline_run_path(path, &component)?),
+                },
                 resolved_inline_tag(tag),
                 None,
             ),
@@ -4800,8 +4810,9 @@ async fn upload_s3_file_from_app(
                 if let Some(ref s3_resource_path) = query.s3_resource_path {
                     if matched_input.allow_user_resources {
                         if let Some(authed) = opt_authed {
+                            let viewer = policy_granted_viewer(&authed);
                             let db_with_opt_authed = DbWithOptAuthed::from_authed(
-                                &authed,
+                                &viewer,
                                 db.clone(),
                                 Some(user_db.clone()),
                             );
@@ -5768,6 +5779,14 @@ async fn exists_app(
     Ok(Json(exists))
 }
 
+/// The viewer as whom a resource an app policy lets the viewer pick (`allow_user_resources`)
+/// is resolved. The policy, not the token, grants that resource, and app tokens are minted
+/// with a fixed scope set that never names variables, so the references inside it resolve on
+/// the viewer's RLS alone.
+fn policy_granted_viewer(authed: &ApiAuthed) -> ApiAuthed {
+    ApiAuthed { scopes: None, ..authed.clone() }
+}
+
 async fn build_args(
     policy: &Policy,
     PolicyTriggerableInputs {
@@ -5794,8 +5813,9 @@ async fn build_args(
                 key.and_then(|x| x.clone().strip_prefix("$res:").map(|x| x.to_string()))
             {
                 if let Some(authed) = authed {
+                    let viewer = policy_granted_viewer(authed);
                     let db_with_opt_authed =
-                        DbWithOptAuthed::from_authed(authed, db.clone(), Some(user_db.clone()));
+                        DbWithOptAuthed::from_authed(&viewer, db.clone(), Some(user_db.clone()));
                     let res = get_resource_value_interpolated_internal(
                         &db_with_opt_authed,
                         w_id,

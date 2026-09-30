@@ -3,14 +3,14 @@
 	import { Loader2, MessageCircle, Settings2 } from 'lucide-svelte'
 	import AIChatDisplay from '$lib/components/copilot/chat/AIChatDisplay.svelte'
 	import { setChatViewHost } from '$lib/components/copilot/chat/chatViewHost'
-	import { FlowChatViewHost } from './flowChatViewHost.svelte'
+	import type { FlowChatViewHost } from './flowChatViewHost.svelte'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
 	import { emptyString, type DynamicInput } from '$lib/utils'
-	import { onDestroy, tick, untrack } from 'svelte'
+	import { tick, untrack } from 'svelte'
 	import type { Chat } from 'windmill-chat'
-	import { chatFlowKey } from './flowChatProps'
+	import { saveFlowChatInputs } from './flowChatProps'
 	import type { FlowModule } from '$lib/gen'
 	import { useWorkspaceStorageConfigured } from '$lib/components/inputTransformEnv.svelte'
 	import {
@@ -30,6 +30,14 @@
 
 	interface Props {
 		chat: Chat
+		/** The conversation's host, which outlives this panel. One panel follows one chat for
+		 * its whole life, so a later value of either prop never reaches it. */
+		chatHost: FlowChatViewHost
+		/** The flow inputs the reader chose, shared by every conversation in the flow: FlowChat
+		 * holds them, since each conversation has a panel of its own mounted. */
+		inputValues: Record<string, any>
+		/** Whether a conversation is a test chat, once the list has said. */
+		isTestOf?: (conversationId: string) => boolean | undefined
 		deploymentInProgress?: boolean
 		additionalInputsSchema?: Record<string, any>
 		/** The flow's modules, read for the AI agent inputs the composer drives: the provider wiring
@@ -44,10 +52,15 @@
 		wideLayout?: boolean
 		/** What this surface's runs create: previews in the editor, deployed runs on the flow page. */
 		conversationKind?: 'test' | 'deployed'
+		/** What a message runs, as the composer names it. */
+		subject?: 'flow' | 'agent'
 	}
 
 	let {
 		chat,
+		chatHost: chatHostProp,
+		inputValues = $bindable(),
+		isTestOf = undefined,
 		deploymentInProgress = false,
 		additionalInputsSchema,
 		flowModules,
@@ -56,7 +69,8 @@
 		workspace = undefined,
 		description = undefined,
 		wideLayout = false,
-		conversationKind = 'deployed'
+		conversationKind = 'deployed',
+		subject = 'flow'
 	}: Props = $props()
 
 	// Derive helperScript for dynamic inputs from schema
@@ -91,15 +105,10 @@
 	const modelWiring = $derived(resolveAgentModelWiring(flowModules))
 	// An agent with nothing to call cannot answer, and the composer cannot fix it, so the
 	// chat says what to go and do instead of offering controls that write nowhere.
-	const modelGap = $derived(agentModelGap(modelWiring))
+	const modelGap = $derived(agentModelGap(modelWiring, subject))
 	const showModelButton = $derived(showsModelButton(modelWiring))
 
-	// LocalStorage helpers
-	const STORAGE_KEY_PREFIX = 'windmill_flow_chat_inputs_'
-
 	let showInputsModal = $state(false)
-	// Conversation settings, persisted per flow: what the reader chose, and nothing else.
-	let inputValues = $state<Record<string, any>>(loadInputsFromStorage() ?? {})
 	let modalDraft = $state<Record<string, any>>({})
 
 	/** What the flow's own form would open on. */
@@ -125,31 +134,9 @@
 	// value, an author's default — is made safe before it reaches the provider.
 	const runInputs = $derived(withoutRejectedEffort(modelWiring, effectiveInputs))
 
-	function getStorageKey(): string {
-		return `${STORAGE_KEY_PREFIX}${chatFlowKey({ path, identity })}`
-	}
-
-	function loadInputsFromStorage(): Record<string, any> | null {
-		try {
-			const stored = localStorage.getItem(getStorageKey())
-			return stored ? JSON.parse(stored) : null
-		} catch (e) {
-			console.error('Failed to load inputs from localStorage:', e)
-			return null
-		}
-	}
-
-	function saveInputsToStorage(values: Record<string, any>) {
-		try {
-			localStorage.setItem(getStorageKey(), JSON.stringify(values))
-		} catch (e) {
-			console.error('Failed to save inputs to localStorage:', e)
-		}
-	}
-
 	function setInputValue(name: string, value: any) {
 		inputValues = { ...inputValues, [name]: value }
-		saveInputsToStorage(inputValues)
+		saveFlowChatInputs({ path, identity }, inputValues)
 	}
 
 	function handleModalConfirm() {
@@ -164,47 +151,48 @@
 			)
 		)
 		inputValues = kept
-		saveInputsToStorage(inputValues)
+		saveFlowChatInputs({ path, identity }, inputValues)
 		showInputsModal = false
 	}
 
 	function openInputsModal() {
-		modalDraft = { ...effectiveInputs, ...(loadInputsFromStorage() ?? inputValues) }
+		modalDraft = { ...effectiveInputs, ...inputValues }
 		showInputsModal = true
 	}
 
-	// The host follows the chat it was built on for the life of this component: FlowChat
-	// remounts the interface under `{#key chat}`, so a later value of the prop never reaches it.
-	const chatHost = new FlowChatViewHost(
-		untrack(() => chat),
-		{
-			additionalInputs: () => (additionalInputsSchema ? { ...runInputs } : undefined),
-			attachmentsTarget: () => attachmentsTarget,
-			attachmentsUnavailable: () =>
-				workspaceStorage.current
-					? undefined
-					: 'This workspace has no object storage, so files cannot be attached.',
-			workspace: () => workspace,
-			sendDisabled: () => deploymentInProgress || !!modelGap || !!wrongKindReason,
-			// The model controls only: a retry changes model when the reader did, but replays
-			// the run's own attachments rather than whatever the composer holds now.
-			inputsShownInComposer: () => composerOwnedInputs(modelWiring, undefined)
-		}
-	)
+	// The host belongs to the conversation, not to this panel: the pool keeps it alive so a
+	// message queued here still goes out once the reader has moved on. What it reads is this
+	// panel's, set on mount; one panel shows one conversation for its whole life.
+	const chatHost = untrack(() => chatHostProp)
+	chatHost.setOptions({
+		additionalInputs: () => (additionalInputsSchema ? { ...runInputs } : undefined),
+		attachmentsTarget: () => attachmentsTarget,
+		attachmentsUnavailable: () =>
+			workspaceStorage.current
+				? undefined
+				: 'This workspace has no object storage, so files cannot be attached.',
+		workspace: () => workspace,
+		sendDisabled: () => deploymentInProgress || !!modelGap || !!wrongKindReason,
+		// The model controls only: a retry changes model when the reader did, but replays
+		// the run's own attachments rather than whatever the composer holds now.
+		inputsShownInComposer: () => composerOwnedInputs(modelWiring, undefined)
+	})
 	setChatViewHost(chatHost)
 
+	// Read off the host's own conversation: a message queued here goes out after the reader
+	// has moved on, when the shown conversation may be of the other kind.
+	const isTest = $derived.by(() => {
+		const id = chatHost.state.conversationId
+		return id === undefined ? undefined : isTestOf?.(id)
+	})
 	// A chat of the other kind can be read from here but not added to: the server refuses a
 	// preview run into a deployed conversation and the reverse, so the composer says why first.
 	const wrongKindReason = $derived.by(() => {
-		const { conversationId, conversations } = chatHost.state
-		const open = conversations.find((c) => c.id === conversationId)
-		if (open?.isTest === undefined || open.isTest === (conversationKind === 'test'))
-			return undefined
-		return open.isTest
+		if (isTest === undefined || isTest === (conversationKind === 'test')) return undefined
+		return isTest
 			? 'This chat was run from the flow editor. Start a new chat to continue here.'
 			: 'This chat belongs to the deployed flow. Start a new chat to test.'
 	})
-	onDestroy(() => chatHost.dispose())
 
 	// What the Configure-inputs modal asks for: every flow input the composer does not
 	// edit itself.
@@ -273,7 +261,7 @@
 		{:else}
 			<MessageCircle size={48} class="mx-auto mb-4 opacity-50" />
 			<p class="text-lg font-medium">Start a conversation</p>
-			<p class="text-sm">Send a message to run the flow and see the results</p>
+			<p class="text-sm">Send a message to run the {subject} and see the results</p>
 			{#if !emptyString(description)}
 				<div class="mt-6 pt-4 border-t max-w-md text-left text-xs text-tertiary">
 					<GfmMarkdown md={description ?? ''} noPadding prose="sm" />
@@ -336,7 +324,7 @@
 		{wideLayout}
 		{emptyHint}
 		footerSettings={modalSchema || showModelButton ? footerSettings : undefined}
-		placeholder="Send a message to run the flow"
+		placeholder="Send a message to run the {subject}"
 		disabled={deploymentInProgress || !!modelGap || !!wrongKindReason}
 		disabledMessage={deploymentInProgress
 			? 'Deployment in progress'

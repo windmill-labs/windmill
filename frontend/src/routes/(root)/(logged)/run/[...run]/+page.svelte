@@ -40,8 +40,13 @@
 		EllipsisVertical,
 		Share2,
 		Globe,
-		Users
+		Users,
+		Play,
+		SearchX,
+		ArrowRight
 	} from 'lucide-svelte'
+	import WorkspaceIcon from '$lib/components/workspace/WorkspaceIcon.svelte'
+	import { forLater } from '$lib/forLater'
 
 	import { isJobResolvable } from '$lib/utils'
 	import {
@@ -154,12 +159,41 @@
 		string,
 		{ modules: import('$lib/gen').FlowModule[]; groups?: any[] }
 	> = $state({})
-	const restart = useNestedRestartState({
+	const selectedRestart = useNestedRestartState({
 		selectedJobStep: () => selectedJobStep,
 		job: () => job,
 		graphModuleStates: () => graphModuleStates,
 		expandedSubflows: () => expandedSubflows
 	})
+	// When the selection can't be restarted from (nothing clicked, Input/Result,
+	// a step inside a parallel loop), the button targets the top-level step that
+	// failed the run, so it is visible without hunting for it in a large graph.
+	// A continue-on-error step keeps its `Failure` status on a run that succeeds,
+	// so only a failed run counts, and its last `Failure` is the one that ended it.
+	const failedTopLevelStep = $derived.by(() => {
+		if (job?.type !== 'CompletedJob' || job.success !== false || job.canceled) return undefined
+		const failures = job.flow_status?.modules?.filter((m) => m.type === 'Failure') ?? []
+		return failures[failures.length - 1]?.id
+	})
+	const failedRestart = useNestedRestartState({
+		selectedJobStep: () => failedTopLevelStep,
+		job: () => job,
+		graphModuleStates: () => graphModuleStates,
+		expandedSubflows: () => expandedSubflows
+	})
+	const selectionRestartable = $derived(
+		selectedJobStep !== undefined &&
+			(selectedRestart.topLevelRestartable || selectedRestart.nestedRestartSupported)
+	)
+	const restartStep = $derived(selectionRestartable ? selectedJobStep : failedTopLevelStep)
+	const restart = $derived(selectionRestartable ? selectedRestart : failedRestart)
+	function canRestart(state: ReturnType<typeof useNestedRestartState>) {
+		return (
+			job?.type === 'CompletedJob' &&
+			job.job_kind === 'flow' &&
+			(state.topLevelRestartable || state.nestedRestartSupported)
+		)
+	}
 
 	let testIsLoading = $state(false)
 	let jobLoader: JobLoader | undefined = $state(undefined)
@@ -250,6 +284,27 @@
 			sendUserToast(`job ${id} canceled`)
 		} catch (err) {
 			sendUserToast('could not cancel job', true)
+		}
+	}
+
+	// A schedule's upcoming tick sits on a whole second and the backend refuses it; a tick
+	// deferred by a concurrency limit lands on a sub-second instant and can still start now.
+	let canRunNow = $derived(
+		job?.type === 'QueuedJob' &&
+			!job.running &&
+			!job.suspend &&
+			!!job.scheduled_for &&
+			forLater(job.scheduled_for) &&
+			!(job.schedule_path && new Date(job.scheduled_for).getMilliseconds() === 0)
+	)
+
+	async function runJobNow(id: string) {
+		try {
+			await JobService.runQueuedJobNow({ workspace: $workspaceStore!, id })
+			sendUserToast(`job ${id} will start as soon as a worker is available`)
+			getJob()
+		} catch (err) {
+			sendUserToast(`could not start job now: ${err?.body ?? err}`, true)
 		}
 	}
 
@@ -649,6 +704,36 @@
 	/>
 {/if}
 
+{#snippet flowRestartButton(
+	state: ReturnType<typeof useNestedRestartState>,
+	step: string,
+	triggerStyle: 'button' | 'link'
+)}
+	{#if job}
+		<FlowRestartButton
+			jobId={job.id}
+			selectedJobStep={step}
+			selectedJobStepType={state.selectedJobStepType}
+			restartBranchNames={state.restartBranchNames}
+			nestedPath={state.nestedRestartSupported ? state.nestedRestartPath : undefined}
+			nestedTopStepId={state.nestedRestartTopStepId}
+			nestedTopBranchOrIterationN={state.nestedRestartTopBranchOrIterationN}
+			presetIterationN={state.topLevelLoopIteration}
+			iterationCounts={state.iterationCounts}
+			nestedPathIterationCounts={state.nestedPathIterationCounts}
+			onRestartComplete={(newJobId) => {
+				goto('/run/' + newJobId + '?workspace=' + $workspaceStore)
+			}}
+			flowPath={job.script_path}
+			flowVersionId={job.script_hash ? parseInt(job.script_hash, 16) : undefined}
+			disabled={!$enterpriseLicense}
+			enterpriseOnly={!$enterpriseLicense}
+			{triggerStyle}
+			unifiedSize="sm"
+		/>
+	{/if}
+{/snippet}
+
 <Portal name="persistent-run">
 	<PersistentScriptDrawer bind:this={persistentScriptDrawer} />
 </Portal>
@@ -675,30 +760,50 @@
 		</div>
 	</div>
 {:else if notfound || (job?.workspace_id != undefined && $workspaceStore != undefined && job?.workspace_id != $workspaceStore)}
-	<div class="max-w-7xl px-4 mx-auto w-full">
-		<div class="flex flex-col gap-6">
-			<h1 class="text-red-400 mt-6 text-2xl font-semibold"
-				>Job {page.params.run} not found in {$workspaceStore}</h1
-			>
-			<h2 class="text-primary text-lg font-semibold">Are you in the right workspace?</h2>
-			<div class="flex flex-col gap-2">
-				{#each $userWorkspaces as workspace}
-					<div>
+	{@const currentWorkspace = $userWorkspaces.find((w) => w.id === $workspaceStore)}
+	{@const otherWorkspaces = $userWorkspaces.filter((w) => w.id !== $workspaceStore)}
+	<div class="max-w-lg px-4 mx-auto w-full py-16">
+		<div class="flex flex-col items-center text-center gap-3">
+			<div class="rounded-full bg-surface-secondary p-3">
+				<SearchX size={24} class="text-secondary" />
+			</div>
+			<h1 class="text-lg font-semibold text-emphasis">Run not found</h1>
+			<p class="text-xs text-secondary">
+				No run with ID
+				<span class="font-mono text-emphasis break-all">{page.params.run}</span>
+				exists in
+				<span class="font-semibold text-emphasis">{currentWorkspace?.name ?? $workspaceStore}</span
+				>. It may belong to another workspace, or it may have been deleted.
+			</p>
+		</div>
+
+		{#if otherWorkspaces.length > 0}
+			<div class="mt-8 flex flex-col gap-2">
+				<h2 class="text-xs font-semibold text-emphasis">Look in another workspace</h2>
+				<div
+					class="flex flex-col rounded-md border border-light bg-surface-tertiary divide-y divide-border-light overflow-hidden"
+				>
+					{#each otherWorkspaces as workspace (workspace.id)}
 						<Button
-							variant="default"
+							variant="subtle"
 							unifiedSize="md"
-							on:click={() => {
-								goto(`/run/${page.params.run}?workspace=${workspace.id}`)
-							}}
+							btnClasses="h-auto justify-start text-left gap-3 px-3 py-2 rounded-none"
+							endIcon={{ icon: ArrowRight, classes: 'text-hint' }}
+							onClick={() => goto(`/run/${page.params.run}?workspace=${workspace.id}`)}
 						>
-							See in {workspace.name}
+							<WorkspaceIcon workspaceColor={workspace.color} padding="p-1" size={12} />
+							<div class="flex flex-col min-w-0 grow">
+								<span class="text-xs font-semibold text-emphasis truncate">{workspace.name}</span>
+								<span class="text-2xs text-secondary truncate">{workspace.id}</span>
+							</div>
 						</Button>
-					</div>
-				{/each}
-				<div>
-					<Button href="{base}/runs" unifiedSize="md" variant="accent">Go to runs page</Button>
+					{/each}
 				</div>
 			</div>
+		{/if}
+
+		<div class="mt-6 flex justify-center">
+			<Button href="{base}/runs" unifiedSize="md" variant="default">Go to runs page</Button>
 		</div>
 	</div>
 {:else}
@@ -847,6 +952,17 @@
 					Current runs
 				</Button>
 			{/if}
+			{#if canRunNow}
+				<Button
+					unifiedSize="md"
+					variant="default"
+					startIcon={{ icon: Play }}
+					on:click={() => job?.id && runJobNow(job.id)}
+					title="Start this job now instead of at its scheduled time, skipping any remaining delay or sleep. It keeps the same id, and a concurrency limit is still enforced."
+				>
+					Run now
+				</Button>
+			{/if}
 			{#if job && job?.type != 'CompletedJob' && (!job?.schedule_path || job?.['running'] == true)}
 				{#if !forceCancel}
 					<Button
@@ -895,26 +1011,8 @@
 					startIcon={{ icon: Calendar }}>Edit schedule</Button
 				>
 			{/if}
-			{#if job?.type === 'CompletedJob' && job?.job_kind === 'flow' && selectedJobStep !== undefined && (restart.topLevelRestartable || restart.nestedRestartSupported) && job.id}
-				<FlowRestartButton
-					jobId={job.id}
-					{selectedJobStep}
-					selectedJobStepType={restart.selectedJobStepType}
-					restartBranchNames={restart.restartBranchNames}
-					nestedPath={restart.nestedRestartSupported ? restart.nestedRestartPath : undefined}
-					nestedTopStepId={restart.nestedRestartTopStepId}
-					nestedTopBranchOrIterationN={restart.nestedRestartTopBranchOrIterationN}
-					presetIterationN={restart.topLevelLoopIteration}
-					iterationCounts={restart.iterationCounts}
-					nestedPathIterationCounts={restart.nestedPathIterationCounts}
-					onRestartComplete={(newJobId) => {
-						goto('/run/' + newJobId + '?workspace=' + $workspaceStore)
-					}}
-					flowPath={job.script_path}
-					flowVersionId={job.script_hash ? parseInt(job.script_hash, 16) : undefined}
-					disabled={!$enterpriseLicense}
-					enterpriseOnly={!$enterpriseLicense}
-				/>
+			{#if restartStep !== undefined && canRestart(restart)}
+				{@render flowRestartButton(restart, restartStep, 'button')}
 			{/if}
 			{#if job?.job_kind === 'script' || job?.job_kind === 'script_hub' || job?.job_kind === 'flow'}
 				<Button
@@ -974,7 +1072,7 @@
 									target: { kind: isScript ? 'script' : 'flow', path: job?.script_path ?? '' },
 									workspaceId: $workspaceStore ?? undefined
 								}}
-								btnProps={{ unifiedSize: 'md' }}
+								btnProps={{ unifiedSize: 'sm' }}
 							/>
 						{/if}
 					{/if}
@@ -1049,7 +1147,18 @@
 					textPosition="bottom"
 					slim
 					showStepId
-				/>
+				>
+					{#snippet errorAction()}
+						{#if failedTopLevelStep}
+							<span>at step {failedTopLevelStep}</span>
+							{#if $enterpriseLicense && canRestart(failedRestart)}
+								<span>·</span>
+								{@render flowRestartButton(failedRestart, failedTopLevelStep, 'link')}
+								<span>on this flow version, or on a new one after you fix it</span>
+							{/if}
+						{/if}
+					{/snippet}
+				</FlowProgressBar>
 				{#if suspendStatus}
 					<FlowExecutionStatus
 						{job}

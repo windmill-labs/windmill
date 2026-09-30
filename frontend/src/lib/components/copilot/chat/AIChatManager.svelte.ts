@@ -59,7 +59,8 @@ import { getEffectiveModelContextWindow } from '../modelConfig'
 import {
 	getCompactionSummaryPrompt,
 	formatCompactSummary,
-	buildSummaryMessageContent
+	buildSummaryMessageContent,
+	toolExchangesAsText
 } from './compactionPrompt'
 import { dfs } from '$lib/components/flows/previousResults'
 import { redactFileArgs, redactSecretArgs } from '$lib/components/job_args'
@@ -88,10 +89,11 @@ import {
 import type { FlowModuleState, FlowState } from '$lib/components/flows/flowState'
 import type { CurrentEditor, ExtendedOpenFlow } from '$lib/components/flows/types'
 import { untrack } from 'svelte'
-import { get } from 'svelte/store'
+import { fromStore, get } from 'svelte/store'
+import type { ProviderToolSummary } from './agentContext'
 import { BROWSER } from 'esm-env'
 import { workspaceStore, type DBSchemas } from '$lib/stores'
-import { copilotInfo } from '$lib/aiStore'
+import { copilotInfo, copilotSessionModel } from '$lib/aiStore'
 import { copilotWorkspaceRequested, loadCopilot } from '$lib/components/copilot/loadCopilot'
 import { askTools, prepareAskSystemMessage, prepareAskUserMessage } from './ask/core'
 import { readDocsPageTool, searchDocsTool } from './docs/core'
@@ -109,7 +111,12 @@ import {
 import type { Selection } from 'monaco-editor'
 import type AIChatInput from './AIChatInput.svelte'
 import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
-import { closeInterruptedToolBatch, runChatLoop, truncateToToolPairedPrefix } from './chatLoop'
+import {
+	closeInterruptedToolBatch,
+	runChatLoop,
+	sendsWebSearch,
+	truncateToToolPairedPrefix
+} from './chatLoop'
 import { FREE_TIER_OUTPUT_TOKEN_LIMIT_MESSAGE, OutputTokenLimitError } from './outputTokenLimit'
 import { sanitizeToolCallArguments } from './toolCallArguments'
 import { billedTokens, normalizeContextUsage, type ChatTokenUsage } from './tokenUsage'
@@ -125,6 +132,14 @@ import {
 	isWebSearchEnabledForProvider
 } from '$lib/aiStore'
 import type { WorkspaceMutationTarget } from './workspaceTools'
+import { resolveSessionAccess } from './global/sessionAccess'
+import type { SessionAccess } from './sessionCapabilities'
+import { filterSessionTools } from './global/sessionToolset'
+import {
+	listFolderInstructions,
+	type FolderInstruction,
+	type FolderInstructionsDelivery
+} from './folderInstructions'
 import {
 	loadWorkspaceSkills,
 	resolveGlobalPromptIdentity,
@@ -163,7 +178,10 @@ import { PlanModeController, type PlanModeHost } from './planModeController.svel
 // cannot see — the upcoming completion and tool results, system-prompt/tool-
 // schema changes from mode switches, and the estimate's chars/4 error.
 const COMPACTION_TRIGGER_RATIO = 0.8
-const COMPACTION_TARGET_RATIO = 0.7
+// The gap below the trigger is what one compaction buys: each summarization request
+// carries most of the window, and a target close to the trigger spends that on a few
+// turns of room and summarizes its own previous summary again soon after.
+const COMPACTION_TARGET_RATIO = 0.5
 // How often a running turn is offered to the mid-turn checkpoint (see
 // sendRequest). The whole transcript is rewritten on each accepted checkpoint,
 // so this bounds the write rate; it also bounds how much of a turn a tab that
@@ -477,7 +495,7 @@ export class AIChatManager implements ChatViewHost {
 	abortController: AbortController | undefined = undefined
 	inlineAbortController: AbortController | undefined = undefined
 	// Flag to skip Responses API if it's not available (e.g., Azure region doesn't support it)
-	skipResponsesApi = false
+	skipResponsesApi = $state(false)
 
 	mode = $state<AIMode>(AIMode.NAVIGATOR)
 	pipelineAiChatHelpers = $state<PipelineAIChatHelpers | undefined>(undefined)
@@ -696,6 +714,10 @@ export class AIChatManager implements ChatViewHost {
 	// needs the preview pane; the global side-panel chat leaves it false. Reactive because
 	// `planModeAvailable` derives from it.
 	isSessionChat = $state(false)
+	// Undefined until a send or the assistant settings modal resolves it. Reactive: both
+	// tool views derive from it.
+	private sessionAccess = $state<SessionAccess | undefined>(undefined)
+	private sessionAccessGeneration = 0
 	autoAcceptEditsAvailable = $derived(supportsAutoAcceptEdits(this.mode))
 	autoAcceptEditsActive = $derived(
 		this.autoAcceptEditsAvailable &&
@@ -717,7 +739,45 @@ export class AIChatManager implements ChatViewHost {
 		role: 'system',
 		content: ''
 	})
-	tools = $state<Tool<any>[]>([])
+	/** The sources the current mode assembled, concatenated. Private, because neither view
+	 * over it is this list: a consumer reading it would advertise a tool set no request ever
+	 * carries. Raw: every write replaces the list, and a deep proxy would reach the tool
+	 * defs, which the session filter copies with `structuredClone` — that throws on a proxy. */
+	#assembledTools = $state.raw<Tool<any>[]>([])
+	/** Both views narrow the same way — concatenate every source, then filter — so a tool
+	 * reaching either one can never arrive unfiltered. A session withholds what its user's
+	 * capabilities do not cover; elsewhere `sessionAccess` is unset and nothing is dropped. */
+	#shipped = (planTools: Tool<any>[]): Tool<any>[] =>
+		filterSessionTools([...this.#assembledTools, ...planTools], this.sessionAccess)
+	/** What the request carries: the assembled tools plus the plan-mode transition the current
+	 * posture offers. Read by the request path and by the YOLO disclosure. */
+	tools: Tool<any>[] = $derived(this.#shipped(this.planMode.tools))
+	/** What the assistant can call in this session, posture-independent: both plan-mode
+	 * transitions, whichever one is offered right now. A reference answer, so flipping the
+	 * autonomy picker must not change it. */
+	availableTools: Tool<any>[] = $derived(this.#shipped(this.planMode.availableTools))
+	#copilotInfo = fromStore(copilotInfo)
+	#sessionModel = fromStore(copilotSessionModel)
+	/** Capabilities the provider runs on its own servers, attached by the adapter at send
+	 * time. Never part of `tools`: the request path would try to dispatch them. The two
+	 * `void` reads only subscribe: the model helpers read through `get()`, which tracks
+	 * nothing, so a change of model or of the workspace's AI config would otherwise not
+	 * re-derive. A workspace switch re-derives through the AI config it loads. */
+	get providerTools(): ProviderToolSummary[] {
+		void this.#copilotInfo.current
+		void this.#sessionModel.current
+		const model = tryGetCurrentModel()
+		if (!model || (model.provider === 'openai' && this.skipResponsesApi)) return []
+		const enabled = isWebSearchEnabledForProvider(model.provider)
+		return sendsWebSearch(this.operatingWorkspace ?? '', model, enabled)
+			? [
+					{
+						name: 'Web search',
+						description: "Runs on the provider's servers, no confirmation."
+					}
+				]
+			: []
+	}
 	helpers = $state<any | undefined>(undefined)
 
 	scriptEditorOptions = $state<ScriptOptions | undefined>(undefined)
@@ -1326,6 +1386,13 @@ export class AIChatManager implements ChatViewHost {
 	globalSkills = $state<AiSkillListItem[]>([])
 	private globalSkillsRefreshId = 0
 
+	// The `ai_instruction` resources readable in the operating workspace, loaded
+	// alongside skills. The prompt names their folders; the tool loop delivers each
+	// one's body the first time a call touches its folder, recording which call did.
+	private globalFolderInstructions: FolderInstruction[] = []
+	private globalFolderInstructionsRefreshId = 0
+	private folderInstructionsDeliveredBy = new Map<string, FolderInstructionsDelivery>()
+
 	// External MCP servers the user connected (resources of type `mcp`). Loaded
 	// asynchronously alongside skills; the MCP tools are only registered when
 	// this is non-empty, so a workspace with no connection pays no schema cost
@@ -1417,10 +1484,12 @@ export class AIChatManager implements ChatViewHost {
 			typeof this.systemMessage.content === 'string'
 				? this.systemMessage.content.length / tokenPerCharacter
 				: 0
+		const tools = this.tools
+		// Counts each tool's shared `def`, not the per-chat one `schemaFor` builds at send time,
+		// so a flow's input schema is missed. Accepted: the estimate only stands in until the
+		// provider reports usage, and the compaction trigger's headroom absorbs the gap.
 		const toolTokens =
-			this.tools.length > 0
-				? JSON.stringify(this.tools.map((t) => t.def)).length / tokenPerCharacter
-				: 0
+			tools.length > 0 ? JSON.stringify(tools.map((t) => t.def)).length / tokenPerCharacter : 0
 		return systemTokens + toolTokens
 	}
 
@@ -1515,7 +1584,7 @@ export class AIChatManager implements ChatViewHost {
 				[
 					// Strip image blobs from the summarizer input — the summary text stands in
 					// for them, so re-sending base64 to the summarizer only wastes tokens.
-					...stripImagePartsFromMessages(sanitizeToolCallArguments(prefix)),
+					...toolExchangesAsText(stripImagePartsFromMessages(sanitizeToolCallArguments(prefix))),
 					{ role: 'user', content: getCompactionSummaryPrompt() }
 				],
 				abortController,
@@ -1764,7 +1833,7 @@ export class AIChatManager implements ChatViewHost {
 		try {
 			this.apiTools = await loadApiTools()
 			if (this.mode === AIMode.API) {
-				this.tools = [searchDocsTool, readDocsPageTool, ...this.apiTools]
+				this.#assembledTools = [searchDocsTool, readDocsPageTool, ...this.apiTools]
 			}
 		} catch (err) {
 			console.error('Error loading api tools', err)
@@ -2322,8 +2391,9 @@ export class AIChatManager implements ChatViewHost {
 		}
 	) {
 		if (!isAIModeVisible(mode)) return
-		// A session chat is GLOBAL for its whole life, and the plan gate reads that mode: moving
-		// it lifts the gate on a session the user still has set to Plan.
+		// A session chat is GLOBAL for its whole life, and two things read that mode: moving it
+		// lifts the plan gate on a session the user still has set to Plan, and hands the
+		// capability filter tools that declare no `requires`, so it fails closed to nothing.
 		if (this.isSessionChat && mode !== AIMode.GLOBAL) {
 			console.error(`Refusing to move a session chat to ${mode} mode: sessions are GLOBAL-only.`)
 			return
@@ -2346,7 +2416,7 @@ export class AIChatManager implements ChatViewHost {
 				customPrompt
 			)
 			this.systemMessage.content = this.systemMessage.content
-			this.tools = [...prepareScriptTools(currentModel, lang, context)]
+			this.#assembledTools = [...prepareScriptTools(currentModel, lang, context)]
 			this.helpers = {
 				getScriptOptions: () => {
 					return {
@@ -2378,7 +2448,7 @@ export class AIChatManager implements ChatViewHost {
 			this.systemMessage = prepareFlowSystemMessage(customPrompt)
 			this.systemMessage.content = this.systemMessage.content
 			this.appendFlowAiAgentProviders(this.systemMessage)
-			this.tools = [...flowTools]
+			this.#assembledTools = [...flowTools]
 			this.helpers = {
 				...(this.flowAiChatHelpers ?? {}),
 				getWorkspaceMutationTarget: this.getFlowWorkspaceMutationTarget
@@ -2386,27 +2456,28 @@ export class AIChatManager implements ChatViewHost {
 		} else if (mode === AIMode.NAVIGATOR) {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareNavigatorSystemMessage(customPrompt)
-			this.tools = [this.changeModeTool, ...navigatorTools]
+			this.#assembledTools = [this.changeModeTool, ...navigatorTools]
 			this.helpers = {}
 		} else if (mode === AIMode.ASK) {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareAskSystemMessage(customPrompt)
-			this.tools = [...askTools]
+			this.#assembledTools = [...askTools]
 			this.helpers = {}
 		} else if (mode === AIMode.API) {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareApiSystemMessage(customPrompt)
-			this.tools = [searchDocsTool, readDocsPageTool, ...this.apiTools]
+			this.#assembledTools = [searchDocsTool, readDocsPageTool, ...this.apiTools]
 			this.helpers = {}
 		} else if (mode === AIMode.GLOBAL) {
 			this.configureGlobalMode()
 			void this.refreshGlobalIdentity()
 			void this.refreshGlobalSkills()
+			void this.refreshGlobalFolderInstructions()
 			void this.refreshMcpServers()
 		} else if (mode === AIMode.APP) {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareAppSystemMessage(customPrompt)
-			this.tools = [...getAppTools()]
+			this.#assembledTools = [...getAppTools()]
 			this.helpers = this.appAiChatHelpers
 		}
 	}
@@ -2425,13 +2496,13 @@ export class AIChatManager implements ChatViewHost {
 						sessionId: this.sessionId,
 						operatingWorkspace: this.operatingWorkspace,
 						artifacts: this.artifacts,
+						access: this.sessionAccess,
 						getChatId: () => this.historyManager.getCurrentChatId(),
 						openArtifact: this.openArtifact
 					}
 				: {}),
 			testActiveFlow: async (storagePath: string, args?: Record<string, any>, memoryId?: string) =>
 				this.flowEditorFor(storagePath)?.testFlow(args, memoryId),
-			getModifiedItems: () => (this.modifiedItems ? [...this.modifiedItems] : undefined),
 			attachedFiles: this.attachedFiles,
 			getUserInstructions: () => getUserCustomPrompts()[AIMode.GLOBAL] ?? '',
 			setUserInstructions: (instructions: string) => {
@@ -2445,7 +2516,7 @@ export class AIChatManager implements ChatViewHost {
 				this.rebuildGlobalSystemMessage()
 			}
 		}
-		this.tools = assembleGlobalTools(opts)
+		this.#assembledTools = assembleGlobalTools(opts)
 		this.helpers = pipeline ? { ...baseHelpers, pipeline } : baseHelpers
 		this.systemMessage = assembleGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), opts)
 		this.syncArtifactsSession()
@@ -2455,7 +2526,9 @@ export class AIChatManager implements ChatViewHost {
 		previewTools: this.isSessionChat,
 		user: this.globalIdentity,
 		skills: this.globalSkills,
+		folderInstructions: this.globalFolderInstructions,
 		mcpServers: this.mcpServers,
+		access: this.sessionAccess,
 		sessionContext: this.sessionContextResolver?.(),
 		pipelineContext: this.pipelineAiChatHelpers?.getPipelineContext()
 	})
@@ -2474,6 +2547,25 @@ export class AIChatManager implements ChatViewHost {
 		// skills to a chat now acting elsewhere. Same check the identity and MCP
 		// refreshes make.
 		this.globalSkills = workspace === (this.operatingWorkspace ?? '') ? skills : []
+		if (this.mode === AIMode.GLOBAL) {
+			this.configureGlobalMode()
+		}
+	}
+
+	// Same shape as refreshGlobalSkills.
+	refreshGlobalFolderInstructions = async (workspace = this.operatingWorkspace ?? '') => {
+		const refreshId = ++this.globalFolderInstructionsRefreshId
+		let instructions: FolderInstruction[] = []
+		try {
+			instructions = await listFolderInstructions(workspace)
+		} catch (e) {
+			console.error('Failed to load folder instructions', e)
+		}
+		if (refreshId !== this.globalFolderInstructionsRefreshId) {
+			return
+		}
+		this.globalFolderInstructions =
+			workspace === (this.operatingWorkspace ?? '') ? instructions : []
 		if (this.mode === AIMode.GLOBAL) {
 			this.configureGlobalMode()
 		}
@@ -2528,6 +2620,23 @@ export class AIChatManager implements ChatViewHost {
 			return
 		}
 		this.systemMessage = { ...target, content: `${target.content}\n\n${section}` }
+	}
+
+	// Same shape as refreshGlobalSkills. Re-resolved per send rather than once for the
+	// session's life: the operating workspace can change between sends, and a transient
+	// failure resolves fail-open, so the next message re-asks rather than keeping that answer.
+	refreshSessionAccess = async (workspace = this.operatingWorkspace ?? '') => {
+		if (!this.isSessionChat || !workspace) {
+			this.sessionAccess = undefined
+			return
+		}
+		const generation = ++this.sessionAccessGeneration
+		const access = await resolveSessionAccess(workspace)
+		if (generation !== this.sessionAccessGeneration) return
+		this.sessionAccess = workspace === (this.operatingWorkspace ?? '') ? access : undefined
+		if (this.mode === AIMode.GLOBAL) {
+			this.configureGlobalMode()
+		}
 	}
 
 	// Rebuild the GLOBAL system message in place so an updated user instruction (persisted by
@@ -2941,7 +3050,7 @@ export class AIChatManager implements ChatViewHost {
 		try {
 			// Use JS getters so runChatLoop re-reads tools/helpers/systemMessage/modelProvider
 			// on each iteration. This is critical for changeModeTool (Navigator → Script/Flow)
-			// which reassigns this.tools, this.helpers, this.systemMessage mid-loop.
+			// which reassigns #assembledTools, this.helpers, this.systemMessage mid-loop.
 			const self = this
 			// Pinned for the whole turn, like the `workspace` the loop routes through:
 			// the global chat's operating workspace follows workspaceStore, so a switch
@@ -2966,7 +3075,7 @@ export class AIChatManager implements ChatViewHost {
 					return base
 				},
 				get tools() {
-					return [...self.tools, ...self.planMode.tools]
+					return self.tools
 				},
 				get helpers() {
 					return self.helpers
@@ -3033,13 +3142,8 @@ export class AIChatManager implements ChatViewHost {
 						console.error('Failed to record AI usage', e)
 					}
 				},
-				onBeforeIteration: async (tools, _helpers, modelProvider) => {
+				onBeforeIteration: async (modelProvider) => {
 					this.lastIterationModel = modelProvider
-					for (const tool of tools) {
-						if (tool.setSchema) {
-							await tool.setSchema(this.helpers)
-						}
-					}
 				}
 			})
 			if (this.isSessionChat && this.sessionId && result.tokenUsage.total > 0) {
@@ -3543,15 +3647,18 @@ export class AIChatManager implements ChatViewHost {
 				return false
 			}
 		}
-		// Session chats commit their workspace in beforeSend; the identity, skills and
-		// MCP servers must all match the committed workspace before the system prompt is
-		// sent. Settling them here rather than mid-turn also keeps the prompt — the
-		// cached prefix of every iteration — stable for the whole request.
+		// Session chats commit their workspace in beforeSend; the identity, skills, folder
+		// instructions, MCP servers and capabilities must all match the committed workspace
+		// before the system prompt is sent. Settling them here rather than mid-turn also
+		// keeps the prompt — the cached prefix of every iteration — stable for the whole
+		// request.
 		if (this.mode === AIMode.GLOBAL) {
 			await Promise.all([
 				this.refreshGlobalIdentity(this.operatingWorkspace ?? ''),
 				this.refreshGlobalSkills(this.operatingWorkspace ?? ''),
-				this.refreshMcpServers(this.operatingWorkspace ?? '')
+				this.refreshGlobalFolderInstructions(this.operatingWorkspace ?? ''),
+				this.refreshMcpServers(this.operatingWorkspace ?? ''),
+				this.refreshSessionAccess(this.operatingWorkspace ?? '')
 			])
 		}
 		// Stop/Escape during the beforeSend pre-flight aborted this send before any
@@ -4009,7 +4116,11 @@ export class AIChatManager implements ChatViewHost {
 						? {
 								onJobStarted: (job) => this.registerJob(job),
 								onJobStatus: (jobId, update) => this.updateJob(jobId, update),
-								onJobDetached: (jobId) => this.markJobDetached(jobId)
+								onJobDetached: (jobId) => this.markJobDetached(jobId),
+								folderInstructions: {
+									list: () => this.globalFolderInstructions,
+									deliveredBy: this.folderInstructionsDeliveredBy
+								}
 							}
 						: {}),
 					removeToolStatus: (id) => {

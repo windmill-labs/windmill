@@ -2,7 +2,6 @@
 	import { onDestroy, setContext, untrack } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import AIChat from '$lib/components/copilot/chat/AIChat.svelte'
-	import SessionsBetaBanner from './SessionsBetaBanner.svelte'
 	import EditableInput from '$lib/components/common/EditableInput.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import WorkspaceScopeTrigger from '$lib/components/WorkspaceScopeTrigger.svelte'
@@ -486,7 +485,6 @@
 						{inputPreface}
 					/>
 				</div>
-				<SessionsBetaBanner variant="session" />
 			</Pane>
 		</Splitpanes>
 	</div>

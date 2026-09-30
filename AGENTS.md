@@ -29,7 +29,14 @@ Open-source platform for internal tools, workflows, API integrations, background
 - **Agent workers**: `docs/agent-worker-e2e.md` — building and running one locally. An agent
   reaches the DB only through the API, so `Connection::Http` paths are never taken by a plain
   `cargo run`; a normal build cannot start one at all.
+- **External instance data tables**: `docs/external-instance-datatables.md` — the cluster Windmill
+  administers behind `external_instance` data tables and Ducklake catalogs: its invariants (one
+  lifecycle lock, managed-object markers, the setup gate, per-cluster roles, fork copy ownership)
+  and how to run one locally
 - **Enterprise**: `docs/enterprise.md` — EE file conventions and PR workflow
+- **Operator write rights**: `docs/operator-write-rights.md` — which `operator_settings` flags are
+  enforced rather than cosmetic, and why a right that is granted-unless-withdrawn needs `Option`
+  fields and a jsonb merge rather than a serde default
 - **Auth surface**: `docs/auth-surface.md` — credential precedence, session/cache invalidation
   scope, which token labels email their owner at expiry, how OAuth login matches `login_type`, and
   that every superadmin route refuses `$WM_TOKEN`. Read before designing anything that creates
@@ -45,6 +52,7 @@ Open-source platform for internal tools, workflows, API integrations, background
 - **Brand/UI guidelines**: `frontend/brand-guidelines.md`
 - **Domain vocabulary**: `CONTEXT.md` — the words this codebase uses for its own concepts (step, step setting, trigger step, …). Name things the way it does.
 - **CLI commands**: when adding/modifying/removing a command, subcommand, option, or description in `cli/src/commands/`, run `python system_prompts/generate.py` to refresh `system_prompts/auto-generated/` and `cli/src/guidance/skills.gen.ts`. The CLI docs the agents use to operate `wmill` are derived from the source — stale generated files give agents the wrong flags.
+- **AI guidance** (chat prompts and CLI skills): what the AI knows about Windmill itself — how flows, scripts, apps, pipelines and resources work — is written once, in `system_prompts/base/` and `system_prompts/languages/`, and `system_prompts/generate.py` builds both the chat's `$system_prompts` exports and the CLI's skills from it. Add or change such guidance there, never inline in one consumer: a sentence only one side should see goes in a `<!-- cli-only -->` / `<!-- chat-only -->` block, and a new file reaches both through the `TOPICS` table. The chat prompt builders under `frontend/src/lib/components/copilot/chat/` add only tool plumbing and runtime values, and shared markdown names no chat tool, since it reaches every chat mode. Rerun `generate.py` after editing; `system_prompts/README.md` has the details.
 - **Session recorder**: `frontend/src/lib/components/recording/` is also the recorder `wmill app dev --recording` serves, vendored into the CLI as `cli/src/commands/app/devRecorderBundle.gen.ts`. After changing `rawAppSnapshot.ts` or `rawAppRecording.svelte.ts`, run `bun run gen:dev-recorder` from `cli/` (`cli/test/dev_recorder_bundle_unit.test.ts` fails otherwise).
 - **Raw-app policy**: `frontend/src/lib/components/raw_apps/rawAppPolicy.ts` also derives the policy the server's raw-app deploy stores, vendored into the bundle job as `backend/windmill-api/src/apps_raw_policy.gen.js`. After changing it or anything it imports, run `bun run gen:app-policy` from `cli/` (`cli/test/app_policy_bundle_unit.test.ts` fails otherwise). It rides in the job rather than being read from the CLI the job runs because the images install `windmill-cli` unpinned, so an image can carry one older than its server.
 

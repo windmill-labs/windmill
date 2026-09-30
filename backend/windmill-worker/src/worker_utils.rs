@@ -28,6 +28,7 @@ pub(crate) async fn update_worker_ping_full(
     occupancy_metrics: &mut OccupancyMetrics,
     killpill_tx: &KillpillSender,
     ip: Option<&str>,
+    last_job: Option<(Uuid, &str)>,
 ) {
     let wc = WORKER_CONFIG.load();
     let tags = wc.worker_tags.clone();
@@ -67,6 +68,7 @@ pub(crate) async fn update_worker_ping_full(
             occupancy_rate_30m,
             native_mode,
             ip,
+            last_job,
         )
     })
     .retry(
@@ -114,6 +116,7 @@ async fn update_worker_ping_full_inner(
     occupancy_rate_30m: Option<f32>,
     native_mode: bool,
     ip: Option<&str>,
+    last_job: Option<(Uuid, &str)>,
 ) -> anyhow::Result<()> {
     match conn {
         Connection::Sql(db) => {
@@ -131,6 +134,7 @@ async fn update_worker_ping_full_inner(
                 occupancy_rate_30m,
                 native_mode,
                 ip,
+                last_job,
                 db,
             )
             .await?;
@@ -141,8 +145,8 @@ async fn update_worker_ping_full_inner(
                     UPDATE_PING_URL,
                     None,
                     &Ping {
-                        last_job_executed: None,
-                        last_job_workspace_id: None,
+                        last_job_executed: last_job.map(|(id, _)| id),
+                        last_job_workspace_id: last_job.map(|(_, w_id)| w_id.to_string()),
                         worker_instance: None,
                         ip: ip.map(str::to_string),
                         tags: Some(tags.to_vec()),

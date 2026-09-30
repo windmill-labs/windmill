@@ -109,10 +109,12 @@
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { setOpenInSessionHandoff } from './sessions/openInSessionContext'
 	import { getEditorStoragePath, setEditorStoragePath } from './editorStoragePathContext'
+	import { useTriggerLock } from '$lib/operatorWriteRights'
 	import {
 		useOperatingUser,
 		useOperatingWorkspace
 	} from '$lib/components/operatingWorkspace.svelte'
+	const triggerLock = useTriggerLock()
 
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
@@ -630,14 +632,17 @@
 						labels: (flow as any).labels
 					}
 				})
-				await CaptureService.moveCapturesAndConfigs({
-					workspace: opWorkspace!,
-					path: fakeInitialPath,
-					requestBody: {
-						new_path: $pathStore
-					},
-					runnableKind: 'flow'
-				})
+				// Gated for operators without `manage_triggers`, who cannot have captures to move.
+				if (!$triggerLock) {
+					await CaptureService.moveCapturesAndConfigs({
+						workspace: opWorkspace!,
+						path: fakeInitialPath,
+						requestBody: {
+							new_path: $pathStore
+						},
+						runnableKind: 'flow'
+					})
+				}
 				if (triggersToDeploy) {
 					await deployTriggers(
 						triggersToDeploy,

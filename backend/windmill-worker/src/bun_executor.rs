@@ -2940,7 +2940,9 @@ pub async fn handle_wac_v2_output(
                         dedicated_worker: None,
                         concurrency_settings: ConcurrencySettingsWithCustom::default(),
                         debouncing_settings: DebouncingSettings::default(),
-                        modules: None,
+                        // `push` drops the `_MODULES` the children inherit with the
+                        // parent's args, so the preview's own modules are handed over here.
+                        modules: modules.clone(),
                         tag: None,
                     }))
                 }

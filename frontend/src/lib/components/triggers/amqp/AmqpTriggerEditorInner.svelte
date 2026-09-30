@@ -2,7 +2,6 @@
 	import { untrack } from 'svelte'
 	import {
 		clearPageDrawerAnchor,
-		handOffPageDrawer,
 		setPageDrawerAnchor
 	} from '$lib/components/sessions/pageDrawerSession'
 	import { TRIGGER_PAGES } from '$lib/components/sessions/previewPaths'
@@ -13,6 +12,7 @@
 	import TriggerRunnablePicker from '$lib/components/triggers/TriggerRunnablePicker.svelte'
 	import { usedTriggerKinds } from '$lib/stores'
 	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
+	import { useTriggerLock } from '$lib/operatorWriteRights'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2 } from 'lucide-svelte'
@@ -46,6 +46,7 @@
 		useOperatingUser,
 		useOperatingWorkspace
 	} from '$lib/components/operatingWorkspace.svelte'
+	const triggerLock = useTriggerLock()
 
 	interface Props {
 		useDrawer?: boolean
@@ -111,7 +112,8 @@
 	// The acting user in the operating workspace arrives asynchronously, and an unknown user
 	// refuses — so the editor stays read-only until the lookup lands, which is the safe answer.
 	const can_write = $derived(
-		permsPath === undefined ? true : canWrite(permsPath, permsForWrite ?? {}, actingUser)
+		(permsPath === undefined || canWrite(permsPath, permsForWrite ?? {}, actingUser)) &&
+			!$triggerLock
 	)
 	let drawerLoading = $state(true)
 	let showLoading = $state(false)
@@ -176,7 +178,6 @@
 		defaultConfig?: Record<string, any>,
 		fixedScriptPath_?: string
 	) {
-		if (handOffPageDrawer(TRIGGER_PAGES.amqp.path, ePath)) return
 		// A `whoami` that failed earlier would otherwise pin this workspace to "unknown user".
 		operatingUser.forgetFailures()
 		let loadingTimeout = setTimeout(() => {
