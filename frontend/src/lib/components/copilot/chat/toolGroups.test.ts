@@ -119,6 +119,17 @@ describe('groupToolRuns', () => {
 		expect(shape([tool('patch_app_file', { path: 'f/a/x' }), queued('delete_app_file')])).toEqual([
 			{ edit: [0, 1] }
 		])
+		// Arguments without a path are a call the tool will reject, not an edit of the open
+		// flow; only flow-mode tools, which never take a path, share the open flow.
+		expect(
+			shape([tool('write_app_file', { file_path: '/a' }), tool('patch_app_file', {})])
+		).toEqual([0, 1])
+		expect(
+			shape([
+				tool('set_module_code', { moduleId: 'a' }),
+				tool('set_module_code', { moduleId: 'b' })
+			])
+		).toEqual([{ edit: [0, 1] }])
 	})
 
 	it('folds edits and reads of one app, apart from a flow at the same path', () => {
