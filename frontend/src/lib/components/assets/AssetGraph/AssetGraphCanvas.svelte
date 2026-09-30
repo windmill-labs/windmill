@@ -1193,6 +1193,15 @@
 				onDeleteAssetUpstream && u && !u.multiple && r
 					? upstreamDeletion(u, r, v.upstream)
 					: undefined
+			// The scripts and triggers folded into this node, whose errors it reports.
+			const scriptIds = u ? (u.multiple ? u.runnableIds : [u.runnableId]) : []
+			const foldedIds = [
+				...scriptIds,
+				...m.edges
+					.filter((e) => e.kind === 'trigger-native' && scriptIds.includes(e.target))
+					.map((e) => e.source)
+			]
+			const foldedErrors = foldedIds.filter((id) => nodeFixes?.has(id)).length
 			const asset = { kind: data.asset_kind, path: data.path }
 			const scriptCount = u?.multiple ? u.runnableIds.length : 1
 			// Chips this estimate does not model keep the regular width.
@@ -1203,13 +1212,15 @@
 							title: data.noAsset
 								? `${scriptCount} script${scriptCount === 1 ? '' : 's'}`
 								: formatShortAssetPath(asset),
-							chip:
-								'none' in upstream
+							chip: foldedErrors
+								? `${foldedErrors} errors · Fix`
+								: 'none' in upstream
 									? 'External source'
 									: 'multiple' in upstream
 										? 'Multiple upstream nodes'
 										: `${upstream.trigger.label}${upstream.trigger.draft ? ' · draft' : ''}`,
 							runState: 'runState' in upstream && !!upstream.runState,
+							chipIcon: foldedErrors > 0,
 							scriptChips:
 								'runnableId' in upstream
 									? 1
@@ -1218,14 +1229,6 @@
 										: 0
 						})
 					: undefined
-			// The scripts and triggers folded into this node, whose errors it reports.
-			const scriptIds = u ? (u.multiple ? u.runnableIds : [u.runnableId]) : []
-			const foldedIds = [
-				...scriptIds,
-				...m.edges
-					.filter((e) => e.kind === 'trigger-native' && scriptIds.includes(e.target))
-					.map((e) => e.source)
-			]
 			return {
 				...data,
 				upstream,

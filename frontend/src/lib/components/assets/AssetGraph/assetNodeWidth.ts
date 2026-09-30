@@ -27,6 +27,8 @@ export function assetsOnlyNodeWidth(n: {
 	kind: string
 	title: string
 	chip: string
+	/** The chip leads with an icon (the folded-errors Fix chip). */
+	chipIcon?: boolean
 	runState: boolean
 	/** Producing scripts: one chip for one, two icons and a "+N" for more. */
 	scriptChips: number
@@ -35,7 +37,7 @@ export function assetsOnlyNodeWidth(n: {
 	const text = Math.max(
 		textWidth(n.kind, 0.7),
 		textWidth(n.title, 0.75),
-		textWidth(n.chip, 0.65) + 12 + 2
+		textWidth(n.chip, 0.65) + 12 + 2 + (n.chipIcon ? 14 : 0)
 	)
 	// The run chip is sized for a two-digit count, so a new run never re-lays the graph.
 	const scripts =

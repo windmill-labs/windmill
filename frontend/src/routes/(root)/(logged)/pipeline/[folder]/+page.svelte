@@ -1387,7 +1387,12 @@
 			fixes.set(`script:${path}`, {
 				explainer: [
 					'Runs after each write to ',
-					assetLink(asset),
+					// Not drawn when only this subscription names it: nothing to select.
+					shownGraph.edges.some(
+						(e) => e.asset_kind === asset.kind && e.asset_path === asset.path
+					)
+						? assetLink(asset)
+						: asset.path,
 					', but nothing writes it, so it never runs.'
 				],
 				actions: [
@@ -1465,8 +1470,15 @@
 						detail: unsaved
 							? 'Drops the draft.'
 							: 'Opens its archive or delete confirmation.',
-						run: () => {
-							if (mode !== 'edit') setMode('edit')
+						run: async () => {
+							if (mode !== 'edit') await setMode('edit')
+							// The pane takes the remove request only once it is open on the
+							// script: a request made as it mounts is its starting point.
+							if (!unsaved) {
+								pe.activeDraftPath = undefined
+								pe.selection = { kind: 'runnable', runnable_kind: 'script', path }
+								await tick()
+							}
 							handleRunnableMenuRemove({ runnable_kind: 'script', path, unsaved })
 						}
 					}
