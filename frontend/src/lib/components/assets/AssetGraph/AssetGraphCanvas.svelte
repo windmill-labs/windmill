@@ -27,6 +27,7 @@
 		type AssetUpstreamDelete
 	} from './assetsOnlyView'
 	import { assetsOnlyNodeWidth } from './assetNodeWidth'
+	import { isAssetsOnlyFolder, setAssetsOnlyFolder } from './assetsOnlyFolders'
 	import { formatAssetKind, formatShortAssetPath } from '$lib/components/assets/lib'
 	import { TRIGGER_NODE_STYLE } from './TriggerNode.svelte'
 	import { describeSchedule } from '$lib/utils/describeCron'
@@ -213,6 +214,8 @@
 		/** Offer the "Assets only" switch, which folds scripts and triggers into the
 		 * assets they produce. */
 		assetsOnlyToggle?: boolean
+		/** The pipeline folder, when the toggle's state should be remembered for it. */
+		assetsOnlyFolder?: string
 		/** Deletes what produces an asset in the assets-only view: its script, and its
 		 * trigger when set. The canvas only offers what no other asset shares. */
 		onDeleteAssetUpstream?: (target: AssetUpstreamDelete) => void
@@ -250,10 +253,14 @@
 		assetRunStatus,
 		scrollZoom = true,
 		assetsOnlyToggle = false,
+		assetsOnlyFolder,
 		onDeleteAssetUpstream
 	}: Props = $props()
 
 	let assetsOnly = $state(false)
+	$effect(() => {
+		if (assetsOnlyFolder != undefined) assetsOnly = isAssetsOnlyFolder(assetsOnlyFolder)
+	})
 
 	// Right-click on the empty canvas: a menu at the pointer whose entry opens the
 	// add-data-source menu there too.
@@ -1594,7 +1601,14 @@
 				position="top-left"
 				class="!m-3"
 			>
-				<Toggle bind:checked={assetsOnly} size="xs" options={{ right: 'Assets only' }} />
+				<Toggle
+					bind:checked={assetsOnly}
+					size="xs"
+					options={{ right: 'Assets only' }}
+					on:change={(e) => {
+						if (assetsOnlyFolder != undefined) setAssetsOnlyFolder(assetsOnlyFolder, e.detail)
+					}}
+				/>
 			</Panel>
 		{/if}
 		{#if showMinimap}
