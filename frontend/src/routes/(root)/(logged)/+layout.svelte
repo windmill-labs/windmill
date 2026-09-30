@@ -14,7 +14,11 @@
 	} from '$lib/gen'
 	import { capitalize, classNames, debounce, getModifierKey, sendUserToast } from '$lib/utils'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
-	import { isSessionPreviewFrame } from '$lib/components/sessions/sessionMode.svelte'
+	import {
+		isMenuHidden,
+		isSessionPreviewFrame,
+		rememberMenuHidden
+	} from '$lib/components/sessions/sessionMode.svelte'
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
 	import SettingsMenu from '$lib/components/sidebar/SettingsMenu.svelte'
@@ -358,27 +362,10 @@
 			$workspaceStore = queryWorkspace
 		}
 
-		// When this window is an iframe (e.g. the sessions preview), keep the menu
-		// hidden once `nomenubar` has been requested: navigating inside the preview
-		// drops the query param (both client-side routing and full-document loads),
-		// and we don't want the global nav to pop back in. Stickiness is stored in
-		// sessionStorage so it survives full reloads within the iframe's browsing
-		// context. The top window is unaffected (embedded is false there), so the
-		// oauth-callback case and ordinary navigation still toggle normally.
-		const embedded = typeof window !== 'undefined' && window.self !== window.top
-		const requested = page.url.searchParams.get('nomenubar') === 'true'
-		if (embedded && requested) {
-			try {
-				sessionStorage.setItem('nomenubar_embedded', 'true')
-			} catch {}
-		}
-		let stickyEmbedded = false
-		if (embedded) {
-			try {
-				stickyEmbedded = sessionStorage.getItem('nomenubar_embedded') === 'true'
-			} catch {}
-		}
-		menuHidden = requested || page.url.pathname.startsWith('/oauth/callback/') || stickyEmbedded
+		// Pages read the same rule (a page whose only control lives in the band has to carry it
+		// itself where there is no band), so it is defined once in sessionMode.
+		rememberMenuHidden(page.url)
+		menuHidden = isMenuHidden(page.url)
 	}
 
 	async function updateUserStore(workspace: string | undefined) {
@@ -468,6 +455,10 @@
 		} else {
 			menuOpen = false
 		}
+		// The next page may not be one the band floats over, and then the band loses the hover
+		// handlers that would clear this — leaving it already down when a full-bleed page comes
+		// back. Clicking a control in the band (an app's Edit) is exactly that navigation.
+		bandPeeked = false
 
 		// Inside a sessions-preview iframe, hand an editor-route navigation up to the
 		// parent so it mounts the in-process editor (sharing the session runtime)
@@ -527,13 +518,16 @@
 	// and off the card both. The delay is what lets the pointer cross the gap between them: they
 	// do not touch, and the leave of the one fires before the enter of the other.
 	const PEEK_CLOSE_DELAY_MS = 200
+	// Both the card and the band open menus, and a menu portals to `body` (overlayPortalTarget),
+	// so the pointer moving into one leaves the surface that opened it. A surface has to outlive
+	// its own menus or it slides out from under the one being read: hold while the pointer is in a
+	// menu, and take the close from the leave of that instead.
+	function pointerInMenu(): boolean {
+		return !!document.querySelector('[role="menu"]:hover')
+	}
 	const { debounced: schedulePeekClose, clearDebounce: cancelPeekClose } = debounce(() => {
 		if (!peeksOnHover) return
-		// A menu opened inside the card portals to `body` (overlayPortalTarget), so the pointer
-		// moving into it leaves the card. The card has to outlive the menus it opens, or it slides
-		// out from under the one being read: hold while the pointer is in a menu, and take the
-		// close from the leave of that instead.
-		if (document.querySelector('[role="menu"]:hover')) {
+		if (pointerInMenu()) {
 			schedulePeekClose()
 			return
 		}
@@ -564,7 +558,13 @@
 	const floatBand = $derived(pageHeader.content?.barRightInset != null || bandPeek)
 	// Same delay as the sidebar's peek, and for the same reason: the handle and the band do not
 	// touch, so the leave of one has to survive long enough for the enter of the other.
+	// The band carries menus of its own — the workspace disc, the fork family, every path level —
+	// and they portal out of it just as the card's do, so it holds for the same reason.
 	const { debounced: scheduleBandHide, clearDebounce: cancelBandHide } = debounce(() => {
+		if (pointerInMenu()) {
+			scheduleBandHide()
+			return
+		}
 		bandPeeked = false
 	}, PEEK_CLOSE_DELAY_MS)
 
@@ -1565,9 +1565,9 @@
 			<!-- `menuHidden` hides the workspace navigation, not the page: an embedded Runs or detail
 			     page keeps its own controls, which now live in this band and nowhere else. The band
 			     renders without its breadcrumb there, so the embed gains no workspace nav. -->
-			{#if !devOnly && (!menuHidden || pageHeader.actions.length > 0 || pageHeader.content?.afterName)}
+			{#if !devOnly && (!menuHidden || pageHeader.actions.length > 0)}
 				{@const rightInset = pageHeader.content?.barRightInset}
-				{@const leftInset = useDrawer ? 0 : railWidth}
+				{@const leftInset = useDrawer || menuHidden ? 0 : railWidth}
 				<!-- One element for every placement, styled rather than branched: a page registers its
 				     inset on mount, and swapping between two `{#if}` arms would destroy the band and
 				     build another one a frame later — a blink of no header, with the content sliding

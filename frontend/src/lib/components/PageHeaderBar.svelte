@@ -160,12 +160,6 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 				actingWorkspaceId={content?.actingWorkspaceId}
 			/>
 		</div>
-	{:else if content?.afterName}
-		<!-- An embed has no trail, but what sits after the name is the page's own control — an
-		     app's Edit — and dropping it with the trail would take that with it. -->
-		<div class="flex items-center min-w-0">
-			{@render content.afterName()}
-		</div>
 	{/if}
 
 	{#if item && !navHidden && (item.summaryContent || item.summary)}

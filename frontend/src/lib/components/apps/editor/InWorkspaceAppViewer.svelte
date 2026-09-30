@@ -20,6 +20,7 @@
 	import { getUserExt } from '$lib/user'
 	import { Pen } from 'lucide-svelte'
 	import { page } from '$app/state'
+	import { isMenuHidden } from '$lib/components/sessions/sessionMode.svelte'
 
 	let {
 		workspace,
@@ -52,6 +53,11 @@
 
 	const hideEditBtn = page.url.searchParams.get('hideEditBtn') === 'true'
 	const hideRefreshBar = page.url.searchParams.get('hideRefreshBar') === 'true'
+
+	const showEdit = $derived(canWriteApp && !hideEditBtn)
+	// Decides where Edit goes, not whether it appears: without the workspace navigation there is
+	// no band to put it in. Same rule the layout hides the sidebar by.
+	const menuHidden = $derived(isMenuHidden(page.url))
 
 	// Embedder side: mint a scoped embed token (by path) from the member's session.
 	async function fetchEmbedToken(opts?: { sdkConsent?: boolean }): Promise<{ token?: string }> {
@@ -150,16 +156,22 @@
 </div>
 
 <!-- The band names the app for whoever opened it, write access or not: the route alone registers
-     no item, and the breadcrumb would fall back to the section name "Apps".
-     Edit is carried here too, rather than floating over the app's own canvas where it would land
-     on whatever the app draws there. It sits with the name instead of at the far end of the bar:
-     on a page whose header is only there while hovered, the far end is a journey across the
-     window. -->
+     no item, and the breadcrumb would fall back to the section name "Apps". -->
 <PageHeaderContent
 	item={{ kind: 'app', path }}
-	afterName={canWriteApp && !hideEditBtn ? editAction : undefined}
+	afterName={showEdit && !menuHidden ? editAction : undefined}
 	fullBleed
 />
+
+<!-- With a band, Edit sits with the app's name rather than at the far end of the bar: on a page
+     whose header is only there while hovered, the far end is a journey across the window. An
+     embed has no band — it would cost the app 44px of the iframe to carry one button — so Edit
+     floats over the canvas there, which is where it sat before the band existed. -->
+{#if showEdit && menuHidden}
+	<div class="absolute bottom-4 right-4 z-50">
+		{@render editAction()}
+	</div>
+{/if}
 
 {#snippet editAction()}
 	<Button
