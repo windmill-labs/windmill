@@ -91,6 +91,19 @@ describe('groupToolRuns', () => {
 		).toEqual([0, 1, 2, 3])
 	})
 
+	it('folds edits and reads of one app, apart from a flow at the same path', () => {
+		const app = { path: 'f/a/x', file_path: '/src/App.tsx' }
+		expect(
+			shape([
+				tool('read_app_file', app),
+				tool('patch_app_file', app),
+				tool('write_app_runnable', { path: 'f/a/x', key: 'fetch' }),
+				tool('patch_flow_json', { path: 'f/a/x' }),
+				tool('patch_flow_json', { path: 'f/a/x' })
+			])
+		).toEqual([{ edit: [0, 1, 2] }, { edit: [3, 4] }])
+	})
+
 	it('leaves a flow read that prepares an edit to the edit group, not the lookups before it', () => {
 		const flow = { type: 'flow', path: 'f/a/flow' }
 		expect(
@@ -147,6 +160,9 @@ describe('groupToolRuns', () => {
 		const mcp = (t: string) => tool('call_mcp_read_tool', { server: 'u/admin/github', tool: t })
 		expect(header([mcp('list_issues'), mcp('get_issue'), mcp('get_issue')])).toBe(
 			'github list issues, get issue 2 times'
+		)
+		expect(header([tool('search_mcp_tools'), mcp('list_issues'), mcp('get_issue')])).toBe(
+			'github search mcp tools, list issues, get issue'
 		)
 	})
 })

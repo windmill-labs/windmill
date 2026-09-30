@@ -4,6 +4,9 @@
 	import ToolPreviewCard from './ToolPreviewCard.svelte'
 	import type { DisplayMessage, ToolDisplayMessage } from './shared'
 	import { callFailed, groupHeader, type ToolGroup } from './toolGroups'
+	import McpServerIcon from '$lib/components/mcp/McpServerIcon.svelte'
+	import { resolveMcpServerMark } from '$lib/components/mcp/serverMark'
+
 	interface Props {
 		group: ToolGroup
 		entry: Snippet<[DisplayMessage, number]>
@@ -22,13 +25,28 @@
 	const queued = $derived(!running && calls.some((m) => m.isQueued))
 	const header = $derived(groupHeader(group, running || queued))
 	const failedCount = $derived(calls.filter(callFailed).length)
-	// Every edit of one flow carries the same chip, so the group shows it once.
+	// Every edit of one item carries the same chip, so the group shows it once.
 	const previewCard = $derived(calls.findLast((m) => m.previewCard && !m.error)?.previewCard)
+	// An explore header has a prefix only when every call is an MCP read on one server; that
+	// group is marked with the server's icon, as a single MCP row is.
+	const mcpServer = $derived(
+		group.groupKind === 'explore' && header.prefix
+			? calls.find((m) => m.mcpServer)?.mcpServer
+			: undefined
+	)
 	// What the group is doing right now, so a collapsed run still names its current step.
 	const liveLine = $derived(
 		running ? calls.findLast((m) => m.isLoading || m.isStreamingArguments)?.content : undefined
 	)
 </script>
+
+{#snippet serverMark()}
+	{#if mcpServer}
+		{#await resolveMcpServerMark(mcpServer.workspace, mcpServer.path) then mark}
+			<McpServerIcon icon={mark.icon} size={14} />
+		{/await}
+	{/if}
+{/snippet}
 
 {#snippet status()}
 	<div class="flex items-center gap-2 shrink-0">
@@ -52,6 +70,7 @@
 	class={queued ? 'opacity-60 hover:opacity-100 transition-opacity' : ''}
 	labelClass="truncate"
 	headerRight={failedCount > 0 || previewCard ? status : undefined}
+	headerLeft={mcpServer ? serverMark : undefined}
 	contentClass="border-0 border-l rounded-none bg-transparent p-0 pl-2 ml-1.5 mt-0.5"
 >
 	{#each group.entries as { message, index } (index)}

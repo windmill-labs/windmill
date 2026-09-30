@@ -5,28 +5,40 @@ import { webSearchResultOf } from './webSearchResult'
 // A tool missing from these lists always renders as its own row, so a new write never gets
 // hidden by default.
 
-// Tools that fold into an edit group, with the flow each call targets. Flow-mode tools edit
-// the flow open in the editor, so they carry no path and all share the '' target.
-const FLOW_EDIT_TOOLS = new Set([
-	'patch_flow_json',
-	'set_flow_module_code',
-	'write_flow',
-	'set_flow_json',
-	'set_module_code',
-	'set_preprocessor_module',
-	'set_failure_module'
-])
-// Reads of the flow being edited: the model reads a step before patching it, and splitting
-// the group on every read would leave one group per edit.
-const FLOW_READ_TOOLS = new Set([
-	'read_flow_module_code',
-	'inspect_inline_script',
-	'get_lint_errors'
-])
+type EditedItemKind = 'flow' | 'app'
+
+// Tools that fold into an edit group, by the kind of item they edit; the item is the call's
+// `path`. Flow-mode tools edit the flow open in the editor, so they carry no path and all
+// share the '' path. Scripts are left out on purpose: each script edit renders its own diff
+// card, and the diff is what the user reads.
+const EDIT_TOOLS: Record<string, EditedItemKind> = {
+	patch_flow_json: 'flow',
+	set_flow_module_code: 'flow',
+	write_flow: 'flow',
+	set_flow_json: 'flow',
+	set_module_code: 'flow',
+	set_preprocessor_module: 'flow',
+	set_failure_module: 'flow',
+	init_app: 'app',
+	write_app_file: 'app',
+	patch_app_file: 'app',
+	delete_app_file: 'app',
+	write_app_runnable: 'app',
+	delete_app_runnable: 'app'
+}
+// Reads of the item being edited: the model reads a step or file before changing it, and
+// splitting the group on every read would leave one group per edit.
+const ITEM_READ_TOOLS: Record<string, EditedItemKind> = {
+	read_flow_module_code: 'flow',
+	inspect_inline_script: 'flow',
+	get_lint_errors: 'flow',
+	read_app_file: 'app',
+	search_app: 'app'
+}
 // Calls that only look things up. Not derived from `planModeSafe`, which also admits test
 // runs and plan-document writes.
 const READ_TOOLS = new Set([
-	...FLOW_READ_TOOLS,
+	...Object.keys(ITEM_READ_TOOLS),
 	'list_workspace_items',
 	'read_workspace_item',
 	'search_workspace',
@@ -49,8 +61,6 @@ const READ_TOOLS = new Set([
 	'get_app_runtime_logs',
 	'get_preview_status',
 	'get_current_page_name',
-	'read_app_file',
-	'search_app',
 	'search_dom',
 	'read_dom',
 	'read_file',
@@ -68,11 +78,11 @@ const READ_TOOLS = new Set([
 
 export type ToolGroup = {
 	kind: 'group'
-	/** 'edit': edits of one flow. 'explore': consecutive lookups of anything. */
+	/** 'edit': edits of one flow or app. 'explore': consecutive lookups of anything. */
 	groupKind: 'edit' | 'explore'
 	/** First call's id, so the group keeps its identity (and expand state) as it grows. */
 	key: string
-	/** Edit groups: the flow path, or '' for the flow open in the editor. */
+	/** Edit groups: the item's path, or '' for the flow open in the editor. */
 	target: string
 	entries: { message: DisplayMessage; index: number }[]
 }
@@ -94,17 +104,27 @@ function groupableCall(message: DisplayMessage): ToolDisplayMessage | undefined 
 	return message
 }
 
-function flowMembership(message: DisplayMessage): { target: string; edit: boolean } | undefined {
+type Membership = { kind: EditedItemKind; path: string; edit: boolean }
+
+function itemMembership(message: DisplayMessage): Membership | undefined {
 	const call = groupableCall(message)
 	if (!call) return undefined
 	const params = call.parameters ?? {}
 	const path = typeof params.path === 'string' ? params.path : ''
-	if (FLOW_EDIT_TOOLS.has(call.toolName!)) return { target: path, edit: true }
-	if (FLOW_READ_TOOLS.has(call.toolName!)) return { target: path, edit: false }
-	if (call.toolName === 'read_workspace_item' && params.type === 'flow' && path) {
-		return { target: path, edit: false }
+	const tool = call.toolName!
+	if (Object.hasOwn(EDIT_TOOLS, tool)) return { kind: EDIT_TOOLS[tool], path, edit: true }
+	if (Object.hasOwn(ITEM_READ_TOOLS, tool)) {
+		return { kind: ITEM_READ_TOOLS[tool], path, edit: false }
+	}
+	if (tool === 'read_workspace_item' && (params.type === 'flow' || params.type === 'app') && path) {
+		return { kind: params.type, path, edit: false }
 	}
 	return undefined
+}
+
+// A flow and an app can share a path, so the kind is part of what makes two calls one item.
+function sameItem(a: Membership | undefined, b: Membership): boolean {
+	return a !== undefined && a.kind === b.kind && a.path === b.path
 }
 
 function isReadCall(message: DisplayMessage): boolean {
@@ -143,7 +163,7 @@ function toolGroup(
 	const run = messages.slice(start, end + 1)
 	const calls = run.filter((m) => m.role === 'tool')
 	if (calls.length < 2) return undefined
-	if (groupKind === 'edit' && !calls.some((m) => flowMembership(m)?.edit)) return undefined
+	if (groupKind === 'edit' && !calls.some((m) => itemMembership(m)?.edit)) return undefined
 	return {
 		kind: 'group',
 		groupKind,
@@ -154,10 +174,10 @@ function toolGroup(
 }
 
 function editGroupAt(messages: DisplayMessage[], start: number): ToolGroup | undefined {
-	const flow = flowMembership(messages[start])
-	if (!flow) return undefined
-	const end = runEnd(messages, start, (m) => flowMembership(m)?.target === flow.target)
-	return toolGroup(messages, start, end, 'edit', flow.target)
+	const item = itemMembership(messages[start])
+	if (!item) return undefined
+	const end = runEnd(messages, start, (m) => sameItem(itemMembership(m), item))
+	return toolGroup(messages, start, end, 'edit', item.path)
 }
 
 export function groupToolRuns(messages: DisplayMessage[]): ChatItem[] {
@@ -230,7 +250,7 @@ export function groupHeader(group: ToolGroup, running: boolean): { prefix: strin
 		.filter((m): m is ToolDisplayMessage => m.role === 'tool')
 	if (group.groupKind === 'edit') {
 		const edits = calls.filter(
-			(m) => FLOW_EDIT_TOOLS.has(m.toolName ?? '') && !callFailed(m)
+			(m) => Object.hasOwn(EDIT_TOOLS, m.toolName ?? '') && !callFailed(m)
 		).length
 		return {
 			prefix: running ? 'Editing' : 'Edited',
@@ -240,7 +260,11 @@ export function groupHeader(group: ToolGroup, running: boolean): { prefix: strin
 	const counts = new Map<string, number>()
 	for (const call of calls) counts.set(callName(call), (counts.get(callName(call)) ?? 0) + 1)
 	const list = [...counts].map(([name, n]) => repeated(name, n)).join(', ')
-	const servers = new Set(calls.map(mcpServerName))
+	// A tool search spans every server and usually comes right before the calls it found, so it
+	// does not stop the group from reading as one server's.
+	const servers = new Set(
+		calls.filter((call) => call.toolName !== 'search_mcp_tools').map(mcpServerName)
+	)
 	const [server] = servers
 	if (servers.size === 1 && server) return { prefix: server, label: list }
 	return { prefix: '', label: list.charAt(0).toUpperCase() + list.slice(1) }
