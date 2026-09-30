@@ -1044,7 +1044,8 @@ pub async fn guest_app_admits<'c, E: sqlx::Executor<'c, Database = sqlx::Postgre
 }
 
 /// Billable members of `w_id` and the seats they cost, as `ceil(developers + operators/2)`. Service
-/// accounts cannot log in and do not take a seat; a disabled member is not billed either.
+/// accounts cannot log in and do not take a seat; a disabled member is not billed either. In a
+/// workspace that granted operators builder rights, every operator counts as a developer.
 ///
 /// The workspace is invoiced by a job outside this codebase that counts the same rows with its own
 /// SQL. The two must be changed together: this rule disagreeing with that one is what bills a
@@ -1063,10 +1064,15 @@ pub async fn billable_seats(db: &crate::DB, w_id: &str) -> Result<BillableSeats>
     .fetch_one(db)
     .await
     .map_err(|e| Error::internal_err(format!("counting billable seats of {w_id}: {e:#}")))?;
+    let (developers, operators) = if operator_can_build_flows(db, w_id).await? {
+        (row.developers + row.operators, 0)
+    } else {
+        (row.developers, row.operators)
+    };
     Ok(BillableSeats {
-        developers: row.developers,
-        operators: row.operators,
-        seats: ((row.developers as f64) + 0.5 * (row.operators as f64)).ceil() as i64,
+        developers,
+        operators,
+        seats: ((developers as f64) + 0.5 * (operators as f64)).ceil() as i64,
     })
 }
 

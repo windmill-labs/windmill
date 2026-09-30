@@ -58,6 +58,9 @@ numbers agree. The one exception is `get_user_usage` in `stats_ee.rs`: it is a c
 `query!`, which cannot interpolate the constant, so it spells the predicate out. Change both
 together.
 
+On cloud, `billable_seats` applies the same rule; see its doc for the out-of-repo invoice it must
+match.
+
 Granting the right runs `check_seat_cap_for_operator_builder`, which prices the change by counting
 seats twice rather than by counting the workspace's operators: an operator who already authors
 elsewhere must not be charged again, so re-saving settings that already have the right on is a
