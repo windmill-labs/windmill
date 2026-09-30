@@ -1124,11 +1124,13 @@
 			     anchored at the right edge of the bar; trash lives at the
 			     far left so destructive ops are visually separated from
 			     navigation/commit. Mirrors the draft Discard placement. -->
-			{#if !readOnly && !isDraft && isScriptView && script?.hash}
+			<!-- Rendered while the script loads (disabled) so the bar does not shift. -->
+			{#if !readOnly && !isDraft && isScriptView}
 				<Button
 					variant="subtle"
 					unifiedSize="sm"
 					startIcon={{ icon: Trash2 }}
+					disabled={!script?.hash}
 					onclick={() => (removeOpen = true)}
 					iconOnly
 					title="Archive or delete"

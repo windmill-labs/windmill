@@ -20,6 +20,7 @@
 		ShieldAlert,
 		CheckCircle2,
 		ChevronDown,
+		Pencil,
 		CircleSlash,
 		Trash2,
 		XCircle
@@ -352,6 +353,7 @@
 			{#if producer?.runState}
 				<RunStateChip runState={producer.runState} class="ml-auto h-4 px-1 rounded" />
 			{/if}
+			<Pencil size={10} class={twMerge('shrink-0 opacity-70', !producer?.runState && 'ml-auto')} />
 		</button>
 	{:else if coProducers.length > 1}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -412,7 +414,7 @@
 		{#if trigger?.onOpen}
 			<button
 				type="button"
-				class={chipClass}
+				class={twMerge(chipClass, 'flex items-center gap-1 min-w-0')}
 				title={trigger.missing
 					? `No ${trigger.label} trigger targets ${producer?.path} yet: click to create one`
 					: `Edit the ${trigger.label} trigger`}
@@ -423,7 +425,8 @@
 					trigger.onOpen?.()
 				}}
 			>
-				{trigger.label}{trigger.draft ? ' · draft' : ''}
+				<span class="truncate">{trigger.label}{trigger.draft ? ' · draft' : ''}</span>
+				{#if !trigger.missing}<Pencil size={9} class="shrink-0 opacity-70" />{/if}
 			</button>
 		{:else}
 			<span class={chipClass}>

@@ -29,28 +29,38 @@ export function assetsOnlyNodeWidth(n: {
 	chip: string
 	/** The chip leads with an icon (the folded-errors Fix chip). */
 	chipIcon?: boolean
+	/** The chip ends in the edit icon (an editable trigger). */
+	chipEdit?: boolean
 	runState: boolean
-	/** The header's text (a script's summary or path, "N scripts"), with its icon
-	 * count; undefined without a header. */
-	header?: { label: string; icons: number }
+	/** The header tab: its text (a script's summary or path, "N scripts"), icon
+	 * count, and whether it ends in the menu chevron (else the edit icon) or has a "draft" mark;
+	 * undefined without a header. */
+	header?: { label: string; icons: number; chevron?: boolean; draft?: boolean }
 }): number {
 	const icon = 12 + 14 + 10
 	const text = Math.max(
 		textWidth(n.kind, 0.7),
 		textWidth(n.title, 0.75),
-		textWidth(n.chip, 0.65) + 12 + 2 + (n.chipIcon ? 14 : 0)
+		textWidth(n.chip, 0.65) + 12 + 2 + (n.chipIcon ? 14 : 0) + (n.chipEdit ? 4 + 9 : 0)
 	)
 	const body = Math.ceil(icon + text + 4 + 8 + 2 + 8)
-	// Header: px-2, icons with gap-1.5, the label, then the run chip (sized for a
+	// Header tab: mx-2 and a 1px border around px-2, then gap-1.5 between its
+	// items: the icons, the label, a "draft" mark, and the run chip (sized for a
 	// two-digit count, so a new run never re-lays the graph) or the menu chevron.
-	const header = n.header
+	const h = n.header
+	const header = h
 		? Math.ceil(
-				8 +
-					n.header.icons * (11 + 6) +
-					textWidth(n.header.label, 0.65) +
+				16 +
+					2 +
+					16 +
+					h.icons * (11 + 6) +
+					textWidth(h.label, 0.65) +
+					(h.draft ? 6 + textWidth('draft', 0.65) : 0) +
+					(n.runState ? 6 + 4 + 10 + 2 + textWidth('×99', 0.65) + 4 : 0) +
+					// The menu chevron, or the edit icon of a single script.
 					6 +
-					(n.runState ? 11 + 4 + textWidth('×99', 0.65) + 8 : 11) +
-					8
+					(h.chevron ? 11 : 10) +
+					4
 			)
 		: 0
 	return Math.min(NODE.width, Math.max(MIN_WIDTH, body, header))

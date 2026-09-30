@@ -1431,16 +1431,26 @@
 										: `${upstream.trigger.label}${upstream.trigger.draft ? ' · draft' : ''}`,
 							runState: 'runState' in upstream && !!upstream.runState,
 							chipIcon: foldedErrors > 0,
+							chipEdit:
+								!foldedErrors &&
+								'trigger' in upstream &&
+								!!upstream.trigger?.onOpen &&
+								!upstream.trigger.missing,
 							header:
 								'runnableId' in upstream
-									? { label: upstream.summary || upstream.path, icons: 1 }
+									? {
+											label: upstream.summary || upstream.path,
+											icons: 1,
+											draft: !!upstream.unsaved
+										}
 									: 'scripts' in upstream && upstream.scripts?.length
 										? upstream.scripts.length === 1
 											? {
 													label: upstream.scripts[0].summary || upstream.scripts[0].path,
-													icons: 1
+													icons: 1,
+													draft: !!upstream.scripts[0].unsaved
 												}
-											: { label: `${upstream.scripts.length} scripts`, icons: 2 }
+											: { label: `${upstream.scripts.length} scripts`, icons: 2, chevron: true }
 										: undefined
 						})
 					: undefined
