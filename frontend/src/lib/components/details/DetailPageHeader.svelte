@@ -29,26 +29,33 @@
 	type MenuItemButton = {
 		label: string
 		Icon: any
-		onclick: () => void
+		onclick: (e: MouseEvent) => void
 		color?: 'red'
+		disabled?: boolean
 	}
 
-	const { triggersCount, triggersState } = $state(getContext<TriggerContext>('TriggerContext'))
+	// An agent's page has no triggers, and so no context for them.
+	const { triggersCount, triggersState } = $state(
+		getContext<TriggerContext | undefined>('TriggerContext') ?? ({} as Partial<TriggerContext>)
+	)
 
 	interface Props {
 		mainButtons?: MainButton[]
 		menuItems?: MenuItemButton[]
 		summary?: string
 		path?: string
-		tag: string | undefined
-		errorHandlerKind: 'flow' | 'script'
-		scriptOrFlowPath: string
-		errorHandlerMuted: boolean | undefined
+		tag?: string | undefined
+		/** Unset for what has no workspace error handler to mute, such as an agent. */
+		errorHandlerKind?: 'flow' | 'script'
+		scriptOrFlowPath?: string
+		errorHandlerMuted?: boolean | undefined
 		labels?: string[] | undefined
 		inheritedLabels?: string[] | undefined
 		onSaved?: (newPath: string) => void
 		children?: import('svelte').Snippet
 		trigger_badges?: import('svelte').Snippet
+		/** Controls ahead of the menu, such as the way an agent's page runs it. */
+		leading_actions?: import('svelte').Snippet
 	}
 
 	let {
@@ -64,7 +71,8 @@
 		inheritedLabels = undefined,
 		onSaved,
 		children,
-		trigger_badges
+		trigger_badges,
+		leading_actions
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -81,6 +89,7 @@
 	}
 
 	async function toggleErrorHandler() {
+		if (!errorHandlerKind || !scriptOrFlowPath) return
 		const next = await toggleWorkspaceErrorHandler(
 			errorHandlerKind,
 			scriptOrFlowPath,
@@ -99,7 +108,7 @@
 			disabled: b.buttonProps.disabled,
 			type: 'action' as const
 		})),
-		...(wide.current
+		...(wide.current || !errorHandlerKind
 			? []
 			: [
 					{
@@ -113,6 +122,7 @@
 			displayName: item.label,
 			icon: item.Icon,
 			action: item.onclick,
+			disabled: item.disabled,
 			type: item.color === 'red' ? ('delete' as const) : ('action' as const),
 			separatorTop: i === 0 && !wide.current
 		}))
@@ -176,12 +186,13 @@
 				{@render trigger_badges?.()}
 			</div>
 			<div class="flex gap-1 items-center pr-4">
+				{@render leading_actions?.()}
 				{#if allMenuItems.length > 0}
 					{#key allMenuItems}
 						<DropdownV2 items={allMenuItems} placement="bottom-end" size="md" />
 					{/key}
 				{/if}
-				{#if wide.current}
+				{#if wide.current && errorHandlerKind && scriptOrFlowPath}
 					<ErrorHandlerToggleButton
 						kind={errorHandlerKind}
 						{scriptOrFlowPath}
