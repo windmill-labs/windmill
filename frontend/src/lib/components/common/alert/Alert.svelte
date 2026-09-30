@@ -63,7 +63,7 @@
 <div
 	class={twMerge(
 		notRounded ? '' : 'rounded-md',
-		size === 'sm' ? 'p-4' : 'p-3',
+		size === 'sm' ? 'px-3 py-2' : 'px-2.5 py-1.5',
 		classes[type].bgClass,
 		bgClass,
 		classNames
