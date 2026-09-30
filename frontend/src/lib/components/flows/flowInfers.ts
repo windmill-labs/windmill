@@ -60,7 +60,7 @@ export const AI_AGENT_SCHEMA: Schema = {
 		memory: {
 			type: 'object',
 			description:
-				'Windmill stores the conversation and sends it with each request, keeping either its last messages or a summary of the older ones.',
+				'Windmill stores the conversation and sends it with each request. On keeps all of it, summarizing the older part as it nears the context window. Legacy keeps only the last messages.',
 			enumLabels: MEMORY_OPTION_LABELS,
 			// Chat mode keys memory on the conversation, so a chat whose agent has memory off
 			// forgets every turn. Enabling chat mode turns it on; this keeps it there. A step
