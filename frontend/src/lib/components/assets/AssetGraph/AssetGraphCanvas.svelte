@@ -486,7 +486,9 @@
 	}
 
 	let assetsOnly = $state(false)
-	$effect(() => {
+	// Before the first paint: the default view is assets-only, and a plain effect
+	// would flash the full graph first.
+	$effect.pre(() => {
 		if (assetsOnlyFolder != undefined) assetsOnly = isAssetsOnlyFolder(assetsOnlyFolder)
 	})
 
