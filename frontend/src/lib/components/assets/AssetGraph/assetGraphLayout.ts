@@ -18,8 +18,8 @@ const SIBLING_GAP = NODE.gap.horizontal
 // into each other's columns — but only ~2×, so they don't drift far apart.
 const COMPONENT_GAP = SIBLING_GAP * 2
 
-/** Extra height of an assets-only node: the row of upstream chips under the title. */
-export const PIPELINE_NODE_EXTRA_ROW = 24
+/** Extra height of an assets-only node: the trigger chip under its title. */
+export const PIPELINE_NODE_EXTRA_ROW = 16
 
 interface GraphInput {
 	nodes: Array<{ id: string; data: AssetGraphNodeData }>

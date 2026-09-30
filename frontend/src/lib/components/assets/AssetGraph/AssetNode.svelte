@@ -40,13 +40,22 @@
 		| { none: true }
 		| { multiple: true }
 		| {
+				runnableId: string
 				path: string
 				summary?: string
 				language?: ScriptLang
 				unsaved?: boolean
 				runState?: RunnableRunState
-				trigger: { label: string; missing?: boolean; draft?: boolean }
+				trigger: {
+					label: string
+					missing?: boolean
+					draft?: boolean
+					/** Opens the trigger's editor; unset for what has none (manual, asset change). */
+					onOpen?: () => void
+					selected?: boolean
+				}
 				onOpen: () => void
+				selected?: boolean
 		  }
 
 	export type AssetProducer = {
@@ -179,6 +188,8 @@
 
 	let showAdd = $derived(data.onAddScript != undefined)
 	let upstream = $derived(data.upstream)
+	const CHIP_SELECTED =
+		'bg-surface-accent-selected border-border-selected hover:bg-surface-accent-selected text-accent'
 	let producer = $derived(upstream && 'path' in upstream ? upstream : undefined)
 
 	// dbt badge. `materialized` is dbt's own word rather than the Windmill
@@ -247,30 +258,47 @@
 	)
 </script>
 
-	{#snippet upstreamRow()}
-		{#if upstream}
-			<span
-				class={twMerge(
-					'truncate rounded-md border px-1.5 py-0.5 text-3xs leading-none',
-					producer?.trigger.missing
-						? 'border-red-300 dark:border-red-600 text-red-700 dark:text-red-300'
-						: 'border-gray-300 dark:border-gray-600 text-secondary',
-					producer?.trigger.draft && 'border-dashed'
-				)}
-				title={producer?.trigger.missing
-					? `No ${producer.trigger.label} trigger targets ${producer.path} yet`
-					: undefined}
+{#snippet upstreamRow()}
+	{#if upstream}
+		{@const trigger = producer?.trigger}
+		{@const chipClass = twMerge(
+			'truncate rounded-md border px-1.5 py-0.5 text-3xs leading-none font-normal',
+			trigger?.missing
+				? 'border-red-300 dark:border-red-600 text-red-700 dark:text-red-300'
+				: 'border-gray-300 dark:border-gray-600 text-secondary',
+			trigger?.draft && 'border-dashed',
+			trigger?.onOpen && 'hover:bg-surface-hover cursor-pointer',
+			trigger?.selected && CHIP_SELECTED
+		)}
+		{#if trigger?.onOpen}
+			<button
+				type="button"
+				class={chipClass}
+				title={trigger.missing
+					? `No ${trigger.label} trigger targets ${producer?.path} yet: click to create one`
+					: `Edit the ${trigger.label} trigger`}
+				onpointerdown={(e) => e.stopPropagation()}
+				onkeydown={(e) => e.stopPropagation()}
+				onclick={(e) => {
+					e.stopPropagation()
+					trigger.onOpen?.()
+				}}
 			>
+				{trigger.label}{trigger.draft ? ' · draft' : ''}
+			</button>
+		{:else}
+			<span class={chipClass}>
 				{#if 'none' in upstream}
 					External source
-				{:else if producer}
-					{producer.trigger.label}{producer.trigger.draft ? ' · draft' : ''}
+				{:else if trigger}
+					{trigger.label}
 				{:else}
 					Multiple upstream nodes
 				{/if}
 			</span>
 		{/if}
-	{/snippet}
+	{/if}
+{/snippet}
 
 <!-- onmouseenter/leave on the wrapper (not the inner card) so the run
      button — which floats outside the card — keeps the hover state alive
@@ -294,7 +322,8 @@
 		tooltip={data.error ? `${data.path}: ${data.error}` : data.path}
 		{selected}
 		tone={data.error ? 'error' : undefined}
-		footer={upstream ? upstreamRow : undefined}
+		subtitle={upstream ? upstreamRow : undefined}
+		surface={upstream ? 'primary' : 'secondary'}
 	>
 		{#snippet icon()}
 			<!-- Data identity carries the accent (luminance blue), pairing with
@@ -413,11 +442,15 @@
 				{/if}
 				<button
 					type="button"
-					class="shrink-0 h-5 min-w-5 px-1 grid place-items-center rounded-md border bg-surface text-secondary hover:bg-surface-hover {producer.unsaved
-						? 'border-dashed border-gray-400 dark:border-gray-500'
-						: 'border-gray-300 dark:border-gray-600'}"
+					class={twMerge(
+						'shrink-0 h-5 min-w-5 px-1 grid place-items-center rounded-md border bg-surface text-secondary hover:bg-surface-hover border-gray-300 dark:border-gray-600',
+						producer.unsaved && 'border-dashed border-gray-400 dark:border-gray-500',
+						producer.selected && CHIP_SELECTED
+					)}
 					title={`Open ${producer.summary ? `${producer.summary} (${producer.path})` : producer.path}${producer.unsaved ? ' · draft' : ''}`}
 					aria-label="Open the script that produces this asset"
+					onpointerdown={(e) => e.stopPropagation()}
+					onkeydown={(e) => e.stopPropagation()}
 					onclick={(e) => {
 						e.stopPropagation()
 						producer?.onOpen()

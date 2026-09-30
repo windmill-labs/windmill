@@ -904,23 +904,57 @@
 
 	let model = $derived(build(graph))
 
-	/** The label of the chip naming what runs an asset's producer. */
-	function triggerChip(t: (AssetUpstream & { multiple: false })['trigger']): {
+	// The trigger chip last clicked in the assets-only view, by trigger node id: it
+	// opens a drawer rather than a selection, so it is highlighted until the next pick.
+	let activeTriggerId = $state<string | undefined>(undefined)
+	$effect(() => {
+		void selection
+		activeTriggerId = undefined
+	})
+
+	/** The chip naming what runs an asset's producer, and the editor it opens: the
+	 * same routes the trigger's own node takes. */
+	function triggerChip(
+		t: (AssetUpstream & { multiple: false })['trigger'],
+		scriptPath: string
+	): {
 		label: string
+		nodeId?: string
 		missing?: boolean
 		draft?: boolean
+		onOpen?: () => void
 	} {
 		if (!t) return { label: 'Manual' }
 		if (t.kind === 'asset') return { label: 'On asset change' }
-		const style = TRIGGER_NODE_STYLE[t.kind as TriggerNodeKind]
+		const kind = t.kind as NativeTriggerKind
+		const style = TRIGGER_NODE_STYLE[kind]
 		const label =
 			t.kind === 'schedule' && t.data?.schedule
 				? (describeSchedule(t.data.schedule, t.data.timezone) ?? `Schedule (${t.data.schedule})`)
 				: (style?.label ?? t.kind)
+		const rowless = kind === 'webhook' || kind === 'data_upload'
+		const missing = !!t.data?.missing && !rowless
+		const open =
+			kind === 'webhook'
+				? onOpenWebhook && (() => onOpenWebhook(scriptPath))
+				: kind === 'data_upload'
+					? onOpenDataUpload && (() => onOpenDataUpload(scriptPath))
+					: missing
+						? onCreateMissingTrigger && (() => onCreateMissingTrigger(kind, scriptPath))
+						: t.data?.ref && onEditTrigger
+							? () => onEditTrigger(kind, t.data.ref, scriptPath)
+							: undefined
 		return {
 			label,
-			missing: t.data?.missing && t.kind !== 'webhook' && t.kind !== 'data_upload',
-			draft: t.data?.draft
+			nodeId: t.nodeId,
+			missing,
+			draft: t.data?.draft,
+			onOpen: open
+				? () => {
+						activeTriggerId = t.nodeId
+						open()
+					}
+				: undefined
 		}
 	}
 
@@ -948,12 +982,13 @@
 							: u.multiple || !r
 								? { multiple: true }
 								: {
+										runnableId: u.runnableId,
 										path: r.path,
 										summary: r.summary,
 										language: r.language,
 										unsaved: r.unsaved,
 										runState: r.runState,
-										trigger: triggerChip(u.trigger),
+										trigger: triggerChip(u.trigger, r.path),
 										onOpen: () =>
 											onselect?.({
 												kind: 'runnable',
@@ -1098,11 +1133,28 @@
 				else if (!boundPick.eligible.has(n.id)) boundClass = 'wm-bound-dim'
 			}
 			const dbtClass = dbtEmphasisIds.has(n.id) ? 'wm-dbt-linked' : undefined
+			// The chips' selected look rides on the positioned nodes, so a selection
+			// never re-runs the layout.
+			const up = n.type === 'asset' ? n.data.upstream : undefined
+			const data =
+				up?.runnableId !== undefined
+					? {
+							...n.data,
+							upstream: {
+								...up,
+								selected: up.runnableId === selectedId,
+								trigger: {
+									...up.trigger,
+									selected: !!up.trigger.nodeId && up.trigger.nodeId === activeTriggerId
+								}
+							}
+						}
+					: n.data
 			return {
 				id: n.id,
 				type: n.type,
 				position: { x: p.x + xCenter, y: p.y + 40 },
-				data: n.data,
+				data,
 				class: boundClass ?? dbtClass ?? runClass ?? assetClass,
 				selected: n.id === selectedId,
 				// All nodes non-draggable: the layout is sugiyama-computed,
@@ -1423,6 +1475,7 @@
 		) {
 			return
 		}
+		activeTriggerId = undefined
 		onselect(undefined)
 	}
 </script>
