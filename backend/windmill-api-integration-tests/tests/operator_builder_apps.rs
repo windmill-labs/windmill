@@ -279,5 +279,30 @@ async fn test_operator_builder_apps_boundary(db: Pool<Postgres>) -> anyhow::Resu
         resp.text().await?
     );
 
+    // The editor runs a draft's inline runnables as whoever opens it.
+    for (runnables, expected) in [
+        (json!({}), 200),
+        (
+            json!({"a": {"type": "inline", "inlineScript": {"content": "x", "language": "bun"}}}),
+            403,
+        ),
+    ] {
+        let resp = c
+            .post(format!("{api}/drafts/update/raw_app/u/operator/d1"))
+            .json(&json!({
+                "value": {"files": {}, "runnables": runnables, "summary": ""},
+                "force": true
+            }))
+            .send()
+            .await?;
+        let status = resp.status();
+        assert_eq!(
+            status,
+            expected,
+            "raw app draft {runnables}: {}",
+            resp.text().await?
+        );
+    }
+
     Ok(())
 }

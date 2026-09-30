@@ -753,7 +753,7 @@ async fn list_apps(
     // Append the authed user's `app`/`raw_app` drafts at paths with no deployed app;
     // see scripts.rs.
     if lq.include_draft_only.unwrap_or(false)
-        && !authed.is_operator
+        && (!authed.is_operator || operator_builder_rights(&db, &w_id).await?.apps)
         && offset == 0
         && lq.path_start.is_none()
         && lq.path_exact.is_none()

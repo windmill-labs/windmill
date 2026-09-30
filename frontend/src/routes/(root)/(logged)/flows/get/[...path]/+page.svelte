@@ -371,7 +371,7 @@
 			return buttons
 		}
 
-		// The builder right covers flows only; building an app is still refused to operators.
+		// Build app makes a low-code app, which no builder right covers.
 		if (!$userStore?.operator) {
 			buttons.push({
 				label: 'Build app',

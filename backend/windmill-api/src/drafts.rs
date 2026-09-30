@@ -496,6 +496,21 @@ async fn update_draft(
         }
     }
 
+    // The raw-app editor runs a draft's inline runnables as whoever opens it, so a builder's
+    // draft is refused the inline code its deploy would be.
+    if authed.is_operator && kind == UserDraftItemKind::RawApp {
+        if let Some(value) = &req.value {
+            let draft: serde_json::Value = serde_json::from_str(&strip_json_nul(value.0.get()))
+                .map_err(|e| Error::BadRequest(format!("Invalid app draft: {e}")))?;
+            if windmill_common::apps::app_value_has_inline_script(&draft) {
+                return Err(Error::PermissionDenied(
+                    "Operators with builder rights cannot save an app carrying inline scripts"
+                        .to_string(),
+                ));
+            }
+        }
+    }
+
     let applied = if let Some(value) = &req.value {
         // Secret variable values must never sit in `draft.value` in plaintext
         // (see `encrypt_secret_variable_value`).
