@@ -3,7 +3,6 @@
 	import {
 		ChevronDown,
 		Code2,
-		EllipsisVertical,
 		GitBranch,
 		Layers,
 		Loader2,
@@ -18,15 +17,14 @@
 	} from 'lucide-svelte'
 	import DbtIcon from '$lib/components/icons/DbtIcon.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { preventDefault, stopPropagation } from 'svelte/legacy'
 	import type { GraphUsageKind } from './types'
 	import type { RunnableRunState } from './activeRunnables.svelte'
 	import { parseDurationSecs } from './parsePipelineAnnotations'
 	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
 	import PipelineNodeCard from './PipelineNodeCard.svelte'
+	import NodeActionsMenu from './NodeActionsMenu.svelte'
 	import RunStateChip from './RunStateChip.svelte'
 	import type { ScriptLang } from '$lib/gen'
-	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import type { Item } from '$lib/utils'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
@@ -120,7 +118,6 @@
 	)
 
 	let hover = $state(false)
-	let menuOpen = $state(false)
 	let running = $state(false)
 
 	// Amber "computing now" surface, gated so only the replay player lights it up.
@@ -223,101 +220,103 @@
 		selected state, dashes for unsaved drafts — 1px, like the trigger
 		nodes' dashed outline, so every draft node reads the same.
 	-->
-	<PipelineNodeCard
-		surface="primary"
-		kindLabel="{kindLabel}{data.unsaved ? ' · draft' : ''}"
-		title={data.summary || data.path}
-		tooltip={data.error ? `${data.path}: ${data.error}` : nodeTooltip}
-		{selected}
-		draft={data.unsaved}
-		tone={computingNow ? 'running' : data.error ? 'error' : undefined}
-	>
-		{#snippet icon()}
-			{#if data.language && data.runnable_kind === 'script'}
-				<LanguageIcon lang={data.language} width={14} height={14} />
-			{:else}
-				<Icon size={14} class={selected ? 'text-accent' : 'text-secondary'} />
-			{/if}
-		{/snippet}
-		{#snippet trailing()}
-			<!-- Annotation chips share one neutral treatment — the icon carries
-		     the meaning (colors are reserved for feedback, per the brand
-		     guidelines). Only the freshness chip (when it has a verdict)
-		     and the run-state chip below use semantic colors. -->
-			{#if data.partition_kind}
-				<div
-					class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-surface-secondary text-secondary"
-					title={`// partitioned ${data.partition_kind}`}
-				>
-					<Layers size={10} />
-					<span class="text-3xs leading-none">{data.partition_kind}</span>
-				</div>
-			{/if}
-			<!-- Freshness is the one annotation chip that carries feedback (a
-		     fresh/stale verdict against real run history), so like the
-		     run-state chip it uses semantic colors: emerald = within window,
-		     amber = stale. Neutral when there's no verdict (drafts, bad
-		     window value). -->
-			{#if data.freshness}
-				<div
-					class={twMerge(
-						'shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm',
-						freshnessState === 'fresh'
-							? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300'
-							: freshnessState === 'stale'
-								? 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300'
-								: 'bg-surface-secondary text-secondary'
-					)}
-					title={freshnessTooltip}
-				>
-					<Timer size={10} />
-					<span class="text-3xs leading-none">{data.freshness}</span>
-				</div>
-			{/if}
-			{#if data.tag}
-				<div
-					class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-surface-secondary text-secondary"
-					title={`// tag ${data.tag}`}
-				>
-					<Tag size={10} />
-					<span class="text-3xs leading-none">{data.tag}</span>
-				</div>
-			{/if}
-			{#if data.retry}
-				{@const r = data.retry}
-				<div
-					class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-surface-secondary text-secondary"
-					title={`// retry ${r.count}${r.delay ? ` ${r.delay}` : ''}`}
-				>
-					<RotateCw size={10} />
-					<span class="text-3xs leading-none">×{r.count}</span>
-				</div>
-			{/if}
-			{#if data.macros && data.macros.length > 0}
-				<div
-					class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-surface-secondary text-secondary"
-					title={`// macros — defines ${data.macros.length} macro${data.macros.length > 1 ? 's' : ''}:\n${data.macros
-						.map((m) => `• ${m.name}(${m.params})${m.is_table ? ' → table' : ''}`)
-						.join('\n')}`}
-				>
-					<SquareFunction size={10} />
-					<span class="text-3xs leading-none">×{data.macros.length}</span>
-				</div>
-			{/if}
-			{#if data.dbt}
-				<div
-					class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300"
-					title={`dbt project — materializes ${data.dbt.model_count} model${data.dbt.model_count === 1 ? '' : 's'}`}
-				>
-					<DbtIcon width={10} height={10} />
-					<span class="text-3xs leading-none">×{data.dbt.model_count}</span>
-				</div>
-			{/if}
-			{#if data.runState}
-				<RunStateChip runState={data.runState} class="mr-1" />
-			{/if}
-		{/snippet}
-	</PipelineNodeCard>
+	<NodeActionsMenu items={menuItems} {hover}>
+		<PipelineNodeCard
+			surface="primary"
+			kindLabel="{kindLabel}{data.unsaved ? ' · draft' : ''}"
+			title={data.summary || data.path}
+			tooltip={data.error ? `${data.path}: ${data.error}` : nodeTooltip}
+			{selected}
+			draft={data.unsaved}
+			tone={computingNow ? 'running' : data.error ? 'error' : undefined}
+		>
+			{#snippet icon()}
+				{#if data.language && data.runnable_kind === 'script'}
+					<LanguageIcon lang={data.language} width={14} height={14} />
+				{:else}
+					<Icon size={14} class={selected ? 'text-accent' : 'text-secondary'} />
+				{/if}
+			{/snippet}
+			{#snippet trailing()}
+				<!-- Annotation chips share one neutral treatment — the icon carries
+			     the meaning (colors are reserved for feedback, per the brand
+			     guidelines). Only the freshness chip (when it has a verdict)
+			     and the run-state chip below use semantic colors. -->
+				{#if data.partition_kind}
+					<div
+						class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-surface-secondary text-secondary"
+						title={`// partitioned ${data.partition_kind}`}
+					>
+						<Layers size={10} />
+						<span class="text-3xs leading-none">{data.partition_kind}</span>
+					</div>
+				{/if}
+				<!-- Freshness is the one annotation chip that carries feedback (a
+			     fresh/stale verdict against real run history), so like the
+			     run-state chip it uses semantic colors: emerald = within window,
+			     amber = stale. Neutral when there's no verdict (drafts, bad
+			     window value). -->
+				{#if data.freshness}
+					<div
+						class={twMerge(
+							'shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm',
+							freshnessState === 'fresh'
+								? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300'
+								: freshnessState === 'stale'
+									? 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300'
+									: 'bg-surface-secondary text-secondary'
+						)}
+						title={freshnessTooltip}
+					>
+						<Timer size={10} />
+						<span class="text-3xs leading-none">{data.freshness}</span>
+					</div>
+				{/if}
+				{#if data.tag}
+					<div
+						class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-surface-secondary text-secondary"
+						title={`// tag ${data.tag}`}
+					>
+						<Tag size={10} />
+						<span class="text-3xs leading-none">{data.tag}</span>
+					</div>
+				{/if}
+				{#if data.retry}
+					{@const r = data.retry}
+					<div
+						class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-surface-secondary text-secondary"
+						title={`// retry ${r.count}${r.delay ? ` ${r.delay}` : ''}`}
+					>
+						<RotateCw size={10} />
+						<span class="text-3xs leading-none">×{r.count}</span>
+					</div>
+				{/if}
+				{#if data.macros && data.macros.length > 0}
+					<div
+						class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-surface-secondary text-secondary"
+						title={`// macros — defines ${data.macros.length} macro${data.macros.length > 1 ? 's' : ''}:\n${data.macros
+							.map((m) => `• ${m.name}(${m.params})${m.is_table ? ' → table' : ''}`)
+							.join('\n')}`}
+					>
+						<SquareFunction size={10} />
+						<span class="text-3xs leading-none">×{data.macros.length}</span>
+					</div>
+				{/if}
+				{#if data.dbt}
+					<div
+						class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300"
+						title={`dbt project — materializes ${data.dbt.model_count} model${data.dbt.model_count === 1 ? '' : 's'}`}
+					>
+						<DbtIcon width={10} height={10} />
+						<span class="text-3xs leading-none">×{data.dbt.model_count}</span>
+					</div>
+				{/if}
+				{#if data.runState}
+					<RunStateChip runState={data.runState} class="mr-1" />
+				{/if}
+			{/snippet}
+		</PipelineNodeCard>
+	</NodeActionsMenu>
 	{#if showRun}
 		<!-- Run button revealed on hover/select. Matches the placement, size,
 		     and behaviour of AssetNode's run button so both nodes feel
@@ -443,39 +442,6 @@
 		</div>
 	{/if}
 
-	{#if menuItems.length > 0}
-		<!--
-			Hover-revealed action menu, top-right of the node. Mirrors the
-			FlowModuleSchemaItem pattern: position the trigger button just
-			outside the node frame, only render it on hover (or while the
-			menu is open) so the canvas isn't visually cluttered when idle.
-			The pointerdown stop+preventDefault keeps xyflow from selecting
-			the node when the user is reaching for the menu.
-		-->
-		<div class="absolute -top-2 -right-2 h-7 p-1 min-w-7" style="will-change: transform;">
-			<DropdownV2
-				items={menuItems}
-				placement="bottom-end"
-				bind:open={menuOpen}
-				fixedHeight={false}
-				usePointerDownOutside
-			>
-				{#snippet buttonReplacement()}
-					<button
-						class={twMerge(
-							'center-center p-1 text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-tertiary',
-							hover || menuOpen ? 'block' : '!hidden',
-							'shadow-md rounded-md'
-						)}
-						onpointerdown={stopPropagation(preventDefault(() => {}))}
-						title="Actions"
-					>
-						<EllipsisVertical size={12} />
-					</button>
-				{/snippet}
-			</DropdownV2>
-		</div>
-	{/if}
 </div>
 
 <Handle type="target" position={Position.Top} isConnectable={false} />

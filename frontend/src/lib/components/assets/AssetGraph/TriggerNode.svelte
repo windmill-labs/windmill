@@ -50,11 +50,9 @@
 <script lang="ts">
 	import { Handle, Position } from '@xyflow/svelte'
 	import PipelineNodeCard from './PipelineNodeCard.svelte'
+	import NodeActionsMenu from './NodeActionsMenu.svelte'
 	import { describeSchedule } from '$lib/utils/describeCron'
-	import { twMerge } from 'tailwind-merge'
-	import { AlertTriangle, CheckCircle2, EllipsisVertical, Target, Trash2 } from 'lucide-svelte'
-	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import { stopPropagation, preventDefault } from 'svelte/legacy'
+	import { AlertTriangle, CheckCircle2, Target, Trash2 } from 'lucide-svelte'
 	import type { Item } from '$lib/utils'
 
 	interface Props {
@@ -123,7 +121,6 @@
 	let { data }: Props = $props()
 
 	let hover = $state(false)
-	let menuOpen = $state(false)
 
 	let style = $derived(TRIGGER_NODE_STYLE[data.kind])
 	// Webhooks are never genuinely "missing" — every deployed runnable has an
@@ -299,60 +296,31 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="relative" onmouseenter={() => (hover = true)} onmouseleave={() => (hover = false)}>
-	<PipelineNodeCard
-		kindLabel={card.kindLabel}
-		title={card.title}
-		tooltip={card.tooltip}
-		draft={card.draft}
-		tone={card.tone}
-		onclick={card.onclick}
-	>
-		{#snippet icon()}
-			{#if canOpenDataUpload}
-				<DataUploadIcon
-					size={14}
-					class={dataUploadReady ? 'text-green-600 dark:text-green-400' : style.iconText}
-				/>
-			{:else}
-				<Icon
-					size={14}
-					class={displayMissing || canCreate ? 'text-red-600 dark:text-red-400' : style.iconText}
-				/>
-			{/if}
-		{/snippet}
-	</PipelineNodeCard>
+	<NodeActionsMenu items={menuItems} {hover}>
+		<PipelineNodeCard
+			kindLabel={card.kindLabel}
+			title={card.title}
+			tooltip={card.tooltip}
+			draft={card.draft}
+			tone={card.tone}
+			onclick={card.onclick}
+		>
+			{#snippet icon()}
+				{#if canOpenDataUpload}
+					<DataUploadIcon
+						size={14}
+						class={dataUploadReady ? 'text-green-600 dark:text-green-400' : style.iconText}
+					/>
+				{:else}
+					<Icon
+						size={14}
+						class={displayMissing || canCreate ? 'text-red-600 dark:text-red-400' : style.iconText}
+					/>
+				{/if}
+			{/snippet}
+		</PipelineNodeCard>
+	</NodeActionsMenu>
 
-	{#if menuItems.length > 0}
-		<!-- Hover-revealed kebab menu (Delete only for now). Mirrors the
-		     RunnableNode pattern: positioned just outside the top-right of
-		     the node, rendered only on hover or while the menu is open so
-		     the canvas stays clean at rest. `pointerdown` is stopped so
-		     svelte-flow doesn't kick off node selection / drag when the
-		     user reaches for the menu. -->
-		<div class="absolute -top-2 -right-2 h-7 p-1 min-w-7" style="will-change: transform;">
-			<DropdownV2
-				items={menuItems}
-				placement="bottom-end"
-				bind:open={menuOpen}
-				fixedHeight={false}
-				usePointerDownOutside
-			>
-				{#snippet buttonReplacement()}
-					<button
-						class={twMerge(
-							'center-center p-1 text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-tertiary',
-							hover || menuOpen ? 'block' : '!hidden',
-							'shadow-md rounded-md'
-						)}
-						onpointerdown={stopPropagation(preventDefault(() => {}))}
-						title="Actions"
-					>
-						<EllipsisVertical size={12} />
-					</button>
-				{/snippet}
-			</DropdownV2>
-		</div>
-	{/if}
 </div>
 
 <Handle type="source" position={Position.Bottom} isConnectable={false} />

@@ -85,6 +85,8 @@
 		/** Receives whether the menu is open, e.g. to keep a hover state while it is. */
 		trigger: import('svelte').Snippet<[{ open: boolean }]>
 		placement?: 'bottom' | 'top' | 'left' | 'right'
+		/** Opens the menu each time it changes, for an entry point other than the trigger. */
+		openSignal?: number
 	}
 
 	let {
@@ -94,7 +96,8 @@
 		trigger: triggerSnippet,
 		placement = 'bottom',
 		defaultPathSuffix,
-		onPick
+		onPick,
+		openSignal
 	}: Props = $props()
 
 	// When there's only one trigger kind, hide the Trigger column entirely
@@ -110,6 +113,9 @@
 	})
 	let selected = $state(buildEmptySelected())
 	let menuOpen = $state(false)
+	$effect(() => {
+		if (openSignal) menuOpen = true
+	})
 	let selectedKind = $derived(kinds.find((k) => k.id === selected.triggerId))
 
 	// Steps after the first, each configuring something the picks call for.

@@ -1,3 +1,5 @@
+import type { NativeTriggerKind } from './types'
+
 /** A node or edge of the canvas model, reduced to what the assets-only view reads. */
 export type ViewNode = { id: string; type: string; data: any }
 export type ViewEdge = {
@@ -6,6 +8,12 @@ export type ViewEdge = {
 	target: string
 	kind: string
 	unsaved?: boolean
+}
+
+/** The script and trigger an assets-only asset's delete removes. */
+export type AssetUpstreamDelete = {
+	script: { path: string; unsaved: boolean }
+	trigger?: { kind: NativeTriggerKind; path: string; draft: boolean }
 }
 
 /** What an asset shows of the script and trigger that produce it, in the assets-only view. */
@@ -99,4 +107,32 @@ export function assetsOnlyView<N extends ViewNode, E extends ViewEdge>(
 
 	const nodeIds = new Set(nodes.filter((n) => n.type === 'asset').map((n) => n.id))
 	return { nodeIds, edges: [...out.values()], upstream }
+}
+
+/** What deleting an asset's upstream removes: the script unless another asset
+ * is also built by it, and with it the trigger unless that fires other scripts.
+ * Undefined when nothing can go. */
+export function upstreamDeletion(
+	u: AssetUpstream & { multiple: false },
+	r: { runnable_kind: string; path: string; unsaved?: boolean },
+	all: Map<string, AssetUpstream>
+): AssetUpstreamDelete | undefined {
+	if (r.runnable_kind !== 'script') return undefined
+	const producesOthers =
+		[...all.values()].filter((o) => !o.multiple && o.runnableId === u.runnableId).length > 1
+	if (producesOthers) return undefined
+	const t = u.trigger
+	const kind = t?.kind as NativeTriggerKind | undefined
+	const targets: string[] = t?.data?.runnable_paths ?? []
+	const ownTrigger =
+		kind &&
+		kind !== 'webhook' &&
+		kind !== 'data_upload' &&
+		t?.data?.ref &&
+		!t.data.missing &&
+		targets.every((p) => p === r.path)
+	return {
+		script: { path: r.path, unsaved: !!r.unsaved },
+		trigger: ownTrigger ? { kind, path: t.data.ref, draft: !!t.data.draft } : undefined
+	}
 }

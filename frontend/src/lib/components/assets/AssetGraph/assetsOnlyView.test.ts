@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { assetsOnlyView } from './assetsOnlyView'
+import { assetsOnlyView, upstreamDeletion, type AssetUpstream } from './assetsOnlyView'
 
 const node = (id: string, type: string, data: any = {}) => ({ id, type, data })
 const edge = (source: string, target: string, kind: string) => ({
@@ -52,5 +52,41 @@ describe('assetsOnlyView', () => {
 			trigger: { kind: 'schedule', data: { schedule: '0 0 4 * * *' } }
 		})
 		expect(v.upstream.get('asset:ducklake:report')).toEqual({ multiple: true })
+	})
+})
+
+describe('upstreamDeletion', () => {
+	const script = { runnable_kind: 'script', path: 'f/p/a' }
+	const schedule = (targets: string[]) => ({
+		kind: 'schedule',
+		nodeId: 'trigger:schedule:f/p/a_schedule',
+		data: { ref: 'f/p/a_schedule', runnable_paths: targets }
+	})
+	const own = (trigger?: any): AssetUpstream & { multiple: false } => ({
+		multiple: false,
+		runnableId: 'script:f/p/a',
+		trigger
+	})
+
+	it('deletes the script and a trigger that fires only it', () => {
+		const u = own(schedule(['f/p/a']))
+		expect(upstreamDeletion(u, script, new Map([['asset:x', u]]))).toEqual({
+			script: { path: 'f/p/a', unsaved: false },
+			trigger: { kind: 'schedule', path: 'f/p/a_schedule', draft: false }
+		})
+	})
+
+	it('keeps a trigger that fires other scripts', () => {
+		const u = own(schedule(['f/p/a', 'f/p/b']))
+		expect(upstreamDeletion(u, script, new Map([['asset:x', u]]))?.trigger).toBeUndefined()
+	})
+
+	it('deletes nothing when the script builds another asset too', () => {
+		const u = own(schedule(['f/p/a']))
+		const all = new Map([
+			['asset:x', u],
+			['asset:y', u]
+		])
+		expect(upstreamDeletion(u, script, all)).toBeUndefined()
 	})
 })

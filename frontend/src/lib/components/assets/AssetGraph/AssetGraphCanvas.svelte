@@ -14,17 +14,30 @@
 	import RunnableNode from './RunnableNode.svelte'
 	import TriggerNode, { type TriggerNodeKind } from './TriggerNode.svelte'
 	import AddNode from './AddNode.svelte'
+	import AddDataSourceMenu from './AddDataSourceMenu.svelte'
 	import DataTestNode from './DataTestNode.svelte'
 	import AssetGraphEdge from './AssetGraphEdge.svelte'
 	import PanToNode from './PanToNode.svelte'
 	import InitialFitView from './InitialFitView.svelte'
 	import { layoutAssetGraph, PIPELINE_NODE_EXTRA_ROW } from './assetGraphLayout'
-	import { assetsOnlyView, type AssetUpstream } from './assetsOnlyView'
+	import {
+		assetsOnlyView,
+		upstreamDeletion,
+		type AssetUpstream,
+		type AssetUpstreamDelete
+	} from './assetsOnlyView'
 	import { assetsOnlyNodeWidth } from './assetNodeWidth'
 	import { formatAssetKind, formatShortAssetPath } from '$lib/components/assets/lib'
 	import { TRIGGER_NODE_STYLE } from './TriggerNode.svelte'
 	import { describeSchedule } from '$lib/utils/describeCron'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import { fly } from 'svelte/transition'
+	import { Plus } from 'lucide-svelte'
+	import {
+		getContextMenuContainerClass,
+		CONTEXT_MENU_ITEM_BASE_CLASS,
+		CONTEXT_MENU_ITEM_HOVER_CLASS
+	} from '$lib/components/common/contextmenu/contextMenuStyles'
 	import { computeMutedReadKeys, dbtAssociations } from './resolveGraph'
 	import { buildDownstreamMap } from './graphTraversal'
 	import { buildLineageDownstreamMap } from './boundedCascade'
@@ -200,6 +213,9 @@
 		/** Offer the "Assets only" switch, which folds scripts and triggers into the
 		 * assets they produce. */
 		assetsOnlyToggle?: boolean
+		/** Deletes what produces an asset in the assets-only view: its script, and its
+		 * trigger when set. The canvas only offers what no other asset shares. */
+		onDeleteAssetUpstream?: (target: AssetUpstreamDelete) => void
 	}
 	let {
 		graph,
@@ -233,10 +249,29 @@
 		recomputedAssetIds,
 		assetRunStatus,
 		scrollZoom = true,
-		assetsOnlyToggle = false
+		assetsOnlyToggle = false,
+		onDeleteAssetUpstream
 	}: Props = $props()
 
 	let assetsOnly = $state(false)
+
+	// Right-click on the empty canvas: a menu at the pointer whose entry opens the
+	// add-data-source menu there too.
+	let paneMenu = $state<{ x: number; y: number } | undefined>(undefined)
+	let addMenuAt = $state<{ x: number; y: number }>({ x: 0, y: 0 })
+	let addMenuSignal = $state(0)
+	function handleContextMenu(e: MouseEvent) {
+		const t = e.target as HTMLElement | null
+		// A node's own actions menu opens on right-click; the browser's never does,
+		// on nodes without one either.
+		if (t?.closest('.svelte-flow__node')) {
+			e.preventDefault()
+			return
+		}
+		if (!onAddPipelineScript || boundPick || !t?.closest('.svelte-flow__pane')) return
+		e.preventDefault()
+		paneMenu = { x: e.clientX, y: e.clientY }
+	}
 
 	// `${kind}:${path}` ids for the hovered / pinned runs (both script and flow
 	// variants, since the run row's kind isn't known here).
@@ -859,6 +894,7 @@
 					timezone: info.timezone,
 					summary: info.summary,
 					runnable_path: info.runnable_path,
+					runnable_paths: info.runnable_paths,
 					// data_upload nodes go green once a file is staged for their
 					// target script (see readyDataUploadPaths / page dataUploadArgs).
 					ready: info.runnable_path
@@ -994,6 +1030,10 @@
 										path: r.path
 									})
 							}
+				const toDelete =
+					onDeleteAssetUpstream && u && !u.multiple && r
+						? upstreamDeletion(u, r, v.upstream)
+						: undefined
 				const asset = { kind: n.data.asset_kind, path: n.data.path }
 				// Chips this estimate does not model keep the regular width.
 				const width =
@@ -1015,7 +1055,20 @@
 								scriptChip: 'runnableId' in upstream
 							})
 						: undefined
-				return { ...n, data: { ...n.data, upstream, width } }
+				return {
+					...n,
+					data: {
+						...n.data,
+						upstream,
+						width,
+						...(toDelete
+							? {
+									deleteCount: toDelete.trigger ? 2 : 1,
+									onDeleteUpstream: () => onDeleteAssetUpstream?.(toDelete)
+								}
+							: {})
+					}
+				}
 			})
 		const edges: BuiltEdge[] = v.edges.map((e) => ({ ...e, kind: e.kind as BuiltEdge['kind'] }))
 		if (nodes.some((n) => n.id === ADD_NODE_ID)) {
@@ -1507,7 +1560,12 @@
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-<div class="w-full h-full relative" bind:clientWidth={paneWidth} onclickcapture={handleBackgroundClick}>
+<div
+	class="w-full h-full relative"
+	bind:clientWidth={paneWidth}
+	onclickcapture={handleBackgroundClick}
+	oncontextmenu={handleContextMenu}
+>
 	<SvelteFlow
 		{nodes}
 		{edges}
@@ -1569,6 +1627,55 @@
 		{/if}
 	</SvelteFlow>
 </div>
+
+<svelte:window
+	onpointerdown={(e) => {
+		if (paneMenu && !(e.target as HTMLElement | null)?.closest('[data-pane-menu]'))
+			paneMenu = undefined
+	}}
+	onkeydown={(e) => {
+		if (e.key === 'Escape') paneMenu = undefined
+	}}
+/>
+
+{#if paneMenu}
+	<div
+		class="fixed {getContextMenuContainerClass()}"
+		style="left: {paneMenu.x}px; top: {paneMenu.y}px;"
+		transition:fly={{ duration: 150, y: -10 }}
+		role="menu"
+		data-pane-menu
+	>
+		<button
+			type="button"
+			role="menuitem"
+			class="{CONTEXT_MENU_ITEM_BASE_CLASS} {CONTEXT_MENU_ITEM_HOVER_CLASS} gap-2 w-full text-left"
+			onclick={() => {
+				if (paneMenu) addMenuAt = paneMenu
+				paneMenu = undefined
+				addMenuSignal++
+			}}
+		>
+			<Plus size={14} />
+			Add data source
+		</button>
+	</div>
+{/if}
+
+{#if onAddPipelineScript}
+	<div class="fixed w-0 h-0" style="left: {addMenuAt.x}px; top: {addMenuAt.y}px;">
+		<AddDataSourceMenu
+			{onAddPipelineScript}
+			{pathPrefix}
+			{defaultPathSuffix}
+			openSignal={addMenuSignal}
+		>
+			{#snippet trigger()}
+				<span class="block w-0 h-0" aria-hidden="true"></span>
+			{/snippet}
+		</AddDataSourceMenu>
+	</div>
+{/if}
 
 <style lang="postcss">
 	:global(.svelte-flow__handle) {

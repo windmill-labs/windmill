@@ -93,7 +93,11 @@
 		isDraftableTriggerKind,
 		triggerDraftKey
 	} from '$lib/components/assets/AssetGraph/pipelineTriggerDrafts'
-	import { deployTriggerDraft } from '$lib/components/assets/AssetGraph/pipelineTriggerDraftDeploy'
+	import {
+		deleteTriggerRow,
+		deployTriggerDraft
+	} from '$lib/components/assets/AssetGraph/pipelineTriggerDraftDeploy'
+	import type { AssetUpstreamDelete } from '$lib/components/assets/AssetGraph/assetsOnlyView'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import type { PipelineInsertOptions } from '$lib/components/assets/AssetGraph/PipelineInsertMenu.svelte'
 	import {
@@ -664,6 +668,8 @@
 	// are removed from the drafts map as they land.
 	let savingAll = $state(false)
 	let saveErrors = $state<Map<string, string>>(new Map())
+	// Opened by a save that fails, so the reason is on screen without a click.
+	let saveErrorsOpen = $state(false)
 
 	// Post-deploy verification: capture the cascade-relevant facts (writes +
 	// `// on` subscriptions) the resolved draft graph promises for `paths`.
@@ -840,6 +846,7 @@
 			reportDeployDrift(new Map([...predicted].filter(([p]) => savedPaths.includes(p))))
 		}
 		saveErrors = errors
+		if (errors.size > 0) saveErrorsOpen = true
 		savingAll = false
 		const savedCount = savedPaths.length + savedTriggers.length
 		if (savedCount > 0 && errors.size === 0) {
@@ -1067,6 +1074,7 @@
 					const nextErrors = new Map(saveErrors)
 					nextErrors.set(path, msg)
 					saveErrors = nextErrors
+					saveErrorsOpen = true
 				}
 				// Pick up the next queued rename, if any.
 				const next = state.queuedPath
@@ -1197,6 +1205,43 @@
 			openTriggerDraft(source.kind, scriptPath)
 		}
 	}
+	// Assets-only "Delete N items": one confirmation, then the trigger and the
+	// script, each discarded if it is a draft and deleted if it is deployed.
+	let assetDeleteTarget = $state<AssetUpstreamDelete | undefined>(undefined)
+	let assetDeleteLoading = $state(false)
+	async function confirmAssetUpstreamDelete() {
+		const target = assetDeleteTarget
+		const ws = $workspaceStore
+		if (!target || !ws) return
+		assetDeleteLoading = true
+		const { script, trigger } = target
+		try {
+			if (trigger) {
+				const key = triggerDraftKey(trigger.kind, trigger.path)
+				if (pe.triggerDrafts.has(key)) pe.discardTriggerDraft(key)
+				if (!trigger.draft) await deleteTriggerRow(trigger.kind, trigger.path, ws)
+			}
+			const deployed = graphRes.current?.runnables.some(
+				(r) => r.path === script.path && !r.unsaved
+			)
+			if (pe.drafts.has(script.path)) discardDraft(script.path)
+			if (deployed) {
+				await ScriptService.deleteScriptByPath({ workspace: ws, path: script.path })
+				pe.discardTriggerDraftsFor(script.path)
+				forgetPath(script.path)
+				forgetScriptCache(script.path)
+			}
+			const n = trigger ? 2 : 1
+			sendUserToast(`Deleted ${n} item${n === 1 ? '' : 's'}`)
+			assetDeleteTarget = undefined
+			await graphRes.refetch()
+		} catch (e: any) {
+			sendUserToast(`Could not delete: ${e?.body ?? e?.message ?? String(e)}`, true)
+		} finally {
+			assetDeleteLoading = false
+		}
+	}
+
 	function handleRunnableMenuRemove(info: {
 		runnable_kind: 'script' | 'flow'
 		path: string
@@ -2751,7 +2796,13 @@
 				     the editor context. Drafts that succeed disappear from
 				     the map; the ones still listed here are the unresolved
 				     failures. -->
-				<Popover placement="bottom-end" contentClasses="p-3 max-w-[480px]" usePointerDownOutside>
+				<Popover
+					placement="bottom-end"
+					contentClasses="p-3 max-w-[480px]"
+					usePointerDownOutside
+					enableFlyTransition
+					bind:isOpen={saveErrorsOpen}
+				>
 					{#snippet trigger()}
 						<button
 							type="button"
@@ -2867,6 +2918,7 @@
 				onAddScriptForAsset={mode === 'edit' ? handleAddScriptForAsset : undefined}
 				onAddPipelineScript={mode === 'edit' ? handleAddPipelineScript : undefined}
 				onRunnableMenuRemove={mode === 'edit' ? handleRunnableMenuRemove : undefined}
+				onDeleteAssetUpstream={mode === 'edit' ? (t) => (assetDeleteTarget = t) : undefined}
 				onRunProducer={mode === 'edit' ? handleRunProducer : undefined}
 				onRequestEdit={isOperator ? undefined : () => setMode('edit')}
 				canRunByPath={openScriptHasDataUpload}
@@ -2996,6 +3048,38 @@
 <!-- Native trigger drawer wiring: create/edit/delete drawers (edit-mode
      only) + the always-mounted webhook drawer. Driven imperatively from the
      page via `triggerEditors`. -->
+<ConfirmationModal
+	open={assetDeleteTarget != undefined}
+	loading={assetDeleteLoading}
+	title={assetDeleteTarget?.trigger ? 'Delete 2 items?' : 'Delete 1 item?'}
+	confirmationText="Delete"
+	onConfirmed={confirmAssetUpstreamDelete}
+	onCanceled={() => {
+		if (!assetDeleteLoading) assetDeleteTarget = undefined
+	}}
+>
+	{#if assetDeleteTarget}
+		{@const t = assetDeleteTarget}
+		<div class="flex flex-col gap-2 text-xs text-secondary">
+			<p>These are deleted, along with every version. The tables they wrote stay.</p>
+			<ul class="flex flex-col gap-1">
+				<li class="flex flex-col">
+					<span class="text-emphasis truncate">{t.script.path}</span>
+					<span class="text-2xs text-hint">Script{t.script.unsaved ? ' · draft' : ''}</span>
+				</li>
+				{#if t.trigger}
+					<li class="flex flex-col">
+						<span class="text-emphasis truncate">{t.trigger.path}</span>
+						<span class="text-2xs text-hint"
+							>{t.trigger.kind} trigger{t.trigger.draft ? ' · draft' : ''}</span
+						>
+					</li>
+				{/if}
+			</ul>
+		</div>
+	{/if}
+</ConfirmationModal>
+
 <ConfirmationModal
 	open={confirmTriggerDeployOpen}
 	title="Deploy triggers?"

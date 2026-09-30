@@ -3,18 +3,8 @@
 	import { workspaceStore } from '$lib/stores'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import type { NativeTriggerKind, PipelineTriggerDraftKind } from './types'
-	import {
-		EmailTriggerService,
-		GcpTriggerService,
-		KafkaTriggerService,
-		MqttTriggerService,
-		AmqpTriggerService,
-		NatsTriggerService,
-		PostgresTriggerService,
-		ScheduleService,
-		SqsTriggerService,
-		type Schedule
-	} from '$lib/gen'
+	import type { Schedule } from '$lib/gen'
+	import { deleteTriggerRow } from './pipelineTriggerDraftDeploy'
 	import KafkaTriggerEditor from '$lib/components/triggers/kafka/KafkaTriggerEditor.svelte'
 	import MqttTriggerEditor from '$lib/components/triggers/mqtt/MqttTriggerEditor.svelte'
 	import AmqpTriggerEditor from '$lib/components/triggers/amqp/AmqpTriggerEditor.svelte'
@@ -189,37 +179,7 @@
 		const { kind, path: triggerPath } = triggerDeleteTarget
 		triggerDeleteLoading = true
 		try {
-			switch (kind) {
-				case 'schedule':
-					await ScheduleService.deleteSchedule({ workspace, path: triggerPath })
-					break
-				case 'kafka':
-					await KafkaTriggerService.deleteKafkaTrigger({ workspace, path: triggerPath })
-					break
-				case 'mqtt':
-					await MqttTriggerService.deleteMqttTrigger({ workspace, path: triggerPath })
-					break
-				case 'amqp':
-					await AmqpTriggerService.deleteAmqpTrigger({ workspace, path: triggerPath })
-					break
-				case 'nats':
-					await NatsTriggerService.deleteNatsTrigger({ workspace, path: triggerPath })
-					break
-				case 'postgres':
-					await PostgresTriggerService.deletePostgresTrigger({ workspace, path: triggerPath })
-					break
-				case 'sqs':
-					await SqsTriggerService.deleteSqsTrigger({ workspace, path: triggerPath })
-					break
-				case 'gcp':
-					await GcpTriggerService.deleteGcpTrigger({ workspace, path: triggerPath })
-					break
-				case 'email':
-					await EmailTriggerService.deleteEmailTrigger({ workspace, path: triggerPath })
-					break
-				default:
-					return
-			}
+			if (!(await deleteTriggerRow(kind, triggerPath, workspace))) return
 			sendUserToast(`Deleted ${kind} trigger "${triggerPath}"`)
 			triggerDeleteTarget = undefined
 			onUpdate()

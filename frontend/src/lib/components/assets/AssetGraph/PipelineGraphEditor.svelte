@@ -11,6 +11,7 @@
 	import type { ColumnLineageGraph } from './columnLineageGraph'
 	import HideButton from '$lib/components/apps/editor/settingsPanel/HideButton.svelte'
 	import AssetGraphCanvas from './AssetGraphCanvas.svelte'
+	import type { AssetUpstreamDelete } from './assetsOnlyView'
 	import AssetGraphDetailsPane from './AssetGraphDetailsPane.svelte'
 	import PipelineEventLog from './PipelineEventLog.svelte'
 	import type {
@@ -67,6 +68,7 @@
 		onAddScriptForAsset,
 		onAddPipelineScript,
 		onRunnableMenuRemove,
+		onDeleteAssetUpstream,
 		onRunProducer,
 		idlePane,
 		onRequestEdit,
@@ -167,6 +169,7 @@
 			options?: import('./PipelineInsertMenu.svelte').PipelineInsertOptions
 		) => void
 		onRunnableMenuRemove?: (...args: any[]) => void
+		onDeleteAssetUpstream?: (target: AssetUpstreamDelete) => void
 		onRunProducer?: (producer: RunProducer) => Promise<string | undefined>
 		idlePane?: Snippet
 		onRequestEdit?: () => void
@@ -518,6 +521,7 @@
 					{onAddScriptForAsset}
 					{onAddPipelineScript}
 					{onRunnableMenuRemove}
+					{onDeleteAssetUpstream}
 					{onRunProducer}
 					{validStartPaths}
 					{onStartBoundedRun}
