@@ -107,6 +107,14 @@ async fn test_operator_builder_flows_boundary(db: Pool<Postgres>) -> anyhow::Res
     );
 
     set_builder(&db, true).await?;
+    // A payload that omits the key, like a git-sync file that predates it, keeps the right.
+    let resp = reqwest::Client::new()
+        .post(format!("{api}/workspaces/operator_settings"))
+        .header("Authorization", "Bearer SECRET_TOKEN")
+        .json(&json!({"runs": true}))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
 
     let resp = c
         .post(format!("{api}/flows/create"))

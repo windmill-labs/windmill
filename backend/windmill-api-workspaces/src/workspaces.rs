@@ -11598,15 +11598,15 @@ struct ChangeOperatorSettings {
     folders: bool,
     #[serde(default)]
     workers: bool,
-    /// Lets every operator of this workspace compose flows out of already-deployed runnables.
-    /// Unlike the visibility flags above this is a write right, and it makes each operator
-    /// consume a full author seat instead of half of one.
-    #[serde(default)]
-    builder_flows: bool,
-    /// Writes operators may perform unless withdrawn, so `None` (key absent) must mean "leave as
-    /// stored" rather than a value: the row is merged, not overwritten, and this endpoint takes
-    /// whole-object payloads from git-sync files that predate the key. Defaulting either way here
-    /// would make an older file silently withdraw or restore the right on every pull.
+    /// Write rights, so `None` (key absent) must mean "leave as stored" rather than a value: the
+    /// row is merged, not overwritten, and this endpoint takes whole-object payloads from git-sync
+    /// files that predate the key. Defaulting either way here would make an older file silently
+    /// withdraw or grant the right on every push.
+    ///
+    /// `builder_flows` lets every operator of this workspace compose flows out of already-deployed
+    /// runnables, and makes each of them consume a full author seat instead of half of one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    builder_flows: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     manage_schedules: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -11624,7 +11624,7 @@ async fn update_operator_settings(
     // Every operator of the workspace turns into a full seat, which an offline license may not
     // cover. It is a no-op delta when the right is already on.
     #[cfg(feature = "enterprise")]
-    if settings.builder_flows {
+    if settings.builder_flows == Some(true) {
         if let Some(msg) =
             windmill_common::ee_oss::check_seat_cap_for_operator_builder(&db, &w_id).await?
         {
