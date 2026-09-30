@@ -38,6 +38,7 @@
 
 	import { getContext, onDestroy, setContext, untrack } from 'svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import { pageHeader, PHONE_BAR } from '$lib/components/pageHeaderRegistry.svelte'
 	import { writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
 	import { Button } from './common'
@@ -221,6 +222,11 @@
 	// (session pane, drawer, etc.) where the viewport stays wide.
 	let topbarWidth = $state(0)
 	const compactTopbar = $derived(topbarWidth > 0 && topbarWidth < 720)
+	// A phone's bar holds the trail and Deploy: the diff joins the menu and the preview buttons
+	// stand down, since there is no room to run a flow beside its own name.
+	const phoneTopbar = $derived(
+		ownsPageHeader && pageHeader.barWidth > 0 && pageHeader.barWidth < PHONE_BAR
+	)
 
 	const diffEnabled = $derived(customUi?.topBar?.diff != false)
 	// Nothing to compare against until a deployed version exists.
@@ -231,7 +237,7 @@
 	// The narrow bar (sessions) and the width-collapsed one have no room for a Diff
 	// button, so it moves into the menu ahead of Deployment History instead of
 	// dropping out of reach.
-	const diffInMenu = $derived(condensedHeader || compactTopbar)
+	const diffInMenu = $derived(condensedHeader || compactTopbar || phoneTopbar)
 	const diffMenuItems: Item[] = $derived(
 		diffEnabled && diffInMenu
 			? [
@@ -1677,7 +1683,7 @@
 						</Button>
 					</div>
 				{/if}
-				{#if !compactTopbar}
+				{#if !compactTopbar && !phoneTopbar}
 					{@render previewButtons()}
 				{/if}
 

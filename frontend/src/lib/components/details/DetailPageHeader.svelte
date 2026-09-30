@@ -4,9 +4,9 @@
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import ErrorHandlerToggleButton from './ErrorHandlerToggleButton.svelte'
 	import { createEventDispatcher, getContext, tick } from 'svelte'
-	import { MediaQuery } from 'svelte/reactivity'
 	import SummaryPathDisplay from '$lib/components/SummaryPathDisplay.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import type { TriggerContext } from '../triggers'
 	import type { Item } from '$lib/utils'
 	import { Bell, BellOff, Calendar } from 'lucide-svelte'
@@ -71,10 +71,15 @@
 
 	const dispatch = createEventDispatcher()
 
-	// Tailwind's `lg`, matched in JS so the one ellipsis menu can carry the collapsed buttons.
-	const wide = new MediaQuery('(min-width: 1024px)')
+	// These buttons share the page header's row with the breadcrumb, so what decides whether they
+	// all fit is that row's width, not the window's — the sidebar and a page's side panel both take
+	// from it. The trail and the summary want ~560px and the full set is ~530px wide. Unmeasured (0)
+	// counts as wide: the bar measures itself on mount, and starting narrow would pop the buttons
+	// out of the menu a frame later.
+	const COLLAPSE_BELOW = 1150
+	const wide = $derived(pageHeader.barWidth === 0 || pageHeader.barWidth >= COLLAPSE_BELOW)
 
-	const barButtons = $derived(wide.current ? mainButtons : mainButtons.filter((b) => !b.narrow))
+	const barButtons = $derived(wide ? mainButtons : mainButtons.filter((b) => !b.narrow))
 
 	function dropdownHost(btn: MainButton): MainButton | undefined {
 		if (typeof btn.narrow !== 'object') return undefined
@@ -92,7 +97,7 @@
 	}
 
 	const allMenuItems: Item[] = $derived([
-		...(wide.current ? [] : mainButtons.filter((b) => b.narrow && !dropdownHost(b))).map((b) => ({
+		...(wide ? [] : mainButtons.filter((b) => b.narrow && !dropdownHost(b))).map((b) => ({
 			displayName: b.label,
 			description: b.description,
 			icon: b.buttonProps.startIcon,
@@ -101,7 +106,7 @@
 			disabled: b.buttonProps.disabled,
 			type: 'action' as const
 		})),
-		...(wide.current
+		...(wide
 			? []
 			: [
 					{
@@ -116,12 +121,12 @@
 			icon: item.Icon,
 			action: item.onclick,
 			type: item.color === 'red' ? ('delete' as const) : ('action' as const),
-			separatorTop: i === 0 && !wide.current
+			separatorTop: i === 0 && !wide
 		}))
 	])
 
 	function dropdownItemsOf(host: MainButton) {
-		if (wide.current) return undefined
+		if (wide) return undefined
 		const items = mainButtons
 			.filter((b) => dropdownHost(b) === host)
 			.map((b) => ({
@@ -175,7 +180,7 @@
 			<DropdownV2 items={allMenuItems} placement="bottom-end" size="sm" />
 		{/key}
 	{/if}
-	{#if wide.current}
+	{#if wide}
 		<ErrorHandlerToggleButton
 			kind={errorHandlerKind}
 			{scriptOrFlowPath}

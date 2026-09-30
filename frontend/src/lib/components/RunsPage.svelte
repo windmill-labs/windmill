@@ -45,6 +45,7 @@
 	import RunsQueue from '$lib/components/runs/RunsQueue.svelte'
 	import OpenInSessionButton from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import { pageHeader, PHONE_BAR } from '$lib/components/pageHeaderRegistry.svelte'
 	import { pageHref, RUNS_PATH } from '$lib/components/sessions/previewPaths'
 	import { twMerge } from 'tailwind-merge'
 	import { computeJobKinds, useJobsLoader } from '$lib/components/runs/useJobsLoader.svelte'
@@ -583,6 +584,7 @@
 
 	let manualSelectionMode: undefined | 'cancel' | 'rerun' | 'resolve' = $state()
 	let resolutionNote = $state('')
+	const phone = $derived(pageHeader.barWidth > 0 && pageHeader.barWidth < PHONE_BAR)
 </script>
 
 {#snippet runsHint()}
@@ -597,8 +599,10 @@
 {#snippet headerActions()}
 	<!-- Always the icon form: the bar has room for two counters, never for the two labelled
 	     blocks. pr-2 on top of the row's own gap because the counts hang outside their icons,
-	     so without it the badge butts against the first filter. -->
-	<div class="flex items-center pr-2">
+	     so without it the badge butts against the first filter.
+	     A phone's bar has room for the filter field and the timeframe and nothing else: the
+	     counters are a glance, and the same numbers are on the chart below. -->
+	<div class="flex items-center pr-2 {phone ? 'hidden' : ''}">
 		<RunsQueue
 			success={filters.val.status ?? null}
 			{queue_count}
@@ -769,7 +773,10 @@
 	     search field takes what is left, down to a width that still shows a filter chip. -->
 	<FilterSearchbar
 		class={twMerge(
-			'relative flex-1 min-w-[8rem]',
+			'relative flex-1',
+			// A phone's bar cannot spare 8rem before the timeframe beside it: the field gives back
+			// whatever is left over once the trail and the timeframe have theirs.
+			phone ? 'min-w-0' : 'min-w-[8rem]',
 			Object.keys(filters.val).length <= 3 ? 'max-w-[20rem]' : 'max-w-[26rem]',
 			ButtonType.UnifiedMinHeightClasses.sm
 		)}
@@ -792,13 +799,15 @@
 	<!-- The filters are shallow-routed, so the search has to come off `window.location` at click
 	     time — `page.url` never sees them. Always the canonical `/runs`: only that is a recognized
 	     preview page, and the `/runs/<path>` route mirrors its path into `?path=` anyway. -->
-	<OpenInSessionButton
-		source={{
-			page: () => pageHref(RUNS_PATH) + window.location.search,
-			workspaceId: $workspaceStore ?? undefined
-		}}
-		btnProps={{ unifiedSize: 'sm' }}
-	/>
+	<div class={phone ? 'hidden' : 'contents'}>
+		<OpenInSessionButton
+			source={{
+				page: () => pageHref(RUNS_PATH) + window.location.search,
+				workspaceId: $workspaceStore ?? undefined
+			}}
+			btnProps={{ unifiedSize: 'sm' }}
+		/>
+	</div>
 {/snippet}
 
 <ConfirmationModal
@@ -866,10 +875,10 @@
 		<p>Page not available for operators</p>
 	</div>
 {:else}
-	<div class="w-full h-screen flex flex-col" bind:clientWidth={innerWidth}>
+	<div class="w-full h-full flex flex-col" bind:clientWidth={innerWidth}>
 		<!-- Everything that used to sit in a row above the graph — the page's name, its queue, the
 		     filters and the timeframe — is in the page header. -->
-		<PageHeaderContent afterName={runsHint} actions={headerActions} />
+		<PageHeaderContent afterName={runsHint} actions={headerActions} actionsFlexible />
 
 		<!-- Graph -->
 		<div id="runs-chart" class="p-2 px-4 bg-surface-tertiary mx-4 mt-2 border rounded-md">
