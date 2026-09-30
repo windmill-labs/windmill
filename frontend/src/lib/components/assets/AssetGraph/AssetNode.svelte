@@ -339,12 +339,12 @@
 	{#if upstream}
 		{@const trigger = producer?.trigger}
 		{@const chipClass = twMerge(
-			'truncate rounded-md border px-1.5 py-0.5 text-3xs leading-none font-normal bg-surface',
+			'truncate rounded-md border px-1.5 py-0.5 text-3xs leading-none font-normal',
 			trigger?.missing
 				? 'border-red-300 dark:border-red-600 text-red-700 dark:text-red-300'
 				: 'border-gray-300 dark:border-gray-600 text-secondary',
 			trigger?.draft && 'border-dashed',
-			trigger?.onOpen && 'hover:bg-surface-hover cursor-pointer',
+			trigger?.onOpen && 'bg-surface hover:bg-surface-hover cursor-pointer',
 			trigger?.selected && CHIP_SELECTED
 		)}
 		{#if trigger?.onOpen}
