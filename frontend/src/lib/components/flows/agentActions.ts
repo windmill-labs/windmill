@@ -3,7 +3,7 @@ import { ResourceService } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 import type { Item } from '$lib/utils'
 import { isDeployable } from '$lib/utils_deployable'
-import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
+import type { WorkspaceDeployUISettings } from '$lib/gen'
 
 /** Deletes a saved agent, saying how it went. Resolves whether it was deleted. */
 export async function deleteAgent(workspace: string, path: string): Promise<boolean> {
@@ -18,20 +18,22 @@ export async function deleteAgent(workspace: string, path: string): Promise<bool
 }
 
 /** An agent's menu, as its home row and its page both show it. */
-export async function agentMenuItems(agent: {
+export function agentMenuItems(agent: {
 	path: string
 	canWrite: boolean
 	/** Never deployed: no resource yet to hold permissions or to deploy onward. */
 	draftOnly?: boolean
 	wsSpecific?: boolean
+	/** Undefined until loaded, when nothing is offered for deploy. */
+	deployUiSettings: WorkspaceDeployUISettings | undefined
 	onPermissions: () => void
 	onDeploy: () => void
 	onDelete: (event?: MouseEvent) => void
-}): Promise<Item[]> {
+}): Item[] {
 	const deployable =
 		!agent.wsSpecific &&
 		!agent.draftOnly &&
-		isDeployable('resource', agent.path, await getDeployUiSettings())
+		isDeployable('resource', agent.path, agent.deployUiSettings)
 	return [
 		{
 			displayName: 'Permissions',

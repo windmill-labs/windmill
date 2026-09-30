@@ -1,4 +1,4 @@
-//! Running a saved AI agent from its own page.
+//! Running a saved AI agent from its own page, and the one-step flow its runs and evals share.
 //!
 //! The run is built here from the stored agent rather than sent by the client, which is what lets
 //! anyone who can read the agent run it, operators included, the way a deployed flow runs by path:
@@ -23,7 +23,8 @@ use windmill_common::{
 };
 use windmill_queue::{push, PushArgs, PushIsolationLevel};
 
-use crate::ai_evals::run::{agent_step_flow, config_to_draft};
+use crate::ai_evals::run::config_to_draft;
+use crate::ai_evals::subject::AgentDraft;
 use crate::db::{ApiAuthed, DB};
 use crate::jobs::{handle_chat_conversation_messages, set_flow_memory_id, RunJobQuery};
 
@@ -141,4 +142,43 @@ pub(crate) async fn run_agent(
     tx.commit().await?;
 
     Ok((StatusCode::CREATED, uuid.to_string()))
+}
+
+/// The agent as a one-step flow, validated by deserializing through `FlowValue` rather than
+/// trusted as raw JSON. Its own transforms are the step's, minus `without`, and the run's inputs
+/// supply the message and the attachments over the top. Always inlined, never a link to the
+/// resource: a linked step would resolve the agent when it runs, not as it was read here.
+pub(crate) fn agent_step_flow(
+    config: &AgentDraft,
+    id: &str,
+    chat: bool,
+    without: &[&str],
+) -> Result<windmill_common::flows::FlowValue> {
+    let mut input_transforms = match &config.input_transforms {
+        serde_json::Value::Object(map) => map.clone(),
+        _ => serde_json::Map::new(),
+    };
+    for key in without {
+        input_transforms.remove(*key);
+    }
+    for key in ["user_message", "user_attachments"] {
+        input_transforms.insert(
+            key.to_string(),
+            serde_json::json!({ "type": "javascript", "expr": format!("flow_input.{}", key) }),
+        );
+    }
+    let mut flow = serde_json::json!({
+        "modules": [{
+            "id": id,
+            "value": {
+                "type": "aiagent",
+                "tools": config.tools,
+                "input_transforms": serde_json::Value::Object(input_transforms),
+            }
+        }]
+    });
+    if chat {
+        flow["chat_input_enabled"] = serde_json::json!(true);
+    }
+    Ok(serde_json::from_value(flow)?)
 }

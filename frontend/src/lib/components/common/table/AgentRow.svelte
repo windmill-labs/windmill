@@ -14,6 +14,7 @@
 	import ChatFlowBadge from '$lib/components/flows/ChatFlowBadge.svelte'
 	import { keepsManagedMemory } from '$lib/components/flows/agentFormFields'
 	import { agentMenuItems, deleteAgent } from '$lib/components/flows/agentActions'
+	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
 	import Row from './Row.svelte'
 
 	/**
@@ -98,8 +99,9 @@
 			</span>
 		{/if}
 		<Dropdown
-			items={() =>
+			items={async () =>
 				agentMenuItems({
+					deployUiSettings: await getDeployUiSettings(),
 					path: agent.path,
 					canWrite: agent.canWrite,
 					draftOnly: Boolean(agent.draft_only),

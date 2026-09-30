@@ -17,6 +17,7 @@
 	import RunForm from '$lib/components/RunForm.svelte'
 	import { keepsManagedMemory } from '$lib/components/flows/agentFormFields'
 	import { agentMenuItems, deleteAgent } from '$lib/components/flows/agentActions'
+	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
 	import { userStore, workspaceStore } from '$lib/stores'
 
 	/**
@@ -43,34 +44,30 @@
 		if (ws && (await deleteAgent(ws, path))) await goto(`${base}/?kind=agent`)
 	}
 
+	// The workspace's, so a path change never waits on it and a menu never outlives its path.
+	const deployUiSettings = resource(
+		() => ws,
+		() => getDeployUiSettings()
+	)
 	// Operators get no menu, as on a flow's or a script's page.
-	const menuItems = resource(
-		() =>
-			[
-				path,
-				config != undefined && !$userStore?.operator,
-				canEdit,
-				agent?.state?.wsSpecific
-			] as const,
-		async ([path, shown, canWrite, wsSpecific]) =>
-			shown
-				? (
-						await agentMenuItems({
-							path,
-							canWrite,
-							wsSpecific,
-							onPermissions: () => shareModal?.openDrawer?.(path, 'resource'),
-							onDeploy: () => deploymentDrawer?.openDrawer(path, 'resource'),
-							onDelete: () => (deleteOpen = true)
-						})
-					).map((item) => ({
-						label: item.displayName,
-						Icon: item.icon,
-						onclick: (e: MouseEvent) => item.action?.(e),
-						disabled: item.disabled,
-						color: item.type === 'delete' ? ('red' as const) : undefined
-					}))
-				: []
+	let menuItems = $derived(
+		config != undefined && !$userStore?.operator
+			? agentMenuItems({
+					path,
+					canWrite: canEdit,
+					wsSpecific: agent?.state?.wsSpecific,
+					deployUiSettings: deployUiSettings.current,
+					onPermissions: () => shareModal?.openDrawer?.(path, 'resource'),
+					onDeploy: () => deploymentDrawer?.openDrawer(path, 'resource'),
+					onDelete: () => (deleteOpen = true)
+				}).map((item) => ({
+					label: item.displayName,
+					Icon: item.icon,
+					onclick: (e: MouseEvent) => item.action?.(e),
+					disabled: item.disabled,
+					color: item.type === 'delete' ? ('red' as const) : undefined
+				}))
+			: []
 	)
 </script>
 
@@ -93,7 +90,7 @@
 	<DetailPageHeader
 		summary={config ? agent?.state?.description : undefined}
 		{path}
-		menuItems={menuItems.current ?? []}
+		{menuItems}
 		mainButtons={[
 			// Evaluating an agent builds datasets and runs against it: authoring, as editing is.
 			...(canEdit
