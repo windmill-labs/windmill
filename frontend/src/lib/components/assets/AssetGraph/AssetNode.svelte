@@ -241,7 +241,6 @@
 		{/key}
 	{/if}
 	<PipelineNodeCard
-		surface="primary"
 		kindLabel={formatAssetKind(asset)}
 		title={formatShortAssetPath(asset)}
 		tooltip={data.error ? `${data.path}: ${data.error}` : data.path}
