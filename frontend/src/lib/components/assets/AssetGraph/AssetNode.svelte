@@ -6,6 +6,7 @@
 	import PipelineNodeCard from './PipelineNodeCard.svelte'
 	import NodeActionsMenu from './NodeActionsMenu.svelte'
 	import NodeFixButton, { type NodeFix } from './NodeFixButton.svelte'
+	import NodeOnDot from './NodeOnDot.svelte'
 	import PipelineInsertMenu, { type PipelineInsertPick } from './PipelineInsertMenu.svelte'
 	import {
 		ArrowUpRight,
@@ -154,6 +155,9 @@
 			fix?: NodeFix
 			/** Assets-only: errors of the scripts and triggers folded into this node. */
 			foldedFixes?: NodeFix[]
+			/** Assets-only: starts dragging the top dot onto an asset, subscribing the
+			 * scripts that build this one to it. */
+			onStartOnDrag?: (e: PointerEvent) => void
 			/** The assets-only node for the scripts that build no asset. */
 			noAsset?: boolean
 			/** Nothing in the workspace writes it. */
@@ -650,6 +654,9 @@
 				{/if}
 			</button>
 		</div>
+	{/if}
+	{#if data.onStartOnDrag}
+		<NodeOnDot onStart={data.onStartOnDrag} visible={hovered} />
 	{/if}
 	{#if data.fix}
 		<!-- A red node's way out replaces its "+": adding downstream of a broken

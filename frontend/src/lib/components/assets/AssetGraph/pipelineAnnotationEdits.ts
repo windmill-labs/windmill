@@ -87,12 +87,16 @@ function removeDirective(content: string, match: LineMatch): string {
 }
 
 /** The script runs after each write to the asset: `// on <ref>`, and any
- * `// mute <ref>` lifted. An auto-triggering kind needs no `// on` once unmuted,
- * unless `// mute all` still silences it. */
-export function listenToAsset(content: string, asset: { kind: AssetKind; path: string }): string {
+ * `// mute <ref>` lifted. An auto-triggering kind it `reads` needs no `// on`
+ * once unmuted, unless `// mute all` still silences it. */
+export function listenToAsset(
+	content: string,
+	asset: { kind: AssetKind; path: string },
+	reads: boolean
+): string {
 	const ref = assetRef(asset)
 	let out = removeDirective(content, muteAsset(asset))
-	const auto = AUTO_TRIGGER_KINDS.has(asset.kind) && !hasDirective(out, muteAll)
+	const auto = reads && AUTO_TRIGGER_KINDS.has(asset.kind) && !hasDirective(out, muteAll)
 	if (!auto && !hasDirective(out, onAsset(asset))) out = addDirective(out, `on ${ref}`)
 	return out
 }
@@ -124,8 +128,11 @@ export function removeTriggerDirective(content: string, kind: string): string {
 }
 
 /** What each edit says it changes, for the button that applies it. */
-export function listenChangeText(asset: { kind: AssetKind; path: string }): string {
-	return AUTO_TRIGGER_KINDS.has(asset.kind)
+export function listenChangeText(
+	asset: { kind: AssetKind; path: string },
+	reads: boolean
+): string {
+	return reads && AUTO_TRIGGER_KINDS.has(asset.kind)
 		? `Removes any \`mute ${assetRef(asset)}\` line (adds \`on ${assetRef(asset)}\` if all reads are muted)`
 		: `Adds \`on ${assetRef(asset)}\``
 }

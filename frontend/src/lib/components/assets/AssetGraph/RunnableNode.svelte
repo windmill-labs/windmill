@@ -24,6 +24,7 @@
 	import PipelineNodeCard from './PipelineNodeCard.svelte'
 	import NodeActionsMenu from './NodeActionsMenu.svelte'
 	import NodeFixButton, { type NodeFix } from './NodeFixButton.svelte'
+	import NodeOnDot from './NodeOnDot.svelte'
 	import RunStateChip from './RunStateChip.svelte'
 	import type { ScriptLang } from '$lib/gen'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
@@ -37,6 +38,8 @@
 		data: {
 			/** What is wrong with the node, and how to fix it: shows the Fix pill. */
 			fix?: NodeFix
+			/** Starts dragging the top dot onto an asset to subscribe the script to it. */
+			onStartOnDrag?: (e: PointerEvent) => void
 			runnable_kind: GraphUsageKind
 			path: string
 			summary?: string
@@ -443,6 +446,9 @@
 				</Popover>
 			{/if}
 		</div>
+	{/if}
+	{#if data.onStartOnDrag}
+		<NodeOnDot onStart={data.onStartOnDrag} visible={hover} />
 	{/if}
 	{#if data.fix}
 		<div class="absolute left-1/2 -bottom-3 -translate-x-1/2 z-10">

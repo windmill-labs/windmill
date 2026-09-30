@@ -1171,7 +1171,39 @@
 	// (same rationale as the live-callback handlers above) and so the
 	// template can gate them per-mode with simple ternaries — the canvas
 	// hides each affordance when its callback is undefined.
-	function handleCanvasSelect(s: AssetGraphSelection | undefined) {
+	// Assets a job has written, by `kind:path`. Only grows: once built, an asset
+	// stays built for this page's purposes.
+	const materialized = new Set<string>()
+	async function isMaterialized(asset: { kind: AssetKind; path: string }): Promise<boolean> {
+		const key = `${asset.kind}:${asset.path}`
+		if (materialized.has(key) || !$workspaceStore) return true
+		try {
+			const res = await AssetService.listAssets({
+				workspace: $workspaceStore,
+				path: asset.path,
+				assetKinds: asset.kind
+			})
+			const built = res.assets.some((a) =>
+				a.usages.some((u) => u.kind === 'job' && (u.access_type === 'w' || u.access_type === 'rw'))
+			)
+			if (built) materialized.add(key)
+			return built
+		} catch {
+			return true
+		}
+	}
+	// An asset nothing has built yet has no data to show: in the assets-only view,
+	// where its one script has no node of its own, the click opens that script.
+	async function handleCanvasSelect(
+		s: AssetGraphSelection | undefined,
+		opts?: { soleScript?: string }
+	) {
+		if (s?.kind === 'asset' && opts?.soleScript) {
+			const script = opts.soleScript
+			if (!(await isMaterialized({ kind: s.asset_kind, path: s.path }))) {
+				s = { kind: 'runnable', runnable_kind: 'script', path: script }
+			}
+		}
 		// Clicking a node while the pane is explicitly hidden is a request
 		// to see that node — unhide. Background clicks (s == undefined)
 		// keep the hidden state.
@@ -3293,9 +3325,23 @@
 								(s) => (c) => {
 									const t = byScript.get(s)!
 									return action === 'listen'
-										? listenToAsset(c, t.asset)
+										? listenToAsset(c, t.asset, t.reads)
 										: stopListeningToAsset(c, t.asset, t.reads)
 								}
+							)
+						}}
+				onAddAssetTrigger={isOperator
+					? undefined
+					: ({
+							scripts,
+							asset
+						}: {
+							scripts: Array<{ script: string; reads: boolean }>
+							asset: { kind: AssetKind; path: string }
+						}) => {
+							const reads = new Map(scripts.map((s) => [s.script, s.reads] as const))
+							editScripts([...reads.keys()], 'Now reruns on each write', (s) => (c) =>
+								listenToAsset(c, asset, reads.get(s) ?? false)
 							)
 						}}
 				onRunProducer={mode === 'edit' ? handleRunProducer : undefined}

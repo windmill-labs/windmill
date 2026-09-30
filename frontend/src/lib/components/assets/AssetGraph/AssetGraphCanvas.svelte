@@ -30,6 +30,7 @@
 	} from './assetsOnlyView'
 	import { assetsOnlyNodeWidth } from './assetNodeWidth'
 	import { describeEdge } from './edgeDescription'
+	import { onDirectiveTargets } from './onDirectiveTargets'
 	import { listenChangeText, stopListeningChangeText } from './pipelineAnnotationEdits'
 	import { Button } from '$lib/components/common'
 	import type { NodeFix, NodeFixSpec } from './NodeFixButton.svelte'
@@ -61,7 +62,11 @@
 	interface Props {
 		graph: AssetGraphResponse
 		selection?: AssetGraphSelection | undefined
-		onselect?: (selection: AssetGraphSelection | undefined) => void
+		/** `soleScript`: assets-only, the one script folded into a clicked asset. */
+		onselect?: (
+			selection: AssetGraphSelection | undefined,
+			opts?: { soleScript?: string }
+		) => void
 		// Called when the user clicks the per-asset + button (consumer-script
 		// entry). Kept optional so the canvas stays usable outside the
 		// pipeline editor.
@@ -230,6 +235,13 @@
 		nodeFixes?: ReadonlyMap<string, NodeFixSpec>
 		/** "Archive" for someone who can only archive the script the delete removes. */
 		assetDeleteVerb?: 'Delete' | 'Archive'
+		/** Makes scripts run after each write to an asset: a script's (or, in the
+		 * assets-only view, an asset's producers') top dot dragged onto that asset.
+		 * `reads` says whether each script already reads it. */
+		onAddAssetTrigger?: (a: {
+			scripts: Array<{ script: string; reads: boolean }>
+			asset: { kind: AssetKind; path: string }
+		}) => void
 		/** Makes scripts run after each write to an asset they read, or stop. `reads`
 		 * decides whether stopping also mutes the asset. */
 		onEdgeAction?: (a: {
@@ -274,8 +286,69 @@
 		onDeleteAssetUpstream,
 		nodeFixes,
 		assetDeleteVerb = 'Delete',
-		onEdgeAction
+		onEdgeAction,
+		onAddAssetTrigger
 	}: Props = $props()
+
+	// Dragging a script's top dot onto an asset subscribes the script to it. Only
+	// the assets it can subscribe to without a loop stay lit while dragging.
+	let onDrag = $state<
+		| {
+				sourceId: string
+				scripts: string[]
+				from: { x: number; y: number }
+				to: { x: number; y: number }
+				eligible: Set<string>
+				over: string | undefined
+		  }
+		| undefined
+	>(undefined)
+	const nodeUnder = (x: number, y: number) =>
+		document.elementFromPoint(x, y)?.closest('.svelte-flow__node')?.getAttribute('data-id') ??
+		undefined
+	function startOnDrag(sourceId: string, scripts: string[], e: PointerEvent) {
+		if (!onAddAssetTrigger || scripts.length === 0) return
+		const sets = scripts.map((id) => onDirectiveTargets(model.nodes, model.edges, id))
+		const eligible = new Set([...sets[0]].filter((a) => sets.every((t) => t.has(a))))
+		const from = { x: e.clientX, y: e.clientY }
+		onDrag = { sourceId, scripts, from, to: from, eligible, over: undefined }
+		const move = (ev: PointerEvent) => {
+			if (!onDrag) return
+			onDrag.to = { x: ev.clientX, y: ev.clientY }
+			onDrag.over = nodeUnder(ev.clientX, ev.clientY)
+		}
+		const up = (ev: PointerEvent) => {
+			window.removeEventListener('pointermove', move)
+			const drag = onDrag
+			onDrag = undefined
+			const target = nodeUnder(ev.clientX, ev.clientY)
+			if (!drag || !target || !drag.eligible.has(target)) return
+			const a = model.nodes.find((n) => n.id === target)?.data
+			if (!a) return
+			const asset = { kind: a.asset_kind as AssetKind, path: a.path as string }
+			onAddAssetTrigger?.({
+				asset,
+				scripts: drag.scripts.map((id) => ({
+					script: id.replace(/^script:/, ''),
+					reads: model.edges.some(
+						(x) => x.kind === 'lineage-read' && x.source === target && x.target === id
+					)
+				}))
+			})
+		}
+		window.addEventListener('pointermove', move)
+		window.addEventListener('pointerup', up, { once: true })
+	}
+	// Pipeline scripts a node's top dot drags for: the script itself, or, in the
+	// assets-only view, the scripts building the asset.
+	function dragScripts(n: { id: string; type: string; data: any }): string[] {
+		const ids =
+			n.type === 'runnable' ? [n.id] : n.type === 'asset' ? ((n.data.foldedIds ?? []) as string[]) : []
+		return ids.filter((id) => {
+			const d = model.nodes.find((x) => x.id === id)?.data
+			return d?.runnable_kind === 'script' && d.in_pipeline
+		})
+	}
 
 	let assetsOnly = $state(false)
 	$effect(() => {
@@ -343,7 +416,7 @@
 		if (listen.length) {
 			out.push({
 				label: 'Rerun on each write',
-				detail: `${listenChangeText(asset)} in ${where(listen)}; only the annotation header changes. Saved as a draft.`,
+				detail: `${listenChangeText(asset, true)} in ${where(listen)}; only the annotation header changes. Saved as a draft.`,
 				run: () => onEdgeAction?.({ action: 'listen', targets: listen })
 			})
 		}
@@ -1407,6 +1480,15 @@
 				else if (!boundPick.eligible.has(n.id)) boundClass = 'wm-bound-dim'
 			}
 			const dbtClass = dbtEmphasisIds.has(n.id) ? 'wm-dbt-linked' : undefined
+			const dragClass = !onDrag
+				? undefined
+				: onDrag.eligible.has(n.id)
+					? onDrag.over === n.id
+						? 'wm-drag-over'
+						: undefined
+					: n.id === onDrag.sourceId
+						? undefined
+						: 'wm-drag-dim'
 			// The chips' selected look rides on the positioned nodes, so a selection
 			// never re-runs the layout.
 			const up = n.type === 'asset' || n.type === 'no-asset' ? n.data.upstream : undefined
@@ -1437,10 +1519,14 @@
 			const foldedFixes = ((n.data.foldedIds ?? []) as string[])
 				.map((id) => toFix(nodeFixes?.get(id)))
 				.filter((f) => f != undefined)
+			const scriptsToDrag = onAddAssetTrigger ? dragScripts(n) : []
 			const data = {
 				...withUpstream,
 				...(fix ? { fix } : {}),
-				...(foldedFixes.length ? { foldedFixes } : {})
+				...(foldedFixes.length ? { foldedFixes } : {}),
+				...(scriptsToDrag.length
+					? { onStartOnDrag: (e: PointerEvent) => startOnDrag(n.id, scriptsToDrag, e) }
+					: {})
 			}
 			return {
 				id: n.id,
@@ -1448,7 +1534,7 @@
 				// The layout places centers; a node's position is its top-left corner.
 				position: { x: p.x - nodeWidth(n) / 2 + xCenter, y: p.y + 40 },
 				data,
-				class: boundClass ?? dbtClass ?? runClass ?? assetClass,
+				class: dragClass ?? boundClass ?? dbtClass ?? runClass ?? assetClass,
 				selected: n.id === selectedId,
 				// All nodes non-draggable: the layout is sugiyama-computed,
 				// dragging would fight the reactive re-layout. Selection is
@@ -1744,7 +1830,11 @@
 		if (!onselect) return
 		const data = node.data as any
 		if (node.type === 'asset') {
-			onselect({ kind: 'asset', asset_kind: data.asset_kind, path: data.path })
+			const scripts = ((data.foldedIds ?? []) as string[]).filter((id) => id.startsWith('script:'))
+			onselect(
+				{ kind: 'asset', asset_kind: data.asset_kind, path: data.path },
+				scripts.length === 1 ? { soleScript: scripts[0].slice('script:'.length) } : undefined
+			)
 		} else if (node.type === 'runnable') {
 			onselect({ kind: 'runnable', runnable_kind: data.runnable_kind, path: data.path })
 		} else if (node.type === 'data-test') {
@@ -1888,6 +1978,21 @@
 	</div>
 {/if}
 
+{#if onDrag}
+	<svg class="fixed inset-0 w-screen h-screen pointer-events-none z-50" aria-hidden="true">
+		<line
+			x1={onDrag.from.x}
+			y1={onDrag.from.y}
+			x2={onDrag.to.x}
+			y2={onDrag.to.y}
+			class="stroke-blue-500"
+			stroke-width="1.5"
+			stroke-dasharray="4 3"
+		/>
+		<circle cx={onDrag.to.x} cy={onDrag.to.y} r="3" class="fill-blue-500" />
+	</svg>
+{/if}
+
 {#if hoveredEdge && hoveredEdgeText}
 	{@const d = hoveredEdgeText}
 	{@const actions = hoveredEdgeActions}
@@ -1958,6 +2063,14 @@
 <style lang="postcss">
 	:global(.svelte-flow__handle) {
 		opacity: 0;
+	}
+	/* Dragging a script's dot: what it cannot subscribe to recedes. */
+	:global(.svelte-flow__node.wm-drag-dim) {
+		opacity: 0.25;
+		transition: opacity 120ms;
+	}
+	:global(.svelte-flow__node.wm-drag-over .drop-shadow-sm) {
+		@apply ring-2 ring-blue-500 rounded-md;
 	}
 	:global(.svelte-flow__controls-button) {
 		@apply bg-surface border-0;

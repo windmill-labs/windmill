@@ -76,6 +76,7 @@
 		nodeFixes,
 		assetDeleteVerb,
 		onEdgeAction,
+		onAddAssetTrigger,
 		onRunProducer,
 		idlePane,
 		onRequestEdit,
@@ -158,7 +159,10 @@
 		onDeleteTrigger?: (...args: any[]) => void
 		onOpenWebhook?: (...args: any[]) => void
 		onOpenDataUpload?: (...args: any[]) => void
-		onSelect: (selection: AssetGraphSelection | undefined) => void
+		onSelect: (
+			selection: AssetGraphSelection | undefined,
+			opts?: { soleScript?: string }
+		) => void
 		onAddScriptForAsset?: (
 			asset: { kind: AssetKind; path: string },
 			language: ScriptLang,
@@ -182,6 +186,10 @@
 		onEdgeAction?: (a: {
 			action: 'listen' | 'stop'
 			targets: Array<{ script: string; asset: { kind: AssetKind; path: string }; reads: boolean }>
+		}) => void
+		onAddAssetTrigger?: (a: {
+			scripts: Array<{ script: string; reads: boolean }>
+			asset: { kind: AssetKind; path: string }
 		}) => void
 		onRunProducer?: (producer: RunProducer) => Promise<string | undefined>
 		idlePane?: Snippet
@@ -598,6 +606,7 @@
 					{nodeFixes}
 					{assetDeleteVerb}
 					{onEdgeAction}
+					{onAddAssetTrigger}
 					{onRunProducer}
 					{validStartPaths}
 					{onStartBoundedRun}
