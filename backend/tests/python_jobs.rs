@@ -465,6 +465,32 @@ def main(x: int):
         );
     }
 
+    #[test]
+    fn test_python_execd_async() {
+        let script = r#"
+async def preprocessor(x: int):
+    return {"x": x * 2}
+
+async def main(x: int):
+    return x + 100
+"#;
+        let results = run_py_raw_protocol_test(
+            &[("f/test/async", script)],
+            vec![
+                ProtocolCmd::ExecdPreprocess { args: serde_json::json!({"x": 5}) },
+                ProtocolCmd::Execd { args: serde_json::json!({"x": 7}) },
+            ],
+        );
+        assert_eq!(
+            results,
+            vec![
+                DedicatedWorkerResult::PreprocessedArgs(serde_json::json!({"x": 10})),
+                DedicatedWorkerResult::Success(serde_json::json!(110)),
+                DedicatedWorkerResult::Success(serde_json::json!(107)),
+            ]
+        );
+    }
+
     // ==================== Argument Transformation Tests ====================
 
     #[test]
@@ -757,6 +783,49 @@ def main():
         .unwrap();
 
     assert_eq!(result, serde_json::json!("hello world"));
+    Ok(())
+}
+
+#[cfg(feature = "python")]
+#[sqlx::test(fixtures("base"))]
+async fn test_python_async_main(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let content = r#"
+import asyncio
+
+async def main(x: int):
+    await asyncio.sleep(0)
+    return x + 1
+        "#
+    .to_owned();
+
+    let job = JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        language: ScriptLang::Python3,
+        lock: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        modules: None,
+        tag: None,
+    });
+
+    let result = RunJob::from(job)
+        .arg("x", serde_json::json!(41))
+        .run_until_complete(&db, false, port)
+        .await
+        .json_result()
+        .unwrap();
+
+    assert_eq!(result, serde_json::json!(42));
     Ok(())
 }
 

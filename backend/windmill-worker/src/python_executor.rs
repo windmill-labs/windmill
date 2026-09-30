@@ -828,7 +828,7 @@ pub async fn handle_python_job(
         for k, v in list(pre_args.items()):
             if v == '<function call>':
                 del pre_args[k]
-        kwargs = inner_script.preprocessor(**pre_args)
+        kwargs = _await(inner_script.preprocessor(**pre_args))
         kwrags_json = res_to_json(kwargs, type(kwargs))
         with open("args.json", 'w', encoding="utf-8") as f:
             f.write(kwrags_json)"#
@@ -969,6 +969,12 @@ result_json = os.path.join(os.path.abspath(os.path.dirname(__file__)), "result.j
 def res_to_json(res, typ):
 {res_to_json_body}
 
+def _await(r):
+    if hasattr(r, '__await__'):
+        import asyncio
+        return asyncio.run(r)
+    return r
+
 try:
     {preprocessor}
     {spread}
@@ -977,7 +983,7 @@ try:
             del args[k]
     if inner_script.{main_override} is None or not callable(inner_script.{main_override}):
         raise ValueError("{main_override} function is missing")
-    res = inner_script.{main_override}(**args)
+    res = _await(inner_script.{main_override}(**args))
     typ = type(res)
     if hasattr(res, '__iter__') and not isinstance(res, (str, dict, list, bytes, tuple, set, frozenset, range, memoryview, bytearray)) and typ.__name__ != 'DataFrame':
         for chunk in res:
@@ -1513,6 +1519,12 @@ _fix=lambda s:s if 'Infinity' not in s and 'NaN' not in s and '\\u0000' not in s
 
 def res_to_json(res, typ):
 {res_to_json_body}
+
+def _await(r):
+    if hasattr(r, '__await__'):
+        import asyncio
+        return asyncio.run(r)
+    return r
 {functions}
 {registrations}
 
@@ -1546,11 +1558,11 @@ for line in sys.stdin:
                 continue
             kwargs = json.loads(args_json, strict=False)
             pre_args = entry['pre_transform'](kwargs)
-            preprocessed = mod.preprocessor(**pre_args)
+            preprocessed = _await(mod.preprocessor(**pre_args))
             preprocessed_json = json.dumps(preprocessed, separators=(',', ':'), default=str).replace('\n', '')
             sys.stdout.write("wm_res[preprocessed_args]:" + preprocessed_json + "\n")
             main_args = entry['transform'](preprocessed if preprocessed else {{}})
-            res = mod.main(**main_args)
+            res = _await(mod.main(**main_args))
             typ = type(res)
             res_json = res_to_json(res, typ)
             sys.stdout.write("wm_res[success]:" + res_json + "\n")
@@ -1574,11 +1586,11 @@ for line in sys.stdin:
                 continue
             kwargs = json.loads(args_json, strict=False)
             pre_args = entry['pre_transform'](kwargs)
-            preprocessed = mod.preprocessor(**pre_args)
+            preprocessed = _await(mod.preprocessor(**pre_args))
             preprocessed_json = json.dumps(preprocessed, separators=(',', ':'), default=str).replace('\n', '')
             sys.stdout.write("wm_res[preprocessed_args]:" + preprocessed_json + "\n")
             main_args = entry['transform'](preprocessed if preprocessed else {{}})
-            res = mod.main(**main_args)
+            res = _await(mod.main(**main_args))
             typ = type(res)
             res_json = res_to_json(res, typ)
             sys.stdout.write("wm_res[success]:" + res_json + "\n")
@@ -1596,7 +1608,7 @@ for line in sys.stdin:
             entry = next(iter(scripts.values()))
             kwargs = json.loads(args_json, strict=False)
             args = entry['transform'](kwargs)
-            res = entry['mod'].main(**args)
+            res = _await(entry['mod'].main(**args))
             typ = type(res)
             res_json = res_to_json(res, typ)
             sys.stdout.write("wm_res[success]:" + res_json + "\n")
@@ -1624,7 +1636,7 @@ for line in sys.stdin:
 
             kwargs = json.loads(args_json, strict=False)
             args = entry['transform'](kwargs)
-            res = entry['mod'].main(**args)
+            res = _await(entry['mod'].main(**args))
             typ = type(res)
             res_json = res_to_json(res, typ)
             sys.stdout.write("wm_res[success]:" + res_json + "\n")
