@@ -6,16 +6,14 @@
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
-	import { ResourceService, type ListableResource } from '$lib/gen'
+	import type { ListableResource } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { sendUserToast } from '$lib/toast'
-	import { isDeployable } from '$lib/utils_deployable'
-	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
 	import { createEventDispatcher } from 'svelte'
-	import { FileUp, Pen, Shield, Trash } from 'lucide-svelte'
+	import { Pen } from 'lucide-svelte'
 	import Button from '../button/Button.svelte'
 	import ChatFlowBadge from '$lib/components/flows/ChatFlowBadge.svelte'
 	import { keepsManagedMemory } from '$lib/components/flows/agentFormFields'
+	import { agentMenuItems, deleteAgent } from '$lib/components/flows/agentActions'
 	import Row from './Row.svelte'
 
 	/**
@@ -46,14 +44,8 @@
 
 	const dispatch = createEventDispatcher()
 
-	async function deleteAgent(path: string): Promise<void> {
-		try {
-			await ResourceService.deleteResource({ workspace: $workspaceStore!, path })
-			sendUserToast(`Deleted agent ${path}`)
-			dispatch('change')
-		} catch (err) {
-			sendUserToast(`Could not delete agent ${path}: ${err}`, true)
-		}
+	async function remove(path: string) {
+		if (await deleteAgent($workspaceStore!, path)) dispatch('change')
 	}
 
 	let editHref = $derived(`${base}/agents/edit/${agent.path}`)
@@ -106,48 +98,20 @@
 			</span>
 		{/if}
 		<Dropdown
-			items={async () => {
-				const { path } = agent
-				return [
-					{
-						displayName: 'Permissions',
-						icon: Shield,
-						// A draft-only agent has no resource yet to hold permissions.
-						disabled: !agent.canWrite || Boolean(agent.draft_only),
-						action: () => {
-							shareModal.openDrawer?.(path, 'resource')
-						}
-					},
-					...(!agent.ws_specific &&
-					!agent.draft_only &&
-					isDeployable('resource', path, await getDeployUiSettings())
-						? [
-								{
-									displayName: 'Deploy to prod/staging',
-									icon: FileUp,
-									action: () => {
-										deploymentDrawer.openDrawer(path, 'resource')
-									}
-								}
-							]
-						: []),
-					{
-						displayName: 'Delete',
-						icon: Trash,
-						type: 'delete' as const,
-						disabled: !agent.canWrite,
-						action: (event) => {
-							if (event?.shiftKey) {
-								deleteAgent(path)
-							} else {
-								deleteConfirmedCallback = () => {
-									deleteAgent(path)
-								}
-							}
-						}
+			items={() =>
+				agentMenuItems({
+					path: agent.path,
+					canWrite: agent.canWrite,
+					draftOnly: Boolean(agent.draft_only),
+					wsSpecific: agent.ws_specific,
+					onPermissions: () => shareModal.openDrawer?.(agent.path, 'resource'),
+					onDeploy: () => deploymentDrawer.openDrawer(agent.path, 'resource'),
+					onDelete: (event) => {
+						const { path } = agent
+						if (event?.shiftKey) remove(path)
+						else deleteConfirmedCallback = () => remove(path)
 					}
-				]
-			}}
+				})}
 			on:open={() => {
 				menuOpen = true
 			}}

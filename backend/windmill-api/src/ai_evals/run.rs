@@ -248,7 +248,7 @@ fn build_run_flow(
 
 /// The agent step, reading its case from the iteration rather than from the flow's arguments.
 fn agent_module(config: &AgentDraft) -> Result<serde_json::Value> {
-    let flow = build_case_flow(config)?;
+    let flow = agent_step_flow(config, AGENT_NODE_ID, false, &[])?;
     let mut value = serde_json::to_value(&flow.modules[0].value)?;
     if let Some(map) = value.as_object_mut() {
         let transforms = map
@@ -269,34 +269,43 @@ fn agent_module(config: &AgentDraft) -> Result<serde_json::Value> {
     Ok(serde_json::json!({ "id": AGENT_NODE_ID, "value": value }))
 }
 
-/// The agent step as a one-module flow, so the module shape is validated by deserializing
-/// through `FlowValue` rather than trusted as raw JSON.
-fn build_case_flow(config: &AgentDraft) -> Result<windmill_common::flows::FlowValue> {
-    // The configuration runs exactly as authored: its own brain transforms are the module's, and
-    // the case supplies the message and the attachments over the top.
+/// The agent as a one-step flow, validated by deserializing through `FlowValue` rather than
+/// trusted as raw JSON. Its own transforms are the step's, minus `without`, and the run's inputs
+/// supply the message and the attachments over the top. Always inlined, never a link to the
+/// resource: a linked step would resolve the agent when it runs, not as it was read here.
+pub(crate) fn agent_step_flow(
+    config: &AgentDraft,
+    id: &str,
+    chat: bool,
+    without: &[&str],
+) -> Result<windmill_common::flows::FlowValue> {
     let mut input_transforms = match &config.input_transforms {
         serde_json::Value::Object(map) => map.clone(),
         _ => serde_json::Map::new(),
     };
+    for key in without {
+        input_transforms.remove(*key);
+    }
     for key in ["user_message", "user_attachments"] {
         input_transforms.insert(
             key.to_string(),
             serde_json::json!({ "type": "javascript", "expr": format!("flow_input.{}", key) }),
         );
     }
-
-    // Always inlined, never a link to the resource: a linked step would resolve the agent when
-    // each case runs, which is the one thing a run of a named version must not do.
-    let mut agent_value = serde_json::Map::new();
-    agent_value.insert("type".to_string(), serde_json::json!("aiagent"));
-    agent_value.insert("tools".to_string(), serde_json::json!(config.tools));
-    agent_value.insert(
-        "input_transforms".to_string(),
-        serde_json::Value::Object(input_transforms),
-    );
-    Ok(serde_json::from_value(serde_json::json!({
-        "modules": [{ "id": AGENT_NODE_ID, "value": serde_json::Value::Object(agent_value) }]
-    }))?)
+    let mut flow = serde_json::json!({
+        "modules": [{
+            "id": id,
+            "value": {
+                "type": "aiagent",
+                "tools": config.tools,
+                "input_transforms": serde_json::Value::Object(input_transforms),
+            }
+        }]
+    });
+    if chat {
+        flow["chat_input_enabled"] = serde_json::json!(true);
+    }
+    Ok(serde_json::from_value(flow)?)
 }
 
 /// How many times the agent has been saved, not the identity of the row holding that value: runs

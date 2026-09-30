@@ -1,14 +1,12 @@
 <script lang="ts">
 	import { page } from '$app/state'
-	import { FileUp, FlaskConical, FormInput, MessageSquare, Pen, Shield, Trash } from 'lucide-svelte'
-	import { twMerge } from 'tailwind-merge'
+	import { FlaskConical, FormInput, MessageSquare, Pen } from 'lucide-svelte'
+	import { resource } from 'runed'
 	import { base } from '$lib/base'
 	import { goto } from '$lib/navigation'
 	import { copilotInfo } from '$lib/aiStore'
-	import { Button } from '$lib/components/common'
 	import AgentEvalsModal from '$lib/components/flows/content/AgentEvalsModal.svelte'
-	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import SummaryPathDisplay from '$lib/components/SummaryPathDisplay.svelte'
+	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
@@ -18,11 +16,8 @@
 	import AgentConfigModal from '$lib/components/flows/content/AgentConfigModal.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
 	import { keepsManagedMemory } from '$lib/components/flows/agentFormFields'
-	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
-	import { ResourceService } from '$lib/gen'
+	import { agentMenuItems, deleteAgent } from '$lib/components/flows/agentActions'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { sendUserToast } from '$lib/toast'
-	import { isDeployable } from '$lib/utils_deployable'
 
 	/**
 	 * The deployed agent, as a flow's or a script's page shows theirs: a way to run it, a chat when
@@ -44,16 +39,39 @@
 	let deleteOpen = $state(false)
 	let evalsModal: AgentEvalsModal | undefined = $state(undefined)
 
-	async function deleteAgent() {
-		if (!ws) return
-		try {
-			await ResourceService.deleteResource({ workspace: ws, path })
-			sendUserToast(`Deleted agent ${path}`)
-			await goto(`${base}/?kind=agent`)
-		} catch (err) {
-			sendUserToast(`Could not delete agent ${path}: ${err}`, true)
-		}
+	async function remove() {
+		if (ws && (await deleteAgent(ws, path))) await goto(`${base}/?kind=agent`)
 	}
+
+	// Operators get no menu, as on a flow's or a script's page.
+	const menuItems = resource(
+		() =>
+			[
+				path,
+				config != undefined && !$userStore?.operator,
+				canEdit,
+				agent?.state?.wsSpecific
+			] as const,
+		async ([path, shown, canWrite, wsSpecific]) =>
+			shown
+				? (
+						await agentMenuItems({
+							path,
+							canWrite,
+							wsSpecific,
+							onPermissions: () => shareModal?.openDrawer?.(path, 'resource'),
+							onDeploy: () => deploymentDrawer?.openDrawer(path, 'resource'),
+							onDelete: () => (deleteOpen = true)
+						})
+					).map((item) => ({
+						label: item.displayName,
+						Icon: item.icon,
+						onclick: (e: MouseEvent) => item.action?.(e),
+						disabled: item.disabled,
+						color: item.type === 'delete' ? ('red' as const) : undefined
+					}))
+				: []
+	)
 </script>
 
 <ShareModal bind:this={shareModal} />
@@ -65,113 +83,79 @@
 	on:canceled={() => (deleteOpen = false)}
 	on:confirmed={() => {
 		deleteOpen = false
-		deleteAgent()
+		remove()
 	}}
 >
 	<span>Every flow that links {path} will fail at its agent step once it is deleted.</span>
 </ConfirmationModal>
 
 <main class="h-screen w-full flex flex-col">
-	<!-- Laid out as `DetailPageHeader` is for flows and scripts, whose trigger and error handler
-	     controls an agent does not have. -->
-	<div class="border-b">
-		<div
-			class="flex w-full flex-wrap md:flex-nowrap justify-end gap-x-2 gap-y-4 items-center min-h-12 py-2 md:py-0"
-		>
-			<div class="grow px-2 inline-flex items-center gap-4 min-w-0">
-				<div class={twMerge('min-w-0', $userStore?.operator ? 'pl-10' : '')}>
-					<SummaryPathDisplay summary={config ? agent?.state?.description : undefined} {path} />
-				</div>
-			</div>
-			<div class="flex gap-1 items-center pr-4">
-				<!-- Only an agent that keeps the conversation can chat: without managed memory every
-				     message would be answered alone, so it is run from its inputs with nothing to switch. -->
-				{#if chatAvailable && testPane?.mode}
-					<ToggleButtonGroup
-						bind:selected={
-							() => testPane?.mode,
-							(mode) => {
-								if (testPane) testPane.mode = mode
+	<DetailPageHeader
+		summary={config ? agent?.state?.description : undefined}
+		{path}
+		menuItems={menuItems.current ?? []}
+		mainButtons={[
+			// Evaluating an agent builds datasets and runs against it: authoring, as editing is.
+			...(canEdit
+				? [
+						{
+							label: 'Evals',
+							buttonProps: {
+								variant: 'default',
+								unifiedSize: 'md',
+								startIcon: FlaskConical,
+								title: 'Run this agent against a dataset of cases',
+								onClick: () => evalsModal?.openModal()
+							}
+						},
+						{
+							label: 'Edit',
+							buttonProps: {
+								variant: 'accent',
+								unifiedSize: 'md',
+								startIcon: Pen,
+								href: `${base}/agents/edit/${path}`
 							}
 						}
-						noWFull
-					>
-						{#snippet children({ item })}
-							<ToggleButton
-								size="md"
-								value="chat"
-								label="Chat"
-								icon={MessageSquare}
-								tooltip="Chat with the agent: each message runs it, and it remembers the conversation"
-								{item}
-							/>
-							<ToggleButton
-								size="md"
-								value="form"
-								label="Form"
-								icon={FormInput}
-								tooltip="Run the agent once, on the inputs in a form"
-								{item}
-							/>
-						{/snippet}
-					</ToggleButtonGroup>
-				{/if}
-				{#if config && !$userStore?.operator}
-					<DropdownV2
-						placement="bottom-end"
-						size="md"
-						items={async () => [
-							{
-								displayName: 'Permissions',
-								icon: Shield,
-								disabled: !canEdit,
-								action: () => shareModal?.openDrawer?.(path, 'resource')
-							},
-							...(!agent?.state?.wsSpecific &&
-							isDeployable('resource', path, await getDeployUiSettings())
-								? [
-										{
-											displayName: 'Deploy to prod/staging',
-											icon: FileUp,
-											action: () => deploymentDrawer?.openDrawer(path, 'resource')
-										}
-									]
-								: []),
-							{
-								displayName: 'Delete',
-								icon: Trash,
-								type: 'delete' as const,
-								disabled: !canEdit,
-								action: () => (deleteOpen = true)
-							}
-						]}
-					/>
-					<!-- Evaluating an agent builds datasets and runs against it: authoring, as editing is. -->
-					{#if canEdit}
-						<Button
-							variant="default"
-							unifiedSize="md"
-							startIcon={{ icon: FlaskConical }}
-							title="Run this agent against a dataset of cases"
-							onClick={() => evalsModal?.openModal()}
-						>
-							Evals
-						</Button>
-					{/if}
-				{/if}
-				{#if canEdit}
-					<Button
-						variant="accent"
-						unifiedSize="md"
-						startIcon={{ icon: Pen }}
-						href="{base}/agents/edit/{path}"
-					>
-						Edit
-					</Button>
-				{/if}
-			</div>
-		</div>
-	</div>
+					]
+				: [])
+		]}
+	>
+		{#snippet leading_actions()}
+			<!-- Only an agent that keeps the conversation can chat: without managed memory every
+			     message would be answered alone, so it is run from its inputs with nothing to switch. -->
+			{#if chatAvailable && testPane?.mode}
+				<ToggleButtonGroup
+					bind:selected={
+						() => testPane?.mode,
+						(mode) => {
+							if (testPane) testPane.mode = mode
+						}
+					}
+					noWFull
+				>
+					{#snippet children({ item })}
+						<ToggleButton
+							size="md"
+							value="chat"
+							label="Chat"
+							icon={MessageSquare}
+							tooltip="Chat with the agent: each message runs it, and it remembers the conversation"
+							{item}
+						/>
+						<ToggleButton
+							size="md"
+							value="form"
+							label="Form"
+							icon={FormInput}
+							tooltip="Run the agent once, on the inputs in a form"
+							{item}
+						/>
+					{/snippet}
+				</ToggleButtonGroup>
+			{/if}
+		{/snippet}
+	</DetailPageHeader>
 	<div class="flex-1 min-h-0">
 		{#key `${ws}:${path}`}
 			<AgentEditorHost
