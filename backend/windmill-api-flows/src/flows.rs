@@ -20,7 +20,7 @@ use windmill_api_auth::{
     require_owner_of_path, ApiAuthed,
 };
 use windmill_common::workspaces::{
-    check_deploy_rules, check_operator_can_build_flows, RuleCheckResult,
+    check_deploy_rules, check_operator_can_build_flows, operator_can_build_flows, RuleCheckResult,
 };
 use windmill_common::{
     user_drafts::{overlay_or_draft_only, DraftUserRef, UserDraftItemKind, WithDraftOverlay},
@@ -243,7 +243,7 @@ async fn list_flows(
 
     // Append the authed user's drafts at paths with no deployed flow; see scripts.rs.
     if lq.include_draft_only.unwrap_or(false)
-        && !authed.is_operator
+        && (!authed.is_operator || operator_can_build_flows(&db, &w_id).await?)
         && offset == 0
         && lq.path_start.is_none()
         && lq.path_exact.is_none()

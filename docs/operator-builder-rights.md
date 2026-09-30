@@ -71,3 +71,6 @@ zero delta and never blocks.
 - All-or-nothing per workspace: there is no per-user builder role.
 - `operator_settings` is git-synced, so a pull can flip every operator's class in a workspace and
   the billed seat count with it.
+- A builder writes JavaScript expressions: step inputs, branch predicates, `stop_after_if` and
+  `suspend`. They run in QuickJS with no filesystem or network access, and forbidding them would
+  leave nothing to compose with.

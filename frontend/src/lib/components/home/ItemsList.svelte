@@ -1883,9 +1883,12 @@
 			     the menu itself does no permission check. -->
 			{#if canCreateHere}
 				<!-- No hub entry where the instance has the hub turned off: the same setting the
-				     script and flow hub pickers observe. -->
+				     script and flow hub pickers observe. Nor for a builder: a hub project brings
+				     scripts and apps along. -->
 				<CreateActionsMenu
-					onImportHubProject={$disableHubStore ? undefined : () => (hubPickerOpen = true)}
+					onImportHubProject={$disableHubStore || $operatorBuilderFlows
+						? undefined
+						: () => (hubPickerOpen = true)}
 				/>
 			{/if}
 		</div>
