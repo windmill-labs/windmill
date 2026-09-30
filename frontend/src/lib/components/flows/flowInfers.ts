@@ -92,7 +92,7 @@ export const AI_AGENT_SCHEMA: Schema = {
 							type: 'number',
 							title: 'Context window',
 							description:
-								"Leave empty to use the model's context window. Set it for custom models."
+								"Leave empty to use the model's context window. Unknown models use 128k tokens, so set it for custom models."
 						}
 					},
 					required: ['kind']
