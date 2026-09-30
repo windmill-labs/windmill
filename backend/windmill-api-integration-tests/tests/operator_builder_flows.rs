@@ -185,6 +185,12 @@ async fn test_operator_builder_flows_boundary(db: Pool<Postgres>) -> anyhow::Res
         "a builder must not deploy a flow carrying inline code"
     );
 
+    // Draft storage strips a NUL, turning these keys into the plain ones the check reads.
+    let mut nul_value = inline_code_flow("u/operator/f1");
+    let v = nul_value.as_object_mut().unwrap().remove("value").unwrap();
+    nul_value["value\0"] = v;
+    let mut nul_dyn = composition_flow_at("u/operator/f1", "u/operator/some_script");
+    nul_dyn["schema"] = json!({"x-windmill-dyn-select-code\0": "x"});
     for (draft, expected) in [
         (
             composition_flow_at("u/operator/f1", "u/operator/some_script"),
@@ -192,6 +198,8 @@ async fn test_operator_builder_flows_boundary(db: Pool<Postgres>) -> anyhow::Res
         ),
         (inline_code_flow("u/operator/f1"), 403),
         (with_dyn_code.clone(), 403),
+        (nul_value, 403),
+        (nul_dyn, 403),
     ] {
         let resp = c
             .post(format!("{api}/drafts/update/flow/u/operator/f1"))

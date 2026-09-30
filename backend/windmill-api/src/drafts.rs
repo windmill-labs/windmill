@@ -479,7 +479,9 @@ async fn update_draft(
                 schema: Option<Box<serde_json::value::RawValue>>,
                 tag: Option<String>,
             }
-            let draft: FlowDraft = serde_json::from_str(value.0.get())
+            // The text stored below, NULs stripped: a stripped NUL can rename a key into one
+            // this check reads.
+            let draft: FlowDraft = serde_json::from_str(&strip_json_nul(value.0.get()))
                 .map_err(|e| Error::BadRequest(format!("Invalid flow draft: {e}")))?;
             validate_operator_flow(
                 &draft.value,
