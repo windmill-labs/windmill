@@ -162,7 +162,7 @@
 			onStartOnDrag?: (e: PointerEvent) => void
 			/** The assets-only node for the scripts that build no asset. */
 			noAsset?: boolean
-			/** Nothing in the workspace writes it. */
+			/** No script in the workspace writes it; a flow's write fires no asset trigger. */
 			neverWritten?: boolean
 			/** Card width in the assets-only view, sized to its text. */
 			width?: number

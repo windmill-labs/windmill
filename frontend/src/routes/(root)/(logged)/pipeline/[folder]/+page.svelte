@@ -1180,10 +1180,27 @@
 	// (same rationale as the live-callback handlers above) and so the
 	// template can gate them per-mode with simple ternaries — the canvas
 	// hides each affordance when its callback is undefined.
+	// Every field Save all deploys: a draft differing from the live script in any
+	// of them still has something to save.
+	const DEPLOYED_FIELDS = [
+		'content',
+		'language',
+		'summary',
+		'description',
+		'tag',
+		'kind',
+		'labels'
+	] as const
 	async function matchesDeployed(path: string, d: Draft, ws: string): Promise<boolean> {
 		try {
 			const live = await ScriptService.getScriptByPath({ workspace: ws, path })
-			return live.content === d.script.content && live.language === d.script.language
+			const norm = (v: unknown) =>
+				JSON.stringify(Array.isArray(v) && v.length === 0 ? null : (v ?? null))
+			return DEPLOYED_FIELDS.every(
+				(f) =>
+					norm(f === 'description' ? (live[f] ?? '') : live[f]) ===
+					norm(f === 'description' ? (d.script[f] ?? '') : d.script[f])
+			)
 		} catch {
 			return false
 		}
@@ -1216,9 +1233,14 @@
 		opts?: { soleScript?: string }
 	) {
 		if (s?.kind === 'asset' && opts?.soleScript) {
-			const script = opts.soleScript
-			if (!(await isMaterialized({ kind: s.asset_kind, path: s.path }))) {
-				s = { kind: 'runnable', runnable_kind: 'script', path: script }
+			const asset = s
+			if (!(await isMaterialized({ kind: asset.asset_kind, path: asset.path }))) {
+				s = { kind: 'runnable', runnable_kind: 'script', path: opts.soleScript }
+				// Job history expires, so "no write on record" may be an asset built long
+				// ago: its own pane stays one click away.
+				sendUserToast(`No build of ${asset.path} on record: opened its script.`, false, [
+					{ label: 'Show the asset', callback: () => void handleCanvasSelect(asset) }
+				])
 			}
 		}
 		// Clicking a node while the pane is explicitly hidden is a request

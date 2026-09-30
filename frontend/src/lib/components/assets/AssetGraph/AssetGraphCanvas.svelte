@@ -377,8 +377,21 @@
 			onDrag.over = nodeUnder(ev.clientX, ev.clientY)
 			onDrag.blank = !onDrag.over && overBlank(ev.clientX, ev.clientY)
 		}
-		const up = (ev: PointerEvent) => {
+		// A drag that ends without a release (pointer cancelled, window left) drops
+		// nothing, and must not leave its line following the cursor.
+		const teardown = () => {
 			window.removeEventListener('pointermove', move)
+			window.removeEventListener('pointerup', up)
+			window.removeEventListener('pointercancel', cancel)
+			window.removeEventListener('blur', cancel)
+			document.removeEventListener('visibilitychange', cancel)
+		}
+		const cancel = () => {
+			teardown()
+			onDrag = undefined
+		}
+		const up = (ev: PointerEvent) => {
+			teardown()
 			const drag = onDrag
 			onDrag = undefined
 			if (!started || !drag) return
@@ -394,7 +407,10 @@
 			drop(target && drag.eligible.has(target) ? target : undefined, at, !target && drag.blank)
 		}
 		window.addEventListener('pointermove', move)
-		window.addEventListener('pointerup', up, { once: true })
+		window.addEventListener('pointerup', up)
+		window.addEventListener('pointercancel', cancel)
+		window.addEventListener('blur', cancel)
+		document.addEventListener('visibilitychange', cancel)
 	}
 	function startOnDrag(sourceId: string, scripts: string[], e: PointerEvent) {
 		if (!onAddAssetTrigger || scripts.length === 0) return
@@ -1488,8 +1504,10 @@
 		showPassiveReads = localStorage.getItem(SHOW_PASSIVE_READS_KEY) !== 'false'
 	} catch {}
 	let withoutPassive = $derived(withoutPassiveReads(model.nodes, model.edges))
+	// Only where the toggle is shown: the preference is global, and a graph
+	// without the toggle would have no way to show the reads again.
 	let shownModel = $derived(
-		showPassiveReads || withoutPassive.dropped === 0
+		!assetsOnlyToggle || showPassiveReads || withoutPassive.dropped === 0
 			? model
 			: { ...model, nodes: withoutPassive.nodes, edges: withoutPassive.edges }
 	)
