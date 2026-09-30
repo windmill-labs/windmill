@@ -51,7 +51,7 @@
 	import { getAiChatManager } from './aiChatManagerContext'
 	import ChatTypingIndicator from './ChatTypingIndicator.svelte'
 	import ToolGroupDisplay from './ToolGroupDisplay.svelte'
-	import { groupToolRuns } from './toolGroups'
+	import { chatItemKey, groupToolRuns } from './toolGroups'
 	import AIChatInput from './AIChatInput.svelte'
 	import AttachedFilesBar from './files/AttachedFilesBar.svelte'
 	import QueuedMessageChip from './QueuedMessageChip.svelte'
@@ -873,7 +873,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 					{#snippet groupRow(message: DisplayMessage, messageIndex: number)}
 						{@render messageRow(message, messageIndex, false, true)}
 					{/snippet}
-					{#each chatItems as item (item.kind === 'group' ? `g:${item.key}` : `m:${item.index}`)}
+					{#each chatItems as item (chatItemKey(item))}
 						{#if item.kind === 'group'}
 							<div
 								class={twMerge(

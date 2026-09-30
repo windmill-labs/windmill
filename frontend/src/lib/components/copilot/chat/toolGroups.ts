@@ -99,6 +99,14 @@ export type ToolGroup = {
 
 export type ChatItem = { kind: 'message'; message: DisplayMessage; index: number } | ToolGroup
 
+/** A tool row is keyed by its call, not its position: loading another chat puts a different
+ * call at the same index, and a reused row would carry the old call's held label over. */
+export function chatItemKey(item: ChatItem): string {
+	if (item.kind === 'group') return `g:${item.key}`
+	if (item.message.role === 'tool') return `t:${item.message.tool_call_id}`
+	return `m:${item.index}`
+}
+
 function groupableCall(message: DisplayMessage): ToolDisplayMessage | undefined {
 	if (message.role !== 'tool' || !message.toolName) return undefined
 	// A row waiting on the user, or refused by plan mode, is a decision the user must see; a
