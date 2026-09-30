@@ -429,6 +429,7 @@
 					path: a.path,
 					fork_materialization: a.fork_materialization,
 					derived_from: a.derived_from,
+					error: a.error,
 					dbt: a.dbt,
 					onAddScript: onAddScriptForAsset,
 					pathPrefix,

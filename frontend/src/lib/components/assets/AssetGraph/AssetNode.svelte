@@ -51,6 +51,8 @@
 			// "current view of <dim>" marker so it reads as a derived node, not an
 			// unrelated table.
 			derived_from?: string
+			// Why the node is misconfigured, when it is: renders it red.
+			error?: string
 			// dbt provenance when this warehouse table is a dbt node: which model
 			// it is, how dbt materializes it, its tags and its generic tests.
 			dbt?: DbtAssetProvenance
@@ -238,13 +240,13 @@
 			<div class="wm-recompute-flash pointer-events-none absolute inset-0 z-10 rounded-md"></div>
 		{/key}
 	{/if}
-	<!-- Mirrors the flow editor's asset pill: quiet surface + gray border at
-	     rest, accent reserved for the selected state. -->
 	<PipelineNodeCard
+		surface="primary"
 		kindLabel={formatAssetKind(asset)}
 		title={formatShortAssetPath(asset)}
-		tooltip={data.path}
+		tooltip={data.error ? `${data.path}: ${data.error}` : data.path}
 		{selected}
+		tone={data.error ? 'error' : undefined}
 	>
 		{#snippet icon()}
 			<!-- Data identity carries the accent (luminance blue), pairing with
@@ -252,7 +254,11 @@
 			     neutral, so script vs data reads at a glance. -->
 			<AssetGenericIcon
 				assetKind={data.asset_kind}
-				class={selected ? 'text-accent' : 'text-blue-600 dark:text-blue-400'}
+				class={data.error
+					? 'text-red-600 dark:text-red-200'
+					: selected
+						? 'text-accent'
+						: 'text-blue-600 dark:text-blue-400'}
 				size="14px"
 			/>
 		{/snippet}

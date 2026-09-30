@@ -22,7 +22,8 @@ and the controls hung around the card.
 		/** Not deployed yet: dashed edge. */
 		draft?: boolean
 		/** Feedback states, which recolor the whole card. */
-		tone?: 'danger' | 'success' | 'running'
+		/** `error` is a misconfigured node, styled like a failed flow step. */
+		tone?: 'danger' | 'error' | 'success' | 'running'
 		/** Makes the whole card a button. */
 		onclick?: (e: MouseEvent) => void
 		/** Between the icon and the text: a live status the eye should find first. */
@@ -55,6 +56,10 @@ and the controls hung around the card.
 			selected && 'bg-surface-accent-selected border-border-selected hover:border-border-selected',
 			tone === 'danger' &&
 				'bg-red-50 dark:bg-red-900/30 border-dashed border-red-400 dark:border-red-500 hover:bg-red-100 dark:hover:bg-red-900/40',
+			tone === 'error' &&
+				(selected
+					? 'bg-red-200 dark:bg-red-600 border-red-500 hover:border-red-500'
+					: 'bg-red-100 dark:bg-red-700 border-red-300 dark:border-red-500 hover:border-red-400'),
 			tone === 'success' &&
 				'bg-green-50 dark:bg-green-900/30 border-green-500 dark:border-green-600',
 			tone === 'running' &&
@@ -64,6 +69,8 @@ and the controls hung around the card.
 	const toneText = $derived(
 		tone === 'danger'
 			? 'text-red-700 dark:text-red-400'
+			: tone === 'error'
+				? 'text-red-700 dark:text-red-200'
 			: tone === 'success'
 				? 'text-green-700 dark:text-green-400'
 				: undefined

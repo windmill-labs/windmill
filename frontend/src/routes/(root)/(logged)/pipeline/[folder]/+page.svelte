@@ -43,7 +43,10 @@
 		mergeColumnGraphs
 	} from '$lib/components/assets/AssetGraph/columnLineageGraph'
 	import { useDbtColumnLineage } from '$lib/components/assets/AssetGraph/dbtColumnLineage.svelte'
-	import { resolveGraph } from '$lib/components/assets/AssetGraph/resolveGraph'
+	import {
+		pipelineErrorAssetKeys,
+		resolveGraph
+	} from '$lib/components/assets/AssetGraph/resolveGraph'
 	import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
 	import { hideDbtRunnables } from '$lib/components/assets/AssetGraph/hideDbtRunnables'
 	import { buildSchemaContractContext } from '$lib/components/assets/AssetGraph/schemaContracts'
@@ -1344,10 +1347,34 @@
 	let displayGraph = $derived(
 		withSummaries(mode === 'edit' || includeDrafts ? graphWithDraft : deployedGraph)
 	)
+	// Adds what the canvas shows but the resolved graph does not carry: script
+	// summaries and languages, and which assets are misconfigured.
 	function withSummaries(g: AssetGraphResponse): AssetGraphResponse {
 		const showDrafts = mode === 'edit' || includeDrafts
+		const explicitOnByPath = new Map<string, Array<{ kind: AssetKind; path: string }>>()
+		for (const r of g.runnables) {
+			if (r.usage_kind !== 'script') continue
+			const live =
+				showDrafts && pe.liveAnnotations.scriptPath === r.path ? pe.liveAnnotations : undefined
+			const content = showDrafts ? pe.drafts.get(r.path)?.script.content : undefined
+			const body = content ?? bodiesByPath.get(r.path)
+			const refs = live
+				? live.annotations.triggerAssets
+				: body !== undefined
+					? parsePipelineAnnotations(body).triggerAssets
+					: []
+			if (refs.length > 0) explicitOnByPath.set(r.path, refs)
+		}
+		const errors = pipelineErrorAssetKeys(g, explicitOnByPath)
 		return {
 			...g,
+			assets:
+				errors.size === 0
+					? g.assets
+					: g.assets.map((a) => {
+							const error = errors.get(`${a.kind}:${a.path}`)
+							return error ? { ...a, error } : a
+						}),
 			runnables: g.runnables.map((r) => {
 				const draft = showDrafts ? pe.drafts.get(r.path)?.script : undefined
 				const meta = scriptMetaByPath.get(r.path)

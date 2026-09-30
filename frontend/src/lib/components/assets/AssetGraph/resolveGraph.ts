@@ -313,6 +313,44 @@ function withTriggerDrafts(
 	]
 }
 
+/**
+ * Assets the pipeline cannot work with, keyed `kind:path`, with the reason: one
+ * nothing uses at all, and one a script subscribes to (`// on <asset>`) that no
+ * runnable in the graph writes — that subscription can never fire. A body read of
+ * an external asset is fine and is not passed here: only the explicit `// on`
+ * annotations, per script path, count as subscriptions.
+ */
+export function pipelineErrorAssetKeys(
+	graph: AssetGraphResponse,
+	explicitOnByPath: Map<string, Array<{ kind: AssetKind; path: string }>>
+): Map<string, string> {
+	const referenced = referencedAssetKeys(graph)
+	const written = new Set(
+		graph.edges
+			.filter((e) => e.access_type === 'w' || e.access_type === 'rw')
+			.map((e) => `${e.asset_kind}:${e.asset_path}`)
+	)
+	for (const e of graph.dbt_edges ?? []) written.add(`dbt:${e.from_asset_path}`)
+	const errors = new Map<string, string>()
+	for (const a of graph.assets) {
+		const key = `${a.kind}:${a.path}`
+		if (!referenced.has(key)) errors.set(key, 'nothing in the pipeline uses it')
+	}
+	const scripts = new Set(
+		graph.runnables.filter((r) => r.usage_kind === 'script').map((r) => r.path)
+	)
+	for (const [path, refs] of explicitOnByPath) {
+		if (!scripts.has(path)) continue
+		for (const ref of refs) {
+			const key = `${ref.kind}:${ref.path}`
+			if (!written.has(key) && !errors.has(key)) {
+				errors.set(key, `${path} runs on it, but nothing in the pipeline writes it`)
+			}
+		}
+	}
+	return errors
+}
+
 function referencedAssetKeys(
 	graph: Pick<AssetGraphResponse, 'edges' | 'triggers' | 'test_edges' | 'dbt_edges'>
 ): Set<string> {

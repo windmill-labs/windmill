@@ -6,6 +6,8 @@ export type GraphUsageKind = 'script' | 'flow'
 export interface AssetGraphAssetNode {
 	kind: AssetKind
 	path: string
+	// Filled in client-side: the node is misconfigured (see `pipelineErrorAssetKeys`).
+	error?: string
 	// Fork workspaces only: 'fork' when this ducklake asset was materialized in
 	// the fork itself, 'deferred' when reads fall back to the parent workspace's
 	// current table via a defer view. Absent outside forks / for other kinds /

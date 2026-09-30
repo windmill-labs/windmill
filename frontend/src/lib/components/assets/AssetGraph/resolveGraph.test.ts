@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
 	resolveGraph,
 	computeMutedReadKeys,
+	pipelineErrorAssetKeys,
 	dbtAssociations,
 	type ResolveGraphInput
 } from './resolveGraph'
@@ -1229,5 +1230,41 @@ describe('dbtAssociations with two writers of one relation', () => {
 		])
 		expect(writesByOwner.get('script:f/a/upstream')).toEqual(new Set(['asset:dbt:wh/s/shared']))
 		expect(writesByOwner.get('script:f/a/downstream')).toEqual(new Set(['asset:dbt:wh/s/shared']))
+	})
+})
+
+describe('pipelineErrorAssetKeys', () => {
+	const edge = (runnable_path: string, asset_path: string, access_type: 'r' | 'w') => ({
+		runnable_path,
+		runnable_kind: 'script' as const,
+		asset_kind: 'ducklake' as const,
+		asset_path,
+		access_type
+	})
+	const graph = baseGraph({
+		assets: [
+			{ kind: 'ducklake', path: 'main/orphan' },
+			{ kind: 'ducklake', path: 'main/produced' },
+			{ kind: 'ducklake', path: 'main/external' }
+		],
+		runnables: [
+			{ path: 'f/x/prod', usage_kind: 'script' },
+			{ path: 'f/x/cons', usage_kind: 'script' }
+		],
+		edges: [
+			edge('f/x/prod', 'main/produced', 'w'),
+			edge('f/x/cons', 'main/produced', 'r'),
+			edge('f/x/cons', 'main/external', 'r')
+		]
+	})
+
+	it('flags an unused asset, and a `// on` with no producer, but not a plain read', () => {
+		const onRefs = (...paths: string[]) => paths.map((path) => ({ kind: 'ducklake' as const, path }))
+		expect([...pipelineErrorAssetKeys(graph, new Map()).keys()]).toEqual(['ducklake:main/orphan'])
+		const errors = pipelineErrorAssetKeys(
+			graph,
+			new Map([['f/x/cons', onRefs('main/produced', 'main/external')]])
+		)
+		expect([...errors.keys()].sort()).toEqual(['ducklake:main/external', 'ducklake:main/orphan'])
 	})
 })
