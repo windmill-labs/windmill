@@ -65,10 +65,7 @@
 		getFavoriteHref,
 		getFavoriteLabel
 	} from '$lib/components/sidebar/FavoriteMenu.svelte'
-	import {
-		parseSuperadminSettingsHash,
-		USER_SETTINGS_HASH
-	} from '$lib/components/sidebar/settings'
+	import { parseSuperadminSettingsHash, USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { isCloudHosted } from '$lib/cloud'
 	import {
 		PanelLeft,
@@ -302,7 +299,11 @@
 	// Session mode is route-derived: the rail shows the sessions sidebar on the
 	// /sessions page and the workspace navigation everywhere else. The switch
 	// (SessionModeSwitch) just navigates in and out of that route.
-	let sessionMode = $derived(page.url.pathname.startsWith(base + '/sessions'))
+	// The route decides, except for an operator: /sessions refuses them, so handing their
+	// sidebar over to a session list would offer what the page behind it is declining.
+	let sessionMode = $derived(
+		page.url.pathname.startsWith(base + '/sessions') && !$userStore?.operator
+	)
 	// Session mode points the bottom settings entry at the open session's own
 	// workspace. An unsent draft hasn't committed one yet, so it falls back to
 	// the family root.
@@ -323,8 +324,14 @@
 	const globalAiEnabled = isGlobalAiEnabled()
 	// A workspace that hid the assistant (`ai_config.copilot_disabled`) loses both entry
 	// points: the Workspace ⇄ Sessions switch and the legacy Ask-AI button.
-	const sessionsSwitchShown = $derived(globalAiEnabled && !$copilotInfo.workspaceDisabled)
-	const askAiShown = $derived(!globalAiEnabled && !$copilotInfo.workspaceDisabled)
+	const sessionsSwitchShown = $derived(
+		globalAiEnabled && !$copilotInfo.workspaceDisabled && !$userStore?.operator
+	)
+	// The legacy pane's entry point. An operator keeps that pane whatever the beta gate says
+	// (`disableAi` above), so the sidebar must still offer them a way into it.
+	const askAiShown = $derived(
+		(!globalAiEnabled || $userStore?.operator) && !$copilotInfo.workspaceDisabled
+	)
 
 	if (page.status == 404) {
 		goto('/user/login')
@@ -903,7 +910,7 @@
 	$effect(() => {
 		const ws = $workspaceStore
 		const ready = sessionState.hydrated && $usersWorkspaceStore !== undefined
-		if (globalAiEnabled && ready && ws) {
+		if (globalAiEnabled && ready && ws && !$userStore?.operator) {
 			untrack(() => restoreSessionBackups(ws))
 		}
 	})
@@ -1679,9 +1686,9 @@
 			<AiChatLayout
 				{children}
 				noPadding={devOnly || menuHidden}
-				disableAi={globalAiEnabled ? true : sessionMode}
+				disableAi={globalAiEnabled && !$userStore?.operator ? true : sessionMode}
 				loadAiConfig={!sessionMode}
-				showSessionsBetaBanner
+				showSessionsBetaBanner={!$userStore?.operator}
 				sidebarWidth={railWidth}
 				transitionClass={sidebarTransitionClass}
 				isMobile={useDrawer}
