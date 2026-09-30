@@ -1896,7 +1896,7 @@ async fn require_job_within_run_scope(
     // flow-inlined scripts) — those are still readable as a step of a matching flow,
     // through their ancestors. A `singlestepflow` wraps either a script or a flow, so it
     // projects onto the wrapped runnable the same way the batch-rerun query does. An agent
-    // run is a preview of the one-step flow `agent_runs::agent_flow` builds, filed under the
+    // run is a preview of the one-step flow `agent_runs::agent_step_flow` builds, filed under the
     // agent's path (`<path>.chat` for a chat turn); the editor's own runs of it look the same,
     // and are runs of that agent too.
     let chain = sqlx::query!(
