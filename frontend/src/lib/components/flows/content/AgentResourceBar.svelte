@@ -692,40 +692,15 @@
 					<!-- Each branch holds the whole sentence: Svelte trims whitespace at a block's edges,
 					     which is how the path once lost the spaces around it. -->
 					{#if providerPath}
-						You don't have access to <span class="font-medium">{providerPath}</span>, this agent's
-						model provider.
+						You don't have access to <span class="font-medium">{providerPath}</span>.
 					{:else}
 						You don't have access to this agent's model provider.
 					{/if}
-					<ul class="list-disc pl-4 mt-1">
-						{#if canEditAgent && !fromAgentEditor}
-							<li
-								>Edit the agent to use a provider you can access. It changes everywhere it's used.</li
-							>
-						{/if}
-						<li>Unlink it to fork an editable copy into just this step.</li>
-						<li>Ask for access to the provider resource.</li>
-					</ul>
-					<div class="flex gap-2 pt-2">
-						{#if canEditAgent && !fromAgentEditor}
-							<Button
-								unifiedSize="sm"
-								variant="default"
-								startIcon={{ icon: Pencil }}
-								onclick={editAgent}
-							>
-								Edit agent
-							</Button>
-						{/if}
-						<Button
-							unifiedSize="sm"
-							variant="default"
-							startIcon={{ icon: Unlink }}
-							onclick={unlink}
-						>
-							Unlink
-						</Button>
-					</div>
+					{#if canEditAgent && !fromAgentEditor}
+						Edit the agent to use another, unlink it, or ask for access.
+					{:else}
+						Unlink it or ask for access.
+					{/if}
 				</Alert>
 			</div>
 		{/if}
