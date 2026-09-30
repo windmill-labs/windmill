@@ -67,7 +67,11 @@
 	}
 </script>
 
-<main class="h-screen w-full" bind:clientWidth>
+<!-- `h-full`, not `h-screen`: this page is also rendered inside an AI session's preview
+     panel, which is shorter than the viewport. Claiming the viewport's height there
+     overflows the pane, and the ancestors between are `overflow-visible`, so the bottom of
+     the run form is unreachable rather than merely clipped. -->
+<main class="h-full w-full" bind:clientWidth>
 	{#if useDesktopLayout}
 		<div class="h-full w-full flex flex-col">
 			{@render header?.({ wide: useDesktopLayout })}

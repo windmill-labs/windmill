@@ -1823,9 +1823,15 @@
 				scriptLang === 'bunnative' ||
 				scriptLang === 'nativets')
 		) {
-			const resourceTypes = await ResourceService.listResourceType({
-				workspace: $operatingWorkspace ?? ''
-			})
+			// The generated client resolves `undefined` for any response whose body it
+			// cannot read — `getResponseBody` swallows a parse failure and returns
+			// nothing, which `catchErrorCodes` passes through on a 2xx. Typing says
+			// otherwise, so without this the editor dies on mount rather than losing
+			// its resource-type autocomplete.
+			const resourceTypes =
+				(await ResourceService.listResourceType({
+					workspace: $operatingWorkspace ?? ''
+				})) ?? []
 
 			const namespace = formatResourceTypes(
 				resourceTypes,
