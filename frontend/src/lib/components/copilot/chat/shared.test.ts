@@ -1962,6 +1962,30 @@ describe('createSearchHubScriptsTool', () => {
 		])
 	})
 
+	// Narrowing a query to a slug is the only thing that searches an integration the
+	// user named: ranking alone surfaces other integrations whose scripts merely mention
+	// it, so a query that drops `app` silently searches the whole hub instead.
+	it('narrows a query to the integration it was given', async () => {
+		const { ScriptService } = await import('$lib/gen')
+		const queryHubScripts = vi.fn(async () => [hit(9, 'salesforce', 'SOSL Search')])
+		Object.assign(ScriptService, { queryHubScripts, getTopHubScripts: vi.fn() })
+
+		const { createSearchHubScriptsTool } = await import('./shared')
+		const raw = await createSearchHubScriptsTool().fn({
+			args: { query: 'look up an account', integration: 'salesforce' },
+			toolId: 't1',
+			toolCallbacks: { setToolStatus: vi.fn() }
+		} as any)
+
+		expect(queryHubScripts).toHaveBeenCalledWith({
+			text: 'look up an account',
+			kind: 'script',
+			app: 'salesforce'
+		})
+		expect(ScriptService.getTopHubScripts).not.toHaveBeenCalled()
+		expect(JSON.parse(raw).results.map((r: any) => r.integration)).toEqual(['salesforce'])
+	})
+
 	// A search below the similarity floor otherwise dead-ends; the slug is what
 	// lets the model fall back to browsing the integration.
 	it('suggests matching integrations when the search finds nothing', async () => {
