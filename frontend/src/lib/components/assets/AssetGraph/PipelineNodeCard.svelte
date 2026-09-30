@@ -86,7 +86,9 @@ and the controls hung around the card.
 			>{title}</span
 		>
 	</span>
-	{@render trailing?.()}
+	{#if trailing}
+		<span class="flex items-center shrink-0 pr-2">{@render trailing()}</span>
+	{/if}
 {/snippet}
 
 {#if onclick}
