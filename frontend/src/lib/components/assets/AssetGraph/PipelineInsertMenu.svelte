@@ -67,6 +67,7 @@
 	import DateTimeInput from '$lib/components/DateTimeInput.svelte'
 	import ScheduleAdvancedOptions, {
 		emptyScheduleAdvanced,
+		loadDefaultScheduleAdvanced,
 		scheduleAdvancedCfg
 	} from '$lib/components/triggers/schedules/ScheduleAdvancedOptions.svelte'
 	import { workspaceStore } from '$lib/stores'
@@ -147,14 +148,31 @@
 		tableEdited: false
 	})
 	let config = $state(buildEmptyConfig())
+	loadAdvancedDefaults()
+
+	// The workspace's default handlers, as the schedule drawer applies to a new schedule.
+	function loadAdvancedDefaults() {
+		const ws = $workspaceStore
+		if (!ws) return
+		const target = config
+		loadDefaultScheduleAdvanced(ws)
+			.then((d) => {
+				if (config === target) config.advanced = d
+			})
+			.catch(() => {})
+	}
 
 	function resetWizard() {
 		selected = buildEmptySelected()
 		config = buildEmptyConfig()
+		loadAdvancedDefaults()
 		step = 0
 	}
 
 	const TABLE_NAME_RE = /^[^/\s]+$/
+	// The path grammar of `Path.svelte`: word segments, no empty or trailing ones.
+	const SCRIPT_NAME_RE = /^[\w-]+(\/[\w-]+)*$/
+	let scriptNameValid = $derived(SCRIPT_NAME_RE.test(selected.scriptPath.trim()))
 	let assetValid = $derived(
 		!!config.asset?.store && TABLE_NAME_RE.test(config.asset.table.trim())
 	)
@@ -163,7 +181,7 @@
 			? config.validCron && !!config.schedule.trim() && !config.schedulePathError
 			: currentConfigStep === 'asset'
 				? assetValid
-				: !!selected.scriptPath.trim()
+				: scriptNameValid && !!selected.triggerId && !!selected.language && !!selected.outputId
 	)
 
 	function enterAssetStep() {
@@ -428,14 +446,30 @@
 {#snippet bottomSection(close: () => void)}
 	<Label label="Path">
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div bind:this={pathEl} class="flex" onkeydown={selectAndAdvanceTo(() => aiPromptEl ?? saveEl)}>
+		<div
+			bind:this={pathEl}
+			class="flex"
+			onkeydown={(e) =>
+				(e.metaKey || e.ctrlKey) && e.key === 'Enter'
+					? (e.preventDefault(), e.stopPropagation(), confirm(close))
+					: selectAndAdvanceTo(() => aiPromptEl ?? saveEl)(e)}
+		>
 			<div
 				class="border rounded-md rounded-r-none border-r-0 text-xs w-fit shrink-0 whitespace-nowrap flex items-center px-2 text-secondary bg-surface-input"
 			>
 				{pathPrefix}
 			</div>
-			<TextInput bind:value={selected.scriptPath} class="rounded-l-none" />
+			<TextInput
+				bind:value={selected.scriptPath}
+				class="rounded-l-none"
+				error={!scriptNameValid && !!selected.scriptPath.trim()}
+			/>
 		</div>
+		{#if !scriptNameValid && selected.scriptPath.trim()}
+			<span class="text-2xs text-red-600 dark:text-red-400">
+				Letters, digits, <code>_</code> and <code>-</code>, in <code>/</code>-separated segments
+			</span>
+		{/if}
 	</Label>
 	{#if !$copilotInfo.workspaceDisabled}
 		<Label label="AI Prompt (optional)">

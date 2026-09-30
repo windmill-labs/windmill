@@ -141,7 +141,7 @@
 
 	// Set by `openNew(…, { onSaveDraft })`: the caller keeps the trigger as its own
 	// draft, so Save hands it the config instead of writing it.
-	let saveDraftHandler: ((cfg: Record<string, any>) => void) | undefined = $state(undefined)
+	let saveDraftHandler: ((cfg: Record<string, any>) => boolean) | undefined = $state(undefined)
 
 	export async function openEdit(
 		ePath: string,
@@ -195,7 +195,7 @@
 		fixedScriptPath_?: string,
 		defaultValues?: Partial<EmailTrigger>,
 		opts: {
-			onSaveDraft?: (cfg: Record<string, any>) => void
+			onSaveDraft?: (cfg: Record<string, any>) => boolean
 			/** A config this editor saved before, re-applied over the defaults. */
 			draftConfig?: Record<string, any>
 		} = {}
@@ -289,7 +289,7 @@
 
 	async function triggerScript(): Promise<void> {
 		if (saveDraftHandler) {
-			saveDraftHandler($state.snapshot(getEmailTriggerConfig()))
+			if (!saveDraftHandler($state.snapshot(getEmailTriggerConfig()))) return
 			drawer?.closeDrawer()
 			return
 		}

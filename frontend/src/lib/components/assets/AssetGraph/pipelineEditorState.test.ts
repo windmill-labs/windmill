@@ -124,4 +124,17 @@ describe('PipelineEditorState trigger drafts', () => {
 		pe.discardDraft('f/x/m')
 		expect(pe.triggerDrafts.size).toBe(0)
 	})
+
+	it('refuse a path another draft holds, but let a draft keep its own', () => {
+		const pe = new PipelineEditorState()
+		const a = { kind: 'kafka' as const, config: { path: 'f/x/k', script_path: 'f/x/a' } }
+		expect(pe.setTriggerDraft(a)).toBe(true)
+		expect(
+			pe.setTriggerDraft({ kind: 'kafka', config: { path: 'f/x/k', script_path: 'f/x/b' } })
+		).toBe(false)
+		expect(pe.triggerDrafts.get('kafka:f/x/k')?.config.script_path).toBe('f/x/a')
+		expect(pe.setTriggerDraft({ ...a, config: { ...a.config, topics: ['t'] } }, 'kafka:f/x/k')).toBe(
+			true
+		)
+	})
 })

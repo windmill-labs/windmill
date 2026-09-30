@@ -33,7 +33,7 @@
 	/** Edit a schedule that exists only as the caller's draft; Save hands it back. */
 	export async function openDraft(
 		cfg: Schedule,
-		onSaveDraft: (cfg: Record<string, any>) => void
+		onSaveDraft: (cfg: Record<string, any>) => boolean
 	) {
 		open = true
 		await loadInner()

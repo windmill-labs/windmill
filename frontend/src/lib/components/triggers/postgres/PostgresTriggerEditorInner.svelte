@@ -260,7 +260,7 @@
 
 	// Set by `openNew(…, { onSaveDraft })`: the caller keeps the trigger as its own
 	// draft, so Save hands it the config instead of writing it.
-	let saveDraftHandler: ((cfg: Record<string, any>) => void) | undefined = $state(undefined)
+	let saveDraftHandler: ((cfg: Record<string, any>) => boolean) | undefined = $state(undefined)
 
 	export async function openEdit(
 		ePath: string,
@@ -314,7 +314,7 @@
 		defaultValues?: Record<string, any>,
 		newDraft?: boolean,
 		opts: {
-			onSaveDraft?: (cfg: Record<string, any>) => void
+			onSaveDraft?: (cfg: Record<string, any>) => boolean
 			/** A config this editor saved before, re-applied over the defaults. */
 			draftConfig?: Record<string, any>
 		} = {}
@@ -490,7 +490,7 @@
 
 	async function updateTrigger(): Promise<void> {
 		if (saveDraftHandler) {
-			saveDraftHandler($state.snapshot(getSaveCfg()))
+			if (!saveDraftHandler($state.snapshot(getSaveCfg()))) return
 			drawer?.closeDrawer()
 			return
 		}

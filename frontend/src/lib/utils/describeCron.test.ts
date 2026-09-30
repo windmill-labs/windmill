@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { describeCron } from './describeCron'
+import { describeCron, describeSchedule } from './describeCron'
 
 describe('describeCron', () => {
 	it.each([
@@ -27,4 +27,11 @@ describe('describeCron', () => {
 			expect(describeCron(cron)).toBeUndefined()
 		}
 	)
+})
+
+describe('describeSchedule', () => {
+	it('names the zone of a wall-clock time only', () => {
+		expect(describeSchedule('0 0 12 * * *', 'UTC')).toBe('Every day at 12:00 UTC')
+		expect(describeSchedule('0 0 * * * *', 'UTC')).toBe('Every hour')
+	})
 })

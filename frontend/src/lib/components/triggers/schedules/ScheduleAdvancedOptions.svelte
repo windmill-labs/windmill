@@ -1,6 +1,6 @@
 <script lang="ts" module>
 	import { handlerFullPath } from '$lib/components/ErrorOrRecoveryHandler.svelte'
-	import type { ErrorHandler, Retry } from '$lib/gen'
+	import { SettingService, type ErrorHandler, type Retry } from '$lib/gen'
 
 	export type ScheduleAdvancedState = {
 		errorHandlerSelected: ErrorHandler
@@ -46,6 +46,79 @@
 			dynamicSkipPath: undefined,
 			tag: undefined
 		}
+	}
+
+	/** Which built-in handler a hub path is, or `custom`. */
+	export function getHandlerType(
+		isHandler: 'error' | 'recovery' | 'success',
+		scriptPath: string
+	): ErrorHandler {
+		const handlerMap = {
+			error: {
+				teams: '/workspace-or-schedule-error-handler-teams',
+				slack: '/workspace-or-schedule-error-handler-slack',
+				email: '/workspace-or-error-handler-email'
+			},
+			recovery: {
+				teams: '/schedule-recovery-handler-teams',
+				slack: '/schedule-recovery-handler-slack',
+				email: '/workspace-or-error-handler-email'
+			},
+			success: {
+				teams: '/schedule-success-handler-teams',
+				slack: '/schedule-success-handler-slack',
+				email: '/workspace-or-error-handler-email'
+			}
+		}
+
+		for (const [type, suffix] of Object.entries(handlerMap[isHandler])) {
+			if (scriptPath.startsWith('hub/') && scriptPath.endsWith(suffix)) {
+				return type as ErrorHandler
+			}
+		}
+		return 'custom'
+	}
+
+	const splitHandler = (path: string) => {
+		const [kind, ...rest] = path.split('/')
+		return { kind: kind as 'flow' | 'script', path: rest.join('/') }
+	}
+
+	/** The Advanced tabs of a new schedule: the workspace's default error, recovery
+	 * and success handlers, where it sets them. */
+	export async function loadDefaultScheduleAdvanced(wsId: string): Promise<ScheduleAdvancedState> {
+		const a = emptyScheduleAdvanced()
+		const [err, rec, suc] = (await Promise.all(
+			['error', 'recovery', 'success'].map((k) =>
+				SettingService.getGlobal({ key: `default_${k}_handler_${wsId}` })
+			)
+		)) as any[]
+		if (err) {
+			const h = splitHandler(err.errorHandlerPath)
+			a.wsErrorHandlerMuted = err.wsErrorHandlerMuted
+			a.errorHandleritemKind = h.kind
+			a.errorHandlerPath = h.path
+			a.errorHandlerExtraArgs = err.errorHandlerExtraArgs
+			a.errorHandlerSelected = getHandlerType('error', h.path)
+			a.failedTimes = err.failedTimes
+			a.failedExact = err.failedExact
+		}
+		if (rec) {
+			const h = splitHandler(rec.recoveryHandlerPath)
+			a.recoveryHandlerItemKind = h.kind
+			a.recoveryHandlerPath = h.path
+			a.recoveryHandlerExtraArgs = rec.recoveryHandlerExtraArgs
+			a.recoveryHandlerSelected = getHandlerType('recovery', h.path)
+			a.recoveredTimes = rec.recoveredTimes
+		}
+		if (suc) {
+			const h = splitHandler(suc.successHandlerPath)
+			a.successHandlerItemKind = h.kind
+			a.successHandlerPath = h.path
+			a.successHandlerExtraArgs = suc.successHandlerExtraArgs
+			a.successHandlerSelected = getHandlerType('success', h.path)
+		}
+		return a
 	}
 
 	/** The schedule fields the Advanced tabs own, as the schedule API takes them. */

@@ -6,7 +6,12 @@
 	} from '$lib/components/sessions/pageDrawerSession'
 	import { SCHEDULES_PATH } from '$lib/components/sessions/previewPaths'
 	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
-	import ScheduleAdvancedOptions, { scheduleAdvancedCfg } from './ScheduleAdvancedOptions.svelte'
+	import ScheduleAdvancedOptions, {
+		emptyScheduleAdvanced,
+		getHandlerType,
+		loadDefaultScheduleAdvanced,
+		scheduleAdvancedCfg
+	} from './ScheduleAdvancedOptions.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import CronInput from '$lib/components/CronInput.svelte'
@@ -24,7 +29,6 @@
 		type Script,
 		ScriptService,
 		type Flow,
-		SettingService,
 		type Retry,
 		type Schedule,
 		type ErrorHandler
@@ -129,7 +133,7 @@
 	// Set by `openNew({ onSaveDraft })`: the caller keeps the schedule as its own
 	// draft, so Save hands it the config instead of writing it, and nothing may
 	// autosave a workspace trigger draft for a path that is not deployed.
-	let saveDraftHandler: ((cfg: Record<string, any>) => void) | undefined = $state(undefined)
+	let saveDraftHandler: ((cfg: Record<string, any>) => boolean) | undefined = $state(undefined)
 	let permissionedAs = $state<string | undefined>(undefined)
 	let selectedPermissionedAs = $state<string | undefined>(undefined)
 	let preservePermissionedAs = $state(false)
@@ -248,66 +252,23 @@
 				successHandlerExtraArgs = {}
 			}
 		} else {
-			let defaultErrorHandlerMaybe = undefined
-			let defaultRecoveryHandlerMaybe = undefined
-			let defaultSuccessHandlerMaybe = undefined
-			if (wsId) {
-				defaultErrorHandlerMaybe = (await SettingService.getGlobal({
-					key: 'default_error_handler_' + wsId!
-				})) as any
-				defaultRecoveryHandlerMaybe = (await SettingService.getGlobal({
-					key: 'default_recovery_handler_' + wsId!
-				})) as any
-				defaultSuccessHandlerMaybe = (await SettingService.getGlobal({
-					key: 'default_success_handler_' + wsId!
-				})) as any
-			}
-
-			if (defaultErrorHandlerMaybe !== undefined && defaultErrorHandlerMaybe !== null) {
-				wsErrorHandlerMuted = defaultErrorHandlerMaybe['wsErrorHandlerMuted']
-				let splitted = (defaultErrorHandlerMaybe['errorHandlerPath'] as string).split('/')
-				errorHandleritemKind = splitted[0] as 'flow' | 'script'
-				errorHandlerPath = splitted.slice(1)?.join('/')
-				errorHandlerExtraArgs = defaultErrorHandlerMaybe['errorHandlerExtraArgs']
-				errorHandlerSelected = getHandlerType('error', errorHandlerPath)
-				failedTimes = defaultErrorHandlerMaybe['failedTimes']
-				failedExact = defaultErrorHandlerMaybe['failedExact']
-			} else {
-				wsErrorHandlerMuted = false
-				errorHandlerPath = undefined
-				errorHandleritemKind = 'script'
-				errorHandlerExtraArgs = {}
-				errorHandlerSelected = 'slack'
-				failedTimes = 1
-				failedExact = false
-			}
-			if (defaultRecoveryHandlerMaybe !== undefined && defaultRecoveryHandlerMaybe !== null) {
-				let splitted = (defaultRecoveryHandlerMaybe['recoveryHandlerPath'] as string).split('/')
-				recoveryHandlerItemKind = splitted[0] as 'flow' | 'script'
-				recoveryHandlerPath = splitted.slice(1)?.join('/')
-				recoveryHandlerExtraArgs = defaultRecoveryHandlerMaybe['recoveryHandlerExtraArgs']
-				recoveryHandlerSelected = getHandlerType('recovery', recoveryHandlerPath)
-				recoveredTimes = defaultRecoveryHandlerMaybe['recoveredTimes']
-			} else {
-				recoveryHandlerPath = undefined
-				recoveryHandlerItemKind = 'script'
-				recoveryHandlerExtraArgs = {}
-				recoveryHandlerSelected = 'slack'
-				recoveredTimes = 1
-			}
-			if (defaultSuccessHandlerMaybe !== undefined && defaultSuccessHandlerMaybe !== null) {
-				let splitted = (defaultSuccessHandlerMaybe['successHandlerPath'] as string).split('/')
-				successHandlerItemKind = splitted[0] as 'flow' | 'script'
-				successHandlerPath = splitted.slice(1)?.join('/')
-				successHandlerExtraArgs = defaultSuccessHandlerMaybe['successHandlerExtraArgs']
-				successHandlerSelected = getHandlerType('success', successHandlerPath)
-				recoveredTimes = defaultSuccessHandlerMaybe['recoveredTimes']
-			} else {
-				successHandlerPath = undefined
-				successHandlerItemKind = 'script'
-				successHandlerExtraArgs = {}
-				successHandlerSelected = 'slack'
-			}
+			const d = wsId ? await loadDefaultScheduleAdvanced(wsId) : emptyScheduleAdvanced()
+			wsErrorHandlerMuted = d.wsErrorHandlerMuted
+			errorHandlerPath = d.errorHandlerPath
+			errorHandleritemKind = d.errorHandleritemKind
+			errorHandlerExtraArgs = d.errorHandlerExtraArgs
+			errorHandlerSelected = d.errorHandlerSelected
+			failedTimes = d.failedTimes
+			failedExact = d.failedExact
+			recoveryHandlerPath = d.recoveryHandlerPath
+			recoveryHandlerItemKind = d.recoveryHandlerItemKind
+			recoveryHandlerExtraArgs = d.recoveryHandlerExtraArgs
+			recoveryHandlerSelected = d.recoveryHandlerSelected
+			recoveredTimes = d.recoveredTimes
+			successHandlerPath = d.successHandlerPath
+			successHandlerItemKind = d.successHandlerItemKind
+			successHandlerExtraArgs = d.successHandlerExtraArgs
+			successHandlerSelected = d.successHandlerSelected
 		}
 	}
 
@@ -317,7 +278,7 @@
 		defaultValues?: Schedule,
 		schedule_path?: string,
 		fixedScriptPath_?: string,
-		opts: { getDraft?: boolean; onSaveDraft?: (cfg: Record<string, any>) => void } = {}
+		opts: { getDraft?: boolean; onSaveDraft?: (cfg: Record<string, any>) => boolean } = {}
 	) {
 		const getDraft = opts.getDraft ?? true
 		saveDraftHandler = opts.onSaveDraft
@@ -536,7 +497,7 @@
 		const previousPath = initialPath
 		const scheduleCfg = getScheduleCfg()
 		if (saveDraftHandler) {
-			saveDraftHandler($state.snapshot(scheduleCfg))
+			if (!saveDraftHandler($state.snapshot(scheduleCfg))) return
 			drawer?.closeDrawer()
 			return
 		}
@@ -550,35 +511,6 @@
 		deploymentLoading = false
 	}
 
-	function getHandlerType(
-		isHandler: 'error' | 'recovery' | 'success',
-		scriptPath: string
-	): ErrorHandler {
-		const handlerMap = {
-			error: {
-				teams: '/workspace-or-schedule-error-handler-teams',
-				slack: '/workspace-or-schedule-error-handler-slack',
-				email: '/workspace-or-error-handler-email'
-			},
-			recovery: {
-				teams: '/schedule-recovery-handler-teams',
-				slack: '/schedule-recovery-handler-slack',
-				email: '/workspace-or-error-handler-email'
-			},
-			success: {
-				teams: '/schedule-success-handler-teams',
-				slack: '/schedule-success-handler-slack',
-				email: '/workspace-or-error-handler-email'
-			}
-		}
-
-		for (const [type, suffix] of Object.entries(handlerMap[isHandler])) {
-			if (scriptPath.startsWith('hub/') && scriptPath.endsWith(suffix)) {
-				return type as ErrorHandler
-			}
-		}
-		return 'custom'
-	}
 
 	let drawer: Drawer | undefined = $state()
 

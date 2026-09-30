@@ -26,7 +26,7 @@
 		scriptPath: string,
 		defaults: Record<string, any>,
 		saved: Record<string, any> | undefined,
-		onSaveDraft: (cfg: Record<string, any>) => void
+		onSaveDraft: (cfg: Record<string, any>) => boolean
 	) {
 		open = true
 		await tickPainted()

@@ -106,3 +106,23 @@ export function describeCron(cron: string): string | undefined {
 	}
 	return undefined
 }
+
+function shortZone(timezone: string): string {
+	try {
+		return (
+			new Intl.DateTimeFormat('en-US', { timeZone: timezone, timeZoneName: 'short' })
+				.formatToParts(new Date())
+				.find((p) => p.type === 'timeZoneName')?.value ?? timezone
+		)
+	} catch {
+		return timezone
+	}
+}
+
+/** `describeCron` of a schedule, naming its zone whenever the text states a
+ * wall-clock time: "Every day at 12:00 UTC". */
+export function describeSchedule(cron: string, timezone?: string): string | undefined {
+	const text = describeCron(cron)
+	if (!text || !timezone || !/ at \d/.test(text)) return text
+	return `${text} ${shortZone(timezone)}`
+}

@@ -452,14 +452,17 @@
 		pe.activeDraftPath = scriptPath
 		pe.selection = undefined
 		if (options?.schedule) {
-			pe.setTriggerDraft({
+			const path = options.schedule.path || defaultTriggerPath(scriptPath, 'schedule')
+			const saved = pe.setTriggerDraft({
 				kind: 'schedule',
-				config: {
-					...options.schedule,
-					path: options.schedule.path || defaultTriggerPath(scriptPath, 'schedule'),
-					script_path: scriptPath
-				}
+				config: { ...options.schedule, path, script_path: scriptPath }
 			})
+			if (!saved) {
+				sendUserToast(
+					`Another draft schedule already uses the path ${path}; the new script has no schedule`,
+					true
+				)
+			}
 		}
 
 		// Follow the new node with a smooth pan. The id matches the runnable
@@ -2372,11 +2375,13 @@
 		const defaults = { path: defaultTriggerPath(scriptPath, kind) }
 		triggerEditors?.openTriggerDraft(kind, scriptPath, defaults, draft?.config, (cfg) => {
 			const { extra_perms: _, ...config } = cfg
-			pe.setTriggerDraft(
+			const saved = pe.setTriggerDraft(
 				{ kind, config: { ...config, path: cfg.path, script_path: scriptPath, is_flow: false } },
 				// The editor's Path field can rename it; drafts are keyed by path.
 				draft ? triggerDraftKey(kind, draft.config.path) : undefined
 			)
+			if (!saved) sendUserToast(`Another draft trigger already uses the path ${cfg.path}`, true)
+			return saved
 		})
 	}
 
@@ -2467,12 +2472,12 @@
 		}
 	)
 
-	// Cron and summary of the deployed schedules on the graph, for their nodes'
+	// Cron, zone and summary of the deployed schedules on the graph, for their nodes'
 	// labels. Re-read with every graph load, so an edit in the schedule drawer shows.
 	let scheduleInfo = resource(
 		[() => $workspaceStore, () => graphRes.current],
 		async ([ws, g]) => {
-			const info = new Map<string, { schedule: string; summary?: string }>()
+			const info = new Map<string, { schedule: string; timezone: string; summary?: string }>()
 			if (!ws || !g) return info
 			const paths = new Set<string>()
 			for (const t of g.triggers) {
@@ -2482,7 +2487,11 @@
 				[...paths].map(async (path) => {
 					try {
 						const s = await ScheduleService.getSchedule({ workspace: ws, path })
-						info.set(path, { schedule: s.schedule, summary: s.summary || undefined })
+						info.set(path, {
+							schedule: s.schedule,
+							timezone: s.timezone,
+							summary: s.summary || undefined
+						})
 					} catch {
 						// Unreadable schedule: its node keeps the plain "Schedule" label.
 					}

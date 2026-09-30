@@ -21,7 +21,7 @@
 	import { layoutAssetGraph, PIPELINE_NODE_EXTRA_ROW } from './assetGraphLayout'
 	import { assetsOnlyView, type AssetUpstream } from './assetsOnlyView'
 	import { TRIGGER_NODE_STYLE } from './TriggerNode.svelte'
-	import { describeCron } from '$lib/utils/describeCron'
+	import { describeSchedule } from '$lib/utils/describeCron'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { computeMutedReadKeys, dbtAssociations } from './resolveGraph'
 	import { buildDownstreamMap } from './graphTraversal'
@@ -732,6 +732,7 @@
 				missing: boolean
 				draft: boolean
 				schedule?: string
+				timezone?: string
 				summary?: string
 				// First target script (drives the per-script create/edit flows).
 				runnable_path?: string
@@ -751,6 +752,7 @@
 			draft: boolean,
 			runnable_path?: string,
 			schedule?: string,
+			timezone?: string,
 			summary?: string
 		) {
 			const prev = triggerSourceNodes.get(id)
@@ -762,6 +764,7 @@
 					missing,
 					draft,
 					schedule,
+					timezone,
 					summary,
 					runnable_path,
 					runnable_paths: runnable_path ? [runnable_path] : []
@@ -820,6 +823,7 @@
 				// on every attached native trigger.
 				t.runnable_path,
 				t.schedule,
+				t.timezone,
 				t.summary
 			)
 			edges.push({
@@ -850,6 +854,7 @@
 					missing: info.missing,
 					draft: info.draft,
 					schedule: info.schedule,
+					timezone: info.timezone,
 					summary: info.summary,
 					runnable_path: info.runnable_path,
 					// data_upload nodes go green once a file is staged for their
@@ -910,7 +915,7 @@
 		const style = TRIGGER_NODE_STYLE[t.kind as TriggerNodeKind]
 		const label =
 			t.kind === 'schedule' && t.data?.schedule
-				? (describeCron(t.data.schedule) ?? `Schedule (${t.data.schedule})`)
+				? (describeSchedule(t.data.schedule, t.data.timezone) ?? `Schedule (${t.data.schedule})`)
 				: (style?.label ?? t.kind)
 		return {
 			label,
@@ -1450,7 +1455,7 @@
 		{#if assetsOnlyToggle}
 			<Panel
 				position="top-left"
-				class="!m-3 px-2 py-1 rounded-md bg-surface border border-gray-200 dark:border-gray-700 shadow-sm"
+				class="!m-3"
 			>
 				<Toggle bind:checked={assetsOnly} size="xs" options={{ right: 'Assets only' }} />
 			</Panel>

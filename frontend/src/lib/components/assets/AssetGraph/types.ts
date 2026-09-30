@@ -214,8 +214,9 @@ export type AssetGraphTrigger =
 			// A pipeline-local `PipelineTriggerDraft`: `path` is the trigger it
 			// will be deployed as, and no row exists yet.
 			draft?: boolean
-			// A schedule's cron and summary, filled in client-side, for the node's labels.
+			// A schedule's cron, zone and summary, filled in client-side, for the node's labels.
 			schedule?: string
+			timezone?: string
 			summary?: string
 	  }
 

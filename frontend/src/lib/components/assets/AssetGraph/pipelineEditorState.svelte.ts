@@ -142,13 +142,17 @@ export class PipelineEditorState {
 		})
 	}
 
-	/** Add or replace a trigger draft; `previousKey` drops the entry it was saved
-	 * under when an edit renamed it. */
-	setTriggerDraft = (d: PipelineTriggerDraft, previousKey?: string) => {
+	/** Add or replace a trigger draft; `previousKey` is the entry being edited, which
+	 * a rename drops. False, and nothing changes, when the path is another draft's:
+	 * both would deploy to one trigger. */
+	setTriggerDraft = (d: PipelineTriggerDraft, previousKey?: string): boolean => {
+		const key = triggerDraftKey(d.kind, d.config.path)
+		if (key !== previousKey && this.triggerDrafts.has(key)) return false
 		const next = new Map(this.triggerDrafts)
 		if (previousKey) next.delete(previousKey)
-		next.set(triggerDraftKey(d.kind, d.config.path), d)
+		next.set(key, d)
 		this.triggerDrafts = next
+		return true
 	}
 
 	discardTriggerDraft = (key: string) => {

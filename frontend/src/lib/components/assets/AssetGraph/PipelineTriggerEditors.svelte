@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { sendUserToast } from '$lib/utils'
+	import { workspaceStore } from '$lib/stores'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import type { NativeTriggerKind, PipelineTriggerDraftKind } from './types'
 	import {
@@ -23,6 +24,10 @@
 	import GcpTriggerEditor from '$lib/components/triggers/gcp/GcpTriggerEditor.svelte'
 	import EmailTriggerEditor from '$lib/components/triggers/email/EmailTriggerEditor.svelte'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
+	import {
+		loadDefaultScheduleAdvanced,
+		scheduleAdvancedCfg
+	} from '$lib/components/triggers/schedules/ScheduleAdvancedOptions.svelte'
 	import WebhookEditor from '$lib/components/triggers/webhook/WebhookEditor.svelte'
 	import { setOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
@@ -111,21 +116,37 @@
 		}
 	}
 
-	/** The kind's full editor over a pipeline-local draft; Save hands the config back.
+	/** The kind's full editor over a pipeline-local draft; Save hands the config back,
+	 * and the drawer stays open when `onSave` refuses it.
 	 * `saved` is the draft being edited (absent for a new one), applied over `defaults`. */
 	export function openTriggerDraft(
 		kind: PipelineTriggerDraftKind,
 		scriptPath: string,
 		defaults: Record<string, any>,
 		saved: Record<string, any> | undefined,
-		onSave: (cfg: Record<string, any>) => void
+		onSave: (cfg: Record<string, any>) => boolean
 	) {
 		switch (kind) {
-			case 'schedule':
-				return scheduleEditor?.openDraft(
-					{ is_flow: false, args: {}, ...defaults, ...saved, script_path: scriptPath } as Schedule,
-					onSave
-				)
+			case 'schedule': {
+				// A new draft starts from the workspace's default handlers, like a new
+				// schedule does; the drawer only applies them when it opens without one.
+				const open = (advanced: Record<string, any>) =>
+					scheduleEditor?.openDraft(
+						{
+							is_flow: false,
+							args: {},
+							...advanced,
+							...defaults,
+							...saved,
+							script_path: scriptPath
+						} as Schedule,
+						onSave
+					)
+				if (saved || !$workspaceStore) return open({})
+				return loadDefaultScheduleAdvanced($workspaceStore)
+					.then((a) => open(scheduleAdvancedCfg(a)))
+					.catch(() => open({}))
+			}
 			case 'kafka':
 				return kafkaEditor?.openDraft(scriptPath, defaults, saved, onSave)
 			case 'mqtt':

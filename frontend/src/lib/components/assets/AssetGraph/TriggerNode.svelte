@@ -50,7 +50,7 @@
 <script lang="ts">
 	import { Handle, Position } from '@xyflow/svelte'
 	import PipelineNodeCard from './PipelineNodeCard.svelte'
-	import { describeCron } from '$lib/utils/describeCron'
+	import { describeSchedule } from '$lib/utils/describeCron'
 	import { twMerge } from 'tailwind-merge'
 	import { AlertTriangle, CheckCircle2, EllipsisVertical, Target, Trash2 } from 'lucide-svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
@@ -75,6 +75,7 @@
 			draft?: boolean
 			// The cron, for a schedule: the node names its cadence instead of "Schedule".
 			schedule?: string
+			timezone?: string
 			// Shown as the title over the trigger's path, when the trigger has one.
 			summary?: string
 			runnable_path?: string
@@ -210,7 +211,7 @@
 	// when it has no plain reading); every other kind names its kind.
 	let kindName = $derived(
 		data.kind === 'schedule' && data.schedule
-			? (describeCron(data.schedule) ?? `Schedule (${data.schedule})`)
+			? (describeSchedule(data.schedule, data.timezone) ?? `Schedule (${data.schedule})`)
 			: style.label
 	)
 
