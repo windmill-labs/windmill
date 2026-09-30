@@ -1468,6 +1468,14 @@
 						}
 					: onDeleteAssetUpstream && u
 						? {
+								// No combined delete, but each script it folds can still go on its
+								// own: in this view its node's menu is the only way to reach it.
+								scriptDeletes: (u.multiple ? u.runnableIds : [u.runnableId])
+									.map((id) => runnables.get(id)?.data)
+									.filter((d) => d?.runnable_kind === 'script')
+									.map((d) => ({ path: d.path as string, unsaved: !!d.unsaved })),
+								deleteVerb: assetDeleteVerb,
+								onDeleteUpstream: (t: AssetUpstreamDelete) => onDeleteAssetUpstream?.(t),
 								// The No-asset card stands for its scripts; an asset is built by them.
 								deleteBlocked: data.noAsset
 									? !u.multiple

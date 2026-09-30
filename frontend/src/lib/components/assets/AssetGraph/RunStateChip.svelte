@@ -8,12 +8,12 @@
 
 <div
 	class={twMerge(
-		'shrink-0 flex items-center gap-0.5 px-1 py-0.5 rounded-sm',
+		'shrink-0 flex items-center gap-0.5 px-1 py-0.5 rounded-sm border',
 		rs.status === 'running'
-			? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
+			? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700'
 			: rs.status === 'success'
-				? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300'
-				: 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300',
+				? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700'
+				: 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 border-red-300 dark:border-red-700',
 		className
 	)}
 	title={`${

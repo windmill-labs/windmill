@@ -180,6 +180,9 @@
 			/** Assets-only view: the producing script and trigger no other asset
 			 * shares, which the menu offers to delete one by one or together. */
 			upstreamDelete?: import('./assetsOnlyView').AssetUpstreamDelete
+			/** When no combined delete is possible: the folded scripts, each deletable
+			 * on its own. */
+			scriptDeletes?: Array<{ path: string; unsaved: boolean }>
 			onDeleteUpstream?: (target: import('./assetsOnlyView').AssetUpstreamDelete) => void
 			deleteVerb?: 'Delete' | 'Archive'
 			/** Why nothing can be deleted, when the producer is shared. */
@@ -233,7 +236,11 @@
 	let menuItems: Item[] = $derived(
 		data.onDeleteUpstream && data.upstreamDelete
 			? deleteItems(data.upstreamDelete, data.onDeleteUpstream)
-			: data.deleteBlocked
+			: data.onDeleteUpstream && data.scriptDeletes?.length
+				? data.scriptDeletes.map((script) =>
+						deleteItems({ script }, data.onDeleteUpstream!)
+					).flat()
+				: data.deleteBlocked
 				? [
 						{
 							displayName: `Can't delete: ${data.deleteBlocked}`,
@@ -686,7 +693,13 @@
 		     cards. Drafts are runnable too via runScriptPreview, so no
 		     greyed-out state — the page-supplied callback handles the
 		     dispatch. -->
-		<div class="absolute -left-3 top-1/2 -translate-y-1/2 z-10">
+		<!-- Centred on the card, below the header tab when there is one. -->
+		<div
+			class={twMerge(
+				'absolute -left-3 top-1/2 -translate-y-1/2 z-10',
+				hasHeader && !data.bannerOnly && 'top-[calc(50%+11px)]'
+			)}
+		>
 			<button
 				type="button"
 				onclick={runProducers}
