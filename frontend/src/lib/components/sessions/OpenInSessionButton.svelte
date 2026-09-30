@@ -43,6 +43,10 @@
 	import { copilotInfo } from '$lib/aiStore'
 	import { sendUserToast } from '$lib/toast'
 	import { openSourceInSession } from './sessionSwitch.svelte'
+	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	let {
 		source,
@@ -76,8 +80,13 @@
 	// SessionEditorTarget / the session wrapper); iframe preview tabs are not
 	// the top window.
 	const inSessionPanel = !!getContext('aiChatManager') || (BROWSER && window.self !== window.top)
+	// prefersSessionHandoff carries the operator clause: the sessions page refuses
+	// them, so an entry point on a page they can reach (Runs, the trigger lists)
+	// would only route them into that refusal.
 	const show = $derived(
-		!inSessionPanel && !!(source?.target || source?.page) && prefersSessionHandoff()
+		!inSessionPanel &&
+			!!(source?.target || source?.page) &&
+			prefersSessionHandoff(actingUser?.operator)
 	)
 
 	// Not $state: only read inside open() as a re-entrancy latch, never rendered.

@@ -147,10 +147,13 @@
 	// unlocked, so the far commoner unlocked workspace never pops the composer in mid-load.
 	let runOnlyWorkspace = $derived(isRuleActive('DisableDirectDeployment'))
 
-	// The composer hands off to /sessions, so users opted out of the sessions beta don't get it
-	// (the prompt would be silently dropped) while the AI-independent CLI/MCP row below stays.
+	// The composer hands off to /sessions, which refuses operators and users opted out of the
+	// sessions beta — so hide it from them (the prompt would be silently dropped) while the
+	// AI-independent CLI/MCP row below stays.
 	let showComposer = $derived(
-		prefersSessionHandoff() && !runOnlyWorkspace && !$copilotInfo.workspaceDisabled
+		prefersSessionHandoff($userStore?.operator) &&
+			!runOnlyWorkspace &&
+			!$copilotInfo.workspaceDisabled
 	)
 
 	// The hero's margins and centered column are for the full block. The lone button row left
