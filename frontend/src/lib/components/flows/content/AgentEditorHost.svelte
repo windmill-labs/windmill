@@ -447,14 +447,17 @@
 
 	/** The path field's own verdict (a taken path, an invalid name), which the server would otherwise
 	 *  only report after the request. The field lives with whoever shows it, which reports here. */
-	let pathError = $state('')
+	let pathErrorValue = $state('')
+	export function pathError() {
+		return pathErrorValue
+	}
 	export function setPathError(error: string | undefined) {
-		pathError = error ?? ''
+		pathErrorValue = error ?? ''
 	}
 
 	export function deploy(): Promise<boolean> {
-		if (pathError) {
-			sendUserToast(`Cannot deploy the agent: ${pathError}`, true)
+		if (pathErrorValue) {
+			sendUserToast(`Cannot deploy the agent: ${pathErrorValue}`, true)
 			return Promise.resolve(false)
 		}
 		return draft.deploy().then(async (written) => {

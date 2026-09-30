@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { resource } from 'runed'
+	import { Badge } from '$lib/components/common'
 	import Label from '$lib/components/Label.svelte'
 	import LabelsInput from '$lib/components/LabelsInput.svelte'
 	import Path from '$lib/components/Path.svelte'
@@ -52,7 +53,17 @@
 				disabled={readOnly}
 			/>
 		</Label>
-		<LabelsInput bind:labels={draft.state.labels} {workspace} class="-mt-4" />
+		{#if readOnly}
+			{#if draft.state.labels?.length}
+				<div class="-mt-4 inline-flex items-center gap-1">
+					{#each draft.state.labels as label (label)}
+						<Badge color="blue" small>{label}</Badge>
+					{/each}
+				</div>
+			{/if}
+		{:else}
+			<LabelsInput bind:labels={draft.state.labels} {workspace} class="-mt-4" />
+		{/if}
 		{#if deployTo.current}
 			<Label label="Workspace specific" tooltip="Keeps this agent out of deploys to prod/staging.">
 				<Toggle bind:checked={draft.state.wsSpecific} disabled={readOnly} />

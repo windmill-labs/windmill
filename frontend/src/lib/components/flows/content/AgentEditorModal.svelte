@@ -130,6 +130,12 @@
 	let inSettings = $derived(target?.view === 'settings' && !refused)
 	let readOnly = $derived(draft ? !draft.canWrite : false)
 	let draftOnly = $derived(draft?.noDeployed ?? false)
+	// Evals run against the deployed agent, and a draft-only one has none: the backend's
+	// `require_agent` would reject every run. Evaluating is authoring, so it is for those who can
+	// edit the agent. Unknown until the load answers, and warming the pane loads it.
+	let canEvaluate = $derived(
+		draft != undefined && !draft.loading && !draftOnly && !readOnly && !refused
+	)
 	// A never-deployed agent is stored at a minted `draft_<uuid>` path, so it is named by the path
 	// its first deploy will create, as the home list names it.
 	let shownPath = $derived((draftOnly && draft?.state?.path) || target?.path)
@@ -410,10 +416,7 @@
 						on:click={openSettings}
 					/>
 				{/if}
-				<!-- Evals run against the deployed agent, and a draft-only one has none: the
-						     backend's `require_agent` would reject every run. Evaluating is authoring, so it
-						     is for those who can edit the agent. -->
-				{#if !draftOnly && !readOnly}
+				{#if canEvaluate}
 					<Button
 						unifiedSize="sm"
 						variant="default"
@@ -463,16 +466,16 @@
 			<!-- One strip of pages, so a level slides in from the right the way evals' own levels do.
 			     No `onNavigate`: the arrow keys belong to whichever pane is on screen, and evals answers
 			     them for its own levels. Warmed, as those levels are: a page built on its first visit
-			     lands inside the transition and arrives empty. Evals only where they can be opened,
-			     since warming them loads them. -->
+			     lands inside the transition and arrives empty. The page layout has no levels: it opens
+			     settings in a drawer and evals in a dialog, so warming them there would build them twice. -->
 			<PagedContent
 				warm
 				class="flex-1 min-h-0"
 				current={inEvals ? 'evals' : inSettings ? 'settings' : 'agent'}
 				pages={[
 					{ key: 'agent', content: agentPage },
-					{ key: 'settings', content: settingsPage },
-					...(draftOnly || readOnly ? [] : [{ key: 'evals', content: evalsPage }])
+					...(layout === 'modal' ? [{ key: 'settings', content: settingsPage }] : []),
+					...(layout === 'modal' && canEvaluate ? [{ key: 'evals', content: evalsPage }] : [])
 				]}
 			/>
 		</div>
@@ -500,7 +503,7 @@
 				{draft}
 				path={target?.path ?? ''}
 				workspace={ws}
-				bind:error={() => undefined, (error) => host?.setPathError(error)}
+				bind:error={() => host?.pathError(), (error) => host?.setPathError(error)}
 			/>
 		{/if}
 	{/snippet}
