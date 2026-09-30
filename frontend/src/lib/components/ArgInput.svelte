@@ -1162,6 +1162,10 @@
 								{/each}
 							{/snippet}
 						</ToggleButtonGroup>
+						{@const oneOfHint = extra?.['oneOfHints']?.[effectiveOneOfSelected ?? '']}
+						{#if oneOfHint}
+							<div class="-mt-4 mb-2 text-2xs text-hint">{oneOfHint}</div>
+						{/if}
 						{#if effectiveOneOfSelected}
 							{@const objIdx = oneOf.findIndex((o) => o.title === effectiveOneOfSelected)}
 							{@const obj = oneOf[objIdx]}

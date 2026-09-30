@@ -175,7 +175,7 @@ export const AGENT_FIELDS: AgentFieldSpec[] = [
 		group: 'messages',
 		label: 'Managed memory',
 		tooltip:
-			'Windmill stores the conversation and sends it with each request: its last messages, or a summary of the older ones with the recent ones verbatim. Without instance object storage, saved memory is limited to 100KB. Compaction tries a summary, then keeps the newest complete conversation that fits, starting with a user message. If none fits, memory is not updated.',
+			'Windmill stores the conversation and sends it with each request. On keeps all of it, summarizing the older part once it nears the context window. Legacy keeps only a fixed number of the last messages. Without instance object storage, saved memory is limited to 100KB: On tries a summary, then keeps the newest complete conversation that fits, starting with a user message. If none fits, memory is not updated.',
 		implicit: { kind: 'off' },
 		defaultHint: 'Default: off',
 		textOnly: true
