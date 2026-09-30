@@ -2060,6 +2060,26 @@ describe('createSearchHubScriptsTool', () => {
 		expect(JSON.parse(raw).suggested_integrations).toEqual(['gsheets', 'gdrive'])
 	})
 
+	// The hub names only the slugs its own titleisation gets wrong, so the ones it
+	// leaves null are still named here.
+	it('falls back to the local name table for a slug the hub does not name', async () => {
+		const { ScriptService, IntegrationService } = await import('$lib/gen')
+		Object.assign(ScriptService, { queryHubScripts: vi.fn(async () => []) })
+		Object.assign(IntegrationService, {
+			listHubIntegrations: vi.fn(async () => [{ name: 'gcloud', display_name: null }])
+		})
+
+		const { createSearchHubScriptsTool, clearHubIntegrationsCache } = await import('./shared')
+		clearHubIntegrationsCache()
+		const raw = await createSearchHubScriptsTool().fn({
+			args: { query: 'deploy a service to google cloud' },
+			toolId: 't1',
+			toolCallbacks: { setToolStatus: vi.fn() }
+		} as any)
+
+		expect(JSON.parse(raw).suggested_integrations).toEqual(['gcloud'])
+	})
+
 	// A slug shorter than the token floor is only reachable by an exact match.
 	it('still reaches a two-character integration slug', async () => {
 		const { ScriptService, IntegrationService } = await import('$lib/gen')

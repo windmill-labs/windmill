@@ -8,6 +8,7 @@ import type { UserDraftItemKind } from '$lib/gen'
 // shallow-import rule below, the rest of plan mode is not reachable from here.
 import { PLAN_MODE_MESSAGES } from './planModeMessages'
 import { NONE, type SessionTool } from './sessionCapabilities'
+import { integrationDisplayName } from '$lib/components/resourceTypeDisplay'
 // Import-free leaf, so it satisfies the shallow-import rule below.
 import {
 	openItemPreviewAction,
@@ -1640,7 +1641,10 @@ async function fetchHubIntegrations(): Promise<HubIntegration[]> {
 		const integrations = await IntegrationService.listHubIntegrations({ kind: 'script' })
 		return integrations.map((i) => ({
 			name: i.name,
-			displayName: i.display_name,
+			// The hub names only the slugs its own titleisation gets wrong, so a slug it
+			// leaves null can still have a name here — `gcloud` is "Google Cloud" in the
+			// word table this resolves through.
+			displayName: i.display_name ?? integrationDisplayName(i.name),
 			// A hub predating the flag omits it, and so does one with no authored
 			// notes. Both mean the same thing: nothing to read beyond what the
 			// metadata call returns for every integration.
@@ -1691,9 +1695,9 @@ async function suggestHubIntegrations(query: string): Promise<string[]> {
 		.slice(0, MAX_SUGGESTED_INTEGRATIONS)
 }
 
-/** Matches a query word against an integration's slug and the name the hub curates
- * for it, which is what reaches a slug compressing the vendor to a letter: "google
- * drive" matches `gdrive` only through its "Google Drive". A bare substring test
+/** Matches a query word against an integration's slug and its name, which is what
+ * reaches a slug compressing the vendor to a letter: "google drive" matches `gdrive`
+ * only through its "Google Drive". A bare substring test
  * instead makes every three-letter English word a hit — `for` in sales*for*ce, `the`
  * in basis_*the*ory — so a token matches a whole word, or extends one from four
  * characters on. Short tokens must equal a word, which is also what reaches the
