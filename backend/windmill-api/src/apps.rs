@@ -80,7 +80,7 @@ use windmill_common::{
     HUB_BASE_URL,
 };
 #[cfg(feature = "parquet")]
-use windmill_object_store::object_store_reexports::{Attribute, Attributes};
+use windmill_object_store::object_store_reexports::{Attribute, Attributes, ObjectStoreExt};
 use windmill_store::resources::get_resource_value_interpolated_internal;
 
 use windmill_api_auth::{

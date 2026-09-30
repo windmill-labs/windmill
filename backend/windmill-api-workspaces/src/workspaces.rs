@@ -8291,6 +8291,8 @@ async fn clone_apps(
         // Clone bundles from S3 for versions not found in DB
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
         {
+            use windmill_object_store::object_store_reexports::ObjectStoreExt;
+
             let object_store = windmill_object_store::get_object_store().await;
             if let Some(os) = object_store {
                 for (&old_version_id, &new_version_id) in &version_id_mapping {

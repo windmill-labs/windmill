@@ -2,7 +2,7 @@ use tokio::time::Instant;
 use windmill_common::error;
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
-use windmill_object_store::object_store_reexports::ObjectStore;
+use windmill_object_store::object_store_reexports::{ObjectStore, ObjectStoreExt};
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
 use std::sync::Arc;

@@ -10247,6 +10247,8 @@ async fn get_log_file(
 
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
     if let Some(os) = windmill_object_store::get_object_store().await {
+        use windmill_object_store::object_store_reexports::ObjectStoreExt;
+
         let file = os
             .get(&windmill_object_store::object_store_reexports::Path::from(
                 format!("logs/{file_p}"),

@@ -32,7 +32,7 @@ use windmill_common::error::{Error, Result};
 use windmill_common::utils::calculate_hash;
 use windmill_common::DB;
 use windmill_object_store::object_store_reexports::{
-    ObjectStore, ObjectStoreError, Path as ObjectPath,
+    ObjectStore, ObjectStoreError, ObjectStoreExt, Path as ObjectPath,
 };
 use windmill_object_store::{
     object_store_error_to_error, object_store_location, ObjectStoreResource,

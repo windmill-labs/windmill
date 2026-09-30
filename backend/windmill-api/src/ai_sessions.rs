@@ -37,7 +37,7 @@ use windmill_common::error::{Error, JsonResult, Result};
 use windmill_common::utils::calculate_hash;
 use windmill_common::variables::{crypt_from_key_with_suffix, get_workspace_key};
 use windmill_object_store::object_store_reexports::{
-    ObjectStore, ObjectStoreError, Path as ObjectPath, PutPayload,
+    ObjectStore, ObjectStoreError, ObjectStoreExt, Path as ObjectPath, PutPayload,
 };
 use windmill_object_store::{build_object_store_client, object_store_error_to_error};
 

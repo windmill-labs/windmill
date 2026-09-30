@@ -542,7 +542,7 @@ async fn forget_objects(keys: &[Option<String>; 2]) {
 /// for a project the reader may have no access to.
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
 async fn put_object(key: &str, value: String) -> error::Result<bool> {
-    use windmill_object_store::object_store_reexports::Path as ObjectPath;
+    use windmill_object_store::object_store_reexports::{ObjectStoreExt, Path as ObjectPath};
     let Some(store) = windmill_object_store::get_object_store().await else {
         return Ok(false);
     };
@@ -565,7 +565,7 @@ async fn get_object(key: &str) -> error::Result<String> {
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
 async fn delete_object(key: &str) {
-    use windmill_object_store::object_store_reexports::Path as ObjectPath;
+    use windmill_object_store::object_store_reexports::{ObjectStoreExt, Path as ObjectPath};
     let Some(store) = windmill_object_store::get_object_store().await else {
         return;
     };

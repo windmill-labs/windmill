@@ -2182,7 +2182,7 @@ async fn delete_fork_ducklake_data(
     // 1000-object chunks: S3 DeleteObjects caps a batch at 1000 keys.
     for chunk in locations.chunks(1000) {
         store
-            .delete_stream(futures::stream::iter(chunk.iter().cloned().map(Ok)).boxed())
+            .delete_stream(futures::stream::iter(chunk.to_vec().into_iter().map(Ok)).boxed())
             .try_collect::<Vec<_>>()
             .await
             .map_err(windmill_object_store::object_store_error_to_error)?;

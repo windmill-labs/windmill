@@ -18,7 +18,7 @@ use windmill_common::db::UserDB;
 #[cfg(not(feature = "private"))]
 use windmill_common::error;
 #[cfg(all(feature = "parquet", not(feature = "private")))]
-use windmill_object_store::object_store_reexports::{ObjectStore, PutMultipartOpts, PutResult};
+use windmill_object_store::object_store_reexports::{ObjectStore, PutMultipartOptions, PutResult};
 #[cfg(not(feature = "private"))]
 use windmill_object_store::ObjectStoreResource;
 
@@ -86,7 +86,7 @@ pub async fn upload_file_from_req(
     _s3_client: Arc<dyn ObjectStore>,
     _file_key: &str,
     _req: axum::extract::Request,
-    _options: PutMultipartOpts,
+    _options: PutMultipartOptions,
     _max_size: Option<usize>,
 ) -> error::Result<(PutResult, usize)> {
     Err(error::Error::internal_err(
@@ -99,7 +99,7 @@ pub async fn upload_file_internal(
     _s3_client: Arc<dyn ObjectStore>,
     _file_key: &str,
     _stream: impl Stream<Item = Result<Bytes, std::io::Error>> + Unpin,
-    _options: PutMultipartOpts,
+    _options: PutMultipartOptions,
     _max_size: Option<usize>,
 ) -> error::Result<(PutResult, usize)> {
     Err(error::Error::internal_err(
