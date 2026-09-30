@@ -7,6 +7,9 @@ import { NODE } from '$lib/components/graph/util'
 // breathing room.
 const NODE_WIDTH = NODE.width
 const NODE_HEIGHT = NODE.height + 30
+/** Rendered height of a pipeline node: a kind label over a title. Fits inside
+ * the `NODE_HEIGHT` row the layout reserves. */
+export const PIPELINE_NODE_HEIGHT = 44
 const LAYER_GAP = NODE.gap.vertical
 const SIBLING_GAP = NODE.gap.horizontal
 // Horizontal gutter between two disjoint subgraphs. Wider than the

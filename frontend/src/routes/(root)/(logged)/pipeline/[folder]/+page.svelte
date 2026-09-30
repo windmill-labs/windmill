@@ -27,7 +27,9 @@
 		AssetGraphResponse,
 		AssetGraphSelection,
 		NativeTriggerKind,
-		PipelineMode
+		PipelineMode,
+		PipelineTriggerDraft,
+		PipelineTriggerDraftKind
 	} from '$lib/components/assets/AssetGraph/types'
 	import PipelineModeToggle from '$lib/components/assets/AssetGraph/PipelineModeToggle.svelte'
 	import MacroExplorerDrawer from '$lib/components/assets/AssetGraph/MacroExplorerDrawer.svelte'
@@ -79,7 +81,17 @@
 		createPipelineAiHelpers,
 		type PipelineDraft
 	} from '$lib/components/assets/AssetGraph/pipelineAiHelpers'
-	import { PipelineEditorState } from '$lib/components/assets/AssetGraph/pipelineEditorState.svelte'
+	import {
+		PipelineEditorState
+	} from '$lib/components/assets/AssetGraph/pipelineEditorState.svelte'
+	import {
+		defaultTriggerPath,
+		isDraftableTriggerKind,
+		triggerDraftKey
+	} from '$lib/components/assets/AssetGraph/pipelineTriggerDrafts'
+	import { deployTriggerDraft } from '$lib/components/assets/AssetGraph/pipelineTriggerDraftDeploy'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import type { PipelineInsertOptions } from '$lib/components/assets/AssetGraph/PipelineInsertMenu.svelte'
 	import {
 		createPipelineRecording,
 		finalizePipelineRecording
@@ -288,6 +300,8 @@
 	// appear in the current `g.runnables`. That self-cleaning property is
 	// the whole reason for the refactor — no rename/delete cleanup needed.
 	let bodiesByPath = $state<Map<string, string>>(new Map())
+	// Deployed summaries from the same fetch, for node titles. Same only-add cache.
+	let summariesByPath = $state<Map<string, string>>(new Map())
 	// Sibling cache: the parsed asset usages from `inferAssets` (wasm), one
 	// pass per body. Same only-add semantics as `bodiesByPath`.
 	let inferredAssetsByPath = $state<Map<string, AssetWithAltAccessType[]>>(new Map())
@@ -412,9 +426,10 @@
 		triggers: DraftTriggerSource[],
 		outputKind: PipelineOutputKind,
 		input?: { kind: AssetKind; path: string },
-		aiPrompt?: string
+		aiPrompt?: string,
+		options?: PipelineInsertOptions
 	) {
-		const out = autoOutputAsset(outputKind, folder, language)
+		const out = options?.outputAsset ?? autoOutputAsset(outputKind, folder, language)
 		const script = buildDraft(language, scriptPath, triggers, outputKind, out, input)
 		// Write the new draft into the map (structural update so Svelte
 		// re-derives graphWithDraft) and focus it in the details pane. When
@@ -429,6 +444,16 @@
 		pe.drafts = next
 		pe.activeDraftPath = scriptPath
 		pe.selection = undefined
+		if (options?.schedule) {
+			pe.setTriggerDraft({
+				kind: 'schedule',
+				config: {
+					...options.schedule,
+					path: options.schedule.path || defaultTriggerPath(scriptPath, 'schedule'),
+					script_path: scriptPath
+				}
+			})
+		}
 
 		// Follow the new node with a smooth pan. The id matches the runnable
 		// node the canvas builds for a draft script (`script:<path>`).
@@ -528,7 +553,7 @@
 			bypassNavigationGuard = false
 			return
 		}
-		if (pe.drafts.size === 0) return
+		if (pendingCount === 0) return
 		// `leave` covers tab close / hard reload / cross-origin nav. SvelteKit
 		// turns a cancelled leave into a browser-native "Leave site?" prompt,
 		// which we explicitly don't want — match the rest of the editors and
@@ -563,6 +588,7 @@
 		// stale active path don't bleed into the next page. localStorage
 		// is overwritten by the persist effect on the next tick.
 		pe.drafts = new Map()
+		pe.triggerDrafts = new Map()
 		pe.activeDraftPath = undefined
 		saveErrors = new Map()
 		const target = pendingNavigationUrl
@@ -582,7 +608,7 @@
 		// page so they can deal with the failures via the bar's error
 		// popover. Otherwise resume the navigation that triggered the
 		// guard.
-		if (pe.drafts.size === 0) {
+		if (pendingCount === 0) {
 			const target = pendingNavigationUrl
 			leaveModalOpen = false
 			pendingNavigationUrl = undefined
@@ -670,8 +696,39 @@
 		})
 	}
 
+	// Scripts plus trigger drafts: what "Save all" deploys.
+	let pendingCount = $derived(pe.drafts.size + pe.triggerDrafts.size)
+	let confirmTriggerDeployOpen = $state(false)
+
+	function requestSaveAll() {
+		if (pe.triggerDrafts.size > 0) confirmTriggerDeployOpen = true
+		else void saveAllDrafts()
+	}
+
+	// Runs after the script deploys: a trigger's `script_path` must already
+	// exist. Triggers whose script is still an undeployed draft stay drafts.
+	async function deployTriggerDrafts(
+		ws: string,
+		savedScriptPaths: string[],
+		errors: Map<string, string>
+	): Promise<string[]> {
+		const ready = [...pe.triggerDrafts].filter(
+			([, d]) =>
+				!pe.drafts.has(d.config.script_path) || savedScriptPaths.includes(d.config.script_path)
+		)
+		const results = await Promise.all(ready.map(([, d]) => deployTriggerDraft(d, ws)))
+		const saved: string[] = []
+		results.forEach((ok, i) => {
+			const [key, d] = ready[i]
+			if (ok) saved.push(key)
+			else errors.set(d.config.path, `Could not create the ${d.kind} trigger, see the notification`)
+		})
+		for (const key of saved) pe.discardTriggerDraft(key)
+		return saved
+	}
+
 	async function saveAllDrafts() {
-		if (!$workspaceStore || pe.drafts.size === 0 || savingAll) return
+		if (!$workspaceStore || pendingCount === 0 || savingAll) return
 		savingAll = true
 		const ws = $workspaceStore
 		// The open pane's keystrokes live in `pe.liveContent` until the pane is
@@ -715,6 +772,7 @@
 				errors.set(path, e?.body ?? e?.message ?? String(e))
 			}
 		}
+		const savedTriggers = await deployTriggerDrafts(ws, savedPaths, errors)
 		// Drop the saved drafts from the map; failed ones stay so the user
 		// can fix them and retry. Build the new map from the still-failing
 		// entries to keep insertion order stable.
@@ -737,6 +795,8 @@
 				}
 				pe.activeDraftPath = undefined
 			}
+		}
+		if (savedPaths.length > 0 || savedTriggers.length > 0) {
 			await graphRes.refetch()
 			// Verify only what actually deployed — failed drafts would
 			// otherwise false-positive as "missing" rows.
@@ -744,10 +804,11 @@
 		}
 		saveErrors = errors
 		savingAll = false
-		if (savedPaths.length > 0 && errors.size === 0) {
-			sendUserToast(`Saved ${savedPaths.length} draft${savedPaths.length === 1 ? '' : 's'}`)
-		} else if (savedPaths.length > 0 && errors.size > 0) {
-			sendUserToast(`Saved ${savedPaths.length}, ${errors.size} failed — see details`, true)
+		const savedCount = savedPaths.length + savedTriggers.length
+		if (savedCount > 0 && errors.size === 0) {
+			sendUserToast(`Saved ${savedCount} draft${savedCount === 1 ? '' : 's'}`)
+		} else if (savedCount > 0 && errors.size > 0) {
+			sendUserToast(`Saved ${savedCount}, ${errors.size} failed — see details`, true)
 		} else if (errors.size > 0) {
 			sendUserToast(`${errors.size} draft${errors.size === 1 ? '' : 's'} failed to save`, true)
 		}
@@ -759,6 +820,7 @@
 		next.delete(path)
 		pe.drafts = next
 		forgetPath(path)
+		pe.discardTriggerDraftsFor(path)
 	}
 
 	function clearSaveError(path: string) {
@@ -819,6 +881,7 @@
 			}
 		}
 		pe.drafts = next
+		pe.retargetTriggerDrafts(oldPath, newPath)
 		if (pe.activeDraftPath === oldPath) pe.activeDraftPath = newPath
 		// Path-keyed live overlays: re-key for the renamed draft so the
 		// graph stays consistent between the moment we mutate `drafts`
@@ -1050,7 +1113,8 @@
 		language: ScriptLang,
 		scriptPath: string,
 		outputKind: PipelineOutputKind,
-		aiPrompt?: string
+		aiPrompt?: string,
+		options?: PipelineInsertOptions
 	) {
 		const ref = `${ASSET_PREFIX[asset.kind]}${asset.path}`
 		openMaterializerDraft(
@@ -1062,7 +1126,8 @@
 				kind: asset.kind,
 				path: asset.path
 			},
-			aiPrompt
+			aiPrompt,
+			options
 		)
 	}
 	function handleAddPipelineScript(
@@ -1070,9 +1135,15 @@
 		scriptPath: string,
 		source: { kind: NativeTriggerKind; path: string | undefined },
 		outputKind: PipelineOutputKind,
-		aiPrompt?: string
+		aiPrompt?: string,
+		options?: PipelineInsertOptions
 	) {
-		openMaterializerDraft(language, scriptPath, [source], outputKind, undefined, aiPrompt)
+		openMaterializerDraft(language, scriptPath, [source], outputKind, undefined, aiPrompt, options)
+		// A schedule was configured by the wizard itself; other row-backed kinds
+		// are configured in their own editor, as a draft of the new script.
+		if (source.kind !== 'schedule' && isDraftableTriggerKind(source.kind)) {
+			openTriggerDraft(source.kind, scriptPath)
+		}
 	}
 	function handleRunnableMenuRemove(info: {
 		runnable_kind: 'script' | 'flow'
@@ -1227,7 +1298,8 @@
 			liveAnnotations: pe.liveAnnotations,
 			inferredWritesByPath,
 			inferredReadsByPath,
-			annotatedNativeKindsByPath
+			annotatedNativeKindsByPath,
+			triggerDrafts: pe.triggerDrafts.values()
 		})
 	)
 
@@ -1250,7 +1322,21 @@
 	// What the canvas renders: drafts merged in edit, deployed-only in view —
 	// unless the "show drafts" chip is on, which overlays the drafts onto the
 	// view (what View will show once they're deployed).
-	let displayGraph = $derived(mode === 'edit' || includeDrafts ? graphWithDraft : deployedGraph)
+	let displayGraph = $derived(
+		withSummaries(mode === 'edit' || includeDrafts ? graphWithDraft : deployedGraph)
+	)
+	function withSummaries(g: AssetGraphResponse): AssetGraphResponse {
+		const showDrafts = mode === 'edit' || includeDrafts
+		return {
+			...g,
+			runnables: g.runnables.map((r) => {
+				const summary =
+					(showDrafts ? pe.drafts.get(r.path)?.script.summary : undefined) ||
+					summariesByPath.get(r.path)
+				return summary ? { ...r, summary } : r
+			})
+		}
+	}
 
 	// Leaving edit mode: drop the live editor overlays — they substitute the
 	// last keystroke buffer for one script inside inferredWritesByPath /
@@ -2168,6 +2254,12 @@
 		// time or silently bind to nothing. Surface that as a toast and
 		// keep the drawer closed; the user needs to save the script first
 		// (which also creates it under the new path if they renamed it).
+		// Kinds with a trigger row can instead wait as a pipeline draft and
+		// deploy with the pipeline, after the script.
+		if (isDraftableTriggerKind(kind) && pe.drafts.has(scriptPath)) {
+			openTriggerDraft(kind, scriptPath)
+			return
+		}
 		if (pe.drafts.has(scriptPath)) {
 			sendUserToast(
 				`Save the script "${scriptPath}" first — triggers can only be attached to deployed scripts.`,
@@ -2183,11 +2275,38 @@
 	// can still be edited everywhere else (TriggersPanel, etc.) where the
 	// picker stays editable.
 	function deleteAttachedTrigger(kind: NativeTriggerKind, triggerPath: string) {
+		const key = triggerDraftKey(kind, triggerPath)
+		if (pe.triggerDrafts.has(key)) {
+			pe.discardTriggerDraft(key)
+			return
+		}
 		triggerEditors?.requestDelete(kind, triggerPath)
 	}
 
 	function openEditTriggerDrawer(kind: NativeTriggerKind, triggerPath: string, scriptPath: string) {
+		const draft = pe.triggerDrafts.get(triggerDraftKey(kind, triggerPath))
+		if (draft) {
+			openTriggerDraft(draft.kind, scriptPath, draft)
+			return
+		}
 		triggerEditors?.openEdit(kind, triggerPath, scriptPath)
+	}
+
+	/** The kind's editor over a new draft, or over `draft` when re-editing one. */
+	function openTriggerDraft(
+		kind: PipelineTriggerDraftKind,
+		scriptPath: string,
+		draft?: PipelineTriggerDraft
+	) {
+		const defaults = { path: defaultTriggerPath(scriptPath, kind) }
+		triggerEditors?.openTriggerDraft(kind, scriptPath, defaults, draft?.config, (cfg) => {
+			const { extra_perms: _, ...config } = cfg
+			pe.setTriggerDraft(
+				{ kind, config: { ...config, path: cfg.path, script_path: scriptPath, is_flow: false } },
+				// The editor's Path field can rename it; drafts are keyed by path.
+				draft ? triggerDraftKey(kind, draft.config.path) : undefined
+			)
+		})
 	}
 
 	// Reuse the empty AssetGraphResponse so we can still render the canvas
@@ -2328,6 +2447,9 @@
 							nextBodies.set(path, content)
 							bodiesByPath = nextBodies
 						}
+						if (s.summary && !summariesByPath.has(path)) {
+							summariesByPath = new Map(summariesByPath).set(path, s.summary)
+						}
 						if (!inferredAssetsByPath.has(path)) {
 							const nextAssets = new Map(inferredAssetsByPath)
 							nextAssets.set(path, inferred)
@@ -2436,8 +2558,8 @@
 			     anchored between the two flex-1 side groups so it stays
 			     centered, with breathing room on both sides. -->
 			<div class="flex flex-row items-center gap-2 shrink-0 px-6">
-				<PipelineModeToggle {mode} draftCount={pe.drafts.size} onModeChange={(m) => setMode(m)} />
-				{#if mode === 'view' && pe.drafts.size > 0}
+				<PipelineModeToggle {mode} draftCount={pendingCount} onModeChange={(m) => setMode(m)} />
+				{#if mode === 'view' && pendingCount > 0}
 					<!-- View variant: overlay the unsaved drafts onto the deployed
 					     graph — "what View will show once they're deployed". -->
 					<button
@@ -2455,7 +2577,7 @@
 					>
 						<Telescope size={14} />
 						{includeDrafts ? 'Showing' : 'Show'}
-						{pe.drafts.size} draft{pe.drafts.size === 1 ? '' : 's'}
+						{pendingCount} draft{pendingCount === 1 ? '' : 's'}
 					</button>
 				{/if}
 			</div>
@@ -2533,7 +2655,7 @@
 					{/snippet}
 				</Popover>
 			{/if}
-			{#if mode === 'edit' && pe.drafts.size > 0}
+			{#if mode === 'edit' && pendingCount > 0}
 				<!-- Draft autosave status for the whole pipeline bundle. Distinct
 				     from "Save all", which DEPLOYS the drafts — this only reflects
 				     that in-flight edits are persisted to the per-user server draft. -->
@@ -2550,11 +2672,11 @@
 					variant="accent"
 					unifiedSize="sm"
 					startIcon={{ icon: savingAll ? Loader2 : Save }}
-					onclick={saveAllDrafts}
+					onclick={requestSaveAll}
 					disabled={savingAll}
-					title={savingAll ? 'Saving drafts…' : `Deploy all ${pe.drafts.size} drafts`}
+					title={savingAll ? 'Saving drafts…' : `Deploy all ${pendingCount} drafts`}
 				>
-					{savingAll ? 'Saving…' : `Save all (${pe.drafts.size})`}
+					{savingAll ? 'Saving…' : `Save all (${pendingCount})`}
 				</Button>
 			{/if}
 			{#if mode === 'view'}
@@ -2759,6 +2881,38 @@
 <!-- Native trigger drawer wiring: create/edit/delete drawers (edit-mode
      only) + the always-mounted webhook drawer. Driven imperatively from the
      page via `triggerEditors`. -->
+<ConfirmationModal
+	open={confirmTriggerDeployOpen}
+	title="Deploy triggers?"
+	confirmationText="Deploy"
+	type="info"
+	onConfirmed={() => {
+		confirmTriggerDeployOpen = false
+		void saveAllDrafts()
+	}}
+	onCanceled={() => (confirmTriggerDeployOpen = false)}
+>
+	<div class="flex flex-col gap-2 text-xs text-secondary">
+		<p>
+			{pe.triggerDrafts.size === 1
+				? 'Saving the pipeline also creates this trigger. It starts running its script once deployed.'
+				: `Saving the pipeline also creates these ${pe.triggerDrafts.size} triggers. They start running their scripts once deployed.`}
+		</p>
+		<ul class="flex flex-col gap-1">
+			{#each [...pe.triggerDrafts] as [key, d] (key)}
+				<li class="flex flex-col">
+					<span class="font-mono text-2xs text-emphasis truncate">{d.config.path}</span>
+					<span class="text-2xs text-hint truncate">
+						{d.kind}{#if d.kind === 'schedule'}
+							· <span class="font-mono">{d.config.schedule}</span> ({d.config.timezone}){/if}
+						→ {d.config.script_path}
+					</span>
+				</li>
+			{/each}
+		</ul>
+	</div>
+</ConfirmationModal>
+
 <PipelineTriggerEditors
 	bind:this={triggerEditors}
 	mountTriggerEditors={mode === 'edit'}
@@ -2790,18 +2944,18 @@
 						</div>
 						<div class="ml-4 flex-1">
 							<h3 class="text-lg font-medium text-primary">
-								{pe.drafts.size === 1 ? 'Unsaved draft' : `${pe.drafts.size} unsaved drafts`}
+								{pendingCount === 1 ? 'Unsaved draft' : `${pendingCount} unsaved drafts`}
 							</h3>
 							<div class="mt-2 text-sm text-secondary flex flex-col gap-2">
 								<p>
-									You have {pe.drafts.size === 1
-										? 'a draft pipeline script'
-										: `${pe.drafts.size} draft pipeline scripts`} that {pe.drafts.size === 1
+									You have {pendingCount === 1
+										? 'a pipeline draft'
+										: `${pendingCount} pipeline drafts`} that {pendingCount === 1
 										? 'has'
 										: 'have'} not been deployed yet. What would you like to do?
 								</p>
 								<ul class="text-2xs font-mono pl-4 max-h-40 overflow-y-auto flex flex-col gap-0.5">
-									{#each [...pe.drafts.keys()] as p}
+									{#each [...pe.drafts.keys(), ...[...pe.triggerDrafts.values()].map((d) => d.config.path)] as p}
 										<li class="truncate text-tertiary">{p}</li>
 									{/each}
 								</ul>
@@ -2817,7 +2971,7 @@
 							startIcon={{ icon: leaveSaving ? Loader2 : Save }}
 						>
 							<span class="min-w-20"
-								>{leaveSaving ? 'Saving…' : `Save all (${pe.drafts.size})`}</span
+								>{leaveSaving ? 'Saving…' : `Save all (${pendingCount})`}</span
 							>
 						</Button>
 						<Button

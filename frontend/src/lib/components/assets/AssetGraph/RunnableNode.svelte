@@ -25,6 +25,7 @@
 	import type { RunnableRunState } from './activeRunnables.svelte'
 	import { parseDurationSecs } from './parsePipelineAnnotations'
 	import { NODE } from '$lib/components/graph/util'
+	import { PIPELINE_NODE_HEIGHT } from './assetGraphLayout'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import type { Item } from '$lib/utils'
@@ -37,6 +38,7 @@
 		data: {
 			runnable_kind: GraphUsageKind
 			path: string
+			summary?: string
 			in_pipeline?: boolean
 			partition_kind?: 'daily' | 'hourly' | 'weekly' | 'monthly' | 'dynamic'
 			freshness?: string
@@ -101,10 +103,11 @@
 	}
 	let { data, selected = false }: Props = $props()
 
-	// The icon alone conveys "script" vs "flow"; the uppercase kind label was
-	// visually noisy and redundant. Tooltip on hover surfaces the path in
-	// full when truncated.
 	let Icon = $derived(data.runnable_kind === 'flow' ? GitBranch : Code2)
+	let kindLabel = $derived(
+		data.runnable_kind === 'flow' ? 'Flow' : data.dbt ? 'dbt project' : 'Script'
+	)
+	// The title shows the summary when there is one, so the tooltip keeps the path.
 	let nodeTooltip = $derived(
 		data.unsaved
 			? `${data.path} (unsaved draft)`
@@ -227,13 +230,16 @@
 			computingNow &&
 				'bg-amber-50 dark:bg-amber-900/30 border-amber-400 dark:border-amber-600 animate-pulse'
 		)}
-		style="width: {NODE.width}px; min-height: {NODE.height}px;"
+		style="width: {NODE.width}px; min-height: {PIPELINE_NODE_HEIGHT}px;"
 		title={nodeTooltip}
 	>
 		<Icon size={14} class={`shrink-0 ml-2 mr-2 ${selected ? 'text-accent' : 'text-secondary'}`} />
-		<span class="flex-1 min-w-0 pr-1 py-0.5 text-2xs font-mono text-emphasis truncate">
-			{data.path}
-		</span>
+		<div class="flex flex-col min-w-0 flex-1 pr-1 py-1 leading-tight">
+			<span class="text-3xs uppercase tracking-wide truncate text-tertiary">
+				{kindLabel}{data.unsaved ? ' · draft' : ''}
+			</span>
+			<span class="text-xs text-emphasis truncate">{data.summary || data.path}</span>
+		</div>
 		<!-- Annotation chips share one neutral treatment — the icon carries
 		     the meaning (colors are reserved for feedback, per the brand
 		     guidelines). Only the freshness chip (when it has a verdict)

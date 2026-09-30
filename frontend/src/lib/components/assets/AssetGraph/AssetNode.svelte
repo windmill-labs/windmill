@@ -2,8 +2,9 @@
 	import { Handle, Position } from '@xyflow/svelte'
 	import { twMerge } from 'tailwind-merge'
 	import AssetGenericIcon from '$lib/components/icons/AssetGenericIcon.svelte'
-	import { formatShortAssetPath, type AssetKind } from '$lib/components/assets/lib'
+	import { formatAssetKind, formatShortAssetPath, type AssetKind } from '$lib/components/assets/lib'
 	import { NODE } from '$lib/components/graph/util'
+	import { PIPELINE_NODE_HEIGHT } from './assetGraphLayout'
 	import PipelineInsertMenu, { type PipelineInsertPick } from './PipelineInsertMenu.svelte'
 	import {
 		ArrowUpRight,
@@ -65,7 +66,8 @@
 				language: ScriptLang,
 				scriptPath: string,
 				outputKind: PipelineOutputKind,
-				aiPrompt?: string
+				aiPrompt?: string,
+				options?: import('./PipelineInsertMenu.svelte').PipelineInsertOptions
 			) => void
 			pathPrefix?: string
 			defaultPathSuffix?: string
@@ -147,7 +149,8 @@
 				pick.language as ScriptLang,
 				pick.path,
 				(pick.outputKind ?? 'none') as PipelineOutputKind,
-				pick.aiPrompt
+				pick.aiPrompt,
+				{ outputAsset: pick.outputAsset }
 			)
 		}
 	}
@@ -244,7 +247,7 @@
 			'bg-surface-secondary border-gray-400 dark:border-gray-600 hover:border-gray-500 dark:hover:border-gray-500 transition-colors',
 			selected && 'bg-surface-accent-selected border-border-selected'
 		)}
-		style="width: {NODE.width}px; min-height: {NODE.height}px;"
+		style="width: {NODE.width}px; min-height: {PIPELINE_NODE_HEIGHT}px;"
 		title={data.path}
 	>
 		<!-- Data identity carries the accent (luminance blue), pairing with
@@ -288,9 +291,12 @@
 				</span>
 			{/if}
 		{/if}
-		<span class="flex-1 min-w-0 pr-1 py-0.5 text-2xs font-mono text-emphasis truncate">
-			{formatShortAssetPath(asset)}
-		</span>
+		<div class="flex flex-col min-w-0 flex-1 pr-1 py-1 leading-tight">
+			<span class="text-3xs uppercase tracking-wide truncate text-tertiary">
+				{formatAssetKind(asset)}
+			</span>
+			<span class="text-2xs font-mono text-emphasis truncate">{formatShortAssetPath(asset)}</span>
+		</div>
 		<!-- Fork data-environment chip: in a fork every asset shares its parent's
 		     name, so the env it resolves to must read at a glance. Labeled + tinted
 		     (amber "parent" = deferred read of the parent's current table via a

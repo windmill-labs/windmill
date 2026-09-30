@@ -1,6 +1,7 @@
 import type { AssetKind, Script } from '$lib/gen'
 import type { AssetWithAltAccessType } from '$lib/components/assets/lib'
-import type { AssetGraphSelection } from './types'
+import type { AssetGraphSelection, PipelineTriggerDraft } from './types'
+import { defaultTriggerPath, triggerDraftKey } from './pipelineTriggerDrafts'
 import {
 	parsePipelineAnnotations,
 	type ColumnLineage,
@@ -31,6 +32,8 @@ type LiveContent = { scriptPath: string | undefined; content: string }
 export class PipelineEditorState {
 	/** In-flight drafts keyed by script path (manual + AI-staged). */
 	drafts = $state<Map<string, PipelineDraft>>(new Map())
+	/** Undeployed triggers keyed by `triggerDraftKey`, persisted in the same bundle. */
+	triggerDrafts = $state<Map<string, PipelineTriggerDraft>>(new Map())
 	/** Draft open in the details pane (mutually exclusive with `selection`). */
 	activeDraftPath = $state<string | undefined>(undefined)
 	/** The persisted node/asset selected on the canvas. */
@@ -68,6 +71,7 @@ export class PipelineEditorState {
 	 * different pipeline folder (a same-folder remount keeps the drafts). */
 	reset = () => {
 		this.drafts = new Map()
+		this.triggerDrafts = new Map()
 		this.activeDraftPath = undefined
 		this.selection = undefined
 		this.clearLiveOverlays()
@@ -125,6 +129,64 @@ export class PipelineEditorState {
 		next.delete(path)
 		this.drafts = next
 		this.forgetPath(path)
+		this.discardTriggerDraftsFor(path)
+	}
+
+	/** Summary and labels of a script draft, edited from the pane header. */
+	setDraftMeta = (path: string, meta: { summary: string; labels: string[] | undefined }) => {
+		const d = this.drafts.get(path)
+		if (!d) return
+		this.drafts = new Map(this.drafts).set(path, {
+			...d,
+			script: { ...d.script, summary: meta.summary, labels: meta.labels }
+		})
+	}
+
+	/** Add or replace a trigger draft; `previousKey` drops the entry it was saved
+	 * under when an edit renamed it. */
+	setTriggerDraft = (d: PipelineTriggerDraft, previousKey?: string) => {
+		const next = new Map(this.triggerDrafts)
+		if (previousKey) next.delete(previousKey)
+		next.set(triggerDraftKey(d.kind, d.config.path), d)
+		this.triggerDrafts = next
+	}
+
+	discardTriggerDraft = (key: string) => {
+		if (!this.triggerDrafts.has(key)) return
+		const next = new Map(this.triggerDrafts)
+		next.delete(key)
+		this.triggerDrafts = next
+	}
+
+	/** A trigger draft cannot outlive the script draft it was configured with:
+	 * deploying it would target a path nothing is deployed at. */
+	discardTriggerDraftsFor = (scriptPath: string) => {
+		const next = new Map(
+			[...this.triggerDrafts].filter(([, d]) => d.config.script_path !== scriptPath)
+		)
+		if (next.size !== this.triggerDrafts.size) this.triggerDrafts = next
+	}
+
+	/** Follow a script draft rename, keeping default `<script>_<kind>` names in step. */
+	retargetTriggerDrafts = (oldScriptPath: string, newScriptPath: string) => {
+		let changed = false
+		const next = new Map<string, PipelineTriggerDraft>()
+		for (const [k, d] of this.triggerDrafts) {
+			if (d.config.script_path !== oldScriptPath) {
+				next.set(k, d)
+				continue
+			}
+			changed = true
+			const path =
+				d.config.path === defaultTriggerPath(oldScriptPath, d.kind)
+					? defaultTriggerPath(newScriptPath, d.kind)
+					: d.config.path
+			next.set(triggerDraftKey(d.kind, path), {
+				...d,
+				config: { ...d.config, path, script_path: newScriptPath }
+			})
+		}
+		if (changed) this.triggerDrafts = next
 	}
 
 	/** Commit body edits + inferred outputs back into the drafts Map on pane

@@ -18,8 +18,10 @@
 		AssetGraphSelection,
 		NativeTriggerKind,
 		PipelineMode,
+		PipelineTriggerDraft,
 		DbtAssetProvenance
 	} from './types'
+	import { isDraftableTriggerKind, triggerDraftKey } from './pipelineTriggerDrafts'
 	import type { AssetKind, Script, ScriptLang } from '$lib/gen'
 	import type { RunnableRunState, PipelineEvent } from './activeRunnables.svelte'
 	import type { PipelineOutputKind } from './pipelineTemplates'
@@ -153,14 +155,16 @@
 			language: ScriptLang,
 			scriptPath: string,
 			outputKind: PipelineOutputKind,
-			aiPrompt?: string
+			aiPrompt?: string,
+			options?: import('./PipelineInsertMenu.svelte').PipelineInsertOptions
 		) => void
 		onAddPipelineScript?: (
 			language: ScriptLang,
 			path: string,
 			source: { kind: NativeTriggerKind; path: string | undefined },
 			outputKind: PipelineOutputKind,
-			aiPrompt?: string
+			aiPrompt?: string,
+			options?: import('./PipelineInsertMenu.svelte').PipelineInsertOptions
 		) => void
 		onRunnableMenuRemove?: (...args: any[]) => void
 		onRunProducer?: (producer: RunProducer) => Promise<string | undefined>
@@ -280,7 +284,11 @@
 	// FlowBuilder's autosave analogue — gated by `persistDrafts`.
 	let pipelineDraftPath = $derived(pipelineBundlePath(folder))
 	let storageKey = $derived(`pipeline-${folder}`)
-	type PipelineDraftBundle = { drafts: Array<[string, PipelineDraft]>; activeDraftPath?: string }
+	type PipelineDraftBundle = {
+		drafts: Array<[string, PipelineDraft]>
+		activeDraftPath?: string
+		triggerDrafts?: PipelineTriggerDraft[]
+	}
 	// Hydration is tracked on the editor instance (`editor.hydratedFromDb`), not a
 	// component flag: the in-session preview reuses one instance across editor
 	// hide/show, and it must hydrate ONCE per instance, not on every remount.
@@ -300,6 +308,18 @@
 			if (loaded.size > 0) editor.drafts = loaded
 		}
 		if (typeof bundle.activeDraftPath === 'string') editor.activeDraftPath = bundle.activeDraftPath
+		if (Array.isArray(bundle.triggerDrafts)) {
+			editor.triggerDrafts = new Map(
+				bundle.triggerDrafts
+					.filter(
+						(d) =>
+							isDraftableTriggerKind(d?.kind) &&
+							typeof d.config?.path === 'string' &&
+							typeof d.config?.script_path === 'string'
+					)
+					.map((d) => [triggerDraftKey(d.kind, d.config.path), d])
+			)
+		}
 	}
 
 	function readLocalBundle(): PipelineDraftBundle | undefined {
@@ -311,7 +331,8 @@
 			if (s && (Array.isArray(s.drafts) || typeof s.activeDraftPath === 'string')) {
 				return {
 					drafts: Array.isArray(s.drafts) ? s.drafts : [],
-					activeDraftPath: typeof s.activeDraftPath === 'string' ? s.activeDraftPath : undefined
+					activeDraftPath: typeof s.activeDraftPath === 'string' ? s.activeDraftPath : undefined,
+					triggerDrafts: Array.isArray(s.triggerDrafts) ? s.triggerDrafts : undefined
 				}
 			}
 		} catch (e) {
@@ -413,24 +434,26 @@
 			return [p, { ...d, script, outputAssets, inputAssets }] as [string, PipelineDraft]
 		})
 		const activePath = editor.activeDraftPath
+		const triggerDrafts = [...editor.triggerDrafts.values()]
 		const key = storageKey
 		const ws = workspace
 		const path = pipelineDraftPath
 		const hydrated = editor.hydratedFromDb
 		untrack(() => {
 			if (!hydrated) return
-			const isEmpty = serialized.length === 0 && !activePath
+			const isEmpty = serialized.length === 0 && !activePath && triggerDrafts.length === 0
 			const bundle: PipelineDraftBundle | undefined = isEmpty
 				? undefined
-				: { drafts: serialized, activeDraftPath: activePath }
+				: {
+						drafts: serialized,
+						activeDraftPath: activePath,
+						...(triggerDrafts.length > 0 ? { triggerDrafts } : {})
+					}
 			try {
 				if (typeof localStorage !== 'undefined') {
 					if (isEmpty) localStorage.removeItem(key)
 					else
-						localStorage.setItem(
-							key,
-							encodeState({ drafts: serialized, activeDraftPath: activePath })
-						)
+						localStorage.setItem(key, encodeState(bundle))
 				}
 			} catch (e) {
 				console.warn('failed to mirror pipeline state', e)
@@ -552,8 +575,8 @@
 						draftScript={activeDraft?.script}
 						draftOutputAssets={activeDraft?.outputAssets}
 						draftInputAssets={activeDraft?.inputAssets}
-						{pathPrefix}
 						{onDraftPathChange}
+						onDraftMetaChange={editor.setDraftMeta}
 						{workspace}
 						onAnnotationsChange={editor.handleAnnotationsChange}
 						onAssetsChange={editor.handleAssetsChange}

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { tickPainted } from '$lib/utils/paint'
 	import type ScheduleEditorInner from './ScheduleEditorInner.svelte'
+	import type { Schedule } from '$lib/gen'
 
 	let { onUpdate }: { onUpdate?: (path?: string) => void } = $props()
 
@@ -27,6 +28,17 @@
 		await loadInner()
 		await tickPainted()
 		drawer?.openNew(is_flow, initial_script_path, undefined, schedule_path, fixedScriptPath)
+	}
+
+	/** Edit a schedule that exists only as the caller's draft; Save hands it back. */
+	export async function openDraft(
+		cfg: Schedule,
+		onSaveDraft: (cfg: Record<string, any>) => void
+	) {
+		open = true
+		await loadInner()
+		await tickPainted()
+		drawer?.openNew(false, cfg.script_path, cfg, undefined, cfg.script_path, { onSaveDraft })
 	}
 
 	let drawer: ScheduleEditorInner | undefined = $state()

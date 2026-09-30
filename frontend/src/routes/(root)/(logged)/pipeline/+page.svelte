@@ -3,8 +3,8 @@
 	import PipelineFolderList from '$lib/components/assets/AssetGraph/PipelineFolderList.svelte'
 	import PipelineSetupSignpost from '$lib/components/assets/AssetGraph/PipelineSetupSignpost.svelte'
 	import PipelineAlphaAckModal from '$lib/components/assets/AssetGraph/PipelineAlphaAckModal.svelte'
-	import PipelineDbtSignpost from '$lib/components/assets/AssetGraph/PipelineDbtSignpost.svelte'
 	import { BookOpen, NetworkIcon } from 'lucide-svelte'
+	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import { onMount } from 'svelte'
 
 	const ACK_STORAGE_KEY = 'pipeline-alpha-ack'
@@ -41,34 +41,24 @@
 		class="border-b flex flex-row justify-between gap-2 px-2 py-1 items-center min-h-10 shrink-0 whitespace-nowrap"
 	>
 		<div class="flex flex-row items-center gap-2">
-			<NetworkIcon size={16} class="text-tertiary shrink-0" />
-			<h1 class="text-sm font-semibold">Pipelines</h1>
-			<span
-				class="text-2xs px-1.5 py-0.5 rounded font-semibold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
-			>
-				Alpha
-			</span>
+			<NetworkIcon size={16} class="text-secondary shrink-0" />
+			<h1 class="text-sm font-semibold text-emphasis">Pipelines</h1>
+			<Badge color="green">Alpha</Badge>
 		</div>
 	</div>
 
-	<div class="flex-1 min-h-0 overflow-y-auto bg-surface-secondary">
+	<div class="flex-1 min-h-0 overflow-y-auto bg-surface">
 		<div class="max-w-2xl mx-auto flex flex-col gap-6 px-4 py-8">
 			<div class="flex flex-col gap-2">
-				<h2 class="text-lg font-semibold">Data pipelines</h2>
-				<p class="text-sm text-tertiary">
+				<h2 class="text-lg font-semibold text-emphasis">Data pipelines</h2>
+				<p class="text-xs text-secondary">
 					Chain ingestion, transformation and materialization steps into an asset-aware graph.
-					{#if !$userStore?.operator}
-						Each pipeline lives in a folder: open one below, or pick a folder to start a new
-						pipeline.
-					{:else}
-						Open a pipeline below to view its graph and runs.
-					{/if}
 				</p>
 				<a
 					href="https://www.windmill.dev/docs/pipelines"
 					target="_blank"
 					rel="noreferrer"
-					class="text-xs text-blue-500 hover:underline inline-flex items-center gap-1"
+					class="text-xs text-accent hover:underline inline-flex items-center gap-1 w-fit"
 				>
 					<BookOpen size={12} />
 					Pipelines documentation
@@ -79,14 +69,7 @@
 				<PipelineSetupSignpost workspace={$workspaceStore} />
 			{/if}
 
-			<PipelineFolderList />
-
-			<!-- Below the pipeline content on purpose: dbt is a separate runtime, not a
-			     way of building a pipeline, and reads as one when it sits in the flow
-			     that defines what a pipeline is. -->
-			{#if !$userStore?.operator}
-				<PipelineDbtSignpost />
-			{/if}
+			<PipelineFolderList hideExisting />
 		</div>
 	</div>
 </div>

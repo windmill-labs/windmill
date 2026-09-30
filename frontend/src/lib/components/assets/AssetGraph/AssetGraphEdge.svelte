@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { BaseEdge, getBezierPath, type EdgeProps } from '@xyflow/svelte'
 	import { NODE } from '$lib/components/graph/util'
+	import { PIPELINE_NODE_HEIGHT } from './assetGraphLayout'
 	import { FlaskConical, Columns3, SquareFunction, BellOff } from 'lucide-svelte'
 	import type { ColumnLineage, DataTest } from './parsePipelineAnnotations'
 
@@ -103,7 +104,7 @@
 	// straight under the nodes in between — the child-and-grandchild-of-the-
 	// same-node case, where the tidy-tree layout puts all three on one
 	// column. Detour those through the gutter beside the column.
-	const SKIP_DY = NODE.gap.vertical * 2 + NODE.height
+	const SKIP_DY = NODE.gap.vertical * 2 + PIPELINE_NODE_HEIGHT
 	const NEAR_VERTICAL_DX = NODE.width / 4
 	// Lane offset: half a node plus a margin that stays inside the
 	// inter-column gutter (gap.horizontal / 2).

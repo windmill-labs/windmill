@@ -492,6 +492,49 @@ describe('resolveGraph', () => {
 		expect(r.edges.some((e) => e.asset_path === 'main/out' && e.access_type === 'w')).toBe(true)
 	})
 
+	it('drops a persisted asset the open script renamed away, unless something still uses it', () => {
+		const write = (runnable_path: string, asset_path: string) => ({
+			runnable_path,
+			runnable_kind: 'script' as const,
+			asset_kind: 's3object' as const,
+			asset_path,
+			access_type: 'w' as const
+		})
+		const base = baseGraph({
+			assets: [
+				{ kind: 's3object', path: '/old.json' },
+				{ kind: 's3object', path: '/shared.json' },
+				{ kind: 's3object', path: '/unreferenced.json' }
+			],
+			runnables: [
+				{ path: 'f/x/prod', usage_kind: 'script' },
+				{ path: 'f/x/other', usage_kind: 'script' }
+			],
+			edges: [write('f/x/prod', '/old.json'), write('f/x/prod', '/shared.json')],
+			triggers: [
+				{
+					trigger_kind: 'asset',
+					asset_kind: 's3object',
+					asset_path: '/shared.json',
+					runnable_kind: 'script',
+					runnable_path: 'f/x/other'
+				}
+			]
+		})
+		const r = resolveGraph(
+			input({
+				base,
+				liveAnnotations: { scriptPath: 'f/x/prod', annotations: ann() },
+				liveBodyAssets: { scriptPath: 'f/x/prod', assets: [s3('/new.json', 'w')] }
+			})
+		)
+		expect(r.assets.map((a) => a.path).sort()).toEqual([
+			'/new.json',
+			'/shared.json',
+			'/unreferenced.json'
+		])
+	})
+
 	it('editing a saved scd2 producer keeps both the base and _current persisted write edges', () => {
 		// Deploy persists a write to both `main/dim` and `main/dim_current`.
 		// Opening the producer for editing must not judge the companion `_current`
@@ -654,6 +697,31 @@ describe('resolveGraph', () => {
 			unsaved: true,
 			missing: true
 		})
+	})
+
+	it('a trigger draft stands in for its draft script’s missing trigger of that kind', () => {
+		const drafts = new Map([['f/x/new', { script: { content: '// on schedule\n// on kafka' } }]])
+		const r = resolveGraph(
+			input({
+				drafts,
+				triggerDrafts: [
+					{ kind: 'schedule', config: { path: 'f/x/new_schedule', script_path: 'f/x/new' } }
+				]
+			})
+		)
+		expect(r.triggers.filter((t) => t.trigger_kind === 'kafka')).toEqual([
+			expect.objectContaining({ runnable_path: 'f/x/new', missing: true })
+		])
+		expect(r.triggers.filter((t) => t.trigger_kind === 'schedule')).toEqual([
+			{
+				trigger_kind: 'schedule',
+				path: 'f/x/new_schedule',
+				runnable_kind: 'script',
+				runnable_path: 'f/x/new',
+				unsaved: true,
+				draft: true
+			}
+		])
 	})
 
 	it('macro edges: base passes through; live `// use` adds an unsaved via_use edge', () => {
@@ -884,11 +952,11 @@ describe('live buffer overlays (open script)', () => {
 			access_type: 'w',
 			unsaved: true
 		})
-		// …the stale write edge is dropped, but the deployed dataset node stays.
+		// …the stale write edge is dropped, and with nothing else using it, so is the node.
 		expect(
 			r.edges.filter((e) => e.asset_path === 'main/orders' && e.runnable_path === 'f/x/prod')
 		).toEqual([])
-		expect(r.assets).toContainEqual({ kind: 'ducklake', path: 'main/orders' })
+		expect(r.assets).not.toContainEqual({ kind: 'ducklake', path: 'main/orders' })
 	})
 
 	it('open saved script: unchanged materialize target dedups against the persisted write edge', () => {
@@ -1083,9 +1151,7 @@ describe('dbtAssociations', () => {
 	it('counts only what the project materializes as its transforms', () => {
 		const { writesByOwner } = dbtAssociations(runnables, edges)
 		// Hovering the project highlights the models it builds, not its inputs.
-		expect([...(writesByOwner.get('script:f/a/dbtproj') ?? [])]).toEqual([
-			'asset:dbt:wh/s/model_a'
-		])
+		expect([...(writesByOwner.get('script:f/a/dbtproj') ?? [])]).toEqual(['asset:dbt:wh/s/model_a'])
 	})
 
 	it('ignores runnables that are not dbt', () => {
@@ -1162,8 +1228,6 @@ describe('dbtAssociations with two writers of one relation', () => {
 			writeBy('f/a/downstream')
 		])
 		expect(writesByOwner.get('script:f/a/upstream')).toEqual(new Set(['asset:dbt:wh/s/shared']))
-		expect(writesByOwner.get('script:f/a/downstream')).toEqual(
-			new Set(['asset:dbt:wh/s/shared'])
-		)
+		expect(writesByOwner.get('script:f/a/downstream')).toEqual(new Set(['asset:dbt:wh/s/shared']))
 	})
 })

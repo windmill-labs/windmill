@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { sendUserToast } from '$lib/utils'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
-	import type { NativeTriggerKind } from './types'
+	import type { NativeTriggerKind, PipelineTriggerDraftKind } from './types'
 	import {
 		EmailTriggerService,
 		GcpTriggerService,
@@ -11,7 +11,8 @@
 		NatsTriggerService,
 		PostgresTriggerService,
 		ScheduleService,
-		SqsTriggerService
+		SqsTriggerService,
+		type Schedule
 	} from '$lib/gen'
 	import KafkaTriggerEditor from '$lib/components/triggers/kafka/KafkaTriggerEditor.svelte'
 	import MqttTriggerEditor from '$lib/components/triggers/mqtt/MqttTriggerEditor.svelte'
@@ -107,6 +108,40 @@
 				return emailEditor?.openEdit(triggerPath, false, scriptPath)
 			default:
 				return
+		}
+	}
+
+	/** The kind's full editor over a pipeline-local draft; Save hands the config back.
+	 * `saved` is the draft being edited (absent for a new one), applied over `defaults`. */
+	export function openTriggerDraft(
+		kind: PipelineTriggerDraftKind,
+		scriptPath: string,
+		defaults: Record<string, any>,
+		saved: Record<string, any> | undefined,
+		onSave: (cfg: Record<string, any>) => void
+	) {
+		switch (kind) {
+			case 'schedule':
+				return scheduleEditor?.openDraft(
+					{ is_flow: false, args: {}, ...defaults, ...saved, script_path: scriptPath } as Schedule,
+					onSave
+				)
+			case 'kafka':
+				return kafkaEditor?.openDraft(scriptPath, defaults, saved, onSave)
+			case 'mqtt':
+				return mqttEditor?.openDraft(scriptPath, defaults, saved, onSave)
+			case 'amqp':
+				return amqpEditor?.openDraft(scriptPath, defaults, saved, onSave)
+			case 'nats':
+				return natsEditor?.openDraft(scriptPath, defaults, saved, onSave)
+			case 'postgres':
+				return postgresEditor?.openDraft(scriptPath, defaults, saved, onSave)
+			case 'sqs':
+				return sqsEditor?.openDraft(scriptPath, defaults, saved, onSave)
+			case 'gcp':
+				return gcpEditor?.openDraft(scriptPath, defaults, saved, onSave)
+			case 'email':
+				return emailEditor?.openDraft(scriptPath, defaults, saved, onSave)
 		}
 	}
 

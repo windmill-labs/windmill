@@ -27,6 +27,21 @@
 		drawer?.openNew(is_flow, initial_script_path, defaultValues)
 	}
 
+	/** Edit a trigger that exists only as the caller's draft; Save hands the config back. */
+	export async function openDraft(
+		scriptPath: string,
+		defaults: Record<string, any>,
+		saved: Record<string, any> | undefined,
+		onSaveDraft: (cfg: Record<string, any>) => void
+	) {
+		open = true
+		await tickPainted()
+		drawer?.openNew(false, scriptPath, defaults as any, {
+			onSaveDraft,
+			draftConfig: saved
+		})
+	}
+
 	let drawer: EmailTriggerEditorInner | undefined = $state()
 </script>
 

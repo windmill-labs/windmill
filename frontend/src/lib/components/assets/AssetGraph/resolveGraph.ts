@@ -1,4 +1,9 @@
-import type { AssetGraphMacroEdge, AssetGraphResponse, NativeTriggerKind } from './types'
+import type {
+	AssetGraphMacroEdge,
+	AssetGraphResponse,
+	NativeTriggerKind,
+	PipelineTriggerDraft
+} from './types'
 import {
 	mergeColumnLineage,
 	parsePipelineAnnotations,
@@ -46,6 +51,8 @@ export type ResolveGraphInput = {
 	 * annotation has no matching trigger row in `base.triggers`.
 	 */
 	annotatedNativeKindsByPath: Map<string, Set<NativeTriggerKind>>
+	/** Undeployed triggers; each stands in for its script's missing trigger of that kind. */
+	triggerDrafts?: Iterable<PipelineTriggerDraft>
 }
 
 /** Mutable bag the sequential passes accumulate the resolved graph into. */
@@ -264,14 +271,81 @@ export function resolveGraph(input: ResolveGraphInput): AssetGraphResponse {
 	// there is nothing to show (also keeps the no-macros response shape
 	// byte-identical to before the feature).
 	const macroEdges = resolveMacroEdges(input)
+	const triggers = withTriggerDrafts(
+		[...baseTriggers, ...acc.extraTriggers],
+		input.triggerDrafts ?? []
+	)
 	return {
 		...base,
-		assets: acc.assets,
+		assets: dropOrphanedAssets(acc.assets, base, acc.edges, triggers),
 		runnables: acc.runnables,
 		edges: acc.edges,
-		triggers: [...baseTriggers, ...acc.extraTriggers],
+		triggers,
 		...(macroEdges.length > 0 || base.macro_edges ? { macro_edges: macroEdges } : {})
 	}
+}
+
+function withTriggerDrafts(
+	triggers: AssetGraphResponse['triggers'],
+	triggerDrafts: Iterable<PipelineTriggerDraft>
+): AssetGraphResponse['triggers'] {
+	const drafts = [...triggerDrafts]
+	if (drafts.length === 0) return triggers
+	const drafted = new Set(drafts.map((d) => `${d.kind}:${d.config.script_path}`))
+	return [
+		...triggers.filter(
+			(t) =>
+				!(
+					t.trigger_kind !== 'asset' &&
+					t.missing &&
+					t.runnable_kind === 'script' &&
+					drafted.has(`${t.trigger_kind}:${t.runnable_path}`)
+				)
+		),
+		...drafts.map((d) => ({
+			trigger_kind: d.kind,
+			path: d.config.path,
+			runnable_kind: 'script' as const,
+			runnable_path: d.config.script_path,
+			unsaved: true,
+			draft: true
+		}))
+	]
+}
+
+function referencedAssetKeys(
+	graph: Pick<AssetGraphResponse, 'edges' | 'triggers' | 'test_edges' | 'dbt_edges'>
+): Set<string> {
+	const keys = new Set<string>()
+	for (const e of graph.edges) keys.add(`${e.asset_kind}:${e.asset_path}`)
+	for (const t of graph.triggers)
+		if (t.trigger_kind === 'asset') keys.add(`${t.asset_kind}:${t.asset_path}`)
+	for (const e of graph.test_edges ?? []) keys.add(`${e.asset_kind}:${e.asset_path}`)
+	for (const e of graph.dbt_edges ?? []) {
+		keys.add(`dbt:${e.from_asset_path}`)
+		keys.add(`dbt:${e.to_asset_path}`)
+	}
+	return keys
+}
+
+/**
+ * The backend only returns assets something references, so a deployed asset
+ * whose every edge and trigger the draft/live overlays stripped — an output the
+ * open script renamed — would linger as an edgeless node until the deploy
+ * lands. Assets that were already unreferenced in `base` are left alone.
+ */
+function dropOrphanedAssets(
+	assets: AssetGraphResponse['assets'],
+	base: AssetGraphResponse,
+	edges: AssetGraphResponse['edges'],
+	triggers: AssetGraphResponse['triggers']
+): AssetGraphResponse['assets'] {
+	const before = referencedAssetKeys(base)
+	const after = referencedAssetKeys({ ...base, edges, triggers })
+	return assets.filter((a) => {
+		const key = `${a.kind}:${a.path}`
+		return !before.has(key) || after.has(key)
+	})
 }
 
 /**
@@ -847,7 +921,6 @@ function overlayInferredLineage(acc: Accumulator, input: ResolveGraphInput) {
 	overlayLineage(inferredWritesByPath, 'w')
 	overlayLineage(inferredReadsByPath, 'r')
 }
-
 
 /** dbt project ↔ relation association, for a graph that does NOT draw it.
  *

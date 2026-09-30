@@ -31,7 +31,8 @@
 				path: string,
 				source: { kind: NativeTriggerKind; path: string | undefined },
 				outputKind: PipelineOutputKind,
-				aiPrompt?: string
+				aiPrompt?: string,
+				options?: import('./PipelineInsertMenu.svelte').PipelineInsertOptions
 			) => void
 			pathPrefix: string
 			defaultPathSuffix: string
@@ -51,7 +52,8 @@
 			pick.path,
 			{ kind: kindId, path: undefined },
 			outputKind,
-			pick.aiPrompt
+			pick.aiPrompt,
+			{ schedule: pick.schedule, outputAsset: pick.outputAsset }
 		)
 	}
 </script>
@@ -78,48 +80,56 @@
 		},
 		{
 			id: 'email',
+			configuredAfterCreate: true,
 			label: 'On email',
 			description: 'Triggered by incoming email',
 			icon: Mail
 		},
 		{
 			id: 'kafka',
+			configuredAfterCreate: true,
 			label: 'On Kafka',
 			description: 'Triggered by a Kafka message',
 			icon: Zap
 		},
 		{
 			id: 'mqtt',
+			configuredAfterCreate: true,
 			label: 'On MQTT',
 			description: 'Triggered by an MQTT message',
 			icon: Radio
 		},
 		{
 			id: 'amqp',
+			configuredAfterCreate: true,
 			label: 'On AMQP',
 			description: 'Triggered by an AMQP (RabbitMQ) message',
 			icon: Radio
 		},
 		{
 			id: 'nats',
+			configuredAfterCreate: true,
 			label: 'On NATS',
 			description: 'Triggered by a NATS message',
 			icon: MessageSquare
 		},
 		{
 			id: 'postgres',
+			configuredAfterCreate: true,
 			label: 'On Postgres',
 			description: 'Triggered by a Postgres event',
 			icon: Database
 		},
 		{
 			id: 'sqs',
+			configuredAfterCreate: true,
 			label: 'On SQS',
 			description: 'Triggered by an SQS message',
 			icon: Send
 		},
 		{
 			id: 'gcp',
+			configuredAfterCreate: true,
 			label: 'On GCP Pub/Sub',
 			description: 'Triggered by a Pub/Sub message',
 			icon: CloudCog

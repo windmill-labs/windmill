@@ -49,7 +49,8 @@
 			language: import('$lib/gen').ScriptLang,
 			scriptPath: string,
 			outputKind: import('./pipelineTemplates').PipelineOutputKind,
-			aiPrompt?: string
+			aiPrompt?: string,
+			options?: import('./PipelineInsertMenu.svelte').PipelineInsertOptions
 		) => void
 		// Pipeline-wide + node shown at the top of the graph. Picking any
 		// kind from the menu invokes this one callback with the chosen
@@ -65,7 +66,8 @@
 				path: string | undefined
 			},
 			outputKind: import('./pipelineTemplates').PipelineOutputKind,
-			aiPrompt?: string
+			aiPrompt?: string,
+			options?: import('./PipelineInsertMenu.svelte').PipelineInsertOptions
 		) => void
 		// Folder-scoped prefix shown as a read-only chip in the insert menu
 		// path input (e.g. `f/{folder}/`). Shared across top + and per-asset +.
@@ -526,6 +528,7 @@
 				data: {
 					runnable_kind: r.usage_kind,
 					path: r.path,
+					summary: r.summary,
 					in_pipeline: r.in_pipeline ?? false,
 					partition_kind: r.partition_kind,
 					freshness: r.freshness,
@@ -724,6 +727,7 @@
 				kind: TriggerNodeKind
 				ref: string
 				missing: boolean
+				draft: boolean
 				// First target script (drives the per-script create/edit flows).
 				runnable_path?: string
 				// Every target script: a single (kind, ref) — e.g. one schedule —
@@ -739,6 +743,7 @@
 			ref: string,
 			unsaved: boolean,
 			missing: boolean,
+			draft: boolean,
 			runnable_path?: string
 		) {
 			const prev = triggerSourceNodes.get(id)
@@ -748,6 +753,7 @@
 					kind,
 					ref,
 					missing,
+					draft,
 					runnable_path,
 					runnable_paths: runnable_path ? [runnable_path] : []
 				})
@@ -796,6 +802,7 @@
 				ref,
 				!!t.unsaved,
 				isMissing,
+				t.draft === true,
 				// Always thread the target script so the trigger node can
 				// reach back to it — drives both the missing-trigger "create"
 				// flow and the attached-trigger "edit" flow's script-path
@@ -830,6 +837,7 @@
 					ref: info.ref,
 					unsaved: info.allUnsaved,
 					missing: info.missing,
+					draft: info.draft,
 					runnable_path: info.runnable_path,
 					runnable_unsaved: info.runnable_path
 						? unsavedRunnablePaths.has(info.runnable_path)

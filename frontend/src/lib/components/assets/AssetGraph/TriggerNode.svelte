@@ -60,6 +60,7 @@
 <script lang="ts">
 	import { Handle, Position } from '@xyflow/svelte'
 	import { NODE } from '$lib/components/graph/util'
+	import { PIPELINE_NODE_HEIGHT } from './assetGraphLayout'
 	import { twMerge } from 'tailwind-merge'
 	import { AlertTriangle, CheckCircle2, EllipsisVertical, Target, Trash2 } from 'lucide-svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
@@ -78,6 +79,10 @@
 			ref: string
 			unsaved?: boolean
 			missing?: boolean
+			// A pipeline-local schedule draft: `ref` is the path it deploys to.
+			// Edit/delete go through the same callbacks, which the page routes
+			// to the draft instead of a trigger row.
+			draft?: boolean
 			runnable_path?: string
 			// True iff the target script is still a draft (no DB row yet).
 			// Drives the "(after draft save)" hint on the missing
@@ -200,7 +205,7 @@
 		...(canDelete
 			? [
 					{
-						displayName: 'Delete…',
+						displayName: data.draft ? 'Discard draft' : 'Delete…',
 						icon: Trash2,
 						type: 'delete' as const,
 						action: () => {
@@ -247,7 +252,7 @@
 				'bg-red-50 dark:bg-red-900/30 outline-dashed outline-red-400 dark:outline-red-500',
 				'hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors'
 			)}
-			style="width: {NODE.width}px; min-height: {NODE.height}px;"
+			style="width: {NODE.width}px; min-height: {PIPELINE_NODE_HEIGHT}px;"
 			title={missingTitle}
 		>
 			<Icon size={14} class="shrink-0 ml-2 mr-2 text-red-600 dark:text-red-400" />
@@ -256,7 +261,7 @@
 					{style.label} · missing
 				</span>
 				<span class="text-2xs font-mono truncate text-red-700 dark:text-red-400">
-					{data.runnable_unsaved ? 'Click to create (after draft save)' : 'Click to create'}
+					Click to create
 				</span>
 			</div>
 		</button>
@@ -273,13 +278,15 @@
 				data.unsaved ? `opacity-80 ${style.borderUnsaved}` : style.border,
 				'hover:brightness-95 dark:hover:brightness-110 transition-[filter]'
 			)}
-			style="width: {NODE.width}px; min-height: {NODE.height}px;"
-			title={`Edit ${style.label} trigger: ${data.ref}`}
+			style="width: {NODE.width}px; min-height: {PIPELINE_NODE_HEIGHT}px;"
+			title={data.draft
+				? `Draft ${style.label}: ${data.ref} — created when you save the pipeline. Click to edit.`
+				: `Edit ${style.label} trigger: ${data.ref}`}
 		>
 			<Icon size={14} class={`shrink-0 ml-2 mr-2 ${style.iconText}`} />
 			<div class="flex flex-col min-w-0 flex-1 pr-2 py-0.5 leading-tight">
 				<span class="text-3xs uppercase tracking-wide truncate text-tertiary">
-					{style.label}{data.unsaved ? ' · unsaved' : ''}
+					{style.label}{data.draft ? ' · draft' : data.unsaved ? ' · unsaved' : ''}
 				</span>
 				<span class="text-2xs font-mono truncate text-emphasis">
 					{data.ref}
@@ -300,7 +307,7 @@
 				data.unsaved ? `opacity-80 ${style.borderUnsaved}` : style.border,
 				'hover:brightness-95 dark:hover:brightness-110 transition-[filter]'
 			)}
-			style="width: {NODE.width}px; min-height: {NODE.height}px;"
+			style="width: {NODE.width}px; min-height: {PIPELINE_NODE_HEIGHT}px;"
 			title={`Webhook endpoint for ${data.runnable_path ?? ''} — click to view URLs and create a token`}
 		>
 			<Icon size={14} class={`shrink-0 ml-2 mr-2 ${style.iconText}`} />
@@ -329,7 +336,7 @@
 				dataUploadReady ? '' : data.unsaved ? `opacity-80 ${style.borderUnsaved}` : style.border,
 				'hover:brightness-95 dark:hover:brightness-110 transition-[filter]'
 			)}
-			style="width: {NODE.width}px; min-height: {NODE.height}px;"
+			style="width: {NODE.width}px; min-height: {PIPELINE_NODE_HEIGHT}px;"
 			title={dataUploadReady
 				? `Data upload for ${data.runnable_path ?? ''} — a file is staged; the pipeline is ready to run. Click to change it.`
 				: `Data upload for ${data.runnable_path ?? ''} — click to open the run form and upload a file`}
@@ -366,7 +373,7 @@
 					: style.bg,
 				displayMissing ? '' : data.unsaved ? `opacity-80 ${style.borderUnsaved}` : style.border
 			)}
-			style="width: {NODE.width}px; min-height: {NODE.height}px;"
+			style="width: {NODE.width}px; min-height: {PIPELINE_NODE_HEIGHT}px;"
 			title={missingTitle ??
 				(data.unsaved ? `Unsaved ${style.label}: ${data.ref}` : `${style.label}: ${data.ref}`)}
 		>

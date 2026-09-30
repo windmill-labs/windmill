@@ -22,8 +22,6 @@
 		X,
 		Pencil
 	} from 'lucide-svelte'
-	import Popover from '$lib/components/meltComponents/Popover.svelte'
-	import { tick } from 'svelte'
 	import { inferArgs } from '$lib/infer'
 	import { emptySchema, sendUserToast } from '$lib/utils'
 	import type { Schema } from '$lib/common'
@@ -41,6 +39,7 @@
 	import { extractDraftMacros } from './resolveGraph'
 	import { assetColumnNodes, type ColumnLineageGraph } from './columnLineageGraph'
 	import SummaryPathDisplay from '$lib/components/SummaryPathDisplay.svelte'
+	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import S3FilePreview from '$lib/components/S3FilePreview.svelte'
 	import DataTablePreview from './DataTablePreview.svelte'
 	import DucklakeAssetPanel from './DucklakeAssetPanel.svelte'
@@ -215,15 +214,12 @@
 		// the edges. Counter rather than boolean so back-to-back runs
 		// re-fire the effect even if no other prop changed.
 		requestRunSignal?: number
-		// Folder-scoped non-editable prefix shown next to the suffix
-		// editor when the user renames a draft (e.g. `f/<folder>/`). The
-		// new path = pathPrefix + suffix.
-		pathPrefix?: string
 		// Called when the user renames a draft — the parent reseats the
 		// path key in its drafts map and updates activeDraftPath. Returns
 		// true on success; false on collision/validation failure so the
 		// popover can keep itself open and surface the error inline.
 		onDraftPathChange?: (oldPath: string, newPath: string) => boolean | string
+		onDraftMetaChange?: (path: string, meta: { summary: string; labels: string[] | undefined }) => void
 		// Bumped by the parent (e.g. from the runnable-node action menu) to
 		// auto-open the archive/delete confirmation modal for the currently
 		// loaded persisted script. No-ops while the pane is showing a draft
@@ -315,8 +311,8 @@
 		activeRunnable,
 		onTestStateChange,
 		requestRunSignal,
-		pathPrefix = '',
 		onDraftPathChange,
+		onDraftMetaChange,
 		requestRemoveSignal,
 		downstreamSubscribers = 0,
 		onStartBoundedRun,
@@ -910,49 +906,6 @@
 			JSON.stringify(script.schema ?? null) === JSON.stringify(orig.schema ?? null)
 		)
 	})
-
-	// Suffix editor for the draft-path popover. Seeded from the current
-	// path each time the popover opens so the user starts with what they
-	// see, not stale state from an earlier rename.
-	let draftPathSuffix = $state('')
-	let draftPathError = $state<string | undefined>(undefined)
-	let draftPathInput: HTMLInputElement | undefined = $state(undefined)
-
-	function suffixOf(fullPath: string): string {
-		return fullPath.startsWith(pathPrefix) ? fullPath.slice(pathPrefix.length) : fullPath
-	}
-
-	async function openDraftPathEditor() {
-		draftPathSuffix = script ? suffixOf(script.path) : ''
-		draftPathError = undefined
-		await tick()
-		draftPathInput?.focus()
-		draftPathInput?.select()
-	}
-
-	function confirmDraftPath(close: () => void) {
-		if (!script) return
-		const suffix = draftPathSuffix.trim()
-		if (!suffix) {
-			draftPathError = 'Path cannot be empty'
-			return
-		}
-		const newPath = pathPrefix + suffix
-		if (newPath === script.path) {
-			close()
-			return
-		}
-		const result = onDraftPathChange?.(script.path, newPath)
-		if (result === true || result === undefined) {
-			script.path = newPath
-			draftPathError = undefined
-			close()
-		} else if (typeof result === 'string') {
-			draftPathError = result
-		} else {
-			draftPathError = 'Path already in use'
-		}
-	}
 </script>
 
 <div class="flex flex-col h-full bg-surface" bind:this={paneEl}>
@@ -964,80 +917,31 @@
 				{@const draftScriptPath = script.path}
 				<Code2 size={16} class="shrink-0 text-tertiary" />
 				{#if onDraftPathChange && !readOnly}
-					<!-- Inline rename popover for drafts. The persisted-script
-					     branch uses SummaryPathDisplay which round-trips through
-					     updateItemPathAndSummary; drafts have no server row yet,
-					     so we just rekey the parent's drafts map locally. -->
-					<Popover
-						placement="bottom-start"
-						contentClasses="p-3"
-						usePointerDownOutside
-						on:openChange={(e) => {
-							if (e.detail) openDraftPathEditor()
+					<!-- Same summary/path popover as a deployed script, saved into the
+					     drafts map instead of through the API: a draft has no row yet. -->
+					<SummaryPathDisplay
+						summary={script.summary ?? ''}
+						path={draftScriptPath}
+						labels={script.labels ?? []}
+						kind="script"
+						onSaved={() => {}}
+						saveOverride={({ path, summary, labels }) => {
+							// Before the rename, which carries the draft entry over as it is.
+							onDraftMetaChange?.(draftScriptPath, { summary, labels })
+							if (script) {
+								script.summary = summary
+								script.labels = labels
+							}
+							if (path === draftScriptPath) return undefined
+							const result = onDraftPathChange(draftScriptPath, path)
+							if (result !== true && result !== undefined) {
+								return typeof result === 'string' ? result : 'Path already in use'
+							}
+							if (script) script.path = path
+							return undefined
 						}}
-					>
-						{#snippet trigger()}
-							<button
-								type="button"
-								class="flex flex-col min-w-0 text-left px-2 py-1 rounded-md hover:bg-surface-hover transition-colors group"
-								title="Edit draft path"
-							>
-								<span
-									class="text-3xs uppercase tracking-wide text-tertiary flex items-center gap-1"
-								>
-									Draft pipeline script
-									<Pencil size={9} class="opacity-0 group-hover:opacity-60 transition-opacity" />
-								</span>
-								<span class="text-xs font-mono truncate" title={draftScriptPath}
-									>{draftScriptPath}</span
-								>
-							</button>
-						{/snippet}
-						{#snippet content({ close })}
-							<div class="flex flex-col gap-2 w-[420px]">
-								<span class="text-2xs font-normal text-secondary">Path</span>
-								<div
-									class="flex items-stretch border rounded-md bg-surface overflow-hidden focus-within:ring-2 focus-within:ring-blue-400"
-								>
-									{#if pathPrefix}
-										<span
-											class="flex items-center px-2 bg-surface-secondary text-tertiary text-sm font-mono border-r select-none"
-										>
-											{pathPrefix}
-										</span>
-									{/if}
-									<input
-										bind:this={draftPathInput}
-										bind:value={draftPathSuffix}
-										onkeydown={(e) => {
-											if (e.key === 'Enter') {
-												e.preventDefault()
-												confirmDraftPath(close)
-											} else if (e.key === 'Escape') {
-												e.preventDefault()
-												close()
-											}
-										}}
-										class="flex-1 min-w-0 px-2 py-1.5 text-sm font-mono bg-transparent focus:outline-none"
-										placeholder="my_script"
-									/>
-								</div>
-								{#if draftPathError}
-									<span class="text-2xs text-red-500">{draftPathError}</span>
-								{/if}
-								<div class="flex justify-end">
-									<Button
-										variant="accent"
-										unifiedSize="sm"
-										disabled={!draftPathSuffix.trim()}
-										onClick={() => confirmDraftPath(close)}
-									>
-										Rename
-									</Button>
-								</div>
-							</div>
-						{/snippet}
-					</Popover>
+					/>
+					<Badge color="gray">Draft</Badge>
 				{:else}
 					<div class="flex flex-col min-w-0">
 						<span class="text-3xs uppercase tracking-wide text-tertiary">
