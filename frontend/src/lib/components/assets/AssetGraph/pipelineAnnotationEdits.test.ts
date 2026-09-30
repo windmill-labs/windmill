@@ -17,6 +17,13 @@ describe('pipeline annotation edits', () => {
 		)
 	})
 
+	it('adds `on` next to the existing `on` lines', () => {
+		const sql = '-- pipeline\n-- on schedule\n-- materialize ducklake://main/x\nSELECT 1;'
+		expect(listenToAsset(sql, table, false)).toBe(
+			'-- pipeline\n-- on schedule\n-- on datatable://main/orders\n-- materialize ducklake://main/x\nSELECT 1;'
+		)
+	})
+
 	it('removes an `on` line however it is spelled, options included', () => {
 		const py = '# pipeline\n# on datatable://main/orders debounce=60s\nprint(1)'
 		expect(stopListeningToAsset(py, table, true)).toBe('# pipeline\nprint(1)')

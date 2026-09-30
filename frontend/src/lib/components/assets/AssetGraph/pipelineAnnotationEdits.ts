@@ -66,13 +66,16 @@ function hasDirective(content: string, match: LineMatch): boolean {
 	return header(content.split('\n')).some((l) => matches(l, match))
 }
 
-/** Adds `<prefix> <directive>` at the end of the header, in its comment style. */
+/** Adds `<prefix> <directive>` in the header's comment style: after the last line
+ * of the same directive (`on`, `mute`), so they stay grouped, else at its end. */
 function addDirective(content: string, directive: string): string {
 	const lines = content.split('\n')
 	const h = header(lines)
-	const last = h[h.length - 1]
-	const line = `${last?.prefix ?? '//'} ${directive}`
-	lines.splice(last ? last.index + 1 : 0, 0, line)
+	const keyword = directive.split(/\s/)[0]
+	const sameKind = h.filter((l) => l.inner.split(/\s/)[0] === keyword)
+	const after = sameKind[sameKind.length - 1] ?? h[h.length - 1]
+	const line = `${after?.prefix ?? '//'} ${directive}`
+	lines.splice(after ? after.index + 1 : 0, 0, line)
 	return lines.join('\n')
 }
 
