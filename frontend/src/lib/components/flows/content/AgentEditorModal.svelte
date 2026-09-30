@@ -411,8 +411,9 @@
 					/>
 				{/if}
 				<!-- Evals run against the deployed agent, and a draft-only one has none: the
-						     backend's `require_agent` would reject every run. -->
-				{#if !draftOnly}
+						     backend's `require_agent` would reject every run. Evaluating is authoring, so it
+						     is for those who can edit the agent. -->
+				{#if !draftOnly && !readOnly}
 					<Button
 						unifiedSize="sm"
 						variant="default"
