@@ -4,33 +4,55 @@ import remarkParse from 'remark-parse'
 import remarkRehype from 'remark-rehype'
 import type { Root as MdastRoot, Link, Text } from 'mdast'
 
-vi.mock('$lib/gen', () => ({
-	ScriptService: { listScripts: vi.fn() },
-	FlowService: { listFlows: vi.fn() },
-	AppService: { listApps: vi.fn() },
-	VariableService: { listVariable: vi.fn() },
-	ResourceService: { listResource: vi.fn() },
-	ScheduleService: { listSchedules: vi.fn() },
-	HttpTriggerService: { listHttpTriggers: vi.fn() },
-	WebsocketTriggerService: { listWebsocketTriggers: vi.fn() },
-	KafkaTriggerService: { listKafkaTriggers: vi.fn() },
-	NatsTriggerService: { listNatsTriggers: vi.fn() },
-	PostgresTriggerService: { listPostgresTriggers: vi.fn() },
-	MqttTriggerService: { listMqttTriggers: vi.fn() },
-	SqsTriggerService: { listSqsTriggers: vi.fn() },
-	GcpTriggerService: { listGcpTriggers: vi.fn() },
-	AzureTriggerService: { listAzureTriggers: vi.fn() },
-	EmailTriggerService: { listEmailTriggers: vi.fn() }
-}))
+vi.mock('$lib/gen', () => {
+	const list = () => vi.fn(async () => [])
+	return {
+		ScriptService: { listScripts: list() },
+		FlowService: { listFlows: list() },
+		AppService: { listApps: list() },
+		VariableService: { listVariable: list() },
+		ResourceService: { listResource: list() },
+		ScheduleService: { listSchedules: list() },
+		HttpTriggerService: { listHttpTriggers: list() },
+		WebsocketTriggerService: { listWebsocketTriggers: list() },
+		KafkaTriggerService: { listKafkaTriggers: list() },
+		NatsTriggerService: { listNatsTriggers: list() },
+		PostgresTriggerService: { listPostgresTriggers: list() },
+		MqttTriggerService: { listMqttTriggers: list() },
+		AmqpTriggerService: { listAmqpTriggers: list() },
+		SqsTriggerService: { listSqsTriggers: list() },
+		GcpTriggerService: { listGcpTriggers: list() },
+		AzureTriggerService: { listAzureTriggers: list() },
+		EmailTriggerService: { listEmailTriggers: list() }
+	}
+})
 
+import { FlowService } from '$lib/gen'
 import {
 	extractCandidatePaths,
 	itemHref,
 	remarkWindmillPaths,
 	WINDMILL_PATH_REGEX,
 	workspaceItemAction,
+	workspaceItemRegistry,
 	type WorkspaceItemEntry
 } from './workspaceItems.svelte'
+
+describe('workspaceItemRegistry', () => {
+	it('resolves a draft stored at a synthetic path by the name its author gave it', async () => {
+		vi.mocked(FlowService.listFlows).mockResolvedValueOnce([
+			{
+				path: 'u/me/draft_1234',
+				draft_path: 'u/me/report',
+				draft_only: true
+			} as any
+		])
+		await workspaceItemRegistry.ensureLoaded('ws-draft')
+		const entry = workspaceItemRegistry.resolve('ws-draft', 'u/me/report')
+		expect(entry).toMatchObject({ kind: 'flow', path: 'u/me/draft_1234', draftOnly: true })
+		expect(itemHref(entry!, 'ws-draft')).toBe('/flows/edit/u/me/draft_1234?workspace=ws-draft')
+	})
+})
 
 describe('WINDMILL_PATH_REGEX', () => {
 	it('matches simple folder and user paths', () => {

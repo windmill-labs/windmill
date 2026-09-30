@@ -79,7 +79,9 @@
 
 {#if allowedHref}
 	{#if wmKind && available}
-		<!-- The menu floats over the text, so opening it never reflows the sentence. -->
+		<!-- A Tooltip rather than Menu/Popover: those wrap their trigger in a <button>, which
+		     cannot hold the pill's <a>, and the pill must stay a real link for cmd/middle-click.
+		     The menu floats over the text, so opening it never reflows the sentence. -->
 		<Tooltip placement="top-start" openDelay={200} closeDelay={150} customBgClass="bg-surface p-1">
 			{@render pill()}
 			{#snippet text()}
