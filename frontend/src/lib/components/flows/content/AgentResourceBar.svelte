@@ -678,10 +678,16 @@
 			</div>
 		{:else if !providerOk}
 			<div class="mt-1">
-				<Alert type="error" size="xs" title="Model provider not accessible">
-					This agent's model provider{#if providerPath}
-						(<span class="font-medium">{providerPath}</span>){/if} isn't accessible in this workspace.
-					Unlink to fork the agent, or gain access to the provider resource.
+				<Alert type="warning" size="xs" title="Model provider not accessible">
+					<!-- Each branch holds the whole message: Svelte trims whitespace at a block's edges,
+					     which is how the path once lost the spaces around it. -->
+					{#if providerPath}
+						You don't have access to <span class="font-medium">{providerPath}</span>, this agent's
+						model provider. Unlink to fork the agent, or gain access to the provider resource.
+					{:else}
+						You don't have access to this agent's model provider. Unlink to fork the agent, or gain
+						access to the provider resource.
+					{/if}
 				</Alert>
 			</div>
 		{/if}
