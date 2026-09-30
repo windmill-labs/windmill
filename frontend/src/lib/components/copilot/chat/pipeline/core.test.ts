@@ -97,6 +97,7 @@ describe('pipeline tools', () => {
 
 	it('build_pipeline_node forwards to proposeNode and does not deploy', async () => {
 		const { helpers, calls } = makeHelpers()
+		const modified: string[] = []
 		const out = await toolByName('build_pipeline_node').fn({
 			args: {
 				path: 'f/analytics/clean',
@@ -106,9 +107,14 @@ describe('pipeline tools', () => {
 			},
 			workspace: 'w',
 			helpers,
-			toolCallbacks: noopCallbacks(),
+			toolCallbacks: {
+				...noopCallbacks(),
+				onItemModified: (kind, path) => modified.push(`${kind}:${path}`)
+			},
 			toolId: 't'
 		})
+		// The session tracks the folder's draft bundle, the unit it deploys.
+		expect(modified).toEqual(['data_pipeline:f/analytics/data_pipeline'])
 		expect(calls.proposeNode?.[0]?.[0]).toMatchObject({
 			path: 'f/analytics/clean',
 			language: 'bun',

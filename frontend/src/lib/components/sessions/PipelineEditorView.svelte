@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { resource } from 'runed'
 	import { tick, untrack } from 'svelte'
-	import { Loader2, Workflow } from 'lucide-svelte'
+	import { Loader2, Save, Workflow } from 'lucide-svelte'
 	import PipelineGraphEditor from '$lib/components/assets/AssetGraph/PipelineGraphEditor.svelte'
 	import PipelineTriggerEditors from '$lib/components/assets/AssetGraph/PipelineTriggerEditors.svelte'
 	import { resolveGraph } from '$lib/components/assets/AssetGraph/resolveGraph'
@@ -14,6 +14,19 @@
 	import { AssetService, JobService, type AssetKind } from '$lib/gen'
 	import { sendUserToast } from '$lib/utils'
 	import { createPipelineAiHelpers } from '$lib/components/assets/AssetGraph/pipelineAiHelpers'
+	import { deployPipelineDrafts } from '$lib/components/assets/AssetGraph/pipelineDeploy.svelte'
+	import {
+		diffDeployedGraph,
+		extractCascadeFacts,
+		formatDrift
+	} from '$lib/components/assets/AssetGraph/deployGraphDiff'
+	import PipelineDeployErrors from '$lib/components/assets/AssetGraph/PipelineDeployErrors.svelte'
+	import PipelineDeployTriggersModal from '$lib/components/assets/AssetGraph/PipelineDeployTriggersModal.svelte'
+	import AutosaveIndicator from '$lib/components/AutosaveIndicator.svelte'
+	import { Button } from '$lib/components/common'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+	import { PIPELINE_DRAFT_KIND, pipelineBundlePath } from '$lib/pipelinePaths'
+	import type { DeployResult } from '$lib/utils_workspace_deploy'
 	import type { SessionRuntime } from './sessionRuntime.svelte'
 
 	let {
@@ -263,6 +276,88 @@
 	// as the view is mounted — background tabs included, since each folder's tools
 	// act on its own state — and release them on unmount.
 	$effect(() => aiChatManager.setPipelineHelpers(helpers))
+
+	// ── Deploy all ───────────────────────────────────────────────────────────
+	// The same deploy as the pipeline page's "Save all", reached from this tab's
+	// button and from the session's changes list (through the runtime).
+	const pendingCount = $derived(pe.drafts.size + pe.triggerDrafts.size)
+	let deploying = $state(false)
+	let deployErrors = $state<Map<string, string>>(new Map())
+	let deployErrorsOpen = $state(false)
+
+	let triggerConfirmOpen = $state(false)
+	let resolveTriggerConfirm: ((ok: boolean) => void) | undefined
+	function confirmTriggers(): Promise<boolean> {
+		triggerConfirmOpen = true
+		return new Promise((resolve) => (resolveTriggerConfirm = resolve))
+	}
+	function answerTriggerConfirm(ok: boolean) {
+		triggerConfirmOpen = false
+		resolveTriggerConfirm?.(ok)
+		resolveTriggerConfirm = undefined
+	}
+
+	// A deploy asked for from the changes list can arrive while the tab is still
+	// loading this folder's drafts.
+	async function hydrated(timeoutMs = 10000): Promise<boolean> {
+		for (let waited = 0; !pe.hydratedFromDb && waited < timeoutMs; waited += 100) {
+			await new Promise((resolve) => setTimeout(resolve, 100))
+		}
+		return pe.hydratedFromDb
+	}
+
+	async function deployAll(): Promise<DeployResult> {
+		if (deploying) return { success: false, error: 'This pipeline is already deploying.' }
+		if (!(await hydrated())) return { success: false, error: 'The pipeline drafts did not load.' }
+		if (pendingCount === 0) return { success: true }
+		if (pe.triggerDrafts.size > 0 && !(await confirmTriggers())) {
+			return { success: false, error: 'Deploy cancelled.' }
+		}
+		deploying = true
+		try {
+			// What the canvas promises for each draft, checked against what the
+			// backend derived once deployed.
+			const predicted = new Map(
+				[...pe.drafts.keys()].map((p) => [p, extractCascadeFacts(resolvedGraph, p)])
+			)
+			const { savedPaths, savedTriggers, errors } = await deployPipelineDrafts(pe, workspaceId)
+			if (savedPaths.length > 0 || savedTriggers.length > 0) {
+				await graphRes.refetch()
+				const deployed = new Map([...predicted].filter(([p]) => savedPaths.includes(p)))
+				const drift = formatDrift(
+					diffDeployedGraph(deployed, (graphRes.current ?? EMPTY_GRAPH) as AssetGraphResponse)
+				)
+				if (drift) sendUserToast(drift, true)
+			}
+			// The session's changes list re-reads the draft once this resolves, so
+			// what is left of it has to be saved by then.
+			await tick()
+			await UserDraftDbSyncer.flush({
+				workspace: workspaceId,
+				itemKind: PIPELINE_DRAFT_KIND,
+				path: pipelineBundlePath(path)
+			})
+			deployErrors = errors
+			if (errors.size > 0) {
+				deployErrorsOpen = true
+				return {
+					success: false,
+					error: `${errors.size} of the pipeline's drafts failed to deploy, see its tab.`
+				}
+			}
+			return { success: true }
+		} finally {
+			deploying = false
+		}
+	}
+
+	async function deployAllFromButton() {
+		const count = pendingCount
+		const res = await deployAll()
+		if (res.success) sendUserToast(`Deployed ${count} draft${count === 1 ? '' : 's'}`)
+	}
+
+	$effect(() => runtime.registerPipelineView(path, { deployAll }))
 </script>
 
 <div class="flex flex-col h-full w-full bg-surface">
@@ -272,6 +367,31 @@
 		<Workflow size={14} />
 		<span class="font-mono text-emphasis truncate">f/{path}</span>
 		<span class="text-tertiary">· data pipeline</span>
+		{#if workspaceId}
+			<AutosaveIndicator
+				workspace={workspaceId}
+				itemKind={PIPELINE_DRAFT_KIND}
+				path={pipelineBundlePath(path)}
+				draftOnly
+				loadedFromDraft={pe.loadedFromDbDraft}
+			/>
+		{/if}
+		<div class="flex-1"></div>
+		{#if deployErrors.size > 0}
+			<PipelineDeployErrors errors={deployErrors} bind:open={deployErrorsOpen} />
+		{/if}
+		{#if pendingCount > 0}
+			<Button
+				variant="accent"
+				unifiedSize="xs"
+				startIcon={{ icon: deploying ? Loader2 : Save }}
+				onclick={deployAllFromButton}
+				disabled={deploying}
+				title={deploying ? 'Deploying drafts…' : `Deploy all ${pendingCount} drafts`}
+			>
+				{deploying ? 'Deploying…' : `Deploy all (${pendingCount})`}
+			</Button>
+		{/if}
 	</div>
 	<div class="flex-1 min-h-0">
 		<!-- Only block on the deployed-graph fetch when there's nothing to show yet.
@@ -374,4 +494,11 @@
 	mountTriggerEditors
 	workspace={workspaceId}
 	onUpdate={() => graphRes.refetch()}
+/>
+
+<PipelineDeployTriggersModal
+	open={triggerConfirmOpen}
+	triggerDrafts={pe.triggerDrafts}
+	onConfirmed={() => answerTriggerConfirm(true)}
+	onCanceled={() => answerTriggerConfirm(false)}
 />

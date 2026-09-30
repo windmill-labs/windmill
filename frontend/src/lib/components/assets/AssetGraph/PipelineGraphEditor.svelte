@@ -1,6 +1,10 @@
 <script lang="ts">
 	import { untrack, type Snippet } from 'svelte'
-	import { PIPELINE_DRAFT_KIND, pipelineBundlePath } from '$lib/pipelinePaths'
+	import {
+		PIPELINE_DRAFT_KIND,
+		pipelineBundlePath,
+		pipelineLocalMirrorKey
+	} from '$lib/pipelinePaths'
 	import { Loader2 } from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { DraftService } from '$lib/gen'
@@ -365,7 +369,7 @@
 	// for the one-time migration below; the DB is the source of truth on load.
 	// FlowBuilder's autosave analogue — gated by `persistDrafts`.
 	let pipelineDraftPath = $derived(pipelineBundlePath(folder))
-	let storageKey = $derived(`pipeline-${folder}`)
+	let storageKey = $derived(pipelineLocalMirrorKey(folder))
 	type PipelineDraftBundle = {
 		drafts: Array<[string, PipelineDraft]>
 		activeDraftPath?: string

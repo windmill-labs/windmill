@@ -1,4 +1,5 @@
 import type { UserDraftItemKind, WorkspaceItemDiff } from '$lib/gen'
+import { PIPELINE_DRAFT_KIND, pipelineBundlePath } from '$lib/pipelinePaths'
 
 // The "modified items mask" tracks which workspace items an AI chat touched via
 // tool calls. Each key is `${UserDraftItemKind}:${storagePath}`. UserDraftItemKind
@@ -49,6 +50,15 @@ export function forkDiffKindToUserDraftKind(kind: ForkDiffKind): UserDraftItemKi
 export function diffInMask(diff: WorkspaceItemDiff, mask: Set<string>): boolean {
 	const kind = forkDiffKindToUserDraftKind(diff.kind)
 	if (kind !== undefined && mask.has(maskKey(kind, diff.path))) return true
+	// A pipeline is masked as its folder's draft bundle, which deploys into the
+	// scripts and triggers of that folder — none of which the mask names itself.
+	const folder = diff.path.match(/^f\/([^/]+)\//)?.[1]
+	if (
+		folder &&
+		diff.kind !== 'folder' &&
+		mask.has(maskKey(PIPELINE_DRAFT_KIND, pipelineBundlePath(folder)))
+	)
+		return true
 	// Legacy drag-and-drop apps tally fork diffs under `app`, and an explicit
 	// `?items=` mask names them `app:<path>` (the same kind the drafts list uses).
 	// The bridged lookup above reads them as `raw_app` (kept for chat masks, which

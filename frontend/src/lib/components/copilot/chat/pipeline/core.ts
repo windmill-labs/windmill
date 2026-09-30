@@ -1,7 +1,8 @@
 import { z } from 'zod'
 import { $ScriptLang } from '$lib/gen/schemas.gen'
 import type { ScriptLang } from '$lib/gen'
-import { createToolDef, executeTestRun, findAndReplace } from '../shared'
+import { createToolDef, executeTestRun, findAndReplace, type ToolCallbacks } from '../shared'
+import { PIPELINE_DRAFT_KIND, pipelineBundlePath } from '$lib/pipelinePaths'
 import {
 	NONE,
 	RUN_PREVIEW,
@@ -250,6 +251,12 @@ const testPipelineNodeToolDef = createToolDef(
 	{ strict: false }
 )
 
+// A pipeline's drafts are one bundle for the whole folder, so that bundle is the
+// item a node edit marks as modified — it is what the session deploys as a unit.
+function recordPipelineModified(toolCallbacks: ToolCallbacks, pipeline: PipelineAIChatHelpers) {
+	toolCallbacks.onItemModified?.(PIPELINE_DRAFT_KIND, pipelineBundlePath(pipeline.getFolder()))
+}
+
 // Summarize the asset lineage the parser inferred from a just-applied node so the
 // model gets same-turn feedback on whether its intended edges formed. An empty
 // result is the useful signal: a write/read expressed via a variable or dynamic
@@ -314,6 +321,7 @@ export const pipelineTools: SessionTool<PipelineToolHelpers>[] = [
 				content,
 				outputKind: output_kind as PipelineOutputKind | undefined
 			})
+			recordPipelineModified(toolCallbacks, pipeline)
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Added draft node '${path}'`,
 				result: 'Success'
@@ -343,6 +351,7 @@ export const pipelineTools: SessionTool<PipelineToolHelpers>[] = [
 				'node source'
 			)
 			const { detectedReads, detectedWrites } = await pipeline.editNode(path, updated)
+			recordPipelineModified(toolCallbacks, pipeline)
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Edited draft '${path}'`,
 				result: 'Success'
@@ -358,6 +367,7 @@ export const pipelineTools: SessionTool<PipelineToolHelpers>[] = [
 			const pipeline = pipelineForPath(helpers, path)
 			toolCallbacks.setToolStatus(toolId, { content: `Discarding draft '${path}'...` })
 			await pipeline.removeProposedNode(path)
+			recordPipelineModified(toolCallbacks, pipeline)
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Discarded draft '${path}'`,
 				result: 'Success'

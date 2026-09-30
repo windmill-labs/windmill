@@ -3,6 +3,8 @@ import { get } from 'svelte/store'
 import { base } from '$lib/base'
 import { AIChatManager, AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
 import { PipelineEditorState } from '$lib/components/assets/AssetGraph/pipelineEditorState.svelte'
+import { pipelineLocalMirrorKey } from '$lib/pipelinePaths'
+import type { DeployResult } from '$lib/utils_workspace_deploy'
 import { initFlow } from '$lib/components/flows/flowStore.svelte'
 import {
 	AppService,
@@ -129,6 +131,12 @@ export interface LoadSlot {
 
 export type SessionTargetKind = 'flow' | 'script' | 'raw_app'
 
+/** What a mounted pipeline editor view offers the rest of the session. */
+export interface PipelineView {
+	/** Deploy all of the folder's drafts; failures stay drafts and are shown in the view. */
+	deployAll(): Promise<DeployResult>
+}
+
 // The live runtime value a raw-app editor cell binds. Legacy drag-and-drop apps
 // are intentionally NOT hosted in the session preview (only code-based raw apps).
 export interface RawAppRuntimeValue {
@@ -194,6 +202,14 @@ export interface SessionRuntime {
 	// Pipeline editor state per folder — persists across editor remounts and
 	// session switches, so it can't be component-local. Created on first use.
 	pipelineEditor(folder: string): PipelineEditorState
+	// A mounted pipeline editor view offers its deploy here; returns the unregister.
+	registerPipelineView(folder: string, view: PipelineView): () => void
+	// Deploy a folder's pipeline drafts through its editor tab, opening the tab if
+	// needed: the tab hydrates the drafts and shows what deployed and what failed.
+	deployPipeline(folder: string): Promise<DeployResult>
+	// Drop a folder's in-memory drafts once its draft bundle is discarded, so an
+	// open or later-mounted editor does not save them back.
+	forgetPipelineDrafts(folder: string): void
 	// Per-(kind, path) editor cells (content/baseline stores + load slot), created
 	// on demand. Each editable preview tab resolves its own cell, so several items
 	// stay live at once.
@@ -589,6 +605,61 @@ function createRuntime(session: Session): SessionRuntime {
 		return editor
 	}
 
+	const pipelineViews = new Map<string, PipelineView>()
+	const pipelineViewWaiters = new Map<string, Set<(view: PipelineView) => void>>()
+	function registerPipelineView(folder: string, view: PipelineView): () => void {
+		const key = normalizePipelineFolder(folder)
+		pipelineViews.set(key, view)
+		const waiters = pipelineViewWaiters.get(key)
+		pipelineViewWaiters.delete(key)
+		waiters?.forEach((notify) => notify(view))
+		return () => {
+			if (pipelineViews.get(key) === view) pipelineViews.delete(key)
+		}
+	}
+	function pipelineViewFor(folder: string, timeoutMs = 15000): Promise<PipelineView | undefined> {
+		const mounted = pipelineViews.get(folder)
+		if (mounted) return Promise.resolve(mounted)
+		return new Promise((resolve) => {
+			const waiters = pipelineViewWaiters.get(folder) ?? new Set()
+			pipelineViewWaiters.set(folder, waiters)
+			const notify = (view: PipelineView) => {
+				clearTimeout(timer)
+				resolve(view)
+			}
+			const timer = setTimeout(() => {
+				waiters.delete(notify)
+				resolve(undefined)
+			}, timeoutMs)
+			waiters.add(notify)
+		})
+	}
+	async function deployPipeline(folder: string): Promise<DeployResult> {
+		const key = normalizePipelineFolder(folder)
+		const target = previewTargetForSessionTarget('pipeline', key)
+		if (target) previewTabs.open(target)
+		const view = await pipelineViewFor(key)
+		if (!view) return { success: false, error: `The pipeline editor for f/${key} did not open.` }
+		return view.deployAll()
+	}
+	function forgetPipelineDrafts(folder: string): void {
+		const key = normalizePipelineFolder(folder)
+		const editor = pipelineEditors.get(key)
+		if (editor) {
+			editor.drafts = new Map()
+			editor.triggerDrafts = new Map()
+			editor.activeDraftPath = undefined
+			editor.clearLiveOverlays()
+		}
+		// The editor's crash mirror, which its load falls back to when the DB has
+		// no draft: left behind, it would restore what was just discarded.
+		try {
+			localStorage.removeItem(pipelineLocalMirrorKey(key))
+		} catch {
+			// Storage unavailable: nothing was mirrored either.
+		}
+	}
+
 	const runtimeLogRequesters = new Map<string, RawAppRuntimeLogRequester>()
 	// appPath → requester, one entry per mounted raw-app preview tab.
 	const domRequesters = new Map<string, RawAppDomRequester>()
@@ -602,6 +673,9 @@ function createRuntime(session: Session): SessionRuntime {
 		manager,
 		previewTabs,
 		pipelineEditor,
+		registerPipelineView,
+		deployPipeline,
+		forgetPipelineDrafts,
 		flowCell,
 		loadedEditorPath,
 
