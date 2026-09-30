@@ -45,6 +45,18 @@
 	// `content` / `language` so the page-level run handler can dispatch to
 	// `runScriptPreview` instead of `runScriptByPath` (which 404s for
 	// non-deployed scripts).
+	/** What starts a producing script, as its chip shows it. */
+	export type TriggerChipData = {
+		label: string
+		/** No chip: the node's incoming edges already show what starts it. */
+		hidden?: boolean
+		missing?: boolean
+		draft?: boolean
+		/** Opens the trigger's editor; unset for what has none (manual, asset change). */
+		onOpen?: () => void
+		selected?: boolean
+	}
+
 	export type AssetUpstreamChips =
 		| { none: true }
 		| {
@@ -58,6 +70,8 @@
 					unsaved?: boolean
 					onOpen: () => void
 				}>
+				/** The scripts' own triggers, each named with its script. */
+				triggers: Array<TriggerChipData & { script: string }>
 				selected?: boolean
 		  }
 		| {
@@ -67,16 +81,7 @@
 				language?: ScriptLang
 				unsaved?: boolean
 				runState?: RunnableRunState
-				trigger: {
-					label: string
-					/** No chip: the node's incoming edges already show what starts it. */
-					hidden?: boolean
-					missing?: boolean
-					draft?: boolean
-					/** Opens the trigger's editor; unset for what has none (manual, asset change). */
-					onOpen?: () => void
-					selected?: boolean
-				}
+				trigger: TriggerChipData
 				onOpen: () => void
 				selected?: boolean
 		  }
@@ -183,6 +188,7 @@
 			/** When no combined delete is possible: the folded scripts, each deletable
 			 * on its own. */
 			scriptDeletes?: Array<{ path: string; unsaved: boolean }>
+			triggerDeletes?: Array<NonNullable<import('./assetsOnlyView').AssetUpstreamDelete['trigger']>>
 			onDeleteUpstream?: (target: import('./assetsOnlyView').AssetUpstreamDelete) => void
 			deleteVerb?: 'Delete' | 'Archive'
 			/** Why nothing can be deleted, when the producer is shared. */
@@ -236,10 +242,11 @@
 	let menuItems: Item[] = $derived(
 		data.onDeleteUpstream && data.upstreamDelete
 			? deleteItems(data.upstreamDelete, data.onDeleteUpstream)
-			: data.onDeleteUpstream && data.scriptDeletes?.length
-				? data.scriptDeletes.map((script) =>
-						deleteItems({ script }, data.onDeleteUpstream!)
-					).flat()
+			: data.onDeleteUpstream && (data.scriptDeletes?.length || data.triggerDeletes?.length)
+				? [
+						...(data.scriptDeletes ?? []).map((script) => ({ script })),
+						...(data.triggerDeletes ?? []).map((trigger) => ({ trigger }))
+					].flatMap((t) => deleteItems(t, data.onDeleteUpstream!))
 				: data.deleteBlocked
 				? [
 						{
@@ -305,6 +312,16 @@
 		upstreamScriptItems(coProducers, (path) => coProducers.find((s) => s.path === path)?.onOpen())
 	)
 	let scriptMenuOpen = $state(false)
+	let coTriggers = $derived(upstream && 'triggers' in upstream ? upstream.triggers : [])
+	let coTriggerItems: Item[] = $derived(
+		coTriggers.map((t) => ({
+			displayName: `${t.label}${t.draft ? ' · draft' : ''}`,
+			description: coProducers.length > 1 ? t.script : undefined,
+			disabled: !t.onOpen,
+			action: () => t.onOpen?.()
+		}))
+	)
+	let triggerMenuOpen = $state(false)
 
 	// dbt badge. `materialized` is dbt's own word rather than the Windmill
 	// strategy because `view` and `ephemeral` have no strategy, and showing the
@@ -451,8 +468,40 @@
 			fix={data.foldedFixes[0]}
 			label={`${data.foldedFixes.length} error${data.foldedFixes.length === 1 ? '' : 's'} · Fix`}
 		/>
+	{:else if upstream && coTriggers.length > 1}
+		<!-- Several triggers start what builds this asset: one chip, a menu to pick
+		     the one to edit. -->
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div
+			class="min-w-0 flex"
+			onpointerdown={(e) => e.stopPropagation()}
+			onkeydown={(e) => e.stopPropagation()}
+		>
+			<DropdownV2
+				items={coTriggerItems}
+				placement="bottom-start"
+				bind:open={triggerMenuOpen}
+				fixedHeight={false}
+				usePointerDownOutside
+				enableFlyTransition
+			>
+				{#snippet buttonReplacement()}
+					<span
+						class={twMerge(
+							'flex items-center gap-1 min-w-0 rounded-md border px-1.5 py-1 text-3xs leading-none font-normal border-gray-300 dark:border-gray-600 text-secondary bg-surface hover:bg-surface-hover cursor-pointer',
+							(triggerMenuOpen || coTriggers.some((t) => t.selected)) && CHIP_SELECTED
+						)}
+						title="Started by several triggers: pick one to edit"
+					>
+						<span class="truncate">Multiple triggers</span>
+						<ChevronDown size={9} class="shrink-0 opacity-70" />
+					</span>
+				{/snippet}
+			</DropdownV2>
+		</div>
 	{:else if upstream}
-		{@const trigger = producer?.trigger}
+		{@const trigger = producer?.trigger ?? coTriggers[0]}
+		{@const triggerScript = producer?.path ?? coTriggers[0]?.script}
 		{@const chipClass = twMerge(
 			'truncate rounded-md border px-1.5 py-1 text-3xs leading-none font-normal',
 			trigger?.missing
@@ -467,7 +516,7 @@
 				type="button"
 				class={twMerge(chipClass, 'flex items-center gap-1 min-w-0')}
 				title={trigger.missing
-					? `No ${trigger.label} trigger targets ${producer?.path} yet: click to create one`
+					? `No ${trigger.label} trigger targets ${triggerScript} yet: click to create one`
 					: `Edit the ${trigger.label} trigger`}
 				onpointerdown={(e) => e.stopPropagation()}
 				onkeydown={(e) => e.stopPropagation()}
@@ -485,8 +534,6 @@
 					External source
 				{:else if trigger}
 					{trigger.label}{trigger.draft ? ' · draft' : ''}
-				{:else}
-					Multiple upstream nodes
 				{/if}
 			</span>
 		{/if}
@@ -541,7 +588,10 @@
 					: data.path}
 			{selected}
 			tone={data.error ? 'error' : undefined}
-			subtitle={data.foldedFixes?.length || (upstream && !producer?.trigger?.hidden)
+			subtitle={data.foldedFixes?.length ||
+			(upstream &&
+				!producer?.trigger?.hidden &&
+				!('triggers' in upstream && upstream.triggers.length === 0))
 				? upstreamRow
 				: undefined}
 			header={hasHeader ? scriptHeader : undefined}

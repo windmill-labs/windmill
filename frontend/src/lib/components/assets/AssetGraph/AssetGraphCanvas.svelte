@@ -1385,7 +1385,25 @@
 									unsaved: d.unsaved as boolean | undefined,
 									onOpen: () =>
 										onselect?.({ kind: 'runnable', runnable_kind: d.runnable_kind, path: d.path })
-								}))
+								})),
+							// Every script's own triggers; asset triggers show as edges instead.
+							triggers: (u.multiple ? u.runnableIds : [])
+								.flatMap((id) => {
+									const d = runnables.get(id)?.data
+									if (!d) return []
+									return m.edges
+										.filter((e) => e.kind === 'trigger-native' && e.target === id)
+										.map((e) => m.nodes.find((n) => n.id === e.source))
+										.filter((t) => t != undefined)
+										.map((t) => ({
+											...triggerChip(
+												{ nodeId: t.id, kind: t.data.kind, data: t.data },
+												d.path as string
+											),
+											script: d.path as string
+										}))
+								})
+								.filter((t) => !t.hidden)
 						}
 					: {
 							runnableId: u.runnableId,
@@ -1427,16 +1445,25 @@
 								: 'none' in upstream
 									? 'External source'
 									: 'multiple' in upstream
-										? 'Multiple upstream nodes'
+										? (upstream.triggers?.length ?? 0) > 1
+											? 'Multiple triggers'
+											: (upstream.triggers?.length ?? 0) === 1
+												? (upstream.triggers?.[0]?.label ?? '')
+												: ''
 										: upstream.trigger.hidden
 											? ''
 											: `${upstream.trigger.label}${upstream.trigger.draft ? ' · draft' : ''}`,
 							chipIcon: foldedErrors > 0,
+							// Room for the chip's trailing icon: a pencil, or the chevron of a
+							// several-trigger menu (about as wide).
 							chipEdit:
 								!foldedErrors &&
-								'trigger' in upstream &&
-								!!upstream.trigger?.onOpen &&
-								!upstream.trigger.missing,
+								('multiple' in upstream
+									? (upstream.triggers?.length ?? 0) > 1 ||
+										(!!upstream.triggers?.[0]?.onOpen && !upstream.triggers?.[0]?.missing)
+									: 'trigger' in upstream &&
+										!!upstream.trigger?.onOpen &&
+										!upstream.trigger.missing),
 							header:
 								'runnableId' in upstream
 									? {
@@ -1474,6 +1501,28 @@
 									.map((id) => runnables.get(id)?.data)
 									.filter((d) => d?.runnable_kind === 'script')
 									.map((d) => ({ path: d.path as string, unsaved: !!d.unsaved })),
+								// Its scripts' own triggers: a row that starts only them, which
+								// webhooks and data uploads (no row) and missing ones are not.
+								triggerDeletes: scriptIds.flatMap((id) => {
+									const scriptPath = runnables.get(id)?.data?.path
+									return m.edges
+										.filter((e) => e.kind === 'trigger-native' && e.target === id)
+										.map((e) => m.nodes.find((n) => n.id === e.source)?.data)
+										.filter(
+											(t) =>
+												t &&
+												t.kind !== 'webhook' &&
+												t.kind !== 'data_upload' &&
+												t.ref &&
+												!t.missing &&
+												((t.runnable_paths ?? []) as string[]).every((p) => p === scriptPath)
+										)
+										.map((t) => ({
+											kind: t.kind as NativeTriggerKind,
+											path: t.ref as string,
+											draft: !!t.draft
+										}))
+								}),
 								deleteVerb: assetDeleteVerb,
 								onDeleteUpstream: (t: AssetUpstreamDelete) => onDeleteAssetUpstream?.(t),
 								// The No-asset card stands for its scripts; an asset is built by them.
