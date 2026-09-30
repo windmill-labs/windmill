@@ -79,16 +79,46 @@ deno_core::extension!(
 
 // ── Permission container ─────────────────────────────────────────────
 
-pub struct PermissionsContainer;
+/// `no_network` is what `//no_network` promises: no outbound traffic of any kind,
+/// the Windmill API included (the client module reaches it through `fetch`). It
+/// denies every socket op, unix sockets too since they reach local daemons, and
+/// must stay enforced here rather than in JS: user code can call
+/// `Deno.core.ops.*` directly and skip any JS-level guard.
+pub struct PermissionsContainer {
+    pub no_network: bool,
+}
+
+const NO_NETWORK_ANNOTATION: &str = "no_network";
+
+impl PermissionsContainer {
+    fn deny_net(&self, target: &str) -> Result<(), deno_permissions::PermissionCheckError> {
+        if self.no_network {
+            Err(deno_permissions::PermissionDeniedError::Fatal {
+                access: format!("net access to {target} (the script is annotated //{NO_NETWORK_ANNOTATION})"),
+            }
+            .into())
+        } else {
+            Ok(())
+        }
+    }
+
+    fn deny_fs(&self) -> Result<(), deno_io::fs::FsError> {
+        if self.no_network {
+            Err(deno_io::fs::FsError::NotCapable("socket path (denied by //no_network)"))
+        } else {
+            Ok(())
+        }
+    }
+}
 
 impl FetchPermissions for PermissionsContainer {
     #[inline(always)]
     fn check_net_url(
         &mut self,
-        _url: &deno_core::url::Url,
+        url: &deno_core::url::Url,
         _api_name: &str,
     ) -> Result<(), deno_permissions::PermissionCheckError> {
-        Ok(())
+        self.deny_net(&format!("\"{}\"", url.host_str().unwrap_or_default()))
     }
 
     #[inline(always)]
@@ -98,6 +128,7 @@ impl FetchPermissions for PermissionsContainer {
         _api_name: &str,
         _get_path: &'a dyn deno_fs::GetPath,
     ) -> Result<deno_fs::CheckedPath<'a>, deno_io::fs::FsError> {
+        self.deny_fs()?;
         Ok(deno_fs::CheckedPath::Unresolved(path))
     }
 
@@ -108,17 +139,18 @@ impl FetchPermissions for PermissionsContainer {
         _api_name: &str,
         _get_path: &'a dyn deno_fs::GetPath,
     ) -> Result<deno_fs::CheckedPath<'a>, deno_io::fs::FsError> {
+        self.deny_fs()?;
         Ok(deno_fs::CheckedPath::Unresolved(path))
     }
 
     #[inline(always)]
     fn check_net_vsock(
         &mut self,
-        _cid: u32,
-        _port: u32,
+        cid: u32,
+        port: u32,
         _api_name: &str,
     ) -> Result<(), deno_permissions::PermissionCheckError> {
-        Ok(())
+        self.deny_net(&format!("vsock {cid}:{port}"))
     }
 }
 
@@ -135,6 +167,7 @@ impl NetPermissions for PermissionsContainer {
         p: &str,
         _api_name: &str,
     ) -> Result<PathBuf, deno_permissions::PermissionCheckError> {
+        self.deny_net(&format!("unix socket \"{p}\""))?;
         Ok(PathBuf::from(p))
     }
 
@@ -143,15 +176,16 @@ impl NetPermissions for PermissionsContainer {
         p: &str,
         _api_name: &str,
     ) -> Result<PathBuf, deno_permissions::PermissionCheckError> {
+        self.deny_net(&format!("unix socket \"{p}\""))?;
         Ok(PathBuf::from(p))
     }
 
     fn check_net<T: AsRef<str>>(
         &mut self,
-        _host: &(T, Option<u16>),
+        host: &(T, Option<u16>),
         _api_name: &str,
     ) -> Result<(), deno_permissions::PermissionCheckError> {
-        Ok(())
+        self.deny_net(&format!("\"{}\"", host.0.as_ref()))
     }
 
     fn check_write_path<'a>(
@@ -159,16 +193,17 @@ impl NetPermissions for PermissionsContainer {
         p: Cow<'a, std::path::Path>,
         _api_name: &str,
     ) -> Result<Cow<'a, std::path::Path>, deno_permissions::PermissionCheckError> {
+        self.deny_net(&format!("unix socket \"{}\"", p.display()))?;
         Ok(p)
     }
 
     fn check_vsock(
         &mut self,
-        _cid: u32,
-        _port: u32,
+        cid: u32,
+        port: u32,
         _api_name: &str,
     ) -> Result<(), deno_permissions::PermissionCheckError> {
-        Ok(())
+        self.deny_net(&format!("vsock {cid}:{port}"))
     }
 }
 
@@ -190,6 +225,9 @@ pub struct NativeAnnotation {
     /// [`default_fetch_response_timeout_secs`]. `Some(0)` disables it for this
     /// script; `None` leaves the default in force.
     pub fetch_response_timeout_secs: Option<u64>,
+    /// `//no_network`: the isolate may open no connection at all, see
+    /// [`PermissionsContainer`].
+    pub no_network: bool,
 }
 
 /// How long `fetch()` waits for a response to begin, in seconds; `0` disables.
@@ -437,6 +475,8 @@ pub fn get_annotation(inner_content: &str) -> NativeAnnotation {
             res.useragent = Some(ann.trim_start_matches("useragent").trim().to_string());
         } else if ann.starts_with("proxy") {
             res.proxy = capture_proxy(ann.trim_start_matches("proxy").trim());
+        } else if ann == NO_NETWORK_ANNOTATION {
+            res.no_network = true;
         } else if ann.starts_with("fetch_response_timeout") {
             // A typo falls back to the default, never to "no timeout".
             res.fetch_response_timeout_secs = ann
@@ -581,6 +621,7 @@ pub(crate) fn create_nativets_runtime(
     ann: NativeAnnotation,
     initial_args: Vec<Option<Box<RawValue>>>,
 ) -> anyhow::Result<CreatedRuntime> {
+    let no_network = ann.no_network;
     let ops = vec![op_get_static_args(), op_log()];
     let ext = Extension { name: "windmill", ops: ops.into(), ..Default::default() };
 
@@ -659,7 +700,7 @@ pub(crate) fn create_nativets_runtime(
     {
         let op_state = js_runtime.op_state();
         let mut op_state = op_state.borrow_mut();
-        op_state.put(PermissionsContainer {});
+        op_state.put(PermissionsContainer { no_network });
         op_state.put(MainArgs { args: initial_args });
         op_state.put(LogString { s: log_sender });
     }
@@ -800,6 +841,9 @@ pub async fn eval_fetch_timeout(
     }
 
     let mut extra_logs = String::new();
+    if ann.no_network {
+        extra_logs.push_str("no_network: all network access is denied\n");
+    }
     if ann.useragent.is_some() {
         extra_logs.push_str(&format!("useragent: {}\n", ann.useragent.as_ref().unwrap()));
     }
