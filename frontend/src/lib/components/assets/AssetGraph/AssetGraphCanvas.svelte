@@ -214,7 +214,8 @@
 		/** Offer the "Show scripts and triggers" switch; off folds scripts and triggers into the
 		 * assets they produce. */
 		assetsOnlyToggle?: boolean
-		/** The pipeline folder, when the toggle's state should be remembered for it. */
+		/** The pipeline's `<workspace>/<folder>`, when the toggle's state should be
+		 * remembered for it. */
 		assetsOnlyFolder?: string
 		/** Deletes what produces an asset in the assets-only view: its script, and its
 		 * trigger when set. The canvas only offers what no other asset shares. */
@@ -1091,7 +1092,9 @@
 							: onDeleteAssetUpstream && u
 								? {
 										deleteBlocked: !u.multiple
-											? 'its script builds other assets too'
+											? r?.runnable_kind === 'flow'
+												? 'a flow builds it'
+												: 'its script builds other assets too'
 											: u.runnableIds.length > 1
 												? 'several scripts build it'
 												: 'its script has several triggers'

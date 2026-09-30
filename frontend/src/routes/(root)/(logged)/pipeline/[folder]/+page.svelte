@@ -2937,7 +2937,7 @@
 				onAddScriptForAsset={mode === 'edit' ? handleAddScriptForAsset : undefined}
 				onAddPipelineScript={mode === 'edit' ? handleAddPipelineScript : undefined}
 				onRunnableMenuRemove={mode === 'edit' ? handleRunnableMenuRemove : undefined}
-				onDeleteAssetUpstream={(t) => (assetDeleteTarget = t)}
+				onDeleteAssetUpstream={isOperator ? undefined : (t) => (assetDeleteTarget = t)}
 				onRunProducer={mode === 'edit' ? handleRunProducer : undefined}
 				onRequestEdit={isOperator ? undefined : () => setMode('edit')}
 				canRunByPath={openScriptHasDataUpload}

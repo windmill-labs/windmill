@@ -346,6 +346,8 @@
 	}: Props = $props()
 
 	let readOnly = $derived(mode !== 'edit')
+	// Someone who cannot switch the pipeline to edit mode only gets to read it.
+	let editScriptLabel = $derived(readOnly && !onRequestEdit ? 'Open script' : 'Edit script')
 
 	// Root element of the pane — used to scope the S3-input lookup for the
 	// data_upload focus effect.
@@ -1035,7 +1037,7 @@
 					onclick={() => onEditScript(producerScripts[0].path)}
 					title={`Open ${producerScripts[0].path}, which builds this asset`}
 				>
-					Edit script
+					{editScriptLabel}
 				</Button>
 			{:else if selection?.kind === 'asset' && onEditScript && producerScripts.length > 1}
 				<DropdownV2
@@ -1052,7 +1054,7 @@
 							endIcon={{ icon: ChevronDown }}
 							title={`${producerScripts.length} scripts build this asset`}
 						>
-							Edit script
+							{editScriptLabel}
 						</Button>
 					{/snippet}
 				</DropdownV2>

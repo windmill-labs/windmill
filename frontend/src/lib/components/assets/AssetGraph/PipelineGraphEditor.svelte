@@ -546,7 +546,7 @@
 					showMinimap={!stacked}
 					viewportFitKey={viewportFitKey ?? folder}
 					assetsOnlyToggle
-					assetsOnlyFolder={folder}
+					assetsOnlyFolder={workspace ? `${workspace}/${folder}` : undefined}
 				/>
 				{#if boundBar}{@render boundBar()}{/if}
 				{#if mode === 'edit'}

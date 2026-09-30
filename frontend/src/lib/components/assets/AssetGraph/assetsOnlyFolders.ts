@@ -1,4 +1,4 @@
-// The pipelines last left in the assets-only view, by folder, so reopening one
+// The pipelines last left in the assets-only view, as `<workspace>/<folder>`, so reopening one
 // shows it the same way. Browser-local: a missing or unreadable list reads as
 // "none", and storage that throws (private mode, blocked site data) is ignored.
 const KEY = 'pipeline-assets-only-folders'
