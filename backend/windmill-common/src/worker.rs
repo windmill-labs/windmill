@@ -1175,6 +1175,22 @@ pub struct TypeScriptAnnotations {
     pub native: bool,
     pub nobundling: bool,
     pub sandbox: bool,
+    pub no_network: bool,
+}
+
+impl TypeScriptAnnotations {
+    /// `//no_network` is enforced only by the native runtime. Any other executor
+    /// must refuse the job rather than run it with the network open, since the
+    /// annotation is what lets less trusted authors' scripts be allowed at all.
+    pub fn refuse_unenforced_no_network(&self) -> error::Result<()> {
+        if self.no_network && !self.native {
+            return Err(error::Error::ExecutionErr(
+                "//no_network is only enforced for native scripts: add //native, or remove //no_network"
+                    .to_string(),
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[annotations("--")]

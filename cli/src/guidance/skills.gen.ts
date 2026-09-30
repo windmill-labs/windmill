@@ -1384,7 +1384,7 @@ export async function main(url: string) {
 
 ## Pure computation: \`//no_network\`
 
-A native script that only transforms its inputs can declare \`//no_network\` in its leading comment block (right after \`//native\`). The runtime then refuses every connection the script attempts: \`fetch\` to any host, the Windmill API (so \`windmill-client\` calls fail too), raw sockets and unix sockets. Use it only when the script needs no external data beyond its arguments:
+A native script that only transforms its inputs can declare \`//no_network\` in its leading comment block (right after \`//native\`). The runtime then refuses every connection the script attempts: \`fetch\` to any host, the Windmill API (so \`windmill-client\` calls fail too), raw sockets and unix sockets, and \`WM_TOKEN\` is not set. It requires \`//native\`: a regular Bun or Deno script carrying it is refused. Use it only when the script needs no external data beyond its arguments:
 
 \`\`\`typescript
 //native

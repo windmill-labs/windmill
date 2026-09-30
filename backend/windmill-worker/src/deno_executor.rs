@@ -250,6 +250,7 @@ pub async fn handle_deno_job(
     has_stream: &mut bool,
 ) -> error::Result<Box<RawValue>> {
     let annotations = TypeScriptAnnotations::parse(inner_content);
+    annotations.refuse_unenforced_no_network()?;
 
     // let mut start = Instant::now();
     let mut logs1 = "\n\n--- DENO CODE EXECUTION ---\n".to_string();

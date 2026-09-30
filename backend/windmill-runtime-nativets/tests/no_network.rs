@@ -1,5 +1,7 @@
 //! `//no_network` denies every connection, including through the raw ops user
-//! code can reach as `Deno.core.ops`, which bypass any JS-level guard.
+//! code can reach as `Deno.core.ops`, which bypass any JS-level guard. The QUIC
+//! endpoint op resolves its hostname before its own permission check, so the
+//! deno_net ops must be disabled outright rather than trusted to check first.
 //!
 //! Hermetic: a loopback listener that counts accepted connections.
 
@@ -55,6 +57,7 @@ export async function main() {{
     fetch: await attempt(() => fetch("http://127.0.0.1:{port}/").then((r) => r.text())),
     tcp: await attempt(() => Deno.core.ops.op_net_connect_tcp({{ hostname: "127.0.0.1", port: {port} }}, null, null)),
     unix: await attempt(() => Deno.core.ops.op_net_connect_unix("/var/run/docker.sock")),
+    quic: await attempt(() => Deno.core.ops.op_quic_endpoint_create({{ hostname: "localhost", port: 0 }}, true)),
   }};
 }}
 "#
@@ -68,9 +71,11 @@ async fn no_network_denies_fetch_and_raw_socket_ops() {
 
     let out: serde_json::Value =
         serde_json::from_str(&run(&script("//native\n//no_network", port)).await).unwrap();
-    for key in ["fetch", "tcp", "unix"] {
+    let fetch = out["fetch"].as_str().unwrap();
+    assert!(fetch.contains("no_network"), "fetch was not denied: {fetch}");
+    for key in ["tcp", "unix", "quic"] {
         let msg = out[key].as_str().unwrap();
-        assert!(msg.contains("no_network"), "{key} was not denied: {msg}");
+        assert!(msg.contains("op is disabled"), "{key} was not disabled: {msg}");
     }
     assert_eq!(
         accepted.load(Ordering::SeqCst),
@@ -83,6 +88,7 @@ async fn no_network_denies_fetch_and_raw_socket_ops() {
     let out: serde_json::Value =
         serde_json::from_str(&run(&script("//native", port)).await).unwrap();
     assert_eq!(out["fetch"], "allowed", "{out}");
+    assert_eq!(out["tcp"], "allowed", "{out}");
     assert!(accepted.load(Ordering::SeqCst) > 0);
 }
 
@@ -92,4 +98,7 @@ fn only_the_exact_annotation_in_the_leading_block_counts() {
     assert!(get_annotation("// no_network\n").no_network);
     assert!(!get_annotation("//no_networking\n").no_network);
     assert!(!get_annotation("//native\nconst x = 1;\n//no_network\n").no_network);
+    // `//native` routing skips blank lines in the header; `//no_network` must
+    // too, or a script runs native with the network open.
+    assert!(get_annotation("\n//native\n//a comment\n\n//no_network\n").no_network);
 }

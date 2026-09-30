@@ -80,21 +80,25 @@ deno_core::extension!(
 // ── Permission container ─────────────────────────────────────────────
 
 /// `no_network` is what `//no_network` promises: no outbound traffic of any kind,
-/// the Windmill API included (the client module reaches it through `fetch`). It
-/// denies every socket op, unix sockets too since they reach local daemons, and
-/// must stay enforced here rather than in JS: user code can call
-/// `Deno.core.ops.*` directly and skip any JS-level guard.
+/// the Windmill API included (the client module reaches it through `fetch`).
+/// Enforced here and by disabling the deno_net ops, never in JS: user code can
+/// call `Deno.core.ops.*` directly and skip any JS-level guard.
 pub struct PermissionsContainer {
     pub no_network: bool,
 }
 
 const NO_NETWORK_ANNOTATION: &str = "no_network";
 
+/// Every op deno_net registers, see `create_nativets_runtime`.
+const NO_NETWORK_DISABLED_OP_PREFIXES: &[&str] = &["op_net_", "op_quic_", "op_dns_", "op_tls_"];
+
 impl PermissionsContainer {
     fn deny_net(&self, target: &str) -> Result<(), deno_permissions::PermissionCheckError> {
         if self.no_network {
             Err(deno_permissions::PermissionDeniedError::Fatal {
-                access: format!("net access to {target} (the script is annotated //{NO_NETWORK_ANNOTATION})"),
+                access: format!(
+                    "net access to {target} (the script is annotated //{NO_NETWORK_ANNOTATION})"
+                ),
             }
             .into())
         } else {
@@ -102,13 +106,6 @@ impl PermissionsContainer {
         }
     }
 
-    fn deny_fs(&self) -> Result<(), deno_io::fs::FsError> {
-        if self.no_network {
-            Err(deno_io::fs::FsError::NotCapable("socket path (denied by //no_network)"))
-        } else {
-            Ok(())
-        }
-    }
 }
 
 impl FetchPermissions for PermissionsContainer {
@@ -128,7 +125,6 @@ impl FetchPermissions for PermissionsContainer {
         _api_name: &str,
         _get_path: &'a dyn deno_fs::GetPath,
     ) -> Result<deno_fs::CheckedPath<'a>, deno_io::fs::FsError> {
-        self.deny_fs()?;
         Ok(deno_fs::CheckedPath::Unresolved(path))
     }
 
@@ -139,7 +135,6 @@ impl FetchPermissions for PermissionsContainer {
         _api_name: &str,
         _get_path: &'a dyn deno_fs::GetPath,
     ) -> Result<deno_fs::CheckedPath<'a>, deno_io::fs::FsError> {
-        self.deny_fs()?;
         Ok(deno_fs::CheckedPath::Unresolved(path))
     }
 
@@ -470,13 +465,15 @@ pub fn get_annotation(inner_content: &str) -> NativeAnnotation {
         .map(|x| x.to_string().trim_start_matches("//").trim().to_string())
         .collect_vec();
 
+    // Read by the same parser that decides `//native`, so the two cannot
+    // disagree on where the leading comment block ends.
+    res.no_network = windmill_common::worker::TypeScriptAnnotations::parse(inner_content).no_network;
+
     for ann in anns.iter() {
         if ann.starts_with("useragent") {
             res.useragent = Some(ann.trim_start_matches("useragent").trim().to_string());
         } else if ann.starts_with("proxy") {
             res.proxy = capture_proxy(ann.trim_start_matches("proxy").trim());
-        } else if ann == NO_NETWORK_ANNOTATION {
-            res.no_network = true;
         } else if ann.starts_with("fetch_response_timeout") {
             // A typo falls back to the default, never to "no timeout".
             res.fetch_response_timeout_secs = ann
@@ -623,7 +620,24 @@ pub(crate) fn create_nativets_runtime(
 ) -> anyhow::Result<CreatedRuntime> {
     let no_network = ann.no_network;
     let ops = vec![op_get_static_args(), op_log()];
-    let ext = Extension { name: "windmill", ops: ops.into(), ..Default::default() };
+    // Under `no_network` the whole deno_net surface is disabled, not left to its
+    // permission checks: some of its ops do I/O before checking, e.g.
+    // `op_quic_endpoint_create` resolves the hostname (a DNS query that can carry
+    // data out) and only then calls `check_net`. The middleware sees every
+    // extension's ops, which the snapshot does not constrain.
+    let middleware_fn: Option<Box<deno_core::OpMiddlewareFn>> = no_network.then(|| {
+        Box::new(|op: deno_core::OpDecl| {
+            if NO_NETWORK_DISABLED_OP_PREFIXES
+                .iter()
+                .any(|p| op.name.starts_with(p))
+            {
+                op.disable()
+            } else {
+                op
+            }
+        }) as Box<deno_core::OpMiddlewareFn>
+    });
+    let ext = Extension { name: "windmill", ops: ops.into(), middleware_fn, ..Default::default() };
 
     // deno_web's setTimeout puts its delay through `webidl.converters.long`,
     // which wraps at 32 bits: past i32::MAX ms (~24.8 days) the delay comes out
