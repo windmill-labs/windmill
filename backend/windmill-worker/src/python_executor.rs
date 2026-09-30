@@ -3337,16 +3337,26 @@ This is not normal behavior, please make sure all workers have enough memory.\n
 /// Python helper running what an `async def` main or preprocessor returns.
 /// One loop per process: a dedicated worker's module-level async clients and
 /// locks are bound to the loop they were first used on, so `asyncio.run`'s
-/// loop-per-call would break them from the second job on.
+/// loop-per-call would break them from the second job on. A loop the script
+/// already set while importing (e.g. `asyncio.get_event_loop()` at module
+/// level) is reused; asyncio is imported lazily to keep sync jobs' startup.
 const PY_AWAIT_HELPER: &str = r#"_loop = None
 def _await(r):
     global _loop
     if not hasattr(r, '__await__'):
         return r
     import asyncio
-    if _loop is None:
-        _loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(_loop)
+    if _loop is None or _loop.is_closed():
+        import warnings
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore', DeprecationWarning)
+                _loop = asyncio.get_event_loop()
+            if _loop.is_closed():
+                raise RuntimeError
+        except RuntimeError:
+            _loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(_loop)
     return _loop.run_until_complete(r)"#;
 
 /// Python function body for `res_to_json(res, typ)`.

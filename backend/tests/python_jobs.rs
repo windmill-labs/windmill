@@ -470,16 +470,14 @@ def main(x: int):
         let script = r#"
 import asyncio
 
-_first_loop = None
+_import_loop = asyncio.new_event_loop()
+asyncio.set_event_loop(_import_loop)
 
 async def preprocessor(x: int):
     return {"x": x * 2}
 
 async def main(x: int):
-    global _first_loop
-    loop = asyncio.get_running_loop()
-    _first_loop = _first_loop or loop
-    return {"x": x + 100, "same_loop": loop is _first_loop}
+    return {"x": x + 100, "same_loop": asyncio.get_running_loop() is _import_loop}
 "#;
         let results = run_py_raw_protocol_test(
             &[("f/test/async", script)],
