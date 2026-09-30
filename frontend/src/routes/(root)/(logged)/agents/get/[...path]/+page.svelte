@@ -5,10 +5,8 @@
 	import { base } from '$lib/base'
 	import { goto } from '$lib/navigation'
 	import { copilotInfo } from '$lib/aiStore'
-	import { Badge, Button } from '$lib/components/common'
-	import Modal from '$lib/components/common/modal/Modal.svelte'
-	import EvalsPane from '$lib/components/aiEvals/EvalsPane.svelte'
-	import type { EvalsLocation } from '$lib/components/aiEvals/evalUtils'
+	import { Button } from '$lib/components/common'
+	import AgentEvalsModal from '$lib/components/flows/content/AgentEvalsModal.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import SummaryPathDisplay from '$lib/components/SummaryPathDisplay.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -44,14 +42,7 @@
 	let shareModal: ShareModal | undefined = $state(undefined)
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state(undefined)
 	let deleteOpen = $state(false)
-	let evalsOpen = $state(false)
-	// Where the evals pane is within itself, so its levels extend the dialog's trail. Cleared on the
-	// way in: the pane reports a level once it is on one, and never that it is back at its root.
-	let evalsLocation = $state<EvalsLocation | undefined>(undefined)
-	function openEvals() {
-		evalsLocation = undefined
-		evalsOpen = true
-	}
+	let evalsModal: AgentEvalsModal | undefined = $state(undefined)
 
 	async function deleteAgent() {
 		if (!ws) return
@@ -131,7 +122,7 @@
 						unifiedSize="md"
 						startIcon={{ icon: FlaskConical }}
 						title="Run this agent against a dataset of cases"
-						onClick={openEvals}
+						onClick={() => evalsModal?.openModal()}
 					>
 						Evals
 					</Button>
@@ -204,26 +195,8 @@
 	</div>
 </main>
 
-{#if evalsOpen && ws}
-	<Modal
-		bind:open={evalsOpen}
-		kind="X"
-		fillHeight
-		enterConfirms={false}
-		title="Evals"
-		trail={[
-			{ label: 'Evals', onclick: evalsLocation ? evalsLocation.back : undefined },
-			...(evalsLocation ? [{ label: evalsLocation.label }] : [])
-		]}
-		class="w-[92vw] sm:w-[92vw] max-w-[1500px] sm:max-w-[1500px] h-[88vh]"
-	>
-		{#snippet titleBadge()}
-			{#if !evalsLocation}
-				<Badge color="blue" small class="shrink-0 !py-0 leading-4">Beta</Badge>
-			{/if}
-		{/snippet}
-		<EvalsPane agentPath={path} opWorkspace={ws} bind:location={evalsLocation} active={evalsOpen} />
-	</Modal>
+{#if ws}
+	<AgentEvalsModal bind:this={evalsModal} agentPath={path} workspace={ws} />
 {/if}
 
 {#if config}
