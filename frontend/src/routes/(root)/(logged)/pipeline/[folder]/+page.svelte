@@ -192,15 +192,39 @@
 	let isOperator = $derived($userStore?.operator ?? false)
 	let urlMode = $derived(page.url.searchParams.get('mode'))
 	let mode = $derived<PipelineMode>(isOperator ? 'view' : urlMode === 'edit' ? 'edit' : 'view')
+	// The edit-mode pane, set aside while View shows the activity feed, so coming
+	// back to Edit reopens it.
+	let editPane:
+		| { selection: typeof pe.selection; activeDraftPath: string | undefined; hidden: boolean }
+		| undefined = undefined
 	function setMode(m: PipelineMode, opts?: { replace?: boolean }) {
 		// Switching edit→view re-surfaces the activity feed: drop the edit-mode
 		// selection / open draft / hidden-pane state so view opens on Activity
 		// rather than a stale details pane (mirrors toggleActivity's show path).
 		if (m === 'view' && mode === 'edit') {
+			editPane = {
+				selection: pe.selection,
+				activeDraftPath: pe.activeDraftPath,
+				hidden: panelHidden
+			}
 			pe.selection = undefined
 			pe.activeDraftPath = undefined
 			panelHidden = false
 			pe.liveAnnotations = EMPTY_LIVE_ANNOTATIONS
+		}
+		// View→edit keeps what was opened in View; with only the activity feed
+		// (or nothing) showing, it reopens the pane Edit had.
+		if (m === 'edit' && mode === 'view') {
+			const openedInView = pe.selection != undefined || pe.activeDraftPath != undefined
+			if (!openedInView && editPane) {
+				const draft = editPane.activeDraftPath
+				pe.activeDraftPath = draft && pe.drafts.has(draft) ? draft : undefined
+				pe.selection = pe.activeDraftPath ? undefined : editPane.selection
+				panelHidden = editPane.hidden
+			} else if (openedInView) {
+				panelHidden = false
+			}
+			editPane = undefined
 		}
 		const url = new URL(page.url)
 		if (m === 'view') url.searchParams.delete('mode')
