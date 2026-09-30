@@ -11,7 +11,9 @@
 		AssetGraphSelection,
 		NativeTriggerKind
 	} from '$lib/components/assets/AssetGraph/types'
-	import { AssetService, JobService, type AssetKind } from '$lib/gen'
+	import { AssetService, JobService } from '$lib/gen'
+	import { DATA_ASSET_KINDS } from '$lib/components/assets/AssetGraph/cascadeRun'
+	import { usePipelineAssetPrefetch } from '$lib/components/assets/AssetGraph/pipelineAssetPrefetch.svelte'
 	import { sendUserToast } from '$lib/utils'
 	import { createPipelineAiHelpers } from '$lib/components/assets/AssetGraph/pipelineAiHelpers'
 	import { deployPipelineDrafts } from '$lib/components/assets/AssetGraph/pipelineDeploy.svelte'
@@ -65,14 +67,26 @@
 	const pe = untrack(() => runtime.pipelineEditor(path))
 
 	const EMPTY_GRAPH: AssetGraphResponse = { assets: [], runnables: [], edges: [], triggers: [] }
-	const EMPTY_PATH_MAP = new Map<string, Array<{ kind: AssetKind; path: string }>>()
-	const EMPTY_NATIVE_MAP = new Map<string, Set<any>>()
 
+	// Data assets only, as on the pipeline page: variables and resources are
+	// config most scripts reference, and would swamp the layout as hub nodes.
 	const graphRes = resource(
 		() => ({ workspace: workspaceId, folder: path }),
 		async ({ workspace, folder }) =>
-			workspace && folder ? await AssetService.getAssetsGraph({ workspace, folder }) : EMPTY_GRAPH
+			workspace && folder
+				? await AssetService.getAssetsGraph({
+						workspace,
+						folder,
+						assetKinds: DATA_ASSET_KINDS.join(',')
+					})
+				: EMPTY_GRAPH
 	)
+
+	const assetPrefetch = usePipelineAssetPrefetch({
+		getWorkspace: () => workspaceId,
+		getGraph: () => graphRes.current as AssetGraphResponse | undefined,
+		editor: pe
+	})
 
 	// Folder whose graph is actually rendered — `graphRes.current` is stale-
 	// while-revalidate on a folder retarget, so the canvas's one-shot initial
@@ -84,9 +98,7 @@
 	})
 
 	// Deployed graph + the in-flight draft overlay (AI-built nodes render as plain
-	// dashed unsaved drafts, same as manual drafts). The session
-	// skips the route page's folder-wide asset prefetch (empty inferred maps); the
-	// open script's live overlays still feed the graph. (resolveGraph's base is the
+	// dashed unsaved drafts, same as manual drafts). (resolveGraph's base is the
 	// pipeline runnables subset; the 'job' usage_kind of the wire type never appears.)
 	let resolvedGraph = $derived.by<AssetGraphResponse>(() =>
 		resolveGraph({
@@ -94,9 +106,9 @@
 			drafts: pe.drafts,
 			liveBodyAssets: pe.liveBodyAssets,
 			liveAnnotations: pe.liveAnnotations,
-			inferredWritesByPath: EMPTY_PATH_MAP,
-			inferredReadsByPath: EMPTY_PATH_MAP,
-			annotatedNativeKindsByPath: EMPTY_NATIVE_MAP
+			inferredWritesByPath: assetPrefetch.inferredWritesByPath,
+			inferredReadsByPath: assetPrefetch.inferredReadsByPath,
+			annotatedNativeKindsByPath: assetPrefetch.annotatedNativeKindsByPath
 		})
 	)
 
@@ -135,6 +147,7 @@
 	}
 
 	async function afterSaved(savedPath: string) {
+		assetPrefetch.forget(savedPath)
 		const next = new Map(pe.drafts)
 		next.delete(savedPath)
 		pe.drafts = next
@@ -321,6 +334,7 @@
 				[...pe.drafts.keys()].map((p) => [p, extractCascadeFacts(resolvedGraph, p)])
 			)
 			const { savedPaths, savedTriggers, errors } = await deployPipelineDrafts(pe, workspaceId)
+			assetPrefetch.forget(...savedPaths)
 			if (savedPaths.length > 0 || savedTriggers.length > 0) {
 				await graphRes.refetch()
 				const deployed = new Map([...predicted].filter(([p]) => savedPaths.includes(p)))
@@ -421,6 +435,7 @@
 				folder={path}
 				viewportFitKey={viewportFitFolder}
 				persistDrafts={true}
+				prefetchingAssets={assetPrefetch.prefetching}
 				displayGraph={resolvedGraph}
 				mode="edit"
 				workspace={workspaceId}
@@ -463,6 +478,7 @@
 					await graphRes.refetch()
 				}}
 				onScriptRenamed={async (oldPath, newPath) => {
+					assetPrefetch.forget(oldPath, newPath)
 					// Repoint the selection so the canvas follows the renamed node instead
 					// of staying on the now-gone old path until an unrelated refetch.
 					if (pe.selection?.kind === 'runnable' && pe.selection.path === oldPath) {

@@ -20,11 +20,6 @@
 	import PipelineActivityPanel from '$lib/components/assets/AssetGraph/PipelineActivityPanel.svelte'
 	import PipelinePickerModal from '$lib/components/assets/AssetGraph/PipelinePickerModal.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
-	import {
-		extractWrites,
-		extractReads,
-		type AssetWithAltAccessType
-	} from '$lib/components/assets/lib'
 	import type {
 		AssetGraphResponse,
 		AssetGraphSelection,
@@ -118,6 +113,7 @@
 	} from '$lib/components/recording/pipelineRecording.svelte'
 	import type { PipelineRecording } from '$lib/components/recording/types'
 	import AutosaveIndicator from '$lib/components/AutosaveIndicator.svelte'
+	import { usePipelineAssetPrefetch } from '$lib/components/assets/AssetGraph/pipelineAssetPrefetch.svelte'
 	import PipelineDeployErrors from '$lib/components/assets/AssetGraph/PipelineDeployErrors.svelte'
 	import PipelineDeployTriggersModal from '$lib/components/assets/AssetGraph/PipelineDeployTriggersModal.svelte'
 	import { onMount, tick, untrack } from 'svelte'
@@ -158,7 +154,6 @@
 	import { emptySchema, sendUserToast, type Item } from '$lib/utils'
 	import { beforeNavigate, goto } from '$app/navigation'
 	import { fade } from 'svelte/transition'
-	import { inferAssets } from '$lib/infer'
 	import PipelineTriggerEditors from '$lib/components/assets/AssetGraph/PipelineTriggerEditors.svelte'
 
 	// Variables and resources are declarative config, not pipeline assets —
@@ -340,81 +335,16 @@
 		}
 	}
 
-	// Cache of (script_path → body content) populated lazily by
-	// `bodyFetchEffect` for every script in the current folder. Stale keys
-	// (renamed-away, deleted) are simply ignored at read time because the
-	// derived maps below only iterate paths that appear in the current
-	// `g.runnables`, so no rename/delete cleanup is needed. A stale *value*
-	// under a live key is different: a save through this page evicts its path
-	// (`forgetScriptCache`) so the sweep re-reads it.
-	let bodiesByPath = $state<Map<string, string>>(new Map())
-	// Deployed summary + language from the same fetch, for node titles and icons.
-	// Same lifecycle as `bodiesByPath`.
-	let scriptMetaByPath = $state<Map<string, { summary?: string; language: ScriptLang }>>(
-		new Map()
-	)
-	// Sibling cache: the parsed asset usages from `inferAssets` (wasm), one
-	// pass per body. Same lifecycle as `bodiesByPath`.
-	let inferredAssetsByPath = $state<Map<string, AssetWithAltAccessType[]>>(new Map())
-	// Bumped on folder change so an in-flight prefetch sweep stops before
-	// writing into the new folder's state.
-	let bodyFetchGen = 0
-
-	// Inferred write/read edges per script-in-graph. Derived from
-	//   (a) the open pane's live overlay (`liveBodyAssets`) — current
-	//       keystrokes for the script the user is editing right now, and
-	//   (b) the prefetched assets cache for everyone else.
-	// Iteration is gated on `graphRes.current.runnables`, so a path that
-	// gets renamed / deleted disappears from the derived map as soon as
-	// the refetch lands — no manual rekey, no phantom edges.
-	// Single pass over the graph's scripts producing both the write- and
-	// read-asset maps (they only differ by extractWrites vs extractReads over
-	// the same `liveBodyAssets`-vs-cache asset source). Split into two derives
-	// below so consumers can depend on one without invalidating on the other.
-	let inferredAssetEdges = $derived.by(() => {
-		const writes = new Map<string, Array<{ kind: AssetKind; path: string }>>()
-		const reads = new Map<string, Array<{ kind: AssetKind; path: string }>>()
-		const g = graphRes.current
-		if (!g) return { writes, reads }
-		const liveAssetsForPath = (path: string) =>
-			pe.liveBodyAssets.scriptPath === path
-				? pe.liveBodyAssets.assets
-				: inferredAssetsByPath.get(path)
-		for (const r of g.runnables) {
-			if (r.usage_kind !== 'script') continue
-			const assets = liveAssetsForPath(r.path)
-			if (!assets) continue
-			const w = extractWrites(assets)
-			if (w.length > 0) writes.set(r.path, w)
-			const rd = extractReads(assets)
-			if (rd.length > 0) reads.set(r.path, rd)
-		}
-		return { writes, reads }
+	// Bodies, inferred asset edges and `// on` annotations of every deployed
+	// script in the folder, so the graph shows the edges of scripts never opened.
+	const assetPrefetch = usePipelineAssetPrefetch({
+		getWorkspace: () => $workspaceStore,
+		getGraph: () => graphRes.current,
+		editor: pe
 	})
-	let inferredWritesByPath = $derived(inferredAssetEdges.writes)
-	let inferredReadsByPath = $derived(inferredAssetEdges.reads)
-	// Same derived shape for `// on kafka` etc. annotations. Live buffer
-	// wins for the open script; everyone else is parsed from the
-	// prefetched body content.
-	let annotatedNativeKindsByPath = $derived.by(() => {
-		const out = new Map<string, Set<NativeTriggerKind>>()
-		const g = graphRes.current
-		if (!g) return out
-		const livePath = pe.liveAnnotations.scriptPath
-		for (const r of g.runnables) {
-			if (r.usage_kind !== 'script') continue
-			let kinds: Set<NativeTriggerKind>
-			if (r.path === livePath) {
-				kinds = new Set(pe.liveAnnotations.annotations.nativeTriggers.map((n) => n.kind))
-			} else {
-				const body = bodiesByPath.get(r.path)
-				if (!body) continue
-				kinds = new Set(parsePipelineAnnotations(body).nativeTriggers.map((n) => n.kind))
-			}
-			if (kinds.size > 0) out.set(r.path, kinds)
-		}
-		return out
-	})
+	let inferredWritesByPath = $derived(assetPrefetch.inferredWritesByPath)
+	let inferredReadsByPath = $derived(assetPrefetch.inferredReadsByPath)
+	let annotatedNativeKindsByPath = $derived(assetPrefetch.annotatedNativeKindsByPath)
 
 	// Build a runnable Script from picked language / triggers / output.
 	// Delegates to the shared template generator (pipelineTemplates.ts) so
@@ -805,26 +735,12 @@
 	}
 
 	function forgetScriptCache(...paths: string[]) {
-		const bodies = new Map(bodiesByPath)
-		const meta = new Map(scriptMetaByPath)
-		const inferred = new Map(inferredAssetsByPath)
-		for (const p of paths) {
-			bodies.delete(p)
-			meta.delete(p)
-			inferred.delete(p)
-		}
-		bodiesByPath = bodies
-		scriptMetaByPath = meta
-		inferredAssetsByPath = inferred
+		assetPrefetch.forget(...paths)
 	}
 
-	// "This path is gone" cleanup. The three big inferred-* / annotated-*
-	// maps used to live here too, but they're now derived from
-	// `bodiesByPath` × `g.runnables` — entries for missing paths drop out
-	// implicitly when `g.runnables` no longer mentions them, so the only
-	// things left to flush are the live overlays for the open pane + the
-	// selection + per-path save errors. `bodiesByPath` keeps its entry
-	// (only-add cache, harmless if stale).
+	// "This path is gone" cleanup: the live overlays for the open pane, the
+	// selection and per-path save errors. The prefetched edge maps need nothing,
+	// being derived over the current graph's scripts.
 	function forgetPath(path: string) {
 		if (pe.activeDraftPath === path) pe.activeDraftPath = undefined
 		if (pe.selection?.kind === 'runnable' && pe.selection.path === path) {
@@ -1614,7 +1530,7 @@
 			const live =
 				showDrafts && pe.liveAnnotations.scriptPath === r.path ? pe.liveAnnotations : undefined
 			const content = showDrafts ? pe.drafts.get(r.path)?.script.content : undefined
-			const body = content ?? bodiesByPath.get(r.path)
+			const body = content ?? assetPrefetch.bodies.get(r.path)
 			const refs = live
 				? live.annotations.triggerAssets
 				: body !== undefined
@@ -1738,7 +1654,7 @@
 				}),
 			runnables: g.runnables.map((r) => {
 				const draft = showDrafts ? pe.drafts.get(r.path)?.script : undefined
-				const meta = scriptMetaByPath.get(r.path)
+				const meta = assetPrefetch.scriptMeta.get(r.path)
 				const summary = draft?.summary || meta?.summary
 				const language = draft?.language ?? meta?.language
 				const error = r.usage_kind === 'script' ? errors.scripts.get(r.path) : undefined
@@ -2846,70 +2762,6 @@
 		if (graphRes.current) untrack(() => (viewportFitFolder = folder))
 	})
 
-	// Body / inferred-assets prefetch sweep. Watches `g.runnables`; for any
-	// non-draft path we haven't fetched yet, fetches `getScriptByPath` and
-	// `inferAssets`, and stores both in their respective only-add caches.
-	// All three previously-sticky maps (`inferredWritesByPath`,
-	// `inferredReadsByPath`, `annotatedNativeKindsByPath`) are now derived
-	// from these caches × the current graph, so rename / delete cleanup
-	// happens implicitly when `g.runnables` changes — no per-mutation
-	// cache surgery needed. A generation counter cancels in-flight work on
-	// folder change so the previous folder's results never leak into the
-	// new one.
-	let prefetchingAssets = $state(false)
-	$effect(() => {
-		const ws = $workspaceStore
-		const g = graphRes.current
-		if (!ws || !g) return
-		const gen = ++bodyFetchGen
-		const targets = untrack(() =>
-			g.runnables
-				.filter((r) => r.usage_kind === 'script')
-				.map((r) => r.path)
-				.filter((p) => !pe.drafts.has(p) && !bodiesByPath.has(p))
-		)
-		if (targets.length === 0) return
-		let i = 0
-		const POOL = 6
-		const worker = async () => {
-			while (i < targets.length && gen === bodyFetchGen) {
-				const path = targets[i++]
-				try {
-					const s = await ScriptService.getScriptByPath({ workspace: ws, path })
-					if (gen !== bodyFetchGen) return
-					const content = s.content ?? ''
-					const res = await inferAssets(s.language, content)
-					if (gen !== bodyFetchGen) return
-					const inferred = (res?.assets ?? []) as AssetWithAltAccessType[]
-					untrack(() => {
-						if (!bodiesByPath.has(path)) {
-							const nextBodies = new Map(bodiesByPath)
-							nextBodies.set(path, content)
-							bodiesByPath = nextBodies
-						}
-						if (!scriptMetaByPath.has(path)) {
-							scriptMetaByPath = new Map(scriptMetaByPath).set(path, {
-								summary: s.summary || undefined,
-								language: s.language
-							})
-						}
-						if (!inferredAssetsByPath.has(path)) {
-							const nextAssets = new Map(inferredAssetsByPath)
-							nextAssets.set(path, inferred)
-							inferredAssetsByPath = nextAssets
-						}
-					})
-				} catch {
-					// Skip — that node just falls back to base-graph edges.
-				}
-			}
-		}
-		prefetchingAssets = true
-		const pool = Array.from({ length: Math.min(POOL, targets.length) }, () => worker())
-		void Promise.all(pool).then(() => {
-			if (gen === bodyFetchGen) prefetchingAssets = false
-		})
-	})
 
 	function pluralize(n: number, singular: string): string {
 		return `${n} ${singular}${n === 1 ? '' : 's'}`
@@ -3132,7 +2984,7 @@
 				defaultPathSuffix={DEFAULT_PATH_SUFFIX}
 				{panelHidden}
 				onTogglePanelHidden={() => (panelHidden = !panelHidden)}
-				{prefetchingAssets}
+				prefetchingAssets={assetPrefetch.prefetching}
 				hoveredPaths={activityHoverPaths}
 				selectedRunPaths={activitySelectPaths}
 				{activeRunnable}

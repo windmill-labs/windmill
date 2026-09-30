@@ -1,6 +1,7 @@
 import { randomUUID } from '$lib/utils/uuid'
 import {
 	AppService,
+	AssetService,
 	AzureTriggerService,
 	EmailTriggerService,
 	FlowService,
@@ -412,6 +413,8 @@ const updateUserInstructionsSchema = z.object({
 			"For operation 'replace': when true, replace every exact match; when false, old_string must match exactly once."
 		)
 })
+
+const listPipelinesSchema = z.object({})
 
 const listWorkspaceItemsSchema = z.object({
 	types: z
@@ -1374,7 +1377,7 @@ const buildGlobalSystemPrompt = (
 	const activePreviewRule = previewTools
 		? '\n- If the user message includes an ACTIVE PREVIEW section, that is the page the side panel is showing — resolve "this page", "here" and "it" against it, and against `open` (the item the user has open in its editor) when there is one. It already tells you what get_preview_status would, so do not call that tool to learn what is on screen; call it only to check the panel\'s *other* tabs.'
 		: ''
-	const pipelineBullet = `- A "data pipeline" is NOT a flow: it is a DAG of independent scripts in one folder, wired by storage assets (DuckLake/data tables/S3) and triggers via top-of-file \`pipeline\` / \`on <ref>\` annotation comments written in each script's comment syntax (\`--\` for SQL, \`#\` for Python/Bash, \`//\` for TS — a \`//\` line in a SQL node is a syntax error). When the user asks for a data pipeline (or to ingest/transform/materialize data across steps), call get_instructions with subject "pipeline" and build annotated script drafts — do not build a flow.${pipelineAlphaNote}`
+	const pipelineBullet = `- A "data pipeline" is NOT a flow: it is a DAG of independent scripts in one folder, wired by storage assets (DuckLake/data tables/S3) and triggers via top-of-file \`pipeline\` / \`on <ref>\` annotation comments written in each script's comment syntax (\`--\` for SQL, \`#\` for Python/Bash, \`//\` for TS — a \`//\` line in a SQL node is a syntax error). When the user asks for a data pipeline (or to ingest/transform/materialize data across steps), call get_instructions with subject "pipeline" and build annotated script drafts — do not build a flow. list_pipelines lists the existing ones by folder.${pipelineAlphaNote}`
 	// Hosting and edition come from the hostname and a store the app populates at init, so
 	// they are knowable only in the browser: a non-browser caller reads false for both and
 	// would be told "self-hosted Community Edition" whatever it targets. No base URL here
@@ -3595,6 +3598,23 @@ export const globalTools: SessionTool<{}>[] = [
 				content: `Listed ${results.length} workspace item(s)`
 			})
 			return JSON.stringify(results, null, 2)
+		}
+	},
+	{
+		requires: NONE,
+		def: createToolDef(
+			listPipelinesSchema,
+			'list_pipelines',
+			'List the data pipelines of the workspace: each folder holding at least one pipeline script, with its number of scripts. A pipeline is named by its folder, not by an item path.'
+		),
+		planModeSafe: true,
+		fn: async ({ workspace, toolId, toolCallbacks }) => {
+			toolCallbacks.setToolStatus(toolId, { content: 'Listing data pipelines...' })
+			const pipelines = await AssetService.listPipelineFolders({ workspace })
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Listed ${pipelines.length} data pipeline(s)`
+			})
+			return JSON.stringify(pipelines)
 		}
 	},
 	{
