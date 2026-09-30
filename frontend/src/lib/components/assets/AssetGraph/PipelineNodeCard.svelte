@@ -73,7 +73,7 @@ and the controls hung around the card.
 			tone === 'error' &&
 				(selected
 					? 'bg-red-200 dark:bg-red-600 border-red-500 hover:border-red-500'
-					: 'bg-red-100 dark:bg-red-700 border-red-300 dark:border-red-500 hover:border-red-400'),
+					: 'bg-red-100 dark:bg-red-700 border-transparent dark:border-transparent hover:border-transparent dark:hover:border-transparent'),
 			tone === 'success' &&
 				'bg-green-50 dark:bg-green-900/30 border-green-500 dark:border-green-600',
 			tone === 'running' &&
