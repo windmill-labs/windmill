@@ -164,5 +164,7 @@ describe('groupToolRuns', () => {
 		expect(header([tool('search_mcp_tools'), mcp('list_issues'), mcp('get_issue')])).toBe(
 			'github search mcp tools, list issues, get issue'
 		)
+		const other = tool('call_mcp_read_tool', { server: 'f/team/github', tool: 'get_issue' })
+		expect(header([mcp('list_issues'), other])).toBe('List issues, get issue')
 	})
 })

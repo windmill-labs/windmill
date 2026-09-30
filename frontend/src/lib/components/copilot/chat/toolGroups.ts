@@ -203,10 +203,12 @@ export function groupToolRuns(messages: DisplayMessage[]): ChatItem[] {
 	return items
 }
 
-function mcpServerName(call: ToolDisplayMessage): string | undefined {
+// The server's full resource path: two servers can share a last segment (u/alice/github,
+// f/team/github), so only the display shortens it.
+function mcpServerPath(call: ToolDisplayMessage): string | undefined {
 	if (call.toolName !== 'call_mcp_read_tool') return undefined
 	const server = call.mcpServer?.path ?? call.parameters?.server
-	return typeof server === 'string' ? server.split('/').at(-1) : undefined
+	return typeof server === 'string' ? server : undefined
 }
 
 function callName(call: ToolDisplayMessage): string {
@@ -263,9 +265,9 @@ export function groupHeader(group: ToolGroup, running: boolean): { prefix: strin
 	// A tool search spans every server and usually comes right before the calls it found, so it
 	// does not stop the group from reading as one server's.
 	const servers = new Set(
-		calls.filter((call) => call.toolName !== 'search_mcp_tools').map(mcpServerName)
+		calls.filter((call) => call.toolName !== 'search_mcp_tools').map(mcpServerPath)
 	)
 	const [server] = servers
-	if (servers.size === 1 && server) return { prefix: server, label: list }
+	if (servers.size === 1 && server) return { prefix: server.split('/').at(-1)!, label: list }
 	return { prefix: '', label: list.charAt(0).toUpperCase() + list.slice(1) }
 }
